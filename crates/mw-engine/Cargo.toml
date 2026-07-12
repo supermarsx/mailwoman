@@ -10,6 +10,14 @@ repository.workspace = true
 async-trait = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 tokio = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
 mw-jmap = { workspace = true }
 mw-store = { workspace = true }
+# mw-mime (→ mw-jmap only) and mw-smtp (→ no workspace crate) are cycle-free.
+# mw-imap / mw-pop3 depend on THIS crate for the frozen trait, so mw-engine must
+# NOT depend on them — backend *construction* lives in mw-server (plan §3 e6).
+mw-mime = { workspace = true }
+mw-smtp = { workspace = true }

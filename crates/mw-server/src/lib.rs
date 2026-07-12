@@ -4,6 +4,7 @@
 //! `mw-render` child process (the §7.5 boundary), and the embedded SPA.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::anyhow;
 use axum::body::{Body, Bytes};
@@ -16,8 +17,12 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::json;
 
+use mw_engine::Engine;
 use mw_jmap::JmapClient;
 use mw_store::{Credentials, ServerKey, Store};
+
+pub mod engine_mode;
+pub use engine_mode::ServerMode;
 
 /// Cookie carrying the opaque session token.
 const COOKIE_NAME: &str = "mw_session";
@@ -46,6 +51,8 @@ pub struct AppConfig {
     pub web_dir: Option<PathBuf>,
     /// Add `Secure` to the session cookie (enable behind TLS).
     pub cookie_secure: bool,
+    /// Proxy a JMAP upstream (V0 default) or drive IMAP/POP3 via `mw-engine`.
+    pub mode: ServerMode,
 }
 
 #[derive(Clone)]
@@ -54,6 +61,8 @@ struct AppState {
     render_bin: Option<PathBuf>,
     web_dir: Option<PathBuf>,
     cookie_secure: bool,
+    /// Present only in engine mode; drives IMAP/POP3 behind the JMAP surface.
+    engine: Option<Arc<Engine>>,
 }
 
 /// Build the fully-wired axum application from configuration.
@@ -77,11 +86,19 @@ pub async fn build_app(config: AppConfig) -> anyhow::Result<Router> {
             tracing::warn!("mw-render binary not found; /api/sanitize will sanitize in-process")
         }
     }
+    let engine = match config.mode {
+        ServerMode::Engine => {
+            tracing::info!("engine mode: driving IMAP/POP3 accounts behind the JMAP surface");
+            Some(Arc::new(Engine::new(store.clone())))
+        }
+        ServerMode::Proxy => None,
+    };
     let state = AppState {
         store,
         render_bin,
         web_dir: config.web_dir,
         cookie_secure: config.cookie_secure,
+        engine,
     };
     Ok(router(state))
 }
@@ -91,6 +108,7 @@ fn router(state: AppState) -> Router {
         .route("/api/login", post(login))
         .route("/api/logout", post(logout))
         .route("/api/me", get(me))
+        .route("/api/discover", post(discover))
         .route("/api/sanitize", post(sanitize))
         .route("/jmap/session", get(jmap_session))
         .route("/jmap/api", post(jmap_api))
@@ -143,6 +161,9 @@ fn unauthorized() -> Response {
 }
 
 async fn login(State(state): State<AppState>, Json(body): Json<LoginReq>) -> Response {
+    if let Some(engine) = &state.engine {
+        return engine_login(&state, engine, body).await;
+    }
     let client = match JmapClient::new(&body.username, &body.password) {
         Ok(c) => c,
         Err(_) => return unauthorized(),
@@ -191,6 +212,74 @@ async fn login(State(state): State<AppState>, Json(body): Json<LoginReq>) -> Res
     resp
 }
 
+/// Engine-mode login: `jmapUrl` is read as an `imap(s)://`/`pop3(s)://` server
+/// URL. Connects the account, then issues the same session cookie the proxy path
+/// uses so the browser flow is identical.
+async fn engine_login(state: &AppState, engine: &Arc<Engine>, body: LoginReq) -> Response {
+    let (account_id, username) =
+        match engine_mode::engine_login(engine, &body.jmap_url, &body.username, &body.password)
+            .await
+        {
+            Ok(pair) => pair,
+            Err(e) => {
+                tracing::warn!("engine login failed: {e}");
+                return unauthorized();
+            }
+        };
+    let creds = Credentials {
+        username: body.username.clone(),
+        password: body.password.clone(),
+    };
+    let id = match state
+        .store
+        .create_session(&account_id, &username, "engine", "engine", &creds)
+        .await
+    {
+        Ok(id) => id,
+        Err(e) => {
+            tracing::error!("failed to persist engine session: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "server error").into_response();
+        }
+    };
+    let mut resp = Json(json!({
+        "ok": true,
+        "accountId": account_id,
+        "username": username,
+    }))
+    .into_response();
+    resp.headers_mut()
+        .append(header::SET_COOKIE, session_cookie(&id, state.cookie_secure));
+    resp
+}
+
+/// `POST /api/discover {email}` → the autoconfig ladder's candidate server set
+/// (plan §2.4). Pre-login, so unauthenticated; additive in both modes.
+#[derive(Debug, Deserialize)]
+struct DiscoverReq {
+    email: String,
+}
+
+async fn discover(Json(body): Json<DiscoverReq>) -> Response {
+    match mw_autoconfig::discover(&body.email).await {
+        Ok(candidate) => Json(candidate).into_response(),
+        Err(mw_autoconfig::DiscoverError::InvalidEmail(_)) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "invalid email address" })),
+        )
+            .into_response(),
+        Err(mw_autoconfig::DiscoverError::NotFound(_)) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "no configuration discovered" })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
 async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Some(id) = cookie_value(&headers) {
         let _ = state.store.delete_session(&id).await;
@@ -221,6 +310,17 @@ async fn jmap_session(State(state): State<AppState>, headers: HeaderMap) -> Resp
         Ok(s) => s,
         Err(resp) => return resp,
     };
+    if let Some(engine) = &state.engine {
+        if let Err(e) = engine_mode::ensure_account(engine, &session.account_id).await {
+            tracing::warn!("engine account not available: {e}");
+            return upstream_error();
+        }
+        return Json(mw_engine::session_json(
+            &session.account_id,
+            &session.username,
+        ))
+        .into_response();
+    }
     let client = match JmapClient::new(&session.credentials.username, &session.credentials.password)
     {
         Ok(c) => c,
@@ -246,6 +346,20 @@ async fn jmap_api(State(state): State<AppState>, headers: HeaderMap, body: Bytes
         Ok(s) => s,
         Err(resp) => return resp,
     };
+    if let Some(engine) = &state.engine {
+        if let Err(e) = engine_mode::ensure_account(engine, &session.account_id).await {
+            tracing::warn!("engine account not available: {e}");
+            return upstream_error();
+        }
+        let request: serde_json::Value = match serde_json::from_slice(&body) {
+            Ok(v) => v,
+            Err(e) => {
+                return (StatusCode::BAD_REQUEST, format!("bad json: {e}")).into_response();
+            }
+        };
+        let response = engine.handle_jmap(&session.account_id, &request).await;
+        return Json(response).into_response();
+    }
     let client = match JmapClient::new(&session.credentials.username, &session.credentials.password)
     {
         Ok(c) => c,

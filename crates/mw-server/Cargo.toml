@@ -18,6 +18,11 @@ path = "src/main.rs"
 mw-jmap = { workspace = true }
 mw-store = { workspace = true }
 mw-sanitize = { workspace = true }
+mw-engine = { workspace = true }
+mw-imap = { workspace = true }
+mw-pop3 = { workspace = true }
+mw-smtp = { workspace = true }
+mw-autoconfig = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true }
 tower-http = { workspace = true }
@@ -37,3 +42,4 @@ mw-mock-jmap = { workspace = true }
 reqwest = { workspace = true, features = ["cookies"] }
 tokio = { workspace = true }
 serde_json = { workspace = true }
+async-trait = { workspace = true }

@@ -509,12 +509,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "data-encoding"
-version = "2.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4ae5f15dda3c708c0ade84bfee31ccab44a3da4f88015ed22f63732abe300c8"
-
-[[package]]
 name = "der"
 version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1290,6 +1284,7 @@ version = "0.11.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47785d444be4d32c1709171c6219a90f667c0ad0ffe68b4b179e794f31f4f9e8"
 dependencies = [
+ "encoding_rs",
  "hashify",
 ]
 
@@ -1378,8 +1373,10 @@ dependencies = [
 name = "mw-autoconfig"
 version = "26.1.0"
 dependencies = [
+ "async-trait",
  "reqwest",
  "serde",
+ "serde_json",
  "thiserror",
  "tokio",
 ]
@@ -1389,11 +1386,16 @@ name = "mw-engine"
 version = "26.1.0"
 dependencies = [
  "async-trait",
+ "chrono",
  "mw-jmap",
+ "mw-mime",
+ "mw-smtp",
  "mw-store",
  "serde",
+ "serde_json",
  "thiserror",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -1402,10 +1404,10 @@ version = "26.1.0"
 dependencies = [
  "async-trait",
  "base64",
- "data-encoding",
+ "bytes",
  "imap-proto",
  "mw-engine",
- "mw-mime",
+ "nom",
  "rustls",
  "rustls-pki-types",
  "tokio",
@@ -1458,7 +1460,7 @@ version = "26.1.0"
 dependencies = [
  "async-trait",
  "base64",
- "data-encoding",
+ "chrono",
  "mw-engine",
  "rustls",
  "rustls-pki-types",
@@ -1489,13 +1491,19 @@ name = "mw-server"
 version = "26.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
  "bytes",
  "clap",
  "mime_guess",
+ "mw-autoconfig",
+ "mw-engine",
+ "mw-imap",
  "mw-jmap",
  "mw-mock-jmap",
+ "mw-pop3",
  "mw-sanitize",
+ "mw-smtp",
  "mw-store",
  "reqwest",
  "rust-embed",
@@ -1512,8 +1520,6 @@ name = "mw-smtp"
 version = "26.1.0"
 dependencies = [
  "base64",
- "data-encoding",
- "mw-mime",
  "rustls",
  "rustls-pki-types",
  "thiserror",

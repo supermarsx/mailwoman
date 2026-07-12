@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-use mw_server::{AppConfig, build_app};
+use mw_server::{AppConfig, ServerMode, build_app};
 
 #[derive(Parser)]
 #[command(name = "mailwoman", version, about = "Mailwoman server")]
@@ -39,6 +39,9 @@ struct ServeArgs {
     /// Mark the session cookie `Secure` (enable behind TLS) (env: MW_COOKIE_SECURE).
     #[arg(long, env = "MW_COOKIE_SECURE", default_value_t = false)]
     cookie_secure: bool,
+    /// Upstream mode: `proxy` (JMAP, default) or `engine` (IMAP/POP3) (env: MW_MODE).
+    #[arg(long, env = "MW_MODE", default_value = "proxy")]
+    mode: String,
 }
 
 #[derive(Parser)]
@@ -70,11 +73,16 @@ async fn main() -> std::process::ExitCode {
 }
 
 async fn serve(args: ServeArgs) -> anyhow::Result<()> {
+    let mode = match args.mode.as_str() {
+        "engine" => ServerMode::Engine,
+        _ => ServerMode::Proxy,
+    };
     let config = AppConfig {
         db_path: args.db_path,
         server_key_hex: args.server_key,
         web_dir: args.web_dir,
         cookie_secure: args.cookie_secure,
+        mode,
     };
     let app = build_app(config).await?;
     let listener = tokio::net::TcpListener::bind(&args.bind).await?;

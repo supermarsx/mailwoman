@@ -41,6 +41,7 @@ async fn spawn_server() -> (String, PathBuf) {
         server_key_hex: None,
         web_dir: Some(web_dir.clone()),
         cookie_secure: false,
+        mode: mw_server::ServerMode::Proxy,
     };
     let app = build_app(config).await.unwrap();
 
