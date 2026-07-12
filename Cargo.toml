@@ -16,6 +16,9 @@ members = [
     "crates/mw-search",
     "crates/mw-sieve",
     "crates/mw-export",
+    "crates/mw-ics",
+    "crates/mw-dav",
+    "crates/mw-carddav",
 ]
 
 [workspace.package]
@@ -74,6 +77,21 @@ tokio-tungstenite = "0.30"
 tokio-rustls-acme = "0.9"
 futures-util = "0.3"
 
+# V3 PIM deps (plan §1.2/§1.3/§1.10 — all confirmed MIT OR Apache-2.0, no
+# GPL/LGPL/AGPL; pure-Rust, Win+Linux). `icalendar` is the iCalendar
+# (VEVENT/VTODO/VALARM/VTIMEZONE) parse+emit model; `vcard4` the vCard 3/4
+# parser; `rrule` (fmeringdal/rust-rrule) the RRULE expansion engine; `chrono-tz`
+# the IANA tz database for TZID-aware/DST-correct expansion — all wrapped behind
+# `mw-ics`'s stable API. `quick-xml` backs the hand-rolled CalDAV/CardDAV
+# DAV/HTTP core in `mw-dav`/`mw-carddav` over the in-tree `reqwest`. (Rejected
+# `calcard` — Stalwart's combined parser — its license was unconfirmable at plan
+# time; this stack is all confirmed permissive, plan §1.2.)
+icalendar = "0.17"
+vcard4 = "0.7"
+rrule = "0.14"
+quick-xml = "0.41"
+chrono-tz = "0.10"
+
 mw-jmap = { path = "crates/mw-jmap" }
 mw-sanitize = { path = "crates/mw-sanitize" }
 mw-store = { path = "crates/mw-store" }
@@ -87,6 +105,9 @@ mw-autoconfig = { path = "crates/mw-autoconfig" }
 mw-search = { path = "crates/mw-search" }
 mw-sieve = { path = "crates/mw-sieve" }
 mw-export = { path = "crates/mw-export" }
+mw-ics = { path = "crates/mw-ics" }
+mw-dav = { path = "crates/mw-dav" }
+mw-carddav = { path = "crates/mw-carddav" }
 
 [profile.release]
 overflow-checks = true

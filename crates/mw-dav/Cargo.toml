@@ -1,0 +1,18 @@
+[package]
+name = "mw-dav"
+description = "CalDAV client + shared DAV/HTTP core (PROPFIND/REPORT/sync-collection) for Mailwoman V3 (plan §1.3, §3 e2)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Hand-rolled DAV/HTTP core over the in-tree `reqwest` (rustls) + `quick-xml`
+# (plan §1.3 — no DAV framework). Calls `mw-ics` for (de)serialization.
+reqwest = { workspace = true }
+quick-xml = { workspace = true }
+mw-ics = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

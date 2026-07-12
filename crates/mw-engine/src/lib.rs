@@ -16,6 +16,7 @@ pub mod identity;
 pub mod jmap;
 pub mod mapping;
 pub mod meta;
+pub mod pim;
 pub mod query;
 pub mod rules;
 pub mod search_index;
@@ -38,3 +39,10 @@ pub use identity::Identity;
 pub use meta::{EmailMeta, Tag};
 pub use query::{Comparator, EmailFilter, SavedSearch, SortProperty};
 pub use submission::{EmailSubmission, UndoStatus};
+
+// ── V3 frozen PIM types (§2.1) authored by e0; logic filled by e8. ──
+pub use pim::types::{
+    AddressBook, Alert, Anniversary, Calendar, CalendarEvent, CalendarShare, ContactCard,
+    ContactEmail, ContactGroup, ContactName, ContactValue, EventLocation, Note, NoteLink,
+    Participant, Task,
+};

@@ -1,13 +1,26 @@
-# cargo-deny policy — finalized for V2 (release 26.3). The full V2 dependency
-# tree is vetted here: the new crates (mw-search, mw-sieve, mw-export) and the
-# new third-party deps (tantivy MIT, tokio-rustls-acme/rustls-acme MIT/Apache,
-# tokio-tungstenite MIT, futures-util MIT/Apache) all land under the permissive
+# cargo-deny policy — finalized for V2 (release 26.3), extended for V3 (26.4).
+# The full dependency tree is vetted here: the V2 crates (mw-search, mw-sieve,
+# mw-export) + deps (tantivy MIT, tokio-rustls-acme/rustls-acme MIT/Apache,
+# tokio-tungstenite MIT, futures-util MIT/Apache) and the V3 crates (mw-ics,
+# mw-dav, mw-carddav) + their new third-party deps all land under the permissive
 # allow-list below. The license floor is permissive-only — GPL/LGPL/AGPL are
 # denied by OMISSION from `[licenses].allow` (an unlisted license fails the
 # check), so no copyleft can enter the tree (SPEC §3). `cargo deny check`
 # (advisories + bans + licenses + sources) is green across the workspace.
 #   NB: pdfjs-dist (Apache-2.0) is a WEB dep — gated by the JS `js-licenses`
 #   job, not cargo-deny.
+#
+# V3 (26.4) new dependencies — all confirmed MIT OR Apache-2.0 (plan §1.2/§1.10):
+#   icalendar, vcard4, rrule, chrono-tz (all MIT/Apache-2.0), quick-xml (MIT).
+#   They are covered by the existing MIT/Apache-2.0 allow entries below.
+#
+# Radicale (the CalDAV/CardDAV CI server, plan §1.5) is GPLv3 but is NOT a
+# Mailwoman dependency: it is a separate program invoked over the network in CI
+# only (docker-compose service, same posture as Dovecot/Greenmail in V1) — never
+# linked into, imported by, or shipped with any crate/binary (mere aggregation /
+# network use, not a derivative work). It is therefore OUT of `cargo deny` and
+# the JS-license scope by design; the actual-dependency floor stays MIT/Apache/
+# BSD/ISC/Zlib/MPL-2.0.
 
 [graph]
 all-features = false

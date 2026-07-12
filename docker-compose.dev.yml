@@ -247,7 +247,31 @@ services:
       retries: 6
       start_period: 10s
 
+  # ---- Radicale — CalDAV/CardDAV conformance server (V3) — STUB --------------
+  # Job/service STUB reserved by e0 (plan §1.5, §3 e0/e11); e11 uncomments it +
+  # adds scripts/radicale/{config,seed.sh} and the seeded testuser/testpass
+  # collections. Radicale is a single scriptable Python process (htpasswd +
+  # filesystem collections). It is CI infra — a SEPARATE networked program
+  # (GPLv3), never linked into or shipped with any Mailwoman crate/binary (mere
+  # aggregation, plan §1.5) — and is excluded from the dependency-license scope.
+  #   CalDAV/CardDAV host:5232 -> 5232
+  # radicale:
+  #   image: tomsquest/docker-radicale:3.5.4.0
+  #   volumes:
+  #     - ./scripts/radicale/config:/config/config:ro
+  #     - ./scripts/radicale/users:/config/users:ro
+  #     - radicale-data:/data
+  #   ports:
+  #     - "5232:5232"
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:5232/ -u testuser:testpass || exit 1"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 20
+  #     start_period: 5s
+
 volumes:
   mailwoman-data:
   mailwoman-engine-data:
   stalwart-data:
+  # radicale-data:   # (e11: uncomment with the radicale service above)

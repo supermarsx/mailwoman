@@ -1,0 +1,17 @@
+[package]
+name = "mw-carddav"
+description = "CardDAV client (addressbook-query/multiget) over the shared mw-dav core for Mailwoman V3 (plan §1.3, §3 e3)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Reuses the shared DAV/HTTP core from `mw-dav`; vCard bodies via `mw-ics`
+# (plan §1.3 — mw-carddav → mw-dav + mw-ics).
+mw-dav = { workspace = true }
+mw-ics = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

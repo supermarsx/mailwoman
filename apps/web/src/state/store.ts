@@ -16,6 +16,10 @@ import { createOutboxSlice, type OutboxSlice } from './slices/outbox.ts';
 import { createRealtimeSlice, type RealtimeSlice } from './slices/realtime.ts';
 import { createOfflineSlice, type OfflineSlice } from './slices/offline.ts';
 import { createThemeSlice, type ThemeSlice } from './slices/theme.ts';
+import { createCalendarSlice, type CalendarSlice } from './slices/calendar.ts';
+import { createTasksSlice, type TasksSlice } from './slices/tasks.ts';
+import { createNotesSlice, type NotesSlice } from './slices/notes.ts';
+import { createContactsSlice, type ContactsSlice } from './slices/contacts.ts';
 import { broadcastChannelAvailable, openStoreChannel } from '../worker/broadcast.ts';
 import { broadcastEnvelope } from '../worker/protocol.ts';
 import type { WorkerEnvelope } from '../contracts/worker.ts';
@@ -44,7 +48,13 @@ export type AppState = StoreCoreApi &
   OutboxSlice &
   RealtimeSlice &
   OfflineSlice &
-  ThemeSlice;
+  ThemeSlice &
+  // ── V3 PIM slices (plan §2.5). Additive — the V2 accessors above are
+  // unchanged, preserving the frozen `AppState` public shape. ──
+  CalendarSlice &
+  TasksSlice &
+  NotesSlice &
+  ContactsSlice;
 
 function createStoreCore(client: Client): StoreCoreApi {
   const [online, setOnline] = createSignal(true);
@@ -100,6 +110,12 @@ export function createAppState(client: Client): AppState {
   const offline = createOfflineSlice(ctx);
   const outbox = createOutboxSlice(ctx);
 
+  // V3 PIM slices (plan §2.5): independent seams, mock-backed until e10.
+  const calendar = createCalendarSlice(ctx);
+  const tasks = createTasksSlice(ctx);
+  const notes = createNotesSlice(ctx);
+  const contacts = createContactsSlice(ctx);
+
   // Late-bound so the mail slice can broadcast before the peer channel exists.
   let publishPeerSync: () => void = () => undefined;
 
@@ -138,6 +154,10 @@ export function createAppState(client: Client): AppState {
     ...realtime,
     ...offline,
     ...theme,
+    ...calendar,
+    ...tasks,
+    ...notes,
+    ...contacts,
   };
 }
 

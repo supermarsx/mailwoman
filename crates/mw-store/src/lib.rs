@@ -7,6 +7,7 @@ mod cache;
 mod redact;
 mod seal;
 mod v2;
+mod v3;
 
 pub use cache::{
     Account, AccountKind, Mailbox, MailboxUpsert, Message, MessageLocation, MessageUpsert,
@@ -16,6 +17,10 @@ pub use redact::Redacted;
 pub use seal::{SealError, ServerKey};
 pub use v2::{
     ChangeRow, IdentityRow, SavedSearchRow, SnoozeDue, StoredMeta, SubmissionRow, TagRow,
+};
+pub use v3::{
+    AddressBookRow, CalendarRow, ContactGroupRow, ContactRow, EventInstanceRow, EventRow, NoteRow,
+    NotebookRow, PimChangeRow, TaskRow,
 };
 
 use std::str::FromStr;

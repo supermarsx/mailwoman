@@ -34,14 +34,30 @@ pub fn session_json(account_id: &str, username: &str) -> Value {
         "capabilities": {
             "urn:ietf:params:jmap:core": { "maxSizeUpload": 50_000_000, "maxConcurrentRequests": 4 },
             "urn:ietf:params:jmap:mail": {},
-            "urn:ietf:params:jmap:submission": {}
+            "urn:ietf:params:jmap:submission": {},
+            // Mailwoman-native PIM capabilities (frozen §1.1/§2.2). The web
+            // transport/offline/push layers reuse the mail machinery verbatim;
+            // these URNs advertise the PIM method families under our own types.
+            "urn:mailwoman:calendars": {},
+            "urn:mailwoman:tasks": {},
+            "urn:mailwoman:notes": {},
+            "urn:mailwoman:contacts": {}
         },
         "accounts": {
-            account_id: { "name": username, "isPersonal": true, "isReadOnly": false, "accountCapabilities": {} }
+            account_id: { "name": username, "isPersonal": true, "isReadOnly": false, "accountCapabilities": {
+                "urn:mailwoman:calendars": {},
+                "urn:mailwoman:tasks": {},
+                "urn:mailwoman:notes": {},
+                "urn:mailwoman:contacts": {}
+            } }
         },
         "primaryAccounts": {
             "urn:ietf:params:jmap:mail": account_id,
-            "urn:ietf:params:jmap:submission": account_id
+            "urn:ietf:params:jmap:submission": account_id,
+            "urn:mailwoman:calendars": account_id,
+            "urn:mailwoman:tasks": account_id,
+            "urn:mailwoman:notes": account_id,
+            "urn:mailwoman:contacts": account_id
         },
         "username": username,
         "apiUrl": "/jmap/api",
@@ -126,6 +142,11 @@ impl Engine {
             }
             "Identity/get" => self.identity_get(account_id, rt, args).await,
             "Identity/query" => self.identity_query(account_id, rt).await,
+            // Mailwoman-native PIM families (§2.2) ride the same envelope; e8
+            // fills the handlers behind `dispatch_pim`.
+            other if crate::pim::dispatch::is_pim_method(other) => {
+                self.dispatch_pim(account_id, other, args).await
+            }
             other => json!({
                 "type": "unknownMethod",
                 "description": format!("engine does not implement {other}")

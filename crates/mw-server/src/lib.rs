@@ -168,6 +168,16 @@ fn router(state: AppState) -> Router {
             post(jmap_upload).get(jmap_upload),
         )
         .route("/api/export/{stableId}", get(export_message))
+        // ── V3 PIM endpoints (plan §3 e0/e9). Route seams reserved now; e9 fills
+        // Mailwoman-native calendar/address-book sharing (ACL-checked serving of
+        // a collection to another principal) + the holiday-feed. 501 until then. ──
+        .route("/dav/calendars/{accountId}/{calendarId}", get(caldav_share))
+        .route(
+            "/dav/addressbooks/{accountId}/{addressBookId}",
+            get(carddav_share),
+        )
+        .route("/api/holidays", get(holiday_regions))
+        .route("/api/holidays/{region}", get(holiday_feed))
         .route("/jmap/ws", get(push::jmap_ws))
         .route("/jmap/eventsource", get(push::jmap_eventsource))
         .route("/healthz", get(|| async { "ok" }))
@@ -674,6 +684,57 @@ async fn jmap_upload(State(state): State<AppState>, headers: HeaderMap) -> Respo
         Json(json!({ "error": "attachment upload is not implemented in this build" })),
     )
         .into_response()
+}
+
+// ---------------------------------------------------------------------------
+// V3 PIM endpoints (plan §3 e0 scaffold / e9 fills) — 501 stubs
+// ---------------------------------------------------------------------------
+
+/// A clean `501` for a reserved-but-unfilled V3 endpoint, so the route resolves
+/// (and is authed) rather than falling through to the SPA `index.html`.
+fn v3_not_implemented(feature: &str) -> Response {
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        Json(json!({ "error": format!("{feature} is not implemented in this build (V3 e9)") })),
+    )
+        .into_response()
+}
+
+/// `GET /dav/calendars/{accountId}/{calendarId}` — serve a Mailwoman-native
+/// calendar collection to a grantee principal per `calendar_shares` (on-server
+/// ACL sharing, §11). e9 fills the ACL check + collection serialization.
+async fn caldav_share(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(resp) = authed(&state, &headers).await {
+        return resp;
+    }
+    v3_not_implemented("CalDAV calendar sharing")
+}
+
+/// `GET /dav/addressbooks/{accountId}/{addressBookId}` — serve a Mailwoman-native
+/// address-book collection to a grantee principal (on-server ACL sharing, §13).
+async fn carddav_share(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(resp) = authed(&state, &headers).await {
+        return resp;
+    }
+    v3_not_implemented("CardDAV address-book sharing")
+}
+
+/// `GET /api/holidays` — the list of subscribable holiday regions (§11). e9
+/// serves the bundled `.hol`/ICS pack index.
+async fn holiday_regions(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(resp) = authed(&state, &headers).await {
+        return resp;
+    }
+    v3_not_implemented("holiday region list")
+}
+
+/// `GET /api/holidays/{region}` — a bundled holiday pack as ICS (§11). e9 serves
+/// the `.hol`/ICS bytes for one region.
+async fn holiday_feed(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(resp) = authed(&state, &headers).await {
+        return resp;
+    }
+    v3_not_implemented("holiday feed")
 }
 
 /// `GET /api/export/{stableId}?format=eml|mbox|txt|md` — export one message

@@ -4,12 +4,22 @@
 
 import type { Id } from '../api/jmap-types.ts';
 
-/** Per-datatype state strings a `StateChange` reports for one account. */
+/** Per-datatype state strings a `StateChange` reports for one account. The V3
+ *  PIM datatypes (plan §1.8/§2.2) are additive + optional, so V2 push handling
+ *  is unchanged; e10 registers the PIM refetch handlers. */
 export interface TypeStates {
   Email?: string;
   Mailbox?: string;
   EmailSubmission?: string;
   Thread?: string;
+  // ── V3 PIM datatypes (§2.2) ──
+  Calendar?: string;
+  CalendarEvent?: string;
+  Task?: string;
+  Note?: string;
+  AddressBook?: string;
+  ContactCard?: string;
+  ContactGroup?: string;
 }
 
 /**

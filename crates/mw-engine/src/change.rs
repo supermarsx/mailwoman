@@ -24,6 +24,15 @@ pub enum ChangeType {
     Mailbox,
     EmailSubmission,
     Thread,
+    // ── V3 PIM datatypes (§1.8/§2.2). Each participates in `*/changes` + the
+    // push `StateChange.changed` map, sourced from the `pim_changes` log (e8). ──
+    Calendar,
+    CalendarEvent,
+    Task,
+    Note,
+    AddressBook,
+    ContactCard,
+    ContactGroup,
 }
 
 impl ChangeType {
@@ -35,6 +44,13 @@ impl ChangeType {
             ChangeType::Mailbox => "Mailbox",
             ChangeType::EmailSubmission => "EmailSubmission",
             ChangeType::Thread => "Thread",
+            ChangeType::Calendar => "Calendar",
+            ChangeType::CalendarEvent => "CalendarEvent",
+            ChangeType::Task => "Task",
+            ChangeType::Note => "Note",
+            ChangeType::AddressBook => "AddressBook",
+            ChangeType::ContactCard => "ContactCard",
+            ChangeType::ContactGroup => "ContactGroup",
         }
     }
 }

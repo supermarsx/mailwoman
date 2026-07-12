@@ -1,0 +1,20 @@
+[package]
+name = "mw-ics"
+description = "iCalendar/vCard (ICS/.hol) parse+emit, RRULE expansion, iTIP framing + VFREEBUSY for Mailwoman V3 (plan §1.2, §3 e1)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# The serialization stack (plan §1.2 — all MIT OR Apache-2.0). `mw-ics` wraps
+# these behind a small stable API (Mailwoman types ⇄ iCal/vCard bytes) and
+# hand-rolls the iTIP METHOD framing, `.hol` parse/emit, and VFREEBUSY on top.
+icalendar = { workspace = true }
+vcard4 = { workspace = true }
+rrule = { workspace = true }
+chrono = { workspace = true }
+chrono-tz = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
