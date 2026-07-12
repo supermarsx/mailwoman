@@ -1,0 +1,196 @@
+/* Attachment viewers + Attachments module (plan §2.4). Themed via the live
+   design-token CSS vars (the same custom properties app.css / e4's token layer
+   drive) — never hardcoded colors — so viewers restyle with the active theme. */
+
+.mw-viewer {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.mw-viewer__frame {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 240px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-alt);
+}
+
+.mw-viewer__loading,
+.mw-viewer__error {
+  padding: 1rem;
+  color: var(--text-dim);
+}
+.mw-viewer__error {
+  color: var(--danger);
+}
+
+.mw-viewer__pdf {
+  overflow: auto;
+  height: 100%;
+}
+.mw-viewer__pdf-pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+}
+.mw-viewer__pdf-page {
+  max-width: 100%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  background: #fff;
+}
+
+.mw-viewer__unsupported {
+  display: grid;
+  gap: 0.5rem;
+  place-items: center;
+  padding: 2rem;
+  color: var(--text-dim);
+}
+.mw-viewer__unsupported-meta {
+  font-size: 0.85em;
+}
+
+/* ── Thumbnail strip ─────────────────────────────────────────── */
+.mw-thumbs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 8px;
+  background: var(--bg-alt);
+  border-top: 1px solid var(--border);
+}
+.mw-thumb {
+  flex: 0 0 auto;
+  width: 92px;
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  text-align: center;
+}
+.mw-thumb--active {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+}
+.mw-thumb__preview {
+  display: grid;
+  place-items: center;
+  height: 60px;
+  background: var(--bg-sink);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.mw-thumb__img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.mw-thumb__icon {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+.mw-thumb__name {
+  font-size: 0.72rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Attachments module grid ─────────────────────────────────── */
+.mw-attach {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+}
+.mw-attach__bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.mw-attach__title {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.mw-attach__search {
+  flex: 1 1 auto;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-alt);
+  color: var(--text);
+  font: inherit;
+}
+.mw-attach__cat {
+  padding: 0.45rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-alt);
+  color: var(--text);
+  font: inherit;
+}
+.mw-attach__status {
+  padding: 1.5rem;
+  color: var(--text-dim);
+}
+.mw-attach__grid {
+  list-style: none;
+  margin: 0;
+  padding: 1rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.75rem;
+  overflow: auto;
+}
+.mw-attach__card {
+  display: grid;
+  gap: 0.25rem;
+  width: 100%;
+  padding: 0.7rem;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-alt);
+  color: var(--text);
+  cursor: pointer;
+}
+.mw-attach__card:hover {
+  border-color: var(--accent);
+}
+.mw-attach__kind {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+}
+.mw-attach__name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mw-attach__meta,
+.mw-attach__subject {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
