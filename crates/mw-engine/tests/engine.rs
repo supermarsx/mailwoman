@@ -13,8 +13,9 @@ use serde_json::{Value, json};
 
 use mw_engine::account::AccountRuntime;
 use mw_engine::backend::{
-    AccountBackend, BackendCaps, ChangeSink, Flag, MailboxDelta, MailboxRole, MessageRef,
-    MoveOutcome, RawMailbox, RawMailboxRef, RawMessage, Result, SyncCursor, WatchHandle,
+    AccountBackend, BackendCaps, ChangeEvent, ChangeSink, Flag, MailboxDelta, MailboxRole,
+    MessageRef, MoveOutcome, RawMailbox, RawMailboxRef, RawMessage, Result, SyncCursor,
+    WatchHandle,
 };
 use mw_engine::{Engine, MailSubmitter};
 use mw_smtp::{Outgoing, SubmissionResult};
@@ -41,6 +42,16 @@ struct FakeBackend {
 
 impl FakeBackend {
     fn new() -> Self {
+        Self::with_inbox(vec![
+            (1, multipart_msg(), vec![], "2026-07-01T09:00:00Z".into()),
+            (2, thread_root_msg(), vec![], "2026-07-02T09:00:00Z".into()),
+            (3, thread_reply_msg(), vec![], "2026-07-03T09:00:00Z".into()),
+        ])
+    }
+
+    /// Build a backend whose INBOX holds an explicit message set (Sent/Drafts/
+    /// Archive stay empty) — used by the operator-search test.
+    fn with_inbox(inbox: Vec<ScriptMsg>) -> Self {
         let mailboxes = vec![
             ("INBOX".to_string(), MailboxRole::Inbox),
             ("Sent".to_string(), MailboxRole::Sent),
@@ -48,14 +59,7 @@ impl FakeBackend {
             ("Archive".to_string(), MailboxRole::Archive),
         ];
         let mut messages: HashMap<String, Vec<ScriptMsg>> = HashMap::new();
-        messages.insert(
-            "INBOX".to_string(),
-            vec![
-                (1, multipart_msg(), vec![], "2026-07-01T09:00:00Z".into()),
-                (2, thread_root_msg(), vec![], "2026-07-02T09:00:00Z".into()),
-                (3, thread_reply_msg(), vec![], "2026-07-03T09:00:00Z".into()),
-            ],
-        );
+        messages.insert("INBOX".to_string(), inbox);
         Self {
             state: Mutex::new(Scripted {
                 mailboxes,
@@ -295,6 +299,11 @@ struct Harness {
 }
 
 async fn setup() -> Harness {
+    setup_with(Arc::new(FakeBackend::new())).await
+}
+
+/// Wire an engine + store + registered account over a specific backend.
+async fn setup_with(backend: Arc<FakeBackend>) -> Harness {
     let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
     let account_id = store
         .create_account(
@@ -315,7 +324,6 @@ async fn setup() -> Harness {
         .unwrap();
 
     let engine = Arc::new(Engine::new(store));
-    let backend = Arc::new(FakeBackend::new());
     let submitter = Arc::new(FakeSubmitter::new());
     engine.register_backend(
         account_id.clone(),
@@ -331,6 +339,46 @@ async fn setup() -> Harness {
         backend,
         submitter,
     }
+}
+
+/// A minimal RFC822 message with no attachment.
+fn plain_msg(message_id: &str, from: &str, subject: &str, body: &str) -> Vec<u8> {
+    format!(
+        "Message-ID: <{message_id}>\r\n\
+         From: {from}\r\n\
+         To: me@example.org\r\n\
+         Subject: {subject}\r\n\
+         Date: Wed, 01 Jul 2026 09:00:00 +0000\r\n\
+         \r\n\
+         {body}\r\n"
+    )
+    .into_bytes()
+}
+
+/// A multipart/mixed message carrying one real (non-inline) PDF attachment, so
+/// `has:attachment` / `filename:` have something to match.
+fn attachment_msg(message_id: &str, from: &str, subject: &str) -> Vec<u8> {
+    format!(
+        "Message-ID: <{message_id}>\r\n\
+         From: {from}\r\n\
+         To: me@example.org\r\n\
+         Subject: {subject}\r\n\
+         Date: Wed, 01 Jul 2026 09:00:00 +0000\r\n\
+         MIME-Version: 1.0\r\n\
+         Content-Type: multipart/mixed; boundary=\"m0\"\r\n\
+         \r\n\
+         --m0\r\n\
+         Content-Type: text/plain; charset=utf-8\r\n\
+         \r\n\
+         see attached\r\n\
+         --m0\r\n\
+         Content-Type: application/pdf; name=\"report.pdf\"\r\n\
+         Content-Disposition: attachment; filename=\"report.pdf\"\r\n\
+         \r\n\
+         %PDF-1.4 pretend\r\n\
+         --m0--\r\n"
+    )
+    .into_bytes()
 }
 
 /// Post a JMAP request (a list of `[name, args, callId]` triples).
@@ -612,4 +660,178 @@ async fn resync_is_idempotent() {
     .await;
     // No duplicate ingestion across two syncs.
     assert_eq!(method_result(&q, "q")["ids"].as_array().unwrap().len(), 3);
+}
+
+#[tokio::test]
+async fn operator_search_via_filter_text() {
+    // The web packs the ENTIRE operator string into `Email/query`'s
+    // `filter.text` (e.g. `subject:foo`, `from:anna`, `has:attachment`). These
+    // must parse into field/attachment predicates — the previous code wrapped
+    // the whole string as one literal all-fields term, so every operator query
+    // returned nothing.
+    let inbox = vec![
+        (
+            1,
+            plain_msg(
+                "foo-anna@x",
+                "Anna Ng <anna@example.org>",
+                "foo report",
+                "quarterly numbers",
+            ),
+            vec![],
+            "2026-07-01T09:00:00Z".to_string(),
+        ),
+        (
+            2,
+            plain_msg(
+                "bar-bob@x",
+                "Bob <bob@example.org>",
+                "bar update",
+                "status note",
+            ),
+            vec![],
+            "2026-07-02T09:00:00Z".to_string(),
+        ),
+        (
+            3,
+            attachment_msg("foo-carol@x", "Carol <carol@example.org>", "foo digest"),
+            vec![],
+            "2026-07-03T09:00:00Z".to_string(),
+        ),
+    ];
+    let h = setup_with(Arc::new(FakeBackend::with_inbox(inbox))).await;
+    h.engine.resync(&h.account_id).await.unwrap();
+
+    let count = |resp: &Value| method_result(resp, "q")["ids"].as_array().unwrap().len();
+    let query = |text: &str| json!([["Email/query", { "filter": { "text": text } }, "q"]]);
+
+    // subject:foo -> the two "foo …" subjects (messages 1 and 3), not message 2.
+    assert_eq!(count(&jmap(&h, query("subject:foo")).await), 2);
+    // subject:bar -> only message 2 (the old bug matched literal "subject"/"bar").
+    assert_eq!(count(&jmap(&h, query("subject:bar")).await), 1);
+
+    // from:anna resolves to Anna's message specifically (chained get proves it).
+    let r = jmap(
+        &h,
+        json!([
+            ["Email/query", { "filter": { "text": "from:anna" } }, "q"],
+            ["Email/get", {
+                "#ids": { "resultOf": "q", "name": "Email/query", "path": "/ids" }
+            }, "g"]
+        ]),
+    )
+    .await;
+    let list = method_result(&r, "g")["list"].as_array().unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0]["from"][0]["email"], "anna@example.org");
+
+    // has:attachment -> only the message carrying the PDF part (message 3).
+    assert_eq!(count(&jmap(&h, query("has:attachment")).await), 1);
+    // Operators AND together within one text string.
+    assert_eq!(
+        count(&jmap(&h, query("subject:foo has:attachment")).await),
+        1
+    );
+
+    // A bare term still narrows across fields (plain full-text is preserved).
+    assert_eq!(count(&jmap(&h, query("digest")).await), 1);
+    assert_eq!(count(&jmap(&h, query("nonexistentword")).await), 0);
+}
+
+/// A backend whose first `watch` connection drops (emits `Disconnected`) so the
+/// engine's watch loop must re-establish it. Counts `watch` calls.
+struct ReconnectBackend {
+    watch_calls: AtomicUsize,
+}
+
+#[async_trait]
+impl AccountBackend for ReconnectBackend {
+    async fn capabilities(&self) -> Result<BackendCaps> {
+        Ok(BackendCaps::default())
+    }
+    async fn list_mailboxes(&self) -> Result<Vec<RawMailbox>> {
+        Ok(Vec::new()) // empty ⇒ resync trivially succeeds
+    }
+    async fn sync_mailbox(
+        &self,
+        _mbox: &RawMailboxRef,
+        _cursor: &SyncCursor,
+    ) -> Result<MailboxDelta> {
+        Ok(MailboxDelta {
+            added: Vec::new(),
+            flag_changes: Vec::new(),
+            removed: Vec::new(),
+            next_cursor: SyncCursor::UidWindow {
+                uidvalidity: 0,
+                uidnext: 1,
+            },
+        })
+    }
+    async fn fetch_raw(&self, _refs: &[MessageRef]) -> Result<Vec<RawMessage>> {
+        Ok(Vec::new())
+    }
+    async fn store_flags(&self, _r: &[MessageRef], _a: &[Flag], _rm: &[Flag]) -> Result<()> {
+        Ok(())
+    }
+    async fn move_messages(&self, _r: &[MessageRef], _to: &RawMailboxRef) -> Result<MoveOutcome> {
+        Ok(MoveOutcome::RederiveByMessageId)
+    }
+    async fn append(&self, mbox: &RawMailboxRef, _raw: &[u8], _f: &[Flag]) -> Result<MessageRef> {
+        Ok(MessageRef::Imap {
+            mailbox: mbox.clone(),
+            uidvalidity: 0,
+            uid: 1,
+        })
+    }
+    async fn watch(&self, sink: ChangeSink) -> Result<WatchHandle> {
+        let n = self.watch_calls.fetch_add(1, Ordering::SeqCst);
+        let mbox = RawMailboxRef {
+            name: "INBOX".into(),
+            uidvalidity: 0,
+        };
+        let _ = sink.emit(ChangeEvent::MailboxChanged { mailbox: mbox });
+        if n == 0 {
+            // First connection drops right after signalling activity.
+            let _ = sink.emit(ChangeEvent::Disconnected);
+        }
+        let (tx, _rx) = tokio::sync::watch::channel(false);
+        Ok(WatchHandle::new(tx))
+    }
+}
+
+#[tokio::test]
+async fn watch_reconnects_after_a_drop() {
+    // A dropped watch connection must self-heal: the loop re-establishes the
+    // watch (a fresh backend login) rather than stalling ingestion.
+    let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+    let engine = Arc::new(Engine::new(store));
+    let backend = Arc::new(ReconnectBackend {
+        watch_calls: AtomicUsize::new(0),
+    });
+    engine.register_backend(
+        "recon-acct",
+        AccountRuntime::new(
+            backend.clone() as Arc<dyn AccountBackend>,
+            Arc::new(FakeSubmitter::new()) as Arc<dyn MailSubmitter>,
+            "me@example.org",
+        ),
+    );
+
+    engine.start_watch("recon-acct").await.unwrap();
+
+    // The first watch drops; the loop backs off (~1s) then reconnects.
+    let reconnected = tokio::time::timeout(std::time::Duration::from_secs(6), async {
+        loop {
+            if backend.watch_calls.load(Ordering::SeqCst) >= 2 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    })
+    .await;
+    assert!(
+        reconnected.is_ok(),
+        "watch loop did not reconnect after a drop (watch called {} times)",
+        backend.watch_calls.load(Ordering::SeqCst)
+    );
 }

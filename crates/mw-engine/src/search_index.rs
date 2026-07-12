@@ -148,7 +148,19 @@ pub(crate) fn build_search_query(
         })
     };
     if let Some(v) = &filter.text {
-        clauses.push(text(TextField::All, v));
+        // The web packs the whole operator string (`subject:foo`,
+        // `from:anna has:attachment`, booleans, quoted phrases) into
+        // `filter.text`. Route it through the shared operator parser instead of
+        // treating it as one literal all-fields term — otherwise `subject:foo`
+        // searches for the literal words "subject" and "foo" across all fields
+        // and every operator query returns nothing. A bare word still parses to
+        // an all-fields clause, so plain full-text search is preserved. On a
+        // parse error, fall back to the old literal all-fields term.
+        match mw_search::parse_query(v) {
+            Ok(parsed) if !matches!(parsed.expr, Expr::All) => clauses.push(parsed.expr),
+            Ok(_) => {} // empty / whitespace-only text — no added constraint
+            Err(_) => clauses.push(text(TextField::All, v)),
+        }
     }
     if let Some(v) = &filter.from {
         clauses.push(text(TextField::From, v));

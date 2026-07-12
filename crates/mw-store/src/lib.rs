@@ -18,9 +18,14 @@ pub use v2::{
     ChangeRow, IdentityRow, SavedSearchRow, SnoozeDue, StoredMeta, SubmissionRow, TagRow,
 };
 
+use std::str::FromStr;
+use std::time::Duration;
+
 use chrono::Utc;
 use sqlx::Row;
-use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
+use sqlx::sqlite::{
+    SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions, SqliteSynchronous,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -61,11 +66,22 @@ pub struct Store {
 
 impl Store {
     /// Open a file-backed store (creates the file if missing) and migrate.
+    ///
+    /// The connection is tuned for the engine's concurrent access pattern (many
+    /// logins + the sync loop hammering the same file): WAL journalling lets a
+    /// reader and the writer coexist, `busy_timeout` makes a contended writer
+    /// wait rather than fail fast with "database is locked", and
+    /// `synchronous=NORMAL` is the WAL-safe durability tier. The pool keeps
+    /// several connections so reads don't queue behind the writer.
     pub async fn open(path: &str, key: ServerKey) -> Result<Self, StoreError> {
         let url = format!("sqlite://{path}?mode=rwc");
+        let opts = SqliteConnectOptions::from_str(&url)?
+            .busy_timeout(Duration::from_secs(5))
+            .journal_mode(SqliteJournalMode::Wal)
+            .synchronous(SqliteSynchronous::Normal);
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
-            .connect(&url)
+            .connect_with(opts)
             .await?;
         Self::init(pool, key).await
     }
@@ -247,6 +263,66 @@ mod tests {
             key: ServerKey::generate(),
         };
         assert!(other.get_session(&id).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn concurrent_writes_do_not_lock() {
+        // Regression for the engine's "database is locked" stalls: a file-backed
+        // pool under many concurrent writers must serialize (busy_timeout + WAL)
+        // rather than error. In-memory can't exercise this — it needs a real file.
+        // Each task drives its own account so the per-(account,type) change
+        // counter never collides; the contention is across tasks/connections.
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("mw-store-lock-{unique}.sqlite"));
+        let path_str = path.to_string_lossy().to_string();
+        let store = Store::open(&path_str, ServerKey::generate()).await.unwrap();
+
+        let mut handles = Vec::new();
+        for i in 0..16 {
+            let s = store.clone();
+            handles.push(tokio::spawn(async move {
+                let account_id = s
+                    .create_account(
+                        &crate::NewAccount {
+                            kind: crate::AccountKind::Imap,
+                            host: "h",
+                            port: 993,
+                            tls: "implicit",
+                            username: &format!("u{i}"),
+                            sync_policy_json: "{}",
+                        },
+                        &Credentials {
+                            username: format!("u{i}"),
+                            password: "p".into(),
+                        },
+                    )
+                    .await
+                    .expect("account create under contention must not lock");
+                for j in 0..25 {
+                    s.set_setting(&format!("k{i}-{j}"), "v")
+                        .await
+                        .expect("setting write under contention must not lock");
+                    // A transactional writer (the change log) is the real hot path.
+                    s.record_change(&account_id, "Email", &format!("e{i}-{j}"), "created")
+                        .await
+                        .expect("transactional write under contention must not lock");
+                }
+                account_id
+            }));
+        }
+        for h in handles {
+            let account_id = h.await.unwrap();
+            // Each account saw exactly its 25 serial change rows.
+            assert_eq!(store.current_state(&account_id, "Email").await.unwrap(), 25);
+        }
+
+        drop(store);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{path_str}-wal"));
+        let _ = std::fs::remove_file(format!("{path_str}-shm"));
     }
 
     #[tokio::test]

@@ -384,7 +384,15 @@ impl Store {
     // ---- changes -----------------------------------------------------------
 
     /// Append one change and return the new per-`(account,type)` monotonic
-    /// state. Transactional so concurrent appends get distinct states.
+    /// state.
+    ///
+    /// A single atomic `INSERT … SELECT MAX+1 … RETURNING` rather than a
+    /// read-then-write transaction: under WAL the lone writer is serialized, so
+    /// the next state is computed against the latest committed row and concurrent
+    /// appends can't collide. Crucially this takes the write lock directly, so a
+    /// contended caller waits out `busy_timeout` instead of failing with a
+    /// `SQLITE_BUSY_SNAPSHOT` "database is locked" (which a deferred transaction
+    /// that reads-then-upgrades cannot avoid, timeout or not).
     pub async fn record_change(
         &self,
         account_id: &str,
@@ -393,27 +401,22 @@ impl Store {
         op: &str,
     ) -> Result<u64, StoreError> {
         let now = chrono::Utc::now().to_rfc3339();
-        let mut tx = self.pool.begin().await?;
         let next: i64 = sqlx::query_scalar(
-            "SELECT COALESCE(MAX(state), 0) + 1 FROM changes WHERE account_id = ?1 AND type = ?2",
-        )
-        .bind(account_id)
-        .bind(kind)
-        .fetch_one(&mut *tx)
-        .await?;
-        sqlx::query(
             "INSERT INTO changes (account_id, type, state, stable_id, op, at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+             VALUES (
+                 ?1, ?2,
+                 (SELECT COALESCE(MAX(state), 0) + 1 FROM changes WHERE account_id = ?1 AND type = ?2),
+                 ?3, ?4, ?5
+             )
+             RETURNING state",
         )
         .bind(account_id)
         .bind(kind)
-        .bind(next)
         .bind(stable_id)
         .bind(op)
         .bind(&now)
-        .execute(&mut *tx)
+        .fetch_one(&self.pool)
         .await?;
-        tx.commit().await?;
         Ok(next as u64)
     }
 

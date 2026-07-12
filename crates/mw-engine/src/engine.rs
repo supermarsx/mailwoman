@@ -12,13 +12,15 @@ use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use mw_store::{MailboxUpsert, MessageUpsert, Store};
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, watch};
 
 use crate::account::AccountRuntime;
 use crate::backend::{
-    ChangeEvent, ChangeSink, EngineError, MailboxDelta, MessageRef, RawMailbox, RawMessage, Result,
+    AccountBackend, ChangeEvent, ChangeSink, EngineError, MailboxDelta, MessageRef, RawMailbox,
+    RawMessage, Result, WatchHandle,
 };
 use crate::change::{ChangeOp, ChangeType, StateChange};
 use crate::mapping::{
@@ -512,27 +514,31 @@ impl Engine {
     /// Start the backend's watch loop; on each `MailboxChanged` re-sync then
     /// broadcast a `StateChange` so subscribed WS/SSE sessions push it to the
     /// browser (plan §1.2). Also ensures the delayed dispatcher is running.
+    ///
+    /// The loop is self-healing (plan §6.1): if the upstream connection drops —
+    /// a `Disconnected` event, a closed channel, or a resync failing with a
+    /// broken-pipe/connection-closed transport error — it re-establishes the
+    /// watch (a fresh backend login) with bounded backoff and resyncs to catch
+    /// up, rather than stalling ingestion until the account is re-registered.
+    ///
+    /// The engine owns the stop signal (stored in the runtime as a
+    /// [`WatchHandle`]); dropping the runtime on `unregister`/logout tears the
+    /// whole reconnect loop down.
     pub async fn start_watch(self: &Arc<Self>, account_id: &str) -> Result<()> {
         self.start_dispatcher();
         let rt = self.require_runtime(account_id)?;
-        let (tx, mut rx) = mpsc::unbounded_channel();
+
+        // Establish the first watch before returning so the caller sees any
+        // immediate auth/transport failure (preserving the original contract).
+        let (tx, rx) = mpsc::unbounded_channel();
         let handle = rt.backend.watch(ChangeSink::new(tx)).await?;
 
+        let (stop_tx, stop_rx) = watch::channel(false);
         let engine = Arc::clone(self);
+        let backend = Arc::clone(&rt.backend);
         let acct = account_id.to_string();
         tokio::spawn(async move {
-            while let Some(event) = rx.recv().await {
-                match event {
-                    ChangeEvent::MailboxChanged { .. } => {
-                        if let Err(e) = engine.resync(&acct).await {
-                            tracing::warn!("resync after change failed: {e}");
-                        } else {
-                            engine.broadcast_state(&acct).await;
-                        }
-                    }
-                    ChangeEvent::Disconnected => break,
-                }
-            }
+            watch_loop(engine, acct, backend, handle, rx, stop_rx).await;
         });
 
         if let Some(rt) = self
@@ -541,9 +547,130 @@ impl Engine {
             .expect("accounts lock")
             .get_mut(account_id)
         {
-            rt.watch = Some(Arc::new(handle));
+            rt.watch = Some(Arc::new(WatchHandle::new(stop_tx)));
         }
         Ok(())
+    }
+}
+
+/// Ceiling for the reconnect backoff so a persistently-down server is retried
+/// at most once a minute rather than hot-looping.
+const WATCH_MAX_BACKOFF: Duration = Duration::from_secs(60);
+
+/// Drive one account's watch stream, reconnecting on drops until the engine
+/// signals stop (the `stop_rx` sender, held in the runtime, is dropped).
+///
+/// `handle`/`rx` are the already-established first watch; subsequent iterations
+/// re-establish via `backend.watch`.
+async fn watch_loop(
+    engine: Arc<Engine>,
+    account_id: String,
+    backend: Arc<dyn AccountBackend>,
+    mut handle: WatchHandle,
+    mut rx: mpsc::UnboundedReceiver<ChangeEvent>,
+    mut stop_rx: watch::Receiver<bool>,
+) {
+    let mut backoff = Duration::from_secs(1);
+    loop {
+        // Consume events on the current connection until it drops or we stop.
+        let dropped = consume_events(&engine, &account_id, &mut rx, &mut stop_rx).await;
+        handle.stop();
+        match dropped {
+            WatchExit::Stop => return,
+            WatchExit::Dropped => {}
+        }
+
+        // Bounded backoff before reconnecting (abort early if stopped meanwhile).
+        if wait_or_stop(backoff, &mut stop_rx).await {
+            return;
+        }
+        backoff = (backoff * 2).min(WATCH_MAX_BACKOFF);
+
+        // Re-establish the watch (fresh backend login) and resync to catch up on
+        // anything missed while disconnected.
+        let (tx, new_rx) = mpsc::unbounded_channel();
+        match backend.watch(ChangeSink::new(tx)).await {
+            Ok(new_handle) => {
+                handle = new_handle;
+                rx = new_rx;
+                backoff = Duration::from_secs(1); // reconnected — reset backoff
+                if let Err(e) = engine.resync(&account_id).await {
+                    tracing::warn!("resync after watch reconnect failed for {account_id}: {e}");
+                } else {
+                    engine.broadcast_state(&account_id).await;
+                }
+            }
+            Err(e) => {
+                tracing::warn!("watch reconnect failed for {account_id}: {e}; will retry");
+                // Keep looping: `consume_events` on a closed channel returns
+                // immediately, so the next iteration just backs off and retries.
+                let (_tx, empty_rx) = mpsc::unbounded_channel();
+                rx = empty_rx; // sender dropped ⇒ recv() yields None at once
+            }
+        }
+    }
+}
+
+/// Why the event-consumption inner loop returned.
+enum WatchExit {
+    /// The engine asked the watch to stop (runtime dropped / logout).
+    Stop,
+    /// The upstream connection dropped and should be re-established.
+    Dropped,
+}
+
+/// Consume change events until the connection drops or a stop is requested.
+async fn consume_events(
+    engine: &Arc<Engine>,
+    account_id: &str,
+    rx: &mut mpsc::UnboundedReceiver<ChangeEvent>,
+    stop_rx: &mut watch::Receiver<bool>,
+) -> WatchExit {
+    loop {
+        tokio::select! {
+            // `changed()` errors when the sender is dropped (runtime gone) and
+            // resolves Ok when a stop is signalled — both mean "tear down".
+            _ = stop_rx.changed() => return WatchExit::Stop,
+            event = rx.recv() => match event {
+                Some(ChangeEvent::MailboxChanged { .. }) => {
+                    match engine.resync(account_id).await {
+                        Ok(()) => engine.broadcast_state(account_id).await,
+                        Err(e) if is_disconnect(&e) => {
+                            tracing::warn!("resync hit a dropped connection for {account_id}: {e}; reconnecting");
+                            return WatchExit::Dropped;
+                        }
+                        Err(e) => tracing::warn!("resync after change failed for {account_id}: {e}"),
+                    }
+                }
+                Some(ChangeEvent::Disconnected) | None => return WatchExit::Dropped,
+            },
+        }
+    }
+}
+
+/// Sleep for `dur`, returning `true` if a stop was requested during the wait.
+async fn wait_or_stop(dur: Duration, stop_rx: &mut watch::Receiver<bool>) -> bool {
+    tokio::select! {
+        _ = tokio::time::sleep(dur) => false,
+        _ = stop_rx.changed() => true,
+    }
+}
+
+/// Whether an engine error reflects a dropped upstream connection (so the watch
+/// loop should reconnect) rather than a logical failure.
+fn is_disconnect(e: &EngineError) -> bool {
+    match e {
+        EngineError::Transport(_) => true,
+        EngineError::Protocol(m) => {
+            let m = m.to_ascii_lowercase();
+            m.contains("broken pipe")
+                || m.contains("connection closed")
+                || m.contains("connection reset")
+                || m.contains("connection aborted")
+                || m.contains("not connected")
+                || m.contains("eof")
+        }
+        _ => false,
     }
 }
 
