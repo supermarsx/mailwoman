@@ -1,0 +1,33 @@
+{
+  "name": "@mailwoman/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.12.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "size": "node scripts/check-size.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "solid-js": "^1.9.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@solidjs/testing-library": "^0.8.10",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@types/node": "^24.0.0",
+    "eslint": "^9.17.0",
+    "eslint-plugin-solid": "^0.14.5",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.1",
+    "vite": "^6.0.5",
+    "vite-plugin-solid": "^2.11.0",
+    "vitest": "^3.2.4"
+  }
+}
