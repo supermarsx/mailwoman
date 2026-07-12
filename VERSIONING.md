@@ -41,6 +41,20 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
   webmail path (SolidJS client → mw-server JMAP proxy + sanitize worker →
   JMAP upstream), Docker/CI, E2E. Supersedes the pre-adoption `v0.0.0`
   placeholder tag, which was removed.
+- **`26.3`** — V2: modern mail layer + theming. Engine-side Tantivy search
+  (operators + saved searches), offline (Service Worker + encrypted OPFS +
+  replay queue), WebSocket/SSE realtime push, multi-window (BroadcastChannel),
+  the modern mail UX (tags/pins/snooze/sweep/undo-send/outbox/send-later/
+  follow-up/focused+unified inbox/virtualized list), Sieve rules, identities,
+  EML/mbox/TXT/Markdown export, the vanilla-extract design-token theming system
+  (light/dark/HC/AMOLED + Grove woody themes) with self-hosted font puller and
+  an optional ribbon preset, and sandboxed embedded attachment viewers
+  (image/PDF/video) + a global Attachments module. Server gains a rustls-acme
+  TLS listener, per-message CSP + CSRF/session hardening, and a blob-download
+  route. New crates: mw-search, mw-sieve, mw-export. Verified: 283 Rust + 214
+  web tests; live-stack Playwright E2E across all V2 features (offline, push,
+  multi-window, viewers, search operators, theming, export). Six real
+  end-to-end gaps caught and fixed at the E2E gate before release.
 - **`26.2`** — V1: real mail backends. IMAP4rev2 + POP3 + SMTP submission +
   MIME parse/build behind a frozen `AccountBackend` seam, driven by
   `mw-engine` which presents the same JMAP surface the web UI already speaks
