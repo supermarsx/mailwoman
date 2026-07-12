@@ -3,15 +3,27 @@ import { defineConfig, devices } from '@playwright/test';
 /**
  * Playwright E2E config for Mailwoman.
  *
- * The specs drive the REAL web UI against a running stack (mw-server + a JMAP
- * backend). In CI the stack is brought up separately via docker compose
+ * The specs drive the REAL web UI against a running stack (mw-server + a mail
+ * backend). In CI each stack is brought up separately via docker compose
  * (see .github/workflows/ci.yml); this config does NOT rebuild or manage the
- * server — it assumes the app is already reachable at `baseURL`.
+ * server — it assumes the app is already reachable at the project's `baseURL`.
  *
- * `baseURL` defaults to the compose-published address and can be overridden
- * with PLAYWRIGHT_BASE_URL for local runs against `cargo run` / `vite`.
+ * Two projects target the two backends the V1 UI must work against, unchanged:
+ *   - `mock`   — the V0 in-repo JMAP mock (proxy mode) on :8080. Runs the
+ *                original happy-path + sanitizer specs.
+ *   - `engine` — V1 engine mode: mw-server driving a REAL IMAP/SMTP account
+ *                (Greenmail) through mw-engine, on :8090. Runs imap-engine.spec.
+ *
+ * Select one with `--project=mock` / `--project=engine`. Each project's
+ * `baseURL` can be overridden for local runs (e.g. `cargo run` / `vite`):
+ *   - mock:   PLAYWRIGHT_BASE_URL or PLAYWRIGHT_MOCK_BASE_URL (default :8080)
+ *   - engine: PLAYWRIGHT_ENGINE_BASE_URL (default :8090)
  */
-const baseURL = process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:8080';
+const mockBaseURL =
+  process.env['PLAYWRIGHT_MOCK_BASE_URL'] ??
+  process.env['PLAYWRIGHT_BASE_URL'] ??
+  'http://localhost:8080';
+const engineBaseURL = process.env['PLAYWRIGHT_ENGINE_BASE_URL'] ?? 'http://localhost:8090';
 
 export default defineConfig({
   testDir: './e2e',
@@ -23,11 +35,21 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 10_000 },
   use: {
-    baseURL,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     actionTimeout: 10_000,
     navigationTimeout: 15_000,
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    {
+      name: 'mock',
+      testMatch: ['happy-path.spec.ts', 'sanitizer.spec.ts'],
+      use: { ...devices['Desktop Chrome'], baseURL: mockBaseURL },
+    },
+    {
+      name: 'engine',
+      testMatch: ['imap-engine.spec.ts'],
+      use: { ...devices['Desktop Chrome'], baseURL: engineBaseURL },
+    },
+  ],
 });

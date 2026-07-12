@@ -201,8 +201,8 @@ jobs:
         run: docker compose -f docker-compose.dev.yml up -d --build mock mailwoman
       - name: wait for server health
         run: ./scripts/wait-for-health.sh http://localhost:8080/healthz 240
-      - name: run Playwright E2E
-        run: pnpm -C apps/web exec playwright test
+      - name: run Playwright E2E (mock / proxy mode)
+        run: pnpm -C apps/web exec playwright test --project=mock
       - name: compose logs on failure
         if: failure()
         run: docker compose -f docker-compose.dev.yml logs --no-color
@@ -211,6 +211,61 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
+          path: apps/web/playwright-report
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: tear down
+        if: always()
+        run: docker compose -f docker-compose.dev.yml down -v
+
+  # -------------------------------------------------------------------------
+  # E2E (engine mode): the SAME web UI, but mw-server in MW_MODE=engine driving
+  # a REAL IMAP/SMTP account (Greenmail) through mw-engine — the V1 exit gate
+  # "engine mode drives a real IMAP account through the unmodified web UI".
+  # Boots greenmail + mailwoman-engine (:8090) and runs the `engine` Playwright
+  # project (imap-engine.spec.ts): login -> real IMAP mailbox -> compose+send
+  # via SMTP -> the message arrives, is MIME-parsed, and renders in the
+  # sandboxed reader. Sibling of the mock `e2e` job; both must stay green.
+  # -------------------------------------------------------------------------
+  e2e-engine:
+    runs-on: ubuntu-latest
+    needs: [rust, web]
+    env:
+      DOCKER_BUILDKIT: "1"
+      COMPOSE_DOCKER_CLI_BUILD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: install web deps
+        run: pnpm -C apps/web install --frozen-lockfile
+      - name: cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('apps/web/pnpm-lock.yaml') }}
+      - name: install Playwright chromium
+        run: pnpm -C apps/web exec playwright install --with-deps chromium
+      - name: build + start engine stack (greenmail + mw-server engine mode)
+        run: docker compose -f docker-compose.dev.yml up -d --build --wait greenmail mailwoman-engine
+      - name: wait for server health
+        run: ./scripts/wait-for-health.sh http://localhost:8090/healthz 240
+      - name: run Playwright E2E (engine mode vs Greenmail)
+        run: pnpm -C apps/web exec playwright test --project=engine
+      - name: compose logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.dev.yml logs --no-color greenmail mailwoman-engine
+      - name: upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-engine
           path: apps/web/playwright-report
           if-no-files-found: ignore
           retention-days: 7
