@@ -3,8 +3,15 @@
 //! sealed via XChaCha20-Poly1305 (SPEC §7.3, §9). SQLite via sqlx with
 //! runtime queries (no compile-time `DATABASE_URL` needed).
 
+mod cache;
+mod redact;
 mod seal;
 
+pub use cache::{
+    Account, AccountKind, Mailbox, MailboxUpsert, Message, MessageLocation, MessageUpsert,
+    NewAccount,
+};
+pub use redact::Redacted;
 pub use seal::{SealError, ServerKey};
 
 use chrono::Utc;
@@ -21,6 +28,8 @@ pub enum StoreError {
     Seal(#[from] SealError),
     #[error("session not found")]
     NotFound,
+    #[error("corrupt store data: {0}")]
+    Corrupt(String),
 }
 
 /// Plaintext upstream credentials, only ever held decrypted in memory.

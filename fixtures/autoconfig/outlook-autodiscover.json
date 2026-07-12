@@ -1,0 +1,27 @@
+{
+  "_comment": "Simplified MS Autodiscover v2 JSON (GET /autodiscover/autodiscover.json), aggregated-protocols shape.",
+  "Protocols": [
+    {
+      "Type": "IMAP",
+      "Server": "outlook.office365.com",
+      "Port": 993,
+      "SSL": true,
+      "AuthPackage": "OAuth"
+    },
+    {
+      "Type": "POP3",
+      "Server": "outlook.office365.com",
+      "Port": 995,
+      "SSL": true,
+      "AuthPackage": "OAuth"
+    },
+    {
+      "Type": "SMTP",
+      "Server": "smtp.office365.com",
+      "Port": 587,
+      "SSL": false,
+      "Encryption": "STARTTLS",
+      "AuthPackage": "OAuth"
+    }
+  ]
+}

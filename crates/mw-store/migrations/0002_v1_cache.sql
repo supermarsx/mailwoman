@@ -51,9 +51,14 @@ CREATE TABLE IF NOT EXISTS messages (
     UNIQUE (account_id, mailbox_id, uidvalidity, uid)
 );
 
-CREATE INDEX IF NOT EXISTS idx_messages_mailbox ON messages (mailbox_id);
+-- List/sort by receivedAt (Email/query default sort is internaldate desc).
+CREATE INDEX IF NOT EXISTS idx_messages_mailbox_date ON messages (mailbox_id, internaldate DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages (thread_id);
 CREATE INDEX IF NOT EXISTS idx_messages_message_id ON messages (account_id, message_id);
+-- UIDVALIDITY-change stable-id preservation: match a re-synced message to its
+-- prior row by (message-id, internaldate, size) within the same mailbox (§1.6).
+CREATE INDEX IF NOT EXISTS idx_messages_identity
+    ON messages (account_id, mailbox_id, message_id, internaldate, size);
 
 -- Sealed raw/parsed bodies, referenced by messages.blob_ref.
 CREATE TABLE IF NOT EXISTS bodies (
@@ -62,12 +67,15 @@ CREATE TABLE IF NOT EXISTS bodies (
     sealed_bytes BLOB NOT NULL
 );
 
--- Engine-side JWZ thread roots (plan §1.7).
+-- Engine-side JWZ thread roots (plan §1.7). A thread is identified per account
+-- by its root Message-ID, so lookups by (account, root) must be unique.
 CREATE TABLE IF NOT EXISTS threads (
     thread_id       TEXT PRIMARY KEY NOT NULL,
     account_id      TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     root_message_id TEXT
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_threads_root
+    ON threads (account_id, root_message_id);
 
 -- POP3 UIDL -> stable-id map (POP3 has no UIDs; UIDL is the identity).
 CREATE TABLE IF NOT EXISTS pop3_uidl (

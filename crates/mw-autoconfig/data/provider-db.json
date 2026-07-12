@@ -1,0 +1,44 @@
+{
+  "_comment": "Offline provider DB (plan §0 rung 4). tls: implicit|start-tls|none; auth: password|oauth2. Domains lowercased.",
+  "gmail.com": {
+    "imap": { "host": "imap.gmail.com", "port": 993, "tls": "implicit" },
+    "pop3": { "host": "pop.gmail.com", "port": 995, "tls": "implicit" },
+    "smtp": { "host": "smtp.gmail.com", "port": 465, "tls": "implicit" },
+    "auth": "oauth2"
+  },
+  "googlemail.com": {
+    "imap": { "host": "imap.gmail.com", "port": 993, "tls": "implicit" },
+    "pop3": { "host": "pop.gmail.com", "port": 995, "tls": "implicit" },
+    "smtp": { "host": "smtp.gmail.com", "port": 465, "tls": "implicit" },
+    "auth": "oauth2"
+  },
+  "outlook.com": {
+    "imap": { "host": "outlook.office365.com", "port": 993, "tls": "implicit" },
+    "pop3": { "host": "outlook.office365.com", "port": 995, "tls": "implicit" },
+    "smtp": { "host": "smtp.office365.com", "port": 587, "tls": "start-tls" },
+    "auth": "oauth2"
+  },
+  "hotmail.com": {
+    "imap": { "host": "outlook.office365.com", "port": 993, "tls": "implicit" },
+    "pop3": { "host": "outlook.office365.com", "port": 995, "tls": "implicit" },
+    "smtp": { "host": "smtp.office365.com", "port": 587, "tls": "start-tls" },
+    "auth": "oauth2"
+  },
+  "yahoo.com": {
+    "imap": { "host": "imap.mail.yahoo.com", "port": 993, "tls": "implicit" },
+    "pop3": { "host": "pop.mail.yahoo.com", "port": 995, "tls": "implicit" },
+    "smtp": { "host": "smtp.mail.yahoo.com", "port": 465, "tls": "implicit" },
+    "auth": "password"
+  },
+  "fastmail.com": {
+    "imap": { "host": "imap.fastmail.com", "port": 993, "tls": "implicit" },
+    "pop3": { "host": "pop.fastmail.com", "port": 995, "tls": "implicit" },
+    "smtp": { "host": "smtp.fastmail.com", "port": 465, "tls": "implicit" },
+    "auth": "password"
+  },
+  "icloud.com": {
+    "imap": { "host": "imap.mail.me.com", "port": 993, "tls": "implicit" },
+    "smtp": { "host": "smtp.mail.me.com", "port": 587, "tls": "start-tls" },
+    "auth": "password"
+  }
+}
