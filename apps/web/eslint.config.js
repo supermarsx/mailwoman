@@ -4,7 +4,14 @@ import solid from 'eslint-plugin-solid/configs/typescript';
 
 export default tseslint.config(
   {
-    ignores: ['dist/**', 'node_modules/**', 'e2e/**', 'coverage/**'],
+    ignores: [
+      'dist/**',
+      'node_modules/**',
+      'e2e/**',
+      'coverage/**',
+      // Vendored third-party build artifact (self-hosted pdf.js worker, e8).
+      'public/pdf.worker.mjs',
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
