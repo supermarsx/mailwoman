@@ -187,14 +187,15 @@ async fn api(
             continue;
         }
         let name = arr[0].as_str().unwrap_or_default();
-        let args = &arr[1];
         let call_id = arr[2].as_str().unwrap_or("c0");
-        let resp_args = dispatch(&store, name, args);
-        let resp_name = match name {
-            "Email/set" | "EmailSubmission/set" => name.to_string(),
-            _ => name.to_string(),
-        };
-        responses.push(json!([resp_name, resp_args, call_id]));
+        // Resolve JMAP result references (RFC 8620 §3.7) before dispatch: an arg
+        // key like "#ids" -> {resultOf, name, path} is replaced by the value at
+        // `path` inside the referenced prior response, stored under "ids". The web
+        // client chains Email/query -> Email/get this way, so the mock must too.
+        let mut args = arr[1].clone();
+        resolve_references(&mut args, &responses);
+        let resp_args = dispatch(&store, name, &args);
+        responses.push(json!([name.to_string(), resp_args, call_id]));
     }
 
     axum::Json(json!({
@@ -324,6 +325,39 @@ fn dispatch(store: &MailStore, name: &str, args: &Value) -> Value {
     }
 }
 
+/// Resolve JMAP result references (RFC 8620 §3.7) in a method's arguments.
+/// A key like `"#ids"` with value `{ "resultOf": <callId>, "name": <method>,
+/// "path": <json-pointer> }` is replaced by the value found at `path` inside the
+/// referenced prior response's arguments, stored under the de-`#`'d key
+/// (e.g. `"ids"`). Unresolvable references are dropped.
+fn resolve_references(args: &mut Value, responses: &[Value]) {
+    let Some(obj) = args.as_object() else {
+        return;
+    };
+    let ref_keys: Vec<String> = obj.keys().filter(|k| k.starts_with('#')).cloned().collect();
+    for key in ref_keys {
+        let spec = args[key.as_str()].clone();
+        if let (Some(result_of), Some(path)) = (
+            spec.get("resultOf").and_then(Value::as_str),
+            spec.get("path").and_then(Value::as_str),
+        ) {
+            let resolved = responses
+                .iter()
+                .find(|r| r.get(2).and_then(Value::as_str) == Some(result_of))
+                .and_then(|r| r.get(1))
+                .and_then(|a| a.pointer(path))
+                .cloned();
+            if let Some(value) = resolved {
+                let target = key.trim_start_matches('#');
+                args[target] = value;
+            }
+        }
+        if let Some(map) = args.as_object_mut() {
+            map.remove(&key);
+        }
+    }
+}
+
 fn inbox_count(store: &MailStore) -> u64 {
     count_in(store, "mb-inbox")
 }
@@ -375,6 +409,37 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), 401);
+    }
+
+    #[tokio::test]
+    async fn resolves_result_references() {
+        // Email/query -> Email/get chained by a `#ids` result reference, exactly
+        // as the web client issues it. Without reference resolution Email/get
+        // sees no `ids` and returns an empty list (regression guard).
+        let addr = spawn().await;
+        let c = reqwest::Client::new();
+        let res = c
+            .post(format!("http://{addr}/jmap"))
+            .header("authorization", auth())
+            .json(&json!({
+                "using": ["urn:ietf:params:jmap:mail"],
+                "methodCalls": [
+                    ["Email/query", {"filter": {"inMailbox": "mb-inbox"}}, "q"],
+                    ["Email/get", {
+                        "#ids": {"resultOf": "q", "name": "Email/query", "path": "/ids"},
+                        "properties": ["id", "subject"]
+                    }, "g"]
+                ]
+            }))
+            .send()
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap();
+        assert_eq!(res["methodResponses"][1][2], "g");
+        let list = res["methodResponses"][1][1]["list"].as_array().unwrap();
+        assert_eq!(list.len(), 3);
     }
 
     #[tokio::test]
