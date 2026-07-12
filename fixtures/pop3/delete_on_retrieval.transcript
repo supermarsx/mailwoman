@@ -1,0 +1,20 @@
+S: +OK mailwoman POP3 ready
+C: USER u
+S: +OK
+C: PASS p
+S: +OK ready
+C: UIDL
+S: +OK unique-id listing follows
+S: 1 UIDL-A
+S: 2 UIDL-B
+S: .
+C: RETR 2
+S: +OK 20 octets
+S: Subject: X
+S:
+S: hi there
+S: .
+C: DELE 2
+S: +OK message 2 deleted
+C: QUIT
+S: +OK bye

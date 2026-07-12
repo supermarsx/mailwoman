@@ -1,0 +1,21 @@
+S: +OK mailwoman POP3 ready
+C: USER u
+S: +OK
+C: PASS p
+S: +OK ready
+C: UIDL
+S: +OK unique-id listing follows
+S: 1 UIDL-A
+S: 2 UIDL-B
+S: .
+C: RETR 2
+S: +OK 118 octets
+S: From: a@example.com
+S: To: b@example.com
+S: Subject: Hello
+S:
+S: Body line one.
+S: Body line two.
+S: .
+C: QUIT
+S: +OK bye

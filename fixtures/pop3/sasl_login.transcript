@@ -1,0 +1,11 @@
+S: +OK mailwoman POP3 ready
+C: AUTH LOGIN
+S: + VXNlcm5hbWU6
+C: YWxpY2U=
+S: + UGFzc3dvcmQ6
+C: c2VjcmV0
+S: +OK authenticated
+C: STAT
+S: +OK 3 4096
+C: QUIT
+S: +OK bye

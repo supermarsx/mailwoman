@@ -1,0 +1,15 @@
+S: +OK mailwoman POP3 ready
+C: USER u
+S: +OK
+C: PASS p
+S: +OK mailbox locked and ready
+C: CAPA
+S: +OK capability list follows
+S: TOP
+S: UIDL
+S: PIPELINING
+S: STLS
+S: SASL PLAIN LOGIN XOAUTH2
+S: .
+C: QUIT
+S: +OK bye

@@ -1,0 +1,18 @@
+S: +OK mailwoman POP3 ready
+C: USER u
+S: +OK
+C: PASS p
+S: +OK ready
+C: UIDL
+S: +OK unique-id listing follows
+S: 1 UIDL-A
+S: .
+C: TOP 1 0
+S: +OK top of message follows
+S: From: x@example.com
+S: Date: {DATE}
+S: Subject: a recent message
+S:
+S: .
+C: QUIT
+S: +OK bye

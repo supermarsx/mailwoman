@@ -1,0 +1,23 @@
+[package]
+name = "mw-pop3-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Detach from the root workspace: cargo-fuzz builds this crate on its own
+# (nightly + a sanitizer runtime), so it must never join `cargo build --workspace`.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+mw-pop3 = { path = ".." }
+
+[[bin]]
+name = "response"
+path = "fuzz_targets/response.rs"
+test = false
+doc = false
+bench = false

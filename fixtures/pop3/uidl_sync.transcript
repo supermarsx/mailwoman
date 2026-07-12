@@ -1,0 +1,12 @@
+S: +OK mailwoman POP3 ready
+C: USER u
+S: +OK
+C: PASS p
+S: +OK ready
+C: UIDL
+S: +OK unique-id listing follows
+S: 1 UIDL-A
+S: 2 UIDL-B
+S: .
+C: QUIT
+S: +OK bye
