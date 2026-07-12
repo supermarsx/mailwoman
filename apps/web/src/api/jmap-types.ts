@@ -61,6 +61,8 @@ export interface Mailbox {
 
 export interface Email {
   id: Id;
+  /** The raw RFC 5322 message blob (for EML export / download). */
+  blobId?: Id;
   mailboxIds: Record<Id, boolean>;
   from: EmailAddress[] | null;
   to: EmailAddress[] | null;

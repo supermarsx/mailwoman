@@ -350,6 +350,95 @@ body {
   background: var(--danger);
 }
 
+/* ── V2 integration UI (t4-e13) ───────────────────────────────── */
+.sidebar__settings {
+  margin-left: auto;
+  padding: 0.1rem 0.4rem;
+}
+
+.mail-search {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--border, rgba(0, 0, 0, 0.1));
+}
+.mail-search__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.15));
+  border-radius: 6px;
+  background: var(--bg, #fff);
+  color: inherit;
+}
+
+/* Connection-status banner (realtime push). */
+.connection-toast {
+  position: fixed;
+  top: 0.8rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: 8px;
+  color: #fff;
+  background: #334155;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  z-index: 20;
+}
+.connection-toast--offline,
+.connection-toast--auth-expired {
+  background: var(--danger, #b91c1c);
+}
+.connection-toast--degraded {
+  background: #a16207;
+}
+.connection-toast--reconnected {
+  background: var(--success, #15803d);
+}
+.connection-toast__action {
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: transparent;
+  color: inherit;
+  border-radius: 5px;
+  padding: 0.1rem 0.5rem;
+  cursor: pointer;
+}
+
+/* Attachment strip + on-click viewer inside the Reader. */
+.reader__attachments {
+  padding: 0.5rem 0.8rem;
+  border-bottom: 1px solid var(--border, rgba(0, 0, 0, 0.1));
+}
+.attachment-modal {
+  position: fixed;
+  inset: 6% 6% 6% 6%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg, #fff);
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.2));
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  z-index: 30;
+  overflow: hidden;
+}
+.attachment-modal__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.5rem 0.8rem;
+  border-bottom: 1px solid var(--border, rgba(0, 0, 0, 0.1));
+}
+.attachment-modal__name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (max-width: 760px) {
   .shell {
     grid-template-columns: 1fr;

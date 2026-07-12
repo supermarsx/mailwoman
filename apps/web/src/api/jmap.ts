@@ -6,6 +6,7 @@ import {
   CAP_MAIL,
   CAP_SUBMISSION,
   type EmailAddress,
+  type FilterCondition,
   type Id,
   type Invocation,
   type JmapRequest,
@@ -32,6 +33,7 @@ export const HEADER_PROPERTIES = [
 
 export const BODY_PROPERTIES = [
   'id',
+  'blobId',
   'from',
   'to',
   'subject',
@@ -40,6 +42,7 @@ export const BODY_PROPERTIES = [
   'htmlBody',
   'textBody',
   'bodyValues',
+  'attachments',
   'keywords',
   'threadId',
   'pinned',
@@ -86,6 +89,27 @@ export function listMailbox(accountId: Id, mailboxId: Id, limit = 50): JmapReque
         '#ids': { resultOf: 'q', name: 'Email/query', path: '/ids' },
         properties: [...HEADER_PROPERTIES],
       },
+      'g',
+    ],
+  ]);
+}
+
+/**
+ * Search mail with the frozen `Email/query` filter set (§2.1). Any full-text /
+ * attachment field routes engine-side to `mw-search`; the whole operator string
+ * is carried in `filter.text` so the engine parses `from:`/`subject:`/… itself.
+ * One round-trip: query for ids, then fetch header props for exactly those ids.
+ */
+export function searchEmails(accountId: Id, filter: FilterCondition, limit = 50): JmapRequest {
+  return request(MAIL_USING, [
+    [
+      'Email/query',
+      { accountId, filter, sort: [{ property: 'receivedAt', isAscending: false }], limit, calculateTotal: true },
+      'q',
+    ],
+    [
+      'Email/get',
+      { accountId, '#ids': { resultOf: 'q', name: 'Email/query', path: '/ids' }, properties: [...HEADER_PROPERTIES] },
       'g',
     ],
   ]);

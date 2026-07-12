@@ -6,7 +6,7 @@
 // V2 surface is additive.
 
 import { createSignal, createMemo, type Accessor } from 'solid-js';
-import { ApiError, type LoginInput, type Me } from '../../api/client.ts';
+import { ApiError, NetworkError, type LoginInput, type Me } from '../../api/client.ts';
 import {
   cancelSubmission,
   emailGetFull,
@@ -14,11 +14,18 @@ import {
   mailboxGet,
   moveEmail,
   responseFor,
+  searchEmails,
   sendEnvelope,
   setEmailKeyword,
   setEmailMeta,
   type DraftInput,
 } from '../../api/jmap.ts';
+import {
+  buildDownloadUrl,
+  fetchObjectUrl,
+  loadAttachments,
+  type AttachmentItem,
+} from '../../viewers/attachments.ts';
 import {
   CAP_MAIL,
   type Email,
@@ -76,6 +83,26 @@ export interface MailSlice {
   accountId: Accessor<string | null>;
   sentMailboxId: Accessor<Id | null>;
   draftsMailboxId: Accessor<Id | null>;
+  /** JMAP `downloadUrl` template for blob/attachment/EML fetches (from session). */
+  downloadUrl: Accessor<string | null>;
+
+  // ── V2 integration (t4-e13): search, attachments, export, push refetch ──
+  /** Current search query string (empty when browsing a mailbox). */
+  search: Accessor<string>;
+  /** True while the list shows search results rather than a mailbox. */
+  searchActive: Accessor<boolean>;
+  /** Run an `Email/query` search (engine → mw-search); offline uses the reduced
+   *  cached-header search. Empty query clears back to the current mailbox. */
+  searchMessages(query: string): Promise<void>;
+  /** Clear search and reload the selected mailbox. */
+  clearSearch(): Promise<void>;
+  /** Refetch the current mailbox list in place (push/peer-sync), preserving the
+   *  open message + selection (unlike `selectMailbox`). No-op during search. */
+  refreshCurrentMailbox(): Promise<void>;
+  /** Load every attachment across the account for the Attachments module. */
+  listAttachments(): Promise<AttachmentItem[]>;
+  /** Export the open message as an `.eml` and trigger a browser download. */
+  exportMessage(): Promise<void>;
 
   // ── V2 derived views ──
   /** List rows to show: snoozed hidden, pinned floated to the top. */
@@ -178,6 +205,11 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   const [openEmail, setOpenEmail] = createSignal<Email | null>(null);
   const [sanitizedHtml, setSanitizedHtml] = createSignal<string | null>(null);
   const [readLoading, setReadLoading] = createSignal(false);
+  const [downloadUrl, setDownloadUrl] = createSignal<string | null>(null);
+  const [search, setSearch] = createSignal('');
+  const [searchActive, setSearchActive] = createSignal(false);
+
+  const isOffline = (): boolean => ctx.online?.() === false;
 
   const [inboxTab, setInboxTab] = createSignal<InboxTab>('focused');
   const [unifiedInbox, setUnifiedInbox] = createSignal(false);
@@ -234,6 +266,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   }
 
   // ── raw mutators (no undo) ───────────────────────────────────────────────
+  // Route a mutation to the offline replay queue when the network is down;
+  // otherwise send it directly and notify peer tabs to refetch (multi-window).
   async function rawKeyword(id: Id, keyword: string, on: boolean): Promise<void> {
     const acct = accountId();
     if (acct === null) return;
@@ -242,13 +276,22 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     if (on) keywords[keyword] = true;
     else delete keywords[keyword];
     patchMessage(id, { keywords });
+    if (isOffline() && ctx.enqueueOffline) {
+      await ctx.enqueueOffline('flag', { accountId: acct, emailId: id, keyword, value: on });
+      return;
+    }
     await client.jmap(setEmailKeyword(acct, id, keyword, on));
+    ctx.broadcastChange?.();
   }
   async function rawMeta(id: Id, patch: Partial<Email>): Promise<void> {
     const acct = accountId();
     if (acct === null) return;
     patchMessage(id, patch);
+    // Engine-local meta (pin/snooze/follow-up) has no offline-replay opcode in
+    // the frozen mw-outbox contract, so offline it stays an optimistic local patch.
+    if (isOffline()) return;
     await client.jmap(setEmailMeta(acct, id, patch));
+    ctx.broadcastChange?.();
   }
 
   // ── tags ─────────────────────────────────────────────────────────────────
@@ -288,7 +331,16 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const taken = takeFromList(id);
     if (taken === null) return;
     const priorMailboxIds = taken.email.mailboxIds;
-    await client.jmap(moveEmail(acct, id, { [targetMailboxId]: true }));
+    if (isOffline() && ctx.enqueueOffline) {
+      await ctx.enqueueOffline('move', {
+        accountId: acct,
+        emailId: id,
+        mailboxIds: { [targetMailboxId]: true },
+      });
+    } else {
+      await client.jmap(moveEmail(acct, id, { [targetMailboxId]: true }));
+      ctx.broadcastChange?.();
+    }
     showUndo(label, async () => {
       await client.jmap(moveEmail(acct, id, priorMailboxIds));
       restoreToList(taken);
@@ -441,6 +493,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   // ── V1 session + mail behaviour (unchanged) ───────────────────────────────
   async function loadMailboxes(): Promise<void> {
     const session = await client.session();
+    setDownloadUrl(session.downloadUrl);
     const primary = session.primaryAccounts[CAP_MAIL];
     const acct = primary ?? Object.keys(session.accounts)[0] ?? null;
     setAccountId(acct);
@@ -465,6 +518,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
 
   async function selectMailbox(id: Id): Promise<void> {
     setSelectedMailboxId(id);
+    setSearchActive(false);
+    setSearch('');
     setOpenEmail(null);
     setSanitizedHtml(null);
     const acct = accountId();
@@ -479,9 +534,20 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     }
   }
 
+  function readFromCache(id: Id): void {
+    const cached = messages().find((m) => m.id === id) ?? null;
+    setOpenEmail(cached);
+    setSanitizedHtml(cached !== null ? extractHtmlBody(cached) : null);
+  }
+
   async function openMessage(id: Id): Promise<void> {
     const acct = accountId();
     if (acct === null) return;
+    // Offline: render the cached header's escaped preview (a reduced read).
+    if (isOffline()) {
+      readFromCache(id);
+      return;
+    }
     setReadLoading(true);
     setSanitizedHtml(null);
     try {
@@ -493,6 +559,10 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
         const clean = await client.sanitize(raw);
         setSanitizedHtml(clean);
       }
+    } catch (err) {
+      // A mid-read network drop degrades to the cached header, not an error.
+      if (err instanceof NetworkError) readFromCache(id);
+      else throw err;
     } finally {
       setReadLoading(false);
     }
@@ -501,6 +571,92 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   function closeMessage(): void {
     setOpenEmail(null);
     setSanitizedHtml(null);
+  }
+
+  // ── V2 integration: push/peer refetch, search, attachments, export ────────
+  async function refreshCurrentMailbox(): Promise<void> {
+    const acct = accountId();
+    const cur = selectedMailboxId();
+    if (acct === null || cur === null || searchActive()) return;
+    try {
+      const res = await client.jmap(listMailbox(acct, cur));
+      setMessages(responseFor<EmailGetResponse>(res, 'g').list);
+    } catch {
+      // Transient/offline refetch — keep the current list.
+    }
+  }
+
+  async function clearSearch(): Promise<void> {
+    setSearch('');
+    setSearchActive(false);
+    const cur = selectedMailboxId();
+    if (cur !== null) await selectMailbox(cur);
+  }
+
+  async function searchMessages(query: string): Promise<void> {
+    const acct = accountId();
+    if (acct === null) return;
+    setSearch(query);
+    if (query.trim() === '') {
+      await clearSearch();
+      return;
+    }
+    // Offline: the reduced substring search over the cached header slice.
+    if (isOffline() && ctx.searchOffline) {
+      setMessages(ctx.searchOffline({ text: query }));
+      setSearchActive(true);
+      return;
+    }
+    setListLoading(true);
+    try {
+      // The whole operator string rides `filter.text`; the engine routes it to
+      // mw-search, which parses `from:`/`subject:`/`larger:`/… itself (§2.1).
+      const res = await client.jmap(searchEmails(acct, { text: query }));
+      setMessages(responseFor<EmailGetResponse>(res, 'g').list);
+      setSearchActive(true);
+    } finally {
+      setListLoading(false);
+    }
+  }
+
+  async function listAttachments(): Promise<AttachmentItem[]> {
+    const acct = accountId();
+    if (acct === null) return [];
+    return loadAttachments(client, acct);
+  }
+
+  function triggerDownload(objectUrl: string, name: string): void {
+    if (typeof document === 'undefined') return;
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = name;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000);
+  }
+
+  async function exportMessage(): Promise<void> {
+    const email = openEmail();
+    const url = downloadUrl();
+    const acct = accountId();
+    if (email === null || acct === null || url === null) return;
+    const blobId = email.blobId;
+    if (blobId === undefined || blobId === '') {
+      showToast('error', 'Nothing to export');
+      return;
+    }
+    const base = (email.subject ?? 'message').replace(/[^\w.-]+/g, '_').slice(0, 80);
+    const name = `${base.length > 0 ? base : 'message'}.eml`;
+    try {
+      const dl = buildDownloadUrl(url, { accountId: acct, blobId, name, mime: 'message/rfc822' });
+      const objectUrl = await fetchObjectUrl(dl);
+      triggerDownload(objectUrl, name);
+      showToast('success', 'Exported .eml');
+    } catch {
+      showToast('error', 'Export failed');
+    }
   }
 
   async function sendMessage(input: SendInput): Promise<void> {
@@ -532,7 +688,15 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       ...(scheduled ? { sendAt: input.sendAt! } : {}),
     };
 
+    // Offline: queue the send for replay on reconnect (drainOutbox → sendEnvelope).
+    if (isOffline() && ctx.enqueueOffline) {
+      await ctx.enqueueOffline('send', { accountId: acct, draft });
+      showToast('info', 'Queued — will send when back online');
+      return;
+    }
+
     const res = await client.jmap(sendEnvelope(acct, draft));
+    ctx.broadcastChange?.();
     const setRes = responseFor<EmailSetResponse>(res, 'set');
     if (setRes.notCreated?.['draft'] !== undefined) {
       throw new Error(`draft rejected: ${setRes.notCreated['draft'].type}`);
@@ -617,6 +781,14 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     accountId,
     sentMailboxId: () => roleOf(mailboxes(), 'sent'),
     draftsMailboxId: () => roleOf(mailboxes(), 'drafts'),
+    downloadUrl,
+    search,
+    searchActive,
+    searchMessages,
+    clearSearch,
+    refreshCurrentMailbox,
+    listAttachments,
+    exportMessage,
 
     visibleMessages,
     focusedMessages,

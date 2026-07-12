@@ -16,6 +16,9 @@ import { createOutboxSlice, type OutboxSlice } from './slices/outbox.ts';
 import { createRealtimeSlice, type RealtimeSlice } from './slices/realtime.ts';
 import { createOfflineSlice, type OfflineSlice } from './slices/offline.ts';
 import { createThemeSlice, type ThemeSlice } from './slices/theme.ts';
+import { broadcastChannelAvailable, openStoreChannel } from '../worker/broadcast.ts';
+import { broadcastEnvelope } from '../worker/protocol.ts';
+import type { WorkerEnvelope } from '../contracts/worker.ts';
 
 export type ToastKind = 'info' | 'success' | 'error';
 export interface Toast {
@@ -69,18 +72,61 @@ function createStoreCore(client: Client): StoreCoreApi {
   return { online, toast, showToast };
 }
 
+/** A light peer-tab state-sync over the `mw-store` BroadcastChannel (plan §2.6).
+ *  This tab posts a ping after each mutation; a peer's ping calls `onRemote`
+ *  (which refetches). A real `BroadcastChannel` never echoes to the sender, so
+ *  tabs don't loop. Absent the API (jsdom / private windows) this is inert. The
+ *  full SharedWorker store proxy (worker/proxy.ts) is a deliberate follow-up. */
+function createPeerSync(onRemote: () => void): { publish(): void } {
+  if (!broadcastChannelAvailable()) return { publish: () => undefined };
+  const port = openStoreChannel();
+  if (port === null) return { publish: () => undefined };
+  port.onmessage = (ev: { data: unknown }): void => {
+    const env = ev.data as WorkerEnvelope;
+    if (env !== null && typeof env === 'object' && env.kind === 'broadcast' && env.method === 'state') {
+      onRemote();
+    }
+  };
+  return { publish: () => port.postMessage(broadcastEnvelope({ type: 'refetch' })) };
+}
+
 export function createAppState(client: Client): AppState {
   const core = createStoreCore(client);
   const ctx: SliceContext = { client, showToast: core.showToast };
 
-  const mail = createMailSlice(ctx);
-  // The remaining slices are seams the other web executors fill (plan §3);
-  // wired here so they compose into `AppState` as they grow.
+  // Independent slices first (no cross-slice deps).
   const tags = createTagsSlice(ctx);
-  const outbox = createOutboxSlice(ctx);
-  const realtime = createRealtimeSlice(ctx);
-  const offline = createOfflineSlice(ctx);
   const theme = createThemeSlice(ctx);
+  const offline = createOfflineSlice(ctx);
+  const outbox = createOutboxSlice(ctx);
+
+  // Late-bound so the mail slice can broadcast before the peer channel exists.
+  let publishPeerSync: () => void = () => undefined;
+
+  // Mail slice gets the V2 integration seams: offline queue routing, live
+  // network status, the reduced offline search, and the peer-sync broadcast.
+  const mailCtx: SliceContext = {
+    ...ctx,
+    online: core.online,
+    enqueueOffline: offline.enqueueOffline,
+    searchOffline: offline.searchOffline,
+    broadcastChange: () => publishPeerSync(),
+  };
+  const mail = createMailSlice(mailCtx);
+
+  // Realtime push (plan §2.2): the controller's reconciler fires `onChanged`
+  // for the datatypes that actually moved → refetch the live list / outbox.
+  // `startRealtime()`/`stopRealtime()` are driven by App around the session.
+  const realtime = createRealtimeSlice(ctx, {
+    onChanged: (accountId, types) => {
+      if (accountId !== mail.accountId()) return;
+      if (types.includes('Email') || types.includes('Mailbox')) void mail.refreshCurrentMailbox();
+      if (types.includes('EmailSubmission')) void outbox.refreshOutbox();
+    },
+  });
+
+  // Peer-tab sync: an inbound peer ping refetches the current mailbox.
+  publishPeerSync = createPeerSync(() => void mail.refreshCurrentMailbox()).publish;
 
   return {
     online: core.online,
