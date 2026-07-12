@@ -10,10 +10,12 @@ use anyhow::anyhow;
 use axum::body::{Body, Bytes};
 use axum::extract::{Request, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, Uri, header};
-use axum::middleware::Next;
+use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use base64::Engine as _;
+use rand::RngCore;
 use serde::Deserialize;
 use serde_json::json;
 
@@ -22,7 +24,17 @@ use mw_jmap::JmapClient;
 use mw_store::{Credentials, ServerKey, Store};
 
 pub mod engine_mode;
+pub mod fonts;
+pub mod hardening;
+pub mod push;
+pub mod tls;
+
 pub use engine_mode::ServerMode;
+pub use hardening::HardeningConfig;
+pub use push::PushHandle;
+pub use tls::{ReloadableResolver, TlsConfig, TlsListener};
+
+use hardening::SessionGuard;
 
 /// Cookie carrying the opaque session token.
 const COOKIE_NAME: &str = "mw_session";
@@ -31,7 +43,17 @@ const COOKIE_NAME: &str = "mw_session";
 /// a separate sandboxed `<iframe srcdoc>` with its own restrictions.
 const CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
      img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; frame-src 'self'; \
+     worker-src 'self' blob:; base-uri 'none'; form-action 'none'";
+
+/// A locked-down CSP returned alongside sanitized message HTML so the web app
+/// can apply it to the per-message iframe (§7.4). Additive: the SPA shell keeps
+/// [`CSP`]; this only constrains untrusted message bodies further.
+const MESSAGE_CSP: &str = "default-src 'none'; img-src blob: data:; \
+     style-src 'unsafe-inline'; font-src 'self'; media-src blob: data:; \
      base-uri 'none'; form-action 'none'";
+
+/// Cookie carrying the readable double-submit CSRF token.
+const CSRF_COOKIE: &str = hardening::CSRF_COOKIE;
 
 /// Embedded production assets. The folder must exist at compile time; a
 /// committed `.gitkeep` guarantees that before the web build runs. In dev,
@@ -53,20 +75,35 @@ pub struct AppConfig {
     pub cookie_secure: bool,
     /// Proxy a JMAP upstream (V0 default) or drive IMAP/POP3 via `mw-engine`.
     pub mode: ServerMode,
+    /// Web-hardening knobs (§7.4).
+    pub hardening: HardeningConfig,
 }
 
 #[derive(Clone)]
-struct AppState {
+pub(crate) struct AppState {
     store: Store,
     render_bin: Option<PathBuf>,
     web_dir: Option<PathBuf>,
     cookie_secure: bool,
     /// Present only in engine mode; drives IMAP/POP3 behind the JMAP surface.
     engine: Option<Arc<Engine>>,
+    /// Realtime push fan-out feeding `/jmap/ws` + `/jmap/eventsource`.
+    pub(crate) push: PushHandle,
+    /// In-process session idle/absolute-timeout tracking.
+    sessions: Arc<SessionGuard>,
+    hardening: HardeningConfig,
 }
 
 /// Build the fully-wired axum application from configuration.
 pub async fn build_app(config: AppConfig) -> anyhow::Result<Router> {
+    Ok(build_app_with_push(config).await?.0)
+}
+
+/// Like [`build_app`] but also returns the [`PushHandle`] feeding the realtime
+/// channel. In engine mode the handle mirrors the `Engine` broadcast; tests use
+/// the returned handle to inject synthetic `StateChange`s and prove the WS/SSE
+/// wire path without a live engine.
+pub async fn build_app_with_push(config: AppConfig) -> anyhow::Result<(Router, PushHandle)> {
     let key = match &config.server_key_hex {
         Some(h) => ServerKey::from_hex(h).map_err(|_| anyhow!("MW_SERVER_KEY is not valid hex"))?,
         None => {
@@ -93,14 +130,23 @@ pub async fn build_app(config: AppConfig) -> anyhow::Result<Router> {
         }
         ServerMode::Proxy => None,
     };
+    // Realtime push: engine mode bridges the engine broadcast into the channel.
+    let push = PushHandle::new();
+    if let Some(engine) = &engine {
+        tokio::spawn(push::bridge_engine(engine.subscribe(), push.clone()));
+    }
+
     let state = AppState {
         store,
         render_bin,
         web_dir: config.web_dir,
         cookie_secure: config.cookie_secure,
         engine,
+        push: push.clone(),
+        sessions: Arc::new(SessionGuard::new()),
+        hardening: config.hardening,
     };
-    Ok(router(state))
+    Ok((router(state), push))
 }
 
 fn router(state: AppState) -> Router {
@@ -108,15 +154,25 @@ fn router(state: AppState) -> Router {
         .route("/api/login", post(login))
         .route("/api/logout", post(logout))
         .route("/api/me", get(me))
+        .route("/api/session/rotate", post(rotate_session))
         .route("/api/discover", post(discover))
         .route("/api/sanitize", post(sanitize))
         .route("/jmap/session", get(jmap_session))
         .route("/jmap/api", post(jmap_api))
-        .route("/jmap/ws", get(jmap_ws))
-        .route("/jmap/eventsource", get(jmap_eventsource))
+        .route("/jmap/ws", get(push::jmap_ws))
+        .route("/jmap/eventsource", get(push::jmap_eventsource))
         .route("/healthz", get(|| async { "ok" }))
         .fallback(static_handler)
-        .layer(axum::middleware::from_fn(security_headers))
+        // Innermost: reject cross-origin / missing-CSRF writes before handlers.
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            state_change_guard,
+        ))
+        // Outermost: security headers on every response (incl. guard rejections).
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            security_headers,
+        ))
         .with_state(state)
 }
 
@@ -124,7 +180,7 @@ fn router(state: AppState) -> Router {
 // Security headers (SPEC §7.4)
 // ---------------------------------------------------------------------------
 
-async fn security_headers(req: Request, next: Next) -> Response {
+async fn security_headers(State(state): State<AppState>, req: Request, next: Next) -> Response {
     let mut resp = next.run(req).await;
     let h = resp.headers_mut();
     h.insert("content-security-policy", HeaderValue::from_static(CSP));
@@ -138,7 +194,38 @@ async fn security_headers(req: Request, next: Next) -> Response {
         "cross-origin-opener-policy",
         HeaderValue::from_static("same-origin"),
     );
+    // Additive §7.4 deltas: COEP/CORP/Permissions-Policy.
+    hardening::apply_extra_headers(h, state.hardening.coep);
     resp
+}
+
+/// Reject state-changing requests that fail the Origin/Referer same-site check
+/// (always on — effective CSRF defense needing no client change) and, when
+/// `csrf_strict` is enabled, the double-submit token check.
+async fn state_change_guard(State(state): State<AppState>, req: Request, next: Next) -> Response {
+    if hardening::is_state_changing(req.method()) {
+        if !hardening::origin_ok(req.headers()) {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({ "error": "cross-origin request rejected" })),
+            )
+                .into_response();
+        }
+        // Pre-auth bootstrap routes have no prior token to double-submit; they
+        // are covered by the Origin check + SameSite=Strict cookie instead.
+        let csrf_exempt = matches!(req.uri().path(), "/api/login" | "/api/discover");
+        if state.hardening.csrf_strict
+            && !csrf_exempt
+            && !hardening::csrf_double_submit_ok(req.headers())
+        {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({ "error": "missing or invalid CSRF token" })),
+            )
+                .into_response();
+        }
+    }
+    next.run(req).await
 }
 
 // ---------------------------------------------------------------------------
@@ -202,16 +289,16 @@ async fn login(State(state): State<AppState>, Json(body): Json<LoginReq>) -> Res
             return (StatusCode::INTERNAL_SERVER_ERROR, "server error").into_response();
         }
     };
-
-    let mut resp = Json(json!({
-        "ok": true,
-        "accountId": account_id,
-        "username": username,
-    }))
-    .into_response();
-    resp.headers_mut()
-        .append(header::SET_COOKIE, session_cookie(&id, state.cookie_secure));
-    resp
+    state.sessions.begin(&id);
+    authenticated_response(
+        &state,
+        &id,
+        json!({
+            "ok": true,
+            "accountId": account_id,
+            "username": username,
+        }),
+    )
 }
 
 /// Engine-mode login: `jmapUrl` is read as an `imap(s)://`/`pop3(s)://` server
@@ -243,15 +330,37 @@ async fn engine_login(state: &AppState, engine: &Arc<Engine>, body: LoginReq) ->
             return (StatusCode::INTERNAL_SERVER_ERROR, "server error").into_response();
         }
     };
-    let mut resp = Json(json!({
-        "ok": true,
-        "accountId": account_id,
-        "username": username,
-    }))
-    .into_response();
-    resp.headers_mut()
-        .append(header::SET_COOKIE, session_cookie(&id, state.cookie_secure));
+    state.sessions.begin(&id);
+    authenticated_response(
+        state,
+        &id,
+        json!({
+            "ok": true,
+            "accountId": account_id,
+            "username": username,
+        }),
+    )
+}
+
+/// Build a login/rotate success response: set the session cookie, mint a fresh
+/// double-submit CSRF token (cookie + body), and return the JSON payload.
+fn authenticated_response(state: &AppState, id: &str, mut body: serde_json::Value) -> Response {
+    let token = new_csrf_token();
+    if let Some(obj) = body.as_object_mut() {
+        obj.insert("csrfToken".into(), json!(token));
+    }
+    let mut resp = Json(body).into_response();
+    let h = resp.headers_mut();
+    h.append(header::SET_COOKIE, session_cookie(id, state.cookie_secure));
+    h.append(header::SET_COOKIE, csrf_cookie(&token, state.cookie_secure));
     resp
+}
+
+/// A random, unguessable double-submit CSRF token.
+fn new_csrf_token() -> String {
+    let mut bytes = [0u8; 24];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
 
 /// `POST /api/discover {email}` → the autoconfig ladder's candidate server set
@@ -285,6 +394,7 @@ async fn discover(Json(body): Json<DiscoverReq>) -> Response {
 async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Some(id) = cookie_value(&headers) {
         let _ = state.store.delete_session(&id).await;
+        state.sessions.forget(&id);
     }
     let mut resp = StatusCode::NO_CONTENT.into_response();
     resp.headers_mut()
@@ -293,14 +403,61 @@ async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
 }
 
 async fn me(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    match authed(&state, &headers).await {
-        Ok(session) => Json(json!({
-            "username": session.username,
-            "accountId": session.account_id,
-        }))
-        .into_response(),
-        Err(resp) => resp,
+    let session = match authed(&state, &headers).await {
+        Ok(s) => s,
+        Err(resp) => return resp,
+    };
+    let mut body = json!({
+        "username": session.username,
+        "accountId": session.account_id,
+    });
+    // Ensure the client holds a CSRF token without rotating one it already has.
+    let existing = hardening::cookie(&headers, CSRF_COOKIE);
+    let token = existing.clone().unwrap_or_else(new_csrf_token);
+    if let Some(obj) = body.as_object_mut() {
+        obj.insert("csrfToken".into(), json!(token));
     }
+    let mut resp = Json(body).into_response();
+    if existing.is_none() {
+        resp.headers_mut()
+            .append(header::SET_COOKIE, csrf_cookie(&token, state.cookie_secure));
+    }
+    resp
+}
+
+/// `POST /api/session/rotate` — issue a new session id (and CSRF token) for the
+/// current credentials and invalidate the old id. Rotation caps how long any one
+/// identifier is valid without forcing re-login (§7.4). Origin-checked like all
+/// state-changing routes.
+async fn rotate_session(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let old_id = match cookie_value(&headers) {
+        Some(id) => id,
+        None => return unauthorized(),
+    };
+    let session = match authed(&state, &headers).await {
+        Ok(s) => s,
+        Err(resp) => return resp,
+    };
+    let new_id = match state
+        .store
+        .create_session(
+            &session.account_id,
+            &session.username,
+            &session.jmap_url,
+            &session.api_url,
+            &session.credentials,
+        )
+        .await
+    {
+        Ok(id) => id,
+        Err(e) => {
+            tracing::error!("failed to rotate session: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "server error").into_response();
+        }
+    };
+    let _ = state.store.delete_session(&old_id).await;
+    state.sessions.rotate(&old_id, &new_id);
+    authenticated_response(&state, &new_id, json!({ "ok": true }))
 }
 
 // ---------------------------------------------------------------------------
@@ -395,31 +552,6 @@ fn upstream_error() -> Response {
 }
 
 // ---------------------------------------------------------------------------
-// Realtime push (plan §2.2) — scaffolder stubs, wired by e10.
-// ---------------------------------------------------------------------------
-
-/// `GET /jmap/ws` — JMAP-over-WebSocket push (RFC 8887). Returns 501 until e10
-/// upgrades the connection and drains the engine `broadcast` per authenticated
-/// session (plan §2.2).
-async fn jmap_ws() -> Response {
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        "jmap websocket push: wired by e10",
-    )
-        .into_response()
-}
-
-/// `GET /jmap/eventsource` — SSE fallback pushing the same RFC 8887
-/// `StateChange` frames (plan §2.2). Returns 501 until e10.
-async fn jmap_eventsource() -> Response {
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        "jmap eventsource push: wired by e10",
-    )
-        .into_response()
-}
-
-// ---------------------------------------------------------------------------
 // Sanitize (via the mw-render child — the SPEC §7.5 boundary)
 // ---------------------------------------------------------------------------
 
@@ -446,7 +578,9 @@ async fn sanitize(
         },
         None => mw_sanitize::sanitize_email_html(&body.html),
     };
-    Json(json!({ "html": clean })).into_response()
+    // `html` is the existing contract; `csp` is additive — the web app may apply
+    // it to the per-message iframe. Existing consumers read only `html`.
+    Json(json!({ "html": clean, "csp": MESSAGE_CSP })).into_response()
 }
 
 /// Spawn `mw-render`, write one job line, read one output line, wait, exit.
@@ -588,15 +722,45 @@ fn cookie_value(headers: &HeaderMap) -> Option<String> {
 }
 
 /// Resolve the authenticated session from the cookie, or return a 401 response.
-async fn authed(state: &AppState, headers: &HeaderMap) -> Result<mw_store::Session, Response> {
+/// Also enforces the idle/absolute session timeouts (§7.4): an expired session is
+/// deleted and rejected.
+pub(crate) async fn authed(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<mw_store::Session, Response> {
     let id = cookie_value(headers).ok_or_else(unauthorized)?;
     let session = state
         .store
         .get_session(&id)
         .await
         .map_err(|_| unauthorized())?;
+    if let Err(reason) = state.sessions.check(&id, &state.hardening) {
+        tracing::info!("session {id} expired ({reason:?})");
+        let _ = state.store.delete_session(&id).await;
+        state.sessions.forget(&id);
+        return Err(session_expired());
+    }
     let _ = state.store.touch_session(&id).await;
     Ok(session)
+}
+
+/// 401 for an expired session — distinct body so the client re-authenticates.
+fn session_expired() -> Response {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(json!({ "error": "session expired" })),
+    )
+        .into_response()
+}
+
+/// The readable double-submit CSRF cookie (NOT HttpOnly — the SPA must read it
+/// to echo it back; SameSite=Strict keeps it same-origin).
+fn csrf_cookie(token: &str, secure: bool) -> HeaderValue {
+    let mut c = format!("{CSRF_COOKIE}={token}; SameSite=Strict; Path=/");
+    if secure {
+        c.push_str("; Secure");
+    }
+    HeaderValue::from_str(&c).expect("csrf token is url-safe base64")
 }
 
 /// Resolve a possibly-relative JMAP `apiUrl` against the origin of the
