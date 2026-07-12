@@ -1,0 +1,21 @@
+From: Judy <judy@example.org>
+To: Mallory <mallory@example.net>
+Subject: Inline image
+Date: Sat, 12 Jul 2026 13:00:00 +0000
+Message-ID: <cid-1@example.org>
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="REL"; type="text/html"
+
+--REL
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+<p>Logo: <img src=3D"cid:logo@example.org"></p>
+--REL
+Content-Type: image/png; name="logo.png"
+Content-Transfer-Encoding: base64
+Content-ID: <logo@example.org>
+Content-Disposition: inline; filename="logo.png"
+
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==
+--REL--

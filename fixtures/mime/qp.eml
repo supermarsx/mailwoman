@@ -1,0 +1,11 @@
+From: Niaj <niaj@example.org>
+To: Olivia <olivia@example.net>
+Subject: Quoted printable
+Date: Sat, 12 Jul 2026 14:00:00 +0000
+Message-ID: <qp-1@example.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+This line is very long and continues on the next physical line via a soft =
+line break, and here is an equals sign: =3D and an accented e: =C3=A9.

@@ -8,7 +8,10 @@ repository.workspace = true
 
 [dependencies]
 mw-jmap = { workspace = true }
-mail-parser = { workspace = true }
+# `full_encoding` enables the extended charset tables (Shift_JIS, EUC, GBK, …)
+# via encoding_rs, already in the workspace license floor. Feature is additive,
+# so this does not alter the root manifest's dependency declaration.
+mail-parser = { workspace = true, features = ["full_encoding"] }
 mail-builder = { workspace = true }
 encoding_rs = { workspace = true }
 thiserror = { workspace = true }

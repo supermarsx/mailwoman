@@ -1,0 +1,21 @@
+From: "Carol, O'Brien" <carol@example.org>
+To: team@example.org, dave@example.net
+Cc: eve@example.org
+Subject: =?utf-8?q?Caf=C3=A9_meeting?=
+Date: Sat, 12 Jul 2026 10:00:00 +0000
+Message-ID: <alt-1@example.org>
+In-Reply-To: <simple-1@example.org>
+References: <root-0@example.org> <simple-1@example.org>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="BOUND1"
+
+--BOUND1
+Content-Type: text/plain; charset=utf-8
+
+Plain alternative body with cafe.
+--BOUND1
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+<html><body><p>HTML =C3=A9 body</p></body></html>
+--BOUND1--

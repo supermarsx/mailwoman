@@ -1,0 +1,19 @@
+From: Heidi <heidi@example.org>
+To: Ivan <ivan@example.net>
+Subject: Invoice
+Date: Sat, 12 Jul 2026 12:00:00 +0000
+Message-ID: <att-1@example.org>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="MIX"
+
+--MIX
+Content-Type: text/plain; charset=utf-8
+
+Invoice attached.
+--MIX
+Content-Type: application/pdf; name="invoice.pdf"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="invoice.pdf"
+
+JVBERi0xLjQKJcOkw7zDtsOfCg==
+--MIX--

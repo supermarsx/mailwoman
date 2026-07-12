@@ -1,0 +1,12 @@
+From: Alice Example <alice@example.org>
+To: Bob <bob@example.net>
+Subject: Simple greeting
+Date: Sat, 12 Jul 2026 09:30:00 +0000
+Message-ID: <simple-1@example.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Hello Bob,
+
+This is a plain text message.
+Regards, Alice

@@ -1,36 +1,37 @@
 #![forbid(unsafe_code)]
-//! `mw-mime` — RFC 5322 / MIME ↔ JMAP `Email` bridge (plan §0, SPEC §6.3).
+//! `mw-mime` — RFC 5322 / MIME ↔ JMAP `Email` bridge (plan §0/§2.2, SPEC §6.3).
 //!
-//! Parses untrusted RFC822 bytes (`mail-parser`) into `mw_jmap::Email` and
-//! builds outgoing MIME (`mail-builder`) from drafts/submissions. All parsing
-//! of untrusted bytes is designed to run inside the `mw-render` jail.
+//! Two directions:
+//! - [`parse`] turns raw RFC822 bytes (via `mail-parser`) into a [`Parsed`] pair
+//!   of a [`mw_jmap::Email`] (the exact shape `Email/get` must return) and a
+//!   [`ParsedEnvelope`] carrying the threading headers (`Message-ID`,
+//!   `In-Reply-To`, `References`) the engine's JWZ threading needs.
+//! - [`build`] serializes a [`ComposeRequest`] (via `mail-builder`) into the raw
+//!   bytes `mw-smtp` submits and the engine `APPEND`s to Sent/Drafts.
 //!
-//! Scaffolder note (e0): these are compiling stubs. The real mapping, charset
-//! handling, torture-corpus tests and the `cargo-fuzz` target are added by e1.
+//! Every function is pure over its inputs — no I/O, no global state — so the
+//! engine can fd-pass hostile bytes into a `mw-render` jail worker and call
+//! [`parse`] there. Parsing untrusted input never panics (see the `fuzz/`
+//! target and the corpus smoke test); malformed input yields
+//! [`MimeError::Parse`] or a best-effort partial [`Email`].
 
-use mw_jmap::Email;
+mod build;
+mod parse;
+
+pub use build::{ComposeRequest, build};
+pub use parse::{Parsed, ParsedEnvelope, decode_charset, parse};
+
+// Re-export the frozen JMAP types callers map to/from, so downstream crates
+// (mw-smtp, mw-engine) need not depend on `mw-jmap` directly for these.
+pub use mw_jmap::{Email, EmailAddress, EmailBodyPart, EmailBodyValue};
 
 /// Errors from MIME parse/build.
 #[derive(Debug, thiserror::Error)]
 pub enum MimeError {
-    /// The input could not be parsed as a MIME message.
+    /// The input could not be parsed as a MIME message at all.
     #[error("mime parse error: {0}")]
     Parse(String),
-    /// A message could not be serialized from the JMAP model.
+    /// A message could not be serialized from the compose request.
     #[error("mime build error: {0}")]
     Build(String),
-}
-
-/// Parse raw RFC822 bytes into a JMAP `Email` (headers, addresses, body
-/// structure, bodyValues, hasAttachment, size, preview).
-///
-/// Runs inside the render jail over untrusted bytes.
-pub fn parse(_raw: &[u8]) -> Result<Email, MimeError> {
-    todo!("e1: mail-parser -> mw_jmap::Email mapping")
-}
-
-/// Build the RFC822 bytes for an outgoing message (draft or submission) from a
-/// JMAP `Email`.
-pub fn build(_email: &Email) -> Result<Vec<u8>, MimeError> {
-    todo!("e1: mw_jmap::Email -> mail-builder MIME")
 }
