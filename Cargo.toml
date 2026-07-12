@@ -13,6 +13,9 @@ members = [
     "crates/mw-smtp",
     "crates/mw-engine",
     "crates/mw-autoconfig",
+    "crates/mw-search",
+    "crates/mw-sieve",
+    "crates/mw-export",
 ]
 
 [workspace.package]
@@ -61,6 +64,16 @@ encoding_rs = "0.8"
 async-trait = "0.1"
 data-encoding = "2"
 
+# V2 deps (plan §1.11 — all confirmed permissive, no GPL/LGPL/AGPL; Win+Linux).
+# `tantivy` is the engine-side full-text index (mw-search, e1). `tokio-tungstenite`
+# + `futures-util` back the JMAP WebSocket push server (mw-server, e10).
+# `tokio-rustls-acme` is the ACME/TLS listener, compatible with the tree's
+# rustls 0.23 / tokio-rustls 0.26. `vanilla-extract`/`pdfjs-dist`/`idb` are web-only.
+tantivy = "0.26"
+tokio-tungstenite = "0.30"
+tokio-rustls-acme = "0.9"
+futures-util = "0.3"
+
 mw-jmap = { path = "crates/mw-jmap" }
 mw-sanitize = { path = "crates/mw-sanitize" }
 mw-store = { path = "crates/mw-store" }
@@ -71,6 +84,9 @@ mw-pop3 = { path = "crates/mw-pop3" }
 mw-smtp = { path = "crates/mw-smtp" }
 mw-engine = { path = "crates/mw-engine" }
 mw-autoconfig = { path = "crates/mw-autoconfig" }
+mw-search = { path = "crates/mw-search" }
+mw-sieve = { path = "crates/mw-sieve" }
+mw-export = { path = "crates/mw-export" }
 
 [profile.release]
 overflow-checks = true

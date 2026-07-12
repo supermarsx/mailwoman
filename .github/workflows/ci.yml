@@ -219,6 +219,31 @@ jobs:
         run: docker compose -f docker-compose.dev.yml down -v
 
   # -------------------------------------------------------------------------
+  # V2 gate stubs (plan §3 e11). Placeholder jobs so the pipeline shape exists;
+  # e11 fills each with the real gate. They pass trivially until then and must
+  # NOT block the pipeline.
+  # -------------------------------------------------------------------------
+  search-bench:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "search p95<50ms over 100k (cargo bench trend, SPEC §23) — wired by e11"
+
+  lighthouse:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Lighthouse + 60fps virtualized-list check (SPEC §23) — wired by e11"
+
+  zap-baseline:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "ZAP baseline (SPEC §27 V2 exit) — wired by e11"
+
+  managesieve-conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "ManageSieve conformance vs Dovecot-Pigeonhole (continue-on-error) — wired by e11"
+
+  # -------------------------------------------------------------------------
   # E2E (engine mode): the SAME web UI, but mw-server in MW_MODE=engine driving
   # a REAL IMAP/SMTP account (Greenmail) through mw-engine — the V1 exit gate
   # "engine mode drives a real IMAP account through the unmodified web UI".

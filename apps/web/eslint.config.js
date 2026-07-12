@@ -42,4 +42,19 @@ export default tseslint.config(
       },
     },
   },
+  {
+    // Service Worker (public/sw.js, e5) runs in the ServiceWorkerGlobalScope.
+    files: ['public/**/*.js'],
+    languageOptions: {
+      globals: {
+        self: 'readonly',
+        caches: 'readonly',
+        clients: 'readonly',
+        fetch: 'readonly',
+        Request: 'readonly',
+        Response: 'readonly',
+        URL: 'readonly',
+      },
+    },
+  },
 );

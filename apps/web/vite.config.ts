@@ -1,10 +1,14 @@
 import { defineConfig } from 'vitest/config';
 import solid from 'vite-plugin-solid';
+import { vanillaExtractPlugin } from '@vanilla-extract/vite-plugin';
 
 const UPSTREAM = 'http://localhost:8080';
 
 export default defineConfig({
-  plugins: [solid()],
+  // vanilla-extract compiles `*.css.ts` token/theme files to static CSS at build
+  // (plan §2.3, e4). The hand-rolled Service Worker (e5) ships as `public/sw.js`,
+  // copied verbatim into `dist/` — no bundling step needed for it.
+  plugins: [solid(), vanillaExtractPlugin()],
   server: {
     port: 5173,
     proxy: {

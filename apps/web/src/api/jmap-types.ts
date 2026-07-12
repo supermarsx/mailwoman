@@ -55,6 +55,8 @@ export interface Mailbox {
   sortOrder: number;
   totalEmails: number;
   unreadEmails: number;
+  /** Set on a saved-search / search folder (V2 §2.1); absent on real mailboxes. */
+  mailwomanSearchQuery?: string;
 }
 
 export interface Email {
@@ -68,6 +70,17 @@ export interface Email {
   htmlBody?: EmailBodyPart[];
   textBody?: EmailBodyPart[];
   bodyValues?: Record<string, EmailBodyValue>;
+  // ── V2 additions (frozen §2.1). All optional so V1 fetches stay valid; e7
+  // adds them to HEADER_PROPERTIES / BODY_PROPERTIES as it lands the UX. ──
+  /** Labels + system keywords (`$seen/$flagged/$answered/$draft/…`). */
+  keywords?: Record<string, boolean>;
+  threadId?: Id;
+  /** Engine-local metadata surfaced as Email props (plan §1.5). */
+  pinned?: boolean;
+  snoozedUntil?: UtcDate | null;
+  followUpAt?: UtcDate | null;
+  hasAttachment?: boolean;
+  size?: number;
 }
 
 // ── Method-call argument / response shapes ──────────────────────────────────
@@ -84,12 +97,34 @@ export interface MailboxGetResponse {
   notFound: Id[];
 }
 
+/**
+ * The frozen `Email/query` filter set (§2.1). Any full-text/attachment field
+ * (`text`/`from`/`to`/`cc`/`subject`/`body`/`filename`/`hasAttachment`) routes
+ * to `mw-search` engine-side; a pure `inMailbox` filter stays the SQL fast path.
+ */
 export interface FilterCondition {
   inMailbox?: Id;
   inMailboxOtherThan?: Id[];
+  text?: string;
+  from?: string;
+  to?: string;
+  cc?: string;
+  subject?: string;
+  body?: string;
+  hasKeyword?: string;
+  notKeyword?: string;
+  hasAttachment?: boolean;
+  before?: UtcDate;
+  after?: UtcDate;
+  minSize?: number;
+  maxSize?: number;
+  /** Attachment filename substring. */
+  filename?: string;
 }
+/** Frozen `Email/query` sort properties (§2.1); default is `receivedAt` desc. */
+export type SortProperty = 'receivedAt' | 'size' | 'from' | 'subject';
 export interface Comparator {
-  property: string;
+  property: SortProperty | string;
   isAscending?: boolean;
 }
 export interface EmailQueryArgs {
@@ -173,14 +208,85 @@ export interface EmailSubmissionSetResponse {
   notCreated: Record<string, SetError> | null;
 }
 
+// ── V2: the real, persisted EmailSubmission (§2.1) — undo-send / send-later /
+//    the visible Outbox (`EmailSubmission/query`). ──
+export type UndoStatus = 'pending' | 'final' | 'canceled';
+export interface EmailSubmission {
+  id: Id;
+  emailId: Id;
+  identityId: Id | null;
+  /** Scheduled send time for send-later; `null` = fire after the hold window. */
+  sendAt: UtcDate | null;
+  undoStatus: UndoStatus;
+  /** Engine-held delay before SMTP dispatch (the undo-send window), in seconds. */
+  mailwomanHoldSeconds: number;
+}
+export interface EmailSubmissionGetResponse {
+  accountId: Id;
+  state: string;
+  list: EmailSubmission[];
+  notFound: Id[];
+}
+export interface EmailSubmissionQueryResponse {
+  accountId: Id;
+  queryState: string;
+  ids: Id[];
+  position: number;
+  total?: number;
+}
+
+// ── V2: sending identities (§2.1) — multiple from-addresses + signatures. ──
+export interface Identity {
+  id: Id;
+  name: string;
+  email: string;
+  replyTo: string | null;
+  signatureHtml: string | null;
+  signatureText: string | null;
+  sentMailboxId: Id | null;
+}
+export interface IdentityGetResponse {
+  accountId: Id;
+  state: string;
+  list: Identity[];
+  notFound: Id[];
+}
+
+// ── V2: real state + changes (§2.1). Shape shared by Email/changes,
+//    Mailbox/changes, EmailSubmission/changes. ──
+export interface ChangesResponse {
+  accountId: Id;
+  oldState: string;
+  newState: string;
+  created: Id[];
+  updated: Id[];
+  destroyed: Id[];
+  hasMoreChanges: boolean;
+}
+export interface QueryChangesResponse {
+  accountId: Id;
+  oldQueryState: string;
+  newQueryState: string;
+  removed: Id[];
+  added: Array<{ id: Id; index: number }>;
+}
+
 // ── Request / Response envelope ─────────────────────────────────────────────
 
 export type MethodName =
   | 'Mailbox/get'
+  | 'Mailbox/changes'
   | 'Email/query'
+  | 'Email/queryChanges'
   | 'Email/get'
   | 'Email/set'
-  | 'EmailSubmission/set';
+  | 'Email/changes'
+  | 'EmailSubmission/set'
+  | 'EmailSubmission/get'
+  | 'EmailSubmission/query'
+  | 'EmailSubmission/changes'
+  | 'Identity/get'
+  | 'Identity/query';
 
 export type Invocation = [name: string, args: Record<string, unknown>, callId: string];
 

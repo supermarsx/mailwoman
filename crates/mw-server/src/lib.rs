@@ -112,6 +112,8 @@ fn router(state: AppState) -> Router {
         .route("/api/sanitize", post(sanitize))
         .route("/jmap/session", get(jmap_session))
         .route("/jmap/api", post(jmap_api))
+        .route("/jmap/ws", get(jmap_ws))
+        .route("/jmap/eventsource", get(jmap_eventsource))
         .route("/healthz", get(|| async { "ok" }))
         .fallback(static_handler)
         .layer(axum::middleware::from_fn(security_headers))
@@ -388,6 +390,31 @@ fn upstream_error() -> Response {
     (
         StatusCode::BAD_GATEWAY,
         Json(json!({ "error": "upstream request failed" })),
+    )
+        .into_response()
+}
+
+// ---------------------------------------------------------------------------
+// Realtime push (plan §2.2) — scaffolder stubs, wired by e10.
+// ---------------------------------------------------------------------------
+
+/// `GET /jmap/ws` — JMAP-over-WebSocket push (RFC 8887). Returns 501 until e10
+/// upgrades the connection and drains the engine `broadcast` per authenticated
+/// session (plan §2.2).
+async fn jmap_ws() -> Response {
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        "jmap websocket push: wired by e10",
+    )
+        .into_response()
+}
+
+/// `GET /jmap/eventsource` — SSE fallback pushing the same RFC 8887
+/// `StateChange` frames (plan §2.2). Returns 501 until e10.
+async fn jmap_eventsource() -> Response {
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        "jmap eventsource push: wired by e10",
     )
         .into_response()
 }

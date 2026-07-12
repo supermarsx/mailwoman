@@ -12,12 +12,13 @@ use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
 
 use mw_store::{MailboxUpsert, MessageUpsert, Store};
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 
 use crate::account::AccountRuntime;
 use crate::backend::{
     ChangeEvent, ChangeSink, EngineError, MailboxDelta, MessageRef, RawMailbox, RawMessage, Result,
 };
+use crate::change::StateChange;
 use crate::mapping::{
     cursor_from_json, cursor_to_json, flags_to_json, initial_cursor, role_to_store,
 };
@@ -34,20 +35,32 @@ pub(crate) const SESSION_STATE: &str = "engine-0";
 pub struct Engine {
     store: Store,
     accounts: Mutex<HashMap<String, AccountRuntime>>,
+    /// Realtime change fan-out (plan §1.2, §2.2). `start_watch` will
+    /// `broadcast.send(StateChange{…})` after each resync (e9); `mw-server`
+    /// (e10) subscribes per session to feed `/jmap/ws` + `/jmap/eventsource`.
+    changes: broadcast::Sender<StateChange>,
 }
 
 impl Engine {
     /// Build an engine over an open store with no accounts yet.
     pub fn new(store: Store) -> Self {
+        let (changes, _rx) = broadcast::channel(256);
         Self {
             store,
             accounts: Mutex::new(HashMap::new()),
+            changes,
         }
     }
 
     /// The underlying store (so the server can persist accounts/sessions).
     pub fn store(&self) -> &Store {
         &self.store
+    }
+
+    /// Subscribe to the realtime `StateChange` stream (plan §2.2). Each
+    /// authenticated WS/SSE session in `mw-server` (e10) holds one receiver.
+    pub fn subscribe(&self) -> broadcast::Receiver<StateChange> {
+        self.changes.subscribe()
     }
 
     /// Register (or replace) a connected account's runtime.

@@ -1,0 +1,12 @@
+[package]
+name = "mw-sieve"
+description = "GUI rule model <-> Sieve (RFC 5228) + ManageSieve (RFC 5804) + engine-side evaluator (plan §3 e2)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

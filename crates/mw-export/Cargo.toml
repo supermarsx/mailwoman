@@ -1,0 +1,12 @@
+[package]
+name = "mw-export"
+description = "Server-side message export: EML / mbox / TXT / Markdown (plan §3 e3)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+mail-parser = { workspace = true }
+mail-builder = { workspace = true }
+thiserror = { workspace = true }

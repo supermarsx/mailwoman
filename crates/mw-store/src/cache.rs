@@ -585,6 +585,27 @@ impl Store {
         Ok(())
     }
 
+    /// Move a message to a new mailbox **preserving its `stable_id`** (plan
+    /// §1.4). This is the single move path in V2: it updates the `messages` row
+    /// in place at the new `(mailbox_id, uidvalidity, uid)`, so `message_meta`,
+    /// tags, and the search index all stay keyed on the same id. Replaces the V1
+    /// delete+reinsert in `Engine::move_email` (jmap.rs:435), which minted a new
+    /// id and broke tag/meta/index keying.
+    ///
+    /// Scaffolder note (e0): SIGNATURE STUB only. e9 implements the in-place
+    /// UPDATE and rewires `Engine::move_email` + the search-index re-key; the V1
+    /// move path is left intact until then.
+    #[allow(unused_variables)]
+    pub async fn relocate_message(
+        &self,
+        stable_id: &str,
+        new_mailbox_id: &str,
+        new_uid: u32,
+        new_uidvalidity: u32,
+    ) -> Result<(), StoreError> {
+        todo!("e9: in-place move preserving stable_id (plan §1.4)")
+    }
+
     fn message_from_row(row: &sqlx::sqlite::SqliteRow) -> Message {
         Message {
             stable_id: row.get("stable_id"),
