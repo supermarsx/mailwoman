@@ -1,0 +1,37 @@
+{
+  "$comment": "Self-hosted font manifest (plan §3 e4, SPEC §17: font-src 'self'). The `mailwoman fonts pull` subcommand (e10) reads this to download from Google Fonts, unicode-range subset, and write the woff2 binaries next to it — which apps/web serves from /fonts/. styles/fonts.css.ts mirrors this face list; keep the two in sync. Until the puller runs, the @font-face `local()` sources + the token stacks' system fallbacks keep the UI intact.",
+  "subsets": ["latin", "latin-ext"],
+  "formats": ["woff2"],
+  "display": "swap",
+  "families": [
+    {
+      "family": "Inter",
+      "role": "ui",
+      "source": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700",
+      "faces": [
+        { "weight": 400, "style": "normal", "file": "inter-400.woff2" },
+        { "weight": 500, "style": "normal", "file": "inter-500.woff2" },
+        { "weight": 600, "style": "normal", "file": "inter-600.woff2" },
+        { "weight": 700, "style": "normal", "file": "inter-700.woff2" }
+      ]
+    },
+    {
+      "family": "Newsreader",
+      "role": "reading",
+      "source": "https://fonts.googleapis.com/css2?family=Newsreader:wght@400;600",
+      "faces": [
+        { "weight": 400, "style": "normal", "file": "newsreader-400.woff2" },
+        { "weight": 600, "style": "normal", "file": "newsreader-600.woff2" }
+      ]
+    },
+    {
+      "family": "JetBrains Mono",
+      "role": "mono",
+      "source": "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500",
+      "faces": [
+        { "weight": 400, "style": "normal", "file": "jetbrains-mono-400.woff2" },
+        { "weight": 500, "style": "normal", "file": "jetbrains-mono-500.woff2" }
+      ]
+    }
+  ]
+}
