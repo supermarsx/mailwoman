@@ -2,7 +2,7 @@
 
 **Version:** 0.3.0-draft · **Date:** 2026-07-12 · **License:** MIT
 
-> An ultra-secure, high-performance webmail client and standalone mail app.
+> A high-performance, security-hardened webmail client and standalone mail app.
 > Spiritual successor to [SnappyMail](https://github.com/the-djmaze/snappymail)'s
 > "drop it anywhere, it just works" ethos — rebuilt on Rust + TypeScript, with a
 > JMAP-first architecture, verifiable end-to-end encryption, full PIM modules

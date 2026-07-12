@@ -1,6 +1,6 @@
 # Mailwoman 📬
 
-An ultra-secure, high-performance webmail client and personal-information
+A high-performance, security-hardened webmail client and personal-information
 manager. Inspired by [SnappyMail](https://github.com/the-djmaze/snappymail)'s
 drop-it-anywhere ethos, rebuilt on **Rust + TypeScript** with a JMAP-first
 architecture, verifiable end-to-end encryption (OpenPGP, S/MIME, post-quantum
