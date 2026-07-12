@@ -1,6 +1,9 @@
 /target
 node_modules/
-dist/
+apps/web/dist/*
+!apps/web/dist/.gitkeep
 .orchestration/
 .env
 *.local
+test-results/
+playwright-report/

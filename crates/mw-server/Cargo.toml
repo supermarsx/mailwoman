@@ -1,0 +1,39 @@
+[package]
+name = "mw-server"
+description = "Mailwoman server: session auth, JMAP proxy, sanitize worker, embedded SPA"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "mw_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mailwoman"
+path = "src/main.rs"
+
+[dependencies]
+mw-jmap = { workspace = true }
+mw-store = { workspace = true }
+mw-sanitize = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+tower-http = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+bytes = { workspace = true }
+reqwest = { workspace = true }
+rust-embed = { workspace = true }
+mime_guess = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+mw-mock-jmap = { workspace = true }
+reqwest = { workspace = true, features = ["cookies"] }
+tokio = { workspace = true }
+serde_json = { workspace = true }

@@ -1,0 +1,27 @@
+[package]
+name = "mw-mock-jmap"
+description = "In-repo minimal JMAP server for deterministic Mailwoman tests and E2E"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "mw_mock_jmap"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mw-mock-jmap"
+path = "src/main.rs"
+
+[dependencies]
+axum = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+base64 = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+reqwest = { workspace = true }
