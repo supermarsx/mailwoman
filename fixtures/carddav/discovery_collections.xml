@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Radicale-style PROPFIND Depth:1 over the addressbook-home-set: the home
+     collection itself (resourcetype = collection only, filtered out) plus one
+     real address book (resourcetype includes addressbook). -->
+<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:carddav" xmlns:cs="http://calendarserver.org/ns/">
+  <d:response>
+    <d:href>/addressbooks/ada/</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:resourcetype><d:collection/></d:resourcetype>
+        <d:displayname>Home</d:displayname>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/addressbooks/ada/contacts/</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:resourcetype><d:collection/><c:addressbook/></d:resourcetype>
+        <d:displayname>Contacts</d:displayname>
+        <cs:getctag>3145</cs:getctag>
+        <d:sync-token>http://radicale.org/ns/sync/3145</d:sync-token>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+</d:multistatus>

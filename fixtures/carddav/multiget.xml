@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- addressbook-multiget REPORT reply (RFC 6352): two cards with getetag +
+     address-data vCard bodies (Radicale namespacing). -->
+<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:carddav">
+  <d:response>
+    <d:href>/addressbooks/ada/contacts/ada.vcf</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>"e-ada-2"</d:getetag>
+        <c:address-data>BEGIN:VCARD
+VERSION:3.0
+UID:urn:uuid:urn-ada
+FN:Ada Lovelace
+N:Lovelace;Ada;;Ms.;
+EMAIL;TYPE=WORK:ada@example.org
+TEL;TYPE=CELL:+1-555-0100
+ORG:Analytical Engines;Research
+TITLE:Mathematician
+END:VCARD
+</c:address-data>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/addressbooks/ada/contacts/grace.vcf</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>"e-grace-1"</d:getetag>
+        <c:address-data>BEGIN:VCARD
+VERSION:3.0
+UID:grace-1
+FN:Grace Hopper
+N:Hopper;Grace;;;
+EMAIL;TYPE=HOME:grace@example.com
+END:VCARD
+</c:address-data>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+</d:multistatus>

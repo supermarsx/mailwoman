@@ -7,11 +7,22 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-# Reuses the shared DAV/HTTP core from `mw-dav`; vCard bodies via `mw-ics`
-# (plan §1.3 — mw-carddav → mw-dav + mw-ics).
+# Reuses the shared DAV/HTTP core from `mw-dav` (its DTOs + error taxonomy +
+# `DavClient` seam); vCard bodies via `mw-ics` (plan §1.3 — mw-carddav →
+# mw-dav + mw-ics). The CardDAV-namespace REPORTs (addressbook-query/multiget)
+# + addressbook discovery are not exposed by the frozen `mw-dav` surface, so
+# they ride a thin local seam over the in-tree `reqwest` (rustls) + `quick-xml`
+# — the same primitives `mw-dav` uses. When `mw-dav` exposes generic
+# REPORT/PROPFIND primitives this seam collapses to delegation (integration
+# point noted in `transport.rs`).
 mw-dav = { workspace = true }
 mw-ics = { workspace = true }
+reqwest = { workspace = true }
+quick-xml = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

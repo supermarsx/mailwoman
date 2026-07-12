@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- sync-collection REPORT reply (RFC 6578): two changed cards (200 propstat
+     with getetag) + one removed tombstone (direct 404 status) + the new
+     top-level sync-token cursor. -->
+<d:multistatus xmlns:d="DAV:">
+  <d:response>
+    <d:href>/addressbooks/ada/contacts/ada.vcf</d:href>
+    <d:propstat>
+      <d:prop><d:getetag>"e-ada-2"</d:getetag></d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/addressbooks/ada/contacts/grace.vcf</d:href>
+    <d:propstat>
+      <d:prop><d:getetag>"e-grace-1"</d:getetag></d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/addressbooks/ada/contacts/old.vcf</d:href>
+    <d:status>HTTP/1.1 404 Not Found</d:status>
+  </d:response>
+  <d:sync-token>http://radicale.org/ns/sync/3146</d:sync-token>
+</d:multistatus>

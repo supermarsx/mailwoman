@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Google CardDAV quirk fixture: full-URL hrefs and uppercase/alternate
+     namespace prefixes (D:, card:). The local-name walker must ignore prefixes. -->
+<D:multistatus xmlns:D="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">
+  <D:response>
+    <D:href>https://www.googleapis.com/carddav/v1/principals/x/lists/default/1234</D:href>
+    <D:propstat>
+      <D:prop>
+        <D:getetag>"ggl-1"</D:getetag>
+        <card:address-data>BEGIN:VCARD
+VERSION:3.0
+UID:grace-google
+FN:Grace Hopper
+N:Hopper;Grace;;;
+EMAIL:grace@example.com
+END:VCARD
+</card:address-data>
+      </D:prop>
+      <D:status>HTTP/1.1 200 OK</D:status>
+    </D:propstat>
+  </D:response>
+</D:multistatus>
