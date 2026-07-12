@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:">
+  <d:response>
+    <d:href>/dav/calendars/user@example.com/personal/event-1.ics</d:href>
+    <d:propstat>
+      <d:prop><d:getetag>"1a2b3c"</d:getetag></d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/dav/calendars/user@example.com/personal/event-2.ics</d:href>
+    <d:propstat>
+      <d:prop><d:getetag>"4d5e6f"</d:getetag></d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/dav/calendars/user@example.com/personal/event-deleted.ics</d:href>
+    <d:status>HTTP/1.1 404 Not Found</d:status>
+  </d:response>
+  <d:sync-token>http://radicale.org/ns/sync/xyz789</d:sync-token>
+</d:multistatus>
