@@ -27,13 +27,15 @@ async fn spawn_mock() -> String {
 /// Spawn mw-server with the given hardening config; return (base URL, SocketAddr,
 /// push handle).
 async fn spawn_server(hardening: HardeningConfig) -> (String, SocketAddr, PushHandle) {
+    // A monotonic per-process counter guarantees a distinct DB path per test.
+    // (A timestamp is NOT reliable here: on Windows SystemTime resolution is
+    // coarse enough that parallel tests collide, sharing a SQLite file and
+    // racing `sqlx::migrate!` → "UNIQUE constraint failed: _sqlx_migrations".)
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let unique = format!(
         "{}-{}",
         std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
+        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     );
     let base = std::env::temp_dir().join(format!("mw-push-test-{unique}"));
     let web_dir = base.join("web");

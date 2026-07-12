@@ -22,13 +22,13 @@ async fn spawn_mock() -> String {
 /// Spawn mw-server (with a fresh temp DB + web dir containing an index) on an
 /// ephemeral port; return (base URL, web dir so tests can assert its content).
 async fn spawn_server() -> (String, PathBuf) {
+    // Monotonic counter, not a timestamp: coarse Windows clock resolution lets
+    // parallel tests collide on the DB path and race sqlx migrations.
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let unique = format!(
         "{}-{}",
         std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
+        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     );
     let base = std::env::temp_dir().join(format!("mw-server-test-{unique}"));
     let web_dir = base.join("web");
