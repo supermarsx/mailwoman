@@ -41,3 +41,12 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
   webmail path (SolidJS client → mw-server JMAP proxy + sanitize worker →
   JMAP upstream), Docker/CI, E2E. Supersedes the pre-adoption `v0.0.0`
   placeholder tag, which was removed.
+- **`26.2`** — V1: real mail backends. IMAP4rev2 + POP3 + SMTP submission +
+  MIME parse/build behind a frozen `AccountBackend` seam, driven by
+  `mw-engine` which presents the same JMAP surface the web UI already speaks
+  (engine mode vs V0 proxy mode, config-switched). Sync ladder
+  (QRESYNC/CONDSTORE/UID-window + POP3 UIDL), engine-side JWZ threading,
+  autoconfig ladder, encrypted message cache. New crates: mw-imap, mw-pop3,
+  mw-smtp, mw-mime, mw-engine, mw-autoconfig. Greenmail/Dovecot CI
+  conformance + a Playwright E2E driving a real IMAP account through the
+  unmodified web UI.
