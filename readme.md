@@ -38,4 +38,4 @@ thin desktop & mobile clients around a web-first core.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](license.md)

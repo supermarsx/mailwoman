@@ -1413,7 +1413,7 @@ mailwoman/
 │  └─ security/          # threat model, disclosure policy, audit reports
 ├─ fixtures/             # email torture corpus, protocol recordings, ICS/MSG suites
 ├─ xtask/                # cargo xtask: codegen (TS types), release, bench
-├─ LICENSE               # MIT
+├─ license.md            # MIT
 ├─ SECURITY.md
 └─ CONTRIBUTING.md       # DCO, style, fuzzing guide
 ```
