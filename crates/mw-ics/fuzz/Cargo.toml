@@ -1,0 +1,30 @@
+[package]
+name = "mw-ics-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+mw-ics = { path = ".." }
+
+[[bin]]
+name = "parse_ical"
+path = "fuzz_targets/parse_ical.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_vcard"
+path = "fuzz_targets/parse_vcard.rs"
+test = false
+doc = false
+bench = false
+
+# Standalone workspace so the root workspace never pulls libfuzzer-sys into
+# ordinary `cargo build`/`clippy` on stable (plan §4.3 fuzz DoD).
+[workspace]

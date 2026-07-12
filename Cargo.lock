@@ -1917,6 +1917,8 @@ version = "26.3.0"
 dependencies = [
  "mw-dav",
  "mw-ics",
+ "quick-xml",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "thiserror",
@@ -1931,7 +1933,6 @@ dependencies = [
  "quick-xml",
  "reqwest 0.12.28",
  "serde",
- "serde_json",
  "thiserror",
  "tokio",
 ]
