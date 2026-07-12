@@ -1,15 +1,22 @@
-// Mail slice: session/auth, mailbox list, message list + reader, and compose+send
-// (plan §3 e0 refactor; owned + grown by e7). This is the V1 behaviour lifted
-// verbatim out of the old monolithic `store.ts` — no behaviour change.
+// Mail slice: session/auth, mailbox list, message list + reader, compose+send,
+// and — new in V2 (plan §3 e7, §1.5) — the modern-mail UX that mutates the
+// message list: tags (keywords), pins, snooze, follow-up, archive/trash/move/
+// spam, sweep, the shared 10-second undo primitive, and the focused/unified
+// inbox derivation. The V1 session+mail behaviour is preserved verbatim; the
+// V2 surface is additive.
 
-import { createSignal, type Accessor } from 'solid-js';
+import { createSignal, createMemo, type Accessor } from 'solid-js';
 import { ApiError, type LoginInput, type Me } from '../../api/client.ts';
 import {
+  cancelSubmission,
   emailGetFull,
   listMailbox,
   mailboxGet,
+  moveEmail,
   responseFor,
   sendEnvelope,
+  setEmailKeyword,
+  setEmailMeta,
   type DraftInput,
 } from '../../api/jmap.ts';
 import {
@@ -19,10 +26,41 @@ import {
   type EmailSetResponse,
   type EmailSubmissionSetResponse,
   type Id,
+  type Identity,
   type Mailbox,
   type MailboxGetResponse,
 } from '../../api/jmap-types.ts';
 import type { SliceContext } from './context.ts';
+
+/** A dismissable, time-boxed reversible action (the 10-second undo, §1.5). */
+export interface PendingUndo {
+  label: string;
+  /** Label for the action button (`Undo` by default; `Cancel` for undo-send). */
+  actionLabel: string;
+  /** Reverses the action; resolves once reversed. */
+  run: () => Promise<void>;
+  /** Epoch ms after which the toast auto-commits and disappears. */
+  expiresAt: number;
+}
+
+/** Which sweep to run against a sender's mail (Outlook-style, §1.5). */
+export type SweepStrategy = 'all' | 'block' | 'keep-latest' | 'older-than';
+
+/** The two-tab focused inbox destinations (§1.5). */
+export type InboxTab = 'focused' | 'other';
+
+/** The compose/send input (grown for identities + send-later + undo-send). */
+export interface SendInput {
+  to: string;
+  subject: string;
+  htmlBody: string;
+  /** Send as this identity (from-address + signature); `null` = default. */
+  identity?: Identity | null;
+  /** Send-later: ISO 8601 UTC time; omitted/null = send now (with undo window). */
+  sendAt?: string | null;
+  /** Undo-send window in seconds; default 10. Ignored when `sendAt` is set. */
+  holdSeconds?: number;
+}
 
 /** The mail/session portion of `AppState` (accessors + actions). */
 export interface MailSlice {
@@ -39,17 +77,92 @@ export interface MailSlice {
   sentMailboxId: Accessor<Id | null>;
   draftsMailboxId: Accessor<Id | null>;
 
+  // ── V2 derived views ──
+  /** List rows to show: snoozed hidden, pinned floated to the top. */
+  visibleMessages: Accessor<Email[]>;
+  focusedMessages: Accessor<Email[]>;
+  otherMessages: Accessor<Email[]>;
+  snoozedMessages: Accessor<Email[]>;
+  followUps: Accessor<Email[]>;
+  /** The rows the message list renders: `visibleMessages` normally, or the
+   *  focused/other split when the two-tab focused inbox is enabled. */
+  listMessages: Accessor<Email[]>;
+  inboxTab: Accessor<InboxTab>;
+  setInboxTab(tab: InboxTab): void;
+  unifiedInbox: Accessor<boolean>;
+  setUnifiedInbox(on: boolean): void;
+  /** Opt-in two-tab focused inbox (off by default so the list shows everything). */
+  focusedInbox: Accessor<boolean>;
+  setFocusedInbox(on: boolean): void;
+
+  // ── V2 message mutations (each with a 10s undo) ──
+  applyTag(id: Id, keyword: string): Promise<void>;
+  removeTag(id: Id, keyword: string): Promise<void>;
+  pinMessage(id: Id, pinned: boolean): Promise<void>;
+  snoozeMessage(id: Id, untilIso: string): Promise<void>;
+  unsnoozeMessage(id: Id): Promise<void>;
+  setFollowUp(id: Id, atIso: string | null): Promise<void>;
+  archiveMessage(id: Id): Promise<void>;
+  trashMessage(id: Id): Promise<void>;
+  moveMessage(id: Id, mailboxId: Id): Promise<void>;
+  markSpam(id: Id): Promise<void>;
+
+  // ── V2 sweep ──
+  sweepPreview(fromEmail: string, strategy: SweepStrategy, olderThanDays?: number): Email[];
+  executeSweep(fromEmail: string, strategy: SweepStrategy, olderThanDays?: number): Promise<void>;
+  blockedSenders: Accessor<string[]>;
+
+  // ── V2 focused-inbox training ──
+  trainSender(email: string, dest: InboxTab): void;
+
+  // ── V2 undo primitive (shared by all reversible actions) ──
+  pendingUndo: Accessor<PendingUndo | null>;
+  undoNow(): Promise<void>;
+  dismissUndo(): void;
+
   init(): Promise<void>;
   login(input: LoginInput): Promise<void>;
   logout(): Promise<void>;
   selectMailbox(id: Id): Promise<void>;
   openMessage(id: Id): Promise<void>;
   closeMessage(): void;
-  sendMessage(input: Omit<DraftInput, 'from' | 'draftMailboxId' | 'sentMailboxId'>): Promise<void>;
+  sendMessage(input: SendInput): Promise<void>;
 }
 
 function roleOf(mailboxes: Mailbox[], role: string): Id | null {
   return mailboxes.find((m) => m.role === role)?.id ?? null;
+}
+
+/** Bulk-sender heuristic for the focused/other split when there's no training. */
+const BULK_RE = /(no-?reply|newsletter|notifications?|marketing|updates?|digest|mailer|automated|do-?not-?reply)/i;
+
+function heuristicTab(email: Email): InboxTab {
+  const addr = email.from?.[0];
+  const hay = `${addr?.name ?? ''} ${addr?.email ?? ''}`;
+  return BULK_RE.test(hay) ? 'other' : 'focused';
+}
+
+const FOCUS_KEY = 'mw.focused.v1';
+const BLOCK_KEY = 'mw.blocked.v1';
+
+function loadMap(key: string): Record<string, InboxTab> {
+  try {
+    const raw = globalThis.localStorage?.getItem(key);
+    if (raw != null) return JSON.parse(raw) as Record<string, InboxTab>;
+  } catch {
+    /* ignore corrupt storage */
+  }
+  return {};
+}
+
+function loadList(key: string): string[] {
+  try {
+    const raw = globalThis.localStorage?.getItem(key);
+    if (raw != null) return JSON.parse(raw) as string[];
+  } catch {
+    /* ignore */
+  }
+  return [];
 }
 
 export function createMailSlice(ctx: SliceContext): MailSlice {
@@ -66,6 +179,266 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   const [sanitizedHtml, setSanitizedHtml] = createSignal<string | null>(null);
   const [readLoading, setReadLoading] = createSignal(false);
 
+  const [inboxTab, setInboxTab] = createSignal<InboxTab>('focused');
+  const [unifiedInbox, setUnifiedInbox] = createSignal(false);
+  const [focusedInbox, setFocusedInbox] = createSignal(false);
+  const [pendingUndo, setPendingUndo] = createSignal<PendingUndo | null>(null);
+  const [training, setTraining] = createSignal<Record<string, InboxTab>>(loadMap(FOCUS_KEY));
+  const [blocked, setBlocked] = createSignal<string[]>(loadList(BLOCK_KEY));
+
+  let undoTimer: ReturnType<typeof setTimeout> | undefined;
+
+  // ── undo primitive ──────────────────────────────────────────────────────
+  function showUndo(label: string, run: () => Promise<void>, ttlMs = 10_000, actionLabel = 'Undo'): void {
+    if (undoTimer !== undefined) clearTimeout(undoTimer);
+    setPendingUndo({ label, actionLabel, run, expiresAt: Date.now() + ttlMs });
+    undoTimer = setTimeout(() => setPendingUndo(null), ttlMs);
+  }
+  function dismissUndo(): void {
+    if (undoTimer !== undefined) clearTimeout(undoTimer);
+    setPendingUndo(null);
+  }
+  async function undoNow(): Promise<void> {
+    const p = pendingUndo();
+    dismissUndo();
+    if (p === undefined || p === null) return;
+    try {
+      await p.run();
+    } catch {
+      showToast('error', 'Could not undo');
+    }
+  }
+
+  // ── message-list helpers ─────────────────────────────────────────────────
+  function patchMessage(id: Id, patch: Partial<Email>): void {
+    setMessages((msgs) => msgs.map((m) => (m.id === id ? { ...m, ...patch } : m)));
+    const open = openEmail();
+    if (open !== null && open.id === id) setOpenEmail({ ...open, ...patch });
+  }
+
+  /** Remove a message from the current list, returning it + its index for undo. */
+  function takeFromList(id: Id): { email: Email; index: number } | null {
+    const msgs = messages();
+    const index = msgs.findIndex((m) => m.id === id);
+    if (index < 0) return null;
+    const email = msgs[index]!;
+    setMessages([...msgs.slice(0, index), ...msgs.slice(index + 1)]);
+    if (openEmail()?.id === id) closeMessage();
+    return { email, index };
+  }
+  function restoreToList(taken: { email: Email; index: number }): void {
+    setMessages((msgs) => {
+      const at = Math.min(taken.index, msgs.length);
+      return [...msgs.slice(0, at), taken.email, ...msgs.slice(at)];
+    });
+  }
+
+  // ── raw mutators (no undo) ───────────────────────────────────────────────
+  async function rawKeyword(id: Id, keyword: string, on: boolean): Promise<void> {
+    const acct = accountId();
+    if (acct === null) return;
+    const current = messages().find((m) => m.id === id) ?? openEmail();
+    const keywords = { ...(current?.keywords ?? {}) };
+    if (on) keywords[keyword] = true;
+    else delete keywords[keyword];
+    patchMessage(id, { keywords });
+    await client.jmap(setEmailKeyword(acct, id, keyword, on));
+  }
+  async function rawMeta(id: Id, patch: Partial<Email>): Promise<void> {
+    const acct = accountId();
+    if (acct === null) return;
+    patchMessage(id, patch);
+    await client.jmap(setEmailMeta(acct, id, patch));
+  }
+
+  // ── tags ─────────────────────────────────────────────────────────────────
+  async function applyTag(id: Id, keyword: string): Promise<void> {
+    await rawKeyword(id, keyword, true);
+    showUndo('Label added', () => rawKeyword(id, keyword, false));
+  }
+  async function removeTag(id: Id, keyword: string): Promise<void> {
+    await rawKeyword(id, keyword, false);
+    showUndo('Label removed', () => rawKeyword(id, keyword, true));
+  }
+
+  // ── pin / snooze / follow-up ──────────────────────────────────────────────
+  async function pinMessage(id: Id, pinned: boolean): Promise<void> {
+    const prev = messages().find((m) => m.id === id)?.pinned ?? false;
+    await rawMeta(id, { pinned });
+    showUndo(pinned ? 'Pinned' : 'Unpinned', () => rawMeta(id, { pinned: prev }));
+  }
+  async function snoozeMessage(id: Id, untilIso: string): Promise<void> {
+    const prev = messages().find((m) => m.id === id)?.snoozedUntil ?? null;
+    await rawMeta(id, { snoozedUntil: untilIso });
+    showUndo('Snoozed', () => rawMeta(id, { snoozedUntil: prev }));
+  }
+  async function unsnoozeMessage(id: Id): Promise<void> {
+    await rawMeta(id, { snoozedUntil: null });
+  }
+  async function setFollowUp(id: Id, atIso: string | null): Promise<void> {
+    const prev = messages().find((m) => m.id === id)?.followUpAt ?? null;
+    await rawMeta(id, { followUpAt: atIso });
+    showUndo(atIso ? 'Follow-up set' : 'Follow-up cleared', () => rawMeta(id, { followUpAt: prev }));
+  }
+
+  // ── archive / trash / move / spam ─────────────────────────────────────────
+  async function relocateWithUndo(id: Id, targetMailboxId: Id, label: string): Promise<void> {
+    const acct = accountId();
+    if (acct === null) return;
+    const taken = takeFromList(id);
+    if (taken === null) return;
+    const priorMailboxIds = taken.email.mailboxIds;
+    await client.jmap(moveEmail(acct, id, { [targetMailboxId]: true }));
+    showUndo(label, async () => {
+      await client.jmap(moveEmail(acct, id, priorMailboxIds));
+      restoreToList(taken);
+    });
+  }
+  async function archiveMessage(id: Id): Promise<void> {
+    const target = roleOf(mailboxes(), 'archive');
+    if (target === null) {
+      showToast('error', 'No Archive folder');
+      return;
+    }
+    await relocateWithUndo(id, target, 'Archived');
+  }
+  async function trashMessage(id: Id): Promise<void> {
+    const target = roleOf(mailboxes(), 'trash');
+    if (target === null) {
+      showToast('error', 'No Trash folder');
+      return;
+    }
+    await relocateWithUndo(id, target, 'Moved to Trash');
+  }
+  async function markSpam(id: Id): Promise<void> {
+    const target = roleOf(mailboxes(), 'junk');
+    if (target === null) {
+      showToast('error', 'No Spam folder');
+      return;
+    }
+    await relocateWithUndo(id, target, 'Marked as spam');
+  }
+  async function moveMessage(id: Id, mailboxId: Id): Promise<void> {
+    const box = mailboxes().find((m) => m.id === mailboxId);
+    await relocateWithUndo(id, mailboxId, `Moved to ${box?.name ?? 'folder'}`);
+  }
+
+  // ── sweep ─────────────────────────────────────────────────────────────────
+  function sweepMatches(fromEmail: string, strategy: SweepStrategy, olderThanDays?: number): Email[] {
+    const target = fromEmail.trim().toLowerCase();
+    const fromSender = messages().filter((m) => (m.from?.[0]?.email ?? '').toLowerCase() === target);
+    // Newest-first (the list is already receivedAt-desc, but be explicit).
+    const byDate = [...fromSender].sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
+    switch (strategy) {
+      case 'keep-latest':
+        return byDate.slice(1);
+      case 'older-than': {
+        const days = olderThanDays ?? 30;
+        const cutoff = Date.now() - days * 86_400_000;
+        return byDate.filter((m) => new Date(m.receivedAt).getTime() < cutoff);
+      }
+      case 'all':
+      case 'block':
+      default:
+        return byDate;
+    }
+  }
+  function sweepPreview(fromEmail: string, strategy: SweepStrategy, olderThanDays?: number): Email[] {
+    return sweepMatches(fromEmail, strategy, olderThanDays);
+  }
+  async function executeSweep(fromEmail: string, strategy: SweepStrategy, olderThanDays?: number): Promise<void> {
+    const acct = accountId();
+    if (acct === null) return;
+    const trash = roleOf(mailboxes(), 'trash');
+    if (trash === null) {
+      showToast('error', 'No Trash folder');
+      return;
+    }
+    const victims = sweepMatches(fromEmail, strategy, olderThanDays);
+    if (victims.length === 0) {
+      showToast('info', 'Nothing to sweep');
+      return;
+    }
+    // Snapshot for undo, then move each victim to Trash.
+    const taken = victims
+      .map((v) => {
+        const idx = messages().findIndex((m) => m.id === v.id);
+        return idx < 0 ? null : { email: v, index: idx };
+      })
+      .filter((t): t is { email: Email; index: number } => t !== null);
+    const remaining = messages().filter((m) => !victims.some((v) => v.id === m.id));
+    setMessages(remaining);
+    for (const v of victims) await client.jmap(moveEmail(acct, v.id, { [trash]: true }));
+    if (strategy === 'block') {
+      const target = fromEmail.trim().toLowerCase();
+      if (!blocked().includes(target)) {
+        const next = [...blocked(), target];
+        setBlocked(next);
+        try {
+          globalThis.localStorage?.setItem(BLOCK_KEY, JSON.stringify(next));
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    showUndo(`Swept ${victims.length} message${victims.length === 1 ? '' : 's'}`, async () => {
+      for (const t of taken) {
+        await client.jmap(moveEmail(acct, t.email.id, t.email.mailboxIds));
+      }
+      // Restore original ordering.
+      const restored = [...messages()];
+      for (const t of [...taken].sort((a, b) => a.index - b.index)) {
+        const at = Math.min(t.index, restored.length);
+        restored.splice(at, 0, t.email);
+      }
+      setMessages(restored);
+    });
+  }
+
+  // ── focused-inbox training ────────────────────────────────────────────────
+  function trainSender(email: string, dest: InboxTab): void {
+    const next = { ...training(), [email.toLowerCase()]: dest };
+    setTraining(next);
+    try {
+      globalThis.localStorage?.setItem(FOCUS_KEY, JSON.stringify(next));
+    } catch {
+      /* ignore */
+    }
+  }
+  function classify(email: Email): InboxTab {
+    const from = (email.from?.[0]?.email ?? '').toLowerCase();
+    return training()[from] ?? heuristicTab(email);
+  }
+
+  // ── derived views ─────────────────────────────────────────────────────────
+  const visibleMessages = createMemo<Email[]>(() => {
+    const now = Date.now();
+    const shown = messages().filter((m) => {
+      const s = m.snoozedUntil;
+      return s == null || new Date(s).getTime() <= now;
+    });
+    // Stable partition: pinned first, order otherwise preserved.
+    const pinned = shown.filter((m) => m.pinned === true);
+    const rest = shown.filter((m) => m.pinned !== true);
+    return [...pinned, ...rest];
+  });
+  const focusedMessages = createMemo<Email[]>(() => visibleMessages().filter((m) => classify(m) === 'focused'));
+  const otherMessages = createMemo<Email[]>(() => visibleMessages().filter((m) => classify(m) === 'other'));
+  const snoozedMessages = createMemo<Email[]>(() => {
+    const now = Date.now();
+    return messages().filter((m) => m.snoozedUntil != null && new Date(m.snoozedUntil).getTime() > now);
+  });
+  const followUps = createMemo<Email[]>(() =>
+    messages()
+      .filter((m) => m.followUpAt != null)
+      .sort((a, b) => (a.followUpAt ?? '').localeCompare(b.followUpAt ?? '')),
+  );
+  const listMessages = createMemo<Email[]>(() => {
+    if (!focusedInbox()) return visibleMessages();
+    return inboxTab() === 'focused' ? focusedMessages() : otherMessages();
+  });
+
+  // ── V1 session + mail behaviour (unchanged) ───────────────────────────────
   async function loadMailboxes(): Promise<void> {
     const session = await client.session();
     const primary = session.primaryAccounts[CAP_MAIL];
@@ -77,7 +450,6 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     }
     const res = await client.jmap(mailboxGet(acct));
     const boxes = responseFor<MailboxGetResponse>(res, 'c0').list;
-    // Inbox first, then by sortOrder/name.
     boxes.sort((a, b) => {
       if (a.role === 'inbox') return -1;
       if (b.role === 'inbox') return 1;
@@ -131,36 +503,64 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     setSanitizedHtml(null);
   }
 
-  async function sendMessage(
-    input: Omit<DraftInput, 'from' | 'draftMailboxId' | 'sentMailboxId'>,
-  ): Promise<void> {
+  async function sendMessage(input: SendInput): Promise<void> {
     const acct = accountId();
     const user = me();
     if (acct === null || user === null) throw new Error('not authenticated');
     const drafts = roleOf(mailboxes(), 'drafts') ?? selectedMailboxId();
     if (drafts === null) throw new Error('no mailbox to hold the draft');
     const sent = roleOf(mailboxes(), 'sent');
+
+    const identity = input.identity ?? null;
+    const fromEmail = identity?.email ?? user.username;
+    const fromName = identity?.name ?? null;
+    let html = input.htmlBody;
+    if (identity?.signatureHtml) html += `<br><br>${identity.signatureHtml}`;
+
+    const scheduled = input.sendAt != null && input.sendAt.length > 0;
+    const holdSeconds = scheduled ? 0 : (input.holdSeconds ?? 10);
+
     const draft: DraftInput = {
-      from: { name: null, email: user.username },
+      from: { name: fromName, email: fromEmail },
       draftMailboxId: drafts,
       to: input.to,
       subject: input.subject,
-      htmlBody: input.htmlBody,
+      htmlBody: html,
+      holdSeconds,
       ...(sent !== null ? { sentMailboxId: sent } : {}),
+      ...(identity !== null ? { identityId: identity.id } : {}),
+      ...(scheduled ? { sendAt: input.sendAt! } : {}),
     };
+
     const res = await client.jmap(sendEnvelope(acct, draft));
     const setRes = responseFor<EmailSetResponse>(res, 'set');
     if (setRes.notCreated?.['draft'] !== undefined) {
-      const e = setRes.notCreated['draft'];
-      throw new Error(`draft rejected: ${e.type}`);
+      throw new Error(`draft rejected: ${setRes.notCreated['draft'].type}`);
     }
     const subRes = responseFor<EmailSubmissionSetResponse>(res, 'submit');
     if (subRes.notCreated?.['send'] !== undefined) {
-      const e = subRes.notCreated['send'];
-      throw new Error(`send rejected: ${e.type}`);
+      throw new Error(`send rejected: ${subRes.notCreated['send'].type}`);
     }
-    showToast('success', 'Message sent');
-    // Refresh Sent if we are viewing it; otherwise refresh current view.
+    const submissionId = subRes.created?.['send']?.id ?? null;
+
+    if (scheduled) {
+      showToast('success', 'Scheduled to send');
+    } else if (submissionId !== null) {
+      // Undo-send: the engine holds the submission for `holdSeconds`; the toast
+      // Cancel path flips it to `canceled` before it dials SMTP (plan §1.3).
+      showUndo(
+        'Message sent',
+        async () => {
+          await client.jmap(cancelSubmission(acct, submissionId));
+          showToast('info', 'Send canceled');
+        },
+        holdSeconds * 1000,
+        'Cancel',
+      );
+    } else {
+      showToast('success', 'Message sent');
+    }
+
     const current = selectedMailboxId();
     if (current !== null) await selectMailbox(current);
   }
@@ -200,6 +600,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       setSelectedMailboxId(null);
       setOpenEmail(null);
       setSanitizedHtml(null);
+      dismissUndo();
     }
   }
 
@@ -216,6 +617,41 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     accountId,
     sentMailboxId: () => roleOf(mailboxes(), 'sent'),
     draftsMailboxId: () => roleOf(mailboxes(), 'drafts'),
+
+    visibleMessages,
+    focusedMessages,
+    otherMessages,
+    snoozedMessages,
+    followUps,
+    listMessages,
+    inboxTab,
+    setInboxTab,
+    unifiedInbox,
+    setUnifiedInbox,
+    focusedInbox,
+    setFocusedInbox,
+
+    applyTag,
+    removeTag,
+    pinMessage,
+    snoozeMessage,
+    unsnoozeMessage,
+    setFollowUp,
+    archiveMessage,
+    trashMessage,
+    moveMessage,
+    markSpam,
+
+    sweepPreview,
+    executeSweep,
+    blockedSenders: blocked,
+
+    trainSender,
+
+    pendingUndo,
+    undoNow,
+    dismissUndo,
+
     init,
     login,
     logout,
@@ -236,7 +672,6 @@ export function extractHtmlBody(email: Email): string {
       if (v !== undefined) return v.value;
     }
   }
-  // No HTML part: wrap the plain text/preview so the sanitizer still runs.
   const text = email.textBody
     ?.map((p) => (p.partId !== null ? (values[p.partId]?.value ?? '') : ''))
     .join('\n');

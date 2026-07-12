@@ -1,10 +1,49 @@
-import { Show, type JSX } from 'solid-js';
+import { createSignal, Show, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
-import type { EmailAddress } from '../api/jmap-types.ts';
+import { SweepDialog } from './SweepDialog.tsx';
+import type { Email, EmailAddress } from '../api/jmap-types.ts';
 
 function addressList(addrs: EmailAddress[] | null): string {
   if (addrs === null || addrs.length === 0) return '';
   return addrs.map((a) => (a.name && a.name.length > 0 ? `${a.name} <${a.email}>` : a.email)).join(', ');
+}
+
+function ReaderToolbar(props: { email: Email }): JSX.Element {
+  const app = useApp();
+  const [sweeping, setSweeping] = createSignal(false);
+  const id = () => props.email.id;
+  const sender = () => props.email.from?.[0]?.email ?? '';
+  const pinned = () => props.email.pinned === true;
+
+  return (
+    <div class="reader__toolbar" role="toolbar" aria-label="Message actions">
+      <button
+        type="button"
+        class="btn btn--ghost"
+        aria-pressed={pinned()}
+        onClick={() => void app.pinMessage(id(), !pinned())}
+      >
+        {pinned() ? 'Unpin' : 'Pin'}
+      </button>
+      <button type="button" class="btn btn--ghost" onClick={() => void app.archiveMessage(id())}>
+        Archive
+      </button>
+      <button type="button" class="btn btn--ghost" onClick={() => void app.trashMessage(id())}>
+        Delete
+      </button>
+      <button type="button" class="btn btn--ghost" onClick={() => void app.markSpam(id())}>
+        Spam
+      </button>
+      <Show when={sender() !== ''}>
+        <button type="button" class="btn btn--ghost" onClick={() => setSweeping(true)}>
+          Sweep sender
+        </button>
+      </Show>
+      <Show when={sweeping()}>
+        <SweepDialog fromEmail={sender()} onClose={() => setSweeping(false)} />
+      </Show>
+    </div>
+  );
 }
 
 export function Reader(): JSX.Element {
@@ -12,10 +51,7 @@ export function Reader(): JSX.Element {
 
   return (
     <section class="reader" aria-label="Message">
-      <Show
-        when={app.openEmail()}
-        fallback={<p class="reader__empty">Select a message to read</p>}
-      >
+      <Show when={app.openEmail()} fallback={<p class="reader__empty">Select a message to read</p>}>
         {(email) => (
           <>
             <header class="reader__header">
@@ -27,6 +63,7 @@ export function Reader(): JSX.Element {
                 <span>From: {addressList(email().from)}</span>
                 <span>To: {addressList(email().to)}</span>
               </div>
+              <ReaderToolbar email={email()} />
             </header>
             <Show
               when={app.sanitizedHtml() !== null}

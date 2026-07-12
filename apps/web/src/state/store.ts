@@ -8,16 +8,14 @@
 // toasts) and composes every slice into `AppState`.
 
 import { createSignal, type Accessor } from 'solid-js';
-import type { Client, LoginInput, Me } from '../api/client.ts';
-import type { DraftInput } from '../api/jmap.ts';
-import type { Email, Id, Mailbox } from '../api/jmap-types.ts';
+import type { Client } from '../api/client.ts';
 import type { SliceContext } from './slices/context.ts';
-import { createMailSlice } from './slices/mail.ts';
-import { createTagsSlice } from './slices/tags.ts';
-import { createOutboxSlice } from './slices/outbox.ts';
-import { createRealtimeSlice } from './slices/realtime.ts';
-import { createOfflineSlice } from './slices/offline.ts';
-import { createThemeSlice } from './slices/theme.ts';
+import { createMailSlice, type MailSlice } from './slices/mail.ts';
+import { createTagsSlice, type TagsSlice } from './slices/tags.ts';
+import { createOutboxSlice, type OutboxSlice } from './slices/outbox.ts';
+import { createRealtimeSlice, type RealtimeSlice } from './slices/realtime.ts';
+import { createOfflineSlice, type OfflineSlice } from './slices/offline.ts';
+import { createThemeSlice, type ThemeSlice } from './slices/theme.ts';
 
 export type ToastKind = 'info' | 'success' | 'error';
 export interface Toast {
@@ -25,41 +23,27 @@ export interface Toast {
   message: string;
 }
 
-export interface AppState {
-  me: Accessor<Me | null>;
-  authChecked: Accessor<boolean>;
-  online: Accessor<boolean>;
-  mailboxes: Accessor<Mailbox[]>;
-  selectedMailboxId: Accessor<Id | null>;
-  messages: Accessor<Email[]>;
-  listLoading: Accessor<boolean>;
-  openEmail: Accessor<Email | null>;
-  sanitizedHtml: Accessor<string | null>;
-  readLoading: Accessor<boolean>;
-  toast: Accessor<Toast | null>;
-
-  accountId: Accessor<string | null>;
-  sentMailboxId: Accessor<Id | null>;
-  draftsMailboxId: Accessor<Id | null>;
-
-  init(): Promise<void>;
-  login(input: LoginInput): Promise<void>;
-  logout(): Promise<void>;
-  selectMailbox(id: Id): Promise<void>;
-  openMessage(id: Id): Promise<void>;
-  closeMessage(): void;
-  sendMessage(input: Omit<DraftInput, 'from' | 'draftMailboxId' | 'sentMailboxId'>): Promise<void>;
-  showToast(kind: ToastKind, message: string, ttlMs?: number): void;
-}
-
-/** The cross-cutting store core: connection status + the transient toast. */
-interface StoreCore {
+/** The cross-cutting store-core API (connection status + transient toast). */
+export interface StoreCoreApi {
   online: Accessor<boolean>;
   toast: Accessor<Toast | null>;
   showToast(kind: ToastKind, message: string, ttlMs?: number): void;
 }
 
-function createStoreCore(client: Client): StoreCore {
+/**
+ * `AppState` is the store core composed with every slice's public interface.
+ * Each web executor owns its slice's shape in `slices/*.ts`; this intersection
+ * is the only place they meet, so they never collide on the field list.
+ */
+export type AppState = StoreCoreApi &
+  MailSlice &
+  TagsSlice &
+  OutboxSlice &
+  RealtimeSlice &
+  OfflineSlice &
+  ThemeSlice;
+
+function createStoreCore(client: Client): StoreCoreApi {
   const [online, setOnline] = createSignal(true);
   const [toast, setToast] = createSignal<Toast | null>(null);
 

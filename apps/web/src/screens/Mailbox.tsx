@@ -3,10 +3,16 @@ import { useApp } from '../state/context.ts';
 import { MessageList } from '../components/MessageList.tsx';
 import { Reader } from '../components/Reader.tsx';
 import { Compose } from '../components/Compose.tsx';
+import { Outbox } from '../components/Outbox.tsx';
+import { InboxTabs } from '../components/InboxTabs.tsx';
+import { UndoToast } from '../components/UndoToast.tsx';
+
+type View = 'mail' | 'outbox';
 
 export function MailboxScreen(): JSX.Element {
   const app = useApp();
   const [composing, setComposing] = createSignal(false);
+  const [view, setView] = createSignal<View>('mail');
 
   return (
     <div class="shell">
@@ -24,8 +30,11 @@ export function MailboxScreen(): JSX.Element {
               <button
                 type="button"
                 class="sidebar__box"
-                classList={{ 'sidebar__box--active': app.selectedMailboxId() === box.id }}
-                onClick={() => void app.selectMailbox(box.id)}
+                classList={{ 'sidebar__box--active': view() === 'mail' && app.selectedMailboxId() === box.id }}
+                onClick={() => {
+                  setView('mail');
+                  void app.selectMailbox(box.id);
+                }}
               >
                 <span class="sidebar__box-name">{box.name}</span>
                 <Show when={box.unreadEmails > 0}>
@@ -34,6 +43,20 @@ export function MailboxScreen(): JSX.Element {
               </button>
             )}
           </For>
+          <button
+            type="button"
+            class="sidebar__box"
+            classList={{ 'sidebar__box--active': view() === 'outbox' }}
+            onClick={() => {
+              setView('outbox');
+              void app.refreshOutbox();
+            }}
+          >
+            <span class="sidebar__box-name">Outbox</span>
+            <Show when={app.cancelableOutbox().length > 0}>
+              <span class="sidebar__badge">{app.cancelableOutbox().length}</span>
+            </Show>
+          </button>
         </nav>
         <button type="button" class="btn btn--ghost sidebar__logout" onClick={() => void app.logout()}>
           Log out
@@ -44,11 +67,19 @@ export function MailboxScreen(): JSX.Element {
           </span>
         </Show>
       </aside>
-      <MessageList />
-      <Reader />
+
+      <Show when={view() === 'mail'} fallback={<Outbox />}>
+        <div class="mail-pane">
+          <InboxTabs />
+          <MessageList />
+        </div>
+        <Reader />
+      </Show>
+
       <Show when={composing()}>
         <Compose onClose={() => setComposing(false)} />
       </Show>
+      <UndoToast />
     </div>
   );
 }
