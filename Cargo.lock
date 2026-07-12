@@ -1845,6 +1845,7 @@ dependencies = [
 name = "mw-export"
 version = "26.2.0"
 dependencies = [
+ "html5ever",
  "mail-builder",
  "mail-parser",
  "thiserror",
@@ -1984,9 +1985,16 @@ dependencies = [
 name = "mw-sieve"
 version = "26.2.0"
 dependencies = [
+ "base64",
+ "rustls",
+ "rustls-pki-types",
  "serde",
  "serde_json",
  "thiserror",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "webpki-roots",
 ]
 
 [[package]]

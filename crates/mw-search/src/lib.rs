@@ -6,15 +6,32 @@
 //! (`from/to/subject/body/text/has:attachment/filename/before/after/in/
 //! is:unread/larger/smaller/tag/pinned`, boolean) parse into a Tantivy query;
 //! the searcher returns ordered stable ids. **p95 < 50 ms over 100k** is the
-//! `cargo bench` gate (SPEC §23).
+//! timing-harness gate (SPEC §23, `tests/bench.rs`).
 //!
-//! ## Scaffolder note (e0)
-//! e0 authors ONLY this frozen seam: the [`IndexDoc`] DTO the engine ingests
-//! and the [`Index`] handle shape. e1 owns the entire crate — Tantivy schema,
-//! [`Indexer`]/`Searcher`, the operator query parser (+ its fuzz target), and
-//! the 100k bench. Bodies are `todo!()`; **do not** implement logic here.
+//! ## Layering
+//! The [`IndexDoc`] DTO is the frozen seam the engine (e9) ingests — a plain
+//! struct so this crate stays decoupled from `mw-engine`. [`parse_query`]
+//! turns operator text into a [`SearchQuery`]; [`Index::search`] runs it and
+//! returns `stableId`s in sort order.
+
+mod query;
+
+pub use query::{Clause, Expr, Sort, SortField, TextField};
+
+use std::ops::Bound;
+use std::path::Path;
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
+use tantivy::collector::TopDocs;
+use tantivy::directory::MmapDirectory;
+use tantivy::query::{
+    AllQuery, BooleanQuery, EmptyQuery, Occur, PhraseQuery, Query, RangeQuery, TermQuery,
+};
+use tantivy::schema::{
+    FAST, Field, INDEXED, IndexRecordOption, STORED, STRING, Schema, TEXT, TantivyDocument, Value,
+};
+use tantivy::{Index as TantivyIndex, IndexReader, IndexWriter, Order, ReloadPolicy, Term};
 
 /// One document to index, derived from a parsed message at `Engine::ingest`.
 ///
@@ -45,11 +62,53 @@ pub struct IndexDoc {
     pub pinned: bool,
 }
 
-/// A parsed operator query (plan §0.1). e1 owns the concrete AST + parser.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// A parsed operator query (plan §0.1) plus its result ordering.
+///
+/// Build via [`parse_query`] (from operator text) or [`SearchQuery::all`];
+/// set ordering with [`SearchQuery::with_sort`]. `raw` preserves the source
+/// text for logging/round-tripping.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchQuery {
     /// The raw operator text as typed (`from:a subject:"hi" has:attachment`).
     pub raw: String,
+    /// Parsed boolean AST.
+    pub expr: Expr,
+    /// Result ordering (defaults to `receivedAt` desc).
+    pub sort: Sort,
+}
+
+impl Default for SearchQuery {
+    fn default() -> Self {
+        SearchQuery::all()
+    }
+}
+
+impl SearchQuery {
+    /// A match-everything query in default (`receivedAt` desc) order.
+    pub fn all() -> Self {
+        SearchQuery {
+            raw: String::new(),
+            expr: Expr::All,
+            sort: Sort::default(),
+        }
+    }
+
+    /// Override the result ordering.
+    pub fn with_sort(mut self, sort: Sort) -> Self {
+        self.sort = sort;
+        self
+    }
+}
+
+/// Parse operator text into a [`SearchQuery`] (plan §0.1). Empty text matches
+/// everything. Never panics (the parser is fuzzed, plan §1.12).
+pub fn parse_query(text: &str) -> Result<SearchQuery> {
+    let expr = query::parse_expr(text).map_err(SearchError::Parse)?;
+    Ok(SearchQuery {
+        raw: text.to_string(),
+        expr,
+        sort: Sort::default(),
+    })
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -62,52 +121,474 @@ pub enum SearchError {
     Io(String),
 }
 
+impl From<tantivy::TantivyError> for SearchError {
+    fn from(e: tantivy::TantivyError) -> Self {
+        SearchError::Tantivy(e.to_string())
+    }
+}
+
+impl From<std::io::Error> for SearchError {
+    fn from(e: std::io::Error) -> Self {
+        SearchError::Io(e.to_string())
+    }
+}
+
 pub type Result<T> = std::result::Result<T, SearchError>;
+
+/// Resolved schema field handles (built once at open).
+struct Fields {
+    stable_id: Field,
+    account_id: Field,
+    mailbox: Field,
+    from: Field,
+    to: Field,
+    cc: Field,
+    subject: Field,
+    body: Field,
+    filename: Field,
+    keywords: Field,
+    from_sort: Field,
+    subject_sort: Field,
+    date: Field,
+    size: Field,
+    has_attachment: Field,
+    pinned: Field,
+    doc_json: Field,
+}
+
+/// Fast-field names used for sorting (must match the schema below).
+const F_DATE: &str = "date";
+const F_SIZE: &str = "size";
+const F_FROM_SORT: &str = "from_sort";
+const F_SUBJECT_SORT: &str = "subject_sort";
+
+/// Cap for an unbounded (`limit == 0`) search, bounding the collector heap.
+const MAX_HITS: usize = 100_000;
+
+fn build_schema() -> (Schema, Fields) {
+    let mut sb = Schema::builder();
+    let stable_id = sb.add_text_field("stable_id", STRING | STORED);
+    let account_id = sb.add_text_field("account_id", STRING);
+    let mailbox = sb.add_text_field("mailbox", STRING);
+    let from = sb.add_text_field("from", TEXT);
+    let to = sb.add_text_field("to", TEXT);
+    let cc = sb.add_text_field("cc", TEXT);
+    let subject = sb.add_text_field("subject", TEXT);
+    let body = sb.add_text_field("body", TEXT);
+    let filename = sb.add_text_field("filename", TEXT);
+    let keywords = sb.add_text_field("keywords", STRING);
+    // Raw, lowercased, fast string columns used purely for `from`/`subject` sort.
+    let from_sort = sb.add_text_field(F_FROM_SORT, STRING | FAST);
+    let subject_sort = sb.add_text_field(F_SUBJECT_SORT, STRING | FAST);
+    let date = sb.add_i64_field(F_DATE, INDEXED | FAST);
+    let size = sb.add_u64_field(F_SIZE, INDEXED | FAST);
+    let has_attachment = sb.add_u64_field("has_attachment", INDEXED);
+    let pinned = sb.add_u64_field("pinned", INDEXED);
+    let doc_json = sb.add_text_field("doc_json", STORED);
+    let schema = sb.build();
+    let fields = Fields {
+        stable_id,
+        account_id,
+        mailbox,
+        from,
+        to,
+        cc,
+        subject,
+        body,
+        filename,
+        keywords,
+        from_sort,
+        subject_sort,
+        date,
+        size,
+        has_attachment,
+        pinned,
+        doc_json,
+    };
+    (schema, fields)
+}
 
 /// The search index handle: open once per store data dir, mutate at ingest /
 /// relocate / delete, query on `Email/query`.
 pub struct Index {
-    _private: (),
+    inner: TantivyIndex,
+    reader: IndexReader,
+    writer: Mutex<IndexWriter>,
+    fields: Fields,
 }
 
 impl Index {
     /// Open (or create) the index under the store's protected data dir. The
     /// index holds plaintext-derived terms and is documented as auto-excluded
     /// from the V6 zero-access surface (plan §6 risk #3).
-    #[allow(unused_variables)]
-    pub fn open(data_dir: &std::path::Path) -> Result<Self> {
-        todo!("e1: build the Tantivy schema + open/create the index")
+    pub fn open(data_dir: &Path) -> Result<Self> {
+        std::fs::create_dir_all(data_dir)?;
+        let (schema, fields) = build_schema();
+        let dir = MmapDirectory::open(data_dir)
+            .map_err(|e| SearchError::Io(format!("open index dir: {e}")))?;
+        let inner = TantivyIndex::open_or_create(dir, schema)?;
+        Self::from_index(inner, fields)
+    }
+
+    /// Open an ephemeral in-RAM index (tests + the 100k timing harness).
+    pub fn open_in_ram() -> Result<Self> {
+        let (schema, fields) = build_schema();
+        let inner = TantivyIndex::create_in_ram(schema);
+        Self::from_index(inner, fields)
+    }
+
+    fn from_index(inner: TantivyIndex, fields: Fields) -> Result<Self> {
+        let writer: IndexWriter = inner.writer::<TantivyDocument>(50_000_000)?;
+        let reader = inner
+            .reader_builder()
+            .reload_policy(ReloadPolicy::Manual)
+            .try_into()?;
+        Ok(Index {
+            inner,
+            reader,
+            writer: Mutex::new(writer),
+            fields,
+        })
+    }
+
+    fn lock_writer(&self) -> Result<std::sync::MutexGuard<'_, IndexWriter>> {
+        self.writer
+            .lock()
+            .map_err(|_| SearchError::Io("index writer poisoned".to_string()))
+    }
+
+    fn to_document(&self, doc: &IndexDoc) -> Result<TantivyDocument> {
+        let f = &self.fields;
+        let mut td = TantivyDocument::default();
+        td.add_text(f.stable_id, &doc.stable_id);
+        td.add_text(f.account_id, &doc.account_id);
+        td.add_text(f.mailbox, &doc.mailbox_id);
+        td.add_text(f.from, &doc.from);
+        td.add_text(f.to, &doc.to);
+        td.add_text(f.cc, &doc.cc);
+        td.add_text(f.subject, &doc.subject);
+        td.add_text(f.body, &doc.body);
+        for name in &doc.filenames {
+            td.add_text(f.filename, name);
+        }
+        for kw in &doc.keywords {
+            td.add_text(f.keywords, kw);
+        }
+        td.add_text(f.from_sort, doc.from.to_lowercase());
+        td.add_text(f.subject_sort, doc.subject.to_lowercase());
+        td.add_i64(f.date, doc.date);
+        td.add_u64(f.size, doc.size);
+        td.add_u64(f.has_attachment, u64::from(doc.has_attachment));
+        td.add_u64(f.pinned, u64::from(doc.pinned));
+        let json = serde_json::to_string(doc)
+            .map_err(|e| SearchError::Io(format!("serialize IndexDoc: {e}")))?;
+        td.add_text(f.doc_json, json);
+        Ok(td)
+    }
+
+    /// Delete-then-add so a stable id is never duplicated (Tantivy has no
+    /// in-place update). Caller commits + reloads.
+    fn write_one(&self, writer: &IndexWriter, doc: &IndexDoc) -> Result<()> {
+        writer.delete_term(Term::from_field_text(self.fields.stable_id, &doc.stable_id));
+        let td = self.to_document(doc)?;
+        writer.add_document(td)?;
+        Ok(())
     }
 
     /// Add or replace a document (called at `Engine::ingest`).
-    #[allow(unused_variables)]
     pub fn upsert(&self, doc: &IndexDoc) -> Result<()> {
-        todo!("e1")
+        {
+            let mut w = self.lock_writer()?;
+            self.write_one(&w, doc)?;
+            w.commit()?;
+        }
+        self.reader.reload()?;
+        Ok(())
+    }
+
+    /// Bulk add/replace with a single commit — used by the store's initial
+    /// re-index and the 100k timing harness.
+    pub fn upsert_batch(&self, docs: &[IndexDoc]) -> Result<()> {
+        {
+            let mut w = self.lock_writer()?;
+            for doc in docs {
+                self.write_one(&w, doc)?;
+            }
+            w.commit()?;
+        }
+        self.reader.reload()?;
+        Ok(())
     }
 
     /// Delete a document by stable id (called at `store.delete_message`).
-    #[allow(unused_variables)]
     pub fn delete(&self, stable_id: &str) -> Result<()> {
-        todo!("e1")
+        {
+            let mut w = self.lock_writer()?;
+            w.delete_term(Term::from_field_text(self.fields.stable_id, stable_id));
+            w.commit()?;
+        }
+        self.reader.reload()?;
+        Ok(())
     }
 
     /// Re-key a document onto a new mailbox after a stable-id-preserving move
-    /// (called at `store.relocate_message`, plan §1.4).
-    #[allow(unused_variables)]
+    /// (called at `store.relocate_message`, plan §1.4). Preserves every other
+    /// field by reconstructing from the stored `doc_json`.
     pub fn relocate(&self, stable_id: &str, new_mailbox_id: &str) -> Result<()> {
-        todo!("e1")
+        let Some(mut doc) = self.fetch_doc(stable_id)? else {
+            return Ok(()); // Nothing indexed under this id yet — no-op.
+        };
+        doc.mailbox_id = new_mailbox_id.to_string();
+        self.upsert(&doc)
     }
 
-    /// Run a parsed query, returning matching stable ids in result order.
-    #[allow(unused_variables)]
+    /// Reconstruct the [`IndexDoc`] stored under `stable_id`, if present.
+    fn fetch_doc(&self, stable_id: &str) -> Result<Option<IndexDoc>> {
+        let searcher = self.reader.searcher();
+        let q = TermQuery::new(
+            Term::from_field_text(self.fields.stable_id, stable_id),
+            IndexRecordOption::Basic,
+        );
+        let hits = searcher.search(&q, &TopDocs::with_limit(1).order_by_score())?;
+        let Some((_, addr)) = hits.first() else {
+            return Ok(None);
+        };
+        let td: TantivyDocument = searcher.doc(*addr)?;
+        let Some(json) = td.get_first(self.fields.doc_json).and_then(|v| v.as_str()) else {
+            return Ok(None);
+        };
+        Ok(serde_json::from_str(json).ok())
+    }
+
+    /// Run a parsed query, returning matching stable ids in sort order. `limit`
+    /// of `0` means "all matches" (capped at [`MAX_HITS`]).
     pub fn search(&self, query: &SearchQuery, limit: usize) -> Result<Vec<String>> {
-        todo!("e1")
+        let searcher = self.reader.searcher();
+        let compiled = compile(&query.expr, &self.fields);
+        let cap = if limit == 0 { MAX_HITS } else { limit };
+        let order = if query.sort.ascending {
+            Order::Asc
+        } else {
+            Order::Desc
+        };
+
+        let addrs: Vec<tantivy::DocAddress> = match query.sort.field {
+            SortField::ReceivedAt => searcher
+                .search(
+                    &compiled,
+                    &TopDocs::with_limit(cap).order_by_fast_field::<i64>(F_DATE, order),
+                )?
+                .into_iter()
+                .map(|(_, a)| a)
+                .collect(),
+            SortField::Size => searcher
+                .search(
+                    &compiled,
+                    &TopDocs::with_limit(cap).order_by_fast_field::<u64>(F_SIZE, order),
+                )?
+                .into_iter()
+                .map(|(_, a)| a)
+                .collect(),
+            SortField::From => searcher
+                .search(
+                    &compiled,
+                    &TopDocs::with_limit(cap).order_by_string_fast_field(F_FROM_SORT, order),
+                )?
+                .into_iter()
+                .map(|(_, a)| a)
+                .collect(),
+            SortField::Subject => searcher
+                .search(
+                    &compiled,
+                    &TopDocs::with_limit(cap).order_by_string_fast_field(F_SUBJECT_SORT, order),
+                )?
+                .into_iter()
+                .map(|(_, a)| a)
+                .collect(),
+        };
+
+        let mut ids = Vec::with_capacity(addrs.len());
+        for addr in addrs {
+            let td: TantivyDocument = searcher.doc(addr)?;
+            if let Some(id) = td.get_first(self.fields.stable_id).and_then(|v| v.as_str()) {
+                ids.push(id.to_string());
+            }
+        }
+        Ok(ids)
+    }
+
+    /// Force any pending writes to be visible to subsequent searches.
+    pub fn reload(&self) -> Result<()> {
+        self.reader.reload()?;
+        Ok(())
+    }
+
+    /// The number of live (committed, non-deleted) documents.
+    pub fn num_docs(&self) -> u64 {
+        self.reader.searcher().num_docs()
+    }
+
+    /// Access the underlying Tantivy index (schema introspection/tests).
+    pub fn tantivy(&self) -> &TantivyIndex {
+        &self.inner
     }
 }
 
-/// Parse operator text into a [`SearchQuery`] (plan §0.1). e1 owns the grammar
-/// and its `cargo-fuzz` target (plan §1.12).
-#[allow(unused_variables)]
-pub fn parse_query(text: &str) -> Result<SearchQuery> {
-    todo!("e1: operator query parser")
+// ---------------------------------------------------------------------------
+// AST → Tantivy query compilation
+// ---------------------------------------------------------------------------
+
+/// Replicate Tantivy's `default` tokenizer (split on non-alphanumeric,
+/// lowercase, drop tokens > 40 bytes) so query terms match indexed terms.
+fn tokenize(s: &str) -> Vec<String> {
+    s.split(|c: char| !c.is_alphanumeric())
+        .filter(|t| !t.is_empty() && t.len() <= 40)
+        .map(|t| t.to_lowercase())
+        .collect()
+}
+
+fn compile(expr: &Expr, f: &Fields) -> Box<dyn Query> {
+    match expr {
+        Expr::All => Box::new(AllQuery),
+        Expr::Clause(c) => clause_query(c, f),
+        Expr::And(children) => {
+            let subs = children
+                .iter()
+                .map(|e| (Occur::Must, compile(e, f)))
+                .collect();
+            Box::new(BooleanQuery::new(subs))
+        }
+        Expr::Or(children) => {
+            let subs = children
+                .iter()
+                .map(|e| (Occur::Should, compile(e, f)))
+                .collect();
+            Box::new(BooleanQuery::new(subs))
+        }
+        Expr::Not(inner) => negate(compile(inner, f)),
+    }
+}
+
+/// `NOT q` — a must-not needs a positive clause to select the candidate set.
+fn negate(q: Box<dyn Query>) -> Box<dyn Query> {
+    Box::new(BooleanQuery::new(vec![
+        (Occur::Must, Box::new(AllQuery) as Box<dyn Query>),
+        (Occur::MustNot, q),
+    ]))
+}
+
+fn text_field(f: &Fields, tf: TextField) -> Vec<Field> {
+    match tf {
+        TextField::From => vec![f.from],
+        TextField::To => vec![f.to],
+        TextField::Cc => vec![f.cc],
+        TextField::Subject => vec![f.subject],
+        TextField::Body => vec![f.body],
+        TextField::Filename => vec![f.filename],
+        TextField::All => vec![f.from, f.to, f.cc, f.subject, f.body, f.filename],
+    }
+}
+
+fn clause_query(c: &Clause, f: &Fields) -> Box<dyn Query> {
+    match c {
+        Clause::Text {
+            field,
+            value,
+            phrase,
+        } => {
+            let tokens = tokenize(value);
+            if tokens.is_empty() {
+                return Box::new(EmptyQuery);
+            }
+            let fields = text_field(f, *field);
+            let mut per_field: Vec<(Occur, Box<dyn Query>)> = fields
+                .iter()
+                .map(|fld| (Occur::Should, field_text_query(*fld, &tokens, *phrase)))
+                .collect();
+            if per_field.len() == 1 {
+                per_field.pop().expect("len == 1").1
+            } else {
+                Box::new(BooleanQuery::new(per_field))
+            }
+        }
+        Clause::Keyword(kw) => term_query(f.keywords, kw),
+        Clause::NotKeyword(kw) => negate(term_query(f.keywords, kw)),
+        Clause::Mailbox(m) => term_query(f.mailbox, m),
+        Clause::HasAttachment(b) => u64_term(f.has_attachment, u64::from(*b)),
+        Clause::Pinned(b) => u64_term(f.pinned, u64::from(*b)),
+        Clause::DateRange { after, before } => {
+            let lower = after
+                .map(|v| Bound::Included(Term::from_field_i64(f.date, v)))
+                .unwrap_or(Bound::Unbounded);
+            let upper = before
+                .map(|v| Bound::Excluded(Term::from_field_i64(f.date, v)))
+                .unwrap_or(Bound::Unbounded);
+            if matches!(
+                (lower.as_ref(), upper.as_ref()),
+                (Bound::Unbounded, Bound::Unbounded)
+            ) {
+                return Box::new(EmptyQuery);
+            }
+            Box::new(RangeQuery::new(lower, upper))
+        }
+        Clause::SizeRange { larger, smaller } => {
+            let lower = larger
+                .map(|v| Bound::Excluded(Term::from_field_u64(f.size, v)))
+                .unwrap_or(Bound::Unbounded);
+            let upper = smaller
+                .map(|v| Bound::Excluded(Term::from_field_u64(f.size, v)))
+                .unwrap_or(Bound::Unbounded);
+            if matches!(
+                (lower.as_ref(), upper.as_ref()),
+                (Bound::Unbounded, Bound::Unbounded)
+            ) {
+                return Box::new(EmptyQuery);
+            }
+            Box::new(RangeQuery::new(lower, upper))
+        }
+    }
+}
+
+fn field_text_query(field: Field, tokens: &[String], phrase: bool) -> Box<dyn Query> {
+    if phrase && tokens.len() > 1 {
+        let terms = tokens
+            .iter()
+            .map(|t| Term::from_field_text(field, t))
+            .collect();
+        Box::new(PhraseQuery::new(terms))
+    } else if tokens.len() == 1 {
+        Box::new(TermQuery::new(
+            Term::from_field_text(field, &tokens[0]),
+            IndexRecordOption::WithFreqs,
+        ))
+    } else {
+        // Multiple tokens, not a phrase: require all (AND).
+        let subs = tokens
+            .iter()
+            .map(|t| {
+                (
+                    Occur::Must,
+                    Box::new(TermQuery::new(
+                        Term::from_field_text(field, t),
+                        IndexRecordOption::WithFreqs,
+                    )) as Box<dyn Query>,
+                )
+            })
+            .collect();
+        Box::new(BooleanQuery::new(subs))
+    }
+}
+
+fn term_query(field: Field, value: &str) -> Box<dyn Query> {
+    Box::new(TermQuery::new(
+        Term::from_field_text(field, value),
+        IndexRecordOption::Basic,
+    ))
+}
+
+fn u64_term(field: Field, value: u64) -> Box<dyn Query> {
+    Box::new(TermQuery::new(
+        Term::from_field_u64(field, value),
+        IndexRecordOption::Basic,
+    ))
 }
