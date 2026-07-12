@@ -59,6 +59,8 @@ export default defineConfig({
         'offline.spec.ts',
         'multiwindow.spec.ts',
         'search.spec.ts',
+        'viewers.spec.ts',
+        'export.spec.ts',
       ],
       use: { ...devices['Desktop Chrome'], baseURL: engineBaseURL },
     },

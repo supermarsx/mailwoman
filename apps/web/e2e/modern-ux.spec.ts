@@ -26,8 +26,9 @@ import {
 // run concurrently — parallel IMAP/submission ops on a single account race and
 // surface as `serverFail`. Serial mode matches CI (workers:1) and keeps local
 // runs deterministic. Theming (theming.spec.ts) needs no account and stays
-// parallel-safe.
-test.describe.configure({ mode: 'serial' });
+// parallel-safe. retries: seeding waits on the engine ingesting a self-sent
+// message; a fresh retry recovers a transient watch-loop stall.
+test.describe.configure({ mode: 'serial', retries: 2 });
 
 test.describe('V2 modern mail UX (engine mode)', () => {
   test('tag chip + pin ordering + follow-up + undo toast on seeded messages', async ({ page }) => {

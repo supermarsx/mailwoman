@@ -126,28 +126,60 @@ export async function waitForInboxMessage(page: Page, subject: string, timeout =
  * realtime-push / search-operator / multi-window specs don't depend on the
  * 10 s undo-send hold. The engine's watch loop ingests it like any other mail.
  */
+export interface InjectAttachment {
+  filename: string;
+  /** MIME type (e.g. application/pdf, image/png, video/mp4). */
+  contentType: string;
+  /** Raw bytes as a binary string. Provide EITHER this OR `base64`. */
+  content?: string;
+  /** Pre-encoded base64 payload (for real binary like a PNG). */
+  base64?: string;
+}
+
 export async function injectViaSmtp(opts: {
   from: string;
   subject: string;
   text: string;
   to?: string;
+  /** Shorthand for a single octet-stream attachment. */
   withAttachment?: { filename: string; content: string };
+  /** One or more typed attachments (image/pdf/video/…) for the viewer specs. */
+  attachments?: InjectAttachment[];
 }): Promise<void> {
   const host = process.env['MW_E2E_SMTP_HOST'] ?? '127.0.0.1';
   const port = Number(process.env['MW_E2E_SMTP_PORT'] ?? 3025);
   const to = opts.to ?? ENGINE_CREDS.selfAddress;
 
-  let body: string;
+  const parts: InjectAttachment[] = opts.attachments ? [...opts.attachments] : [];
   if (opts.withAttachment !== undefined) {
-    const b64 = Buffer.from(opts.withAttachment.content, 'utf8').toString('base64');
+    parts.push({
+      filename: opts.withAttachment.filename,
+      contentType: 'application/octet-stream',
+      content: opts.withAttachment.content,
+    });
+  }
+
+  let body: string;
+  if (parts.length > 0) {
     const bound = `mwbound${Date.now()}`;
+    const attachmentParts = parts
+      .map((p) => {
+        const b64 = p.base64 ?? Buffer.from(p.content ?? '', 'binary').toString('base64');
+        // Fold the base64 into 76-char lines (RFC 2045) so long payloads parse.
+        const folded = b64.replace(/(.{76})/g, '$1\r\n');
+        return (
+          `--${bound}\r\nContent-Type: ${p.contentType}; name="${p.filename}"\r\n` +
+          `Content-Disposition: attachment; filename="${p.filename}"\r\n` +
+          `Content-Transfer-Encoding: base64\r\n\r\n${folded}\r\n`
+        );
+      })
+      .join('');
     body =
       `MIME-Version: 1.0\r\n` +
       `Content-Type: multipart/mixed; boundary="${bound}"\r\n\r\n` +
       `--${bound}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${opts.text}\r\n` +
-      `--${bound}\r\nContent-Type: application/octet-stream; name="${opts.withAttachment.filename}"\r\n` +
-      `Content-Disposition: attachment; filename="${opts.withAttachment.filename}"\r\n` +
-      `Content-Transfer-Encoding: base64\r\n\r\n${b64}\r\n--${bound}--\r\n`;
+      attachmentParts +
+      `--${bound}--\r\n`;
   } else {
     body = `MIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${opts.text}\r\n`;
   }
