@@ -1,0 +1,35 @@
+# SMTP submission transcript — SASL LOGIN (334 challenge/response for username
+# then password), single accepted recipient, dot-stuffed DATA.
+
+# 0: greeting
+S: 220 mock.mailwoman.test ESMTP ready
+
+# 1: reply to EHLO
+S: 250-mock.mailwoman.test at your service
+S: 250-SIZE 10485760
+S: 250-AUTH LOGIN PLAIN
+S: 250 PIPELINING
+
+# 2: reply to AUTH LOGIN  (base64 "Username:")
+S: 334 VXNlcm5hbWU6
+
+# 3: reply to <base64 username>  (base64 "Password:")
+S: 334 UGFzc3dvcmQ6
+
+# 4: reply to <base64 password>
+S: 235 2.7.0 Authentication successful
+
+# 5: reply to MAIL FROM
+S: 250 2.1.0 OK
+
+# 6: reply to RCPT TO
+S: 250 2.1.5 OK
+
+# 7: reply to DATA
+S: 354 Go ahead
+
+# 8: reply after body terminator
+S: 250 2.0.0 OK: queued
+
+# 9: reply to QUIT
+S: 221 2.0.0 Bye

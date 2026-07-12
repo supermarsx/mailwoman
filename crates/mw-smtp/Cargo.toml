@@ -6,15 +6,16 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+# Deliberately decoupled from mw-mime: this crate accepts already-serialized
+# raw MIME bytes (plan §3 e4 "PREFER: accept raw bytes"), so it depends on no
+# other workspace crate and does not block on e1.
 [dependencies]
-mw-mime = { workspace = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true }
 rustls = { workspace = true }
 rustls-pki-types = { workspace = true }
 webpki-roots = { workspace = true }
 base64 = { workspace = true }
-data-encoding = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 

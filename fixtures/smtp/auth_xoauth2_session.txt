@@ -1,0 +1,30 @@
+# SMTP submission transcript — SASL XOAUTH2 (single initial-response frame),
+# no SIZE advertised, single accepted recipient, dot-stuffed DATA. Mirrors the
+# Gmail submission happy path (recorded-fixture policy, plan §6 risk 2).
+
+# 0: greeting
+S: 220 smtp.gmail.com ESMTP ready
+
+# 1: reply to EHLO
+S: 250-smtp.gmail.com at your service
+S: 250-8BITMIME
+S: 250-AUTH LOGIN PLAIN XOAUTH2 OAUTHBEARER
+S: 250 PIPELINING
+
+# 2: reply to AUTH XOAUTH2 <initial-response>
+S: 235 2.7.0 Accepted
+
+# 3: reply to MAIL FROM
+S: 250 2.1.0 OK
+
+# 4: reply to RCPT TO
+S: 250 2.1.5 OK
+
+# 5: reply to DATA
+S: 354 Go ahead
+
+# 6: reply after body terminator
+S: 250 2.0.0 OK: queued
+
+# 7: reply to QUIT
+S: 221 2.0.0 Bye
