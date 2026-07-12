@@ -195,7 +195,16 @@ async fn api(
         let mut args = arr[1].clone();
         resolve_references(&mut args, &responses);
         let resp_args = dispatch(&store, name, &args);
-        responses.push(json!([name.to_string(), resp_args, call_id]));
+        // RFC 8620 §3.6.1: a method-level error is returned as ["error", obj, callId],
+        // NOT ["<Method>", {type}, callId]. dispatch() tags unimplemented methods with
+        // `type: "unknownMethod"`; surface those under the "error" name so clients that
+        // key error handling on found[0] == "error" behave correctly.
+        let resp_name = if resp_args.get("type").and_then(Value::as_str) == Some("unknownMethod") {
+            "error"
+        } else {
+            name
+        };
+        responses.push(json!([resp_name, resp_args, call_id]));
     }
 
     axum::Json(json!({

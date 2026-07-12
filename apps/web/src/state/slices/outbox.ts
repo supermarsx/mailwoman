@@ -87,8 +87,14 @@ export function createOutboxSlice(ctx: SliceContext): OutboxSlice {
   async function loadIdentities(): Promise<void> {
     const acct = await resolveAccount();
     if (acct === null) return;
-    const res = await client.jmap(identityGet(acct));
-    setIdentities(responseFor<IdentityGetResponse>(res, 'i').list);
+    try {
+      const res = await client.jmap(identityGet(acct));
+      setIdentities(responseFor<IdentityGetResponse>(res, 'i').list ?? []);
+    } catch {
+      // Server lacks Identity/get (e.g. a bare IMAP server or the V0 mock):
+      // fall back to no configured identities rather than breaking compose.
+      setIdentities([]);
+    }
   }
 
   async function cancelOutbox(id: Id): Promise<void> {
