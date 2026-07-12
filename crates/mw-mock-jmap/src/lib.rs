@@ -7,9 +7,10 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use axum::Router;
-use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
-use axum::response::IntoResponse;
+use axum::body::Body;
+use axum::extract::{Path, State};
+use axum::http::{HeaderMap, StatusCode, header};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use base64::Engine as _;
 use serde_json::{Value, json};
@@ -131,6 +132,7 @@ pub fn router() -> Router {
         .route("/.well-known/jmap", get(session))
         .route("/jmap/session", get(session))
         .route("/jmap", post(api))
+        .route("/jmap/download/{accountId}/{blobId}/{name}", get(download))
         .route("/healthz", get(|| async { "ok" }))
         .with_state(store)
 }
@@ -212,6 +214,29 @@ async fn api(
         "sessionState": "session-0"
     }))
     .into_response()
+}
+
+/// Serve a blob download (RFC 8620 §6.2). The body echoes the substituted URL
+/// coordinates so a proxy test can prove the request was forwarded verbatim with
+/// auth injected; a real server would stream the blob bytes here.
+async fn download(
+    headers: HeaderMap,
+    Path((account, blob, name)): Path<(String, String, String)>,
+) -> Response {
+    if !check_auth(&headers) {
+        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+    }
+    let mut resp = Response::new(Body::from(format!("BLOB:{account}:{blob}:{name}")));
+    let h = resp.headers_mut();
+    h.insert(
+        header::CONTENT_TYPE,
+        "application/octet-stream".parse().unwrap(),
+    );
+    h.insert(
+        header::CONTENT_DISPOSITION,
+        format!("attachment; filename=\"{name}\"").parse().unwrap(),
+    );
+    resp
 }
 
 fn dispatch(store: &MailStore, name: &str, args: &Value) -> Value {

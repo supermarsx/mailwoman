@@ -404,7 +404,17 @@ impl Engine {
             .unwrap_or_default();
         let obj = email.as_object_mut().expect("email is an object");
         obj.insert("id".into(), json!(stable_id));
-        obj.insert("blobId".into(), json!(msg.blob_ref));
+        // blobId scheme (e14): the whole message is `<stableId>`, each attachment
+        // part is `<stableId>.<partId>` — both resolved by `Engine::fetch_blob`
+        // behind `/jmap/download`. Patch the message blobId + every attachment's.
+        obj.insert("blobId".into(), json!(stable_id));
+        if let Some(atts) = obj.get_mut("attachments").and_then(Value::as_array_mut) {
+            for att in atts {
+                if let Some(pid) = att.get("partId").and_then(Value::as_str) {
+                    att["blobId"] = json!(format!("{stable_id}.{pid}"));
+                }
+            }
+        }
         obj.insert("threadId".into(), json!(msg.thread_id));
         obj.insert("mailboxIds".into(), json!({ msg.mailbox_id.clone(): true }));
         let keywords = flags_to_keywords(&flags_from_json(&msg.flags_json));
@@ -513,13 +523,9 @@ impl Engine {
                 &[Flag::Draft],
             )
             .await?;
-        let blob = self
-            .store()
-            .get_message(&sid)
-            .await
-            .ok()
-            .and_then(|m| m.blob_ref);
-        Ok((sid, blob))
+        // The draft's download blobId is the whole-message form `<stableId>`
+        // (see `Engine::fetch_blob`), so a just-composed draft is exportable.
+        Ok((sid.clone(), Some(sid)))
     }
 
     /// Apply an Email/set update: keyword changes, engine-local meta

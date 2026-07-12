@@ -29,7 +29,7 @@ pub use backend::{
     MailboxRole, MessageRef, MoveOutcome, RawMailbox, RawMailboxRef, RawMessage, Result,
     SyncCursor, WatchHandle,
 };
-pub use engine::Engine;
+pub use engine::{BlobData, Engine};
 pub use jmap::session_json;
 
 // ── V2 frozen types (§2.1/§2.2) authored by e0; logic filled by e9/e10. ──

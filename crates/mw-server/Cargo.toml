@@ -19,6 +19,7 @@ mw-jmap = { workspace = true }
 mw-store = { workspace = true }
 mw-sanitize = { workspace = true }
 mw-engine = { workspace = true }
+mw-export = { workspace = true }
 mw-imap = { workspace = true }
 mw-pop3 = { workspace = true }
 mw-smtp = { workspace = true }

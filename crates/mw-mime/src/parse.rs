@@ -96,8 +96,72 @@ fn map_email(message: &Message<'_>, raw: &[u8]) -> Email {
         body_values,
         text_body,
         html_body,
+        attachments: collect_attachments(message),
         ..Email::default()
     }
+}
+
+/// Build [`EmailBodyPart`] metadata for the message's non-inline attachment
+/// parts. `blobId` is left `None` — the engine, which owns the message's stable
+/// id, fills it (`<stableId>.<partId>`) so [`crate::part_blob`] can resolve a
+/// download back to these exact bytes.
+fn collect_attachments(message: &Message<'_>) -> Vec<EmailBodyPart> {
+    let mut parts = Vec::new();
+    for &id in &message.attachments {
+        let Some(part) = message.part(id) else {
+            continue;
+        };
+        // Inline/cid resources belong to the rendered body, not the file list.
+        if is_inline_resource(part) {
+            continue;
+        }
+        let (mime_type, charset) = content_type_of(part);
+        parts.push(EmailBodyPart {
+            part_id: Some(id.to_string()),
+            blob_id: None,
+            size: part.len() as u64,
+            r#type: Some(mime_type),
+            charset,
+            name: part.attachment_name().map(str::to_string),
+            cid: part.content_id().map(strip_angle),
+            disposition: disposition_of(part),
+        });
+    }
+    parts
+}
+
+/// A single MIME part's decoded content, addressed by the `partId` [`parse`]
+/// emits — the download unit behind a `<stableId>.<partId>` blob id (plan §2.4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartBlob {
+    /// Lowercased `type/subtype` (e.g. `application/pdf`).
+    pub content_type: String,
+    /// The declared attachment filename, when the part carries one.
+    pub filename: Option<String>,
+    /// Decoded content bytes (Content-Transfer-Encoding already undone).
+    pub bytes: Vec<u8>,
+}
+
+/// Extract one MIME part's decoded bytes by its `mail-parser` part index.
+///
+/// Returns `None` when `part_id` names no leaf part or names a container
+/// (multipart / nested message), neither of which is a downloadable blob. Runs
+/// over untrusted bytes inside the render jail and never panics.
+#[must_use]
+pub fn part_blob(raw: &[u8], part_id: u32) -> Option<PartBlob> {
+    let message = MessageParser::default().parse(raw)?;
+    let part = message.part(part_id)?;
+    let (content_type, _charset) = content_type_of(part);
+    let bytes = match &part.body {
+        PartType::Text(t) | PartType::Html(t) => t.as_bytes().to_vec(),
+        PartType::Binary(b) | PartType::InlineBinary(b) => b.as_ref().to_vec(),
+        PartType::Message(_) | PartType::Multipart(_) => return None,
+    };
+    Some(PartBlob {
+        content_type,
+        filename: part.attachment_name().map(str::to_string),
+        bytes,
+    })
 }
 
 fn map_envelope(message: &Message<'_>) -> ParsedEnvelope {

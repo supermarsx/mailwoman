@@ -101,6 +101,44 @@ impl JmapClient {
         let bytes = resp.bytes().await?;
         Ok((status, bytes))
     }
+
+    /// GET a blob/download URL with injected auth, returning
+    /// `(status, content_type, content_disposition, body)` so the proxy can
+    /// stream an upstream attachment/message download back to the browser
+    /// verbatim (RFC 8620 §6.2).
+    #[allow(clippy::type_complexity)]
+    pub async fn get_bytes(
+        &self,
+        url: &str,
+    ) -> Result<
+        (
+            reqwest::StatusCode,
+            Option<String>,
+            Option<String>,
+            bytes::Bytes,
+        ),
+        JmapError,
+    > {
+        let resp = self
+            .http
+            .get(url)
+            .header("Authorization", &self.authorization)
+            .send()
+            .await?;
+        let status = resp.status();
+        let content_type = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .map(String::from);
+        let content_disposition = resp
+            .headers()
+            .get(reqwest::header::CONTENT_DISPOSITION)
+            .and_then(|v| v.to_str().ok())
+            .map(String::from);
+        let bytes = resp.bytes().await?;
+        Ok((status, content_type, content_disposition, bytes))
+    }
 }
 
 #[cfg(test)]

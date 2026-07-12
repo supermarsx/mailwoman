@@ -418,6 +418,76 @@ async fn state_advances_and_email_changes_diff_is_correct() {
 }
 
 #[tokio::test]
+async fn fetch_blob_serves_whole_message_and_attachment_parts() {
+    let h = setup().await;
+    h.engine.resync(&h.account_id).await.unwrap();
+    let inbox = inbox(&h).await;
+
+    // The invoice message is the one carrying the base64 PDF attachment.
+    let id = search_one(&h, &inbox, json!({ "hasAttachment": true })).await;
+
+    // Email/get emits the message blobId (= stableId) and an attachment part
+    // whose blobId is scoped as `<stableId>.<partId>`.
+    let g = jmap(
+        &h,
+        json!([[
+            "Email/get",
+            { "ids": [id.clone()], "properties": ["blobId", "attachments"] },
+            "g"
+        ]]),
+    )
+    .await;
+    let email = &result(&g, "g")["list"][0];
+    assert_eq!(email["blobId"].as_str(), Some(id.as_str()));
+    let atts = email["attachments"].as_array().expect("attachments array");
+    assert_eq!(atts.len(), 1, "one non-inline attachment: {atts:?}");
+    let att_blob = atts[0]["blobId"].as_str().unwrap();
+    assert!(
+        att_blob.starts_with(&format!("{id}.")),
+        "attachment blobId scoped to the message: {att_blob}"
+    );
+    assert_eq!(atts[0]["name"].as_str(), Some("invoice.pdf"));
+
+    // Downloading the attachment blobId decodes the base64 PDF body.
+    let part = h
+        .engine
+        .fetch_blob(&h.account_id, att_blob)
+        .await
+        .unwrap()
+        .expect("attachment blob resolves");
+    assert_eq!(part.content_type, "application/pdf");
+    assert_eq!(part.filename, "invoice.pdf");
+    assert_eq!(part.bytes, b"%PDF-1.4\n");
+
+    // Downloading the message blobId returns RFC822 that re-parses.
+    let whole = h
+        .engine
+        .fetch_blob(&h.account_id, &id)
+        .await
+        .unwrap()
+        .expect("message blob resolves");
+    assert_eq!(whole.content_type, "message/rfc822");
+    let reparsed = mw_mime::parse(&whole.bytes).expect("re-parse exported RFC822");
+    assert_eq!(reparsed.email.subject.as_deref(), Some("Invoice 2026"));
+
+    // An unknown blobId and a foreign account both resolve to nothing (→ 404).
+    assert!(
+        h.engine
+            .fetch_blob(&h.account_id, "0000deadbeef")
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        h.engine
+            .fetch_blob("some-other-account", &id)
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[tokio::test]
 async fn undo_send_cancel_before_window() {
     let h = setup().await;
     h.engine.resync(&h.account_id).await.unwrap();

@@ -216,6 +216,10 @@ pub struct Email {
     pub text_body: Vec<EmailBodyPart>,
     #[serde(default)]
     pub html_body: Vec<EmailBodyPart>,
+    /// Non-inline attachment parts (RFC 8621 §4.1.4). The engine fills each
+    /// part's `blobId` so the web app can download it via `downloadUrl`.
+    #[serde(default)]
+    pub attachments: Vec<EmailBodyPart>,
 }
 
 /// RFC 8620 §5.3 — SetError.

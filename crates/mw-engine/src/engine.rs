@@ -432,6 +432,81 @@ impl Engine {
         })
     }
 
+    // ---- blob download (plan §2.4 / e14) -------------------------------
+
+    /// Resolve a download `blobId` to its bytes plus the HTTP framing the server
+    /// needs. The blobId scheme is engine-owned:
+    /// - `<stableId>` — the whole message, returned verbatim as
+    ///   `message/rfc822` (a re-parse of the output equals the original, so EML
+    ///   export round-trips).
+    /// - `<stableId>.<partId>` — one decoded MIME part, with its own
+    ///   content-type + filename (the attachment viewers' download path).
+    ///
+    /// Bytes come from the sealed body cache when present, else a backend
+    /// `fetch_raw`. Returns `Ok(None)` when the id names no message/part owned by
+    /// `account_id` (→ 404); cross-account ids never resolve.
+    pub async fn fetch_blob(&self, account_id: &str, blob_id: &str) -> Result<Option<BlobData>> {
+        let (stable_id, part_id) = match blob_id.split_once('.') {
+            Some((sid, pid)) => (sid, Some(pid)),
+            None => (blob_id, None),
+        };
+        let Some(raw) = self.message_raw(account_id, stable_id).await? else {
+            return Ok(None);
+        };
+        match part_id {
+            None => Ok(Some(BlobData {
+                content_type: "message/rfc822".to_string(),
+                filename: format!("{stable_id}.eml"),
+                bytes: raw,
+            })),
+            Some(pid) => {
+                let Ok(idx) = pid.parse::<u32>() else {
+                    return Ok(None);
+                };
+                let Some(part) = mw_mime::part_blob(&raw, idx) else {
+                    return Ok(None);
+                };
+                let filename = part
+                    .filename
+                    .unwrap_or_else(|| format!("{stable_id}.{pid}.bin"));
+                Ok(Some(BlobData {
+                    content_type: part.content_type,
+                    filename,
+                    bytes: part.bytes,
+                }))
+            }
+        }
+    }
+
+    /// Raw RFC822 bytes for a stable id, scoped to `account_id`: served from the
+    /// sealed body cache, else pulled from the backend by the message's server
+    /// coordinates. `Ok(None)` when the id is unknown or owned by another account.
+    async fn message_raw(&self, account_id: &str, stable_id: &str) -> Result<Option<Vec<u8>>> {
+        let msg = match self.store.get_message(stable_id).await {
+            Ok(m) => m,
+            Err(mw_store::StoreError::NotFound) => return Ok(None),
+            Err(e) => return Err(EngineError::Store(e)),
+        };
+        if msg.account_id != account_id {
+            return Ok(None);
+        }
+        if let Some(blob) = &msg.blob_ref
+            && let Some(raw) = self.store.get_body(blob).await?
+        {
+            return Ok(Some(raw));
+        }
+        // Body not cached (e.g. evicted): re-fetch from the backend if the
+        // message still has upstream coordinates.
+        if let Some(mref) = self.imap_ref_for(stable_id).await? {
+            let rt = self.require_runtime(account_id)?;
+            let raws = rt.backend.fetch_raw(std::slice::from_ref(&mref)).await?;
+            if let Some(first) = raws.into_iter().next() {
+                return Ok(Some(first.raw));
+            }
+        }
+        Ok(None)
+    }
+
     // ---- change ingestion ----------------------------------------------
 
     /// Start the backend's watch loop; on each `MailboxChanged` re-sync then
@@ -470,6 +545,19 @@ impl Engine {
         }
         Ok(())
     }
+}
+
+/// A resolved download blob (plan §2.4 / e14): the bytes plus the content-type
+/// and filename the server puts on the `Content-Type` / `Content-Disposition`
+/// headers. Produced by [`Engine::fetch_blob`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlobData {
+    /// MIME type: `message/rfc822` for a whole message, the part's type for a part.
+    pub content_type: String,
+    /// Suggested download filename.
+    pub filename: String,
+    /// The blob bytes.
+    pub bytes: Vec<u8>,
 }
 
 /// Decompose a message ref into `(uidvalidity, uid, uidl)`. POP3 has no UID, so a

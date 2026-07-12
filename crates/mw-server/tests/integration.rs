@@ -258,6 +258,86 @@ async fn static_index_is_served() {
 }
 
 #[tokio::test]
+async fn download_requires_auth() {
+    let (server, _web) = spawn_server().await;
+    let c = client();
+    // No cookie → the download route is guarded like every other JMAP route.
+    let resp = c
+        .get(format!("{server}/jmap/download/acct-1/blob-e1/file.bin"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401);
+}
+
+#[tokio::test]
+async fn download_proxies_upstream_blob_with_injected_auth() {
+    let mock = spawn_mock().await;
+    let (server, _web) = spawn_server().await;
+    let c = client();
+    do_login(&c, &server, &mock).await;
+
+    // Proxy mode: the server fetches the upstream downloadUrl (auth injected)
+    // and streams the bytes back. The mock echoes the substituted coordinates.
+    let resp = c
+        .get(format!(
+            "{server}/jmap/download/{}/blob-e1/invoice.eml",
+            mw_mock_jmap::ACCOUNT_ID
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "application/octet-stream"
+    );
+    let body = resp.text().await.unwrap();
+    assert_eq!(body, "BLOB:acct-1:blob-e1:invoice.eml");
+}
+
+#[tokio::test]
+async fn upload_route_returns_501_not_index_fallthrough() {
+    let mock = spawn_mock().await;
+    let (server, _web) = spawn_server().await;
+    let c = client();
+    do_login(&c, &server, &mock).await;
+
+    // The rewritten uploadUrl is registered (not silently served the SPA shell).
+    let resp = c
+        .get(format!("{server}/jmap/upload/{}", mw_mock_jmap::ACCOUNT_ID))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 501);
+    let body = resp.text().await.unwrap();
+    assert!(
+        !body.contains("MW_TEST_INDEX"),
+        "fell through to SPA: {body}"
+    );
+}
+
+#[tokio::test]
+async fn export_is_engine_mode_only_in_proxy() {
+    let mock = spawn_mock().await;
+    let (server, _web) = spawn_server().await;
+    let c = client();
+    do_login(&c, &server, &mock).await;
+
+    // Proxy mode has no server-side body store, so /api/export is a clean 501.
+    let resp = c
+        .get(format!("{server}/api/export/e1?format=eml"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 501);
+}
+
+#[tokio::test]
 async fn logout_clears_session() {
     let mock = spawn_mock().await;
     let (server, _web) = spawn_server().await;

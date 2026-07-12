@@ -1981,6 +1981,7 @@ dependencies = [
  "mime_guess",
  "mw-autoconfig",
  "mw-engine",
+ "mw-export",
  "mw-imap",
  "mw-jmap",
  "mw-mock-jmap",

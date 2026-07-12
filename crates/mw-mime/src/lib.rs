@@ -19,7 +19,7 @@ mod build;
 mod parse;
 
 pub use build::{ComposeRequest, build};
-pub use parse::{Parsed, ParsedEnvelope, decode_charset, parse};
+pub use parse::{Parsed, ParsedEnvelope, PartBlob, decode_charset, parse, part_blob};
 
 // Re-export the frozen JMAP types callers map to/from, so downstream crates
 // (mw-smtp, mw-engine) need not depend on `mw-jmap` directly for these.

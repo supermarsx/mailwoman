@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use axum::body::{Body, Bytes};
-use axum::extract::{Request, State};
+use axum::extract::{Path as UrlPath, Query, Request, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, Uri, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -159,6 +159,15 @@ fn router(state: AppState) -> Router {
         .route("/api/sanitize", post(sanitize))
         .route("/jmap/session", get(jmap_session))
         .route("/jmap/api", post(jmap_api))
+        .route(
+            "/jmap/download/{accountId}/{blobId}/{name}",
+            get(jmap_download),
+        )
+        .route(
+            "/jmap/upload/{accountId}",
+            post(jmap_upload).get(jmap_upload),
+        )
+        .route("/api/export/{stableId}", get(export_message))
         .route("/jmap/ws", get(push::jmap_ws))
         .route("/jmap/eventsource", get(push::jmap_eventsource))
         .route("/healthz", get(|| async { "ok" }))
@@ -549,6 +558,248 @@ fn upstream_error() -> Response {
         Json(json!({ "error": "upstream request failed" })),
     )
         .into_response()
+}
+
+// ---------------------------------------------------------------------------
+// Blob download + export (plan §2.4 / §10.5, e14)
+// ---------------------------------------------------------------------------
+
+/// `GET /jmap/download/{accountId}/{blobId}/{name}` — the JMAP downloadUrl the
+/// session rewrites to (RFC 8620 §6.2). Cookie-authed. In engine mode the blobId
+/// is resolved locally by [`mw_engine::Engine::fetch_blob`] (whole message
+/// `<stableId>` → `message/rfc822`; a part `<stableId>.<partId>` → its decoded
+/// bytes). In proxy mode the request is forwarded to the upstream downloadUrl
+/// with injected Basic auth and streamed back verbatim.
+async fn jmap_download(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    UrlPath((account_id, blob_id, name)): UrlPath<(String, String, String)>,
+) -> Response {
+    let session = match authed(&state, &headers).await {
+        Ok(s) => s,
+        Err(resp) => return resp,
+    };
+    // A session may only download blobs from its own account.
+    if account_id != session.account_id {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "account mismatch" })),
+        )
+            .into_response();
+    }
+    if let Some(engine) = &state.engine {
+        match engine.fetch_blob(&account_id, &blob_id).await {
+            Ok(Some(blob)) => {
+                let filename = if name.is_empty() {
+                    &blob.filename
+                } else {
+                    &name
+                };
+                blob_response(&blob.content_type, filename, blob.bytes)
+            }
+            Ok(None) => (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "blob not found" })),
+            )
+                .into_response(),
+            Err(e) => {
+                tracing::warn!("blob fetch failed: {e}");
+                upstream_error()
+            }
+        }
+    } else {
+        proxy_download(&session, &account_id, &blob_id, &name).await
+    }
+}
+
+/// Proxy a download to the upstream JMAP server: fetch its Session for the real
+/// downloadUrl template, substitute the coordinates, GET it with injected auth,
+/// and stream status + content headers + body straight back to the browser.
+async fn proxy_download(
+    session: &mw_store::Session,
+    account_id: &str,
+    blob_id: &str,
+    name: &str,
+) -> Response {
+    let client = match JmapClient::new(&session.credentials.username, &session.credentials.password)
+    {
+        Ok(c) => c,
+        Err(_) => return upstream_error(),
+    };
+    let upstream = match client.session(&session.jmap_url).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!("upstream session for download failed: {e}");
+            return upstream_error();
+        }
+    };
+    let url = upstream
+        .download_url
+        .replace("{accountId}", &percent_encode(account_id))
+        .replace("{blobId}", &percent_encode(blob_id))
+        .replace("{name}", &percent_encode(name))
+        .replace("{type}", "application/octet-stream");
+    let abs = resolve_api_url(&session.jmap_url, &url);
+    match client.get_bytes(&abs).await {
+        Ok((status, content_type, content_disposition, bytes)) => {
+            let code = StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+            let mut resp = Response::new(Body::from(bytes));
+            *resp.status_mut() = code;
+            let h = resp.headers_mut();
+            if let Some(ct) = content_type.and_then(|v| HeaderValue::from_str(&v).ok()) {
+                h.insert(header::CONTENT_TYPE, ct);
+            }
+            if let Some(cd) = content_disposition.and_then(|v| HeaderValue::from_str(&v).ok()) {
+                h.insert(header::CONTENT_DISPOSITION, cd);
+            }
+            resp
+        }
+        Err(e) => {
+            tracing::warn!("download proxy failed: {e}");
+            upstream_error()
+        }
+    }
+}
+
+/// `POST/GET /jmap/upload/{accountId}` — the rewritten uploadUrl. Attachment
+/// upload / compose-with-attachments is out of scope for this build (not a V2
+/// DoD item), so this returns a clean `501` rather than letting the rewritten
+/// URL fall through to the SPA `index.html`.
+async fn jmap_upload(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(resp) = authed(&state, &headers).await {
+        return resp;
+    }
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        Json(json!({ "error": "attachment upload is not implemented in this build" })),
+    )
+        .into_response()
+}
+
+/// `GET /api/export/{stableId}?format=eml|mbox|txt|md` — export one message
+/// through `mw-export`. Engine-mode only (the raw body lives in the local
+/// cache); proxy mode has no server-side store to export from, so it returns
+/// `501`. `format` defaults to `eml`.
+async fn export_message(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    UrlPath(stable_id): UrlPath<String>,
+    Query(q): Query<ExportQuery>,
+) -> Response {
+    let session = match authed(&state, &headers).await {
+        Ok(s) => s,
+        Err(resp) => return resp,
+    };
+    let Some(engine) = &state.engine else {
+        return (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(json!({ "error": "export requires engine mode" })),
+        )
+            .into_response();
+    };
+    let Some((format, content_type, ext)) = export_format(q.format.as_deref().unwrap_or("eml"))
+    else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "unknown export format" })),
+        )
+            .into_response();
+    };
+    // The whole-message blob path yields the raw RFC822 bytes mw-export consumes.
+    let raw = match engine.fetch_blob(&session.account_id, &stable_id).await {
+        Ok(Some(blob)) => blob.bytes,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "message not found" })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::warn!("export blob fetch failed: {e}");
+            return upstream_error();
+        }
+    };
+    match mw_export::export_one(&mw_export::RawEmail::new(raw), format) {
+        Ok(out) => blob_response(content_type, &format!("{stable_id}.{ext}"), out),
+        Err(e) => {
+            tracing::warn!("export failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "export error").into_response()
+        }
+    }
+}
+
+/// Query string for [`export_message`].
+#[derive(Debug, Deserialize)]
+struct ExportQuery {
+    format: Option<String>,
+}
+
+/// Map an export `format` query value to `(Format, content-type, extension)`.
+fn export_format(name: &str) -> Option<(mw_export::Format, &'static str, &'static str)> {
+    match name {
+        "eml" => Some((mw_export::Format::Eml, "message/rfc822", "eml")),
+        "mbox" => Some((mw_export::Format::Mbox, "application/mbox", "mbox")),
+        "txt" | "text" => Some((mw_export::Format::Txt, "text/plain; charset=utf-8", "txt")),
+        "md" | "markdown" => Some((
+            mw_export::Format::Markdown,
+            "text/markdown; charset=utf-8",
+            "md",
+        )),
+        _ => None,
+    }
+}
+
+/// Build a download response with `Content-Type`, `Content-Disposition`
+/// (attachment) and `Content-Length` set.
+fn blob_response(content_type: &str, filename: &str, bytes: Vec<u8>) -> Response {
+    let len = bytes.len();
+    let mut resp = Response::new(Body::from(bytes));
+    let h = resp.headers_mut();
+    if let Ok(v) = HeaderValue::from_str(content_type) {
+        h.insert(header::CONTENT_TYPE, v);
+    }
+    let disposition = format!("attachment; filename=\"{}\"", sanitize_filename(filename));
+    if let Ok(v) = HeaderValue::from_str(&disposition) {
+        h.insert(header::CONTENT_DISPOSITION, v);
+    }
+    h.insert(header::CONTENT_LENGTH, HeaderValue::from(len));
+    resp
+}
+
+/// Strip characters that would break a `Content-Disposition` filename token
+/// (quotes, control chars, path separators) so the header stays well-formed.
+fn sanitize_filename(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '"' | '\\' | '/' | '\r' | '\n') {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    if cleaned.trim().is_empty() {
+        "download".to_string()
+    } else {
+        cleaned
+    }
+}
+
+/// Percent-encode a path segment for substitution into an upstream URL template
+/// (RFC 3986 unreserved set passes through; everything else becomes `%XX`).
+fn percent_encode(segment: &str) -> String {
+    let mut out = String::with_capacity(segment.len());
+    for b in segment.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push('%');
+            out.push_str(&format!("{b:02X}"));
+        }
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------
