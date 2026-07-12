@@ -1,0 +1,24 @@
+[package]
+name = "mw-imap"
+description = "Hardened IMAP4rev2 client + AccountBackend for Mailwoman (tokio/rustls/imap-proto)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+mw-engine = { workspace = true }
+mw-mime = { workspace = true }
+tokio = { workspace = true }
+tokio-rustls = { workspace = true }
+rustls = { workspace = true }
+rustls-pki-types = { workspace = true }
+webpki-roots = { workspace = true }
+imap-proto = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+data-encoding = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

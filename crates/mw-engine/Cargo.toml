@@ -1,0 +1,15 @@
+[package]
+name = "mw-engine"
+description = "Mailwoman engine: account-backend seam + JMAP surface over IMAP/POP3 (SPEC §6.5)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+mw-jmap = { workspace = true }
+mw-store = { workspace = true }

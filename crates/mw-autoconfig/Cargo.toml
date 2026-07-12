@@ -1,0 +1,15 @@
+[package]
+name = "mw-autoconfig"
+description = "Mail server autoconfig discovery for Mailwoman (SRV/autoconfig/autodiscover)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+reqwest = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

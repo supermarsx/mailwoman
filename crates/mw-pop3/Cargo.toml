@@ -1,0 +1,22 @@
+[package]
+name = "mw-pop3"
+description = "RFC 1939 POP3 client + AccountBackend for Mailwoman (tokio/rustls)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+mw-engine = { workspace = true }
+tokio = { workspace = true }
+tokio-rustls = { workspace = true }
+rustls = { workspace = true }
+rustls-pki-types = { workspace = true }
+webpki-roots = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+data-encoding = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

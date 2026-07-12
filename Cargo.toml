@@ -7,6 +7,12 @@ members = [
     "crates/mw-store",
     "crates/mw-mock-jmap",
     "crates/mw-server",
+    "crates/mw-mime",
+    "crates/mw-imap",
+    "crates/mw-pop3",
+    "crates/mw-smtp",
+    "crates/mw-engine",
+    "crates/mw-autoconfig",
 ]
 
 [workspace.package]
@@ -16,7 +22,7 @@ license = "MIT"
 repository = "https://github.com/supermarsx/mailwoman"
 
 [workspace.dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "signal", "net", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "signal", "net", "time", "sync"] }
 axum = "0.8"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace"] }
@@ -40,10 +46,31 @@ clap = { version = "4", features = ["derive", "env"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 
+# V1 mail-engine deps (all MIT/Apache-2.0 dual — vetted, no copyleft, no async-std).
+# `imap-proto` is the IMAP response *parser*; the command/extension layer is hand-rolled
+# over tokio + rustls (plan §1.1). `mail-parser`/`mail-builder` are the Stalwart *library*
+# crates (MIT/Apache), NOT the AGPL server (plan §1.2).
+imap-proto = "0.16"
+mail-parser = "0.11"
+mail-builder = "0.4"
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pki-types = "1"
+webpki-roots = "1"
+encoding_rs = "0.8"
+async-trait = "0.1"
+data-encoding = "2"
+
 mw-jmap = { path = "crates/mw-jmap" }
 mw-sanitize = { path = "crates/mw-sanitize" }
 mw-store = { path = "crates/mw-store" }
 mw-mock-jmap = { path = "crates/mw-mock-jmap" }
+mw-mime = { path = "crates/mw-mime" }
+mw-imap = { path = "crates/mw-imap" }
+mw-pop3 = { path = "crates/mw-pop3" }
+mw-smtp = { path = "crates/mw-smtp" }
+mw-engine = { path = "crates/mw-engine" }
+mw-autoconfig = { path = "crates/mw-autoconfig" }
 
 [profile.release]
 overflow-checks = true

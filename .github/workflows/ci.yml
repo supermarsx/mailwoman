@@ -52,6 +52,18 @@ jobs:
           command: check licenses advisories bans sources
 
   # -------------------------------------------------------------------------
+  # IMAP conformance matrix (Greenmail gate + Dovecot fidelity + POP3).
+  # Placeholder — the real Greenmail/Dovecot compose + conformance run is
+  # wired by e7 (plan §3, Batch D). Kept green so the pipeline stays valid.
+  # -------------------------------------------------------------------------
+  imap-conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: conformance (stub)
+        run: echo "imap-conformance wired by e7 (plan Batch D)"
+
+  # -------------------------------------------------------------------------
   # Web: typecheck, lint, unit tests, build, bundle-size gate.
   # -------------------------------------------------------------------------
   web:

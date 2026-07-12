@@ -1,0 +1,22 @@
+[package]
+name = "mw-smtp"
+description = "MVP SMTP submission client for Mailwoman (465/587, SASL, tokio/rustls)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+mw-mime = { workspace = true }
+tokio = { workspace = true }
+tokio-rustls = { workspace = true }
+rustls = { workspace = true }
+rustls-pki-types = { workspace = true }
+webpki-roots = { workspace = true }
+base64 = { workspace = true }
+data-encoding = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
