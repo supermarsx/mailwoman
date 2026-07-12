@@ -1,0 +1,61 @@
+# Hardened systemd unit for Mailwoman (SPEC §7.5).
+# Install to /etc/systemd/system/mailwoman.service and provide MW_SERVER_KEY via
+# a `systemctl edit mailwoman` drop-in or an 0600 EnvironmentFile — never inline.
+
+[Unit]
+Description=Mailwoman secure webmail server
+Documentation=https://github.com/supermarsx/mailwoman
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mailwoman
+Group=mailwoman
+ExecStart=/usr/local/bin/mailwoman serve
+Restart=on-failure
+RestartSec=2s
+
+# --- Configuration -------------------------------------------------------
+Environment=MW_BIND=127.0.0.1:8080
+Environment=MW_DB_PATH=/var/lib/mailwoman/mailwoman.db
+Environment=MW_RENDER_BIN=/usr/local/bin/mw-render
+Environment=MW_COOKIE_SECURE=true
+Environment=RUST_LOG=info
+# MW_SERVER_KEY comes from a drop-in / EnvironmentFile:
+# EnvironmentFile=/etc/mailwoman/mailwoman.env
+
+# --- Filesystem ----------------------------------------------------------
+StateDirectory=mailwoman
+ReadWritePaths=/var/lib/mailwoman
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+
+# --- Privilege / capability lock-down ------------------------------------
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RemoveIPC=true
+# The render worker is spawned as a child process, so keep fork/exec allowed.
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

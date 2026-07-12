@@ -1,0 +1,107 @@
+# Mailwoman dev / E2E stack.
+#
+#   docker compose -f docker-compose.dev.yml up -d --build mock mailwoman
+#       -> deterministic backend used by CI E2E (the in-repo JMAP mock).
+#
+#   docker compose -f docker-compose.dev.yml --profile stalwart up -d --build
+#       -> also brings up a real Stalwart JMAP server + one-shot seeder.
+#          EXPERIMENTAL / manual-nightly only; NOT gated in CI (see docs/deploy
+#          and .orchestration risk #1). The mock is the authoritative backend.
+#
+# Log in from the SPA with:
+#   jmapUrl  = http://mock:8181/.well-known/jmap   (server proxies to it)
+#   username = testuser@example.org
+#   password = testpass
+
+name: mailwoman-dev
+
+services:
+  # In-repo deterministic JMAP mock — default E2E backend.
+  mock:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: mock
+    environment:
+      MW_MOCK_PORT: "8181"
+    ports:
+      - "8181:8181"
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/mailwoman", "healthcheck", "--url", "http://127.0.0.1:8181/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 5s
+
+  # The Mailwoman server (embedded SPA + JMAP proxy + sanitize worker).
+  mailwoman:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    environment:
+      MW_BIND: "0.0.0.0:8080"
+      MW_DB_PATH: "/data/mailwoman.db"
+      MW_RENDER_BIN: "/usr/local/bin/mw-render"
+      # Fixed dev key so sessions survive restarts. DEV ONLY — never reuse.
+      MW_SERVER_KEY: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+      # Plain HTTP for local E2E, so the session cookie is not marked Secure.
+      MW_COOKIE_SECURE: "false"
+      RUST_LOG: "info"
+    ports:
+      - "8080:8080"
+    volumes:
+      - mailwoman-data:/data
+    depends_on:
+      mock:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/mailwoman", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  # ---- Stalwart (real JMAP backend) — profile-gated, EXPERIMENTAL ----------
+  stalwart:
+    image: stalwartlabs/stalwart:v0.16
+    profiles: ["stalwart"]
+    environment:
+      # Skips the interactive setup wizard / random temp admin password.
+      STALWART_RECOVERY_ADMIN: "admin:adminpass"
+    ports:
+      - "8083:8080"
+    volumes:
+      - stalwart-data:/opt/stalwart
+      - ./scripts/stalwart/config.toml:/opt/stalwart/etc/config.toml:ro
+    healthcheck:
+      # Stalwart serves an unauthenticated liveness probe at /healthz.
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # One-shot: wait for Stalwart, then create the test domain + account.
+  # Defensive by design (the Stalwart admin API is in flux across versions);
+  # failures do not block the stack — the mock remains authoritative.
+  stalwart-seed:
+    image: curlimages/curl:8.11.0
+    profiles: ["stalwart"]
+    depends_on:
+      stalwart:
+        condition: service_healthy
+    volumes:
+      - ./scripts/stalwart-seed.sh:/seed.sh:ro
+    entrypoint: ["sh", "/seed.sh"]
+    environment:
+      STALWART_URL: "http://stalwart:8080"
+      STALWART_ADMIN: "admin:adminpass"
+      SEED_DOMAIN: "example.org"
+      SEED_USER: "testuser@example.org"
+      SEED_PASS: "testpass"
+    restart: "no"
+
+volumes:
+  mailwoman-data:
+  stalwart-data:

@@ -1,0 +1,11 @@
+# Enforce LF for files that run on Linux (CI + containers), regardless of the
+# committer's OS. Shell scripts with CRLF break the shebang; Dockerfiles and
+# compose/CI YAML are consumed by Linux tooling.
+*.sh            text eol=lf
+Dockerfile      text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+*.toml          text eol=lf
+*.service       text eol=lf
+.dockerignore   text eol=lf
+.gitattributes  text eol=lf

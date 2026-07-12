@@ -1,0 +1,30 @@
+# Keep the Docker build context small and reproducible. The web stage
+# reinstalls node_modules and the build stage recompiles from source, so
+# host build artifacts must never leak in.
+
+# Rust
+/target
+**/target
+
+# Node / web
+**/node_modules
+apps/web/dist
+!apps/web/dist/.gitkeep
+
+# Playwright / test output
+test-results
+playwright-report
+**/.cache
+
+# Local + editor
+.git
+.gitignore
+.env
+*.local
+.orchestration
+.vscode
+.idea
+
+# Docs and CI aren't needed inside the image build
+docs
+.github

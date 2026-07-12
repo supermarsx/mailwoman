@@ -1,0 +1,156 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # -------------------------------------------------------------------------
+  # Rust: format, lint, test, build. rust-embed compiles against the committed
+  # apps/web/dist/.gitkeep placeholder, so no web build is needed here.
+  # -------------------------------------------------------------------------
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: fmt
+        run: cargo fmt --all --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: test
+        run: cargo test --workspace
+      - name: build
+        run: cargo build --workspace
+
+  # -------------------------------------------------------------------------
+  # Supply chain: licenses + advisories + bans + sources (deny.toml).
+  # -------------------------------------------------------------------------
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses advisories bans sources
+
+  # -------------------------------------------------------------------------
+  # Web: typecheck, lint, unit tests, build, bundle-size gate.
+  # -------------------------------------------------------------------------
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: install
+        run: pnpm -C apps/web install --frozen-lockfile
+      - name: typecheck
+        run: pnpm -C apps/web typecheck
+      - name: lint
+        run: pnpm -C apps/web lint
+      - name: test
+        run: pnpm -C apps/web test
+      - name: build
+        run: pnpm -C apps/web build
+      - name: bundle-size gate
+        run: pnpm -C apps/web run size
+
+  # -------------------------------------------------------------------------
+  # JS licenses: allowlist over runtime deps. Non-blocking for now (the
+  # authoritative supply-chain gate is cargo-deny); tighten once verified.
+  # -------------------------------------------------------------------------
+  js-licenses:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: install
+        run: pnpm -C apps/web install --frozen-lockfile
+      - name: check licenses (runtime deps)
+        run: >-
+          pnpm -C apps/web dlx license-checker-rseidelsohn
+          --production --summary
+          --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;Zlib;MPL-2.0;CC0-1.0;Unlicense;Python-2.0"
+
+  # -------------------------------------------------------------------------
+  # E2E: build the compose stack (mock backend), wait healthy, run Playwright.
+  # The Playwright config + specs are authored by e8 at apps/web/e2e and
+  # apps/web/playwright.config.ts, plus @playwright/test in devDependencies.
+  # -------------------------------------------------------------------------
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [rust, web]
+    env:
+      DOCKER_BUILDKIT: "1"
+      COMPOSE_DOCKER_CLI_BUILD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: install web deps (includes Playwright once e8 lands)
+        run: pnpm -C apps/web install --frozen-lockfile
+      - name: cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('apps/web/pnpm-lock.yaml') }}
+      - name: install Playwright chromium
+        run: pnpm -C apps/web exec playwright install --with-deps chromium
+      - name: build + start stack (mock backend)
+        run: docker compose -f docker-compose.dev.yml up -d --build mock mailwoman
+      - name: wait for server health
+        run: ./scripts/wait-for-health.sh http://localhost:8080/healthz 240
+      - name: run Playwright E2E
+        run: pnpm -C apps/web exec playwright test
+      - name: compose logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.dev.yml logs --no-color
+      - name: upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: tear down
+        if: always()
+        run: docker compose -f docker-compose.dev.yml down -v

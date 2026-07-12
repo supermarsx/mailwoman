@@ -1,0 +1,19 @@
+# Minimal Stalwart config for LOCAL DEV / E2E only — plain HTTP, no TLS.
+#
+# EXPERIMENTAL: Stalwart's config schema evolves between releases and it also
+# writes generated settings into its data volume on first boot. If Stalwart
+# ignores or rejects this file on your pinned tag, delete the config mount in
+# docker-compose.dev.yml and configure via the WebAdmin at http://localhost:8083
+# instead. This exists to expose a cleartext HTTP JMAP listener so the
+# Mailwoman server can proxy to it without cert wrangling inside the compose
+# network. NEVER use a cleartext listener in production.
+
+[server.listener.http]
+bind = ["0.0.0.0:8080"]
+protocol = "http"
+
+[server.hostname]
+default = "mail.example.org"
+
+# Recovery admin is provided via STALWART_RECOVERY_ADMIN in compose, which
+# bypasses the first-run setup wizard and its random temporary password.
