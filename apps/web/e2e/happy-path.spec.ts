@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { CREDS, login, messageRow } from './helpers.ts';
+import { CREDS, login, messageRow, sidebarInbox } from './helpers.ts';
 
 test.describe('happy path', () => {
   test('login -> read a message -> compose + send -> appears in Sent', async ({ page }) => {
     await login(page);
 
     // Mailbox sidebar shows both seeded mailboxes.
-    await expect(page.getByRole('button', { name: 'Inbox' })).toBeVisible();
+    await expect(sidebarInbox(page)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Sent' })).toBeVisible();
 
     // The seeded inbox messages are listed (proves the real Email/query+get proxy).

@@ -48,7 +48,10 @@ export default defineConfig({
     },
     {
       name: 'engine',
-      testMatch: ['imap-engine.spec.ts'],
+      // V1 IMAP round-trip + the V2 modern-UX/theming specs. All target the
+      // engine-mode server (:8090); a new spec added here "slots in" to the CI
+      // `e2e-engine` job with no workflow edits (per e11's handoff).
+      testMatch: ['imap-engine.spec.ts', 'modern-ux.spec.ts', 'theming.spec.ts'],
       use: { ...devices['Desktop Chrome'], baseURL: engineBaseURL },
     },
   ],

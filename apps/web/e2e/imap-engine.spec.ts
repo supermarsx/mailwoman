@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { messageRow } from './helpers.ts';
+import { messageRow, sidebarInbox } from './helpers.ts';
 
 /**
  * V1 engine-mode E2E: the SAME unmodified web UI, driven against mw-server in
@@ -45,7 +45,7 @@ async function engineLogin(page: Page): Promise<void> {
   // Mailbox shell is up once the sidebar renders. The mailbox list comes from a
   // real IMAP LIST/SELECT, so Inbox (role=inbox via SPECIAL-USE) must appear.
   await expect(page.getByRole('button', { name: 'Compose' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Inbox' })).toBeVisible();
+  await expect(sidebarInbox(page)).toBeVisible();
 }
 
 test.describe('IMAP account through the unmodified web UI (engine mode)', () => {
@@ -55,7 +55,7 @@ test.describe('IMAP account through the unmodified web UI (engine mode)', () => 
     await engineLogin(page);
 
     // Sidebar mailbox list is the real IMAP folder list (Inbox at minimum).
-    await expect(page.getByRole('button', { name: 'Inbox' })).toBeVisible();
+    await expect(sidebarInbox(page)).toBeVisible();
 
     // Compose a NEW message addressed to the account itself. The subject is
     // unique so the assertion is immune to any leftover/seeded mail.
@@ -77,7 +77,7 @@ test.describe('IMAP account through the unmodified web UI (engine mode)', () => 
     // The self-addressed message is delivered by Greenmail and ingested by the
     // engine's sync. Sync is poll-based, so re-select Inbox until it appears.
     await expect(async () => {
-      await page.getByRole('button', { name: 'Inbox' }).click();
+      await sidebarInbox(page).click();
       await expect(messageRow(page, subject)).toBeVisible({ timeout: 3_000 });
     }).toPass({ timeout: 30_000 });
 
