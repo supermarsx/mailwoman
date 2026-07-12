@@ -1,0 +1,15 @@
+BEGIN:VCARD
+VERSION:4.0
+UID:card-1@mailwoman
+KIND:individual
+FN:Bob Jones
+N:Jones;Bob;;;
+NICKNAME:Bobby
+ORG:Acme;Engineering
+TITLE:Engineer
+EMAIL;TYPE=work;PREF=1:bob@acme.com
+EMAIL;TYPE=home:bob@home.com
+TEL;TYPE=work:+15551234
+NOTE:A contact
+KEY:pgp-key-data
+END:VCARD

@@ -1,0 +1,8 @@
+BEGIN:VCARD
+VERSION:3.0
+FN:Carol Smith
+N:Smith;Carol;;;
+EMAIL;TYPE=INTERNET,WORK:carol@example.com
+TEL;TYPE=CELL:+15559876
+ORG:Globex
+END:VCARD
