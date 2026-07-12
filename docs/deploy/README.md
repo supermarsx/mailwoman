@@ -1,8 +1,17 @@
 # Deploying Mailwoman
 
 Mailwoman ships as a single static-ish binary (`mailwoman`) plus its render
-worker (`mw-render`). It serves the SPA (embedded), a session-authed JMAP proxy,
-and the `/api/sanitize` boundary. This directory has three deployment aids:
+worker (`mw-render`). It serves the SPA (embedded), a session-authed JMAP
+surface, and the `/api/sanitize` boundary. That JMAP surface runs in one of two
+modes (`MW_MODE`):
+
+- **proxy** (default, V0) — forwards to a JMAP upstream entered at login.
+- **engine** (V1) — drives a real **IMAP/POP3 + SMTP** account locally through
+  `mw-engine`, presenting the *same* JMAP surface to the SPA. See
+  [`imap-pop3.md`](./imap-pop3.md) for pairing notes (Dovecot, Gmail-over-IMAP,
+  POP3 hosts) and the testing backends (Greenmail).
+
+This directory has three deployment aids:
 
 - `Dockerfile` (repo root) — multi-stage build, distroless non-root runtime.
 - `mailwoman.service` — a hardened systemd unit (SPEC §7.5).
@@ -18,6 +27,11 @@ and the `/api/sanitize` boundary. This directory has three deployment aids:
 | `MW_RENDER_BIN` | *(auto-detect)* | Path to `mw-render`. The image sets `/usr/local/bin/mw-render`. |
 | `MW_WEB_DIR` | *(embedded)* | Serve the SPA from disk instead of the embedded copy (dev override). |
 | `MW_COOKIE_SECURE` | `false` | Mark the session cookie `Secure`. **Set `true` behind TLS** (i.e. always in production). |
+| `MW_MODE` | `proxy` | `proxy` (JMAP upstream) or `engine` (local IMAP/POP3 + SMTP). |
+| `MW_ENGINE_TLS` | *(from URL)* | Engine mode only. Force the IMAP/POP3 transport (`implicit`/`starttls`/`plaintext`) regardless of the `imap(s)://` URL the browser posts — used to point at a plaintext test server (Greenmail) without changing the URL. |
+| `MW_SMTP_HOST` | *(IMAP host)* | Engine mode only. SMTP submission host for `EmailSubmission/set`. |
+| `MW_SMTP_PORT` | `587`/`465`/`25` | Engine mode only. SMTP port (default keys off `MW_SMTP_SECURITY`). |
+| `MW_SMTP_SECURITY` | `starttls` | Engine mode only. `starttls` / `implicit` / `plaintext`. |
 | `RUST_LOG` | `info` | Tracing filter. |
 
 ## Docker
@@ -60,8 +74,16 @@ over HTTPS. The proxy must forward the `Cookie`/`Set-Cookie` headers verbatim.
 
 ## Backends
 
-Mailwoman is backend-agnostic: the JMAP server URL is entered at login and the
-server proxies to it. For local development and E2E, `docker-compose.dev.yml`
-provides the in-repo `mw-mock-jmap` (default, deterministic) and an optional,
-profile-gated Stalwart service (`--profile stalwart`, experimental — see the
-compose file and `scripts/stalwart-seed.sh`).
+Mailwoman is backend-agnostic in **both** modes:
+
+- **proxy mode** — the JMAP server URL is entered at login and the server
+  proxies to it. For local development and E2E, `docker-compose.dev.yml`
+  provides the in-repo `mw-mock-jmap` (default, deterministic) and an optional,
+  profile-gated Stalwart service (`--profile stalwart`, experimental — see the
+  compose file and `scripts/stalwart-seed.sh`).
+- **engine mode** — the same login form's server-URL field takes an
+  `imap(s)://` / `pop3(s)://` URL; the engine drives that account (IMAP/POP3
+  sync + SMTP submission) and answers JMAP locally. See
+  [`imap-pop3.md`](./imap-pop3.md). Testing backends: **Greenmail** (the
+  deterministic conformance gate) and **Dovecot** (the production-fidelity
+  target), both in `docker-compose.dev.yml`.

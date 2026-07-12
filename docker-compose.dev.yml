@@ -3,12 +3,27 @@
 #   docker compose -f docker-compose.dev.yml up -d --build mock mailwoman
 #       -> deterministic backend used by CI E2E (the in-repo JMAP mock).
 #
+#   docker compose -f docker-compose.dev.yml up -d greenmail mailwoman-engine
+#       -> V1 engine mode: mw-server driving a REAL IMAP/POP3/SMTP server
+#          (Greenmail) through mw-engine. The deterministic conformance gate.
+#          Log in from the SPA (mailwoman-engine on :8090) with:
+#            server URL = imap://greenmail:3143   (the jmapUrl field; engine
+#                         mode reads it as an IMAP URL)
+#            username   = testuser
+#            password   = testpass
+#          SMTP send is wired to greenmail:3025 (plaintext) via env.
+#
+#   docker compose -f docker-compose.dev.yml up -d dovecot
+#       -> the production-FIDELITY conformance target (Dovecot), seeded with
+#          testuser/testpass + two INBOX messages (one multipart). Allowed to be
+#          flaky (CI runs it `continue-on-error`); Greenmail is the green gate.
+#
 #   docker compose -f docker-compose.dev.yml --profile stalwart up -d --build
 #       -> also brings up a real Stalwart JMAP server + one-shot seeder.
 #          EXPERIMENTAL / manual-nightly only; NOT gated in CI (see docs/deploy
 #          and .orchestration risk #1). The mock is the authoritative backend.
 #
-# Log in from the SPA with:
+# Log in from the SPA (mock/proxy stack) with:
 #   jmapUrl  = http://mock:8181/.well-known/jmap   (server proxies to it)
 #   username = testuser@example.org
 #   password = testpass
@@ -102,6 +117,108 @@ services:
       SEED_PASS: "testpass"
     restart: "no"
 
+  # ---- Greenmail — DETERMINISTIC IMAP/POP3/SMTP conformance gate (V1) --------
+  # Preseeds testuser:testpass@example.org (IMAP login name is the local part,
+  # `testuser`) and exposes all plaintext + TLS listeners. This is the always-
+  # green backend the CI `imap-conformance` job gates on.
+  #   IMAP 3143 · POP3 3110 · SMTP 3025  (TLS: 3993 / 3995 / 3465)
+  greenmail:
+    image: greenmail/standalone:2.1.4
+    environment:
+      # setup.test.all = every service on default ports; users preseeds the
+      # account; verbose aids CI log triage. Login as `testuser` / `testpass`.
+      GREENMAIL_OPTS: >-
+        -Dgreenmail.setup.test.all
+        -Dgreenmail.hostname=0.0.0.0
+        -Dgreenmail.users=testuser:testpass@example.org
+        -Dgreenmail.verbose
+    ports:
+      - "3025:3025"   # SMTP
+      - "3110:3110"   # POP3
+      - "3143:3143"   # IMAP
+      - "3465:3465"   # SMTPS
+      - "3993:3993"   # IMAPS
+      - "3995:3995"   # POP3S
+    healthcheck:
+      # Ubuntu-based image ships bash; probe the three plaintext listeners with
+      # /dev/tcp (no nc/curl in the image).
+      test:
+        - "CMD-SHELL"
+        - "bash -c 'exec 3<>/dev/tcp/127.0.0.1/3143 && exec 4<>/dev/tcp/127.0.0.1/3110 && exec 5<>/dev/tcp/127.0.0.1/3025'"
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  # ---- Dovecot — production-FIDELITY conformance target (V1) -----------------
+  # Minimal plaintext IMAP+POP3 host (CI/dev only), seeded with the same
+  # testuser/testpass and two INBOX messages (one multipart) via doveadm. Richer
+  # capability set than Greenmail (QRESYNC/CONDSTORE/SPECIAL-USE/…), so it is the
+  # fidelity leg — allowed to be flaky (CI runs it continue-on-error).
+  #   IMAP host:2143 -> 143 · POP3 host:2110 -> 110
+  dovecot:
+    image: dovecot/dovecot:2.4.1
+    command: ["/bin/sh", "/seed-and-serve.sh"]
+    volumes:
+      - ./scripts/dovecot/zz-mailwoman.conf:/etc/dovecot/conf.d/zz-mailwoman.conf:ro
+      - ./scripts/dovecot/mailwoman-users:/etc/dovecot/mailwoman-users:ro
+      - ./scripts/dovecot/seed:/seed:ro
+      - ./scripts/dovecot/seed-and-serve.sh:/seed-and-serve.sh:ro
+    ports:
+      - "2143:143"   # IMAP
+      - "2110:110"   # POP3
+    healthcheck:
+      # nc -z (zero-I/O scan) returns immediately on connect — a plain nc lingers
+      # on the socket until Dovecot's no-auth timeout and would blow the 5s cap.
+      test:
+        - "CMD-SHELL"
+        - "nc -z -w 2 127.0.0.1 143 </dev/null && nc -z -w 2 127.0.0.1 110 </dev/null"
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 5s
+
+  # ---- mw-server in ENGINE mode over Greenmail (V1, for e8 E2E) --------------
+  # Same image as `mailwoman` (runtime target) but MW_MODE=engine: it drives a
+  # real IMAP/POP3 account through mw-engine instead of proxying JMAP. Points its
+  # send path at greenmail:3025. The browser logs in with an imap:// URL; the
+  # engine dials Greenmail over the compose network (MW_ENGINE_TLS=plaintext).
+  mailwoman-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    environment:
+      MW_BIND: "0.0.0.0:8080"
+      MW_DB_PATH: "/data/mailwoman.db"
+      MW_RENDER_BIN: "/usr/local/bin/mw-render"
+      MW_MODE: "engine"
+      # Force plaintext IMAP/POP3 transport regardless of the imap:// URL the
+      # browser posts (Greenmail's plaintext listeners).
+      MW_ENGINE_TLS: "plaintext"
+      # Submission endpoint for EmailSubmission/set (Greenmail plaintext SMTP).
+      MW_SMTP_HOST: "greenmail"
+      MW_SMTP_PORT: "3025"
+      MW_SMTP_SECURITY: "plaintext"
+      # Fixed dev key so sessions survive restarts. DEV ONLY — never reuse.
+      MW_SERVER_KEY: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+      MW_COOKIE_SECURE: "false"
+      RUST_LOG: "info"
+    ports:
+      - "8090:8080"
+    volumes:
+      - mailwoman-engine-data:/data
+    depends_on:
+      greenmail:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/mailwoman", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
 volumes:
   mailwoman-data:
+  mailwoman-engine-data:
   stalwart-data:

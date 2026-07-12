@@ -1,0 +1,34 @@
+From: Bob Example <bob@example.org>
+To: testuser@example.org
+Subject: Multipart seed with alternative parts and an attachment
+Date: Tue, 08 Jul 2025 14:30:00 +0000
+Message-ID: <seed-multipart-2@example.org>
+In-Reply-To: <seed-plain-1@example.org>
+References: <seed-plain-1@example.org>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="OUTER-BOUNDARY-8f2a"
+
+--OUTER-BOUNDARY-8f2a
+Content-Type: multipart/alternative; boundary="INNER-BOUNDARY-2c71"
+
+--INNER-BOUNDARY-2c71
+Content-Type: text/plain; charset=utf-8
+
+This is the plain-text alternative of a multipart seed message.
+It replies to the first seed so the engine's JWZ threading has a chain.
+
+--INNER-BOUNDARY-2c71
+Content-Type: text/html; charset=utf-8
+
+<html><body><p>This is the <strong>HTML</strong> alternative of a
+multipart seed message.</p></body></html>
+
+--INNER-BOUNDARY-2c71--
+
+--OUTER-BOUNDARY-8f2a
+Content-Type: text/plain; charset=utf-8; name="note.txt"
+Content-Disposition: attachment; filename="note.txt"
+
+A tiny text attachment so hasAttachment is exercised end to end.
+
+--OUTER-BOUNDARY-8f2a--

@@ -1,0 +1,15 @@
+From: Alice Example <alice@example.org>
+To: testuser@example.org
+Subject: Welcome to the Dovecot fidelity target
+Date: Mon, 07 Jul 2025 09:00:00 +0000
+Message-ID: <seed-plain-1@example.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Hello testuser,
+
+This is a plain-text seed message served by the Dovecot conformance target.
+It exercises the simple single-part path through mw-mime and the engine.
+
+Regards,
+Alice

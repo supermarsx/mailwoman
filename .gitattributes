@@ -9,3 +9,8 @@ Dockerfile      text eol=lf
 *.service       text eol=lf
 .dockerignore   text eol=lf
 .gitattributes  text eol=lf
+# Mail-server configs + seed fixtures bind-mounted into Linux containers
+# (Dovecot conf/passwd, RFC822 seeds). CRLF here breaks config parsing.
+*.conf                            text eol=lf
+*.eml                             text eol=lf
+scripts/dovecot/mailwoman-users   text eol=lf

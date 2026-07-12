@@ -52,16 +52,67 @@ jobs:
           command: check licenses advisories bans sources
 
   # -------------------------------------------------------------------------
-  # IMAP conformance matrix (Greenmail gate + Dovecot fidelity + POP3).
-  # Placeholder — the real Greenmail/Dovecot compose + conformance run is
-  # wired by e7 (plan §3, Batch D). Kept green so the pipeline stays valid.
+  # IMAP conformance matrix: the env-gated live tests (#[ignore]) run against a
+  # REAL mail server booted from docker-compose.dev.yml.
+  #   - greenmail leg = the DETERMINISTIC gate (required; IMAP4rev1 + POP3 +
+  #     SMTP). Runs mw-imap + mw-pop3 + mw-smtp + mw-server(engine_live).
+  #   - dovecot leg = the production-FIDELITY target (continue-on-error until
+  #     stabilised, plan §6 risk #11). No SMTP submission, so it runs
+  #     mw-imap + mw-pop3 + mw-server only (the mw-smtp live test hard-requires
+  #     GREENMAIL_SMTP).
+  # Login is testuser/testpass on both; the IMAP login name is the local part.
   # -------------------------------------------------------------------------
   imap-conformance:
     runs-on: ubuntu-latest
+    needs: [rust]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - backend: greenmail
+            imap: "127.0.0.1:3143"
+            pop3: "127.0.0.1:3110"
+            smtp: "127.0.0.1:3025"
+            crates: "-p mw-imap -p mw-pop3 -p mw-smtp -p mw-server"
+            required: "true"
+          - backend: dovecot
+            imap: "127.0.0.1:2143"
+            pop3: "127.0.0.1:2110"
+            smtp: ""
+            crates: "-p mw-imap -p mw-pop3 -p mw-server"
+            required: "false"
+    # Dovecot is the fidelity leg — informational, never fails the pipeline.
+    continue-on-error: ${{ matrix.required == 'false' }}
     steps:
       - uses: actions/checkout@v4
-      - name: conformance (stub)
-        run: echo "imap-conformance wired by e7 (plan Batch D)"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: boot ${{ matrix.backend }} (wait for healthy)
+        run: docker compose -f docker-compose.dev.yml up -d --wait ${{ matrix.backend }}
+      - name: assert IMAP login works (greenmail gate)
+        if: matrix.backend == 'greenmail'
+        env:
+          GREENMAIL_USER: testuser
+          GREENMAIL_PASS: testpass
+        run: ./scripts/greenmail/wait-for-greenmail.sh 127.0.0.1 3143 60
+      - name: live conformance tests (${{ matrix.backend }})
+        env:
+          GREENMAIL_IMAP: ${{ matrix.imap }}
+          GREENMAIL_POP3: ${{ matrix.pop3 }}
+          GREENMAIL_USER: testuser
+          GREENMAIL_PASS: testpass
+          GREENMAIL_TLS: plaintext
+        run: |
+          if [ -n "${{ matrix.smtp }}" ]; then
+            export GREENMAIL_SMTP="${{ matrix.smtp }}"
+          fi
+          cargo test ${{ matrix.crates }} --test '*' -- --ignored
+      - name: server logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.dev.yml logs --no-color ${{ matrix.backend }}
+      - name: tear down
+        if: always()
+        run: docker compose -f docker-compose.dev.yml down -v
 
   # -------------------------------------------------------------------------
   # Web: typecheck, lint, unit tests, build, bundle-size gate.
