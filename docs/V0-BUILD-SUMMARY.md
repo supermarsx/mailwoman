@@ -1,6 +1,6 @@
 # Mailwoman V0 — Build Summary
 
-**Tag:** `v0.0.0` · **Date:** 2026-07-12 · **Repo:** https://github.com/supermarsx/mailwoman
+**Release:** `26.1` (rolling `YY.N` — see [VERSIONING.md](../VERSIONING.md)) · **Date:** 2026-07-12 · **Repo:** https://github.com/supermarsx/mailwoman
 
 The first tagged release: a genuinely wired, daily-drivable walking skeleton per
 SPEC §27 (V0). Not a mockup — the real data path is browser → `mw-server`
