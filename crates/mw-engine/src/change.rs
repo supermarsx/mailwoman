@@ -26,12 +26,36 @@ pub enum ChangeType {
     Thread,
 }
 
+impl ChangeType {
+    /// The JMAP PascalCase type name used as a `changes` row key + a
+    /// `StateChange.changed` key (RFC 8887).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ChangeType::Email => "Email",
+            ChangeType::Mailbox => "Mailbox",
+            ChangeType::EmailSubmission => "EmailSubmission",
+            ChangeType::Thread => "Thread",
+        }
+    }
+}
+
 /// The operation a [`ChangeRecord`] records.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChangeOp {
     Created,
     Updated,
     Destroyed,
+}
+
+impl ChangeOp {
+    /// The lowercase op token persisted in the `changes` log.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ChangeOp::Created => "created",
+            ChangeOp::Updated => "updated",
+            ChangeOp::Destroyed => "destroyed",
+        }
+    }
 }
 
 /// One row of the store `changes` log (plan §2.7): the raw material for state

@@ -6,6 +6,7 @@
 mod cache;
 mod redact;
 mod seal;
+mod v2;
 
 pub use cache::{
     Account, AccountKind, Mailbox, MailboxUpsert, Message, MessageLocation, MessageUpsert,
@@ -13,6 +14,9 @@ pub use cache::{
 };
 pub use redact::Redacted;
 pub use seal::{SealError, ServerKey};
+pub use v2::{
+    ChangeRow, IdentityRow, SavedSearchRow, SnoozeDue, StoredMeta, SubmissionRow, TagRow,
+};
 
 use chrono::Utc;
 use sqlx::Row;

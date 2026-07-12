@@ -21,3 +21,10 @@ mw-store = { workspace = true }
 # NOT depend on them — backend *construction* lives in mw-server (plan §3 e6).
 mw-mime = { workspace = true }
 mw-smtp = { workspace = true }
+# V2 (plan §3 e9): the engine-side full-text index and the rules evaluator.
+# Both are leaf crates (DTO-only seams) so no dependency cycle is introduced.
+mw-search = { workspace = true }
+mw-sieve = { workspace = true }
+# Attachment-filename extraction at ingest for `filename:` search (workspace dep,
+# already in-tree via mw-mime); parsing is best-effort and never panics.
+mail-parser = { workspace = true }

@@ -9,6 +9,8 @@
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::path::Path;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use mw_store::{MailboxUpsert, MessageUpsert, Store};
@@ -18,15 +20,13 @@ use crate::account::AccountRuntime;
 use crate::backend::{
     ChangeEvent, ChangeSink, EngineError, MailboxDelta, MessageRef, RawMailbox, RawMessage, Result,
 };
-use crate::change::StateChange;
+use crate::change::{ChangeOp, ChangeType, StateChange};
 use crate::mapping::{
-    cursor_from_json, cursor_to_json, flags_to_json, initial_cursor, role_to_store,
+    cursor_from_json, cursor_to_json, flags_to_json, flags_to_keywords, initial_cursor,
+    role_to_store,
 };
+use crate::search_index;
 use crate::thread::thread_root;
-
-/// The `sessionState` string the JMAP surface advertises. V1 does not implement
-/// state-based change tracking (the browser re-polls), so a constant is correct.
-pub(crate) const SESSION_STATE: &str = "engine-0";
 
 /// The engine: one local store plus a registry of live account backends.
 ///
@@ -35,26 +35,66 @@ pub(crate) const SESSION_STATE: &str = "engine-0";
 pub struct Engine {
     store: Store,
     accounts: Mutex<HashMap<String, AccountRuntime>>,
-    /// Realtime change fan-out (plan §1.2, §2.2). `start_watch` will
-    /// `broadcast.send(StateChange{…})` after each resync (e9); `mw-server`
-    /// (e10) subscribes per session to feed `/jmap/ws` + `/jmap/eventsource`.
+    /// Realtime change fan-out (plan §1.2, §2.2). `start_watch` broadcasts a
+    /// `StateChange` after each resync (e9); `mw-server` (e10) subscribes per
+    /// session to feed `/jmap/ws` + `/jmap/eventsource`.
     changes: broadcast::Sender<StateChange>,
+    /// The engine-side full-text index (plan §1.1). Written at [`Engine::ingest`],
+    /// re-keyed at move, deleted at expunge. Shared behind an `Arc` so the
+    /// dispatcher/query paths can hold it cheaply.
+    search: Arc<mw_search::Index>,
+    /// Guards the single delayed dispatcher task (undo-send + snooze, §1.3/§1.5).
+    dispatcher_started: AtomicBool,
 }
 
 impl Engine {
-    /// Build an engine over an open store with no accounts yet.
+    /// Build an engine over an open store with an in-RAM search index. The
+    /// index rebuilds from the store on restart; production uses
+    /// [`Engine::open_with_search`] to persist it under the data dir.
     pub fn new(store: Store) -> Self {
+        let search = Arc::new(
+            mw_search::Index::open_in_ram().expect("in-RAM search index construction cannot fail"),
+        );
+        Self::with_search(store, search)
+    }
+
+    /// Build an engine over a persistent index rooted at `dir` (server path).
+    pub fn open_with_search(store: Store, dir: &Path) -> Result<Self> {
+        let search = mw_search::Index::open(dir)
+            .map_err(|e| EngineError::Protocol(format!("open search index: {e}")))?;
+        Ok(Self::with_search(store, Arc::new(search)))
+    }
+
+    /// Build an engine over an explicit search index (tests / custom wiring).
+    pub fn with_search(store: Store, search: Arc<mw_search::Index>) -> Self {
         let (changes, _rx) = broadcast::channel(256);
         Self {
             store,
             accounts: Mutex::new(HashMap::new()),
             changes,
+            search,
+            dispatcher_started: AtomicBool::new(false),
         }
     }
 
     /// The underlying store (so the server can persist accounts/sessions).
     pub fn store(&self) -> &Store {
         &self.store
+    }
+
+    /// The engine-side full-text index (plan §1.1).
+    pub fn search(&self) -> &mw_search::Index {
+        &self.search
+    }
+
+    /// The broadcast sender (used by [`crate::state`] to fan out `StateChange`).
+    pub(crate) fn changes_tx(&self) -> &broadcast::Sender<StateChange> {
+        &self.changes
+    }
+
+    /// The dispatcher-started guard (used by [`crate::dispatcher`]).
+    pub(crate) fn dispatcher_started(&self) -> &AtomicBool {
+        &self.dispatcher_started
     }
 
     /// Subscribe to the realtime `StateChange` stream (plan §2.2). Each
@@ -110,9 +150,15 @@ impl Engine {
     pub async fn resync(&self, account_id: &str) -> Result<()> {
         let rt = self.require_runtime(account_id)?;
         let mailboxes = rt.backend.list_mailboxes().await?;
+        // Upsert every mailbox first so ingest-time rules (plan §0.6) can target
+        // any folder even when it sorts after the inbox in the backend's list.
+        let mut pairs = Vec::with_capacity(mailboxes.len());
         for rm in &mailboxes {
             let mailbox_id = self.upsert_mailbox(account_id, rm).await?;
-            self.sync_one(account_id, &rt, rm, &mailbox_id).await?;
+            pairs.push((rm, mailbox_id));
+        }
+        for (rm, mailbox_id) in &pairs {
+            self.sync_one(account_id, &rt, rm, mailbox_id).await?;
         }
         Ok(())
     }
@@ -179,6 +225,16 @@ impl Engine {
         for mref in &delta.removed {
             if let Some(sid) = self.resolve_ref(account_id, mailbox_id, mref).await? {
                 self.store.delete_message(&sid).await?;
+                let _ = self.search.delete(&sid);
+                self.record_change(account_id, ChangeType::Email, &sid, ChangeOp::Destroyed)
+                    .await?;
+                self.record_change(
+                    account_id,
+                    ChangeType::Mailbox,
+                    mailbox_id,
+                    ChangeOp::Updated,
+                )
+                .await?;
             }
         }
 
@@ -189,8 +245,11 @@ impl Engine {
     }
 
     /// Fetch → parse (MIME) → thread → seal → upsert one message, returning its
-    /// stable id. Cross-UIDVALIDITY re-keying is handled inside the store's
-    /// `upsert_message` identity match; POP3 messages also record their UIDL.
+    /// stable id. Also indexes the message for search (plan §1.1), runs inbox
+    /// rules on genuinely new arrivals (plan §0.6), and records the `Email`
+    /// change that advances state (plan §1.2). Cross-UIDVALIDITY re-keying is
+    /// handled inside the store's `upsert_message` identity match; POP3 messages
+    /// also record their UIDL.
     pub(crate) async fn ingest(
         &self,
         account_id: &str,
@@ -220,10 +279,25 @@ impl Engine {
         };
         email.thread_id = thread_id.clone();
 
+        let (uidvalidity, uid, uidl) = coords(&raw.message_ref);
+        // Was this coordinate already cached? Distinguishes a genuinely new
+        // arrival (→ run rules, record `created`) from a re-ingest (→ `updated`).
+        let existed = match &uidl {
+            Some(u) => self
+                .store
+                .stable_id_for_uidl(account_id, u)
+                .await?
+                .is_some(),
+            None => self
+                .store
+                .stable_id_for(account_id, mailbox_id, uidvalidity, uid)
+                .await?
+                .is_some(),
+        };
+
         let env_bytes = serde_json::to_vec(&email).unwrap_or_default();
         let blob_ref = self.store.put_body(account_id, &raw.raw).await?;
         let flags_json = flags_to_json(&raw.flags);
-        let (uidvalidity, uid, uidl) = coords(&raw.message_ref);
 
         let sid = self
             .store
@@ -242,10 +316,101 @@ impl Engine {
             })
             .await?;
 
-        if let Some(uidl) = uidl {
-            self.store.record_uidl(account_id, &uidl, &sid).await?;
+        if let Some(uidl) = &uidl {
+            self.store.record_uidl(account_id, uidl, &sid).await?;
         }
+
+        // Index for search. Keywords + attachment filenames back `tag:`/`is:` and
+        // `filename:`; pin defaults false on a fresh document.
+        let keywords: Vec<String> = flags_to_keywords(&raw.flags).into_keys().collect();
+        let filenames = search_index::attachment_filenames(&raw.raw);
+        let doc = search_index::build_index_doc(
+            &sid, account_id, mailbox_id, &email, keywords, filenames, false,
+        );
+        if let Err(e) = self.search.upsert(&doc) {
+            tracing::warn!("search index upsert failed for {sid}: {e}");
+        }
+
+        // Rules run once, on genuinely new inbox arrivals (never on our own
+        // drafts/sent, never on historical re-sync).
+        if !existed {
+            self.apply_rules_at_ingest(account_id, mailbox_id, &sid, &email, &raw.flags)
+                .await?;
+        }
+
+        // Record the change that advances Email state (+ the mailbox counter).
+        let op = if existed {
+            ChangeOp::Updated
+        } else {
+            ChangeOp::Created
+        };
+        self.record_change(account_id, ChangeType::Email, &sid, op)
+            .await?;
+        self.record_change(
+            account_id,
+            ChangeType::Mailbox,
+            mailbox_id,
+            ChangeOp::Updated,
+        )
+        .await?;
         Ok(sid)
+    }
+
+    /// Rebuild a message's search-index document from the store (after a flag,
+    /// meta, or move change). Best-effort — a failure only degrades search, not
+    /// correctness. Loads the sealed body to recover attachment filenames.
+    pub(crate) async fn reindex_message(&self, stable_id: &str) {
+        if let Err(e) = self.try_reindex_message(stable_id).await {
+            tracing::warn!("re-index of {stable_id} failed: {e}");
+        }
+    }
+
+    async fn try_reindex_message(&self, stable_id: &str) -> Result<()> {
+        let msg = self
+            .store
+            .get_message(stable_id)
+            .await
+            .map_err(EngineError::Store)?;
+        let email: mw_jmap::Email = match self.store.get_envelope(stable_id).await? {
+            Some(bytes) => serde_json::from_slice(&bytes).unwrap_or_default(),
+            None => match &msg.blob_ref {
+                Some(blob) => match self.store.get_body(blob).await? {
+                    Some(raw) => mw_mime::parse(&raw).map(|p| p.email).unwrap_or_default(),
+                    None => mw_jmap::Email::default(),
+                },
+                None => mw_jmap::Email::default(),
+            },
+        };
+        let filenames = match &msg.blob_ref {
+            Some(blob) => match self.store.get_body(blob).await? {
+                Some(raw) => search_index::attachment_filenames(&raw),
+                None => Vec::new(),
+            },
+            None => Vec::new(),
+        };
+        let keywords: Vec<String> =
+            flags_to_keywords(&crate::mapping::flags_from_json(&msg.flags_json))
+                .into_keys()
+                .collect();
+        let pinned = self
+            .store
+            .get_message_meta(stable_id)
+            .await?
+            .map(|m| m.pinned)
+            .unwrap_or(false);
+        let doc = search_index::build_index_doc(
+            stable_id,
+            &msg.account_id,
+            &msg.mailbox_id,
+            &email,
+            keywords,
+            filenames,
+            pinned,
+        );
+        self.search
+            .upsert(&doc)
+            .map_err(|e| EngineError::Protocol(format!("index upsert: {e}")))?;
+        Ok(())
     }
 
     /// Resolve a backend message ref to its stable id, if the store knows it.
@@ -269,9 +434,11 @@ impl Engine {
 
     // ---- change ingestion ----------------------------------------------
 
-    /// Start the backend's watch loop; on each `MailboxChanged` re-sync so the
-    /// next browser poll sees fresh mail. V1 does not push to the browser.
+    /// Start the backend's watch loop; on each `MailboxChanged` re-sync then
+    /// broadcast a `StateChange` so subscribed WS/SSE sessions push it to the
+    /// browser (plan §1.2). Also ensures the delayed dispatcher is running.
     pub async fn start_watch(self: &Arc<Self>, account_id: &str) -> Result<()> {
+        self.start_dispatcher();
         let rt = self.require_runtime(account_id)?;
         let (tx, mut rx) = mpsc::unbounded_channel();
         let handle = rt.backend.watch(ChangeSink::new(tx)).await?;
@@ -284,6 +451,8 @@ impl Engine {
                     ChangeEvent::MailboxChanged { .. } => {
                         if let Err(e) = engine.resync(&acct).await {
                             tracing::warn!("resync after change failed: {e}");
+                        } else {
+                            engine.broadcast_state(&acct).await;
                         }
                     }
                     ChangeEvent::Disconnected => break,

@@ -13,15 +13,19 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use mw_mime::{ComposeRequest, EmailAddress};
+use mw_store::{IdentityRow, StoredMeta, SubmissionRow};
 use serde_json::{Map, Value, json};
 
 use crate::account::AccountRuntime;
 use crate::backend::{EngineError, Flag, MessageRef, RawMailboxRef, RawMessage, Result};
-use crate::engine::{Engine, SESSION_STATE};
+use crate::change::{ChangeOp, ChangeType};
+use crate::engine::Engine;
 use crate::mapping::{
     display_name, flag_delta, flags_from_json, flags_to_json, flags_to_keywords, keywords_to_flags,
     role_sort_order,
 };
+use crate::query::{Comparator, EmailFilter};
+use crate::search_index;
 
 /// Build the JMAP [`Session`](mw_jmap::Session) resource for a connected account,
 /// advertising core + mail + submission and pointing every URL back at us.
@@ -87,7 +91,10 @@ impl Engine {
             responses.push(json!([name, resp, call_id]));
         }
 
-        json!({ "methodResponses": responses, "sessionState": SESSION_STATE })
+        json!({
+            "methodResponses": responses,
+            "sessionState": self.session_state(account_id).await
+        })
     }
 
     /// Dispatch a single resolved method call to its handler.
@@ -101,14 +108,47 @@ impl Engine {
     ) -> Value {
         match name {
             "Mailbox/get" => self.mailbox_get(account_id, args).await,
+            "Mailbox/changes" => {
+                self.type_changes(account_id, ChangeType::Mailbox, args)
+                    .await
+            }
             "Email/query" => self.email_query(account_id, args).await,
+            "Email/queryChanges" => self.email_query_changes(account_id, args).await,
             "Email/get" => self.email_get(account_id, args).await,
+            "Email/changes" => self.type_changes(account_id, ChangeType::Email, args).await,
             "Email/set" => self.email_set(account_id, rt, args, created_ids).await,
             "EmailSubmission/set" => self.submission_set(account_id, rt, args, created_ids).await,
+            "EmailSubmission/get" => self.submission_get(account_id, args).await,
+            "EmailSubmission/query" => self.submission_query(account_id, args).await,
+            "EmailSubmission/changes" => {
+                self.type_changes(account_id, ChangeType::EmailSubmission, args)
+                    .await
+            }
+            "Identity/get" => self.identity_get(account_id, rt, args).await,
+            "Identity/query" => self.identity_query(account_id, rt).await,
             other => json!({
                 "type": "unknownMethod",
                 "description": format!("engine does not implement {other}")
             }),
+        }
+    }
+
+    /// The generic `*/changes` handler (frozen §2.1): `{oldState,newState,
+    /// created,updated,destroyed,hasMoreChanges}` for a datatype since a state.
+    async fn type_changes(&self, account_id: &str, kind: ChangeType, args: &Value) -> Value {
+        let since = args
+            .get("sinceState")
+            .and_then(Value::as_str)
+            .unwrap_or("0");
+        match self.build_changes(account_id, kind, since).await {
+            Ok(changes) => {
+                let mut v = serde_json::to_value(&changes).unwrap_or_else(|_| json!({}));
+                if let Some(obj) = v.as_object_mut() {
+                    obj.insert("accountId".into(), json!(account_id));
+                }
+                v
+            }
+            Err(e) => server_fail(&e),
         }
     }
 
@@ -145,17 +185,49 @@ impl Engine {
                 "unreadThreads": m.unread,
             }));
         }
+        // Saved searches surface as virtual folders (role:null +
+        // mailwomanSearchQuery). Querying one runs its stored filter (§2.1).
+        let saved = self
+            .store()
+            .list_saved_searches(account_id)
+            .await
+            .unwrap_or_default();
+        for s in &saved {
+            if !s.as_folder {
+                continue;
+            }
+            if let Some(ids) = &wanted
+                && !ids.contains(&s.id.as_str())
+            {
+                continue;
+            }
+            list.push(json!({
+                "id": s.id,
+                "name": s.name,
+                "parentId": Value::Null,
+                "role": Value::Null,
+                "sortOrder": 20,
+                "totalEmails": 0,
+                "unreadEmails": 0,
+                "totalThreads": 0,
+                "unreadThreads": 0,
+                "mailwomanSearchQuery": s.query_json,
+            }));
+        }
+
         let not_found: Vec<Value> = match &wanted {
             Some(ids) => ids
                 .iter()
-                .filter(|id| !mailboxes.iter().any(|m| m.id == **id))
+                .filter(|id| {
+                    !mailboxes.iter().any(|m| m.id == **id) && !saved.iter().any(|s| s.id == **id)
+                })
                 .map(|id| json!(id))
                 .collect(),
             None => Vec::new(),
         };
         json!({
             "accountId": account_id,
-            "state": SESSION_STATE,
+            "state": self.type_state(account_id, ChangeType::Mailbox).await.unwrap_or_default(),
             "list": list,
             "notFound": not_found
         })
@@ -164,18 +236,7 @@ impl Engine {
     // ---- Email/query ----------------------------------------------------
 
     async fn email_query(&self, account_id: &str, args: &Value) -> Value {
-        let mailbox = args
-            .get("filter")
-            .and_then(|f| f.get("inMailbox"))
-            .and_then(Value::as_str);
-        let Some(mailbox) = mailbox else {
-            return json!({
-                "accountId": account_id, "queryState": SESSION_STATE, "ids": [],
-                "total": 0, "position": 0, "canCalculateChanges": false
-            });
-        };
-
-        let all = match self.store().list_message_ids(mailbox, i64::MAX, 0).await {
+        let all = match self.query_ids(account_id, args).await {
             Ok(v) => v,
             Err(e) => return server_fail(&e),
         };
@@ -194,11 +255,97 @@ impl Engine {
 
         json!({
             "accountId": account_id,
-            "queryState": SESSION_STATE,
+            "queryState": self.type_state(account_id, ChangeType::Email).await.unwrap_or_default(),
             "ids": ids,
             "total": total,
             "position": position,
-            "canCalculateChanges": false
+            "canCalculateChanges": true
+        })
+    }
+
+    /// Resolve an `Email/query` to the full ordered id list (before paging),
+    /// routing to `mw-search` for any full-text/attachment/custom-sort condition
+    /// and to the SQL fast path for a pure `inMailbox` newest-first listing
+    /// (frozen routing rule §2.1). Saved-search folders run their stored filter.
+    async fn query_ids(&self, account_id: &str, args: &Value) -> Result<Vec<String>> {
+        let raw_filter = args.get("filter").cloned().unwrap_or(Value::Null);
+        let mut filter: EmailFilter = serde_json::from_value(raw_filter).unwrap_or_default();
+        let comparator = first_comparator(args);
+        let sort = search_index::sort_from_comparator(comparator.as_ref());
+        let custom_sort = sort != mw_search::Sort::received_desc();
+
+        // A saved-search folder id in `inMailbox` expands to its stored filter.
+        let mut saved_folder = false;
+        if let Some(mb) = filter.in_mailbox.clone()
+            && let Some(ss) = self.store().get_saved_search(&mb).await?
+        {
+            saved_folder = true;
+            filter = serde_json::from_str(&ss.query_json).unwrap_or_default();
+        }
+
+        let use_search = saved_folder || custom_sort || filter.needs_search();
+        if !use_search {
+            // SQL fast path: pure `inMailbox`, newest-first.
+            let Some(mb) = filter.in_mailbox.as_deref() else {
+                return Ok(Vec::new());
+            };
+            return Ok(self.store().list_message_ids(mb, i64::MAX, 0).await?);
+        }
+
+        let mailbox_ids: Vec<String> = self
+            .store()
+            .list_mailboxes(account_id)
+            .await?
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        // Scope to a single mailbox only when the filter pins a real one.
+        let scope = filter
+            .in_mailbox
+            .as_deref()
+            .filter(|mb| mailbox_ids.iter().any(|m| m == mb));
+        let sq = search_index::build_search_query(&filter, sort, &mailbox_ids, scope);
+        self.search()
+            .search(&sq, 0)
+            .map_err(|e| EngineError::Protocol(format!("search: {e}")))
+    }
+
+    /// `Email/queryChanges` (frozen §2.1): a best-effort delta. Recomputes the
+    /// current query and diffs it against the caller's `sinceQueryState` using
+    /// the change log so `added`/`removed` are cheap for the client to apply.
+    async fn email_query_changes(&self, account_id: &str, args: &Value) -> Value {
+        let since = args
+            .get("sinceQueryState")
+            .and_then(Value::as_str)
+            .unwrap_or("0");
+        let new_state = self
+            .type_state(account_id, ChangeType::Email)
+            .await
+            .unwrap_or_default();
+        let ids = match self.query_ids(account_id, args).await {
+            Ok(v) => v,
+            Err(e) => return server_fail(&e),
+        };
+        // Destroyed ids since `since` that the client should drop.
+        let removed: Vec<String> = match self
+            .build_changes(account_id, ChangeType::Email, since)
+            .await
+        {
+            Ok(c) => c.destroyed,
+            Err(_) => Vec::new(),
+        };
+        let added: Vec<Value> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| json!({ "id": id, "index": i }))
+            .collect();
+        json!({
+            "accountId": account_id,
+            "oldQueryState": since,
+            "newQueryState": new_state,
+            "total": ids.len(),
+            "removed": removed,
+            "added": added
         })
     }
 
@@ -219,7 +366,7 @@ impl Engine {
         }
         json!({
             "accountId": account_id,
-            "state": SESSION_STATE,
+            "state": self.type_state(account_id, ChangeType::Email).await.unwrap_or_default(),
             "list": list,
             "notFound": not_found
         })
@@ -227,7 +374,8 @@ impl Engine {
 
     /// Assemble the `mw_jmap::Email` JSON for one stable id from the sealed
     /// envelope (or a re-parse of the sealed raw body), patched with the
-    /// engine-owned id / mailboxIds / keywords / threadId / blobId.
+    /// engine-owned id / mailboxIds / keywords / threadId / blobId and the
+    /// engine-local `pinned`/`snoozedUntil`/`followUpAt` extras (§2.1).
     async fn build_email(&self, stable_id: &str) -> Result<Option<Value>> {
         let msg = match self.store().get_message(stable_id).await {
             Ok(m) => m,
@@ -249,6 +397,11 @@ impl Engine {
             },
         };
 
+        let meta = self
+            .store()
+            .get_message_meta(stable_id)
+            .await?
+            .unwrap_or_default();
         let obj = email.as_object_mut().expect("email is an object");
         obj.insert("id".into(), json!(stable_id));
         obj.insert("blobId".into(), json!(msg.blob_ref));
@@ -256,6 +409,9 @@ impl Engine {
         obj.insert("mailboxIds".into(), json!({ msg.mailbox_id.clone(): true }));
         let keywords = flags_to_keywords(&flags_from_json(&msg.flags_json));
         obj.insert("keywords".into(), json!(keywords));
+        obj.insert("pinned".into(), json!(meta.pinned));
+        obj.insert("snoozedUntil".into(), json!(meta.snoozed_until));
+        obj.insert("followUpAt".into(), json!(meta.follow_up_at));
         Ok(Some(email))
     }
 
@@ -268,6 +424,10 @@ impl Engine {
         args: &Value,
         created_ids: &mut HashMap<String, String>,
     ) -> Value {
+        let old_state = self
+            .type_state(account_id, ChangeType::Email)
+            .await
+            .unwrap_or_default();
         let mut created = Map::new();
         let mut not_created = Map::new();
         let mut updated = Map::new();
@@ -289,7 +449,7 @@ impl Engine {
 
         if let Some(updates) = args.get("update").and_then(Value::as_object) {
             for (id, patch) in updates {
-                match self.update_email(rt, id, patch).await {
+                match self.update_email(account_id, rt, id, patch).await {
                     Ok(()) => {
                         updated.insert(id.clone(), Value::Null);
                     }
@@ -300,10 +460,14 @@ impl Engine {
             }
         }
 
+        let new_state = self
+            .type_state(account_id, ChangeType::Email)
+            .await
+            .unwrap_or_default();
         let mut resp = json!({
             "accountId": account_id,
-            "oldState": SESSION_STATE,
-            "newState": SESSION_STATE,
+            "oldState": old_state,
+            "newState": new_state,
             "created": created,
             "updated": updated,
             "destroyed": []
@@ -358,13 +522,22 @@ impl Engine {
         Ok((sid, blob))
     }
 
-    /// Apply an Email/set update: keyword changes and/or a mailbox move.
-    async fn update_email(&self, rt: &AccountRuntime, id: &str, patch: &Value) -> Result<()> {
+    /// Apply an Email/set update: keyword changes, engine-local meta
+    /// (pin/snooze/follow-up), and/or a mailbox move. Records the `Email` change
+    /// and re-indexes so state + search stay consistent (plan §1.2, §1.5).
+    async fn update_email(
+        &self,
+        account_id: &str,
+        rt: &AccountRuntime,
+        id: &str,
+        patch: &Value,
+    ) -> Result<()> {
         let msg = self
             .store()
             .get_message(id)
             .await
             .map_err(EngineError::Store)?;
+        let mut touched = false;
 
         if let Some(kw) = patch.get("keywords").and_then(Value::as_object) {
             let kw_map: HashMap<String, bool> = kw
@@ -387,8 +560,39 @@ impl Engine {
                 .collect();
             stored.extend(desired);
             self.store().set_flags(id, &flags_to_json(&stored)).await?;
+            touched = true;
         }
 
+        // Engine-local metadata (§2.1): pinned / snoozedUntil / followUpAt. A
+        // present key sets it; JSON null clears it.
+        if patch.get("pinned").is_some()
+            || patch.get("snoozedUntil").is_some()
+            || patch.get("followUpAt").is_some()
+        {
+            let mut meta = self.store().get_message_meta(id).await?.unwrap_or_default();
+            if let Some(v) = patch.get("pinned") {
+                meta.pinned = v.as_bool().unwrap_or(meta.pinned);
+            }
+            if let Some(v) = patch.get("snoozedUntil") {
+                meta.snoozed_until = v.as_str().map(str::to_string);
+            }
+            if let Some(v) = patch.get("followUpAt") {
+                meta.follow_up_at = v.as_str().map(str::to_string);
+            }
+            self.store()
+                .upsert_message_meta(
+                    id,
+                    &StoredMeta {
+                        pinned: meta.pinned,
+                        snoozed_until: meta.snoozed_until,
+                        follow_up_at: meta.follow_up_at,
+                    },
+                )
+                .await?;
+            touched = true;
+        }
+
+        let mut moved = false;
         if let Some(mids) = patch.get("mailboxIds").and_then(Value::as_object)
             && let Some(target) = mids
                 .iter()
@@ -397,13 +601,26 @@ impl Engine {
             && target != msg.mailbox_id
         {
             self.move_email(rt, id, &target).await?;
+            moved = true;
+        }
+
+        // `move_email` already records its own change + re-index; only record a
+        // plain update when a non-move field changed.
+        if touched && !moved {
+            self.reindex_message(id).await;
+            self.record_change(account_id, ChangeType::Email, id, ChangeOp::Updated)
+                .await?;
         }
         Ok(())
     }
 
     /// Move one message to `target_mailbox_id`: `MOVE` it upstream (idempotent by
-    /// stable id), then re-file the cached row into the destination mailbox.
-    async fn move_email(
+    /// stable id), then relocate the cached row **in place preserving its
+    /// `stable_id`** (plan §1.4). Tags, `message_meta`, and the search index all
+    /// key on that id, so they follow the move without re-keying; only the
+    /// index's stored `mailboxId` is refreshed. This is the single move path in
+    /// V2 — it pays the tracked V1 debt where a move minted a new id.
+    pub(crate) async fn move_email(
         &self,
         rt: &AccountRuntime,
         id: &str,
@@ -414,39 +631,64 @@ impl Engine {
             .get_message(id)
             .await
             .map_err(EngineError::Store)?;
+        let source_mailbox_id = msg.mailbox_id.clone();
         let dest = self
             .store()
             .get_mailbox(target_mailbox_id)
             .await
             .map_err(EngineError::Store)?;
-        let envelope = self.store().get_envelope(id).await?;
 
+        // Upstream move; UIDPLUS gives the destination coordinates, else derive a
+        // deterministic pseudo-UID (engine-local / non-UIDPLUS servers).
+        let mut new_uid = pseudo_uid(msg.message_id.as_deref().unwrap_or(id));
+        let mut new_uidvalidity = dest.uidvalidity;
         if let Some(mref) = self.imap_ref_for(id).await? {
             let to = RawMailboxRef {
                 name: dest.name.clone(),
                 uidvalidity: dest.uidvalidity,
             };
-            tolerant(rt.backend.move_messages(&[mref], &to).await)?;
+            if let Some(crate::backend::MoveOutcome::Uidplus { uidvalidity, uids }) =
+                tolerant(rt.backend.move_messages(&[mref], &to).await)?
+                && let Some(u) = uids.first()
+            {
+                new_uid = *u;
+                new_uidvalidity = uidvalidity;
+            }
         }
 
-        // Re-file locally under the destination mailbox (a fresh stable id — the
-        // store's identity match is scoped per-mailbox, so a cross-folder move
-        // cannot preserve the id through the public API; V1 poll UI re-queries).
-        self.store().delete_message(id).await?;
-        let uid = pseudo_uid(msg.message_id.as_deref().unwrap_or(id));
-        let owned = MessageUpsertOwned::from_row(
-            &msg,
+        self.store()
+            .relocate_message(id, target_mailbox_id, new_uid, new_uidvalidity)
+            .await?;
+        // Re-key the search index onto the destination mailbox (preserves every
+        // other indexed field via the stored doc).
+        let _ = self.search().relocate(id, target_mailbox_id);
+
+        self.record_change(&msg.account_id, ChangeType::Email, id, ChangeOp::Updated)
+            .await?;
+        self.record_change(
+            &msg.account_id,
+            ChangeType::Mailbox,
+            &source_mailbox_id,
+            ChangeOp::Updated,
+        )
+        .await?;
+        self.record_change(
+            &msg.account_id,
+            ChangeType::Mailbox,
             target_mailbox_id,
-            uid,
-            dest.uidvalidity,
-            envelope.as_deref(),
-        );
-        self.store().upsert_message(&owned.as_ref()).await?;
+            ChangeOp::Updated,
+        )
+        .await?;
         Ok(())
     }
 
-    // ---- EmailSubmission/set -------------------------------------------
+    // ---- EmailSubmission (queue: undo-send / send-later / Outbox) -------
 
+    /// `EmailSubmission/set` (plan §1.3): create **enqueues** a submission
+    /// (`undoStatus:pending`) with an optional hold window / `sendAt`; a
+    /// submission with no hold and no future `sendAt` fires inline (the V1
+    /// synchronous send shape). update `{undoStatus:"canceled"}` cancels a
+    /// still-pending submission before its window elapses.
     async fn submission_set(
         &self,
         account_id: &str,
@@ -454,18 +696,36 @@ impl Engine {
         args: &Value,
         created_ids: &HashMap<String, String>,
     ) -> Value {
+        let old_state = self
+            .type_state(account_id, ChangeType::EmailSubmission)
+            .await
+            .unwrap_or_default();
         let mut created = Map::new();
         let mut not_created = Map::new();
+        let mut updated = Map::new();
+        let mut not_updated = Map::new();
 
         if let Some(creates) = args.get("create").and_then(Value::as_object) {
             for (client_id, spec) in creates {
                 let email_ref = spec.get("emailId").and_then(Value::as_str).unwrap_or("");
                 let real_id = resolve_email_id(email_ref, created_ids);
-                match self.submit_email(account_id, rt, &real_id).await {
-                    Ok(()) => {
+                let identity_id = spec
+                    .get("identityId")
+                    .and_then(Value::as_str)
+                    .map(String::from);
+                let send_at = spec.get("sendAt").and_then(Value::as_str).map(String::from);
+                let hold = spec
+                    .get("mailwomanHoldSeconds")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0) as u32;
+                match self
+                    .enqueue_submission(account_id, rt, &real_id, identity_id, send_at, hold)
+                    .await
+                {
+                    Ok((sub_id, undo_status)) => {
                         created.insert(
                             client_id.clone(),
-                            json!({ "id": format!("sub-{}", gen_token()) }),
+                            json!({ "id": sub_id, "undoStatus": undo_status }),
                         );
                     }
                     Err(e) => {
@@ -475,23 +735,287 @@ impl Engine {
             }
         }
 
+        if let Some(updates) = args.get("update").and_then(Value::as_object) {
+            for (id, patch) in updates {
+                let cancel = patch.get("undoStatus").and_then(Value::as_str) == Some("canceled");
+                match self.cancel_submission(account_id, id, cancel).await {
+                    Ok(()) => {
+                        updated.insert(id.clone(), Value::Null);
+                    }
+                    Err(e) => {
+                        not_updated.insert(id.clone(), set_error(&e));
+                    }
+                }
+            }
+        }
+
+        let new_state = self
+            .type_state(account_id, ChangeType::EmailSubmission)
+            .await
+            .unwrap_or_default();
         let mut resp = json!({
             "accountId": account_id,
-            "oldState": SESSION_STATE,
-            "newState": SESSION_STATE,
+            "oldState": old_state,
+            "newState": new_state,
             "created": created,
-            "updated": {},
+            "updated": updated,
             "destroyed": []
         });
         if !not_created.is_empty() {
             resp["notCreated"] = Value::Object(not_created);
         }
+        if !not_updated.is_empty() {
+            resp["notUpdated"] = Value::Object(not_updated);
+        }
         resp
+    }
+
+    /// Persist a submission row, then fire it inline when it is due immediately
+    /// (no hold, no future `sendAt`); otherwise leave it for the dispatcher.
+    /// Returns `(submissionId, undoStatus)`.
+    async fn enqueue_submission(
+        &self,
+        account_id: &str,
+        rt: &AccountRuntime,
+        email_id: &str,
+        identity_id: Option<String>,
+        send_at: Option<String>,
+        hold_seconds: u32,
+    ) -> Result<(String, &'static str)> {
+        let sub_id = format!("sub-{}", gen_token());
+        let created_at = now_rfc3339();
+        let row = SubmissionRow {
+            id: sub_id.clone(),
+            account_id: account_id.to_string(),
+            email_id: email_id.to_string(),
+            identity_id,
+            send_at: send_at.clone(),
+            undo_status: "pending".to_string(),
+            hold_seconds,
+            created_at,
+        };
+        self.store().insert_submission(&row).await?;
+        self.record_change(
+            account_id,
+            ChangeType::EmailSubmission,
+            &sub_id,
+            ChangeOp::Created,
+        )
+        .await?;
+
+        let now = chrono::Utc::now();
+        let future_send = send_at
+            .as_deref()
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .is_some_and(|dt| dt.with_timezone(&chrono::Utc) > now);
+        if hold_seconds == 0 && !future_send {
+            // Fire now (preserves the V1 synchronous send shape).
+            match self.submit_email(account_id, rt, email_id).await {
+                Ok(()) => {
+                    self.store().set_submission_status(&sub_id, "final").await?;
+                    self.record_change(
+                        account_id,
+                        ChangeType::EmailSubmission,
+                        &sub_id,
+                        ChangeOp::Updated,
+                    )
+                    .await?;
+                    Ok((sub_id, "final"))
+                }
+                Err(e) => {
+                    self.store()
+                        .set_submission_status(&sub_id, "canceled")
+                        .await?;
+                    Err(e)
+                }
+            }
+        } else {
+            // Deferred: the dispatcher fires it when the window elapses.
+            Ok((sub_id, "pending"))
+        }
+    }
+
+    /// Cancel a still-pending submission (the undo-send action). Errors if the
+    /// submission is unknown or already `final`/`canceled`.
+    async fn cancel_submission(&self, account_id: &str, id: &str, cancel: bool) -> Result<()> {
+        if !cancel {
+            return Ok(()); // update touched nothing we act on
+        }
+        let row = self
+            .store()
+            .get_submission(id)
+            .await?
+            .ok_or_else(|| EngineError::Protocol(format!("unknown submission {id}")))?;
+        if row.undo_status != "pending" {
+            return Err(EngineError::Protocol(format!(
+                "submission {id} is {} and cannot be canceled",
+                row.undo_status
+            )));
+        }
+        self.store().set_submission_status(id, "canceled").await?;
+        self.record_change(
+            account_id,
+            ChangeType::EmailSubmission,
+            id,
+            ChangeOp::Updated,
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// `EmailSubmission/get` — fetch submissions by id (Outbox item detail).
+    async fn submission_get(&self, account_id: &str, args: &Value) -> Value {
+        let wanted: Option<Vec<String>> = args.get("ids").and_then(Value::as_array).map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(String::from)
+                .collect()
+        });
+        let rows = match self.store().list_submissions(account_id).await {
+            Ok(v) => v,
+            Err(e) => return server_fail(&e),
+        };
+        let mut list = Vec::new();
+        let mut found = Vec::new();
+        for row in &rows {
+            if let Some(ids) = &wanted
+                && !ids.contains(&row.id)
+            {
+                continue;
+            }
+            found.push(row.id.clone());
+            list.push(submission_json(row));
+        }
+        let not_found: Vec<Value> = match &wanted {
+            Some(ids) => ids
+                .iter()
+                .filter(|id| !found.contains(id))
+                .map(|id| json!(id))
+                .collect(),
+            None => Vec::new(),
+        };
+        json!({
+            "accountId": account_id,
+            "state": self.type_state(account_id, ChangeType::EmailSubmission).await.unwrap_or_default(),
+            "list": list,
+            "notFound": not_found
+        })
+    }
+
+    /// `EmailSubmission/query` — **the Outbox** (all submissions, newest-first).
+    async fn submission_query(&self, account_id: &str, args: &Value) -> Value {
+        let rows = match self.store().list_submissions(account_id).await {
+            Ok(v) => v,
+            Err(e) => return server_fail(&e),
+        };
+        // Optional undoStatus filter (e.g. only pending = the live Outbox).
+        let want_status = args
+            .get("filter")
+            .and_then(|f| f.get("undoStatus"))
+            .and_then(Value::as_str);
+        let ids: Vec<String> = rows
+            .iter()
+            .filter(|r| want_status.is_none_or(|s| r.undo_status == s))
+            .map(|r| r.id.clone())
+            .collect();
+        json!({
+            "accountId": account_id,
+            "queryState": self.type_state(account_id, ChangeType::EmailSubmission).await.unwrap_or_default(),
+            "ids": ids.clone(),
+            "total": ids.len(),
+            "position": 0,
+            "canCalculateChanges": true
+        })
+    }
+
+    // ---- Identity ------------------------------------------------------
+
+    /// `Identity/get` — configured + server-pulled allowed-froms (§2.1). Seeds a
+    /// default identity from the account's own address on first access.
+    async fn identity_get(&self, account_id: &str, rt: &AccountRuntime, args: &Value) -> Value {
+        self.ensure_default_identity(account_id, rt).await;
+        let rows = match self.store().list_identities(account_id).await {
+            Ok(v) => v,
+            Err(e) => return server_fail(&e),
+        };
+        let wanted: Option<Vec<String>> = args.get("ids").and_then(Value::as_array).map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(String::from)
+                .collect()
+        });
+        let list: Vec<Value> = rows
+            .iter()
+            .filter(|r| wanted.as_ref().is_none_or(|ids| ids.contains(&r.id)))
+            .map(identity_json)
+            .collect();
+        json!({
+            "accountId": account_id,
+            "state": "identity-0",
+            "list": list,
+            "notFound": []
+        })
+    }
+
+    /// `Identity/query` — the ids of the account's identities.
+    async fn identity_query(&self, account_id: &str, rt: &AccountRuntime) -> Value {
+        self.ensure_default_identity(account_id, rt).await;
+        let ids: Vec<String> = self
+            .store()
+            .list_identities(account_id)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|r| r.id)
+            .collect();
+        json!({
+            "accountId": account_id,
+            "queryState": "identity-0",
+            "ids": ids.clone(),
+            "total": ids.len(),
+            "position": 0,
+            "canCalculateChanges": false
+        })
+    }
+
+    /// Seed a `configured` identity from the account's own address if none
+    /// exist yet, so `Identity/get` always returns at least the primary from.
+    async fn ensure_default_identity(&self, account_id: &str, rt: &AccountRuntime) {
+        let existing = self
+            .store()
+            .list_identities(account_id)
+            .await
+            .unwrap_or_default();
+        if !existing.is_empty() || rt.identity.is_empty() {
+            return;
+        }
+        let sent = self
+            .store()
+            .list_mailboxes(account_id)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .find(|m| m.role.as_deref() == Some("sent"))
+            .map(|m| m.id);
+        let _ = self
+            .store()
+            .upsert_identity(&IdentityRow {
+                id: format!("identity-{account_id}"),
+                account_id: account_id.to_string(),
+                name: String::new(),
+                email: rt.identity.clone(),
+                reply_to: None,
+                signature_html: None,
+                signature_text: None,
+                sent_mailbox_id: sent,
+                source: "configured".to_string(),
+            })
+            .await;
     }
 
     /// Submit a draft's MIME through the account submitter, then file the sent
     /// copy into `Sent` (both upstream, best-effort, and in the local cache).
-    async fn submit_email(
+    pub(crate) async fn submit_email(
         &self,
         account_id: &str,
         rt: &AccountRuntime,
@@ -562,8 +1086,20 @@ impl Engine {
             &[Flag::Seen],
         )
         .await?;
-        // Remove the original draft now that it has been sent + filed.
+        // Remove the original draft now that it has been sent + filed: drop it
+        // from the cache + index and record the Email destroyed change.
+        let draft_mailbox = msg.mailbox_id.clone();
         self.store().delete_message(email_id).await?;
+        let _ = self.search().delete(email_id);
+        self.record_change(account_id, ChangeType::Email, email_id, ChangeOp::Destroyed)
+            .await?;
+        self.record_change(
+            account_id,
+            ChangeType::Mailbox,
+            &draft_mailbox,
+            ChangeOp::Updated,
+        )
+        .await?;
         Ok(())
     }
 
@@ -626,7 +1162,7 @@ impl Engine {
 
     /// Build the IMAP [`MessageRef`] for a stable id from its stored location,
     /// or `None` for a POP3/local message (which the backend cannot address).
-    async fn imap_ref_for(&self, stable_id: &str) -> Result<Option<MessageRef>> {
+    pub(crate) async fn imap_ref_for(&self, stable_id: &str) -> Result<Option<MessageRef>> {
         let Some(loc) = self.store().message_location(stable_id).await? else {
             return Ok(None);
         };
@@ -684,6 +1220,14 @@ pub fn resolve_references(args: &mut Value, responses: &[Value]) {
             map.remove(&key);
         }
     }
+}
+
+/// The first `sort` comparator of a query, if any (frozen §2.1 sort set).
+fn first_comparator(args: &Value) -> Option<Comparator> {
+    args.get("sort")
+        .and_then(Value::as_array)
+        .and_then(|a| a.first())
+        .and_then(|c| serde_json::from_value(c.clone()).ok())
 }
 
 /// Resolve an `emailId` that may be a `#creationId` reference to a stable id.
@@ -851,60 +1395,27 @@ fn now_rfc3339() -> String {
     chrono::Utc::now().to_rfc3339()
 }
 
-use mw_store::MessageUpsert;
-
-/// Owned mirror of [`MessageUpsert`] so `move_email` can borrow from a `Message`
-/// row without lifetime gymnastics.
-struct MessageUpsertOwned {
-    account_id: String,
-    mailbox_id: String,
-    uid: u32,
-    uidvalidity: u32,
-    message_id: Option<String>,
-    thread_id: Option<String>,
-    internaldate: Option<String>,
-    size: u64,
-    flags_json: String,
-    envelope: Option<Vec<u8>>,
-    blob_ref: Option<String>,
+/// The JMAP `EmailSubmission` object for a stored row (frozen §2.1).
+fn submission_json(row: &SubmissionRow) -> Value {
+    json!({
+        "id": row.id,
+        "emailId": row.email_id,
+        "identityId": row.identity_id,
+        "sendAt": row.send_at,
+        "undoStatus": row.undo_status,
+        "mailwomanHoldSeconds": row.hold_seconds,
+    })
 }
 
-impl MessageUpsertOwned {
-    fn from_row(
-        row: &mw_store::Message,
-        mailbox_id: &str,
-        uid: u32,
-        uidvalidity: u32,
-        envelope: Option<&[u8]>,
-    ) -> Self {
-        Self {
-            account_id: row.account_id.clone(),
-            mailbox_id: mailbox_id.to_string(),
-            uid,
-            uidvalidity,
-            message_id: row.message_id.clone(),
-            thread_id: row.thread_id.clone(),
-            internaldate: row.internaldate.clone(),
-            size: row.size,
-            flags_json: row.flags_json.clone(),
-            envelope: envelope.map(<[u8]>::to_vec),
-            blob_ref: row.blob_ref.clone(),
-        }
-    }
-
-    fn as_ref(&self) -> MessageUpsert<'_> {
-        MessageUpsert {
-            account_id: &self.account_id,
-            mailbox_id: &self.mailbox_id,
-            uid: self.uid,
-            uidvalidity: self.uidvalidity,
-            message_id: self.message_id.as_deref(),
-            thread_id: self.thread_id.as_deref(),
-            internaldate: self.internaldate.as_deref(),
-            size: self.size,
-            flags_json: &self.flags_json,
-            envelope: self.envelope.as_deref(),
-            blob_ref: self.blob_ref.as_deref(),
-        }
-    }
+/// The JMAP `Identity` object for a stored row (frozen §2.1).
+fn identity_json(row: &IdentityRow) -> Value {
+    json!({
+        "id": row.id,
+        "name": row.name,
+        "email": row.email,
+        "replyTo": row.reply_to,
+        "signatureHtml": row.signature_html,
+        "signatureText": row.signature_text,
+        "sentMailboxId": row.sent_mailbox_id,
+    })
 }

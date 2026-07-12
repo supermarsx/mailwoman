@@ -592,10 +592,11 @@ impl Store {
     /// delete+reinsert in `Engine::move_email` (jmap.rs:435), which minted a new
     /// id and broke tag/meta/index keying.
     ///
-    /// Scaffolder note (e0): SIGNATURE STUB only. e9 implements the in-place
-    /// UPDATE and rewires `Engine::move_email` + the search-index re-key; the V1
-    /// move path is left intact until then.
-    #[allow(unused_variables)]
+    /// The single move path in V2: an in-place UPDATE that preserves the row's
+    /// `stable_id`. `message_meta`, `tags`, and the engine's search index all key
+    /// on that id, so they survive the move untouched (the engine re-keys the
+    /// index's stored `mailboxId` separately). Returns [`StoreError::NotFound`]
+    /// if no row carries `stable_id`.
     pub async fn relocate_message(
         &self,
         stable_id: &str,
@@ -603,7 +604,20 @@ impl Store {
         new_uid: u32,
         new_uidvalidity: u32,
     ) -> Result<(), StoreError> {
-        todo!("e9: in-place move preserving stable_id (plan §1.4)")
+        let n = sqlx::query(
+            "UPDATE messages SET mailbox_id = ?2, uid = ?3, uidvalidity = ?4 WHERE stable_id = ?1",
+        )
+        .bind(stable_id)
+        .bind(new_mailbox_id)
+        .bind(new_uid as i64)
+        .bind(new_uidvalidity as i64)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        if n == 0 {
+            return Err(StoreError::NotFound);
+        }
+        Ok(())
     }
 
     fn message_from_row(row: &sqlx::sqlite::SqliteRow) -> Message {

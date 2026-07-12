@@ -10,12 +10,16 @@
 pub mod account;
 pub mod backend;
 pub mod change;
+pub mod dispatcher;
 pub mod engine;
 pub mod identity;
 pub mod jmap;
 pub mod mapping;
 pub mod meta;
 pub mod query;
+pub mod rules;
+pub mod search_index;
+pub mod state;
 pub mod submission;
 pub mod thread;
 
