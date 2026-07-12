@@ -1,0 +1,24 @@
+[package]
+name = "mw-imap-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+mw-imap = { path = ".." }
+
+[[bin]]
+name = "parse_response"
+path = "fuzz_targets/parse_response.rs"
+test = false
+doc = false
+bench = false
+
+# Detached from the parent workspace: the fuzz target only builds under
+# `cargo fuzz` (nightly + sanitizer) and must not be pulled into the normal
+# `cargo build --workspace`.
+[workspace]

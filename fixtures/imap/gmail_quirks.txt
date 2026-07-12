@@ -1,0 +1,15 @@
+* OK [CAPABILITY IMAP4rev1 UNSELECT IDLE NAMESPACE QUOTA ID XLIST CHILDREN X-GM-EXT-1 UIDPLUS COMPRESS=DEFLATE ENABLE MOVE CONDSTORE ESEARCH UTF8=ACCEPT LIST-EXTENDED LIST-STATUS AUTH=XOAUTH2 AUTH=PLAIN AUTH=PLAIN-CLIENTTOKEN] Gimap ready for requests
+* CAPABILITY IMAP4rev1 UNSELECT IDLE NAMESPACE QUOTA ID XLIST CHILDREN X-GM-EXT-1 UIDPLUS COMPRESS=DEFLATE ENABLE MOVE CONDSTORE ESEARCH UTF8=ACCEPT LIST-EXTENDED LIST-STATUS AUTH=XOAUTH2 AUTH=PLAIN
+A0001 OK alice@gmail.com authenticated (Success)
+* LIST (\HasNoChildren) "/" "INBOX"
+* LIST (\HasChildren \Noselect) "/" "[Gmail]"
+* LIST (\All \HasNoChildren) "/" "[Gmail]/All Mail"
+* LIST (\Drafts \HasNoChildren) "/" "[Gmail]/Drafts"
+* LIST (\Important \HasNoChildren) "/" "[Gmail]/Important"
+* LIST (\Sent \HasNoChildren) "/" "[Gmail]/Sent Mail"
+* LIST (\Junk \HasNoChildren) "/" "[Gmail]/Spam"
+* LIST (\Flagged \HasNoChildren) "/" "[Gmail]/Starred"
+* LIST (\Trash \HasNoChildren) "/" "[Gmail]/Trash"
+A0002 OK Success
+* OK [COPYUID 604 5 3956] (Success)
+A0003 OK [COPYUID 604 5 3956] (Success)

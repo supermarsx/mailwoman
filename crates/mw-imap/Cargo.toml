@@ -8,7 +8,6 @@ repository.workspace = true
 
 [dependencies]
 mw-engine = { workspace = true }
-mw-mime = { workspace = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true }
 rustls = { workspace = true }
@@ -17,8 +16,13 @@ webpki-roots = { workspace = true }
 imap-proto = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
-data-encoding = { workspace = true }
+bytes = { workspace = true }
 tracing = { workspace = true }
+# Direct dep, version-matched to imap-proto's own `nom` (7.1.x) so there is no
+# second nom in the tree. Needed only to classify streaming parse results
+# (Incomplete vs. malformed) from `imap_proto::parse_response`.
+nom = "7"
 
 [dev-dependencies]
 tokio = { workspace = true }
+mw-engine = { workspace = true }
