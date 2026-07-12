@@ -43,10 +43,13 @@ async fn greenmail_connect_list_and_append() {
         .await
         .expect("connect to Greenmail");
 
+    // Sanity-check that CAPABILITY parsed into flags. Greenmail is a plain
+    // IMAP4rev1 server (no IMAP4rev2, no advertised SASL — it authenticates via
+    // the LOGIN command), so assert on extensions it actually advertises.
     let caps = backend.capabilities().await.expect("capabilities");
     assert!(
-        caps.imap4rev2 || caps.sasl_plain,
-        "expected a usable IMAP capability set"
+        caps.uidplus || caps.idle || caps.r#move,
+        "expected Greenmail's advertised extensions (UIDPLUS/IDLE/MOVE) to parse; got {caps:?}"
     );
 
     let boxes = backend.list_mailboxes().await.expect("list mailboxes");
