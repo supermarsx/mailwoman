@@ -178,6 +178,35 @@ services:
       retries: 24
       start_period: 5s
 
+  # ---- Dovecot-Pigeonhole — ManageSieve (RFC 5804) conformance leg (V2) ------
+  # Bundles Pigeonhole and exposes ManageSieve on 4190. The CI
+  # `managesieve-conformance` job (continue-on-error, plan §6 risk #9) drives
+  # scripts/managesieve/conformance.sh against it — the LIVE path for mw-sieve's
+  # ManageSieve CLIENT (PUTSCRIPT/LISTSCRIPTS/SETACTIVE/GETSCRIPT/DELETESCRIPT),
+  # with Pigeonhole COMPILING the uploaded Sieve (generated-Sieve fidelity).
+  # Greenmail has no ManageSieve so it stays the always-green gate; engine-side
+  # rule execution (e9) is the always-green path. Same testuser/testpass account
+  # as the IMAP/POP3 dovecot leg.
+  #   ManageSieve host:4190 -> 4190
+  dovecot-pigeonhole:
+    image: dovecot/dovecot:2.4.1
+    command: ["/bin/sh", "/serve.sh"]
+    volumes:
+      - ./scripts/dovecot-pigeonhole/zz-pigeonhole.conf:/etc/dovecot/conf.d/zz-mailwoman.conf:ro
+      - ./scripts/dovecot/mailwoman-users:/etc/dovecot/mailwoman-users:ro
+      - ./scripts/dovecot-pigeonhole/serve.sh:/serve.sh:ro
+    ports:
+      - "4190:4190"   # ManageSieve
+    healthcheck:
+      # nc -z (zero-I/O) returns on connect — the image ships nc, no curl.
+      test:
+        - "CMD-SHELL"
+        - "nc -z -w 2 127.0.0.1 4190 </dev/null"
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 5s
+
   # ---- mw-server in ENGINE mode over Greenmail (V1, for e8 E2E) --------------
   # Same image as `mailwoman` (runtime target) but MW_MODE=engine: it drives a
   # real IMAP/POP3 account through mw-engine instead of proxying JMAP. Points its

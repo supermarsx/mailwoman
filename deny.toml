@@ -1,3 +1,14 @@
+# cargo-deny policy — finalized for V2 (release 26.3). The full V2 dependency
+# tree is vetted here: the new crates (mw-search, mw-sieve, mw-export) and the
+# new third-party deps (tantivy MIT, tokio-rustls-acme/rustls-acme MIT/Apache,
+# tokio-tungstenite MIT, futures-util MIT/Apache) all land under the permissive
+# allow-list below. The license floor is permissive-only — GPL/LGPL/AGPL are
+# denied by OMISSION from `[licenses].allow` (an unlisted license fails the
+# check), so no copyleft can enter the tree (SPEC §3). `cargo deny check`
+# (advisories + bans + licenses + sources) is green across the workspace.
+#   NB: pdfjs-dist (Apache-2.0) is a WEB dep — gated by the JS `js-licenses`
+#   job, not cargo-deny.
+
 [graph]
 all-features = false
 

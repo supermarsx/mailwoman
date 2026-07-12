@@ -11,11 +11,22 @@ modes (`MW_MODE`):
   [`imap-pop3.md`](./imap-pop3.md) for pairing notes (Dovecot, Gmail-over-IMAP,
   POP3 hosts) and the testing backends (Greenmail).
 
-This directory has three deployment aids:
+This directory has these deployment aids:
 
 - `Dockerfile` (repo root) — multi-stage build, distroless non-root runtime.
 - `mailwoman.service` — a hardened systemd unit (SPEC §7.5).
-- `nginx.conf` — a TLS-terminating reverse-proxy snippet.
+- `nginx.conf` — a TLS-terminating reverse-proxy snippet (incl. WS/SSE).
+
+V2 (realtime, TLS, fonts, hardening) adds:
+
+- [`websocket.md`](./websocket.md) — reverse-proxy pass-through for the JMAP
+  WebSocket (`/jmap/ws`) + EventSource fallback (`/jmap/eventsource`).
+- [`acme.md`](./acme.md) — `--acme` (Let's Encrypt) and external-cert
+  hot-reload on `SIGHUP`.
+- [`fonts.md`](./fonts.md) — `mailwoman fonts pull` to self-host web fonts under
+  `font-src 'self'`.
+- [`hardening.md`](./hardening.md) — COEP/CORP/Permissions-Policy, CSRF, Origin
+  checks, and session-timeout flags.
 
 ## Configuration (environment)
 

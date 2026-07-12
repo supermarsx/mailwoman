@@ -115,7 +115,8 @@ jobs:
         run: docker compose -f docker-compose.dev.yml down -v
 
   # -------------------------------------------------------------------------
-  # Web: typecheck, lint, unit tests, build, bundle-size gate.
+  # Web: typecheck, lint, unit tests, build. The bundle-size gate is a dedicated
+  # job (`bundle-size`) so it is a first-class, named §23 gate.
   # -------------------------------------------------------------------------
   web:
     runs-on: ubuntu-latest
@@ -139,8 +140,6 @@ jobs:
         run: pnpm -C apps/web test
       - name: build
         run: pnpm -C apps/web build
-      - name: bundle-size gate
-        run: pnpm -C apps/web run size
 
   # -------------------------------------------------------------------------
   # JS licenses: allowlist over runtime deps. Non-blocking for now (the
@@ -219,29 +218,101 @@ jobs:
         run: docker compose -f docker-compose.dev.yml down -v
 
   # -------------------------------------------------------------------------
-  # V2 gate stubs (plan §3 e11). Placeholder jobs so the pipeline shape exists;
-  # e11 fills each with the real gate. They pass trivially until then and must
-  # NOT block the pipeline.
+  # V2 perf/security/conformance gates (plan §3 e11).
   # -------------------------------------------------------------------------
+
+  # Search p95 < 50 ms over 100k (SPEC §23). The gate lives in the Rust test
+  # `crates/mw-search/tests/bench.rs`, which asserts p95 < 50 ms; the wrapper
+  # runs it in release and surfaces the measured p95 for the log/trend.
   search-bench:
     runs-on: ubuntu-latest
+    needs: [rust]
     steps:
-      - run: echo "search p95<50ms over 100k (cargo bench trend, SPEC §23) — wired by e11"
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: mw-search p95 gate (<50 ms over 100k)
+        run: bash ./scripts/search-bench.sh
 
-  lighthouse:
+  # Bundle-size gate (SPEC §23): the login->inbox entry chunk must be < 250 KB
+  # gzip and pdfjs must stay OFF the critical path (a lazy chunk). Both asserted
+  # by apps/web/scripts/check-size.mjs (`pnpm run size`).
+  bundle-size:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Lighthouse + 60fps virtualized-list check (SPEC §23) — wired by e11"
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: install
+        run: pnpm -C apps/web install --frozen-lockfile
+      - name: build
+        run: pnpm -C apps/web build
+      - name: bundle-size gate (entry < 250 KB gzip; pdfjs lazy)
+        run: pnpm -C apps/web run size
 
+  # OWASP ZAP baseline scan against the running mock stack — the SPEC §27 V2 exit
+  # gate. Flaky/slow, so continue-on-error; the HTML report is uploaded.
   zap-baseline:
     runs-on: ubuntu-latest
+    needs: [rust, web]
+    continue-on-error: true
+    env:
+      DOCKER_BUILDKIT: "1"
+      COMPOSE_DOCKER_CLI_BUILD: "1"
     steps:
-      - run: echo "ZAP baseline (SPEC §27 V2 exit) — wired by e11"
+      - uses: actions/checkout@v4
+      - name: build + start stack (mock backend)
+        run: docker compose -f docker-compose.dev.yml up -d --build mock mailwoman
+      - name: wait for server health
+        run: ./scripts/wait-for-health.sh http://localhost:8080/healthz 240
+      - name: ZAP baseline scan
+        # -I: warnings do not fail the scan (only FAIL-level rules do); -m 5:
+        # cap the spider. The report is written to the mounted workspace.
+        run: |
+          docker run --network host -v "$PWD:/zap/wrk:rw" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py -t http://localhost:8080 -I -m 5 \
+            -r zap-baseline-report.html
+      - name: upload ZAP report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-baseline-report
+          path: zap-baseline-report.html
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: compose logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.dev.yml logs --no-color
+      - name: tear down
+        if: always()
+        run: docker compose -f docker-compose.dev.yml down -v
 
+  # ManageSieve (RFC 5804) conformance vs Dovecot-Pigeonhole — the LIVE path for
+  # mw-sieve's ManageSieve CLIENT (plan §6 risk #9). Greenmail has no
+  # ManageSieve, so it stays the always-green gate and engine-side rule
+  # execution is the always-green path -> this leg is continue-on-error.
   managesieve-conformance:
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
-      - run: echo "ManageSieve conformance vs Dovecot-Pigeonhole (continue-on-error) — wired by e11"
+      - uses: actions/checkout@v4
+      - name: boot dovecot-pigeonhole (wait healthy)
+        run: docker compose -f docker-compose.dev.yml up -d --wait dovecot-pigeonhole
+      - name: ManageSieve conformance (PUTSCRIPT compiles generated Sieve)
+        run: bash ./scripts/managesieve/conformance.sh 127.0.0.1 4190 60
+      - name: server logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.dev.yml logs --no-color dovecot-pigeonhole
+      - name: tear down
+        if: always()
+        run: docker compose -f docker-compose.dev.yml down -v
 
   # -------------------------------------------------------------------------
   # E2E (engine mode): the SAME web UI, but mw-server in MW_MODE=engine driving
