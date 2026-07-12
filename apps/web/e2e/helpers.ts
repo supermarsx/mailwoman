@@ -1,4 +1,5 @@
 import { expect, type Page } from '@playwright/test';
+import net from 'node:net';
 
 /**
  * Credentials the mock JMAP backend accepts. The jmapUrl uses the compose
@@ -116,4 +117,84 @@ export async function waitForInboxMessage(page: Page, subject: string, timeout =
     await sidebarInbox(page).click();
     await expect(messageRow(page, subject)).toBeVisible({ timeout: 3_000 });
   }).toPass({ timeout });
+}
+
+/**
+ * Deliver a message straight into the Greenmail account over SMTP (host
+ * localhost:3025), bypassing the app's compose+undo-hold. Lets a spec inject a
+ * NEW delivery from an arbitrary sender (and optionally with an attachment) so
+ * realtime-push / search-operator / multi-window specs don't depend on the
+ * 10 s undo-send hold. The engine's watch loop ingests it like any other mail.
+ */
+export async function injectViaSmtp(opts: {
+  from: string;
+  subject: string;
+  text: string;
+  to?: string;
+  withAttachment?: { filename: string; content: string };
+}): Promise<void> {
+  const host = process.env['MW_E2E_SMTP_HOST'] ?? '127.0.0.1';
+  const port = Number(process.env['MW_E2E_SMTP_PORT'] ?? 3025);
+  const to = opts.to ?? ENGINE_CREDS.selfAddress;
+
+  let body: string;
+  if (opts.withAttachment !== undefined) {
+    const b64 = Buffer.from(opts.withAttachment.content, 'utf8').toString('base64');
+    const bound = `mwbound${Date.now()}`;
+    body =
+      `MIME-Version: 1.0\r\n` +
+      `Content-Type: multipart/mixed; boundary="${bound}"\r\n\r\n` +
+      `--${bound}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${opts.text}\r\n` +
+      `--${bound}\r\nContent-Type: application/octet-stream; name="${opts.withAttachment.filename}"\r\n` +
+      `Content-Disposition: attachment; filename="${opts.withAttachment.filename}"\r\n` +
+      `Content-Transfer-Encoding: base64\r\n\r\n${b64}\r\n--${bound}--\r\n`;
+  } else {
+    body = `MIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${opts.text}\r\n`;
+  }
+
+  const message =
+    `From: ${opts.from}\r\nTo: ${to}\r\nSubject: ${opts.subject}\r\n` +
+    `Date: ${new Date().toUTCString()}\r\n${body}`;
+
+  const steps = [
+    `EHLO mailwoman-e2e`,
+    `MAIL FROM:<${extractAddr(opts.from)}>`,
+    `RCPT TO:<${to}>`,
+    `DATA`,
+    `${message}\r\n.`,
+    `QUIT`,
+  ];
+
+  await new Promise<void>((resolve, reject) => {
+    const sock = net.createConnection({ host, port });
+    let step = -1; // -1 = waiting for the 220 greeting
+    let buf = '';
+    const fail = (e: Error) => {
+      sock.destroy();
+      reject(e);
+    };
+    sock.setTimeout(15_000, () => fail(new Error('SMTP inject timed out')));
+    sock.on('error', fail);
+    sock.on('data', (chunk) => {
+      buf += chunk.toString('utf8');
+      // Act only on a complete final reply line ("NNN <text>", space after code).
+      const lines = buf.split('\r\n').filter((l) => /^\d{3} /.test(l));
+      if (lines.length === 0) return;
+      buf = '';
+      const code = Number(lines[lines.length - 1]!.slice(0, 3));
+      if (code >= 400) return fail(new Error(`SMTP error: ${lines[lines.length - 1]}`));
+      step += 1;
+      if (step >= steps.length) {
+        sock.end();
+        return resolve();
+      }
+      sock.write(steps[step]! + '\r\n');
+    });
+  });
+}
+
+/** Pull the bare address out of `Name <addr>` or a bare `addr`. */
+function extractAddr(input: string): string {
+  const m = input.match(/<([^>]+)>/);
+  return m ? m[1]! : input.trim();
 }
