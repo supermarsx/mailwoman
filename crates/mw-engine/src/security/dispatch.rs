@@ -78,21 +78,22 @@ impl Engine {
     pub(crate) async fn security_type_changes(
         &self,
         account_id: &str,
-        _kind: ChangeType,
+        kind: ChangeType,
         args: &Value,
     ) -> Value {
         let since = args
             .get("sinceState")
             .and_then(Value::as_str)
             .unwrap_or("0");
-        json!({
-            "accountId": account_id,
-            "oldState": since,
-            "newState": since,
-            "created": [],
-            "updated": [],
-            "destroyed": [],
-            "hasMoreChanges": false,
-        })
+        match self.build_crypto_changes(account_id, kind, since).await {
+            Ok(changes) => {
+                let mut v = serde_json::to_value(&changes).unwrap_or_else(|_| json!({}));
+                if let Some(obj) = v.as_object_mut() {
+                    obj.insert("accountId".into(), json!(account_id));
+                }
+                v
+            }
+            Err(e) => super::server_fail(e),
+        }
     }
 }

@@ -472,7 +472,11 @@ fn requested_ids(args: &Value) -> Vec<String> {
 
 /// Handle a V4 crypto/security method with a frozen static fixture, or `None` if
 /// `name` is not a crypto/security family method.
-fn security_case(name: &str, args: &Value) -> Option<Value> {
+///
+/// Exposed (plan §1.5 / §3 e6 mock-parity gate) so the engine's golden-shape test
+/// can assert the mock emits BYTE-IDENTICAL shapes to the real engine — a drift
+/// here is a live crash later.
+pub fn security_case(name: &str, args: &Value) -> Option<Value> {
     let v = match name {
         "CryptoKey/get" => json!({
             "accountId": ACCOUNT_ID, "state": "ck-0",

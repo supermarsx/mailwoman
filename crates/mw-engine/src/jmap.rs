@@ -759,6 +759,16 @@ impl Engine {
                     .get("mailwomanHoldSeconds")
                     .and_then(Value::as_u64)
                     .unwrap_or(0) as u32;
+                // V4 DLP gate (plan §1.8): evaluate outbound rules at create time
+                // (covers both the inline and the deferred send paths) BEFORE the
+                // submission is enqueued. A `block` verdict fails this create with
+                // a structured `dlpBlocked` error and the message is never queued;
+                // the redacted audit row is written by `evaluate`.
+                let dlp_verdicts = crate::security::dlp::evaluate(self, account_id, &real_id).await;
+                if let Some(err) = dlp_block_error(&dlp_verdicts) {
+                    not_created.insert(client_id.clone(), err);
+                    continue;
+                }
                 match self
                     .enqueue_submission(account_id, rt, &real_id, identity_id, send_at, hold)
                     .await
@@ -1094,13 +1104,11 @@ impl Engine {
             return Err(EngineError::Protocol("no recipients".into()));
         }
 
-        // V4 DLP hook (plan §1.8, §3 e0): evaluate outbound rules at the submit
-        // chokepoint BEFORE dispatch. e0 wires a NO-OP (no rules loaded → no
-        // findings → allow), so the send path is unchanged; e6 loads
-        // `MW_DLP_RULES`, runs the detectors, writes the redacted `dlp_audit`
-        // row, and fails the submission with `dlpBlocked` on a `block` verdict.
-        let _dlp_verdicts = crate::security::dlp::evaluate(self, account_id, email_id).await;
-
+        // V4 DLP enforcement runs at `EmailSubmission/set` create time (see
+        // `submission_set` → `dlp_block_error`), which gates BOTH the inline and
+        // the deferred send paths before a submission is ever enqueued. By the
+        // time we reach the actual dispatch here the draft has already cleared
+        // DLP, so no second evaluation (and no duplicate audit) is needed.
         let result = rt
             .submitter
             .submit(mw_smtp::Outgoing {
@@ -1383,7 +1391,7 @@ fn extract_bodies(spec: &Value) -> (Option<String>, Option<String>) {
 }
 
 /// Envelope recipients: `to` + `cc` + `bcc`.
-fn recipients(email: &mw_jmap::Email) -> Vec<String> {
+pub(crate) fn recipients(email: &mw_jmap::Email) -> Vec<String> {
     let mut out = Vec::new();
     for addrs in [&email.to, &email.cc, &email.bcc].into_iter().flatten() {
         out.extend(addrs.iter().map(|a| a.email.clone()));
@@ -1423,6 +1431,27 @@ fn pseudo_uid(seed: &str) -> u32 {
 
 /// Monotonic-ish unique token source for generated ids.
 static COUNTER: AtomicU64 = AtomicU64::new(1);
+
+/// Build the structured `dlpBlocked` `notCreated` error (frozen §2.2) when any
+/// DLP verdict is a block, else `None`. The `verdicts` are the redacted DLP
+/// verdicts (detector tokens only — never matched content).
+fn dlp_block_error(verdicts: &[crate::security::types::DlpVerdict]) -> Option<Value> {
+    let blocking: Vec<&crate::security::types::DlpVerdict> =
+        verdicts.iter().filter(|v| v.blocked).collect();
+    if blocking.is_empty() {
+        return None;
+    }
+    let description = blocking
+        .iter()
+        .map(|v| v.rule_name.clone())
+        .collect::<Vec<_>>()
+        .join("; ");
+    Some(json!({
+        "type": "dlpBlocked",
+        "description": description,
+        "verdicts": blocking,
+    }))
+}
 
 fn gen_token() -> String {
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);

@@ -122,6 +122,11 @@ impl StateChange {
     /// `{"@type":"StateChange","changed":{"<acct>":{"Email":..,"Mailbox":..,
     /// "EmailSubmission":..,"Thread":..}}}`. Encoded once here so the WS server
     /// (e10) and the web client (e6, `contracts/push.ts`) cannot drift.
+    ///
+    /// NOTE (e6→e7 handoff): V4 `CryptoKey`/`MailRule` state advances via the
+    /// `crypto_changes` log + `sessionState` (folded in `state.rs`); e7 extends
+    /// this wire object with the `CryptoKey`/`MailRule` keys when it wires the
+    /// crypto push forward (plan §2.2 / §3 e7).
     pub fn to_wire(&self) -> serde_json::Value {
         let mut inner = serde_json::Map::new();
         inner.insert("Email".into(), self.email.clone().into());

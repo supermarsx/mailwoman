@@ -45,7 +45,25 @@ impl Engine {
         let m = self.type_num(account_id, ChangeType::Mailbox).await;
         let s = self.type_num(account_id, ChangeType::EmailSubmission).await;
         let p = self.pim_state_sum(account_id).await;
-        format!("e{e}m{m}s{s}p{p}")
+        let c = self.crypto_state_sum(account_id).await;
+        format!("e{e}m{m}s{s}p{p}c{c}")
+    }
+
+    /// The sum of the account's crypto/security datatype counters (folded into
+    /// `sessionState` so a `CryptoKey`/`MailRule` change bumps it too, plan §2.2).
+    async fn crypto_state_sum(&self, account_id: &str) -> u64 {
+        let mut sum = 0;
+        for kind in [ChangeType::CryptoKey, ChangeType::MailRule] {
+            sum += self.crypto_type_num(account_id, kind).await;
+        }
+        sum
+    }
+
+    async fn crypto_type_num(&self, account_id: &str, kind: ChangeType) -> u64 {
+        self.store()
+            .current_crypto_state(account_id, kind.as_str())
+            .await
+            .unwrap_or(0)
     }
 
     /// The sum of the account's PIM datatype counters — a cheap composite that
@@ -128,6 +146,67 @@ impl Engine {
         let rows = self
             .store()
             .pim_changes_since(account_id, kind.as_str(), since)
+            .await?;
+        let (created, updated, destroyed) =
+            fold_changes(rows.iter().map(|r| (r.object_id.as_str(), r.op.as_str())));
+        Ok(Changes {
+            old_state: since.to_string(),
+            new_state: current.to_string(),
+            created,
+            updated,
+            destroyed,
+            has_more_changes: false,
+        })
+    }
+
+    // ── Crypto/security state tokens + `*/changes` (plan §2.2) ──────────────
+    // Sourced from the separate `crypto_changes` log (disjoint from the mail +
+    // PIM counters) for `CryptoKey`/`MailRule`.
+
+    /// Append one crypto/security change and return the new `(account, type)`
+    /// crypto state.
+    pub(crate) async fn record_crypto_change(
+        &self,
+        account_id: &str,
+        kind: ChangeType,
+        object_id: &str,
+        op: ChangeOp,
+    ) -> Result<u64> {
+        Ok(self
+            .store()
+            .record_crypto_change(account_id, kind.as_str(), object_id, op.as_str())
+            .await?)
+    }
+
+    /// The current crypto/security per-type state token as an opaque string.
+    pub(crate) async fn crypto_type_state(
+        &self,
+        account_id: &str,
+        kind: ChangeType,
+    ) -> Result<String> {
+        Ok(self
+            .store()
+            .current_crypto_state(account_id, kind.as_str())
+            .await?
+            .to_string())
+    }
+
+    /// Build the `{oldState,newState,created,updated,destroyed}` diff for a
+    /// crypto/security datatype since `since_state`, from the `crypto_changes` log.
+    pub(crate) async fn build_crypto_changes(
+        &self,
+        account_id: &str,
+        kind: ChangeType,
+        since_state: &str,
+    ) -> Result<Changes> {
+        let since: u64 = since_state.parse().unwrap_or(0);
+        let current = self
+            .store()
+            .current_crypto_state(account_id, kind.as_str())
+            .await?;
+        let rows = self
+            .store()
+            .crypto_changes_since(account_id, kind.as_str(), since)
             .await?;
         let (created, updated, destroyed) =
             fold_changes(rows.iter().map(|r| (r.object_id.as_str(), r.op.as_str())));

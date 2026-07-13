@@ -23,14 +23,32 @@
 //! public keys/certs + opaque client-encrypted backups. Decryption + private
 //! signing happen in the browser WASM worker, never here.
 
+pub mod convert;
 pub mod dispatch;
 pub mod dlp;
 pub mod keyring;
 pub mod sender_controls;
+pub mod store_key;
 pub mod types;
 pub mod verdict;
 
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use serde_json::{Value, json};
+
+static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// A short, collision-resistant id for a newly-created crypto/security object
+/// (`<prefix>-<nanos><counter>` in hex). Local scope only — never a fingerprint.
+pub(crate) fn gen_id(prefix: &str) -> String {
+    let n = ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let t = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("{prefix}-{t:x}{n:x}")
+}
 
 /// Build a standard `*/get` response envelope (`{accountId,state,list,notFound}`),
 /// matching the mail + PIM surfaces byte-for-byte. Used by the e6 family fills;

@@ -93,7 +93,7 @@ impl Engine {
 
     /// Add one JMAP keyword to a message: update the cache flags, re-index, and
     /// best-effort mirror upstream (a POP3/local `Unsupported` is fine).
-    async fn add_keyword_local(
+    pub(crate) async fn add_keyword_local(
         &self,
         rt: &AccountRuntime,
         stable_id: &str,

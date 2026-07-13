@@ -38,8 +38,27 @@ mw-crypto = { workspace = true }
 # Attachment-filename extraction at ingest for `filename:` search (workspace dep,
 # already in-tree via mw-mime); parsing is best-effort and never panics.
 mail-parser = { workspace = true }
+# V4 (plan §3 e6, §1.6): DKIM/SPF/DMARC/ARC verdicts + ARF report generation for
+# the Security panel. `default-features = false` deliberately drops the crate's
+# default `aws-lc-rs` provider (plan §1.11 — VET-BEFORE-ENABLE, not a V4 gate); we
+# take only the hickory resolver + arc + report. Prod uses the system resolver;
+# tests/CI inject a fixture-seeded `ResolverCache` so no DNS ever leaves the host.
+mail-auth = { workspace = true, default-features = false, features = ["ring", "arc", "report"] }
+# Attachment ext-vs-magic risk (plan §3 e6): declared MIME from the filename
+# extension, compared against the sniffed magic bytes. Pure-Rust, leaf.
+mime_guess = { workspace = true }
+# security_verdicts cache key: a stable hash of the raw message (plan §2.4).
+sha2 = { workspace = true }
+# DLP custom-regex detector (plan §1.8). Built-in detectors (PAN/IBAN/SSN) are
+# hand-scanned; custom-regex rules compile a user pattern.
+regex = { workspace = true }
 
 [dev-dependencies]
 # The env-gated Radicale round-trip test names `mw_dav::DavConfig` (the public
 # type of `AccountRuntime.dav`); it is otherwise a normal dep of the lib.
 mw-dav = { workspace = true }
+# The mock-vs-engine golden-shape parity gate (plan §1.5 / §3 e6): the security
+# integration test asserts `mw-mock-jmap`'s crypto/security fixtures are
+# byte-shape-identical to the engine's real output. Cycle-free (the mock does not
+# depend on mw-engine).
+mw-mock-jmap = { workspace = true }
