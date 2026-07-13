@@ -235,7 +235,7 @@ function AttachmentsPane(props: { email: Email }): JSX.Element {
  *  signature verdict back to the reader. */
 function DecryptPanel(props: {
   armor: string;
-  onDecrypted: (text: string, signature: SignatureVerdict) => void;
+  onDecrypted: (content: { html?: string; text?: string }, signature: SignatureVerdict) => void;
 }): JSX.Element {
   const app = useApp();
   const [passphrase, setPassphrase] = createSignal('');
@@ -262,7 +262,13 @@ function DecryptPanel(props: {
         encryptedPrivateBundle: bundle,
         passphrase: passphrase(),
       });
-      props.onDecrypted(result.plaintextText ?? result.plaintextHtml ?? '', result.signature);
+      // The worker sanitized any HTML plaintext IN-WORKER (§1.3): `plaintextHtml` is
+      // already safe to render as HTML; `plaintextText` renders escaped.
+      const content =
+        result.plaintextHtml !== undefined
+          ? { html: result.plaintextHtml }
+          : { text: result.plaintextText ?? '' };
+      props.onDecrypted(content, result.signature);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Decryption failed');
     } finally {
@@ -323,10 +329,15 @@ export function Reader(): JSX.Element {
   // Client decrypt/verify results, merged over the server verdict (§1.2). Reset
   // whenever the open message changes.
   const [clientSig, setClientSig] = createSignal<SignatureVerdict | null>(null);
+  // Decrypted body: `decryptedHtml` = HTML already sanitized IN-WORKER (§1.3),
+  // rendered as sanitized HTML in the sandbox; `decryptedText` = non-HTML plaintext,
+  // rendered escaped. Reset whenever the open message changes.
+  const [decryptedHtml, setDecryptedHtml] = createSignal<string | null>(null);
   const [decryptedText, setDecryptedText] = createSignal<string | null>(null);
   createEffect(() => {
     emailId();
     setClientSig(null);
+    setDecryptedHtml(null);
     setDecryptedText(null);
   });
 
@@ -340,7 +351,8 @@ export function Reader(): JSX.Element {
   });
 
   const armor = (): string | null => extractPgpArmor(app.openEmail());
-  const showDecrypt = (): boolean => armor() !== null && decryptedText() === null;
+  const showDecrypt = (): boolean =>
+    armor() !== null && decryptedHtml() === null && decryptedText() === null;
 
   // The message-body `srcdoc`, honoring the max-security mode + the decrypt path.
   // The DEFAULT (full-sanitized cleartext) path is the unchanged raw sanitized
@@ -348,11 +360,19 @@ export function Reader(): JSX.Element {
   const bodySrcdoc = createMemo<string | null>(() => {
     const email = app.openEmail();
     if (email === null) return null;
-    const dec = decryptedText();
-    // Decrypted E2EE plaintext renders as ESCAPED TEXT in the sandbox — it never
-    // round-trips to the server sanitizer (§1.3) and carries no HTML surface.
-    if (dec !== null) return bodyFrameDoc('plain-text', { text: dec });
     const mode = maxsec.effectiveMode(sender());
+    // Decrypted E2EE body (§1.3): HTML was sanitized IN-WORKER (never round-trips to
+    // the server sanitizer) and renders as sanitized HTML in the sandbox, honoring
+    // the max-security mode; non-HTML plaintext renders escaped. Same no-scripts /
+    // no-same-origin iframe as cleartext mail.
+    const decHtml = decryptedHtml();
+    if (decHtml !== null) {
+      if (mode === 'plain-text') return bodyFrameDoc('plain-text', { text: decHtml });
+      if (mode === 'sanitized-no-media') return bodyFrameDoc('sanitized-no-media', { html: decHtml });
+      return bodyFrameDoc('full-sanitized', { html: decHtml });
+    }
+    const decText = decryptedText();
+    if (decText !== null) return bodyFrameDoc('plain-text', { text: decText });
     if (mode === 'plain-text') return bodyFrameDoc('plain-text', { text: plainTextOf(email) });
     const html = app.sanitizedHtml();
     if (html === null) return null;
@@ -430,8 +450,9 @@ export function Reader(): JSX.Element {
             >
               <DecryptPanel
                 armor={armor() ?? ''}
-                onDecrypted={(text, signature) => {
-                  setDecryptedText(text);
+                onDecrypted={(content, signature) => {
+                  if (content.html !== undefined) setDecryptedHtml(content.html);
+                  else setDecryptedText(content.text ?? '');
                   setClientSig(signature);
                 }}
               />

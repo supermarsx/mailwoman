@@ -15,6 +15,14 @@
 
 use std::collections::HashSet;
 
+// The wasm-bindgen surface (plan §1.3): sanitize decrypted E2EE HTML in the browser
+// crypto worker, never on the server. Gated on the wasm32 target so the native build
+// never links wasm-bindgen and the engine consumers (mw-render/mw-export/mw-server)
+// stay unchanged; the sanitize policy below is target-agnostic. e8b builds it to wasm
+// via `scripts/build-wasm.*` into `apps/web/src/wasm/mw-sanitize`.
+#[cfg(target_arch = "wasm32")]
+mod wasm;
+
 /// Sanitize untrusted HTML email content. Always returns owned, safe HTML.
 pub fn sanitize_email_html(input: &str) -> String {
     let mut builder = ammonia::Builder::default();

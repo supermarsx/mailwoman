@@ -19,3 +19,12 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 ammonia = { workspace = true }
+
+# ── wasm-only browser boundary (plan §1.3): sanitize decrypted E2EE HTML in the
+# crypto Web Worker, never on the server (that would defeat end-to-end encryption).
+# Gated on the wasm32 target so the NATIVE build (mw-render/mw-export/mw-server) never
+# links wasm-bindgen and is byte-for-byte unaffected — `cargo build --workspace`
+# compiles this crate exactly as before; wasm-bindgen appears only under
+# `cargo build -p mw-sanitize --target wasm32-unknown-unknown` / wasm-pack. ──
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = { workspace = true }

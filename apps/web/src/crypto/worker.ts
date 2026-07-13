@@ -3,16 +3,16 @@
 // (keygen, decrypt, private sign, PKCS#12 import) NEVER block the main thread and
 // the plaintext + private material NEVER enter the main app state (plan §1.2).
 //
-// Decrypted E2EE plaintext is returned as text and rendered as ESCAPED PLAIN TEXT
-// in the existing no-scripts / no-same-origin sandboxed iframe (Reader.tsx). That
-// path never round-trips decrypted plaintext to the server sanitizer (plan §1.3 /
-// risk #5) and carries no HTML-injection surface. (The `mw-sanitize` wasm build is
-// NOT wired: that crate has no `wasm-bindgen` surface and adding one is a `crates/`
-// change outside e8's lock — see `scripts/build-wasm.sh` for the note.)
+// Decrypted E2EE plaintext is sanitized IN-WORKER via the `mw-sanitize` wasm build
+// (plan §1.3, wired in `worker.entry.ts`): HTML decrypted mail is sanitized here and
+// returned as `plaintextHtml` (rendered as sanitized HTML in the existing no-scripts /
+// no-same-origin sandboxed iframe, Reader.tsx); non-HTML plaintext is returned as
+// `plaintextText` and rendered escaped. Either way the decrypted plaintext NEVER
+// round-trips to the server sanitizer (risk #5) — end-to-end encryption holds.
 //
-// e1 built the wasm bundle surface; e8 (this) builds it via `scripts/build-wasm.*`
-// into `src/wasm/mw-crypto`, hosts it in `worker.entry.ts`, and points
-// `crypto/index.ts#getCryptoWorker` at [`spawnCryptoWorker`].
+// e1 built the crypto wasm surface; e8 built + hosted it in `worker.entry.ts` and
+// pointed `crypto/index.ts#getCryptoWorker` at [`spawnCryptoWorker`]; e8b added the
+// mw-sanitize wasm surface + the in-worker sanitize of decrypted HTML.
 
 import type { CryptoWorkerApi } from '../contracts/crypto.ts';
 

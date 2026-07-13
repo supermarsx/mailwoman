@@ -3188,6 +3188,7 @@ name = "mw-sanitize"
 version = "26.4.0"
 dependencies = [
  "ammonia",
+ "wasm-bindgen",
 ]
 
 [[package]]

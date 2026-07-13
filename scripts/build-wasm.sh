@@ -7,18 +7,18 @@
 # (loaded via `vite-plugin-wasm` + `vite-plugin-top-level-await`, off the
 # login→inbox critical path — plan risk #12).
 #
-# e0 scaffolded this; e1 filled the crypto; e8 (this) wires the worker + prunes
-# wasm-pack's `package.json`/`.gitignore` so the generated bundle sits cleanly
-# under `src/` (committed so a Rust-less `pnpm build/typecheck/test` stays green;
-# e9 rebuilds it on Win + Linux CI). The companion `build-wasm.ps1` is the
+# e0 scaffolded this; e1 filled the crypto; e8 wired the worker; e8b (this) added the
+# `mw-sanitize` wasm surface + build so decrypted E2EE HTML is sanitized IN-WORKER
+# (plan §1.3). Both bundles are pruned of wasm-pack's `package.json`/`.gitignore` so
+# they sit cleanly under `src/` (committed so a Rust-less `pnpm build/typecheck/test`
+# stays green; e9 rebuilds on Win + Linux CI). The companion `build-wasm.ps1` is the
 # Windows-dev twin (plan §1.13).
 #
-# NOTE (§1.3 deviation): `mw-sanitize` is NOT built to wasm here. It has no
-# `wasm-bindgen` surface (only `crate-type` was seamed) and adding one is a
-# `crates/` change outside this executor's lock. Decrypted E2EE bodies are instead
-# rendered as ESCAPED PLAIN TEXT in the existing no-scripts/no-same-origin
-# sandboxed iframe — which never round-trips to the server sanitizer (the §1.3
-# correctness point holds) and carries no HTML-injection surface.
+# §1.3 (in-worker sanitize): decrypted E2EE plaintext is sanitized in the browser
+# crypto worker via the `mw-sanitize` wasm build BELOW — it never round-trips to the
+# server sanitizer (which would defeat end-to-end encryption). HTML decrypted mail is
+# then rendered as sanitized HTML in the existing no-scripts/no-same-origin sandboxed
+# iframe; non-HTML plaintext keeps rendering as escaped text.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -45,3 +45,12 @@ wasm-pack build "${ROOT}/crates/mw-crypto" \
 rm -f "${OUT_DIR}/mw-crypto/package.json" "${OUT_DIR}/mw-crypto/.gitignore"
 
 echo "wasm bundle built into ${OUT_DIR}/mw-crypto"
+
+# mw-sanitize → in-worker sanitize of decrypted E2EE HTML (plan §1.3 / risk #5). Pure
+# ammonia; small bundle. Same `--target web` + prune as mw-crypto.
+echo "building mw-sanitize → ${OUT_DIR}/mw-sanitize"
+wasm-pack build "${ROOT}/crates/mw-sanitize" \
+  --target web --out-dir "${OUT_DIR}/mw-sanitize" --out-name mw_sanitize
+rm -f "${OUT_DIR}/mw-sanitize/package.json" "${OUT_DIR}/mw-sanitize/.gitignore"
+
+echo "wasm bundle built into ${OUT_DIR}/mw-sanitize"
