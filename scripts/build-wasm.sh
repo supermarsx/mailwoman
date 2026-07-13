@@ -1,23 +1,32 @@
 #!/usr/bin/env bash
 # Build the browser WASM crypto bundle (plan §2.5 / §3 e8, top V4 risk §6#2).
 #
-# Compiles `mw-crypto` (+ `mw-sanitize`, for in-worker decrypt sanitize, §1.3) to
-# `wasm32-unknown-unknown` via wasm-pack into `apps/web/src/wasm/`, where the crypto
-# Web Worker (`apps/web/src/crypto/worker.ts`) imports it (wired by
-# `vite-plugin-wasm` + `vite-plugin-top-level-await`).
+# Compiles `mw-crypto` to `wasm32-unknown-unknown` via wasm-pack (target `web`) into
+# `apps/web/src/wasm/mw-crypto`, where the crypto Web Worker
+# (`apps/web/src/crypto/worker.entry.ts`) imports the wasm-pack glue + module
+# (loaded via `vite-plugin-wasm` + `vite-plugin-top-level-await`, off the
+# login→inbox critical path — plan risk #12).
 #
-# e0 authors this scaffold (the toolchain contract); the wasm-pack module bodies
-# are `todo!()` until e1 fills the crypto and e8 wires the worker — so a run now
-# produces a loadable-but-inert bundle proving the toolchain end-to-end. The
-# companion `build-wasm.ps1` is the Windows-dev twin (plan §1.13: Win + Linux both
-# build). e9 runs BOTH in CI.
+# e0 scaffolded this; e1 filled the crypto; e8 (this) wires the worker + prunes
+# wasm-pack's `package.json`/`.gitignore` so the generated bundle sits cleanly
+# under `src/` (committed so a Rust-less `pnpm build/typecheck/test` stays green;
+# e9 rebuilds it on Win + Linux CI). The companion `build-wasm.ps1` is the
+# Windows-dev twin (plan §1.13).
+#
+# NOTE (§1.3 deviation): `mw-sanitize` is NOT built to wasm here. It has no
+# `wasm-bindgen` surface (only `crate-type` was seamed) and adding one is a
+# `crates/` change outside this executor's lock. Decrypted E2EE bodies are instead
+# rendered as ESCAPED PLAIN TEXT in the existing no-scripts/no-same-origin
+# sandboxed iframe — which never round-trips to the server sanitizer (the §1.3
+# correctness point holds) and carries no HTML-injection surface.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="${ROOT}/apps/web/src/wasm"
 
-# getrandom's JS backend on wasm32 is selected by this cfg (getrandom 0.3+/0.4),
-# NOT a cargo feature — required once e1 pulls in real RNG (rPGP keygen).
+# rPGP/RustCrypto reach getrandom's JS backend on wasm32 via plain crate features
+# (mw-crypto's Cargo.toml wasm target deps), so no `--cfg getrandom_backend` is
+# strictly required; we still export it for older getrandom generations' safety.
 export RUSTFLAGS="${RUSTFLAGS:-} --cfg getrandom_backend=\"wasm_js\""
 
 if ! command -v wasm-pack >/dev/null 2>&1; then
@@ -31,8 +40,8 @@ wasm-pack build "${ROOT}/crates/mw-crypto" \
   --target web --out-dir "${OUT_DIR}/mw-crypto" --out-name mw_crypto \
   -- --features wasm
 
-echo "building mw-sanitize → ${OUT_DIR}/mw-sanitize"
-wasm-pack build "${ROOT}/crates/mw-sanitize" \
-  --target web --out-dir "${OUT_DIR}/mw-sanitize" --out-name mw_sanitize
+# wasm-pack drops a publish `package.json` + a `.gitignore` (`*`) into the out
+# dir; prune both so the module imports cleanly from `src/` and is committed.
+rm -f "${OUT_DIR}/mw-crypto/package.json" "${OUT_DIR}/mw-crypto/.gitignore"
 
-echo "wasm bundle built into ${OUT_DIR}"
+echo "wasm bundle built into ${OUT_DIR}/mw-crypto"

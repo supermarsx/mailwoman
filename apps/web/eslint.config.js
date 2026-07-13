@@ -11,6 +11,9 @@ export default tseslint.config(
       'coverage/**',
       // Vendored third-party build artifact (self-hosted pdf.js worker, e8).
       'public/pdf.worker.mjs',
+      // Generated wasm-pack bundle (mw-crypto → src/wasm, built by
+      // scripts/build-wasm.*; committed but not hand-authored, plan §3 e8).
+      'src/wasm/**',
     ],
   },
   js.configs.recommended,

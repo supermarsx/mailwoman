@@ -4,6 +4,27 @@ import {
   createContactAutocomplete,
   type ContactSuggestion,
 } from '../modules/contacts/autocomplete.ts';
+import { ComposeCrypto, type ComposeCryptoState } from './compose-crypto.tsx';
+import {
+  createJmapDlpScan,
+  createJmapKeyLookup,
+  type DlpScanFn,
+  type KeyLookupFn,
+} from './compose/crypto-jmap.ts';
+import { createClient } from '../api/client.ts';
+
+// The crypto/DLP JMAP surface (`CryptoKey/lookup`, `Dlp/scan`) is not on
+// `AppState`; drive it over a dedicated same-origin, cookie-authed client (hits
+// the same session as the store's client) — plan §2.2/§2.5.
+const jmapClient = createClient();
+
+/** Split the raw To field into recipient tokens (the banner is live as you type). */
+function splitRecipients(raw: string): string[] {
+  return raw
+    .split(/[,;]/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
 
 // Compose (plan §1.5, §2.1): grown with an identity/signature picker (multiple
 // from-addresses, server-pulled allowed-froms) and send-later. The core To /
@@ -26,6 +47,34 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [acOpen, setAcOpen] = createSignal(false);
+  // Crypto/DLP state reported up by <ComposeCrypto> (encrypt/sign toggles, the
+  // E2EE/TLS/mixed capability, the DLP `canSend` gate, and the WASM-encrypted
+  // draft) — plan §2.5, e8 wiring.
+  const [cryptoState, setCryptoState] = createSignal<ComposeCryptoState | null>(null);
+
+  // Client-backed key lookup + DLP scan for <ComposeCrypto> (real engine). Read
+  // the account id at call time (it is null until the session loads). A lookup /
+  // scan failure (offline, or no crypto capability) degrades gracefully — the
+  // banner falls back to TLS and no DLP verdict blocks — rather than crashing
+  // compose.
+  const lookupKeys: KeyLookupFn = async (address) => {
+    const acct = app.accountId();
+    if (acct === null) return [];
+    try {
+      return await createJmapKeyLookup(jmapClient, acct)(address);
+    } catch {
+      return [];
+    }
+  };
+  const scanDlp: DlpScanFn = async (draft) => {
+    const acct = app.accountId();
+    if (acct === null) return [];
+    try {
+      return await createJmapDlpScan(jmapClient, acct)(draft);
+    } catch {
+      return [];
+    }
+  };
 
   // Recipient autocomplete over the loaded contacts (plan §2.2 / e7 seam). The
   // ranking is client-side over `app.contacts()`; we load contacts on open so a
@@ -59,12 +108,32 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
   async function onSubmit(e: Event): Promise<void> {
     e.preventDefault();
     setError(null);
+    const cs = cryptoState();
+    // DLP gate (plan §1.8 / §2.2): a `block` verdict stops the send before it
+    // reaches the engine. The blocking rule is already surfaced inline by
+    // <ComposeCrypto>; here we enforce the send gate.
+    if (cs !== null && !cs.canSend) {
+      setError('Sending is blocked by a data-loss-prevention rule (see the warning above).');
+      return;
+    }
     setBusy(true);
     try {
+      // Encrypt-on-send (plan §2.5): when encryption is on and the worker has
+      // produced an encrypted draft (real WASM), send the armored ciphertext as
+      // the body so the recipient decrypts it client-side. Protected-subject
+      // replaces the visible subject with a placeholder.
+      const enc =
+        cs !== null && cs.encrypt && cs.encryptedDraft !== null ? cs.encryptedDraft : null;
+      const htmlBody =
+        enc !== null ? enc.armoredCiphertext : `<p>${escapeHtml(body()).replace(/\n/g, '<br>')}</p>`;
+      const subjectToSend =
+        enc !== null && cs !== null && cs.protectSubject && enc.encryptedSubjectApplied
+          ? 'Encrypted message'
+          : subject();
       await app.sendMessage({
         to: to(),
-        subject: subject(),
-        htmlBody: `<p>${escapeHtml(body()).replace(/\n/g, '<br>')}</p>`,
+        subject: subjectToSend,
+        htmlBody,
         identity: identity(),
         // datetime-local yields a local wall-clock string; convert to a UTC ISO.
         sendAt: sendAt() !== '' ? new Date(sendAt()).toISOString() : null,
@@ -150,6 +219,18 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
           <span>Body</span>
           <textarea rows="10" value={body()} onInput={(e) => setBody(e.currentTarget.value)} />
         </label>
+
+        {/* Crypto + DLP (plan §2.5): encrypt/sign toggles, the live E2EE/TLS/mixed
+            banner from real per-recipient CryptoKey/lookup, and the Dlp/scan
+            pre-send warnings. Reports state up via onChange for the send path. */}
+        <ComposeCrypto
+          recipients={() => splitRecipients(to())}
+          subject={() => subject()}
+          bodyText={() => body()}
+          lookupKeys={lookupKeys}
+          scanDlp={scanDlp}
+          onChange={setCryptoState}
+        />
 
         <Show when={identity()?.signatureText}>
           {(sig) => <p class="compose__signature">— {sig()}</p>}

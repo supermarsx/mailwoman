@@ -8,7 +8,8 @@
 
 import { createSignal, onCleanup, type Accessor } from 'solid-js';
 
-/** Every top-level surface the shell can show (mail-family + the four PIM modules). */
+/** Every top-level surface the shell can show (mail-family, the four PIM modules,
+ *  and the V4 `keys` key-management module — plan §2.5). */
 export type ShellSurface =
   | 'mail'
   | 'outbox'
@@ -16,7 +17,8 @@ export type ShellSurface =
   | 'calendar'
   | 'tasks'
   | 'notes'
-  | 'contacts';
+  | 'contacts'
+  | 'keys';
 
 /** The four V3 PIM module surfaces (plan §2.5) — the ones e10 mounts + wires. */
 export const PIM_SURFACES: readonly ShellSurface[] = ['calendar', 'tasks', 'notes', 'contacts'];
@@ -29,6 +31,9 @@ const ALL_SURFACES = new Set<ShellSurface>([
   'tasks',
   'notes',
   'contacts',
+  // V4 (plan §2.5): the key-management module is a reachable, deep-linkable
+  // `#/keys` surface — NOT a PIM surface (so `isPimSurface` stays false for it).
+  'keys',
 ]);
 
 /** Is `s` a PIM module surface (vs a mail-family surface)? */

@@ -12,9 +12,13 @@ import { SubTabStrip } from '../components/SubTabStrip.tsx';
 import { Ribbon } from '../components/Ribbon.tsx';
 import { Settings } from './Settings.tsx';
 import { Attachments } from './Attachments.tsx';
-import { APP_MODULES } from '../shell/modules.ts';
+import { APP_MODULES, KEYS_MODULE } from '../shell/modules.ts';
 import { createShellRouter, isPimSurface, type ShellSurface } from '../shell/router.ts';
 import { shouldRefetchPim } from '../realtime/pimRefetch.ts';
+
+// The nav-rail app modules: the four V3 PIM modules + the V4 key-management
+// module (plan §2.5, e8 mount). Keys is reachable at `#/keys` beside them.
+const APP_NAV_MODULES = [...APP_MODULES, KEYS_MODULE];
 
 /** The search box above the message list; submits an `Email/query` (engine →
  *  mw-search online, reduced cached search offline). */
@@ -91,6 +95,10 @@ export function MailboxScreen(): JSX.Element {
     const off = app.onRealtimeChange((change) => {
       const s = surface();
       if (isPimSurface(s) && shouldRefetchPim(s, change)) refetchPim(app, s);
+      // V4 (plan §2.2/§2.5): a crypto `StateChange` arrives as the coarse push
+      // ping (like PIM); when the key list is open, reload it so a key generated
+      // /imported/trusted in another session appears without a manual refresh.
+      else if (s === 'keys') void app.loadKeys();
     });
     onCleanup(off);
   });
@@ -162,7 +170,7 @@ export function MailboxScreen(): JSX.Element {
         {/* PIM modules (plan §2.5): Calendar / Tasks / Notes / Contacts, each
             reachable from the nav rail — the explicit mount step V2 lacked. */}
         <nav class="sidebar__nav sidebar__nav--apps" aria-label="Apps">
-          <For each={APP_MODULES}>
+          <For each={APP_NAV_MODULES}>
             {(m) => (
               <button
                 type="button"
@@ -209,9 +217,9 @@ export function MailboxScreen(): JSX.Element {
         />
       </Show>
 
-      {/* Engine-backed PIM module surfaces, mounted (lazily) from the frozen
-          registry — reachable from the nav rail above. */}
-      <For each={APP_MODULES}>
+      {/* Engine-backed PIM + key-management module surfaces, mounted (lazily)
+          from the frozen registry — reachable from the nav rail above. */}
+      <For each={APP_NAV_MODULES}>
         {(m) => (
           <Show when={surface() === m.id}>
             <main class="module-pane" data-surface={m.id}>

@@ -20,6 +20,7 @@ import type {
   SignResult,
 } from '../contracts/crypto.ts';
 import type { SignatureVerdict } from '../api/security-types.ts';
+import { spawnCryptoWorker } from './worker.ts';
 
 export type { CryptoWorkerApi } from '../contracts/crypto.ts';
 export { createInMemoryVault, type KeyVault, type VaultEntry } from './vault.ts';
@@ -117,13 +118,48 @@ export function createStubCryptoWorker(): CryptoWorkerApi {
 }
 
 /**
- * The process-wide crypto worker accessor. e0 returns the stub; e8 lazy-loads
- * (dynamic `import()`, off the login→inbox critical path, plan risk #12) the real
- * wasm-pack worker from `worker.ts` and returns that instead.
+ * Whether to use the real wasm-pack worker. The browser build has `Worker`; the
+ * unit-test env (vitest/jsdom, `MODE === 'test'`) has neither a `Worker` nor the
+ * ability to load a `.wasm`, so it keeps the deterministic stub — the frozen §2.3
+ * shapes are identical either way, so the components/slices are unchanged (e2/e4
+ * built against the stub; they consume the real worker transparently at runtime).
+ */
+function useRealWorker(): boolean {
+  return typeof Worker !== 'undefined' && import.meta.env.MODE !== 'test';
+}
+
+/**
+ * A lazy [`CryptoWorkerApi`] that defers spawning the real Worker (and thus loading
+ * the ~4.5 MB wasm) until the FIRST crypto call (plan risk #12). Constructed at
+ * app startup by the keys slice, it must not touch the wasm on the login→inbox
+ * critical path — so the Worker is spawned on demand, then memoized.
+ */
+function createLazyCryptoWorker(): CryptoWorkerApi {
+  let real: CryptoWorkerApi | null = null;
+  const get = (): CryptoWorkerApi => (real ??= spawnCryptoWorker());
+  return {
+    generateKey: (r) => get().generateKey(r),
+    encrypt: (r) => get().encrypt(r),
+    decrypt: (r) => get().decrypt(r),
+    sign: (r) => get().sign(r),
+    verify: (r) => get().verify(r),
+    importPkcs12: (r) => get().importPkcs12(r),
+    importArmored: (r) => get().importArmored(r),
+    exportPublic: (r) => get().exportPublic(r),
+    exportBackup: (r) => get().exportBackup(r),
+    unlockKey: (r) => get().unlockKey(r),
+    lockKey: (r) => get().lockKey(r),
+  };
+}
+
+/**
+ * The process-wide crypto worker accessor. The browser gets the real wasm-pack
+ * worker (lazily spawned); unit tests get the deterministic stub. Memoized so the
+ * keys slice + compose-crypto share one worker instance.
  */
 let instance: CryptoWorkerApi | null = null;
 export function getCryptoWorker(): CryptoWorkerApi {
-  instance ??= createStubCryptoWorker();
+  instance ??= useRealWorker() ? createLazyCryptoWorker() : createStubCryptoWorker();
   return instance;
 }
 
