@@ -30,10 +30,10 @@ pub async fn mw_biometric_authenticate(reason: String) -> Result<bool, String> {
 
 #[cfg(windows)]
 mod imp {
-    use windows::core::HSTRING;
     use windows::Security::Credentials::UI::{
         UserConsentVerificationResult, UserConsentVerifier, UserConsentVerifierAvailability,
     };
+    use windows::core::HSTRING;
 
     pub fn available() -> Result<bool, String> {
         let availability = UserConsentVerifier::CheckAvailabilityAsync()

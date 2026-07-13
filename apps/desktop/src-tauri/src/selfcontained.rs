@@ -592,7 +592,11 @@ mod tests {
     /// crate's binary is named `mailwoman` (`[[bin]] name`); `bundle-server` renames
     /// it to `mw-server` (see [`server_bin_name`]) when copying into resources.
     fn locate_mw_server() -> PathBuf {
-        let name = if cfg!(windows) { "mailwoman.exe" } else { "mailwoman" };
+        let name = if cfg!(windows) {
+            "mailwoman.exe"
+        } else {
+            "mailwoman"
+        };
         let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR")); // apps/desktop/src-tauri
         let ws_root = manifest
             .parent()

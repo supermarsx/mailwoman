@@ -15,11 +15,7 @@ use tauri::Runtime;
 /// shows the number, zero-or-negative clears the badge (`None`). Pulled out so the
 /// clamping rule is unit-tested without a live window.
 pub fn normalize_badge(count: i64) -> Option<i64> {
-    if count > 0 {
-        Some(count)
-    } else {
-        None
-    }
+    if count > 0 { Some(count) } else { None }
 }
 
 /// Set (or, for `count <= 0`, clear) the app/taskbar badge to the unread count.
