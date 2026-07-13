@@ -2,17 +2,27 @@
 // e0 authors this registry + the four stub module entries + their route stubs;
 // the four Batch-B web builders (e4–e7) fill each module's `mount()` + views;
 // **e10 registers them into the running shell nav/router and asserts each is
-// reachable** (the explicit mount step V2 lacked, plan risk #1).
+// reachable** (the explicit mount step V2 lacked, plan risk #1). e10 now points
+// each `mount()` at the ENGINE-BACKED host (`./mounts.tsx`): the mock backends are
+// gone from the running app (Calendar renders over `app.calendarController()`;
+// Tasks/Notes/Contacts render over their slices, which speak `client.jmap`). The
+// shell router (`./router.ts`) turns the `route` fields below into live surfaces.
 //
 // The registry is the single source of truth for the shell: nav-rail entries,
 // per-module ribbon tabs, command-palette entries, and routes all derive from
 // it, so a module cannot ship "unit-green but unmounted".
 
-import type { JSX } from 'solid-js';
-import { CalendarModule } from '../modules/calendar/index.tsx';
-import { TasksModule } from '../modules/tasks/index.tsx';
-import { NotesModule } from '../modules/notes/index.tsx';
-import { ContactsModule } from '../modules/contacts/index.tsx';
+import { lazy, type JSX } from 'solid-js';
+
+// Each module is lazy-loaded into its own chunk, off the login→inbox mail
+// critical path (plan risk #10 / e11 bundle gate). Calendar routes through the
+// engine-backed host (`./mounts.tsx`); Tasks/Notes/Contacts are engine-backed via
+// their slices, so their module components are lazy-imported directly. These are
+// module-level constants (stable references) so `mount()` never re-creates them.
+const CalendarMount = lazy(() => import('./mounts.tsx'));
+const TasksMount = lazy(() => import('../modules/tasks/index.tsx').then((m) => ({ default: m.TasksModule })));
+const NotesMount = lazy(() => import('../modules/notes/index.tsx').then((m) => ({ default: m.NotesModule })));
+const ContactsMount = lazy(() => import('../modules/contacts/index.tsx').then((m) => ({ default: m.ContactsModule })));
 
 /** A module's root view component (a Solid component function). */
 export type ModuleComponent = () => JSX.Element;
@@ -54,8 +64,9 @@ export interface AppModule {
 
 /**
  * The four V3 PIM modules (plan §0.5). Mail stays the existing screen; these
- * mount beside it. e0 ships placeholder `mount()`s + empty ribbon/palette seams;
- * e4–e7 fill the views, e10 registers them into the shell nav/router.
+ * mount beside it. `route` is the base hash route (plan §2.5 param forms:
+ * `/calendar/:view?`, `/tasks`, `/notes/:id?`, `/contacts/:id?`); the shell
+ * router (`./router.ts`) resolves them. `mount()` returns the engine-backed host.
  */
 export const APP_MODULES: readonly AppModule[] = [
   {
@@ -63,7 +74,7 @@ export const APP_MODULES: readonly AppModule[] = [
     label: 'Calendar',
     icon: '📅',
     route: '/calendar',
-    mount: () => CalendarModule,
+    mount: () => CalendarMount,
     ribbonTabs: [],
     commandPaletteEntries: [],
   },
@@ -72,7 +83,7 @@ export const APP_MODULES: readonly AppModule[] = [
     label: 'Tasks',
     icon: '✅',
     route: '/tasks',
-    mount: () => TasksModule,
+    mount: () => TasksMount,
     ribbonTabs: [],
     commandPaletteEntries: [],
   },
@@ -81,7 +92,7 @@ export const APP_MODULES: readonly AppModule[] = [
     label: 'Notes',
     icon: '🗒️',
     route: '/notes',
-    mount: () => NotesModule,
+    mount: () => NotesMount,
     ribbonTabs: [],
     commandPaletteEntries: [],
   },
@@ -90,7 +101,7 @@ export const APP_MODULES: readonly AppModule[] = [
     label: 'Contacts',
     icon: '👤',
     route: '/contacts',
-    mount: () => ContactsModule,
+    mount: () => ContactsMount,
     ribbonTabs: [],
     commandPaletteEntries: [],
   },

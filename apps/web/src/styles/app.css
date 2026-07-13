@@ -439,6 +439,69 @@ body {
   white-space: nowrap;
 }
 
+/* ── V3 PIM: nav-rail app entries + module surfaces (t5-e10) ───── */
+.sidebar__nav--apps {
+  flex: 0 0 auto;
+  padding-top: 0.4rem;
+  margin-top: 0.2rem;
+  border-top: 1px solid var(--border);
+}
+.sidebar__nav--apps .sidebar__box {
+  justify-content: flex-start;
+  gap: 0.5rem;
+}
+.sidebar__box-icon {
+  width: 1.1rem;
+  text-align: center;
+}
+/* A PIM module fills the whole content area (mail's list + reader columns). */
+.module-pane {
+  grid-column: 2 / 4;
+  overflow: auto;
+  min-width: 0;
+}
+
+/* ── V3 PIM: contacts recipient autocomplete in Compose (t5-e10) ── */
+.compose__to {
+  position: relative;
+}
+.compose__ac {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+}
+.compose__ac-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.compose__ac-item:hover {
+  background: var(--bg-alt);
+}
+.compose__ac-email {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
 @media (max-width: 760px) {
   .shell {
     grid-template-columns: 1fr;
@@ -451,5 +514,8 @@ body {
   }
   .reader {
     display: none;
+  }
+  .module-pane {
+    grid-column: 1 / -1;
   }
 }

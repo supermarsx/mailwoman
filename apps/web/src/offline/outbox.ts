@@ -51,6 +51,23 @@ export interface DraftPayload {
   accountId: Id;
   draft: DraftInput;
 }
+/** A PIM mutation captured offline (plan §1.8): the built JMAP request is stored
+ *  verbatim and replayed on reconnect; `callId` names the mutation response whose
+ *  `notCreated`/`notUpdated`/`notDestroyed` decide whether it applied. */
+export interface PimPayload {
+  request: JmapRequest;
+  callId: string;
+}
+
+/** The set-shaped response a replayed PIM mutation is reconciled against. */
+interface PimSetResponse {
+  created?: Record<string, unknown> | null;
+  updated?: Record<string, unknown> | null;
+  destroyed?: string[] | null;
+  notCreated?: Record<string, unknown> | null;
+  notUpdated?: Record<string, unknown> | null;
+  notDestroyed?: Record<string, unknown> | null;
+}
 
 /** Persistence for the queue. Injected so unit tests avoid a real IndexedDB. */
 export interface OutboxStore {
@@ -132,7 +149,25 @@ export function outboundToRequest(item: OutboundItem): JmapRequest {
       const p = item.payload as SendPayload;
       return sendEnvelope(p.accountId, p.draft);
     }
+    case 'pim': {
+      // Replay the captured PIM request verbatim (Calendar/Task/Note/Contact set).
+      return (item.payload as PimPayload).request;
+    }
   }
+}
+
+/** Build a `pim` outbound item's payload from a prepared JMAP mutation request. */
+export function pimOutbound(request: JmapRequest, callId: string): PimPayload {
+  return { request, callId };
+}
+
+/** Queue a PIM mutation for offline replay (plan §1.8 outbound queue `type:"pim"`). */
+export function enqueuePimMutation(
+  store: OutboxStore,
+  request: JmapRequest,
+  callId: string,
+): Promise<OutboundItem> {
+  return enqueueOutbound(store, { type: 'pim', payload: pimOutbound(request, callId) });
 }
 
 /** Did the server actually apply the replayed item? Reconciles vs the response. */
@@ -155,6 +190,19 @@ export function outboundApplied(item: OutboundItem, res: JmapResponse): boolean 
     case 'send': {
       const r = responseFor<EmailSubmissionSetResponse>(res, 'submit');
       return r.created !== null && 'send' in r.created && !(r.notCreated !== null && 'send' in r.notCreated);
+    }
+    case 'pim': {
+      const p = item.payload as PimPayload;
+      let r: PimSetResponse;
+      try {
+        r = responseFor<PimSetResponse>(res, p.callId);
+      } catch {
+        // Missing response or a JMAP method-level error → the item didn't apply.
+        return false;
+      }
+      const empty = (m: Record<string, unknown> | null | undefined): boolean =>
+        m === null || m === undefined || Object.keys(m).length === 0;
+      return empty(r.notCreated) && empty(r.notUpdated) && empty(r.notDestroyed);
     }
   }
 }

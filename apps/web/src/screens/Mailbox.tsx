@@ -1,4 +1,5 @@
-import { createSignal, For, Show, onMount, type JSX } from 'solid-js';
+import { createSignal, For, Show, Suspense, onMount, onCleanup, type JSX } from 'solid-js';
+import { Dynamic } from 'solid-js/web';
 import { useApp } from '../state/context.ts';
 import { useRealtime } from '../realtime/context.ts';
 import { MessageList } from '../components/MessageList.tsx';
@@ -11,8 +12,9 @@ import { SubTabStrip } from '../components/SubTabStrip.tsx';
 import { Ribbon } from '../components/Ribbon.tsx';
 import { Settings } from './Settings.tsx';
 import { Attachments } from './Attachments.tsx';
-
-type View = 'mail' | 'outbox' | 'attachments';
+import { APP_MODULES } from '../shell/modules.ts';
+import { createShellRouter, isPimSurface, type ShellSurface } from '../shell/router.ts';
+import { shouldRefetchPim } from '../realtime/pimRefetch.ts';
 
 /** The search box above the message list; submits an `Email/query` (engine →
  *  mw-search online, reduced cached search offline). */
@@ -56,18 +58,41 @@ function SearchBox(): JSX.Element {
   );
 }
 
+/** Refetch the open PIM module after a pushed change (plan §1.8 realtime). */
+function refetchPim(app: ReturnType<typeof useApp>, surface: ShellSurface): void {
+  if (surface === 'calendar') void app.loadCalendars();
+  else if (surface === 'tasks') void app.loadTasks();
+  else if (surface === 'notes') void app.loadNotes();
+  else if (surface === 'contacts') void app.loadContacts();
+}
+
 export function MailboxScreen(): JSX.Element {
   const app = useApp();
   const { subTabs } = useRealtime();
   const [composing, setComposing] = createSignal(false);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
-  const [view, setView] = createSignal<View>('mail');
+
+  // The shell router (plan §2.5): Mail/Outbox/Attachments + the four PIM modules
+  // are hash-routed surfaces, so each PIM module is reachable + deep-linkable.
+  const router = createShellRouter();
+  const surface = (): ShellSurface => router.route().surface;
 
   // Seed a single "messages" sub-tab so the multi-surface strip is live.
   onMount(() => {
     if (subTabs.tabs().length === 0) {
       subTabs.open({ kind: 'messages', title: 'Mail', id: 'mail', pinned: true });
     }
+  });
+
+  // Realtime PIM refetch (plan §1.8): the push controller broadcasts a coarse
+  // ping on every PIM mutation (t5-e8); on it, refetch the open PIM module so it
+  // updates without a manual refresh. Granular PIM keys are honored if present.
+  onMount(() => {
+    const off = app.onRealtimeChange((change) => {
+      const s = surface();
+      if (isPimSurface(s) && shouldRefetchPim(s, change)) refetchPim(app, s);
+    });
+    onCleanup(off);
   });
 
   return (
@@ -97,9 +122,9 @@ export function MailboxScreen(): JSX.Element {
               <button
                 type="button"
                 class="sidebar__box"
-                classList={{ 'sidebar__box--active': view() === 'mail' && app.selectedMailboxId() === box.id }}
+                classList={{ 'sidebar__box--active': surface() === 'mail' && app.selectedMailboxId() === box.id }}
                 onClick={() => {
-                  setView('mail');
+                  router.navigate('mail');
                   void app.selectMailbox(box.id);
                 }}
               >
@@ -113,17 +138,17 @@ export function MailboxScreen(): JSX.Element {
           <button
             type="button"
             class="sidebar__box"
-            classList={{ 'sidebar__box--active': view() === 'attachments' }}
-            onClick={() => setView('attachments')}
+            classList={{ 'sidebar__box--active': surface() === 'attachments' }}
+            onClick={() => router.navigate('attachments')}
           >
             <span class="sidebar__box-name">Attachments</span>
           </button>
           <button
             type="button"
             class="sidebar__box"
-            classList={{ 'sidebar__box--active': view() === 'outbox' }}
+            classList={{ 'sidebar__box--active': surface() === 'outbox' }}
             onClick={() => {
-              setView('outbox');
+              router.navigate('outbox');
               void app.refreshOutbox();
             }}
           >
@@ -132,6 +157,25 @@ export function MailboxScreen(): JSX.Element {
               <span class="sidebar__badge">{app.cancelableOutbox().length}</span>
             </Show>
           </button>
+        </nav>
+
+        {/* PIM modules (plan §2.5): Calendar / Tasks / Notes / Contacts, each
+            reachable from the nav rail — the explicit mount step V2 lacked. */}
+        <nav class="sidebar__nav sidebar__nav--apps" aria-label="Apps">
+          <For each={APP_MODULES}>
+            {(m) => (
+              <button
+                type="button"
+                class="sidebar__box"
+                classList={{ 'sidebar__box--active': surface() === m.id }}
+                data-testid={`nav-${m.id}`}
+                onClick={() => router.navigate(m.id as ShellSurface)}
+              >
+                <span class="sidebar__box-icon" aria-hidden="true">{m.icon}</span>
+                <span class="sidebar__box-name">{m.label}</span>
+              </button>
+            )}
+          </For>
         </nav>
         <button type="button" class="btn btn--ghost sidebar__logout" onClick={() => void app.logout()}>
           Log out
@@ -143,7 +187,7 @@ export function MailboxScreen(): JSX.Element {
         </Show>
       </aside>
 
-      <Show when={view() === 'mail'}>
+      <Show when={surface() === 'mail'}>
         <div class="mail-pane">
           <SubTabStrip />
           <SearchBox />
@@ -152,18 +196,32 @@ export function MailboxScreen(): JSX.Element {
         </div>
         <Reader />
       </Show>
-      <Show when={view() === 'outbox'}>
+      <Show when={surface() === 'outbox'}>
         <Outbox />
       </Show>
-      <Show when={view() === 'attachments'}>
+      <Show when={surface() === 'attachments'}>
         <Attachments
           load={() => app.listAttachments()}
           onOpen={(item) => {
-            setView('mail');
+            router.navigate('mail');
             void app.openMessage(item.emailId);
           }}
         />
       </Show>
+
+      {/* Engine-backed PIM module surfaces, mounted (lazily) from the frozen
+          registry — reachable from the nav rail above. */}
+      <For each={APP_MODULES}>
+        {(m) => (
+          <Show when={surface() === m.id}>
+            <main class="module-pane" data-surface={m.id}>
+              <Suspense fallback={<div class="module-loading">Loading {m.label}…</div>}>
+                <Dynamic component={m.mount()} />
+              </Suspense>
+            </main>
+          </Show>
+        )}
+      </For>
 
       <Show when={composing()}>
         <Compose onClose={() => setComposing(false)} />

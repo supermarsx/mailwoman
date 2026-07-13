@@ -21,6 +21,8 @@ export {
 } from './opfs.ts';
 export {
   enqueueOutbound,
+  enqueuePimMutation,
+  pimOutbound,
   drainOutbox,
   outboundToRequest,
   outboundApplied,
@@ -31,6 +33,8 @@ export {
   type MovePayload,
   type SendPayload,
   type DraftPayload,
+  type PimPayload,
 } from './outbox.ts';
+export { opfsPimPath } from '../contracts/offline.ts';
 export { offlineSearch, matchesOffline, type OfflineQuery } from './search.ts';
 export { idbAvailable, idbKeyStore, idbOutboxStore, openOfflineDb } from './idb.ts';

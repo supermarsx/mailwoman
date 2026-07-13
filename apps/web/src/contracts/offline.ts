@@ -14,6 +14,11 @@ export const opfsHeadersPath = (accountId: Id, mailboxId: Id): string =>
   `/${accountId}/headers/${mailboxId}.enc`;
 export const opfsSearchSlicePath = (accountId: Id): string =>
   `/${accountId}/searchslice.enc`;
+/** PIM object cache path (plan §1.8, V3 e10): one AES-GCM blob per object under a
+ *  `pim/{type}/` namespace — `type` is a PIM datatype (`Calendar`, `CalendarEvent`,
+ *  `Task`, `Note`, `AddressBook`, `ContactCard`, `ContactGroup`). */
+export const opfsPimPath = (accountId: Id, type: string, stableId: Id): string =>
+  `/${accountId}/pim/${type}/${stableId}.enc`;
 
 /** AES-GCM IV length (bytes) prefixed to every ciphertext blob. */
 export const GCM_IV_BYTES = 12;
@@ -24,7 +29,9 @@ export const IDB_KEYS_STORE = 'mw-keys';
 /** The outbound (offline) queue. */
 export const IDB_OUTBOX_STORE = 'mw-outbox';
 
-export type OutboundType = 'send' | 'flag' | 'move' | 'draft';
+// `pim` (V3 e10): a PIM mutation captured while offline — the raw JMAP request is
+// stored verbatim and replayed on reconnect (plan §1.8 outbound queue `type:"pim"`).
+export type OutboundType = 'send' | 'flag' | 'move' | 'draft' | 'pim';
 export type OutboundState = 'queued' | 'sent' | 'failed';
 
 /** One queued mutation, replayed FIFO on reconnect and reconciled vs newState. */

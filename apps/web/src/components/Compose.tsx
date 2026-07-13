@@ -1,10 +1,20 @@
 import { createMemo, createSignal, For, Show, onMount, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
+import {
+  createContactAutocomplete,
+  type ContactSuggestion,
+} from '../modules/contacts/autocomplete.ts';
 
 // Compose (plan §1.5, §2.1): grown with an identity/signature picker (multiple
 // from-addresses, server-pulled allowed-froms) and send-later. The core To /
 // Subject / Body fields + the Send button keep their exact labels so the mock +
-// engine e2e specs still drive it.
+// engine e2e specs still drive it. e10 adds contacts recipient autocomplete to
+// the To field — a surgical addition over e7's `createContactAutocomplete`.
+
+/** The recipient token currently being typed: the text after the last separator. */
+function tokenBoundary(value: string): number {
+  return Math.max(value.lastIndexOf(','), value.lastIndexOf(';'));
+}
 
 export function Compose(props: { onClose: () => void }): JSX.Element {
   const app = useApp();
@@ -15,10 +25,36 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
   const [sendAt, setSendAt] = createSignal('');
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  const [acOpen, setAcOpen] = createSignal(false);
 
-  onMount(() => void app.loadIdentities());
+  // Recipient autocomplete over the loaded contacts (plan §2.2 / e7 seam). The
+  // ranking is client-side over `app.contacts()`; we load contacts on open so a
+  // fresh session can still complete. Load failures are non-fatal (empty list).
+  const contactAc = createContactAutocomplete(() => app.contacts());
+
+  onMount(() => {
+    void app.loadIdentities();
+    void app.loadContacts().catch(() => undefined);
+  });
 
   const identity = createMemo(() => app.identities().find((i) => i.id === identityId()) ?? null);
+
+  function onToInput(value: string): void {
+    setTo(value);
+    const token = value.slice(tokenBoundary(value) + 1).trim();
+    contactAc.setQuery(token);
+    setAcOpen(token.length > 0);
+  }
+
+  /** Replace the in-progress recipient token with the picked contact. */
+  function pickSuggestion(s: ContactSuggestion): void {
+    const value = to();
+    const cut = tokenBoundary(value);
+    const head = cut >= 0 ? `${value.slice(0, cut + 1)} ` : '';
+    setTo(`${head}${s.display}, `);
+    contactAc.reset();
+    setAcOpen(false);
+  }
 
   async function onSubmit(e: Event): Promise<void> {
     e.preventDefault();
@@ -67,15 +103,44 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
           </label>
         </Show>
 
-        <label class="field">
+        <label class="field compose__to">
           <span>To</span>
           <input
             type="text"
             required
             placeholder="someone@example.org"
+            autocomplete="off"
             value={to()}
-            onInput={(e) => setTo(e.currentTarget.value)}
+            onInput={(e) => onToInput(e.currentTarget.value)}
+            onBlur={() => setAcOpen(false)}
           />
+          <Show when={acOpen() && contactAc.suggestions().length > 0}>
+            <ul class="compose__ac" role="listbox" aria-label="Contact suggestions">
+              <For each={contactAc.suggestions()}>
+                {(s) => (
+                  <li>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={false}
+                      class="compose__ac-item"
+                      data-testid="contact-suggestion"
+                      // mousedown (not click) so the pick lands before the input's blur.
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        pickSuggestion(s);
+                      }}
+                    >
+                      <span class="compose__ac-name">{s.name.length > 0 ? s.name : s.email}</span>
+                      <Show when={s.name.length > 0}>
+                        <span class="compose__ac-email">{s.email}</span>
+                      </Show>
+                    </button>
+                  </li>
+                )}
+              </For>
+            </ul>
+          </Show>
         </label>
         <label class="field">
           <span>Subject</span>
