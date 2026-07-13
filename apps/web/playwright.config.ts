@@ -79,5 +79,20 @@ export default defineConfig({
       testMatch: ['pim-*.spec.ts'],
       use: { ...devices['Desktop Chrome'], baseURL: engineBaseURL },
     },
+    {
+      name: 'crypto',
+      // V4 crypto/security live E2E (plan §3 e10): the SAME engine-mode server
+      // (:8090) as `e2e-engine`/`e2e-pim`, but the `crypto-*.spec.ts` specs drive
+      // the REAL crypto UI (key management, security panel, compose crypto/DLP,
+      // max-security switch, decrypt-on-receipt) backed by the REAL WASM crypto
+      // worker (mw-crypto + mw-sanitize, built by scripts/build-wasm and embedded
+      // in the runtime image) and the REAL engine security surface. The DLP block
+      // spec needs the engine started with a `MW_DLP_RULES` block rule (the CI
+      // `e2e-crypto` job — owned by e9 — sets it on the engine bring-up; locally
+      // via the docker-compose.crypto.yml override). Sibling of the `e2e` /
+      // `e2e-engine` / `e2e-pim` projects; all must stay green.
+      testMatch: ['crypto-*.spec.ts'],
+      use: { ...devices['Desktop Chrome'], baseURL: engineBaseURL },
+    },
   ],
 });
