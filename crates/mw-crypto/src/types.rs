@@ -32,6 +32,11 @@ pub struct KeyHistoryEntry {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CryptoKey {
+    /// Server-assigned opaque id. Absent on a `CryptoKey/set` create (JMAP
+    /// semantics: the client omits it, the engine mints one when empty and
+    /// returns it under `created`), so it must default rather than fail to
+    /// deserialize. (V4 live-E2E gap #2.)
+    #[serde(default)]
     pub id: String,
     /// `"pgp"` | `"smime"`.
     pub kind: String,
