@@ -1,0 +1,20 @@
+[package]
+name = "mw-mcp"
+description = "MCP server + tool registry for Mailwoman V6 (plan §2.4, §20.3)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# SCAFFOLD (t6-e0): frozen §2.4 tool contract as compiling STUBS. e4 fills the
+# `rmcp`-based tool registry (each tool calls the engine/JMAP surface, never raw
+# protocol), per-tool `mw-oauth::Scope` enforcement, provenance labelling of mail
+# content, the send→Outbox gating + `unattended-send` admin-countersign path, the
+# Streamable-HTTP handler factory, and the `mailwoman mcp-stdio` proxy body.
+# `rmcp` is PRE-DECLARED in the root `[workspace.dependencies]` and wired by e4;
+# the stub links only serde/thiserror. e4 also adds the `mw-oauth` path dep for
+# the `Scope` type (kept out of the stub to keep the crate self-contained).
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

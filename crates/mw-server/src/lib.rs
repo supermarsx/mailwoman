@@ -35,6 +35,17 @@ pub mod sharing;
 pub mod tls;
 pub mod watermark;
 pub mod wkd;
+// V6 additive route modules (plan §1.8, §3 e0). SCAFFOLD stubs returning 501,
+// declared here but NOT mounted — `router()` is byte-unchanged so behaviour is
+// identical. Each file is owned by exactly one Batch-B executor (e5 admin, e9
+// observability/webhooks/rest/errors) and mounted into `router()` by e11.
+pub mod admin;
+pub mod errors;
+pub mod mcp;
+pub mod oauth;
+pub mod observability;
+pub mod rest;
+pub mod webhooks;
 
 pub use engine_mode::ServerMode;
 pub use hardening::HardeningConfig;

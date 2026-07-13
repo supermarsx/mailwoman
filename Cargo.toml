@@ -20,6 +20,10 @@ members = [
     "crates/mw-dav",
     "crates/mw-carddav",
     "crates/mw-crypto",
+    "crates/mw-cache",
+    "crates/mw-admin",
+    "crates/mw-mcp",
+    "crates/mw-oauth",
     "apps/desktop/src-tauri",
     "apps/mobile/src-tauri",
 ]
@@ -175,6 +179,55 @@ tauri-plugin-updater = "2"
 # C). mw-server (e5) sends the resulting request over the in-tree `reqwest`.
 web-push-native = "0.4"
 
+# ── V6 (26.7.0) new dependencies (plan §5). ALL permissive (MIT OR Apache-2.0 /
+# BSD / ISC), pure-Rust + rustls throughout — NO GPL/LGPL/AGPL, NO openssl/-sys C
+# TLS. Same posture as the V4/V5 pre-declares above: these are DECLARED here so
+# the Batch-B crates reference them via `{ workspace = true }`, and are mostly NOT
+# YET LINKED into the tree by this e0 scaffold (the four stub crates link only
+# serde/thiserror/chrono), so they are not yet in Cargo.lock / cargo-deny. Each is
+# wired by its owning executor and lands under the existing permissive allow-list:
+#
+#   sqlx `postgres` + `tls-rustls` FEATURES — the pluggable Postgres backend
+#     (mw-store, e1). NOT a new crate: sqlx is already a workspace dep (SQLite).
+#     e1 enables `features = ["postgres", "tls-rustls"]` ON `sqlx` in mw-store's
+#     own Cargo.toml (pure-Rust + rustls; the `tls-rustls` feature keeps openssl
+#     OUT). Left OFF the workspace default here so the current build stays lean;
+#     enabling it is e1's job (keeps the SQLite-default path byte-unchanged).
+#   fred  — Redis/Valkey client (mw-cache, e2). Pure-Rust, rustls TLS (MIT).
+#   moka  — in-process cache layer (mw-cache, e2). MIT OR Apache-2.0.
+#   argon2 — API-key/admin password hashing, Argon2id (mw-oauth/mw-admin, e3/e5).
+#            RustCrypto; MIT OR Apache-2.0.
+#   rmcp  — official MCP Rust SDK (mw-mcp, e4). MIT. Fallback = hand-rolled
+#            JSON-RPC/Streamable-HTTP over the in-tree axum if maturity slips (§6 R3).
+#   hmac  — webhook HMAC-SHA256 signing (mw-server webhooks, e9). RustCrypto;
+#            MIT OR Apache-2.0 (pairs with the in-tree `sha2`).
+#   opentelemetry / opentelemetry-otlp / tracing-opentelemetry — OTLP traces +
+#            metrics (mw-server observability, e9). MIT OR Apache-2.0; tonic-rustls
+#            transport (e9 verifies no openssl enters the OTLP tree at wire time).
+#   metrics / metrics-exporter-prometheus — auth-gated Prometheus `/metrics`
+#            (mw-server, e9). Pure-Rust; MIT OR Apache-2.0.
+fred = "10"
+moka = { version = "0.12", features = ["future"] }
+argon2 = "0.5"
+rmcp = "0.9"
+hmac = "0.12"
+opentelemetry = "0.31"
+opentelemetry-otlp = { version = "0.31", default-features = false, features = ["grpc-tonic", "tls-roots", "trace", "metrics"] }
+tracing-opentelemetry = "0.32"
+metrics = "0.24"
+metrics-exporter-prometheus = { version = "0.17", default-features = false }
+# CONDITIONAL / VET-BEFORE-ENABLE (plan §5) — declared as intent, NOT enabled by
+# e0 and NOT linked into the tree. Enable only if the noted precondition holds and
+# the crate's transitive tree clears the license/TLS floor (rustls, no openssl):
+#   jsonwebtoken (MIT, ring-backed) — ONLY if OAuth resource-indicator interop
+#     needs JWTs; the default is opaque hashed tokens, so likely unused (e3).
+#   totp-rs (MIT) — admin TOTP 2FA; admin passkey-only is the default, so this may
+#     defer to V7 (e5).
+#   sentry (MIT OR Apache-2.0) — §21.2 error reporting, off by default; OTLP +
+#     Prometheus are the committed observability paths. Enable only after vetting
+#     its dep tree for a rustls transport with no openssl (e9/e12, plan §6 R6).
+# TODO(v6): vet-before-enable — jsonwebtoken / totp-rs / sentry.
+
 mw-jmap = { path = "crates/mw-jmap" }
 mw-sanitize = { path = "crates/mw-sanitize" }
 mw-store = { path = "crates/mw-store" }
@@ -192,6 +245,10 @@ mw-ics = { path = "crates/mw-ics" }
 mw-dav = { path = "crates/mw-dav" }
 mw-carddav = { path = "crates/mw-carddav" }
 mw-crypto = { path = "crates/mw-crypto" }
+mw-cache = { path = "crates/mw-cache" }
+mw-admin = { path = "crates/mw-admin" }
+mw-mcp = { path = "crates/mw-mcp" }
+mw-oauth = { path = "crates/mw-oauth" }
 
 [profile.release]
 overflow-checks = true

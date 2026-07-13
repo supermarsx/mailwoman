@@ -1,0 +1,19 @@
+[package]
+name = "mw-admin"
+description = "Admin-panel domain logic + audit log + CLI model for Mailwoman V6 (plan §2.5, §19)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# SCAFFOLD (t6-e0): frozen §2.5 admin contract as compiling STUBS. e5 fills the
+# user/domain/quota provisioning logic, the security-policy model, the
+# append-only audit-log writer/reader + export, the login-monitor + ban-list
+# (fail2ban log format), the cache-scope-matrix + observability config models,
+# TOML/env binding, and the `mailwoman admin` clap subcommand tree. The stub
+# links only serde/thiserror + chrono; e5 persists via the `mw-store` 0007 tables.
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }

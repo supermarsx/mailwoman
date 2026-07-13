@@ -734,3 +734,93 @@ jobs:
   #         cargo build -p mailwoman-desktop
   #     - name: run WebdriverIO live E2E (launch → SPA → notification → keychain → capture)
   #       run: pnpm -C apps/desktop exec wdio run e2e/wdio.conf.ts   # e9 authors this
+
+  # ===========================================================================
+  # V6 (26.7.0) CI jobs — plan §3 e12/e13. SCAFFOLDED (commented) by e0; each is
+  # activated by its owning executor once the implementation + docker-compose.ci.yml
+  # services land. All boot NETWORK-ONLY services (postgres:16 / valkey:8) from
+  # docker-compose.ci.yml — mere aggregation, out of cargo-deny scope by design.
+  # ===========================================================================
+
+  # store-dual-backend (e1 + e12) — the mock-vs-real backend parity gate: run the
+  # FULL mw-store suite against BOTH SQLite (in-memory) AND a live postgres:16, and
+  # assert `migrate-store` copies a populated SQLite DB into Postgres with row-count
+  # + content parity. The table-driven backend-parity test runs each repo method on
+  # both backends and asserts identical results (plan §3 e1).
+  #
+  # store-dual-backend:
+  #   runs-on: ubuntu-latest
+  #   needs: [rust]
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: dtolnay/rust-toolchain@stable
+  #     - uses: Swatinem/rust-cache@v2
+  #     - name: boot postgres:16 (wait healthy)
+  #       run: docker compose -f docker-compose.ci.yml up -d --wait postgres
+  #     - name: mw-store suite on BOTH backends + migrate-store parity
+  #       env:
+  #         MW_TEST_PG_DSN: "postgres://mailwoman:mailwoman@127.0.0.1:5432/mailwoman"
+  #       run: cargo test -p mw-store -- --include-ignored
+  #     - name: tear down
+  #       if: always()
+  #       run: docker compose -f docker-compose.ci.yml down -v
+
+  # cache-valkey (e2 + e12) — the mw-cache layered-cache gate against a live
+  # valkey:8: per-class layer routing + TTL, the STRUCTURAL zero-access exclusion
+  # (a PlaintextDerived value from a zero-access account is provably never written
+  # to Redis/memory), and the Redis-DOWN degradation leg (falls through to store
+  # with no data loss). `posture()` output matches the configured matrix (plan §3 e2).
+  #
+  # cache-valkey:
+  #   runs-on: ubuntu-latest
+  #   needs: [rust]
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: dtolnay/rust-toolchain@stable
+  #     - uses: Swatinem/rust-cache@v2
+  #     - name: boot valkey:8 (wait healthy)
+  #       run: docker compose -f docker-compose.ci.yml up -d --wait valkey
+  #     - name: mw-cache tests (live Valkey + Redis-down path)
+  #       env:
+  #         MW_TEST_REDIS_URL: "redis://127.0.0.1:6379"
+  #       run: cargo test -p mw-cache -- --include-ignored
+  #     - name: tear down
+  #       if: always()
+  #       run: docker compose -f docker-compose.ci.yml down -v
+
+  # e2e-v6 (e13) — the live full-stack E2E: spawn mw-server against REAL postgres:16
+  # + REAL valkey:8 + a real browser, driving admin / oauth-apikey / mcp / zeroaccess
+  # / cache-posture per capability, and asserting the DB row is CIPHERTEXT for a
+  # zero-access account (direct Postgres query) with NO plaintext-derived value in
+  # Redis. The happy-path suite runs green against BOTH SQLite and Postgres
+  # (backend parity). The full existing web + engine E2E suite runs unchanged
+  # (regression gate). e13 authors apps/web/e2e/{admin,oauth-apikey,mcp,zeroaccess,
+  # cache-posture}.spec.ts + the Rust integration harness (plan §3 e13).
+  #
+  # e2e-v6:
+  #   runs-on: ubuntu-latest
+  #   needs: [rust, web]
+  #   env:
+  #     DOCKER_BUILDKIT: "1"
+  #     COMPOSE_DOCKER_CLI_BUILD: "1"
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: pnpm/action-setup@v4
+  #       with:
+  #         version: 11.12.0
+  #     - uses: actions/setup-node@v4
+  #       with:
+  #         node-version: 22
+  #         cache: pnpm
+  #         cache-dependency-path: apps/web/pnpm-lock.yaml
+  #     - name: boot postgres + valkey (wait healthy)
+  #       run: docker compose -f docker-compose.ci.yml up -d --wait postgres valkey
+  #     - name: install web deps + Playwright
+  #       run: |
+  #         pnpm -C apps/web install --frozen-lockfile
+  #         pnpm -C apps/web exec playwright install --with-deps chromium
+  #     - name: run V6 live E2E (admin/oauth/mcp/zeroaccess/cache; backend parity)
+  #       run: pnpm -C apps/web exec playwright test --project=v6
+  #     - name: tear down
+  #       if: always()
+  #       run: docker compose -f docker-compose.ci.yml down -v

@@ -1,0 +1,17 @@
+[package]
+name = "mw-cache"
+description = "Layered cache (memory → Redis/Valkey → store) for Mailwoman V6 (plan §2.2, §15.6)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# SCAFFOLD (t6-e0): frozen §2.2 API as compiling STUBS. e2 fills the real
+# moka→fred→store layering + the SPEC §15.6 scope matrix + the structural
+# `PlaintextDerived` zero-access exclusion. The heavy deps (`fred`, `moka`) are
+# PRE-DECLARED in the root `[workspace.dependencies]` and are wired by e2 — the
+# stub links only serde/thiserror so the workspace build + cargo-deny stay lean.
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

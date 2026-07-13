@@ -47,6 +47,47 @@
 #   Commons public-domain dedication (permissive, NOT copyleft). Added to the
 #   allow-list below. No GPL/LGPL/AGPL enters the tree (verified 2026-07-13).
 #
+# V6 (26.7.0) new dependencies (plan §5) — Zero-Access · Admin Panel ·
+# API-Keys/OAuth 2.1 · MCP · pluggable Postgres · Redis/Valkey cache. ALL confirmed
+# permissive (MIT OR Apache-2.0 / BSD / ISC), pure-Rust + rustls throughout, NO
+# GPL/LGPL/AGPL, NO openssl/-sys C TLS. Covered by the MIT/Apache allow entries
+# below. Same posture as the V4/V5 pre-declares: most are PRE-DECLARED in the root
+# `[workspace.dependencies]` and are NOT YET LINKED by the e0 scaffold (the four
+# new stub crates mw-cache/mw-admin/mw-mcp/mw-oauth link only serde/thiserror/
+# chrono), so they are not yet in Cargo.lock / this check. Each is wired by its
+# owning Batch-B executor and lands under the allow-list unchanged:
+#   sqlx `postgres` + `tls-rustls` FEATURES (mw-store, e1) — pure-Rust + rustls;
+#     the `tls-rustls` feature keeps openssl OUT of the Postgres backend.
+#   fred (MIT) — Redis/Valkey client, rustls TLS (mw-cache, e2).
+#   moka (MIT/Apache-2.0) — in-process cache (mw-cache, e2).
+#   argon2 (MIT/Apache-2.0) — Argon2id key/password hashing (mw-oauth/mw-admin).
+#   rmcp (MIT) — official MCP Rust SDK (mw-mcp, e4); hand-rolled JSON-RPC fallback
+#     if maturity slips (plan §6 R3).
+#   hmac (MIT/Apache-2.0) — webhook HMAC-SHA256 (mw-server, e9; pairs with sha2).
+#   opentelemetry / opentelemetry-otlp / tracing-opentelemetry (MIT/Apache-2.0) —
+#     OTLP traces+metrics; tonic-rustls transport (e9 verifies no openssl at wire
+#     time — if the OTLP tree pulls openssl transitively, e9 selects the rustls
+#     feature or defers, never breaking the floor).
+#   metrics / metrics-exporter-prometheus (MIT/Apache-2.0) — Prometheus /metrics.
+# VET-BEFORE-ENABLE (declared intent, NOT enabled/linked by e0; each gated on the
+# noted precondition + a clean rustls/no-openssl tree, decision recorded here when
+# enabled):
+#   jsonwebtoken (MIT, ring-backed) — only if OAuth resource-indicator interop
+#     needs JWTs (default = opaque hashed tokens; likely unused).
+#   totp-rs (MIT) — admin TOTP 2FA (admin passkey-only is the default; may defer V7).
+#   sentry (MIT/Apache-2.0) — §21.2 error reporting, OFF by default; OTLP +
+#     Prometheus are the committed observability paths. Enable only after vetting
+#     its transitive tree for a rustls transport with no openssl (plan §6 R6).
+# CI SERVICES (added by e12, network-only — mere aggregation, same posture as
+# Dovecot/Radicale below; OUT of cargo-deny scope by design):
+#   postgres:16 (PostgreSQL License — permissive) — the dual-backend store job +
+#     live E2E. valkey/valkey:8 (BSD-3-Clause) — the cache job; chosen over
+#     redis:7.4+ (RSALv2/SSPL, source-available NOT permissive) to keep the
+#     DEPLOYMENT story license-clean. `fred` speaks the same protocol to either.
+# No new `[licenses].allow` entry is expected for V6. Zero `vulnerability`-class
+# advisories is the gate; any new `unmaintained` ignores from the fred/
+# opentelemetry/rmcp trees will be added here (by e12) with bounded justification.
+#
 # Radicale (the CalDAV/CardDAV CI server, plan §1.5) is GPLv3 but is NOT a
 # Mailwoman dependency: it is a separate program invoked over the network in CI
 # only (docker-compose service, same posture as Dovecot/Greenmail in V1) — never

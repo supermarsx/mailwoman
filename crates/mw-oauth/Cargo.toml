@@ -1,0 +1,18 @@
+[package]
+name = "mw-oauth"
+description = "Scoped API keys + OAuth 2.1 authorization server for Mailwoman V6 (plan §2.3, §20.1)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# SCAFFOLD (t6-e0): frozen §2.3 types as compiling STUBS. e3 fills the opaque
+# API-key mint/hash(Argon2id)/verify/prefix-lookup/revoke, the OAuth 2.1
+# authorization-code + PKCE-S256 + resource-indicator (RFC 8707) state machine,
+# refresh/introspect/revoke, and the admin-approved client registry. `argon2` is
+# PRE-DECLARED in the root `[workspace.dependencies]` and wired by e3 — the stub
+# links only serde/thiserror.
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

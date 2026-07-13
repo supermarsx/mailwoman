@@ -29,6 +29,45 @@ enum Command {
     Fonts(FontsArgs),
     /// Probe `/healthz` on a running server; exit 0 if healthy, 1 otherwise.
     Healthcheck(HealthArgs),
+    // ── V6 subcommand STUBS (plan §3 e0). Parse-only; each prints "not yet
+    // implemented" and is filled by its owning Batch-B executor. ──
+    /// Copy a SQLite store into a Postgres backend (V6 §4.2). STUB — filled by e1.
+    MigrateStore(MigrateStoreArgs),
+    /// Admin panel CLI: manage domains/users/quotas/policy/observability (V6
+    /// §19). STUB — the `mailwoman admin <noun> <verb>` tree is filled by e5.
+    Admin(AdminArgs),
+    /// Run the MCP server over stdio, proxying to a configured server (V6 §20.3).
+    /// STUB — filled by e4.
+    McpStdio(McpStdioArgs),
+}
+
+/// `mailwoman migrate-store` (V6 §4.2). STUB: e1 implements
+/// `Store::migrate_from_sqlite`, copying rows with count + content parity.
+#[derive(Parser)]
+struct MigrateStoreArgs {
+    /// Source SQLite DSN/path (env: MW_MIGRATE_FROM).
+    #[arg(long, env = "MW_MIGRATE_FROM")]
+    from: Option<String>,
+    /// Destination Postgres DSN, e.g. `postgres://…` (env: MW_MIGRATE_TO).
+    #[arg(long, env = "MW_MIGRATE_TO")]
+    to: Option<String>,
+}
+
+/// `mailwoman admin …` (V6 §19). STUB: e5 replaces the free-form args with the
+/// full noun/verb subcommand tree mirroring the panel endpoints.
+#[derive(Parser)]
+struct AdminArgs {
+    /// Admin noun + verb + operands (e.g. `users provision …`). Parsed but inert.
+    #[arg(trailing_var_arg = true)]
+    args: Vec<String>,
+}
+
+/// `mailwoman mcp-stdio` (V6 §20.3). STUB: e4 wires the stdio JSON-RPC proxy.
+#[derive(Parser)]
+struct McpStdioArgs {
+    /// Upstream MCP server URL to proxy to (env: MW_MCP_SERVER).
+    #[arg(long, env = "MW_MCP_SERVER")]
+    server: Option<String>,
 }
 
 #[derive(Parser)]
@@ -140,7 +179,28 @@ async fn main() -> std::process::ExitCode {
         Command::Serve(args) => run(serve(args).await),
         Command::Fonts(args) => run(fonts_cmd(args).await),
         Command::Healthcheck(args) => healthcheck(args).await,
+        Command::MigrateStore(args) => run(migrate_store(args).await),
+        Command::Admin(args) => run(admin_cmd(args).await),
+        Command::McpStdio(args) => run(mcp_stdio_cmd(args).await),
     }
+}
+
+/// V6 STUB (plan §3 e0/e1): parse-only until e1 wires `Store::migrate_from_sqlite`.
+async fn migrate_store(_args: MigrateStoreArgs) -> anyhow::Result<()> {
+    println!("mailwoman migrate-store: not yet implemented (V6 §4.2, filled by t6-e1)");
+    Ok(())
+}
+
+/// V6 STUB (plan §3 e0/e5): parse-only until e5 wires the `mw-admin` CLI tree.
+async fn admin_cmd(_args: AdminArgs) -> anyhow::Result<()> {
+    println!("mailwoman admin: not yet implemented (V6 §19, filled by t6-e5)");
+    Ok(())
+}
+
+/// V6 STUB (plan §3 e0/e4): parse-only until e4 wires the `mw-mcp` stdio proxy.
+async fn mcp_stdio_cmd(_args: McpStdioArgs) -> anyhow::Result<()> {
+    println!("mailwoman mcp-stdio: not yet implemented (V6 §20.3, filled by t6-e4)");
+    Ok(())
 }
 
 /// Map a fallible command result to a process exit code.

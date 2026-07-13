@@ -10,6 +10,11 @@ mod v2;
 mod v3;
 mod v4;
 mod v5;
+// V6 pluggable-backend seam (plan §1.1, §2.1) — SCAFFOLD stubs, unwired. e1 fills
+// them and refactors `Store` to dispatch on `Backend`. Kept out of the public API
+// (the `Store` façade is unchanged) so `mw-engine`/`mw-server` are untouched.
+mod backend;
+mod dialect;
 
 pub use cache::{
     Account, AccountKind, Mailbox, MailboxUpsert, Message, MessageLocation, MessageUpsert,
