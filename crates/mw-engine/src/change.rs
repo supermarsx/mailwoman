@@ -33,6 +33,12 @@ pub enum ChangeType {
     AddressBook,
     ContactCard,
     ContactGroup,
+    // ── V4 crypto/security datatypes (§2.2). `CryptoKey`/`MailRule` participate
+    // in `*/changes` + the push `StateChange.changed` map (new keys
+    // `CryptoKey`/`MailRule`), sourced from the `crypto_changes` log (e6/e7).
+    // `SecurityVerdict` is a lazy read with no change token. ──
+    CryptoKey,
+    MailRule,
 }
 
 impl ChangeType {
@@ -51,6 +57,8 @@ impl ChangeType {
             ChangeType::AddressBook => "AddressBook",
             ChangeType::ContactCard => "ContactCard",
             ChangeType::ContactGroup => "ContactGroup",
+            ChangeType::CryptoKey => "CryptoKey",
+            ChangeType::MailRule => "MailRule",
         }
     }
 }

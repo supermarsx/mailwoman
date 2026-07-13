@@ -1,4 +1,9 @@
 onlyBuiltDependencies:
   - esbuild
 allowBuilds:
+  # @swc/core (via vite-plugin-top-level-await, V4 §2.5) ships prebuilt platform
+  # binaries (@swc/core-<platform> optional deps); its own postinstall build is
+  # not needed, so it is explicitly declined. Decided here so `pnpm install` does
+  # not fail on ERR_PNPM_IGNORED_BUILDS.
+  '@swc/core': false
   esbuild: true

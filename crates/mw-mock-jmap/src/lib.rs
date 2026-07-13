@@ -145,14 +145,21 @@ async fn session(headers: HeaderMap) -> impl IntoResponse {
         "capabilities": {
             "urn:ietf:params:jmap:core": { "maxSizeUpload": 50_000_000, "maxConcurrentRequests": 4 },
             "urn:ietf:params:jmap:mail": {},
-            "urn:ietf:params:jmap:submission": {}
+            "urn:ietf:params:jmap:submission": {},
+            "urn:mailwoman:crypto": {},
+            "urn:mailwoman:security": {}
         },
         "accounts": {
-            ACCOUNT_ID: { "name": USER, "isPersonal": true, "isReadOnly": false, "accountCapabilities": {} }
+            ACCOUNT_ID: { "name": USER, "isPersonal": true, "isReadOnly": false, "accountCapabilities": {
+                "urn:mailwoman:crypto": {},
+                "urn:mailwoman:security": {}
+            } }
         },
         "primaryAccounts": {
             "urn:ietf:params:jmap:mail": ACCOUNT_ID,
-            "urn:ietf:params:jmap:submission": ACCOUNT_ID
+            "urn:ietf:params:jmap:submission": ACCOUNT_ID,
+            "urn:mailwoman:crypto": ACCOUNT_ID,
+            "urn:mailwoman:security": ACCOUNT_ID
         },
         "username": USER,
         "apiUrl": "/jmap",
@@ -353,10 +360,169 @@ fn dispatch(store: &MailStore, name: &str, args: &Value) -> Value {
             json!({ "accountId": ACCOUNT_ID, "oldState": "s-0", "newState": "s-1",
                     "created": created, "updated": {}, "destroyed": [] })
         }
-        other => {
+        other => security_case(other, args).unwrap_or_else(|| {
             json!({ "type": "unknownMethod", "description": format!("mock does not implement {other}") })
-        }
+        }),
     }
+}
+
+// ── V4 crypto/security parity seed (plan §1.5/§2, e0) ────────────────────────
+//
+// The mock emits STATIC-FIXTURE responses whose shapes are FROZEN byte-for-byte
+// with §2.1/§2.2 so the web builds against the correct crypto/security shapes
+// (the V2/V3 lesson: the mock MUST match what e6's engine will emit — a shared
+// golden-shape test in e6 asserts engine↔mock parity). Field names/enum tokens
+// here are the contract; do not drift without a coordinator re-broadcast.
+
+/// A frozen `CryptoKey` fixture (§2.1) — an own, verified, Autocrypt PGP key.
+fn fixture_crypto_key() -> Value {
+    json!({
+        "id": "key-pgp-1",
+        "kind": "pgp",
+        "isOwn": true,
+        "addresses": [USER],
+        "fingerprint": "ABCD1234ABCD1234ABCD1234ABCD1234ABCD1234",
+        "keyId": "ABCD1234ABCD1234",
+        "algorithm": "ed25519",
+        "createdAt": "2026-07-12T09:00:00Z",
+        "expiresAt": null,
+        "publicKeyArmored": "-----BEGIN PGP PUBLIC KEY BLOCK-----\n(mock)\n-----END PGP PUBLIC KEY BLOCK-----",
+        "certPem": null,
+        "trust": "verified",
+        "autocrypt": true,
+        "source": "generated",
+        "hasPrivate": true,
+        "encryptedPrivateBackup": null,
+        "verifiedAt": "2026-07-12T09:00:00Z",
+        "keyHistory": [
+            { "fingerprint": "ABCD1234ABCD1234ABCD1234ABCD1234ABCD1234", "seenAt": "2026-07-12T09:00:00Z" }
+        ]
+    })
+}
+
+/// A frozen `SecurityVerdict` fixture (§2.1) for `email_id` — DKIM/SPF/DMARC pass,
+/// a signed cleartext message, one Received hop, no attachment risk.
+fn fixture_verdict(email_id: &str) -> Value {
+    json!({
+        "emailId": email_id,
+        "auth": {
+            "dkim": { "result": "pass", "domain": "example.org", "selector": "sel1" },
+            "spf": { "result": "pass", "domain": "example.org" },
+            "dmarc": { "result": "pass", "policy": "reject", "aligned": true },
+            "arc": { "result": "none", "chainLength": 0 }
+        },
+        "plainLanguage": "This message passed all sender-authentication checks (DKIM, SPF, DMARC).",
+        "received": [
+            { "index": 0, "byHost": "mx.example.org", "fromHost": "sender.example.org",
+              "protocol": "ESMTPS", "timestamp": "2026-07-12T09:00:00Z", "delayMs": 1200,
+              "asn": 64500, "asnOrg": "Example Networks", "country": "PT" }
+        ],
+        "signature": {
+            "kind": "pgp", "status": "verified", "signerKeyId": "ABCD1234ABCD1234",
+            "algorithm": "ed25519", "keyCreatedAt": "2026-07-12T09:00:00Z", "keyExpiresAt": null,
+            "chainStatus": "trusted", "revocationStatus": "good", "keyChanged": false
+        },
+        "encryption": { "kind": "none", "isEncrypted": false, "decryptsClientSide": false },
+        "attachments": [],
+        "anomalies": []
+    })
+}
+
+/// A frozen `DlpRule` fixture (§2.1) — a card-number (PAN) block rule.
+fn fixture_dlp_rule() -> Value {
+    json!({
+        "id": "rule-pan",
+        "name": "Block card numbers",
+        "enabled": true,
+        "priority": 10,
+        "conditions": {
+            "detectors": ["pan"], "customRegex": null, "dictionaries": [], "attachmentTypes": [],
+            "maxAttachmentSize": null, "recipientDomains": [], "recipientDomainMode": null,
+            "classification": null
+        },
+        "action": "block",
+        "message": "This message appears to contain a payment card number and cannot be sent."
+    })
+}
+
+/// A frozen `MailRule` fixture (§2.1) — a block-sender rule (move to Junk + stop).
+fn fixture_mail_rule() -> Value {
+    json!({
+        "id": "mr-1",
+        "name": "Block spammer",
+        "matchAll": false,
+        "conditions": [ { "type": "from", "op": "is", "value": "spammer@bad.example" } ],
+        "actions": [ { "type": "move", "value": "Junk" }, { "type": "stop", "value": null } ],
+        "enabled": true,
+        "runsAt": "engine"
+    })
+}
+
+/// The requested `ids` array as owned strings (empty when absent).
+fn requested_ids(args: &Value) -> Vec<String> {
+    args.get("ids")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Handle a V4 crypto/security method with a frozen static fixture, or `None` if
+/// `name` is not a crypto/security family method.
+fn security_case(name: &str, args: &Value) -> Option<Value> {
+    let v = match name {
+        "CryptoKey/get" => json!({
+            "accountId": ACCOUNT_ID, "state": "ck-0",
+            "list": [fixture_crypto_key()], "notFound": []
+        }),
+        "CryptoKey/query" => json!({
+            "accountId": ACCOUNT_ID, "queryState": "ck-0", "ids": ["key-pgp-1"],
+            "total": 1, "position": 0, "canCalculateChanges": false
+        }),
+        "CryptoKey/lookup" => json!({
+            "accountId": ACCOUNT_ID, "list": [fixture_crypto_key()], "notFound": []
+        }),
+        "CryptoKey/set" => json!({
+            "accountId": ACCOUNT_ID, "oldState": "ck-0", "newState": "ck-1",
+            "created": {}, "updated": {}, "destroyed": []
+        }),
+        "CryptoKey/setTrust" => json!({ "accountId": ACCOUNT_ID, "updated": {} }),
+        "CryptoKey/changes" => json!({
+            "accountId": ACCOUNT_ID, "oldState": "ck-0", "newState": "ck-0",
+            "created": [], "updated": [], "destroyed": [], "hasMoreChanges": false
+        }),
+        "SecurityVerdict/get" => {
+            let ids = requested_ids(args);
+            let list: Vec<Value> = if ids.is_empty() {
+                vec![fixture_verdict("e1")]
+            } else {
+                ids.iter().map(|id| fixture_verdict(id)).collect()
+            };
+            json!({ "accountId": ACCOUNT_ID, "state": "sv-0", "list": list, "notFound": [] })
+        }
+        "SenderControl/set" => json!({ "updated": true, "mailRuleId": "mr-1" }),
+        "MailRule/get" => json!({
+            "accountId": ACCOUNT_ID, "state": "mr-0",
+            "list": [fixture_mail_rule()], "notFound": []
+        }),
+        "MailRule/set" => json!({
+            "accountId": ACCOUNT_ID, "oldState": "mr-0", "newState": "mr-1",
+            "created": {}, "updated": {}, "destroyed": []
+        }),
+        "MailRule/changes" => json!({
+            "accountId": ACCOUNT_ID, "oldState": "mr-0", "newState": "mr-0",
+            "created": [], "updated": [], "destroyed": [], "hasMoreChanges": false
+        }),
+        "Dlp/getRules" => json!({ "list": [fixture_dlp_rule()] }),
+        // No findings by default (a clean draft); a card-number body would return
+        // a blocking DlpVerdict — e4/e10 seed that case explicitly.
+        "Dlp/scan" => json!({ "list": [] }),
+        _ => return None,
+    };
+    Some(v)
 }
 
 /// Resolve JMAP result references (RFC 8620 §3.7) in a method's arguments.

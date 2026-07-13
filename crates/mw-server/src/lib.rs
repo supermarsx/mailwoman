@@ -180,6 +180,12 @@ fn router(state: AppState) -> Router {
         )
         .route("/api/holidays", get(holiday_regions))
         .route("/api/holidays/{region}", get(holiday_feed))
+        // ── V4 crypto/security endpoints (plan §3 e0/e7). Route seams reserved
+        // now; e7 fills WKD publishing (serve own public keys), ARF report
+        // submission (abuse-address relay), and DLP config load. 501 until then. ──
+        .route("/.well-known/openpgpkey/hu/{hash}", get(wkd_lookup))
+        .route("/api/security/report", post(arf_report))
+        .route("/api/security/dlp/config", get(dlp_config))
         .route("/jmap/ws", get(push::jmap_ws))
         .route("/jmap/eventsource", get(push::jmap_eventsource))
         .route("/healthz", get(|| async { "ok" }))
@@ -894,6 +900,54 @@ fn percent_encode(segment: &str) -> String {
         }
     }
     out
+}
+
+// ---------------------------------------------------------------------------
+// V4 crypto/security endpoints (plan §3 e7): WKD publishing, ARF report
+// submission, DLP config load, + the web watermark honesty overlay toggle. Route
+// seams reserved by e0; e7 fills them (and forwards CryptoKey/MailRule
+// StateChange over push). All return a clean 501 until then rather than falling
+// through to the SPA index.html.
+// ---------------------------------------------------------------------------
+
+/// `GET /.well-known/openpgpkey/hu/{hash}` — WKD (Web Key Directory) publish
+/// endpoint (§7.3 / plan §3 e7): serves an own PUBLIC key for the direct-method
+/// WKD path (z-base-32 hashed localpart). PUBLIC (no cookie) so external clients
+/// can fetch keys. e7 wires it to the keyring; 501 until then.
+async fn wkd_lookup(UrlPath(_hash): UrlPath<String>) -> Response {
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        Json(json!({ "error": "WKD publishing lands in e7" })),
+    )
+        .into_response()
+}
+
+/// `POST /api/security/report` — ARF (Abuse Reporting Format) submission (§7.3
+/// sender-controls / plan §3 e7): relays a report-phishing/junk ARF report to the
+/// configured abuse address via the account submitter. Cookie-authed. 501 until e7.
+async fn arf_report(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(resp) = authed(&state, &headers).await {
+        return resp;
+    }
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        Json(json!({ "error": "ARF report submission lands in e7" })),
+    )
+        .into_response()
+}
+
+/// `GET /api/security/dlp/config` — DLP config load (§7.6 / plan §3 e7): exposes
+/// the active `MW_DLP_RULES` config so the web can surface rule names pre-send.
+/// Cookie-authed. 501 until e7.
+async fn dlp_config(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(resp) = authed(&state, &headers).await {
+        return resp;
+    }
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        Json(json!({ "error": "DLP config endpoint lands in e7" })),
+    )
+        .into_response()
 }
 
 // ---------------------------------------------------------------------------

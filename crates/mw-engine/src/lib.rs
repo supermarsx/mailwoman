@@ -20,6 +20,7 @@ pub mod pim;
 pub mod query;
 pub mod rules;
 pub mod search_index;
+pub mod security;
 pub mod state;
 pub mod submission;
 pub mod thread;
@@ -45,4 +46,12 @@ pub use pim::types::{
     AddressBook, Alert, Anniversary, Calendar, CalendarEvent, CalendarShare, ContactCard,
     ContactEmail, ContactGroup, ContactName, ContactValue, EventLocation, Note, NoteLink,
     Participant, Task,
+};
+
+// ── V4 frozen crypto/security types (§2.1) authored by e0; logic filled by e6.
+// Re-exported from `mw-crypto` (single source of truth, plan §1.5) so the engine,
+// the mock, and the WASM boundary emit byte-identical shapes. ──
+pub use security::types::{
+    AttachmentRisk, AuthVerdict, CryptoKey, DlpRule, DlpVerdict, MailRule, ReceivedHop,
+    SecurityVerdict, SignatureVerdict,
 };

@@ -19,6 +19,7 @@ members = [
     "crates/mw-ics",
     "crates/mw-dav",
     "crates/mw-carddav",
+    "crates/mw-crypto",
 ]
 
 [workspace.package]
@@ -92,6 +93,48 @@ rrule = "0.14"
 quick-xml = "0.41"
 chrono-tz = "0.10"
 
+# V4 crypto & security deps (plan §1.11 — ALL confirmed permissive: MIT OR
+# Apache-2.0 / BSD / ISC, NO GPL/LGPL/AGPL; pure-Rust + wasm-compatible except the
+# native-only enrichment crates, which are feature-gated out of the wasm build).
+# Versions verified against crates.io on 2026-07-13. These are PRE-DECLARED here so
+# `mw-crypto`/`mw-engine` reference them via `{ workspace = true }`; the e0 scaffold
+# stub itself pulls in only the wasm-safe subset (serde/zeroize + the wasm-bindgen
+# surface) so both the native workspace build and the `wasm32-unknown-unknown`
+# build of the stub stay green. e1 wires the real rPGP / RustCrypto / ml-kem paths.
+#
+#   pgp (rPGP)  — OpenPGP RFC 9580; MIT/Apache-2.0 (NOT sequoia-openpgp/LGPL,
+#                 banned in deny.toml); continuously wasm-tested (Delta Chat).
+#   cms/x509-cert/rsa/p256 — RustCrypto S/MIME stack; Apache-2.0/MIT; pure-Rust,
+#                 wasm-ok. (cms/rsa currently ship pre-releases; pinned exactly.)
+#   ml-kem      — FIPS-203 ML-KEM (PQC key-wrap); Apache-2.0/MIT; UNAUDITED (noted,
+#                 plan §1.7/§6#8) — scoped to store-key wrapping, not a user claim.
+#   mail-auth   — Stalwart DKIM/SPF/DMARC/ARC + ARF; Apache-2.0 OR MIT (permissive
+#                 lib crate, NOT the AGPL server). NATIVE-only (needs DNS resolver).
+#   sha2/sha1/zeroize — RustCrypto hashing + secret-zeroing; Apache-2.0/MIT; wasm-ok.
+#   maxminddb   — OPTIONAL GeoIP MMDB reader for Received-chain ASN/country; ISC;
+#                 NATIVE-only; cut-able (plan §1.12).
+#   wasm-bindgen/js-sys/web-sys/getrandom — the wasm-pack browser boundary;
+#                 Apache-2.0/MIT. getrandom uses its `wasm_js` JS backend on wasm32
+#                 (see scripts/build-wasm.* + crates/mw-crypto notes) — e1/e8 wire it.
+#   VET-BEFORE-ENABLE: aws-lc-rs (only if TLS-hybrid X25519MLKEM768 is enabled,
+#                 plan §1.7/§1.11) — Apache-2.0/ISC + OpenSSL-licensed C; NOT a V4
+#                 gate. Left OUT of the build until vetted (flagged in deny.toml).
+pgp = "0.20"
+cms = "=0.3.0-pre.2"
+x509-cert = "0.3"
+rsa = "=0.10.0-rc.18"
+p256 = "0.14"
+ml-kem = "0.3"
+mail-auth = "0.11"
+sha2 = "0.11"
+sha1 = "0.11"
+zeroize = { version = "1.9", features = ["derive"] }
+maxminddb = "0.29"
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+web-sys = "0.3"
+getrandom = "0.4"
+
 mw-jmap = { path = "crates/mw-jmap" }
 mw-sanitize = { path = "crates/mw-sanitize" }
 mw-store = { path = "crates/mw-store" }
@@ -108,6 +151,7 @@ mw-export = { path = "crates/mw-export" }
 mw-ics = { path = "crates/mw-ics" }
 mw-dav = { path = "crates/mw-dav" }
 mw-carddav = { path = "crates/mw-carddav" }
+mw-crypto = { path = "crates/mw-crypto" }
 
 [profile.release]
 overflow-checks = true

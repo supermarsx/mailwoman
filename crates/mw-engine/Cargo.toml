@@ -30,6 +30,11 @@ mw-sieve = { workspace = true }
 mw-ics = { workspace = true }
 mw-dav = { workspace = true }
 mw-carddav = { workspace = true }
+# V4 (plan §3 e6): the crypto/security primitives. The engine links the `native`
+# build (public-key verify of received mail, cert harvest, verdict inputs, PQC
+# store-key wrap); private-key ops are the wasm/browser surface (plan §1.2). Leaf
+# crate — no dependency cycle. The frozen §2.1 DTOs live here and are re-exported.
+mw-crypto = { workspace = true }
 # Attachment-filename extraction at ingest for `filename:` search (workspace dep,
 # already in-tree via mw-mime); parsing is best-effort and never panics.
 mail-parser = { workspace = true }

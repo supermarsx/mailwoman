@@ -1926,6 +1926,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "mw-crypto"
+version = "26.4.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "zeroize",
+]
+
+[[package]]
 name = "mw-dav"
 version = "26.4.0"
 dependencies = [
@@ -1945,6 +1955,7 @@ dependencies = [
  "chrono",
  "mail-parser",
  "mw-carddav",
+ "mw-crypto",
  "mw-dav",
  "mw-ics",
  "mw-jmap",

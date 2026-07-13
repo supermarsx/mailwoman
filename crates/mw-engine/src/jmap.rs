@@ -41,14 +41,21 @@ pub fn session_json(account_id: &str, username: &str) -> Value {
             "urn:mailwoman:calendars": {},
             "urn:mailwoman:tasks": {},
             "urn:mailwoman:notes": {},
-            "urn:mailwoman:contacts": {}
+            "urn:mailwoman:contacts": {},
+            // V4 crypto/security capabilities (frozen §1.4/§2.2). The keyring +
+            // verdict + DLP + sender-control + mail-rule families ride the same
+            // envelope; private-key ops run client-side (WASM), never here.
+            "urn:mailwoman:crypto": {},
+            "urn:mailwoman:security": {}
         },
         "accounts": {
             account_id: { "name": username, "isPersonal": true, "isReadOnly": false, "accountCapabilities": {
                 "urn:mailwoman:calendars": {},
                 "urn:mailwoman:tasks": {},
                 "urn:mailwoman:notes": {},
-                "urn:mailwoman:contacts": {}
+                "urn:mailwoman:contacts": {},
+                "urn:mailwoman:crypto": {},
+                "urn:mailwoman:security": {}
             } }
         },
         "primaryAccounts": {
@@ -57,7 +64,9 @@ pub fn session_json(account_id: &str, username: &str) -> Value {
             "urn:mailwoman:calendars": account_id,
             "urn:mailwoman:tasks": account_id,
             "urn:mailwoman:notes": account_id,
-            "urn:mailwoman:contacts": account_id
+            "urn:mailwoman:contacts": account_id,
+            "urn:mailwoman:crypto": account_id,
+            "urn:mailwoman:security": account_id
         },
         "username": username,
         "apiUrl": "/jmap/api",
@@ -146,6 +155,11 @@ impl Engine {
             // fills the handlers behind `dispatch_pim`.
             other if crate::pim::dispatch::is_pim_method(other) => {
                 self.dispatch_pim(account_id, rt, other, args).await
+            }
+            // Mailwoman-native crypto/security families (§2.2) ride the same
+            // envelope; e6 fills the handlers behind `dispatch_security`.
+            other if crate::security::dispatch::is_security_method(other) => {
+                self.dispatch_security(account_id, rt, other, args).await
             }
             other => json!({
                 "type": "unknownMethod",
@@ -1079,6 +1093,13 @@ impl Engine {
         if rcpt_to.is_empty() {
             return Err(EngineError::Protocol("no recipients".into()));
         }
+
+        // V4 DLP hook (plan §1.8, §3 e0): evaluate outbound rules at the submit
+        // chokepoint BEFORE dispatch. e0 wires a NO-OP (no rules loaded → no
+        // findings → allow), so the send path is unchanged; e6 loads
+        // `MW_DLP_RULES`, runs the detectors, writes the redacted `dlp_audit`
+        // row, and fails the submission with `dlpBlocked` on a `block` verdict.
+        let _dlp_verdicts = crate::security::dlp::evaluate(self, account_id, email_id).await;
 
         let result = rt
             .submitter

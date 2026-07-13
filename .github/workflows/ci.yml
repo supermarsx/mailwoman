@@ -463,3 +463,56 @@ jobs:
       - name: tear down
         if: always()
         run: docker compose -f docker-compose.dev.yml down -v
+
+  # ===========================================================================
+  # V4 (Crypto & Security) CI job STUBS — plan §3 e9. Authored (commented) by e0
+  # so the shape is agreed; e9 UNCOMMENTS + fills them once the wasm bundle + the
+  # crypto/verdict fixtures exist. Enabling before then would fail red.
+  #
+  #  * wasm-build — the TOP V4 risk (§6#2): build mw-crypto (+ mw-sanitize) to
+  #    wasm32 via wasm-pack + run the node wasm smoke test, on BOTH Windows AND
+  #    Linux (§1.13). Uses scripts/build-wasm.{sh,ps1}.
+  #  * crypto-interop — decrypt/verify GnuPG-/Thunderbird-/Outlook-GENERATED
+  #    recorded fixtures (no live external service, §6#6 / §25).
+  #  * mail-auth-verdicts — DKIM/SPF/DMARC/ARC against a seeded-DNS resolver
+  #    (deterministic pass AND fail cases, §6#7).
+  # ---------------------------------------------------------------------------
+  # wasm-build:
+  #   strategy:
+  #     matrix:
+  #       os: [ubuntu-latest, windows-latest]
+  #   runs-on: ${{ matrix.os }}
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: dtolnay/rust-toolchain@stable
+  #       with:
+  #         targets: wasm32-unknown-unknown
+  #     - uses: Swatinem/rust-cache@v2
+  #     - name: install wasm-pack
+  #       run: cargo install wasm-pack --locked
+  #     - name: build wasm bundle (mw-crypto + mw-sanitize)
+  #       shell: bash
+  #       run: |
+  #         if [ "$RUNNER_OS" = "Windows" ]; then pwsh scripts/build-wasm.ps1; else scripts/build-wasm.sh; fi
+  #     - name: node wasm smoke test (encrypt/decrypt round-trip)
+  #       run: node apps/web/scripts/wasm-smoke.mjs   # e8/e9 authors this
+  #
+  # crypto-interop:
+  #   runs-on: ubuntu-latest
+  #   needs: [rust]
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: dtolnay/rust-toolchain@stable
+  #     - uses: Swatinem/rust-cache@v2
+  #     - name: PGP/S-MIME interop fixtures (recorded GnuPG/Thunderbird/Outlook)
+  #       run: cargo test -p mw-crypto --features native -- --ignored interop
+  #
+  # mail-auth-verdicts:
+  #   runs-on: ubuntu-latest
+  #   needs: [rust]
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: dtolnay/rust-toolchain@stable
+  #     - uses: Swatinem/rust-cache@v2
+  #     - name: DKIM/SPF/DMARC/ARC verdicts against seeded-DNS fixtures
+  #       run: cargo test -p mw-engine -- --ignored mail_auth_verdicts

@@ -1,0 +1,54 @@
+[package]
+name = "mw-crypto"
+description = "Mailwoman crypto: OpenPGP (rPGP) + S/MIME (RustCrypto) + PQC key-wrap, one crate with native (server verify/harvest/PQC) and wasm (browser private-key ops) build targets (SPEC §8, plan §1.1)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# ONE crate, TWO build targets split by cargo feature (plan §1.1). `cdylib` is the
+# wasm-pack browser artifact; `rlib` is the native engine dependency (mw-engine
+# links it for public-key verify / cert harvest / PQC store-key wrap).
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# `native` (default): server/engine side — public-key verify of received mail,
+#   cert harvesting, verdict inputs, PQC store-key wrapping, WKD HTTP lookup.
+# `wasm`: the browser private-key operations (keygen, decrypt, private sign,
+#   PKCS#12 import, backup). The wasm-bindgen surface itself is gated on
+#   `cfg(target_arch = "wasm32")` so the exact acceptance command
+#   `cargo build -p mw-crypto --target wasm32-unknown-unknown` compiles it with no
+#   extra flags, while the native workspace build never carries wasm-bindgen.
+# `pqc`: OpenPGP-PQC (draft-ietf-openpgp-pqc) — OFF, not a V4 gate (plan §1.7).
+default = ["native"]
+native = []
+wasm = []
+pqc = []
+
+[dependencies]
+# The frozen §2.1 DTOs are plain serde types — wasm-safe, no OS/DNS/fs. e1 adds
+# the real rPGP / RustCrypto / ml-kem deps behind the feature split; the e0 stub
+# deliberately pulls in only this wasm-compatible core so BOTH the native
+# workspace build and the wasm32 stub build stay green.
+serde = { workspace = true }
+serde_json = { workspace = true }
+# Secret-zeroing for the (todo!()) private-key session cache — pure Rust, wasm-ok.
+zeroize = { workspace = true }
+
+# ── Native-only crypto/enrichment deps (feature-gated OUT of wasm, plan §1.1) ──
+# e1 enables these under `native`; declared here so the seam + license posture is
+# frozen. `mail-auth` (DNS) + `maxminddb` (fs) must never enter the wasm build.
+# [target.'cfg(not(target_arch = "wasm32"))'.dependencies]  # e1 wires rPGP/cms/…
+
+# ── wasm-only browser boundary (plan §1.1/§2.3) ──
+# wasm-bindgen is a TARGET-specific dep so the native build never links it, while
+# `cargo build --target wasm32-unknown-unknown` gets the browser surface. e8's
+# wasm-pack step post-processes this into `apps/web/src/wasm/`. getrandom's JS
+# backend is selected via `--cfg getrandom_backend="wasm_js"` in
+# scripts/build-wasm.* (e1/e8 wire real RNG; the todo!() stub needs none).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

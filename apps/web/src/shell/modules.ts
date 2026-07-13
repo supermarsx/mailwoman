@@ -107,7 +107,28 @@ export const APP_MODULES: readonly AppModule[] = [
   },
 ];
 
+/**
+ * The V4 key-management module (plan §2.5), under Settings/Security. e0 authors
+ * this registry entry + the `modules/keys/` placeholder + the `keys` store slice;
+ * e2 fills the full surface (generate/import/backup, contact keys, trust/verify);
+ * **e8 folds this into the shell nav/router** (its `shell/modules.ts` mount step)
+ * and swaps to the real engine + WASM crypto worker. Kept OUT of [`APP_MODULES`]
+ * for now so the running PIM nav + router surfaces are unchanged until e8 mounts
+ * it (the `keys` surface is not a PIM route; e8 wires `#/keys`).
+ */
+const KeysMount = lazy(() => import('../modules/keys/index.tsx').then((m) => ({ default: m.KeysModule })));
+
+export const KEYS_MODULE: AppModule = {
+  id: 'keys',
+  label: 'Keys',
+  icon: '🔑',
+  route: '/keys',
+  mount: () => KeysMount,
+  ribbonTabs: [],
+  commandPaletteEntries: [],
+};
+
 /** Look up a module by id (nav/router helper for e10). */
 export function moduleById(id: string): AppModule | undefined {
-  return APP_MODULES.find((m) => m.id === id);
+  return APP_MODULES.find((m) => m.id === id) ?? (id === KEYS_MODULE.id ? KEYS_MODULE : undefined);
 }

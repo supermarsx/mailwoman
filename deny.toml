@@ -14,6 +14,22 @@
 #   icalendar, vcard4, rrule, chrono-tz (all MIT/Apache-2.0), quick-xml (MIT).
 #   They are covered by the existing MIT/Apache-2.0 allow entries below.
 #
+# V4 (26.5) new dependencies — all confirmed MIT OR Apache-2.0 / BSD / ISC (plan
+# §1.11), covered by the permissive allow-list below:
+#   pgp (rPGP), cms, x509-cert, rsa, p256, ml-kem, mail-auth, sha2, sha1
+#   (Apache-2.0/MIT), zeroize (Apache-2.0/MIT), maxminddb (ISC, optional geo),
+#   wasm-bindgen / js-sys / web-sys / getrandom (Apache-2.0/MIT).
+#   NOTE: ml-kem is UNAUDITED (plan §6#8) — scoped to store-key wrapping, not a
+#   user-facing claim; recorded here, not a license issue.
+#   Most of these are PRE-DECLARED in `[workspace.dependencies]` for e1/e6 and are
+#   not yet linked into the tree (so not yet in Cargo.lock / this check); the e0
+#   `mw-crypto` stub links only serde/zeroize + (on wasm) wasm-bindgen. When e1
+#   wires rPGP/RustCrypto/ml-kem they land under the allow-list below unchanged.
+# VET-BEFORE-ENABLE: `aws-lc-rs` (only if TLS-hybrid X25519MLKEM768 is enabled,
+#   plan §1.7/§1.11) — Apache-2.0 / ISC + OpenSSL-licensed C components. NOT a V4
+#   gate; left OUT of the build until its license floor is vetted. If enabled, its
+#   OpenSSL-derived license needs an explicit allow decision recorded here first.
+#
 # Radicale (the CalDAV/CardDAV CI server, plan §1.5) is GPLv3 but is NOT a
 # Mailwoman dependency: it is a separate program invoked over the network in CI
 # only (docker-compose service, same posture as Dovecot/Greenmail in V1) — never

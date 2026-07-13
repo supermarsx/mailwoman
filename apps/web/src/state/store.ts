@@ -20,6 +20,7 @@ import { createCalendarSlice, type CalendarSlice } from './slices/calendar.ts';
 import { createTasksSlice, type TasksSlice } from './slices/tasks.ts';
 import { createNotesSlice, type NotesSlice } from './slices/notes.ts';
 import { createContactsSlice, type ContactsSlice } from './slices/contacts.ts';
+import { createKeysSlice, type KeysSlice } from './slices/keys.ts';
 import { broadcastChannelAvailable, openStoreChannel } from '../worker/broadcast.ts';
 import { broadcastEnvelope } from '../worker/protocol.ts';
 import type { WorkerEnvelope } from '../contracts/worker.ts';
@@ -54,7 +55,10 @@ export type AppState = StoreCoreApi &
   CalendarSlice &
   TasksSlice &
   NotesSlice &
-  ContactsSlice;
+  ContactsSlice &
+  // ── V4 crypto/security slice (plan §2.5). Additive — the accessors above are
+  // unchanged, preserving the frozen `AppState` public shape. e0 stub; e2 fills. ──
+  KeysSlice;
 
 function createStoreCore(client: Client): StoreCoreApi {
   const [online, setOnline] = createSignal(true);
@@ -116,6 +120,9 @@ export function createAppState(client: Client): AppState {
   const notes = createNotesSlice(ctx);
   const contacts = createContactsSlice(ctx);
 
+  // V4 crypto/security slice (plan §2.5): mock-backed + worker-stub until e8.
+  const keys = createKeysSlice(ctx);
+
   // Late-bound so the mail slice can broadcast before the peer channel exists.
   let publishPeerSync: () => void = () => undefined;
 
@@ -158,6 +165,7 @@ export function createAppState(client: Client): AppState {
     ...tasks,
     ...notes,
     ...contacts,
+    ...keys,
   };
 }
 
