@@ -41,6 +41,18 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
   webmail path (SolidJS client → mw-server JMAP proxy + sanitize worker →
   JMAP upstream), Docker/CI, E2E. Supersedes the pre-adoption `v0.0.0`
   placeholder tag, which was removed.
+- **`26.4`** — V3: personal-information management. Calendar (all views —
+  day/3-day/work-week/week/month/tri-month/schedule/agenda/year — recurrence,
+  reminders, attendees, iTIP invites, free/busy, conflict detection),
+  tasks (VTODO + My Day + subtasks), encrypted-at-rest notes (rich text,
+  tags/colors/pins, cross-links), and contacts (address books, groups, merge,
+  vCard/CSV import/export, Compose autocomplete) — synced over CalDAV/CardDAV,
+  serialized as iCalendar/vCard, behind a Mailwoman-native PIM surface reusing
+  the JMAP envelope. New crates: mw-ics, mw-dav, mw-carddav. Server adds
+  calendar/addressbook sharing + a holiday feed. Verified: 367 Rust + 312 web
+  tests; Radicale CalDAV/CardDAV conformance (engine<->real-CalDAV round-trip);
+  live Playwright E2E across all four modules through the real UI. Four
+  end-to-end contract gaps caught + fixed at the E2E gate before release.
 - **`26.3`** — V2: modern mail layer + theming. Engine-side Tantivy search
   (operators + saved searches), offline (Service Worker + encrypted OPFS +
   replay queue), WebSocket/SSE realtime push, multi-window (BroadcastChannel),

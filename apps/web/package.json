@@ -1,6 +1,6 @@
 {
   "name": "@mailwoman/web",
-  "version": "26.3.0",
+  "version": "26.4.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.12.0",
