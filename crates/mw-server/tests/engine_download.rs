@@ -40,6 +40,7 @@ async fn spawn_engine_server() -> (String, PathBuf) {
         cookie_secure: false,
         mode: ServerMode::Engine,
         hardening: HardeningConfig::default(),
+        security: mw_server::SecurityConfig::default(),
     };
     let app = build_app(config).await.unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

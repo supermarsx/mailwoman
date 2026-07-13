@@ -46,6 +46,7 @@ async fn spawn_server() -> (String, SocketAddr, PushHandle) {
         cookie_secure: false,
         mode: mw_server::ServerMode::Proxy,
         hardening: HardeningConfig::default(),
+        security: mw_server::SecurityConfig::default(),
     };
     let (app, push) = build_app_with_push(config).await.unwrap();
 

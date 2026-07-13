@@ -43,6 +43,7 @@ async fn spawn_server() -> (String, PathBuf) {
         cookie_secure: false,
         mode: mw_server::ServerMode::Proxy,
         hardening: mw_server::HardeningConfig::default(),
+        security: mw_server::SecurityConfig::default(),
     };
     let app = build_app(config).await.unwrap();
 

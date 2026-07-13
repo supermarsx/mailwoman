@@ -10,7 +10,8 @@ use clap::{Parser, Subcommand};
 
 use mw_server::fonts::{self, GoogleFonts, PullOptions};
 use mw_server::{
-    AppConfig, HardeningConfig, ReloadableResolver, ServerMode, TlsConfig, TlsListener, build_app,
+    AppConfig, HardeningConfig, ReloadableResolver, SecurityConfig, ServerMode, TlsConfig,
+    TlsListener, build_app,
 };
 
 #[derive(Parser)]
@@ -171,6 +172,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         cookie_secure: args.cookie_secure,
         mode,
         hardening,
+        security: SecurityConfig::from_env(),
     };
     let app = build_app(config).await?;
 

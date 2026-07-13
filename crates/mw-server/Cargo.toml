@@ -40,6 +40,10 @@ tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 base64 = { workspace = true }
 rand = { workspace = true }
+# WKD (Web Key Directory) local-part hashing (SHA-1 + z-base-32, §7.3 e7) and
+# ARF spool filenames (plan §3 e7).
+sha1 = { workspace = true }
+uuid = { workspace = true }
 # V2 push + ACME listener (plan §1.2/§1.10, §3 e10). `tokio-tungstenite` also
 # backs the WS test client; `tokio-rustls-acme` is the ACME/TLS listener;
 # `futures-util` drives the SSE + WS streams. `rustls`/`tokio-rustls`/pki-types

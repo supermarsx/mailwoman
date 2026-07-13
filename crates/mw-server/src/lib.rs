@@ -23,6 +23,8 @@ use mw_engine::Engine;
 use mw_jmap::JmapClient;
 use mw_store::{Credentials, ServerKey, Store};
 
+pub mod arf;
+pub mod dlp;
 pub mod engine_mode;
 pub mod fonts;
 pub mod hardening;
@@ -30,11 +32,14 @@ pub mod holidays;
 pub mod push;
 pub mod sharing;
 pub mod tls;
+pub mod watermark;
+pub mod wkd;
 
 pub use engine_mode::ServerMode;
 pub use hardening::HardeningConfig;
 pub use push::PushHandle;
 pub use tls::{ReloadableResolver, TlsConfig, TlsListener};
+pub use watermark::WatermarkConfig;
 
 use hardening::SessionGuard;
 
@@ -79,6 +84,57 @@ pub struct AppConfig {
     pub mode: ServerMode,
     /// Web-hardening knobs (§7.4).
     pub hardening: HardeningConfig,
+    /// V4 crypto/security endpoint config: WKD publishing, ARF relay, DLP config,
+    /// watermark overlay (plan §3 e7).
+    pub security: SecurityConfig,
+}
+
+/// Config for the V4 crypto/security endpoints (plan §3 e7), env-sourced in prod
+/// (see [`SecurityConfig::from_env`]) and set explicitly by tests. All fields
+/// default to "feature off" so a deployment that configures none behaves exactly
+/// as before.
+#[derive(Debug, Clone, Default)]
+pub struct SecurityConfig {
+    /// Directory of published PUBLIC keys served over WKD (env: `MW_WKD_DIR`).
+    pub wkd_dir: Option<PathBuf>,
+    /// Abuse address ARF reports are addressed to (env: `MW_ABUSE_ADDRESS`).
+    pub abuse_address: Option<String>,
+    /// Spool directory ARF reports are written to for relay (env: `MW_ABUSE_SPOOL`).
+    pub abuse_spool: Option<PathBuf>,
+    /// DLP rules source — inline JSON or a file path (env: `MW_DLP_RULES`).
+    pub dlp_rules: Option<String>,
+    /// Web watermark honesty-overlay config (§7.6).
+    pub watermark: WatermarkConfig,
+}
+
+impl SecurityConfig {
+    /// Populate from the environment (used by the `serve` CLI path).
+    pub fn from_env() -> Self {
+        let path = |k: &str| {
+            std::env::var(k)
+                .ok()
+                .filter(|s| !s.is_empty())
+                .map(PathBuf::from)
+        };
+        let string = |k: &str| std::env::var(k).ok().filter(|s| !s.is_empty());
+        let flag = |k: &str| {
+            std::env::var(k)
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false)
+        };
+        Self {
+            wkd_dir: path("MW_WKD_DIR"),
+            abuse_address: string("MW_ABUSE_ADDRESS"),
+            abuse_spool: path("MW_ABUSE_SPOOL"),
+            dlp_rules: string("MW_DLP_RULES"),
+            watermark: WatermarkConfig {
+                enabled: flag("MW_WATERMARK"),
+                opacity: string("MW_WATERMARK_OPACITY")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(0.08),
+            },
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -94,6 +150,8 @@ pub(crate) struct AppState {
     /// In-process session idle/absolute-timeout tracking.
     sessions: Arc<SessionGuard>,
     hardening: HardeningConfig,
+    /// V4 crypto/security endpoint config (plan §3 e7).
+    security: SecurityConfig,
 }
 
 /// Build the fully-wired axum application from configuration.
@@ -147,6 +205,7 @@ pub async fn build_app_with_push(config: AppConfig) -> anyhow::Result<(Router, P
         push: push.clone(),
         sessions: Arc::new(SessionGuard::new()),
         hardening: config.hardening,
+        security: config.security,
     };
     Ok((router(state), push))
 }
@@ -184,8 +243,15 @@ fn router(state: AppState) -> Router {
         // now; e7 fills WKD publishing (serve own public keys), ARF report
         // submission (abuse-address relay), and DLP config load. 501 until then. ──
         .route("/.well-known/openpgpkey/hu/{hash}", get(wkd_lookup))
+        .route("/.well-known/openpgpkey/policy", get(wkd_policy))
+        .route(
+            "/.well-known/openpgpkey/{domain}/hu/{hash}",
+            get(wkd_lookup_advanced),
+        )
+        .route("/.well-known/openpgpkey/{domain}/policy", get(wkd_policy))
         .route("/api/security/report", post(arf_report))
         .route("/api/security/dlp/config", get(dlp_config))
+        .route("/api/security/watermark", get(watermark_config))
         .route("/jmap/ws", get(push::jmap_ws))
         .route("/jmap/eventsource", get(push::jmap_eventsource))
         .route("/healthz", get(|| async { "ok" }))
@@ -910,44 +976,227 @@ fn percent_encode(segment: &str) -> String {
 // through to the SPA index.html.
 // ---------------------------------------------------------------------------
 
-/// `GET /.well-known/openpgpkey/hu/{hash}` — WKD (Web Key Directory) publish
-/// endpoint (§7.3 / plan §3 e7): serves an own PUBLIC key for the direct-method
-/// WKD path (z-base-32 hashed localpart). PUBLIC (no cookie) so external clients
-/// can fetch keys. e7 wires it to the keyring; 501 until then.
-async fn wkd_lookup(UrlPath(_hash): UrlPath<String>) -> Response {
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        Json(json!({ "error": "WKD publishing lands in e7" })),
-    )
-        .into_response()
-}
-
-/// `POST /api/security/report` — ARF (Abuse Reporting Format) submission (§7.3
-/// sender-controls / plan §3 e7): relays a report-phishing/junk ARF report to the
-/// configured abuse address via the account submitter. Cookie-authed. 501 until e7.
-async fn arf_report(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(resp) = authed(&state, &headers).await {
-        return resp;
+/// `GET /.well-known/openpgpkey/hu/{hash}` — WKD (Web Key Directory) **direct
+/// method** (§7.3 / plan §3 e7): serves an own PUBLIC key by z-base-32 hashed
+/// local-part. The mail domain is taken from the `Host` header. PUBLIC (no cookie)
+/// so external clients can fetch keys — only keys the operator has published in
+/// `MW_WKD_DIR` are served.
+async fn wkd_lookup(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    UrlPath(hash): UrlPath<String>,
+) -> Response {
+    match host_domain(&headers) {
+        Some(domain) => wkd_serve(&state, &domain, &hash),
+        None => wkd_not_found(),
     }
+}
+
+/// `GET /.well-known/openpgpkey/{domain}/hu/{hash}` — WKD **advanced method**: the
+/// mail domain is explicit in the path (served from the `openpgpkey.<domain>`
+/// vhost). PUBLIC, same published-key source as the direct method.
+async fn wkd_lookup_advanced(
+    State(state): State<AppState>,
+    UrlPath((domain, hash)): UrlPath<(String, String)>,
+) -> Response {
+    wkd_serve(&state, &domain, &hash)
+}
+
+/// Serve a published WKD key for `(domain, hash)` as a binary transferable key.
+fn wkd_serve(state: &AppState, domain: &str, hash: &str) -> Response {
+    if !wkd::valid_domain(domain) || !wkd::valid_hash(hash) {
+        return wkd_not_found();
+    }
+    let Some(dir) = &state.security.wkd_dir else {
+        return wkd_not_found();
+    };
+    match wkd::WkdDirectory::new(dir.clone()).lookup(domain, hash) {
+        Some(bytes) => {
+            let mut resp = Response::new(Body::from(bytes));
+            let h = resp.headers_mut();
+            h.insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/octet-stream"),
+            );
+            // WKD clients may fetch cross-origin (openpgpkey.<domain> vhost).
+            h.insert(
+                header::ACCESS_CONTROL_ALLOW_ORIGIN,
+                HeaderValue::from_static("*"),
+            );
+            resp
+        }
+        None => wkd_not_found(),
+    }
+}
+
+/// WKD 404 (unknown/unpublished key), with the permissive CORS header WKD clients
+/// expect on every openpgpkey response.
+fn wkd_not_found() -> Response {
+    let mut resp = (StatusCode::NOT_FOUND, "not found").into_response();
+    resp.headers_mut().insert(
+        header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        HeaderValue::from_static("*"),
+    );
+    resp
+}
+
+/// `GET /.well-known/openpgpkey[/{domain}]/policy` — the WKD policy file. Its mere
+/// existence (empty body, 200) signals a WKD-enabled domain; no flags are set.
+async fn wkd_policy() -> Response {
+    let mut resp = ([(header::CONTENT_TYPE, "text/plain")], "").into_response();
+    resp.headers_mut().insert(
+        header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        HeaderValue::from_static("*"),
+    );
+    resp
+}
+
+/// The mail domain for the direct WKD method: the `Host` authority with any port
+/// stripped and the advanced-method `openpgpkey.` vhost prefix removed.
+fn host_domain(headers: &HeaderMap) -> Option<String> {
+    let host = headers.get(header::HOST)?.to_str().ok()?;
+    let host = host.split(':').next().unwrap_or(host);
+    let domain = host.strip_prefix("openpgpkey.").unwrap_or(host);
+    Some(domain.to_lowercase())
+}
+
+/// `POST /api/security/report {emailId, kind, note?}` — ARF (RFC 5965) abuse
+/// report (§7.3 sender-controls / plan §3 e7). Cookie-authed. Builds a valid
+/// feedback report wrapping the reported message and relays it to
+/// `MW_ABUSE_ADDRESS` (spooled to `MW_ABUSE_SPOOL` when configured). Engine mode
+/// only (the reported message's raw bytes come from the local store).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ArfReportReq {
+    email_id: String,
+    kind: String,
+    #[serde(default)]
+    note: Option<String>,
+}
+
+async fn arf_report(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<ArfReportReq>,
+) -> Response {
+    let session = match authed(&state, &headers).await {
+        Ok(s) => s,
+        Err(resp) => return resp,
+    };
+    let Some(abuse) = state.security.abuse_address.clone() else {
+        return (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(json!({ "error": "abuse reporting is not configured (set MW_ABUSE_ADDRESS)" })),
+        )
+            .into_response();
+    };
+    let Some(kind) = arf::FeedbackKind::from_token(&body.kind) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "kind must be 'phishing' or 'junk'" })),
+        )
+            .into_response();
+    };
+    let Some(engine) = &state.engine else {
+        return requires_engine_mode("abuse reporting");
+    };
+    // The report wraps the ORIGINAL reported message (fetched from the local store).
+    let raw = match engine.fetch_blob(&session.account_id, &body.email_id).await {
+        Ok(Some(blob)) => blob.bytes,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "reported message not found" })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::warn!("ARF blob fetch failed: {e}");
+            return upstream_error();
+        }
+    };
+    let reporting_domain = session.username.rsplit('@').next().unwrap_or_default();
+    let report = arf::build_report(
+        kind,
+        &session.username,
+        &abuse,
+        reporting_domain,
+        &raw,
+        body.note.as_deref(),
+    );
+    // Relay: spool for pickup when configured; otherwise the report is generated
+    // and logged (direct SMTP submission via the account MailSubmitter is the
+    // engine's job, plan §1.9 — it lands with SenderControl/set in e6).
+    let relayed = match &state.security.abuse_spool {
+        Some(dir) => match arf::spool(dir, &report) {
+            Ok(path) => {
+                tracing::info!("ARF report spooled to {}", path.display());
+                true
+            }
+            Err(e) => {
+                tracing::error!("ARF spool failed: {e}");
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": "failed to spool abuse report" })),
+                )
+                    .into_response();
+            }
+        },
+        None => {
+            tracing::info!(
+                "ARF report generated for {abuse} ({} bytes); no spool configured",
+                report.len()
+            );
+            false
+        }
+    };
     (
-        StatusCode::NOT_IMPLEMENTED,
-        Json(json!({ "error": "ARF report submission lands in e7" })),
+        StatusCode::ACCEPTED,
+        Json(json!({
+            "ok": true,
+            "feedbackType": kind.as_str(),
+            "abuseAddress": abuse,
+            "reportSize": report.len(),
+            "relayed": relayed,
+        })),
     )
         .into_response()
 }
 
-/// `GET /api/security/dlp/config` — DLP config load (§7.6 / plan §3 e7): exposes
-/// the active `MW_DLP_RULES` config so the web can surface rule names pre-send.
-/// Cookie-authed. 501 until e7.
+/// `GET /api/security/dlp/config` — DLP config load (§7.6 / plan §3 e7): parses
+/// `MW_DLP_RULES` and surfaces the active rules (same frozen `DlpRule` shape the
+/// engine enforces) so the web can name them pre-send. Cookie-authed.
 async fn dlp_config(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Err(resp) = authed(&state, &headers).await {
         return resp;
     }
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        Json(json!({ "error": "DLP config endpoint lands in e7" })),
-    )
-        .into_response()
+    let rules = match &state.security.dlp_rules {
+        Some(source) => match dlp::load_rules(source) {
+            Ok(rules) => rules,
+            Err(e) => {
+                tracing::error!("MW_DLP_RULES failed to load: {e}");
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": "DLP rules are misconfigured" })),
+                )
+                    .into_response();
+            }
+        },
+        None => Vec::new(),
+    };
+    Json(json!({ "list": rules, "count": rules.len() })).into_response()
+}
+
+/// `GET /api/security/watermark` — the honest screen-capture watermark config
+/// (§7.6 / plan §3 e7 / risk #13). Cookie-authed; returns the flag + the viewer's
+/// identity to tile + the mandatory [`watermark::HONEST_NOTE`]. The overlay is a
+/// deterrent, never a protection guarantee.
+async fn watermark_config(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let session = match authed(&state, &headers).await {
+        Ok(s) => s,
+        Err(resp) => return resp,
+    };
+    Json(state.security.watermark.payload(&session.username)).into_response()
 }
 
 // ---------------------------------------------------------------------------
