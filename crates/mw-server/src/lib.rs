@@ -48,9 +48,15 @@ const COOKIE_NAME: &str = "mw_session";
 
 /// Strict CSP for the SPA shell (SPEC §7.4). The message body is rendered in
 /// a separate sandboxed `<iframe srcdoc>` with its own restrictions.
-const CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
-     img-src 'self' blob: data:; font-src 'self'; connect-src 'self' blob:; frame-src 'self'; \
-     worker-src 'self' blob:; base-uri 'none'; form-action 'none'";
+// `'wasm-unsafe-eval'` permits WebAssembly compilation/instantiation ONLY (not
+// JS `eval()`) — required for the client-side crypto worker (mw-crypto +
+// mw-sanitize wasm, plan §1.1/§1.3). It does not weaken the XSS posture the way
+// `'unsafe-eval'` would; untrusted message bodies render under the far stricter
+// per-message [`MESSAGE_CSP`] in a sandboxed iframe, unaffected by this.
+const CSP: &str = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; \
+     style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self'; \
+     connect-src 'self' blob:; frame-src 'self'; worker-src 'self' blob:; \
+     base-uri 'none'; form-action 'none'";
 
 /// A locked-down CSP returned alongside sanitized message HTML so the web app
 /// can apply it to the per-message iframe (§7.4). Additive: the SPA shell keeps
