@@ -1,0 +1,32 @@
+# Radicale 3.x config — Mailwoman V3 CalDAV/CardDAV CI/dev server.
+#
+# Radicale is CI INFRA, not a dependency: a single scriptable Python process
+# invoked over the network only (docker-compose service), the same posture as
+# Greenmail/Dovecot in V1. It is GPLv3 but is never linked into, imported by, or
+# shipped with any Mailwoman crate/binary (mere aggregation — plan §1.5), and is
+# excluded from the cargo-deny / JS-license dependency scope (deny.toml).
+#
+# htpasswd auth + filesystem collections keep it trivial to seed/reset in CI
+# (scripts/radicale/seed.sh). The seeded principal is testuser/testpass, mirroring
+# the Greenmail/Dovecot test account.
+
+[server]
+hosts = 0.0.0.0:5232
+
+[auth]
+type = htpasswd
+htpasswd_filename = /config/users
+# Plaintext htpasswd — a throwaway CI credential (testuser/testpass). `plain`
+# lets the users file be regenerated deterministically with no bcrypt/htpasswd
+# tooling. NEVER use plaintext auth outside this disposable test server.
+htpasswd_encryption = plain
+
+[storage]
+filesystem_folder = /data/collections
+
+[rights]
+# Each principal owns /<user>/**; testuser reads+writes only its own collections.
+type = owner_only
+
+[logging]
+level = info

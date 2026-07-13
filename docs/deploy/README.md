@@ -28,6 +28,12 @@ V2 (realtime, TLS, fonts, hardening) adds:
 - [`hardening.md`](./hardening.md) — COEP/CORP/Permissions-Policy, CSRF, Origin
   checks, and session-timeout flags.
 
+V3 (PIM: calendar, tasks, notes, contacts) adds:
+
+- [`caldav-carddav.md`](./caldav-carddav.md) — CalDAV/CardDAV pairing (Radicale
+  for testing; Nextcloud/Baïkal/Google notes), calendar/address-book **sharing**
+  endpoints, **holiday** feeds, and the encrypted-at-rest notes posture.
+
 ## Configuration (environment)
 
 | Env | Default | Meaning |

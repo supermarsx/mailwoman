@@ -14,3 +14,7 @@ Dockerfile      text eol=lf
 *.conf                            text eol=lf
 *.eml                             text eol=lf
 scripts/dovecot/mailwoman-users   text eol=lf
+# Radicale config + htpasswd (extensionless) bind-mounted into the Linux
+# container; CRLF would corrupt the ini parse / the testpass credential.
+scripts/radicale/config           text eol=lf
+scripts/radicale/users            text eol=lf

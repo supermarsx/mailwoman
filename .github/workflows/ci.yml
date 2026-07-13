@@ -315,36 +315,42 @@ jobs:
         run: docker compose -f docker-compose.dev.yml down -v
 
   # -------------------------------------------------------------------------
-  # V3 (PIM) CalDAV/CardDAV conformance vs Radicale — job STUB (plan §3 e0/e11).
-  # e0 reserves the job; e11 uncomments it once the Radicale compose service +
-  # seed script land and the conformance transcripts (create/sync/conflict)
-  # exist. Radicale is CI infra (a separate networked GPLv3 program, never
-  # linked/shipped — plan §1.5), the always-green gate; Google/M365 recorded
-  # fixtures run continue-on-error. Left fully commented so it is inert until e11.
+  # V3 (PIM) CalDAV/CardDAV conformance vs Radicale (plan §3 e11). The env-gated
+  # live tests (#[ignore]) in mw-dav / mw-carddav / mw-engine run against a REAL
+  # CalDAV/CardDAV server booted from docker-compose.dev.yml:
+  #   - mw-dav        — RFC 6764 discovery -> sync-collection (create/sync).
+  #   - mw-carddav    — addressbook discovery -> query -> multiget projection.
+  #   - mw-engine     — a full sync_pim round-trip: engine A PUTs an event to the
+  #                     real collection, engine B (fresh store) pulls it back.
+  # Radicale is the DETERMINISTIC green gate (required). Google/M365 quirk
+  # fixtures are RECORDED XML exercised by the always-green `rust` job (not here),
+  # so this job needs no live OAuth and stays deterministic. Radicale is CI infra
+  # (a separate networked GPLv3 program, never linked/shipped — plan §1.5,
+  # deny.toml), excluded from the dependency-license scope.
   # -------------------------------------------------------------------------
-  # caldav-carddav-conformance:
-  #   runs-on: ubuntu-latest
-  #   needs: [rust]
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: dtolnay/rust-toolchain@stable
-  #     - uses: Swatinem/rust-cache@v2
-  #     - name: boot radicale (wait healthy)
-  #       run: docker compose -f docker-compose.dev.yml up -d --wait radicale
-  #     - name: seed radicale collections
-  #       run: bash ./scripts/radicale/seed.sh 127.0.0.1 5232 60
-  #     - name: CalDAV/CardDAV conformance (create / sync-token / ctag / 412 conflict)
-  #       env:
-  #         RADICALE_URL: "http://127.0.0.1:5232"
-  #         RADICALE_USER: testuser
-  #         RADICALE_PASS: testpass
-  #       run: cargo test -p mw-dav -p mw-carddav -p mw-engine --test '*' -- --ignored
-  #     - name: server logs on failure
-  #       if: failure()
-  #       run: docker compose -f docker-compose.dev.yml logs --no-color radicale
-  #     - name: tear down
-  #       if: always()
-  #       run: docker compose -f docker-compose.dev.yml down -v
+  caldav-carddav-conformance:
+    runs-on: ubuntu-latest
+    needs: [rust]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: boot radicale (wait healthy)
+        run: docker compose -f docker-compose.dev.yml up -d --wait radicale
+      - name: seed radicale collections (VEVENT + VTODO calendars + addressbook)
+        run: sh ./scripts/radicale/seed.sh 127.0.0.1 5232 60
+      - name: CalDAV/CardDAV live conformance (discovery / sync / round-trip / 412 conflict)
+        env:
+          RADICALE_URL: "http://127.0.0.1:5232"
+          RADICALE_USER: testuser
+          RADICALE_PASS: testpass
+        run: cargo test -p mw-dav -p mw-carddav -p mw-engine -- --ignored
+      - name: server logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.dev.yml logs --no-color radicale
+      - name: tear down
+        if: always()
+        run: docker compose -f docker-compose.dev.yml down -v
 
   # -------------------------------------------------------------------------
   # E2E (engine mode): the SAME web UI, but mw-server in MW_MODE=engine driving
