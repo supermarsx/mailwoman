@@ -19,7 +19,7 @@
     "category": "Productivity",
     "shortDescription": "Mailwoman thin desktop shell",
     "longDescription": "Mailwoman desktop shell (Tauri v2): the same web SPA the server serves, plus native OS integration and an optional self-contained local server. Thin client — no protocol logic in the shell.",
-    "resources": {},
+    "resources": ["resources/mw-server*"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

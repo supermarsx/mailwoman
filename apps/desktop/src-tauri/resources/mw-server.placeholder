@@ -1,0 +1,8 @@
+Placeholder so `bundle.resources` glob `resources/mw-server*` matches during a
+plain `cargo build` (tauri-build validates resource globs at build time, before
+any binary is bundled). The REAL self-contained engine — the release `mw-server`
+binary — is dropped next to this file by `scripts/bundle-server.{sh,ps1}` right
+before `tauri build` (SPEC §4.1 / plan §3 e3). At runtime the shell resolves the
+exact platform binary (`mw-server` / `mw-server.exe`), so this text file is
+ignored. Do not remove: without a matching file, `cargo build -p mailwoman-desktop`
+fails in CI/clippy jobs that don't run bundle-server.
