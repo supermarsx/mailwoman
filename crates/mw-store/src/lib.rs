@@ -9,6 +9,7 @@ mod seal;
 mod v2;
 mod v3;
 mod v4;
+mod v5;
 
 pub use cache::{
     Account, AccountKind, Mailbox, MailboxUpsert, Message, MessageLocation, MessageUpsert,
@@ -27,6 +28,7 @@ pub use v4::{
     CryptoChangeRow, CryptoKeyRow, DlpAuditRow, KeyAssociationRow, SecurityVerdictRow,
     SenderControlRow, StoreKeyMaterialRow,
 };
+pub use v5::{NativeSessionRow, PushSubscriptionRow};
 
 use std::str::FromStr;
 use std::time::Duration;

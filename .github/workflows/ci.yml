@@ -31,14 +31,20 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      # The V5 Tauri shell crates (mailwoman-desktop / mailwoman-mobile) need the
+      # Linux WebKitGTK system libraries to compile; they are built (Win + Linux)
+      # in the dedicated `desktop-shell` job below (e8), NOT in this lean core job.
+      # Nothing in the core workspace depends on them, so excluding them here is
+      # clean. On Windows (WebView2 present) `cargo build --workspace` builds them
+      # directly — see the e0 toolchain probe.
       - name: fmt
         run: cargo fmt --all --check
       - name: clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile --all-targets -- -D warnings
       - name: test
-        run: cargo test --workspace
+        run: cargo test --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile
       - name: build
-        run: cargo build --workspace
+        run: cargo build --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile
 
   # -------------------------------------------------------------------------
   # Supply chain: licenses + advisories + bans + sources (deny.toml).
@@ -593,3 +599,77 @@ jobs:
       - name: tear down
         if: always()
         run: docker compose -f docker-compose.dev.yml -f docker-compose.crypto.yml down -v
+
+  # ===========================================================================
+  # V5 (26.6.0) thin-shell CI — SCAFFOLDED BY e0, COMMENTED until e8 activates +
+  # finalizes them. These build the Tauri v2 desktop shell (Windows + Linux) and
+  # the Android APK, and run the live tauri-driver E2E. Kept commented so the e0
+  # scaffold commit does not turn on jobs whose steps (installers, Android SDK
+  # provisioning, tauri-driver ↔ WebView2 pinning) e7/e8 still need to fill.
+  #
+  # desktop-shell:
+  #   strategy:
+  #     matrix:
+  #       os: [windows-latest, ubuntu-latest]
+  #   runs-on: ${{ matrix.os }}
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: dtolnay/rust-toolchain@stable
+  #     - uses: Swatinem/rust-cache@v2
+  #     - uses: pnpm/action-setup@v4
+  #     - uses: actions/setup-node@v4
+  #       with: { node-version: 24 }
+  #     # Linux: Tauri WebKitGTK system deps (Windows ships WebView2).
+  #     - name: install Linux webview deps
+  #       if: runner.os == 'Linux'
+  #       run: |
+  #         sudo apt-get update
+  #         sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+  #           libayatana-appindicator3-dev librsvg2-dev libssl-dev
+  #     - name: build shared SPA (the one UI bundle the shell embeds)
+  #       run: pnpm -C apps/web install --frozen-lockfile && pnpm -C apps/web build
+  #     - name: install shell JS deps
+  #       run: pnpm -C apps/desktop install
+  #     - name: tauri build (desktop)
+  #       run: pnpm -C apps/desktop exec tauri build --no-bundle   # e8: enable bundling
+  #     - name: bundle-size gate (< 10 MB thin, < 40 MB self-contained, §16)
+  #       run: node scripts/check-shell-size.mjs                    # e8 authors this
+  #
+  # android-apk:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: dtolnay/rust-toolchain@stable
+  #       with: { targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android }
+  #     - uses: actions/setup-java@v4
+  #       with: { distribution: temurin, java-version: 17 }
+  #     - uses: android-actions/setup-android@v3
+  #     - name: install NDK
+  #       run: sdkmanager "ndk;27.0.12077973"
+  #     - uses: pnpm/action-setup@v4
+  #     - uses: actions/setup-node@v4
+  #       with: { node-version: 24 }
+  #     - name: build shared SPA
+  #       run: pnpm -C apps/web install --frozen-lockfile && pnpm -C apps/web build
+  #     - name: tauri android init + build APK
+  #       run: |
+  #         pnpm -C apps/mobile install
+  #         pnpm -C apps/mobile exec tauri android init --ci
+  #         pnpm -C apps/mobile exec tauri android build --apk
+  #     - name: upload APK
+  #       uses: actions/upload-artifact@v4
+  #       with: { name: mailwoman-android, path: apps/mobile/src-tauri/gen/android/app/build/outputs/**/*.apk }
+  #
+  # desktop-e2e:
+  #   runs-on: windows-latest   # tauri-driver ↔ WebView2/msedgedriver, e9
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: dtolnay/rust-toolchain@stable
+  #     - name: install tauri-driver
+  #       run: cargo install tauri-driver --locked
+  #     - name: build SPA + desktop shell
+  #       run: |
+  #         pnpm -C apps/web install --frozen-lockfile && pnpm -C apps/web build
+  #         cargo build -p mailwoman-desktop
+  #     - name: run WebdriverIO live E2E (launch → SPA → notification → keychain → capture)
+  #       run: pnpm -C apps/desktop exec wdio run e2e/wdio.conf.ts   # e9 authors this

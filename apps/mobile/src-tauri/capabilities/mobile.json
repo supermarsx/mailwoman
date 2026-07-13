@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile",
+  "description": "Mobile-only capabilities (biometric app-lock). Gated to Android/iOS so the desktop-host build (cargo build --workspace) — where tauri-plugin-biometric is #![cfg(mobile)] and absent — does not require these permissions. e2/e4 extend this.",
+  "platforms": ["android", "iOS"],
+  "windows": ["main"],
+  "permissions": ["biometric:default"]
+}

@@ -1,0 +1,34 @@
+# Mailwoman mobile shell (Tauri v2 · plan §3 e0). THIN client, same model as the
+# desktop shell: it embeds the hash-verified `apps/web/dist` SPA and adds mobile OS
+# integration only — NO protocol logic, NO forked UI. **Android is the buildable
+# gate** (`tauri android build`, CI); **iOS is best-effort/documented** (needs
+# macOS + an Apple account, not available on this Windows machine — plan §1.9/§9).
+# e2 fills the mobile capability commands + UnifiedPush, e4 the Android FLAG_SECURE
+# Kotlin plugin, e7 mounts + produces the APK. A workspace member so `cargo build
+# --workspace` / clippy build its host (rlib) form; the Android/iOS targets are
+# cross-compiled by the Tauri mobile CLI.
+[package]
+name = "mailwoman-mobile"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Mailwoman thin mobile shell (Tauri v2, Android + best-effort iOS)"
+publish = false
+
+[lib]
+name = "mailwoman_mobile_lib"
+# cdylib → Android's lib<name>.so; staticlib → iOS; rlib → host unit tests.
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { workspace = true }
+
+[dependencies]
+tauri = { workspace = true }
+tauri-plugin-notification = { workspace = true }
+tauri-plugin-os = { workspace = true }
+tauri-plugin-deep-link = { workspace = true }
+tauri-plugin-biometric = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

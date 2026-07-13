@@ -20,6 +20,8 @@ members = [
     "crates/mw-dav",
     "crates/mw-carddav",
     "crates/mw-crypto",
+    "apps/desktop/src-tauri",
+    "apps/mobile/src-tauri",
 ]
 
 [workspace.package]
@@ -140,6 +142,31 @@ wasm-bindgen = "0.2"
 js-sys = "0.3"
 web-sys = "0.3"
 getrandom = "0.4"
+
+# V5 thin-shell (Tauri v2) + push deps (plan §1.5/§1.7/§1.10 — ALL confirmed
+# permissive: MIT OR Apache-2.0, NO GPL/LGPL/AGPL; vetted in deny.toml). Tauri
+# core + the official first-party plugins (`tauri-apps/plugins-workspace`) back the
+# desktop/mobile shells (`apps/desktop`, `apps/mobile`); they build for the host
+# (Windows/Linux/macOS) and are cross-compiled for Android/iOS by `tauri android|ios`.
+#   tauri / tauri-build          — the shell runtime + build-time codegen (MIT/Apache).
+#   plugin-notification/-os/-deep-link/-biometric/-process/-shell/-updater
+#                                — the §2.1 native capabilities (all MIT/Apache).
+# `keyring` (OS credential store: DPAPI / Keychain / Secret Service) is linked
+# per-target in the shell crate (platform-native backend per OS), not here.
+# `web-push` (pimeys/rust-web-push, Apache-2.0; VAPID + RFC 8188/http-ece) is
+# PRE-DECLARED here for e5 (server push relay) and NOT yet linked into the tree —
+# same posture as the V4 crypto deps above (so not yet in Cargo.lock / cargo-deny
+# until e5 wires it; it lands under the permissive allow-list unchanged).
+tauri = { version = "2", features = [] }
+tauri-build = { version = "2", features = [] }
+tauri-plugin-notification = "2"
+tauri-plugin-os = "2"
+tauri-plugin-deep-link = "2"
+tauri-plugin-biometric = "2"
+tauri-plugin-process = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-updater = "2"
+web-push = "0.10"
 
 mw-jmap = { path = "crates/mw-jmap" }
 mw-sanitize = { path = "crates/mw-sanitize" }

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Mailwoman",
+  "version": "26.6.0",
+  "identifier": "com.mailwoman.mobile",
+  "build": {
+    "frontendDist": "../../web/dist",
+    "devUrl": "http://localhost:5173"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Productivity",
+    "shortDescription": "Mailwoman thin mobile shell",
+    "longDescription": "Mailwoman mobile shell (Tauri v2): the same web SPA the server serves, plus native OS integration (share targets, file handlers, UnifiedPush, FLAG_SECURE, biometric app-lock). Thin client — no protocol logic in the shell.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

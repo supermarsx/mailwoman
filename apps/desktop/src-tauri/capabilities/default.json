@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capabilities granted to the Mailwoman desktop shell's main window. e1/e3/e4 extend this as they add native command surfaces; the set stays least-privilege (SPEC §7).",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "os:default",
+    "shell:default",
+    "process:default",
+    "notification:default",
+    "deep-link:default",
+    "updater:default"
+  ]
+}

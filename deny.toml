@@ -30,6 +30,20 @@
 #   gate; left OUT of the build until its license floor is vetted. If enabled, its
 #   OpenSSL-derived license needs an explicit allow decision recorded here first.
 #
+# V5 (26.6.0) new dependencies — the Tauri v2 thin-shell stack (plan §1.5/§1.10),
+# all confirmed permissive (MIT OR Apache-2.0), pulled in by the new shell crates
+# `apps/desktop/src-tauri` + `apps/mobile/src-tauri`:
+#   tauri, tauri-build, tauri-plugin-{notification,os,deep-link,biometric,process,
+#   shell,updater} (MIT/Apache-2.0), keyring (MIT/Apache-2.0). These land under the
+#   MIT/Apache allow entries below. `web-push` (pimeys/rust-web-push, Apache-2.0;
+#   VAPID + RFC 8188/http-ece) is PRE-DECLARED in `[workspace.dependencies]` for e5
+#   and NOT yet linked into the tree (so not yet in Cargo.lock / this check) — same
+#   posture as the V4 crypto deps; it lands under Apache-2.0 unchanged when e5 wires it.
+#   NEW allow entry required: the large Tauri dep tree transitively pulls
+#   `tiny-keccak` (via `tauri-plugin-deep-link`), licensed CC0-1.0 — a Creative
+#   Commons public-domain dedication (permissive, NOT copyleft). Added to the
+#   allow-list below. No GPL/LGPL/AGPL enters the tree (verified 2026-07-13).
+#
 # Radicale (the CalDAV/CardDAV CI server, plan §1.5) is GPLv3 but is NOT a
 # Mailwoman dependency: it is a separate program invoked over the network in CI
 # only (docker-compose service, same posture as Dovecot/Greenmail in V1) — never
@@ -56,6 +70,39 @@ ignore = [
     # timing oracle. Revisit and remove this ignore when `rsa` ships a constant-time
     # decrypt. (SPEC §8.2; plan §6 risk.)
     "RUSTSEC-2023-0071",
+
+    # ── V5 (26.6.0): Tauri v2 transitive UNMAINTAINED advisories (plan §1.5/§1.10).
+    # These are all `unmaintained` maintenance-status advisories (NOT
+    # vulnerabilities — `cargo deny check advisories` reports zero `vulnerability`
+    # entries), carried by EVERY Tauri v2 app through its dependency tree. There is
+    # no fixed version to move to: the upstream ecosystem has not migrated, so the
+    # only alternative to ignoring them is dropping the desktop/mobile shells
+    # entirely. Bounded + documented, same posture as RUSTSEC-2023-0071 above.
+    #
+    #   gtk-rs GTK3 bindings (gtk/gdk/atk/glib/… v0.18) — Tauri's LINUX WebKitGTK
+    #   webview backend. No longer maintained upstream (GTK3 → GTK4 migration
+    #   pending across the ecosystem). Linux-only; irrelevant to the Windows/macOS
+    #   (WebView2/WKWebView) and Android/iOS backends. Revisit when Tauri adopts GTK4.
+    "RUSTSEC-2024-0411",
+    "RUSTSEC-2024-0412",
+    "RUSTSEC-2024-0413",
+    "RUSTSEC-2024-0414",
+    "RUSTSEC-2024-0415",
+    "RUSTSEC-2024-0416",
+    "RUSTSEC-2024-0417",
+    "RUSTSEC-2024-0418",
+    "RUSTSEC-2024-0419",
+    "RUSTSEC-2024-0420",
+    #   proc-macro-error v1 — unmaintained proc-macro helper pulled transitively by
+    #   the GTK3 macro crates. Build-time only, no runtime surface.
+    "RUSTSEC-2024-0370",
+    #   unic-* v0.9 (unicode property tables) — unmaintained, pulled transitively by
+    #   the Tauri config/codegen tree. Data-table crates, no known defect.
+    "RUSTSEC-2025-0075",
+    "RUSTSEC-2025-0080",
+    "RUSTSEC-2025-0081",
+    "RUSTSEC-2025-0098",
+    "RUSTSEC-2025-0100",
 ]
 
 [licenses]
@@ -71,6 +118,10 @@ allow = [
     "MPL-2.0",
     "Unicode-3.0",
     "CDLA-Permissive-2.0",
+    # Public-domain dedication (Creative Commons Zero) of `tiny-keccak`, surfaced
+    # transitively by the V5 Tauri shell tree (`tauri-plugin-deep-link`).
+    # Permissive / public-domain — no copyleft (plan §1.10).
+    "CC0-1.0",
     # Permissive BSD-style license of the `bzip2` C library, surfaced by a
     # transitive dep of the V4 crypto tree. Free/permissive — no copyleft.
     "bzip2-1.0.6",

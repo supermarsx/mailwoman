@@ -30,6 +30,7 @@ pub mod fonts;
 pub mod hardening;
 pub mod holidays;
 pub mod push;
+pub mod push_relay;
 pub mod sharing;
 pub mod tls;
 pub mod watermark;
@@ -260,6 +261,14 @@ fn router(state: AppState) -> Router {
         .route("/api/security/watermark", get(watermark_config))
         .route("/jmap/ws", get(push::jmap_ws))
         .route("/jmap/eventsource", get(push::jmap_eventsource))
+        // ── V5 push relay (plan §3 e0/e5). Route seams reserved now; e5 fills VAPID
+        // key serving, subscription storage, and the opaque-wake dispatcher. Cookie-
+        // authed like every other endpoint; 501 until then (never falls through to
+        // the SPA index.html). The additive native bearer-auth mode + CORS gate are
+        // OFF by default (browser cookie/same-origin path UNCHANGED). ──
+        .route("/api/push/vapid", get(push_relay::push_vapid))
+        .route("/api/push/subscribe", post(push_relay::push_subscribe))
+        .route("/api/push/unsubscribe", post(push_relay::push_unsubscribe))
         .route("/healthz", get(|| async { "ok" }))
         .fallback(static_handler)
         // Innermost: reject cross-origin / missing-CSRF writes before handlers.
@@ -337,6 +346,14 @@ struct LoginReq {
     jmap_url: String,
     username: String,
     password: String,
+    /// V5 native-auth seam (plan §2.2): a native shell may request a bearer-token
+    /// session (`"native"`) instead of the cookie. ADDITIVE — absent for browser
+    /// logins, so behavior is byte-identical today. e5 branches on this to mint a
+    /// bearer token + a `native_sessions` row (setting no cookie); until then the
+    /// field is accepted and ignored (the cookie path runs unchanged).
+    #[serde(default)]
+    #[allow(dead_code)]
+    client_type: Option<String>,
 }
 
 /// Uniform 401 — never leak which of URL/user/password was wrong (SPEC §7.4).

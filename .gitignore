@@ -7,3 +7,9 @@ apps/web/dist/*
 *.local
 test-results/
 playwright-report/
+
+# V5 Tauri shells — generated artifacts (never committed).
+#   bundle-hash.json is emitted at build time by scripts/emit-bundle-hash.mjs;
+#   gen/ holds the Tauri-generated Android/iOS projects + capability schemas.
+apps/*/src-tauri/bundle-hash.json
+apps/*/src-tauri/gen/

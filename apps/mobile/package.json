@@ -1,0 +1,26 @@
+{
+  "name": "@mailwoman/mobile",
+  "version": "26.6.0",
+  "private": true,
+  "type": "module",
+  "description": "Mailwoman thin mobile shell (Tauri v2, Android + best-effort iOS). Ships the shared apps/web SPA + native OS integration; no forked UI.",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "android:init": "tauri android init",
+    "android:dev": "tauri android dev",
+    "android:build": "tauri android build",
+    "ios:init": "tauri ios init",
+    "ios:build": "tauri ios build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.0"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-notification": "^2",
+    "@tauri-apps/plugin-os": "^2",
+    "@tauri-apps/plugin-deep-link": "^2",
+    "@tauri-apps/plugin-biometric": "^2"
+  }
+}

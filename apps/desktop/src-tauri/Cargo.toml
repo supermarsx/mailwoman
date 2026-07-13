@@ -1,0 +1,49 @@
+# Mailwoman desktop shell (Tauri v2 · plan §3 e0). THIN client: it embeds the
+# hash-verified `apps/web/dist` SPA (the byte-identical bundle mw-server serves)
+# and adds OS integration only — NO protocol logic, NO forked UI. e1 fills the
+# native command surface, e3 the self-contained local-server spawn, e4 the capture
+# protection, e7 mounts + builds. Kept a workspace member so `cargo build
+# --workspace` / clippy / cargo-deny cover it (root Cargo.toml owns the shared
+# tauri/plugin versions; keyring is linked per-target below).
+[package]
+name = "mailwoman-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Mailwoman thin desktop shell (Tauri v2)"
+publish = false
+
+# A Tauri app is a library (desktop + mobile share it) driven by a thin binary.
+[lib]
+name = "mailwoman_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { workspace = true }
+
+[dependencies]
+tauri = { workspace = true }
+tauri-plugin-notification = { workspace = true }
+tauri-plugin-os = { workspace = true }
+tauri-plugin-deep-link = { workspace = true }
+# NB: tauri-plugin-biometric is `#![cfg(mobile)]` (Android/iOS only), so it is NOT
+# a desktop dep — desktop biometric app-lock (Windows Hello / passphrase fallback)
+# is wired by e1 through a desktop-native path. The plugin is used by apps/mobile.
+tauri-plugin-process = { workspace = true }
+tauri-plugin-shell = { workspace = true }
+tauri-plugin-updater = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# OS credential store (§16 keychain) — the native backend per platform: DPAPI /
+# Windows Credential Manager on Windows, Keychain on macOS, Secret Service on
+# Linux. Selected per-target so a Windows build never pulls the Linux D-Bus stack.
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }

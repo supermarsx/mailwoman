@@ -1,0 +1,36 @@
+<!-- AndroidManifest.xml <intent-filter> templates (plan §3 e0 → e2). Merge these
+     into the <activity> of the generated gen/android/app/src/main/AndroidManifest.xml
+     after `tauri android init`. They register Mailwoman as a SHARE TARGET and a FILE
+     HANDLER for mail/PIM document types (.eml/.ics/.vcf/.msg). e2 wires the matching
+     capability commands (`onShareTarget`, file open) to the SPA. -->
+
+<!-- Share target: receive shared text / a single stream (e.g. share an email). -->
+<intent-filter>
+    <action android:name="android.intent.action.SEND" />
+    <category android:name="android.intent.category.DEFAULT" />
+    <data android:mimeType="text/plain" />
+    <data android:mimeType="message/rfc822" />
+    <data android:mimeType="*/*" />
+</intent-filter>
+
+<!-- File handlers: open .eml / .ics / .vcf / .msg from other apps. -->
+<intent-filter>
+    <action android:name="android.intent.action.VIEW" />
+    <category android:name="android.intent.category.DEFAULT" />
+    <category android:name="android.intent.category.BROWSABLE" />
+    <data android:scheme="content" />
+    <data android:scheme="file" />
+    <data android:mimeType="message/rfc822" />
+    <data android:mimeType="text/calendar" />
+    <data android:mimeType="text/vcard" />
+    <data android:mimeType="application/vnd.ms-outlook" />
+</intent-filter>
+
+<!-- Deep links: mailto: (default-mail handler) + the mailwoman: app scheme. -->
+<intent-filter android:autoVerify="false">
+    <action android:name="android.intent.action.VIEW" />
+    <category android:name="android.intent.category.DEFAULT" />
+    <category android:name="android.intent.category.BROWSABLE" />
+    <data android:scheme="mailto" />
+    <data android:scheme="mailwoman" />
+</intent-filter>
