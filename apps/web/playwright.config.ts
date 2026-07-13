@@ -13,11 +13,17 @@ import { defineConfig, devices } from '@playwright/test';
  *                original happy-path + sanitizer specs.
  *   - `engine` — V1 engine mode: mw-server driving a REAL IMAP/SMTP account
  *                (Greenmail) through mw-engine, on :8090. Runs imap-engine.spec.
+ *   - `pim`    — V3 engine mode: the SAME engine-mode server (:8090), driving the
+ *                four PIM modules (calendar/tasks/notes/contacts) through the real
+ *                UI over the engine's auto-seeded Mailwoman-native collections.
+ *                Runs the pim-*.spec.ts specs. (The CalDAV/CardDAV round-trip
+ *                itself is proven at the Rust level by e11's conformance job, so
+ *                these specs need no CalDAV account in the browser.)
  *
- * Select one with `--project=mock` / `--project=engine`. Each project's
- * `baseURL` can be overridden for local runs (e.g. `cargo run` / `vite`):
- *   - mock:   PLAYWRIGHT_BASE_URL or PLAYWRIGHT_MOCK_BASE_URL (default :8080)
- *   - engine: PLAYWRIGHT_ENGINE_BASE_URL (default :8090)
+ * Select one with `--project=mock` / `--project=engine` / `--project=pim`. Each
+ * project's `baseURL` can be overridden for local runs (e.g. `cargo run` / `vite`):
+ *   - mock:          PLAYWRIGHT_BASE_URL or PLAYWRIGHT_MOCK_BASE_URL (default :8080)
+ *   - engine / pim:  PLAYWRIGHT_ENGINE_BASE_URL (default :8090)
  */
 const mockBaseURL =
   process.env['PLAYWRIGHT_MOCK_BASE_URL'] ??
@@ -62,6 +68,15 @@ export default defineConfig({
         'viewers.spec.ts',
         'export.spec.ts',
       ],
+      use: { ...devices['Desktop Chrome'], baseURL: engineBaseURL },
+    },
+    {
+      name: 'pim',
+      // V3 PIM live E2E: the four modules (calendar/tasks/notes/contacts) driven
+      // through the real UI against the engine-mode server (:8090), over its
+      // auto-seeded native collections. Adding a `pim-*.spec.ts` slots into the CI
+      // `e2e-pim` job (boots greenmail + mailwoman-engine, runs `--project=pim`).
+      testMatch: ['pim-*.spec.ts'],
       use: { ...devices['Desktop Chrome'], baseURL: engineBaseURL },
     },
   ],
