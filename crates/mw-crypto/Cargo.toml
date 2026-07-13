@@ -7,48 +7,96 @@ license.workspace = true
 repository.workspace = true
 
 # ONE crate, TWO build targets split by cargo feature (plan §1.1). `cdylib` is the
-# wasm-pack browser artifact; `rlib` is the native engine dependency (mw-engine
-# links it for public-key verify / cert harvest / PQC store-key wrap).
+# wasm-pack browser artifact; `rlib` is the native engine dependency.
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [features]
-# `native` (default): server/engine side — public-key verify of received mail,
-#   cert harvesting, verdict inputs, PQC store-key wrapping, WKD HTTP lookup.
-# `wasm`: the browser private-key operations (keygen, decrypt, private sign,
-#   PKCS#12 import, backup). The wasm-bindgen surface itself is gated on
-#   `cfg(target_arch = "wasm32")` so the exact acceptance command
-#   `cargo build -p mw-crypto --target wasm32-unknown-unknown` compiles it with no
-#   extra flags, while the native workspace build never carries wasm-bindgen.
-# `pqc`: OpenPGP-PQC (draft-ietf-openpgp-pqc) — OFF, not a V4 gate (plan §1.7).
+# `native` (default): server/engine — public verify, cert harvest, PQC store-key
+#   wrap (X25519+ML-KEM-768), WKD HTTP lookup. `wasm`: browser private-key ops
+#   (keygen, decrypt, private sign, PKCS#12 import, backup). `pqc`: OpenPGP-PQC
+#   draft — OFF, not a V4 gate (plan §1.7).
 default = ["native"]
-native = []
+native = ["dep:ml-kem", "dep:x25519-dalek", "dep:aes-gcm", "dep:reqwest"]
 wasm = []
 pqc = []
 
 [dependencies]
-# The frozen §2.1 DTOs are plain serde types — wasm-safe, no OS/DNS/fs. e1 adds
-# the real rPGP / RustCrypto / ml-kem deps behind the feature split; the e0 stub
-# deliberately pulls in only this wasm-compatible core so BOTH the native
-# workspace build and the wasm32 stub build stay green.
+# ── Frozen §2.1 DTOs + shared plumbing (both targets) ──
 serde = { workspace = true }
 serde_json = { workspace = true }
-# Secret-zeroing for the (todo!()) private-key session cache — pure Rust, wasm-ok.
 zeroize = { workspace = true }
+base64 = { workspace = true }
+hex = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
 
-# ── Native-only crypto/enrichment deps (feature-gated OUT of wasm, plan §1.1) ──
-# e1 enables these under `native`; declared here so the seam + license posture is
-# frozen. `mail-auth` (DNS) + `maxminddb` (fs) must never enter the wasm build.
-# [target.'cfg(not(target_arch = "wasm32"))'.dependencies]  # e1 wires rPGP/cms/…
+# ── OpenPGP (rPGP) — pure-Rust, wasm-tested (Delta Chat); both targets ──
+# Public verify/harvest run native; keygen/decrypt/private-sign run in wasm. rPGP's
+# S2K passphrase protection *is* the PGP `encryptedPrivateBundle` (plan §2.3).
+pgp = { workspace = true }
+smallvec = "1"
+rand = { workspace = true }
+
+# ── S/MIME (RustCrypto "new gen": der 0.8 / signature 3 / sha2 0.11) — both targets.
+# sign/verify/encrypt run either side; PKCS#12 import + private-key sign are wasm. ──
+# NB: the cms `builder` feature is deliberately OFF — that pre-release builder only
+# compiles against exact-rc cipher/elliptic-curve versions since superseded by
+# breaking releases (a pin cascade). We construct SignedData/EnvelopedData from the
+# cms core ASN.1 types directly + drive the RSA/AES/SHA ourselves (this module).
+cms = { workspace = true }
+x509-cert = { workspace = true, features = ["pem"] }
+rsa = { workspace = true, features = ["sha2"] }
+p256 = { workspace = true, features = ["ecdh", "ecdsa", "pem", "pkcs8"] }
+sha2 = { workspace = true }
+sha1 = { workspace = true }
+der = { version = "0.8", features = ["oid", "std", "alloc", "pem", "derive"] }
+spki = { version = "0.8", features = ["alloc"] }
+const-oid = { version = "0.10", features = ["db"] }
+signature = { version = "3", features = ["alloc", "rand_core"] }
+# NB: pkcs8 `getrandom` is deliberately OFF — we wrap keys with explicit PBES2
+# params (rng-free salt/IV) so the wasm build never pulls getrandom 0.3+.
+pkcs8 = { version = "0.11", features = ["encryption", "pkcs5", "alloc", "std"] }
+pkcs5 = { version = "0.8", features = ["pbes2", "alloc"] }
+# AES-CBC S/MIME content decryption — must match the cipher gen cms's `builder`
+# feature pulls (aes 0.9 / cbc 0.2 / cipher 0.5), or cargo unifies to a broken mix.
+aes = "0.9"
+cbc = "0.2"
+cipher = { version = "0.5", features = ["block-padding", "alloc"] }
+# A single portable CSPRNG so new-gen (rand_core 0.9) key/nonce generation is fed
+# from OsRng (native) or a getrandom-js seed (wasm). Default features only — the
+# `os_rng` feature (which would pull getrandom 0.3) is deliberately NOT enabled.
+rand_core = "0.10"
+rand_chacha = "0.9"
+
+# ── PQC — hybrid X25519 + ML-KEM-768 store-seal key-wrap (plan §1.7). NATIVE-scoped
+# (engine wraps the store seal key at rest); off the wasm build entirely. ──
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ml-kem = { workspace = true, optional = true }
+x25519-dalek = { version = "2", features = ["static_secrets", "zeroize"], optional = true }
+aes-gcm = { version = "0.10", optional = true }
+reqwest = { workspace = true, optional = true }
 
 # ── wasm-only browser boundary (plan §1.1/§2.3) ──
-# wasm-bindgen is a TARGET-specific dep so the native build never links it, while
-# `cargo build --target wasm32-unknown-unknown` gets the browser surface. e8's
-# wasm-pack step post-processes this into `apps/web/src/wasm/`. getrandom's JS
-# backend is selected via `--cfg getrandom_backend="wasm_js"` in
-# scripts/build-wasm.* (e1/e8 wire real RNG; the todo!() stub needs none).
+# Two getrandom generations reach the wasm build: 0.2 (via rPGP's rand 0.8) needs
+# the `js` backend; 0.4 (via crypto-bigint ← rsa/p256) needs the `wasm_js` backend.
+# BOTH are plain crate features here — no `--cfg getrandom_backend` flag required, so
+# the bare `cargo build --target wasm32-unknown-unknown` acceptance passes.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+# rPGP's `wasm` feature swaps `std::time` → `web-time` (JS `Date` clock) so keygen's
+# self-signature timestamps don't hit `SystemTime::now()`, which panics ("time not
+# implemented") on wasm32-unknown-unknown. Enabled ONLY here, so the native build is
+# untouched. (unioned with the base `pgp` dependency's default features.)
+pgp = { workspace = true, features = ["wasm"] }
 wasm-bindgen = { workspace = true }
+js-sys = { workspace = true }
+serde-wasm-bindgen = "0.6"
+getrandom = { version = "0.2", features = ["js"] }
+getrandom_v04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
+# Routes Rust panics to the JS console so the worker (e8) gets real messages instead
+# of a bare `unreachable` trap.
+console_error_panic_hook = "0.1"
 
 [dev-dependencies]
 serde_json = { workspace = true }
+hex = { workspace = true }

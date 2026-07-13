@@ -26,7 +26,20 @@
 pub mod types;
 pub use types::*;
 
-#[cfg(feature = "native")]
+pub mod error;
+pub use error::{CryptoError, Result};
+
+mod rng;
+
+pub mod pgp;
+pub mod smime;
+
+#[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
+pub mod pqc;
+
+// The native engine facade wraps `pqc` (native-only), so it too is gated off wasm —
+// even though the default `native` feature stays on, the wasm build excludes it.
+#[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
 pub mod native;
 
 #[cfg(target_arch = "wasm32")]

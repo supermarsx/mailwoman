@@ -1,0 +1,1 @@
+GnuPG interop plaintext: decrypt me with rPGP.

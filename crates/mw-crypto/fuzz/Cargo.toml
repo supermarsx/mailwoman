@@ -1,0 +1,40 @@
+# cargo-fuzz targets for mw-crypto's parsers (plan §4.3 / §25). Its own workspace so
+# the root manifest need not know about it; run with `cargo +nightly fuzz run <tgt>`.
+[package]
+name = "mw-crypto-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+mw-crypto = { path = ".." }
+
+[[bin]]
+name = "pgp_parse"
+path = "fuzz_targets/pgp_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cms_parse"
+path = "fuzz_targets/cms_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pkcs12_parse"
+path = "fuzz_targets/pkcs12_parse.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+debug = 1

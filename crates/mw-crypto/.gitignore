@@ -1,0 +1,7 @@
+# wasm-pack build output (e8 builds the real bundle into apps/web/src/wasm/)
+/pkg/
+# cargo-fuzz build artifacts + generated corpus/crash inputs
+/fuzz/target/
+/fuzz/corpus/
+/fuzz/artifacts/
+/fuzz/Cargo.lock
