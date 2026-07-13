@@ -31,6 +31,14 @@ hex = { workspace = true }
 thiserror = { workspace = true }
 chrono = { workspace = true }
 
+# ── Zero-access key hierarchy (SPEC §9, t6-e6) — REUSES the workspace primitives;
+# no new cipher. Argon2id derives the root key (`alloc` only: low-level
+# hash_password_into, no password-hash/rand pull on the wasm bundle);
+# XChaCha20-Poly1305 is the SAME at-rest cipher as `mw-store::seal`. P-256 ECDH for
+# device pairing rides the already-present `p256` (ecdh feature). Both targets. ──
+argon2 = { workspace = true }
+chacha20poly1305 = { workspace = true }
+
 # ── OpenPGP (rPGP) — pure-Rust, wasm-tested (Delta Chat); both targets ──
 # Public verify/harvest run native; keygen/decrypt/private-sign run in wasm. rPGP's
 # S2K passphrase protection *is* the PGP `encryptedPrivateBundle` (plan §2.3).

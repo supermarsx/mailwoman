@@ -34,6 +34,12 @@ mod rng;
 pub mod pgp;
 pub mod smime;
 
+/// Zero-access storage key hierarchy + device pairing (SPEC §9, plan §1.3, t6-e6).
+/// Target-agnostic core (native tests exercise it); the `#[wasm_bindgen]` browser
+/// surface inside is gated on `cfg(target_arch = "wasm32")`. Composes the existing
+/// Argon2id / XChaCha20-Poly1305 / P-256 primitives — no new cipher.
+pub mod zeroaccess;
+
 #[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
 pub mod pqc;
 
