@@ -175,6 +175,8 @@ mod tests {
             mailbox: "3".into(),
             submission: "1".into(),
             thread: "7".into(),
+            crypto_key: "2".into(),
+            mail_rule: "1".into(),
         }
     }
 

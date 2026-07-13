@@ -115,24 +115,28 @@ pub struct StateChange {
     pub mailbox: String,
     pub submission: String,
     pub thread: String,
+    // ── V4 crypto/security state tokens (plan §2.2). Emitted in the pushed
+    // `changed` map under the `CryptoKey`/`MailRule` keys so a key/rule change
+    // in one session reaches the others without a refresh (sourced from the
+    // `crypto_changes` log via `broadcast_state`). ──
+    pub crypto_key: String,
+    pub mail_rule: String,
 }
 
 impl StateChange {
     /// The exact RFC 8887 wire object (frozen §2.2):
     /// `{"@type":"StateChange","changed":{"<acct>":{"Email":..,"Mailbox":..,
-    /// "EmailSubmission":..,"Thread":..}}}`. Encoded once here so the WS server
-    /// (e10) and the web client (e6, `contracts/push.ts`) cannot drift.
-    ///
-    /// NOTE (e6→e7 handoff): V4 `CryptoKey`/`MailRule` state advances via the
-    /// `crypto_changes` log + `sessionState` (folded in `state.rs`); e7 extends
-    /// this wire object with the `CryptoKey`/`MailRule` keys when it wires the
-    /// crypto push forward (plan §2.2 / §3 e7).
+    /// "EmailSubmission":..,"Thread":..,"CryptoKey":..,"MailRule":..}}}`. Encoded
+    /// once here so the WS server + the web client (`contracts/push.ts`) cannot
+    /// drift.
     pub fn to_wire(&self) -> serde_json::Value {
         let mut inner = serde_json::Map::new();
         inner.insert("Email".into(), self.email.clone().into());
         inner.insert("Mailbox".into(), self.mailbox.clone().into());
         inner.insert("EmailSubmission".into(), self.submission.clone().into());
         inner.insert("Thread".into(), self.thread.clone().into());
+        inner.insert("CryptoKey".into(), self.crypto_key.clone().into());
+        inner.insert("MailRule".into(), self.mail_rule.clone().into());
         let mut changed = serde_json::Map::new();
         changed.insert(self.account_id.clone(), serde_json::Value::Object(inner));
         serde_json::json!({ "@type": "StateChange", "changed": changed })
@@ -151,10 +155,14 @@ mod tests {
             mailbox: "3".into(),
             submission: "2".into(),
             thread: "5".into(),
+            crypto_key: "4".into(),
+            mail_rule: "1".into(),
         };
         let wire = sc.to_wire();
         assert_eq!(wire["@type"], "StateChange");
         assert_eq!(wire["changed"]["acct1"]["Email"], "5");
         assert_eq!(wire["changed"]["acct1"]["EmailSubmission"], "2");
+        assert_eq!(wire["changed"]["acct1"]["CryptoKey"], "4");
+        assert_eq!(wire["changed"]["acct1"]["MailRule"], "1");
     }
 }

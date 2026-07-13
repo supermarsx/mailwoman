@@ -104,6 +104,8 @@ fn a_change() -> StateChange {
         mailbox: "3".into(),
         submission: "1".into(),
         thread: "42".into(),
+        crypto_key: "0".into(),
+        mail_rule: "0".into(),
     }
 }
 
@@ -147,6 +149,9 @@ async fn ws_delivers_state_change_to_authenticated_client() {
         wire["changed"][mw_mock_jmap::ACCOUNT_ID]["EmailSubmission"],
         "1"
     );
+    // V4: the crypto/rule changed-map keys ride the same StateChange (plan §2.2).
+    assert_eq!(wire["changed"][mw_mock_jmap::ACCOUNT_ID]["CryptoKey"], "0");
+    assert_eq!(wire["changed"][mw_mock_jmap::ACCOUNT_ID]["MailRule"], "0");
     drop(ws);
 }
 

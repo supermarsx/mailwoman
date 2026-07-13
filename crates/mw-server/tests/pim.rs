@@ -186,6 +186,8 @@ fn a_change() -> StateChange {
         mailbox: "4".into(),
         submission: "1".into(),
         thread: "7".into(),
+        crypto_key: "0".into(),
+        mail_rule: "0".into(),
     }
 }
 

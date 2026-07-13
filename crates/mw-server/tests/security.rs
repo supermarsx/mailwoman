@@ -434,6 +434,8 @@ fn a_change() -> StateChange {
         mailbox: "4".into(),
         submission: "1".into(),
         thread: "9".into(),
+        crypto_key: "3".into(),
+        mail_rule: "2".into(),
     }
 }
 
@@ -472,5 +474,8 @@ async fn crypto_state_change_reaches_a_ws_client() {
     let wire: Value = serde_json::from_str(&frame).unwrap();
     assert_eq!(wire["@type"], "StateChange");
     assert!(wire["changed"][mw_mock_jmap::ACCOUNT_ID].is_object());
+    // The crypto/rule state tokens reach the client in the changed map (plan §2.2).
+    assert_eq!(wire["changed"][mw_mock_jmap::ACCOUNT_ID]["CryptoKey"], "3");
+    assert_eq!(wire["changed"][mw_mock_jmap::ACCOUNT_ID]["MailRule"], "2");
     drop(ws);
 }

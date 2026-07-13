@@ -296,12 +296,24 @@ impl Engine {
             .type_num(account_id, ChangeType::EmailSubmission)
             .await
             .to_string();
+        // V4 crypto/security counters, sourced from the `crypto_changes` log so a
+        // CryptoKey/MailRule change reaches connected sessions (plan §2.2).
+        let crypto_key = self
+            .crypto_type_num(account_id, ChangeType::CryptoKey)
+            .await
+            .to_string();
+        let mail_rule = self
+            .crypto_type_num(account_id, ChangeType::MailRule)
+            .await
+            .to_string();
         let sc = StateChange {
             account_id: account_id.to_string(),
             thread: email.clone(),
             email,
             mailbox,
             submission,
+            crypto_key,
+            mail_rule,
         };
         // Ignore the "no receivers" error — sessions attach lazily.
         let _ = self.changes_tx().send(sc);
