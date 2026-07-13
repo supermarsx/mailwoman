@@ -20,9 +20,14 @@
 -- Push subscriptions: one row per (account, endpoint). `transport` is an opaque
 -- token the engine owns ('webpush' | 'unifiedpush' | 'apns'). `p256dh`/`auth` are
 -- present for Web Push only; `app_id` for UnifiedPush/APNs. No content column.
+-- NB: `account_id` is NOT a foreign key to `accounts`. Native auth + push are
+-- first-class in BOTH engine mode (local `accounts` rows) AND proxy mode (V0 —
+-- sessions carry an upstream account id with NO local `accounts` row, exactly like
+-- the `sessions` table). A FK to `accounts(id)` would break the proxy path, so it
+-- is intentionally omitted (app-layer cleanup handles account removal in engine mode).
 CREATE TABLE IF NOT EXISTS push_subscriptions (
     id            TEXT PRIMARY KEY NOT NULL,
-    account_id    TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    account_id    TEXT NOT NULL,
     transport     TEXT NOT NULL,                 -- 'webpush' | 'unifiedpush' | 'apns'
     endpoint      TEXT NOT NULL,
     p256dh        TEXT,                           -- webpush only
@@ -49,9 +54,12 @@ CREATE TABLE IF NOT EXISTS push_config (
 -- Native bearer-token sessions (plan §2.2). Additive to the cookie sessions; the
 -- browser cookie path is UNCHANGED. Stores only the token HASH. `rotated_from`
 -- links a rotated session to its predecessor (mirrors cookie-session rotation).
+-- `account_id` is NOT a foreign key to `accounts` — same rationale as
+-- `push_subscriptions` above: native bearer sessions exist in proxy mode too, which
+-- has no local `accounts` rows.
 CREATE TABLE IF NOT EXISTS native_sessions (
     token_hash    TEXT PRIMARY KEY NOT NULL,
-    account_id    TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    account_id    TEXT NOT NULL,
     client_type   TEXT NOT NULL,                 -- e.g. 'native'
     created_at    TEXT NOT NULL,
     last_seen     TEXT NOT NULL,

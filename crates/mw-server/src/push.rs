@@ -30,26 +30,50 @@ const HEARTBEAT: Duration = Duration::from_secs(30);
 
 /// A cloneable sender end of the realtime push channel. `mw-server` holds one in
 /// [`AppState`]; the engine-bridge and tests both feed it.
+///
+/// Two independent broadcast channels ride behind one handle: the `ws` channel
+/// feeds the realtime `/jmap/ws` + `/jmap/eventsource` sessions, and the `relay`
+/// channel feeds the V5 push dispatcher (plan §2.3 — the "second consumer" of the
+/// engine `StateChange` broadcast that sends opaque WebPush/UnifiedPush wakes).
+/// Keeping them separate means the dispatcher's always-on receiver does NOT
+/// inflate the WS/SSE subscriber count [`send`](Self::send) reports — the
+/// realtime wire behaviour (and its tests) is byte-identical.
 #[derive(Clone)]
-pub struct PushHandle(broadcast::Sender<StateChange>);
+pub struct PushHandle {
+    ws: broadcast::Sender<StateChange>,
+    relay: broadcast::Sender<StateChange>,
+}
 
 impl PushHandle {
     /// Create a fresh push channel with a bounded backlog (slow WS/SSE clients
     /// lag rather than stall the engine).
     pub fn new() -> Self {
-        let (tx, _rx) = broadcast::channel(256);
-        Self(tx)
+        let (ws, _rx) = broadcast::channel(256);
+        let (relay, _rx) = broadcast::channel(256);
+        Self { ws, relay }
     }
 
     /// Publish a [`StateChange`] to every connected session. Returns the number
-    /// of live receivers (0 when nobody is listening — not an error).
+    /// of live WS/SSE receivers (0 when nobody is listening — not an error). The
+    /// change is also fanned out to the push-relay dispatcher (a separate channel,
+    /// so it never changes the reported WS/SSE count).
     pub fn send(&self, change: StateChange) -> usize {
-        self.0.send(change).unwrap_or(0)
+        // Fan out to the opaque-wake dispatcher (plan §2.3). Ignore its receiver
+        // count / absence — it is an independent consumer.
+        let _ = self.relay.send(change.clone());
+        self.ws.send(change).unwrap_or(0)
     }
 
     /// A new receiver for one WS/SSE session.
     pub fn subscribe(&self) -> broadcast::Receiver<StateChange> {
-        self.0.subscribe()
+        self.ws.subscribe()
+    }
+
+    /// A new receiver for the push-relay dispatcher (plan §2.3). Distinct from
+    /// [`subscribe`](Self::subscribe) so the dispatcher does not count as a
+    /// realtime WS/SSE subscriber.
+    pub fn subscribe_relay(&self) -> broadcast::Receiver<StateChange> {
+        self.relay.subscribe()
     }
 }
 

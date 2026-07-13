@@ -21,7 +21,7 @@ use serde_json::json;
 
 use mw_engine::Engine;
 use mw_jmap::JmapClient;
-use mw_store::{Credentials, ServerKey, Store};
+use mw_store::{Credentials, NativeSessionRow, ServerKey, Store};
 
 pub mod arf;
 pub mod dlp;
@@ -39,6 +39,7 @@ pub mod wkd;
 pub use engine_mode::ServerMode;
 pub use hardening::HardeningConfig;
 pub use push::PushHandle;
+pub use push_relay::NativeAuthConfig;
 pub use tls::{ReloadableResolver, TlsConfig, TlsListener};
 pub use watermark::WatermarkConfig;
 
@@ -159,6 +160,9 @@ pub(crate) struct AppState {
     hardening: HardeningConfig,
     /// V4 crypto/security endpoint config (plan §3 e7).
     security: SecurityConfig,
+    /// V5 native-client CORS/origin allowlist (plan §2.2). Empty = OFF (default) →
+    /// browser deployments emit no `Access-Control-*` headers.
+    native_auth: NativeAuthConfig,
 }
 
 /// Build the fully-wired axum application from configuration.
@@ -203,6 +207,23 @@ pub async fn build_app_with_push(config: AppConfig) -> anyhow::Result<(Router, P
         tokio::spawn(push::bridge_engine(engine.subscribe(), push.clone()));
     }
 
+    // V5 (plan §2.3): ensure a VAPID keypair exists (generated on first boot, its
+    // private key sealed at rest) so `GET /api/push/vapid` and the push dispatcher
+    // always have a key. Non-fatal on error — the endpoints degrade to 500/skip.
+    if let Err(e) = push_relay::ensure_vapid(&store).await {
+        tracing::error!("VAPID keypair init failed: {e}");
+    }
+    // V5 push dispatcher: a SECOND consumer of the `StateChange` broadcast that
+    // sends opaque wakes (WebPush/UnifiedPush/APNs — NO message content) to
+    // registered subscriptions. Additive; a no-op when nothing is subscribed. It
+    // drains a dedicated relay channel so it never inflates the WS/SSE subscriber
+    // count the realtime path reports.
+    tokio::spawn(push_relay::run_dispatcher(
+        store.clone(),
+        push.subscribe_relay(),
+        reqwest::Client::new(),
+    ));
+
     let state = AppState {
         store,
         render_bin,
@@ -213,6 +234,7 @@ pub async fn build_app_with_push(config: AppConfig) -> anyhow::Result<(Router, P
         sessions: Arc::new(SessionGuard::new()),
         hardening: config.hardening,
         security: config.security,
+        native_auth: NativeAuthConfig::from_env(),
     };
     Ok((router(state), push))
 }
@@ -276,6 +298,10 @@ fn router(state: AppState) -> Router {
             state.clone(),
             state_change_guard,
         ))
+        // V5 (plan §2.2): config-gated CORS/preflight for native shell origins. OFF
+        // by default (`MW_NATIVE_ORIGINS` empty) → passes through untouched, so the
+        // browser path emits no `Access-Control-*` headers.
+        .layer(middleware::from_fn_with_state(state.clone(), native_cors))
         // Outermost: security headers on every response (incl. guard rejections).
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -312,28 +338,85 @@ async fn security_headers(State(state): State<AppState>, req: Request, next: Nex
 /// `csrf_strict` is enabled, the double-submit token check.
 async fn state_change_guard(State(state): State<AppState>, req: Request, next: Next) -> Response {
     if hardening::is_state_changing(req.method()) {
-        if !hardening::origin_ok(req.headers()) {
-            return (
-                StatusCode::FORBIDDEN,
-                Json(json!({ "error": "cross-origin request rejected" })),
-            )
-                .into_response();
-        }
-        // Pre-auth bootstrap routes have no prior token to double-submit; they
-        // are covered by the Origin check + SameSite=Strict cookie instead.
-        let csrf_exempt = matches!(req.uri().path(), "/api/login" | "/api/discover");
-        if state.hardening.csrf_strict
-            && !csrf_exempt
-            && !hardening::csrf_double_submit_ok(req.headers())
-        {
-            return (
-                StatusCode::FORBIDDEN,
-                Json(json!({ "error": "missing or invalid CSRF token" })),
-            )
-                .into_response();
+        // V5 (plan §2.2): a native bearer request carries no ambient cookie
+        // authority (origin-agnostic, no cookie) → it is not a CSRF vector, so the
+        // cookie-only Origin/double-submit guard is skipped for it. Cookie/browser
+        // requests are handled byte-identically below.
+        if push_relay::bearer_token(req.headers()).is_none() {
+            if !hardening::origin_ok(req.headers()) {
+                return (
+                    StatusCode::FORBIDDEN,
+                    Json(json!({ "error": "cross-origin request rejected" })),
+                )
+                    .into_response();
+            }
+            // Pre-auth bootstrap routes have no prior token to double-submit; they
+            // are covered by the Origin check + SameSite=Strict cookie instead.
+            let csrf_exempt = matches!(req.uri().path(), "/api/login" | "/api/discover");
+            if state.hardening.csrf_strict
+                && !csrf_exempt
+                && !hardening::csrf_double_submit_ok(req.headers())
+            {
+                return (
+                    StatusCode::FORBIDDEN,
+                    Json(json!({ "error": "missing or invalid CSRF token" })),
+                )
+                    .into_response();
+            }
         }
     }
     next.run(req).await
+}
+
+/// V5 config-gated CORS (plan §2.2). OFF by default (`native_auth` empty): passes
+/// through untouched so browser deployments see NO `Access-Control-*` headers. When
+/// enabled, an allowed `Origin` is echoed back (bearer auth carries no cookies, so
+/// no credentials mode is needed) and preflight `OPTIONS` is answered directly.
+async fn native_cors(State(state): State<AppState>, req: Request, next: Next) -> Response {
+    if !state.native_auth.is_enabled() {
+        return next.run(req).await;
+    }
+    let origin = req
+        .headers()
+        .get(header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
+    let allowed = origin
+        .as_deref()
+        .map(|o| state.native_auth.allows(o))
+        .unwrap_or(false);
+    if req.method() == axum::http::Method::OPTIONS {
+        let mut resp = StatusCode::NO_CONTENT.into_response();
+        if allowed {
+            add_cors_headers(resp.headers_mut(), origin.as_deref());
+        }
+        return resp;
+    }
+    let mut resp = next.run(req).await;
+    if allowed {
+        add_cors_headers(resp.headers_mut(), origin.as_deref());
+    }
+    resp
+}
+
+/// Emit the `Access-Control-*` headers for an allowed native shell origin.
+fn add_cors_headers(h: &mut HeaderMap, origin: Option<&str>) {
+    if let Some(value) = origin.and_then(|o| HeaderValue::from_str(o).ok()) {
+        h.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, value);
+    }
+    h.insert(header::VARY, HeaderValue::from_static("Origin"));
+    h.insert(
+        header::ACCESS_CONTROL_ALLOW_METHODS,
+        HeaderValue::from_static("GET, POST, OPTIONS"),
+    );
+    h.insert(
+        header::ACCESS_CONTROL_ALLOW_HEADERS,
+        HeaderValue::from_static("authorization, content-type, x-csrf-token"),
+    );
+    h.insert(
+        header::ACCESS_CONTROL_MAX_AGE,
+        HeaderValue::from_static("600"),
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -346,13 +429,11 @@ struct LoginReq {
     jmap_url: String,
     username: String,
     password: String,
-    /// V5 native-auth seam (plan §2.2): a native shell may request a bearer-token
-    /// session (`"native"`) instead of the cookie. ADDITIVE — absent for browser
-    /// logins, so behavior is byte-identical today. e5 branches on this to mint a
-    /// bearer token + a `native_sessions` row (setting no cookie); until then the
-    /// field is accepted and ignored (the cookie path runs unchanged).
+    /// V5 native-auth mode (plan §2.2): a native shell sends `"native"` to get a
+    /// bearer-token session (a `native_sessions` row, NO cookie) in the response
+    /// body instead of the cookie. ADDITIVE — absent for browser logins, so the
+    /// cookie/same-origin path is byte-identical.
     #[serde(default)]
-    #[allow(dead_code)]
     client_type: Option<String>,
 }
 
@@ -406,9 +487,54 @@ async fn login(State(state): State<AppState>, Json(body): Json<LoginReq>) -> Res
         }
     };
     state.sessions.begin(&id);
-    authenticated_response(
+    finish_login(
         &state,
         &id,
+        &account_id,
+        &username,
+        body.client_type.as_deref(),
+    )
+    .await
+}
+
+/// Complete a login: for a browser client (`client_type` absent) set the session +
+/// CSRF cookies exactly as before; for a native client (`client_type == "native"`,
+/// plan §2.2) record a `native_sessions` marker (keyed by the token HASH), set NO
+/// cookie, and return the bearer token in the JSON body. The bearer token IS the
+/// opaque session id — proxying reads its `sessions` row like any other.
+async fn finish_login(
+    state: &AppState,
+    id: &str,
+    account_id: &str,
+    username: &str,
+    client_type: Option<&str>,
+) -> Response {
+    if client_type == Some("native") {
+        let now = push_relay::now_rfc3339();
+        let row = NativeSessionRow {
+            token_hash: push_relay::hash_token(id),
+            account_id: account_id.to_string(),
+            client_type: "native".to_string(),
+            created_at: now.clone(),
+            last_seen: now,
+            rotated_from: None,
+        };
+        if let Err(e) = state.store.create_native_session(&row).await {
+            tracing::error!("failed to persist native session: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "server error").into_response();
+        }
+        // No cookie, no double-submit CSRF token — the bearer token is the credential.
+        return Json(json!({
+            "ok": true,
+            "accountId": account_id,
+            "username": username,
+            "token": id,
+        }))
+        .into_response();
+    }
+    authenticated_response(
+        state,
+        id,
         json!({
             "ok": true,
             "accountId": account_id,
@@ -447,15 +573,14 @@ async fn engine_login(state: &AppState, engine: &Arc<Engine>, body: LoginReq) ->
         }
     };
     state.sessions.begin(&id);
-    authenticated_response(
+    finish_login(
         state,
         &id,
-        json!({
-            "ok": true,
-            "accountId": account_id,
-            "username": username,
-        }),
+        &account_id,
+        &username,
+        body.client_type.as_deref(),
     )
+    .await
 }
 
 /// Build a login/rotate success response: set the session cookie, mint a fresh
@@ -1399,6 +1524,12 @@ pub(crate) async fn authed(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<mw_store::Session, Response> {
+    // V5 (plan §2.2): a native client presents `Authorization: Bearer <token>`
+    // instead of the cookie. Absent for browsers → the cookie path below is
+    // byte-identical.
+    if let Some(token) = push_relay::bearer_token(headers) {
+        return authed_native(state, &token).await;
+    }
     let id = cookie_value(headers).ok_or_else(unauthorized)?;
     let session = state
         .store
@@ -1412,6 +1543,32 @@ pub(crate) async fn authed(
         return Err(session_expired());
     }
     let _ = state.store.touch_session(&id).await;
+    Ok(session)
+}
+
+/// Resolve a native bearer session (plan §2.2). The token doubles as the opaque
+/// session id; its `native_sessions` row (keyed by the token HASH) marks it
+/// bearer-eligible, so a session id learned elsewhere cannot be replayed as a
+/// bearer token. Enforces the same idle/absolute timeouts as the cookie path.
+async fn authed_native(state: &AppState, token: &str) -> Result<mw_store::Session, Response> {
+    let hash = push_relay::hash_token(token);
+    match state.store.get_native_session(&hash).await {
+        Ok(Some(_)) => {}
+        _ => return Err(unauthorized()),
+    }
+    let session = state
+        .store
+        .get_session(token)
+        .await
+        .map_err(|_| unauthorized())?;
+    if let Err(reason) = state.sessions.check(token, &state.hardening) {
+        tracing::info!("native session expired ({reason:?})");
+        let _ = state.store.delete_session(token).await;
+        let _ = state.store.delete_native_session(&hash).await;
+        state.sessions.forget(token);
+        return Err(session_expired());
+    }
+    let _ = state.store.touch_session(token).await;
     Ok(session)
 }
 

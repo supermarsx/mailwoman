@@ -44,6 +44,14 @@ rand = { workspace = true }
 # ARF spool filenames (plan §3 e7).
 sha1 = { workspace = true }
 uuid = { workspace = true }
+# V5 push relay + native bearer auth (plan §1.7/§2.2/§2.3, §3 e5). `web-push-native`
+# (pure-Rust Web Push; builds the VAPID-signed RFC 8188 request, sent over the
+# in-tree `reqwest`; re-exports the `p256` + `jwt-simple` it uses so keygen matches
+# its curve version). `sha2` hashes bearer tokens for the `native_sessions` marker;
+# `chrono` timestamps the push/native-session `*_at` columns.
+web-push-native = { workspace = true }
+sha2 = { workspace = true }
+chrono = { workspace = true }
 # V2 push + ACME listener (plan §1.2/§1.10, §3 e10). `tokio-tungstenite` also
 # backs the WS test client; `tokio-rustls-acme` is the ACME/TLS listener;
 # `futures-util` drives the SSE + WS streams. `rustls`/`tokio-rustls`/pki-types
@@ -63,3 +71,7 @@ serde_json = { workspace = true }
 async-trait = { workspace = true }
 tokio-tungstenite = { workspace = true }
 futures-util = { workspace = true }
+# V5 push relay test: build a valid P-256 browser subscription key for the WebPush
+# dispatcher round-trip (plan §3 e5 acceptance).
+p256 = { workspace = true }
+base64 = { workspace = true }

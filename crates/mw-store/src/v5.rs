@@ -126,6 +126,15 @@ impl Store {
         Ok(())
     }
 
+    /// Remove a subscription by its id (the `POST /api/push/unsubscribe {id}` path).
+    pub async fn delete_push_subscription_by_id(&self, id: &str) -> Result<(), StoreError> {
+        sqlx::query("DELETE FROM push_subscriptions WHERE id = ?1")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Record that an opaque wake was last sent to a subscription (rate/telemetry).
     pub async fn touch_push_wake(&self, id: &str, at: &str) -> Result<(), StoreError> {
         sqlx::query("UPDATE push_subscriptions SET last_wake_at = ?2 WHERE id = ?1")

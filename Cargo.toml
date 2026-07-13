@@ -166,7 +166,14 @@ tauri-plugin-biometric = "2"
 tauri-plugin-process = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-updater = "2"
-web-push = "0.10"
+# Web Push (VAPID + RFC 8188/http-ece). NB: the originally pre-declared `web-push`
+# 0.10 crate transitively pulls `ece` → `openssl` (a `-sys` C build that is BANNED
+# in deny.toml and does not build on this Windows/MSVC host). `web-push-native`
+# (leotaku/web-push-native, MIT OR Apache-2.0) is the pure-Rust equivalent — it
+# builds the encrypted VAPID-signed request over RustCrypto (`aes-gcm`/`hkdf`/
+# `p256`/`jwt-simple` with the `pure-rust`/`superboring` backend, NO openssl/boring
+# C). mw-server (e5) sends the resulting request over the in-tree `reqwest`.
+web-push-native = "0.4"
 
 mw-jmap = { path = "crates/mw-jmap" }
 mw-sanitize = { path = "crates/mw-sanitize" }
