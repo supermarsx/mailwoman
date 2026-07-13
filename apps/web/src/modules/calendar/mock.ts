@@ -176,17 +176,19 @@ function dispatch(store: MockStore, call: Invocation): Invocation {
       return ok(callId, name, res);
     }
     case 'CalendarEvent/expand': {
+      // Mirror the engine: return the expanded instances in `list` (each row also
+      // carries the master's fields; the controller reads only id + bounds).
       const calendarIds = (args['calendarIds'] as string[]) ?? store.calendars.map((c) => c.id);
       const start = localToDate(args['start'] as string);
       const end = localToDate(args['end'] as string);
       const masters = store.events.filter((e) => calendarIds.includes(e.calendarId));
-      const instances: ExpandedInstance[] = [];
+      const list: ExpandedInstance[] = [];
       for (const ev of masters) {
         for (const inst of expandEvent(ev, start, end, colorFor(store, ev.calendarId))) {
-          instances.push({ eventId: ev.id, start: dateToLocal(inst.start), end: dateToLocal(inst.end), recurring: inst.recurring });
+          list.push({ eventId: ev.id, instanceStart: dateToLocal(inst.start), instanceEnd: dateToLocal(inst.end) });
         }
       }
-      const res: EventExpandResponse = { accountId: ACCOUNT, list: masters, instances };
+      const res: EventExpandResponse = { accountId: ACCOUNT, list };
       return ok(callId, name, res);
     }
     case 'CalendarEvent/set': {
@@ -245,16 +247,25 @@ function dispatch(store: MockStore, call: Invocation): Invocation {
       const flat = store.events
         .filter((e) => calendarIds.includes(e.calendarId) && !e.showWithoutTime)
         .flatMap((e) => expandEvent(e, start, end, '#000'));
-      const conflicts: ConflictPairResponse[] = [];
+      const list: ConflictPairResponse[] = [];
       for (let i = 0; i < flat.length; i += 1) {
         for (let j = i + 1; j < flat.length; j += 1) {
           const a = flat[i]!;
           const b = flat[j]!;
           if (a.event.id === b.event.id) continue;
-          if (a.start < b.end && b.start < a.end) conflicts.push({ a: a.key, b: b.key });
+          if (a.start < b.end && b.start < a.end) {
+            const overlapStart = a.start > b.start ? a.start : b.start;
+            const overlapEnd = a.end < b.end ? a.end : b.end;
+            list.push({
+              eventA: a.event.id,
+              eventB: b.event.id,
+              overlapStart: dateToLocal(overlapStart),
+              overlapEnd: dateToLocal(overlapEnd),
+            });
+          }
         }
       }
-      const res: DetectConflictsResponse = { accountId: ACCOUNT, conflicts };
+      const res: DetectConflictsResponse = { accountId: ACCOUNT, list };
       return ok(callId, name, res);
     }
     case 'Calendar/freeBusy': {

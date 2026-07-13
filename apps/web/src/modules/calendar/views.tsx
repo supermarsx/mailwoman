@@ -145,7 +145,7 @@ export function TimeGridView(props: ViewProps): JSX.Element {
                           inst={inst}
                           top={(s().top / 60) * HOUR_PX}
                           height={(s().height / 60) * HOUR_PX}
-                          conflict={props.controller.hasConflict(inst.key)}
+                          conflict={props.controller.hasConflict(inst.event.id)}
                           onOpen={props.onOpenEvent}
                         />
                       )}
@@ -190,7 +190,7 @@ function MonthGrid(props: { controller: CalendarController; year: number; month0
                         >
                           {inst.allDay ? '' : `${formatTime(inst.start)} `}
                           {inst.event.title}
-                          <Show when={props.controller.hasConflict(inst.key)}>
+                          <Show when={props.controller.hasConflict(inst.event.id)}>
                             <span class={css.conflictBadge}>!</span>
                           </Show>
                         </button>
@@ -268,7 +268,7 @@ export function AgendaView(props: ViewProps): JSX.Element {
                     </span>
                     <span class={css.agendaDot} style={{ background: inst.color }} />
                     <span>{inst.event.title}</span>
-                    <Show when={props.controller.hasConflict(inst.key)}>
+                    <Show when={props.controller.hasConflict(inst.event.id)}>
                       <span class={css.conflictBadge}>conflict</span>
                     </Show>
                   </button>

@@ -37,11 +37,22 @@ describe('rule <-> json + describe', () => {
     const raw = { frequency: 'weekly', interval: 2, byDay: ['mo', 'we'], count: 6 };
     const rule = parseRule(raw);
     expect(rule).toEqual({ frequency: 'weekly', interval: 2, byDay: ['mo', 'we'], count: 6 });
-    expect(ruleToJson(rule!)).toEqual(raw);
+    // Serializes to the engine's RFC5545 `{ rrule }` shape (mw-ics reads this),
+    // and parses back to the same typed model.
+    expect(ruleToJson(rule!)).toEqual({ rrule: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE;COUNT=6' });
+    expect(parseRule(ruleToJson(rule!))).toEqual(rule);
+  });
+
+  it('parses the engine `{ rrule }` shape (with an UNTIL bound)', () => {
+    expect(parseRule({ rrule: 'FREQ=DAILY;UNTIL=20260715T000000Z' })).toEqual({
+      frequency: 'daily',
+      until: '2026-07-15T00:00:00',
+    });
   });
 
   it('rejects an unknown frequency', () => {
     expect(parseRule({ frequency: 'hourly' })).toBeNull();
+    expect(parseRule({ rrule: 'FREQ=HOURLY' })).toBeNull();
   });
 
   it('describes a rule in prose', () => {

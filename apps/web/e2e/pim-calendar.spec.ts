@@ -8,25 +8,11 @@ import { engineLogin, gotoModule, reloadToShell, uid } from './pim-helpers.ts';
  * instances; overlapping events raise a conflict badge; a created event survives
  * a full reload (proving the engine round-trip, not local state).
  *
- * ⚠️ ENGINE↔WEB CONTRACT GAP — these four tests are `test.fixme` (ESCALATED to the
- * coordinator; e12 owns e2e only and must not patch crates/ or apps/web/src). The
- * Calendar module never renders events against the LIVE engine because the load
- * path's two shapes disagree with what mw-engine returns (verified live — the
- * controller surfaces "k is not iterable" and shows no events):
- *   1. `CalendarEvent/expand`: the web controller reads `response.instances`
- *      (`EventExpandResponse.instances: ExpandedInstance[]`, api.ts), but
- *      mw-engine (`pim/events.rs::event_expand`) returns ONLY
- *      `{ accountId, list }` where `list` is the instances (each carrying
- *      `eventId` + `start` + `instanceStart/instanceEnd`) — there is no
- *      `instances` field, so `buildInstances(list, undefined)` iterates undefined.
- *   2. `Calendar/detectConflicts`: the web reads `response.conflicts: [{a,b}]`
- *      (`DetectConflictsResponse`, api.ts), but mw-engine
- *      (`pim/calendars.rs::calendar_detect_conflicts`) returns
- *      `{ accountId, list: [{ eventA, eventB, overlapStart, overlapEnd }] }`.
- * Fix belongs to e4 (calendar controller/api.ts, apps/web/src) or e8 (mw-engine
- * response shapes) — NOT e12. Flip these back to `test(` once the shapes agree;
- * the assertions below are the ready-made proof. (Calendar reachability + the
- * editor opening ARE verified live in `pim-reachability.spec.ts` + below.)
+ * The engine↔web contract gap e12 escalated is fixed (t5-e13): the web calendar
+ * module reads `CalendarEvent/expand` instances from `response.list`, its true
+ * masters from `CalendarEvent/get {ids:null}`, and `Calendar/detectConflicts`
+ * pairs from `response.list` ({eventA,eventB,…}). These four specs (render,
+ * recurrence, conflict badge, reload persistence) are the live proof.
  */
 
 const calendar = (page: Page) => page.locator('[data-module="calendar"]');
@@ -73,7 +59,7 @@ test.describe('Calendar module through the real UI (engine mode)', () => {
     await expect(dialog).toBeHidden();
   });
 
-  test.fixme('create an event → it renders in the week view', async ({ page }) => {
+  test('create an event → it renders in the week view', async ({ page }) => {
     await engineLogin(page);
     await openCalendar(page);
 
@@ -84,7 +70,7 @@ test.describe('Calendar module through the real UI (engine mode)', () => {
     await expect(calendar(page).getByText(title).first()).toBeVisible();
   });
 
-  test.fixme('a recurring (daily) event expands to multiple instances', async ({ page }) => {
+  test('a recurring (daily) event expands to multiple instances', async ({ page }) => {
     await engineLogin(page);
     await openCalendar(page);
 
@@ -97,7 +83,7 @@ test.describe('Calendar module through the real UI (engine mode)', () => {
     expect(await instances.count()).toBeGreaterThan(1);
   });
 
-  test.fixme('overlapping events raise a conflict badge', async ({ page }) => {
+  test('overlapping events raise a conflict badge', async ({ page }) => {
     await engineLogin(page);
     await openCalendar(page);
 
@@ -110,7 +96,7 @@ test.describe('Calendar module through the real UI (engine mode)', () => {
     await expect(calendar(page).getByText('conflict').first()).toBeVisible();
   });
 
-  test.fixme('a created event persists across a full reload (engine round-trip)', async ({ page }) => {
+  test('a created event persists across a full reload (engine round-trip)', async ({ page }) => {
     await engineLogin(page);
     await openCalendar(page);
 

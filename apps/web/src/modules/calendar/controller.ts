@@ -20,6 +20,7 @@ import {
   eventSet,
   eventsExpand,
   eventsExport,
+  eventsGetAll,
   eventsImport,
   freeBusy,
   type CalendarGetResponse,
@@ -27,8 +28,10 @@ import {
   type DetectConflictsResponse,
   type EventExpandResponse,
   type EventExportResponse,
+  type EventGetResponse,
   type EventImportResponse,
   type EventSetResponse,
+  type ExpandedInstance,
   type FreeBusyBlock,
   type FreeBusyResponse,
   type RespondAction,
@@ -85,7 +88,8 @@ export interface CalendarController {
   focusDate: Accessor<Date>;
   loading: Accessor<boolean>;
   error: Accessor<string | null>;
-  conflictKeys: Accessor<Set<string>>;
+  /** Ids of events with at least one overlapping instance in the window. */
+  conflictEventIds: Accessor<Set<Id>>;
 
   // ── derived ──
   visibleCalendars: Accessor<Calendar[]>;
@@ -93,7 +97,7 @@ export interface CalendarController {
   window: Accessor<ViewWindow>;
   masterById(id: Id): CalendarEvent | undefined;
   instancesForDay(day: Date): EventInstance[];
-  hasConflict(instanceKey: string): boolean;
+  hasConflict(eventId: Id): boolean;
 
   // ── navigation ──
   setView(v: CalendarView): void;
@@ -190,7 +194,7 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
   const [focusDate, setFocusDate] = createSignal<Date>(startOfDay(new Date()));
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
-  const [conflictKeys, setConflictKeys] = createSignal<Set<string>>(new Set());
+  const [conflictEventIds, setConflictEventIds] = createSignal<Set<Id>>(new Set());
 
   const window = createMemo<ViewWindow>(() => windowFor(view(), focusDate()));
 
@@ -213,27 +217,27 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
       .sort((a, b) => a.start.getTime() - b.start.getTime());
   }
 
-  function hasConflict(instanceKey: string): boolean {
-    return conflictKeys().has(instanceKey);
+  function hasConflict(eventId: Id): boolean {
+    return conflictEventIds().has(eventId);
   }
 
-  /** Map the engine's expanded instances back onto the loaded masters + colors. */
-  function buildInstances(list: CalendarEvent[], expanded: EventExpandResponse['instances']): EventInstance[] {
-    const byId = new Map(list.map((m) => [m.id, m]));
+  /** Join the engine's expanded instances onto the loaded masters + colors. */
+  function buildInstances(allMasters: CalendarEvent[], expanded: ExpandedInstance[]): EventInstance[] {
+    const byId = new Map(allMasters.map((m) => [m.id, m]));
     const colorByCal = new Map(calendars().map((c) => [c.id, c.color]));
     const out: EventInstance[] = [];
     for (const inst of expanded) {
       const master = byId.get(inst.eventId);
       if (master === undefined) continue;
-      const start = localToDate(inst.start);
-      const end = localToDate(inst.end);
+      const start = localToDate(inst.instanceStart);
+      const end = localToDate(inst.instanceEnd);
       out.push({
         key: `${inst.eventId}:${start.getTime()}`,
         event: master,
         start,
         end,
         allDay: master.showWithoutTime,
-        recurring: inst.recurring,
+        recurring: (master.recurrenceRules?.length ?? 0) > 0,
         color: colorByCal.get(master.calendarId) ?? '#3b82f6',
       });
     }
@@ -252,23 +256,30 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
 
       const w = window();
       const calIds = cals.map((c) => c.id);
-      const startL = dateToLocal(w.start);
-      const endL = dateToLocal(w.end);
+      // The engine parses the expand/conflict window bounds with
+      // `DateTime::parse_from_rfc3339`, which REQUIRES a zone designator — so send
+      // the window wall-clock with a trailing `Z`. The module's naive wall-clock
+      // time model (plan §1.12) is preserved: `localToDate` + the mock ignore the
+      // suffix, so instances still render in the viewer's local zone.
+      const startL = `${dateToLocal(w.start)}Z`;
+      const endL = `${dateToLocal(w.end)}Z`;
 
       const expRes = await backend.jmap(eventsExpand(acct, calIds, startL, endL));
-      const exp = responseFor<EventExpandResponse>(expRes, 'x');
+      const expanded = responseFor<EventExpandResponse>(expRes, 'x').list;
+      const getRes = await backend.jmap(eventsGetAll(acct));
+      const allMasters = responseFor<EventGetResponse>(getRes, 'g').list;
       const conRes = await backend.jmap(detectConflicts(acct, calIds, startL, endL));
-      const conflicts = responseFor<DetectConflictsResponse>(conRes, 'conflicts').conflicts;
+      const conflicts = responseFor<DetectConflictsResponse>(conRes, 'conflicts').list;
 
       batch(() => {
-        setMasters(exp.list);
-        setInstances(buildInstances(exp.list, exp.instances));
-        const keys = new Set<string>();
+        setMasters(allMasters);
+        setInstances(buildInstances(allMasters, expanded));
+        const ids = new Set<Id>();
         for (const p of conflicts) {
-          keys.add(p.a);
-          keys.add(p.b);
+          ids.add(p.eventA);
+          ids.add(p.eventB);
         }
-        setConflictKeys(keys);
+        setConflictEventIds(ids);
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'failed to load calendar');
@@ -431,7 +442,7 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
     focusDate,
     loading,
     error,
-    conflictKeys,
+    conflictEventIds,
     visibleCalendars,
     visibleInstances,
     window,

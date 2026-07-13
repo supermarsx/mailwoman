@@ -60,33 +60,41 @@ export interface EventSetResponse {
   notDestroyed: Record<Id, { type: string; description?: string | null }> | null;
 }
 
-/** One expanded, dated instance the engine returns from `CalendarEvent/expand`. */
+/**
+ * One expanded, dated instance from `CalendarEvent/expand`. The engine returns
+ * these in the response `list` (each row also carries the master's projection —
+ * `id`/`calendarId`/`title`/…; the controller reads only the id + occurrence
+ * bounds and joins to the masters fetched separately). `instanceStart` /
+ * `instanceEnd` are RFC3339 UTC from the engine (and `LocalDateTime` from the
+ * mock — both round-trip through `localToDate`).
+ */
 export interface ExpandedInstance {
   eventId: Id;
-  /** Occurrence start as a `LocalDateTime`. */
-  start: string;
-  /** Occurrence end as a `LocalDateTime`. */
-  end: string;
-  recurring: boolean;
+  /** Occurrence start. */
+  instanceStart: string;
+  /** Occurrence end. */
+  instanceEnd: string;
 }
 
 export interface EventExpandResponse {
   accountId: Id;
-  /** The masters covering the window (for editing). */
-  list: CalendarEvent[];
-  /** Concrete instances overlapping the window. */
-  instances: ExpandedInstance[];
+  /** Concrete instances overlapping the window (frozen `list` envelope). */
+  list: ExpandedInstance[];
 }
 
 /** One overlapping-instance pair from `Calendar/detectConflicts`. */
 export interface ConflictPairResponse {
-  a: string;
-  b: string;
+  eventA: Id;
+  eventB: Id;
+  /** Overlap window bounds (RFC3339 UTC / `LocalDateTime`). */
+  overlapStart: string;
+  overlapEnd: string;
 }
 
 export interface DetectConflictsResponse {
   accountId: Id;
-  conflicts: ConflictPairResponse[];
+  /** Overlapping pairs (frozen `list` envelope). */
+  list: ConflictPairResponse[];
 }
 
 /** One busy block from `Calendar/freeBusy`. */
@@ -154,6 +162,16 @@ export function eventsExpand(
   return request(CAL_USING, [
     ['CalendarEvent/expand', { accountId, calendarIds, start, end }, callId],
   ]);
+}
+
+/**
+ * Fetch every event master in the account (unfiltered by window) in one call —
+ * `CalendarEvent/get` with `ids: null`. Used for the master lookup the editor
+ * needs: `CalendarEvent/expand` only returns per-instance rows (whose `start` is
+ * the occurrence, not the series DTSTART), so the true masters come from here.
+ */
+export function eventsGetAll(accountId: Id, callId = 'g'): JmapRequest {
+  return request(CAL_USING, [['CalendarEvent/get', { accountId, ids: null }, callId]]);
 }
 
 /**

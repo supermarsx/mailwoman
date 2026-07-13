@@ -75,8 +75,14 @@ export function formatDuration(ms: number): string {
 
 // ── Rule <-> JSON ────────────────────────────────────────────────────────────
 
-/** Narrow the free-form stored JSON to the typed editor model, or `null`. */
+/**
+ * Narrow the free-form stored JSON to the typed editor model, or `null`. Accepts
+ * BOTH shapes the module meets: the engine's canonical `{ rrule: "FREQ=…" }`
+ * (RFC5545, from `mw-ics` parse — see `ruleToJson`) and the legacy JSCalendar
+ * `{ frequency, interval, byDay, … }` object the in-repo mock/seeds still carry.
+ */
 export function parseRule(raw: Record<string, unknown>): RecurrenceRule | null {
+  if (typeof raw['rrule'] === 'string') return rruleToRule(raw['rrule']);
   const freq = raw['frequency'];
   if (freq !== 'daily' && freq !== 'weekly' && freq !== 'monthly' && freq !== 'yearly') return null;
   const rule: RecurrenceRule = { frequency: freq };
@@ -96,15 +102,76 @@ export function parseRule(raw: Record<string, unknown>): RecurrenceRule | null {
   return rule;
 }
 
-/** Serialize the editor model back to storable JSON. */
+/**
+ * Serialize the editor model to the engine's storable shape: a single RFC5545
+ * `RRULE` string under `{ rrule }`. `mw-ics` (`emit_ical` / `expand_recurrence`)
+ * reads exactly this — a JSCalendar `{ frequency }` object is silently dropped,
+ * so an event created with one would not recur.
+ */
 export function ruleToJson(rule: RecurrenceRule): Record<string, unknown> {
-  const out: Record<string, unknown> = { frequency: rule.frequency };
-  if (rule.interval !== undefined && rule.interval > 1) out['interval'] = rule.interval;
-  if (rule.count !== undefined) out['count'] = rule.count;
-  if (rule.until !== undefined) out['until'] = rule.until;
-  if (rule.byDay !== undefined && rule.byDay.length > 0) out['byDay'] = rule.byDay;
-  if (rule.byMonthDay !== undefined && rule.byMonthDay.length > 0) out['byMonthDay'] = rule.byMonthDay;
-  return out;
+  return { rrule: ruleToRrule(rule) };
+}
+
+/** Build an RFC5545 `RRULE` value (`"FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE"`). */
+export function ruleToRrule(rule: RecurrenceRule): string {
+  const parts = [`FREQ=${rule.frequency.toUpperCase()}`];
+  if (rule.interval !== undefined && rule.interval > 1) parts.push(`INTERVAL=${rule.interval}`);
+  if (rule.byDay !== undefined && rule.byDay.length > 0) {
+    parts.push(`BYDAY=${rule.byDay.map((d) => d.toUpperCase()).join(',')}`);
+  }
+  if (rule.byMonthDay !== undefined && rule.byMonthDay.length > 0) {
+    parts.push(`BYMONTHDAY=${rule.byMonthDay.join(',')}`);
+  }
+  if (rule.count !== undefined) parts.push(`COUNT=${rule.count}`);
+  else if (rule.until !== undefined) parts.push(`UNTIL=${localToRruleUntil(rule.until)}`);
+  return parts.join(';');
+}
+
+/** Parse an RFC5545 `RRULE` value into the typed model (common set), or `null`. */
+export function rruleToRule(rrule: string): RecurrenceRule | null {
+  const kv = new Map<string, string>();
+  for (const part of rrule.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq > 0) kv.set(part.slice(0, eq).trim().toUpperCase(), part.slice(eq + 1).trim());
+  }
+  const freq = kv.get('FREQ')?.toLowerCase();
+  if (freq !== 'daily' && freq !== 'weekly' && freq !== 'monthly' && freq !== 'yearly') return null;
+  const rule: RecurrenceRule = { frequency: freq };
+  const interval = kv.get('INTERVAL');
+  if (interval !== undefined && Number(interval) > 1) rule.interval = Number(interval);
+  const count = kv.get('COUNT');
+  if (count !== undefined && Number.isFinite(Number(count))) rule.count = Number(count);
+  const until = kv.get('UNTIL');
+  if (until !== undefined) rule.until = rruleUntilToLocal(until);
+  const byDay = kv.get('BYDAY');
+  if (byDay !== undefined) {
+    const days = byDay
+      .split(',')
+      .map((d) => d.trim().replace(/^[+-]?\d+/, '').toLowerCase())
+      .filter((d): d is Weekday => d in WEEKDAY_INDEX);
+    if (days.length > 0) rule.byDay = days;
+  }
+  const byMonthDay = kv.get('BYMONTHDAY');
+  if (byMonthDay !== undefined) {
+    const nums = byMonthDay.split(',').map((n) => Number(n.trim())).filter((n) => Number.isFinite(n));
+    if (nums.length > 0) rule.byMonthDay = nums;
+  }
+  return rule;
+}
+
+/** `LocalDateTime`/date → RFC5545 UTC `UNTIL` (`"20260101T000000Z"`). */
+function localToRruleUntil(local: string): string {
+  const p = parseLocal(local);
+  const w = (n: number, width: number): string => String(n).padStart(width, '0');
+  return `${w(p.year, 4)}${w(p.month, 2)}${w(p.day, 2)}T${w(p.hour, 2)}${w(p.minute, 2)}${w(p.second, 2)}Z`;
+}
+
+/** RFC5545 `UNTIL` (`"20260101T000000Z"` / `"20260101"`) → `LocalDateTime`. */
+function rruleUntilToLocal(until: string): string {
+  const m = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2}))?/.exec(until.trim());
+  if (m === null) return until;
+  const [, y, mo, d, h, mi, s] = m;
+  return `${y}-${mo}-${d}T${h ?? '00'}:${mi ?? '00'}:${s ?? '00'}`;
 }
 
 /** The first typed rule on an event, if any. */

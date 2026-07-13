@@ -103,7 +103,7 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
     if (ev === null) return 0;
     return props.controller
       .instancesForDay(localToDate(ev.start))
-      .filter((i) => i.event.id === ev.id && props.controller.hasConflict(i.key)).length;
+      .filter((i) => i.event.id === ev.id && props.controller.hasConflict(i.event.id)).length;
   });
 
   function toggleByDay(d: Weekday): void {
