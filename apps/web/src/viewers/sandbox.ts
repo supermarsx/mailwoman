@@ -67,6 +67,72 @@ export function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// ── Max-security opening mode (plan §3 e5, §7.2) ─────────────────────────────
+//
+// The message-body frame (Reader.tsx) can be pinned to one of three security
+// postures. This is ADDITIVE: `bodyCsp`/`bodyFrameDoc` default to
+// `full-sanitized`, which reproduces the pre-V4 body render (sanitized HTML,
+// images allowed). The policy/precedence that PICKS a mode lives in
+// `max-security.ts`; this file only knows how to turn a chosen mode into a CSP
+// + a `srcdoc`. The sandbox contract above is unchanged — the body frame still
+// carries `sandbox=""` (no allow-scripts, no allow-same-origin); the CSP here
+// is defense-in-depth layered on top.
+
+/** The three max-security opening positions, ordered least→most restrictive:
+ *  `full-sanitized` (default, current behavior) → `sanitized-no-media`
+ *  (images/media blocked) → `plain-text` (HTML not rendered at all). */
+export type SecurityMode = 'full-sanitized' | 'sanitized-no-media' | 'plain-text';
+
+/** CSP the sanitized message-body frame is pinned to for a given mode.
+ *  `full-sanitized` keeps the pre-V4 permissive-image body; the other two drop
+ *  every image/media source so nothing external loads (belt-and-braces with the
+ *  sanitizer, which also strips the tags). */
+export function bodyCsp(mode: SecurityMode = 'full-sanitized'): string {
+  if (mode === 'full-sanitized') {
+    return [
+      "default-src 'none'",
+      'img-src data: https: http:',
+      'media-src data: https: http:',
+      "style-src 'unsafe-inline'",
+      'font-src data:',
+      "frame-ancestors 'none'",
+    ].join('; ');
+  }
+  // sanitized-no-media AND plain-text: no external/media source of any kind.
+  return ["default-src 'none'", "style-src 'unsafe-inline'", "frame-ancestors 'none'"].join('; ');
+}
+
+/** Minimal readable body styling (distinct from the media-centering FRAME_STYLE).
+ *  The opaque-origin body frame can't inherit the parent's theme vars, so e8
+ *  passes the stable `--mw-*` block via `opts.themeVars`. */
+const BODY_STYLE =
+  'html,body{margin:0;background:transparent}' +
+  'body{padding:12px;font:14px/1.6 ui-sans-serif,system-ui,sans-serif;word-break:break-word;' +
+  'color:var(--mw-text,#1c1e21)}' +
+  'img,video{max-width:100%;height:auto}' +
+  'pre{white-space:pre-wrap;word-break:break-word;margin:0;' +
+  'font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}';
+
+/** Build the message-body `srcdoc` for a mode. In `plain-text` the content is
+ *  rendered as escaped text (no HTML); otherwise the (already-sanitized) HTML is
+ *  inlined. Either way a per-document CSP `<meta>` pins the frame. */
+export function bodyFrameDoc(
+  mode: SecurityMode,
+  content: { html?: string | null; text?: string | null },
+  opts: { themeVars?: string } = {},
+): string {
+  const styleVars = opts.themeVars !== undefined && opts.themeVars.length > 0 ? opts.themeVars : '';
+  const inner =
+    mode === 'plain-text'
+      ? `<pre>${escapeHtml(content.text ?? '')}</pre>`
+      : (content.html ?? '');
+  return (
+    '<!doctype html><html><head><meta charset="utf-8">' +
+    `<meta http-equiv="Content-Security-Policy" content="${bodyCsp(mode)}">` +
+    `<style>${styleVars}${BODY_STYLE}</style></head><body>${inner}</body></html>`
+  );
+}
+
 /** Read an already-fetched `blob:` object URL back into a `data:` URL. */
 export async function blobUrlToDataUrl(blobUrl: string): Promise<string> {
   const blob = await (await fetch(blobUrl)).blob();

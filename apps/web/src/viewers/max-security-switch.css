@@ -1,0 +1,47 @@
+/* Max-security opening switch (plan §3 e5, §7.2). Themed via the live design
+   token CSS vars (same custom properties the viewers use) — never hardcoded. */
+
+.mw-maxsec {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-sink);
+}
+
+.mw-maxsec__opt {
+  appearance: none;
+  border: 0;
+  margin: 0;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mw-maxsec__opt:hover:not(.mw-maxsec__opt--off):not(.mw-maxsec__opt--on) {
+  color: var(--text);
+}
+
+.mw-maxsec__opt--on {
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.mw-maxsec__opt--off {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.mw-maxsec__opt:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
