@@ -70,7 +70,7 @@ struct DistributorReply {
 /// The user-visible id of the currently selected UnifiedPush distributor, if one
 /// is installed and saved (§2.1 — informs whether UnifiedPush is available).
 #[tauri::command]
-pub fn push_get_distributor<R: Runtime>(app: AppHandle<R>) -> Result<Option<String>, String> {
+pub fn mw_push_get_distributor<R: Runtime>(app: AppHandle<R>) -> Result<Option<String>, String> {
     #[cfg(mobile)]
     {
         let reply: DistributorReply = app.state::<MobileBridge<R>>().run("getDistributor", ())?;
@@ -87,7 +87,7 @@ pub fn push_get_distributor<R: Runtime>(app: AppHandle<R>) -> Result<Option<Stri
 /// immediately if already granted, otherwise `null` (it arrives via the
 /// `unifiedpush://new-endpoint` event). §2.1 `pushSubscribe`.
 #[tauri::command]
-pub fn push_register<R: Runtime>(
+pub fn mw_push_subscribe<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<Option<PushSubscriptionInfo>, String> {
     #[cfg(mobile)]
@@ -112,7 +112,7 @@ pub fn push_register<R: Runtime>(
 
 /// Release the UnifiedPush endpoint with the distributor (§2.1 `pushUnsubscribe`).
 #[tauri::command]
-pub fn push_unregister<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+pub fn mw_push_unsubscribe<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     #[cfg(mobile)]
     {
         let _: serde_json::Value = app

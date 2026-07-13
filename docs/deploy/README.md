@@ -43,6 +43,24 @@ V4 (crypto & security: OpenPGP/S/MIME, Security panel, DLP, max-security) adds:
   `/api/security/*` endpoints. The private-key crypto is client-side and needs no
   server config. Background + rationale live in [`../security/`](../security/README.md).
 
+V5 (thin desktop & mobile shells, self-contained mode, real screen-capture
+protection, self-hostable push) adds:
+
+- [`desktop.md`](./desktop.md) — the Tauri v2 desktop shell: install, **self-contained
+  mode** (the shell spawns a bundled `mw-server` sibling so a laptop user needs no
+  server), native auth (bearer token + OS keychain), the §7.4 UI-bundle integrity
+  gate, and the §16 bundle-size budgets.
+- [`push.md`](./push.md) — the **self-hostable push relay** (Web Push/VAPID +
+  UnifiedPush, APNs mocked): the privacy model (**no message content transits push**),
+  the endpoints, and the server config (`MW_NATIVE_ORIGINS`, `MW_VAPID_CONTACT`,
+  `push.quiet_hours`).
+- [`mobile-android.md`](./mobile-android.md) — the Android APK build (CI-gated,
+  F-Droid-friendly), and the honestly-documented iOS / APNs / app-store-submission
+  gaps as ops/sponsorship follow-ups (§28.7).
+- Screen-capture protection is now **real** on Windows/macOS/Android and honest
+  everywhere else — the matrix is in
+  [`../security/screen-capture.md`](../security/screen-capture.md).
+
 ## Configuration (environment)
 
 | Env | Default | Meaning |

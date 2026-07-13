@@ -35,10 +35,13 @@
 # `apps/desktop/src-tauri` + `apps/mobile/src-tauri`:
 #   tauri, tauri-build, tauri-plugin-{notification,os,deep-link,biometric,process,
 #   shell,updater} (MIT/Apache-2.0), keyring (MIT/Apache-2.0). These land under the
-#   MIT/Apache allow entries below. `web-push` (pimeys/rust-web-push, Apache-2.0;
-#   VAPID + RFC 8188/http-ece) is PRE-DECLARED in `[workspace.dependencies]` for e5
-#   and NOT yet linked into the tree (so not yet in Cargo.lock / this check) — same
-#   posture as the V4 crypto deps; it lands under Apache-2.0 unchanged when e5 wires it.
+#   MIT/Apache allow entries below. The server push relay (e5) uses `web-push-native`
+#   (leotaku/web-push-native, MIT OR Apache-2.0; VAPID + RFC 8188/http-ece over pure
+#   RustCrypto). NB: the originally-planned `web-push` 0.10 crate was DROPPED — it
+#   transitively pulls `ece` → `openssl` (a `-sys` C build BANNED in `[bans]` below
+#   that also does not build on the Windows/MSVC host); `web-push-native` is the
+#   pure-Rust replacement (no openssl/boring C) and is now linked in the tree
+#   (Cargo.lock) under the MIT/Apache allow entries — `cargo deny check` is green.
 #   NEW allow entry required: the large Tauri dep tree transitively pulls
 #   `tiny-keccak` (via `tauri-plugin-deep-link`), licensed CC0-1.0 — a Creative
 #   Commons public-domain dedication (permissive, NOT copyleft). Added to the

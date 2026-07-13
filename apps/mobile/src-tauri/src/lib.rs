@@ -16,6 +16,7 @@
 
 use serde_json::json;
 use tauri::{WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_deep_link::DeepLinkExt;
 
 // Mobile capability commands (UnifiedPush, share targets, badge, multi-server —
 // plan §3 e2). Packaged as a self-contained Tauri plugin (`commands::init()`);
@@ -70,11 +71,49 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_deep_link::init())
-        // e2's mobile capability plugin (UnifiedPush / share targets / badge /
-        // multi-server config). Self-contained `invoke_handler`; host-compiles
-        // (commands degrade off the mobile target). Registers the Android/iOS
-        // native bridge in its own `setup`.
-        .plugin(commands::init());
+        // e2's mobile native-bridge plugin: a SETUP-ONLY plugin that registers the
+        // Android/iOS `MobileBridge` + e4's `CaptureBridge` (FLAG_SECURE) handles.
+        // The capability COMMANDS are registered at the app level below with their
+        // frozen bare `mw_*` names (t7-e8 command reconciliation).
+        .plugin(commands::init())
+        // App-level command surface: every name the frozen `platform/tauri.ts`
+        // invokes has a mobile registration here (grep-verified against desktop's
+        // `lib.rs`), so the SPA's bare `invoke('mw_*')` resolves natively on Android.
+        // Commands `#[cfg(mobile)]`-degrade on the desktop host build.
+        .invoke_handler(tauri::generate_handler![
+            // Multi-server config (§2.1 server methods).
+            commands::config::mw_server_list,
+            commands::config::mw_server_get_selected,
+            commands::config::mw_server_add,
+            commands::config::mw_server_remove,
+            commands::config::mw_server_select,
+            // OS-backed secure store (Android EncryptedSharedPreferences).
+            commands::keychain::mw_keychain_get,
+            commands::keychain::mw_keychain_set,
+            commands::keychain::mw_keychain_delete,
+            // Native notifications + badge.
+            commands::notifications::mw_notify,
+            commands::badge::mw_set_badge_count,
+            // Deep-link / default-mailto (manifest-declared on Android).
+            commands::deeplink::mw_register_mailto_handler,
+            // Biometric app-lock (tauri-plugin-biometric on device).
+            commands::biometric::mw_biometric_available,
+            commands::biometric::mw_biometric_authenticate,
+            // Drag-out (no-op on mobile).
+            commands::dragout::mw_dragout_materialize,
+            // Screen-capture protection (Android FLAG_SECURE via e4's plugin).
+            commands::capture::mw_set_capture_protection,
+            // Push (Android UnifiedPush).
+            commands::push::mw_push_subscribe,
+            commands::push::mw_push_unsubscribe,
+            commands::push::mw_push_get_distributor,
+            // Share-target pull (companion to the `mw://share-target` event).
+            commands::share::mw_share_take_pending,
+            // Self-contained lifecycle (desktop-only capability; honest-degrade here).
+            commands::selfcontained::mw_self_contained_status,
+            commands::selfcontained::mw_start_local_server,
+            commands::selfcontained::mw_stop_local_server,
+        ]);
     // `tauri-plugin-biometric` is `#![cfg(mobile)]` — it does not exist on the
     // desktop host build (used for `cargo build --workspace` / unit tests), so its
     // registration is gated to the mobile targets.
@@ -82,6 +121,19 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_biometric::init());
     builder
         .setup(|app| {
+            // Deep-link bridge: forward OS-delivered mailto:/mailwoman: URLs to the
+            // SPA's `onOpenUrl` via `mw://open-url` (matching desktop's e7 bridge).
+            // Filtered so only handled schemes reach the frontend.
+            let handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    let s = url.as_str();
+                    if commands::deeplink::is_handled_url(s) {
+                        let _ = commands::deeplink::emit_open_url(&handle, s);
+                    }
+                }
+            });
+
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("Mailwoman")
                 .initialization_script(bootstrap_config_script())

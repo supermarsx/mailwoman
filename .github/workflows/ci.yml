@@ -601,67 +601,128 @@ jobs:
         run: docker compose -f docker-compose.dev.yml -f docker-compose.crypto.yml down -v
 
   # ===========================================================================
-  # V5 (26.6.0) thin-shell CI — SCAFFOLDED BY e0, COMMENTED until e8 activates +
-  # finalizes them. These build the Tauri v2 desktop shell (Windows + Linux) and
-  # the Android APK, and run the live tauri-driver E2E. Kept commented so the e0
-  # scaffold commit does not turn on jobs whose steps (installers, Android SDK
-  # provisioning, tauri-driver ↔ WebView2 pinning) e7/e8 still need to fill.
-  #
-  # desktop-shell:
-  #   strategy:
-  #     matrix:
-  #       os: [windows-latest, ubuntu-latest]
-  #   runs-on: ${{ matrix.os }}
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: dtolnay/rust-toolchain@stable
-  #     - uses: Swatinem/rust-cache@v2
-  #     - uses: pnpm/action-setup@v4
-  #     - uses: actions/setup-node@v4
-  #       with: { node-version: 24 }
-  #     # Linux: Tauri WebKitGTK system deps (Windows ships WebView2).
-  #     - name: install Linux webview deps
-  #       if: runner.os == 'Linux'
-  #       run: |
-  #         sudo apt-get update
-  #         sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
-  #           libayatana-appindicator3-dev librsvg2-dev libssl-dev
-  #     - name: build shared SPA (the one UI bundle the shell embeds)
-  #       run: pnpm -C apps/web install --frozen-lockfile && pnpm -C apps/web build
-  #     - name: install shell JS deps
-  #       run: pnpm -C apps/desktop install
-  #     - name: tauri build (desktop)
-  #       run: pnpm -C apps/desktop exec tauri build --no-bundle   # e8: enable bundling
-  #     - name: bundle-size gate (< 10 MB thin, < 40 MB self-contained, §16)
-  #       run: node scripts/check-shell-size.mjs                    # e8 authors this
-  #
-  # android-apk:
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: dtolnay/rust-toolchain@stable
-  #       with: { targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android }
-  #     - uses: actions/setup-java@v4
-  #       with: { distribution: temurin, java-version: 17 }
-  #     - uses: android-actions/setup-android@v3
-  #     - name: install NDK
-  #       run: sdkmanager "ndk;27.0.12077973"
-  #     - uses: pnpm/action-setup@v4
-  #     - uses: actions/setup-node@v4
-  #       with: { node-version: 24 }
-  #     - name: build shared SPA
-  #       run: pnpm -C apps/web install --frozen-lockfile && pnpm -C apps/web build
-  #     - name: tauri android init + build APK
-  #       run: |
-  #         pnpm -C apps/mobile install
-  #         pnpm -C apps/mobile exec tauri android init --ci
-  #         pnpm -C apps/mobile exec tauri android build --apk
-  #     - name: upload APK
-  #       uses: actions/upload-artifact@v4
-  #       with: { name: mailwoman-android, path: apps/mobile/src-tauri/gen/android/app/build/outputs/**/*.apk }
+  # V5 (26.6.0) thin-shell CI — plan §3 e8. Build the Tauri v2 desktop shell
+  # (Windows + Linux, macOS best-effort) with the §16 bundle-size gate, and the
+  # Android APK (the mobile command-name + Kotlin-plugin verification). The live
+  # tauri-driver desktop E2E stays scaffolded below for e9 (it owns apps/desktop/e2e).
+  # ===========================================================================
+
+  # desktop-shell — the DoD live-build gate (plan §7): `tauri build` produces a
+  # launching desktop app on Windows (the hard gate) + Linux (the required CI peer),
+  # with macOS best-effort. Runs scripts/build-shells.{sh,ps1}, which builds the
+  # shared SPA once, emits the §7.4 bundle-hash, bundles the sibling `mw-server` for
+  # self-contained mode, `tauri build --no-bundle`s the shell, and asserts the §16
+  # size budgets (thin < 10 MB, self-contained < 40 MB via scripts/check-bundle-size.mjs).
+  desktop-shell:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    # Windows + Linux are required; macOS is best-effort (Windows is the hard live
+    # gate, plan §1.9/§7) so a macOS-only failure never reds the pipeline.
+    continue-on-error: ${{ matrix.os == 'macos-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      # Linux: Tauri's WebKitGTK webview backend needs these system libs (Windows
+      # ships WebView2; macOS ships WKWebView). patchelf is needed by the Tauri build.
+      - name: install Linux webview deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev libssl-dev patchelf
+      - name: build thin + self-contained desktop shell + §16 size gate
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then pwsh scripts/build-shells.ps1; else bash scripts/build-shells.sh; fi
+      - name: upload desktop binary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mailwoman-desktop-${{ matrix.os }}
+          path: |
+            target/release/mailwoman-desktop
+            target/release/mailwoman-desktop.exe
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # android-apk — the mobile-shell CI gate (plan §1.11 / risk #1). This dev machine
+  # has no JDK, so `tauri android init/build` + the custom-Kotlin merge cannot be
+  # verified locally; they are provisioned only here. The Rust cdylib cross-compile
+  # to the Android targets exercises the #[cfg(mobile)] capability bindings and the
+  # app-level `mw_*` command registration (t7-e8 reconciliation); android-src/merge.py
+  # then merges the tracked Kotlin plugins (UnifiedPush / FLAG_SECURE /
+  # EncryptedSharedPreferences keychain) + manifest + Gradle deps into the generated
+  # gen/ project before the APK build. continue-on-error keeps this HONEST: a
+  # toolchain-provisioning or merge failure is a tracked gap (docs/deploy/mobile-android.md),
+  # not a pipeline-red, exactly as planned for the Android/iOS deferrals.
+  android-apk:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - name: install Android NDK
+        run: sdkmanager "ndk;27.0.12077973"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: build shared SPA + emit UI-bundle hash (§7.4)
+        run: |
+          pnpm -C apps/web install --frozen-lockfile
+          pnpm -C apps/web build
+          node scripts/emit-bundle-hash.mjs
+      - name: tauri android init (generate gen/android)
+        env:
+          NDK_HOME: ${{ env.ANDROID_NDK_ROOT }}
+        run: |
+          pnpm -C apps/mobile install
+          pnpm -C apps/mobile exec tauri android init --ci
+      - name: merge tracked Kotlin plugins + manifest + Gradle deps
+        run: python3 apps/mobile/src-tauri/android-src/merge.py
+      - name: tauri android build (APK)
+        env:
+          NDK_HOME: ${{ env.ANDROID_NDK_ROOT }}
+        run: pnpm -C apps/mobile exec tauri android build --apk
+      - name: upload APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mailwoman-android
+          path: apps/mobile/src-tauri/gen/android/app/build/outputs/**/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # desktop-e2e (e9) — the live tauri-driver / WebdriverIO per-capability E2E on
+  # Windows (WebView2 ↔ msedgedriver pinning). SCAFFOLDED here; e9 owns apps/desktop/e2e
+  # and activates this job (launch → SPA → notification → keychain → capture).
   #
   # desktop-e2e:
-  #   runs-on: windows-latest   # tauri-driver ↔ WebView2/msedgedriver, e9
+  #   runs-on: windows-latest
   #   steps:
   #     - uses: actions/checkout@v4
   #     - uses: dtolnay/rust-toolchain@stable

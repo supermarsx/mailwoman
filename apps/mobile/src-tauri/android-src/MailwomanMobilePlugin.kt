@@ -4,10 +4,16 @@
 //   * UnifiedPush registration     → registerUnifiedPush / unregisterUnifiedPush / getDistributor
 //   * Share targets & file handlers → takePendingShare (+ the `shareTarget` event)
 //   * Badge counts                 → setBadge
+//   * Secure store (OS keychain)   → keychainGet / keychainSet / keychainDelete
+//     (Android EncryptedSharedPreferences, AES-256 keyed by the Android Keystore —
+//     the mobile counterpart of desktop's `keyring` DPAPI/Keychain/Secret Service)
 //
 // This is the counterpart the Rust `commands` plugin (src/commands/) calls via
 // `run_mobile_plugin(<command>, …)`. Screen-capture protection (FLAG_SECURE) is
 // a SEPARATE plugin owned by e4 (`FlagSecurePlugin.kt`) — not here.
+//
+// GRADLE DEPENDENCY: keychain* needs `androidx.security:security-crypto` (Apache-2.0)
+// — record it in the license gate; merge step in `android-src/README.md`.
 //
 // BUILD NOTE (plan §1.11 / e0 probe): this Windows machine has the Android
 // SDK/NDK but NO JDK, so this file cannot be compiled locally. It is compiled by
@@ -25,6 +31,8 @@ import android.net.Uri
 import android.os.Build
 import android.util.Base64
 import android.webkit.WebView
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
@@ -44,6 +52,25 @@ private const val MAX_INLINE_BYTES = 8 * 1024 * 1024
 @InvokeArg
 class SetBadgeArgs {
     var count: Int = 0
+}
+
+@InvokeArg
+class KeychainGetArgs {
+    lateinit var service: String
+    lateinit var key: String
+}
+
+@InvokeArg
+class KeychainSetArgs {
+    lateinit var service: String
+    lateinit var key: String
+    lateinit var value: String
+}
+
+@InvokeArg
+class KeychainDeleteArgs {
+    lateinit var service: String
+    lateinit var key: String
 }
 
 @TauriPlugin
@@ -189,6 +216,66 @@ class MailwomanMobilePlugin(private val activity: android.app.Activity) : Plugin
             invoke.resolve(JSObject().apply { put("supported", true) })
         } catch (e: Exception) {
             invoke.resolve(JSObject().apply { put("supported", false) })
+        }
+    }
+
+    // ── Secure store (OS keychain) ───────────────────────────────────────────
+    //
+    // EncryptedSharedPreferences (AES-256-GCM value encryption, keyed by a MasterKey
+    // in the hardware-backed Android Keystore) is the mobile counterpart of desktop's
+    // `keyring` (DPAPI / Keychain / Secret Service). The `service` namespaces the
+    // store into a distinct prefs file (`mailwoman.session` vs `mailwoman.secure`) so
+    // the bearer token and the key-vault-passphrase wrap never collide; `key` is the
+    // item within it. The Rust `commands::keychain` module calls these via
+    // `run_mobile_plugin`.
+
+    private fun securePrefs(service: String): android.content.SharedPreferences {
+        // Sanitize the service into a safe prefs file name.
+        val fileName = "mw_" + service.replace(Regex("[^A-Za-z0-9_.-]"), "_")
+        val masterKey = MasterKey.Builder(activity)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+        return EncryptedSharedPreferences.create(
+            activity,
+            fileName,
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+        )
+    }
+
+    @Command
+    fun keychainGet(invoke: Invoke) {
+        val args = invoke.parseArgs(KeychainGetArgs::class.java)
+        try {
+            val value = securePrefs(args.service).getString(args.key, null)
+            invoke.resolve(JSObject().apply {
+                put("value", value ?: JSONObject.NULL)
+            })
+        } catch (e: Exception) {
+            invoke.reject("keychain get ${args.service}/${args.key}: ${e.message}")
+        }
+    }
+
+    @Command
+    fun keychainSet(invoke: Invoke) {
+        val args = invoke.parseArgs(KeychainSetArgs::class.java)
+        try {
+            securePrefs(args.service).edit().putString(args.key, args.value).apply()
+            invoke.resolve(JSObject())
+        } catch (e: Exception) {
+            invoke.reject("keychain set ${args.service}/${args.key}: ${e.message}")
+        }
+    }
+
+    @Command
+    fun keychainDelete(invoke: Invoke) {
+        val args = invoke.parseArgs(KeychainDeleteArgs::class.java)
+        try {
+            securePrefs(args.service).edit().remove(args.key).apply()
+            invoke.resolve(JSObject())
+        } catch (e: Exception) {
+            invoke.reject("keychain delete ${args.service}/${args.key}: ${e.message}")
         }
     }
 

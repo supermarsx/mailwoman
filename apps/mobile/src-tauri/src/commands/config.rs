@@ -55,15 +55,15 @@ fn store<R: Runtime>(app: &AppHandle<R>, cfg: &ServerConfig) -> Result<(), Strin
     std::fs::write(&path, bytes).map_err(|e| format!("write servers.json: {e}"))
 }
 
-/// List all configured servers (§2.1 `listServers`).
+/// List all configured servers (§2.1 `listServers`). Frozen `tauri.ts` name.
 #[tauri::command]
-pub fn config_list_servers<R: Runtime>(app: AppHandle<R>) -> Result<Vec<ServerEntry>, String> {
+pub fn mw_server_list<R: Runtime>(app: AppHandle<R>) -> Result<Vec<ServerEntry>, String> {
     Ok(load(&app)?.servers)
 }
 
 /// Add (or update the label of) a server, then select it (§2.1 `setServerUrl`).
 #[tauri::command]
-pub fn config_add_server<R: Runtime>(
+pub fn mw_server_add<R: Runtime>(
     app: AppHandle<R>,
     url: String,
     label: String,
@@ -83,7 +83,7 @@ pub fn config_add_server<R: Runtime>(
 
 /// Remove a server; clears the selection if it was the selected one.
 #[tauri::command]
-pub fn config_remove_server<R: Runtime>(
+pub fn mw_server_remove<R: Runtime>(
     app: AppHandle<R>,
     url: String,
 ) -> Result<Vec<ServerEntry>, String> {
@@ -98,7 +98,7 @@ pub fn config_remove_server<R: Runtime>(
 
 /// Select an already-configured server (§2.1 `selectServer`).
 #[tauri::command]
-pub fn config_select_server<R: Runtime>(app: AppHandle<R>, url: String) -> Result<(), String> {
+pub fn mw_server_select<R: Runtime>(app: AppHandle<R>, url: String) -> Result<(), String> {
     let mut cfg = load(&app)?;
     if !cfg.servers.iter().any(|s| s.url == url) {
         return Err(format!("unknown server: {url}"));
@@ -109,7 +109,7 @@ pub fn config_select_server<R: Runtime>(app: AppHandle<R>, url: String) -> Resul
 
 /// The currently selected server URL, if any (§2.1 `getServerUrl`).
 #[tauri::command]
-pub fn config_get_selected<R: Runtime>(app: AppHandle<R>) -> Result<Option<String>, String> {
+pub fn mw_server_get_selected<R: Runtime>(app: AppHandle<R>) -> Result<Option<String>, String> {
     Ok(load(&app)?.selected)
 }
 

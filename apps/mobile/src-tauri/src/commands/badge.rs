@@ -21,9 +21,9 @@ pub struct CapabilityResult {
     pub supported: bool,
 }
 
-/// Set the app badge to `count` (0 clears it). §2.1 `setBadgeCount`.
+/// Set the app badge to `count` (0 clears it). §2.1 `setBadgeCount`. Frozen name.
 #[tauri::command]
-pub fn set_badge_count<R: Runtime>(
+pub fn mw_set_badge_count<R: Runtime>(
     app: AppHandle<R>,
     count: i64,
 ) -> Result<CapabilityResult, String> {

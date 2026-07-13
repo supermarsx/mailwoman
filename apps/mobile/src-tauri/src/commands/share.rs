@@ -24,7 +24,7 @@ use tauri::Manager;
 /// Return and clear any pending shared/opened payload captured from the launch
 /// or a subsequent intent. `null` when nothing is pending. §2.1 `onShareTarget`.
 #[tauri::command]
-pub fn share_take_pending<R: Runtime>(
+pub fn mw_share_take_pending<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<Option<serde_json::Value>, String> {
     #[cfg(mobile)]
