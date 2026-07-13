@@ -5,6 +5,7 @@
 
 import { For, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
+import { ServerSettings } from '../platform/ServerSettings.tsx';
 import { THEME_OPTIONS, ACCENT_PRESETS } from '../theme/tokens.ts';
 import type { Density } from '../theme/contract.css.ts';
 import type { LayoutMode, UiFont } from '../state/slices/theme.ts';
@@ -163,6 +164,9 @@ export function Settings(props: SettingsProps): JSX.Element {
             </For>
           </div>
         </div>
+
+        {/* Native-shell multi-server management; renders nothing in a browser. */}
+        <ServerSettings />
       </section>
     </div>
   );

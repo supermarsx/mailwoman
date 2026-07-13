@@ -50,6 +50,13 @@ export interface PushClientOptions {
   wsUrl?: string;
   /** SSE endpoint; defaults to same-origin `/jmap/eventsource`. */
   sseUrl?: string;
+  /**
+   * Optional native bearer token (plan §2.2). WebSocket/EventSource cannot set an
+   * `Authorization` header, so when present it is appended as an `access_token`
+   * query param on the WS/SSE URLs. The browser omits it → the cookie path,
+   * unchanged.
+   */
+  bearer?: string;
   WebSocketImpl?: WebSocketCtor;
   EventSourceImpl?: EventSourceCtor;
   /** Heartbeat/keepalive interval (default 30 s, §2.2). */
@@ -88,8 +95,8 @@ type Current =
   | null;
 
 export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
-  const wsUrl = opts.wsUrl ?? defaultWsUrl();
-  const sseUrl = opts.sseUrl ?? '/jmap/eventsource';
+  const wsUrl = withBearer(opts.wsUrl ?? defaultWsUrl(), opts.bearer);
+  const sseUrl = withBearer(opts.sseUrl ?? '/jmap/eventsource', opts.bearer);
   const WS = opts.WebSocketImpl ?? (globalThis.WebSocket as unknown as WebSocketCtor | undefined);
   const ES =
     opts.EventSourceImpl ?? (globalThis.EventSource as unknown as EventSourceCtor | undefined);
@@ -332,4 +339,11 @@ function defaultWsUrl(): string {
   if (typeof location === 'undefined') return '/jmap/ws';
   const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${scheme}//${location.host}/jmap/ws`;
+}
+
+/** Append the native `access_token` query param when a bearer is supplied. */
+function withBearer(url: string, bearer?: string): string {
+  if (bearer === undefined || bearer.length === 0) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}access_token=${encodeURIComponent(bearer)}`;
 }

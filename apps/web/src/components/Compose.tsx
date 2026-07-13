@@ -11,12 +11,13 @@ import {
   type DlpScanFn,
   type KeyLookupFn,
 } from './compose/crypto-jmap.ts';
-import { createClient } from '../api/client.ts';
+import { createConfiguredClient } from '../api/transport.ts';
 
 // The crypto/DLP JMAP surface (`CryptoKey/lookup`, `Dlp/scan`) is not on
-// `AppState`; drive it over a dedicated same-origin, cookie-authed client (hits
-// the same session as the store's client) — plan §2.2/§2.5.
-const jmapClient = createClient();
+// `AppState`; drive it over a dedicated client that hits the same session as the
+// store's client (browser: same-origin cookie; native shell: configured base +
+// bearer — plan §2.2/§2.5).
+const jmapClient = createConfiguredClient();
 
 /** Split the raw To field into recipient tokens (the banner is live as you type). */
 function splitRecipients(raw: string): string[] {

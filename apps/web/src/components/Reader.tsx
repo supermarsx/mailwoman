@@ -19,7 +19,7 @@ import { MaxSecuritySwitch } from '../viewers/MaxSecuritySwitch.tsx';
 import { createMaxSecurityStore } from '../viewers/max-security.ts';
 import { bodyFrameDoc } from '../viewers/sandbox.ts';
 import { getCryptoWorker } from '../crypto/index.ts';
-import { createClient } from '../api/client.ts';
+import { createConfiguredClient } from '../api/transport.ts';
 import { responseFor } from '../api/jmap.ts';
 import { CAP_CORE } from '../api/jmap-types.ts';
 import { CAP_CRYPTO, CAP_SECURITY } from '../api/crypto-types.ts';
@@ -27,11 +27,11 @@ import type { Email, EmailAddress } from '../api/jmap-types.ts';
 import type { SecurityVerdict, SignatureVerdict } from '../api/security-types.ts';
 
 // The crypto/security JMAP surface (`SecurityVerdict/get`, `SenderControl/set`)
-// is not exposed on `AppState`, so this component drives it over its own
-// same-origin, cookie-authed client (stateless — hits the same session as the
-// store's client). The max-security policy is an app-singleton (per-sender +
-// global, persisted in localStorage) — plan §2.5.
-const jmapClient = createClient();
+// is not exposed on `AppState`, so this component drives it over its own client
+// (stateless — hits the same session as the store's client; browser: same-origin
+// cookie, native shell: configured base + bearer). The max-security policy is an
+// app-singleton (per-sender + global, persisted in localStorage) — plan §2.5.
+const jmapClient = createConfiguredClient();
 const maxsec = createMaxSecurityStore();
 
 const SECURITY_USING = [CAP_CORE, CAP_CRYPTO, CAP_SECURITY];

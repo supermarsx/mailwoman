@@ -1,6 +1,14 @@
-// Same-origin HTTP client for the mw-server contract (plan §2).
-// All requests are cookie-authed (credentials: 'same-origin'); the browser
-// never sees upstream JMAP creds.
+// HTTP client for the mw-server contract (plan §2).
+//
+// BROWSER (default): same-origin, cookie-authed (`credentials: 'same-origin'`);
+// the browser never sees upstream JMAP creds — this path is byte-identical to
+// pre-V5 and is the hard regression gate.
+//
+// NATIVE (V5 thin shell, opt-in — plan §2.2): a configurable `base` URL points
+// the transport at a remote Mailwoman server, and an optional `ClientAuth`
+// attaches an `Authorization: Bearer <token>` header (from the OS keychain) and
+// drops the cookie (`credentials: 'omit'`), sidestepping the cookie-only CSRF
+// guard. The browser passes neither, so nothing about the cookie path changes.
 
 import type { JmapRequest, JmapResponse, JmapSession } from './jmap-types.ts';
 
@@ -34,17 +42,15 @@ export interface Me {
 
 export type NetworkListener = (online: boolean) => void;
 
-async function req(input: string, init?: RequestInit): Promise<Response> {
-  let res: Response;
-  try {
-    res = await fetch(input, {
-      credentials: 'same-origin',
-      ...init,
-    });
-  } catch (cause) {
-    throw new NetworkError(cause instanceof Error ? cause.message : 'network request failed');
-  }
-  return res;
+/**
+ * Optional bearer-auth provider for the native shell (plan §2.2). When present
+ * and it yields a token, the client attaches `Authorization: Bearer <token>` and
+ * omits cookies. Absent (the browser default) → the cookie same-origin path,
+ * unchanged.
+ */
+export interface ClientAuth {
+  /** The current session bearer token, or `null` to use the cookie path. */
+  token(): Promise<string | null>;
 }
 
 async function jsonOrThrow<T>(res: Response): Promise<T> {
@@ -64,8 +70,32 @@ export interface Client {
   onNetwork(listener: NetworkListener): () => void;
 }
 
-export function createClient(base = ''): Client {
+export function createClient(base = '', auth?: ClientAuth): Client {
   const listeners = new Set<NetworkListener>();
+
+  /**
+   * Perform a request. With no `auth` (the browser default) this is byte-for-byte
+   * the pre-V5 behaviour: `credentials: 'same-origin'` and the caller's `init`
+   * verbatim. With an `auth` that yields a token it attaches the bearer header and
+   * omits cookies (native cross-origin path).
+   */
+  async function req(input: string, init?: RequestInit): Promise<Response> {
+    const finalInit: RequestInit = { credentials: 'same-origin', ...init };
+    if (auth) {
+      const token = await auth.token();
+      if (token !== null) {
+        finalInit.headers = { ...(init?.headers as Record<string, string>), Authorization: `Bearer ${token}` };
+        finalInit.credentials = 'omit'; // bearer path: no ambient cookie authority.
+      }
+    }
+    let res: Response;
+    try {
+      res = await fetch(input, finalInit);
+    } catch (cause) {
+      throw new NetworkError(cause instanceof Error ? cause.message : 'network request failed');
+    }
+    return res;
+  }
 
   function notify(online: boolean): void {
     for (const l of listeners) l(online);

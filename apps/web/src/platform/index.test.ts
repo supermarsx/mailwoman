@@ -70,15 +70,38 @@ describe('setPlatform() injects a fake (test seam)', () => {
   });
 });
 
-describe('native (tauri) stub', () => {
-  it('reports the shell-injected platform kind and delegates the rest', async () => {
+describe('native (tauri) platform', () => {
+  it('reports the shell-injected platform descriptor', async () => {
     (globalThis as { __MW_CONFIG__?: unknown }).__MW_CONFIG__ = {
       platform: { kind: 'desktop', os: 'windows', version: '26.6.0' },
       native: true,
     };
     const p = await createTauriPlatform();
     expect(p.platform()).toEqual({ kind: 'desktop', os: 'windows', version: '26.6.0' });
-    // Delegated capability still works (browser fallback under the hood).
-    expect(await p.setCaptureProtection(true)).toEqual({ supported: false });
+  });
+
+  it('derives the push transport from the platform kind (no runtime needed)', async () => {
+    (globalThis as { __MW_CONFIG__?: unknown }).__MW_CONFIG__ = {
+      platform: { kind: 'android', os: 'android', version: '26.6.0' },
+    };
+    const android = await createTauriPlatform();
+    expect(android.getPushTransport()).toBe('unifiedpush');
+
+    (globalThis as { __MW_CONFIG__?: unknown }).__MW_CONFIG__ = {
+      platform: { kind: 'desktop', os: 'windows', version: '26.6.0' },
+    };
+    const desktop = await createTauriPlatform();
+    expect(desktop.getPushTransport()).toBe('webpush');
+  });
+
+  it('routes a native capability through a Tauri IPC command (absent in this env)', async () => {
+    (globalThis as { __MW_CONFIG__?: unknown }).__MW_CONFIG__ = {
+      platform: { kind: 'desktop', os: 'windows', version: '26.6.0' },
+    };
+    const p = await createTauriPlatform();
+    // The real impl invokes `mw_set_capture_protection` over Tauri IPC; with no
+    // Tauri runtime (unit env) the dynamic `@tauri-apps` import rejects — proving
+    // the native path calls the shell rather than the browser fallback.
+    await expect(p.setCaptureProtection(true)).rejects.toThrow();
   });
 });
