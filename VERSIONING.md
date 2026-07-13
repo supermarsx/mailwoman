@@ -37,6 +37,22 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
 
 ## History
 
+- **`26.5`** — V4: crypto & security depth. OpenPGP + S/MIME end-to-end
+  encryption with **private-key operations in a client-side WASM build** of
+  mw-crypto (keys never reach the server unencrypted); decrypted mail is
+  sanitized in-worker (mw-sanitize wasm) before the sandboxed iframe. A
+  Security panel with DKIM/SPF/DMARC/ARC verdicts, Received-chain, signature
+  and attachment-risk analysis, and sender controls that emit **real Sieve
+  rules**. Engine-side DLP on the outbound path (PAN/IBAN/national-id
+  detectors → warn/block, redacted audit). The three-position max-security
+  opening switch. Hybrid X25519+ML-KEM-768 store-key wrapping. Server: WKD
+  publishing, ARF abuse reports, an honest watermark overlay. New crate:
+  mw-crypto (native + wasm). Verified: 430 Rust + 432 web tests; wasm build on
+  Windows + Linux; PGP/S-MIME interop against recorded GnuPG/Thunderbird/
+  Outlook fixtures; 8 live Playwright specs (browser-generated key →
+  encrypt → send → decrypt → in-worker sanitize; DKIM pass/fail; DLP block;
+  max-security). Two "unit-green but CSP/JMAP-dead" gaps caught + fixed at the
+  live-E2E gate.
 - **`26.4`** — V3: personal-information management. Calendar (all views —
   day/3-day/work-week/week/month/tri-month/schedule/agenda/year — recurrence,
   reminders, attendees, iTIP invites, free/busy, conflict detection),
