@@ -55,6 +55,10 @@ fn bootstrap_config_script() -> String {
         },
         "serverUrl": serde_json::Value::Null,
         "native": true,
+        // Enable the passive native consumers (notifications/badge/share/push) in
+        // the SPA (`platform/capabilities.ts`); `isTauri()` already enables them in
+        // a shell — explicit here to keep the contract symmetric with desktop.
+        "capabilities": true,
     });
     format!("globalThis.__MW_CONFIG__ = Object.assign(globalThis.__MW_CONFIG__ || {{}}, {cfg});")
 }
@@ -65,7 +69,12 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_deep_link::init());
+        .plugin(tauri_plugin_deep_link::init())
+        // e2's mobile capability plugin (UnifiedPush / share targets / badge /
+        // multi-server config). Self-contained `invoke_handler`; host-compiles
+        // (commands degrade off the mobile target). Registers the Android/iOS
+        // native bridge in its own `setup`.
+        .plugin(commands::init());
     // `tauri-plugin-biometric` is `#![cfg(mobile)]` — it does not exist on the
     // desktop host build (used for `cargo build --workspace` / unit tests), so its
     // registration is gated to the mobile targets.

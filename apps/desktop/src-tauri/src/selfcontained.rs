@@ -20,10 +20,11 @@
 //!
 //! `lib.rs`/the shared registration is e7's. To mount, e7 adds `mod selfcontained;`,
 //! `app.manage(selfcontained::LocalServer::new());`, and registers the three
-//! commands in `tauri::generate_handler![selfcontained::self_contained_status,
-//! selfcontained::start_local_server, selfcontained::stop_local_server, …]`. On
-//! `RunEvent::ExitRequested` / window close, e7 calls `stop_local_server` (or
-//! `LocalServer::stop`) so the child is not orphaned on quit.
+//! commands in `tauri::generate_handler![selfcontained::mw_self_contained_status,
+//! selfcontained::mw_start_local_server, selfcontained::mw_stop_local_server, …]`
+//! (the `mw_`-prefixed names match the frozen `platform/tauri.ts` invoke contract).
+//! On `RunEvent::ExitRequested` / window close, e7 calls `LocalServer::stop` so the
+//! child is not orphaned on quit.
 //!
 //! The capability layer (`apps/web/src/platform/tauri.ts`) calls these as the §2.1
 //! `selfContainedStatus()` / `startLocalServer()` / `stopLocalServer()` methods;
@@ -465,15 +466,16 @@ fn resolve_spawn_options(app: &AppHandle) -> Result<SpawnOptions, String> {
 
 // ---- Tauri commands (registered by e7; names/signatures frozen here) ----
 
-/// `selfContainedStatus()` → `"off"|"starting"|"ready"|"error"`.
+/// `selfContainedStatus()` → `"off"|"starting"|"ready"|"error"`. Named
+/// `mw_self_contained_status` to match the frozen `platform/tauri.ts` invoke contract.
 #[tauri::command]
-pub async fn self_contained_status(state: State<'_, LocalServer>) -> Result<String, String> {
+pub async fn mw_self_contained_status(state: State<'_, LocalServer>) -> Result<String, String> {
     Ok(state.status().as_str().to_string())
 }
 
 /// `startLocalServer()` → the loopback URL the SPA transport points at.
 #[tauri::command]
-pub async fn start_local_server(
+pub async fn mw_start_local_server(
     app: AppHandle,
     state: State<'_, LocalServer>,
 ) -> Result<String, String> {
@@ -486,7 +488,7 @@ pub async fn start_local_server(
 
 /// `stopLocalServer()` — kill the sibling and mark the server off.
 #[tauri::command]
-pub async fn stop_local_server(state: State<'_, LocalServer>) -> Result<(), String> {
+pub async fn mw_stop_local_server(state: State<'_, LocalServer>) -> Result<(), String> {
     let server = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || server.stop())
         .await

@@ -35,12 +35,27 @@ tauri-plugin-shell = { workspace = true }
 tauri-plugin-updater = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# Self-contained mode (e3) generates a 32-byte one-time `MW_SERVER_KEY` for the
+# spawned sibling `mw-server` from the OS CSPRNG.
+getrandom = { workspace = true }
+# UI-bundle integrity gate (§7.4 / e7): re-hash the embedded SPA assets at launch
+# and compare against the build-emitted `bundle-hash.json`. RustCrypto, Apache/MIT.
+sha2 = { workspace = true }
 
 # OS credential store (§16 keychain) — the native backend per platform: DPAPI /
 # Windows Credential Manager on Windows, Keychain on macOS, Secret Service on
 # Linux. Selected per-target so a Windows build never pulls the Linux D-Bus stack.
 [target.'cfg(windows)'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }
+# Windows Hello (UserConsentVerifier) for the desktop biometric app-lock — the
+# `tauri-plugin-biometric` plugin is mobile-only, so desktop uses the OS consent
+# API directly. `windows` is MIT/Apache-2.0 (clears the §1.10 license floor) and
+# already resolved at 0.61.x in the lockfile (tauri's own dependency), so this
+# adds no new version. Windows-only target: no other platform links it.
+windows = { version = "0.61", features = [
+    "Security_Credentials_UI",
+    "Foundation",
+] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", features = ["apple-native"] }

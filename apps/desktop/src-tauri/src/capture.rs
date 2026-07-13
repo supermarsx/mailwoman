@@ -23,13 +23,14 @@
 //! ## Command surface (for e7 to register — do NOT wire it here)
 //! This module owns the logic only; the shared `invoke_handler` registration in
 //! `lib.rs` is e7's. e7 adds `mod capture;` and
-//! `tauri::generate_handler![capture::set_capture_protection, ...]`. The SPA's
-//! `platform/tauri.ts` (e6) calls it as:
+//! `tauri::generate_handler![capture::mw_set_capture_protection, ...]`. The command
+//! is named `mw_set_capture_protection` to match the frozen `platform/tauri.ts` (e6)
+//! invoke contract; the SPA calls it as:
 //!
 //! ```ignore
 //! import { invoke } from '@tauri-apps/api/core';
 //! const { supported } = await invoke<{ supported: boolean }>(
-//!   'set_capture_protection', { enabled: true },
+//!   'mw_set_capture_protection', { enabled: true },
 //! );
 //! ```
 
@@ -87,7 +88,7 @@ fn apply_capture_protection(
 /// `{ supported: true }`. On every other desktop OS it makes no OS call and returns
 /// `{ supported: false }` so the SPA keeps the V4 watermark.
 #[tauri::command]
-pub async fn set_capture_protection<R: tauri::Runtime>(
+pub async fn mw_set_capture_protection<R: tauri::Runtime>(
     window: tauri::WebviewWindow<R>,
     enabled: bool,
 ) -> Result<CaptureResult, String> {

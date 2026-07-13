@@ -115,3 +115,54 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
   event.respondWith(respond(request));
 });
+
+// ── Web Push wake (V5, plan §2.3) ──────────────────────────────────────────
+// The server sends an OPAQUE wake — it carries NO message content (§2.3). Its only
+// job is to nudge the client to foreground-fetch `/changes` (the same refetch the
+// WS/SSE realtime path does). So on `push` we: (1) message any open clients so the
+// SPA refetches + renders its own native notification via the capability layer, and
+// (2) if no client is visible, show a generic, content-free notification so the wake
+// is not silently dropped. The wake is never parsed as mail.
+self.addEventListener('push', (event) => {
+  event.waitUntil(
+    (async () => {
+      const clientList = await self.clients.matchAll({
+        type: 'window',
+        includeUncontrolled: true,
+      });
+      // Nudge every open tab to refetch — content is fetched over JMAP, not push.
+      for (const client of clientList) {
+        client.postMessage({ type: 'mw-push-wake' });
+      }
+      const anyVisible = clientList.some((c) => c.visibilityState === 'visible');
+      // Only surface an OS notification when the app is not already in front; a
+      // visible tab refetches and renders its own richer, in-app notification.
+      if (!anyVisible && self.registration.showNotification) {
+        await self.registration.showNotification('Mailwoman', {
+          body: 'You have new activity.',
+          tag: 'mw-wake',
+          renotify: false,
+        });
+      }
+    })(),
+  );
+});
+
+// Focus (or open) the app when the generic wake notification is clicked.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    (async () => {
+      const clientList = await self.clients.matchAll({
+        type: 'window',
+        includeUncontrolled: true,
+      });
+      const existing = clientList.find((c) => 'focus' in c);
+      if (existing) {
+        await existing.focus();
+      } else if (self.clients.openWindow) {
+        await self.clients.openWindow('/');
+      }
+    })(),
+  );
+});
