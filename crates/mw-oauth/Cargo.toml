@@ -6,13 +6,22 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
-# SCAFFOLD (t6-e0): frozen §2.3 types as compiling STUBS. e3 fills the opaque
-# API-key mint/hash(Argon2id)/verify/prefix-lookup/revoke, the OAuth 2.1
-# authorization-code + PKCE-S256 + resource-indicator (RFC 8707) state machine,
-# refresh/introspect/revoke, and the admin-approved client registry. `argon2` is
-# PRE-DECLARED in the root `[workspace.dependencies]` and wired by e3 — the stub
-# links only serde/thiserror.
+# t6-e3: scoped API keys + OAuth 2.1 Authorization Server. Opaque tokens hashed at
+# rest (SHA-256), API-key secrets Argon2id-hashed. Persistence is abstracted behind
+# the `OAuthStore` trait (mw-server/e11 backs it with the mw-store 0007 tables) so
+# this crate carries no `mw-store` dependency and stays unit-testable in isolation.
+# All deps are pre-declared, permissive, pure-Rust (no openssl).
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+chrono = { workspace = true }
+argon2 = { workspace = true }
+rand = { workspace = true }
+sha2 = { workspace = true }
+base64 = { workspace = true }
+hex = { workspace = true }
+async-trait = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

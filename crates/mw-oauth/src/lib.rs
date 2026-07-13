@@ -1,27 +1,42 @@
 #![forbid(unsafe_code)]
-// SCAFFOLD (t6-e0): stub crate — the frozen §2.3 API names exist so e4 (MCP) and
-// e11 (mount) compile against `Scope`; e3 owns the real implementation.
-#![allow(dead_code, clippy::unused_async)]
 //! Scoped API keys + OAuth 2.1 authorization server for Mailwoman V6 (SPEC
 //! §20.1, plan §2.3).
 //!
-//! **Frozen contract (§2.3):**
+//! **Contract (§2.3):**
 //! - [`Scope`] — the typed capability set: `{read,send,delete} × {account,folder}
 //!   × {mail,pim}` + IP allowlist + expiry + rate-limit + `mcp_tools` +
-//!   `unattended_send`.
-//! - API key wire format `mwk_<prefix>.<secret>`; stored Argon2id-hashed; shown
-//!   once; prefix-indexed for lookup.
-//! - OAuth 2.1: `/oauth/authorize` (code + PKCE-S256 + resource), `/oauth/token`,
+//!   `unattended_send`. [`Scope::allows`] is the grant/deny matrix (no escalation).
+//! - API key wire format `mwk_<prefix>.<secret>` (256-bit secret); stored
+//!   Argon2id-hashed; shown once; prefix-indexed for lookup ([`mint_api_key`],
+//!   [`verify_api_key`]).
+//! - OAuth 2.1 [`AuthServer`]: `/oauth/authorize` (code + **mandatory PKCE S256** +
+//!   **mandatory RFC 8707 resource**), `/oauth/token` (auth-code + refresh),
 //!   `/oauth/introspect`, `/oauth/revoke`; admin-approved [`OAuthClient`] registry.
-//! - Enforcement middleware `require_scope(scope)` lives in `mw-server` (mounted
-//!   by e11): resolves a key/token → [`Scope`], checks IP + rate-limit + expiry,
-//!   and emits an audit row.
+//! - Enforcement core [`AuthServer::require_scope`] (mounted behind axum middleware
+//!   by e11): resolves a key/token → [`Scope`], checks expiry + IP allowlist +
+//!   rate-limit + resource binding + capability, and emits an [`AuditEvent`].
 //!
-//! Opaque tokens (hashed in the store) are the default — no JWT dependency unless
-//! resource-indicator interop forces it. MCP keys ARE API keys (`mcp:*` scopes).
-//!
-//! e3 fills the bodies (currently `unimplemented!()`) and persists via the
-//! `mw-store` 0007 tables.
+//! Opaque tokens (SHA-256 hashed in the store) are the default — no JWT dependency.
+//! MCP keys ARE API keys (`mcp_tools` grants). Persistence is abstracted behind
+//! [`OAuthStore`] (e11 backs it with the `mw-store` 0007 tables); [`InMemoryOAuthStore`]
+//! is the in-crate reference impl.
+
+mod enforce;
+mod keys;
+mod oauth;
+mod pkce;
+mod store;
+mod util;
+
+pub use enforce::{
+    AuditEvent, AuditSink, CollectingAudit, CredentialKind, Granted, NoopAudit, RequestContext,
+};
+pub use oauth::{
+    AuthServer, AuthServerConfig, AuthorizeRequest, AuthorizeResponse, Introspection, TokenRequest,
+    TokenResponse,
+};
+pub use pkce::challenge_s256;
+pub use store::{InMemoryOAuthStore, OAuthStore};
 
 use serde::{Deserialize, Serialize};
 
@@ -81,9 +96,60 @@ impl Scope {
         }
     }
 
-    /// Whether this scope authorizes `required` (STUB: e3 fills the real matrix).
-    pub fn allows(&self, _required: &Scope) -> bool {
-        unimplemented!("mw-oauth::Scope::allows — filled by t6-e3")
+    /// Whether this (granted) scope authorizes `required` — the grant/deny matrix.
+    ///
+    /// A required capability is authorized only if this scope explicitly grants it;
+    /// a narrower key can never escalate. `ip_allowlist`/`expires_at`/`rate_limit`
+    /// are per-key constraints checked by [`AuthServer::require_scope`], not part of
+    /// the capability comparison here.
+    pub fn allows(&self, required: &Scope) -> bool {
+        // Verb grants: every requested verb must be held.
+        if required.read && !self.read {
+            return false;
+        }
+        if required.send && !self.send {
+            return false;
+        }
+        if required.delete && !self.delete {
+            return false;
+        }
+        // Surface grants.
+        if required.mail && !self.mail {
+            return false;
+        }
+        if required.pim && !self.pim {
+            return false;
+        }
+        // Account / folder coverage.
+        if !selector_covers(&self.accounts, &required.accounts) {
+            return false;
+        }
+        if !selector_covers(&self.folders, &required.folders) {
+            return false;
+        }
+        // MCP tool grants: every requested tool must be granted.
+        if !required
+            .mcp_tools
+            .iter()
+            .all(|t| self.mcp_tools.contains(t))
+        {
+            return false;
+        }
+        // Unattended send is a strictly additional privilege.
+        if required.unattended_send && !self.unattended_send {
+            return false;
+        }
+        true
+    }
+}
+
+/// Whether `granted` covers every id in `required`. `All` covers anything; a
+/// concrete subset can never cover `All` (that would be an escalation).
+fn selector_covers(granted: &ScopeSelector, required: &ScopeSelector) -> bool {
+    match (granted, required) {
+        (ScopeSelector::All, _) => true,
+        (ScopeSelector::Subset(_), ScopeSelector::All) => false,
+        (ScopeSelector::Subset(g), ScopeSelector::Subset(r)) => r.iter().all(|id| g.contains(id)),
     }
 }
 
@@ -110,15 +176,20 @@ pub struct MintedApiKey {
 }
 
 /// Mint a fresh `mwk_<prefix>.<secret>` API key for `account_id` under `scope`.
-/// STUB: e3 generates 32 random bytes, Argon2id-hashes the secret, and returns
-/// the shown-once token alongside the storable record.
-pub fn mint_api_key(_account_id: &str, _scope: Scope) -> MintedApiKey {
-    unimplemented!("mw-oauth::mint_api_key — filled by t6-e3")
+///
+/// Generates a 256-bit secret, Argon2id-hashes it, and returns the shown-once
+/// display token alongside the storable [`ApiKey`] record (which holds only the
+/// hash). Persist `record` via an [`OAuthStore`]; surface `display_token` once.
+pub fn mint_api_key(account_id: &str, scope: Scope) -> MintedApiKey {
+    keys::mint(account_id, scope)
 }
 
-/// Verify a presented `mwk_...` token against a stored [`ApiKey`] hash.
-pub fn verify_api_key(_presented: &str, _stored: &ApiKey) -> bool {
-    unimplemented!("mw-oauth::verify_api_key — filled by t6-e3")
+/// Verify a presented `mwk_...` token against a stored [`ApiKey`].
+///
+/// Constant-time on both the prefix and (via Argon2id) the secret; rejects revoked
+/// keys and malformed tokens.
+pub fn verify_api_key(presented: &str, stored: &ApiKey) -> bool {
+    keys::verify(presented, stored)
 }
 
 /// OAuth 2.1 token kinds persisted in `oauth_tokens` (0007).
@@ -177,8 +248,8 @@ pub enum OAuthError {
     Store(String),
 }
 
-/// Verify a PKCE `code_verifier` against a stored S256 `challenge`.
-/// STUB: e3 implements `BASE64URL(SHA256(verifier)) == challenge`.
-pub fn verify_pkce_s256(_verifier: &str, _challenge: &str) -> bool {
-    unimplemented!("mw-oauth::verify_pkce_s256 — filled by t6-e3")
+/// Verify a PKCE `code_verifier` against a stored S256 `challenge`
+/// (`BASE64URL-NOPAD(SHA256(verifier)) == challenge`), in constant time.
+pub fn verify_pkce_s256(verifier: &str, challenge: &str) -> bool {
+    pkce::verify_s256(verifier, challenge)
 }
