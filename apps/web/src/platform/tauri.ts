@@ -104,6 +104,13 @@ function pushTransportFor(kind: PlatformKind): PushTransport {
   return 'webpush'; // desktop
 }
 
+// OS-keychain namespaces (e1's `mw_keychain_*` contract, t7-e1.md): the session
+// bearer token and the key-vault-wrap secure store are distinct services in the
+// native credential store. The session token is a single fixed-key entry.
+const KC_SESSION = 'mailwoman.session';
+const KC_SECURE = 'mailwoman.secure';
+const KC_SESSION_KEY = 'token';
+
 /**
  * Create the native platform. Composes over the browser fallback (so anything the
  * shell does not back yet still degrades honestly) and overrides each capability
@@ -121,21 +128,29 @@ export async function createTauriPlatform(): Promise<Platform> {
       return info ?? base.platform();
     },
 
-    // ── Server config (multi-server, persisted natively). ──
-    getServerUrl: () => invoke<string | null>('mw_get_server_url'),
-    setServerUrl: (url) => invoke('mw_set_server_url', { url }),
-    listServers: () => invoke<ServerEntry[]>('mw_list_servers'),
-    selectServer: (url) => invoke('mw_select_server', { url }),
+    // ── Server config (multi-server, persisted natively — e1 `mw_server_*`). ──
+    getServerUrl: () => invoke<string | null>('mw_server_get_selected'),
+    // The Platform interface's single-arg `setServerUrl` maps to add-then-select
+    // over e1's multi-server store (label defaults to the URL).
+    setServerUrl: async (url) => {
+      await invoke('mw_server_add', { url, label: url });
+      await invoke('mw_server_select', { url });
+    },
+    listServers: () => invoke<ServerEntry[]>('mw_server_list'),
+    selectServer: (url) => invoke('mw_server_select', { url }),
 
-    // ── Auth token store (OS keychain via the `keyring` crate). ──
-    getSessionToken: () => invoke<string | null>('mw_get_session_token'),
-    setSessionToken: (token) => invoke('mw_set_session_token', { token }),
-    clearSessionToken: () => invoke('mw_clear_session_token'),
+    // ── Auth token store (OS keychain, `mw_keychain_*` service=session). ──
+    getSessionToken: () =>
+      invoke<string | null>('mw_keychain_get', { service: KC_SESSION, key: KC_SESSION_KEY }),
+    setSessionToken: (token) =>
+      invoke('mw_keychain_set', { service: KC_SESSION, key: KC_SESSION_KEY, value: token }),
+    clearSessionToken: () =>
+      invoke('mw_keychain_delete', { service: KC_SESSION, key: KC_SESSION_KEY }),
 
-    // ── Secure store (OS keychain). ──
-    secureGet: (key) => invoke<string | null>('mw_secure_get', { key }),
-    secureSet: (key, value) => invoke('mw_secure_set', { key, value }),
-    secureDelete: (key) => invoke('mw_secure_delete', { key }),
+    // ── Secure store (OS keychain, `mw_keychain_*` service=secure). ──
+    secureGet: (key) => invoke<string | null>('mw_keychain_get', { service: KC_SECURE, key }),
+    secureSet: (key, value) => invoke('mw_keychain_set', { service: KC_SECURE, key, value }),
+    secureDelete: (key) => invoke('mw_keychain_delete', { service: KC_SECURE, key }),
 
     // ── Notifications (native, with action buttons) + badge. ──
     notify: (input: NotifyInput) => invoke('mw_notify', { input }),
@@ -157,10 +172,19 @@ export async function createTauriPlatform(): Promise<Platform> {
     biometricAuthenticate: ({ reason }) =>
       invoke<boolean>('mw_biometric_authenticate', { reason }),
 
-    // ── Share / drag-out. ──
+    // ── Share / drag-out (e1 `mw_dragout_materialize`, bytes as number[]). ──
     onShareTarget: (cb: (payload: ShareTargetPayload) => void): Unsubscribe =>
       bridge<ShareTargetPayload>('mw://share-target', cb),
-    startDragOut: (files) => invoke('mw_start_drag_out', { files }),
+    // e1 materializes temp files from raw bytes; blobId → bytes must be resolved
+    // by the caller first. Uint8Array → number[] for IPC serialization.
+    startDragOut: (files) =>
+      invoke('mw_dragout_materialize', {
+        files: files.map((f) => ({
+          name: f.name,
+          mime: f.mime,
+          bytes: f.bytes !== undefined ? Array.from(f.bytes) : [],
+        })),
+      }),
 
     // ── Push (desktop WebPush / Android UnifiedPush / iOS APNs). ──
     pushSubscribe: () => invoke<PushSubscriptionInfo | null>('mw_push_subscribe'),
