@@ -37,10 +37,6 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
 
 ## History
 
-- **`26.1`** — first rolling release. V0 walking skeleton (SPEC §27): wired
-  webmail path (SolidJS client → mw-server JMAP proxy + sanitize worker →
-  JMAP upstream), Docker/CI, E2E. Supersedes the pre-adoption `v0.0.0`
-  placeholder tag, which was removed.
 - **`26.4`** — V3: personal-information management. Calendar (all views —
   day/3-day/work-week/week/month/tri-month/schedule/agenda/year — recurrence,
   reminders, attendees, iTIP invites, free/busy, conflict detection),
@@ -76,3 +72,7 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
   mw-smtp, mw-mime, mw-engine, mw-autoconfig. Greenmail/Dovecot CI
   conformance + a Playwright E2E driving a real IMAP account through the
   unmodified web UI.
+- **`26.1`** — first rolling release. V0 walking skeleton (SPEC §27): wired
+  webmail path (SolidJS client → mw-server JMAP proxy + sanitize worker →
+  JMAP upstream), Docker/CI, E2E. Supersedes the pre-adoption `v0.0.0`
+  placeholder tag, which was removed.
