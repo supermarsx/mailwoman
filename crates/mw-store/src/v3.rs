@@ -7,13 +7,8 @@
 //! `op`/`type`) are plain strings the engine owns. Note **bodies** are sealed
 //! with the existing [`crate::ServerKey`] (`body_*_sealed` BLOBs) —
 //! encrypted-at-rest, NOT zero-access (plan §1.6).
-//!
-//! ## Scaffolder note (e0)
-//! e0 freezes the row DTOs + method signatures; **e8** fills every `todo!()`
-//! (the CRUD, the sealed-note read/write, the instance regeneration, and the
-//! `pim_changes` state counters). No SQL is executed yet.
 
-#![allow(unused_variables)] // e8 consumes these when filling the query bodies.
+use sqlx::Row;
 
 use crate::{Store, StoreError};
 
@@ -156,29 +151,266 @@ pub struct PimChangeRow {
     pub op: String,
 }
 
+fn calendar_from_row(r: &sqlx::sqlite::SqliteRow) -> CalendarRow {
+    CalendarRow {
+        id: r.get("id"),
+        account_id: r.get("account_id"),
+        name: r.get("name"),
+        color: r.get("color"),
+        sort_order: r.get("sort_order"),
+        is_visible: r.get::<i64, _>("is_visible") != 0,
+        role: r.get("role"),
+        caldav_url: r.get("caldav_url"),
+        sync_token: r.get("sync_token"),
+        ctag: r.get("ctag"),
+        is_overlay: r.get::<i64, _>("is_overlay") != 0,
+        component: r.get("component"),
+    }
+}
+
+fn event_from_row(r: &sqlx::sqlite::SqliteRow) -> EventRow {
+    EventRow {
+        id: r.get("id"),
+        calendar_id: r.get("calendar_id"),
+        uid: r.get("uid"),
+        etag: r.get("etag"),
+        ical_raw: r.get("ical_raw"),
+        start_utc: r.get("start_utc"),
+        end_utc: r.get("end_utc"),
+        tzid: r.get("tzid"),
+        rrule: r.get("rrule"),
+        status: r.get("status"),
+        json: r.get("json"),
+    }
+}
+
+fn task_from_row(r: &sqlx::sqlite::SqliteRow) -> TaskRow {
+    TaskRow {
+        id: r.get("id"),
+        list_id: r.get("list_id"),
+        uid: r.get("uid"),
+        etag: r.get("etag"),
+        due_utc: r.get("due_utc"),
+        start_utc: r.get("start_utc"),
+        priority: r.get("priority"),
+        percent_complete: r.get("percent_complete"),
+        status: r.get("status"),
+        parent_id: r.get("parent_id"),
+        my_day_date: r.get("my_day_date"),
+        ical_raw: r.get("ical_raw"),
+        json: r.get("json"),
+    }
+}
+
+fn address_book_from_row(r: &sqlx::sqlite::SqliteRow) -> AddressBookRow {
+    AddressBookRow {
+        id: r.get("id"),
+        account_id: r.get("account_id"),
+        name: r.get("name"),
+        is_default: r.get::<i64, _>("is_default") != 0,
+        carddav_url: r.get("carddav_url"),
+        sync_token: r.get("sync_token"),
+        ctag: r.get("ctag"),
+    }
+}
+
+fn contact_from_row(r: &sqlx::sqlite::SqliteRow) -> ContactRow {
+    ContactRow {
+        id: r.get("id"),
+        address_book_id: r.get("address_book_id"),
+        uid: r.get("uid"),
+        etag: r.get("etag"),
+        vcard_raw: r.get("vcard_raw"),
+        json: r.get("json"),
+        full_name: r.get("full_name"),
+        is_favorite: r.get::<i64, _>("is_favorite") != 0,
+        photo_blob_id: r.get("photo_blob_id"),
+        pgp_key: r.get("pgp_key"),
+        smime_cert: r.get("smime_cert"),
+    }
+}
+
+fn contact_group_from_row(r: &sqlx::sqlite::SqliteRow) -> ContactGroupRow {
+    ContactGroupRow {
+        id: r.get("id"),
+        address_book_id: r.get("address_book_id"),
+        name: r.get("name"),
+        member_ids_json: r.get("member_ids_json"),
+    }
+}
+
 impl Store {
     // ── calendars ───────────────────────────────────────────────────────────
 
     /// List an account's calendars + task lists (`calendars`).
     pub async fn list_calendars(&self, account_id: &str) -> Result<Vec<CalendarRow>, StoreError> {
-        todo!("e8: SELECT * FROM calendars WHERE account_id = ?")
+        let rows = sqlx::query(
+            "SELECT id, account_id, name, color, sort_order, is_visible, role, caldav_url,
+                    sync_token, ctag, is_overlay, component
+             FROM calendars WHERE account_id = ?1 ORDER BY sort_order, name",
+        )
+        .bind(account_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(calendar_from_row).collect())
+    }
+
+    /// Fetch one calendar / task-list collection by id.
+    pub async fn get_calendar(&self, id: &str) -> Result<Option<CalendarRow>, StoreError> {
+        let row = sqlx::query(
+            "SELECT id, account_id, name, color, sort_order, is_visible, role, caldav_url,
+                    sync_token, ctag, is_overlay, component
+             FROM calendars WHERE id = ?1",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.as_ref().map(calendar_from_row))
     }
 
     /// Insert or replace a calendar / task-list collection.
     pub async fn upsert_calendar(&self, row: &CalendarRow) -> Result<(), StoreError> {
-        todo!("e8: INSERT ... ON CONFLICT(id) DO UPDATE for calendars")
+        sqlx::query(
+            "INSERT INTO calendars
+                 (id, account_id, name, color, sort_order, is_visible, role, caldav_url,
+                  sync_token, ctag, is_overlay, component)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+             ON CONFLICT(id) DO UPDATE SET
+                 name = excluded.name, color = excluded.color, sort_order = excluded.sort_order,
+                 is_visible = excluded.is_visible, role = excluded.role,
+                 caldav_url = excluded.caldav_url, sync_token = excluded.sync_token,
+                 ctag = excluded.ctag, is_overlay = excluded.is_overlay,
+                 component = excluded.component",
+        )
+        .bind(&row.id)
+        .bind(&row.account_id)
+        .bind(&row.name)
+        .bind(&row.color)
+        .bind(row.sort_order)
+        .bind(i64::from(row.is_visible))
+        .bind(row.role.as_deref())
+        .bind(row.caldav_url.as_deref())
+        .bind(row.sync_token.as_deref())
+        .bind(row.ctag.as_deref())
+        .bind(i64::from(row.is_overlay))
+        .bind(&row.component)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Delete a calendar / task list (cascades events, tasks, instances, shares).
+    pub async fn delete_calendar(&self, id: &str) -> Result<(), StoreError> {
+        sqlx::query("DELETE FROM calendars WHERE id = ?1")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Replace a calendar's ACL shares (delete + bulk insert).
+    pub async fn replace_calendar_shares(
+        &self,
+        calendar_id: &str,
+        shares: &[(String, String)],
+    ) -> Result<(), StoreError> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM calendar_shares WHERE calendar_id = ?1")
+            .bind(calendar_id)
+            .execute(&mut *tx)
+            .await?;
+        for (principal, access) in shares {
+            sqlx::query(
+                "INSERT INTO calendar_shares (calendar_id, principal, access) VALUES (?1, ?2, ?3)",
+            )
+            .bind(calendar_id)
+            .bind(principal)
+            .bind(access)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// List a calendar's ACL shares as `(principal, access)` pairs.
+    pub async fn list_calendar_shares(
+        &self,
+        calendar_id: &str,
+    ) -> Result<Vec<(String, String)>, StoreError> {
+        let rows = sqlx::query(
+            "SELECT principal, access FROM calendar_shares WHERE calendar_id = ?1 ORDER BY principal",
+        )
+        .bind(calendar_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .iter()
+            .map(|r| (r.get("principal"), r.get("access")))
+            .collect())
     }
 
     // ── events + instances ──────────────────────────────────────────────────
 
     /// List a calendar's master events.
     pub async fn list_events(&self, calendar_id: &str) -> Result<Vec<EventRow>, StoreError> {
-        todo!("e8: SELECT * FROM events WHERE calendar_id = ?")
+        let rows = sqlx::query(
+            "SELECT id, calendar_id, uid, etag, ical_raw, start_utc, end_utc, tzid, rrule, status, json
+             FROM events WHERE calendar_id = ?1 ORDER BY start_utc",
+        )
+        .bind(calendar_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(event_from_row).collect())
+    }
+
+    /// Fetch one event by id.
+    pub async fn get_event(&self, id: &str) -> Result<Option<EventRow>, StoreError> {
+        let row = sqlx::query(
+            "SELECT id, calendar_id, uid, etag, ical_raw, start_utc, end_utc, tzid, rrule, status, json
+             FROM events WHERE id = ?1",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.as_ref().map(event_from_row))
     }
 
     /// Insert or replace an event (source of truth = `ical_raw`).
     pub async fn upsert_event(&self, row: &EventRow) -> Result<(), StoreError> {
-        todo!("e8: INSERT ... ON CONFLICT(id) DO UPDATE for events")
+        sqlx::query(
+            "INSERT INTO events
+                 (id, calendar_id, uid, etag, ical_raw, start_utc, end_utc, tzid, rrule, status, json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+             ON CONFLICT(id) DO UPDATE SET
+                 calendar_id = excluded.calendar_id, uid = excluded.uid, etag = excluded.etag,
+                 ical_raw = excluded.ical_raw, start_utc = excluded.start_utc,
+                 end_utc = excluded.end_utc, tzid = excluded.tzid, rrule = excluded.rrule,
+                 status = excluded.status, json = excluded.json",
+        )
+        .bind(&row.id)
+        .bind(&row.calendar_id)
+        .bind(&row.uid)
+        .bind(row.etag.as_deref())
+        .bind(&row.ical_raw)
+        .bind(row.start_utc.as_deref())
+        .bind(row.end_utc.as_deref())
+        .bind(row.tzid.as_deref())
+        .bind(row.rrule.as_deref())
+        .bind(&row.status)
+        .bind(row.json.as_deref())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Delete an event (cascades its materialized instances).
+    pub async fn delete_event(&self, id: &str) -> Result<(), StoreError> {
+        sqlx::query("DELETE FROM events WHERE id = ?1")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     /// Regenerate an event's materialized recurrence instances (delete + insert).
@@ -187,59 +419,269 @@ impl Store {
         event_id: &str,
         instances: &[EventInstanceRow],
     ) -> Result<(), StoreError> {
-        todo!("e8: DELETE + bulk INSERT into event_instances for one event")
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM event_instances WHERE event_id = ?1")
+            .bind(event_id)
+            .execute(&mut *tx)
+            .await?;
+        for inst in instances {
+            sqlx::query(
+                "INSERT INTO event_instances (event_id, instance_start_utc, instance_end_utc)
+                 VALUES (?1, ?2, ?3)",
+            )
+            .bind(event_id)
+            .bind(&inst.instance_start_utc)
+            .bind(&inst.instance_end_utc)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
     }
 
-    /// Events whose materialized instances overlap `[start_utc, end_utc)` — the
-    /// range-query + conflict-detection index (plan §2.4).
+    /// Events whose materialized instances overlap `[start_utc, end_utc)` for an
+    /// account — the range-query + conflict-detection index (plan §2.4). Rows are
+    /// ordered by instance start so conflict pairing is a linear scan.
     pub async fn events_in_range(
         &self,
         account_id: &str,
         start_utc: &str,
         end_utc: &str,
     ) -> Result<Vec<EventInstanceRow>, StoreError> {
-        todo!("e8: JOIN event_instances on idx_event_instances_range")
+        let rows = sqlx::query(
+            "SELECT ei.event_id AS event_id,
+                    ei.instance_start_utc AS instance_start_utc,
+                    ei.instance_end_utc AS instance_end_utc
+             FROM event_instances ei
+             JOIN events e ON e.id = ei.event_id
+             JOIN calendars c ON c.id = e.calendar_id
+             WHERE c.account_id = ?1
+               AND ei.instance_start_utc < ?3
+               AND ei.instance_end_utc > ?2
+             ORDER BY ei.instance_start_utc",
+        )
+        .bind(account_id)
+        .bind(start_utc)
+        .bind(end_utc)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .iter()
+            .map(|r| EventInstanceRow {
+                event_id: r.get("event_id"),
+                instance_start_utc: r.get("instance_start_utc"),
+                instance_end_utc: r.get("instance_end_utc"),
+            })
+            .collect())
     }
 
     // ── tasks ───────────────────────────────────────────────────────────────
 
     /// List a task list's tasks.
     pub async fn list_tasks(&self, list_id: &str) -> Result<Vec<TaskRow>, StoreError> {
-        todo!("e8: SELECT * FROM tasks WHERE list_id = ?")
+        let rows = sqlx::query(
+            "SELECT id, list_id, uid, etag, due_utc, start_utc, priority, percent_complete,
+                    status, parent_id, my_day_date, ical_raw, json
+             FROM tasks WHERE list_id = ?1 ORDER BY due_utc IS NULL, due_utc, id",
+        )
+        .bind(list_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(task_from_row).collect())
+    }
+
+    /// Fetch one task by id.
+    pub async fn get_task(&self, id: &str) -> Result<Option<TaskRow>, StoreError> {
+        let row = sqlx::query(
+            "SELECT id, list_id, uid, etag, due_utc, start_utc, priority, percent_complete,
+                    status, parent_id, my_day_date, ical_raw, json
+             FROM tasks WHERE id = ?1",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.as_ref().map(task_from_row))
     }
 
     /// Insert or replace a task.
     pub async fn upsert_task(&self, row: &TaskRow) -> Result<(), StoreError> {
-        todo!("e8: INSERT ... ON CONFLICT(id) DO UPDATE for tasks")
+        sqlx::query(
+            "INSERT INTO tasks
+                 (id, list_id, uid, etag, due_utc, start_utc, priority, percent_complete,
+                  status, parent_id, my_day_date, ical_raw, json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+             ON CONFLICT(id) DO UPDATE SET
+                 list_id = excluded.list_id, uid = excluded.uid, etag = excluded.etag,
+                 due_utc = excluded.due_utc, start_utc = excluded.start_utc,
+                 priority = excluded.priority, percent_complete = excluded.percent_complete,
+                 status = excluded.status, parent_id = excluded.parent_id,
+                 my_day_date = excluded.my_day_date, ical_raw = excluded.ical_raw,
+                 json = excluded.json",
+        )
+        .bind(&row.id)
+        .bind(&row.list_id)
+        .bind(&row.uid)
+        .bind(row.etag.as_deref())
+        .bind(row.due_utc.as_deref())
+        .bind(row.start_utc.as_deref())
+        .bind(row.priority)
+        .bind(row.percent_complete)
+        .bind(&row.status)
+        .bind(row.parent_id.as_deref())
+        .bind(row.my_day_date.as_deref())
+        .bind(&row.ical_raw)
+        .bind(row.json.as_deref())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Delete a task.
+    pub async fn delete_task(&self, id: &str) -> Result<(), StoreError> {
+        sqlx::query("DELETE FROM tasks WHERE id = ?1")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     // ── notebooks ───────────────────────────────────────────────────────────
 
     /// List an account's notebooks.
     pub async fn list_notebooks(&self, account_id: &str) -> Result<Vec<NotebookRow>, StoreError> {
-        todo!("e8: SELECT * FROM notebooks WHERE account_id = ?")
+        let rows = sqlx::query(
+            "SELECT id, account_id, name FROM notebooks WHERE account_id = ?1 ORDER BY name",
+        )
+        .bind(account_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .iter()
+            .map(|r| NotebookRow {
+                id: r.get("id"),
+                account_id: r.get("account_id"),
+                name: r.get("name"),
+            })
+            .collect())
     }
 
     /// Insert or replace a notebook.
     pub async fn upsert_notebook(&self, row: &NotebookRow) -> Result<(), StoreError> {
-        todo!("e8: INSERT ... ON CONFLICT(id) DO UPDATE for notebooks")
+        sqlx::query(
+            "INSERT INTO notebooks (id, account_id, name) VALUES (?1, ?2, ?3)
+             ON CONFLICT(id) DO UPDATE SET name = excluded.name",
+        )
+        .bind(&row.id)
+        .bind(&row.account_id)
+        .bind(&row.name)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     // ── notes (sealed at rest) ──────────────────────────────────────────────
 
     /// Fetch one note with its body **unsealed** (plan §1.6).
     pub async fn get_note(&self, id: &str) -> Result<Option<NoteRow>, StoreError> {
-        todo!("e8: SELECT note + self.key.unseal(body_*_sealed)")
+        let row = sqlx::query(
+            "SELECT id, account_id, notebook_id, title, tags_json, color, pinned,
+                    body_html_sealed, body_text_sealed, links_json, created_at, updated_at
+             FROM notes WHERE id = ?1",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        match row {
+            Some(r) => Ok(Some(self.note_from_row(&r)?)),
+            None => Ok(None),
+        }
     }
 
-    /// List an account's notes (metadata + unsealed bodies for the small set).
+    /// List an account's notes (metadata + unsealed bodies), pinned first.
     pub async fn list_notes(&self, account_id: &str) -> Result<Vec<NoteRow>, StoreError> {
-        todo!("e8: SELECT notes WHERE account_id = ? (pinned first)")
+        let rows = sqlx::query(
+            "SELECT id, account_id, notebook_id, title, tags_json, color, pinned,
+                    body_html_sealed, body_text_sealed, links_json, created_at, updated_at
+             FROM notes WHERE account_id = ?1 ORDER BY pinned DESC, updated_at DESC, id",
+        )
+        .bind(account_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(|r| self.note_from_row(r)).collect()
+    }
+
+    /// Unseal a note row's body columns into a [`NoteRow`].
+    fn note_from_row(&self, r: &sqlx::sqlite::SqliteRow) -> Result<NoteRow, StoreError> {
+        let body_html = self.unseal_opt(r.get::<Option<Vec<u8>>, _>("body_html_sealed"))?;
+        let body_text = self.unseal_opt(r.get::<Option<Vec<u8>>, _>("body_text_sealed"))?;
+        Ok(NoteRow {
+            id: r.get("id"),
+            account_id: r.get("account_id"),
+            notebook_id: r.get("notebook_id"),
+            title: r.get("title"),
+            tags_json: r.get("tags_json"),
+            color: r.get("color"),
+            pinned: r.get::<i64, _>("pinned") != 0,
+            body_html,
+            body_text,
+            links_json: r.get("links_json"),
+            created_at: r.get("created_at"),
+            updated_at: r.get("updated_at"),
+        })
+    }
+
+    /// Unseal an optional sealed BLOB into a UTF-8 string (empty when NULL).
+    fn unseal_opt(&self, sealed: Option<Vec<u8>>) -> Result<String, StoreError> {
+        match sealed {
+            None => Ok(String::new()),
+            Some(bytes) if bytes.is_empty() => Ok(String::new()),
+            Some(bytes) => {
+                let plain = self.key.open(&bytes)?;
+                String::from_utf8(plain).map_err(|e| StoreError::Corrupt(e.to_string()))
+            }
+        }
     }
 
     /// Insert or replace a note, **sealing** the body columns at rest.
     pub async fn upsert_note(&self, row: &NoteRow) -> Result<(), StoreError> {
-        todo!("e8: seal body_html/body_text via self.key.seal, then UPSERT")
+        let body_html_sealed = self.key.seal(row.body_html.as_bytes())?;
+        let body_text_sealed = self.key.seal(row.body_text.as_bytes())?;
+        sqlx::query(
+            "INSERT INTO notes
+                 (id, account_id, notebook_id, title, tags_json, color, pinned,
+                  body_html_sealed, body_text_sealed, links_json, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+             ON CONFLICT(id) DO UPDATE SET
+                 notebook_id = excluded.notebook_id, title = excluded.title,
+                 tags_json = excluded.tags_json, color = excluded.color, pinned = excluded.pinned,
+                 body_html_sealed = excluded.body_html_sealed,
+                 body_text_sealed = excluded.body_text_sealed,
+                 links_json = excluded.links_json, updated_at = excluded.updated_at",
+        )
+        .bind(&row.id)
+        .bind(&row.account_id)
+        .bind(row.notebook_id.as_deref())
+        .bind(&row.title)
+        .bind(&row.tags_json)
+        .bind(&row.color)
+        .bind(i64::from(row.pinned))
+        .bind(body_html_sealed)
+        .bind(body_text_sealed)
+        .bind(&row.links_json)
+        .bind(&row.created_at)
+        .bind(&row.updated_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Delete a note.
+    pub async fn delete_note(&self, id: &str) -> Result<(), StoreError> {
+        sqlx::query("DELETE FROM notes WHERE id = ?1")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     // ── address books + contacts ────────────────────────────────────────────
@@ -249,12 +691,58 @@ impl Store {
         &self,
         account_id: &str,
     ) -> Result<Vec<AddressBookRow>, StoreError> {
-        todo!("e8: SELECT * FROM address_books WHERE account_id = ?")
+        let rows = sqlx::query(
+            "SELECT id, account_id, name, is_default, carddav_url, sync_token, ctag
+             FROM address_books WHERE account_id = ?1 ORDER BY is_default DESC, name",
+        )
+        .bind(account_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(address_book_from_row).collect())
+    }
+
+    /// Fetch one address book by id.
+    pub async fn get_address_book(&self, id: &str) -> Result<Option<AddressBookRow>, StoreError> {
+        let row = sqlx::query(
+            "SELECT id, account_id, name, is_default, carddav_url, sync_token, ctag
+             FROM address_books WHERE id = ?1",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.as_ref().map(address_book_from_row))
     }
 
     /// Insert or replace an address book.
     pub async fn upsert_address_book(&self, row: &AddressBookRow) -> Result<(), StoreError> {
-        todo!("e8: INSERT ... ON CONFLICT(id) DO UPDATE for address_books")
+        sqlx::query(
+            "INSERT INTO address_books
+                 (id, account_id, name, is_default, carddav_url, sync_token, ctag)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(id) DO UPDATE SET
+                 name = excluded.name, is_default = excluded.is_default,
+                 carddav_url = excluded.carddav_url, sync_token = excluded.sync_token,
+                 ctag = excluded.ctag",
+        )
+        .bind(&row.id)
+        .bind(&row.account_id)
+        .bind(&row.name)
+        .bind(i64::from(row.is_default))
+        .bind(row.carddav_url.as_deref())
+        .bind(row.sync_token.as_deref())
+        .bind(row.ctag.as_deref())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Delete an address book (cascades contacts + groups).
+    pub async fn delete_address_book(&self, id: &str) -> Result<(), StoreError> {
+        sqlx::query("DELETE FROM address_books WHERE id = ?1")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     /// List an address book's contacts.
@@ -262,23 +750,98 @@ impl Store {
         &self,
         address_book_id: &str,
     ) -> Result<Vec<ContactRow>, StoreError> {
-        todo!("e8: SELECT * FROM contacts WHERE address_book_id = ?")
+        let rows = sqlx::query(
+            "SELECT id, address_book_id, uid, etag, vcard_raw, json, full_name, is_favorite,
+                    photo_blob_id, pgp_key, smime_cert
+             FROM contacts WHERE address_book_id = ?1 ORDER BY full_name, id",
+        )
+        .bind(address_book_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(contact_from_row).collect())
+    }
+
+    /// Fetch one contact by id.
+    pub async fn get_contact(&self, id: &str) -> Result<Option<ContactRow>, StoreError> {
+        let row = sqlx::query(
+            "SELECT id, address_book_id, uid, etag, vcard_raw, json, full_name, is_favorite,
+                    photo_blob_id, pgp_key, smime_cert
+             FROM contacts WHERE id = ?1",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.as_ref().map(contact_from_row))
     }
 
     /// Insert or replace a contact (source of truth = `vcard_raw`).
     pub async fn upsert_contact(&self, row: &ContactRow) -> Result<(), StoreError> {
-        todo!("e8: INSERT ... ON CONFLICT(id) DO UPDATE for contacts")
+        sqlx::query(
+            "INSERT INTO contacts
+                 (id, address_book_id, uid, etag, vcard_raw, json, full_name, is_favorite,
+                  photo_blob_id, pgp_key, smime_cert)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+             ON CONFLICT(id) DO UPDATE SET
+                 address_book_id = excluded.address_book_id, uid = excluded.uid,
+                 etag = excluded.etag, vcard_raw = excluded.vcard_raw, json = excluded.json,
+                 full_name = excluded.full_name, is_favorite = excluded.is_favorite,
+                 photo_blob_id = excluded.photo_blob_id, pgp_key = excluded.pgp_key,
+                 smime_cert = excluded.smime_cert",
+        )
+        .bind(&row.id)
+        .bind(&row.address_book_id)
+        .bind(&row.uid)
+        .bind(row.etag.as_deref())
+        .bind(&row.vcard_raw)
+        .bind(row.json.as_deref())
+        .bind(&row.full_name)
+        .bind(i64::from(row.is_favorite))
+        .bind(row.photo_blob_id.as_deref())
+        .bind(row.pgp_key.as_deref())
+        .bind(row.smime_cert.as_deref())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Delete a contact.
+    pub async fn delete_contact(&self, id: &str) -> Result<(), StoreError> {
+        sqlx::query("DELETE FROM contacts WHERE id = ?1")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     /// Prefix-match contacts by name/email for Compose autocomplete
-    /// (`ContactCard/autocomplete`, §2.2), ranked by favorite then name.
+    /// (`ContactCard/autocomplete`, §2.2), ranked by favorite then name. The
+    /// email match scans `vcard_raw` (the `EMAIL:` lines) since emails are a
+    /// projected column set, not a top-level searchable field.
     pub async fn autocomplete_contacts(
         &self,
         account_id: &str,
         prefix: &str,
         limit: i64,
     ) -> Result<Vec<ContactRow>, StoreError> {
-        todo!("e8: ranked prefix scan over idx_contacts_fullname/favorite")
+        let like = format!("%{}%", prefix.replace('%', "\\%").replace('_', "\\_"));
+        let rows = sqlx::query(
+            "SELECT c.id AS id, c.address_book_id AS address_book_id, c.uid AS uid, c.etag AS etag,
+                    c.vcard_raw AS vcard_raw, c.json AS json, c.full_name AS full_name,
+                    c.is_favorite AS is_favorite, c.photo_blob_id AS photo_blob_id,
+                    c.pgp_key AS pgp_key, c.smime_cert AS smime_cert
+             FROM contacts c
+             JOIN address_books ab ON ab.id = c.address_book_id
+             WHERE ab.account_id = ?1
+               AND (c.full_name LIKE ?2 ESCAPE '\\' OR c.vcard_raw LIKE ?2 ESCAPE '\\')
+             ORDER BY c.is_favorite DESC, c.full_name, c.id
+             LIMIT ?3",
+        )
+        .bind(account_id)
+        .bind(&like)
+        .bind(limit.max(0))
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(contact_from_row).collect())
     }
 
     /// List an address book's contact groups.
@@ -286,17 +849,59 @@ impl Store {
         &self,
         address_book_id: &str,
     ) -> Result<Vec<ContactGroupRow>, StoreError> {
-        todo!("e8: SELECT * FROM contact_groups WHERE address_book_id = ?")
+        let rows = sqlx::query(
+            "SELECT id, address_book_id, name, member_ids_json
+             FROM contact_groups WHERE address_book_id = ?1 ORDER BY name",
+        )
+        .bind(address_book_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(contact_group_from_row).collect())
+    }
+
+    /// Fetch one contact group by id.
+    pub async fn get_contact_group(&self, id: &str) -> Result<Option<ContactGroupRow>, StoreError> {
+        let row = sqlx::query(
+            "SELECT id, address_book_id, name, member_ids_json FROM contact_groups WHERE id = ?1",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.as_ref().map(contact_group_from_row))
     }
 
     /// Insert or replace a contact group.
     pub async fn upsert_contact_group(&self, row: &ContactGroupRow) -> Result<(), StoreError> {
-        todo!("e8: INSERT ... ON CONFLICT(id) DO UPDATE for contact_groups")
+        sqlx::query(
+            "INSERT INTO contact_groups (id, address_book_id, name, member_ids_json)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(id) DO UPDATE SET
+                 address_book_id = excluded.address_book_id, name = excluded.name,
+                 member_ids_json = excluded.member_ids_json",
+        )
+        .bind(&row.id)
+        .bind(&row.address_book_id)
+        .bind(&row.name)
+        .bind(&row.member_ids_json)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Delete a contact group.
+    pub async fn delete_contact_group(&self, id: &str) -> Result<(), StoreError> {
+        sqlx::query("DELETE FROM contact_groups WHERE id = ?1")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     // ── pim_changes (state tokens + `*/changes`) ────────────────────────────
 
-    /// Append one PIM change and return the new `(account, type)` state.
+    /// Append one PIM change and return the new `(account, type)` state. A single
+    /// atomic `INSERT … SELECT MAX+1 … RETURNING` (same WAL-safe discipline as the
+    /// mail change log, [`Store::record_change`]).
     pub async fn record_pim_change(
         &self,
         account_id: &str,
@@ -304,7 +909,24 @@ impl Store {
         object_id: &str,
         op: &str,
     ) -> Result<u64, StoreError> {
-        todo!("e8: bump the (account,type) counter + INSERT into pim_changes")
+        let now = chrono::Utc::now().to_rfc3339();
+        let next: i64 = sqlx::query_scalar(
+            "INSERT INTO pim_changes (account_id, type, state, object_id, op, at)
+             VALUES (
+                 ?1, ?2,
+                 (SELECT COALESCE(MAX(state), 0) + 1 FROM pim_changes WHERE account_id = ?1 AND type = ?2),
+                 ?3, ?4, ?5
+             )
+             RETURNING state",
+        )
+        .bind(account_id)
+        .bind(type_name)
+        .bind(object_id)
+        .bind(op)
+        .bind(&now)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(next as u64)
     }
 
     /// The current `(account, type)` PIM state counter (0 when none).
@@ -313,16 +935,269 @@ impl Store {
         account_id: &str,
         type_name: &str,
     ) -> Result<u64, StoreError> {
-        todo!("e8: SELECT MAX(state) FROM pim_changes WHERE account_id=? AND type=?")
+        let n: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(MAX(state), 0) FROM pim_changes WHERE account_id = ?1 AND type = ?2",
+        )
+        .bind(account_id)
+        .bind(type_name)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(n as u64)
     }
 
-    /// The PIM change rows for a datatype since `since_state` (the diff input).
+    /// The PIM change rows for a datatype since `since_state` (the diff input),
+    /// oldest-first.
     pub async fn pim_changes_since(
         &self,
         account_id: &str,
         type_name: &str,
         since: u64,
     ) -> Result<Vec<PimChangeRow>, StoreError> {
-        todo!("e8: SELECT ... FROM pim_changes WHERE ... AND state > ?")
+        let rows = sqlx::query(
+            "SELECT state, object_id, op FROM pim_changes
+             WHERE account_id = ?1 AND type = ?2 AND state > ?3 ORDER BY state ASC",
+        )
+        .bind(account_id)
+        .bind(type_name)
+        .bind(since as i64)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .iter()
+            .map(|r| PimChangeRow {
+                state: r.get::<i64, _>("state") as u64,
+                object_id: r.get("object_id"),
+                op: r.get("op"),
+            })
+            .collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{AccountKind, Credentials, NewAccount, ServerKey, Store};
+
+    async fn store() -> Store {
+        Store::open_in_memory(ServerKey::generate()).await.unwrap()
+    }
+
+    async fn account(s: &Store) -> String {
+        s.create_account(
+            &NewAccount {
+                kind: AccountKind::Imap,
+                host: "h",
+                port: 993,
+                tls: "implicit",
+                username: "u",
+                sync_policy_json: "{}",
+            },
+            &Credentials {
+                username: "u".into(),
+                password: "p".into(),
+            },
+        )
+        .await
+        .unwrap()
+    }
+
+    fn calendar(id: &str, account_id: &str, component: &str) -> CalendarRow {
+        CalendarRow {
+            id: id.into(),
+            account_id: account_id.into(),
+            name: "Personal".into(),
+            color: "#3366ff".into(),
+            sort_order: 0,
+            is_visible: true,
+            role: Some("default".into()),
+            caldav_url: None,
+            sync_token: None,
+            ctag: None,
+            is_overlay: false,
+            component: component.into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn calendars_and_events_round_trip() {
+        let s = store().await;
+        let a = account(&s).await;
+        s.upsert_calendar(&calendar("cal1", &a, "VEVENT"))
+            .await
+            .unwrap();
+        assert_eq!(s.list_calendars(&a).await.unwrap().len(), 1);
+        assert_eq!(
+            s.get_calendar("cal1").await.unwrap().unwrap().name,
+            "Personal"
+        );
+
+        let ev = EventRow {
+            id: "ev1".into(),
+            calendar_id: "cal1".into(),
+            uid: "uid-1".into(),
+            etag: Some("\"e1\"".into()),
+            ical_raw: "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n".into(),
+            start_utc: Some("2026-07-11T09:00:00Z".into()),
+            end_utc: Some("2026-07-11T10:00:00Z".into()),
+            tzid: Some("UTC".into()),
+            rrule: None,
+            status: "confirmed".into(),
+            json: Some(b"{}".to_vec()),
+        };
+        s.upsert_event(&ev).await.unwrap();
+        s.replace_event_instances(
+            "ev1",
+            &[EventInstanceRow {
+                event_id: "ev1".into(),
+                instance_start_utc: "2026-07-11T09:00:00Z".into(),
+                instance_end_utc: "2026-07-11T10:00:00Z".into(),
+            }],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(s.list_events("cal1").await.unwrap().len(), 1);
+        let in_range = s
+            .events_in_range(&a, "2026-07-11T00:00:00Z", "2026-07-12T00:00:00Z")
+            .await
+            .unwrap();
+        assert_eq!(in_range.len(), 1);
+        // Out-of-window returns nothing.
+        assert_eq!(
+            s.events_in_range(&a, "2026-08-01T00:00:00Z", "2026-08-02T00:00:00Z")
+                .await
+                .unwrap()
+                .len(),
+            0
+        );
+        s.delete_event("ev1").await.unwrap();
+        assert_eq!(s.list_events("cal1").await.unwrap().len(), 0);
+        // Instances cascade with the event.
+        assert_eq!(
+            s.events_in_range(&a, "2026-07-11T00:00:00Z", "2026-07-12T00:00:00Z")
+                .await
+                .unwrap()
+                .len(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn notes_seal_at_rest_and_decrypt() {
+        let s = store().await;
+        let a = account(&s).await;
+        let note = NoteRow {
+            id: "n1".into(),
+            account_id: a.clone(),
+            notebook_id: None,
+            title: "Groceries".into(),
+            tags_json: "[\"home\"]".into(),
+            color: "#ffcc00".into(),
+            pinned: true,
+            body_html: "<p>milk SUPERSECRET eggs</p>".into(),
+            body_text: "milk SUPERSECRET eggs".into(),
+            links_json: "[]".into(),
+            created_at: "2026-07-11T00:00:00Z".into(),
+            updated_at: "2026-07-11T00:00:00Z".into(),
+        };
+        s.upsert_note(&note).await.unwrap();
+
+        // Decrypts on read.
+        let got = s.get_note("n1").await.unwrap().unwrap();
+        assert_eq!(got.body_text, "milk SUPERSECRET eggs");
+        assert!(got.pinned);
+
+        // The stored BLOB is ciphertext — the plaintext body is not present.
+        let raw = sqlx::query("SELECT body_text_sealed FROM notes WHERE id = ?1")
+            .bind("n1")
+            .fetch_one(&s.pool)
+            .await
+            .unwrap();
+        let sealed: Vec<u8> = raw.get("body_text_sealed");
+        assert!(
+            !sealed.windows(11).any(|w| w == b"SUPERSECRET"),
+            "note body must be sealed at rest"
+        );
+        // Title/tags stay plaintext (searchable).
+        let title: String = sqlx::query_scalar("SELECT title FROM notes WHERE id = ?1")
+            .bind("n1")
+            .fetch_one(&s.pool)
+            .await
+            .unwrap();
+        assert_eq!(title, "Groceries");
+    }
+
+    #[tokio::test]
+    async fn contacts_and_autocomplete_ranking() {
+        let s = store().await;
+        let a = account(&s).await;
+        s.upsert_address_book(&AddressBookRow {
+            id: "ab1".into(),
+            account_id: a.clone(),
+            name: "Contacts".into(),
+            is_default: true,
+            carddav_url: None,
+            sync_token: None,
+            ctag: None,
+        })
+        .await
+        .unwrap();
+
+        let mk = |id: &str, name: &str, email: &str, fav: bool| ContactRow {
+            id: id.into(),
+            address_book_id: "ab1".into(),
+            uid: id.into(),
+            etag: None,
+            vcard_raw: format!("BEGIN:VCARD\r\nFN:{name}\r\nEMAIL:{email}\r\nEND:VCARD\r\n"),
+            json: None,
+            full_name: name.into(),
+            is_favorite: fav,
+            photo_blob_id: None,
+            pgp_key: None,
+            smime_cert: None,
+        };
+        s.upsert_contact(&mk("c1", "Ada Lovelace", "ada@x.test", false))
+            .await
+            .unwrap();
+        s.upsert_contact(&mk("c2", "Alan Turing", "alan@x.test", true))
+            .await
+            .unwrap();
+
+        // Prefix "Al" matches Alan; favorite ranks first among ties.
+        let hits = s.autocomplete_contacts(&a, "Al", 10).await.unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, "c2");
+
+        // Email substring match works via the vCard scan.
+        let by_email = s.autocomplete_contacts(&a, "ada@", 10).await.unwrap();
+        assert_eq!(by_email.len(), 1);
+        assert_eq!(by_email[0].id, "c1");
+    }
+
+    #[tokio::test]
+    async fn pim_change_log_states_and_diff() {
+        let s = store().await;
+        let a = account(&s).await;
+        assert_eq!(s.current_pim_state(&a, "CalendarEvent").await.unwrap(), 0);
+        let s1 = s
+            .record_pim_change(&a, "CalendarEvent", "ev1", "created")
+            .await
+            .unwrap();
+        let s2 = s
+            .record_pim_change(&a, "CalendarEvent", "ev2", "created")
+            .await
+            .unwrap();
+        assert_eq!((s1, s2), (1, 2));
+        assert_eq!(s.current_pim_state(&a, "CalendarEvent").await.unwrap(), 2);
+        let diff = s.pim_changes_since(&a, "CalendarEvent", 1).await.unwrap();
+        assert_eq!(diff.len(), 1);
+        assert_eq!(diff[0].object_id, "ev2");
+        // A different type keeps its own counter.
+        assert_eq!(
+            s.record_pim_change(&a, "Note", "n1", "created")
+                .await
+                .unwrap(),
+            1
+        );
     }
 }

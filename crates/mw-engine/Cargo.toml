@@ -25,6 +25,16 @@ mw-smtp = { workspace = true }
 # Both are leaf crates (DTO-only seams) so no dependency cycle is introduced.
 mw-search = { workspace = true }
 mw-sieve = { workspace = true }
+# V3 (plan §3 e8): PIM serialization (iCal/vCard/RRULE/iTIP) + the CalDAV/CardDAV
+# clients the engine drives for sync. All leaf/DTO seams — no dependency cycle.
+mw-ics = { workspace = true }
+mw-dav = { workspace = true }
+mw-carddav = { workspace = true }
 # Attachment-filename extraction at ingest for `filename:` search (workspace dep,
 # already in-tree via mw-mime); parsing is best-effort and never panics.
 mail-parser = { workspace = true }
+
+[dev-dependencies]
+# The env-gated Radicale round-trip test names `mw_dav::DavConfig` (the public
+# type of `AccountRuntime.dav`); it is otherwise a normal dep of the lib.
+mw-dav = { workspace = true }

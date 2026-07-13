@@ -145,7 +145,7 @@ impl Engine {
             // Mailwoman-native PIM families (§2.2) ride the same envelope; e8
             // fills the handlers behind `dispatch_pim`.
             other if crate::pim::dispatch::is_pim_method(other) => {
-                self.dispatch_pim(account_id, other, args).await
+                self.dispatch_pim(account_id, rt, other, args).await
             }
             other => json!({
                 "type": "unknownMethod",

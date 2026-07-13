@@ -50,6 +50,12 @@ pub struct AccountRuntime {
     /// A running change-ingestion loop, kept alive so its `Drop`/`stop` fires
     /// when the account is unregistered.
     pub watch: Option<Arc<WatchHandle>>,
+    /// The account's CalDAV/CardDAV connection config (plan §2.3, V3). `None`
+    /// for a mail-only account; when set, the PIM surface (e8) drives
+    /// `mw-dav`/`mw-carddav` to sync CalDAV-backed calendars + CardDAV-backed
+    /// address books over it. The per-collection href is stored on each
+    /// calendar/address-book row; this carries the shared base URL + credentials.
+    pub dav: Option<mw_dav::DavConfig>,
 }
 
 impl AccountRuntime {
@@ -64,7 +70,15 @@ impl AccountRuntime {
             submitter,
             identity: identity.into(),
             watch: None,
+            dav: None,
         }
+    }
+
+    /// Attach a CalDAV/CardDAV connection config so the PIM surface can sync
+    /// this account's DAV-backed collections (builder form; leaves the rest).
+    pub fn with_dav(mut self, dav: mw_dav::DavConfig) -> Self {
+        self.dav = Some(dav);
+        self
     }
 }
 

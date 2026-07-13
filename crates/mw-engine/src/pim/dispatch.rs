@@ -3,14 +3,13 @@
 //! for any `Calendar/*`, `CalendarEvent/*`, `Task/*`, `Note/*`, `AddressBook/*`,
 //! `ContactCard/*`, or `ContactGroup/*` method.
 //!
-//! ## Scaffolder note (e0)
-//! Every arm is a frozen contract entry with a `todo!()` body; e8 fills them.
 //! The set of method names here IS the §2.2 contract the web client and the
 //! parallel builders compile against — do not add/rename without a coordinator
 //! re-broadcast.
 
 use serde_json::{Value, json};
 
+use crate::account::AccountRuntime;
 use crate::engine::Engine;
 
 /// The Mailwoman PIM method families (frozen §2.2). A method name whose family
@@ -32,74 +31,109 @@ pub fn is_pim_method(method: &str) -> bool {
 
 impl Engine {
     /// Dispatch one resolved PIM method call (frozen §2.2). Reached from
-    /// `handle_jmap` for any PIM-family method; e8 fills each `todo!()`.
-    #[allow(unused_variables)] // e8 consumes account_id/args when filling bodies.
-    pub(crate) async fn dispatch_pim(&self, account_id: &str, name: &str, args: &Value) -> Value {
+    /// `handle_jmap` for any PIM-family method. `rt` is the connected account's
+    /// runtime (submitter for iTIP, DAV config for CalDAV/CardDAV sync).
+    pub(crate) async fn dispatch_pim(
+        &self,
+        account_id: &str,
+        rt: &AccountRuntime,
+        name: &str,
+        args: &Value,
+    ) -> Value {
         match name {
             // ── Calendars (§2.2) ──
-            "Calendar/get" => todo!("e8: Calendar/get"),
-            "Calendar/set" => todo!("e8: Calendar/set"),
-            "Calendar/changes" => todo!("e8: Calendar/changes"),
-            "Calendar/freeBusy" => {
-                todo!("e8: Calendar/freeBusy (principals + window → busy blocks)")
+            "Calendar/get" => self.calendar_get(account_id, args).await,
+            "Calendar/set" => self.calendar_set(account_id, args).await,
+            "Calendar/changes" => {
+                self.pim_type_changes(account_id, crate::change::ChangeType::Calendar, args)
+                    .await
             }
-            "Calendar/detectConflicts" => {
-                todo!("e8: Calendar/detectConflicts (window → overlapping-instance pairs)")
-            }
+            "Calendar/freeBusy" => self.calendar_free_busy(account_id, rt, args).await,
+            "Calendar/detectConflicts" => self.calendar_detect_conflicts(account_id, args).await,
             // ── Calendar events (§2.2) ──
-            "CalendarEvent/get" => todo!("e8: CalendarEvent/get"),
-            "CalendarEvent/set" => {
-                todo!("e8: CalendarEvent/set (emits iTIP REQUEST when participants set)")
+            "CalendarEvent/get" => self.event_get(account_id, args).await,
+            "CalendarEvent/set" => self.event_set(account_id, rt, args).await,
+            "CalendarEvent/query" => self.event_query(account_id, args).await,
+            "CalendarEvent/queryChanges" => self.event_query_changes(account_id, args).await,
+            "CalendarEvent/changes" => {
+                self.pim_type_changes(account_id, crate::change::ChangeType::CalendarEvent, args)
+                    .await
             }
-            "CalendarEvent/query" => todo!("e8: CalendarEvent/query"),
-            "CalendarEvent/queryChanges" => todo!("e8: CalendarEvent/queryChanges"),
-            "CalendarEvent/changes" => todo!("e8: CalendarEvent/changes"),
-            "CalendarEvent/expand" => {
-                todo!("e8: CalendarEvent/expand (window + master → expanded instances via mw-ics)")
-            }
-            "CalendarEvent/parse" => todo!("e8: CalendarEvent/parse (ICS/.hol blob → events)"),
-            "CalendarEvent/import" => todo!("e8: CalendarEvent/import (ICS/.hol blob → events)"),
-            "CalendarEvent/export" => todo!("e8: CalendarEvent/export (→ ICS)"),
-            "CalendarEvent/respond" => {
-                todo!(
-                    "e8: CalendarEvent/respond (iTIP accept/decline/tentative/counter → iMIP REPLY)"
-                )
-            }
+            "CalendarEvent/expand" => self.event_expand(account_id, args).await,
+            "CalendarEvent/parse" => self.event_parse(account_id, args).await,
+            "CalendarEvent/import" => self.event_import(account_id, rt, args).await,
+            "CalendarEvent/export" => self.event_export(account_id, args).await,
+            "CalendarEvent/respond" => self.event_respond(account_id, rt, args).await,
             // ── Tasks (§2.2) ──
-            "Task/get" => todo!("e8: Task/get"),
-            "Task/set" => todo!("e8: Task/set (supports fromEmail/fromEvent convenience sources)"),
-            "Task/query" => todo!("e8: Task/query (incl. My Day / Today filter)"),
-            "Task/queryChanges" => todo!("e8: Task/queryChanges"),
-            "Task/changes" => todo!("e8: Task/changes"),
+            "Task/get" => self.task_get(account_id, args).await,
+            "Task/set" => self.task_set(account_id, rt, args).await,
+            "Task/query" => self.task_query(account_id, args).await,
+            "Task/queryChanges" => self.task_query_changes(account_id, args).await,
+            "Task/changes" => {
+                self.pim_type_changes(account_id, crate::change::ChangeType::Task, args)
+                    .await
+            }
             // ── Notes (§2.2) ──
-            "Note/get" => todo!("e8: Note/get (decrypts sealed body)"),
-            "Note/set" => todo!("e8: Note/set (seals body at rest)"),
-            "Note/query" => todo!("e8: Note/query (tags/pinned/text — title + decrypt-scan)"),
-            "Note/changes" => todo!("e8: Note/changes"),
+            "Note/get" => self.note_get(account_id, args).await,
+            "Note/set" => self.note_set(account_id, args).await,
+            "Note/query" => self.note_query(account_id, args).await,
+            "Note/changes" => {
+                self.pim_type_changes(account_id, crate::change::ChangeType::Note, args)
+                    .await
+            }
             // ── Contacts (§2.2) ──
-            "AddressBook/get" => todo!("e8: AddressBook/get"),
-            "AddressBook/set" => todo!("e8: AddressBook/set"),
-            "AddressBook/changes" => todo!("e8: AddressBook/changes"),
-            "ContactCard/get" => todo!("e8: ContactCard/get"),
-            "ContactCard/set" => todo!("e8: ContactCard/set"),
-            "ContactCard/query" => todo!("e8: ContactCard/query"),
-            "ContactCard/queryChanges" => todo!("e8: ContactCard/queryChanges"),
-            "ContactCard/changes" => todo!("e8: ContactCard/changes"),
-            "ContactCard/import" => todo!("e8: ContactCard/import (vCard/CSV blob)"),
-            "ContactCard/export" => todo!("e8: ContactCard/export (→ vCard/CSV)"),
-            "ContactCard/merge" => {
-                todo!("e8: ContactCard/merge (duplicate resolution → merged + tombstones)")
+            "AddressBook/get" => self.address_book_get(account_id, args).await,
+            "AddressBook/set" => self.address_book_set(account_id, args).await,
+            "AddressBook/changes" => {
+                self.pim_type_changes(account_id, crate::change::ChangeType::AddressBook, args)
+                    .await
             }
-            "ContactCard/autocomplete" => {
-                todo!("e8: ContactCard/autocomplete (prefix → ranked cards for Compose)")
+            "ContactCard/get" => self.contact_get(account_id, args).await,
+            "ContactCard/set" => self.contact_set(account_id, rt, args).await,
+            "ContactCard/query" => self.contact_query(account_id, args).await,
+            "ContactCard/queryChanges" => self.contact_query_changes(account_id, args).await,
+            "ContactCard/changes" => {
+                self.pim_type_changes(account_id, crate::change::ChangeType::ContactCard, args)
+                    .await
             }
-            "ContactGroup/get" => todo!("e8: ContactGroup/get"),
-            "ContactGroup/set" => todo!("e8: ContactGroup/set"),
-            "ContactGroup/changes" => todo!("e8: ContactGroup/changes"),
+            "ContactCard/import" => self.contact_import(account_id, rt, args).await,
+            "ContactCard/export" => self.contact_export(account_id, args).await,
+            "ContactCard/merge" => self.contact_merge(account_id, args).await,
+            "ContactCard/autocomplete" => self.contact_autocomplete(account_id, args).await,
+            "ContactGroup/get" => self.contact_group_get(account_id, args).await,
+            "ContactGroup/set" => self.contact_group_set(account_id, args).await,
+            "ContactGroup/changes" => {
+                self.pim_type_changes(account_id, crate::change::ChangeType::ContactGroup, args)
+                    .await
+            }
             other => json!({
                 "type": "unknownMethod",
                 "description": format!("engine does not implement PIM method {other}")
             }),
+        }
+    }
+
+    /// The generic PIM `*/changes` handler (frozen §2.1), sourced from the
+    /// `pim_changes` log. Mirrors the mail `type_changes` shape.
+    pub(crate) async fn pim_type_changes(
+        &self,
+        account_id: &str,
+        kind: crate::change::ChangeType,
+        args: &Value,
+    ) -> Value {
+        let since = args
+            .get("sinceState")
+            .and_then(Value::as_str)
+            .unwrap_or("0");
+        match self.build_pim_changes(account_id, kind, since).await {
+            Ok(changes) => {
+                let mut v = serde_json::to_value(&changes).unwrap_or_else(|_| json!({}));
+                if let Some(obj) = v.as_object_mut() {
+                    obj.insert("accountId".into(), json!(account_id));
+                }
+                v
+            }
+            Err(e) => super::server_fail(e),
         }
     }
 }
