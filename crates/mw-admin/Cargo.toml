@@ -17,3 +17,17 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 chrono = { workspace = true }
+async-trait = { workspace = true }
+clap = { workspace = true }
+uuid = { workspace = true }
+regex = { workspace = true }
+# Admin/local password hashing (Argon2id, OWASP params) — plan §5, §2.5.
+argon2 = { workspace = true }
+# CSPRNG for Argon2id salts (OsRng is gated out of the resolved rand_core here).
+getrandom = { workspace = true }
+# TOML config binding (round-trip §2.5, GitOps). Already in the workspace lock
+# (0.8.2, MIT OR Apache-2.0) — direct dep here, root manifest untouched.
+toml = "0.8"
+
+[dev-dependencies]
+tokio = { workspace = true }
