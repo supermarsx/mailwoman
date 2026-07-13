@@ -44,6 +44,19 @@ all-features = false
 [advisories]
 version = 2
 yanked = "deny"
+ignore = [
+    # RUSTSEC-2023-0071 — "Marvin Attack" RSA timing side-channel in the pure-Rust
+    # `rsa` crate (pulled by RustCrypto `cms` for S/MIME, plan §1.11). There is NO
+    # fixed version — the constant-time gap is unresolved upstream and the same
+    # class of bug historically affected OpenSSL. Accepted here with a bounded
+    # threat model: Mailwoman performs S/MIME RSA *decryption* CLIENT-SIDE in the
+    # browser WASM crypto worker (plan §1.2), i.e. local use on the user's own
+    # device — precisely the scenario the advisory itself blesses ("local use on a
+    # non-compromised computer is fine"); there is no network-reachable server-side
+    # timing oracle. Revisit and remove this ignore when `rsa` ships a constant-time
+    # decrypt. (SPEC §8.2; plan §6 risk.)
+    "RUSTSEC-2023-0071",
+]
 
 [licenses]
 version = 2
@@ -58,6 +71,9 @@ allow = [
     "MPL-2.0",
     "Unicode-3.0",
     "CDLA-Permissive-2.0",
+    # Permissive BSD-style license of the `bzip2` C library, surfaced by a
+    # transitive dep of the V4 crypto tree. Free/permissive — no copyleft.
+    "bzip2-1.0.6",
 ]
 confidence-threshold = 0.8
 
