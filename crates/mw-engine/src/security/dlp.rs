@@ -151,13 +151,20 @@ fn dlp_input_from_args(args: &Value) -> DlpInput {
     }
 }
 
-/// Load the active DLP rule set from `MW_DLP_RULES` (a path to a JSON `[DlpRule]`
-/// file). Missing/unset/unparseable → no rules (allow-all, the safe default).
+/// Load the active DLP rule set from `MW_DLP_RULES`. The value is EITHER inline
+/// JSON (a `[DlpRule]` array) OR a path to such a file — the SAME two forms
+/// e7's `/api/security/dlp/config` endpoint accepts, so `Dlp/getRules` (config
+/// read) and the `submit_email` enforcement hook can never drift. Inline JSON is
+/// tried first (a value starting with `[` after trimming); otherwise the value is
+/// read as a file path. Missing/unset/unparseable → no rules (allow-all default).
 pub(crate) fn load_rules() -> Vec<DlpRule> {
-    let Ok(path) = std::env::var("MW_DLP_RULES") else {
+    let Ok(value) = std::env::var("MW_DLP_RULES") else {
         return Vec::new();
     };
-    let Ok(text) = std::fs::read_to_string(&path) else {
+    if value.trim_start().starts_with('[') {
+        return serde_json::from_str(&value).unwrap_or_default();
+    }
+    let Ok(text) = std::fs::read_to_string(&value) else {
         return Vec::new();
     };
     serde_json::from_str(&text).unwrap_or_default()
