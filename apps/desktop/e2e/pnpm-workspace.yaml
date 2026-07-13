@@ -1,0 +1,11 @@
+# pnpm reads build-script + deps-check settings from here. wdio's managed-driver
+# subdeps (edgedriver/geckodriver) ship postinstall downloads this harness does
+# NOT use — it drives the Tauri shell via tauri-driver + a version-matched
+# msedgedriver (see README). esbuild's native binary isn't needed by the .mjs
+# config. Decline all three so `pnpm install` / `pnpm test` exit 0. This
+# standalone package is its own single-package pnpm workspace.
+allowBuilds:
+  edgedriver: false
+  esbuild: false
+  geckodriver: false
+verifyDepsBeforeRun: false

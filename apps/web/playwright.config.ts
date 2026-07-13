@@ -94,5 +94,19 @@ export default defineConfig({
       testMatch: ['crypto-*.spec.ts'],
       use: { ...devices['Desktop Chrome'], baseURL: engineBaseURL },
     },
+    {
+      name: 'push',
+      // V5 browser Web Push live E2E (plan §3 e9): the SAME engine-mode server
+      // (:8090) as the other engine projects, driving the real VAPID/subscribe
+      // endpoints (e5) and asserting the push dispatcher delivers an OPAQUE wake
+      // (no message content) to a test-controlled mock endpoint on a real
+      // StateChange, then the client refetches. The server (containerized) reaches
+      // the host-side mock via host.docker.internal (override MW_E2E_WAKE_HOST).
+      // A dedicated project (not folded into `engine`) so its host-networking +
+      // longer dispatch timing stay isolated; e8 wires an `e2e-push` job (or adds
+      // `--project=push` to the engine job). See apps/web/e2e/README-push.md.
+      testMatch: ['push.spec.ts'],
+      use: { ...devices['Desktop Chrome'], baseURL: engineBaseURL },
+    },
   ],
 });
