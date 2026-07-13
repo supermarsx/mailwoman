@@ -1,0 +1,25 @@
+# V4 crypto/security E2E override (plan §3 e9/e10). Layer this ON TOP of
+# docker-compose.dev.yml to bring the engine-mode stack up with the security
+# configuration the `crypto-*.spec.ts` live E2E needs:
+#
+#   docker compose -f docker-compose.dev.yml -f docker-compose.crypto.yml \
+#     up -d --build --wait greenmail mailwoman-engine
+#
+# The CI `e2e-crypto` job (.github/workflows/ci.yml) uses exactly this compose
+# pair; e10 uses it for local runs. It ONLY adds environment to the existing
+# `mailwoman-engine` service (compose merges the `environment` map key-wise) — no
+# image, port, or topology change — so `e2e-engine`/`e2e-pim` (which use the base
+# file alone) are unaffected.
+services:
+  mailwoman-engine:
+    environment:
+      # DLP: a single PAN (payment-card) BLOCK rule so the DLP live E2E can compose
+      # a Luhn-valid card number and assert the send is rejected with a `dlpBlocked`
+      # error. The engine reads MW_DLP_RULES as inline JSON OR a file path (plan
+      # §1.8); this is the inline-JSON form of one frozen `DlpRule`.
+      MW_DLP_RULES: '[{"id":"e2e-pan","name":"Block card numbers","enabled":true,"priority":10,"conditions":{"detectors":["pan"],"customRegex":null,"dictionaries":[],"attachmentTypes":[],"maxAttachmentSize":null,"recipientDomains":[],"recipientDomainMode":null,"classification":null},"action":"block","message":"This message appears to contain a payment card number and was blocked by a data-loss-prevention rule."}]'
+      # ARF: enable the report-phishing/junk sender control to produce a real
+      # feedback report. The spool is the engine's writable /data volume, so a
+      # report is generated + spooled (relayed) rather than only logged.
+      MW_ABUSE_ADDRESS: "abuse@example.org"
+      MW_ABUSE_SPOOL: "/data/arf"

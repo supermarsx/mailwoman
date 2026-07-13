@@ -34,6 +34,15 @@ V3 (PIM: calendar, tasks, notes, contacts) adds:
   for testing; Nextcloud/Baïkal/Google notes), calendar/address-book **sharing**
   endpoints, **holiday** feeds, and the encrypted-at-rest notes posture.
 
+V4 (crypto & security: OpenPGP/S/MIME, Security panel, DLP, max-security) adds:
+
+- [`crypto-security.md`](./crypto-security.md) — the operator reference for the V4
+  security features: WKD publishing (`MW_WKD_DIR`), DLP config (`MW_DLP_RULES`),
+  ARF abuse reports (`MW_ABUSE_ADDRESS`/`MW_ABUSE_SPOOL`), and the screen-capture
+  watermark (`MW_WATERMARK*`), plus the new `/.well-known/openpgpkey/...` and
+  `/api/security/*` endpoints. The private-key crypto is client-side and needs no
+  server config. Background + rationale live in [`../security/`](../security/README.md).
+
 ## Configuration (environment)
 
 | Env | Default | Meaning |

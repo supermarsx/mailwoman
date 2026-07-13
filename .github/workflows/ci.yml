@@ -465,54 +465,131 @@ jobs:
         run: docker compose -f docker-compose.dev.yml down -v
 
   # ===========================================================================
-  # V4 (Crypto & Security) CI job STUBS — plan §3 e9. Authored (commented) by e0
-  # so the shape is agreed; e9 UNCOMMENTS + fills them once the wasm bundle + the
-  # crypto/verdict fixtures exist. Enabling before then would fail red.
-  #
-  #  * wasm-build — the TOP V4 risk (§6#2): build mw-crypto (+ mw-sanitize) to
-  #    wasm32 via wasm-pack + run the node wasm smoke test, on BOTH Windows AND
-  #    Linux (§1.13). Uses scripts/build-wasm.{sh,ps1}.
-  #  * crypto-interop — decrypt/verify GnuPG-/Thunderbird-/Outlook-GENERATED
-  #    recorded fixtures (no live external service, §6#6 / §25).
-  #  * mail-auth-verdicts — DKIM/SPF/DMARC/ARC against a seeded-DNS resolver
-  #    (deterministic pass AND fail cases, §6#7).
-  # ---------------------------------------------------------------------------
-  # wasm-build:
-  #   strategy:
-  #     matrix:
-  #       os: [ubuntu-latest, windows-latest]
-  #   runs-on: ${{ matrix.os }}
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: dtolnay/rust-toolchain@stable
-  #       with:
-  #         targets: wasm32-unknown-unknown
-  #     - uses: Swatinem/rust-cache@v2
-  #     - name: install wasm-pack
-  #       run: cargo install wasm-pack --locked
-  #     - name: build wasm bundle (mw-crypto + mw-sanitize)
-  #       shell: bash
-  #       run: |
-  #         if [ "$RUNNER_OS" = "Windows" ]; then pwsh scripts/build-wasm.ps1; else scripts/build-wasm.sh; fi
-  #     - name: node wasm smoke test (encrypt/decrypt round-trip)
-  #       run: node apps/web/scripts/wasm-smoke.mjs   # e8/e9 authors this
-  #
-  # crypto-interop:
-  #   runs-on: ubuntu-latest
-  #   needs: [rust]
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: dtolnay/rust-toolchain@stable
-  #     - uses: Swatinem/rust-cache@v2
-  #     - name: PGP/S-MIME interop fixtures (recorded GnuPG/Thunderbird/Outlook)
-  #       run: cargo test -p mw-crypto --features native -- --ignored interop
-  #
-  # mail-auth-verdicts:
-  #   runs-on: ubuntu-latest
-  #   needs: [rust]
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: dtolnay/rust-toolchain@stable
-  #     - uses: Swatinem/rust-cache@v2
-  #     - name: DKIM/SPF/DMARC/ARC verdicts against seeded-DNS fixtures
-  #       run: cargo test -p mw-engine -- --ignored mail_auth_verdicts
+  # V4 (Crypto & Security) CI jobs — plan §3 e9. Filled by e9 from the e0 stubs
+  # once the wasm bundle + crypto/verdict fixtures landed (e1/e6/e8/e8b). Each is a
+  # focused, named §27-V4 gate. The interop + verdict tests also run inside the
+  # always-green `rust` job's `cargo test --workspace`; these surface them as
+  # first-class signals, and `wasm-build` is the ONLY place the 2-OS wasm toolchain
+  # is exercised end-to-end (the top V4 risk, §6#2).
+  # ===========================================================================
+
+  # wasm-build — the TOP V4 risk (§6#2 / §1.13): build mw-crypto AND mw-sanitize to
+  # wasm32 via wasm-pack on BOTH Windows AND Linux (scripts/build-wasm.{sh,ps1},
+  # which build both crates), then run a Node smoke that drives the freshly-built
+  # bundle through generateKey → encrypt → decrypt and asserts the plaintext
+  # round-trips. rPGP/RustCrypto are pure-Rust + wasm-tested; getrandom uses its JS
+  # backend on wasm32 (selected by the build scripts). The smoke imports the
+  # wasm-pack `--target web` glue directly (initSync + the frozen §2.3 exports) — no
+  # pnpm/web build needed, so it stays a pure toolchain-portability gate.
+  wasm-build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: install wasm-pack
+        run: cargo install wasm-pack --locked
+      - name: build wasm bundles (mw-crypto + mw-sanitize)
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then pwsh scripts/build-wasm.ps1; else scripts/build-wasm.sh; fi
+      - name: node wasm smoke (generateKey -> encrypt -> decrypt round-trip)
+        shell: bash
+        run: |
+          node --input-type=module -e "import {readFileSync} from 'node:fs'; import {resolve} from 'node:path'; import {pathToFileURL} from 'node:url'; const dir=resolve(process.cwd(),'apps/web/src/wasm/mw-crypto'); const m=await import(pathToFileURL(resolve(dir,'mw_crypto.js')).href); m.initSync({module:readFileSync(resolve(dir,'mw_crypto_bg.wasm'))}); const P='mailwoman wasm smoke round-trip'; const k=m.generateKey({kind:'pgp',userId:'Smoke <smoke@example.com>',passphrase:'pw'}); const c=m.encrypt({kind:'pgp',plaintext:P,recipientPublicKeys:[k.publicKeyArmored]}); const o=m.decrypt({kind:'pgp',ciphertext:c.armoredCiphertext,encryptedPrivateBundle:k.encryptedPrivateBundle,passphrase:'pw'}); if(o.plaintextText!==P) throw new Error('wasm smoke round-trip mismatch: '+JSON.stringify(o.plaintextText)); console.log('ROUNDTRIP_OK');"
+
+  # crypto-interop — decrypt/verify GnuPG- and openssl(Outlook-style)-GENERATED
+  # recorded fixtures (fixtures/crypto/**, no live keyserver/DNS — §6#6 / §25). The
+  # tests run in the default `native` feature: pgp.rs covers the GnuPG interop
+  # vector (decrypt + verify a real `gpg`-produced message); smime.rs the openssl
+  # CMS sign/verify + RSA+AES enveloped decrypt + PKCS#12 import.
+  crypto-interop:
+    runs-on: ubuntu-latest
+    needs: [rust]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: PGP/S-MIME interop fixtures (recorded GnuPG/Thunderbird/Outlook)
+        run: cargo test -p mw-crypto --test pgp --test smime
+
+  # mail-auth-verdicts — DKIM verdicts against a seeded OFFLINE resolver (e6's
+  # SeededTxtCache, RFC 8463 ed25519 vector — deterministic PASS and FAIL, never
+  # touches the network, §6#7). The same lib-test path also proves the
+  # Received-chain parse, attachment ext-vs-magic risk, and anomaly detection.
+  mail-auth-verdicts:
+    runs-on: ubuntu-latest
+    needs: [rust]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: DKIM/verdict tests (seeded-DNS, pass AND fail)
+        run: cargo test -p mw-engine --lib security::verdict
+
+  # -------------------------------------------------------------------------
+  # E2E (V4 crypto): the SAME engine-mode server (:8090) as e2e-engine/e2e-pim,
+  # but the `crypto` Playwright project drives the V4 crypto/security UIs (key
+  # management, Security panel, Compose encrypt + DLP, max-security switch)
+  # through the real UI against the real engine + the real WASM crypto worker —
+  # the plan §3 e10 / DoD live-E2E gate. The mailwoman-engine image builds the web
+  # from source, so the committed apps/web/src/wasm bundles ship in the served app
+  # (the worker + wasm stay lazy, off the login->inbox path). e10 authors
+  # apps/web/e2e/crypto-*.spec.ts + the `crypto` project in playwright.config.ts
+  # (testMatch crypto-*.spec.ts, baseURL the engine :8090); this job WIRES the
+  # invocation. Sibling of e2e / e2e-engine / e2e-pim — all four must stay green.
+  # -------------------------------------------------------------------------
+  e2e-crypto:
+    runs-on: ubuntu-latest
+    needs: [rust, web]
+    env:
+      DOCKER_BUILDKIT: "1"
+      COMPOSE_DOCKER_CLI_BUILD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: install web deps
+        run: pnpm -C apps/web install --frozen-lockfile
+      - name: cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('apps/web/pnpm-lock.yaml') }}
+      - name: install Playwright chromium
+        run: pnpm -C apps/web exec playwright install --with-deps chromium
+      - name: build + start engine stack (greenmail + mw-server engine mode, incl. wasm + DLP rule)
+        run: docker compose -f docker-compose.dev.yml -f docker-compose.crypto.yml up -d --build --wait greenmail mailwoman-engine
+      - name: wait for server health
+        run: ./scripts/wait-for-health.sh http://localhost:8090/healthz 240
+      - name: run Playwright E2E (V4 crypto/security vs engine + WASM worker)
+        run: pnpm -C apps/web exec playwright test --project=crypto
+      - name: compose logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.dev.yml -f docker-compose.crypto.yml logs --no-color greenmail mailwoman-engine
+      - name: upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-crypto
+          path: apps/web/playwright-report
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: tear down
+        if: always()
+        run: docker compose -f docker-compose.dev.yml -f docker-compose.crypto.yml down -v
