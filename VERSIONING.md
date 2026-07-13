@@ -37,6 +37,24 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
 
 ## History
 
+- **`26.6`** — V5: thin native shells. Tauri v2 desktop (Windows/macOS/Linux)
+  and mobile (Android/iOS) shells that reuse the **same SPA bundle** as the web
+  app behind a feature-detected `Platform` capability layer (`isTauri()` →
+  native path, browser path unchanged). Native auth via bearer token (keychain-
+  backed: DPAPI on Windows, Keychain on macOS, Keystore on Android); a
+  self-contained mode that spawns the bundled mw-server on loopback; bundle-
+  integrity gate on launch; native screen-capture protection
+  (`WDA_EXCLUDEFROMCAPTURE` / `FLAG_SECURE`). Background delivery: a server
+  WebPush/VAPID relay over **`web-push-native`** (pure-Rust RFC 8188/http-ece,
+  no openssl C), UnifiedPush on Android, and a Service-Worker `mw-push-wake`
+  consumer that resyncs a backgrounded tab. Verified: 496 Rust + 475 web tests;
+  cargo-deny clean (Tauri tree vetted — permissive-only, unmaintained-only
+  advisory ignores documented); desktop shell launched live on Windows
+  (integrity gate, keychain, self-contained spawn, capture protection); Android
+  CI-gated; iOS/APNs documented. Live-E2E gaps caught + fixed: CSP
+  `wasm-unsafe-eval` for the crypto worker, `CryptoKey.id` serde default,
+  calendar list/instances shape parity, `web-push`→`web-push-native` openssl
+  swap, mobile command registration, and the dead `mw-push-wake` consumer.
 - **`26.5`** — V4: crypto & security depth. OpenPGP + S/MIME end-to-end
   encryption with **private-key operations in a client-side WASM build** of
   mw-crypto (keys never reach the server unencrypted); decrypted mail is
