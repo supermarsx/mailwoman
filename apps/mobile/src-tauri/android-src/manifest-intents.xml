@@ -34,3 +34,29 @@
     <data android:scheme="mailto" />
     <data android:scheme="mailwoman" />
 </intent-filter>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     UnifiedPush receiver (plan §2.3 / e2). NOTE: unlike the <intent-filter>
+     blocks above (which merge into the <activity>), THIS <receiver> is an
+     APPLICATION-level element — merge it as a direct child of <application>,
+     NOT inside <activity>. Requires the `org.unifiedpush.android:connector`
+     Gradle dependency (see README). The receiver is exported so the on-device
+     distributor can deliver endpoints/wakes.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<receiver
+    android:name="com.mailwoman.mobile.UnifiedPushReceiver"
+    android:exported="true">
+    <intent-filter>
+        <action android:name="org.unifiedpush.android.connector.MESSAGE" />
+        <action android:name="org.unifiedpush.android.connector.UNREGISTERED" />
+        <action android:name="org.unifiedpush.android.connector.NEW_ENDPOINT" />
+        <action android:name="org.unifiedpush.android.connector.REGISTRATION_FAILED" />
+    </intent-filter>
+</receiver>
+
+<!-- Permissions to merge into <manifest> (top-level <uses-permission>).
+     INTERNET is already added by Tauri. POST_NOTIFICATIONS is the Android 13+
+     runtime permission for badge/wake notifications; USE_BIOMETRIC backs the
+     biometric app-lock (tauri-plugin-biometric). -->
+<!-- <uses-permission android:name="android.permission.POST_NOTIFICATIONS" /> -->
+<!-- <uses-permission android:name="android.permission.USE_BIOMETRIC" /> -->

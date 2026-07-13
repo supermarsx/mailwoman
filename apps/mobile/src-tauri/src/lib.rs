@@ -17,6 +17,13 @@
 use serde_json::json;
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
+// Mobile capability commands (UnifiedPush, share targets, badge, multi-server —
+// plan §3 e2). Packaged as a self-contained Tauri plugin (`commands::init()`);
+// e7 registers it in `run()` below with `.plugin(commands::init())`. Declared
+// `pub` so the plugin is reachable from the crate's public API (and from e7's
+// mount code) — this executor does NOT edit `run()`'s builder chain itself.
+pub mod commands;
+
 /// The platform kind for the running mobile target (§2.1). Compile-time on the
 /// mobile targets; falls back to a neutral value on the host build.
 fn platform_kind() -> &'static str {
