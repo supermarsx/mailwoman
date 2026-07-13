@@ -6,12 +6,25 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
-# SCAFFOLD (t6-e0): frozen §2.2 API as compiling STUBS. e2 fills the real
-# moka→fred→store layering + the SPEC §15.6 scope matrix + the structural
-# `PlaintextDerived` zero-access exclusion. The heavy deps (`fred`, `moka`) are
-# PRE-DECLARED in the root `[workspace.dependencies]` and are wired by e2 — the
-# stub links only serde/thiserror so the workspace build + cargo-deny stay lean.
+# t6-e2: the SPEC §15.6 layered cache — in-process memory (`moka`) →
+# Redis/Valkey (`fred`, rustls TLS, NO openssl) → store fall-through, with the
+# per-class scope matrix and the STRUCTURAL zero-access `PlaintextDerived`
+# exclusion. `fred`/`moka` are pre-declared in the root workspace manifest (e0);
+# here we reference them via `{ workspace = true }` and pin the pure-Rust rustls
+# TLS + interface features. `mw-store` is the durable fall-through tier (its
+# FROZEN public API only — this crate never edits mw-store).
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+bytes = { workspace = true }
+moka = { workspace = true }
+# rustls + ring TLS ONLY (no native-tls / openssl); `i-std` pulls the standard
+# command interfaces (keys/strings/etc.) this cache uses.
+fred = { workspace = true, features = ["enable-rustls-ring"] }
+mw-store = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
