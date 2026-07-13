@@ -34,6 +34,32 @@ export interface RealtimeSlice {
   onRealtimeChange(handler: (change: StateChange) => void): () => void;
 }
 
+/**
+ * Wire a Service-Worker push wake (`{type:'mw-push-wake'}`, posted by
+ * `public/sw.js` on a Web Push message) to a realtime resync. The wake is
+ * OPAQUE (no content, plan §2.3) — it only means "something changed" — so we
+ * reconnect from the top of the transport ladder, which resyncs. This is the
+ * completing hop for background delivery: a backgrounded tab whose WS/SSE has
+ * dropped still refetches when a push arrives (the primary foreground path is
+ * the live WS/SSE `StateChange`; this is its background backup). Returns a
+ * cleanup fn. Browser-only + guarded so jsdom (no `serviceWorker`) is inert.
+ */
+export function wireServiceWorkerWake(
+  controller: Pick<RealtimeController, 'reconnect'>,
+  target: EventTarget | undefined = typeof navigator !== 'undefined' &&
+    'serviceWorker' in navigator
+    ? navigator.serviceWorker
+    : undefined,
+): () => void {
+  if (target === undefined) return () => undefined;
+  const onMessage = (event: Event): void => {
+    const data = (event as MessageEvent).data as { type?: string } | null;
+    if (data?.type === 'mw-push-wake') controller.reconnect();
+  };
+  target.addEventListener('message', onMessage);
+  return () => target.removeEventListener('message', onMessage);
+}
+
 export function createRealtimeSlice(
   ctx: SliceContext,
   opts: RealtimeControllerOptions = {},
@@ -42,6 +68,9 @@ export function createRealtimeSlice(
   // Register as the app-wide singleton so components using `useRealtime()`
   // without an explicit provider resolve this controller.
   setGlobalRealtime(controller);
+
+  // A Web Push wake (opaque) → resync, so a backgrounded tab refetches (V5 e9).
+  wireServiceWorkerWake(controller);
 
   // Bridge the fetch layer's network signal into the connection model: a dropped
   // request marks the push connection offline before the socket layer notices.
