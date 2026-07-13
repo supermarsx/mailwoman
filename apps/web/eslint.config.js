@@ -9,6 +9,10 @@ export default tseslint.config(
       'node_modules/**',
       'e2e/**',
       'coverage/**',
+      // Generated Playwright live-E2E output (gitignored; left on disk after a
+      // local run). Minified trace bundles — never hand-authored, not shipped.
+      'playwright-report/**',
+      'test-results/**',
       // Vendored third-party build artifact (self-hosted pdf.js worker, e8).
       'public/pdf.worker.mjs',
       // Generated wasm-pack bundle (mw-crypto → src/wasm, built by
