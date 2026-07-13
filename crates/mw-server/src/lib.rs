@@ -26,7 +26,9 @@ use mw_store::{Credentials, ServerKey, Store};
 pub mod engine_mode;
 pub mod fonts;
 pub mod hardening;
+pub mod holidays;
 pub mod push;
+pub mod sharing;
 pub mod tls;
 
 pub use engine_mode::ServerMode;
@@ -687,54 +689,85 @@ async fn jmap_upload(State(state): State<AppState>, headers: HeaderMap) -> Respo
 }
 
 // ---------------------------------------------------------------------------
-// V3 PIM endpoints (plan §3 e0 scaffold / e9 fills) — 501 stubs
+// V3 PIM endpoints (plan §3 e9): Mailwoman-native calendar / address-book
+// sharing (ACL-checked, read-only) + the bundled holiday feed. All cookie-authed
+// like every other endpoint; the sharing data path rides the frozen engine PIM
+// surface (`handle_jmap`), so it lights up when e8 fills `dispatch_pim`.
 // ---------------------------------------------------------------------------
 
-/// A clean `501` for a reserved-but-unfilled V3 endpoint, so the route resolves
-/// (and is authed) rather than falling through to the SPA `index.html`.
-fn v3_not_implemented(feature: &str) -> Response {
+/// A clean `501` for a PIM feature that requires the local engine store (a proxy
+/// upstream has no Mailwoman-native collections to serve).
+fn requires_engine_mode(feature: &str) -> Response {
     (
         StatusCode::NOT_IMPLEMENTED,
-        Json(json!({ "error": format!("{feature} is not implemented in this build (V3 e9)") })),
+        Json(json!({ "error": format!("{feature} requires engine mode") })),
     )
         .into_response()
 }
 
 /// `GET /dav/calendars/{accountId}/{calendarId}` — serve a Mailwoman-native
 /// calendar collection to a grantee principal per `calendar_shares` (on-server
-/// ACL sharing, §11). e9 fills the ACL check + collection serialization.
-async fn caldav_share(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(resp) = authed(&state, &headers).await {
-        return resp;
-    }
-    v3_not_implemented("CalDAV calendar sharing")
+/// ACL sharing, §11). The owner reads their own collection; a grantee with
+/// `read`/`readWrite` may fetch; everyone else is `403`.
+async fn caldav_share(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    UrlPath((account_id, calendar_id)): UrlPath<(String, String)>,
+) -> Response {
+    let session = match authed(&state, &headers).await {
+        Ok(s) => s,
+        Err(resp) => return resp,
+    };
+    let Some(engine) = &state.engine else {
+        return requires_engine_mode("calendar sharing");
+    };
+    sharing::serve_shared_calendar(
+        engine,
+        &account_id,
+        &calendar_id,
+        &session.account_id,
+        &session.username,
+    )
+    .await
 }
 
 /// `GET /dav/addressbooks/{accountId}/{addressBookId}` — serve a Mailwoman-native
-/// address-book collection to a grantee principal (on-server ACL sharing, §13).
-async fn carddav_share(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(resp) = authed(&state, &headers).await {
-        return resp;
-    }
-    v3_not_implemented("CardDAV address-book sharing")
+/// address-book collection (§13). Owner-only in V3 (the frozen model has no
+/// address-book share-ACL; see [`sharing`]).
+async fn carddav_share(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    UrlPath((account_id, address_book_id)): UrlPath<(String, String)>,
+) -> Response {
+    let session = match authed(&state, &headers).await {
+        Ok(s) => s,
+        Err(resp) => return resp,
+    };
+    let Some(engine) = &state.engine else {
+        return requires_engine_mode("address-book sharing");
+    };
+    sharing::serve_shared_addressbook(engine, &account_id, &address_book_id, &session.account_id)
+        .await
 }
 
-/// `GET /api/holidays` — the list of subscribable holiday regions (§11). e9
-/// serves the bundled `.hol`/ICS pack index.
+/// `GET /api/holidays` — the list of subscribable holiday regions (§11).
 async fn holiday_regions(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Err(resp) = authed(&state, &headers).await {
         return resp;
     }
-    v3_not_implemented("holiday region list")
+    holidays::regions_response()
 }
 
-/// `GET /api/holidays/{region}` — a bundled holiday pack as ICS (§11). e9 serves
-/// the `.hol`/ICS bytes for one region.
-async fn holiday_feed(State(state): State<AppState>, headers: HeaderMap) -> Response {
+/// `GET /api/holidays/{region}` — a bundled holiday pack as ICS (§11).
+async fn holiday_feed(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    UrlPath(region): UrlPath<String>,
+) -> Response {
     if let Err(resp) = authed(&state, &headers).await {
         return resp;
     }
-    v3_not_implemented("holiday feed")
+    holidays::feed_response(&region)
 }
 
 /// `GET /api/export/{stableId}?format=eml|mbox|txt|md` — export one message
