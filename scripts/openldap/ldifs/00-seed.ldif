@@ -1,0 +1,94 @@
+# Mailwoman CI seed for OpenLDAP (bitnami/openldap, LDAP_CUSTOM_LDIF_DIR=/ldifs).
+# Deterministic fixtures for the directory-vs-openldap live job (mw-directory,
+# plan §13): GAL search, distribution-group expand-before-send, S/MIME cert
+# lookup (userCertificate;binary), photo lookup (jpegPhoto), and LDAP-bind auth.
+# Base tree: dc=example,dc=com. Admin bind: cn=admin,dc=example,dc=com / adminpassword.
+
+dn: dc=example,dc=com
+objectClass: top
+objectClass: dcObject
+objectClass: organization
+o: Example Org
+dc: example
+
+dn: ou=people,dc=example,dc=com
+objectClass: organizationalUnit
+ou: people
+
+dn: ou=groups,dc=example,dc=com
+objectClass: organizationalUnit
+ou: groups
+
+# Alice — full GAL entry WITH an S/MIME userCertificate;binary + a jpegPhoto.
+dn: uid=alice,ou=people,dc=example,dc=com
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: alice
+cn: Alice Anderson
+sn: Anderson
+givenName: Alice
+displayName: Alice Anderson
+mail: alice@example.com
+title: Staff Engineer
+o: Example Org
+ou: Engineering
+telephoneNumber: +1-202-555-0101
+userPassword: alicepass
+userCertificate;binary:: MIIDEzCCAfugAwIBAgIUdCQklWN+lNN2XLsylDA2WtbqRygwDQYJKoZIhvcNAQELBQAwGTEXMBUGA1UEAwwOQWxpY2UgQW5kZXJzb24wHhcNMjYwNzE0MDc0NTQ0WhcNMzYwNzExMDc0NTQ0WjAZMRcwFQYDVQQDDA5BbGljZSBBbmRlcnNvbjCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAJDG2TMRwIdXskeR3Hxw+5CZgtluRZoeRRBRod6hwCsmP2depuDQHpE6fuauOHn5DGKWRWusMfP6pfxkMhr4MUyehfWTvUZClnvfjI/FTMYPeq3kHRfcJlmwrVsuuSO5h6tWVnIG443I3HSzqKu53JNqO+9tqaC7o3yQquVSAynRhETjWcuCd1//PA7uhUFE9E1ieuZ6ThdxLU4ygoZ1zZ5BU3Wm8nH0MfGPGgxozBYSuLfc0HspLk/vkCRE81muQLdIy+Of6mXd+07xOaGap+y3C5G2wNTcWlTNLCDUssjlIvRuoDk1EiVkk2mMLRr0Sa/mZCPJ+dVyqBT6XDB/GwkCAwEAAaNTMFEwHQYDVR0OBBYEFE9SuaBo3g9Q17F1w8HijLg59VEyMB8GA1UdIwQYMBaAFE9SuaBo3g9Q17F1w8HijLg59VEyMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAF35vKv/redZeyC0uYtulkukrbrS0OzoaeiwlduA179BPm5bZ1oiRfYaVFvLPKqnhtKNr+7Qiuj3qerOp9lCJxCBFtPyZlITVlDjDO5LHyNmF8Rx6P2ZOK0xvGdeuTkkNmdvVq4Cfc1DHPq7XXem2qQPlAhrjywjv194tqe6ekExhBfJpQ3fV2Di+xQsg1MKglqlif2P1Uhyzzq8bqZPZaQ2AlKuBsSP7X1Uj+RokogM026iiLgGXf/RI/GwhaHRyTINl2VDmD/Zp6X209IDwBQZgwH4yEJtSrtLiHKaiF1TkuMcPoe5jQ9bsPZD7U0gFD6dJQG2Nf9UKAa5AL+9T/Y=
+jpegPhoto:: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC
+
+# Bob — GAL entry, no certificate (exercises the "cert absent" branch).
+dn: uid=bob,ou=people,dc=example,dc=com
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: bob
+cn: Bob Baker
+sn: Baker
+givenName: Bob
+displayName: Bob Baker
+mail: bob@example.com
+title: Product Manager
+o: Example Org
+ou: Product
+telephoneNumber: +1-202-555-0102
+userPassword: bobpass
+
+# Carol — GAL entry, no certificate.
+dn: uid=carol,ou=people,dc=example,dc=com
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: carol
+cn: Carol Clark
+sn: Clark
+givenName: Carol
+displayName: Carol Clark
+mail: carol@example.com
+title: Designer
+o: Example Org
+ou: Design
+telephoneNumber: +1-202-555-0103
+userPassword: carolpass
+
+# Distribution groups (groupOfNames) for expand-before-send.
+dn: cn=engineering,ou=groups,dc=example,dc=com
+objectClass: top
+objectClass: groupOfNames
+cn: engineering
+description: Engineering distribution list
+member: uid=alice,ou=people,dc=example,dc=com
+member: uid=bob,ou=people,dc=example,dc=com
+
+dn: cn=all-staff,ou=groups,dc=example,dc=com
+objectClass: top
+objectClass: groupOfNames
+cn: all-staff
+description: All staff distribution list
+member: uid=alice,ou=people,dc=example,dc=com
+member: uid=bob,ou=people,dc=example,dc=com
+member: uid=carol,ou=people,dc=example,dc=com

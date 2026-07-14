@@ -213,9 +213,13 @@ ignore = [
     # client-side export operation, not a network-reachable server parser. Every
     # DIRECT quick-xml consumer in the tree (mw-ics/mw-dav/mw-carddav/mw-plugin) is
     # on the FIXED `quick-xml` 0.41. Bounded + documented, same posture as
-    # RUSTSEC-2023-0071. TODO(e15): try to eliminate the old quick-xml (newer
-    # docx-rs / patch) before the 26.8 release; if infeasible, this ignore stands
-    # and is noted in the release docs.
+    # RUSTSEC-2023-0071. e15 decision (26.8): `docx-rs` 0.4.20 hard-pins quick-xml
+    # 0.36.2 with no permissive-licensed newer release that lifts the pin, so the
+    # old quick-xml cannot be eliminated without dropping DOCX export or forking
+    # docx-rs — neither warranted for a write-only, non-network, unreachable-reader
+    # path. This bounded ignore therefore STANDS for 26.8 and is documented in
+    # docs/export/msg-oft-docx.md + docs/RELEASE-NOTES-26.8.md. Revisit when docx-rs
+    # ships a quick-xml >= 0.37 bump.
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
 ]

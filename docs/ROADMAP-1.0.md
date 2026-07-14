@@ -1,7 +1,8 @@
 # Roadmap to Mailwoman 1.0
 
-**Status:** skeleton authored by t7-e0 (V7 scaffold). Finalized by t7-e17 at the
-26.8 (V7) release.
+**Status:** skeleton authored by t7-e0 (V7 scaffold); the 1.0-gate checklist and the
+deferred-items list were finalized by t7-e15 at the 26.8 CI/docs pass. t7-e17 applies
+the release-time touch at the 26.8 (V7) tag.
 
 V7 (release **26.8**) delivers the **last features** on the SPEC roadmap (§27): the
 WASM plugin runtime, LDAP/GAL directory, password-change backends, Assist (AI), the
@@ -33,21 +34,30 @@ links to its SPEC section and owner as work begins.
 
 ## Deferred-to-1.0-or-post items (from the V7 OUT list)
 
-- [ ] **UI-plugin (TypeScript sandboxed) tier** (§22.2) — document-only in V7.
+- [ ] **UI-plugin (TypeScript sandboxed) tier** (§22.2) — document-only in V7; V7 ships
+      the engine (WASM) plugin tier only.
+- [ ] **Calendar / tasks / reactions / voting / recall plugin-seam export** (§6.5, §22)
+      — the frozen WIT world exports the **account-backend (MAIL)** interface only. The
+      bridges already **implement and fixture-test** these surfaces (advertised via
+      `capabilities()`), but they are **not yet drivable through the plugin seam** — the
+      WIT export for them is a post-1.0 extension. Until then the UI's existing
+      standards/header-convention fallbacks handle them. (See
+      `docs/RELEASE-NOTES-26.8.md` and `docs/bridges/`.)
 - [ ] **Rspamd / SpamAssassin trainer plugins** (§10.8) — the LanguageTool plugin
       already proves the plugin runtime end-to-end, so these were off the V7 path.
 - [ ] **Masked-email plugins** (§28.4).
 - [ ] **OAuth dynamic client registration** (V6 follow-up c) — bridges use
-      Mailwoman-as-OAuth-*client*; admin-seeded clients suffice. Add only if
+      Mailwoman-as-OAuth-*client*; admin-seeded / BYO client IDs suffice. Add only if
       third-party self-registration is wanted.
 - [ ] **EWS native Kerberos/NTLM-SSO via system GSSAPI** (§6.5, R2) — pure-Rust
-      NTLM + Basic ship in V7; Kerberos needs non-permissive platform libs. BYO
+      NTLMv2 + Basic ship in V7; Kerberos needs non-permissive platform libs. BYO
       reverse-proxy-auth is the documented interim path; native Kerberos is post-1.0.
 - [ ] **MSG/OFT deep write fidelity** (embedded objects, custom named properties,
       §28.8) — V7 ships the body + attachments + headers floor; deep fidelity is
       best-effort.
-- [ ] **Any Gmail-bridge cut** taken under the §27 scope-cut ladder (R6) — if Gmail
-      is deferred, IMAP + XOAUTH2 covers most Workspace users; close the follow-up here.
+- [x] **Gmail bridge** — this was the §27 scope-cut ladder's first candidate (R6) but
+      was **NOT cut**: it shipped fully in V7 (true label semantics + history-ID delta
+      sync). No follow-up needed.
 
 ## Open gaps found during V7 scaffolding (e0)
 

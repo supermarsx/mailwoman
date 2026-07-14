@@ -138,6 +138,26 @@ Terminate TLS at nginx (or Caddy/Traefik) and proxy to `127.0.0.1:8080`. See
 `nginx.conf`. Set `MW_COOKIE_SECURE=true` so the session cookie is only sent
 over HTTPS. The proxy must forward the `Cookie`/`Set-Cookie` headers verbatim.
 
+V7 (release 26.8.0) — bridges, directory, Assist, plugins — adds:
+
+- [`ldap.md`](./ldap.md) — the read-only **LDAP/GAL directory** (`mw-directory`):
+  endpoint list + priority, attribute mapping, StartTLS/LDAPS, S/MIME cert + photo
+  lookup, and LDAP-bind login.
+- [`../assist.md`](../assist.md) — **Assist (AI)**: BYO endpoint adapters, capability
+  scoping, the content-free audit, the "what left the device" disclosure, and admin
+  governance.
+- [`../security/plugins.md`](../security/plugins.md) — the **WASM plugin runtime**:
+  authoring, Ed25519 signing, the capability model, and resource limits.
+- [`../security/password-change.md`](../security/password-change.md) — in-app
+  **password change** backends and the zero-access re-wrap.
+- [`../bridges/`](../bridges/) — the **Graph / EWS / Gmail** bridges (admin
+  app-registration + BYO app-ID + the honest scope boundaries).
+- [`../export/msg-oft-docx.md`](../export/msg-oft-docx.md) — **MSG/OFT/DOCX** export.
+- [`../integrations/nextcloud.md`](../integrations/nextcloud.md) — **Nextcloud**
+  attach/save/share-link.
+- [`../RELEASE-NOTES-26.8.md`](../RELEASE-NOTES-26.8.md) — the V7 summary and the three
+  honest scope boundaries (bridge PIM-seam, EWS Kerberos, quick-xml write-only ignore).
+
 ## Backends
 
 Mailwoman is backend-agnostic in **both** modes:

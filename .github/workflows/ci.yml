@@ -5,6 +5,12 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+  # Nightly (03:17 UTC) drives the secret-gated `live-interop` job (real M365 /
+  # Workspace tenants + real Ollama/OpenAI/Anthropic). It is NON-blocking for PR CI:
+  # the job only runs on `schedule`/`workflow_dispatch`, never on push/pull_request.
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch: {}
 
 # Cancel superseded runs on the same ref.
 concurrency:
@@ -959,79 +965,190 @@ jobs:
   # live service in CI); a nightly live-interop job is secret-gated + off by default.
   # ===========================================================================
 
-  # wasm-plugin-build (e15) — build the LanguageTool plugin + the 3 bridge components
-  # to `wasm32-wasip2` (the ONLY place the component toolchain is exercised e2e), then
-  # e16 loads a real one in the jail and proves capability + resource-limit enforcement.
-  #
-  # wasm-plugin-build:
-  #   runs-on: ubuntu-latest
-  #   needs: [rust]
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: dtolnay/rust-toolchain@stable
-  #       with:
-  #         targets: wasm32-wasip2
-  #     - uses: Swatinem/rust-cache@v2
-  #     - name: build plugin components (wasm32-wasip2)
-  #       run: cargo build --target wasm32-wasip2 -p languagetool -p bridge-graph -p bridge-ews -p bridge-gmail --release
+  # wasm-plugin-build (e15) — build EVERY first-party plugin component to
+  # `wasm32-wasip2` via its own build.sh (the authoritative reproducer that refreshes
+  # the committed fixtures), then assert each output is a real WASM COMPONENT (the
+  # component-model preamble `00 61 73 6d 0d 00 01 00`, not a bare core module
+  # `00 61 73 6d 01 00 00 00`). This is the ONLY place the component toolchain is
+  # exercised end-to-end; the `jail` job below then loads the LanguageTool component
+  # in the wasmtime host and proves capability + resource-limit enforcement.
+  wasm-plugin-build:
+    runs-on: ubuntu-latest
+    needs: [rust]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip2
+      - uses: Swatinem/rust-cache@v2
+      - name: build plugin components via each build.sh (wasm32-wasip2)
+        run: |
+          set -eux
+          sh plugins/languagetool/build.sh
+          sh plugins/bridge-graph/build.sh
+          sh plugins/bridge-ews/build.sh
+          sh plugins/bridge-gmail/build.sh
+          sh plugins/nextcloud/build.sh
+          sh crates/mw-plugin/tests/guest-fixture/build.sh
+      - name: assert outputs are real WASM components (component-model preamble)
+        run: |
+          set -eu
+          fail=0
+          for w in \
+            target/wasm32-wasip2/release/languagetool.wasm \
+            target/wasm32-wasip2/release/bridge_graph.wasm \
+            target/wasm32-wasip2/release/bridge_ews.wasm \
+            target/wasm32-wasip2/release/bridge_gmail.wasm \
+            target/wasm32-wasip2/release/nextcloud_plugin.wasm \
+            crates/mw-plugin/tests/guest-fixture/target/wasm32-wasip2/release/mw_plugin_guest_fixture.wasm; do
+            if [ ! -f "$w" ]; then echo "MISSING: $w"; fail=1; continue; fi
+            magic="$(head -c 8 "$w" | od -An -tx1 | tr -d ' \n')"
+            # component-model preamble: 0061736d 0d000100 (version 0x0d, layer 0x01)
+            if [ "$magic" = "0061736d0d000100" ]; then
+              echo "OK component: $w"
+            else
+              echo "NOT a component ($magic): $w"; fail=1
+            fi
+          done
+          exit $fail
 
-  # directory-vs-openldap (e16) — GAL search / group expand-before-send / S-MIME cert
-  # + photo lookup / multi-directory priority / StartTLS/LDAPS against REAL OpenLDAP
-  # (seeded LDIF), via the env-gated (#[ignore]) live tests in mw-directory.
-  #
-  # directory-vs-openldap:
-  #   runs-on: ubuntu-latest
-  #   needs: [rust]
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: dtolnay/rust-toolchain@stable
-  #     - uses: Swatinem/rust-cache@v2
-  #     - name: boot openldap (wait healthy)
-  #       run: docker compose -f docker-compose.ci.yml up -d --wait openldap
-  #     - name: mw-directory live conformance (GAL/group/cert/photo/bind)
-  #       env:
-  #         MW_TEST_LDAP_URL: "ldap://127.0.0.1:1389"
-  #         MW_TEST_LDAP_BASE_DN: "dc=example,dc=com"
-  #       run: cargo test -p mw-directory -- --include-ignored
-  #     - name: tear down
-  #       if: always()
-  #       run: docker compose -f docker-compose.ci.yml down -v
+  # jail (e15) — load the REAL LanguageTool WASM component in the wasmtime host and
+  # assert the SECURITY CORE (plan §22 / §7.5): loads only when its capability is
+  # granted; host `http-fetch` is DENIED outside the net allowlist; DENIED without the
+  # net grant; the DLP hook is DENIED without its capability; and a busy/oversized
+  # guest trips the deadline/memory ceiling cleanly (LimitExceeded, host survives).
+  # Builds the component fresh first so the committed fixture can never drift from the
+  # WIT. Runs on the host target (loads the wasm bytes) — no compose service needed.
+  jail:
+    runs-on: ubuntu-latest
+    needs: [rust]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip2
+      - uses: Swatinem/rust-cache@v2
+      - name: (re)build the LanguageTool component fixture
+        run: sh plugins/languagetool/build.sh
+      - name: plugin jail — capability + resource-limit enforcement
+        run: cargo test -p languagetool --test jail_load
 
-  # assist-mock (e16) — Assist capability grant/deny, redaction (E2EE never
+  # directory-vs-openldap (e15) — GAL search / group expand-before-send / S-MIME cert
+  # (userCertificate;binary) + photo (jpegPhoto) lookup / multi-directory priority /
+  # StartTLS/LDAPS / LDAP-bind against REAL OpenLDAP (seeded LDIF at
+  # scripts/openldap/ldifs/), via the env-gated (#[ignore]) live tests in mw-directory.
+  # The tests self-SKIP with a clear log if MW_TEST_LDAP_URL is unset (never a silent
+  # pass); this job sets it, so the live legs run.
+  directory-vs-openldap:
+    runs-on: ubuntu-latest
+    needs: [rust]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: boot openldap (wait healthy)
+        run: docker compose -f docker-compose.ci.yml up -d --wait openldap
+      - name: mw-directory live conformance (GAL/group/cert/photo/bind)
+        env:
+          MW_TEST_LDAP_URL: "ldap://127.0.0.1:1389"
+          MW_TEST_LDAPS_URL: "ldaps://127.0.0.1:1636"
+          MW_TEST_LDAP_BASE_DN: "dc=example,dc=com"
+          MW_TEST_LDAP_BIND_DN: "cn=admin,dc=example,dc=com"
+          MW_TEST_LDAP_BIND_PW: "adminpassword"
+        run: cargo test -p mw-directory -- --include-ignored
+      - name: openldap logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.ci.yml logs --no-color openldap
+      - name: tear down
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v
+
+  # assist-mock (e15) — Assist capability grant/deny, redaction (E2EE never
   # forwarded), content-free audit, send-always-gated, against the deterministic
-  # mock OpenAI-compatible endpoint. Nightly optional Ollama/OpenAI/Anthropic behind
-  # secrets is a separate secret-gated job.
-  #
-  # assist-mock:
-  #   runs-on: ubuntu-latest
-  #   needs: [rust]
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: dtolnay/rust-toolchain@stable
-  #     - uses: Swatinem/rust-cache@v2
-  #     - name: boot mock-assist (wait healthy)
-  #       run: docker compose -f docker-compose.ci.yml up -d --wait mock-assist
-  #     - name: mw-assist gateway tests vs the mock endpoint
-  #       env:
-  #         MW_TEST_ASSIST_URL: "http://127.0.0.1:8199"
-  #       run: cargo test -p mw-assist -- --include-ignored
-  #     - name: tear down
-  #       if: always()
-  #       run: docker compose -f docker-compose.ci.yml down -v
+  # in-repo mock OpenAI-compatible (+ Anthropic) endpoint (scripts/mock-assist).
+  # Deterministic + offline. Nightly optional Ollama/OpenAI/Anthropic behind secrets
+  # is the separate `live-interop` job. The #[ignore]d live legs self-SKIP if
+  # MW_TEST_ASSIST_URL is unset; this job sets it.
+  assist-mock:
+    runs-on: ubuntu-latest
+    needs: [rust]
+    env:
+      DOCKER_BUILDKIT: "1"
+      COMPOSE_DOCKER_CLI_BUILD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: boot mock-assist (wait healthy)
+        run: docker compose -f docker-compose.ci.yml up -d --build --wait mock-assist
+      - name: mw-assist gateway tests vs the mock endpoint
+        env:
+          MW_TEST_ASSIST_URL: "http://127.0.0.1:8199"
+        run: cargo test -p mw-assist -- --include-ignored
+      - name: mock-assist logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.ci.yml logs --no-color mock-assist
+      - name: tear down
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v
 
-  # bridge-fixtures (e15/e16) — replay the RECORDED request/response fixtures for
-  # Graph/EWS/(Gmail) THROUGH the real engine (no live service): indistinguishable
-  # from IMAP, reactions/voting/recall/Focused-sync paths verified.
-  #
-  # bridge-fixtures:
-  #   runs-on: ubuntu-latest
-  #   needs: [rust]
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: dtolnay/rust-toolchain@stable
-  #     - uses: Swatinem/rust-cache@v2
-  #     - name: bridge fixture replay (Graph/EWS/Gmail through the real engine)
-  #       run: cargo test -p bridge-graph -p bridge-ews -p bridge-gmail -p mw-engine bridge_fixture
+  # bridge-fixtures (e15) — replay the RECORDED request/response fixtures for
+  # Graph/EWS/Gmail THROUGH the real engine (no live service in CI): the bridge, loaded
+  # via mw-plugin, serves mail indistinguishably from IMAP; reactions/voting/recall/
+  # Focused-sync mapping paths verified against the recorded pairs.
+  bridge-fixtures:
+    runs-on: ubuntu-latest
+    needs: [rust]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: bridge fixture replay (Graph/EWS/Gmail through the real engine)
+        run: cargo test -p bridge-graph -p bridge-ews -p bridge-gmail
+
+  # live-interop (e15) — NIGHTLY, secret-gated, NON-blocking. Hits real M365 /
+  # Workspace test tenants + real Ollama/OpenAI/Anthropic endpoints ONLY when the
+  # corresponding secrets are present. It runs solely on `schedule`/`workflow_dispatch`
+  # (never on push/pull_request, so PR CI is never blocked or slowed), and
+  # continue-on-error keeps a provider outage or an expired tenant credential from
+  # reddening even the nightly pipeline — a live-interop failure is a signal to
+  # investigate, not a merge gate. Live scenarios live behind the same #[ignore] live
+  # tests the fixture/mock jobs exercise; the env/secrets below select the live legs.
+  live-interop:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: bridges vs real tenants (Graph/EWS/Gmail) — only if tenant secrets set
+        env:
+          MW_LIVE_GRAPH_TENANT: ${{ secrets.MW_LIVE_GRAPH_TENANT }}
+          MW_LIVE_GRAPH_CLIENT_ID: ${{ secrets.MW_LIVE_GRAPH_CLIENT_ID }}
+          MW_LIVE_GRAPH_TOKEN: ${{ secrets.MW_LIVE_GRAPH_TOKEN }}
+          MW_LIVE_EWS_URL: ${{ secrets.MW_LIVE_EWS_URL }}
+          MW_LIVE_EWS_USER: ${{ secrets.MW_LIVE_EWS_USER }}
+          MW_LIVE_EWS_PASS: ${{ secrets.MW_LIVE_EWS_PASS }}
+          MW_LIVE_GMAIL_TOKEN: ${{ secrets.MW_LIVE_GMAIL_TOKEN }}
+        run: |
+          if [ -z "${MW_LIVE_GRAPH_TOKEN:-}${MW_LIVE_EWS_URL:-}${MW_LIVE_GMAIL_TOKEN:-}" ]; then
+            echo "no bridge tenant secrets present — skipping live bridge interop"
+          else
+            cargo test -p bridge-graph -p bridge-ews -p bridge-gmail -- --include-ignored
+          fi
+      - name: Assist vs real endpoints (Ollama/OpenAI/Anthropic) — only if secrets set
+        env:
+          MW_LIVE_OPENAI_URL: ${{ secrets.MW_LIVE_OPENAI_URL }}
+          MW_LIVE_OPENAI_KEY: ${{ secrets.MW_LIVE_OPENAI_KEY }}
+          MW_LIVE_ANTHROPIC_KEY: ${{ secrets.MW_LIVE_ANTHROPIC_KEY }}
+          MW_LIVE_OLLAMA_URL: ${{ secrets.MW_LIVE_OLLAMA_URL }}
+        run: |
+          if [ -z "${MW_LIVE_OPENAI_KEY:-}${MW_LIVE_ANTHROPIC_KEY:-}${MW_LIVE_OLLAMA_URL:-}" ]; then
+            echo "no Assist endpoint secrets present — skipping live Assist interop"
+          else
+            cargo test -p mw-assist -- --include-ignored
+          fi
 
   # e2e-v7 (e16) — the live full-stack per-capability E2E: mw-server against REAL
   # OpenLDAP + a real loaded WASM plugin (jail: out-of-allowlist DENIED, deadline/

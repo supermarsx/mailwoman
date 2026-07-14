@@ -62,3 +62,24 @@ Operator deployment guides for the V6 data layer are in
 [`../deploy/postgres.md`](../deploy/postgres.md) (pluggable Postgres backend +
 `migrate-store`) and [`../deploy/cache.md`](../deploy/cache.md) (Valkey/Redis cache
 posture, the §15.6 scope matrix, and the zero-access exclusion).
+
+## V7 (release 26.8.0) — plugin runtime, directory, password-change, Assist
+
+V7 adds the security-sensitive surfaces documented here:
+
+- [`plugins.md`](./plugins.md) — the **WASM engine-plugin runtime** (`mw-plugin`,
+  wasmtime + WASI-p2): the plugin ABI, authoring, **Ed25519 signing**, the
+  **capability model (deny by default)**, and the **resource limits**
+  (memory/deadline/fuel). The host is the trust boundary.
+- [`password-change.md`](./password-change.md) — in-app **password change**
+  (`mw-passwd`): the backends (local / LDAP RFC 3062 / Dovecot HTTP / poppassd / HMAC
+  webhook), sealed-credential re-seal, and the client-side zero-access re-wrap.
+- [`../assist.md`](../assist.md) — **Assist (AI)** privacy and governance: BYO
+  endpoint, the default exclusion of E2EE content + attachments, redaction, the
+  **content-free audit**, send-always-human-gated, and the "what left the device"
+  disclosure.
+
+The read-only **LDAP/GAL directory** operator guide (S/MIME cert lookup feeds the
+existing crypto path) is in [`../deploy/ldap.md`](../deploy/ldap.md). The V7 scope
+boundaries — bridge PIM-seam, EWS Kerberos, and the quick-xml write-only advisory
+ignore — are collected in [`../RELEASE-NOTES-26.8.md`](../RELEASE-NOTES-26.8.md).
