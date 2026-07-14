@@ -167,5 +167,18 @@ export default defineConfig({
       ],
       use: { ...devices['Desktop Chrome'], baseURL: v7BaseURL },
     },
+    {
+      name: 't10',
+      // 26.10 tail live E2E (plan §3 e15). The HEADLINE UI-plugin sandbox-escape gate
+      // (ui-plugin.spec.ts) is browser-only — it drives the SHIPPED opaque-origin
+      // sandbox + deny-by-default broker directly, so it needs no backend and runs
+      // everywhere. The masked-email + DCR admin specs use Playwright's `request`
+      // fixture against the same standing 26.10 mw-server the `v6`/`v7` projects target
+      // (MW_E2E_BASE_URL), and self-skip loudly when no stack is reachable. Adding a
+      // `t10-*` / `ui-plugin`/`masked`/`dcr` spec slots into this project with no further
+      // config edit.
+      testMatch: ['ui-plugin.spec.ts', 'masked.spec.ts', 'dcr.spec.ts'],
+      use: { ...devices['Desktop Chrome'], baseURL: v7BaseURL },
+    },
   ],
 });
