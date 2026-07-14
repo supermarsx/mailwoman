@@ -1,16 +1,31 @@
-// V7 password-change module (SPEC §18.3, plan §2.6 / §3 e7). SCAFFOLD stub (e0):
-// inert, lazily importable, typecheck-green, NOT routed. e7 fills the in-app
-// password change + policy display + the zero-access key-hierarchy re-wrap flow
-// (reusing the existing crypto worker); e14 wires it to /api/password.
+// V7 in-app password-change module (SPEC §18.3, plan §2.6 / §3 e7). Lazily importable;
+// NOT routed by this module (ownership boundary — e14 mounts it into Settings' security
+// section; PREFER exporting over editing Settings.tsx to avoid colliding with e6).
+//
+// e14 WIRE-UP (import path):
+//   import { PasswordChange } from './modules/passwd/index.ts'
+//   // plain account:
+//   <PasswordChange accountId={id} />
+//   // zero-access account (re-wrap; recovery phrase shown BEFORE the change):
+//   <PasswordChange accountId={id} zeroAccess={{ account, za: spawnZeroAccessWorker() }} />
+// Endpoints this module calls (e9 to satisfy, e14 to mount):
+//   GET  /api/password/policy   → PasswordPolicy
+//   POST /api/password (PasswordChangeRequest) → PasswordChangeOutcome
+//     (rewrap material is present only for zero-access, only AFTER the pre-prompt)
 
-/** Password policy the form displays before a change (mirrors `mw_passwd::PasswordPolicy`). */
-export interface PasswordPolicy {
-  readonly minLength: number;
-  readonly requireUpper: boolean;
-  readonly requireLower: boolean;
-  readonly requireDigit: boolean;
-  readonly requireSymbol: boolean;
-  readonly description: string;
-}
-
-export { PasswordChange } from './PasswordChange.tsx';
+export { PasswordChange, type PasswordChangeProps } from './PasswordChange.tsx';
+export {
+  PasswordService,
+  policyViolations,
+  type Fetcher,
+  type PasswordPolicy,
+  type PasswordChangeRequest,
+  type PasswordChangeOutcome,
+  type RewrapPayload,
+} from './service.ts';
+export {
+  recoveryPhraseBefore,
+  rewrapUnderNewPassword,
+  type RewrapResult,
+  type RewrapInputs,
+} from './rewrap.ts';
