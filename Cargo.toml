@@ -47,7 +47,7 @@ members = [
 ]
 
 [workspace.package]
-version = "26.10.0"
+version = "26.11.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/supermarsx/mailwoman"

@@ -770,7 +770,7 @@ dependencies = [
 
 [[package]]
 name = "bridge-ews"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -785,7 +785,7 @@ dependencies = [
 
 [[package]]
 name = "bridge-gmail"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -799,7 +799,7 @@ dependencies = [
 
 [[package]]
 name = "bridge-graph"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -4450,7 +4450,7 @@ dependencies = [
 
 [[package]]
 name = "languagetool"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "async-trait",
  "mw-plugin",
@@ -4765,7 +4765,7 @@ dependencies = [
 
 [[package]]
 name = "mailwoman-desktop"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "getrandom 0.4.3",
  "keyring",
@@ -4785,7 +4785,7 @@ dependencies = [
 
 [[package]]
 name = "mailwoman-mobile"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4827,7 +4827,7 @@ dependencies = [
 
 [[package]]
 name = "masked-email"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "async-trait",
  "mw-plugin",
@@ -5099,7 +5099,7 @@ checksum = "2195bf6aa996a481483b29d62a7663eed3fe39600c460e323f8ff41e90bdd89b"
 
 [[package]]
 name = "mw-admin"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "argon2",
  "async-trait",
@@ -5117,7 +5117,7 @@ dependencies = [
 
 [[package]]
 name = "mw-assist"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -5134,7 +5134,7 @@ dependencies = [
 
 [[package]]
 name = "mw-autoconfig"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "async-trait",
  "reqwest 0.12.28",
@@ -5146,7 +5146,7 @@ dependencies = [
 
 [[package]]
 name = "mw-cache"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "bytes",
  "fred",
@@ -5161,7 +5161,7 @@ dependencies = [
 
 [[package]]
 name = "mw-carddav"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "mw-dav",
  "mw-ics",
@@ -5175,7 +5175,7 @@ dependencies = [
 
 [[package]]
 name = "mw-crypto"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "aes 0.9.1",
  "aes-gcm 0.10.3",
@@ -5220,7 +5220,7 @@ dependencies = [
 
 [[package]]
 name = "mw-dav"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "mw-ics",
  "quick-xml 0.41.0",
@@ -5232,7 +5232,7 @@ dependencies = [
 
 [[package]]
 name = "mw-directory"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "async-trait",
  "ldap3",
@@ -5246,7 +5246,7 @@ dependencies = [
 
 [[package]]
 name = "mw-engine"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5277,7 +5277,7 @@ dependencies = [
 
 [[package]]
 name = "mw-export"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "cfb 0.10.0",
  "docx-rs",
@@ -5289,7 +5289,7 @@ dependencies = [
 
 [[package]]
 name = "mw-ics"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -5303,7 +5303,7 @@ dependencies = [
 
 [[package]]
 name = "mw-imap"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -5321,7 +5321,7 @@ dependencies = [
 
 [[package]]
 name = "mw-jmap"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -5334,7 +5334,7 @@ dependencies = [
 
 [[package]]
 name = "mw-mcp"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -5349,7 +5349,7 @@ dependencies = [
 
 [[package]]
 name = "mw-mime"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "encoding_rs",
  "mail-builder",
@@ -5360,7 +5360,7 @@ dependencies = [
 
 [[package]]
 name = "mw-mock-jmap"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -5374,7 +5374,7 @@ dependencies = [
 
 [[package]]
 name = "mw-oauth"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "argon2",
  "async-trait",
@@ -5391,7 +5391,7 @@ dependencies = [
 
 [[package]]
 name = "mw-passwd"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "argon2",
  "async-trait",
@@ -5409,7 +5409,7 @@ dependencies = [
 
 [[package]]
 name = "mw-plugin"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "async-trait",
  "ed25519-dalek",
@@ -5425,7 +5425,7 @@ dependencies = [
 
 [[package]]
 name = "mw-pop3"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -5441,7 +5441,7 @@ dependencies = [
 
 [[package]]
 name = "mw-render"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "base64 0.22.1",
  "mw-export",
@@ -5452,7 +5452,7 @@ dependencies = [
 
 [[package]]
 name = "mw-sanitize"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "ammonia",
  "wasm-bindgen",
@@ -5460,7 +5460,7 @@ dependencies = [
 
 [[package]]
 name = "mw-search"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -5470,7 +5470,7 @@ dependencies = [
 
 [[package]]
 name = "mw-server"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -5532,7 +5532,7 @@ dependencies = [
 
 [[package]]
 name = "mw-sieve"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "base64 0.22.1",
  "rustls",
@@ -5548,7 +5548,7 @@ dependencies = [
 
 [[package]]
 name = "mw-smtp"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "base64 0.22.1",
  "rustls",
@@ -5562,7 +5562,7 @@ dependencies = [
 
 [[package]]
 name = "mw-sso"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -5588,7 +5588,7 @@ dependencies = [
 
 [[package]]
 name = "mw-store"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "chacha20poly1305",
  "chrono",
@@ -5638,7 +5638,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "nextcloud-plugin"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "async-trait",
  "mw-plugin",
@@ -8593,7 +8593,7 @@ dependencies = [
 
 [[package]]
 name = "spam-rspamd"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "async-trait",
  "mw-plugin",
@@ -8604,7 +8604,7 @@ dependencies = [
 
 [[package]]
 name = "spam-spamassassin"
-version = "26.10.0"
+version = "26.11.0"
 dependencies = [
  "async-trait",
  "mw-plugin",

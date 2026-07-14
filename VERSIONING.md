@@ -37,6 +37,32 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
 
 ## History
 
+- **`26.11`** — closes the two non-blocking follow-ups documented in `26.10`, both
+  server-side and additive over the frozen surfaces. **Masked-email on-send From-rewrite**:
+  a server-side `MaskedSubmitter` decorator wraps the standards-account submitter at the
+  single construction seam (`engine_mode.rs::register()`). When a submitted message's
+  envelope `From` is one of the sending account's own masked aliases and that alias is
+  enabled, the envelope `MAIL FROM` is rewritten to the canonical stored alias (keeping the
+  real address out of the Return-Path) and `lastUsedAt` is bumped. An alias owned by another
+  account, a disabled alias, a deleted (tombstoned) alias, or a store error all fail
+  **closed** — the inner submitter is never called, so the message is never sent. An ordinary
+  non-alias `From` is forwarded byte-unchanged. It rides an additive
+  `get_masked_email_by_addr` store lookup (no schema/migration edit), and bridge/plugin
+  accounts are intentionally not wrapped (a provider rejects a foreign `From`; masked aliases
+  are a standards-account feature). **OAuth DCR admin-enable route**: admin-session-gated
+  `GET/PUT /admin/oauth-dcr` (parity with the SSO and UI-plugin admin routes), fail-closed on
+  a disabled panel or missing/unknown session. Dynamic Client Registration **stays
+  default-disabled** — enabling it is now an explicit admin action through the panel rather
+  than config/CLI only; the default-off posture is unchanged. **Net zero new
+  Rust/npm dependencies**; no openssl; no schema/migration edit; no mw-engine feature-code
+  change. Verified: **1047 Rust** tests (144 suites) + the web suite; `cargo deny` clean with
+  no new advisory ignore and no openssl; combined verify + live-E2E green — the masked
+  send-path proven across a 5-scenario matrix (owned+enabled rewrite, cross-account /
+  disabled / deleted fail-closed with the inner submitter never reached, non-alias
+  byte-unchanged) driving the real engine JMAP submission path, and the DCR admin toggle
+  proven end-to-end (unauth 401 → admin login → enable flips `/oauth/register` 403→201 →
+  disable returns it to 403) on **SQLite and live Postgres**. Rolling `YY.N` scheme retained
+  (this is 26.11, not a "1.0" tag).
 - **`26.10`** — the deferred-spec tail: bridge PIM through the plugin seam, spam
   classifiers, masked email, OAuth dynamic client registration, a sandboxed TypeScript
   UI-plugin tier, and MSG/OFT deep write fidelity — all additive over the frozen V7
@@ -87,13 +113,14 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
   skip — the UI-plugin **sandbox-escape gate found no hole** (all 12 escape vectors —
   parent cookies/DOM/location, session token, storage, off-allowlist network — blocked by
   the browser and the broker). Rolling `YY.N` scheme retained (this is 26.10, not a "1.0"
-  tag). Non-blocking 26.10 follow-ups (documented, not release-gating): (a) **masked-email
-  on-send From-rewrite** — the store-layer alias service + lifecycle + routes are complete,
-  but automatic envelope rewrite on send needs a per-send alias→target seam that feeds the
-  selected alias through the jail (the `masked-email` `message-out` component stays an
-  identity passthrough until then); and (b) an optional **`PUT /admin/oauth-dcr` admin
-  toggle** — DCR is currently config/CLI-enabled by design (the browser proves the mounted,
-  default-closed gate; the enabled-path mint is proven in the Rust harness).
+  tag). Non-blocking 26.10 follow-ups (documented, not release-gating) — **both now CLOSED in
+  `26.11`**: (a) **masked-email on-send From-rewrite** — the store-layer alias service +
+  lifecycle + routes shipped here; automatic envelope rewrite on send needed a per-send
+  alias→target seam, which `26.11` implemented server-side (a `MaskedSubmitter` decorator at
+  the submission construction seam rather than through the jail, so the `masked-email`
+  `message-out` component stays an identity passthrough); and (b) an optional
+  **`PUT /admin/oauth-dcr` admin toggle** — DCR shipped here config/CLI-enabled; `26.11`
+  added the admin-session-gated `GET/PUT /admin/oauth-dcr` route (DCR stays default-disabled).
 - **`26.9`** — enterprise SSO + the accessibility/i18n/perf/packaging hardening pass.
   **Full OIDC and SAML 2.0 single sign-on** as login backends (new `mw-sso` crate),
   configured per-deployment/domain via the admin panel + a `0009` `sso_config` table

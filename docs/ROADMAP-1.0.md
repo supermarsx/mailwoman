@@ -57,12 +57,15 @@ frozen V7 surfaces — in the rolling `26.10` release. See the `26.10` entry in
       under a net allowlist (no C linkage), feeding a fail-soft `SpamHook` in
       `Engine::ingest` (a classifier failure never drops mail).
 - [x] **Masked-email plugins** (§28.4) — **shipped in 26.10**: store-layer alias service +
-      lifecycle + `/api/masked/*` routes. (On-send From-rewrite is a documented non-blocking
-      follow-up — see the `26.10` VERSIONING entry.)
+      lifecycle + `/api/masked/*` routes. **On-send From-rewrite closed in 26.11**: a
+      server-side `MaskedSubmitter` decorator rewrites the envelope `MAIL FROM` to the
+      canonical alias for an account-owned enabled alias and fails closed on
+      cross-account/disabled/deleted aliases (inner submitter never called).
 - [x] **OAuth dynamic client registration** (V6 follow-up c) — **shipped in 26.10**:
       RFC 7591 register + RFC 7592 read/update/delete in `mw-oauth`, **default-disabled and
       ops-gated** (policy row + redirect-host-suffix allowlist + registration-access-tokens,
-      no scope escalation).
+      no scope escalation). **Admin-enable route closed in 26.11**: admin-session-gated
+      `GET/PUT /admin/oauth-dcr` (parity with SSO/UI-plugin admin), DCR still default-disabled.
 - [ ] **EWS native Kerberos/NTLM-SSO via system GSSAPI** (§6.5, R2) — **partially addressed
       in 26.10**: the BYO SPNEGO reverse-proxy path is documented + fixture-tested
       (`docs/deploy/kerberos.md` — IIS+ARR+KCD / Apache `mod_auth_gssapi` / nginx SPNEGO
