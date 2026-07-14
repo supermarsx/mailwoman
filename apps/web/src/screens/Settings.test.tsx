@@ -62,4 +62,16 @@ describe('Settings', () => {
     fireEvent.click(screen.getByRole('dialog', { name: 'Settings' }));
     expect(onClose).toHaveBeenCalledTimes(2);
   });
+
+  it('moves focus into the dialog on open (focus trap)', async () => {
+    renderSettings();
+    const dialog = screen.getByRole('dialog', { name: 'Settings' });
+    await vi.waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+  });
+
+  it('Esc from within the dialog closes it', () => {
+    const { onClose } = renderSettings();
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Close settings' }), { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });
