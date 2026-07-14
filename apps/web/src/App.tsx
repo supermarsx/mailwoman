@@ -16,6 +16,12 @@ import { ConnectionToast } from './realtime/ConnectionToast.tsx';
 // is byte-unchanged (the early return only fires on the `/admin` path).
 const AdminScreen = lazy(() => import('./screens/Admin/index.tsx'));
 
+// V6 OAuth 2.1 consent (plan §3 e8/e11): the resource-owner grant/deny screen,
+// reached ONLY via the `/oauth/authorize` redirect. Lazily imported so it
+// code-splits out of the mailbox bundle; it reads the authorize params from
+// `window.location.search` and posts to `/oauth/{consent,decision}`.
+const ConsentScreen = lazy(() => import('./screens/Consent/index.tsx'));
+
 /** Is the app being served under the separate `/admin` route? */
 function isAdminRoute(): boolean {
   if (typeof location === 'undefined') return false;
@@ -23,11 +29,25 @@ function isAdminRoute(): boolean {
   return path === '/admin' || path.startsWith('/admin/');
 }
 
+/** Is the app being served under the `/oauth/authorize` consent route? */
+function isOAuthAuthorizeRoute(): boolean {
+  if (typeof location === 'undefined') return false;
+  return location.pathname.replace(/\/+$/, '') === '/oauth/authorize';
+}
+
 export function App(): JSX.Element {
   if (isAdminRoute()) {
     return (
       <Suspense fallback={<div class="boot">Loading…</div>}>
         <AdminScreen />
+      </Suspense>
+    );
+  }
+
+  if (isOAuthAuthorizeRoute()) {
+    return (
+      <Suspense fallback={<div class="boot">Loading…</div>}>
+        <ConsentScreen />
       </Suspense>
     );
   }

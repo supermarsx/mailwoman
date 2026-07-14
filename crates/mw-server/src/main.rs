@@ -53,21 +53,30 @@ struct MigrateStoreArgs {
     to: Option<String>,
 }
 
-/// `mailwoman admin …` (V6 §19). STUB: e5 replaces the free-form args with the
-/// full noun/verb subcommand tree mirroring the panel endpoints.
+/// `mailwoman admin …` (V6 §19). The full `mw_admin` noun/verb tree, backed by the
+/// 0007 store tables via `mw_server::build_admin`.
 #[derive(Parser)]
 struct AdminArgs {
-    /// Admin noun + verb + operands (e.g. `users provision …`). Parsed but inert.
-    #[arg(trailing_var_arg = true)]
-    args: Vec<String>,
+    /// SQLite/Postgres DSN (env: MW_DB_PATH).
+    #[arg(long, env = "MW_DB_PATH", default_value = "mailwoman.db")]
+    db_path: String,
+    /// Hex-encoded 32-byte server key (env: MW_SERVER_KEY).
+    #[arg(long, env = "MW_SERVER_KEY")]
+    server_key: Option<String>,
+    #[command(subcommand)]
+    command: mw_admin::cli::AdminCommand,
 }
 
-/// `mailwoman mcp-stdio` (V6 §20.3). STUB: e4 wires the stdio JSON-RPC proxy.
+/// `mailwoman mcp-stdio` (V6 §20.3): proxy stdin/stdout JSON-RPC to a configured
+/// remote `/mcp` endpoint.
 #[derive(Parser)]
 struct McpStdioArgs {
     /// Upstream MCP server URL to proxy to (env: MW_MCP_SERVER).
     #[arg(long, env = "MW_MCP_SERVER")]
     server: Option<String>,
+    /// Bearer token (API key / OAuth token) presented to the remote (env: MW_MCP_TOKEN).
+    #[arg(long, env = "MW_MCP_TOKEN")]
+    token: Option<String>,
 }
 
 #[derive(Parser)]
@@ -185,22 +194,48 @@ async fn main() -> std::process::ExitCode {
     }
 }
 
-/// V6 STUB (plan §3 e0/e1): parse-only until e1 wires `Store::migrate_from_sqlite`.
-async fn migrate_store(_args: MigrateStoreArgs) -> anyhow::Result<()> {
-    println!("mailwoman migrate-store: not yet implemented (V6 §4.2, filled by t6-e1)");
+/// `mailwoman migrate-store` (plan §4.2, e1): copy a SQLite store into a Postgres
+/// backend. Source and destination MUST share the same `ServerKey` (sealed columns
+/// round-trip); the key comes from `MW_SERVER_KEY`.
+async fn migrate_store(args: MigrateStoreArgs) -> anyhow::Result<()> {
+    let from = args
+        .from
+        .ok_or_else(|| anyhow::anyhow!("--from (MW_MIGRATE_FROM) is required"))?;
+    let to = args
+        .to
+        .ok_or_else(|| anyhow::anyhow!("--to (MW_MIGRATE_TO) is required"))?;
+    let hex = std::env::var("MW_SERVER_KEY")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("MW_SERVER_KEY must be set (src + dst share the key)"))?;
+    let key = mw_store::ServerKey::from_hex(&hex)
+        .map_err(|_| anyhow::anyhow!("MW_SERVER_KEY is not valid hex"))?;
+    let dst = mw_store::Store::open(&to, key).await?;
+    let report = dst.migrate_from_sqlite(&from).await?;
+    println!(
+        "migrated {} rows across {} tables from {from} → {to}",
+        report.total_rows(),
+        report.tables.len()
+    );
     Ok(())
 }
 
-/// V6 STUB (plan §3 e0/e5): parse-only until e5 wires the `mw-admin` CLI tree.
-async fn admin_cmd(_args: AdminArgs) -> anyhow::Result<()> {
-    println!("mailwoman admin: not yet implemented (V6 §19, filled by t6-e5)");
+/// `mailwoman admin <noun> <verb>` (plan §19, e5): drive the admin domain logic +
+/// audit log against the 0007 store tables.
+async fn admin_cmd(args: AdminArgs) -> anyhow::Result<()> {
+    let admin = mw_server::build_admin(&args.db_path, args.server_key.as_deref()).await?;
+    let out = mw_admin::cli::run(&admin, args.command, "cli").await?;
+    println!("{out}");
     Ok(())
 }
 
-/// V6 STUB (plan §3 e0/e4): parse-only until e4 wires the `mw-mcp` stdio proxy.
-async fn mcp_stdio_cmd(_args: McpStdioArgs) -> anyhow::Result<()> {
-    println!("mailwoman mcp-stdio: not yet implemented (V6 §20.3, filled by t6-e4)");
-    Ok(())
+/// `mailwoman mcp-stdio` (plan §20.3, e4): the stdio JSON-RPC bridge to a remote
+/// `/mcp` endpoint.
+async fn mcp_stdio_cmd(args: McpStdioArgs) -> anyhow::Result<()> {
+    let url = args
+        .server
+        .ok_or_else(|| anyhow::anyhow!("--server (MW_MCP_SERVER) is required"))?;
+    mw_server::mcp::run_stdio(&url, args.token).await
 }
 
 /// Map a fallible command result to a process exit code.

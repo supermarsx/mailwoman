@@ -24,6 +24,15 @@ mw-imap = { workspace = true }
 mw-pop3 = { workspace = true }
 mw-smtp = { workspace = true }
 mw-autoconfig = { workspace = true }
+# V6 MOUNT/WIRE (plan §3 e11): the four Batch-B crates whose traits + routers e11
+# backs with the 0007 tables and mounts into `router()`.
+mw-oauth = { workspace = true }
+mw-mcp = { workspace = true }
+mw-admin = { workspace = true }
+mw-cache = { workspace = true }
+# Constant-time admin password comparison uses argon2 verification when a hash is
+# configured; the store-adapter needs no extra crypto (ServerKey seals/unseals).
+argon2 = { workspace = true }
 # `ws` (backed by tokio-tungstenite) powers the `/jmap/ws` upgrade (§2.2).
 axum = { workspace = true, features = ["ws"] }
 tokio = { workspace = true }

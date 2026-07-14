@@ -18,8 +18,17 @@ mod v5;
 mod backend;
 mod dialect;
 mod migrate;
+// V6 (0007) additive repo methods (t6-e11 MOUNT). New `Store` methods + row
+// structs over the 0007 tables, reusing the frozen dual-backend query layer;
+// no existing query or public item is touched.
+mod v6;
 
 pub(crate) use backend::{Backend, Row, q};
+
+pub use v6::{
+    AdminUserRow, ApiKeyRow, AuditRow, CacheScopeRow, DomainRow, OAuthClientRow, OAuthTokenRow,
+    QuotaRow, WebhookRow, ZeroAccessRow,
+};
 
 pub use cache::{
     Account, AccountKind, Mailbox, MailboxUpsert, Message, MessageLocation, MessageUpsert,

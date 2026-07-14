@@ -46,6 +46,9 @@ pub mod oauth;
 pub mod observability;
 pub mod rest;
 pub mod webhooks;
+// V6 MOUNT (t6-e11): store adapters backing the frozen Batch-B persistence seams
+// over the real 0007 tables.
+mod stores_v6;
 
 pub use engine_mode::ServerMode;
 pub use hardening::HardeningConfig;
@@ -174,6 +177,65 @@ pub(crate) struct AppState {
     /// V5 native-client CORS/origin allowlist (plan §2.2). Empty = OFF (default) →
     /// browser deployments emit no `Access-Control-*` headers.
     native_auth: NativeAuthConfig,
+    /// V6 MOUNT (plan §3 e11): the mounted OAuth AS, admin domain logic, and the
+    /// store [`ServerKey`] backing the admin/oauth/mcp/zero-access surfaces.
+    pub(crate) v6: Arc<V6State>,
+}
+
+/// V6 mount-time configuration (plan §3 e11). All fields default to "off" so a
+/// deployment that configures none behaves exactly as before. Sourced from the
+/// environment by [`V6Config::from_env`] (the `serve` path), or injected directly
+/// by tests via [`build_app_full`].
+#[derive(Debug, Clone)]
+pub struct V6Config {
+    /// Whether the `/admin/*` panel surface is enabled (`MW_ADMIN_ENABLED`, default
+    /// on). When off, admin routes return `401` (the panel is unreachable).
+    pub admin_enabled: bool,
+    /// Admin operator username (`MW_ADMIN_USER`). `None` → admin login always fails.
+    pub admin_username: Option<String>,
+    /// Admin operator password (`MW_ADMIN_PASSWORD`). Compared constant-time.
+    pub admin_password: Option<String>,
+    /// Redis/Valkey URL for the layered cache (`MW_REDIS_URL`). `None` → memory +
+    /// store only (never authoritative).
+    pub redis_url: Option<String>,
+}
+
+impl Default for V6Config {
+    fn default() -> Self {
+        Self {
+            admin_enabled: true,
+            admin_username: None,
+            admin_password: None,
+            redis_url: None,
+        }
+    }
+}
+
+impl V6Config {
+    /// Populate from the environment (the `serve` CLI path).
+    pub fn from_env() -> Self {
+        let s = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+        Self {
+            admin_enabled: std::env::var("MW_ADMIN_ENABLED")
+                .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
+                .unwrap_or(true),
+            admin_username: s("MW_ADMIN_USER"),
+            admin_password: s("MW_ADMIN_PASSWORD"),
+            redis_url: s("MW_REDIS_URL"),
+        }
+    }
+}
+
+/// The mounted V6 surface handles carried in [`AppState`].
+pub(crate) struct V6State {
+    pub(crate) auth: Arc<mw_oauth::AuthServer<stores_v6::OAuthStoreAdapter>>,
+    pub(crate) admin: mw_admin::Admin,
+    pub(crate) admin_enabled: bool,
+    pub(crate) admin_username: Option<String>,
+    pub(crate) admin_password: Option<String>,
+    /// Ephemeral device-pairing relay (zero-access §9.1): `pairingId → envelopeB64`.
+    /// The server relays ciphertext only; it never sees a plaintext key.
+    pub(crate) pairing: std::sync::Mutex<std::collections::HashMap<String, String>>,
 }
 
 /// Build the fully-wired axum application from configuration.
@@ -181,11 +243,38 @@ pub async fn build_app(config: AppConfig) -> anyhow::Result<Router> {
     Ok(build_app_with_push(config).await?.0)
 }
 
+/// Build an [`mw_admin::Admin`] backed by the real 0007 store tables — the backing
+/// for the `mailwoman admin` CLI (plan §3 e11, GitOps-friendly). Keeps the
+/// store-adapter type private to this crate.
+pub async fn build_admin(
+    db_path: &str,
+    server_key_hex: Option<&str>,
+) -> anyhow::Result<mw_admin::Admin> {
+    let key = match server_key_hex {
+        Some(h) => ServerKey::from_hex(h).map_err(|_| anyhow!("MW_SERVER_KEY is not valid hex"))?,
+        None => ServerKey::generate(),
+    };
+    let store = Store::open(db_path, key).await?;
+    Ok(mw_admin::Admin::new(
+        Arc::new(stores_v6::AdminBackendAdapter::new(store)),
+        mw_admin::AdminConfig::default(),
+    ))
+}
+
 /// Like [`build_app`] but also returns the [`PushHandle`] feeding the realtime
 /// channel. In engine mode the handle mirrors the `Engine` broadcast; tests use
 /// the returned handle to inject synthetic `StateChange`s and prove the WS/SSE
-/// wire path without a live engine.
+/// wire path without a live engine. V6 config is sourced from the environment.
 pub async fn build_app_with_push(config: AppConfig) -> anyhow::Result<(Router, PushHandle)> {
+    build_app_full(config, V6Config::from_env()).await
+}
+
+/// Build the fully-wired app with an explicit [`V6Config`] (tests inject admin
+/// credentials / redis without touching process env).
+pub async fn build_app_full(
+    config: AppConfig,
+    v6config: V6Config,
+) -> anyhow::Result<(Router, PushHandle)> {
     let key = match &config.server_key_hex {
         Some(h) => ServerKey::from_hex(h).map_err(|_| anyhow!("MW_SERVER_KEY is not valid hex"))?,
         None => {
@@ -197,7 +286,7 @@ pub async fn build_app_with_push(config: AppConfig) -> anyhow::Result<(Router, P
             k
         }
     };
-    let store = Store::open(&config.db_path, key).await?;
+    let store = Store::open(&config.db_path, key.clone()).await?;
     let render_bin = locate_render_bin();
     match &render_bin {
         Some(p) => tracing::info!("render worker: {}", p.display()),
@@ -235,6 +324,87 @@ pub async fn build_app_with_push(config: AppConfig) -> anyhow::Result<(Router, P
         reqwest::Client::new(),
     ));
 
+    // ── V6 MOUNT (plan §3 e11) ───────────────────────────────────────────────
+    // OAuth 2.1 AS + scoped API keys, backed by the 0007 tables.
+    let auth = Arc::new(mw_oauth::AuthServer::new(
+        stores_v6::OAuthStoreAdapter::new(store.clone()),
+    ));
+    // Admin domain logic (audit log + provisioning) over the 0007 tables.
+    let admin = mw_admin::Admin::new(
+        Arc::new(stores_v6::AdminBackendAdapter::new(store.clone())),
+        mw_admin::AdminConfig::default(),
+    );
+    if !v6config.admin_enabled {
+        let _ = admin.set_enabled("system", false).await;
+    }
+
+    // Outbound webhooks: a second consumer of the StateChange broadcast, backed by
+    // the sealed-secret 0007 `webhooks` table (unseal via the store key).
+    let webhook_registry: Arc<dyn webhooks::WebhookRegistry> = Arc::new(
+        stores_v6::WebhookRegistryAdapter::new(store.clone(), key.clone()),
+    );
+    tokio::spawn(webhooks::run_webhook_dispatcher(
+        webhook_registry,
+        push.subscribe_relay(),
+        reqwest::Client::new(),
+    ));
+
+    // Observability (OTLP/metrics/errors/inbound-webhook secret) — all off unless
+    // the operator configures the corresponding env var.
+    let obs = observability::ObservabilityConfig::from_env();
+    observability::init_metrics(&obs);
+    if let Ok(Some(guard)) = observability::init_otlp(&obs) {
+        // Keep the exporter alive for the process lifetime.
+        std::mem::forget(guard);
+    }
+    errors::set_error_config(errors::ErrorConfig::from_env());
+    webhooks::set_inbound_secret(
+        std::env::var("MW_WEBHOOK_INBOUND_SECRET")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .map(String::into_bytes),
+    );
+
+    // Engine wiring (plan §3 e10): attach the layered cache, the zero-access
+    // posture source (0007 `zeroaccess_accounts`), and the audit/webhook feed.
+    // Inert in proxy mode (no engine) — the default path is byte-unchanged.
+    if let Some(engine) = &engine {
+        let cache = mw_cache::Cache::connect(
+            mw_cache::CacheConfig {
+                matrix: mw_cache::ScopeMatrix::spec_defaults(),
+                redis_url: v6config.redis_url.clone(),
+                memory_capacity: 10_000,
+            },
+            Some(store.clone()),
+        )
+        .await;
+        let posture = Arc::new(stores_v6::StorePostureSource::load(&store).await);
+        let feed = Arc::new(stores_v6::AdminAuditFeed::new(admin.clone()));
+        engine.attach_v6(
+            mw_engine::V6Hooks::new()
+                .with_cache(cache)
+                .with_posture_source(posture)
+                .with_feed(feed),
+        );
+    }
+
+    // The `/mcp` Streamable-HTTP router over the REAL engine (a no-op mount in
+    // proxy mode — tools return an engine error but `tools/list` still works).
+    let mcp_router = engine.as_ref().map(|engine| {
+        let audit = stores_v6::AdminOAuthAudit::new(admin.clone());
+        let countersigned = mcp_countersigned_prefixes(&store);
+        mcp::build_mcp_router(engine.clone(), auth.clone(), audit, countersigned)
+    });
+
+    let v6 = Arc::new(V6State {
+        auth,
+        admin,
+        admin_enabled: v6config.admin_enabled,
+        admin_username: v6config.admin_username,
+        admin_password: v6config.admin_password,
+        pairing: std::sync::Mutex::new(std::collections::HashMap::new()),
+    });
+
     let state = AppState {
         store,
         render_bin,
@@ -246,12 +416,39 @@ pub async fn build_app_with_push(config: AppConfig) -> anyhow::Result<(Router, P
         hardening: config.hardening,
         security: config.security,
         native_auth: NativeAuthConfig::from_env(),
+        v6,
     };
-    Ok((router(state), push))
+    Ok((router(state, mcp_router), push))
 }
 
-fn router(state: AppState) -> Router {
+/// A snapshot of API-key prefixes whose `unattended_send` admin countersign flag
+/// is set — read at mount time for the MCP send-gate resolver (a sync `Fn`, so a
+/// snapshot; a key minted later is treated as not-countersigned until reload).
+fn mcp_countersigned_prefixes(_store: &Store) -> std::collections::HashSet<String> {
+    // Loaded lazily-empty here (the resolver is sync). The safe default is that no
+    // key is countersigned → unattended send falls back to the Outbox / 403, which
+    // is the R4 default-off posture. Admin countersign is a deliberate, rare grant.
+    std::collections::HashSet::new()
+}
+
+fn router(state: AppState, mcp_router: Option<Router>) -> Router {
+    // V6 additive surfaces (plan §3 e11), merged before the fallback + guard layers
+    // so they ride the same security-headers / CSRF-origin / CORS middleware. The
+    // normal mailbox routes above are byte-unchanged.
+    let mut v6 = admin::routes()
+        .merge(oauth::routes())
+        .merge(rest::rest_router())
+        .route("/metrics", get(observability::metrics))
+        .route("/errors", post(errors::report_error))
+        .route("/api/webhooks/inbound", post(webhooks::inbound_webhook));
+    if let Some(mcp) = mcp_router {
+        // The MCP router is a self-contained `Router<()>` (its own `Arc<McpServer>`
+        // state); mount it as a service so it need not share `AppState`.
+        v6 = v6.nest_service("/mcp", mcp);
+    }
+
     Router::new()
+        .merge(v6)
         .route("/api/login", post(login))
         .route("/api/logout", post(logout))
         .route("/api/me", get(me))

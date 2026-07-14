@@ -3,9 +3,14 @@
 // every control writes straight through the slice, which reflects onto :root and
 // persists to localStorage (V2). Token-native styling (styles/settings.css.ts).
 
-import { For, type JSX } from 'solid-js';
+import { For, Show, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
 import { ServerSettings } from '../platform/ServerSettings.tsx';
+// V6 (plan §3 e8/e11): the zero-access storage, scoped API-key, and MCP-key
+// sections — additive, rendered only for an authenticated account. The normal
+// appearance controls above are byte-unchanged.
+import { ZeroAccessSettings, spawnZeroAccessWorker } from '../modules/zeroaccess/index.ts';
+import { ApiKeys, McpKeys } from '../modules/apikeys/index.ts';
 import { THEME_OPTIONS, ACCENT_PRESETS } from '../theme/tokens.ts';
 import type { Density } from '../theme/contract.css.ts';
 import type { LayoutMode, UiFont } from '../state/slices/theme.ts';
@@ -167,7 +172,27 @@ export function Settings(props: SettingsProps): JSX.Element {
 
         {/* Native-shell multi-server management; renders nothing in a browser. */}
         <ServerSettings />
+
+        {/* V6 security & integrations — only for an authenticated account. The
+            `app.me` optional call keeps this inert in the theme-only unit test. */}
+        <Show when={app.me?.()?.accountId ?? null}>
+          {(accountId) => (
+            <>
+              <ZeroAccessBlock />
+              <ApiKeys accountId={accountId()} />
+              <McpKeys accountId={accountId()} />
+            </>
+          )}
+        </Show>
       </section>
     </div>
   );
+}
+
+// The zero-access section. Its wasm-backed worker is spawned lazily on mount (and
+// only where `Worker` exists — never under jsdom), so the appearance-only unit
+// test and SSR are unaffected.
+function ZeroAccessBlock(): JSX.Element {
+  if (typeof Worker === 'undefined') return <></>;
+  return <ZeroAccessSettings za={spawnZeroAccessWorker()} />;
 }
