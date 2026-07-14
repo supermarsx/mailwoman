@@ -31,3 +31,27 @@ rand = { workspace = true }
 tracing = { workspace = true }
 openidconnect = { version = "4", default-features = false, features = ["reqwest", "rustls-tls"] }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+
+# ── SAML hand-roll (t9-e2) — REUSED in-tree RustCrypto + quick-xml; NO new crate
+# enters the workspace tree (mw-crypto already pulls every one of these). Pure-Rust,
+# no openssl / no libxml. base64/quick-xml/sha2/rsa/p256/x509-cert are workspace
+# pins; der/spki are the RustCrypto ASN.1 traits `x509-cert`/`rsa`/`p256` build on
+# (crate-local pins at the same 0.8 line mw-crypto uses, so cargo unifies to one).
+base64 = { workspace = true }
+quick-xml = { workspace = true }
+chrono = { workspace = true }
+sha2 = { workspace = true }
+rsa = { workspace = true, features = ["sha2"] }
+p256 = { workspace = true, features = ["ecdsa", "pem", "pkcs8"] }
+x509-cert = { workspace = true, features = ["pem"] }
+der = { version = "0.8", features = ["std", "alloc", "pem"] }
+spki = { version = "0.8", features = ["alloc", "pem"] }
+# RustCrypto signature traits (Verifier for RSA/ECDSA-SHA256 XML-DSig validation).
+signature = "3"
+
+[dev-dependencies]
+# The SAML XML-DSig acceptance tests sign real fixtures with the RustCrypto signing
+# keys (RSA-SHA256 over the exc-C14N form) to prove the validator end-to-end, and
+# drive the async `SsoLogin` surface.
+tokio = { workspace = true }
+hex = { workspace = true }
