@@ -1150,19 +1150,160 @@ jobs:
             cargo test -p mw-assist -- --include-ignored
           fi
 
-  # e2e-v7 (e16) — the live full-stack per-capability E2E: mw-server against REAL
-  # OpenLDAP + a real loaded WASM plugin (jail: out-of-allowlist DENIED, deadline/
+  # e2e-v7 (e16/e2ewire-v7) — the live full-stack per-capability E2E: mw-server against
+  # REAL OpenLDAP + a real loaded WASM plugin (jail: out-of-allowlist DENIED, deadline/
   # memory trip observed, unsigned⇒banner) + the mock Assist endpoint + bridges via
   # recorded fixtures + MSG/OFT/DOCX round-trip. Full existing web+engine suites green.
-  # e16 authors apps/web/e2e/{plugins,directory,passwd,assist,bridges}.spec.ts + the
-  # Rust integration harness + the `v7` Playwright project.
+  # e16 authored apps/web/e2e/{plugins,directory,passwd,assist,bridges}.spec.ts + the
+  # Rust integration harness; this job (+ the `v7` Playwright project) mirrors `e2e-v6`.
   #
-  # e2e-v7:
-  #   runs-on: ubuntu-latest
-  #   needs: [rust, web]
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     # e16 fills: boot openldap + mock-assist, build the SPA + mailwoman binary,
-  #     # run the Rust live harness (jail + directory + assist proofs) then the `v7`
-  #     # Playwright project against the standing server. Mirrors the e2e-v6 job shape.
-  #     - run: 'echo "e2e-v7 scaffolded (t7-e0); activated by e16"'
+  # Two legs, per the `e2e-v6` shape:
+  #   Leg 1 — the Rust live harness (crates/mw-server/tests/v7_e2e.rs) spawns its OWN
+  #     in-process server + mock Assist endpoint and loads the REAL committed
+  #     wasm32-wasip2 components into the wasmtime jail; it drives the DEEP proofs (jail
+  #     capability/allowlist/resource-limit enforcement, the plugin-backed-account JMAP
+  #     surface, Assist E2EE redaction, directory-vs-real-OpenLDAP, RFC-3062 exop). It
+  #     reaches the seeded OpenLDAP via MW_E16_LDAP_URL and self-SKIPS loudly (never a
+  #     silent pass) if LDAP is unreachable.
+  #   Leg 2 — a standing mw-server in PROXY mode (postgres + valkey, admin on, fronting
+  #     the JMAP mock) for the Playwright `v7` browser project, which asserts the
+  #     browser-facing V7 HTTP contract (every surface MOUNTED; Assist governance;
+  #     plugin registry; password policy; bridges registry).
+  e2e-v7:
+    runs-on: ubuntu-latest
+    needs: [rust, web]
+    env:
+      DOCKER_BUILDKIT: "1"
+      COMPOSE_DOCKER_CLI_BUILD: "1"
+      # Shared dev server key so sealed columns round-trip within the run (DEV ONLY,
+      # never reuse). The standing `serve` reads it from MW_SERVER_KEY.
+      MW_SERVER_KEY: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip2
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: boot postgres + valkey (wait healthy)
+        run: docker compose -f docker-compose.ci.yml up -d --wait postgres valkey
+      # OpenLDAP (seeded LDIF at scripts/openldap/ldifs/) for the directory/GAL + RFC-3062
+      # legs, and the deterministic in-repo mock Assist endpoint (scripts/mock-assist) for
+      # the Assist governance legs — both added by e15 to docker-compose.ci.yml.
+      - name: boot openldap + mock-assist (wait healthy)
+        run: docker compose -f docker-compose.ci.yml up -d --build --wait openldap mock-assist
+      # The `v7` browser specs log in via the proxy path, so the standing server needs a
+      # JMAP backend to proxy to: reuse the deterministic in-repo mock from
+      # docker-compose.dev.yml (published on host :8181), exactly as `e2e-v6` does.
+      - name: boot JMAP mock (wait healthy)
+        run: docker compose -f docker-compose.dev.yml up -d --build --wait mock
+      - name: install web deps
+        run: pnpm -C apps/web install --frozen-lockfile
+      - name: cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('apps/web/pnpm-lock.yaml') }}
+      - name: install Playwright chromium
+        run: pnpm -C apps/web exec playwright install --with-deps chromium
+      # Build the plugin components the Rust harness loads into the wasmtime jail
+      # (LanguageTool + the Graph bridge) fresh from their authoritative build.sh, so the
+      # committed wasm32-wasip2 fixtures can never drift from the WIT (the wasm-plugin-build
+      # job builds + verifies the full set; here we build only what the v7 harness loads).
+      - name: build plugin components (wasm32-wasip2)
+        run: |
+          set -eux
+          sh plugins/languagetool/build.sh
+          sh plugins/bridge-graph/build.sh
+      - name: build the SPA (served by the standing server via MW_WEB_DIR)
+        run: pnpm -C apps/web build
+      - name: build mw-server (mailwoman binary)
+        run: cargo build -p mw-server --release
+      # ---- Leg 1: the Rust live harness. It spawns its OWN in-process server + mock
+      # Assist endpoint and loads the REAL committed components into the wasmtime jail;
+      # the directory / RFC-3062 legs reach the seeded OpenLDAP via MW_E16_LDAP_URL.
+      # --test-threads=1 keeps the shared OpenLDAP deterministic.
+      - name: Rust live E2E harness (jail + directory-vs-OpenLDAP + Assist redaction proofs)
+        env:
+          MW_E16_LDAP_URL: "ldap://127.0.0.1:1389"
+        run: cargo test -p mw-server --test v7_e2e -- --nocapture --test-threads=1
+      # ---- Leg 2: a standing mw-server in PROXY mode (postgres + valkey, admin on,
+      # proxying to the JMAP mock) for the Playwright `v7` browser project. The password-
+      # change backend defaults to `local` (policy served; wrong-current ⇒ 400/403). The
+      # service-bind password for the seeded directory endpoint comes from
+      # MW_DIRECTORY_BIND_DN/PW (0008 has no password column).
+      - name: start mw-server (proxy mode; postgres + valkey; admin enabled)
+        env:
+          MW_BIND: "127.0.0.1:8090"
+          MW_MODE: "proxy"
+          MW_DB_PATH: "postgres://mailwoman:mailwoman@127.0.0.1:5432/mailwoman"
+          MW_REDIS_URL: "redis://127.0.0.1:6379"
+          MW_ADMIN_ENABLED: "true"
+          MW_ADMIN_USER: "root"
+          MW_ADMIN_PASSWORD: "hunter2"
+          MW_COOKIE_SECURE: "false"
+          MW_WEB_DIR: "apps/web/dist"
+          MW_DIRECTORY_BIND_DN: "cn=admin,dc=example,dc=com"
+          MW_DIRECTORY_BIND_PW: "adminpassword"
+          RUST_LOG: "info"
+        run: |
+          ./target/release/mailwoman serve > mw-server-v7.log 2>&1 &
+          echo "MW_SERVER_PID=$!" >> "$GITHUB_ENV"
+      - name: wait for server health
+        run: ./scripts/wait-for-health.sh http://127.0.0.1:8090/healthz 120
+      # Seed the deployment-shape V7 rows the standing server persists in the 0008 tables:
+      # a `directory_config` endpoint pointing at the seeded OpenLDAP and a `bridge_accounts`
+      # binding for the Graph bridge. Best-effort (ON CONFLICT DO NOTHING; never fatal) and
+      # mirrors the `e2e-v6` post-health psql seed. The browser specs assert the MOUNT
+      # contract and tolerate an unconfigured surface (an honest 501 / empty registry), so
+      # they stay green regardless; the CONFIGURED/loaded behavior (GAL results, the
+      # plugin-backed account) is proven in Leg 1's Rust harness against the real services.
+      - name: seed directory_config + bridge_accounts (deployment-shape rows)
+        run: |
+          docker compose -f docker-compose.ci.yml exec -T postgres \
+            psql -U mailwoman -d mailwoman -c \
+            "INSERT INTO directory_config (id,url,base_dn,bind_dn,tls,priority,attr_map,enabled) VALUES ('ci-openldap','ldap://127.0.0.1:1389','dc=example,dc=com','cn=admin,dc=example,dc=com','none',0,'{}',1) ON CONFLICT (id) DO NOTHING" || true
+          docker compose -f docker-compose.ci.yml exec -T postgres \
+            psql -U mailwoman -d mailwoman -c \
+            "INSERT INTO bridge_accounts (account_id,bridge_id,oauth_ref,extra) VALUES ('e2e-v7-graph','bridge-graph',NULL,'{}') ON CONFLICT (account_id) DO NOTHING" || true
+      - name: run Playwright E2E (v7 project vs the live server)
+        env:
+          MW_E2E_BASE_URL: "http://127.0.0.1:8090"
+          MW_E2E_JMAP_URL: "http://127.0.0.1:8181/.well-known/jmap"
+          MW_E2E_USERNAME: "testuser@example.org"
+          MW_E2E_PASSWORD: "testpass"
+          MW_E2E_ASSIST_URL: "http://127.0.0.1:8199"
+          MW_ADMIN_USER: "root"
+          MW_ADMIN_PASSWORD: "hunter2"
+        run: pnpm -C apps/web exec playwright test --project=v7
+      - name: server log on failure
+        if: failure()
+        run: cat mw-server-v7.log || true
+      - name: compose logs on failure
+        if: failure()
+        run: |
+          docker compose -f docker-compose.ci.yml logs --no-color || true
+          docker compose -f docker-compose.dev.yml logs --no-color mock || true
+      - name: upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-v7
+          path: apps/web/playwright-report
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: stop mw-server
+        if: always()
+        run: kill "${MW_SERVER_PID}" 2>/dev/null || true
+      - name: tear down
+        if: always()
+        run: |
+          docker compose -f docker-compose.ci.yml down -v || true
+          docker compose -f docker-compose.dev.yml down -v || true

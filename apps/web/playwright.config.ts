@@ -37,6 +37,17 @@ const engineBaseURL = process.env['PLAYWRIGHT_ENGINE_BASE_URL'] ?? 'http://local
 // server proxies to is passed to the login endpoint via MW_E2E_JMAP_URL, read in
 // e2e/v6-helpers.ts). Defaults to :8090 for local runs.
 const v6BaseURL = process.env['MW_E2E_BASE_URL'] ?? 'http://localhost:8090';
+// V7 live full-stack E2E (plan §3 e16): the SAME standing-server pattern as `v6`, but
+// exercising the per-V7-capability surfaces (plugin registry / directory-GAL /
+// password-change / Assist governance / bridges registry). The `v7` specs use
+// Playwright's `request` fixture (a real HTTP client with a cookie jar) against the live
+// server the CI `e2e-v7` job builds + starts (mw-server in PROXY mode fronting a JMAP
+// mock, with OpenLDAP + the mock Assist endpoint reachable). The DEEP proofs (wasm jail,
+// plugin-backed JMAP surface, Assist E2EE redaction, directory-vs-real-OpenLDAP,
+// RFC-3062) live in the Rust harness crates/mw-server/tests/v7_e2e.rs, which the same job
+// runs alongside. Reuses MW_E2E_BASE_URL (the e2e-v7 job runs standalone). Defaults to
+// :8090 for local runs.
+const v7BaseURL = process.env['MW_E2E_BASE_URL'] ?? 'http://localhost:8090';
 
 export default defineConfig({
   testDir: './e2e',
@@ -134,6 +145,27 @@ export default defineConfig({
         'cache-posture.spec.ts',
       ],
       use: { ...devices['Desktop Chrome'], baseURL: v6BaseURL },
+    },
+    {
+      name: 'v7',
+      // V7 live full-stack E2E (plan §3 e16): a standing mw-server (PROXY mode, admin on,
+      // fronting a JMAP mock) with REAL OpenLDAP + the mock Assist endpoint reachable, per
+      // the `v6` precedent. Like the `v6` project these specs use Playwright's `request`
+      // fixture rather than page navigation; `baseURL` (MW_E2E_BASE_URL) points them at
+      // the live server the CI `e2e-v7` job builds + starts. They assert the browser-
+      // facing V7 HTTP contract (every surface is MOUNTED; Assist disclosure + kill
+      // switch; plugin registry + unsigned banner; password policy; bridges surface as
+      // account-backend-capable) and self-skip loudly when no V7 stack is reachable. The
+      // deep proofs live in the Rust harness (crates/mw-server/tests/v7_e2e.rs), which the
+      // same job runs alongside.
+      testMatch: [
+        'plugins.spec.ts',
+        'directory.spec.ts',
+        'passwd.spec.ts',
+        'assist.spec.ts',
+        'bridges.spec.ts',
+      ],
+      use: { ...devices['Desktop Chrome'], baseURL: v7BaseURL },
     },
   ],
 });
