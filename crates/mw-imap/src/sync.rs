@@ -49,6 +49,12 @@ impl Session {
             SyncCursor::Pop3Uidl { .. } => Err(crate::error::ImapError::Unsupported(
                 "POP3 UIDL cursor passed to the IMAP backend".into(),
             )),
+            // A bridge/plugin cursor (Graph deltaLink / Gmail historyId / EWS
+            // SyncState) is opaque to the standards IMAP backend — it can only
+            // reach here by misrouting, so error rather than silently full-resync.
+            SyncCursor::Plugin { .. } => Err(crate::error::ImapError::Unsupported(
+                "plugin/bridge cursor passed to the IMAP backend".into(),
+            )),
         }
     }
 

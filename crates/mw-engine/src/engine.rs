@@ -52,6 +52,13 @@ pub struct Engine {
     /// feed. Inert (no cache, standard posture, no feed) until e11 (MOUNT) calls
     /// [`Engine::attach_v6`], so the V5 path is byte-unchanged.
     pub(crate) v6: std::sync::RwLock<crate::v6::V6Hooks>,
+    /// V7 additive hooks (plan §3 e8): the GAL address-book source, the bridge
+    /// optional-capability source (reactions/voting/recall/focused-sync), the
+    /// Assist hook, and the plugin-backed-account registry. Inert (no directory,
+    /// no bridge caps, no assist, no plugin backends) until e14 (MOUNT) calls
+    /// [`Engine::attach_v7`] / [`Engine::register_plugin_backend`], so the
+    /// non-plugin/non-directory path is byte-unchanged.
+    pub(crate) v7: std::sync::RwLock<crate::v7::V7Hooks>,
 }
 
 impl Engine {
@@ -82,6 +89,7 @@ impl Engine {
             search,
             dispatcher_started: AtomicBool::new(false),
             v6: std::sync::RwLock::new(crate::v6::V6Hooks::default()),
+            v7: std::sync::RwLock::new(crate::v7::V7Hooks::default()),
         }
     }
 

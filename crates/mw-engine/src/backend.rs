@@ -242,6 +242,18 @@ pub enum SyncCursor {
     UidWindow { uidvalidity: u32, uidnext: u32 },
     /// POP3 UIDL diff: the set of UIDLs already ingested.
     Pop3Uidl { seen: BTreeSet<String> },
+    /// Opaque bridge/plugin cursor (plan §3 e8, R1-residual). A WASM/native bridge
+    /// backend carries its **native** sync token here losslessly — Graph
+    /// `deltaLink`, Gmail `historyId`, EWS `SyncState` — instead of smuggling it
+    /// through one of the IMAP/POP3-shaped variants above. The engine persists it
+    /// verbatim and never inspects it; only the originating backend interprets
+    /// `opaque`. Additive: `mw-imap`/`mw-pop3` never emit or consume it.
+    ///
+    /// This is a **struct** variant, not a newtype `Plugin(Vec<u8>)`, because the
+    /// enum is `#[serde(tag = "kind")]` internally-tagged — serde cannot encode a
+    /// newtype variant wrapping a sequence (`Vec<u8>`) into an internally-tagged
+    /// form, but a struct field round-trips cleanly through `cursor_to_json`.
+    Plugin { opaque: Vec<u8> },
 }
 
 /// Result of a `move_messages` call (plan §2.1).

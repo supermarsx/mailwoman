@@ -22,6 +22,13 @@ mw-store = { workspace = true }
 # and routes zero-access accounts' plaintext-derived reads through its structural
 # `PlaintextDerived`/`AccountPosture` exclusion. Inert until e11 attaches a Cache.
 mw-cache = { workspace = true }
+# V7 (plan §3 e8, §2.2): the LDAP/GAL directory, wired as an ADDITIVE address-book
+# source for recipient resolution + group-expand-before-send + S/MIME cert lookup.
+# Cycle-free: `mw-directory` depends on `mw-cache`/`mw-store`, NEVER on the engine
+# (unlike `mw-plugin`, which depends on the engine for the frozen trait and is
+# therefore injected as an `Arc<dyn AccountBackend>` at mount, never named here).
+# Inert until e14 attaches a `DirectorySource` via `attach_v7`.
+mw-directory = { workspace = true }
 # mw-mime (→ mw-jmap only) and mw-smtp (→ no workspace crate) are cycle-free.
 # mw-imap / mw-pop3 depend on THIS crate for the frozen trait, so mw-engine must
 # NOT depend on them — backend *construction* lives in mw-server (plan §3 e6).

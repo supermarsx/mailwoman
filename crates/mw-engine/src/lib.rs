@@ -25,6 +25,7 @@ pub mod state;
 pub mod submission;
 pub mod thread;
 pub mod v6;
+pub mod v7;
 
 pub use account::{AccountPolicy, AccountRuntime, MailSubmitter};
 pub use backend::{
@@ -63,4 +64,16 @@ pub use security::types::{
 pub use v6::{
     AccountPosture, AccountPostureSource, AuditEvent, AuditFeed, Cache, CacheClass,
     PlaintextDerived, StandardPosture, V6Hooks,
+};
+
+// ── V7 additive wiring (§3 e8): plugin-backed backends, the GAL address-book
+// source, the Assist/MCP hook, and the bridge optional-capability preference.
+// Inert until e14 (MOUNT) calls `attach_v7`/`register_plugin_backend`, so the
+// non-plugin/non-directory + SQLite-default path is byte-unchanged. The
+// `mw-directory` GAL types are re-exported so the mount site + engine share one
+// contract (single source of truth). ──
+pub use v7::{
+    AssistHook, BridgeCapabilitySource, BridgeCaps, BridgeFocusedSync, BridgeReaction,
+    BridgeReactions, BridgeRecall, BridgeVoteTally, BridgeVoting, DirectorySource, FocusedState,
+    GalEntry, RecallOutcome, V7Hooks,
 };

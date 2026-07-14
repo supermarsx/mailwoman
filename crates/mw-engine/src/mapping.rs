@@ -194,6 +194,26 @@ mod tests {
     }
 
     #[test]
+    fn plugin_cursor_round_trips_native_bytes() {
+        // A bridge carries a native token (e.g. a Graph deltaLink) verbatim — the
+        // engine persists it losslessly through the opaque `cursor_json` column.
+        let deltalink =
+            b"https://graph.microsoft.com/v1.0/.../delta?$deltatoken=ABC.123\x00\xff".to_vec();
+        let c = SyncCursor::Plugin {
+            opaque: deltalink.clone(),
+        };
+        let json = cursor_to_json(&c);
+        // Struct-variant internal tagging encodes cleanly (a newtype `Vec<u8>` could
+        // not) — the tag + the bytes survive.
+        assert!(json.contains("plugin"), "tag present: {json}");
+        assert_eq!(cursor_from_json(&json), Some(c));
+        match cursor_from_json(&json) {
+            Some(SyncCursor::Plugin { opaque }) => assert_eq!(opaque, deltalink),
+            other => panic!("expected a Plugin cursor, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn keywords_map_both_ways() {
         let flags = vec![Flag::Seen, Flag::Draft, Flag::Deleted, Flag::Recent];
         let kw = flags_to_keywords(&flags);
