@@ -16,6 +16,27 @@
 //     a change stream) so a plugin backend is indistinguishable from `mw-imap`
 //     once adapted by the host (plan §6.5). e1 owns the async/stream mapping (R1).
 
+// ── t10 (26.10) PIM/parity extension — SECOND-WORLD fallback (plan §5, §10 R1) ──
+// The package version + `world plugin` + every 0.1.0 interface (`types`, `host`,
+// `account-backend`, …) below are **BYTE-UNCHANGED**. t10 adds three OPTIONAL guest
+// interfaces — `calendar`, `tasks`, `bridge-parity` — and a SECOND world
+// `plugin-pim` (at the bottom) that `include`s `world plugin` and additionally
+// exports the three.
+//
+// WHY the second world instead of adding the exports to `world plugin` + bumping to
+// @0.2.0 (the plan's §2.1 first choice): bumping the package to @0.2.0 renames every
+// interface id to `…@0.2.0`, and wasmtime's semver-aware component linker treats a
+// 0.1.x→0.2.0 change as INCOMPATIBLE — so the committed @0.1.0 bridge/LanguageTool/
+// Nextcloud `.wasm` fixtures (which import `mailwoman:plugin/host@0.1.0`) FAIL to
+// link against a host that now provides `host@0.2.0` (proven: `bridge-ews` jail-load
+// tests broke). Keeping the package at @0.1.0 and adding a separate world keeps those
+// fixtures loading unchanged while PIM-capable guests target `plugin-pim`.
+//
+// Host contract (e1): a PIM guest built for `plugin-pim` also exports everything
+// `world plugin` requires, so the existing host `bindgen!({world: "plugin"})` loads
+// it unchanged; e1 adds a probe that additionally looks up the `calendar`/`tasks`/
+// `bridge-parity` exports (present ⇒ bind; absent or `supports-*() -> false` ⇒ the
+// engine's byte-unchanged standards fallback). e5 wires engine routing.
 package mailwoman:plugin@0.1.0;
 
 // ── Shared value types ────────────────────────────────────────────────────────
@@ -213,6 +234,145 @@ interface spam-action {
     classify: func(raw: list<u8>) -> result<string, plugin-error>;
 }
 
+// ── Optional PIM / Outlook-parity interfaces (t10 additive; exported by the
+// `plugin-pim` world at the bottom, NOT by `world plugin`) ─────────────────────
+//
+// Each is an OPTIONAL guest export probed at load (plan §5). A backend that does
+// not implement one exports a trivial `supports-*() -> false` (its data funcs may
+// return `unsupported`); the host binds nothing and the engine falls back to the
+// standards path (byte-unchanged). `types.backend-caps` is NOT modified: calendar/
+// tasks presence is advertised by the new `supports-calendar`/`supports-tasks`
+// funcs; the coarse reactions/voting/recall/focused-sync bools already in
+// `backend-caps` stay the account-level advertisement, and `bridge-parity`'s own
+// `supports-*` funcs are the per-interface confirmation e1 probes.
+
+// Calendar seam (SPEC §6.5/§11). iCalendar (RFC 5545) text crosses the boundary —
+// the engine already speaks it, so no structured event model is duplicated here.
+interface calendar {
+    use types.{sync-cursor, plugin-error};
+
+    // A calendar collection the backend exposes.
+    record cal-info {
+        // Opaque per-backend id.
+        id: string,
+        name: string,
+        // JMAP-ish role/kind, lowercased ("calendar"|"birthdays"|... |"none").
+        role: string,
+        read-only: bool,
+    }
+
+    // A bookable room / resource (Graph/EWS find-rooms).
+    record room-info {
+        address: string,
+        name: string,
+        capacity: option<u32>,
+    }
+
+    // A calendar event carried as its VEVENT serialization plus coarse coords.
+    record event-info {
+        // Opaque per-backend id.
+        id: string,
+        calendar-id: string,
+        // RFC 5545 VEVENT text.
+        ical: string,
+        // RFC3339 window (option for floating / all-day / open-ended).
+        start: option<string>,
+        end: option<string>,
+    }
+
+    // A delta of event changes since an opaque cursor.
+    record event-delta {
+        changed: list<event-info>,
+        // Opaque per-backend ids removed since the cursor.
+        removed: list<string>,
+        next-cursor: sync-cursor,
+    }
+
+    // Whether this guest implements calendar for the bound account (probe gate).
+    supports-calendar: func() -> bool;
+    list-calendars: func() -> result<list<cal-info>, plugin-error>;
+    sync-events: func(calendar-id: string, cursor: sync-cursor)
+        -> result<event-delta, plugin-error>;
+    find-rooms: func() -> result<list<room-info>, plugin-error>;
+    // Free/busy for a principal over [start,end] (RFC3339) as VFREEBUSY text.
+    get-schedule: func(who: string, start: string, end: string)
+        -> result<string, plugin-error>;
+}
+
+// Tasks / to-do seam (SPEC §6.5/§12). VTODO (RFC 5545) text crosses the boundary.
+interface tasks {
+    use types.{sync-cursor, plugin-error};
+
+    record task-info {
+        // Opaque per-backend id.
+        id: string,
+        list-id: string,
+        // RFC 5545 VTODO text.
+        ical: string,
+        completed: bool,
+    }
+
+    record task-delta {
+        changed: list<task-info>,
+        removed: list<string>,
+        next-cursor: sync-cursor,
+    }
+
+    supports-tasks: func() -> bool;
+    list-tasks: func() -> result<list<task-info>, plugin-error>;
+    sync-tasks: func(list-id: string, cursor: sync-cursor)
+        -> result<task-delta, plugin-error>;
+    complete: func(id: string) -> result<_, plugin-error>;
+}
+
+// Outlook-parity seam (SPEC §10.3/§22): reactions, voting buttons, recall, and
+// Focused-Inbox sync. `message-ref` is the same opaque backend coordinate the
+// account-backend uses.
+interface bridge-parity {
+    use types.{message-ref, plugin-error};
+
+    record reaction {
+        actor: string,
+        emoji: string,
+    }
+
+    // NB: `option` is a reserved WIT keyword, so the voting field/param is `choice`.
+    record vote-tally {
+        choice: string,
+        count: u32,
+    }
+
+    // Mirrors `mw_engine::v7::RecallOutcome` (§10.3 honesty matrix): the bridge
+    // NEVER claims more than the backend actually delivered.
+    variant recall-outcome {
+        requested,
+        unsupported,
+        failed(string),
+    }
+
+    variant focused-state {
+        focused,
+        other,
+    }
+
+    supports-reactions: func() -> bool;
+    supports-voting: func() -> bool;
+    supports-recall: func() -> bool;
+    supports-focused: func() -> bool;
+
+    set-reaction: func(msg: message-ref, emoji: string, add: bool)
+        -> result<_, plugin-error>;
+    get-reactions: func(msg: message-ref) -> result<list<reaction>, plugin-error>;
+
+    cast-vote: func(msg: message-ref, choice: string) -> result<_, plugin-error>;
+    tally: func(msg: message-ref) -> result<list<vote-tally>, plugin-error>;
+
+    recall: func(msg: message-ref) -> result<recall-outcome, plugin-error>;
+
+    get-focused: func(msg: message-ref) -> result<focused-state, plugin-error>;
+    set-focused: func(msg: message-ref, focused: bool) -> result<_, plugin-error>;
+}
+
 world plugin {
     import host;
 
@@ -224,4 +384,20 @@ world plugin {
     export autoconfig-source;
     export dlp-detect;
     export spam-action;
+}
+
+// ── t10 PIM/parity world (second-world fallback; plan §5, §10 R1) ──────────────
+// A superset of `world plugin`: it `include`s every import/export of `plugin` (so a
+// component built for `plugin-pim` still satisfies the existing host
+// `bindgen!({world: "plugin"})` and loads unchanged) and ADDITIONALLY exports the
+// three optional PIM/parity interfaces. PIM-capable guests (the Graph/EWS/Gmail
+// bridges, e2/e3/e4) target this world; account-backend-only / 0.1.0 plugins keep
+// targeting `world plugin`. The package stays @0.1.0 so committed @0.1.0 fixtures
+// keep linking (`host@0.1.0` unchanged). e1 probes the three exports at load.
+world plugin-pim {
+    include plugin;
+
+    export calendar;
+    export tasks;
+    export bridge-parity;
 }

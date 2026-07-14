@@ -1,0 +1,21 @@
+[package]
+name = "masked-email"
+description = "Masked-email plugin (t10 §3 e7, SPEC §28.4): a wasm32-wasip2 message-pipeline component that rewrites an outgoing message's sender to a per-target masked alias. Alias lifecycle lives server-side (mw-store masked_email + mw-server/src/masked.rs). Scaffold stub (t10-e0); e7 fills."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# Dual build (see `spam-rspamd`): an inert host `rlib` for `cargo build --workspace`,
+# a real component for `wasm32-wasip2`. Guest bindings are wasm-gated. NO new dep.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wit-bindgen = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+mw-plugin = { path = "../../crates/mw-plugin" }
+tokio = { workspace = true }
+async-trait = { workspace = true }

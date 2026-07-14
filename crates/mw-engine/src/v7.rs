@@ -124,6 +124,101 @@ pub trait BridgeFocusedSync: Send + Sync {
     async fn set_focused(&self, msg: &MessageRef, focused: bool) -> Result<()>;
 }
 
+// ─── Bridge PIM seam (plan §2.2, t10-e0 stub; e5 fills routing) ──────────────────
+//
+// Symmetric additive calendar/tasks traits mirroring the WIT @0.2.0 `calendar` /
+// `tasks` interfaces. iCalendar (RFC 5545) text crosses the seam — the engine
+// already speaks it, so no structured event/task model is duplicated. These are
+// **inert stubs today**: [`BridgeCapabilitySource::calendar`] / `::tasks` default to
+// `None` (so [`Engine::bridge_calendar`] / `::bridge_tasks` return `None` and every
+// caller keeps its byte-unchanged standards fallback), and e5 wires the routing
+// preference in `mw-engine/src/pim/**` while e1 backs the trait objects through the
+// mw-plugin jail. Do NOT add feature logic here.
+
+/// A calendar collection a bridge exposes (mirrors WIT `calendar.cal-info`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BridgeCalendarInfo {
+    pub id: String,
+    pub name: String,
+    /// JMAP-ish role/kind, lowercased ("calendar"|"birthdays"|... |"none").
+    pub role: String,
+    pub read_only: bool,
+}
+
+/// A bookable room / resource (Graph/EWS find-rooms; WIT `calendar.room-info`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BridgeRoomInfo {
+    pub address: String,
+    pub name: String,
+    pub capacity: Option<u32>,
+}
+
+/// A calendar event as its VEVENT text plus a coarse RFC3339 window (WIT
+/// `calendar.event-info`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BridgeEventInfo {
+    pub id: String,
+    pub calendar_id: String,
+    /// RFC 5545 VEVENT text.
+    pub ical: String,
+    pub start: Option<String>,
+    pub end: Option<String>,
+}
+
+/// A delta of event changes since an opaque cursor (WIT `calendar.event-delta`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BridgeEventDelta {
+    pub changed: Vec<BridgeEventInfo>,
+    /// Opaque per-backend ids removed since the cursor.
+    pub removed: Vec<String>,
+    /// Opaque sync cursor the engine persists verbatim.
+    pub next_cursor: Vec<u8>,
+}
+
+/// A to-do as its VTODO text (WIT `tasks.task-info`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BridgeTaskInfo {
+    pub id: String,
+    pub list_id: String,
+    /// RFC 5545 VTODO text.
+    pub ical: String,
+    pub completed: bool,
+}
+
+/// A delta of task changes since an opaque cursor (WIT `tasks.task-delta`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BridgeTaskDelta {
+    pub changed: Vec<BridgeTaskInfo>,
+    pub removed: Vec<String>,
+    pub next_cursor: Vec<u8>,
+}
+
+/// Bridge-native calendar (Graph/EWS). Preferred over the CalDAV standards path
+/// when advertised (§6.5); absence ⇒ the engine's existing fallback runs unchanged.
+#[async_trait]
+pub trait BridgeCalendar: Send + Sync {
+    /// The calendar collections the bound account exposes.
+    async fn list_calendars(&self) -> Result<Vec<BridgeCalendarInfo>>;
+    /// Sync events in `calendar_id` since the opaque `cursor`.
+    async fn sync_events(&self, calendar_id: &str, cursor: &[u8]) -> Result<BridgeEventDelta>;
+    /// Bookable rooms / resources (empty when the backend has none).
+    async fn find_rooms(&self) -> Result<Vec<BridgeRoomInfo>>;
+    /// Free/busy for `who` over `[start,end]` (RFC3339) as VFREEBUSY text.
+    async fn get_schedule(&self, who: &str, start: &str, end: &str) -> Result<String>;
+}
+
+/// Bridge-native tasks / to-do (Graph/EWS). Preferred over the standards path when
+/// advertised (§6.5); absence ⇒ existing fallback unchanged.
+#[async_trait]
+pub trait BridgeTasks: Send + Sync {
+    /// The to-do items the bound account exposes.
+    async fn list_tasks(&self) -> Result<Vec<BridgeTaskInfo>>;
+    /// Sync tasks in `list_id` since the opaque `cursor`.
+    async fn sync_tasks(&self, list_id: &str, cursor: &[u8]) -> Result<BridgeTaskDelta>;
+    /// Mark a task complete.
+    async fn complete(&self, id: &str) -> Result<()>;
+}
+
 /// Which optional bridge capabilities a backend advertises for an account. All
 /// `false` (the default) ⇒ the engine takes every standards fallback.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -147,6 +242,16 @@ pub trait BridgeCapabilitySource: Send + Sync {
     fn voting(&self, account_id: &str) -> Option<Arc<dyn BridgeVoting>>;
     fn recall(&self, account_id: &str) -> Option<Arc<dyn BridgeRecall>>;
     fn focused_sync(&self, account_id: &str) -> Option<Arc<dyn BridgeFocusedSync>>;
+    /// The bridge-native calendar impl for `account_id`, or `None` ⇒ standards
+    /// fallback (plan §2.2; e5 fills). Defaulted so existing sources compile inert.
+    fn calendar(&self, _account_id: &str) -> Option<Arc<dyn BridgeCalendar>> {
+        None
+    }
+    /// The bridge-native tasks impl for `account_id`, or `None` ⇒ standards fallback
+    /// (plan §2.2; e5 fills). Defaulted so existing sources compile inert.
+    fn tasks(&self, _account_id: &str) -> Option<Arc<dyn BridgeTasks>> {
+        None
+    }
 }
 
 // ─── Assist / MCP tool-surface seam (plan §2.4, SPEC §14) ────────────────────────
@@ -384,6 +489,32 @@ impl Engine {
             .bridge_caps
             .as_ref()
             .and_then(|s| s.focused_sync(account_id))
+    }
+
+    /// The bridge-native calendar impl for `account_id` when advertised, else
+    /// `None` → the caller uses the CalDAV/standards fallback (byte-unchanged). Inert
+    /// today: no source advertises calendar yet ([`BridgeCapabilitySource::calendar`]
+    /// defaults to `None`); e5 wires the routing preference (plan §2.2).
+    #[must_use]
+    pub fn bridge_calendar(&self, account_id: &str) -> Option<Arc<dyn BridgeCalendar>> {
+        self.v7
+            .read()
+            .expect("v7 hooks lock")
+            .bridge_caps
+            .as_ref()
+            .and_then(|s| s.calendar(account_id))
+    }
+
+    /// The bridge-native tasks impl for `account_id` when advertised, else `None` →
+    /// standards fallback (byte-unchanged). Inert today (see [`Engine::bridge_calendar`]).
+    #[must_use]
+    pub fn bridge_tasks(&self, account_id: &str) -> Option<Arc<dyn BridgeTasks>> {
+        self.v7
+            .read()
+            .expect("v7 hooks lock")
+            .bridge_caps
+            .as_ref()
+            .and_then(|s| s.tasks(account_id))
     }
 
     // ── Assist hook (plan §2.4, SPEC §14) ────────────────────────────────────────

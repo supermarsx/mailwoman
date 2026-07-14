@@ -1,0 +1,21 @@
+[package]
+name = "spam-spamassassin"
+description = "SpamAssassin spam-trainer plugin (t10 §3 e6, SPEC §10.8): a thin wasm32-wasip2 spam-action component that classifies/trains ham/spam by talking to spamd over the host http-fetch under a net allowlist — no C linkage. Scaffold stub (t10-e0); e6 fills."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# Dual build (see `spam-rspamd`): an inert host `rlib` for `cargo build --workspace`,
+# a real component for `wasm32-wasip2`. Guest bindings are wasm-gated. NO new dep.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wit-bindgen = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+mw-plugin = { path = "../../crates/mw-plugin" }
+tokio = { workspace = true }
+async-trait = { workspace = true }

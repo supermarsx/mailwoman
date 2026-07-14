@@ -31,6 +31,10 @@ mod v7_config;
 // V8 (0009) SSO config + content-free login-audit persistence (t9-e0). New `Store`
 // methods over the sso_config/sso_login_audit tables; sealed secret column.
 mod sso;
+// V9 (0010) deferred-tail persistence (t10-e0): UI-plugin registry + grants,
+// masked-email aliases, OAuth DCR policy + DCR-client metadata. New `Store` methods
+// over the 0010 tables; no secret columns (signature is public, tokens hashed).
+mod v9_tail;
 
 pub(crate) use backend::{Backend, Row, q};
 
@@ -42,6 +46,10 @@ pub use v6::{
 pub use v7::PasswdConfigRow;
 pub use v7_config::{
     AssistConfigRow, BridgeAccountRow, DirectoryConfigRow, PluginGrantRow, PluginRow,
+};
+pub use v9_tail::{
+    MaskedEmailRow, OAUTH_DCR_POLICY_ID, OAuthClientMetaRow, OAuthDcrPolicyRow, UiPluginGrantRow,
+    UiPluginRow,
 };
 
 pub use cache::{

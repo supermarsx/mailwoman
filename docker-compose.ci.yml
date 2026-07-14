@@ -143,3 +143,42 @@ services:
     ports:
       - "8080:8080"   # HTTP (OIDC discovery + SAML SSO endpoints)
       - "9000:9000"   # management (health)
+
+  # ── t10 (26.10) spam-trainer CI services (plan §3 e6/e14) — STUBBED by t10-e0,
+  # ACTIVATED by e14. Both are NETWORK-ONLY services (Apache-2.0, mere aggregation —
+  # same posture as postgres/valkey/openldap/keycloak), OUT of the cargo-deny
+  # dependency scope. The spam-rspamd / spam-spamassassin wasm plugins talk to them
+  # over the host `http-fetch` under a net allowlist (no C linkage). Ephemeral.
+  #
+  #   docker compose -f docker-compose.ci.yml up -d --wait rspamd spamassassin
+  #       -> the spam classify/train live-E2E (crates/mw-server/tests/t10_spam_masked.rs)
+  #          drives each plugin in the real jail against these services.
+  #
+  # rspamd — the rspamd controller (worker-controller on 11334). e14 seeds a minimal
+  # config + a controller password; the plugin POSTs /checkv2 + /learn{ham,spam}.
+  # rspamd:
+  #   image: rspamd/rspamd:3.9
+  #   ports:
+  #     - "11334:11334"          # worker-controller (HTTP)
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "rspamadm control stat >/dev/null 2>&1 || exit 1"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 20
+  #     start_period: 5s
+  #
+  # SpamAssassin — spamd exposed over an HTTP shim (spamd speaks the SPAMC protocol,
+  # not HTTP, so e14 fronts it with a tiny stdlib HTTP adapter like mock-assist, or
+  # uses a spamd-http image). The plugin POSTs the message for a CHECK/REPORT verdict.
+  # spamassassin:
+  #   build:
+  #     context: .
+  #     dockerfile: scripts/spamassassin/Dockerfile
+  #   ports:
+  #     - "7830:7830"            # HTTP shim in front of spamd :783
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:7830/healthz').read()==b'ok' else 1)\" || exit 1"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 20
+  #     start_period: 5s

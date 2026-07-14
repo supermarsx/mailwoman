@@ -1,0 +1,24 @@
+[package]
+name = "spam-rspamd"
+description = "Rspamd spam-trainer plugin (t10 §3 e6, SPEC §10.8): a thin wasm32-wasip2 spam-action component that classifies/trains ham/spam by talking to an rspamd controller over the host http-fetch under a net allowlist — no C linkage. Scaffold stub (t10-e0); e6 fills."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# Same dual build as `languagetool`/`nextcloud`: an inert host `rlib` for
+# `cargo build --workspace` (id constants only), a real component for
+# `wasm32-wasip2`. The guest bindings are `#[cfg(target_arch = "wasm32")]`-gated so
+# the host build never sees the wasm-import extern blocks. NO new dep — serde_json
+# (the rspamd controller JSON) only, and only on the wasm build.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wit-bindgen = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+mw-plugin = { path = "../../crates/mw-plugin" }
+tokio = { workspace = true }
+async-trait = { workspace = true }

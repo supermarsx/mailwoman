@@ -538,6 +538,57 @@ async fn pair_envelope_get(
     Json(json!({ "envelopeB64": envelope })).into_response()
 }
 
+// ─── OAuth Dynamic Client Registration (RFC 7591) — t10 e8 SCAFFOLD ───────────
+//
+// Additive DCR handler stubs. NOT wired into [`routes()`] above (unmounted); e13
+// merges a `dcr_router()` once e8 fills the bodies over the 0010 `oauth_dcr` policy
+// + `oauth_client_meta` side table (DCR-issued clients land in the 0007
+// `oauth_clients` table). DEFAULT DISABLED: `register` returns 403 when the policy
+// is absent/disabled. Route shape frozen here (e8 fills, e13 mounts):
+//   * `POST   /oauth/register`         — register a client (RFC 7591).
+//   * `GET    /oauth/register/{id}`    — read client config (registration-access-token).
+//   * `PUT    /oauth/register/{id}`    — update client config (registration-access-token).
+//   * `DELETE /oauth/register/{id}`    — delete the client (registration-access-token).
+#[allow(dead_code)]
+pub(crate) fn dcr_router() -> Router<AppState> {
+    Router::new()
+        .route("/oauth/register", post(dcr_register))
+        .route(
+            "/oauth/register/{id}",
+            get(dcr_read).put(dcr_update).delete(dcr_delete),
+        )
+}
+
+/// A clean 501 for an unfilled DCR route (e8 replaces the bodies).
+#[allow(dead_code)]
+fn dcr_not_implemented(what: &str) -> Response {
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        Json(json!({ "error": format!("{what} is not implemented in this build") })),
+    )
+        .into_response()
+}
+
+#[allow(dead_code)]
+async fn dcr_register() -> Response {
+    dcr_not_implemented("dynamic client registration")
+}
+
+#[allow(dead_code)]
+async fn dcr_read(UrlPath(_id): UrlPath<String>) -> Response {
+    dcr_not_implemented("client-configuration read")
+}
+
+#[allow(dead_code)]
+async fn dcr_update(UrlPath(_id): UrlPath<String>) -> Response {
+    dcr_not_implemented("client-configuration update")
+}
+
+#[allow(dead_code)]
+async fn dcr_delete(UrlPath(_id): UrlPath<String>) -> Response {
+    dcr_not_implemented("client-configuration delete")
+}
+
 /// Minimal percent-encoding for redirect query values (unreserved set passes).
 fn urlencode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());

@@ -1,0 +1,31 @@
+# t10 (26.10) deferred-tail CI — SCAFFOLD stub (t10-e0). Manual-only + inert: the
+# real jobs are ACTIVATED by t10-e14 (backend live-E2E) and t10-e15 (web live-E2E),
+# which own this workflow. It is intentionally NOT wired to push/PR yet so it can
+# never wedge the required `ci.yml` gate while the tail is being built.
+#
+# Planned jobs (e14/e15 uncomment + fill):
+#   * pim-seam       — bridge calendar/tasks/reactions through the REAL jail+engine
+#                      vs fixtures, plus the byte-unchanged standards fallback leg.
+#   * spam-masked    — spam-rspamd / spam-spamassassin / masked-email in the jail vs
+#                      the docker-compose.ci.yml rspamd + spamassassin services.
+#   * dcr            — OAuth DCR (RFC 7591) vs a real AuthServer (disabled→403,
+#                      enabled→register/read/update/delete, redirect-host allowlist).
+#   * export-deep    — MSG/OFT deep write fidelity round-trip + byte-identical floor.
+#   * web-e2e        — UI-plugin tier escape-attempt matrix + PIM/masked/DCR in a
+#                      real browser (Playwright).
+
+name: t10-tail
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  placeholder:
+    # Never runs — replaced by e14/e15 with the real job matrix above.
+    if: false
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "t10-tail CI is a scaffold stub; e14/e15 fill it."

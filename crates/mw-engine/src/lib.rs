@@ -73,7 +73,8 @@ pub use v6::{
 // `mw-directory` GAL types are re-exported so the mount site + engine share one
 // contract (single source of truth). ──
 pub use v7::{
-    AssistHook, BridgeCapabilitySource, BridgeCaps, BridgeFocusedSync, BridgeReaction,
-    BridgeReactions, BridgeRecall, BridgeVoteTally, BridgeVoting, DirectorySource, FocusedState,
-    GalEntry, RecallOutcome, V7Hooks,
+    AssistHook, BridgeCalendar, BridgeCalendarInfo, BridgeCapabilitySource, BridgeCaps,
+    BridgeEventDelta, BridgeEventInfo, BridgeFocusedSync, BridgeReaction, BridgeReactions,
+    BridgeRecall, BridgeRoomInfo, BridgeTaskDelta, BridgeTaskInfo, BridgeTasks, BridgeVoteTally,
+    BridgeVoting, DirectorySource, FocusedState, GalEntry, RecallOutcome, V7Hooks,
 };

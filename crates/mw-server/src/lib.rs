@@ -62,6 +62,12 @@ pub mod v7_mount;
 // path is byte-unchanged. Mounted by `router()` below.
 pub mod admin_sso;
 pub mod sso;
+// t10 (26.10) deferred-tail additive route modules (plan §3 e0). SCAFFOLD stubs
+// returning 501, declared here but NOT mounted — `router()` is byte-unchanged so
+// behaviour is identical. `ui_plugins` filled by e11, `masked` by e7, the DCR
+// handlers appended to `oauth.rs` by e8; all MOUNTED by e13.
+pub mod masked;
+pub mod ui_plugins;
 // V6 MOUNT (t6-e11): store adapters backing the frozen Batch-B persistence seams
 // over the real 0007 tables.
 mod stores_v6;
