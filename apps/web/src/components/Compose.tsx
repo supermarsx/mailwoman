@@ -1,5 +1,7 @@
-import { createMemo, createSignal, For, Show, onMount, type JSX } from 'solid-js';
+import { createMemo, createSignal, For, Show, onMount, onCleanup, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
+import { t, isolate, loadCatalog } from '../i18n/index.ts';
+import * as a11y from './mailA11y.css.ts';
 import {
   createContactAutocomplete,
   type ContactSuggestion,
@@ -96,7 +98,47 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
   // fresh session can still complete. Load failures are non-fatal (empty list).
   const contactAc = createContactAutocomplete(() => app.contacts());
 
+  // Dialog focus management (self-contained per t8-e1; no import from the
+  // e3-owned a11y primitives). On open: pull the mail catalog, remember the
+  // trigger, and move focus into the composer. On close: restore focus. Escape
+  // closes; Tab is trapped inside the dialog.
+  let backdropEl: HTMLDivElement | undefined;
+  let toInputEl: HTMLInputElement | undefined;
+  let previouslyFocused: HTMLElement | null = null;
+
+  function focusableIn(root: HTMLElement): HTMLElement[] {
+    return Array.from(
+      root.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    ).filter((el) => el.offsetParent !== null || el === document.activeElement);
+  }
+
+  function onDialogKeyDown(e: KeyboardEvent): void {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      props.onClose();
+      return;
+    }
+    if (e.key !== 'Tab' || backdropEl === undefined) return;
+    const items = focusableIn(backdropEl);
+    if (items.length === 0) return;
+    const first = items[0]!;
+    const last = items[items.length - 1]!;
+    const activeEl = document.activeElement as HTMLElement | null;
+    if (e.shiftKey && activeEl === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && activeEl === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+
   onMount(() => {
+    void loadCatalog('mail');
+    previouslyFocused = document.activeElement as HTMLElement | null;
+    toInputEl?.focus();
     void app.loadIdentities();
     void app.loadContacts().catch(() => undefined);
     // Probe the optional V7 backends ONCE (idempotent, silent on failure): a
@@ -105,6 +147,8 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
     void app.directory.ensureEnabled();
     void app.nextcloud.ensureEnabled();
   });
+
+  onCleanup(() => previouslyFocused?.focus());
 
   const identity = createMemo(() => app.identities().find((i) => i.id === identityId()) ?? null);
 
@@ -155,7 +199,7 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
     // reaches the engine. The blocking rule is already surfaced inline by
     // <ComposeCrypto>; here we enforce the send gate.
     if (cs !== null && !cs.canSend) {
-      setError('Sending is blocked by a data-loss-prevention rule (see the warning above).');
+      setError(t('mail-compose-dlp-blocked'));
       return;
     }
     setBusy(true);
@@ -170,7 +214,7 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
         enc !== null ? enc.armoredCiphertext : `<p>${escapeHtml(body()).replace(/\n/g, '<br>')}</p>`;
       const subjectToSend =
         enc !== null && cs !== null && cs.protectSubject && enc.encryptedSubjectApplied
-          ? 'Encrypted message'
+          ? t('mail-compose-encrypted-subject')
           : subject();
       const attached = attachments();
       await app.sendMessage({
@@ -194,31 +238,38 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
       });
       props.onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Send failed');
+      setError(err instanceof Error ? err.message : t('mail-compose-send-failed'));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div class="compose__backdrop" role="dialog" aria-modal="true" aria-label="Compose message">
+    <div
+      class="compose__backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t('mail-compose-label')}
+      ref={backdropEl}
+      onKeyDown={onDialogKeyDown}
+    >
       <form class="compose" onSubmit={(e) => void onSubmit(e)}>
         <header class="compose__header">
-          <h2>New message</h2>
-          <button type="button" class="btn btn--ghost" onClick={() => props.onClose()}>
+          <h2>{t('mail-compose-title')}</h2>
+          <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-label={t('mail-compose-close')} onClick={() => props.onClose()}>
             ✕
           </button>
         </header>
 
         <Show when={app.identities().length > 0}>
           <label class="field">
-            <span>From</span>
+            <span>{t('mail-compose-from')}</span>
             <select value={identityId()} onChange={(e) => setIdentityId(e.currentTarget.value)}>
-              <option value="">Default</option>
+              <option value="">{t('mail-compose-from-default')}</option>
               <For each={app.identities()}>
                 {(id) => (
                   <option value={id.id}>
-                    {id.name} &lt;{id.email}&gt;
+                    {isolate(id.name)} &lt;{id.email}&gt;
                   </option>
                 )}
               </For>
@@ -227,18 +278,19 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
         </Show>
 
         <label class="field compose__to">
-          <span>To</span>
+          <span>{t('mail-compose-to')}</span>
           <input
             type="text"
             required
-            placeholder="someone@example.org"
+            ref={toInputEl}
+            placeholder={t('mail-compose-to-placeholder')}
             autocomplete="off"
             value={to()}
             onInput={(e) => onToInput(e.currentTarget.value)}
             onBlur={() => setAcOpen(false)}
           />
           <Show when={acOpen() && contactAc.suggestions().length > 0}>
-            <ul class="compose__ac" role="listbox" aria-label="Contact suggestions">
+            <ul class="compose__ac" role="listbox" aria-label={t('mail-compose-contact-suggestions')}>
               <For each={contactAc.suggestions()}>
                 {(s) => (
                   <li>
@@ -291,11 +343,11 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
         </Show>
 
         <label class="field">
-          <span>Subject</span>
+          <span>{t('mail-compose-subject')}</span>
           <input type="text" value={subject()} onInput={(e) => setSubject(e.currentTarget.value)} />
         </label>
         <label class="field field--grow">
-          <span>Body</span>
+          <span>{t('mail-compose-body')}</span>
           <textarea rows="10" value={body()} onInput={(e) => setBody(e.currentTarget.value)} />
         </label>
 
@@ -328,11 +380,11 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
           <div class="compose__nextcloud" data-testid="compose-nextcloud">
             <button
               type="button"
-              class="btn btn--ghost"
+              class={`btn btn--ghost ${a11y.focusable}`}
               aria-expanded={ncOpen()}
               onClick={() => setNcOpen((v) => !v)}
             >
-              {ncOpen() ? 'Close Nextcloud' : 'Attach from Nextcloud'}
+              {ncOpen() ? t('mail-compose-close-nextcloud') : t('mail-compose-attach-nextcloud')}
             </button>
             <Show when={ncOpen()}>
               <NextcloudAttach
@@ -345,15 +397,15 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
               />
             </Show>
             <Show when={attachments().length > 0}>
-              <ul class="compose__attachments" aria-label="Attachments" data-testid="compose-attachments">
+              <ul class="compose__attachments" aria-label={t('mail-compose-attachments')} data-testid="compose-attachments">
                 <For each={attachments()}>
                   {(a) => (
                     <li>
                       <span>{a.name}</span>
                       <button
                         type="button"
-                        class="btn btn--ghost"
-                        aria-label={`Remove ${a.name}`}
+                        class={`btn btn--ghost ${a11y.iconButton}`}
+                        aria-label={t('mail-compose-remove-attachment', { name: isolate(a.name) })}
                         onClick={() => setAttachments((cur) => cur.filter((x) => x.blobId !== a.blobId))}
                       >
                         ✕
@@ -379,11 +431,11 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
         />
 
         <Show when={identity()?.signatureText}>
-          {(sig) => <p class="compose__signature">— {sig()}</p>}
+          {(sig) => <p class="compose__signature">— {isolate(sig())}</p>}
         </Show>
 
         <label class="field">
-          <span>Send later</span>
+          <span>{t('mail-compose-send-later')}</span>
           <input
             type="datetime-local"
             value={sendAt()}
@@ -397,11 +449,11 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
           </p>
         </Show>
         <footer class="compose__footer">
-          <button type="button" class="btn btn--ghost" onClick={() => props.onClose()}>
-            Cancel
+          <button type="button" class={`btn btn--ghost ${a11y.focusable}`} onClick={() => props.onClose()}>
+            {t('mail-compose-cancel')}
           </button>
-          <button type="submit" class="btn btn--primary" disabled={busy()}>
-            {busy() ? 'Sending…' : sendAt() !== '' ? 'Schedule' : 'Send'}
+          <button type="submit" class={`btn btn--primary ${a11y.focusable}`} disabled={busy()}>
+            {busy() ? t('mail-compose-sending') : sendAt() !== '' ? t('mail-compose-schedule') : t('mail-compose-send')}
           </button>
         </footer>
       </form>

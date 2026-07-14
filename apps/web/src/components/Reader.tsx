@@ -8,6 +8,8 @@ import {
   type JSX,
 } from 'solid-js';
 import { useApp } from '../state/context.ts';
+import { t, isolate } from '../i18n/index.ts';
+import * as a11y from './mailA11y.css.ts';
 import { SweepDialog } from './SweepDialog.tsx';
 import { ThumbnailStrip, type StripItem } from '../viewers/ThumbnailStrip.tsx';
 import { AttachmentViewer } from '../viewers/AttachmentViewer.tsx';
@@ -108,35 +110,35 @@ function ReaderToolbar(props: { email: Email }): JSX.Element {
   const pinned = () => props.email.pinned === true;
 
   return (
-    <div class="reader__toolbar" role="toolbar" aria-label="Message actions">
+    <div class="reader__toolbar" role="toolbar" aria-label={t('mail-reader-actions')}>
       <button
         type="button"
-        class="btn btn--ghost"
+        class={`btn btn--ghost ${a11y.focusable}`}
         aria-pressed={pinned()}
         onClick={() => void app.pinMessage(id(), !pinned())}
       >
-        {pinned() ? 'Unpin' : 'Pin'}
+        {pinned() ? t('mail-unpin') : t('mail-pin')}
       </button>
-      <button type="button" class="btn btn--ghost" onClick={() => void app.archiveMessage(id())}>
-        Archive
+      <button type="button" class={`btn btn--ghost ${a11y.focusable}`} onClick={() => void app.archiveMessage(id())}>
+        {t('mail-archive')}
       </button>
-      <button type="button" class="btn btn--ghost" onClick={() => void app.trashMessage(id())}>
-        Delete
+      <button type="button" class={`btn btn--ghost ${a11y.focusable}`} onClick={() => void app.trashMessage(id())}>
+        {t('mail-delete')}
       </button>
-      <button type="button" class="btn btn--ghost" onClick={() => void app.markSpam(id())}>
-        Spam
+      <button type="button" class={`btn btn--ghost ${a11y.focusable}`} onClick={() => void app.markSpam(id())}>
+        {t('mail-spam')}
       </button>
       <button
         type="button"
-        class="btn btn--ghost"
+        class={`btn btn--ghost ${a11y.focusable}`}
         data-testid="reader-export"
         onClick={() => void app.exportMessage()}
       >
-        Export
+        {t('mail-export')}
       </button>
       <Show when={sender() !== ''}>
-        <button type="button" class="btn btn--ghost" onClick={() => setSweeping(true)}>
-          Sweep sender
+        <button type="button" class={`btn btn--ghost ${a11y.focusable}`} onClick={() => setSweeping(true)}>
+          {t('mail-sweep-sender')}
         </button>
       </Show>
       {/* Max-security opening switch (plan §7.2): drives the body render mode
@@ -168,7 +170,7 @@ function AttachmentsPane(props: { email: Email }): JSX.Element {
       .filter((a) => a.blobId !== null && a.blobId !== undefined && a.blobId !== '')
       .map((a) => ({
         blobId: a.blobId as string,
-        name: a.name !== null && a.name !== undefined && a.name.length > 0 ? a.name : '(unnamed)',
+        name: a.name !== null && a.name !== undefined && a.name.length > 0 ? a.name : t('mail-attachment-unnamed'),
         mime: a.type.length > 0 ? a.type : 'application/octet-stream',
         size: a.size,
       }));
@@ -187,7 +189,7 @@ function AttachmentsPane(props: { email: Email }): JSX.Element {
 
   return (
     <Show when={items().length > 0}>
-      <section class="reader__attachments" aria-label="Attachments" data-testid="reader-attachments">
+      <section class="reader__attachments" aria-label={t('mail-attachments')} data-testid="reader-attachments">
         <ThumbnailStrip
           items={items()}
           selectedBlobId={openItem()?.blobId ?? ''}
@@ -200,21 +202,21 @@ function AttachmentsPane(props: { email: Email }): JSX.Element {
               class="attachment-modal"
               role="dialog"
               aria-modal="true"
-              aria-label={`Attachment ${item().name}`}
+              aria-label={t('mail-attachment-open', { name: isolate(item().name) })}
               data-testid="attachment-viewer"
             >
               <div class="attachment-modal__bar">
                 <span class="attachment-modal__name">{item().name}</span>
                 <button
                   type="button"
-                  class="btn btn--ghost"
-                  aria-label="Close attachment"
+                  class={`btn btn--ghost ${a11y.iconButton}`}
+                  aria-label={t('mail-attachment-close')}
                   onClick={() => setOpenItem(null)}
                 >
                   ✕
                 </button>
               </div>
-              <Show when={blobUrl()} fallback={<p class="attachment-modal__loading">Loading attachment…</p>}>
+              <Show when={blobUrl()} fallback={<p class="attachment-modal__loading">{t('mail-attachment-loading')}</p>}>
                 {(url) => (
                   <AttachmentViewer
                     part={{ partId: null, blobId: item().blobId, size: item().size, type: item().mime }}
@@ -258,7 +260,7 @@ function DecryptPanel(props: {
         (k) => k.kind === 'pgp' && k.encryptedPrivateBackup !== null,
       );
       const bundle = own?.encryptedPrivateBackup ?? null;
-      if (bundle === null) throw new Error('No private key is available to decrypt this message.');
+      if (bundle === null) throw new Error(t('mail-decrypt-no-key'));
       const result = await getCryptoWorker().decrypt({
         kind: 'pgp',
         ciphertext: props.armor,
@@ -273,15 +275,15 @@ function DecryptPanel(props: {
           : { text: result.plaintextText ?? '' };
       props.onDecrypted(content, result.signature);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Decryption failed');
+      setError(err instanceof Error ? err.message : t('mail-decrypt-failed'));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <section class="reader__decrypt" data-testid="reader-decrypt" aria-label="Encrypted message">
-      <p class="reader__decrypt-note">🔒 This message is end-to-end encrypted. Unlock it on this device to read it.</p>
+    <section class="reader__decrypt" data-testid="reader-decrypt" aria-label={t('mail-encrypted-region')}>
+      <p class="reader__decrypt-note">{t('mail-encrypted-note')}</p>
       <form
         class="reader__decrypt-form"
         onSubmit={(e) => {
@@ -291,15 +293,15 @@ function DecryptPanel(props: {
       >
         <input
           type="password"
-          class="reader__decrypt-pass"
-          placeholder="Key passphrase"
+          class={`reader__decrypt-pass ${a11y.focusable}`}
+          placeholder={t('mail-key-passphrase')}
           autocomplete="off"
           data-testid="decrypt-passphrase"
           value={passphrase()}
           onInput={(e) => setPassphrase(e.currentTarget.value)}
         />
-        <button type="submit" class="btn btn--primary" data-testid="decrypt-submit" disabled={busy()}>
-          {busy() ? 'Decrypting…' : 'Decrypt'}
+        <button type="submit" class={`btn btn--primary ${a11y.focusable}`} data-testid="decrypt-submit" disabled={busy()}>
+          {busy() ? t('mail-decrypting') : t('mail-decrypt')}
         </button>
       </form>
       <Show when={error()}>
@@ -459,18 +461,18 @@ export function Reader(): JSX.Element {
   }
 
   return (
-    <section class="reader" aria-label="Message">
-      <Show when={app.openEmail()} fallback={<p class="reader__empty">Select a message to read</p>}>
+    <section class="reader" aria-label={t('mail-reader-label')}>
+      <Show when={app.openEmail()} fallback={<p class="reader__empty">{t('mail-reader-empty')}</p>}>
         {(email) => (
           <>
             <header class="reader__header">
-              <button type="button" class="btn btn--ghost reader__close" onClick={() => app.closeMessage()}>
-                ← Back
+              <button type="button" class={`btn btn--ghost reader__close ${a11y.focusable}`} onClick={() => app.closeMessage()}>
+                ← {t('mail-back')}
               </button>
-              <h2 class="reader__subject">{email().subject ?? '(no subject)'}</h2>
+              <h2 class="reader__subject">{email().subject ?? t('mail-no-subject')}</h2>
               <div class="reader__meta">
-                <span>From: {addressList(email().from)}</span>
-                <span>To: {addressList(email().to)}</span>
+                <span>{t('mail-reader-from', { addr: isolate(addressList(email().from)) })}</span>
+                <span>{t('mail-reader-to', { addr: isolate(addressList(email().to)) })}</span>
               </div>
               {/* Security chip → expandable panel (plan §7.3): server verdict merged
                   with the client decrypt/verify result. */}
@@ -496,7 +498,7 @@ export function Reader(): JSX.Element {
               fallback={
                 <Show
                   when={bodySrcdoc() !== null}
-                  fallback={<p class="reader__empty">{app.readLoading() ? 'Sanitizing…' : 'No content'}</p>}
+                  fallback={<p class="reader__empty">{app.readLoading() ? t('mail-sanitizing') : t('mail-no-content')}</p>}
                 >
                   {/*
                     Security-critical (SPEC §7.2): the message body renders in a
@@ -507,7 +509,7 @@ export function Reader(): JSX.Element {
                   */}
                   <iframe
                     class="reader__frame"
-                    title="Message body"
+                    title={t('mail-message-body')}
                     sandbox=""
                     srcdoc={bodySrcdoc() ?? ''}
                   />

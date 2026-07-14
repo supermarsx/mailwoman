@@ -1,5 +1,7 @@
 import { Show, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
+import { t } from '../i18n/index.ts';
+import * as a11y from './mailA11y.css.ts';
 
 // The inbox header controls (plan §1.5): the opt-in rules-based Focused inbox
 // (two tabs, Focused / Other) and the Unified-inbox toggle. Focused mode is off
@@ -16,42 +18,42 @@ export function InboxTabs(): JSX.Element {
         fallback={
           <button
             type="button"
-            class="btn btn--ghost inbox-tabs__enable"
+            class={`btn btn--ghost inbox-tabs__enable ${a11y.focusable}`}
             onClick={() => app.setFocusedInbox(true)}
           >
-            Focused inbox
+            {t('mail-inbox-focused-enable')}
           </button>
         }
       >
-        <div class="inbox-tabs__row" role="tablist" aria-label="Inbox filter">
+        <div class="inbox-tabs__row" role="tablist" aria-label={t('mail-inbox-filter')}>
           <button
             type="button"
             role="tab"
-            class="inbox-tabs__tab"
+            class={`inbox-tabs__tab ${a11y.focusable}`}
             classList={{ 'inbox-tabs__tab--active': app.inboxTab() === 'focused' }}
             aria-selected={app.inboxTab() === 'focused'}
             onClick={() => app.setInboxTab('focused')}
           >
-            Focused
+            {t('mail-inbox-focused')}
             <span class="inbox-tabs__count">{app.focusedMessages().length}</span>
           </button>
           <button
             type="button"
             role="tab"
-            class="inbox-tabs__tab"
+            class={`inbox-tabs__tab ${a11y.focusable}`}
             classList={{ 'inbox-tabs__tab--active': app.inboxTab() === 'other' }}
             aria-selected={app.inboxTab() === 'other'}
             onClick={() => app.setInboxTab('other')}
           >
-            Other
+            {t('mail-inbox-other')}
             <span class="inbox-tabs__count">{app.otherMessages().length}</span>
           </button>
           <button
             type="button"
-            class="btn btn--ghost inbox-tabs__enable"
+            class={`btn btn--ghost inbox-tabs__enable ${a11y.focusable}`}
             onClick={() => app.setFocusedInbox(false)}
           >
-            Turn off
+            {t('mail-inbox-turn-off')}
           </button>
         </div>
       </Show>
@@ -62,7 +64,7 @@ export function InboxTabs(): JSX.Element {
           checked={app.unifiedInbox()}
           onChange={(e) => app.setUnifiedInbox(e.currentTarget.checked)}
         />
-        Unified inbox
+        {t('mail-inbox-unified')}
       </label>
     </div>
   );

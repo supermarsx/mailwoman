@@ -1,16 +1,18 @@
-import { createMemo, createSignal, For, Show, type JSX } from 'solid-js';
+import { createMemo, createSignal, For, Show, onMount, onCleanup, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
+import { t, isolate } from '../i18n/index.ts';
+import * as a11y from './mailA11y.css.ts';
 import type { SweepStrategy } from '../state/slices/mail.ts';
 
 // Outlook-style "sweep" (plan §1.5): bulk-clean a sender's mail with a preview
 // of exactly what will move to Trash before you commit, and (like every list
 // mutation) an undo. The dialog is opened for a specific sender address.
 
-const STRATEGIES: { value: SweepStrategy; label: string }[] = [
-  { value: 'all', label: 'Delete all from this sender' },
-  { value: 'keep-latest', label: 'Keep the latest, delete the rest' },
-  { value: 'older-than', label: 'Delete older than N days' },
-  { value: 'block', label: 'Delete all and block this sender' },
+const STRATEGIES: { value: SweepStrategy; labelId: string }[] = [
+  { value: 'all', labelId: 'mail-sweep-all' },
+  { value: 'keep-latest', labelId: 'mail-sweep-keep-latest' },
+  { value: 'older-than', labelId: 'mail-sweep-older-than' },
+  { value: 'block', labelId: 'mail-sweep-block' },
 ];
 
 export function SweepDialog(props: { fromEmail: string; onClose: () => void }): JSX.Element {
@@ -20,6 +22,16 @@ export function SweepDialog(props: { fromEmail: string; onClose: () => void }): 
   const [busy, setBusy] = createSignal(false);
 
   const preview = createMemo(() => app.sweepPreview(props.fromEmail, strategy(), days()));
+
+  // Dialog focus management (self-contained per t8-e1): move focus in on open,
+  // restore it on close, Escape closes.
+  let dialogEl: HTMLDivElement | undefined;
+  let previouslyFocused: HTMLElement | null = null;
+  onMount(() => {
+    previouslyFocused = document.activeElement as HTMLElement | null;
+    dialogEl?.querySelector<HTMLElement>('input, button')?.focus();
+  });
+  onCleanup(() => previouslyFocused?.focus());
 
   async function run(): Promise<void> {
     setBusy(true);
@@ -32,11 +44,23 @@ export function SweepDialog(props: { fromEmail: string; onClose: () => void }): 
   }
 
   return (
-    <div class="sweep__backdrop" role="dialog" aria-modal="true" aria-label="Sweep messages">
+    <div
+      class="sweep__backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t('mail-sweep-label')}
+      ref={dialogEl}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          props.onClose();
+        }
+      }}
+    >
       <div class="sweep">
         <header class="sweep__header">
-          <h2>Sweep {props.fromEmail}</h2>
-          <button type="button" class="btn btn--ghost" aria-label="Close" onClick={() => props.onClose()}>
+          <h2>{t('mail-sweep-title', { sender: isolate(props.fromEmail) })}</h2>
+          <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-label={t('mail-compose-close')} onClick={() => props.onClose()}>
             ✕
           </button>
         </header>
@@ -52,13 +76,13 @@ export function SweepDialog(props: { fromEmail: string; onClose: () => void }): 
                   checked={strategy() === s.value}
                   onChange={() => setStrategy(s.value)}
                 />
-                {s.label}
+                {t(s.labelId)}
               </label>
             )}
           </For>
           <Show when={strategy() === 'older-than'}>
             <label class="sweep__days field">
-              <span>Days</span>
+              <span>{t('mail-sweep-days')}</span>
               <input
                 type="number"
                 min="1"
@@ -70,13 +94,13 @@ export function SweepDialog(props: { fromEmail: string; onClose: () => void }): 
         </fieldset>
 
         <p class="sweep__count" aria-live="polite">
-          {preview().length} message{preview().length === 1 ? '' : 's'} will move to Trash
+          {t('mail-sweep-count', { count: preview().length })}
         </p>
         <ul class="sweep__preview">
           <For each={preview().slice(0, 20)}>
             {(m) => (
               <li class="sweep__row">
-                <span class="sweep__subject">{m.subject ?? '(no subject)'}</span>
+                <span class="sweep__subject">{m.subject ?? t('mail-no-subject')}</span>
                 <span class="sweep__date">{m.receivedAt.slice(0, 10)}</span>
               </li>
             )}
@@ -84,16 +108,16 @@ export function SweepDialog(props: { fromEmail: string; onClose: () => void }): 
         </ul>
 
         <footer class="sweep__footer">
-          <button type="button" class="btn btn--ghost" onClick={() => props.onClose()}>
-            Cancel
+          <button type="button" class={`btn btn--ghost ${a11y.focusable}`} onClick={() => props.onClose()}>
+            {t('mail-sweep-cancel')}
           </button>
           <button
             type="button"
-            class="btn btn--primary"
+            class={`btn btn--primary ${a11y.focusable}`}
             disabled={busy() || preview().length === 0}
             onClick={() => void run()}
           >
-            {busy() ? 'Sweeping…' : `Sweep ${preview().length}`}
+            {busy() ? t('mail-sweeping') : t('mail-sweep-run', { count: preview().length })}
           </button>
         </footer>
       </div>

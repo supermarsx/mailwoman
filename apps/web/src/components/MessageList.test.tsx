@@ -33,6 +33,21 @@ describe('MessageList (virtualized)', () => {
     expect(await screen.findByText('Work')).toBeInTheDocument();
   });
 
+  it('exposes list semantics: each row announces its position in the full list', async () => {
+    const emails = Array.from({ length: 50 }, (_, i) => mkEmail(`m${i}`, { subject: `Message ${i}` }));
+    const { app, result } = renderWithApp(() => <MessageList />, { emails });
+    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await waitFor(() => expect(app.messages().length).toBe(50));
+
+    const firstItem = result.container.querySelector('.list__slot') as HTMLElement;
+    expect(firstItem.getAttribute('role')).toBe('listitem');
+    expect(firstItem.getAttribute('aria-setsize')).toBe('50');
+    expect(firstItem.getAttribute('aria-posinset')).toBe('1');
+    // Roving tabindex: the cursor row is the single tab stop.
+    const firstRow = firstItem.querySelector('.list__row') as HTMLElement;
+    expect(firstRow.getAttribute('tabindex')).toBe('0');
+  });
+
   it('floats a pinned message to the top row', async () => {
     const { app, result } = renderWithApp(() => <MessageList />, {
       emails: [mkEmail('a', { subject: 'Alpha' }), mkEmail('b', { subject: 'Bravo', pinned: true })],

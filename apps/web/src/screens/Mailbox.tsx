@@ -1,6 +1,8 @@
 import { createMemo, createSignal, For, Show, Suspense, onMount, onCleanup, type JSX } from 'solid-js';
 import { Dynamic } from 'solid-js/web';
 import { useApp } from '../state/context.ts';
+import { t, isolate, loadCatalog } from '../i18n/index.ts';
+import * as a11y from '../components/mailA11y.css.ts';
 import { useRealtime } from '../realtime/context.ts';
 import { MessageList } from '../components/MessageList.tsx';
 import { Reader } from '../components/Reader.tsx';
@@ -45,24 +47,24 @@ function SearchBox(): JSX.Element {
       <input
         class="mail-search__input"
         type="search"
-        aria-label="Search mail"
-        placeholder="Search mail — from:alice subject:invoice larger:1mb"
+        aria-label={t('mail-search-label')}
+        placeholder={t('mail-search-placeholder')}
         value={query()}
         onInput={(e) => setQuery(e.currentTarget.value)}
       />
-      <button type="submit" class="btn btn--ghost mail-search__submit">
-        Search
+      <button type="submit" class={`btn btn--ghost mail-search__submit ${a11y.focusable}`}>
+        {t('mail-search')}
       </button>
       <Show when={app.searchActive()}>
         <button
           type="button"
-          class="btn btn--ghost mail-search__clear"
+          class={`btn btn--ghost mail-search__clear ${a11y.focusable}`}
           onClick={() => {
             setQuery('');
             void app.clearSearch();
           }}
         >
-          Clear
+          {t('mail-search-clear')}
         </button>
       </Show>
       <SemanticSearchToggle config={app.assist.config()} enabled={semantic()} onChange={setSemantic} />
@@ -101,6 +103,9 @@ export function MailboxScreen(): JSX.Element {
     return [{ account: acct, folder: box?.name ?? 'Mail', text, kind: 'plain' as const }];
   });
 
+  // Pull the mail catalog once for the whole mailbox area (idempotent).
+  onMount(() => void loadCatalog('mail'));
+
   // Seed a single "messages" sub-tab so the multi-surface strip is live.
   onMount(() => {
     if (subTabs.tabs().length === 0) {
@@ -130,26 +135,26 @@ export function MailboxScreen(): JSX.Element {
       </Show>
       <aside class="sidebar">
         <div class="sidebar__head">
-          <span class="sidebar__brand">Mailwoman</span>
-          <Show when={app.me()}>{(m) => <span class="sidebar__user">{m().username}</span>}</Show>
+          <span class="sidebar__brand">{t('mail-brand')}</span>
+          <Show when={app.me()}>{(m) => <span class="sidebar__user">{isolate(m().username)}</span>}</Show>
           <button
             type="button"
-            class="btn btn--ghost sidebar__settings"
-            aria-label="Settings"
+            class={`btn btn--ghost sidebar__settings ${a11y.iconButton}`}
+            aria-label={t('mail-nav-settings')}
             onClick={() => setSettingsOpen(true)}
           >
             ⚙
           </button>
         </div>
-        <button type="button" class="btn btn--primary sidebar__compose" onClick={() => setComposing(true)}>
-          Compose
+        <button type="button" class={`btn btn--primary sidebar__compose ${a11y.focusable}`} onClick={() => setComposing(true)}>
+          {t('mail-compose')}
         </button>
-        <nav class="sidebar__nav" aria-label="Mailboxes">
+        <nav class="sidebar__nav" aria-label={t('mail-nav-mailboxes')}>
           <For each={app.mailboxes()}>
             {(box) => (
               <button
                 type="button"
-                class="sidebar__box"
+                class={`sidebar__box ${a11y.focusable}`}
                 classList={{ 'sidebar__box--active': surface() === 'mail' && app.selectedMailboxId() === box.id }}
                 onClick={() => {
                   router.navigate('mail');
@@ -165,22 +170,22 @@ export function MailboxScreen(): JSX.Element {
           </For>
           <button
             type="button"
-            class="sidebar__box"
+            class={`sidebar__box ${a11y.focusable}`}
             classList={{ 'sidebar__box--active': surface() === 'attachments' }}
             onClick={() => router.navigate('attachments')}
           >
-            <span class="sidebar__box-name">Attachments</span>
+            <span class="sidebar__box-name">{t('mail-nav-attachments')}</span>
           </button>
           <button
             type="button"
-            class="sidebar__box"
+            class={`sidebar__box ${a11y.focusable}`}
             classList={{ 'sidebar__box--active': surface() === 'outbox' }}
             onClick={() => {
               router.navigate('outbox');
               void app.refreshOutbox();
             }}
           >
-            <span class="sidebar__box-name">Outbox</span>
+            <span class="sidebar__box-name">{t('mail-nav-outbox')}</span>
             <Show when={app.cancelableOutbox().length > 0}>
               <span class="sidebar__badge">{app.cancelableOutbox().length}</span>
             </Show>
@@ -189,12 +194,12 @@ export function MailboxScreen(): JSX.Element {
 
         {/* PIM modules (plan §2.5): Calendar / Tasks / Notes / Contacts, each
             reachable from the nav rail — the explicit mount step V2 lacked. */}
-        <nav class="sidebar__nav sidebar__nav--apps" aria-label="Apps">
+        <nav class="sidebar__nav sidebar__nav--apps" aria-label={t('mail-nav-apps')}>
           <For each={APP_NAV_MODULES}>
             {(m) => (
               <button
                 type="button"
-                class="sidebar__box"
+                class={`sidebar__box ${a11y.focusable}`}
                 classList={{ 'sidebar__box--active': surface() === m.id }}
                 data-testid={`nav-${m.id}`}
                 onClick={() => router.navigate(m.id as ShellSurface)}
@@ -205,12 +210,12 @@ export function MailboxScreen(): JSX.Element {
             )}
           </For>
         </nav>
-        <button type="button" class="btn btn--ghost sidebar__logout" onClick={() => void app.logout()}>
-          Log out
+        <button type="button" class={`btn btn--ghost sidebar__logout ${a11y.focusable}`} onClick={() => void app.logout()}>
+          {t('mail-logout')}
         </button>
         <Show when={!app.online()}>
           <span class="sidebar__offline" aria-live="polite">
-            Offline
+            {t('mail-offline')}
           </span>
         </Show>
       </aside>
@@ -252,7 +257,7 @@ export function MailboxScreen(): JSX.Element {
         {(m) => (
           <Show when={surface() === m.id}>
             <main class="module-pane" data-surface={m.id}>
-              <Suspense fallback={<div class="module-loading">Loading {m.label}…</div>}>
+              <Suspense fallback={<div class="module-loading">{t('mail-module-loading', { module: m.label })}</div>}>
                 <Dynamic component={m.mount()} />
               </Suspense>
             </main>

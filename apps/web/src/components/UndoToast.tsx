@@ -1,5 +1,7 @@
 import { createEffect, createSignal, onCleanup, Show, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
+import { t } from '../i18n/index.ts';
+import * as a11y from './mailA11y.css.ts';
 
 // The shared reversible-action toast (plan §1.5): every 10-second undo — tag,
 // pin, snooze, follow-up, archive/trash/move, sweep — and the undo-send Cancel
@@ -27,22 +29,22 @@ export function UndoToast(): JSX.Element {
   return (
     <Show when={app.pendingUndo()}>
       {(pending) => (
-        <div class="undo-toast" role="status" aria-live="polite">
+        <div class="undo-toast" role="status" aria-live="polite" aria-atomic="true">
           <span class="undo-toast__label">{pending().label}</span>
           <span class="undo-toast__count" aria-hidden="true">
             {remainingSeconds(pending().expiresAt, now())}s
           </span>
           <button
             type="button"
-            class="btn btn--ghost undo-toast__action"
+            class={`btn btn--ghost undo-toast__action ${a11y.focusable}`}
             onClick={() => void app.undoNow()}
           >
             {pending().actionLabel}
           </button>
           <button
             type="button"
-            class="undo-toast__dismiss"
-            aria-label="Dismiss"
+            class={`undo-toast__dismiss ${a11y.iconButton}`}
+            aria-label={t('mail-undo-dismiss')}
             onClick={() => app.dismissUndo()}
           >
             ✕

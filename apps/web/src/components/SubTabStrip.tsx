@@ -7,6 +7,8 @@
 
 import { For, Show, type JSX } from 'solid-js';
 import { useRealtime } from '../realtime/context.ts';
+import { t } from '../i18n/index.ts';
+import * as a11y from './mailA11y.css.ts';
 import type { SubTab } from '../realtime/subTabs.ts';
 
 export function SubTabStrip(): JSX.Element {
@@ -26,7 +28,7 @@ export function SubTabStrip(): JSX.Element {
 
   return (
     <Show when={subTabs.tabs().length > 0}>
-      <div class="subtab-strip" role="tablist" aria-label="Open tabs" onKeyDown={onKeyDown}>
+      <div class="subtab-strip" role="tablist" aria-label={t('mail-subtabs-label')} onKeyDown={onKeyDown}>
         <For each={subTabs.tabs()}>
           {(tab) => <SubTabButton tab={tab} active={subTabs.activeId() === tab.id} />}
         </For>
@@ -47,7 +49,7 @@ function SubTabButton(props: { tab: SubTab; active: boolean }): JSX.Element {
       <button
         type="button"
         role="tab"
-        class="subtab__label"
+        class={`subtab__label ${a11y.focusable}`}
         aria-selected={props.active}
         tabindex={props.active ? 0 : -1}
         onClick={() => subTabs.activate(id())}
@@ -60,8 +62,8 @@ function SubTabButton(props: { tab: SubTab; active: boolean }): JSX.Element {
       </button>
       <button
         type="button"
-        class="subtab__pin"
-        aria-label={props.tab.pinned ? `Unpin ${props.tab.title}` : `Pin ${props.tab.title}`}
+        class={`subtab__pin ${a11y.iconButton}`}
+        aria-label={props.tab.pinned ? t('mail-subtab-unpin', { title: props.tab.title }) : t('mail-subtab-pin', { title: props.tab.title })}
         aria-pressed={props.tab.pinned}
         onClick={() => subTabs.togglePin(id())}
       >
@@ -69,16 +71,16 @@ function SubTabButton(props: { tab: SubTab; active: boolean }): JSX.Element {
       </button>
       <button
         type="button"
-        class="subtab__tearoff"
-        aria-label={`Open ${props.tab.title} in a new window`}
+        class={`subtab__tearoff ${a11y.iconButton}`}
+        aria-label={t('mail-subtab-tearoff', { title: props.tab.title })}
         onClick={() => subTabs.tearOff(id())}
       >
         ⧉
       </button>
       <button
         type="button"
-        class="subtab__close"
-        aria-label={`Close ${props.tab.title}`}
+        class={`subtab__close ${a11y.iconButton}`}
+        aria-label={t('mail-subtab-close', { title: props.tab.title })}
         onClick={() => subTabs.close(id())}
       >
         ×

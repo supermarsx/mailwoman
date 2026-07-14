@@ -1,5 +1,7 @@
 import { For, Show, onMount, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
+import { t } from '../i18n/index.ts';
+import * as a11y from './mailA11y.css.ts';
 import { outboxStateOf, type OutboxState } from '../state/slices/outbox.ts';
 import type { EmailSubmission } from '../api/jmap-types.ts';
 
@@ -8,10 +10,10 @@ import type { EmailSubmission } from '../api/jmap-types.ts';
 // window, plus finalized/canceled history. Backed by `EmailSubmission/query`.
 
 const STATE_LABEL: Record<OutboxState, string> = {
-  scheduled: 'Scheduled',
-  holding: 'Sending soon',
-  sent: 'Sent',
-  canceled: 'Canceled',
+  scheduled: 'mail-outbox-scheduled',
+  holding: 'mail-outbox-holding',
+  sent: 'mail-outbox-sent',
+  canceled: 'mail-outbox-canceled',
 };
 
 function whenText(sub: EmailSubmission): string {
@@ -25,14 +27,14 @@ export function Outbox(): JSX.Element {
   onMount(() => void app.refreshOutbox());
 
   return (
-    <section class="outbox" aria-label="Outbox">
+    <section class="outbox" aria-label={t('mail-outbox-label')}>
       <header class="outbox__header">
-        <h2>Outbox</h2>
-        <button type="button" class="btn btn--ghost" onClick={() => void app.refreshOutbox()}>
-          Refresh
+        <h2>{t('mail-outbox-label')}</h2>
+        <button type="button" class={`btn btn--ghost ${a11y.focusable}`} onClick={() => void app.refreshOutbox()}>
+          {t('mail-outbox-refresh')}
         </button>
       </header>
-      <Show when={app.outbox().length > 0} fallback={<p class="outbox__empty">Nothing waiting to send</p>}>
+      <Show when={app.outbox().length > 0} fallback={<p class="outbox__empty">{t('mail-outbox-empty')}</p>}>
         <ul class="outbox__items">
           <For each={app.outbox()}>
             {(sub) => {
@@ -41,24 +43,24 @@ export function Outbox(): JSX.Element {
               return (
                 <li class="outbox__row" data-state={state()}>
                   <span class="outbox__state" classList={{ [`outbox__state--${state()}`]: true }}>
-                    {STATE_LABEL[state()]}
+                    {t(STATE_LABEL[state()])}
                   </span>
                   <span class="outbox__when">{whenText(sub)}</span>
                   <Show when={cancelable()}>
                     <span class="outbox__actions">
                       <button
                         type="button"
-                        class="btn btn--ghost"
+                        class={`btn btn--ghost ${a11y.focusable}`}
                         onClick={() => void app.sendOutboxNow(sub.id)}
                       >
-                        Send now
+                        {t('mail-outbox-send-now')}
                       </button>
                       <button
                         type="button"
-                        class="btn btn--ghost"
+                        class={`btn btn--ghost ${a11y.focusable}`}
                         onClick={() => void app.cancelOutbox(sub.id)}
                       >
-                        Cancel
+                        {t('mail-outbox-cancel')}
                       </button>
                     </span>
                   </Show>
