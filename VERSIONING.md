@@ -37,6 +37,35 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
 
 ## History
 
+- **`26.9`** — enterprise SSO + the accessibility/i18n/perf/packaging hardening pass.
+  **Full OIDC and SAML 2.0 single sign-on** as login backends (new `mw-sso` crate),
+  configured per-deployment/domain via the admin panel + a `0009` `sso_config` table
+  and surfaced as "Sign in with <IdP>" on the login screen: OIDC over the
+  `openidconnect` crate (discovery, auth-code + **PKCE**, JWKS ID-token validation,
+  userinfo, RP-logout — RustCrypto/rustls, **no openssl**), and a **hand-rolled
+  pure-Rust SAML SP** (SP metadata, AuthnRequest, HTTP-POST ACS, exclusive-C14N +
+  XML-DSig RSA/ECDSA-SHA256 validation, audience/replay defenses — no `samael`,
+  no openssl/libxml) with a content-free login audit and first-login defaulting to
+  allowlist/deny. **Both flows are proven end-to-end live against a real Keycloak
+  26.0** (headless + real-browser → authenticated inbox). This milestone also folds
+  in the 1.0-readiness hardening: a **WCAG 2.2 AA** audit + fixes across every web
+  screen (calendar ARIA grid, ribbon tablist, dialog focus, non-color verdict
+  badges) gated by axe in CI; **Fluent i18n** with an `en` baseline, a 12-locale
+  structure + Weblate config + RTL/bidi plumbing (human translation pending);
+  **§23 performance budgets** measured-and-gated in CI (cold-load, render, bundle,
+  binary/image); and **packaging recipes** (Flatpak/F-Droid/winget/deb/rpm/AppImage/
+  macOS-notarize). Structural size work: the five first-party plugin `.wasm`
+  components are **externalized** from the server binary to a plugins dir, each
+  **SHA-256 digest-pinned** (fail-closed integrity), and the §23 binary/image budgets
+  are revised to measured-realistic values (binary <91MB, image <205MB = measured
+  ×1.15, documented) since the full V7 feature set (wasmtime JIT + all protocols +
+  crypto) is inherently larger than the original core-build targets. Security posture
+  is best-effort self-hardening + a published external-audit-prep dossier (no funded
+  audit — open-source). Verified: 934 Rust + 633 web tests; cargo-deny clean with no
+  new advisory ignore and **no openssl anywhere**; live SSO E2E green vs real
+  Keycloak. Rolling `YY.N` scheme retained (this is 26.9, not a "1.0" tag).
+  Remaining ops follow-ups (not release-gating): store/signing account provisioning +
+  submissions, and human translation review via Weblate.
 - **`26.8`** — V7: extensibility, directory, AI, and Exchange/Gmail bridges (the
   last feature milestone before 1.0). A **WASM engine-plugin runtime** (`mw-plugin`
   over wasmtime + the WASI-p2 component model): capability-deny-by-default, per-
