@@ -836,30 +836,117 @@ jobs:
   # (regression gate). e13 authors apps/web/e2e/{admin,oauth-apikey,mcp,zeroaccess,
   # cache-posture}.spec.ts + the Rust integration harness (plan §3 e13).
   #
-  # e2e-v6:
-  #   runs-on: ubuntu-latest
-  #   needs: [rust, web]
-  #   env:
-  #     DOCKER_BUILDKIT: "1"
-  #     COMPOSE_DOCKER_CLI_BUILD: "1"
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: pnpm/action-setup@v4
-  #       with:
-  #         version: 11.12.0
-  #     - uses: actions/setup-node@v4
-  #       with:
-  #         node-version: 22
-  #         cache: pnpm
-  #         cache-dependency-path: apps/web/pnpm-lock.yaml
-  #     - name: boot postgres + valkey (wait healthy)
-  #       run: docker compose -f docker-compose.ci.yml up -d --wait postgres valkey
-  #     - name: install web deps + Playwright
-  #       run: |
-  #         pnpm -C apps/web install --frozen-lockfile
-  #         pnpm -C apps/web exec playwright install --with-deps chromium
-  #     - name: run V6 live E2E (admin/oauth/mcp/zeroaccess/cache; backend parity)
-  #       run: pnpm -C apps/web exec playwright test --project=v6
-  #     - name: tear down
-  #       if: always()
-  #       run: docker compose -f docker-compose.ci.yml down -v
+  e2e-v6:
+    runs-on: ubuntu-latest
+    needs: [rust, web]
+    env:
+      DOCKER_BUILDKIT: "1"
+      COMPOSE_DOCKER_CLI_BUILD: "1"
+      # Shared dev server key so sealed columns round-trip within the run (DEV ONLY,
+      # never reuse). The standing `serve` reads it from MW_SERVER_KEY.
+      MW_SERVER_KEY: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: boot postgres + valkey (wait healthy)
+        run: docker compose -f docker-compose.ci.yml up -d --wait postgres valkey
+      # The `v6` browser specs log in via the proxy path, so the standing server
+      # needs a JMAP backend to proxy to: reuse the deterministic in-repo mock from
+      # docker-compose.dev.yml (published on host :8181).
+      - name: boot JMAP mock (wait healthy)
+        run: docker compose -f docker-compose.dev.yml up -d --build --wait mock
+      - name: install web deps
+        run: pnpm -C apps/web install --frozen-lockfile
+      - name: cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('apps/web/pnpm-lock.yaml') }}
+      - name: install Playwright chromium
+        run: pnpm -C apps/web exec playwright install --with-deps chromium
+      - name: build the SPA (served by the standing server via MW_WEB_DIR)
+        run: pnpm -C apps/web build
+      - name: build mw-server (mailwoman binary)
+        run: cargo build -p mw-server --release
+      # ---- Leg 1: the Rust live harness. It spawns its OWN in-process server + JMAP
+      # mock and drives the DoD headline proofs — the ciphertext-at-rest DIRECT
+      # Postgres query + the SQLite⇄Postgres backend parity. It needs the live PG DSN
+      # + Valkey URL, plus the docker-compose container names for its `docker exec
+      # psql` / `valkey-cli` inspection (compose names them <project>-<svc>-1).
+      # --test-threads=1 keeps the shared Postgres deterministic.
+      - name: Rust live E2E harness (vs real postgres + valkey; direct-DB proofs)
+        env:
+          MW_E13_PG_DSN: "postgres://mailwoman:mailwoman@127.0.0.1:5432/mailwoman"
+          MW_E13_REDIS_URL: "redis://127.0.0.1:6379"
+          MW_E13_PG_CONTAINER: "mailwoman-ci-postgres-1"
+          MW_E13_VALKEY_CONTAINER: "mailwoman-ci-valkey-1"
+        run: cargo test -p mw-server --test v6_e2e -- --nocapture --test-threads=1
+      # ---- Leg 2: a standing mw-server in PROXY mode (postgres + valkey, admin on,
+      # proxying to the JMAP mock) for the Playwright `v6` browser project.
+      - name: start mw-server (proxy mode; postgres + valkey; admin enabled)
+        env:
+          MW_BIND: "127.0.0.1:8090"
+          MW_MODE: "proxy"
+          MW_DB_PATH: "postgres://mailwoman:mailwoman@127.0.0.1:5432/mailwoman"
+          MW_REDIS_URL: "redis://127.0.0.1:6379"
+          MW_ADMIN_ENABLED: "true"
+          MW_ADMIN_USER: "root"
+          MW_ADMIN_PASSWORD: "hunter2"
+          MW_COOKIE_SECURE: "false"
+          MW_WEB_DIR: "apps/web/dist"
+          RUST_LOG: "info"
+        run: |
+          ./target/release/mailwoman serve > mw-server-v6.log 2>&1 &
+          echo "MW_SERVER_PID=$!" >> "$GITHUB_ENV"
+      - name: wait for server health
+        run: ./scripts/wait-for-health.sh http://127.0.0.1:8090/healthz 120
+      # Seed an admin-approved client for the OAuth consent→code→token flow (there is
+      # no client-registration endpoint — plan e11 gap c). Mirrors the Rust harness's
+      # psql INSERT; ephemeral CI DB so a fixed client_id is safe.
+      - name: seed an admin-approved oauth_clients row
+        run: |
+          docker compose -f docker-compose.ci.yml exec -T postgres \
+            psql -U mailwoman -d mailwoman -c \
+            "INSERT INTO oauth_clients (client_id,name,redirect_uris,approved_by,created_at) VALUES ('e2e-v6-client','E2E V6 Client','[\"https://app.example/cb\"]','root','2026-01-01T00:00:00Z') ON CONFLICT (client_id) DO NOTHING"
+      - name: run Playwright E2E (v6 project vs the live server)
+        env:
+          MW_E2E_BASE_URL: "http://127.0.0.1:8090"
+          MW_E2E_JMAP_URL: "http://127.0.0.1:8181/.well-known/jmap"
+          MW_E2E_USERNAME: "testuser@example.org"
+          MW_E2E_PASSWORD: "testpass"
+          MW_ADMIN_USER: "root"
+          MW_ADMIN_PASSWORD: "hunter2"
+        run: pnpm -C apps/web exec playwright test --project=v6
+      - name: server log on failure
+        if: failure()
+        run: cat mw-server-v6.log || true
+      - name: compose logs on failure
+        if: failure()
+        run: |
+          docker compose -f docker-compose.ci.yml logs --no-color || true
+          docker compose -f docker-compose.dev.yml logs --no-color mock || true
+      - name: upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-v6
+          path: apps/web/playwright-report
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: stop mw-server
+        if: always()
+        run: kill "${MW_SERVER_PID}" 2>/dev/null || true
+      - name: tear down
+        if: always()
+        run: |
+          docker compose -f docker-compose.ci.yml down -v || true
+          docker compose -f docker-compose.dev.yml down -v || true

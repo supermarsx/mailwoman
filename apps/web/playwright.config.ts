@@ -30,6 +30,13 @@ const mockBaseURL =
   process.env['PLAYWRIGHT_BASE_URL'] ??
   'http://localhost:8080';
 const engineBaseURL = process.env['PLAYWRIGHT_ENGINE_BASE_URL'] ?? 'http://localhost:8090';
+// V6 live full-stack E2E (plan §3 e13): a standing mw-server in PROXY mode backed by
+// REAL postgres:16 + valkey:8 and fronting a JMAP mock, brought up by the CI `e2e-v6`
+// job. The `v6` specs use Playwright's `request` fixture (a real HTTP client) against
+// this server, so `MW_E2E_BASE_URL` points the project at it (the JMAP mock URL the
+// server proxies to is passed to the login endpoint via MW_E2E_JMAP_URL, read in
+// e2e/v6-helpers.ts). Defaults to :8090 for local runs.
+const v6BaseURL = process.env['MW_E2E_BASE_URL'] ?? 'http://localhost:8090';
 
 export default defineConfig({
   testDir: './e2e',
@@ -107,6 +114,26 @@ export default defineConfig({
       // `--project=push` to the engine job). See apps/web/e2e/README-push.md.
       testMatch: ['push.spec.ts'],
       use: { ...devices['Desktop Chrome'], baseURL: engineBaseURL },
+    },
+    {
+      name: 'v6',
+      // V6 live full-stack E2E (plan §3 e13): a standing mw-server in PROXY mode
+      // backed by REAL postgres:16 + valkey:8 (not SQLite/in-memory), driving the
+      // admin / OAuth+scoped-API-key / MCP / zero-access / cache-posture surfaces
+      // per capability. Unlike the engine projects these specs use Playwright's
+      // `request` fixture (a real HTTP client with a cookie jar) rather than page
+      // navigation; `baseURL` (MW_E2E_BASE_URL) points them at the live server the
+      // CI `e2e-v6` job builds + starts. The ciphertext-at-rest DIRECT Postgres
+      // query + SQLite⇄Postgres backend parity live in the Rust harness
+      // (crates/mw-server/tests/v6_e2e.rs), which the same job runs alongside.
+      testMatch: [
+        'admin.spec.ts',
+        'oauth-apikey.spec.ts',
+        'mcp.spec.ts',
+        'zeroaccess.spec.ts',
+        'cache-posture.spec.ts',
+      ],
+      use: { ...devices['Desktop Chrome'], baseURL: v6BaseURL },
     },
   ],
 });
