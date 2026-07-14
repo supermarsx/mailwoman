@@ -5,6 +5,7 @@
 import { createSignal, For, Show, onMount, type JSX } from 'solid-js';
 import { useAdmin } from './context.ts';
 import type { UserFeatureFlags, UserSummary } from '../../state/slices/admin.ts';
+import { t } from '../../i18n';
 import * as css from './admin.css.ts';
 
 export function Users(): JSX.Element {
@@ -21,7 +22,7 @@ export function Users(): JSX.Element {
       setUsers(await api.listUsers());
       setError(null);
     } catch {
-      setError('Could not load users');
+      setError(t('admin-users-load-error'));
     }
   }
   onMount(() => void reload());
@@ -38,7 +39,7 @@ export function Users(): JSX.Element {
       setUsername('');
       await reload();
     } catch {
-      setError('Could not provision the user');
+      setError(t('admin-users-provision-error'));
     }
   }
 
@@ -51,7 +52,7 @@ export function Users(): JSX.Element {
       }
       await reload();
     } catch {
-      setError('Could not update the flag');
+      setError(t('admin-users-flag-error'));
     }
   }
 
@@ -60,67 +61,72 @@ export function Users(): JSX.Element {
       await api.revokeSessions(u.accountId);
       await reload();
     } catch {
-      setError('Could not revoke sessions');
+      setError(t('admin-users-revoke-error'));
     }
   }
 
   return (
-    <section class={css.section} aria-label="Users">
-      <h2 class={css.heading}>Users</h2>
+    <section class={css.section} aria-label={t('admin-users-title')}>
+      <h2 class={css.heading}>{t('admin-users-title')}</h2>
       <Show when={error()}>
         <p class={css.error} role="alert">
           {error()}
         </p>
       </Show>
 
-      <form class={css.card} onSubmit={(e) => void onProvision(e)} aria-label="Provision user">
+      <form class={css.card} onSubmit={(e) => void onProvision(e)} aria-label={t('admin-users-provision')}>
         <div class={css.grid}>
           <label class="field">
-            <span>Username</span>
+            <span>{t('admin-users-username')}</span>
             <input type="text" value={username()} onInput={(e) => setUsername(e.currentTarget.value)} />
           </label>
           <label class="field">
-            <span>Domain</span>
-            <input type="text" value={domain()} placeholder="example.com" onInput={(e) => setDomain(e.currentTarget.value)} />
+            <span>{t('admin-users-domain')}</span>
+            <input
+              type="text"
+              value={domain()}
+              placeholder={t('admin-users-domain-placeholder')}
+              onInput={(e) => setDomain(e.currentTarget.value)}
+            />
           </label>
           <label class="field">
-            <span>Quota bytes (0 = unlimited)</span>
+            <span>{t('admin-users-quota-bytes')}</span>
             <input type="number" value={bytes()} onInput={(e) => setBytes(e.currentTarget.value)} />
           </label>
           <label class="field">
-            <span>Quota messages (0 = unlimited)</span>
+            <span>{t('admin-users-quota-msgs')}</span>
             <input type="number" value={msgs()} onInput={(e) => setMsgs(e.currentTarget.value)} />
           </label>
         </div>
         <button type="submit" class="btn btn--primary">
-          Provision user
+          {t('admin-users-provision')}
         </button>
       </form>
 
       <div class={css.card}>
-        <Show when={users().length > 0} fallback={<p class={css.note}>No users yet.</p>}>
+        <Show when={users().length > 0} fallback={<p class={css.note}>{t('admin-users-empty')}</p>}>
           <div class={css.tableWrap}>
             <table class={css.table}>
               <thead>
                 <tr>
-                  <th>Account</th>
-                  <th>Quota (bytes/msgs)</th>
-                  <th>Zero-access</th>
-                  <th>Flags</th>
-                  <th>Sessions</th>
+                  <th>{t('admin-users-col-account')}</th>
+                  <th>{t('admin-users-col-quota')}</th>
+                  <th>{t('admin-users-col-zeroaccess')}</th>
+                  <th>{t('admin-users-col-flags')}</th>
+                  <th>{t('admin-users-col-sessions')}</th>
                 </tr>
               </thead>
               <tbody>
                 <For each={users()}>
                   {(u) => (
                     <tr>
-                      <td>{u.accountId}</td>
+                      <td dir="auto">{u.accountId}</td>
                       <td>{u.quota ? `${u.quota.bytesLimit} / ${u.quota.msgLimit}` : '—'}</td>
                       <td>
                         <label class="field">
                           <input
                             type="checkbox"
-                            aria-label={`Zero-access for ${u.accountId}`}
+                            aria-label={t('admin-users-zeroaccess-for', { account: u.accountId })}
                             checked={u.flags.zeroAccess}
                             onChange={(e) => void patchFlag(u, 'zeroAccess', e.currentTarget.checked)}
                           />
@@ -130,39 +136,39 @@ export function Users(): JSX.Element {
                         <label class="field">
                           <input
                             type="checkbox"
-                            aria-label={`Disable ${u.accountId}`}
+                            aria-label={t('admin-users-disable-for', { account: u.accountId })}
                             checked={u.flags.disabled}
                             onChange={(e) => void patchFlag(u, 'disabled', e.currentTarget.checked)}
                           />{' '}
-                          disabled
+                          {t('admin-users-disabled')}
                         </label>
                         <label class="field">
                           <input
                             type="checkbox"
-                            aria-label={`Force password change for ${u.accountId}`}
+                            aria-label={t('admin-users-force-change-for', { account: u.accountId })}
                             checked={u.flags.forcePasswordChange}
                             onChange={(e) => void patchFlag(u, 'forcePasswordChange', e.currentTarget.checked)}
                           />{' '}
-                          force change
+                          {t('admin-users-force-change')}
                         </label>
                         <label class="field">
                           <input
                             type="checkbox"
-                            aria-label={`Remote cache wipe for ${u.accountId}`}
+                            aria-label={t('admin-users-cache-wipe-for', { account: u.accountId })}
                             checked={u.flags.remoteCacheWipe}
                             onChange={(e) => void patchFlag(u, 'remoteCacheWipe', e.currentTarget.checked)}
                           />{' '}
-                          cache wipe
+                          {t('admin-users-cache-wipe')}
                         </label>
                       </td>
                       <td>
                         <button
                           type="button"
                           class="btn btn--ghost"
-                          aria-label={`Revoke sessions for ${u.accountId}`}
+                          aria-label={t('admin-users-revoke-for', { account: u.accountId })}
                           onClick={() => void onRevoke(u)}
                         >
-                          Revoke
+                          {t('admin-revoke')}
                         </button>
                       </td>
                     </tr>

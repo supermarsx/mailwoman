@@ -5,6 +5,7 @@
 import { createSignal, For, Show, onMount, type JSX } from 'solid-js';
 import { useAdmin } from './context.ts';
 import type { AuditLogEntry, BanEntry, ObservabilityConfig } from '../../state/slices/admin.ts';
+import { t } from '../../i18n';
 import * as css from './admin.css.ts';
 
 const DEFAULT_OBS: ObservabilityConfig = {
@@ -32,7 +33,7 @@ export function Observability(): JSX.Element {
       setBans(b);
       setError(null);
     } catch {
-      setError('Could not load observability data');
+      setError(t('admin-obs-load-error'));
     }
   }
   onMount(() => void reload());
@@ -48,7 +49,7 @@ export function Observability(): JSX.Element {
       await api.setObservability(obs());
       setSaved(true);
     } catch {
-      setError('Could not save observability config');
+      setError(t('admin-obs-save-error'));
     }
   }
 
@@ -63,7 +64,7 @@ export function Observability(): JSX.Element {
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      setError('Could not export the audit log');
+      setError(t('admin-obs-export-error'));
     }
   }
 
@@ -76,7 +77,7 @@ export function Observability(): JSX.Element {
       setBanReason('');
       await reload();
     } catch {
-      setError('Could not add the ban');
+      setError(t('admin-obs-ban-add-error'));
     }
   }
 
@@ -85,31 +86,31 @@ export function Observability(): JSX.Element {
       await api.removeBan(ip);
       await reload();
     } catch {
-      setError('Could not remove the ban');
+      setError(t('admin-obs-unban-error'));
     }
   }
 
   return (
-    <section class={css.section} aria-label="Observability">
-      <h2 class={css.heading}>Observability</h2>
+    <section class={css.section} aria-label={t('admin-obs-title')}>
+      <h2 class={css.heading}>{t('admin-obs-title')}</h2>
       <Show when={error()}>
         <p class={css.error} role="alert">
           {error()}
         </p>
       </Show>
 
-      <form class={css.card} onSubmit={(e) => void onSaveConfig(e)} aria-label="Logging and telemetry">
+      <form class={css.card} onSubmit={(e) => void onSaveConfig(e)} aria-label={t('admin-obs-config')}>
         <div class={css.grid}>
           <label class="field">
-            <span>Log level</span>
+            <span>{t('admin-obs-log-level')}</span>
             <input type="text" value={obs().logLevel} onInput={(e) => patch('logLevel', e.currentTarget.value)} />
           </label>
           <label class="field">
-            <span>OTLP DSN</span>
+            <span>{t('admin-obs-otlp')}</span>
             <input
               type="text"
               value={obs().otlpDsn ?? ''}
-              placeholder="https://otlp.example.org"
+              placeholder={t('admin-obs-otlp-placeholder')}
               onInput={(e) => patch('otlpDsn', e.currentTarget.value === '' ? null : e.currentTarget.value)}
             />
           </label>
@@ -118,37 +119,37 @@ export function Observability(): JSX.Element {
           <input
             type="checkbox"
             checked={obs().metricsEnabled}
-            aria-label="Enable Prometheus metrics endpoint"
+            aria-label={t('admin-obs-metrics-label')}
             onChange={(e) => patch('metricsEnabled', e.currentTarget.checked)}
           />{' '}
-          Enable auth-gated Prometheus /metrics
+          {t('admin-obs-metrics')}
         </label>
         <button type="submit" class="btn btn--primary">
-          Save telemetry
+          {t('admin-obs-save')}
         </button>
         <Show when={saved()}>
           <p class={css.note} role="status">
-            Saved.
+            {t('admin-saved')}
           </p>
         </Show>
       </form>
 
       <div class={css.card}>
         <div style={{ display: 'flex', 'justify-content': 'space-between', 'align-items': 'center' }}>
-          <h3 class={css.heading}>Audit log</h3>
+          <h3 class={css.heading}>{t('admin-obs-audit')}</h3>
           <button type="button" class="btn btn--ghost" onClick={() => void onExport()}>
-            Export JSONL
+            {t('admin-obs-export')}
           </button>
         </div>
-        <Show when={audit().length > 0} fallback={<p class={css.note}>No audit entries.</p>}>
+        <Show when={audit().length > 0} fallback={<p class={css.note}>{t('admin-obs-audit-empty')}</p>}>
           <div class={css.tableWrap}>
             <table class={css.table}>
               <thead>
                 <tr>
-                  <th>Time</th>
-                  <th>Actor</th>
-                  <th>Action</th>
-                  <th>Target</th>
+                  <th>{t('admin-obs-col-time')}</th>
+                  <th>{t('admin-obs-col-actor')}</th>
+                  <th>{t('admin-obs-col-action')}</th>
+                  <th>{t('admin-obs-col-target')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -157,10 +158,10 @@ export function Observability(): JSX.Element {
                     <tr>
                       <td class={css.mono}>{a.ts}</td>
                       <td>
-                        {a.actor} <span class={css.badge}>{a.actorKind}</span>
+                        <span dir="auto">{a.actor}</span> <span class={css.badge}>{a.actorKind}</span>
                       </td>
-                      <td>{a.action}</td>
-                      <td>{a.target ?? '—'}</td>
+                      <td dir="auto">{a.action}</td>
+                      <td dir="auto">{a.target ?? '—'}</td>
                     </tr>
                   )}
                 </For>
@@ -171,29 +172,39 @@ export function Observability(): JSX.Element {
       </div>
 
       <div class={css.card}>
-        <h3 class={css.heading}>Login monitor / ban list</h3>
-        <form onSubmit={(e) => void onAddBan(e)} aria-label="Add ban" class={css.grid}>
+        <h3 class={css.heading}>{t('admin-obs-bans')}</h3>
+        <form onSubmit={(e) => void onAddBan(e)} aria-label={t('admin-obs-ban-add')} class={css.grid}>
           <label class="field">
-            <span>IP address</span>
+            <span>{t('admin-obs-ban-ip')}</span>
             <input type="text" value={banIp()} onInput={(e) => setBanIp(e.currentTarget.value)} />
           </label>
           <label class="field">
-            <span>Reason</span>
+            <span>{t('admin-obs-ban-reason')}</span>
             <input type="text" value={banReason()} onInput={(e) => setBanReason(e.currentTarget.value)} />
           </label>
           <button type="submit" class="btn btn--primary">
-            Ban IP
+            {t('admin-obs-ban-btn')}
           </button>
         </form>
-        <Show when={bans().length > 0} fallback={<p class={css.note}>No active bans.</p>}>
+        <Show when={bans().length > 0} fallback={<p class={css.note}>{t('admin-obs-bans-empty')}</p>}>
           <For each={bans()}>
             {(b) => (
               <div class={css.listRow}>
                 <div>
-                  <span class={css.mono}>{b.ip}</span> <span class={css.note}>{b.reason}</span>
+                  <span class={css.mono} dir="auto">
+                    {b.ip}
+                  </span>{' '}
+                  <span class={css.note} dir="auto">
+                    {b.reason}
+                  </span>
                 </div>
-                <button type="button" class="btn btn--ghost" aria-label={`Unban ${b.ip}`} onClick={() => void onUnban(b.ip)}>
-                  Unban
+                <button
+                  type="button"
+                  class="btn btn--ghost"
+                  aria-label={t('admin-obs-unban-for', { ip: b.ip })}
+                  onClick={() => void onUnban(b.ip)}
+                >
+                  {t('admin-obs-unban-btn')}
                 </button>
               </div>
             )}

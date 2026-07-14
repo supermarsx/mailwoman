@@ -5,6 +5,7 @@
 import { createSignal, Show, onMount, type JSX } from 'solid-js';
 import { useAdmin } from './context.ts';
 import type { Appearance as AppearanceCfg } from '../../state/slices/admin.ts';
+import { t } from '../../i18n';
 import * as css from './admin.css.ts';
 
 const THEMES = ['light', 'dark', 'hc-light', 'hc-dark', 'amoled', 'grove-light', 'grove-dark'] as const;
@@ -22,7 +23,7 @@ export function Appearance(): JSX.Element {
       try {
         setCfg(await api.getAppearance());
       } catch {
-        setError('Could not load appearance');
+        setError(t('admin-appearance-load-error'));
       }
     })();
   });
@@ -39,13 +40,13 @@ export function Appearance(): JSX.Element {
       setSaved(true);
       setError(null);
     } catch {
-      setError('Could not save appearance');
+      setError(t('admin-appearance-save-error'));
     }
   }
 
   return (
-    <section class={css.section} aria-label="Appearance">
-      <h2 class={css.heading}>Appearance</h2>
+    <section class={css.section} aria-label={t('admin-appearance-title')}>
+      <h2 class={css.heading}>{t('admin-appearance-title')}</h2>
       <Show when={error()}>
         <p class={css.error} role="alert">
           {error()}
@@ -54,32 +55,32 @@ export function Appearance(): JSX.Element {
 
       <form class={css.card} onSubmit={(e) => void onSave(e)}>
         <label class="field">
-          <span>Brand name</span>
+          <span>{t('admin-appearance-brand')}</span>
           <input type="text" value={cfg().brandName} onInput={(e) => patch('brandName', e.currentTarget.value)} />
         </label>
         <label class="field">
-          <span>Default theme</span>
+          <span>{t('admin-appearance-theme')}</span>
           <select value={cfg().theme} onChange={(e) => patch('theme', e.currentTarget.value)}>
-            {THEMES.map((t) => (
-              <option value={t}>{t}</option>
+            {THEMES.map((name) => (
+              <option value={name}>{name}</option>
             ))}
           </select>
         </label>
         <label class="field">
-          <span>Accent (hex, optional)</span>
+          <span>{t('admin-appearance-accent')}</span>
           <input
             type="text"
             value={cfg().accent ?? ''}
-            placeholder="#6d8a4e"
+            placeholder={t('admin-appearance-accent-placeholder')}
             onInput={(e) => patch('accent', e.currentTarget.value === '' ? null : e.currentTarget.value)}
           />
         </label>
         <button type="submit" class="btn btn--primary">
-          Save appearance
+          {t('admin-appearance-save')}
         </button>
         <Show when={saved()}>
           <p class={css.note} role="status">
-            Saved.
+            {t('admin-saved')}
           </p>
         </Show>
       </form>

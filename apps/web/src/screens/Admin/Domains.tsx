@@ -4,6 +4,7 @@
 import { createSignal, For, Show, onMount, type JSX } from 'solid-js';
 import { useAdmin } from './context.ts';
 import type { Domain } from '../../state/slices/admin.ts';
+import { t } from '../../i18n';
 import * as css from './admin.css.ts';
 
 function parseList(raw: string): string[] {
@@ -27,7 +28,7 @@ export function Domains(): JSX.Element {
       setDomains(await api.listDomains());
       setError(null);
     } catch {
-      setError('Could not load domains');
+      setError(t('admin-domains-load-error'));
     }
   }
   onMount(() => void reload());
@@ -48,7 +49,7 @@ export function Domains(): JSX.Element {
       setUpstream('{}');
       await reload();
     } catch {
-      setError('Could not save the domain');
+      setError(t('admin-domains-save-error'));
     }
   }
 
@@ -57,64 +58,79 @@ export function Domains(): JSX.Element {
       await api.deleteDomain(domainName);
       await reload();
     } catch {
-      setError('Could not delete the domain');
+      setError(t('admin-domains-delete-error'));
     }
   }
 
   return (
-    <section class={css.section} aria-label="Domains">
-      <h2 class={css.heading}>Domains</h2>
+    <section class={css.section} aria-label={t('admin-domains-title')}>
+      <h2 class={css.heading}>{t('admin-domains-title')}</h2>
       <Show when={error()}>
         <p class={css.error} role="alert">
           {error()}
         </p>
       </Show>
 
-      <form class={css.card} onSubmit={(e) => void onCreate(e)} aria-label="Add domain">
+      <form class={css.card} onSubmit={(e) => void onCreate(e)} aria-label={t('admin-domains-add')}>
         <label class="field">
-          <span>Domain name</span>
-          <input type="text" value={name()} placeholder="example.com" onInput={(e) => setName(e.currentTarget.value)} />
+          <span>{t('admin-domains-name')}</span>
+          <input
+            type="text"
+            value={name()}
+            placeholder={t('admin-domains-name-placeholder')}
+            onInput={(e) => setName(e.currentTarget.value)}
+          />
         </label>
         <label class="field">
-          <span>Upstream (JSON)</span>
+          <span>{t('admin-domains-upstream')}</span>
           <textarea value={upstream()} rows={2} onInput={(e) => setUpstream(e.currentTarget.value)} />
         </label>
         <div class={css.grid}>
           <label class="field">
-            <span>Allowlist</span>
-            <textarea value={allow()} rows={2} placeholder="one per line" onInput={(e) => setAllow(e.currentTarget.value)} />
+            <span>{t('admin-domains-allowlist')}</span>
+            <textarea
+              value={allow()}
+              rows={2}
+              placeholder={t('admin-domains-one-per-line')}
+              onInput={(e) => setAllow(e.currentTarget.value)}
+            />
           </label>
           <label class="field">
-            <span>Blocklist</span>
-            <textarea value={block()} rows={2} placeholder="one per line" onInput={(e) => setBlock(e.currentTarget.value)} />
+            <span>{t('admin-domains-blocklist')}</span>
+            <textarea
+              value={block()}
+              rows={2}
+              placeholder={t('admin-domains-one-per-line')}
+              onInput={(e) => setBlock(e.currentTarget.value)}
+            />
           </label>
         </div>
         <button type="submit" class="btn btn--primary">
-          Save domain
+          {t('admin-domains-save')}
         </button>
       </form>
 
       <div class={css.card}>
-        <Show when={domains().length > 0} fallback={<p class={css.note}>No domains yet.</p>}>
+        <Show when={domains().length > 0} fallback={<p class={css.note}>{t('admin-domains-empty')}</p>}>
           <For each={domains()}>
             {(d) => (
               <div class={css.listRow}>
                 <div>
-                  <strong>{d.name}</strong>
+                  <strong dir="auto">{d.name}</strong>
                   <Show when={d.allowlist.length + d.blocklist.length > 0}>
                     <span class={css.note}>
                       {' '}
-                      ({d.allowlist.length} allow / {d.blocklist.length} block)
+                      {t('admin-domains-counts', { allow: d.allowlist.length, block: d.blocklist.length })}
                     </span>
                   </Show>
                 </div>
                 <button
                   type="button"
                   class="btn btn--ghost"
-                  aria-label={`Delete ${d.name}`}
+                  aria-label={t('admin-domains-delete-for', { name: d.name })}
                   onClick={() => void onDelete(d.name)}
                 >
-                  Delete
+                  {t('admin-delete')}
                 </button>
               </div>
             )}

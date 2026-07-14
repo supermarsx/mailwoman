@@ -25,6 +25,16 @@ describe('AdminScreen (gate + nav)', () => {
     expect(await screen.findByRole('region', { name: 'Observability' })).toBeInTheDocument();
   });
 
+  it('the section nav is keyboard operable via arrow keys (roving tabindex)', async () => {
+    render(() => <AdminScreen api={mockAdminApi()} />);
+    const domains = await screen.findByRole('button', { name: 'Domains' });
+    const nav = domains.closest('nav');
+    expect(nav).not.toBeNull();
+    domains.focus();
+    fireEvent.keyDown(nav!, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Users' }));
+  });
+
   it('signs in from the gate', async () => {
     let signedIn = false;
     const api = mockAdminApi({

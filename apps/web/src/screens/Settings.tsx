@@ -3,8 +3,10 @@
 // every control writes straight through the slice, which reflects onto :root and
 // persists to localStorage (V2). Token-native styling (styles/settings.css.ts).
 
-import { For, Show, type JSX } from 'solid-js';
+import { For, onMount, Show, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
+import { t, loadCatalog } from '../i18n';
+import { createFocusTrap } from '../components/a11y';
 import { ServerSettings } from '../platform/ServerSettings.tsx';
 // V6 (plan §3 e8/e11): the zero-access storage, scoped API-key, and MCP-key
 // sections — additive, rendered only for an authenticated account. The normal
@@ -19,22 +21,23 @@ import type { Density } from '../theme/contract.css.ts';
 import type { LayoutMode, UiFont } from '../state/slices/theme.ts';
 import * as css from '../styles/settings.css.ts';
 
+// Option labels are Fluent ids resolved through `t()` at render (reactive).
 const DENSITY_OPTIONS: ReadonlyArray<{ value: Density; label: string }> = [
-  { value: 'compact', label: 'Compact' },
-  { value: 'cozy', label: 'Cozy' },
-  { value: 'relaxed', label: 'Relaxed' },
+  { value: 'compact', label: 'settings-density-compact' },
+  { value: 'cozy', label: 'settings-density-cozy' },
+  { value: 'relaxed', label: 'settings-density-relaxed' },
 ];
 
 const FONT_OPTIONS: ReadonlyArray<{ value: UiFont; label: string }> = [
-  { value: 'default', label: 'Default' },
-  { value: 'system', label: 'System' },
-  { value: 'serif', label: 'Serif' },
-  { value: 'mono', label: 'Mono' },
+  { value: 'default', label: 'settings-font-default' },
+  { value: 'system', label: 'settings-font-system' },
+  { value: 'serif', label: 'settings-font-serif' },
+  { value: 'mono', label: 'settings-font-mono' },
 ];
 
 const LAYOUT_OPTIONS: ReadonlyArray<{ value: LayoutMode; label: string }> = [
-  { value: 'default', label: 'Default' },
-  { value: 'ribbon', label: 'Ribbon' },
+  { value: 'default', label: 'settings-layout-default' },
+  { value: 'ribbon', label: 'settings-layout-ribbon' },
 ];
 
 export interface SettingsProps {
@@ -43,28 +46,33 @@ export interface SettingsProps {
 
 export function Settings(props: SettingsProps): JSX.Element {
   const app = useApp();
+  let panel!: HTMLElement;
+  onMount(() => void loadCatalog('settings'));
+  // Modal focus management: trap Tab inside the panel, restore focus to the
+  // opener on close, and close on Esc (WCAG 2.2 — dialog pattern).
+  createFocusTrap(() => panel, { onEscape: () => props.onClose() });
 
   return (
     <div
       class="compose__backdrop"
       role="dialog"
       aria-modal="true"
-      aria-label="Settings"
+      aria-label={t('settings-title')}
       onClick={(e) => {
         if (e.target === e.currentTarget) props.onClose();
       }}
     >
-      <section class={css.panel}>
+      <section ref={panel} class={css.panel} tabindex="-1">
         <header class={css.header}>
-          <h2>Appearance</h2>
-          <button type="button" class="btn btn--ghost" aria-label="Close settings" onClick={() => props.onClose()}>
+          <h2>{t('settings-appearance')}</h2>
+          <button type="button" class="btn btn--ghost" aria-label={t('settings-close')} onClick={() => props.onClose()}>
             ✕
           </button>
         </header>
 
         <div class={css.row}>
           <span class={css.label} id="settings-theme">
-            Theme
+            {t('settings-theme')}
           </span>
           <div class={css.options} role="group" aria-labelledby="settings-theme">
             <For each={THEME_OPTIONS}>
@@ -84,7 +92,7 @@ export function Settings(props: SettingsProps): JSX.Element {
 
         <div class={css.row}>
           <span class={css.label} id="settings-density">
-            Density
+            {t('settings-density')}
           </span>
           <div class={css.options} role="group" aria-labelledby="settings-density">
             <For each={DENSITY_OPTIONS}>
@@ -95,7 +103,7 @@ export function Settings(props: SettingsProps): JSX.Element {
                   aria-pressed={app.density() === o.value}
                   onClick={() => app.setDensity(o.value)}
                 >
-                  {o.label}
+                  {t(o.label)}
                 </button>
               )}
             </For>
@@ -104,7 +112,7 @@ export function Settings(props: SettingsProps): JSX.Element {
 
         <div class={css.row}>
           <span class={css.label} id="settings-accent">
-            Accent
+            {t('settings-accent')}
           </span>
           <div class={css.options} role="group" aria-labelledby="settings-accent">
             <For each={ACCENT_PRESETS}>
@@ -135,7 +143,7 @@ export function Settings(props: SettingsProps): JSX.Element {
 
         <div class={css.row}>
           <span class={css.label} id="settings-font">
-            Interface font
+            {t('settings-font')}
           </span>
           <div class={css.options} role="group" aria-labelledby="settings-font">
             <For each={FONT_OPTIONS}>
@@ -146,7 +154,7 @@ export function Settings(props: SettingsProps): JSX.Element {
                   aria-pressed={app.uiFont() === o.value}
                   onClick={() => app.setUiFont(o.value)}
                 >
-                  {o.label}
+                  {t(o.label)}
                 </button>
               )}
             </For>
@@ -155,7 +163,7 @@ export function Settings(props: SettingsProps): JSX.Element {
 
         <div class={css.row}>
           <span class={css.label} id="settings-layout">
-            Layout
+            {t('settings-layout')}
           </span>
           <div class={css.options} role="group" aria-labelledby="settings-layout">
             <For each={LAYOUT_OPTIONS}>
@@ -166,7 +174,7 @@ export function Settings(props: SettingsProps): JSX.Element {
                   aria-pressed={app.layout() === o.value}
                   onClick={() => app.setLayout(o.value)}
                 >
-                  {o.label}
+                  {t(o.label)}
                 </button>
               )}
             </For>

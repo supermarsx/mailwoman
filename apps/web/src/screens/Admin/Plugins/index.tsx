@@ -9,7 +9,7 @@
 // e14 mounts it under /admin). It takes an injected `PluginsSlice` so it is unit-testable
 // and reused by whatever admin shell e14 builds.
 
-import { createEffect, For, Show, type JSX } from 'solid-js';
+import { createEffect, For, onMount, Show, type JSX } from 'solid-js';
 import {
   createPluginsSlice,
   createHttpPluginsApi,
@@ -17,6 +17,7 @@ import {
   type PluginsSlice,
   type PluginInfo,
 } from '../../../state/slices/plugins.ts';
+import { t, loadCatalog } from '../../../i18n';
 import * as css from './styles.css.ts';
 
 export interface AdminPluginsProps {
@@ -33,19 +34,17 @@ export const UNSIGNED_BANNER =
 export function AdminPlugins(props: AdminPluginsProps): JSX.Element {
   const slice = props.slice ?? createPluginsSlice(props.api ?? createHttpPluginsApi());
 
+  onMount(() => void loadCatalog('admin'));
   // Load once on mount (idempotent; e14 may also pre-load).
   createEffect(() => {
     void slice.load();
   });
 
   return (
-    <section class={css.screen} data-screen="admin-plugins" aria-label="Plugins">
+    <section class={css.screen} data-screen="admin-plugins" aria-label={t('admin-plugins-title')}>
       <div>
-        <h2 class={css.heading}>Plugins</h2>
-        <p class={css.prose}>
-          Engine plugins run in a capability-gated WebAssembly sandbox. Approve a plugin before it
-          can be enabled, and grant only the capabilities it needs.
-        </p>
+        <h2 class={css.heading}>{t('admin-plugins-title')}</h2>
+        <p class={css.prose}>{t('admin-plugins-intro')}</p>
       </div>
 
       <Show when={slice.hasUnsignedEnabled()}>
@@ -55,7 +54,7 @@ export function AdminPlugins(props: AdminPluginsProps): JSX.Element {
       </Show>
 
       <Show when={!slice.loading() && slice.plugins().length === 0}>
-        <p class={css.meta}>No plugins are registered.</p>
+        <p class={css.meta}>{t('admin-plugins-empty')}</p>
       </Show>
 
       <ul class={css.list}>
@@ -74,33 +73,33 @@ function PluginCard(props: { plugin: PluginInfo; slice: PluginsSlice }): JSX.Ele
       <div class={css.cardHead}>
         <div>
           <p class={css.title}>
-            {p().name} <span class={css.meta}>v{p().version}</span>
+            <span dir="auto">{p().name}</span> <span class={css.meta}>{t('admin-plugins-version', { version: p().version })}</span>
           </p>
           <div class={css.row}>
             <Show
               when={p().signed}
               fallback={
                 <span class={`${css.chip} ${css.unsignedChip}`} data-testid="sig-chip">
-                  Unsigned
+                  {t('admin-plugins-unsigned')}
                 </span>
               }
             >
               <span class={`${css.chip} ${css.signedChip}`} data-testid="sig-chip">
-                Signed
+                {t('admin-plugins-signed')}
               </span>
             </Show>
             <Show when={p().approved}>
-              <span class={css.chip}>Approved</span>
+              <span class={css.chip}>{t('admin-plugins-approved')}</span>
             </Show>
             <Show when={p().enabled}>
-              <span class={css.chip}>Enabled</span>
+              <span class={css.chip}>{t('admin-plugins-enabled')}</span>
             </Show>
           </div>
         </div>
         <div class={css.row}>
           <Show when={!p().approved}>
             <button type="button" class={css.button} onClick={() => void slice.approve(p().id)}>
-              Approve
+              {t('admin-plugins-approve')}
             </button>
           </Show>
           <Show when={p().approved && !p().enabled}>
@@ -110,12 +109,12 @@ function PluginCard(props: { plugin: PluginInfo; slice: PluginsSlice }): JSX.Ele
               disabled={!p().signed && !p().allowUnsigned}
               onClick={() => void slice.enable(p().id)}
             >
-              Enable
+              {t('admin-plugins-enable')}
             </button>
           </Show>
           <Show when={p().enabled}>
             <button type="button" class={css.danger} onClick={() => void slice.disable(p().id)}>
-              Disable
+              {t('admin-plugins-disable')}
             </button>
           </Show>
         </div>
@@ -132,22 +131,27 @@ function PluginCard(props: { plugin: PluginInfo; slice: PluginsSlice }): JSX.Ele
       </div>
 
       <Show when={p().netAllowlist.length > 0}>
-        <p class={css.limits}>net: {p().netAllowlist.join(', ')}</p>
+        <p class={css.limits}>{t('admin-plugins-net', { hosts: p().netAllowlist.join(', ') })}</p>
       </Show>
       <p class={css.limits}>
-        limits: {p().limits.memoryMb} MiB · {p().limits.deadlineMs} ms
-        {p().limits.fuel !== null ? ` · ${p().limits.fuel} fuel` : ''}
+        {p().limits.fuel !== null
+          ? t('admin-plugins-limits-fuel', {
+              memory: p().limits.memoryMb,
+              deadline: p().limits.deadlineMs,
+              fuel: p().limits.fuel ?? 0,
+            })
+          : t('admin-plugins-limits', { memory: p().limits.memoryMb, deadline: p().limits.deadlineMs })}
       </p>
 
       <Show when={!p().signed}>
         <label class={css.check} data-testid="allow-unsigned">
           <input
             type="checkbox"
-            aria-label={`Allow unsigned plugin ${p().name}`}
+            aria-label={t('admin-plugins-allow-unsigned-for', { name: p().name })}
             checked={p().allowUnsigned}
             onChange={(e) => void slice.setAllowUnsigned(p().id, e.currentTarget.checked)}
           />
-          <span>Allow this unsigned plugin to run</span>
+          <span>{t('admin-plugins-allow-unsigned')}</span>
         </label>
       </Show>
     </li>

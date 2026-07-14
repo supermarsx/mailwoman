@@ -1,9 +1,11 @@
-import { createSignal, Show, type JSX } from 'solid-js';
+import { createSignal, onMount, Show, type JSX } from 'solid-js';
 import { ApiError } from '../api/client.ts';
 import { useApp } from '../state/context.ts';
+import { t, loadCatalog } from '../i18n';
 
 export function Login(): JSX.Element {
   const app = useApp();
+  onMount(() => void loadCatalog('auth'));
   const [jmapUrl, setJmapUrl] = createSignal('');
   const [username, setUsername] = createSignal('');
   const [password, setPassword] = createSignal('');
@@ -18,9 +20,9 @@ export function Login(): JSX.Element {
       await app.login({ jmapUrl: jmapUrl(), username: username(), password: password() });
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
-        setError('Invalid credentials');
+        setError(t('auth-invalid-credentials'));
       } else {
-        setError('Could not reach the server');
+        setError(t('auth-unreachable'));
       }
     } finally {
       setBusy(false);
@@ -29,20 +31,20 @@ export function Login(): JSX.Element {
 
   return (
     <main class="login">
-      <form class="login__card" onSubmit={(e) => void onSubmit(e)}>
-        <h1 class="login__title">Mailwoman</h1>
+      <form class="login__card" onSubmit={(e) => void onSubmit(e)} aria-label={t('auth-sign-in')}>
+        <h1 class="login__title">{t('auth-app-name')}</h1>
         <label class="field">
-          <span>JMAP server URL</span>
+          <span>{t('auth-jmap-url')}</span>
           <input
             type="url"
             required
-            placeholder="https://jmap.example.org"
+            placeholder={t('auth-jmap-url-placeholder')}
             value={jmapUrl()}
             onInput={(e) => setJmapUrl(e.currentTarget.value)}
           />
         </label>
         <label class="field">
-          <span>Username</span>
+          <span>{t('auth-username')}</span>
           <input
             type="text"
             required
@@ -52,7 +54,7 @@ export function Login(): JSX.Element {
           />
         </label>
         <label class="field">
-          <span>Password</span>
+          <span>{t('auth-password')}</span>
           <input
             type="password"
             required
@@ -67,9 +69,9 @@ export function Login(): JSX.Element {
           </p>
         </Show>
         <button type="submit" class="btn btn--primary" disabled={busy()}>
-          {busy() ? 'Signing in…' : 'Sign in'}
+          {busy() ? t('auth-signing-in') : t('auth-sign-in')}
         </button>
-        <p class="login__hint">Mock account: testuser@example.org / testpass</p>
+        <p class="login__hint">{t('auth-mock-hint')}</p>
       </form>
     </main>
   );

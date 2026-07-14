@@ -11,16 +11,17 @@
 // Appearance). Component tests inject a mock `AdminApi` via the `api` prop; the
 // production default is the same-origin HTTP client.
 
-import { For, Show, Suspense, onMount, type JSX } from 'solid-js';
+import { createSignal, For, Show, Suspense, onMount, type JSX } from 'solid-js';
 import { Dynamic } from 'solid-js/web';
 import {
   ADMIN_SECTIONS,
-  ADMIN_SECTION_LABELS,
   createAdminSlice,
   createHttpAdminApi,
   type AdminApi,
   type AdminSection,
 } from '../../state/slices/admin.ts';
+import { t, loadCatalog } from '../../i18n';
+import { createRovingTabindex } from '../../components/a11y';
 import { AdminContext } from './context.ts';
 import { AdminLogin } from './AdminLogin.tsx';
 import { Domains } from './Domains.tsx';
@@ -32,6 +33,18 @@ import { Appearance } from './Appearance.tsx';
 import { AdminPlugins } from './Plugins/index.tsx';
 import { AdminAssist } from './Assist/index.tsx';
 import * as css from './admin.css.ts';
+
+/** Localised nav labels per section (the source labels live in admin.ftl). */
+const NAV_LABEL: Record<AdminSection, () => string> = {
+  domains: () => t('admin-nav-domains'),
+  users: () => t('admin-nav-users'),
+  security: () => t('admin-nav-security'),
+  integrations: () => t('admin-nav-integrations'),
+  observability: () => t('admin-nav-observability'),
+  appearance: () => t('admin-nav-appearance'),
+  plugins: () => t('admin-nav-plugins'),
+  assist: () => t('admin-nav-assist'),
+};
 
 /** The section → component map (§19 + V7 plugins/assist, plan §3 e14). */
 const SECTION_VIEWS: Record<AdminSection, () => JSX.Element> = {
@@ -53,33 +66,42 @@ export interface AdminScreenProps {
 
 export function AdminScreen(props: AdminScreenProps): JSX.Element {
   const admin = createAdminSlice(props.api ?? createHttpAdminApi());
+  // Reactive ref: the nav is behind an async session gate, so a plain `let` would
+  // still be undefined when the roving effect first runs. A signal re-runs it when
+  // the nav actually mounts.
+  const [navEl, setNavEl] = createSignal<HTMLElement>();
   onMount(() => void admin.loadSession());
+  onMount(() => void loadCatalog('admin'));
+  // Roving-tabindex nav: one Tab lands on the current section, arrows move
+  // between sections (WAI-ARIA vertical nav pattern).
+  createRovingTabindex(navEl, { orientation: 'vertical' });
 
   return (
     <AdminContext.Provider value={admin}>
-      <Show when={admin.sessionChecked()} fallback={<div class={css.gate}>Loading…</div>}>
+      <Show when={admin.sessionChecked()} fallback={<div class={css.gate}>{t('common-loading')}</div>}>
         <Show when={admin.session() !== null} fallback={<AdminLogin />}>
           <div class={css.shell} data-screen="admin">
-            <nav class={css.sidebar} aria-label="Admin sections">
-              <span class={css.brand}>Mailwoman admin</span>
+            <nav ref={setNavEl} class={css.sidebar} aria-label={t('admin-nav')}>
+              <span class={css.brand}>{t('admin-brand')}</span>
               <For each={ADMIN_SECTIONS}>
                 {(s) => (
                   <button
                     type="button"
                     class={css.navItem}
+                    data-roving-item
                     aria-current={admin.section() === s}
                     onClick={() => admin.setSection(s)}
                   >
-                    {ADMIN_SECTION_LABELS[s]}
+                    {NAV_LABEL[s]()}
                   </button>
                 )}
               </For>
               <button type="button" class="btn btn--ghost" onClick={() => void admin.logout()}>
-                Sign out
+                {t('admin-sign-out')}
               </button>
             </nav>
             <main class={css.main}>
-              <Suspense fallback={<div class={css.note}>Loading…</div>}>
+              <Suspense fallback={<div class={css.note}>{t('common-loading')}</div>}>
                 <Dynamic component={SECTION_VIEWS[admin.section()]} />
               </Suspense>
             </main>

@@ -86,11 +86,17 @@ export const grant = style({
   color: vars.color.accentText,
   borderRadius: vars.radius.md,
   cursor: 'pointer',
+  // WCAG 2.2 §2.5.8 — minimum 24×24 CSS-px target.
+  minHeight: vars.a11y.touchTarget,
   padding: `${vars.space[2]} ${vars.space[5]}`,
   font: 'inherit',
   fontSize: '0.9rem',
   fontWeight: 600,
-  selectors: { '&:disabled': { opacity: 0.5, cursor: 'not-allowed' } },
+  selectors: {
+    '&:disabled': { opacity: 0.5, cursor: 'not-allowed' },
+    // WCAG 2.2 §2.4.11/§2.4.13 — visible focus indicator.
+    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+  },
 });
 
 export const deny = style({
@@ -100,9 +106,13 @@ export const deny = style({
   color: vars.color.text,
   borderRadius: vars.radius.md,
   cursor: 'pointer',
+  minHeight: vars.a11y.touchTarget,
   padding: `${vars.space[2]} ${vars.space[5]}`,
   font: 'inherit',
   fontSize: '0.9rem',
+  selectors: {
+    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+  },
 });
 
 export const error = style({ fontSize: '0.85rem', color: vars.color.danger, margin: 0 });

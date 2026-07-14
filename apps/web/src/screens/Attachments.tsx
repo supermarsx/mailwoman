@@ -6,6 +6,7 @@
 // data as a `load` callback or preloaded `items`, so it is wireable AND testable.
 
 import { createMemo, createResource, createSignal, For, Show, type JSX } from 'solid-js';
+import { t } from '../i18n';
 import '../viewers/viewers.css';
 import {
   categoryOf,
@@ -34,6 +35,11 @@ const CATEGORIES: Array<TypeCategory | 'all'> = [
   'other',
 ];
 
+/** Localised label for a type-filter category (falls back to the raw key). */
+function catLabel(c: TypeCategory | 'all'): string {
+  return t(`common-attach-cat-${c}`);
+}
+
 export function Attachments(props: AttachmentsProps): JSX.Element {
   const [data] = createResource(async () =>
     props.load !== undefined ? await props.load() : (props.items ?? []),
@@ -50,34 +56,34 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
   });
 
   return (
-    <section class="mw-attach" aria-label="Attachments">
+    <section class="mw-attach" aria-label={t('common-attach-title')}>
       <header class="mw-attach__bar">
-        <h2 class="mw-attach__title">Attachments</h2>
+        <h2 class="mw-attach__title">{t('common-attach-title')}</h2>
         <input
           class="mw-attach__search"
           type="search"
-          placeholder="filename:report type:pdf larger:1mb from:alice"
-          aria-label="Search attachments"
+          placeholder={t('common-attach-search-placeholder')}
+          aria-label={t('common-attach-search')}
           value={query()}
           onInput={(e) => setQuery(e.currentTarget.value)}
         />
         <select
           class="mw-attach__cat"
-          aria-label="Filter by type"
+          aria-label={t('common-attach-filter-type')}
           value={cat()}
           onChange={(e) => setCat(e.currentTarget.value as TypeCategory | 'all')}
         >
-          <For each={CATEGORIES}>{(c) => <option value={c}>{c}</option>}</For>
+          <For each={CATEGORIES}>{(c) => <option value={c}>{catLabel(c)}</option>}</For>
         </select>
       </header>
 
       <Show
         when={!data.loading}
-        fallback={<p class="mw-attach__status">Loading attachments…</p>}
+        fallback={<p class="mw-attach__status">{t('common-attach-loading')}</p>}
       >
         <Show
           when={filtered().length > 0}
-          fallback={<p class="mw-attach__status">No attachments match.</p>}
+          fallback={<p class="mw-attach__status">{t('common-attach-empty')}</p>}
         >
           <ul class="mw-attach__grid">
             <For each={filtered()}>

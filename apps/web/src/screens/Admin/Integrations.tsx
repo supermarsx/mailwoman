@@ -5,6 +5,7 @@
 import { createSignal, For, Show, onMount, type JSX } from 'solid-js';
 import { useAdmin } from './context.ts';
 import type { ApiKeyInfo, IntegrationsConfig, WebhookInfo } from '../../state/slices/admin.ts';
+import { t } from '../../i18n';
 import * as css from './admin.css.ts';
 
 const DEFAULT_INTEGRATIONS: IntegrationsConfig = {
@@ -29,7 +30,7 @@ export function Integrations(): JSX.Element {
       setKeys(k);
       setError(null);
     } catch {
-      setError('Could not load integrations');
+      setError(t('admin-integrations-load-error'));
     }
   }
   onMount(() => void reload());
@@ -39,13 +40,13 @@ export function Integrations(): JSX.Element {
       await api.revokeApiKey(id);
       await reload();
     } catch {
-      setError('Could not revoke the key');
+      setError(t('admin-integrations-revoke-error'));
     }
   }
 
   return (
-    <section class={css.section} aria-label="Integrations">
-      <h2 class={css.heading}>Integrations</h2>
+    <section class={css.section} aria-label={t('admin-integrations-title')}>
+      <h2 class={css.heading}>{t('admin-integrations-title')}</h2>
       <Show when={error()}>
         <p class={css.error} role="alert">
           {error()}
@@ -54,27 +55,34 @@ export function Integrations(): JSX.Element {
 
       <div class={css.card}>
         <div class={css.listRow}>
-          <span>LDAP / GAL directory</span>
-          <span class={`${css.badge} ${css.badgeDeferred}`}>Deferred</span>
+          <span>{t('admin-integrations-ldap')}</span>
+          <span class={`${css.badge} ${css.badgeDeferred}`}>{t('admin-integrations-deferred')}</span>
         </div>
         <div class={css.listRow}>
-          <span>Nextcloud bridge</span>
-          <span class={`${css.badge} ${css.badgeDeferred}`}>Deferred</span>
+          <span>{t('admin-integrations-nextcloud')}</span>
+          <span class={`${css.badge} ${css.badgeDeferred}`}>{t('admin-integrations-deferred')}</span>
         </div>
-        <p class={css.note}>LDAP and Nextcloud are configuration surfaces only in this release; they are not yet wired.</p>
+        <p class={css.note}>{t('admin-integrations-deferred-note')}</p>
       </div>
 
       <div class={css.card}>
         <h3 class={css.heading}>
-          Webhooks <span class={css.badge}>{integrations().webhooks === 'active' ? 'Active' : 'Deferred'}</span>
+          {t('admin-integrations-webhooks')}{' '}
+          <span class={css.badge}>
+            {integrations().webhooks === 'active' ? t('admin-integrations-active') : t('admin-integrations-deferred')}
+          </span>
         </h3>
-        <Show when={webhooks().length > 0} fallback={<p class={css.note}>No webhooks registered.</p>}>
+        <Show when={webhooks().length > 0} fallback={<p class={css.note}>{t('admin-integrations-webhooks-empty')}</p>}>
           <For each={webhooks()}>
             {(w) => (
               <div class={css.listRow}>
                 <div>
-                  <div class={css.mono}>{w.url}</div>
-                  <span class={css.note}>{w.accountId}</span>
+                  <div class={css.mono} dir="auto">
+                    {w.url}
+                  </div>
+                  <span class={css.note} dir="auto">
+                    {w.accountId}
+                  </span>
                 </div>
               </div>
             )}
@@ -84,18 +92,20 @@ export function Integrations(): JSX.Element {
 
       <div class={css.card}>
         <h3 class={css.heading}>
-          API &amp; MCP keys{' '}
-          <span class={css.badge}>{integrations().apiKeyOversight === 'active' ? 'Active' : 'Deferred'}</span>
+          {t('admin-integrations-keys')}{' '}
+          <span class={css.badge}>
+            {integrations().apiKeyOversight === 'active' ? t('admin-integrations-active') : t('admin-integrations-deferred')}
+          </span>
         </h3>
-        <Show when={keys().length > 0} fallback={<p class={css.note}>No keys issued.</p>}>
+        <Show when={keys().length > 0} fallback={<p class={css.note}>{t('admin-integrations-keys-empty')}</p>}>
           <div class={css.tableWrap}>
             <table class={css.table}>
               <thead>
                 <tr>
-                  <th>Prefix</th>
-                  <th>Account</th>
-                  <th>Scopes</th>
-                  <th>Status</th>
+                  <th>{t('admin-integrations-col-prefix')}</th>
+                  <th>{t('admin-integrations-col-account')}</th>
+                  <th>{t('admin-integrations-col-scopes')}</th>
+                  <th>{t('admin-integrations-col-status')}</th>
                   <th />
                 </tr>
               </thead>
@@ -103,19 +113,27 @@ export function Integrations(): JSX.Element {
                 <For each={keys()}>
                   {(k) => (
                     <tr>
-                      <td class={css.mono}>{k.prefix}</td>
-                      <td>{k.accountId}</td>
-                      <td class={css.mono}>{k.scopesJson}</td>
-                      <td>{k.revokedAt !== null ? 'revoked' : 'active'}</td>
+                      <td class={css.mono} dir="auto">
+                        {k.prefix}
+                      </td>
+                      <td dir="auto">{k.accountId}</td>
+                      <td class={css.mono} dir="auto">
+                        {k.scopesJson}
+                      </td>
+                      <td>
+                        {k.revokedAt !== null
+                          ? t('admin-integrations-status-revoked')
+                          : t('admin-integrations-status-active')}
+                      </td>
                       <td>
                         <Show when={k.revokedAt === null}>
                           <button
                             type="button"
                             class="btn btn--ghost"
-                            aria-label={`Revoke key ${k.prefix}`}
+                            aria-label={t('admin-integrations-revoke-key', { prefix: k.prefix })}
                             onClick={() => void onRevokeKey(k.id)}
                           >
-                            Revoke
+                            {t('admin-revoke')}
                           </button>
                         </Show>
                       </td>

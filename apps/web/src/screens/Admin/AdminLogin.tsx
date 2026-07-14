@@ -6,6 +6,7 @@
 import { createSignal, Show, type JSX } from 'solid-js';
 import { useAdmin } from './context.ts';
 import { AdminApiError } from '../../state/slices/admin.ts';
+import { t } from '../../i18n';
 import * as css from './admin.css.ts';
 
 export function AdminLogin(): JSX.Element {
@@ -22,7 +23,11 @@ export function AdminLogin(): JSX.Element {
     try {
       await admin.login(username(), password());
     } catch (err) {
-      setError(err instanceof AdminApiError && err.status === 401 ? 'Invalid admin credentials' : 'Could not reach the server');
+      setError(
+        err instanceof AdminApiError && err.status === 401
+          ? t('admin-login-invalid')
+          : t('admin-login-unreachable'),
+      );
     } finally {
       setBusy(false);
     }
@@ -30,15 +35,15 @@ export function AdminLogin(): JSX.Element {
 
   return (
     <main class={css.gate}>
-      <form class={css.card} onSubmit={(e) => void onSubmit(e)} aria-label="Admin sign in">
-        <h1 class={css.heading}>Mailwoman admin</h1>
-        <p class={css.note}>This panel runs under a separate admin session.</p>
+      <form class={css.card} onSubmit={(e) => void onSubmit(e)} aria-label={t('admin-login-form')}>
+        <h1 class={css.heading}>{t('admin-brand')}</h1>
+        <p class={css.note}>{t('admin-login-note')}</p>
         <label class="field">
-          <span>Admin username</span>
+          <span>{t('admin-login-username')}</span>
           <input type="text" autocomplete="username" value={username()} onInput={(e) => setUsername(e.currentTarget.value)} />
         </label>
         <label class="field">
-          <span>Password</span>
+          <span>{t('admin-login-password')}</span>
           <input
             type="password"
             autocomplete="current-password"
@@ -52,7 +57,7 @@ export function AdminLogin(): JSX.Element {
           </p>
         </Show>
         <button type="submit" class="btn btn--primary" disabled={busy()}>
-          {busy() ? 'Signing in…' : 'Sign in'}
+          {busy() ? t('admin-login-signing-in') : t('admin-login-sign-in')}
         </button>
       </form>
     </main>

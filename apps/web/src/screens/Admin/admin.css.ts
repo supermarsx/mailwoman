@@ -32,18 +32,27 @@ export const brand = style({
 
 export const navItem = style({
   appearance: 'none',
-  textAlign: 'left',
+  textAlign: 'start',
   border: '1px solid transparent',
   background: 'transparent',
   color: vars.color.text,
   borderRadius: vars.radius.md,
   cursor: 'pointer',
+  // WCAG 2.2 §2.5.8 — interactive controls are at least 24×24 CSS px.
+  minHeight: vars.a11y.touchTarget,
   padding: `${vars.space[2]} ${vars.space[3]}`,
   font: 'inherit',
+  // Reduced-motion-aware: the token collapses to ~0 under prefers-reduced-motion.
+  transition: `background ${vars.a11y.motionDuration} ease`,
   selectors: {
     '&[aria-current="true"]': {
       background: vars.color.accent,
       color: vars.color.accentText,
+    },
+    // WCAG 2.2 §2.4.11/§2.4.13 — a visible, theme-tinted focus indicator.
+    '&:focus-visible': {
+      outline: 'none',
+      boxShadow: vars.a11y.focusRing,
     },
   },
 });
@@ -163,3 +172,23 @@ export const mono = style({
   whiteSpace: 'pre-wrap',
   wordBreak: 'break-all',
 });
+
+// ── Shared a11y layer (WCAG 2.2): focus-visible rings + 24×24 touch targets ────
+// The `.btn`/field controls come from the app-wide stylesheet; these scoped rules
+// layer a visible focus indicator + minimum target size over the admin panel and
+// its sign-in gate without editing that shared file.
+globalStyle(`${shell} .btn:focus-visible, ${gate} .btn:focus-visible`, {
+  outline: 'none',
+  boxShadow: vars.a11y.focusRing,
+});
+globalStyle(`${shell} .btn, ${gate} .btn`, {
+  minHeight: vars.a11y.touchTarget,
+});
+globalStyle(
+  `${shell} input:focus-visible, ${shell} textarea:focus-visible, ${shell} select:focus-visible, ` +
+    `${gate} input:focus-visible`,
+  {
+    outline: 'none',
+    boxShadow: vars.a11y.focusRing,
+  },
+);

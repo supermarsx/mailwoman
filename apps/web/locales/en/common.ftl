@@ -46,3 +46,19 @@ common-offline = You’re offline
 # -- Generic labels ----------------------------------------------------------
 common-required = Required
 common-optional = Optional
+
+# -- Attachments (global, cross-account view; rides the entry bundle so the
+#    account-wide attachments screen needs no extra catalog fetch) ------------
+common-attach-title = Attachments
+common-attach-search = Search attachments
+common-attach-search-placeholder = filename:report type:pdf larger:1mb from:alice
+common-attach-filter-type = Filter by type
+common-attach-loading = Loading attachments…
+common-attach-empty = No attachments match.
+common-attach-cat-all = all
+common-attach-cat-image = image
+common-attach-cat-pdf = pdf
+common-attach-cat-text = text
+common-attach-cat-audio = audio
+common-attach-cat-video = video
+common-attach-cat-other = other

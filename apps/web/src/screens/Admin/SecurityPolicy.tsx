@@ -4,6 +4,7 @@
 import { createSignal, Show, onMount, type JSX } from 'solid-js';
 import { useAdmin } from './context.ts';
 import type { SecurityPolicy as Policy } from '../../state/slices/admin.ts';
+import { t } from '../../i18n';
 import * as css from './admin.css.ts';
 
 const EMPTY: Policy = {
@@ -28,7 +29,7 @@ export function SecurityPolicy(): JSX.Element {
       try {
         setPolicy(await api.getSecurityPolicy());
       } catch {
-        setError('Could not load the security policy');
+        setError(t('admin-security-load-error'));
       }
     })();
   });
@@ -45,13 +46,13 @@ export function SecurityPolicy(): JSX.Element {
       setSaved(true);
       setError(null);
     } catch {
-      setError('Could not save the security policy');
+      setError(t('admin-security-save-error'));
     }
   }
 
   return (
-    <section class={css.section} aria-label="Security policy">
-      <h2 class={css.heading}>Security policy</h2>
+    <section class={css.section} aria-label={t('admin-security-title')}>
+      <h2 class={css.heading}>{t('admin-security-title')}</h2>
       <Show when={error()}>
         <p class={css.error} role="alert">
           {error()}
@@ -61,15 +62,15 @@ export function SecurityPolicy(): JSX.Element {
       <form class={css.card} onSubmit={(e) => void onSave(e)}>
         <div class={css.grid}>
           <label class="field">
-            <span>Minimum TLS</span>
+            <span>{t('admin-security-min-tls')}</span>
             <input type="text" value={policy().minTls} onInput={(e) => patch('minTls', e.currentTarget.value)} />
           </label>
           <label class="field">
-            <span>Capture policy</span>
+            <span>{t('admin-security-capture')}</span>
             <input type="text" value={policy().capturePolicy} onInput={(e) => patch('capturePolicy', e.currentTarget.value)} />
           </label>
           <label class="field">
-            <span>Argon2 memory cost (KiB)</span>
+            <span>{t('admin-security-argon-mem')}</span>
             <input
               type="number"
               value={policy().argon2MCost}
@@ -77,7 +78,7 @@ export function SecurityPolicy(): JSX.Element {
             />
           </label>
           <label class="field">
-            <span>Argon2 time cost</span>
+            <span>{t('admin-security-argon-time')}</span>
             <input
               type="number"
               value={policy().argon2TCost}
@@ -85,7 +86,7 @@ export function SecurityPolicy(): JSX.Element {
             />
           </label>
           <label class="field">
-            <span>Argon2 parallelism</span>
+            <span>{t('admin-security-argon-par')}</span>
             <input
               type="number"
               value={policy().argon2PCost}
@@ -94,33 +95,33 @@ export function SecurityPolicy(): JSX.Element {
           </label>
         </div>
         <label class="field">
-          <span>DLP rules (JSON)</span>
+          <span>{t('admin-security-dlp')}</span>
           <textarea value={policy().dlpRulesJson} rows={3} onInput={(e) => patch('dlpRulesJson', e.currentTarget.value)} />
         </label>
         <label class="field">
           <input
             type="checkbox"
             checked={policy().require2fa}
-            aria-label="Require two-factor authentication"
+            aria-label={t('admin-security-require-2fa-label')}
             onChange={(e) => patch('require2fa', e.currentTarget.checked)}
           />{' '}
-          Require 2FA
+          {t('admin-security-require-2fa')}
         </label>
         <label class="field">
           <input
             type="checkbox"
             checked={policy().maxSecurityFloor}
-            aria-label="Enforce maximum-security floor"
+            aria-label={t('admin-security-floor-label')}
             onChange={(e) => patch('maxSecurityFloor', e.currentTarget.checked)}
           />{' '}
-          Enforce maximum-security floor
+          {t('admin-security-floor')}
         </label>
         <button type="submit" class="btn btn--primary">
-          Save policy
+          {t('admin-security-save')}
         </button>
         <Show when={saved()}>
           <p class={css.note} role="status">
-            Saved.
+            {t('admin-saved')}
           </p>
         </Show>
       </form>

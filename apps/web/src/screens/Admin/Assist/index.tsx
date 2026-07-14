@@ -9,6 +9,7 @@
 
 import { createSignal, For, onMount, Show, type JSX } from 'solid-js';
 import { ASSIST_CAPABILITIES, type AssistCapability } from '../../../modules/assist/types.ts';
+import { t, loadCatalog } from '../../../i18n';
 import * as css from '../../../modules/assist/styles.css.ts';
 import {
   AdminAssistApi,
@@ -17,16 +18,10 @@ import {
   type CapabilityLock,
 } from './service.ts';
 
-const CAP_LABELS: Record<AssistCapability, string> = {
-  summarize: 'Summarize',
-  draft: 'Draft & rewrite',
-  grammar: 'Grammar',
-  dictation: 'Dictation',
-  'search-semantic': 'Semantic search',
-  'auto-tag': 'Auto-tag',
-  recap: 'Recap',
-  assistant: 'Assistant (chat)',
-};
+/** Localised label for an Assist capability (source strings in admin.ftl). */
+function capLabel(cap: AssistCapability): string {
+  return t(`admin-assist-cap-${cap}`);
+}
 
 export interface AdminAssistProps {
   /** The governance client. Defaults to the same-origin admin HTTP client; tests inject a mock. */
@@ -41,11 +36,12 @@ export function AdminAssist(props: AdminAssistProps): JSX.Element {
   const [error, setError] = createSignal<string | null>(null);
   const [loaded, setLoaded] = createSignal(false);
 
+  onMount(() => void loadCatalog('admin'));
   onMount(() => {
     void api
       .get()
       .then((c) => setConfig(c))
-      .catch(() => setError('Could not load Assist policy.'))
+      .catch(() => setError(t('admin-assist-load-error')))
       .finally(() => setLoaded(true));
   });
 
@@ -77,9 +73,9 @@ export function AdminAssist(props: AdminAssistProps): JSX.Element {
     setError(null);
     try {
       await api.save(config());
-      setStatus('Saved.');
+      setStatus(t('admin-saved'));
     } catch {
-      setError('Save failed.');
+      setError(t('admin-assist-save-error'));
     }
   }
 
@@ -88,41 +84,37 @@ export function AdminAssist(props: AdminAssistProps): JSX.Element {
     patch({ enabled: on });
     try {
       await api.setKillSwitch(on);
-      setStatus(on ? 'Assist enabled.' : 'Assist disabled tenant-wide (kill switch).');
+      setStatus(on ? t('admin-assist-enabled-status') : t('admin-assist-disabled-status'));
     } catch {
-      setError('Could not change the kill switch.');
+      setError(t('admin-assist-kill-error'));
     }
   }
 
   return (
-    <section class={css.panel} data-screen="admin-assist" aria-label="Assist">
+    <section class={css.panel} data-screen="admin-assist" aria-label={t('admin-assist-title')}>
       <div class={css.section}>
-        <h2 class={css.heading}>Assist</h2>
-        <p class={css.prose}>
-          Assist proxies selected message text to an AI endpoint you configure. It never sends, deletes, or
-          accepts mail on a user's behalf — those always require a person. End-to-end-encrypted content and
-          attachments are withheld unless you explicitly allow them below.
-        </p>
+        <h2 class={css.heading}>{t('admin-assist-title')}</h2>
+        <p class={css.prose}>{t('admin-assist-intro')}</p>
 
         {/* Kill switch (§19) — the master gate. Off ⇒ every user sees no Assist UI. */}
         <label class={css.check}>
           <input
             type="checkbox"
             checked={config().enabled}
-            aria-label="Enable Assist tenant-wide"
+            aria-label={t('admin-assist-enable')}
             onChange={(e) => void toggleKill(e.currentTarget.checked)}
           />
-          <span>Assist enabled tenant-wide</span>
+          <span>{t('admin-assist-enabled')}</span>
         </label>
         <Show when={!config().enabled}>
-          <p class={css.meta}>Assist is off. The kill switch reports the gateway as disabled to every user.</p>
+          <p class={css.meta}>{t('admin-assist-off-note')}</p>
         </Show>
       </div>
 
       {/* Endpoint allowlist. */}
       <div class={css.section}>
-        <span class={css.subHeading}>Endpoint allowlist</span>
-        <p class={css.prose}>Only these hosts may receive proxied requests. Anything else is refused.</p>
+        <span class={css.subHeading}>{t('admin-assist-allowlist')}</span>
+        <p class={css.prose}>{t('admin-assist-allowlist-note')}</p>
         <form
           class={css.row}
           onSubmit={(e) => {
@@ -132,27 +124,27 @@ export function AdminAssist(props: AdminAssistProps): JSX.Element {
         >
           <input
             class={css.input}
-            aria-label="Endpoint host"
-            placeholder="api.openai.com"
+            aria-label={t('admin-assist-host')}
+            placeholder={t('admin-assist-host-placeholder')}
             value={newHost()}
             onInput={(e) => setNewHost(e.currentTarget.value)}
           />
           <button type="submit" class={css.ghost}>
-            Add host
+            {t('admin-assist-add-host')}
           </button>
         </form>
         <div class={css.toolbar}>
-          <For each={config().endpointAllowlist} fallback={<span class={css.meta}>No hosts yet.</span>}>
+          <For each={config().endpointAllowlist} fallback={<span class={css.meta}>{t('admin-assist-hosts-empty')}</span>}>
             {(host) => (
               <span class={css.badge} data-testid="allowlist-host">
-                <span>{host}</span>
+                <span dir="auto">{host}</span>
                 <button
                   type="button"
                   class={css.ghost}
-                  aria-label={`Remove ${host}`}
+                  aria-label={t('admin-assist-remove-host', { host })}
                   onClick={() => removeHost(host)}
                 >
-                  Remove
+                  {t('admin-remove')}
                 </button>
               </span>
             )}
@@ -162,8 +154,8 @@ export function AdminAssist(props: AdminAssistProps): JSX.Element {
 
       {/* Per-capability locks. */}
       <div class={css.section}>
-        <span class={css.subHeading}>Capability locks</span>
-        <p class={css.prose}>A locked capability is never offered, regardless of per-user grants.</p>
+        <span class={css.subHeading}>{t('admin-assist-locks')}</span>
+        <p class={css.prose}>{t('admin-assist-locks-note')}</p>
         <div class={css.field}>
           <For each={ASSIST_CAPABILITIES}>
             {(cap) => (
@@ -171,12 +163,12 @@ export function AdminAssist(props: AdminAssistProps): JSX.Element {
                 <input
                   type="checkbox"
                   checked={config().capabilityLocks[cap] === 'allowed'}
-                  aria-label={CAP_LABELS[cap]}
+                  aria-label={capLabel(cap)}
                   onChange={(e) => setLock(cap, e.currentTarget.checked ? 'allowed' : 'locked')}
                 />
-                <span>{CAP_LABELS[cap]}</span>
+                <span>{capLabel(cap)}</span>
                 <Show when={config().capabilityLocks[cap] === 'locked'}>
-                  <span class={css.meta}>Locked</span>
+                  <span class={css.meta}>{t('admin-assist-locked')}</span>
                 </Show>
               </label>
             )}
@@ -186,39 +178,37 @@ export function AdminAssist(props: AdminAssistProps): JSX.Element {
 
       {/* Data-class ceilings — default DENY. */}
       <div class={css.section}>
-        <span class={css.subHeading}>Data-class ceilings</span>
-        <p class={css.prose}>
-          These are hard limits. Even a granted capability cannot exceed them. Both are off by default.
-        </p>
+        <span class={css.subHeading}>{t('admin-assist-ceilings')}</span>
+        <p class={css.prose}>{t('admin-assist-ceilings-note')}</p>
         <label class={css.check}>
           <input
             type="checkbox"
             checked={config().dataCeilings.includeE2ee}
-            aria-label="Allow end-to-end-encrypted content to be sent"
+            aria-label={t('admin-assist-allow-e2ee-label')}
             onChange={(e) =>
               patch({ dataCeilings: { ...config().dataCeilings, includeE2ee: e.currentTarget.checked } })
             }
           />
-          <span>Allow end-to-end-encrypted content to leave the deployment</span>
+          <span>{t('admin-assist-allow-e2ee')}</span>
         </label>
         <label class={css.check}>
           <input
             type="checkbox"
             checked={config().dataCeilings.includeAttachments}
-            aria-label="Allow attachments to be sent"
+            aria-label={t('admin-assist-allow-attachments-label')}
             onChange={(e) =>
               patch({
                 dataCeilings: { ...config().dataCeilings, includeAttachments: e.currentTarget.checked },
               })
             }
           />
-          <span>Allow attachments to leave the deployment</span>
+          <span>{t('admin-assist-allow-attachments')}</span>
         </label>
       </div>
 
       <div class={css.row}>
         <button type="button" class={css.button} disabled={!loaded()} onClick={() => void save()}>
-          Save policy
+          {t('admin-assist-save')}
         </button>
         <Show when={status() !== null}>
           <span class={css.meta} role="status">

@@ -7,9 +7,11 @@
 // EXPORTED (default) so e11 can register it as a lazy route (e.g. `/oauth/authorize`);
 // this file does NOT touch the app router.
 
-import { createSignal, createResource, For, Show, type JSX } from 'solid-js';
+import { createSignal, createResource, For, onMount, Show, type JSX } from 'solid-js';
 import { ConsentService, parseAuthorizeParams, type AuthorizeParams, type ConsentContext, type Fetcher } from './service.ts';
 import { scopeFromWire, summarizeScope, UNATTENDED_SEND_DISCLOSURE } from '../../modules/apikeys/index.ts';
+import { t, loadCatalog } from '../../i18n';
+import { createFocusTrap } from '../../components/a11y';
 import * as css from './consent.css.ts';
 
 export interface ConsentScreenProps {
@@ -24,6 +26,11 @@ export interface ConsentScreenProps {
 
 export function ConsentScreen(props: ConsentScreenProps): JSX.Element {
   const service = new ConsentService(props.fetcher);
+  let card!: HTMLElement;
+  onMount(() => void loadCatalog('auth'));
+  // The authorization card is a modal dialog covering the viewport: trap focus
+  // inside it so keyboard users stay within the grant/deny controls.
+  createFocusTrap(() => card);
   const params = (): AuthorizeParams =>
     props.params ?? parseAuthorizeParams(typeof window !== 'undefined' ? window.location.search : '');
 
@@ -43,40 +50,43 @@ export function ConsentScreen(props: ConsentScreenProps): JSX.Element {
       const result = await service.decide(params(), approve);
       redirect(result.redirectUri);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'could not record your decision');
+      setError(e instanceof Error ? e.message : t('auth-consent-error'));
       setBusy(false);
     }
   }
 
   return (
     <div class={css.backdrop}>
-      <section class={css.card} role="dialog" aria-modal="true" aria-label="Authorize application">
-        <h1 class={css.heading}>Authorize access</h1>
+      <section ref={card} class={css.card} role="dialog" aria-modal="true" aria-label={t('auth-consent-dialog')} tabindex="-1">
+        <h1 class={css.heading}>{t('auth-consent-title')}</h1>
 
-        <Show when={ctx()} fallback={<p class={css.prose}>Loading request…</p>}>
+        <Show when={ctx()} fallback={<p class={css.prose}>{t('auth-consent-loading')}</p>}>
           {(c) => {
             const scope = scopeFromWire(c().requestedScope);
             const sendsUnattended = scope.unattendedSend;
             return (
               <>
                 <p class={css.prose}>
-                  <span class={css.client}>{c().clientName}</span> wants to access your account.
+                  <span class={css.client} dir="auto">
+                    {c().clientName}
+                  </span>{' '}
+                  {t('auth-consent-intro')}
                 </p>
                 <Show
                   when={c().approved}
                   fallback={
                     <span class={css.unapproved} data-testid="client-unapproved">
-                      Unrecognised client — not admin-approved
+                      {t('auth-consent-unapproved')}
                     </span>
                   }
                 >
                   <span class={css.approved} data-testid="client-approved">
-                    Admin-approved client
+                    {t('auth-consent-approved')}
                   </span>
                 </Show>
 
                 <div>
-                  <span class={css.subHeading}>It is requesting</span>
+                  <span class={css.subHeading}>{t('auth-consent-requesting')}</span>
                   <ul class={css.scopeList} data-testid="requested-scope">
                     <For each={summarizeScope(scope)}>{(line) => <li>{line}</li>}</For>
                   </ul>
@@ -89,10 +99,14 @@ export function ConsentScreen(props: ConsentScreenProps): JSX.Element {
                 </Show>
 
                 <div>
-                  <span class={css.subHeading}>Redirects to</span>
-                  <p class={css.meta}>{c().redirectUri}</p>
-                  <span class={css.subHeading}>For resource</span>
-                  <p class={css.meta}>{c().resource}</p>
+                  <span class={css.subHeading}>{t('auth-consent-redirects-to')}</span>
+                  <p class={css.meta} dir="auto">
+                    {c().redirectUri}
+                  </p>
+                  <span class={css.subHeading}>{t('auth-consent-for-resource')}</span>
+                  <p class={css.meta} dir="auto">
+                    {c().resource}
+                  </p>
                 </div>
 
                 <Show when={error() !== ''}>
@@ -103,10 +117,10 @@ export function ConsentScreen(props: ConsentScreenProps): JSX.Element {
 
                 <div class={css.actions}>
                   <button type="button" class={css.deny} disabled={busy()} onClick={() => void decide(false)}>
-                    Deny
+                    {t('auth-consent-deny')}
                   </button>
                   <button type="button" class={css.grant} disabled={busy()} onClick={() => void decide(true)}>
-                    Allow
+                    {t('auth-consent-allow')}
                   </button>
                 </div>
               </>
