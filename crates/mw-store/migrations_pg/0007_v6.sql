@@ -1,6 +1,7 @@
 -- V6 schema — POSTGRES variant (plan §1.1, §2.1). Behaviourally identical to the
 -- SQLite `migrations/0007_v6.sql`; the dialect differences are: BLOB → BYTEA,
--- INTEGER-boolean → BOOLEAN, and no PRAGMA. Timestamps stay TEXT (RFC 3339) to
+-- INTEGER → BIGINT (boolean-as-0/1 columns stay BIGINT so the i64 bind/read path
+-- is uniform, matching 0001..0006), and no PRAGMA. Timestamps stay TEXT (RFC 3339) to
 -- match the existing store convention and keep the SQLite→Postgres `migrate-store`
 -- copy a straight value move (plan §2.1).
 --
@@ -24,7 +25,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
     ip_allowlist     TEXT,
     expires_at       TEXT,
     rate_limit       BIGINT,
-    unattended_send  BOOLEAN NOT NULL DEFAULT FALSE,
+    unattended_send  BIGINT NOT NULL DEFAULT 0,
     created_at       TEXT NOT NULL,
     last_used_at     TEXT,
     revoked_at       TEXT
@@ -117,7 +118,7 @@ CREATE TABLE IF NOT EXISTS quotas (
 -- ── Zero-access accounts (§9).
 CREATE TABLE IF NOT EXISTS zeroaccess_accounts (
     account_id        TEXT PRIMARY KEY NOT NULL,
-    enabled           BOOLEAN NOT NULL DEFAULT FALSE,
+    enabled           BIGINT NOT NULL DEFAULT 0,
     wrapped_root_key  BYTEA NOT NULL,
     kdf_params        TEXT NOT NULL,
     recovery_wrapped  BYTEA,
