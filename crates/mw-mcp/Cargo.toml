@@ -6,15 +6,19 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
-# SCAFFOLD (t6-e0): frozen §2.4 tool contract as compiling STUBS. e4 fills the
-# `rmcp`-based tool registry (each tool calls the engine/JMAP surface, never raw
-# protocol), per-tool `mw-oauth::Scope` enforcement, provenance labelling of mail
-# content, the send→Outbox gating + `unattended-send` admin-countersign path, the
-# Streamable-HTTP handler factory, and the `mailwoman mcp-stdio` proxy body.
-# `rmcp` is PRE-DECLARED in the root `[workspace.dependencies]` and wired by e4;
-# the stub links only serde/thiserror. e4 also adds the `mw-oauth` path dep for
-# the `Scope` type (kept out of the stub to keep the crate self-contained).
+# t6-e4: the MCP server. Transport is a hand-rolled Streamable-HTTP JSON-RPC 2.0
+# handler over the in-tree `axum` (the plan §6-R3 fallback) — chosen over `rmcp`
+# 0.9 because that pin is already two majors behind (2.2 shipped) on a
+# safety-critical surface and its macro tool-router obscures the per-call
+# `mw-oauth` scope + countersign + provenance threading. The §2.4 tool contract is
+# SDK-agnostic, so a swap to `rmcp` later stays behind this crate's API.
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true, features = ["io-std"] }
+axum = { workspace = true }
+reqwest = { workspace = true }
+chrono = { workspace = true }
+mw-oauth = { workspace = true }
