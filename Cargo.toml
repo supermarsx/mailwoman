@@ -289,10 +289,10 @@ metrics-exporter-prometheus = { version = "0.17", default-features = false }
 #     Nextcloud OCS/WebDAV), following the V6 `rmcp` lesson (plan §5).
 #   Plugin signature verify (mw-plugin) — REUSE `ed25519-dalek`/existing crypto via
 #     mw-crypto; no new dep (e1).
-wasmtime = "38"
-wasmtime-wasi = "38"
+wasmtime = "46"
+wasmtime-wasi = "46"
 wit-bindgen = "0.46"
-ldap3 = { version = "0.11", default-features = false, features = ["tls-rustls"] }
+ldap3 = { version = "0.12", default-features = false, features = ["tls-rustls-ring"] }
 docx-rs = "0.4"
 cfb = "0.10"
 

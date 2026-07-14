@@ -202,6 +202,22 @@ ignore = [
     "RUSTSEC-2025-0081",
     "RUSTSEC-2025-0098",
     "RUSTSEC-2025-0100",
+
+    # ── V7 (26.8.0): quick-xml < 0.37 DoS advisories, reachable ONLY through the
+    # DOCX-export path and NOT in practice. `docx-rs` 0.4.20 hard-pins `quick-xml`
+    # 0.36.2 (RUSTSEC-2026-0194 quadratic duplicate-attribute check; -0195 unbounded
+    # namespace-declaration allocation) — both are memory-exhaustion **denial-of-
+    # service in the quick-xml READER**. Mailwoman uses `docx-rs` for DOCX **writing
+    # only** (mw-export, §10.6) — it never parses untrusted `.docx`/XML through
+    # docx-rs, so the vulnerable reader code path is unreachable; and it is a
+    # client-side export operation, not a network-reachable server parser. Every
+    # DIRECT quick-xml consumer in the tree (mw-ics/mw-dav/mw-carddav/mw-plugin) is
+    # on the FIXED `quick-xml` 0.41. Bounded + documented, same posture as
+    # RUSTSEC-2023-0071. TODO(e15): try to eliminate the old quick-xml (newer
+    # docx-rs / patch) before the 26.8 release; if infeasible, this ignore stands
+    # and is noted in the release docs.
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
 ]
 
 [licenses]
