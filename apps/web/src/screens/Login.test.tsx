@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, fireEvent, screen } from '@solidjs/testing-library';
 import { Login } from './Login.tsx';
 import { AppContext } from '../state/context.ts';
@@ -84,5 +84,55 @@ describe('Login', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Invalid credentials');
+  });
+});
+
+describe('Login › SSO', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    if (typeof history !== 'undefined') history.pushState({}, '', '/');
+  });
+
+  it('renders no SSO controls when the provider list is empty (login unchanged)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('[]', { status: 200 })),
+    );
+    renderLogin(fakeClient());
+    // Password sign-in still present; no "Sign in with…" buttons appear.
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(screen.queryByRole('link', { name: /Sign in with/ })).toBeNull();
+  });
+
+  it('renders a "Sign in with <IdP>" link per enabled provider', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify([
+            { id: 'corp-oidc', kind: 'oidc', displayName: 'Acme SSO' },
+            { id: 'corp-saml', kind: 'saml', displayName: 'Contoso SAML' },
+          ]),
+          { status: 200 },
+        ),
+      ),
+    );
+    renderLogin(fakeClient());
+    const oidc = await screen.findByRole('link', { name: 'Sign in with Acme SSO' });
+    expect(oidc).toHaveAttribute('href', '/api/sso/corp-oidc/begin');
+    const saml = screen.getByRole('link', { name: 'Sign in with Contoso SAML' });
+    expect(saml).toHaveAttribute('href', '/api/sso/corp-saml/begin');
+  });
+
+  it('shows a uniform error when the browser returns with ?sso_error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('[]', { status: 200 })),
+    );
+    history.pushState({}, '', '/?sso_error=denied');
+    renderLogin(fakeClient());
+    expect(screen.getByRole('alert')).toHaveTextContent(/Single sign-on did not complete/);
   });
 });

@@ -14,6 +14,7 @@ admin-nav-observability = Observability
 admin-nav-appearance = Appearance
 admin-nav-plugins = Plugins
 admin-nav-assist = Assist
+admin-nav-sso = Single sign-on
 
 # Shared admin actions / states
 admin-delete = Delete
@@ -209,3 +210,77 @@ admin-assist-cap-search-semantic = Semantic search
 admin-assist-cap-auto-tag = Auto-tag
 admin-assist-cap-recap = Recap
 admin-assist-cap-assistant = Assistant (chat)
+
+# -- Single sign-on: OIDC + SAML login backends (t9, §18.3) -------------------
+admin-sso-title = Single sign-on
+admin-sso-intro = Configure OIDC and SAML 2.0 login backends. Enabled backends appear as "Sign in with…" buttons on the mailbox login, scoped deployment-wide or to one domain.
+admin-sso-add = Add a login backend
+admin-sso-edit = Edit
+admin-sso-create = Add backend
+admin-sso-update = Save changes
+admin-sso-cancel = Cancel
+admin-sso-empty = No SSO backends configured.
+admin-sso-load-error = Could not load SSO backends.
+admin-sso-save-error = Could not save the backend.
+admin-sso-delete-error = Could not delete the backend.
+
+# Common fields
+admin-sso-id = Backend ID
+admin-sso-id-placeholder = corp-oidc
+admin-sso-display-name = Display name
+admin-sso-display-name-placeholder = Sign in with Acme SSO
+admin-sso-kind = Protocol
+admin-sso-kind-oidc = OIDC
+admin-sso-kind-saml = SAML 2.0
+admin-sso-scope = Scope
+admin-sso-scope-deployment = Whole deployment
+admin-sso-scope-domain = One domain
+admin-sso-domain = Domain
+admin-sso-domain-placeholder = example.org
+admin-sso-enabled = Enabled
+admin-sso-first-login = First-login policy
+admin-sso-policy-allowlist = Allowlist (deny unknown users)
+admin-sso-policy-autocreate = Auto-create accounts on first login
+
+# OIDC fields
+admin-sso-issuer = Issuer URL
+admin-sso-issuer-placeholder = https://idp.example.org/realms/acme
+admin-sso-client-id = Client ID
+admin-sso-client-secret = Client secret
+admin-sso-secret-unchanged = Leave blank to keep the stored secret
+admin-sso-redirect = Redirect URL
+admin-sso-scopes = Scopes
+admin-sso-metadata = SP metadata
+
+# SAML fields
+admin-sso-sp-entity-id = SP entity ID
+admin-sso-acs-url = ACS URL
+admin-sso-idp-metadata-url = IdP metadata URL
+admin-sso-idp-metadata-url-placeholder = https://idp.example.org/saml/metadata
+admin-sso-idp-metadata-xml = IdP metadata XML
+admin-sso-idp-metadata-xml-placeholder = Paste the IdP metadata XML, or use the URL above
+admin-sso-idp-sso-url = IdP SSO URL
+admin-sso-idp-slo-url = IdP logout (SLO) URL
+admin-sso-idp-certs = IdP signing certificates (PEM)
+admin-sso-idp-certs-placeholder = One PEM certificate per block, separated by a blank line
+admin-sso-nameid-format = NameID format
+admin-sso-want-signed = Require signed assertions
+admin-sso-want-encrypted = Require encrypted assertions
+
+# Claim map
+admin-sso-claims = Claim mapping
+admin-sso-claim-email = Email claim
+admin-sso-claim-username = Username claim
+admin-sso-claim-display = Display-name claim
+admin-sso-claim-groups = Groups claim
+
+# List row
+admin-sso-badge-enabled = Enabled
+admin-sso-badge-disabled = Disabled
+admin-sso-enable = Enable
+admin-sso-disable = Disable
+admin-sso-delete = Delete
+# `name` is the backend's admin-set display name.
+admin-sso-enable-for = Enable { $name }
+admin-sso-disable-for = Disable { $name }
+admin-sso-delete-for = Delete { $name }
