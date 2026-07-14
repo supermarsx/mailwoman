@@ -9,6 +9,13 @@
 //! `from_oft` shares the same reader. The harness feeds arbitrary bytes; any
 //! panic/abort is a finding.
 //!
+//! Coverage (t10-e9): the reader now also parses the **deep-fidelity** surface —
+//! the `__nameid` named-property map (GUID/entry/string streams, MS-OXMSG §2.2.3)
+//! and recursively-nested embedded messages (`afEmbeddedMessage`). Both are
+//! reachable through `read_msg`; the corpus carries `seed_named.msg` +
+//! `seed_embedded.msg` so the fuzzer exercises the `__nameid` string-record
+//! decoder (bounds-checked) and the depth-bounded embedded-storage recursion.
+//!
 //! Run (nightly + cargo-fuzz):
 //!   cargo +nightly fuzz run parse_msg
 //! Build only:

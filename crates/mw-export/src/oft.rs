@@ -3,8 +3,10 @@
 //! An `.oft` template is the **same CFB / MS-OXMSG container** as a `.msg`
 //! (§10.6) — Outlook distinguishes a template from a message by file extension
 //! and message class, not by container shape. So export reuses the
-//! [`crate::msg`] writer, and import reuses its reader. **Scope floor:** body +
-//! attachments + headers (deep fidelity out, §28.8).
+//! [`crate::msg`] writer, and import reuses its reader — including the 26.10 deep
+//! write fidelity layer (custom `__nameid` named properties + embedded messages,
+//! plan §1.6): a template with `X-*` headers or a `message/rfc822` part carries
+//! them through, while a plain template stays byte-identical to the 26.9 floor.
 //!
 //! # Hostile-parse boundary (plan §1.7, SPEC §7.5)
 //! Template *import* ([`from_oft`]) parses an **untrusted** CFB container — the
@@ -73,5 +75,37 @@ Fill in your status here.\r\n";
             &bytes[..8],
             &[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]
         );
+    }
+
+    /// Deep fidelity carries through the template path too (shared writer/reader).
+    #[test]
+    fn template_round_trips_named_property_and_embedded() {
+        let raw = b"From: t@example.com\r\n\
+Subject: template\r\n\
+X-Template-Owner: ops-team\r\n\
+Content-Type: multipart/mixed; boundary=B\r\n\
+\r\n\
+--B\r\n\
+Content-Type: text/plain\r\n\
+\r\n\
+fill me in\r\n\
+--B\r\n\
+Content-Type: message/rfc822\r\n\
+\r\n\
+From: sample@example.com\r\n\
+Subject: sample reply\r\n\
+\r\n\
+canned body\r\n\
+--B--\r\n";
+        let bytes = to_oft(raw).unwrap();
+        let parsed = from_oft(&bytes).unwrap();
+        assert!(
+            parsed
+                .named_properties
+                .iter()
+                .any(|p| p.name == "X-Template-Owner" && p.value == "ops-team")
+        );
+        assert_eq!(parsed.embedded.len(), 1);
+        assert_eq!(parsed.embedded[0].subject.as_deref(), Some("sample reply"));
     }
 }
