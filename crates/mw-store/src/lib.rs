@@ -28,9 +28,13 @@ mod v7;
 // V7 (0008) admin-config persistence (t7-e14 MOUNT): directory/plugins/assist
 // config rows + the content-free assist audit sink.
 mod v7_config;
+// V8 (0009) SSO config + content-free login-audit persistence (t9-e0). New `Store`
+// methods over the sso_config/sso_login_audit tables; sealed secret column.
+mod sso;
 
 pub(crate) use backend::{Backend, Row, q};
 
+pub use sso::SsoConfigRow;
 pub use v6::{
     AdminUserRow, ApiKeyRow, AuditRow, CacheScopeRow, DomainRow, OAuthClientRow, OAuthTokenRow,
     QuotaRow, WebhookRow, ZeroAccessRow,

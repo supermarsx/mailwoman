@@ -10,8 +10,8 @@
 
 use mw_store::{
     AccountKind, AddressBookRow, CalendarRow, ContactRow, Credentials, EventInstanceRow, EventRow,
-    MailboxUpsert, MessageUpsert, NewAccount, NoteRow, ServerKey, Store, StoreKeyMaterialRow,
-    SubmissionRow,
+    MailboxUpsert, MessageUpsert, NewAccount, NoteRow, ServerKey, SsoConfigRow, Store,
+    StoreKeyMaterialRow, SubmissionRow,
 };
 
 fn key() -> ServerKey {
@@ -38,7 +38,8 @@ const ALL_TABLES: &str = "sessions, settings, accounts, mailboxes, messages, bod
     pop3_uidl, sync_state, message_meta, tags, saved_searches, submissions, identities, changes, \
     calendars, calendar_shares, events, event_instances, tasks, notebooks, notes, address_books, \
     contacts, contact_groups, pim_changes, crypto_keys, key_associations, security_verdicts, \
-    dlp_audit, sender_controls, store_key_material, push_subscriptions, push_config, native_sessions";
+    dlp_audit, sender_controls, store_key_material, push_subscriptions, push_config, \
+    native_sessions, sso_config, sso_login_audit";
 
 async fn truncate_pg(dsn: &str) {
     use sqlx::postgres::PgPoolOptions;
@@ -402,6 +403,40 @@ async fn run_ops(s: &Store) -> Vec<String> {
         "vapid_roundtrip={:?}",
         s.load_vapid_keypair().await.unwrap()
     ));
+
+    // ---- V8: SSO config (sealed secret) + content-free login audit ----
+    s.put_sso_config(&SsoConfigRow {
+        id: "corp-oidc".into(),
+        kind: "oidc".into(),
+        display_name: "Acme SSO".into(),
+        scope: "deployment".into(),
+        enabled: true,
+        config_json: r#"{"kind":"oidc","issuer_url":"https://idp.example"}"#.into(),
+        secret: Some(b"client-secret".to_vec()),
+        claim_map_json: r#"{"email":"email"}"#.into(),
+        created_at: "2026-07-14T00:00:00Z".into(),
+        updated_at: "2026-07-14T00:00:00Z".into(),
+    })
+    .await
+    .unwrap();
+    out.push(format!(
+        "sso_secret_unseal_ok={}",
+        s.get_sso_config("corp-oidc")
+            .await
+            .unwrap()
+            .unwrap()
+            .secret
+            .as_deref()
+            == Some(&b"client-secret"[..])
+    ));
+    out.push(format!(
+        "sso_scoped={}",
+        s.list_sso_config("deployment").await.unwrap().len()
+    ));
+    s.append_sso_login_audit("corp-oidc", "oidc", "hash-of-subject", "ok")
+        .await
+        .unwrap();
+    out.push("sso_audit_appended".into());
 
     out
 }

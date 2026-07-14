@@ -1,0 +1,33 @@
+[package]
+name = "mw-sso"
+description = "OIDC + SAML 2.0 SSO login backends (pure protocol + crypto, no axum) for Mailwoman 26.9 (t9 plan §2/§3, SPEC §18.3)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# t9-e0 SCAFFOLD. This crate freezes the §3 SSO contract (types + the `SsoLogin`
+# trait) as compiling stubs so e1 (OIDC) and e2 (SAML) implement, and e3 (server
+# mount) / e4 (web-admin) consume, in parallel. `oidc.rs`/`saml.rs` are stubs whose
+# `SsoLogin` methods `unimplemented!()`; `state.rs` is the real PendingState store.
+#
+# DEP VET (e0 deliverable — crate-local pins like mw-directory's ldap3 0.12; the
+# coordinator reconciles these into root `[workspace.dependencies]`):
+#   * openidconnect 4 — OIDC discovery + auth-code+PKCE + JWKS ID-token validation.
+#     JWS verification is RustCrypto (rsa/p256/p384/hmac/sha2) — NO openssl.
+#     `default-features=false` DROPS the crate's native-tls/curl/ureq clients; the
+#     `reqwest` + `rustls-tls` features wire the in-tree rustls reqwest async client
+#     (reqwest 0.12, feature-unified with the workspace). VET: adds no openssl / no
+#     `-sys` C to the tree (see .orchestration/logs/t9-e0.md).
+#   * flate2 1 — pure-Rust DEFLATE for the SAML HTTP-Redirect binding.
+#     `default-features=false, features=["rust_backend"]` pins the miniz_oxide
+#     pure-Rust backend and keeps every zlib/zlib-ng/cloudflare `-sys` C backend OUT.
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+rand = { workspace = true }
+tracing = { workspace = true }
+openidconnect = { version = "4", default-features = false, features = ["reqwest", "rustls-tls"] }
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
