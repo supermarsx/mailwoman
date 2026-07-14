@@ -110,7 +110,11 @@ fn psql(sql: &str) -> String {
 
 /// Run a `valkey-cli` command inside the live Valkey container, returning stdout.
 fn valkey_cli(args: &[&str]) -> String {
-    let mut full = vec!["exec".to_string(), valkey_container(), "valkey-cli".to_string()];
+    let mut full = vec![
+        "exec".to_string(),
+        valkey_container(),
+        "valkey-cli".to_string(),
+    ];
     full.extend(args.iter().map(|a| a.to_string()));
     let out = Command::new("docker")
         .args(&full)
@@ -219,7 +223,11 @@ async fn admin_provisioning_audit_export_live() {
 
     // Unauthenticated admin surface is gated.
     assert_eq!(
-        a.get(format!("{server}/admin/session")).send().await.unwrap().status(),
+        a.get(format!("{server}/admin/session"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
         401
     );
     admin_login(&a, &server).await;
@@ -258,7 +266,11 @@ async fn admin_provisioning_audit_export_live() {
         .await
         .unwrap();
     assert!(
-        users.as_array().unwrap().iter().any(|x| x["accountId"] == json!(account)),
+        users
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|x| x["accountId"] == json!(account)),
         "provisioned user is listed from PG"
     );
 
@@ -272,19 +284,29 @@ async fn admin_provisioning_audit_export_live() {
         .await
         .unwrap();
     assert!(
-        audit.as_array().unwrap().iter().any(|e| e["action"] == json!("user-provisioned")),
+        audit
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["action"] == json!("user-provisioned")),
         "provisioning wrote a user-provisioned audit entry"
     );
 
     // Export works (the audit-log export the DoD requires). It is NDJSON
     // (application/x-ndjson) — one JSON object per line.
-    let export = a.get(format!("{server}/admin/audit/export?limit=50")).send().await.unwrap();
+    let export = a
+        .get(format!("{server}/admin/audit/export?limit=50"))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(export.status(), 200, "audit export wired");
     let ndjson = export.text().await.unwrap();
     let lines: Vec<&str> = ndjson.lines().filter(|l| !l.trim().is_empty()).collect();
     assert!(!lines.is_empty(), "export returns audit entries (NDJSON)");
     assert!(
-        lines.iter().all(|l| serde_json::from_str::<Value>(l).is_ok()),
+        lines
+            .iter()
+            .all(|l| serde_json::from_str::<Value>(l).is_ok()),
         "every export line is valid JSON"
     );
     assert!(
@@ -347,7 +369,11 @@ async fn oauth_code_pkce_to_token_live() {
         .json()
         .await
         .unwrap();
-    assert_eq!(consent["approved"], json!(true), "seeded client is approved");
+    assert_eq!(
+        consent["approved"],
+        json!(true),
+        "seeded client is approved"
+    );
     assert_eq!(consent["clientName"], json!("E13 Live Client"));
 
     // User approves → authorization code in the redirect URI.
@@ -360,7 +386,9 @@ async fn oauth_code_pkce_to_token_live() {
         .json()
         .await
         .unwrap();
-    let redirect_uri = decision["redirectUri"].as_str().expect("redirect with code");
+    let redirect_uri = decision["redirectUri"]
+        .as_str()
+        .expect("redirect with code");
     let code = redirect_uri
         .split("code=")
         .nth(1)
@@ -400,7 +428,11 @@ async fn oauth_code_pkce_to_token_live() {
         .json()
         .await
         .unwrap();
-    assert_eq!(intro["active"], json!(true), "issued token introspects active");
+    assert_eq!(
+        intro["active"],
+        json!(true),
+        "issued token introspects active"
+    );
 
     // A wrong PKCE verifier must NOT mint a token (negative control).
     psql(&format!(
@@ -421,7 +453,15 @@ async fn oauth_code_pkce_to_token_live() {
         .await
         .unwrap();
     let code2 = urldecode(
-        d2["redirectUri"].as_str().unwrap().split("code=").nth(1).unwrap().split('&').next().unwrap(),
+        d2["redirectUri"]
+            .as_str()
+            .unwrap()
+            .split("code=")
+            .nth(1)
+            .unwrap()
+            .split('&')
+            .next()
+            .unwrap(),
     );
     let bad = c
         .post(format!("{server}/oauth/token"))
@@ -462,7 +502,10 @@ async fn apikey_enforcement_matrix_live() {
             .json()
             .await
             .unwrap();
-        m["displayToken"].as_str().expect("shown-once token").to_string()
+        m["displayToken"]
+            .as_str()
+            .expect("shown-once token")
+            .to_string()
     }
     fn scope(account: &str, read: bool, mail: bool) -> Value {
         json!({
@@ -488,15 +531,31 @@ async fn apikey_enforcement_matrix_live() {
     // DENY (out-of-scope / capability): no read → 403.
     let no_read = mint(&c, &server, &account, scope(&account, false, true)).await;
     assert_eq!(
-        c.get(format!("{server}/api/v1/messages")).header("x-api-key", &no_read).send().await.unwrap().status(),
+        c.get(format!("{server}/api/v1/messages"))
+            .header("x-api-key", &no_read)
+            .send()
+            .await
+            .unwrap()
+            .status(),
         403,
         "no-read key → 403 (out of scope)"
     );
 
     // DENY (out-of-scope / different account) → 403.
-    let wrong = mint(&c, &server, &account, scope("nobody@elsewhere.test", true, true)).await;
+    let wrong = mint(
+        &c,
+        &server,
+        &account,
+        scope("nobody@elsewhere.test", true, true),
+    )
+    .await;
     assert_eq!(
-        c.get(format!("{server}/api/v1/messages")).header("x-api-key", &wrong).send().await.unwrap().status(),
+        c.get(format!("{server}/api/v1/messages"))
+            .header("x-api-key", &wrong)
+            .send()
+            .await
+            .unwrap()
+            .status(),
         403,
         "wrong-account key → 403"
     );
@@ -506,7 +565,12 @@ async fn apikey_enforcement_matrix_live() {
     exp["expires_at"] = json!("2000-01-01T00:00:00Z");
     let ek = mint(&c, &server, &account, exp).await;
     assert_eq!(
-        c.get(format!("{server}/api/v1/messages")).header("x-api-key", &ek).send().await.unwrap().status(),
+        c.get(format!("{server}/api/v1/messages"))
+            .header("x-api-key", &ek)
+            .send()
+            .await
+            .unwrap()
+            .status(),
         401,
         "expired key → 401"
     );
@@ -516,12 +580,24 @@ async fn apikey_enforcement_matrix_live() {
     ips["ip_allowlist"] = json!(["10.0.0.0/8"]);
     let ik = mint(&c, &server, &account, ips).await;
     assert_eq!(
-        c.get(format!("{server}/api/v1/messages")).header("x-api-key", &ik).header("x-forwarded-for", "8.8.8.8").send().await.unwrap().status(),
+        c.get(format!("{server}/api/v1/messages"))
+            .header("x-api-key", &ik)
+            .header("x-forwarded-for", "8.8.8.8")
+            .send()
+            .await
+            .unwrap()
+            .status(),
         403,
         "source IP outside allowlist → 403"
     );
     assert_eq!(
-        c.get(format!("{server}/api/v1/messages")).header("x-api-key", &ik).header("x-forwarded-for", "10.1.2.3").send().await.unwrap().status(),
+        c.get(format!("{server}/api/v1/messages"))
+            .header("x-api-key", &ik)
+            .header("x-forwarded-for", "10.1.2.3")
+            .send()
+            .await
+            .unwrap()
+            .status(),
         200,
         "source IP inside allowlist → 200"
     );
@@ -531,31 +607,51 @@ async fn apikey_enforcement_matrix_live() {
     rl["rate_limit"] = json!(1);
     let rk = mint(&c, &server, &account, rl).await;
     assert_eq!(
-        c.get(format!("{server}/api/v1/messages")).header("x-api-key", &rk).send().await.unwrap().status(),
+        c.get(format!("{server}/api/v1/messages"))
+            .header("x-api-key", &rk)
+            .send()
+            .await
+            .unwrap()
+            .status(),
         200,
         "first request within rate limit"
     );
     assert_eq!(
-        c.get(format!("{server}/api/v1/messages")).header("x-api-key", &rk).send().await.unwrap().status(),
+        c.get(format!("{server}/api/v1/messages"))
+            .header("x-api-key", &rk)
+            .send()
+            .await
+            .unwrap()
+            .status(),
         429,
         "second request over rate limit → 429"
     );
 
     // DENY (unknown key) → 401.
     assert_eq!(
-        c.get(format!("{server}/api/v1/messages")).header("x-api-key", "mwk_deadbeef.notreal").send().await.unwrap().status(),
+        c.get(format!("{server}/api/v1/messages"))
+            .header("x-api-key", "mwk_deadbeef.notreal")
+            .send()
+            .await
+            .unwrap()
+            .status(),
         401,
         "unknown key → 401"
     );
 
     // The minted key physically lives (hashed) in live Postgres.
     let keys = psql("SELECT count(*) FROM api_keys");
-    assert!(keys.parse::<i64>().unwrap_or(0) >= 6, "api_keys rows persisted to PG: {keys}");
+    assert!(
+        keys.parse::<i64>().unwrap_or(0) >= 6,
+        "api_keys rows persisted to PG: {keys}"
+    );
     // …and only a HASH is stored, never the shown-once secret.
     let leaked = psql("SELECT count(*) FROM api_keys WHERE key_hash LIKE 'mwk_%'");
     assert_eq!(leaked, "0", "no plaintext key material stored (hash only)");
 
-    eprintln!("[e13 PASS] scoped-API-key enforcement matrix (200/403/401/403-IP/429) vs live Postgres");
+    eprintln!(
+        "[e13 PASS] scoped-API-key enforcement matrix (200/403/401/403-IP/429) vs live Postgres"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -602,17 +698,39 @@ async fn mcp_handshake_toolslist_provenance_live() {
     // The frozen tool names.
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     for expected in [
-        "mail.search", "mail.read", "folders.list", "drafts.create", "mail.send",
-        "calendar.read", "calendar.propose", "tasks.read", "tasks.write", "contacts.read",
+        "mail.search",
+        "mail.read",
+        "folders.list",
+        "drafts.create",
+        "mail.send",
+        "calendar.read",
+        "calendar.propose",
+        "tasks.read",
+        "tasks.write",
+        "contacts.read",
     ] {
         assert!(names.contains(&expected), "tool {expected} is enumerated");
     }
 
     // Prompt-injection posture: mail-content tools declare untrusted output.
-    let search = tools.iter().find(|t| t["name"] == json!("mail.search")).unwrap();
-    assert_eq!(search["_meta"]["untrustedOutput"], json!(true), "mail.search output is untrusted");
-    let read = tools.iter().find(|t| t["name"] == json!("mail.read")).unwrap();
-    assert_eq!(read["_meta"]["untrustedOutput"], json!(true), "mail.read output is untrusted");
+    let search = tools
+        .iter()
+        .find(|t| t["name"] == json!("mail.search"))
+        .unwrap();
+    assert_eq!(
+        search["_meta"]["untrustedOutput"],
+        json!(true),
+        "mail.search output is untrusted"
+    );
+    let read = tools
+        .iter()
+        .find(|t| t["name"] == json!("mail.read"))
+        .unwrap();
+    assert_eq!(
+        read["_meta"]["untrustedOutput"],
+        json!(true),
+        "mail.read output is untrusted"
+    );
 
     // Send is enumerated but NOT open: an UNauthenticated tools/call is refused
     // (proves the tool is gated, never a raw transmit).
@@ -629,12 +747,13 @@ async fn mcp_handshake_toolslist_provenance_live() {
         .await
         .unwrap();
     assert!(
-        unauth.get("error").is_some()
-            || unauth["result"]["isError"] == json!(true),
+        unauth.get("error").is_some() || unauth["result"]["isError"] == json!(true),
         "unauthenticated mail.send is refused (gated), got: {unauth}"
     );
 
-    eprintln!("[e13 PASS] MCP handshake + tools/list(10) + untrusted provenance + gated send vs live Postgres");
+    eprintln!(
+        "[e13 PASS] MCP handshake + tools/list(10) + untrusted provenance + gated send vs live Postgres"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -695,7 +814,8 @@ async fn zeroaccess_ciphertext_at_rest_direct_pg_query_live() {
         .unwrap();
     assert_eq!(za["enabled"], json!(true));
     assert_eq!(
-        za["wrappedDataKeyB64"], json!(wrapped_b64),
+        za["wrappedDataKeyB64"],
+        json!(wrapped_b64),
         "server returns exactly the wrapped bytes it was handed"
     );
 
@@ -728,7 +848,10 @@ async fn zeroaccess_ciphertext_at_rest_direct_pg_query_live() {
     let enabled = psql(&format!(
         "SELECT enabled FROM zeroaccess_accounts WHERE account_id='{account}'"
     ));
-    assert!(enabled == "1" || enabled == "t" || enabled == "true", "row enabled: {enabled}");
+    assert!(
+        enabled == "1" || enabled == "t" || enabled == "true",
+        "row enabled: {enabled}"
+    );
 
     eprintln!(
         "[e13 PASS] zero-access ciphertext-at-rest — direct PG query returned {} ciphertext bytes; \
@@ -796,7 +919,11 @@ async fn cache_posture_redis_optional_and_down_degrades_live() {
         "Redis-DOWN: server still boots + serves (Valkey never authoritative, no data loss)"
     );
     // The mounted API surface still answers (admin panel is gated, not broken).
-    let a = c.get(format!("{server}/admin/session")).send().await.unwrap();
+    let a = c
+        .get(format!("{server}/admin/session"))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(a.status(), 401, "Redis-DOWN: admin surface still mounted");
 
     eprintln!("[e13 PASS] cache posture — Valkey optional + Redis-down degrades without data loss");
@@ -846,7 +973,10 @@ async fn backend_parity_sqlite_and_postgres_live() {
             .json()
             .await
             .unwrap();
-        let token = mint["displayToken"].as_str().unwrap_or_default().to_string();
+        let token = mint["displayToken"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
         let wire_ok = token.starts_with("mwk_");
 
         // (3) in-scope REST call.
@@ -862,12 +992,14 @@ async fn backend_parity_sqlite_and_postgres_live() {
         // (4) an out-of-scope key → 403 (enforcement parity).
         let bad_mint: Value = c
             .post(format!("{server}/api/keys"))
-            .json(&json!({ "label": "parity-bad", "accountId": account, "scope": {
-                "read": false, "send": false, "delete": false,
-                "accounts": { "subset": [account] }, "folders": "all",
-                "mail": true, "pim": false, "ip_allowlist": [], "expires_at": null,
-                "rate_limit": null, "mcp_tools": [], "unattended_send": false,
-            }}))
+            .json(
+                &json!({ "label": "parity-bad", "accountId": account, "scope": {
+                    "read": false, "send": false, "delete": false,
+                    "accounts": { "subset": [account] }, "folders": "all",
+                    "mail": true, "pim": false, "ip_allowlist": [], "expires_at": null,
+                    "rate_limit": null, "mcp_tools": [], "unattended_send": false,
+                }}),
+            )
             .send()
             .await
             .unwrap()
@@ -876,7 +1008,10 @@ async fn backend_parity_sqlite_and_postgres_live() {
             .unwrap();
         let bad = c
             .get(format!("{server}/api/v1/messages"))
-            .header("x-api-key", bad_mint["displayToken"].as_str().unwrap_or_default())
+            .header(
+                "x-api-key",
+                bad_mint["displayToken"].as_str().unwrap_or_default(),
+            )
             .send()
             .await
             .unwrap()
@@ -895,7 +1030,10 @@ async fn backend_parity_sqlite_and_postgres_live() {
 
     assert_eq!(sqlite.0, 204, "SQLite: provision → 204");
     assert_eq!(postgres.0, 204, "Postgres: provision → 204");
-    assert_eq!(sqlite, postgres, "SQLite and Postgres behave identically on the happy path");
+    assert_eq!(
+        sqlite, postgres,
+        "SQLite and Postgres behave identically on the happy path"
+    );
 
     eprintln!(
         "[e13 PASS] backend parity — SQLite {:?} == Postgres {:?}",
