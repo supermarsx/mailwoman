@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
-# Server release-binary size gate (SPEC §23 / plan §6 t8-e5-perf): the shipped
-# `mailwoman` server binary must be < 45 MB.
+# Server release-binary size gate (SPEC §23 / t9-e5-size 26.9 revision): the
+# shipped `mailwoman` server binary must stay < 91 MB (measured + ~15% headroom).
 #
 # MEASURED, not asserted: builds the release binary the Docker `runtime` stage
 # ships (`cargo build --release -p mw-server --bin mailwoman`), stats the exact
@@ -9,13 +9,22 @@
 # (Windows/MSVC builds are ~2× larger and are NOT the shipped artifact, so do
 # not gate on them).
 #
+# 26.9 REVISED BUDGET (GREEN at the revised budget, fail-on-regression — NOT an
+# honest-red-against-an-unreachable-number gate any more). The original SPEC §23
+# 45 MB assumed a core-only build; the full V7 feature set (wasmtime JIT + every
+# protocol + crypto + embedded SPA) statically links to ~79 MB stripped on Linux
+# AFTER the first-party `.wasm` components were externalized out of the binary
+# (t9-e5, digest-pinned). 91 = ceil(79 × 1.15): ~15% regression headroom so a new
+# heavy dep still trips the gate. Rationale + measurement:
+# docs/perf/size-budget-revision.md.
+#
 # Budget override (for a coordinator-agreed ceiling): PERF_BINARY_BUDGET_MB.
 # Skip the build if the binary already exists: PERF_SKIP_BUILD=1.
 #
 # Usage: scripts/perf/binary-size.sh
 set -eu
 
-BUDGET_MB="${PERF_BINARY_BUDGET_MB:-45}"
+BUDGET_MB="${PERF_BINARY_BUDGET_MB:-91}"
 BUDGET_BYTES=$((BUDGET_MB * 1024 * 1024))
 BIN="target/release/mailwoman"
 

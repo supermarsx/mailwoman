@@ -30,6 +30,17 @@ finish-args:
   # Attachment save / drag-out only — no broad host filesystem:
   - --filesystem=xdg-download:rw
 
+# First-party plugin components (26.9, t9-e5): this THIN shell bundles no engine, so
+# it ships no `.wasm` — it talks to a remote server that ships its own. A
+# SELF-CONTAINED Flatpak (bundling `mw-server`) additionally installs the five
+# digest-pinned components and points the resolver at them, e.g.:
+#     - install -Dm644 plugins/dist/bridge-graph.wasm  /app/lib/mailwoman/plugins/bridge-graph.wasm
+#     - install -Dm644 plugins/dist/bridge-ews.wasm    /app/lib/mailwoman/plugins/bridge-ews.wasm
+#     - install -Dm644 plugins/dist/bridge-gmail.wasm  /app/lib/mailwoman/plugins/bridge-gmail.wasm
+#     - install -Dm644 plugins/dist/languagetool.wasm  /app/lib/mailwoman/plugins/languagetool.wasm
+#     - install -Dm644 plugins/dist/nextcloud.wasm     /app/lib/mailwoman/plugins/nextcloud.wasm
+#   and the shell spawns the sidecar with MW_PLUGIN_DIR=/app/lib/mailwoman/plugins.
+# See ../README.md ("First-party plugin components") + ../../docs/perf/size-budget-revision.md.
 modules:
   - name: mailwoman-desktop
     buildsystem: simple

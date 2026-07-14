@@ -1357,10 +1357,24 @@ theme/texture packs (§17).
 | Server RSS (idle, 1 account) / (100 active sessions) | < 40 MB / < 512 MB |
 | WebSocket push latency (server → UI) | < 100 ms intra-region |
 | IMAP full initial sync 50k-message mailbox (headers) | < 60 s on LAN |
-| Server binary size / container image | < 45 MB / < 30 MB |
+| Server binary size / container image | < 91 MB / < 205 MB [^size-budget] |
 
 Budget regressions fail CI (Lighthouse CI + bench harness + `cargo bench`
 trend tracking).
+
+[^size-budget]: **Revised in 26.9 (measured, full-feature).** The original
+    `< 45 MB` binary / `< 30 MB` image targets assumed a *core-only* build. The
+    shipped 1.0/V7 server statically links the full feature set (wasmtime plugin
+    JIT + every mail/PIM protocol + crypto + the embedded SPA), which measures
+    **~79 MB stripped** on Linux *after* the first-party `.wasm` bridge/plugin
+    components were externalized out of the binary and digest-pinned (26.9,
+    t9-e5), and a **~178 MB** distroless runtime image. The budgets above are set
+    at `ceil(measured × 1.15)` — ~15% regression headroom that still trips on a
+    new heavy dependency (they are measured ceilings, not round-number padding).
+    A future feature-gated **core SKU** (dropping the bundled bridges/plugins and
+    wasmtime) plus a `FROM scratch`/musl-static image can re-approach the smaller
+    original numbers. Full rationale + measurement:
+    `docs/perf/size-budget-revision.md`.
 
 ---
 

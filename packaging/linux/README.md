@@ -27,6 +27,16 @@ generation is exercised by the existing `desktop-shell` CI job.
   plays no media). Enabling it inflates the AppImage well past the §16 budget. See
   [`appimage/`](appimage/).
 
+## First-party plugin components (self-contained bundles)
+
+The thin deb/rpm/AppImage bundle no engine and ship no `.wasm`. A **self-contained**
+bundle (with `mw-server`) also ships the five digest-pinned components from the
+canonical `plugins/dist/` layout into a data dir the server's resolver reads
+(`/usr/lib/mailwoman/plugins`, or the Tauri `resources/plugins/` beside the sidecar).
+The full contract + per-channel table is in [`../README.md`](../README.md)
+("First-party plugin components"); rationale in
+[`../../docs/perf/size-budget-revision.md`](../../docs/perf/size-budget-revision.md).
+
 ## HUMAN-gated (optional, for a hosted repo)
 
 - Signing deb/rpm for an **apt/dnf repository** (GPG repo key) and hosting that repo

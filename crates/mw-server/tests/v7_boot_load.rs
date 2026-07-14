@@ -35,6 +35,20 @@ use mw_store::{
 /// The fake bearer token the Graph fixtures accept (real tokens never enter the guest).
 const FIXTURE_TOKEN: &str = "FIXTURE.ACCESS.TOKEN";
 
+/// Point the externalized component resolver (`v7_mount::resolve_component`) at the
+/// repo's canonical shipped layout `plugins/dist/<id>.wasm` (t9-e5): the server no
+/// longer embeds the `.wasm` bytes, so the boot loader reads + digest-verifies them
+/// from `MW_PLUGIN_DIR`. SAFETY: set once to a fixed path; every test in this binary
+/// uses the same value, and the bytes byte-match the compiled-in digest pin.
+fn point_plugin_dir_at_shipped_layout() {
+    unsafe {
+        std::env::set_var(
+            "MW_PLUGIN_DIR",
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../../plugins/dist"),
+        );
+    }
+}
+
 /// A self-contained replay of the committed `plugins/bridge-graph/fixtures/*.json`
 /// request→response pairs (method + longest `url_contains` first) — the same matcher
 /// e16 uses, reimplemented here so the harness needs no dependency on the bridge crate.
@@ -144,6 +158,7 @@ async fn jmap(engine: &Engine, account_id: &str, calls: Value) -> Value {
 /// and assert the bridged account is served `Mailbox/get` by the engine like IMAP.
 #[tokio::test]
 async fn boot_loaded_bridge_serves_mailbox_get_through_the_engine() {
+    point_plugin_dir_at_shipped_layout();
     let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
 
     // The account the bridge backs (created exactly as any account is).
@@ -254,6 +269,7 @@ async fn boot_loaded_bridge_serves_mailbox_get_through_the_engine() {
 /// byte-unchanged.
 #[tokio::test]
 async fn boot_loader_loads_nothing_without_a_binding() {
+    point_plugin_dir_at_shipped_layout();
     let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
     store
         .put_plugin(&PluginRow {
@@ -281,6 +297,7 @@ async fn boot_loader_loads_nothing_without_a_binding() {
 /// A binding to a plugin that is NOT approved+enabled loads nothing (deny-by-default).
 #[tokio::test]
 async fn boot_loader_skips_unapproved_or_disabled_binding() {
+    point_plugin_dir_at_shipped_layout();
     let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
     let account_id = store
         .create_account(

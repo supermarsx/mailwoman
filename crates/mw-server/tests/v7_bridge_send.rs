@@ -32,6 +32,20 @@ use mw_store::{
 /// The fake bearer token the Graph fixtures accept (real tokens never enter the guest).
 const FIXTURE_TOKEN: &str = "FIXTURE.ACCESS.TOKEN";
 
+/// Point the externalized component resolver (`v7_mount::resolve_component`) at the
+/// repo's canonical shipped layout `plugins/dist/<id>.wasm` (t9-e5): the server no
+/// longer embeds the `.wasm` bytes, so the boot loader reads + digest-verifies them
+/// from `MW_PLUGIN_DIR`. SAFETY: set once to a fixed path; every test in this binary
+/// uses the same value, and the bytes byte-match the compiled-in digest pin.
+fn point_plugin_dir_at_shipped_layout() {
+    unsafe {
+        std::env::set_var(
+            "MW_PLUGIN_DIR",
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../../plugins/dist"),
+        );
+    }
+}
+
 /// A self-contained replay of the committed `plugins/bridge-graph/fixtures/*.json`
 /// request→response pairs (method + longest `url_contains` first) — the same matcher
 /// `v7_boot_load.rs`/e16 use, reimplemented here so the harness needs no dependency on
@@ -231,6 +245,7 @@ fn compose_and_submit() -> Value {
 /// exactly once (no double-send from draft/Sent appends).
 #[tokio::test]
 async fn boot_loaded_bridge_email_submission_routes_to_the_bridge_submit_export() {
+    point_plugin_dir_at_shipped_layout();
     let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
     let account_id = seed_bridge_account(&store).await;
 
@@ -330,6 +345,7 @@ async fn boot_loaded_bridge_email_submission_routes_to_the_bridge_submit_export(
 /// as sent.
 #[tokio::test]
 async fn boot_loaded_bridge_send_failure_surfaces_an_error() {
+    point_plugin_dir_at_shipped_layout();
     let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
     let account_id = seed_bridge_account(&store).await;
 

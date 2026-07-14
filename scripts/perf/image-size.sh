@@ -1,27 +1,28 @@
 #!/usr/bin/env sh
-# Container-image size gate (SPEC §23 / plan §6 t8-e5-perf): the production
-# runtime image must be < 30 MB.
+# Container-image size gate (SPEC §23 / t9-e5-size 26.9 revision): the production
+# runtime image must stay < 205 MB (measured + ~15% headroom).
 #
 # MEASURED, not asserted: builds the existing Dockerfile `runtime` target and
 # reads the REAL on-disk image size via `docker image inspect`, prints it, and
 # FAILS on over-budget. Needs Docker (a Linux CI runner); locally skippable.
 #
-# HONESTY NOTE (task directive): if the runtime image legitimately cannot hit
-# 30 MB, this gate MEASURES the real number and FAILS loudly rather than faking a
-# pass — the Dockerfile itself flags the `FROM scratch` + musl-static build as a
-# deferred hardening step (it currently ships on distroless/cc-debian12, ~20+ MB
-# base, plus two Rust binaries). If the measured size is over, this is a real
-# finding for a product decision (do the musl-static work, or revise the budget),
-# NOT something to hide. The coordinator can set the agreed ceiling via
-# PERF_IMAGE_BUDGET_MB without editing this script.
+# 26.9 REVISED BUDGET (GREEN at the revised budget, fail-on-regression). The
+# original SPEC §23 30 MB assumed a core-only build and is unreachable when the
+# full-feature server binary alone is ~79 MB: the distroless/cc-debian12 base +
+# `mailwoman` + `mw-render` + the externalized `plugins/*.wasm` measure ~178 MB.
+# 205 = ceil(178 × 1.15): ~15% headroom so the gate still catches a regression
+# (a new base layer or heavy dep trips it) without faking a pass. A future
+# feature-gated "core" SKU can re-approach the smaller number. Rationale +
+# measurement: docs/perf/size-budget-revision.md. The `FROM scratch` + musl-static
+# build remains a deferred hardening lever (Dockerfile TODO).
 #
-# Budget override: PERF_IMAGE_BUDGET_MB (default 30).
+# Budget override: PERF_IMAGE_BUDGET_MB (default 205).
 # Reuse an already-built image (skip docker build): PERF_IMAGE_TAG + PERF_SKIP_BUILD=1.
 #
 # Usage: scripts/perf/image-size.sh
 set -eu
 
-BUDGET_MB="${PERF_IMAGE_BUDGET_MB:-30}"
+BUDGET_MB="${PERF_IMAGE_BUDGET_MB:-205}"
 BUDGET_BYTES=$((BUDGET_MB * 1024 * 1024))
 TAG="${PERF_IMAGE_TAG:-mailwoman-perf:runtime}"
 

@@ -51,13 +51,19 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 FROM gcr.io/distroless/cc-debian12:nonroot AS runtime
 COPY --from=build /out/mailwoman   /usr/local/bin/mailwoman
 COPY --from=build /out/mw-render   /usr/local/bin/mw-render
+# First-party bridge/plugin `.wasm` components (26.9, t9-e5): no longer embedded in
+# the binary — shipped as external, read-only data files and digest-pinned by the
+# server (`v7_mount::FIRST_PARTY_DIGESTS`), which loads them from MW_PLUGIN_DIR and
+# fails closed on a missing/tampered component. Canonical shipped layout: plugins/dist.
+COPY --from=build /src/plugins/dist /usr/lib/mailwoman/plugins
 # Writable data dir owned by the distroless `nonroot` user (uid 65532). The dir
 # is created empty in the build stage; --chown sets ownership on copy. A named
 # volume mounted here inherits this ownership, so the server can create the DB.
 COPY --from=build --chown=65532:65532 /data-empty /data
 ENV MW_BIND=0.0.0.0:8080 \
     MW_DB_PATH=/data/mailwoman.db \
-    MW_RENDER_BIN=/usr/local/bin/mw-render
+    MW_RENDER_BIN=/usr/local/bin/mw-render \
+    MW_PLUGIN_DIR=/usr/lib/mailwoman/plugins
 EXPOSE 8080
 VOLUME ["/data"]
 USER nonroot
