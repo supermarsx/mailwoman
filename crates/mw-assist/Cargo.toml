@@ -14,16 +14,24 @@ repository.workspace = true
 # endpoint host, never content). The `Assistant` capability delegates to the
 # existing `mw-mcp` tool registry (inherits scope + send-gating). NO send/delete/
 # accept capability exists (compile-time: the enum has no such variant).
-#
-# SCAFFOLD posture (e0): frozen §2.4 types as stubs; the adapters + gateway
-# enforcement + streaming are e4. `reqwest` links when e4 wires the adapters.
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 async-trait = { workspace = true }
-# TODO(e4): link `reqwest` (in-tree, rustls) for the adapters + `futures-util` for
-# the chat stream, and consume the frozen `mw-mcp` tool contract for `Assistant`.
+# Adapters: hand-rolled JSON over the in-tree reqwest(rustls). `multipart` for the
+# Whisper-compatible /v1/audio/transcriptions slot, `stream` for streaming chat.
+reqwest = { workspace = true, features = ["multipart", "stream"] }
+futures-util = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+# LocalProcess adapter spawns a configured binary and exchanges JSON over stdio.
+tokio = { workspace = true, features = ["process", "io-util"] }
+# The `Assistant` capability is an UNPRIVILEGED CLIENT of the frozen V6 mw-mcp tool
+# registry, inheriting mw-oauth::Scope + the send->Outbox gating. No new send path.
+mw-mcp = { workspace = true }
+mw-oauth = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "io-util"] }
+futures-util = { workspace = true }
