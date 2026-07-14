@@ -35,8 +35,10 @@ use mw_plugin::{Capability, PluginError, PluginHost};
 
 use crate::AppState;
 
-/// The shared, lockable plugin host e14 injects.
-pub(crate) type PluginRegistry = Arc<Mutex<PluginHost>>;
+/// The shared, lockable plugin host e14 injects. `pub` so the boot-load integration
+/// test (`tests/v7_boot_load.rs`) can hand `load_plugin_backends` a fixture-backed
+/// host — it is a transparent alias for `Arc<Mutex<mw_plugin::PluginHost>>`.
+pub type PluginRegistry = Arc<Mutex<PluginHost>>;
 
 const ADMIN_COOKIE: &str = "mw_admin_session";
 

@@ -64,6 +64,19 @@ pub struct PluginGrantRow {
     pub created_at: String,
 }
 
+/// A `bridge_accounts` row (0008, §6.5): which local account is served by which
+/// bridge plugin (`plugins.id`). `oauth_ref` is an opaque token reference (the
+/// long-lived secret never lives here); `extra_json` carries bridge-specific
+/// settings. e14's `load_plugin_backends` reads these at boot to auto-load an
+/// approved+enabled bridge component as the account's backend.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgeAccountRow {
+    pub account_id: String,
+    pub bridge_id: String,
+    pub oauth_ref: Option<String>,
+    pub extra_json: String,
+}
+
 /// An `assist_config` row (0008). All-JSON except the queryable `enabled` flag.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssistConfigRow {
@@ -222,6 +235,44 @@ impl Store {
             .fetch_all(&self.backend)
             .await?;
         Ok(rows.iter().map(|r| r.get_string("capability")).collect())
+    }
+
+    // ── bridge_accounts ──────────────────────────────────────────────────────
+
+    /// Read every bridge-account binding (account ↔ bridge plugin, §6.5),
+    /// account-id-ordered. e14 loads a bridge component per binding at boot.
+    pub async fn list_bridge_accounts(&self) -> Result<Vec<BridgeAccountRow>, StoreError> {
+        let rows = q("SELECT account_id, bridge_id, oauth_ref, extra
+                      FROM bridge_accounts ORDER BY account_id ASC")
+        .fetch_all(&self.backend)
+        .await?;
+        Ok(rows
+            .iter()
+            .map(|r| BridgeAccountRow {
+                account_id: r.get_string("account_id"),
+                bridge_id: r.get_string("bridge_id"),
+                oauth_ref: r.get_opt_string("oauth_ref"),
+                extra_json: r.get_string("extra"),
+            })
+            .collect())
+    }
+
+    /// Upsert a bridge-account binding (by `account_id`).
+    pub async fn put_bridge_account(&self, row: &BridgeAccountRow) -> Result<(), StoreError> {
+        q(
+            "INSERT INTO bridge_accounts (account_id, bridge_id, oauth_ref, extra)
+           VALUES (?1, ?2, ?3, ?4)
+           ON CONFLICT(account_id) DO UPDATE SET
+             bridge_id = excluded.bridge_id, oauth_ref = excluded.oauth_ref,
+             extra = excluded.extra",
+        )
+        .bind(&row.account_id)
+        .bind(&row.bridge_id)
+        .bind(row.oauth_ref.clone())
+        .bind(&row.extra_json)
+        .execute(&self.backend)
+        .await?;
+        Ok(())
     }
 
     // ── assist_config + assist_audit ─────────────────────────────────────────

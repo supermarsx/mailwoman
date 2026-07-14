@@ -36,7 +36,9 @@ pub use v6::{
     QuotaRow, WebhookRow, ZeroAccessRow,
 };
 pub use v7::PasswdConfigRow;
-pub use v7_config::{AssistConfigRow, DirectoryConfigRow, PluginGrantRow, PluginRow};
+pub use v7_config::{
+    AssistConfigRow, BridgeAccountRow, DirectoryConfigRow, PluginGrantRow, PluginRow,
+};
 
 pub use cache::{
     Account, AccountKind, Mailbox, MailboxUpsert, Message, MessageLocation, MessageUpsert,

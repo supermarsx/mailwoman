@@ -424,7 +424,7 @@ pub async fn build_app_full(
                     &assist_granted,
                 ))),
         );
-        let n = v7_mount::load_plugin_backends(engine, &plugin_host, &store);
+        let n = v7_mount::load_plugin_backends(engine, &plugin_host, &store).await;
         if n > 0 {
             tracing::info!("registered {n} plugin/bridge account backend(s)");
         }

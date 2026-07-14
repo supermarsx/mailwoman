@@ -32,8 +32,8 @@ use mw_passwd::{
     PasswordPolicy, Result as PwResult, Secret,
 };
 use mw_plugin::{
-    Clock, HostServices, HttpFetcher, HttpReq, HttpResp, KvStore, OAuthTokenProvider, PluginHost,
-    PluginLimits, PluginManifest, Rng,
+    Clock, Grant, HostServices, HttpFetcher, HttpReq, HttpResp, KvStore, OAuthTokenProvider,
+    PluginHost, PluginLimits, PluginManifest, Rng,
 };
 use mw_store::{PluginRow, Store};
 
@@ -451,22 +451,179 @@ pub(crate) async fn build_plugin_host(store: &Store) -> PluginRegistry {
     Arc::new(Mutex::new(host))
 }
 
-/// Load a plugin component from disk + register it as an account backend on the engine
-/// (plan §6.5). Best-effort: only for enabled, approved plugins that advertise the
-/// AccountBackend capability and have a bound `bridge_accounts` account + a component
-/// file. Returns the number of backends registered. Fixture bridges are exercised
-/// live by e16 — this is the deployment path.
-pub(crate) fn load_plugin_backends(
-    _engine: &Arc<mw_engine::Engine>,
-    _host: &PluginRegistry,
-    _store: &Store,
+/// The FIRST-PARTY bridge/plugin components bundled with the server binary, keyed by
+/// the 0008 `plugins.id`. The committed `wasm32-wasip2` components (built by each
+/// plugin's `build.sh`, jail-proven by e10–e13/e16) ship *inside* the server so an
+/// admin who approves + enables a first-party bridge and binds a `bridge_accounts`
+/// row gets a functional bridge at the next boot — no on-disk plugin directory to
+/// provision.
+///
+/// **Component-source model (documented):** for the first-party bridges + jail
+/// plugins we bundle bytes at compile time. Third-party plugin bytes-in-DB / on-disk
+/// path loading is a **documented post-1.0 extension** (`None` here ⇒ the binding is
+/// skipped, deny-by-default). Nothing loads without both an approved+enabled
+/// `plugins` row AND a `bridge_accounts` binding.
+fn bundled_component(plugin_id: &str) -> Option<&'static [u8]> {
+    match plugin_id {
+        "bridge-graph" => Some(include_bytes!(
+            "../../../plugins/bridge-graph/tests/fixtures/bridge-graph.wasm"
+        )),
+        "bridge-ews" => Some(include_bytes!(
+            "../../../plugins/bridge-ews/fixtures/bridge-ews.wasm"
+        )),
+        "bridge-gmail" => Some(include_bytes!(
+            "../../../plugins/bridge-gmail/fixtures/bridge-gmail.wasm"
+        )),
+        "languagetool" => Some(include_bytes!(
+            "../../../plugins/languagetool/tests/fixtures/languagetool.wasm"
+        )),
+        "nextcloud" | "nextcloud-plugin" => Some(include_bytes!(
+            "../../../plugins/nextcloud/tests/fixtures/nextcloud.wasm"
+        )),
+        _ => None,
+    }
+}
+
+/// The send seam for a bridge-backed account. A bridge's outbound mail flows through
+/// its component's native API (the `account-backend` `submit` export / `message-out`
+/// pipeline), NOT SMTP — so wiring `EmailSubmission/set` to the bridge send path is a
+/// documented follow-up. V7 proves the bridge MAIL **read** surface (Mailbox/get,
+/// Email/query, Email/get) served identically to IMAP; a bridge account's SMTP
+/// submission is **refused** (never silently dropped) until that path lands.
+struct BridgeSubmitDenied {
+    bridge_id: String,
+}
+
+#[async_trait]
+impl mw_engine::account::MailSubmitter for BridgeSubmitDenied {
+    async fn submit(
+        &self,
+        _msg: mw_smtp::Outgoing,
+    ) -> mw_engine::backend::Result<mw_smtp::SubmissionResult> {
+        Err(mw_engine::backend::EngineError::Unsupported(format!(
+            "send for the '{}' bridge account is not wired through EmailSubmission yet \
+             (bridge MAIL read surface only)",
+            self.bridge_id
+        )))
+    }
+}
+
+/// Boot-load the approved bridge/plugin account backends from the 0008 registry
+/// (plan §6.5). For every `bridge_accounts` binding whose bound plugin is an
+/// **approved + enabled** `plugins` row *and* has a bundled first-party component,
+/// this obtains the component bytes, `PluginHost::load`s them under the plugin's
+/// manifest + a boot grant (host services already injected via
+/// [`build_plugin_host`]), takes `as_account_backend()`, and registers it on the
+/// engine via `register_plugin_backend` — after which the account is served by the
+/// SAME sync/JMAP dispatch as an IMAP account. Returns the number of backends loaded.
+///
+/// Deny-by-default: an unbound, unapproved, disabled, or third-party (non-bundled)
+/// plugin loads nothing, and an account with no binding is byte-unchanged from the
+/// non-plugin path. Every skip is logged (never silent).
+pub async fn load_plugin_backends(
+    engine: &Arc<mw_engine::Engine>,
+    host: &PluginRegistry,
+    store: &Store,
 ) -> usize {
-    // The account↔plugin binding lives in 0008 `bridge_accounts`; component bytes in
-    // `MW_PLUGIN_DIR`. Wiring the live load is exercised by e16 against the real
-    // built `wasm32-wasip2` components; in the mount we register no backend when no
-    // component/binding is present (byte-unchanged non-plugin path). Kept as the
-    // seam so `register_plugin_backend` has a single call site.
-    0
+    let bindings = match store.list_bridge_accounts().await {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!("bridge_accounts read failed: {e}");
+            return 0;
+        }
+    };
+    if bindings.is_empty() {
+        return 0;
+    }
+    let plugins = store.list_plugins().await.unwrap_or_default();
+    let mut loaded = 0usize;
+
+    for b in &bindings {
+        // The bound plugin must be a known, approved, ENABLED registry row.
+        let Some(row) = plugins.iter().find(|p| p.id == b.bridge_id) else {
+            tracing::warn!(
+                "bridge account {} bound to unknown plugin '{}'; not loaded",
+                b.account_id,
+                b.bridge_id
+            );
+            continue;
+        };
+        if row.approved_by.is_none() || !row.enabled {
+            tracing::warn!(
+                "bridge plugin '{}' is not approved+enabled; account {} not loaded",
+                b.bridge_id,
+                b.account_id
+            );
+            continue;
+        }
+        // Deny-by-default: only a bundled FIRST-PARTY component auto-loads (third-party
+        // byte storage is a post-1.0 extension).
+        let Some(bytes) = bundled_component(&b.bridge_id) else {
+            tracing::warn!(
+                "no bundled component for plugin '{}' (third-party byte storage is post-1.0); \
+                 account {} not loaded",
+                b.bridge_id,
+                b.account_id
+            );
+            continue;
+        };
+
+        let manifest = manifest_of(row);
+        let grant = Grant {
+            plugin_id: row.id.clone(),
+            capabilities: manifest.capabilities.clone(),
+            granted_by: row.approved_by.clone().unwrap_or_default(),
+            // A bundled first-party component is trusted by virtue of being compiled
+            // into the server binary. The boot host carries an empty trust root, which
+            // can't verify a detached signature, so the boot grant allows unsigned —
+            // surfacing the persistent unsigned banner until a signing trust root is
+            // configured (post-1.0). Deny-by-default still holds: it took an
+            // approved+enabled row + a binding to reach here.
+            allow_unsigned: true,
+        };
+
+        let handle = {
+            let host = host.lock().expect("plugin registry lock");
+            match host.load(bytes, &manifest, &grant) {
+                Ok(h) => h,
+                Err(e) => {
+                    tracing::error!("plugin '{}' load failed: {e}", b.bridge_id);
+                    continue;
+                }
+            }
+        };
+        let Some(backend) = handle.as_account_backend() else {
+            tracing::warn!(
+                "plugin '{}' does not advertise the account-backend capability; \
+                 account {} not loaded",
+                b.bridge_id,
+                b.account_id
+            );
+            continue;
+        };
+
+        // The account's own identity (From/MAIL FROM); fall back to the account id.
+        let identity = store
+            .get_account(&b.account_id)
+            .await
+            .map(|a| a.username)
+            .unwrap_or_else(|_| b.account_id.clone());
+        let runtime = mw_engine::account::AccountRuntime::new(
+            backend,
+            Arc::new(BridgeSubmitDenied {
+                bridge_id: b.bridge_id.clone(),
+            }) as Arc<dyn mw_engine::account::MailSubmitter>,
+            identity,
+        );
+        engine.register_plugin_backend(b.account_id.clone(), b.bridge_id.clone(), runtime);
+        loaded += 1;
+        tracing::info!(
+            "boot-loaded bridge '{}' backing account {}",
+            b.bridge_id,
+            b.account_id
+        );
+    }
+    loaded
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
