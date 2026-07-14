@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+               xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+               xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+  <soap:Body>
+    <m:SyncFolderItemsResponse>
+      <m:ResponseMessages>
+        <m:SyncFolderItemsResponseMessage ResponseClass="Success">
+          <m:ResponseCode>NoError</m:ResponseCode>
+          <m:SyncState>I-STATE-2</m:SyncState>
+          <m:IncludesLastItemInRange>true</m:IncludesLastItemInRange>
+          <m:Changes>
+            <t:Create>
+              <t:Message>
+                <t:ItemId Id="ITEM-AAA" ChangeKey="MCK1"/>
+              </t:Message>
+            </t:Create>
+            <t:Create>
+              <t:Message>
+                <t:ItemId Id="ITEM-BBB" ChangeKey="MCK2"/>
+              </t:Message>
+            </t:Create>
+            <t:Delete>
+              <t:ItemId Id="ITEM-OLD" ChangeKey="MCK0"/>
+            </t:Delete>
+          </m:Changes>
+        </m:SyncFolderItemsResponseMessage>
+      </m:ResponseMessages>
+    </m:SyncFolderItemsResponse>
+  </soap:Body>
+</soap:Envelope>

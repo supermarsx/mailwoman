@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+               xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+               xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+  <soap:Body>
+    <m:GetUserOofSettingsResponse>
+      <m:ResponseMessage ResponseClass="Success">
+        <m:ResponseCode>NoError</m:ResponseCode>
+      </m:ResponseMessage>
+      <m:OofSettings>
+        <t:OofState>Enabled</t:OofState>
+        <t:ExternalAudience>All</t:ExternalAudience>
+        <t:InternalReply>
+          <t:Message>Out until Monday (internal).</t:Message>
+        </t:InternalReply>
+        <t:ExternalReply>
+          <t:Message>I am away.</t:Message>
+        </t:ExternalReply>
+      </m:OofSettings>
+    </m:GetUserOofSettingsResponse>
+  </soap:Body>
+</soap:Envelope>

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+               xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+               xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+  <soap:Body>
+    <m:GetItemResponse>
+      <m:ResponseMessages>
+        <m:GetItemResponseMessage ResponseClass="Success">
+          <m:ResponseCode>NoError</m:ResponseCode>
+          <m:Items>
+            <t:Message>
+              <t:ItemId Id="VOTE-REPLY-1" ChangeKey="VCK1"/>
+              <t:ExtendedProperty>
+                <t:ExtendedFieldURI PropertySetId="{00062008-0000-0000-C000-000000000046}" PropertyId="34084" PropertyType="String"/>
+                <t:Value>Pizza</t:Value>
+              </t:ExtendedProperty>
+            </t:Message>
+          </m:Items>
+        </m:GetItemResponseMessage>
+      </m:ResponseMessages>
+    </m:GetItemResponse>
+  </soap:Body>
+</soap:Envelope>

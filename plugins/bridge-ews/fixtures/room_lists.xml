@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+               xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+               xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+  <soap:Body>
+    <m:GetRoomListsResponse ResponseClass="Success">
+      <m:ResponseCode>NoError</m:ResponseCode>
+      <m:RoomLists>
+        <t:Address>
+          <t:Name>Room A</t:Name>
+          <t:EmailAddress>room-a@corp.example</t:EmailAddress>
+          <t:RoutingType>SMTP</t:RoutingType>
+        </t:Address>
+        <t:Address>
+          <t:Name>Room B</t:Name>
+          <t:EmailAddress>room-b@corp.example</t:EmailAddress>
+          <t:RoutingType>SMTP</t:RoutingType>
+        </t:Address>
+      </m:RoomLists>
+    </m:GetRoomListsResponse>
+  </soap:Body>
+</soap:Envelope>

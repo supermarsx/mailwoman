@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+               xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+               xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+  <soap:Body>
+    <m:GetUserAvailabilityResponse>
+      <m:FreeBusyResponseArray>
+        <m:FreeBusyResponse>
+          <m:ResponseMessage ResponseClass="Success">
+            <m:ResponseCode>NoError</m:ResponseCode>
+          </m:ResponseMessage>
+          <m:FreeBusyView>
+            <t:FreeBusyViewType>FreeBusy</t:FreeBusyViewType>
+            <t:CalendarEventArray>
+              <t:CalendarEvent>
+                <t:StartTime>2026-07-20T09:00:00</t:StartTime>
+                <t:EndTime>2026-07-20T10:00:00</t:EndTime>
+                <t:BusyType>Busy</t:BusyType>
+              </t:CalendarEvent>
+              <t:CalendarEvent>
+                <t:StartTime>2026-07-20T12:00:00</t:StartTime>
+                <t:EndTime>2026-07-20T13:00:00</t:EndTime>
+                <t:BusyType>OOF</t:BusyType>
+              </t:CalendarEvent>
+            </t:CalendarEventArray>
+          </m:FreeBusyView>
+        </m:FreeBusyResponse>
+      </m:FreeBusyResponseArray>
+    </m:GetUserAvailabilityResponse>
+  </soap:Body>
+</soap:Envelope>

@@ -6,11 +6,37 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
-# t7-e11 (CUT-PROOF): the EWS bridge component — a SOAP subset (quick-xml) for
-# sync/send/calendar+free-busy+rooms/GAL/OOF/recall/voting; Basic + pure-Rust NTLM
-# auth (Kerberos = documented gap, R2). SCAFFOLD posture (e0): inert host-target lib
-# stub; the `wasm32-wasip2` component + `quick-xml` + NTLM link land with e11/e15.
+# t7-e11 (CUT-PROOF): the EWS bridge component — an EWS SOAP subset (quick-xml) for
+# sync/send/calendar+free-busy+rooms/GAL/OOF/recall/voting; Basic + pure-Rust NTLMv2
+# auth (hand-rolled over an in-crate MD4/MD5/HMAC-MD5, ZERO new deps; no GSSAPI/C).
+# Kerberos-SSO is a DOCUMENTED GAP (BYO reverse-proxy-auth; native post-1.0), R2.
+#
+# Dual crate-type: `rlib` so the pure protocol core compiles + unit-tests on the
+# HOST target (keeping `cargo build --workspace` green), `cdylib` so
+# `cargo build --target wasm32-wasip2` produces the plugin component (the WIT glue in
+# `src/guest.rs` is `#[cfg(target_arch = "wasm32")]`). Build the component with
+# `./build.sh`, which refreshes the committed `fixtures/bridge-ews.wasm` the host
+# integration test (`tests/bridge.rs`) loads through `mw-plugin`.
 [lib]
-crate-type = ["rlib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+# EWS SOAP + OXMSG XML. Workspace `quick-xml` is FIXED at 0.41 (NOT the docx-rs
+# 0.36 line with the RUSTSEC DoS advisories) — pure-Rust, wasm32-wasip2-clean.
+quick-xml = { workspace = true }
+base64 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Guest-side WIT bindings — only needed for the `wasm32` component build.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wit-bindgen = { workspace = true }
+
+[dev-dependencies]
+# Host integration test: load the committed component through the real jail and
+# drive it as an `AccountBackend` against recorded SOAP fixtures + an NTLM handshake.
+mw-plugin = { workspace = true }
+mw-engine = { workspace = true }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
+async-trait = { workspace = true }
+base64 = { workspace = true }

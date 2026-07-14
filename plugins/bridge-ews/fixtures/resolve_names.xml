@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+               xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+               xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+  <soap:Body>
+    <m:ResolveNamesResponse>
+      <m:ResponseMessages>
+        <m:ResolveNamesResponseMessage ResponseClass="Success">
+          <m:ResponseCode>NoError</m:ResponseCode>
+          <m:ResolutionSet TotalItemsInView="2" IncludesLastItemInRange="true">
+            <t:Resolution>
+              <t:Mailbox>
+                <t:Name>John Doe</t:Name>
+                <t:EmailAddress>john.doe@corp.example</t:EmailAddress>
+                <t:RoutingType>SMTP</t:RoutingType>
+                <t:MailboxType>Mailbox</t:MailboxType>
+              </t:Mailbox>
+            </t:Resolution>
+            <t:Resolution>
+              <t:Mailbox>
+                <t:Name>Jane Roe</t:Name>
+                <t:EmailAddress>jane.roe@corp.example</t:EmailAddress>
+                <t:RoutingType>SMTP</t:RoutingType>
+                <t:MailboxType>Mailbox</t:MailboxType>
+              </t:Mailbox>
+            </t:Resolution>
+          </m:ResolutionSet>
+        </m:ResolveNamesResponseMessage>
+      </m:ResponseMessages>
+    </m:ResolveNamesResponse>
+  </soap:Body>
+</soap:Envelope>

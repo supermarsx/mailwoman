@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+               xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+               xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+  <soap:Body>
+    <m:CreateItemResponse>
+      <m:ResponseMessages>
+        <m:CreateItemResponseMessage ResponseClass="Success">
+          <m:ResponseCode>NoError</m:ResponseCode>
+          <m:Items>
+            <t:Message>
+              <t:ItemId Id="SENT-123" ChangeKey="SCK1"/>
+            </t:Message>
+          </m:Items>
+        </m:CreateItemResponseMessage>
+      </m:ResponseMessages>
+    </m:CreateItemResponse>
+  </soap:Body>
+</soap:Envelope>
