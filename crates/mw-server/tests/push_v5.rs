@@ -294,8 +294,12 @@ async fn state_change_sends_opaque_webpush_with_no_content() {
         mail_rule: "0".into(),
     });
 
-    // The dispatcher delivers an opaque wake to the fake endpoint.
-    let (headers, body) = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+    // The dispatcher delivers an opaque wake to the fake endpoint. The timeout is
+    // a generous safety net (not a latency assertion): under a full `cargo test
+    // --workspace` run — now many more test binaries in parallel since V6 — the
+    // wake occasionally arrived just past a tight 5s bound though it passes in
+    // ~0.2s isolated. 30s tolerates load without weakening the opaque-content check.
+    let (headers, body) = tokio::time::timeout(Duration::from_secs(30), rx.recv())
         .await
         .expect("a wake reaches the fake endpoint")
         .expect("channel open");
