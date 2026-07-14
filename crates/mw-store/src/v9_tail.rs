@@ -427,6 +427,19 @@ impl Store {
             .await?;
         Ok(())
     }
+
+    /// Delete a client row from the 0007 `oauth_clients` table (idempotent). Used by
+    /// the RFC 7592 client-configuration DELETE to fully deprovision a DCR-issued
+    /// client. This is an additive repo method over the existing table — the 0007
+    /// migration is NOT edited. Callers should also
+    /// [`delete_oauth_client_meta`](Self::delete_oauth_client_meta) for the side row.
+    pub async fn delete_oauth_client(&self, client_id: &str) -> Result<(), StoreError> {
+        q("DELETE FROM oauth_clients WHERE client_id = ?1")
+            .bind(client_id)
+            .execute(&self.backend)
+            .await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

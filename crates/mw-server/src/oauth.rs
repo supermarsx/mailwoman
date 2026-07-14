@@ -538,55 +538,469 @@ async fn pair_envelope_get(
     Json(json!({ "envelopeB64": envelope })).into_response()
 }
 
-// ─── OAuth Dynamic Client Registration (RFC 7591) — t10 e8 SCAFFOLD ───────────
+// ─── OAuth Dynamic Client Registration (RFC 7591 / RFC 7592) — t10 e8 ─────────
 //
-// Additive DCR handler stubs. NOT wired into [`routes()`] above (unmounted); e13
-// merges a `dcr_router()` once e8 fills the bodies over the 0010 `oauth_dcr` policy
-// + `oauth_client_meta` side table (DCR-issued clients land in the 0007
-// `oauth_clients` table). DEFAULT DISABLED: `register` returns 403 when the policy
-// is absent/disabled. Route shape frozen here (e8 fills, e13 mounts):
-//   * `POST   /oauth/register`         — register a client (RFC 7591).
-//   * `GET    /oauth/register/{id}`    — read client config (registration-access-token).
-//   * `PUT    /oauth/register/{id}`    — update client config (registration-access-token).
-//   * `DELETE /oauth/register/{id}`    — delete the client (registration-access-token).
-#[allow(dead_code)]
-pub(crate) fn dcr_router() -> Router<AppState> {
-    Router::new()
-        .route("/oauth/register", post(dcr_register))
-        .route(
-            "/oauth/register/{id}",
-            get(dcr_read).put(dcr_update).delete(dcr_delete),
+// Admin/policy-gated, **DEFAULT DISABLED**. The policy lives in the 0010 `oauth_dcr`
+// singleton; a DCR-issued client is an ordinary 0007 `oauth_clients` row plus a
+// 0010 `oauth_client_meta` side row (RFC-7591 extras + the HASH of the per-client
+// registration-access-token). No edit to 0007, the `Scope` model, or the existing
+// AS behaviour. The registration logic lives in `mw_oauth::dcr`; these handlers are
+// the thin HTTP glue + the policy/initial-access-token gate.
+//
+//   * `POST   /oauth/register`      — register a client (RFC 7591). Disabled ⇒ 403.
+//   * `GET    /oauth/register/{id}` — read client config   (registration-access-token).
+//   * `PUT    /oauth/register/{id}` — update client config (registration-access-token).
+//   * `DELETE /oauth/register/{id}` — delete the client    (registration-access-token).
+//
+// MOUNT NOTE for t10-e13: these routes are provided as [`dcr_router`]; wire it into
+// `build_app`'s router (e.g. `.merge(oauth::dcr_router())`). It is intentionally NOT
+// merged into [`routes()`] so it stays a single explicit mount point. The inner
+// `#![allow(dead_code)]` keeps the chain warning-clean while unmounted (e0's stub
+// convention); mounting it (e13) marks the whole chain live.
+// Re-exported for t10-e13's mount; unused in-crate until then.
+#[allow(unused_imports)]
+pub(crate) use dcr::dcr_router;
+
+mod dcr {
+    #![allow(dead_code)]
+    use super::*;
+
+    pub(crate) fn dcr_router() -> Router<AppState> {
+        Router::new()
+            .route("/oauth/register", post(dcr_register))
+            .route(
+                "/oauth/register/{id}",
+                get(dcr_read).put(dcr_update).delete(dcr_delete),
+            )
+    }
+
+    /// Env var carrying the shared initial-access-token, checked when the policy sets
+    /// `require_initial_access_token`. Unset ⇒ every registration is refused (401) while
+    /// the requirement is on (fail-closed).
+    const DCR_INITIAL_ACCESS_TOKEN_ENV: &str = "MW_DCR_INITIAL_ACCESS_TOKEN";
+
+    /// Extract a `Bearer <token>` value from the `Authorization` header.
+    fn bearer_token(headers: &axum::http::HeaderMap) -> Option<String> {
+        let raw = headers
+            .get(axum::http::header::AUTHORIZATION)?
+            .to_str()
+            .ok()?;
+        let token = raw
+            .strip_prefix("Bearer ")
+            .or_else(|| raw.strip_prefix("bearer "))?;
+        let token = token.trim();
+        (!token.is_empty()).then(|| token.to_string())
+    }
+
+    /// Constant-time string comparison (initial-access-token check).
+    fn ct_eq_str(a: &str, b: &str) -> bool {
+        let (a, b) = (a.as_bytes(), b.as_bytes());
+        if a.len() != b.len() {
+            return false;
+        }
+        let mut diff = 0u8;
+        for (x, y) in a.iter().zip(b.iter()) {
+            diff |= x ^ y;
+        }
+        diff == 0
+    }
+
+    /// Derive the absolute issuer base URL for `registration_client_uri` from the request
+    /// `Host` header. Loopback hosts default to `http`, everything else to `https`.
+    fn issuer_base_url(headers: &axum::http::HeaderMap) -> String {
+        let host = headers
+            .get(axum::http::header::HOST)
+            .and_then(|h| h.to_str().ok())
+            .unwrap_or("localhost");
+        let scheme = if host.starts_with("127.0.0.1")
+            || host.starts_with("localhost")
+            || host.starts_with("[::1]")
+        {
+            "http"
+        } else {
+            "https"
+        };
+        format!("{scheme}://{host}")
+    }
+
+    /// Load + gate the DCR policy: `Ok(policy)` when enabled, else a ready `403`/`500`.
+    async fn load_enabled_policy(
+        state: &AppState,
+        headers: &axum::http::HeaderMap,
+    ) -> Result<mw_oauth::DcrPolicy, Response> {
+        let row = match state.store.get_oauth_dcr_policy().await {
+            Ok(Some(row)) => row,
+            Ok(None) => return Err(dcr_disabled()),
+            Err(e) => return Err(server_error(e)),
+        };
+        if !row.enabled {
+            return Err(dcr_disabled());
+        }
+        let allowed_redirect_host_suffixes: Vec<String> =
+            serde_json::from_str(&row.allowed_redirect_host_suffixes_json).unwrap_or_default();
+        let default_scope: Scope = serde_json::from_str(&row.default_scope_json)
+            .unwrap_or_else(|_| mw_oauth::dcr::no_scope());
+        Ok(mw_oauth::DcrPolicy {
+            enabled: row.enabled,
+            require_initial_access_token: row.require_initial_access_token,
+            allowed_redirect_host_suffixes,
+            default_scope,
+            issuer_base_url: issuer_base_url(headers),
+        })
+    }
+
+    fn dcr_disabled() -> Response {
+        (
+            StatusCode::FORBIDDEN,
+            Json(json!({
+                "error": "access_denied",
+                "error_description": "dynamic client registration is disabled",
+            })),
         )
-}
+            .into_response()
+    }
 
-/// A clean 501 for an unfilled DCR route (e8 replaces the bodies).
-#[allow(dead_code)]
-fn dcr_not_implemented(what: &str) -> Response {
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        Json(json!({ "error": format!("{what} is not implemented in this build") })),
-    )
-        .into_response()
-}
+    /// Map a [`mw_oauth::DcrError`] onto its RFC-7591 HTTP response.
+    fn dcr_error_response(e: &mw_oauth::DcrError) -> Response {
+        use mw_oauth::DcrError as E;
+        match e {
+        E::Disabled => dcr_disabled(),
+        E::InitialAccessTokenRequired => (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "invalid_token", "error_description": e.to_string() })),
+        )
+            .into_response(),
+        E::InvalidRedirectUri(_) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "invalid_redirect_uri", "error_description": e.to_string() })),
+        )
+            .into_response(),
+        E::InvalidClientMetadata(_) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "invalid_client_metadata", "error_description": e.to_string() })),
+        )
+            .into_response(),
+        E::Store(_) => server_error(e),
+    }
+    }
 
-#[allow(dead_code)]
-async fn dcr_register() -> Response {
-    dcr_not_implemented("dynamic client registration")
-}
+    /// POST /oauth/register — RFC 7591 registration (policy-gated, optional IAT gate).
+    async fn dcr_register(
+        State(state): State<AppState>,
+        headers: axum::http::HeaderMap,
+        Json(request): Json<mw_oauth::ClientRegistrationRequest>,
+    ) -> Response {
+        let policy = match load_enabled_policy(&state, &headers).await {
+            Ok(p) => p,
+            Err(resp) => return resp,
+        };
+        // Optional initial-access-token gate (fail-closed).
+        if policy.require_initial_access_token {
+            let expected = std::env::var(DCR_INITIAL_ACCESS_TOKEN_ENV)
+                .ok()
+                .filter(|v| !v.is_empty());
+            let ok = match (expected, bearer_token(&headers)) {
+                (Some(exp), Some(got)) => ct_eq_str(&exp, &got),
+                _ => false,
+            };
+            if !ok {
+                return dcr_error_response(&mw_oauth::DcrError::InitialAccessTokenRequired);
+            }
+        }
 
-#[allow(dead_code)]
-async fn dcr_read(UrlPath(_id): UrlPath<String>) -> Response {
-    dcr_not_implemented("client-configuration read")
-}
+        let resp = match mw_oauth::dcr::register(state.v6.auth.store(), request, policy).await {
+            Ok(r) => r,
+            Err(e) => return dcr_error_response(&e),
+        };
 
-#[allow(dead_code)]
-async fn dcr_update(UrlPath(_id): UrlPath<String>) -> Response {
-    dcr_not_implemented("client-configuration update")
-}
+        // Persist the RFC-7591 extras + the registration-access-token HASH (0010 side row).
+        let meta = mw_store::OAuthClientMetaRow {
+            client_id: resp.client_id.clone(),
+            registration_access_token_hash: Some(resp.registration_access_token_hash.clone()),
+            software_id: resp.software_id.clone(),
+            software_version: resp.software_version.clone(),
+            contacts_json: serde_json::to_string(&resp.contacts).unwrap_or_else(|_| "[]".into()),
+            created_via: mw_oauth::dcr::DCR_CREATED_VIA.to_string(),
+            created_at: resp.created_at.clone(),
+        };
+        if let Err(e) = state.store.put_oauth_client_meta(&meta).await {
+            return server_error(e);
+        }
 
-#[allow(dead_code)]
-async fn dcr_delete(UrlPath(_id): UrlPath<String>) -> Response {
-    dcr_not_implemented("client-configuration delete")
+        (StatusCode::CREATED, Json(resp)).into_response()
+    }
+
+    /// Authenticate an RFC-7592 client-configuration request via the per-client
+    /// registration-access-token. Returns the client's meta row, or a ready `401`.
+    async fn authenticate_dcr_client(
+        state: &AppState,
+        headers: &axum::http::HeaderMap,
+        client_id: &str,
+    ) -> Result<mw_store::OAuthClientMetaRow, Response> {
+        let unauthorized = || {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({ "error": "invalid_token" })),
+            )
+                .into_response()
+        };
+        let meta = match state.store.get_oauth_client_meta(client_id).await {
+            Ok(Some(m)) => m,
+            Ok(None) => return Err(unauthorized()),
+            Err(e) => return Err(server_error(e)),
+        };
+        let Some(hash) = meta.registration_access_token_hash.as_deref() else {
+            return Err(unauthorized());
+        };
+        let Some(presented) = bearer_token(headers) else {
+            return Err(unauthorized());
+        };
+        if !mw_oauth::verify_registration_access_token(&presented, hash) {
+            return Err(unauthorized());
+        }
+        Ok(meta)
+    }
+
+    /// Rebuild an RFC-7592 read/update response from the stored 0007 client + 0010 meta.
+    /// grant/response/auth-method/scope are the AS-fixed values (this server only issues
+    /// public PKCE `authorization_code` clients under the current policy default scope).
+    async fn dcr_client_response(
+        state: &AppState,
+        headers: &axum::http::HeaderMap,
+        client_id: &str,
+        meta: &mw_store::OAuthClientMetaRow,
+    ) -> Result<mw_oauth::ClientRegistrationResponse, Response> {
+        let client = match state.v6.auth.store().get_client(client_id).await {
+            Ok(Some(c)) => c,
+            Ok(None) => {
+                return Err((
+                    StatusCode::NOT_FOUND,
+                    Json(json!({ "error": "invalid_client_id" })),
+                )
+                    .into_response());
+            }
+            Err(e) => return Err(server_error(e)),
+        };
+        let contacts: Vec<String> = serde_json::from_str(&meta.contacts_json).unwrap_or_default();
+        let request = mw_oauth::ClientRegistrationRequest {
+            redirect_uris: client.redirect_uris.clone(),
+            client_name: Some(client.name.clone()).filter(|s| !s.is_empty()),
+            software_id: meta.software_id.clone(),
+            software_version: meta.software_version.clone(),
+            contacts,
+            ..Default::default()
+        };
+        // Validate against the CURRENT policy to render grant/scope; on a disabled policy
+        // fall back to the AS-fixed defaults so an existing client is still readable.
+        let base = issuer_base_url(headers);
+        let metadata = match load_enabled_policy(state, headers).await {
+            Ok(policy) => mw_oauth::dcr::validate_metadata(&request, &policy)
+                .unwrap_or_else(|_| default_metadata(&request)),
+            Err(_) => default_metadata(&request),
+        };
+        Ok(mw_oauth::dcr::build_response(
+            client_id,
+            &request,
+            &metadata,
+            mw_oauth::dcr::registration_client_uri(&base, client_id),
+            0,
+            None,
+            String::new(),
+            client.created_at,
+        ))
+    }
+
+    /// The AS-fixed metadata defaults (public PKCE `authorization_code`/`code` client).
+    fn default_metadata(
+        request: &mw_oauth::ClientRegistrationRequest,
+    ) -> mw_oauth::dcr::ValidatedMetadata {
+        mw_oauth::dcr::ValidatedMetadata {
+            redirect_uris: request.redirect_uris.clone(),
+            grant_types: vec!["authorization_code".into()],
+            response_types: vec!["code".into()],
+            token_endpoint_auth_method: "none".into(),
+            granted_scope: mw_oauth::dcr::no_scope(),
+            scope_display: String::new(),
+        }
+    }
+
+    /// GET /oauth/register/{id} — read client config (RFC 7592).
+    async fn dcr_read(
+        State(state): State<AppState>,
+        headers: axum::http::HeaderMap,
+        UrlPath(id): UrlPath<String>,
+    ) -> Response {
+        let meta = match authenticate_dcr_client(&state, &headers, &id).await {
+            Ok(m) => m,
+            Err(resp) => return resp,
+        };
+        match dcr_client_response(&state, &headers, &id, &meta).await {
+            Ok(resp) => Json(resp).into_response(),
+            Err(resp) => resp,
+        }
+    }
+
+    /// PUT /oauth/register/{id} — replace client config (RFC 7592).
+    async fn dcr_update(
+        State(state): State<AppState>,
+        headers: axum::http::HeaderMap,
+        UrlPath(id): UrlPath<String>,
+        Json(request): Json<mw_oauth::ClientRegistrationRequest>,
+    ) -> Response {
+        let meta = match authenticate_dcr_client(&state, &headers, &id).await {
+            Ok(m) => m,
+            Err(resp) => return resp,
+        };
+        let policy = match load_enabled_policy(&state, &headers).await {
+            Ok(p) => p,
+            Err(resp) => return resp,
+        };
+        let metadata = match mw_oauth::dcr::validate_metadata(&request, &policy) {
+            Ok(m) => m,
+            Err(e) => return dcr_error_response(&e),
+        };
+
+        // Preserve the client's original created_at + approval sentinel.
+        let existing = match state.v6.auth.store().get_client(&id).await {
+            Ok(Some(c)) => c,
+            Ok(None) => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({ "error": "invalid_client_id" })),
+                )
+                    .into_response();
+            }
+            Err(e) => return server_error(e),
+        };
+        let updated = mw_oauth::OAuthClient {
+            client_id: id.clone(),
+            name: request.client_name.clone().unwrap_or_default(),
+            redirect_uris: metadata.redirect_uris.clone(),
+            approved_by: existing.approved_by,
+            created_at: existing.created_at.clone(),
+        };
+        if let Err(e) = state.v6.auth.store().put_client(updated).await {
+            return server_error(e);
+        }
+
+        // Update the RFC-7591 extras (the registration-access-token hash is unchanged).
+        let new_meta = mw_store::OAuthClientMetaRow {
+            client_id: id.clone(),
+            registration_access_token_hash: meta.registration_access_token_hash.clone(),
+            software_id: request.software_id.clone(),
+            software_version: request.software_version.clone(),
+            contacts_json: serde_json::to_string(&request.contacts).unwrap_or_else(|_| "[]".into()),
+            created_via: meta.created_via.clone(),
+            created_at: meta.created_at.clone(),
+        };
+        if let Err(e) = state.store.put_oauth_client_meta(&new_meta).await {
+            return server_error(e);
+        }
+
+        let base = issuer_base_url(&headers);
+        let resp = mw_oauth::dcr::build_response(
+            &id,
+            &request,
+            &metadata,
+            mw_oauth::dcr::registration_client_uri(&base, &id),
+            0,
+            None,
+            String::new(),
+            existing.created_at,
+        );
+        Json(resp).into_response()
+    }
+
+    /// DELETE /oauth/register/{id} — deprovision the client (RFC 7592).
+    async fn dcr_delete(
+        State(state): State<AppState>,
+        headers: axum::http::HeaderMap,
+        UrlPath(id): UrlPath<String>,
+    ) -> Response {
+        if let Err(resp) = authenticate_dcr_client(&state, &headers, &id).await {
+            return resp;
+        }
+        if let Err(e) = state.store.delete_oauth_client_meta(&id).await {
+            return server_error(e);
+        }
+        if let Err(e) = state.store.delete_oauth_client(&id).await {
+            return server_error(e);
+        }
+        StatusCode::NO_CONTENT.into_response()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use axum::http::{HeaderMap, HeaderValue, header};
+
+        #[test]
+        fn bearer_token_parses_case_insensitively() {
+            let mut h = HeaderMap::new();
+            h.insert(
+                header::AUTHORIZATION,
+                HeaderValue::from_static("Bearer tok-123"),
+            );
+            assert_eq!(bearer_token(&h).as_deref(), Some("tok-123"));
+            h.insert(
+                header::AUTHORIZATION,
+                HeaderValue::from_static("bearer  tok-123 "),
+            );
+            assert_eq!(bearer_token(&h).as_deref(), Some("tok-123"));
+            h.insert(header::AUTHORIZATION, HeaderValue::from_static("Basic abc"));
+            assert!(bearer_token(&h).is_none());
+            assert!(bearer_token(&HeaderMap::new()).is_none());
+        }
+
+        #[test]
+        fn ct_eq_str_matches_only_equal() {
+            assert!(ct_eq_str("secret", "secret"));
+            assert!(!ct_eq_str("secret", "secreT"));
+            assert!(!ct_eq_str("secret", "secret2"));
+            assert!(!ct_eq_str("", "x"));
+        }
+
+        #[test]
+        fn issuer_base_url_scheme_by_host() {
+            let mut h = HeaderMap::new();
+            h.insert(header::HOST, HeaderValue::from_static("mail.example.com"));
+            assert_eq!(issuer_base_url(&h), "https://mail.example.com");
+            h.insert(header::HOST, HeaderValue::from_static("127.0.0.1:8080"));
+            assert_eq!(issuer_base_url(&h), "http://127.0.0.1:8080");
+            h.insert(header::HOST, HeaderValue::from_static("localhost:3000"));
+            assert_eq!(issuer_base_url(&h), "http://localhost:3000");
+        }
+
+        #[test]
+        fn disabled_maps_to_403() {
+            assert_eq!(dcr_disabled().status(), StatusCode::FORBIDDEN);
+            assert_eq!(
+                dcr_error_response(&mw_oauth::DcrError::Disabled).status(),
+                StatusCode::FORBIDDEN
+            );
+        }
+
+        #[test]
+        fn dcr_error_status_mapping() {
+            use mw_oauth::DcrError as E;
+            assert_eq!(
+                dcr_error_response(&E::InitialAccessTokenRequired).status(),
+                StatusCode::UNAUTHORIZED
+            );
+            assert_eq!(
+                dcr_error_response(&E::InvalidRedirectUri("x".into())).status(),
+                StatusCode::BAD_REQUEST
+            );
+            assert_eq!(
+                dcr_error_response(&E::InvalidClientMetadata("x".into())).status(),
+                StatusCode::BAD_REQUEST
+            );
+            assert_eq!(
+                dcr_error_response(&E::Store("x".into())).status(),
+                StatusCode::INTERNAL_SERVER_ERROR
+            );
+        }
+    }
 }
 
 /// Minimal percent-encoding for redirect query values (unreserved set passes).

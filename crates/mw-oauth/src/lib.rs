@@ -21,6 +21,7 @@
 //! [`OAuthStore`] (e11 backs it with the `mw-store` 0007 tables); [`InMemoryOAuthStore`]
 //! is the in-crate reference impl.
 
+pub mod dcr;
 mod enforce;
 mod keys;
 mod oauth;
@@ -28,6 +29,10 @@ mod pkce;
 mod store;
 mod util;
 
+pub use dcr::{
+    ClientRegistrationRequest, ClientRegistrationResponse, DcrError, DcrPolicy,
+    registration_access_token_hash, verify_registration_access_token,
+};
 pub use enforce::{
     AuditEvent, AuditSink, CollectingAudit, CredentialKind, Granted, NoopAudit, RequestContext,
 };
