@@ -1,0 +1,44 @@
+name: perf
+
+# Performance budgets measured in CI (1.0 hardening, SPEC §23 / ROADMAP-1.0 L21).
+#
+# SKELETON — jobs are STUBS owned by t8-e5-perf, filled with:
+#   • Lighthouse CI (@lhci/cli): cold-to-inbox < 1.5s @4× CPU throttle, warm-nav < 100ms,
+#   • render benches: calendar-month-500-events < 150ms, 5MB HTML email open < 300ms,
+#   • server binary < 45MB + container image < 30MB gates,
+#   • search-bench p95 < 50ms trend tracking.
+# Strategy: median-of-N + trend-report-then-enforce to control CI flake.
+# The existing `bundle-size` gate stays in ci.yml (coordinator-owned).
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch: {}
+
+concurrency:
+  group: perf-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lighthouse:
+    name: cold-to-inbox / warm-nav Lighthouse (stub)
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "STUB — t8-e5 wires @lhci/cli against scripts/perf/lighthouserc.json."
+
+  render-bench:
+    name: calendar-500 / 5MB-email render (stub)
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "STUB — t8-e5 wires scripts/perf render benches."
+
+  binary-size:
+    name: server binary < 45MB / image < 30MB (stub)
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "STUB — t8-e5 wires release-binary + docker image size gates."

@@ -1,0 +1,51 @@
+# Weblate component configuration for Mailwoman i18n (config-as-code reference).
+#
+# This describes the translation project so an admin can provision it (via the
+# Weblate API / `wlc`, or the built-in "Component discovery" addon). Source
+# language is `en`; the 12 gate locales are the only translation targets.
+#
+# CATALOG LAYOUT: apps/web/locales/<locale>/<module>.ftl
+#   - `en/<module>.ftl` is the SOURCE template for each component.
+#   - one Weblate COMPONENT per UI module (common, mail, calendar, …).
+#   - `common` is the e0 seed; e1–e4 add module catalogs as they extract strings,
+#     and the discovery rule below turns each new `en/<module>.ftl` into a
+#     component automatically — no manual Weblate change per module.
+
+project: mailwoman
+source_language: en
+vcs: git
+file_format: fluent
+
+# Component discovery: every `en/<module>.ftl` becomes a component; its
+# translations are the sibling `<locale>/<module>.ftl` files. Only the 12 gate
+# locales are accepted as languages.
+discovery:
+  file_format: fluent
+  match: 'apps/web/locales/(?P<language>[^/]+)/(?P<component>[^/]+)\.ftl'
+  template: 'apps/web/locales/en/{{ component }}.ftl'
+  new_base: 'apps/web/locales/en/{{ component }}.ftl'
+  language_regex: '^(de|fr|es|pt-BR|nl|it|pl|ru|uk|zh|ja)$'
+
+# Explicit seed component (the only catalog that exists at e0 time).
+components:
+  - name: Common
+    slug: common
+    file_format: fluent
+    source_language: en
+    filemask: 'apps/web/locales/*/common.ftl'
+    template: 'apps/web/locales/en/common.ftl'
+    new_base: 'apps/web/locales/en/common.ftl'
+
+# The 12 translation targets (en is the source, not listed here).
+languages:
+  - de
+  - fr
+  - es
+  - pt-BR
+  - nl
+  - it
+  - pl
+  - ru
+  - uk
+  - zh
+  - ja

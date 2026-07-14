@@ -1,0 +1,44 @@
+name: a11y
+
+# Accessibility + i18n gates (1.0 hardening, SPEC §24 / ROADMAP-1.0 L21).
+#
+# SKELETON — jobs are STUBS owned by t8-e8-ci-gates, filled once the aria fixes
+# (e1–e4) and the `en` catalogs exist so a non-failing baseline can be set:
+#   • axe-core (@axe-core/playwright) over the live mock stack across key screens
+#     (calendar grid, dialogs, ribbon) — fails on new WCAG 2.2 AA violations,
+#   • i18n catalog-completeness (all 12 locales vs en) + no-hardcoded-JSX-string,
+#   • pseudolocale + RTL Playwright smoke.
+# A separate workflow (not ci.yml) to avoid the single-file ci.yml collision.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch: {}
+
+concurrency:
+  group: a11y-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  a11y-axe:
+    name: axe-core WCAG 2.2 AA (stub)
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "STUB — t8-e8 wires @axe-core/playwright over key screens."
+
+  i18n-catalogs:
+    name: i18n catalog completeness + no hardcoded strings (stub)
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "STUB — t8-e8 wires scripts/i18n/{check-catalog,no-hardcoded-strings}.mjs."
+
+  i18n-rtl-smoke:
+    name: pseudolocale + RTL Playwright smoke (stub)
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "STUB — t8-e8 wires apps/web/e2e/i18n-rtl.spec.ts."

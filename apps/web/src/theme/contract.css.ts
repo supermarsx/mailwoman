@@ -71,6 +71,26 @@ export const vars = createThemeContract({
     // Row height; driven by the `data-density: compact|cozy|relaxed` attribute.
     rowH: null,
   },
+  // Shared accessibility contract (plan §6 e0, SPEC §24, WCAG 2.2). These names
+  // are frozen alongside the rest of the contract; components reference
+  // `vars.a11y.*` so a11y behaviour is themeable + centrally switchable under
+  // reduced-motion / high-contrast (the switches live in themes.css.ts).
+  a11y: {
+    // Complete `box-shadow` value for the `:focus-visible` ring (theme-tinted,
+    // with an inner spacer so it reads on any surface). WCAG 2.2 §2.4.11/2.4.13.
+    focusRing: null,
+    // Ring thickness on its own, for callers building a custom outline.
+    focusRingWidth: null,
+    // Colour of the focus ring (theme accent by default).
+    focusRingColor: null,
+    // Minimum interactive target size — 24×24 CSS px (WCAG 2.2 §2.5.8).
+    touchTarget: null,
+    // Baseline transition/animation duration; switched to ~0 under
+    // prefers-reduced-motion so motion-driven CSS collapses centrally.
+    motionDuration: null,
+    // Longer/entrance duration (dialogs, expands); also collapses under RM.
+    motionDurationSlow: null,
+  },
 });
 
 /** The frozen `data-theme` values (plan §2.3). */

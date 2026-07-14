@@ -34,6 +34,14 @@ export interface ThemeTokens {
   font: { ui: string; reading: string; mono: string };
   fontSize: { base: string };
   density: { rowH: string };
+  a11y: {
+    focusRing: string;
+    focusRingWidth: string;
+    focusRingColor: string;
+    touchTarget: string;
+    motionDuration: string;
+    motionDurationSlow: string;
+  };
 }
 
 /** Just the per-theme colour palette; structure is shared across themes. */
@@ -207,9 +215,36 @@ const groveDark: Palette = {
   selection: '#4a3d26',
 };
 
+// Shared a11y token values. Structural constants (touch target, motion
+// durations) are identical across themes; the focus ring is derived per-theme so
+// it stays visible against that theme's own background + uses its accent. The
+// ring is a two-stop box-shadow: a bg-coloured spacer, then the accent ring, so
+// it reads on any surface. Motion durations are switched to ~0 under
+// prefers-reduced-motion by themes.css.ts (not here).
+function a11yOf(color: Palette): ThemeTokens['a11y'] {
+  return {
+    focusRing: `0 0 0 2px ${color.bg}, 0 0 0 4px ${color.accent}`,
+    focusRingWidth: '2px',
+    focusRingColor: color.accent,
+    touchTarget: '24px',
+    motionDuration: '150ms',
+    motionDurationSlow: '240ms',
+  };
+}
+
 /** Assemble a full token set from a palette + texture pack. */
 function themeOf(color: Palette, texture: ThemeTokens['texture']): ThemeTokens {
-  return { color, space, radius, elevation, texture, font, fontSize, density: { rowH: '56px' } };
+  return {
+    color,
+    space,
+    radius,
+    elevation,
+    texture,
+    font,
+    fontSize,
+    density: { rowH: '56px' },
+    a11y: a11yOf(color),
+  };
 }
 
 /** Every built-in theme, keyed by its frozen `data-theme` value. */

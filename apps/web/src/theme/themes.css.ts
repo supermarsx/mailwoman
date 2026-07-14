@@ -90,3 +90,39 @@ globalStyle(':root[data-theme]', {
     '(forced-colors: active)': { vars: NONE },
   },
 });
+
+// ── Reduced motion (plan §6 e0; SPEC §24 — real gap: was ZERO handling) ───────
+// Collapse the shared motion-duration tokens to ~0 so every transition/animation
+// authored against `vars.a11y.motionDuration(Slow)` becomes instant. Driven by
+// BOTH the media query AND the `<html data-reduced-motion>` flag the shell sets
+// (rootAttributes.ts), so a user toggle and the OS setting both take effect.
+const NO_MOTION = {
+  [vars.a11y.motionDuration]: '0.01ms',
+  [vars.a11y.motionDurationSlow]: '0.01ms',
+} as const;
+globalStyle(':root', {
+  '@media': { '(prefers-reduced-motion: reduce)': { vars: NO_MOTION } },
+});
+globalStyle(':root[data-reduced-motion]', { vars: NO_MOTION });
+// Belt-and-braces: also neutralise raw CSS animations/transitions under reduced
+// motion for elements that don't yet use the tokens (existing chrome).
+globalStyle(':root[data-reduced-motion] *', {
+  animationDuration: '0.01ms !important',
+  animationIterationCount: '1 !important',
+  transitionDuration: '0.01ms !important',
+});
+
+// ── High contrast (plan §6 e0; SPEC §24) ──────────────────────────────────────
+// Thicken + fully opaque-tint the focus ring when the user asks for more
+// contrast (`prefers-contrast: more`) or the platform forces colors. Uses the
+// same low specificity as the token defaults, placed last so it wins on ties.
+const HC_FOCUS = {
+  [vars.a11y.focusRingWidth]: '3px',
+  [vars.a11y.focusRing]: `0 0 0 2px ${vars.color.bg}, 0 0 0 5px ${vars.color.accent}`,
+} as const;
+globalStyle(':root', {
+  '@media': {
+    '(prefers-contrast: more)': { vars: HC_FOCUS },
+    '(forced-colors: active)': { vars: HC_FOCUS },
+  },
+});
