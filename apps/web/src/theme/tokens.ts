@@ -101,7 +101,10 @@ const light: Palette = {
   surface: '#ffffff',
   border: '#d8dbe0',
   text: '#1c1e21',
-  textDim: '#6b7280',
+  // WCAG 1.4.3 — muted text ≥ 4.5:1 on every light surface it lands on
+  // (5.27:1 on bgSink #eceef1, 5.62:1 on bgAlt #f4f5f7, 6.13:1 on #ffffff).
+  // #6b7280 fell to 4.16–4.43:1 on the tinted surfaces.
+  textDim: '#5b6270',
   accent: accent('#2563eb'),
   accentText: '#ffffff',
   danger: '#b91c1c',

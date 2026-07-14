@@ -161,30 +161,29 @@ export function TimeGridView(props: ViewProps): JSX.Element {
   return (
     <div style={{ display: 'flex', 'flex-direction': 'column', 'min-height': '100%' }}>
       <div class={css.srOnly} aria-live="polite" aria-atomic="true">{liveText()}</div>
-      <div
-        ref={headerEl}
-        role="grid"
-        aria-label={t('calendar-time-grid')}
-        style={{ display: 'grid', 'grid-template-columns': cols() }}
-      >
-        <div class={css.gutter} role="presentation" />
-        <For each={days()}>
-          {(d) => (
-            <div
-              role="gridcell"
-              data-date={dateToCalDate(d)}
-              tabindex={sameDay(d, hdrActive()) ? 0 : -1}
-              aria-current={isToday(d) ? 'date' : undefined}
-              aria-label={t('calendar-cell', { date: formatFull(d), events: eventsCount(c.instancesForDay(d).length) })}
-              class={css.dayHeader}
-              onKeyDown={onHeaderKey}
-              onFocus={() => setHdrActive(startOfDay(d))}
-              onClick={() => c.goToDate(d)}
-            >
-              <span aria-hidden="true">{formatDayHeader(d)}</span>
-            </div>
-          )}
-        </For>
+      <div ref={headerEl} role="grid" aria-label={t('calendar-time-grid')}>
+        {/* grid → row → gridcell (WCAG 1.3.1): the day headers are a single grid
+            row; the CSS grid lives on the row so the layout is unchanged. */}
+        <div role="row" style={{ display: 'grid', 'grid-template-columns': cols() }}>
+          <div class={css.gutter} role="presentation" />
+          <For each={days()}>
+            {(d) => (
+              <div
+                role="gridcell"
+                data-date={dateToCalDate(d)}
+                tabindex={sameDay(d, hdrActive()) ? 0 : -1}
+                aria-current={isToday(d) ? 'date' : undefined}
+                aria-label={t('calendar-cell', { date: formatFull(d), events: eventsCount(c.instancesForDay(d).length) })}
+                class={css.dayHeader}
+                onKeyDown={onHeaderKey}
+                onFocus={() => setHdrActive(startOfDay(d))}
+                onClick={() => c.goToDate(d)}
+              >
+                <span aria-hidden="true">{formatDayHeader(d)}</span>
+              </div>
+            )}
+          </For>
+        </div>
       </div>
       <div style={{ display: 'grid', 'grid-template-columns': cols(), 'border-bottom': '1px solid' }} class={css.allDayRow}>
         <div class={css.gutter} style={{ 'font-size': '0.7rem', 'text-align': 'end', 'padding-inline-end': '4px' }}>

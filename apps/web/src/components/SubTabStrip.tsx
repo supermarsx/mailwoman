@@ -11,6 +11,11 @@ import { t } from '../i18n/index.ts';
 import * as a11y from './mailA11y.css.ts';
 import type { SubTab } from '../realtime/subTabs.ts';
 
+/** DOM id of a sub-tab's `role="tab"` button — referenced by the tablist's aria-owns. */
+function tabDomId(id: string): string {
+  return `subtab-tab-${id}`;
+}
+
 export function SubTabStrip(): JSX.Element {
   const { subTabs } = useRealtime();
 
@@ -26,9 +31,23 @@ export function SubTabStrip(): JSX.Element {
     }
   }
 
+  // WCAG 1.3.1 (aria-required-children): a `role="tablist"` may only own `role="tab"`
+  // elements. Each sub-tab pairs its tab with pin/tear-off/close controls (buttons),
+  // so the tablist can't physically contain the tab groups. Instead it owns the tab
+  // buttons via `aria-owns` (leaving the controls outside its required-children
+  // contract), while the visible strip carries the roving keyboard model — keydown
+  // from a focused tab bubbles here. Controls are NOT nested inside the tabs either,
+  // which would trip `nested-interactive` (tab has childrenPresentational).
   return (
     <Show when={subTabs.tabs().length > 0}>
-      <div class="subtab-strip" role="tablist" aria-label={t('mail-subtabs-label')} onKeyDown={onKeyDown}>
+      <div class="subtab-strip" onKeyDown={onKeyDown}>
+        <div
+          class="subtab-tablist"
+          role="tablist"
+          aria-label={t('mail-subtabs-label')}
+          aria-owns={subTabs.tabs().map((tab) => tabDomId(tab.id)).join(' ')}
+          style={{ position: 'absolute', width: '1px', height: '1px', overflow: 'hidden' }}
+        />
         <For each={subTabs.tabs()}>
           {(tab) => <SubTabButton tab={tab} active={subTabs.activeId() === tab.id} />}
         </For>
@@ -48,6 +67,7 @@ function SubTabButton(props: { tab: SubTab; active: boolean }): JSX.Element {
     >
       <button
         type="button"
+        id={tabDomId(props.tab.id)}
         role="tab"
         class={`subtab__label ${a11y.focusable}`}
         aria-selected={props.active}

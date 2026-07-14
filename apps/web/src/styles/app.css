@@ -4,7 +4,8 @@
   --bg-sink: #eceef1;
   --border: #d8dbe0;
   --text: #1c1e21;
-  --text-dim: #6b7280;
+  /* WCAG 1.4.3 — ≥4.5:1 on light surfaces (see theme/tokens.ts light.textDim). */
+  --text-dim: #5b6270;
   --accent: #2563eb;
   --accent-text: #ffffff;
   --danger: #b91c1c;
