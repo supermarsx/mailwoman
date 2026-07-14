@@ -1,14 +1,24 @@
 name: perf
 
-# Performance budgets measured in CI (1.0 hardening, SPEC §23 / ROADMAP-1.0 L21).
+# Performance budgets MEASURED in CI (1.0 hardening, SPEC §23 / ROADMAP-1.0 L21).
 #
-# SKELETON — jobs are STUBS owned by t8-e5-perf, filled with:
-#   • Lighthouse CI (@lhci/cli): cold-to-inbox < 1.5s @4× CPU throttle, warm-nav < 100ms,
-#   • render benches: calendar-month-500-events < 150ms, 5MB HTML email open < 300ms,
-#   • server binary < 45MB + container image < 30MB gates,
-#   • search-bench p95 < 50ms trend tracking.
-# Strategy: median-of-N + trend-report-then-enforce to control CI flake.
-# The existing `bundle-size` gate stays in ci.yml (coordinator-owned).
+# "measured, not asserted": every budget below is measured against a real
+# artifact/render and FAILS on regression. Owned by t8-e5-perf:
+#   • lighthouse       — cold-to-inbox (SPA cold boot) < 1.5 s @4× CPU throttle,
+#                        warm server; median of 5 (warm-nav is measured in the
+#                        render-bench job — Lighthouse can't time an SPA route swap).
+#   • render-bench     — calendar-month-500-events < 150 ms, 5 MB HTML email open
+#                        < 300 ms, warm-nav route swap < 100 ms (median of N).
+#   • binary-size      — server release binary < 45 MB.
+#   • image-size       — runtime container image < 30 MB.
+#   • bundle-catalog   — i18n Fluent catalogs stay lazy (only en/common is eager),
+#                        entry stays < 250 KB gzip (complements ci.yml `bundle-size`).
+#   • search-trend     — mw-search p95 < 50 ms, captured as a trend artifact
+#                        (the hard gate stays in ci.yml `search-bench`).
+#
+# Anti-flake: median-of-N + a warm mock server. The existing `bundle-size` /
+# `search-bench` hard gates stay in ci.yml (coordinator-owned) — this workflow
+# ADDS the new §23 gates without touching ci.yml.
 
 on:
   push:
@@ -24,21 +34,180 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
+  # ---------------------------------------------------------------------------
+  # cold-to-inbox (< 1.5 s @4× CPU) — Lighthouse CI against the warm mock stack.
+  # Boots the SAME deterministic stack as the e2e job (mock JMAP + mw-server,
+  # SPA embedded), then runs @lhci/cli (median of 5, 4× CPU throttle) and asserts
+  # `interactive` < 1500 ms. See lighthouserc.json for the cold-to-inbox-proxy
+  # rationale. Report is uploaded every run for trend tracking.
+  #
+  # (To measure the AUTHENTICATED inbox cold-load once the Login UI settles, add a
+  # `puppeteerScript` to lighthouserc.json that logs in with the mock creds
+  # testuser@example.org / testpass, jmapUrl http://mock:8181/.well-known/jmap.)
+  # ---------------------------------------------------------------------------
   lighthouse:
-    name: cold-to-inbox / warm-nav Lighthouse (stub)
+    name: cold-to-inbox Lighthouse (< 1.5s @4x CPU)
     runs-on: ubuntu-latest
+    env:
+      DOCKER_BUILDKIT: "1"
+      COMPOSE_DOCKER_CLI_BUILD: "1"
     steps:
-      - run: echo "STUB — t8-e5 wires @lhci/cli against scripts/perf/lighthouserc.json."
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: install web deps (provides @lhci/cli)
+        run: pnpm -C apps/web install --frozen-lockfile
+      - name: build + start stack (mock backend, SPA embedded)
+        run: docker compose -f docker-compose.dev.yml up -d --build mock mailwoman
+      - name: wait for server health
+        run: ./scripts/wait-for-health.sh http://localhost:8080/healthz 240
+      - name: Lighthouse CI (median of 5, 4x CPU throttle; interactive < 1.5s)
+        # Runs from repo root so lhci reads ./lighthouserc.json and writes
+        # ./.lighthouseci. Uses the runner's preinstalled Google Chrome.
+        run: ./apps/web/node_modules/.bin/lhci autorun --config=./lighthouserc.json
+      - name: upload Lighthouse report (trend)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-report
+          path: .lighthouseci
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: compose logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.dev.yml logs --no-color
+      - name: tear down
+        if: always()
+        run: docker compose -f docker-compose.dev.yml down -v
 
+  # ---------------------------------------------------------------------------
+  # render benches — calendar-500 < 150 ms, 5 MB email open < 300 ms, warm-nav
+  # < 100 ms. A real headless Chromium renders each budgeted workload; the script
+  # takes the median of N and fails on over-budget. Self-contained (needs only
+  # Playwright's chromium, no backend), so it is deterministic and low-flake.
+  # ---------------------------------------------------------------------------
   render-bench:
-    name: calendar-500 / 5MB-email render (stub)
+    name: render benches (calendar-500 / 5MB-email / warm-nav)
     runs-on: ubuntu-latest
     steps:
-      - run: echo "STUB — t8-e5 wires scripts/perf render benches."
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: install web deps (provides @playwright/test)
+        run: pnpm -C apps/web install --frozen-lockfile
+      - name: cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('apps/web/pnpm-lock.yaml') }}
+      - name: install Playwright chromium
+        run: pnpm -C apps/web exec playwright install --with-deps chromium
+      - name: render benches (median of 7; fail on over-budget)
+        run: node scripts/perf/render-bench.mjs
+      - name: upload render-bench results (trend)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-bench-results
+          path: scripts/perf/results/render-bench.json
+          if-no-files-found: ignore
+          retention-days: 7
 
-  binary-size:
-    name: server binary < 45MB / image < 30MB (stub)
+  # ---------------------------------------------------------------------------
+  # bundle catalog-weight — i18n Fluent catalogs must stay LAZY so they never
+  # inflate the login→inbox entry the 250 KB gate measures. Builds the SPA and
+  # asserts only `en/common` is eager; every feature-module catalog is off the
+  # critical path (and re-checks entry < 250 KB gzip as defence-in-depth). The
+  # primary `bundle-size` (250 KB + pdfjs-lazy) gate stays in ci.yml.
+  # ---------------------------------------------------------------------------
+  bundle-catalog:
+    name: i18n catalog-weight guard (catalogs stay lazy)
     runs-on: ubuntu-latest
     steps:
-      - run: echo "STUB — t8-e5 wires release-binary + docker image size gates."
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: install web deps
+        run: pnpm -C apps/web install --frozen-lockfile
+      - name: build SPA
+        run: pnpm -C apps/web build
+      - name: catalog-weight guard (only en/common eager; feature catalogs lazy)
+        run: node scripts/perf/check-catalog-weight.mjs
+
+  # ---------------------------------------------------------------------------
+  # server binary size — release `mailwoman` binary < 45 MB. Builds the exact
+  # artifact the Docker runtime stage ships and stats it. Gated on Linux (the
+  # shipped target); Windows/MSVC builds are ~2× larger and not the artifact.
+  # ---------------------------------------------------------------------------
+  binary-size:
+    name: server binary < 45 MB
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: server binary size gate
+        run: sh ./scripts/perf/binary-size.sh
+
+  # ---------------------------------------------------------------------------
+  # container image size — runtime image < 30 MB. Builds the existing Dockerfile
+  # `runtime` target and reads the real image size. MEASURED, not asserted: if the
+  # distroless/cc image legitimately can't hit 30 MB it FAILS loudly (honest) — a
+  # decision item for the deferred FROM-scratch/musl-static build, not a fake pass.
+  # ---------------------------------------------------------------------------
+  image-size:
+    name: runtime image < 30 MB
+    runs-on: ubuntu-latest
+    env:
+      DOCKER_BUILDKIT: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: container image size gate
+        run: sh ./scripts/perf/image-size.sh
+
+  # ---------------------------------------------------------------------------
+  # search p95 trend — runs the SAME mw-search p95 gate as ci.yml `search-bench`
+  # (assert p95 < 50 ms over 100k) and captures the measured p95 as a trend
+  # artifact. The authoritative hard gate stays in ci.yml; this adds tracking.
+  # ---------------------------------------------------------------------------
+  search-trend:
+    name: mw-search p95 trend (< 50 ms)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: mw-search p95 (release) + capture trend
+        run: |
+          mkdir -p scripts/perf/results
+          bash ./scripts/search-bench.sh 2>&1 | tee scripts/perf/results/search-bench.log
+      - name: upload search p95 trend
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: search-bench-trend
+          path: scripts/perf/results/search-bench.log
+          if-no-files-found: ignore
+          retention-days: 7

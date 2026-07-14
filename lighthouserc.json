@@ -1,0 +1,46 @@
+{
+  "//": "Lighthouse CI config (SPEC §23 / plan §6 t8-e5-perf). Measures the COLD",
+  "//2": "SPA boot of the app served by a WARM mock server, under a 4x CPU throttle.",
+  "//3": "`interactive` (Time-to-Interactive) is the cold-to-inbox proxy: it captures",
+  "//4": "the SolidJS boot + first-interactive cost that dominates cold-to-inbox; the",
+  "//5": "post-auth inbox is one JMAP fetch against the already-warm backend. Login is",
+  "//6": "owned by a peer executor (Login.tsx) and actively changing, so this gate",
+  "//7": "does NOT couple to its selectors; enable authenticated inbox measurement by",
+  "//8": "adding a puppeteerScript once that UI settles (see perf.yml comment).",
+  "//9": "Anti-flake: median of 5 runs; enforcement is fail-on-regression per",
+  "//10": "'measured not asserted' — flip the `interactive` assertion to 'warn' for an",
+  "//11": "initial trend-only soft-launch window if needed.",
+  "ci": {
+    "collect": {
+      "url": ["http://localhost:8080/"],
+      "numberOfRuns": 5,
+      "settings": {
+        "onlyCategories": ["performance"],
+        "formFactor": "desktop",
+        "throttlingMethod": "simulate",
+        "throttling": {
+          "cpuSlowdownMultiplier": 4,
+          "rttMs": 40,
+          "throughputKbps": 10240,
+          "requestLatencyMs": 0,
+          "downloadThroughputKbps": 0,
+          "uploadThroughputKbps": 0
+        },
+        "screenEmulation": { "disabled": true }
+      }
+    },
+    "assert": {
+      "assertions": {
+        "interactive": ["error", { "maxNumericValue": 1500, "aggregationMethod": "median" }],
+        "first-contentful-paint": ["warn", { "maxNumericValue": 1200, "aggregationMethod": "median" }],
+        "largest-contentful-paint": ["warn", { "maxNumericValue": 2000, "aggregationMethod": "median" }],
+        "total-blocking-time": ["warn", { "maxNumericValue": 300, "aggregationMethod": "median" }],
+        "speed-index": ["warn", { "maxNumericValue": 2000, "aggregationMethod": "median" }]
+      }
+    },
+    "upload": {
+      "target": "filesystem",
+      "outputDir": ".lighthouseci"
+    }
+  }
+}

@@ -1,0 +1,3 @@
+# Perf bench run outputs / trend artifacts (regenerated each CI run, uploaded as
+# workflow artifacts — not source).
+results/
