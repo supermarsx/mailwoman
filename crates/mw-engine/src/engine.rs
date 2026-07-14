@@ -20,7 +20,7 @@ use tokio::sync::{broadcast, mpsc, watch};
 use crate::account::AccountRuntime;
 use crate::backend::{
     AccountBackend, ChangeEvent, ChangeSink, EngineError, MailboxDelta, MessageRef, RawMailbox,
-    RawMessage, Result, WatchHandle,
+    RawMessage, Result, SyncCursor, WatchHandle,
 };
 use crate::change::{ChangeOp, ChangeType, StateChange};
 use crate::mapping::{
@@ -208,10 +208,12 @@ impl Engine {
         rm: &RawMailbox,
         mailbox_id: &str,
     ) -> Result<()> {
-        let cursor = match self.store.load_cursor(account_id, mailbox_id).await? {
-            Some(json) => cursor_from_json(&json).unwrap_or_else(initial_cursor),
-            None => initial_cursor(),
-        };
+        let cursor = self
+            .store
+            .load_cursor(account_id, mailbox_id)
+            .await?
+            .and_then(|json| cursor_from_json(&json))
+            .unwrap_or_else(|| self.initial_cursor_for(account_id));
         let delta: MailboxDelta = rt.backend.sync_mailbox(&rm.mailbox_ref, &cursor).await?;
 
         // New messages: fetch raw bytes, parse in one pass, ingest.
@@ -259,6 +261,28 @@ impl Engine {
             .save_cursor(account_id, mailbox_id, &cursor_to_json(&delta.next_cursor))
             .await?;
         Ok(())
+    }
+
+    /// The first-sync cursor for `account_id`, when no cursor is persisted yet.
+    ///
+    /// A **plugin/bridge-backed** account gets an *empty native*
+    /// [`SyncCursor::Plugin`] so the bridge does a full initial sync in its own
+    /// delta semantics (Graph `messages/delta` with no `$deltatoken`, Gmail
+    /// full-history, EWS empty SyncState). Handing a bridge the standards
+    /// [`initial_cursor`] (`SyncCursor::UidWindow`) is the t7-fix-e16 bug: the
+    /// plugin adapter JSON-serializes any non-`Plugin` cursor into the WIT opaque
+    /// native-cursor slot, so the bridge parsed the `UidWindow` JSON as its
+    /// `deltaLink` and built an invalid provider URL — message sync failed while
+    /// the mailbox tree (no cursor) worked.
+    ///
+    /// A standards IMAP/POP3 account keeps the universal `UidWindow` initial
+    /// cursor — byte-for-byte unchanged from before this fix.
+    fn initial_cursor_for(&self, account_id: &str) -> SyncCursor {
+        if self.is_plugin_backed(account_id) {
+            SyncCursor::Plugin { opaque: Vec::new() }
+        } else {
+            initial_cursor()
+        }
     }
 
     /// Fetch → parse (MIME) → thread → seal → upsert one message, returning its

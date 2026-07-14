@@ -565,19 +565,16 @@ async fn plugin_backed_account_serves_mailboxes_through_engine_jmap() {
     }
 }
 
-/// **ESCALATED (see `.orchestration/state.md`).** End-to-end *message* sync for a
-/// plugin/bridge-backed account through the engine. Currently BLOCKED: the engine's
-/// `sync_one` hands a never-synced mailbox the standards `initial_cursor()` (a
-/// `SyncCursor::UidWindow`), and `mw-plugin`'s `adapter::cursor_to_wit` JSON-serializes
-/// any non-`Plugin` cursor into the WIT `sync-cursor.opaque` field. The Graph bridge
-/// guest treats those bytes as its native `deltaLink` and builds an invalid URL
-/// (`https://graph.microsoft.com/v1.0{"kind":"uid_window",…}`) → `no fixture` / a live
-/// 400. Fix belongs in the engine/adapter (hand a plugin backend an empty
-/// `SyncCursor::Plugin{opaque:vec![]}` on first sync, or map non-Plugin→empty for plugin
-/// backends). Affects all three bridges identically. Un-ignore to verify a fix.
+/// **FIXED (t7-fix-e16).** End-to-end *message* sync for a plugin/bridge-backed account
+/// through the engine. Previously BLOCKED: the engine's `sync_one` handed a never-synced
+/// mailbox the standards `initial_cursor()` (a `SyncCursor::UidWindow`), and `mw-plugin`'s
+/// `adapter::cursor_to_wit` JSON-serialized any non-`Plugin` cursor into the WIT
+/// `sync-cursor.opaque` field. The Graph bridge guest treated those bytes as its native
+/// `deltaLink` and built an invalid URL → `no fixture` / a live 400. The fix hands a
+/// plugin-backed account an empty `SyncCursor::Plugin{opaque:vec![]}` on first sync
+/// (`Engine::initial_cursor_for`), so the bridge does a full initial delta sync. Affects
+/// all three bridges identically.
 #[tokio::test]
-#[ignore = "ESCALATED: engine feeds a bridge backend a standards UidWindow initial cursor \
-            (adapter serializes it → bridge mis-parses into an invalid Graph URL). See state.md."]
 async fn plugin_backed_account_mail_message_sync_through_engine() {
     let (engine, account_id, _http) = plugin_backed_engine().await;
 

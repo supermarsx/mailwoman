@@ -274,9 +274,26 @@ impl LdapExopTransport for Ldap3062Transport {
             .await
             .map_err(|e| mw_passwd::PasswordError::Transport(e.to_string()))?;
         let _ = ldap.unbind().await;
-        // `ExopResult(Exop, LdapResult)` — the response value is the exop's `val`.
-        Ok(res.0.val.unwrap_or_default())
+        // `ExopResult(Exop, LdapResult)`: the RFC-3062 result code lives on the
+        // `LdapResult`; a non-zero rc is a server-side REJECTION (rc=50
+        // insufficient-access, rc=53 unwilling-to-verify-old, …) that MUST surface
+        // as an error rather than a false success (t7-fix-e16). The response value
+        // (present only on success) is the exop's `val`.
+        exop_outcome(res.1.rc, &res.1.text, res.0.val)
     }
+}
+
+/// Interpret an RFC-3062 PasswordModify exop result: a non-zero LDAP result code is
+/// a server-side rejection and becomes a [`mw_passwd::PasswordError::Protocol`]; only
+/// `rc == 0` (success) yields the (optional) `genPasswd` response value. Extracted as
+/// a pure fn so the rejection→failure mapping is unit-testable without a live server.
+fn exop_outcome(rc: u32, text: &str, val: Option<Vec<u8>>) -> PwResult<Vec<u8>> {
+    if rc != 0 {
+        return Err(mw_passwd::PasswordError::Protocol(format!(
+            "passwd-modify rejected: rc={rc} ({text})"
+        )));
+    }
+    Ok(val.unwrap_or_default())
 }
 
 /// Build the password-change backend e14 injects, selected by `MW_PASSWD_BACKEND`
@@ -816,6 +833,30 @@ pub async fn cli_password_change(
 mod tests {
     use super::*;
     use mw_store::ServerKey;
+
+    #[test]
+    fn ldap3062_exop_rejection_is_a_failure_not_a_false_success() {
+        // BUG 2 (t7-fix-e16): a REJECTED RFC-3062 password change must surface as an
+        // error. A non-zero result code (rc=50 insufficient-access, rc=53
+        // unwilling-to-verify-old) previously fell through to `Ok(..)` — reporting the
+        // change as successful.
+        for (rc, text) in [(50u32, "insufficient access"), (53, "unwilling to perform")] {
+            let out = exop_outcome(rc, text, None);
+            match out {
+                Err(mw_passwd::PasswordError::Protocol(m)) => {
+                    assert!(m.contains(&format!("rc={rc}")), "rc reported: {m}");
+                }
+                other => panic!("rc={rc} must be a Protocol error, got {other:?}"),
+            }
+        }
+        // Even if the server were to (spuriously) return a value alongside a rejection,
+        // the rejection still wins — no false success.
+        assert!(exop_outcome(50, "denied", Some(vec![1, 2, 3])).is_err());
+
+        // A success (rc=0) yields the optional response value (empty when absent).
+        assert_eq!(exop_outcome(0, "", Some(vec![9, 9])).unwrap(), vec![9, 9]);
+        assert_eq!(exop_outcome(0, "", None).unwrap(), Vec::<u8>::new());
+    }
 
     #[test]
     fn host_of_strips_scheme_and_port() {
