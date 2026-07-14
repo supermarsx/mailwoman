@@ -473,6 +473,224 @@ pub fn parse_vote_response(xml: &str) -> Option<String> {
         .filter(|s| !s.trim().is_empty())
 }
 
+// ── Tasks (EWS Task items) ──────────────────────────────────────────────────────
+
+/// An EWS `Task` item (the subset the PIM tasks bridge surface carries).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EwsTask {
+    pub id: String,
+    pub change_key: String,
+    pub subject: String,
+    pub complete: bool,
+    /// EWS `DueDate` (ISO-8601) when the task has one.
+    pub due: String,
+}
+
+/// Build a `FindItem` over the primary Tasks distinguished folder (the account's
+/// to-do list). `BaseShape=Default` so `Subject`/`Status`/`IsComplete`/`DueDate` come
+/// back — EWS genuinely exposes tasks as first-class items.
+#[must_use]
+pub fn find_tasks_request() -> String {
+    soap::envelope(concat!(
+        "<m:FindItem Traversal=\"Shallow\">",
+        "<m:ItemShape><t:BaseShape>Default</t:BaseShape></m:ItemShape>",
+        "<m:ParentFolderIds><t:DistinguishedFolderId Id=\"tasks\"/></m:ParentFolderIds>",
+        "</m:FindItem>"
+    ))
+}
+
+/// Parse `Task` items out of a `FindItem`/`GetItem` tasks response.
+pub fn parse_tasks(xml: &str) -> Vec<EwsTask> {
+    let mut tasks = Vec::new();
+    let mut reader = Reader::from_str(xml);
+    reader.config_mut().trim_text(true);
+    let mut buf = Vec::new();
+    let mut cur: Option<EwsTask> = None;
+    let mut field: Option<String> = None;
+    let mut pending = String::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) => {
+                let ln = local(e.name());
+                if ln == "Task" {
+                    cur = Some(EwsTask::default());
+                } else if cur.is_some()
+                    && matches!(ln.as_str(), "Subject" | "DueDate" | "Status" | "IsComplete")
+                {
+                    field = Some(ln);
+                    pending.clear();
+                }
+            }
+            Ok(Event::Empty(e)) if local(e.name()) == "ItemId" => {
+                if let Some(c) = cur.as_mut() {
+                    for a in e.attributes().flatten() {
+                        match a.key.local_name().as_ref() {
+                            b"Id" => c.id = String::from_utf8_lossy(&a.value).into_owned(),
+                            b"ChangeKey" => {
+                                c.change_key = String::from_utf8_lossy(&a.value).into_owned();
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            Ok(Event::Text(t)) if field.is_some() => {
+                pending.push_str(&t.decode().unwrap_or_default());
+            }
+            Ok(Event::End(e)) => {
+                let ln = local(e.name());
+                if let Some(f) = field.take() {
+                    if ln == f {
+                        if let Some(c) = cur.as_mut() {
+                            let v = pending.trim().to_string();
+                            match f.as_str() {
+                                "Subject" => c.subject = v,
+                                "DueDate" => c.due = v,
+                                "Status" if v.eq_ignore_ascii_case("Completed") => {
+                                    c.complete = true
+                                }
+                                "IsComplete" if v.eq_ignore_ascii_case("true") => c.complete = true,
+                                _ => {}
+                            }
+                        }
+                    } else {
+                        field = Some(f);
+                    }
+                }
+                if ln == "Task"
+                    && let Some(c) = cur.take()
+                {
+                    tasks.push(c);
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    tasks
+}
+
+/// Build an `UpdateItem` marking a task complete (`Status=Completed` +
+/// `PercentComplete=100`). Requires the item's `ChangeKey` (EWS optimistic
+/// concurrency) — the PIM seam carries it in the opaque task id.
+#[must_use]
+pub fn complete_task_request(item_id: &str, change_key: &str) -> String {
+    soap::envelope(&format!(
+        concat!(
+            "<m:UpdateItem MessageDisposition=\"SaveOnly\" ConflictResolution=\"AutoResolve\">",
+            "<m:ItemChanges><t:ItemChange>",
+            "<t:ItemId Id=\"{id}\" ChangeKey=\"{ck}\"/>",
+            "<t:Updates>",
+            "<t:SetItemField><t:FieldURI FieldURI=\"task:Status\"/>",
+            "<t:Task><t:Status>Completed</t:Status></t:Task></t:SetItemField>",
+            "<t:SetItemField><t:FieldURI FieldURI=\"task:PercentComplete\"/>",
+            "<t:Task><t:PercentComplete>100</t:PercentComplete></t:Task></t:SetItemField>",
+            "</t:Updates>",
+            "</t:ItemChange></m:ItemChanges>",
+            "</m:UpdateItem>"
+        ),
+        id = soap::escape(item_id),
+        ck = soap::escape(change_key)
+    ))
+}
+
+// ── iCalendar (RFC 5545) serialization for the PIM seam ─────────────────────────
+//
+// The `calendar`/`tasks` WIT exports carry iCalendar text (the engine already speaks
+// it), so the bridge serializes its parsed EWS items to VEVENT/VTODO/VFREEBUSY here.
+
+/// Escape a text value for an iCalendar property (RFC 5545 §3.3.11).
+fn ical_escape(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace(';', "\\;")
+        .replace(',', "\\,")
+        .replace('\n', "\\n")
+}
+
+/// Convert an EWS ISO-8601 timestamp (`2026-07-20T09:00:00Z`) to the compact
+/// iCalendar DATE-TIME form (`20260720T090000Z`).
+fn ical_dt(iso: &str) -> String {
+    iso.chars().filter(|c| *c != '-' && *c != ':').collect()
+}
+
+/// Serialize a [`CalEvent`] to a minimal RFC 5545 `VEVENT`.
+#[must_use]
+pub fn cal_event_to_vevent(ev: &CalEvent) -> String {
+    let mut s = String::from("BEGIN:VEVENT\r\n");
+    s.push_str(&format!("UID:{}\r\n", ev.id));
+    if !ev.subject.is_empty() {
+        s.push_str(&format!("SUMMARY:{}\r\n", ical_escape(&ev.subject)));
+    }
+    if !ev.start.is_empty() {
+        s.push_str(&format!("DTSTART:{}\r\n", ical_dt(&ev.start)));
+    }
+    if !ev.end.is_empty() {
+        s.push_str(&format!("DTEND:{}\r\n", ical_dt(&ev.end)));
+    }
+    if !ev.location.is_empty() {
+        s.push_str(&format!("LOCATION:{}\r\n", ical_escape(&ev.location)));
+    }
+    s.push_str("END:VEVENT\r\n");
+    s
+}
+
+/// Serialize an [`EwsTask`] to a minimal RFC 5545 `VTODO`.
+#[must_use]
+pub fn task_to_vtodo(t: &EwsTask) -> String {
+    let mut s = String::from("BEGIN:VTODO\r\n");
+    s.push_str(&format!("UID:{}\r\n", t.id));
+    if !t.subject.is_empty() {
+        s.push_str(&format!("SUMMARY:{}\r\n", ical_escape(&t.subject)));
+    }
+    s.push_str(&format!(
+        "STATUS:{}\r\n",
+        if t.complete {
+            "COMPLETED"
+        } else {
+            "NEEDS-ACTION"
+        }
+    ));
+    if !t.due.is_empty() {
+        s.push_str(&format!("DUE:{}\r\n", ical_dt(&t.due)));
+    }
+    s.push_str("END:VTODO\r\n");
+    s
+}
+
+/// Serialize free/busy blocks to a minimal RFC 5545 `VFREEBUSY` for `who`.
+#[must_use]
+pub fn free_busy_to_vfreebusy(who: &str, blocks: &[FreeBusyBlock]) -> String {
+    let mut s = String::from("BEGIN:VFREEBUSY\r\n");
+    if !who.is_empty() {
+        s.push_str(&format!("ATTENDEE:mailto:{who}\r\n"));
+    }
+    for b in blocks {
+        let fbtype = match b.busy_type.as_str() {
+            "Free" => "FREE",
+            "Tentative" => "BUSY-TENTATIVE",
+            "OOF" => "BUSY-UNAVAILABLE",
+            _ => "BUSY",
+        };
+        s.push_str(&format!(
+            "FREEBUSY;FBTYPE={fbtype}:{}/{}\r\n",
+            ical_dt(&b.start),
+            ical_dt(&b.end)
+        ));
+    }
+    s.push_str("END:VFREEBUSY\r\n");
+    s
+}
+
+/// The default calendar sync window when the engine has no prior cursor: a wide span
+/// so a first `sync-events` returns the full current calendar. EWS `FindItem` +
+/// `CalendarView` is a window query, not a true incremental delta, so the bridge
+/// re-reads the window and lets the engine reconcile by event UID.
+pub const CAL_WINDOW_START: &str = "1970-01-01T00:00:00Z";
+/// The upper bound of [`CAL_WINDOW_START`].
+pub const CAL_WINDOW_END: &str = "2099-12-31T23:59:59Z";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -484,6 +702,7 @@ mod tests {
     const VOTE: &str = include_str!("../fixtures/vote_response.xml");
     const RECALL_OK: &str = include_str!("../fixtures/recall_ok.xml");
     const RECALL_ERR: &str = include_str!("../fixtures/recall_error.xml");
+    const TASKS: &str = include_str!("../fixtures/tasks.xml");
 
     #[test]
     fn calendar_create_and_parse() {
@@ -565,5 +784,59 @@ mod tests {
         // PidLidVerbResponse (0x8524) is emitted as its decimal PropertyId.
         assert!(get_vote_response_request("i").contains(&PID_LID_VERB_RESPONSE.to_string()));
         assert_eq!(parse_vote_response(VOTE).as_deref(), Some("Pizza"));
+    }
+
+    #[test]
+    fn tasks_parse_and_render_vtodo() {
+        assert!(find_tasks_request().contains("DistinguishedFolderId Id=\"tasks\""));
+        let tasks = parse_tasks(TASKS);
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[0].id, "TASK-1");
+        assert_eq!(tasks[0].subject, "Ship 26.10");
+        assert!(!tasks[0].complete);
+        assert!(tasks[1].complete, "second task is done");
+
+        let vtodo = task_to_vtodo(&tasks[0]);
+        assert!(vtodo.contains("BEGIN:VTODO"));
+        assert!(vtodo.contains("UID:TASK-1"));
+        assert!(vtodo.contains("SUMMARY:Ship 26.10"));
+        assert!(vtodo.contains("STATUS:NEEDS-ACTION"));
+        assert!(
+            vtodo.contains("DUE:20260720T"),
+            "due maps to compact iCal: {vtodo}"
+        );
+        assert!(task_to_vtodo(&tasks[1]).contains("STATUS:COMPLETED"));
+
+        let complete = complete_task_request("TASK-1", "TCK1");
+        assert!(complete.contains("task:Status"));
+        assert!(complete.contains("<t:Status>Completed</t:Status>"));
+        assert!(complete.contains("ChangeKey=\"TCK1\""));
+    }
+
+    #[test]
+    fn calendar_event_renders_vevent() {
+        let events = parse_calendar_events(CAL);
+        let vevent = cal_event_to_vevent(&events[0]);
+        assert!(vevent.contains("BEGIN:VEVENT"));
+        assert!(vevent.contains("UID:EVT-1"));
+        assert!(vevent.contains("SUMMARY:Weekly sync"));
+        assert!(vevent.contains("DTSTART:20260720T090000Z"));
+        assert!(vevent.contains("DTEND:20260720T093000Z"));
+        assert!(vevent.contains("LOCATION:Room A"));
+        assert!(vevent.contains("END:VEVENT"));
+    }
+
+    #[test]
+    fn free_busy_renders_vfreebusy() {
+        let blocks = parse_free_busy(FREEBUSY);
+        let vfb = free_busy_to_vfreebusy("bob@corp.example", &blocks);
+        assert!(vfb.contains("BEGIN:VFREEBUSY"));
+        assert!(vfb.contains("ATTENDEE:mailto:bob@corp.example"));
+        assert!(vfb.contains("FREEBUSY;FBTYPE=BUSY:20260720T090000/20260720T100000"));
+        assert!(
+            vfb.contains("FREEBUSY;FBTYPE=BUSY-UNAVAILABLE:"),
+            "OOF maps to unavailable"
+        );
+        assert!(vfb.contains("END:VFREEBUSY"));
     }
 }

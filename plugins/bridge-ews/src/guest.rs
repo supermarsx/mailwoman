@@ -13,17 +13,25 @@ use base64::Engine as _;
 
 use crate::{ENDPOINT_URL, ews, ntlm, pim, wire};
 
+// t10-e3: target the `plugin-pim` second world (plan §5 / t10-e0) so this bridge ALSO
+// exports the optional `calendar`/`tasks`/`bridge-parity` interfaces the host probes.
+// Because `plugin-pim` `include`s `world plugin`, the account-backend/mail exports are
+// byte-unchanged and the existing host `bindgen!({world: "plugin"})` still loads this
+// component; the PIM exports are additive.
 wit_bindgen::generate!({
-    world: "plugin",
+    world: "plugin-pim",
     path: "../../crates/mw-plugin/wit",
 });
 
 use exports::mailwoman::plugin::account_backend as ab;
 use exports::mailwoman::plugin::addrbook_source as addr;
 use exports::mailwoman::plugin::autoconfig_source as autoc;
+use exports::mailwoman::plugin::bridge_parity as parity;
+use exports::mailwoman::plugin::calendar as cal;
 use exports::mailwoman::plugin::dlp_detect as dlp;
 use exports::mailwoman::plugin::message_pipeline as pipe;
 use exports::mailwoman::plugin::spam_action as spam;
+use exports::mailwoman::plugin::tasks as tasks_ex;
 
 use mailwoman::plugin::host;
 use mailwoman::plugin::types::{
@@ -315,12 +323,186 @@ impl spam::Guest for Component {
     }
 }
 
-// Reference `pim` so the wasm build keeps the PIM surface (calendar/free-busy/
-// rooms/OOF/recall/voting) linked and available to the host mount layer even though
-// those operations are not part of the account-backend WIT export.
-#[allow(dead_code)]
-fn _pim_surface_is_linked() {
-    let _ = pim::get_room_lists_request();
+// ── PIM / Outlook-parity exports (t10-e3) ─────────────────────────────────────────
+//
+// Honest EWS support matrix (plan §1.2 / §2.1, this executor's charter). The
+// `supports-*()` funcs are the authoritative per-interface probe the host binds on;
+// they NEVER claim a capability EWS lacks:
+//   * calendar  — SUPPORTED (FindItem CalendarView + free/busy + rooms).
+//   * tasks     — SUPPORTED (FindItem over the Tasks distinguished folder).
+//   * reactions — NOT an EWS feature ⇒ false.
+//   * voting    — NOT exposed through the parity seam ⇒ false.
+//   * recall    — no third-party recall/unsend API (§10.3 honesty) ⇒ false /
+//                 `recall-outcome::unsupported`.
+//   * focused   — Focused Inbox is a Graph/Outlook feature ⇒ false.
+// Where a capability is false, the host binds the interface but the honest
+// `supports-*()` keeps the engine on its byte-unchanged standards fallback.
+
+fn task_to_wit(t: pim::EwsTask) -> tasks_ex::TaskInfo {
+    // The opaque per-backend task id carries ItemId + ChangeKey (same encoding as the
+    // account-backend `message-ref.raw`) so `complete(id)` can issue an EWS UpdateItem.
+    let id = wire::encode_msgref(&t.id, &t.change_key);
+    let ical = pim::task_to_vtodo(&t);
+    tasks_ex::TaskInfo {
+        id,
+        list_id: "tasks".into(),
+        ical,
+        completed: t.complete,
+    }
+}
+
+impl cal::Guest for Component {
+    fn supports_calendar() -> bool {
+        true
+    }
+
+    fn list_calendars() -> Result<Vec<cal::CalInfo>, PluginError> {
+        // EWS exposes the bound mailbox's primary Calendar distinguished folder.
+        Ok(vec![cal::CalInfo {
+            id: "calendar".into(),
+            name: "Calendar".into(),
+            role: "calendar".into(),
+            read_only: false,
+        }])
+    }
+
+    fn sync_events(
+        calendar_id: String,
+        _cursor: SyncCursor,
+    ) -> Result<cal::EventDelta, PluginError> {
+        // EWS FindItem+CalendarView is a window query (not a true incremental delta):
+        // re-read the default window and let the engine reconcile by event UID.
+        let xml = ews_call(&pim::find_calendar_events_request(
+            pim::CAL_WINDOW_START,
+            pim::CAL_WINDOW_END,
+        ))?;
+        let changed = pim::parse_calendar_events(&xml)
+            .into_iter()
+            .map(|e| cal::EventInfo {
+                id: e.id.clone(),
+                calendar_id: calendar_id.clone(),
+                ical: pim::cal_event_to_vevent(&e),
+                start: (!e.start.is_empty()).then(|| e.start.clone()),
+                end: (!e.end.is_empty()).then(|| e.end.clone()),
+            })
+            .collect();
+        Ok(cal::EventDelta {
+            changed,
+            removed: vec![],
+            next_cursor: SyncCursor {
+                opaque: pim::CAL_WINDOW_END.as_bytes().to_vec(),
+            },
+        })
+    }
+
+    fn find_rooms() -> Result<Vec<cal::RoomInfo>, PluginError> {
+        let xml = ews_call(&pim::get_room_lists_request())?;
+        Ok(pim::parse_room_addresses(&xml)
+            .into_iter()
+            .map(|g| cal::RoomInfo {
+                address: g.email,
+                name: g.display_name,
+                capacity: None,
+            })
+            .collect())
+    }
+
+    fn get_schedule(who: String, start: String, end: String) -> Result<String, PluginError> {
+        let xml = ews_call(&pim::get_user_availability_request(&[&who], &start, &end))?;
+        let blocks = pim::parse_free_busy(&xml);
+        Ok(pim::free_busy_to_vfreebusy(&who, &blocks))
+    }
+}
+
+impl tasks_ex::Guest for Component {
+    fn supports_tasks() -> bool {
+        true
+    }
+
+    fn list_tasks() -> Result<Vec<tasks_ex::TaskInfo>, PluginError> {
+        let xml = ews_call(&pim::find_tasks_request())?;
+        Ok(pim::parse_tasks(&xml)
+            .into_iter()
+            .map(task_to_wit)
+            .collect())
+    }
+
+    fn sync_tasks(
+        _list_id: String,
+        _cursor: SyncCursor,
+    ) -> Result<tasks_ex::TaskDelta, PluginError> {
+        let xml = ews_call(&pim::find_tasks_request())?;
+        let changed = pim::parse_tasks(&xml)
+            .into_iter()
+            .map(task_to_wit)
+            .collect();
+        Ok(tasks_ex::TaskDelta {
+            changed,
+            removed: vec![],
+            next_cursor: SyncCursor {
+                opaque: b"ews-tasks".to_vec(),
+            },
+        })
+    }
+
+    fn complete(id: String) -> Result<(), PluginError> {
+        let (item_id, change_key) =
+            wire::decode_msgref(&id).ok_or_else(|| protocol("task id carries no EWS item id"))?;
+        let xml = ews_call(&pim::complete_task_request(&item_id, &change_key))?;
+        if crate::soap::is_success(&xml) {
+            Ok(())
+        } else {
+            Err(protocol(crate::soap::message_text(&xml).unwrap_or_else(
+                || "UpdateItem (task complete) failed".into(),
+            )))
+        }
+    }
+}
+
+impl parity::Guest for Component {
+    fn supports_reactions() -> bool {
+        false // EWS has no reactions
+    }
+    fn supports_voting() -> bool {
+        false // Outlook voting buttons are not exposed through the parity seam
+    }
+    fn supports_recall() -> bool {
+        false // no third-party recall/unsend API (§10.3 honesty)
+    }
+    fn supports_focused() -> bool {
+        false // Focused Inbox is a Graph/Outlook feature
+    }
+
+    fn set_reaction(_msg: MessageRef, _emoji: String, _add: bool) -> Result<(), PluginError> {
+        Err(PluginError::Unsupported("EWS has no reactions".into()))
+    }
+    fn get_reactions(_msg: MessageRef) -> Result<Vec<parity::Reaction>, PluginError> {
+        Ok(vec![])
+    }
+
+    fn cast_vote(_msg: MessageRef, _choice: String) -> Result<(), PluginError> {
+        Err(PluginError::Unsupported(
+            "EWS voting is not exposed through the parity seam".into(),
+        ))
+    }
+    fn tally(_msg: MessageRef) -> Result<Vec<parity::VoteTally>, PluginError> {
+        Ok(vec![])
+    }
+
+    fn recall(_msg: MessageRef) -> Result<parity::RecallOutcome, PluginError> {
+        // Honest: EWS has no cross-organization unsend; never claim a recall it cannot
+        // perform (mirrors mw_engine::v7::RecallOutcome::Unsupported).
+        Ok(parity::RecallOutcome::Unsupported)
+    }
+
+    fn get_focused(_msg: MessageRef) -> Result<parity::FocusedState, PluginError> {
+        Ok(parity::FocusedState::Other)
+    }
+    fn set_focused(_msg: MessageRef, _focused: bool) -> Result<(), PluginError> {
+        Err(PluginError::Unsupported(
+            "Focused Inbox is a Graph/Outlook feature".into(),
+        ))
+    }
 }
 
 export!(Component);

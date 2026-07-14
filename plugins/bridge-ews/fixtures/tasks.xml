@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+               xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+               xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+  <soap:Body>
+    <m:FindItemResponse>
+      <m:ResponseMessages>
+        <m:FindItemResponseMessage ResponseClass="Success">
+          <m:ResponseCode>NoError</m:ResponseCode>
+          <m:RootFolder TotalItemsInView="2" IncludesLastItemInRange="true">
+            <t:Items>
+              <t:Task>
+                <t:ItemId Id="TASK-1" ChangeKey="TCK1"/>
+                <t:Subject>Ship 26.10</t:Subject>
+                <t:DueDate>2026-07-20T00:00:00Z</t:DueDate>
+                <t:Status>NotStarted</t:Status>
+                <t:IsComplete>false</t:IsComplete>
+              </t:Task>
+              <t:Task>
+                <t:ItemId Id="TASK-2" ChangeKey="TCK2"/>
+                <t:Subject>Review WIT seam</t:Subject>
+                <t:Status>Completed</t:Status>
+                <t:IsComplete>true</t:IsComplete>
+              </t:Task>
+            </t:Items>
+          </m:RootFolder>
+        </m:FindItemResponseMessage>
+      </m:ResponseMessages>
+    </m:FindItemResponse>
+  </soap:Body>
+</soap:Envelope>
