@@ -11,7 +11,7 @@
 
 use base64::Engine as _;
 
-use crate::{ENDPOINT_URL, ews, ntlm, pim, state, wire};
+use crate::{ENDPOINT_URL, ews, ntlm, pim, wire};
 
 wit_bindgen::generate!({
     world: "plugin",
@@ -127,19 +127,17 @@ fn ews_call(soap_body: &str) -> Result<String, PluginError> {
     Err(PluginError::Transport(format!("EWS HTTP {}", r1.status)))
 }
 
-fn msgref(folder_id: &str, uid: u32, mbox: &MailboxRef) -> MessageRef {
+fn msgref(item_id: &str, change_key: &str, mbox: &MailboxRef) -> MessageRef {
     MessageRef {
-        raw: wire::encode_msgref(&wire::MsgRef::imap(folder_id, 1, uid)),
+        // Pack the native EWS ItemId + ChangeKey into the opaque `raw`; the host adapter
+        // round-trips it verbatim as MessageRef::Plugin (no synthetic-UID map needed).
+        raw: wire::encode_msgref(item_id, change_key),
         mailbox: mbox.clone(),
     }
 }
 
 fn item_id_of(r: &MessageRef) -> Result<(String, String), PluginError> {
-    let uid = wire::decode_msgref(&r.raw)
-        .and_then(|m| m.uid())
-        .ok_or_else(|| protocol("message-ref carries no uid"))?;
-    state::lookup_item(uid)
-        .ok_or_else(|| PluginError::MailboxNotFound(format!("no EWS item for uid {uid}")))
+    wire::decode_msgref(&r.raw).ok_or_else(|| protocol("message-ref carries no EWS item id"))
 }
 
 impl ab::Guest for Component {
@@ -185,20 +183,12 @@ impl ab::Guest for Component {
         let added = delta
             .added
             .iter()
-            .map(|it| {
-                let uid = state::assign_uid(&it.id, &it.change_key);
-                msgref(&folder_id, uid, &mbox)
-            })
+            .map(|it| msgref(&it.id, &it.change_key, &mbox))
             .collect();
         let removed = delta
             .removed
             .iter()
-            .map(|it| {
-                // Reuse the uid if we minted one for this item earlier this session,
-                // else mint one so the engine can reconcile the removal by ref.
-                let uid = state::assign_uid(&it.id, &it.change_key);
-                msgref(&folder_id, uid, &mbox)
-            })
+            .map(|it| msgref(&it.id, &it.change_key, &mbox))
             .collect();
 
         Ok(MailboxDelta {
@@ -276,8 +266,7 @@ impl ab::Guest for Component {
         let item = ews::parse_created_item_id(&xml)
             .map_err(protocol)?
             .ok_or_else(|| protocol("CreateItem returned no ItemId"))?;
-        let uid = state::assign_uid(&item.id, &item.change_key);
-        Ok(msgref(&mbox.name, uid, &mbox))
+        Ok(msgref(&item.id, &item.change_key, &mbox))
     }
 
     fn poll_changes() -> Result<Vec<ChangeEvent>, PluginError> {

@@ -191,6 +191,11 @@ fn group_imap_refs(refs: &[MessageRef]) -> Result<Vec<(RawMailboxRef, Vec<u32>)>
                     "POP3 message ref on IMAP backend".into(),
                 ));
             }
+            MessageRef::Plugin { .. } => {
+                return Err(EngineError::Unsupported(
+                    "plugin message ref on IMAP backend".into(),
+                ));
+            }
         }
     }
     Ok(groups)

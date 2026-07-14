@@ -450,6 +450,9 @@ impl Engine {
                     .await?
             }
             MessageRef::Pop3 { uidl } => self.store.stable_id_for_uidl(account_id, uidl).await?,
+            // A bridge/plugin ref's native id is an opaque per-account string — the same
+            // identity shape as a POP3 UIDL, so it keys the same UIDL identity table.
+            MessageRef::Plugin { raw } => self.store.stable_id_for_uidl(account_id, raw).await?,
         })
     }
 
@@ -717,6 +720,11 @@ fn coords(mref: &MessageRef) -> (u32, u32, Option<String>) {
             uidvalidity, uid, ..
         } => (*uidvalidity, *uid, None),
         MessageRef::Pop3 { uidl } => (0, pop3_pseudo_uid(uidl), Some(uidl.clone())),
+        // A bridge/plugin ref carries an opaque native id (Graph/Gmail id, EWS ItemId);
+        // treat it exactly like a UIDL — the opaque string is the identity of record,
+        // with a deterministic pseudo-UID keeping the (mailbox, uidvalidity, uid) index
+        // unique.
+        MessageRef::Plugin { raw } => (0, pop3_pseudo_uid(raw), Some(raw.clone())),
     }
 }
 

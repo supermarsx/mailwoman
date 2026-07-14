@@ -1,110 +1,52 @@
-//! Engine-facing wire encoding. The `mw-plugin` host adapter decodes a guest
-//! `message-ref.raw` string as JSON of `mw_engine::MessageRef`, and a
-//! `sync-cursor.opaque` blob as JSON of `mw_engine::SyncCursor` (see
-//! `crates/mw-plugin/src/adapter.rs`). A wasm guest cannot depend on the heavy
-//! `mw-engine` crate, so this module defines **byte-for-byte-compatible serde
-//! mirrors** and hand-drives them with `serde_json`. Wire compatibility is proven
-//! against the real `mw-engine` types in `tests/wire_compat.rs`.
+//! Engine-facing wire encoding. The `mw-plugin` host adapter carries a plugin
+//! backend's `message-ref.raw` string and `sync-cursor.opaque` bytes VERBATIM,
+//! wrapping them into `mw_engine::MessageRef::Plugin { raw }` /
+//! `SyncCursor::Plugin { opaque }` and handing the exact same bytes back on the next
+//! call (see `crates/mw-plugin/src/adapter.rs`, t7-fix-msgref). So this bridge emits
+//! its own **provider-native** encodings, no engine-JSON disguise:
 //!
-//! EWS uses opaque `ItemId`s, not IMAP UIDs, so the bridge synthesizes a stable
-//! per-mailbox `uid` for each item and carries the real `ItemId`/`ChangeKey` in its
-//! own session/KV map (`crate::state`). The engine only ever sees a
-//! `MessageRef::Imap { mailbox, uidvalidity, uid }`.
+//! EWS identifies items by an opaque `ItemId` (+ a `ChangeKey` that advances as the
+//! item is modified) and resumes sync from a `SyncState` token. The bridge packs the
+//! `ItemId` + `ChangeKey` into `message-ref.raw` and carries the `SyncState` bytes in
+//! `sync-cursor.opaque`, both round-tripped losslessly — no synthetic-UID map needed.
 
-use serde::{Deserialize, Serialize};
+/// Field separator packed into the message-ref `raw` (US, 0x1F — never appears in a
+/// base64 EWS `ItemId` or `ChangeKey`).
+const SEP: char = '\u{1f}';
 
-/// Mirror of `mw_engine::RawMailboxRef`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MboxRef {
-    pub name: String,
-    pub uidvalidity: u32,
+/// Pack an EWS `(item_id, change_key)` into the opaque `message-ref.raw` string the
+/// host adapter passes through as `MessageRef::Plugin { raw }`.
+#[must_use]
+pub fn encode_msgref(item_id: &str, change_key: &str) -> String {
+    format!("{item_id}{SEP}{change_key}")
 }
 
-/// Mirror of `mw_engine::MessageRef` (externally-tagged enum — the serde default).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum MsgRef {
-    Imap {
-        mailbox: MboxRef,
-        uidvalidity: u32,
-        uid: u32,
-    },
-    Pop3 {
-        uidl: String,
-    },
-}
-
-impl MsgRef {
-    /// Build the synthetic IMAP-shaped ref the engine persists for an EWS item.
-    #[must_use]
-    pub fn imap(mailbox: &str, uidvalidity: u32, uid: u32) -> Self {
-        MsgRef::Imap {
-            mailbox: MboxRef {
-                name: mailbox.to_string(),
-                uidvalidity,
-            },
-            uidvalidity,
-            uid,
-        }
+/// Recover `(item_id, change_key)` from a `message-ref.raw`. Tolerant of a bare
+/// `item_id` without the separator (⇒ empty change key). Returns `None` for an empty
+/// ref (⇒ not ours).
+#[must_use]
+pub fn decode_msgref(raw: &str) -> Option<(String, String)> {
+    if raw.is_empty() {
+        return None;
     }
-
-    /// The `(uid)` if this is an IMAP-shaped ref.
-    #[must_use]
-    pub fn uid(&self) -> Option<u32> {
-        match self {
-            MsgRef::Imap { uid, .. } => Some(*uid),
-            MsgRef::Pop3 { .. } => None,
-        }
+    match raw.split_once(SEP) {
+        Some((id, ck)) => Some((id.to_string(), ck.to_string())),
+        None => Some((raw.to_string(), String::new())),
     }
 }
 
-/// Encode a `MsgRef` as the JSON string the host adapter puts in `message-ref.raw`.
-#[must_use]
-pub fn encode_msgref(r: &MsgRef) -> String {
-    serde_json::to_string(r).unwrap_or_default()
-}
-
-/// Decode a host `message-ref.raw` JSON string back into a `MsgRef`.
-#[must_use]
-pub fn decode_msgref(raw: &str) -> Option<MsgRef> {
-    serde_json::from_str(raw).ok()
-}
-
-/// Serialize mirror of `mw_engine::SyncCursor::Plugin { opaque }`
-/// (internally-tagged `#[serde(tag = "kind", rename_all = "snake_case")]`).
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum CursorOut {
-    Plugin { opaque: Vec<u8> },
-}
-
-/// Permissive peek at whatever cursor the engine handed back — recovers the inner
-/// `opaque` payload (our EWS `SyncState`) if this was a `Plugin` cursor, else empty.
-#[derive(Debug, Default, Deserialize)]
-struct CursorPeek {
-    #[serde(default)]
-    opaque: Vec<u8>,
-}
-
-/// Encode our EWS `SyncState` string as the `sync-cursor.opaque` bytes the host
-/// stores (`SyncCursor::Plugin { opaque }` JSON, so the engine round-trips it
-/// verbatim per plan §3 e8).
+/// Carry our EWS `SyncState` string as the raw `sync-cursor.opaque` bytes the host
+/// round-trips verbatim as `SyncCursor::Plugin { opaque }` (plan §3 e8).
 #[must_use]
 pub fn encode_cursor(sync_state: &str) -> Vec<u8> {
-    serde_json::to_vec(&CursorOut::Plugin {
-        opaque: sync_state.as_bytes().to_vec(),
-    })
-    .unwrap_or_default()
+    sync_state.as_bytes().to_vec()
 }
 
 /// Recover the EWS `SyncState` string from the `sync-cursor.opaque` bytes the host
 /// handed to `sync-mailbox` (empty ⇒ a fresh full sync).
 #[must_use]
 pub fn decode_cursor(opaque: &[u8]) -> String {
-    if opaque.is_empty() {
-        return String::new();
-    }
-    let peek: CursorPeek = serde_json::from_slice(opaque).unwrap_or_default();
-    String::from_utf8(peek.opaque).unwrap_or_default()
+    String::from_utf8_lossy(opaque).into_owned()
 }
 
 #[cfg(test)]
@@ -112,22 +54,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn msgref_round_trips() {
-        let r = MsgRef::imap("INBOX", 3, 42);
-        let s = encode_msgref(&r);
-        assert!(s.contains("\"Imap\""));
-        assert_eq!(decode_msgref(&s), Some(r));
+    fn msgref_round_trips_item_id_and_change_key() {
+        let raw = encode_msgref("AAMkITEM==", "CK-9");
+        assert_eq!(raw, "AAMkITEM==\u{1f}CK-9");
+        assert_eq!(
+            decode_msgref(&raw),
+            Some(("AAMkITEM==".into(), "CK-9".into()))
+        );
+    }
+
+    #[test]
+    fn bare_item_id_decodes_with_empty_change_key() {
+        assert_eq!(
+            decode_msgref("AAMkITEM=="),
+            Some(("AAMkITEM==".into(), String::new()))
+        );
+        assert_eq!(decode_msgref(""), None);
     }
 
     #[test]
     fn cursor_round_trips_sync_state() {
         let opaque = encode_cursor("SYNCSTATEXYZ==");
+        assert_eq!(opaque, b"SYNCSTATEXYZ==");
         assert_eq!(decode_cursor(&opaque), "SYNCSTATEXYZ==");
-        // A non-plugin/empty cursor decodes to a fresh sync.
+        // An empty cursor decodes to a fresh sync.
         assert_eq!(decode_cursor(&[]), "");
-        assert_eq!(
-            decode_cursor(br#"{"kind":"uid_window","uidvalidity":1,"uidnext":9}"#),
-            ""
-        );
     }
 }

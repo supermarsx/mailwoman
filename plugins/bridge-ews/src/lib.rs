@@ -27,8 +27,8 @@
 //! post-1.0 native item — the bridge never pretends to do Kerberos.
 //!
 //! ## Crate shape
-//! The pure protocol core ([`md`]/[`ntlm`]/[`soap`]/[`ews`]/[`pim`]/[`wire`]/
-//! [`state`]) compiles on every target and is unit-tested on the host against the
+//! The pure protocol core ([`md`]/[`ntlm`]/[`soap`]/[`ews`]/[`pim`]/[`wire`])
+//! compiles on every target and is unit-tested on the host against the
 //! recorded fixtures under `fixtures/`. The WIT component glue + host-mediated
 //! transport ([`guest`]) is `wasm32`-only, so `cargo build --workspace` stays green
 //! on the host while `cargo build --target wasm32-wasip2` produces the component.
@@ -38,7 +38,6 @@ pub mod md;
 pub mod ntlm;
 pub mod pim;
 pub mod soap;
-pub mod state;
 pub mod wire;
 
 #[cfg(target_arch = "wasm32")]

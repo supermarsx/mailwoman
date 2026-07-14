@@ -228,7 +228,7 @@ async fn ews_bridge_serves_mail_through_the_engine_with_ntlm() {
         .append(&inbox.mailbox_ref, b"From: me\r\n\r\nhi", &[Flag::Seen])
         .await
         .unwrap();
-    assert!(matches!(sent, mw_engine::MessageRef::Imap { .. }));
+    assert!(matches!(sent, mw_engine::MessageRef::Plugin { .. }));
 }
 
 #[tokio::test]

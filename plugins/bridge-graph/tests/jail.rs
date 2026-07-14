@@ -12,18 +12,18 @@
 //!    every Graph request carries the host-provided transient bearer token.
 //!
 //! The full mail sync / fetch / flags / Focused-Inbox / calendar / To-Do / recall
-//! mapping is covered in `tests/mapping.rs`. Message-ref- and cursor-bearing methods
-//! (sync/fetch/flags/move/submit) do NOT round-trip through the CURRENT host adapter
-//! because it JSON-encodes `mw_engine::{MessageRef, SyncCursor}` into the WIT opaque
-//! and `mw_engine::MessageRef` has no plugin variant — a host-side gap flagged for
-//! e8/e14 (see the e10 report). It is NOT a WIT-ABI limitation: `message-ref.raw` is
-//! documented as "serialized IMAP uid or Graph id".
+//! mapping is covered in `tests/mapping.rs`. Message-level sync + fetch by native id
+//! now ALSO round-trips through the real host adapter — the `message_fetch_by_native_id`
+//! test below drives it via the additive `MessageRef::Plugin` / `SyncCursor::Plugin`
+//! passthrough (t7-fix-msgref), closing the host-side gap the e10 report flagged. The
+//! guest was already emitting plain Graph ids + a raw deltaLink cursor, so no rebuild
+//! was needed — only the host adapter changed.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use mw_engine::MailboxRole;
+use mw_engine::{MailboxRole, MessageRef, RawMailboxRef, SyncCursor};
 use mw_plugin::{
     Capability, Grant, HostServices, HttpFetcher, HttpReq, HttpResp, OAuthTokenProvider,
     PluginHost, PluginLimits, PluginManifest, TrustRoot,
@@ -209,6 +209,59 @@ async fn capabilities_and_mailboxes_through_the_seam() {
         h.oauth_calls.load(Ordering::SeqCst) >= 1,
         "the guest acquired its token via the host oauth-token import"
     );
+}
+
+#[tokio::test]
+async fn message_fetch_by_native_id_round_trips_through_the_jail() {
+    let h = harness();
+    let m = manifest(GRAPH_CAPS.to_vec());
+    let handle = h
+        .host
+        .load(COMPONENT, &m, &grant(GRAPH_CAPS.to_vec()))
+        .unwrap();
+    let backend = handle.as_account_backend().unwrap();
+
+    let inbox = RawMailboxRef {
+        name: "inbox".into(),
+        uidvalidity: 1,
+    };
+
+    // Initial delta sync (empty Plugin cursor ⇒ full enumeration). The added refs carry
+    // the Graph message ids VERBATIM across the seam as MessageRef::Plugin — no
+    // Pop3/synthetic-uid smuggle.
+    let delta = backend
+        .sync_mailbox(&inbox, &SyncCursor::Plugin { opaque: vec![] })
+        .await
+        .unwrap();
+    assert_eq!(delta.added.len(), 2, "both Graph messages are 'added'");
+    let raws: Vec<String> = delta
+        .added
+        .iter()
+        .map(|r| match r {
+            MessageRef::Plugin { raw } => raw.clone(),
+            other => panic!("expected a native Plugin ref, got {other:?}"),
+        })
+        .collect();
+    assert!(
+        raws.contains(&"AAMk-msg-1".to_string()),
+        "native Graph id survived the host adapter: {raws:?}"
+    );
+    // The Graph deltaLink rode back as a raw Plugin cursor (no JSON wrapping).
+    match &delta.next_cursor {
+        SyncCursor::Plugin { opaque } => assert!(
+            String::from_utf8_lossy(opaque).contains("$deltatoken=NEXT1"),
+            "deltaLink carried verbatim"
+        ),
+        other => panic!("expected a Plugin cursor, got {other:?}"),
+    }
+
+    // fetch_raw drives the native id BACK through the jail → real MIME by that id.
+    let msgs = backend.fetch_raw(&delta.added).await.unwrap();
+    assert_eq!(msgs.len(), 2);
+    let body = String::from_utf8_lossy(&msgs[0].raw);
+    assert!(body.contains("Subject: Q3 roadmap"), "got: {body}");
+    // The fetched ref is byte-identical to the one we passed in ⇒ lossless round-trip.
+    assert_eq!(msgs[0].message_ref, delta.added[0]);
 }
 
 #[tokio::test]

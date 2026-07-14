@@ -3,14 +3,16 @@
 //! guest is a side-effect-free transform reachable only through the gated host
 //! imports. Once adapted, a plugin backend is indistinguishable from `mw-imap`.
 //!
-//! **Impedance notes (R1):**
+//! **Impedance notes (R1, resolved):**
 //! * `mw_engine::MessageRef` is a structured enum; the WIT `message-ref.raw` is an
-//!   opaque per-backend string. The adapter JSON-encodes the engine ref into `raw`
-//!   and decodes it on the way back — lossless.
-//! * `mw_engine::SyncCursor` is likewise JSON-encoded into the WIT `sync-cursor`
-//!   opaque bytes. A bridge whose native cursor cannot be modeled by the frozen
-//!   `SyncCursor` enum is the one remaining gap — see the e1 report (recommends an
-//!   additive `SyncCursor::Plugin(Vec<u8>)` variant, an e8 coordinator decision).
+//!   opaque per-backend string. IMAP/POP3 refs are JSON-encoded into `raw` and decoded
+//!   back — lossless. A `MessageRef::Plugin { raw }` (a bridge's provider-native id)
+//!   rides `raw` VERBATIM (no JSON), so Graph/Gmail ids and EWS ItemIds round-trip
+//!   without the earlier `Pop3 { uidl }`/synthetic-uid smuggles (t7-fix-msgref).
+//! * `mw_engine::SyncCursor` maps the same way: standards cursors are JSON-encoded into
+//!   the WIT `sync-cursor.opaque`, while `SyncCursor::Plugin { opaque }` (e8) passes its
+//!   native token bytes through verbatim (Graph deltaLink / Gmail historyId / EWS
+//!   SyncState). Decode tries the engine-JSON form first and falls back to `Plugin`.
 
 use std::sync::Arc;
 
@@ -290,32 +292,70 @@ fn flag_to_engine(f: wit::Flag) -> Flag {
 }
 
 fn msgref_to_wit(r: &MessageRef) -> Result<wit::MessageRef, EngineError> {
-    let raw = serde_json::to_string(r)
-        .map_err(|e| EngineError::Protocol(format!("encode message-ref: {e}")))?;
-    let mailbox = match r {
-        MessageRef::Imap { mailbox, .. } => mailbox_ref_to_wit(mailbox),
-        MessageRef::Pop3 { .. } => wit::MailboxRef {
-            name: "INBOX".into(),
-            uidvalidity: 0,
-        },
-    };
-    Ok(wit::MessageRef { raw, mailbox })
+    match r {
+        // Plugin passthrough (R1-residual): a bridge's provider-native id rides the
+        // WIT `message-ref.raw` VERBATIM — no JSON wrapping — so a Graph/Gmail id or
+        // EWS ItemId round-trips losslessly. A `Plugin` ref carries no engine mailbox
+        // coordinate (bridges pack any owning-folder context into `raw` themselves),
+        // so the WIT `mailbox` is a neutral placeholder.
+        MessageRef::Plugin { raw } => Ok(wit::MessageRef {
+            raw: raw.clone(),
+            mailbox: wit::MailboxRef {
+                name: String::new(),
+                uidvalidity: 0,
+            },
+        }),
+        // IMAP/POP3 refs keep the JSON-in-`raw` encoding (byte-unchanged).
+        MessageRef::Imap { mailbox, .. } => Ok(wit::MessageRef {
+            raw: serde_json::to_string(r)
+                .map_err(|e| EngineError::Protocol(format!("encode message-ref: {e}")))?,
+            mailbox: mailbox_ref_to_wit(mailbox),
+        }),
+        MessageRef::Pop3 { .. } => Ok(wit::MessageRef {
+            raw: serde_json::to_string(r)
+                .map_err(|e| EngineError::Protocol(format!("encode message-ref: {e}")))?,
+            mailbox: wit::MailboxRef {
+                name: "INBOX".into(),
+                uidvalidity: 0,
+            },
+        }),
+    }
 }
 
 fn msgref_to_engine(r: &wit::MessageRef) -> Result<MessageRef, EngineError> {
-    serde_json::from_str(&r.raw)
-        .map_err(|e| EngineError::Protocol(format!("decode message-ref: {e}")))
+    // A bridge emits a provider-native id that is NOT engine-`MessageRef` JSON — carry
+    // it losslessly in `MessageRef::Plugin`. An engine-JSON ref (the IMAP/POP3-shaped
+    // ref a non-bridge guest may echo back) still decodes to its exact variant, keeping
+    // that path byte-unchanged.
+    match serde_json::from_str::<MessageRef>(&r.raw) {
+        Ok(m) => Ok(m),
+        Err(_) => Ok(MessageRef::Plugin { raw: r.raw.clone() }),
+    }
 }
 
 fn cursor_to_wit(c: &SyncCursor) -> Result<wit::SyncCursor, EngineError> {
-    let opaque = serde_json::to_vec(c)
-        .map_err(|e| EngineError::Protocol(format!("encode sync-cursor: {e}")))?;
-    Ok(wit::SyncCursor { opaque })
+    match c {
+        // Plugin passthrough: a bridge's native token (Graph deltaLink / Gmail
+        // historyId / EWS SyncState) rides `sync-cursor.opaque` VERBATIM.
+        SyncCursor::Plugin { opaque } => Ok(wit::SyncCursor {
+            opaque: opaque.clone(),
+        }),
+        // Standards cursors keep the JSON-in-`opaque` encoding (byte-unchanged).
+        _ => {
+            let opaque = serde_json::to_vec(c)
+                .map_err(|e| EngineError::Protocol(format!("encode sync-cursor: {e}")))?;
+            Ok(wit::SyncCursor { opaque })
+        }
+    }
 }
 
 fn cursor_to_engine(c: wit::SyncCursor) -> Result<SyncCursor, EngineError> {
-    serde_json::from_slice(&c.opaque)
-        .map_err(|e| EngineError::Protocol(format!("decode sync-cursor: {e}")))
+    // A standards `SyncCursor` JSON (a non-bridge guest echoing one back) decodes to its
+    // exact variant; a bridge's raw native token is not that JSON → `Plugin`.
+    match serde_json::from_slice::<SyncCursor>(&c.opaque) {
+        Ok(cur) => Ok(cur),
+        Err(_) => Ok(SyncCursor::Plugin { opaque: c.opaque }),
+    }
 }
 
 fn rawmsg_to_engine(m: wit::RawMessage) -> Result<RawMessage, EngineError> {

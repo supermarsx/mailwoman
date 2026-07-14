@@ -243,6 +243,11 @@ impl AccountBackend for Pop3Backend {
                         "POP3 backend received an IMAP message ref".into(),
                     ));
                 }
+                MessageRef::Plugin { .. } => {
+                    return Err(EngineError::Unsupported(
+                        "POP3 backend received a plugin message ref".into(),
+                    ));
+                }
             };
             let Some(&num) = by_uidl.get(uidl.as_str()) else {
                 // Gone from the maildrop since the caller learned of it; skip.

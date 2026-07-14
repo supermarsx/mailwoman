@@ -186,6 +186,19 @@ pub enum MessageRef {
     },
     /// POP3 coordinate: the UIDL string (RFC 1939 / 2449).
     Pop3 { uidl: String },
+    /// Opaque bridge/plugin message ref (V7, R1-residual — parallel to
+    /// [`SyncCursor::Plugin`]). A WASM/native bridge backend carries its **native**
+    /// message id here losslessly — Microsoft Graph message id, Gmail message id, EWS
+    /// `ItemId`(+`ChangeKey`) — instead of smuggling it through one of the IMAP/POP3
+    /// coordinates above (e12 previously packed a Gmail id into `Pop3 { uidl }`). The
+    /// engine treats `raw` as opaque and round-trips it verbatim through the
+    /// `mw-plugin` adapter (WIT `message-ref.raw` passthrough); only the originating
+    /// backend interprets it. Additive: `mw-imap`/`mw-pop3` never emit or consume it.
+    ///
+    /// A `String` (not `Vec<u8>`) is natural for provider ids, and — unlike
+    /// `SyncCursor` — `MessageRef` is **externally**-tagged, so a struct variant is not
+    /// forced; `{ raw }` mirrors the `SyncCursor::Plugin { opaque }` shape.
+    Plugin { raw: String },
 }
 
 /// An IMAP system flag or an arbitrary server/JMAP keyword.
