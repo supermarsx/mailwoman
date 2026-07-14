@@ -485,26 +485,48 @@ fn bundled_component(plugin_id: &str) -> Option<&'static [u8]> {
 }
 
 /// The send seam for a bridge-backed account. A bridge's outbound mail flows through
-/// its component's native API (the `account-backend` `submit` export / `message-out`
-/// pipeline), NOT SMTP — so wiring `EmailSubmission/set` to the bridge send path is a
-/// documented follow-up. V7 proves the bridge MAIL **read** surface (Mailbox/get,
-/// Email/query, Email/get) served identically to IMAP; a bridge account's SMTP
-/// submission is **refused** (never silently dropped) until that path lands.
-struct BridgeSubmitDenied {
+/// its component's native API — the frozen `account-backend` `submit` export, which
+/// each bridge maps to its provider send (Graph `sendMail`, Gmail `messages/send`, EWS
+/// `CreateItem`+`SendItem`), NOT SMTP. `EmailSubmission/set` reaches this through the
+/// engine's `MailSubmitter` seam: the engine composes the draft MIME and calls
+/// [`MailSubmitter::submit`], which we route to the plugin backend's `submit` export
+/// (the adapter maps `AccountBackend::append` → WIT `submit` → the guest → the
+/// provider's send API, through the jail). A submit failure surfaces as an
+/// `EngineError` (never a silent drop); the provider files the message into its own
+/// Sent folder on send, so the engine skips the upstream Sent APPEND for plugin
+/// accounts (see `submit_email`).
+struct BridgeSubmitter {
+    /// The same plugin/bridge account backend the engine syncs over; its `submit`
+    /// (append) export is the provider send path.
+    backend: Arc<dyn mw_engine::backend::AccountBackend>,
     bridge_id: String,
 }
 
 #[async_trait]
-impl mw_engine::account::MailSubmitter for BridgeSubmitDenied {
+impl mw_engine::account::MailSubmitter for BridgeSubmitter {
     async fn submit(
         &self,
-        _msg: mw_smtp::Outgoing,
+        msg: mw_smtp::Outgoing,
     ) -> mw_engine::backend::Result<mw_smtp::SubmissionResult> {
-        Err(mw_engine::backend::EngineError::Unsupported(format!(
-            "send for the '{}' bridge account is not wired through EmailSubmission yet \
-             (bridge MAIL read surface only)",
-            self.bridge_id
-        )))
+        // Route to the bridge's `submit` export via the frozen `AccountBackend::append`
+        // seam (adapter → WIT `submit` → provider send). The mailbox ref is a neutral
+        // placeholder — a bridge send ignores it beyond a synthetic return ref.
+        let placeholder = mw_engine::backend::RawMailboxRef {
+            name: "Sent".to_string(),
+            uidvalidity: 0,
+        };
+        if let Err(e) = self.backend.append(&placeholder, &msg.raw, &[]).await {
+            // Surface the failure (never silently drop). Content-free: bridge id + the
+            // coarse backend error only.
+            tracing::warn!("bridge '{}' send failed: {e}", self.bridge_id);
+            return Err(e);
+        }
+        // The provider transmits to every recipient atomically and reports fatal
+        // failures as the error above; report the envelope recipients accepted.
+        Ok(mw_smtp::SubmissionResult {
+            accepted: msg.rcpt_to,
+            rejected: Vec::new(),
+        })
     }
 }
 
@@ -609,8 +631,9 @@ pub async fn load_plugin_backends(
             .map(|a| a.username)
             .unwrap_or_else(|_| b.account_id.clone());
         let runtime = mw_engine::account::AccountRuntime::new(
-            backend,
-            Arc::new(BridgeSubmitDenied {
+            backend.clone(),
+            Arc::new(BridgeSubmitter {
+                backend,
                 bridge_id: b.bridge_id.clone(),
             }) as Arc<dyn mw_engine::account::MailSubmitter>,
             identity,

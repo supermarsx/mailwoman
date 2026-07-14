@@ -549,8 +549,18 @@ impl Engine {
             name: imap_name,
             uidvalidity: 0,
         };
-        // Persist upstream where supported (IMAP); POP3 has no Drafts.
-        tolerant(rt.backend.append(&mbref, &raw, &[Flag::Draft]).await)?;
+        // Persist upstream where supported (IMAP); POP3 has no Drafts. A
+        // plugin/bridge backend has NO append-to-folder semantics — its frozen
+        // account-backend `submit` export *transmits* (Graph `sendMail` / Gmail
+        // `messages/send` / EWS `SendItem`), so appending a locally-composed draft
+        // there would SEND it. For a plugin-backed account the draft therefore lives
+        // only in the local cache (still immediately queryable via `ingest_local`
+        // below); outbound send happens exclusively through the submitter at
+        // `EmailSubmission` time. Standards IMAP keeps the best-effort upstream APPEND
+        // (byte-unchanged).
+        if !self.is_plugin_backed(account_id) {
+            tolerant(rt.backend.append(&mbref, &raw, &[Flag::Draft]).await)?;
+        }
 
         let sid = self
             .ingest_local(
@@ -1135,13 +1145,21 @@ impl Engine {
             )));
         }
 
-        // File into Sent: upstream APPEND (best-effort) + local re-file.
+        // File into Sent: upstream APPEND (best-effort) + local re-file. A
+        // plugin/bridge backend's `submit` export *transmits* rather than appends
+        // (the send already fired through `rt.submitter` above), and the provider
+        // files the message into its own Sent folder on send — so a second upstream
+        // append here would RE-SEND. Skip it for plugin-backed accounts; the local
+        // re-file below still surfaces the sent copy on the JMAP Sent mailbox.
+        // Standards IMAP keeps the best-effort upstream APPEND (byte-unchanged).
         let (sent_id, sent_name) = self.ensure_role_mailbox(account_id, "sent", "Sent").await?;
         let sent_ref = RawMailboxRef {
             name: sent_name,
             uidvalidity: 0,
         };
-        tolerant(rt.backend.append(&sent_ref, &raw, &[Flag::Seen]).await)?;
+        if !self.is_plugin_backed(account_id) {
+            tolerant(rt.backend.append(&sent_ref, &raw, &[Flag::Seen]).await)?;
+        }
 
         let message_id = msg.message_id.clone().unwrap_or_else(gen_message_id);
         self.ingest_local(
