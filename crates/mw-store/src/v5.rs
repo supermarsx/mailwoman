@@ -13,9 +13,7 @@
 //! is real and testable. e5 wires the dispatcher (a second consumer of the engine
 //! `StateChange` broadcast) + the real VAPID keygen on first boot.
 
-use sqlx::Row;
-
-use crate::{Store, StoreError};
+use crate::{Row, Store, StoreError, q};
 
 /// One push subscription (`push_subscriptions`). `p256dh`/`auth` are Web-Push-only;
 /// `app_id` is UnifiedPush/APNs. No content is ever attached to a subscription.
@@ -44,29 +42,29 @@ pub struct NativeSessionRow {
     pub rotated_from: Option<String>,
 }
 
-fn push_sub_from_row(r: &sqlx::sqlite::SqliteRow) -> PushSubscriptionRow {
+fn push_sub_from_row(r: &Row) -> PushSubscriptionRow {
     PushSubscriptionRow {
-        id: r.get("id"),
-        account_id: r.get("account_id"),
-        transport: r.get("transport"),
-        endpoint: r.get("endpoint"),
-        p256dh: r.get("p256dh"),
-        auth: r.get("auth"),
-        app_id: r.get("app_id"),
-        expires_at: r.get("expires_at"),
-        created_at: r.get("created_at"),
-        last_wake_at: r.get("last_wake_at"),
+        id: r.get_string("id"),
+        account_id: r.get_string("account_id"),
+        transport: r.get_string("transport"),
+        endpoint: r.get_string("endpoint"),
+        p256dh: r.get_opt_string("p256dh"),
+        auth: r.get_opt_string("auth"),
+        app_id: r.get_opt_string("app_id"),
+        expires_at: r.get_opt_string("expires_at"),
+        created_at: r.get_string("created_at"),
+        last_wake_at: r.get_opt_string("last_wake_at"),
     }
 }
 
-fn native_session_from_row(r: &sqlx::sqlite::SqliteRow) -> NativeSessionRow {
+fn native_session_from_row(r: &Row) -> NativeSessionRow {
     NativeSessionRow {
-        token_hash: r.get("token_hash"),
-        account_id: r.get("account_id"),
-        client_type: r.get("client_type"),
-        created_at: r.get("created_at"),
-        last_seen: r.get("last_seen"),
-        rotated_from: r.get("rotated_from"),
+        token_hash: r.get_string("token_hash"),
+        account_id: r.get_string("account_id"),
+        client_type: r.get_string("client_type"),
+        created_at: r.get_string("created_at"),
+        last_seen: r.get_string("last_seen"),
+        rotated_from: r.get_opt_string("rotated_from"),
     }
 }
 
@@ -78,16 +76,14 @@ impl Store {
         &self,
         row: &PushSubscriptionRow,
     ) -> Result<(), StoreError> {
-        sqlx::query(
-            "INSERT INTO push_subscriptions
+        q("INSERT INTO push_subscriptions
                  (id, account_id, transport, endpoint, p256dh, auth, app_id,
                   expires_at, created_at, last_wake_at)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
              ON CONFLICT(endpoint) DO UPDATE SET
                  account_id=excluded.account_id, transport=excluded.transport,
                  p256dh=excluded.p256dh, auth=excluded.auth, app_id=excluded.app_id,
-                 expires_at=excluded.expires_at",
-        )
+                 expires_at=excluded.expires_at")
         .bind(&row.id)
         .bind(&row.account_id)
         .bind(&row.transport)
@@ -98,7 +94,7 @@ impl Store {
         .bind(row.expires_at.as_deref())
         .bind(&row.created_at)
         .bind(row.last_wake_at.as_deref())
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(())
     }
@@ -108,39 +104,37 @@ impl Store {
         &self,
         account_id: &str,
     ) -> Result<Vec<PushSubscriptionRow>, StoreError> {
-        let rows = sqlx::query(
-            "SELECT * FROM push_subscriptions WHERE account_id = ?1 ORDER BY created_at",
-        )
-        .bind(account_id)
-        .fetch_all(&self.pool)
-        .await?;
+        let rows = q("SELECT * FROM push_subscriptions WHERE account_id = ?1 ORDER BY created_at")
+            .bind(account_id)
+            .fetch_all(&self.backend)
+            .await?;
         Ok(rows.iter().map(push_sub_from_row).collect())
     }
 
     /// Remove a subscription by endpoint (client unsubscribe / expired endpoint).
     pub async fn delete_push_subscription(&self, endpoint: &str) -> Result<(), StoreError> {
-        sqlx::query("DELETE FROM push_subscriptions WHERE endpoint = ?1")
+        q("DELETE FROM push_subscriptions WHERE endpoint = ?1")
             .bind(endpoint)
-            .execute(&self.pool)
+            .execute(&self.backend)
             .await?;
         Ok(())
     }
 
     /// Remove a subscription by its id (the `POST /api/push/unsubscribe {id}` path).
     pub async fn delete_push_subscription_by_id(&self, id: &str) -> Result<(), StoreError> {
-        sqlx::query("DELETE FROM push_subscriptions WHERE id = ?1")
+        q("DELETE FROM push_subscriptions WHERE id = ?1")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&self.backend)
             .await?;
         Ok(())
     }
 
     /// Record that an opaque wake was last sent to a subscription (rate/telemetry).
     pub async fn touch_push_wake(&self, id: &str, at: &str) -> Result<(), StoreError> {
-        sqlx::query("UPDATE push_subscriptions SET last_wake_at = ?2 WHERE id = ?1")
+        q("UPDATE push_subscriptions SET last_wake_at = ?2 WHERE id = ?1")
             .bind(id)
             .bind(at)
-            .execute(&self.pool)
+            .execute(&self.backend)
             .await?;
         Ok(())
     }
@@ -157,7 +151,7 @@ impl Store {
         created_at: &str,
     ) -> Result<(), StoreError> {
         let sealed = self.key.seal(private_plaintext)?;
-        sqlx::query(
+        q(
             "INSERT INTO push_config (id, vapid_public, vapid_private_sealed, created_at)
              VALUES (1, ?1, ?2, ?3)
              ON CONFLICT(id) DO UPDATE SET
@@ -167,22 +161,20 @@ impl Store {
         .bind(public)
         .bind(sealed)
         .bind(created_at)
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(())
     }
 
     /// Load the VAPID keypair, unsealing the private key. `None` before first init.
     pub async fn load_vapid_keypair(&self) -> Result<Option<(String, Vec<u8>)>, StoreError> {
-        let row =
-            sqlx::query("SELECT vapid_public, vapid_private_sealed FROM push_config WHERE id = 1")
-                .fetch_optional(&self.pool)
-                .await?;
+        let row = q("SELECT vapid_public, vapid_private_sealed FROM push_config WHERE id = 1")
+            .fetch_optional(&self.backend)
+            .await?;
         match row {
             Some(r) => {
-                let public: String = r.get("vapid_public");
-                let sealed: Vec<u8> = r.get("vapid_private_sealed");
-                let private = self.key.open(&sealed)?;
+                let public = r.get_string("vapid_public");
+                let private = self.key.open(&r.get_blob("vapid_private_sealed"))?;
                 Ok(Some((public, private)))
             }
             None => Ok(None),
@@ -191,28 +183,26 @@ impl Store {
 
     /// The PUBLIC VAPID key only (what `/api/push/vapid` serves). Never the private.
     pub async fn vapid_public(&self) -> Result<Option<String>, StoreError> {
-        let row = sqlx::query("SELECT vapid_public FROM push_config WHERE id = 1")
-            .fetch_optional(&self.pool)
+        let row = q("SELECT vapid_public FROM push_config WHERE id = 1")
+            .fetch_optional(&self.backend)
             .await?;
-        Ok(row.map(|r| r.get("vapid_public")))
+        Ok(row.map(|r| r.get_string("vapid_public")))
     }
 
     // ── Native bearer-token sessions ──────────────────────────────────────────
 
     /// Create a native session row (stores the token HASH only).
     pub async fn create_native_session(&self, row: &NativeSessionRow) -> Result<(), StoreError> {
-        sqlx::query(
-            "INSERT INTO native_sessions
+        q("INSERT INTO native_sessions
                  (token_hash, account_id, client_type, created_at, last_seen, rotated_from)
-             VALUES (?1,?2,?3,?4,?5,?6)",
-        )
+             VALUES (?1,?2,?3,?4,?5,?6)")
         .bind(&row.token_hash)
         .bind(&row.account_id)
         .bind(&row.client_type)
         .bind(&row.created_at)
         .bind(&row.last_seen)
         .bind(row.rotated_from.as_deref())
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(())
     }
@@ -222,18 +212,18 @@ impl Store {
         &self,
         token_hash: &str,
     ) -> Result<Option<NativeSessionRow>, StoreError> {
-        let row = sqlx::query("SELECT * FROM native_sessions WHERE token_hash = ?1")
+        let row = q("SELECT * FROM native_sessions WHERE token_hash = ?1")
             .bind(token_hash)
-            .fetch_optional(&self.pool)
+            .fetch_optional(&self.backend)
             .await?;
         Ok(row.as_ref().map(native_session_from_row))
     }
 
     /// Delete a native session by token hash (logout / rotation).
     pub async fn delete_native_session(&self, token_hash: &str) -> Result<(), StoreError> {
-        sqlx::query("DELETE FROM native_sessions WHERE token_hash = ?1")
+        q("DELETE FROM native_sessions WHERE token_hash = ?1")
             .bind(token_hash)
-            .execute(&self.pool)
+            .execute(&self.backend)
             .await?;
         Ok(())
     }
@@ -248,11 +238,11 @@ mod tests {
     async fn store() -> Store {
         let s = Store::open_in_memory(ServerKey::generate()).await.unwrap();
         // A parent account row so the FK holds (mirrors cache.rs's insert shape).
-        sqlx::query(
+        q(
             "INSERT INTO accounts (id, kind, host, port, tls, username, sealed_creds, sync_policy_json)
              VALUES ('acct', 'imap', 'mail.example', 993, 1, 'u@e', X'00', '{}')",
         )
-        .execute(&s.pool)
+        .execute(s.backend())
         .await
         .unwrap();
         s
@@ -301,12 +291,11 @@ mod tests {
         );
 
         // The stored private blob is ciphertext, NOT the plaintext.
-        let sealed: Vec<u8> =
-            sqlx::query("SELECT vapid_private_sealed FROM push_config WHERE id = 1")
-                .fetch_one(&s.pool)
-                .await
-                .unwrap()
-                .get("vapid_private_sealed");
+        let sealed = q("SELECT vapid_private_sealed FROM push_config WHERE id = 1")
+            .fetch_one(s.backend())
+            .await
+            .unwrap()
+            .get_blob("vapid_private_sealed");
         assert_ne!(sealed.as_slice(), private.as_slice());
 
         // Unsealing recovers the original private key.

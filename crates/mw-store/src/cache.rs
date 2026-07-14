@@ -21,9 +21,8 @@
 use std::collections::BTreeSet;
 
 use chrono::Utc;
-use sqlx::Row;
 
-use crate::{Store, StoreError, seal};
+use crate::{Row, Store, StoreError, q, seal};
 
 /// Kind of upstream account (mirrors the `accounts.kind` CHECK constraint).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -162,11 +161,11 @@ pub struct MessageLocation {
 fn to_i64(v: u64) -> i64 {
     v as i64
 }
-fn u32_from(row: &sqlx::sqlite::SqliteRow, col: &str) -> u32 {
-    row.get::<i64, _>(col) as u32
+fn u32_from(row: &Row, col: &str) -> u32 {
+    row.get_i64(col) as u32
 }
-fn u64_from(row: &sqlx::sqlite::SqliteRow, col: &str) -> u64 {
-    row.get::<i64, _>(col) as u64
+fn u64_from(row: &Row, col: &str) -> u64 {
+    row.get_i64(col) as u64
 }
 
 impl Store {
@@ -180,7 +179,7 @@ impl Store {
     ) -> Result<String, StoreError> {
         let id = seal::random_token();
         let sealed = self.key.seal(&crate::encode_creds(creds))?;
-        sqlx::query(
+        q(
             "INSERT INTO accounts (id, kind, host, port, tls, username, sealed_creds, sync_policy_json)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         )
@@ -192,18 +191,18 @@ impl Store {
         .bind(acct.username)
         .bind(sealed)
         .bind(acct.sync_policy_json)
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(id)
     }
 
     /// Fetch an account by id.
     pub async fn get_account(&self, id: &str) -> Result<Account, StoreError> {
-        let row = sqlx::query(
+        let row = q(
             "SELECT id, kind, host, port, tls, username, sync_policy_json FROM accounts WHERE id = ?1",
         )
         .bind(id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.backend)
         .await?
         .ok_or(StoreError::NotFound)?;
         Self::account_from_row(&row)
@@ -211,44 +210,43 @@ impl Store {
 
     /// List all configured accounts (no credentials).
     pub async fn list_accounts(&self) -> Result<Vec<Account>, StoreError> {
-        let rows = sqlx::query(
+        let rows = q(
             "SELECT id, kind, host, port, tls, username, sync_policy_json FROM accounts ORDER BY id",
         )
-        .fetch_all(&self.pool)
+        .fetch_all(&self.backend)
         .await?;
         rows.iter().map(Self::account_from_row).collect()
     }
 
     /// Update an account's opaque sync-policy JSON.
     pub async fn update_sync_policy(&self, id: &str, policy_json: &str) -> Result<(), StoreError> {
-        sqlx::query("UPDATE accounts SET sync_policy_json = ?2 WHERE id = ?1")
+        q("UPDATE accounts SET sync_policy_json = ?2 WHERE id = ?1")
             .bind(id)
             .bind(policy_json)
-            .execute(&self.pool)
+            .execute(&self.backend)
             .await?;
         Ok(())
     }
 
     /// Open the sealed credentials for an account.
     pub async fn account_credentials(&self, id: &str) -> Result<crate::Credentials, StoreError> {
-        let row = sqlx::query("SELECT sealed_creds FROM accounts WHERE id = ?1")
+        let row = q("SELECT sealed_creds FROM accounts WHERE id = ?1")
             .bind(id)
-            .fetch_optional(&self.pool)
+            .fetch_optional(&self.backend)
             .await?
             .ok_or(StoreError::NotFound)?;
-        let sealed: Vec<u8> = row.get("sealed_creds");
-        crate::decode_creds(&self.key.open(&sealed)?)
+        crate::decode_creds(&self.key.open(&row.get_blob("sealed_creds"))?)
     }
 
-    fn account_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Account, StoreError> {
+    fn account_from_row(row: &Row) -> Result<Account, StoreError> {
         Ok(Account {
-            id: row.get("id"),
-            kind: AccountKind::parse(row.get::<String, _>("kind").as_str())?,
-            host: row.get("host"),
+            id: row.get_string("id"),
+            kind: AccountKind::parse(row.get_string("kind").as_str())?,
+            host: row.get_string("host"),
             port: u32_from(row, "port") as u16,
-            tls: row.get("tls"),
-            username: row.get("username"),
-            sync_policy_json: row.get("sync_policy_json"),
+            tls: row.get_string("tls"),
+            username: row.get_string("username"),
+            sync_policy_json: row.get_string("sync_policy_json"),
         })
     }
 
@@ -259,7 +257,7 @@ impl Store {
     /// conflict; the id is preserved.
     pub async fn upsert_mailbox(&self, m: &MailboxUpsert<'_>) -> Result<String, StoreError> {
         let id = seal::random_token();
-        let row = sqlx::query(
+        let row = q(
             "INSERT INTO mailboxes
                  (id, account_id, name, role, uidvalidity, uidnext, highestmodseq, total, unread, parent_id)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
@@ -282,31 +280,31 @@ impl Store {
         .bind(m.total as i64)
         .bind(m.unread as i64)
         .bind(m.parent_id)
-        .fetch_one(&self.pool)
+        .fetch_one(&self.backend)
         .await?;
-        Ok(row.get("id"))
+        Ok(row.get_string("id"))
     }
 
     /// List an account's mailboxes ordered by name.
     pub async fn list_mailboxes(&self, account_id: &str) -> Result<Vec<Mailbox>, StoreError> {
-        let rows = sqlx::query(
+        let rows = q(
             "SELECT id, account_id, name, role, uidvalidity, uidnext, highestmodseq, total, unread, parent_id
              FROM mailboxes WHERE account_id = ?1 ORDER BY name",
         )
         .bind(account_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.backend)
         .await?;
         Ok(rows.iter().map(Self::mailbox_from_row).collect())
     }
 
     /// Fetch one mailbox by id.
     pub async fn get_mailbox(&self, id: &str) -> Result<Mailbox, StoreError> {
-        let row = sqlx::query(
+        let row = q(
             "SELECT id, account_id, name, role, uidvalidity, uidnext, highestmodseq, total, unread, parent_id
              FROM mailboxes WHERE id = ?1",
         )
         .bind(id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.backend)
         .await?
         .ok_or(StoreError::NotFound)?;
         Ok(Self::mailbox_from_row(&row))
@@ -321,7 +319,7 @@ impl Store {
         total: u32,
         unread: u32,
     ) -> Result<(), StoreError> {
-        sqlx::query(
+        q(
             "UPDATE mailboxes SET uidnext = ?2, highestmodseq = ?3, total = ?4, unread = ?5 WHERE id = ?1",
         )
         .bind(id)
@@ -329,17 +327,17 @@ impl Store {
         .bind(to_i64(highestmodseq))
         .bind(total as i64)
         .bind(unread as i64)
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(())
     }
 
     /// Set (or clear) a mailbox's special-use role string.
     pub async fn set_mailbox_role(&self, id: &str, role: Option<&str>) -> Result<(), StoreError> {
-        sqlx::query("UPDATE mailboxes SET role = ?2 WHERE id = ?1")
+        q("UPDATE mailboxes SET role = ?2 WHERE id = ?1")
             .bind(id)
             .bind(role)
-            .execute(&self.pool)
+            .execute(&self.backend)
             .await?;
         Ok(())
     }
@@ -354,34 +352,32 @@ impl Store {
         mailbox_id: &str,
         new_uidvalidity: u32,
     ) -> Result<(), StoreError> {
-        let mut tx = self.pool.begin().await?;
-        sqlx::query(
-            "UPDATE mailboxes SET uidvalidity = ?2, uidnext = 0, highestmodseq = 0 WHERE id = ?1",
-        )
-        .bind(mailbox_id)
-        .bind(new_uidvalidity as i64)
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query("DELETE FROM sync_state WHERE mailbox_id = ?1")
+        let mut tx = self.backend.begin().await?;
+        q("UPDATE mailboxes SET uidvalidity = ?2, uidnext = 0, highestmodseq = 0 WHERE id = ?1")
             .bind(mailbox_id)
-            .execute(&mut *tx)
+            .bind(new_uidvalidity as i64)
+            .execute_tx(&mut tx)
+            .await?;
+        q("DELETE FROM sync_state WHERE mailbox_id = ?1")
+            .bind(mailbox_id)
+            .execute_tx(&mut tx)
             .await?;
         tx.commit().await?;
         Ok(())
     }
 
-    fn mailbox_from_row(row: &sqlx::sqlite::SqliteRow) -> Mailbox {
+    fn mailbox_from_row(row: &Row) -> Mailbox {
         Mailbox {
-            id: row.get("id"),
-            account_id: row.get("account_id"),
-            name: row.get("name"),
-            role: row.get("role"),
+            id: row.get_string("id"),
+            account_id: row.get_string("account_id"),
+            name: row.get_string("name"),
+            role: row.get_opt_string("role"),
             uidvalidity: u32_from(row, "uidvalidity"),
             uidnext: u32_from(row, "uidnext"),
             highestmodseq: u64_from(row, "highestmodseq"),
             total: u32_from(row, "total"),
             unread: u32_from(row, "unread"),
-            parent_id: row.get("parent_id"),
+            parent_id: row.get_opt_string("parent_id"),
         }
     }
 
@@ -404,18 +400,16 @@ impl Store {
             Some(bytes) => Some(self.key.seal(bytes)?),
             None => None,
         };
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.backend.begin().await?;
 
         // (1) exact UID coordinates.
-        let existing: Option<String> = sqlx::query_scalar(
-            "SELECT stable_id FROM messages
-             WHERE account_id = ?1 AND mailbox_id = ?2 AND uidvalidity = ?3 AND uid = ?4",
-        )
+        let existing: Option<String> = q("SELECT stable_id FROM messages
+             WHERE account_id = ?1 AND mailbox_id = ?2 AND uidvalidity = ?3 AND uid = ?4")
         .bind(m.account_id)
         .bind(m.mailbox_id)
         .bind(m.uidvalidity as i64)
         .bind(m.uid as i64)
-        .fetch_optional(&mut *tx)
+        .fetch_opt_scalar_string_tx(&mut tx)
         .await?;
 
         // (2) identity match across a UIDVALIDITY change.
@@ -424,18 +418,16 @@ impl Store {
             None => {
                 let identity: Option<String> = match (m.message_id, m.internaldate) {
                     (Some(mid), Some(date)) => {
-                        sqlx::query_scalar(
-                            "SELECT stable_id FROM messages
+                        q("SELECT stable_id FROM messages
                          WHERE account_id = ?1 AND mailbox_id = ?2 AND message_id = ?3
                            AND internaldate = ?4 AND size = ?5
-                         LIMIT 1",
-                        )
+                         LIMIT 1")
                         .bind(m.account_id)
                         .bind(m.mailbox_id)
                         .bind(mid)
                         .bind(date)
                         .bind(to_i64(m.size))
-                        .fetch_optional(&mut *tx)
+                        .fetch_opt_scalar_string_tx(&mut tx)
                         .await?
                     }
                     _ => None,
@@ -445,8 +437,7 @@ impl Store {
         };
 
         // Upsert the full row under the resolved stable_id.
-        sqlx::query(
-            "INSERT INTO messages
+        q("INSERT INTO messages
                  (stable_id, account_id, mailbox_id, uid, uidvalidity, message_id, thread_id,
                   internaldate, size, flags_json, envelope_json, blob_ref)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
@@ -460,8 +451,7 @@ impl Store {
                  size = excluded.size,
                  flags_json = excluded.flags_json,
                  envelope_json = COALESCE(excluded.envelope_json, messages.envelope_json),
-                 blob_ref = COALESCE(excluded.blob_ref, messages.blob_ref)",
-        )
+                 blob_ref = COALESCE(excluded.blob_ref, messages.blob_ref)")
         .bind(&stable_id)
         .bind(m.account_id)
         .bind(m.mailbox_id)
@@ -474,7 +464,7 @@ impl Store {
         .bind(m.flags_json)
         .bind(sealed_env)
         .bind(m.blob_ref)
-        .execute(&mut *tx)
+        .execute_tx(&mut tx)
         .await?;
 
         tx.commit().await?;
@@ -483,13 +473,13 @@ impl Store {
 
     /// Fetch a message row by stable id.
     pub async fn get_message(&self, stable_id: &str) -> Result<Message, StoreError> {
-        let row = sqlx::query(
+        let row = q(
             "SELECT stable_id, account_id, mailbox_id, uid, uidvalidity, message_id, thread_id,
                     internaldate, size, flags_json, blob_ref
              FROM messages WHERE stable_id = ?1",
         )
         .bind(stable_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.backend)
         .await?
         .ok_or(StoreError::NotFound)?;
         Ok(Self::message_from_row(&row))
@@ -503,15 +493,13 @@ impl Store {
         uidvalidity: u32,
         uid: u32,
     ) -> Result<Option<String>, StoreError> {
-        Ok(sqlx::query_scalar(
-            "SELECT stable_id FROM messages
-             WHERE account_id = ?1 AND mailbox_id = ?2 AND uidvalidity = ?3 AND uid = ?4",
-        )
+        Ok(q("SELECT stable_id FROM messages
+             WHERE account_id = ?1 AND mailbox_id = ?2 AND uidvalidity = ?3 AND uid = ?4")
         .bind(account_id)
         .bind(mailbox_id)
         .bind(uidvalidity as i64)
         .bind(uid as i64)
-        .fetch_optional(&self.pool)
+        .fetch_opt_scalar_string(&self.backend)
         .await?)
     }
 
@@ -520,13 +508,12 @@ impl Store {
         &self,
         stable_id: &str,
     ) -> Result<Option<MessageLocation>, StoreError> {
-        let row =
-            sqlx::query("SELECT mailbox_id, uidvalidity, uid FROM messages WHERE stable_id = ?1")
-                .bind(stable_id)
-                .fetch_optional(&self.pool)
-                .await?;
+        let row = q("SELECT mailbox_id, uidvalidity, uid FROM messages WHERE stable_id = ?1")
+            .bind(stable_id)
+            .fetch_optional(&self.backend)
+            .await?;
         Ok(row.map(|r| MessageLocation {
-            mailbox_id: r.get("mailbox_id"),
+            mailbox_id: r.get_string("mailbox_id"),
             uidvalidity: u32_from(&r, "uidvalidity"),
             uid: u32_from(&r, "uid"),
         }))
@@ -540,26 +527,23 @@ impl Store {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<String>, StoreError> {
-        Ok(sqlx::query_scalar(
-            "SELECT stable_id FROM messages WHERE mailbox_id = ?1
+        Ok(q("SELECT stable_id FROM messages WHERE mailbox_id = ?1
              ORDER BY internaldate DESC, uid DESC
-             LIMIT ?2 OFFSET ?3",
-        )
+             LIMIT ?2 OFFSET ?3")
         .bind(mailbox_id)
         .bind(limit)
         .bind(offset)
-        .fetch_all(&self.pool)
+        .fetch_all_scalar_string(&self.backend)
         .await?)
     }
 
     /// Replace a message's opaque flags JSON (server-authoritative, SPEC §15.2).
     pub async fn set_flags(&self, stable_id: &str, flags_json: &str) -> Result<(), StoreError> {
-        let n = sqlx::query("UPDATE messages SET flags_json = ?2 WHERE stable_id = ?1")
+        let n = q("UPDATE messages SET flags_json = ?2 WHERE stable_id = ?1")
             .bind(stable_id)
             .bind(flags_json)
-            .execute(&self.pool)
-            .await?
-            .rows_affected();
+            .execute(&self.backend)
+            .await?;
         if n == 0 {
             return Err(StoreError::NotFound);
         }
@@ -568,19 +552,19 @@ impl Store {
 
     /// Assign a message to a thread.
     pub async fn set_thread(&self, stable_id: &str, thread_id: &str) -> Result<(), StoreError> {
-        sqlx::query("UPDATE messages SET thread_id = ?2 WHERE stable_id = ?1")
+        q("UPDATE messages SET thread_id = ?2 WHERE stable_id = ?1")
             .bind(stable_id)
             .bind(thread_id)
-            .execute(&self.pool)
+            .execute(&self.backend)
             .await?;
         Ok(())
     }
 
     /// Delete a cached message (EXPUNGE/VANISHED/dropped UIDL).
     pub async fn delete_message(&self, stable_id: &str) -> Result<(), StoreError> {
-        sqlx::query("DELETE FROM messages WHERE stable_id = ?1")
+        q("DELETE FROM messages WHERE stable_id = ?1")
             .bind(stable_id)
-            .execute(&self.pool)
+            .execute(&self.backend)
             .await?;
         Ok(())
     }
@@ -604,35 +588,34 @@ impl Store {
         new_uid: u32,
         new_uidvalidity: u32,
     ) -> Result<(), StoreError> {
-        let n = sqlx::query(
+        let n = q(
             "UPDATE messages SET mailbox_id = ?2, uid = ?3, uidvalidity = ?4 WHERE stable_id = ?1",
         )
         .bind(stable_id)
         .bind(new_mailbox_id)
         .bind(new_uid as i64)
         .bind(new_uidvalidity as i64)
-        .execute(&self.pool)
-        .await?
-        .rows_affected();
+        .execute(&self.backend)
+        .await?;
         if n == 0 {
             return Err(StoreError::NotFound);
         }
         Ok(())
     }
 
-    fn message_from_row(row: &sqlx::sqlite::SqliteRow) -> Message {
+    fn message_from_row(row: &Row) -> Message {
         Message {
-            stable_id: row.get("stable_id"),
-            account_id: row.get("account_id"),
-            mailbox_id: row.get("mailbox_id"),
+            stable_id: row.get_string("stable_id"),
+            account_id: row.get_string("account_id"),
+            mailbox_id: row.get_string("mailbox_id"),
             uid: u32_from(row, "uid"),
             uidvalidity: u32_from(row, "uidvalidity"),
-            message_id: row.get("message_id"),
-            thread_id: row.get("thread_id"),
-            internaldate: row.get("internaldate"),
+            message_id: row.get_opt_string("message_id"),
+            thread_id: row.get_opt_string("thread_id"),
+            internaldate: row.get_opt_string("internaldate"),
             size: u64_from(row, "size"),
-            flags_json: row.get("flags_json"),
-            blob_ref: row.get("blob_ref"),
+            flags_json: row.get_string("flags_json"),
+            blob_ref: row.get_opt_string("blob_ref"),
         }
     }
 
@@ -642,26 +625,23 @@ impl Store {
     pub async fn put_body(&self, account_id: &str, plaintext: &[u8]) -> Result<String, StoreError> {
         let blob_ref = seal::random_token();
         let sealed = self.key.seal(plaintext)?;
-        sqlx::query("INSERT INTO bodies (blob_ref, account_id, sealed_bytes) VALUES (?1, ?2, ?3)")
+        q("INSERT INTO bodies (blob_ref, account_id, sealed_bytes) VALUES (?1, ?2, ?3)")
             .bind(&blob_ref)
             .bind(account_id)
             .bind(sealed)
-            .execute(&self.pool)
+            .execute(&self.backend)
             .await?;
         Ok(blob_ref)
     }
 
     /// Open a stored body blob.
     pub async fn get_body(&self, blob_ref: &str) -> Result<Option<Vec<u8>>, StoreError> {
-        let row = sqlx::query("SELECT sealed_bytes FROM bodies WHERE blob_ref = ?1")
+        let row = q("SELECT sealed_bytes FROM bodies WHERE blob_ref = ?1")
             .bind(blob_ref)
-            .fetch_optional(&self.pool)
+            .fetch_optional(&self.backend)
             .await?;
         match row {
-            Some(r) => {
-                let sealed: Vec<u8> = r.get("sealed_bytes");
-                Ok(Some(self.key.open(&sealed)?))
-            }
+            Some(r) => Ok(Some(self.key.open(&r.get_blob("sealed_bytes"))?)),
             None => Ok(None),
         }
     }
@@ -669,13 +649,12 @@ impl Store {
     /// Open a message's sealed envelope bytes (for `Email/get` without
     /// re-parsing), if one was stored.
     pub async fn get_envelope(&self, stable_id: &str) -> Result<Option<Vec<u8>>, StoreError> {
-        let row = sqlx::query("SELECT envelope_json FROM messages WHERE stable_id = ?1")
+        let row = q("SELECT envelope_json FROM messages WHERE stable_id = ?1")
             .bind(stable_id)
-            .fetch_optional(&self.pool)
+            .fetch_optional(&self.backend)
             .await?
             .ok_or(StoreError::NotFound)?;
-        let sealed: Option<Vec<u8>> = row.get("envelope_json");
-        match sealed {
+        match row.get_opt_blob("envelope_json") {
             Some(bytes) => Ok(Some(self.key.open(&bytes)?)),
             None => Ok(None),
         }
@@ -694,7 +673,7 @@ impl Store {
             return Ok(existing);
         }
         let thread_id = seal::random_token();
-        let row = sqlx::query(
+        let row = q(
             "INSERT INTO threads (thread_id, account_id, root_message_id) VALUES (?1, ?2, ?3)
              ON CONFLICT(account_id, root_message_id) DO UPDATE SET root_message_id = excluded.root_message_id
              RETURNING thread_id",
@@ -702,9 +681,9 @@ impl Store {
         .bind(&thread_id)
         .bind(account_id)
         .bind(root_message_id)
-        .fetch_one(&self.pool)
+        .fetch_one(&self.backend)
         .await?;
-        Ok(row.get("thread_id"))
+        Ok(row.get_string("thread_id"))
     }
 
     /// Look up an existing thread id by its root Message-ID.
@@ -713,13 +692,13 @@ impl Store {
         account_id: &str,
         root_message_id: &str,
     ) -> Result<Option<String>, StoreError> {
-        Ok(sqlx::query_scalar(
-            "SELECT thread_id FROM threads WHERE account_id = ?1 AND root_message_id = ?2",
+        Ok(
+            q("SELECT thread_id FROM threads WHERE account_id = ?1 AND root_message_id = ?2")
+                .bind(account_id)
+                .bind(root_message_id)
+                .fetch_opt_scalar_string(&self.backend)
+                .await?,
         )
-        .bind(account_id)
-        .bind(root_message_id)
-        .fetch_optional(&self.pool)
-        .await?)
     }
 
     // ---- pop3 uidl ------------------------------------------------------
@@ -731,14 +710,14 @@ impl Store {
         uidl: &str,
         stable_id: &str,
     ) -> Result<(), StoreError> {
-        sqlx::query(
+        q(
             "INSERT INTO pop3_uidl (account_id, uidl, stable_id) VALUES (?1, ?2, ?3)
              ON CONFLICT(account_id, uidl) DO UPDATE SET stable_id = excluded.stable_id",
         )
         .bind(account_id)
         .bind(uidl)
         .bind(stable_id)
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(())
     }
@@ -746,11 +725,10 @@ impl Store {
     /// The set of UIDLs already ingested for an account (the POP3 sync cursor's
     /// `seen` set — feed it back to the backend to diff against LIST/UIDL).
     pub async fn seen_uidls(&self, account_id: &str) -> Result<BTreeSet<String>, StoreError> {
-        let rows: Vec<String> =
-            sqlx::query_scalar("SELECT uidl FROM pop3_uidl WHERE account_id = ?1")
-                .bind(account_id)
-                .fetch_all(&self.pool)
-                .await?;
+        let rows = q("SELECT uidl FROM pop3_uidl WHERE account_id = ?1")
+            .bind(account_id)
+            .fetch_all_scalar_string(&self.backend)
+            .await?;
         Ok(rows.into_iter().collect())
     }
 
@@ -760,13 +738,13 @@ impl Store {
         account_id: &str,
         uidl: &str,
     ) -> Result<Option<String>, StoreError> {
-        Ok(sqlx::query_scalar(
-            "SELECT stable_id FROM pop3_uidl WHERE account_id = ?1 AND uidl = ?2",
+        Ok(
+            q("SELECT stable_id FROM pop3_uidl WHERE account_id = ?1 AND uidl = ?2")
+                .bind(account_id)
+                .bind(uidl)
+                .fetch_opt_scalar_string(&self.backend)
+                .await?,
         )
-        .bind(account_id)
-        .bind(uidl)
-        .fetch_optional(&self.pool)
-        .await?)
     }
 
     // ---- sync state -----------------------------------------------------
@@ -780,7 +758,7 @@ impl Store {
         cursor_json: &str,
     ) -> Result<(), StoreError> {
         let now = Utc::now().to_rfc3339();
-        sqlx::query(
+        q(
             "INSERT INTO sync_state (account_id, mailbox_id, cursor_json, last_sync_at)
              VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(account_id, mailbox_id) DO UPDATE SET
@@ -791,7 +769,7 @@ impl Store {
         .bind(mailbox_id)
         .bind(cursor_json)
         .bind(now)
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(())
     }
@@ -802,13 +780,13 @@ impl Store {
         account_id: &str,
         mailbox_id: &str,
     ) -> Result<Option<String>, StoreError> {
-        Ok(sqlx::query_scalar(
-            "SELECT cursor_json FROM sync_state WHERE account_id = ?1 AND mailbox_id = ?2",
+        Ok(
+            q("SELECT cursor_json FROM sync_state WHERE account_id = ?1 AND mailbox_id = ?2")
+                .bind(account_id)
+                .bind(mailbox_id)
+                .fetch_opt_scalar_string(&self.backend)
+                .await?,
         )
-        .bind(account_id)
-        .bind(mailbox_id)
-        .fetch_optional(&self.pool)
-        .await?)
     }
 }
 
@@ -901,11 +879,12 @@ mod tests {
     async fn account_password_not_in_plaintext_at_rest() {
         let s = store().await;
         let id = seed_account(&s).await;
-        let sealed: Vec<u8> = sqlx::query_scalar("SELECT sealed_creds FROM accounts WHERE id = ?1")
+        let sealed = q("SELECT sealed_creds FROM accounts WHERE id = ?1")
             .bind(&id)
-            .fetch_one(&s.pool)
+            .fetch_one(s.backend())
             .await
-            .unwrap();
+            .unwrap()
+            .get_blob("sealed_creds");
         assert!(!sealed.windows(7).any(|w| w == b"hunter2"));
     }
 
@@ -1204,12 +1183,12 @@ mod tests {
         assert!(s.get_body("missing").await.unwrap().is_none());
 
         // Raw blob is ciphertext, not the plaintext body.
-        let raw: Vec<u8> =
-            sqlx::query_scalar("SELECT sealed_bytes FROM bodies WHERE blob_ref = ?1")
-                .bind(&blob_ref)
-                .fetch_one(&s.pool)
-                .await
-                .unwrap();
+        let raw = q("SELECT sealed_bytes FROM bodies WHERE blob_ref = ?1")
+            .bind(&blob_ref)
+            .fetch_one(s.backend())
+            .await
+            .unwrap()
+            .get_blob("sealed_bytes");
         assert!(!raw.windows(11).any(|w| w == b"secret-body"));
 
         let mut m = msg(
@@ -1231,12 +1210,12 @@ mod tests {
             Some(blob_ref.as_str())
         );
 
-        let sealed_env: Option<Vec<u8>> =
-            sqlx::query_scalar("SELECT envelope_json FROM messages WHERE stable_id = ?1")
-                .bind(&id)
-                .fetch_one(&s.pool)
-                .await
-                .unwrap();
+        let sealed_env = q("SELECT envelope_json FROM messages WHERE stable_id = ?1")
+            .bind(&id)
+            .fetch_one(s.backend())
+            .await
+            .unwrap()
+            .get_opt_blob("envelope_json");
         assert!(
             !sealed_env
                 .unwrap()

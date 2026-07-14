@@ -15,9 +15,7 @@
 //! has a real state source). e6 fills the keyring / verdict / DLP / sender-control
 //! CRUD over these tables.
 
-use sqlx::Row;
-
-use crate::{Store, StoreError};
+use crate::{Row, Store, StoreError, q};
 
 /// A key/cert row (`crypto_keys`, plan §2.4). Own keys carry an opaque
 /// `encrypted_private_backup` (never decrypted server-side); others are public.
@@ -120,7 +118,7 @@ impl Store {
         op: &str,
     ) -> Result<u64, StoreError> {
         let now = chrono::Utc::now().to_rfc3339();
-        let next: i64 = sqlx::query_scalar(
+        let next = q(
             "INSERT INTO crypto_changes (account_id, type, state, object_id, op, at)
              VALUES (
                  ?1, ?2,
@@ -134,7 +132,7 @@ impl Store {
         .bind(object_id)
         .bind(op)
         .bind(&now)
-        .fetch_one(&self.pool)
+        .fetch_scalar_i64(&self.backend)
         .await?;
         Ok(next as u64)
     }
@@ -145,12 +143,12 @@ impl Store {
         account_id: &str,
         type_name: &str,
     ) -> Result<u64, StoreError> {
-        let n: i64 = sqlx::query_scalar(
+        let n = q(
             "SELECT COALESCE(MAX(state), 0) FROM crypto_changes WHERE account_id = ?1 AND type = ?2",
         )
         .bind(account_id)
         .bind(type_name)
-        .fetch_one(&self.pool)
+        .fetch_scalar_i64(&self.backend)
         .await?;
         Ok(n as u64)
     }
@@ -163,21 +161,19 @@ impl Store {
         type_name: &str,
         since: u64,
     ) -> Result<Vec<CryptoChangeRow>, StoreError> {
-        let rows = sqlx::query(
-            "SELECT state, object_id, op FROM crypto_changes
-             WHERE account_id = ?1 AND type = ?2 AND state > ?3 ORDER BY state ASC",
-        )
+        let rows = q("SELECT state, object_id, op FROM crypto_changes
+             WHERE account_id = ?1 AND type = ?2 AND state > ?3 ORDER BY state ASC")
         .bind(account_id)
         .bind(type_name)
         .bind(since as i64)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.backend)
         .await?;
         Ok(rows
             .iter()
             .map(|r| CryptoChangeRow {
-                state: r.get::<i64, _>("state") as u64,
-                object_id: r.get("object_id"),
-                op: r.get("op"),
+                state: r.get_i64("state") as u64,
+                object_id: r.get_string("object_id"),
+                op: r.get_string("op"),
             })
             .collect())
     }
@@ -187,7 +183,7 @@ impl Store {
     /// Insert or replace a key/cert row. `encrypted_private_backup` is opaque —
     /// stored verbatim, NEVER decrypted (plan §1.2 / risk #4).
     pub async fn upsert_crypto_key(&self, row: &CryptoKeyRow) -> Result<(), StoreError> {
-        sqlx::query(
+        q(
             "INSERT INTO crypto_keys
                  (id, account_id, kind, is_own, addresses_json, fingerprint, key_id, algorithm,
                   created_at, expires_at, public_key, cert_pem, trust, autocrypt, source,
@@ -220,7 +216,7 @@ impl Store {
         .bind(row.encrypted_private_backup.as_deref())
         .bind(row.verified_at.as_deref())
         .bind(&row.key_history_json)
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(())
     }
@@ -230,11 +226,11 @@ impl Store {
         &self,
         account_id: &str,
     ) -> Result<Vec<CryptoKeyRow>, StoreError> {
-        let rows = sqlx::query(
+        let rows = q(
             "SELECT * FROM crypto_keys WHERE account_id = ?1 ORDER BY is_own DESC, created_at DESC",
         )
         .bind(account_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.backend)
         .await?;
         Ok(rows.iter().map(crypto_key_from_row).collect())
     }
@@ -245,20 +241,20 @@ impl Store {
         account_id: &str,
         id: &str,
     ) -> Result<Option<CryptoKeyRow>, StoreError> {
-        let row = sqlx::query("SELECT * FROM crypto_keys WHERE account_id = ?1 AND id = ?2")
+        let row = q("SELECT * FROM crypto_keys WHERE account_id = ?1 AND id = ?2")
             .bind(account_id)
             .bind(id)
-            .fetch_optional(&self.pool)
+            .fetch_optional(&self.backend)
             .await?;
         Ok(row.as_ref().map(crypto_key_from_row))
     }
 
     /// Delete one key by id (scoped to the account).
     pub async fn delete_crypto_key(&self, account_id: &str, id: &str) -> Result<(), StoreError> {
-        sqlx::query("DELETE FROM crypto_keys WHERE account_id = ?1 AND id = ?2")
+        q("DELETE FROM crypto_keys WHERE account_id = ?1 AND id = ?2")
             .bind(account_id)
             .bind(id)
-            .execute(&self.pool)
+            .execute(&self.backend)
             .await?;
         Ok(())
     }
@@ -267,7 +263,7 @@ impl Store {
 
     /// Record a first-seen (address → key) TOFU association.
     pub async fn add_key_association(&self, row: &KeyAssociationRow) -> Result<(), StoreError> {
-        sqlx::query(
+        q(
             "INSERT INTO key_associations (account_id, address, crypto_key_id, seen_at)
              VALUES (?1, ?2, ?3, ?4)",
         )
@@ -275,7 +271,7 @@ impl Store {
         .bind(&row.address)
         .bind(&row.crypto_key_id)
         .bind(&row.seen_at)
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(())
     }
@@ -286,21 +282,21 @@ impl Store {
         account_id: &str,
         address: &str,
     ) -> Result<Vec<KeyAssociationRow>, StoreError> {
-        let rows = sqlx::query(
+        let rows = q(
             "SELECT account_id, address, crypto_key_id, seen_at FROM key_associations
              WHERE account_id = ?1 AND address = ?2 ORDER BY seen_at ASC",
         )
         .bind(account_id)
         .bind(address)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.backend)
         .await?;
         Ok(rows
             .iter()
             .map(|r| KeyAssociationRow {
-                account_id: r.get("account_id"),
-                address: r.get("address"),
-                crypto_key_id: r.get("crypto_key_id"),
-                seen_at: r.get("seen_at"),
+                account_id: r.get_string("account_id"),
+                address: r.get_string("address"),
+                crypto_key_id: r.get_string("crypto_key_id"),
+                seen_at: r.get_string("seen_at"),
             })
             .collect())
     }
@@ -314,14 +310,13 @@ impl Store {
         email_id: &str,
         raw_hash: &str,
     ) -> Result<Option<Vec<u8>>, StoreError> {
-        let row = sqlx::query(
-            "SELECT verdict_json FROM security_verdicts WHERE email_id = ?1 AND raw_hash = ?2",
-        )
-        .bind(email_id)
-        .bind(raw_hash)
-        .fetch_optional(&self.pool)
-        .await?;
-        Ok(row.map(|r| r.get::<Vec<u8>, _>("verdict_json")))
+        let row =
+            q("SELECT verdict_json FROM security_verdicts WHERE email_id = ?1 AND raw_hash = ?2")
+                .bind(email_id)
+                .bind(raw_hash)
+                .fetch_optional(&self.backend)
+                .await?;
+        Ok(row.map(|r| r.get_blob("verdict_json")))
     }
 
     /// Cache a computed verdict (replaces any stale row for the email).
@@ -329,7 +324,7 @@ impl Store {
         &self,
         row: &SecurityVerdictRow,
     ) -> Result<(), StoreError> {
-        sqlx::query(
+        q(
             "INSERT INTO security_verdicts (email_id, account_id, raw_hash, verdict_json, computed_at)
              VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(email_id) DO UPDATE SET
@@ -341,7 +336,7 @@ impl Store {
         .bind(&row.raw_hash)
         .bind(&row.verdict_json)
         .bind(&row.computed_at)
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(())
     }
@@ -350,11 +345,9 @@ impl Store {
 
     /// Append one redacted DLP audit row (plan §1.8).
     pub async fn insert_dlp_audit(&self, row: &DlpAuditRow) -> Result<(), StoreError> {
-        sqlx::query(
-            "INSERT INTO dlp_audit
+        q("INSERT INTO dlp_audit
                  (id, account_id, at, rule_id, rule_name, action, matched_detectors_json, blocked)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        )
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")
         .bind(&row.id)
         .bind(&row.account_id)
         .bind(&row.at)
@@ -363,31 +356,31 @@ impl Store {
         .bind(&row.action)
         .bind(&row.matched_detectors_json)
         .bind(i64::from(row.blocked))
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(())
     }
 
     /// The account's DLP audit trail, newest first (admin review / test assert).
     pub async fn list_dlp_audit(&self, account_id: &str) -> Result<Vec<DlpAuditRow>, StoreError> {
-        let rows = sqlx::query(
+        let rows = q(
             "SELECT id, account_id, at, rule_id, rule_name, action, matched_detectors_json, blocked
              FROM dlp_audit WHERE account_id = ?1 ORDER BY at DESC",
         )
         .bind(account_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.backend)
         .await?;
         Ok(rows
             .iter()
             .map(|r| DlpAuditRow {
-                id: r.get("id"),
-                account_id: r.get("account_id"),
-                at: r.get("at"),
-                rule_id: r.get("rule_id"),
-                rule_name: r.get("rule_name"),
-                action: r.get("action"),
-                matched_detectors_json: r.get("matched_detectors_json"),
-                blocked: r.get::<i64, _>("blocked") != 0,
+                id: r.get_string("id"),
+                account_id: r.get_string("account_id"),
+                at: r.get_string("at"),
+                rule_id: r.get_string("rule_id"),
+                rule_name: r.get_string("rule_name"),
+                action: r.get_string("action"),
+                matched_detectors_json: r.get_string("matched_detectors_json"),
+                blocked: r.get_i64("blocked") != 0,
             })
             .collect())
     }
@@ -396,7 +389,7 @@ impl Store {
 
     /// Record a sender-control action (linked to the real MailRule it made, if any).
     pub async fn insert_sender_control(&self, row: &SenderControlRow) -> Result<(), StoreError> {
-        sqlx::query(
+        q(
             "INSERT INTO sender_controls (account_id, address, thread_id, action, mail_rule_id, at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         )
@@ -406,7 +399,7 @@ impl Store {
         .bind(&row.action)
         .bind(row.mail_rule_id.as_deref())
         .bind(&row.at)
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(())
     }
@@ -416,22 +409,22 @@ impl Store {
         &self,
         account_id: &str,
     ) -> Result<Vec<SenderControlRow>, StoreError> {
-        let rows = sqlx::query(
+        let rows = q(
             "SELECT account_id, address, thread_id, action, mail_rule_id, at
              FROM sender_controls WHERE account_id = ?1 ORDER BY at DESC",
         )
         .bind(account_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.backend)
         .await?;
         Ok(rows
             .iter()
             .map(|r| SenderControlRow {
-                account_id: r.get("account_id"),
-                address: r.get("address"),
-                thread_id: r.get("thread_id"),
-                action: r.get("action"),
-                mail_rule_id: r.get("mail_rule_id"),
-                at: r.get("at"),
+                account_id: r.get_string("account_id"),
+                address: r.get_opt_string("address"),
+                thread_id: r.get_opt_string("thread_id"),
+                action: r.get_string("action"),
+                mail_rule_id: r.get_opt_string("mail_rule_id"),
+                at: r.get_string("at"),
             })
             .collect())
     }
@@ -440,17 +433,17 @@ impl Store {
 
     /// The current PQC-wrapped seal-key material (there is at most one row).
     pub async fn get_store_key_material(&self) -> Result<Option<StoreKeyMaterialRow>, StoreError> {
-        let row = sqlx::query(
+        let row = q(
             "SELECT id, wrapped_seal_key, suite, created_at FROM store_key_material
              ORDER BY created_at DESC LIMIT 1",
         )
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.backend)
         .await?;
         Ok(row.map(|r| StoreKeyMaterialRow {
-            id: r.get("id"),
-            wrapped_seal_key: r.get("wrapped_seal_key"),
-            suite: r.get("suite"),
-            created_at: r.get("created_at"),
+            id: r.get_string("id"),
+            wrapped_seal_key: r.get_blob("wrapped_seal_key"),
+            suite: r.get_string("suite"),
+            created_at: r.get_string("created_at"),
         }))
     }
 
@@ -459,7 +452,7 @@ impl Store {
         &self,
         row: &StoreKeyMaterialRow,
     ) -> Result<(), StoreError> {
-        sqlx::query(
+        q(
             "INSERT INTO store_key_material (id, wrapped_seal_key, suite, created_at)
              VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(id) DO UPDATE SET
@@ -470,32 +463,32 @@ impl Store {
         .bind(&row.wrapped_seal_key)
         .bind(&row.suite)
         .bind(&row.created_at)
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(())
     }
 }
 
 /// Map a `crypto_keys` row (`SELECT *`) to a [`CryptoKeyRow`].
-fn crypto_key_from_row(r: &sqlx::sqlite::SqliteRow) -> CryptoKeyRow {
+fn crypto_key_from_row(r: &Row) -> CryptoKeyRow {
     CryptoKeyRow {
-        id: r.get("id"),
-        account_id: r.get("account_id"),
-        kind: r.get("kind"),
-        is_own: r.get::<i64, _>("is_own") != 0,
-        addresses_json: r.get("addresses_json"),
-        fingerprint: r.get("fingerprint"),
-        key_id: r.get("key_id"),
-        algorithm: r.get("algorithm"),
-        created_at: r.get("created_at"),
-        expires_at: r.get("expires_at"),
-        public_key: r.get("public_key"),
-        cert_pem: r.get("cert_pem"),
-        trust: r.get("trust"),
-        autocrypt: r.get::<i64, _>("autocrypt") != 0,
-        source: r.get("source"),
-        encrypted_private_backup: r.get("encrypted_private_backup"),
-        verified_at: r.get("verified_at"),
-        key_history_json: r.get("key_history_json"),
+        id: r.get_string("id"),
+        account_id: r.get_string("account_id"),
+        kind: r.get_string("kind"),
+        is_own: r.get_i64("is_own") != 0,
+        addresses_json: r.get_string("addresses_json"),
+        fingerprint: r.get_string("fingerprint"),
+        key_id: r.get_string("key_id"),
+        algorithm: r.get_string("algorithm"),
+        created_at: r.get_string("created_at"),
+        expires_at: r.get_opt_string("expires_at"),
+        public_key: r.get_opt_string("public_key"),
+        cert_pem: r.get_opt_string("cert_pem"),
+        trust: r.get_string("trust"),
+        autocrypt: r.get_i64("autocrypt") != 0,
+        source: r.get_string("source"),
+        encrypted_private_backup: r.get_opt_blob("encrypted_private_backup"),
+        verified_at: r.get_opt_string("verified_at"),
+        key_history_json: r.get_string("key_history_json"),
     }
 }

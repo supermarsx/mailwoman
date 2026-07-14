@@ -1,7 +1,9 @@
 #![forbid(unsafe_code)]
 //! Local store: opaque sessions + settings, with upstream credentials
-//! sealed via XChaCha20-Poly1305 (SPEC §7.3, §9). SQLite via sqlx with
-//! runtime queries (no compile-time `DATABASE_URL` needed).
+//! sealed via XChaCha20-Poly1305 (SPEC §7.3, §9). Pluggable backend (V6, t6-e1):
+//! the same public API runs on **SQLite** (default) or **Postgres**, selected by
+//! DSN in [`Store::open`]. Queries are authored once in the SQLite `?n` style and
+//! translated per-backend by the [`backend`]/[`dialect`] helpers (no `sqlx::Any`).
 
 mod cache;
 mod redact;
@@ -10,11 +12,14 @@ mod v2;
 mod v3;
 mod v4;
 mod v5;
-// V6 pluggable-backend seam (plan §1.1, §2.1) — SCAFFOLD stubs, unwired. e1 fills
-// them and refactors `Store` to dispatch on `Backend`. Kept out of the public API
-// (the `Store` façade is unchanged) so `mw-engine`/`mw-server` are untouched.
+// V6 pluggable-backend seam (plan §1.1, §2.1). `Store` holds a `Backend` and
+// dispatches every query through these helpers; the public `Store` API is
+// unchanged so `mw-engine`/`mw-server` are untouched.
 mod backend;
 mod dialect;
+mod migrate;
+
+pub(crate) use backend::{Backend, Row, q};
 
 pub use cache::{
     Account, AccountKind, Mailbox, MailboxUpsert, Message, MessageLocation, MessageUpsert,
@@ -39,7 +44,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use chrono::Utc;
-use sqlx::Row;
+use sqlx::postgres::PgPoolOptions;
 use sqlx::sqlite::{
     SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions, SqliteSynchronous,
 };
@@ -56,6 +61,23 @@ pub enum StoreError {
     NotFound,
     #[error("corrupt store data: {0}")]
     Corrupt(String),
+    #[error("unsupported store DSN: {0}")]
+    UnsupportedDsn(String),
+}
+
+/// Per-table row counts produced by [`Store::migrate_from_sqlite`] (powers the
+/// `mailwoman migrate-store` count + content parity report, plan §2.1).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MigrationReport {
+    /// `(table, rows_copied)` in copy order.
+    pub tables: Vec<(String, u64)>,
+}
+
+impl MigrationReport {
+    /// Total rows copied across all tables.
+    pub fn total_rows(&self) -> u64 {
+        self.tables.iter().map(|(_, n)| *n).sum()
+    }
 }
 
 /// Plaintext upstream credentials, only ever held decrypted in memory.
@@ -77,21 +99,34 @@ pub struct Session {
 
 #[derive(Clone)]
 pub struct Store {
-    pool: SqlitePool,
+    backend: Backend,
     key: ServerKey,
 }
 
 impl Store {
-    /// Open a file-backed store (creates the file if missing) and migrate.
+    /// Open a store, selecting the backend by DSN (plan §1.1):
     ///
-    /// The connection is tuned for the engine's concurrent access pattern (many
-    /// logins + the sync loop hammering the same file): WAL journalling lets a
-    /// reader and the writer coexist, `busy_timeout` makes a contended writer
+    /// * `postgres://…` / `postgresql://…` → the Postgres backend
+    ///   (`migrations_pg`, pure-Rust rustls TLS).
+    /// * anything else — a bare filesystem path (the historical argument) or a
+    ///   `sqlite:` URL — → the SQLite backend, **byte-identical** to prior
+    ///   releases and the default.
+    ///
+    /// The SQLite connection is tuned for the engine's concurrent access pattern
+    /// (many logins + the sync loop hammering the same file): WAL journalling lets
+    /// a reader and the writer coexist, `busy_timeout` makes a contended writer
     /// wait rather than fail fast with "database is locked", and
     /// `synchronous=NORMAL` is the WAL-safe durability tier. The pool keeps
     /// several connections so reads don't queue behind the writer.
     pub async fn open(path: &str, key: ServerKey) -> Result<Self, StoreError> {
-        let url = format!("sqlite://{path}?mode=rwc");
+        if path.starts_with("postgres://") || path.starts_with("postgresql://") {
+            return Self::open_postgres(path, key).await;
+        }
+        let url = if path.starts_with("sqlite:") {
+            path.to_string()
+        } else {
+            format!("sqlite://{path}?mode=rwc")
+        };
         let opts = SqliteConnectOptions::from_str(&url)?
             .busy_timeout(Duration::from_secs(5))
             .journal_mode(SqliteJournalMode::Wal)
@@ -100,21 +135,51 @@ impl Store {
             .max_connections(5)
             .connect_with(opts)
             .await?;
-        Self::init(pool, key).await
+        Self::init_sqlite(pool, key).await
     }
 
-    /// Open an in-memory store (tests).
+    /// Open the Postgres backend at `dsn` (`postgres://…`) and migrate.
+    pub async fn open_postgres(dsn: &str, key: ServerKey) -> Result<Self, StoreError> {
+        let pool = PgPoolOptions::new().max_connections(5).connect(dsn).await?;
+        let store = Self {
+            backend: Backend::Postgres(pool),
+            key,
+        };
+        sqlx::migrate!("./migrations_pg")
+            .run(store.pg_pool())
+            .await?;
+        Ok(store)
+    }
+
+    /// Open an in-memory SQLite store (tests).
     pub async fn open_in_memory(key: ServerKey) -> Result<Self, StoreError> {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect("sqlite::memory:")
             .await?;
-        Self::init(pool, key).await
+        Self::init_sqlite(pool, key).await
     }
 
-    async fn init(pool: SqlitePool, key: ServerKey) -> Result<Self, StoreError> {
+    async fn init_sqlite(pool: SqlitePool, key: ServerKey) -> Result<Self, StoreError> {
         sqlx::migrate!("./migrations").run(&pool).await?;
-        Ok(Self { pool, key })
+        Ok(Self {
+            backend: Backend::Sqlite(pool),
+            key,
+        })
+    }
+
+    /// The active backend (used by in-crate tests that assert through the shared
+    /// query helpers). Repo methods reach the field directly.
+    #[cfg(test)]
+    pub(crate) fn backend(&self) -> &Backend {
+        &self.backend
+    }
+
+    fn pg_pool(&self) -> &sqlx::PgPool {
+        match &self.backend {
+            Backend::Postgres(p) => p,
+            _ => unreachable!("pg_pool on a non-Postgres backend"),
+        }
     }
 
     pub async fn create_session(
@@ -128,7 +193,7 @@ impl Store {
         let id = seal::random_token();
         let sealed = self.key.seal(&encode_creds(creds))?;
         let now = Utc::now().to_rfc3339();
-        sqlx::query(
+        q(
             "INSERT INTO sessions (id, account_id, username, jmap_url, api_url, sealed_creds, created_at, last_seen)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
         )
@@ -139,67 +204,64 @@ impl Store {
         .bind(api_url)
         .bind(sealed)
         .bind(now)
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(id)
     }
 
     pub async fn get_session(&self, id: &str) -> Result<Session, StoreError> {
-        let row = sqlx::query(
+        let row = q(
             "SELECT id, account_id, username, jmap_url, api_url, sealed_creds FROM sessions WHERE id = ?1",
         )
         .bind(id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.backend)
         .await?
         .ok_or(StoreError::NotFound)?;
 
-        let sealed: Vec<u8> = row.get("sealed_creds");
-        let creds = decode_creds(&self.key.open(&sealed)?)?;
+        let creds = decode_creds(&self.key.open(&row.get_blob("sealed_creds"))?)?;
         Ok(Session {
-            id: row.get("id"),
-            account_id: row.get("account_id"),
-            username: row.get("username"),
-            jmap_url: row.get("jmap_url"),
-            api_url: row.get("api_url"),
+            id: row.get_string("id"),
+            account_id: row.get_string("account_id"),
+            username: row.get_string("username"),
+            jmap_url: row.get_string("jmap_url"),
+            api_url: row.get_string("api_url"),
             credentials: creds,
         })
     }
 
     pub async fn touch_session(&self, id: &str) -> Result<(), StoreError> {
-        sqlx::query("UPDATE sessions SET last_seen = ?2 WHERE id = ?1")
+        q("UPDATE sessions SET last_seen = ?2 WHERE id = ?1")
             .bind(id)
             .bind(Utc::now().to_rfc3339())
-            .execute(&self.pool)
+            .execute(&self.backend)
             .await?;
         Ok(())
     }
 
     pub async fn delete_session(&self, id: &str) -> Result<(), StoreError> {
-        sqlx::query("DELETE FROM sessions WHERE id = ?1")
+        q("DELETE FROM sessions WHERE id = ?1")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&self.backend)
             .await?;
         Ok(())
     }
 
     pub async fn set_setting(&self, key: &str, value: &str) -> Result<(), StoreError> {
-        sqlx::query(
-            "INSERT INTO settings (key, value) VALUES (?1, ?2)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        )
+        q("INSERT INTO settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value")
         .bind(key)
         .bind(value)
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(())
     }
 
     pub async fn get_setting(&self, key: &str) -> Result<Option<String>, StoreError> {
-        let row = sqlx::query("SELECT value FROM settings WHERE key = ?1")
+        let row = q("SELECT value FROM settings WHERE key = ?1")
             .bind(key)
-            .fetch_optional(&self.pool)
+            .fetch_optional(&self.backend)
             .await?;
-        Ok(row.map(|r| r.get("value")))
+        Ok(row.map(|r| r.get_string("value")))
     }
 }
 
@@ -258,12 +320,12 @@ mod tests {
             .await
             .unwrap();
         // Read the raw blob and ensure the password is not present in plaintext.
-        let row = sqlx::query("SELECT sealed_creds FROM sessions WHERE id = ?1")
+        let sealed = q("SELECT sealed_creds FROM sessions WHERE id = ?1")
             .bind(&id)
-            .fetch_one(&store.pool)
+            .fetch_one(store.backend())
             .await
-            .unwrap();
-        let sealed: Vec<u8> = row.get("sealed_creds");
+            .unwrap()
+            .get_blob("sealed_creds");
         assert!(!sealed.windows(6).any(|w| w == b"s3cr3t"));
     }
 
@@ -276,7 +338,7 @@ mod tests {
             .unwrap();
         // Swap in a different key and confirm open fails.
         let other = Store {
-            pool: store.pool.clone(),
+            backend: store.backend().clone(),
             key: ServerKey::generate(),
         };
         assert!(other.get_session(&id).await.is_err());

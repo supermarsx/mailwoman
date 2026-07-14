@@ -8,9 +8,7 @@
 //! an opaque primitive. Enum-like fields (`undo_status`, change `op`/`type`) are
 //! plain strings the engine owns; the store never interprets them.
 
-use sqlx::Row;
-
-use crate::{Store, StoreError};
+use crate::{Row, Store, StoreError, q};
 
 // ---- message_meta ----------------------------------------------------------
 
@@ -91,8 +89,8 @@ pub struct ChangeRow {
     pub op: String,
 }
 
-fn u32_col(row: &sqlx::sqlite::SqliteRow, col: &str) -> u32 {
-    row.get::<i64, _>(col) as u32
+fn u32_col(row: &Row, col: &str) -> u32 {
+    row.get_i64(col) as u32
 }
 
 impl Store {
@@ -104,7 +102,7 @@ impl Store {
         stable_id: &str,
         meta: &StoredMeta,
     ) -> Result<(), StoreError> {
-        sqlx::query(
+        q(
             "INSERT INTO message_meta (stable_id, pinned, snoozed_until, follow_up_at)
              VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(stable_id) DO UPDATE SET
@@ -116,7 +114,7 @@ impl Store {
         .bind(i64::from(meta.pinned))
         .bind(meta.snoozed_until.as_deref())
         .bind(meta.follow_up_at.as_deref())
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(())
     }
@@ -126,36 +124,35 @@ impl Store {
         &self,
         stable_id: &str,
     ) -> Result<Option<StoredMeta>, StoreError> {
-        let row = sqlx::query(
-            "SELECT pinned, snoozed_until, follow_up_at FROM message_meta WHERE stable_id = ?1",
-        )
-        .bind(stable_id)
-        .fetch_optional(&self.pool)
-        .await?;
+        let row =
+            q("SELECT pinned, snoozed_until, follow_up_at FROM message_meta WHERE stable_id = ?1")
+                .bind(stable_id)
+                .fetch_optional(&self.backend)
+                .await?;
         Ok(row.map(|r| StoredMeta {
-            pinned: r.get::<i64, _>("pinned") != 0,
-            snoozed_until: r.get("snoozed_until"),
-            follow_up_at: r.get("follow_up_at"),
+            pinned: r.get_i64("pinned") != 0,
+            snoozed_until: r.get_opt_string("snoozed_until"),
+            follow_up_at: r.get_opt_string("follow_up_at"),
         }))
     }
 
     /// Snoozed messages whose resurface time is at/behind `now` (RFC3339),
     /// joined to their account + current mailbox (the scheduler input).
     pub async fn due_snoozed(&self, now: &str) -> Result<Vec<SnoozeDue>, StoreError> {
-        let rows = sqlx::query(
+        let rows = q(
             "SELECT m.account_id AS account_id, m.mailbox_id AS mailbox_id, mm.stable_id AS stable_id
              FROM message_meta mm JOIN messages m ON m.stable_id = mm.stable_id
              WHERE mm.snoozed_until IS NOT NULL AND mm.snoozed_until <= ?1",
         )
         .bind(now)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.backend)
         .await?;
         Ok(rows
             .iter()
             .map(|r| SnoozeDue {
-                account_id: r.get("account_id"),
-                mailbox_id: r.get("mailbox_id"),
-                stable_id: r.get("stable_id"),
+                account_id: r.get_string("account_id"),
+                mailbox_id: r.get_string("mailbox_id"),
+                stable_id: r.get_string("stable_id"),
             })
             .collect())
     }
@@ -164,8 +161,8 @@ impl Store {
 
     /// Insert or replace a tag registry entry.
     pub async fn upsert_tag(&self, tag: &TagRow) -> Result<(), StoreError> {
-        sqlx::query(
-            "INSERT INTO tags (id, user, name, color, icon) VALUES (?1, ?2, ?3, ?4, ?5)
+        q(
+            "INSERT INTO tags (id, \"user\", name, color, icon) VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(id) DO UPDATE SET
                  name = excluded.name, color = excluded.color, icon = excluded.icon",
         )
@@ -174,36 +171,35 @@ impl Store {
         .bind(&tag.name)
         .bind(&tag.color)
         .bind(tag.icon.as_deref())
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(())
     }
 
     /// List a user's tag registry.
     pub async fn list_tags(&self, user: &str) -> Result<Vec<TagRow>, StoreError> {
-        let rows = sqlx::query(
-            "SELECT id, user, name, color, icon FROM tags WHERE user = ?1 ORDER BY name",
-        )
-        .bind(user)
-        .fetch_all(&self.pool)
-        .await?;
+        let rows =
+            q("SELECT id, \"user\", name, color, icon FROM tags WHERE \"user\" = ?1 ORDER BY name")
+                .bind(user)
+                .fetch_all(&self.backend)
+                .await?;
         Ok(rows
             .iter()
             .map(|r| TagRow {
-                id: r.get("id"),
-                user: r.get("user"),
-                name: r.get("name"),
-                color: r.get("color"),
-                icon: r.get("icon"),
+                id: r.get_string("id"),
+                user: r.get_string("user"),
+                name: r.get_string("name"),
+                color: r.get_string("color"),
+                icon: r.get_opt_string("icon"),
             })
             .collect())
     }
 
     /// Delete a tag registry entry.
     pub async fn delete_tag(&self, id: &str) -> Result<(), StoreError> {
-        sqlx::query("DELETE FROM tags WHERE id = ?1")
+        q("DELETE FROM tags WHERE id = ?1")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&self.backend)
             .await?;
         Ok(())
     }
@@ -212,8 +208,8 @@ impl Store {
 
     /// Insert or replace a saved search.
     pub async fn upsert_saved_search(&self, s: &SavedSearchRow) -> Result<(), StoreError> {
-        sqlx::query(
-            "INSERT INTO saved_searches (id, user, name, query_json, as_folder)
+        q(
+            "INSERT INTO saved_searches (id, \"user\", name, query_json, as_folder)
              VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(id) DO UPDATE SET
                  name = excluded.name, query_json = excluded.query_json, as_folder = excluded.as_folder",
@@ -223,38 +219,37 @@ impl Store {
         .bind(&s.name)
         .bind(&s.query_json)
         .bind(i64::from(s.as_folder))
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(())
     }
 
     /// List a user's saved searches.
     pub async fn list_saved_searches(&self, user: &str) -> Result<Vec<SavedSearchRow>, StoreError> {
-        let rows = sqlx::query(
-            "SELECT id, user, name, query_json, as_folder FROM saved_searches WHERE user = ?1 ORDER BY name",
+        let rows = q(
+            "SELECT id, \"user\", name, query_json, as_folder FROM saved_searches WHERE \"user\" = ?1 ORDER BY name",
         )
         .bind(user)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.backend)
         .await?;
         Ok(rows.iter().map(saved_search_from_row).collect())
     }
 
     /// Fetch one saved search by id.
     pub async fn get_saved_search(&self, id: &str) -> Result<Option<SavedSearchRow>, StoreError> {
-        let row = sqlx::query(
-            "SELECT id, user, name, query_json, as_folder FROM saved_searches WHERE id = ?1",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await?;
+        let row =
+            q("SELECT id, \"user\", name, query_json, as_folder FROM saved_searches WHERE id = ?1")
+                .bind(id)
+                .fetch_optional(&self.backend)
+                .await?;
         Ok(row.as_ref().map(saved_search_from_row))
     }
 
     /// Delete a saved search.
     pub async fn delete_saved_search(&self, id: &str) -> Result<(), StoreError> {
-        sqlx::query("DELETE FROM saved_searches WHERE id = ?1")
+        q("DELETE FROM saved_searches WHERE id = ?1")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&self.backend)
             .await?;
         Ok(())
     }
@@ -263,7 +258,7 @@ impl Store {
 
     /// Enqueue a submission (undo-send / send-later).
     pub async fn insert_submission(&self, s: &SubmissionRow) -> Result<(), StoreError> {
-        sqlx::query(
+        q(
             "INSERT INTO submissions
                  (id, account_id, email_id, identity_id, send_at, undo_status, hold_seconds, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -276,19 +271,19 @@ impl Store {
         .bind(&s.undo_status)
         .bind(s.hold_seconds as i64)
         .bind(&s.created_at)
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(())
     }
 
     /// Fetch one submission by id.
     pub async fn get_submission(&self, id: &str) -> Result<Option<SubmissionRow>, StoreError> {
-        let row = sqlx::query(
+        let row = q(
             "SELECT id, account_id, email_id, identity_id, send_at, undo_status, hold_seconds, created_at
              FROM submissions WHERE id = ?1",
         )
         .bind(id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.backend)
         .await?;
         Ok(row.as_ref().map(submission_from_row))
     }
@@ -299,33 +294,33 @@ impl Store {
         &self,
         account_id: &str,
     ) -> Result<Vec<SubmissionRow>, StoreError> {
-        let rows = sqlx::query(
+        let rows = q(
             "SELECT id, account_id, email_id, identity_id, send_at, undo_status, hold_seconds, created_at
              FROM submissions WHERE account_id = ?1 ORDER BY created_at DESC, id DESC",
         )
         .bind(account_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.backend)
         .await?;
         Ok(rows.iter().map(submission_from_row).collect())
     }
 
     /// Set a submission's lifecycle status (`pending`/`final`/`canceled`).
     pub async fn set_submission_status(&self, id: &str, status: &str) -> Result<(), StoreError> {
-        sqlx::query("UPDATE submissions SET undo_status = ?2 WHERE id = ?1")
+        q("UPDATE submissions SET undo_status = ?2 WHERE id = ?1")
             .bind(id)
             .bind(status)
-            .execute(&self.pool)
+            .execute(&self.backend)
             .await?;
         Ok(())
     }
 
     /// Every still-`pending` submission across all accounts (the dispatcher scan).
     pub async fn pending_submissions(&self) -> Result<Vec<SubmissionRow>, StoreError> {
-        let rows = sqlx::query(
+        let rows = q(
             "SELECT id, account_id, email_id, identity_id, send_at, undo_status, hold_seconds, created_at
              FROM submissions WHERE undo_status = 'pending' ORDER BY created_at ASC",
         )
-        .fetch_all(&self.pool)
+        .fetch_all(&self.backend)
         .await?;
         Ok(rows.iter().map(submission_from_row).collect())
     }
@@ -334,7 +329,7 @@ impl Store {
 
     /// Insert or replace a sending identity.
     pub async fn upsert_identity(&self, i: &IdentityRow) -> Result<(), StoreError> {
-        sqlx::query(
+        q(
             "INSERT INTO identities
                  (id, account_id, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
@@ -352,31 +347,31 @@ impl Store {
         .bind(i.signature_text.as_deref())
         .bind(i.sent_mailbox_id.as_deref())
         .bind(&i.source)
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(())
     }
 
     /// List an account's sending identities.
     pub async fn list_identities(&self, account_id: &str) -> Result<Vec<IdentityRow>, StoreError> {
-        let rows = sqlx::query(
+        let rows = q(
             "SELECT id, account_id, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source
              FROM identities WHERE account_id = ?1 ORDER BY source, email",
         )
         .bind(account_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.backend)
         .await?;
         Ok(rows.iter().map(identity_from_row).collect())
     }
 
     /// Fetch one identity by id.
     pub async fn get_identity(&self, id: &str) -> Result<Option<IdentityRow>, StoreError> {
-        let row = sqlx::query(
+        let row = q(
             "SELECT id, account_id, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source
              FROM identities WHERE id = ?1",
         )
         .bind(id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.backend)
         .await?;
         Ok(row.as_ref().map(identity_from_row))
     }
@@ -401,7 +396,7 @@ impl Store {
         op: &str,
     ) -> Result<u64, StoreError> {
         let now = chrono::Utc::now().to_rfc3339();
-        let next: i64 = sqlx::query_scalar(
+        let next = q(
             "INSERT INTO changes (account_id, type, state, stable_id, op, at)
              VALUES (
                  ?1, ?2,
@@ -415,20 +410,19 @@ impl Store {
         .bind(stable_id)
         .bind(op)
         .bind(&now)
-        .fetch_one(&self.pool)
+        .fetch_scalar_i64(&self.backend)
         .await?;
         Ok(next as u64)
     }
 
     /// The current (max) state for an `(account, type)`, `0` if none yet.
     pub async fn current_state(&self, account_id: &str, kind: &str) -> Result<u64, StoreError> {
-        let n: i64 = sqlx::query_scalar(
-            "SELECT COALESCE(MAX(state), 0) FROM changes WHERE account_id = ?1 AND type = ?2",
-        )
-        .bind(account_id)
-        .bind(kind)
-        .fetch_one(&self.pool)
-        .await?;
+        let n =
+            q("SELECT COALESCE(MAX(state), 0) FROM changes WHERE account_id = ?1 AND type = ?2")
+                .bind(account_id)
+                .bind(kind)
+                .fetch_scalar_i64(&self.backend)
+                .await?;
         Ok(n as u64)
     }
 
@@ -439,60 +433,58 @@ impl Store {
         kind: &str,
         since: u64,
     ) -> Result<Vec<ChangeRow>, StoreError> {
-        let rows = sqlx::query(
-            "SELECT state, stable_id, op FROM changes
-             WHERE account_id = ?1 AND type = ?2 AND state > ?3 ORDER BY state ASC",
-        )
+        let rows = q("SELECT state, stable_id, op FROM changes
+             WHERE account_id = ?1 AND type = ?2 AND state > ?3 ORDER BY state ASC")
         .bind(account_id)
         .bind(kind)
         .bind(since as i64)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.backend)
         .await?;
         Ok(rows
             .iter()
             .map(|r| ChangeRow {
-                state: r.get::<i64, _>("state") as u64,
-                stable_id: r.get("stable_id"),
-                op: r.get("op"),
+                state: r.get_i64("state") as u64,
+                stable_id: r.get_string("stable_id"),
+                op: r.get_string("op"),
             })
             .collect())
     }
 }
 
-fn saved_search_from_row(r: &sqlx::sqlite::SqliteRow) -> SavedSearchRow {
+fn saved_search_from_row(r: &Row) -> SavedSearchRow {
     SavedSearchRow {
-        id: r.get("id"),
-        user: r.get("user"),
-        name: r.get("name"),
-        query_json: r.get("query_json"),
-        as_folder: r.get::<i64, _>("as_folder") != 0,
+        id: r.get_string("id"),
+        user: r.get_string("user"),
+        name: r.get_string("name"),
+        query_json: r.get_string("query_json"),
+        as_folder: r.get_i64("as_folder") != 0,
     }
 }
 
-fn submission_from_row(r: &sqlx::sqlite::SqliteRow) -> SubmissionRow {
+fn submission_from_row(r: &Row) -> SubmissionRow {
     SubmissionRow {
-        id: r.get("id"),
-        account_id: r.get("account_id"),
-        email_id: r.get("email_id"),
-        identity_id: r.get("identity_id"),
-        send_at: r.get("send_at"),
-        undo_status: r.get("undo_status"),
+        id: r.get_string("id"),
+        account_id: r.get_string("account_id"),
+        email_id: r.get_string("email_id"),
+        identity_id: r.get_opt_string("identity_id"),
+        send_at: r.get_opt_string("send_at"),
+        undo_status: r.get_string("undo_status"),
         hold_seconds: u32_col(r, "hold_seconds"),
-        created_at: r.get("created_at"),
+        created_at: r.get_string("created_at"),
     }
 }
 
-fn identity_from_row(r: &sqlx::sqlite::SqliteRow) -> IdentityRow {
+fn identity_from_row(r: &Row) -> IdentityRow {
     IdentityRow {
-        id: r.get("id"),
-        account_id: r.get("account_id"),
-        name: r.get("name"),
-        email: r.get("email"),
-        reply_to: r.get("reply_to"),
-        signature_html: r.get("signature_html"),
-        signature_text: r.get("signature_text"),
-        sent_mailbox_id: r.get("sent_mailbox_id"),
-        source: r.get("source"),
+        id: r.get_string("id"),
+        account_id: r.get_string("account_id"),
+        name: r.get_string("name"),
+        email: r.get_string("email"),
+        reply_to: r.get_opt_string("reply_to"),
+        signature_html: r.get_opt_string("signature_html"),
+        signature_text: r.get_opt_string("signature_text"),
+        sent_mailbox_id: r.get_opt_string("sent_mailbox_id"),
+        source: r.get_string("source"),
     }
 }
 

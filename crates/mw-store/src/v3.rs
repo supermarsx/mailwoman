@@ -8,9 +8,7 @@
 //! with the existing [`crate::ServerKey`] (`body_*_sealed` BLOBs) —
 //! encrypted-at-rest, NOT zero-access (plan §1.6).
 
-use sqlx::Row;
-
-use crate::{Store, StoreError};
+use crate::{Row, Store, StoreError, q};
 
 /// A calendar or task-list collection row (`calendars`, plan §2.4).
 /// `component` = `"VEVENT"` (calendar) | `"VTODO"` (task list).
@@ -151,91 +149,91 @@ pub struct PimChangeRow {
     pub op: String,
 }
 
-fn calendar_from_row(r: &sqlx::sqlite::SqliteRow) -> CalendarRow {
+fn calendar_from_row(r: &Row) -> CalendarRow {
     CalendarRow {
-        id: r.get("id"),
-        account_id: r.get("account_id"),
-        name: r.get("name"),
-        color: r.get("color"),
-        sort_order: r.get("sort_order"),
-        is_visible: r.get::<i64, _>("is_visible") != 0,
-        role: r.get("role"),
-        caldav_url: r.get("caldav_url"),
-        sync_token: r.get("sync_token"),
-        ctag: r.get("ctag"),
-        is_overlay: r.get::<i64, _>("is_overlay") != 0,
-        component: r.get("component"),
+        id: r.get_string("id"),
+        account_id: r.get_string("account_id"),
+        name: r.get_string("name"),
+        color: r.get_string("color"),
+        sort_order: r.get_i64("sort_order"),
+        is_visible: r.get_i64("is_visible") != 0,
+        role: r.get_opt_string("role"),
+        caldav_url: r.get_opt_string("caldav_url"),
+        sync_token: r.get_opt_string("sync_token"),
+        ctag: r.get_opt_string("ctag"),
+        is_overlay: r.get_i64("is_overlay") != 0,
+        component: r.get_string("component"),
     }
 }
 
-fn event_from_row(r: &sqlx::sqlite::SqliteRow) -> EventRow {
+fn event_from_row(r: &Row) -> EventRow {
     EventRow {
-        id: r.get("id"),
-        calendar_id: r.get("calendar_id"),
-        uid: r.get("uid"),
-        etag: r.get("etag"),
-        ical_raw: r.get("ical_raw"),
-        start_utc: r.get("start_utc"),
-        end_utc: r.get("end_utc"),
-        tzid: r.get("tzid"),
-        rrule: r.get("rrule"),
-        status: r.get("status"),
-        json: r.get("json"),
+        id: r.get_string("id"),
+        calendar_id: r.get_string("calendar_id"),
+        uid: r.get_string("uid"),
+        etag: r.get_opt_string("etag"),
+        ical_raw: r.get_string("ical_raw"),
+        start_utc: r.get_opt_string("start_utc"),
+        end_utc: r.get_opt_string("end_utc"),
+        tzid: r.get_opt_string("tzid"),
+        rrule: r.get_opt_string("rrule"),
+        status: r.get_string("status"),
+        json: r.get_opt_blob("json"),
     }
 }
 
-fn task_from_row(r: &sqlx::sqlite::SqliteRow) -> TaskRow {
+fn task_from_row(r: &Row) -> TaskRow {
     TaskRow {
-        id: r.get("id"),
-        list_id: r.get("list_id"),
-        uid: r.get("uid"),
-        etag: r.get("etag"),
-        due_utc: r.get("due_utc"),
-        start_utc: r.get("start_utc"),
-        priority: r.get("priority"),
-        percent_complete: r.get("percent_complete"),
-        status: r.get("status"),
-        parent_id: r.get("parent_id"),
-        my_day_date: r.get("my_day_date"),
-        ical_raw: r.get("ical_raw"),
-        json: r.get("json"),
+        id: r.get_string("id"),
+        list_id: r.get_string("list_id"),
+        uid: r.get_string("uid"),
+        etag: r.get_opt_string("etag"),
+        due_utc: r.get_opt_string("due_utc"),
+        start_utc: r.get_opt_string("start_utc"),
+        priority: r.get_i64("priority"),
+        percent_complete: r.get_i64("percent_complete"),
+        status: r.get_string("status"),
+        parent_id: r.get_opt_string("parent_id"),
+        my_day_date: r.get_opt_string("my_day_date"),
+        ical_raw: r.get_string("ical_raw"),
+        json: r.get_opt_blob("json"),
     }
 }
 
-fn address_book_from_row(r: &sqlx::sqlite::SqliteRow) -> AddressBookRow {
+fn address_book_from_row(r: &Row) -> AddressBookRow {
     AddressBookRow {
-        id: r.get("id"),
-        account_id: r.get("account_id"),
-        name: r.get("name"),
-        is_default: r.get::<i64, _>("is_default") != 0,
-        carddav_url: r.get("carddav_url"),
-        sync_token: r.get("sync_token"),
-        ctag: r.get("ctag"),
+        id: r.get_string("id"),
+        account_id: r.get_string("account_id"),
+        name: r.get_string("name"),
+        is_default: r.get_i64("is_default") != 0,
+        carddav_url: r.get_opt_string("carddav_url"),
+        sync_token: r.get_opt_string("sync_token"),
+        ctag: r.get_opt_string("ctag"),
     }
 }
 
-fn contact_from_row(r: &sqlx::sqlite::SqliteRow) -> ContactRow {
+fn contact_from_row(r: &Row) -> ContactRow {
     ContactRow {
-        id: r.get("id"),
-        address_book_id: r.get("address_book_id"),
-        uid: r.get("uid"),
-        etag: r.get("etag"),
-        vcard_raw: r.get("vcard_raw"),
-        json: r.get("json"),
-        full_name: r.get("full_name"),
-        is_favorite: r.get::<i64, _>("is_favorite") != 0,
-        photo_blob_id: r.get("photo_blob_id"),
-        pgp_key: r.get("pgp_key"),
-        smime_cert: r.get("smime_cert"),
+        id: r.get_string("id"),
+        address_book_id: r.get_string("address_book_id"),
+        uid: r.get_string("uid"),
+        etag: r.get_opt_string("etag"),
+        vcard_raw: r.get_string("vcard_raw"),
+        json: r.get_opt_blob("json"),
+        full_name: r.get_string("full_name"),
+        is_favorite: r.get_i64("is_favorite") != 0,
+        photo_blob_id: r.get_opt_string("photo_blob_id"),
+        pgp_key: r.get_opt_string("pgp_key"),
+        smime_cert: r.get_opt_string("smime_cert"),
     }
 }
 
-fn contact_group_from_row(r: &sqlx::sqlite::SqliteRow) -> ContactGroupRow {
+fn contact_group_from_row(r: &Row) -> ContactGroupRow {
     ContactGroupRow {
-        id: r.get("id"),
-        address_book_id: r.get("address_book_id"),
-        name: r.get("name"),
-        member_ids_json: r.get("member_ids_json"),
+        id: r.get_string("id"),
+        address_book_id: r.get_string("address_book_id"),
+        name: r.get_string("name"),
+        member_ids_json: r.get_string("member_ids_json"),
     }
 }
 
@@ -244,34 +242,33 @@ impl Store {
 
     /// List an account's calendars + task lists (`calendars`).
     pub async fn list_calendars(&self, account_id: &str) -> Result<Vec<CalendarRow>, StoreError> {
-        let rows = sqlx::query(
+        let rows = q(
             "SELECT id, account_id, name, color, sort_order, is_visible, role, caldav_url,
                     sync_token, ctag, is_overlay, component
              FROM calendars WHERE account_id = ?1 ORDER BY sort_order, name",
         )
         .bind(account_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.backend)
         .await?;
         Ok(rows.iter().map(calendar_from_row).collect())
     }
 
     /// Fetch one calendar / task-list collection by id.
     pub async fn get_calendar(&self, id: &str) -> Result<Option<CalendarRow>, StoreError> {
-        let row = sqlx::query(
+        let row = q(
             "SELECT id, account_id, name, color, sort_order, is_visible, role, caldav_url,
                     sync_token, ctag, is_overlay, component
              FROM calendars WHERE id = ?1",
         )
         .bind(id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.backend)
         .await?;
         Ok(row.as_ref().map(calendar_from_row))
     }
 
     /// Insert or replace a calendar / task-list collection.
     pub async fn upsert_calendar(&self, row: &CalendarRow) -> Result<(), StoreError> {
-        sqlx::query(
-            "INSERT INTO calendars
+        q("INSERT INTO calendars
                  (id, account_id, name, color, sort_order, is_visible, role, caldav_url,
                   sync_token, ctag, is_overlay, component)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
@@ -280,8 +277,7 @@ impl Store {
                  is_visible = excluded.is_visible, role = excluded.role,
                  caldav_url = excluded.caldav_url, sync_token = excluded.sync_token,
                  ctag = excluded.ctag, is_overlay = excluded.is_overlay,
-                 component = excluded.component",
-        )
+                 component = excluded.component")
         .bind(&row.id)
         .bind(&row.account_id)
         .bind(&row.name)
@@ -294,16 +290,16 @@ impl Store {
         .bind(row.ctag.as_deref())
         .bind(i64::from(row.is_overlay))
         .bind(&row.component)
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(())
     }
 
     /// Delete a calendar / task list (cascades events, tasks, instances, shares).
     pub async fn delete_calendar(&self, id: &str) -> Result<(), StoreError> {
-        sqlx::query("DELETE FROM calendars WHERE id = ?1")
+        q("DELETE FROM calendars WHERE id = ?1")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&self.backend)
             .await?;
         Ok(())
     }
@@ -314,20 +310,18 @@ impl Store {
         calendar_id: &str,
         shares: &[(String, String)],
     ) -> Result<(), StoreError> {
-        let mut tx = self.pool.begin().await?;
-        sqlx::query("DELETE FROM calendar_shares WHERE calendar_id = ?1")
+        let mut tx = self.backend.begin().await?;
+        q("DELETE FROM calendar_shares WHERE calendar_id = ?1")
             .bind(calendar_id)
-            .execute(&mut *tx)
+            .execute_tx(&mut tx)
             .await?;
         for (principal, access) in shares {
-            sqlx::query(
-                "INSERT INTO calendar_shares (calendar_id, principal, access) VALUES (?1, ?2, ?3)",
-            )
-            .bind(calendar_id)
-            .bind(principal)
-            .bind(access)
-            .execute(&mut *tx)
-            .await?;
+            q("INSERT INTO calendar_shares (calendar_id, principal, access) VALUES (?1, ?2, ?3)")
+                .bind(calendar_id)
+                .bind(principal)
+                .bind(access)
+                .execute_tx(&mut tx)
+                .await?;
         }
         tx.commit().await?;
         Ok(())
@@ -338,15 +332,15 @@ impl Store {
         &self,
         calendar_id: &str,
     ) -> Result<Vec<(String, String)>, StoreError> {
-        let rows = sqlx::query(
+        let rows = q(
             "SELECT principal, access FROM calendar_shares WHERE calendar_id = ?1 ORDER BY principal",
         )
         .bind(calendar_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.backend)
         .await?;
         Ok(rows
             .iter()
-            .map(|r| (r.get("principal"), r.get("access")))
+            .map(|r| (r.get_string("principal"), r.get_string("access")))
             .collect())
     }
 
@@ -354,31 +348,31 @@ impl Store {
 
     /// List a calendar's master events.
     pub async fn list_events(&self, calendar_id: &str) -> Result<Vec<EventRow>, StoreError> {
-        let rows = sqlx::query(
+        let rows = q(
             "SELECT id, calendar_id, uid, etag, ical_raw, start_utc, end_utc, tzid, rrule, status, json
              FROM events WHERE calendar_id = ?1 ORDER BY start_utc",
         )
         .bind(calendar_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.backend)
         .await?;
         Ok(rows.iter().map(event_from_row).collect())
     }
 
     /// Fetch one event by id.
     pub async fn get_event(&self, id: &str) -> Result<Option<EventRow>, StoreError> {
-        let row = sqlx::query(
+        let row = q(
             "SELECT id, calendar_id, uid, etag, ical_raw, start_utc, end_utc, tzid, rrule, status, json
              FROM events WHERE id = ?1",
         )
         .bind(id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.backend)
         .await?;
         Ok(row.as_ref().map(event_from_row))
     }
 
     /// Insert or replace an event (source of truth = `ical_raw`).
     pub async fn upsert_event(&self, row: &EventRow) -> Result<(), StoreError> {
-        sqlx::query(
+        q(
             "INSERT INTO events
                  (id, calendar_id, uid, etag, ical_raw, start_utc, end_utc, tzid, rrule, status, json)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
@@ -399,16 +393,16 @@ impl Store {
         .bind(row.rrule.as_deref())
         .bind(&row.status)
         .bind(row.json.as_deref())
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(())
     }
 
     /// Delete an event (cascades its materialized instances).
     pub async fn delete_event(&self, id: &str) -> Result<(), StoreError> {
-        sqlx::query("DELETE FROM events WHERE id = ?1")
+        q("DELETE FROM events WHERE id = ?1")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&self.backend)
             .await?;
         Ok(())
     }
@@ -419,20 +413,20 @@ impl Store {
         event_id: &str,
         instances: &[EventInstanceRow],
     ) -> Result<(), StoreError> {
-        let mut tx = self.pool.begin().await?;
-        sqlx::query("DELETE FROM event_instances WHERE event_id = ?1")
+        let mut tx = self.backend.begin().await?;
+        q("DELETE FROM event_instances WHERE event_id = ?1")
             .bind(event_id)
-            .execute(&mut *tx)
+            .execute_tx(&mut tx)
             .await?;
         for inst in instances {
-            sqlx::query(
+            q(
                 "INSERT INTO event_instances (event_id, instance_start_utc, instance_end_utc)
                  VALUES (?1, ?2, ?3)",
             )
             .bind(event_id)
             .bind(&inst.instance_start_utc)
             .bind(&inst.instance_end_utc)
-            .execute(&mut *tx)
+            .execute_tx(&mut tx)
             .await?;
         }
         tx.commit().await?;
@@ -448,8 +442,7 @@ impl Store {
         start_utc: &str,
         end_utc: &str,
     ) -> Result<Vec<EventInstanceRow>, StoreError> {
-        let rows = sqlx::query(
-            "SELECT ei.event_id AS event_id,
+        let rows = q("SELECT ei.event_id AS event_id,
                     ei.instance_start_utc AS instance_start_utc,
                     ei.instance_end_utc AS instance_end_utc
              FROM event_instances ei
@@ -458,19 +451,18 @@ impl Store {
              WHERE c.account_id = ?1
                AND ei.instance_start_utc < ?3
                AND ei.instance_end_utc > ?2
-             ORDER BY ei.instance_start_utc",
-        )
+             ORDER BY ei.instance_start_utc")
         .bind(account_id)
         .bind(start_utc)
         .bind(end_utc)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.backend)
         .await?;
         Ok(rows
             .iter()
             .map(|r| EventInstanceRow {
-                event_id: r.get("event_id"),
-                instance_start_utc: r.get("instance_start_utc"),
-                instance_end_utc: r.get("instance_end_utc"),
+                event_id: r.get_string("event_id"),
+                instance_start_utc: r.get_string("instance_start_utc"),
+                instance_end_utc: r.get_string("instance_end_utc"),
             })
             .collect())
     }
@@ -479,34 +471,33 @@ impl Store {
 
     /// List a task list's tasks.
     pub async fn list_tasks(&self, list_id: &str) -> Result<Vec<TaskRow>, StoreError> {
-        let rows = sqlx::query(
+        let rows = q(
             "SELECT id, list_id, uid, etag, due_utc, start_utc, priority, percent_complete,
                     status, parent_id, my_day_date, ical_raw, json
              FROM tasks WHERE list_id = ?1 ORDER BY due_utc IS NULL, due_utc, id",
         )
         .bind(list_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.backend)
         .await?;
         Ok(rows.iter().map(task_from_row).collect())
     }
 
     /// Fetch one task by id.
     pub async fn get_task(&self, id: &str) -> Result<Option<TaskRow>, StoreError> {
-        let row = sqlx::query(
+        let row = q(
             "SELECT id, list_id, uid, etag, due_utc, start_utc, priority, percent_complete,
                     status, parent_id, my_day_date, ical_raw, json
              FROM tasks WHERE id = ?1",
         )
         .bind(id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.backend)
         .await?;
         Ok(row.as_ref().map(task_from_row))
     }
 
     /// Insert or replace a task.
     pub async fn upsert_task(&self, row: &TaskRow) -> Result<(), StoreError> {
-        sqlx::query(
-            "INSERT INTO tasks
+        q("INSERT INTO tasks
                  (id, list_id, uid, etag, due_utc, start_utc, priority, percent_complete,
                   status, parent_id, my_day_date, ical_raw, json)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
@@ -516,8 +507,7 @@ impl Store {
                  priority = excluded.priority, percent_complete = excluded.percent_complete,
                  status = excluded.status, parent_id = excluded.parent_id,
                  my_day_date = excluded.my_day_date, ical_raw = excluded.ical_raw,
-                 json = excluded.json",
-        )
+                 json = excluded.json")
         .bind(&row.id)
         .bind(&row.list_id)
         .bind(&row.uid)
@@ -531,16 +521,16 @@ impl Store {
         .bind(row.my_day_date.as_deref())
         .bind(&row.ical_raw)
         .bind(row.json.as_deref())
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(())
     }
 
     /// Delete a task.
     pub async fn delete_task(&self, id: &str) -> Result<(), StoreError> {
-        sqlx::query("DELETE FROM tasks WHERE id = ?1")
+        q("DELETE FROM tasks WHERE id = ?1")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&self.backend)
             .await?;
         Ok(())
     }
@@ -549,32 +539,31 @@ impl Store {
 
     /// List an account's notebooks.
     pub async fn list_notebooks(&self, account_id: &str) -> Result<Vec<NotebookRow>, StoreError> {
-        let rows = sqlx::query(
-            "SELECT id, account_id, name FROM notebooks WHERE account_id = ?1 ORDER BY name",
-        )
-        .bind(account_id)
-        .fetch_all(&self.pool)
-        .await?;
+        let rows =
+            q("SELECT id, account_id, name FROM notebooks WHERE account_id = ?1 ORDER BY name")
+                .bind(account_id)
+                .fetch_all(&self.backend)
+                .await?;
         Ok(rows
             .iter()
             .map(|r| NotebookRow {
-                id: r.get("id"),
-                account_id: r.get("account_id"),
-                name: r.get("name"),
+                id: r.get_string("id"),
+                account_id: r.get_string("account_id"),
+                name: r.get_string("name"),
             })
             .collect())
     }
 
     /// Insert or replace a notebook.
     pub async fn upsert_notebook(&self, row: &NotebookRow) -> Result<(), StoreError> {
-        sqlx::query(
+        q(
             "INSERT INTO notebooks (id, account_id, name) VALUES (?1, ?2, ?3)
              ON CONFLICT(id) DO UPDATE SET name = excluded.name",
         )
         .bind(&row.id)
         .bind(&row.account_id)
         .bind(&row.name)
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(())
     }
@@ -583,13 +572,13 @@ impl Store {
 
     /// Fetch one note with its body **unsealed** (plan §1.6).
     pub async fn get_note(&self, id: &str) -> Result<Option<NoteRow>, StoreError> {
-        let row = sqlx::query(
+        let row = q(
             "SELECT id, account_id, notebook_id, title, tags_json, color, pinned,
                     body_html_sealed, body_text_sealed, links_json, created_at, updated_at
              FROM notes WHERE id = ?1",
         )
         .bind(id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.backend)
         .await?;
         match row {
             Some(r) => Ok(Some(self.note_from_row(&r)?)),
@@ -599,34 +588,34 @@ impl Store {
 
     /// List an account's notes (metadata + unsealed bodies), pinned first.
     pub async fn list_notes(&self, account_id: &str) -> Result<Vec<NoteRow>, StoreError> {
-        let rows = sqlx::query(
+        let rows = q(
             "SELECT id, account_id, notebook_id, title, tags_json, color, pinned,
                     body_html_sealed, body_text_sealed, links_json, created_at, updated_at
              FROM notes WHERE account_id = ?1 ORDER BY pinned DESC, updated_at DESC, id",
         )
         .bind(account_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.backend)
         .await?;
         rows.iter().map(|r| self.note_from_row(r)).collect()
     }
 
     /// Unseal a note row's body columns into a [`NoteRow`].
-    fn note_from_row(&self, r: &sqlx::sqlite::SqliteRow) -> Result<NoteRow, StoreError> {
-        let body_html = self.unseal_opt(r.get::<Option<Vec<u8>>, _>("body_html_sealed"))?;
-        let body_text = self.unseal_opt(r.get::<Option<Vec<u8>>, _>("body_text_sealed"))?;
+    fn note_from_row(&self, r: &Row) -> Result<NoteRow, StoreError> {
+        let body_html = self.unseal_opt(r.get_opt_blob("body_html_sealed"))?;
+        let body_text = self.unseal_opt(r.get_opt_blob("body_text_sealed"))?;
         Ok(NoteRow {
-            id: r.get("id"),
-            account_id: r.get("account_id"),
-            notebook_id: r.get("notebook_id"),
-            title: r.get("title"),
-            tags_json: r.get("tags_json"),
-            color: r.get("color"),
-            pinned: r.get::<i64, _>("pinned") != 0,
+            id: r.get_string("id"),
+            account_id: r.get_string("account_id"),
+            notebook_id: r.get_opt_string("notebook_id"),
+            title: r.get_string("title"),
+            tags_json: r.get_string("tags_json"),
+            color: r.get_string("color"),
+            pinned: r.get_i64("pinned") != 0,
             body_html,
             body_text,
-            links_json: r.get("links_json"),
-            created_at: r.get("created_at"),
-            updated_at: r.get("updated_at"),
+            links_json: r.get_string("links_json"),
+            created_at: r.get_string("created_at"),
+            updated_at: r.get_string("updated_at"),
         })
     }
 
@@ -646,8 +635,7 @@ impl Store {
     pub async fn upsert_note(&self, row: &NoteRow) -> Result<(), StoreError> {
         let body_html_sealed = self.key.seal(row.body_html.as_bytes())?;
         let body_text_sealed = self.key.seal(row.body_text.as_bytes())?;
-        sqlx::query(
-            "INSERT INTO notes
+        q("INSERT INTO notes
                  (id, account_id, notebook_id, title, tags_json, color, pinned,
                   body_html_sealed, body_text_sealed, links_json, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
@@ -656,8 +644,7 @@ impl Store {
                  tags_json = excluded.tags_json, color = excluded.color, pinned = excluded.pinned,
                  body_html_sealed = excluded.body_html_sealed,
                  body_text_sealed = excluded.body_text_sealed,
-                 links_json = excluded.links_json, updated_at = excluded.updated_at",
-        )
+                 links_json = excluded.links_json, updated_at = excluded.updated_at")
         .bind(&row.id)
         .bind(&row.account_id)
         .bind(row.notebook_id.as_deref())
@@ -670,16 +657,16 @@ impl Store {
         .bind(&row.links_json)
         .bind(&row.created_at)
         .bind(&row.updated_at)
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(())
     }
 
     /// Delete a note.
     pub async fn delete_note(&self, id: &str) -> Result<(), StoreError> {
-        sqlx::query("DELETE FROM notes WHERE id = ?1")
+        q("DELETE FROM notes WHERE id = ?1")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&self.backend)
             .await?;
         Ok(())
     }
@@ -691,39 +678,37 @@ impl Store {
         &self,
         account_id: &str,
     ) -> Result<Vec<AddressBookRow>, StoreError> {
-        let rows = sqlx::query(
+        let rows = q(
             "SELECT id, account_id, name, is_default, carddav_url, sync_token, ctag
              FROM address_books WHERE account_id = ?1 ORDER BY is_default DESC, name",
         )
         .bind(account_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.backend)
         .await?;
         Ok(rows.iter().map(address_book_from_row).collect())
     }
 
     /// Fetch one address book by id.
     pub async fn get_address_book(&self, id: &str) -> Result<Option<AddressBookRow>, StoreError> {
-        let row = sqlx::query(
+        let row = q(
             "SELECT id, account_id, name, is_default, carddav_url, sync_token, ctag
              FROM address_books WHERE id = ?1",
         )
         .bind(id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.backend)
         .await?;
         Ok(row.as_ref().map(address_book_from_row))
     }
 
     /// Insert or replace an address book.
     pub async fn upsert_address_book(&self, row: &AddressBookRow) -> Result<(), StoreError> {
-        sqlx::query(
-            "INSERT INTO address_books
+        q("INSERT INTO address_books
                  (id, account_id, name, is_default, carddav_url, sync_token, ctag)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT(id) DO UPDATE SET
                  name = excluded.name, is_default = excluded.is_default,
                  carddav_url = excluded.carddav_url, sync_token = excluded.sync_token,
-                 ctag = excluded.ctag",
-        )
+                 ctag = excluded.ctag")
         .bind(&row.id)
         .bind(&row.account_id)
         .bind(&row.name)
@@ -731,16 +716,16 @@ impl Store {
         .bind(row.carddav_url.as_deref())
         .bind(row.sync_token.as_deref())
         .bind(row.ctag.as_deref())
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(())
     }
 
     /// Delete an address book (cascades contacts + groups).
     pub async fn delete_address_book(&self, id: &str) -> Result<(), StoreError> {
-        sqlx::query("DELETE FROM address_books WHERE id = ?1")
+        q("DELETE FROM address_books WHERE id = ?1")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&self.backend)
             .await?;
         Ok(())
     }
@@ -750,34 +735,33 @@ impl Store {
         &self,
         address_book_id: &str,
     ) -> Result<Vec<ContactRow>, StoreError> {
-        let rows = sqlx::query(
+        let rows = q(
             "SELECT id, address_book_id, uid, etag, vcard_raw, json, full_name, is_favorite,
                     photo_blob_id, pgp_key, smime_cert
              FROM contacts WHERE address_book_id = ?1 ORDER BY full_name, id",
         )
         .bind(address_book_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.backend)
         .await?;
         Ok(rows.iter().map(contact_from_row).collect())
     }
 
     /// Fetch one contact by id.
     pub async fn get_contact(&self, id: &str) -> Result<Option<ContactRow>, StoreError> {
-        let row = sqlx::query(
+        let row = q(
             "SELECT id, address_book_id, uid, etag, vcard_raw, json, full_name, is_favorite,
                     photo_blob_id, pgp_key, smime_cert
              FROM contacts WHERE id = ?1",
         )
         .bind(id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.backend)
         .await?;
         Ok(row.as_ref().map(contact_from_row))
     }
 
     /// Insert or replace a contact (source of truth = `vcard_raw`).
     pub async fn upsert_contact(&self, row: &ContactRow) -> Result<(), StoreError> {
-        sqlx::query(
-            "INSERT INTO contacts
+        q("INSERT INTO contacts
                  (id, address_book_id, uid, etag, vcard_raw, json, full_name, is_favorite,
                   photo_blob_id, pgp_key, smime_cert)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
@@ -786,8 +770,7 @@ impl Store {
                  etag = excluded.etag, vcard_raw = excluded.vcard_raw, json = excluded.json,
                  full_name = excluded.full_name, is_favorite = excluded.is_favorite,
                  photo_blob_id = excluded.photo_blob_id, pgp_key = excluded.pgp_key,
-                 smime_cert = excluded.smime_cert",
-        )
+                 smime_cert = excluded.smime_cert")
         .bind(&row.id)
         .bind(&row.address_book_id)
         .bind(&row.uid)
@@ -799,16 +782,16 @@ impl Store {
         .bind(row.photo_blob_id.as_deref())
         .bind(row.pgp_key.as_deref())
         .bind(row.smime_cert.as_deref())
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(())
     }
 
     /// Delete a contact.
     pub async fn delete_contact(&self, id: &str) -> Result<(), StoreError> {
-        sqlx::query("DELETE FROM contacts WHERE id = ?1")
+        q("DELETE FROM contacts WHERE id = ?1")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&self.backend)
             .await?;
         Ok(())
     }
@@ -824,23 +807,41 @@ impl Store {
         limit: i64,
     ) -> Result<Vec<ContactRow>, StoreError> {
         let like = format!("%{}%", prefix.replace('%', "\\%").replace('_', "\\_"));
-        let rows = sqlx::query(
-            "SELECT c.id AS id, c.address_book_id AS address_book_id, c.uid AS uid, c.etag AS etag,
-                    c.vcard_raw AS vcard_raw, c.json AS json, c.full_name AS full_name,
-                    c.is_favorite AS is_favorite, c.photo_blob_id AS photo_blob_id,
-                    c.pgp_key AS pgp_key, c.smime_cert AS smime_cert
-             FROM contacts c
-             JOIN address_books ab ON ab.id = c.address_book_id
-             WHERE ab.account_id = ?1
-               AND (c.full_name LIKE ?2 ESCAPE '\\' OR c.vcard_raw LIKE ?2 ESCAPE '\\')
-             ORDER BY c.is_favorite DESC, c.full_name, c.id
-             LIMIT ?3",
-        )
-        .bind(account_id)
-        .bind(&like)
-        .bind(limit.max(0))
-        .fetch_all(&self.pool)
-        .await?;
+        // SQLite `LIKE` is ASCII case-insensitive; Postgres needs `ILIKE` for the
+        // same behaviour (plan §1.1). Two frozen static strings keep the authored
+        // SQL a `&'static str` while matching each backend's semantics.
+        let sql = match self.backend.dialect() {
+            crate::backend::Dialect::Sqlite => {
+                "SELECT c.id AS id, c.address_book_id AS address_book_id, c.uid AS uid, c.etag AS etag,
+                        c.vcard_raw AS vcard_raw, c.json AS json, c.full_name AS full_name,
+                        c.is_favorite AS is_favorite, c.photo_blob_id AS photo_blob_id,
+                        c.pgp_key AS pgp_key, c.smime_cert AS smime_cert
+                 FROM contacts c
+                 JOIN address_books ab ON ab.id = c.address_book_id
+                 WHERE ab.account_id = ?1
+                   AND (c.full_name LIKE ?2 ESCAPE '\\' OR c.vcard_raw LIKE ?2 ESCAPE '\\')
+                 ORDER BY c.is_favorite DESC, c.full_name, c.id
+                 LIMIT ?3"
+            }
+            crate::backend::Dialect::Postgres => {
+                "SELECT c.id AS id, c.address_book_id AS address_book_id, c.uid AS uid, c.etag AS etag,
+                        c.vcard_raw AS vcard_raw, c.json AS json, c.full_name AS full_name,
+                        c.is_favorite AS is_favorite, c.photo_blob_id AS photo_blob_id,
+                        c.pgp_key AS pgp_key, c.smime_cert AS smime_cert
+                 FROM contacts c
+                 JOIN address_books ab ON ab.id = c.address_book_id
+                 WHERE ab.account_id = ?1
+                   AND (c.full_name ILIKE ?2 ESCAPE '\\' OR c.vcard_raw ILIKE ?2 ESCAPE '\\')
+                 ORDER BY c.is_favorite DESC, c.full_name, c.id
+                 LIMIT ?3"
+            }
+        };
+        let rows = q(sql)
+            .bind(account_id)
+            .bind(&like)
+            .bind(limit.max(0))
+            .fetch_all(&self.backend)
+            .await?;
         Ok(rows.iter().map(contact_from_row).collect())
     }
 
@@ -849,30 +850,28 @@ impl Store {
         &self,
         address_book_id: &str,
     ) -> Result<Vec<ContactGroupRow>, StoreError> {
-        let rows = sqlx::query(
-            "SELECT id, address_book_id, name, member_ids_json
-             FROM contact_groups WHERE address_book_id = ?1 ORDER BY name",
-        )
+        let rows = q("SELECT id, address_book_id, name, member_ids_json
+             FROM contact_groups WHERE address_book_id = ?1 ORDER BY name")
         .bind(address_book_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.backend)
         .await?;
         Ok(rows.iter().map(contact_group_from_row).collect())
     }
 
     /// Fetch one contact group by id.
     pub async fn get_contact_group(&self, id: &str) -> Result<Option<ContactGroupRow>, StoreError> {
-        let row = sqlx::query(
+        let row = q(
             "SELECT id, address_book_id, name, member_ids_json FROM contact_groups WHERE id = ?1",
         )
         .bind(id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.backend)
         .await?;
         Ok(row.as_ref().map(contact_group_from_row))
     }
 
     /// Insert or replace a contact group.
     pub async fn upsert_contact_group(&self, row: &ContactGroupRow) -> Result<(), StoreError> {
-        sqlx::query(
+        q(
             "INSERT INTO contact_groups (id, address_book_id, name, member_ids_json)
              VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(id) DO UPDATE SET
@@ -883,16 +882,16 @@ impl Store {
         .bind(&row.address_book_id)
         .bind(&row.name)
         .bind(&row.member_ids_json)
-        .execute(&self.pool)
+        .execute(&self.backend)
         .await?;
         Ok(())
     }
 
     /// Delete a contact group.
     pub async fn delete_contact_group(&self, id: &str) -> Result<(), StoreError> {
-        sqlx::query("DELETE FROM contact_groups WHERE id = ?1")
+        q("DELETE FROM contact_groups WHERE id = ?1")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&self.backend)
             .await?;
         Ok(())
     }
@@ -910,7 +909,7 @@ impl Store {
         op: &str,
     ) -> Result<u64, StoreError> {
         let now = chrono::Utc::now().to_rfc3339();
-        let next: i64 = sqlx::query_scalar(
+        let next = q(
             "INSERT INTO pim_changes (account_id, type, state, object_id, op, at)
              VALUES (
                  ?1, ?2,
@@ -924,7 +923,7 @@ impl Store {
         .bind(object_id)
         .bind(op)
         .bind(&now)
-        .fetch_one(&self.pool)
+        .fetch_scalar_i64(&self.backend)
         .await?;
         Ok(next as u64)
     }
@@ -935,12 +934,12 @@ impl Store {
         account_id: &str,
         type_name: &str,
     ) -> Result<u64, StoreError> {
-        let n: i64 = sqlx::query_scalar(
+        let n = q(
             "SELECT COALESCE(MAX(state), 0) FROM pim_changes WHERE account_id = ?1 AND type = ?2",
         )
         .bind(account_id)
         .bind(type_name)
-        .fetch_one(&self.pool)
+        .fetch_scalar_i64(&self.backend)
         .await?;
         Ok(n as u64)
     }
@@ -953,21 +952,19 @@ impl Store {
         type_name: &str,
         since: u64,
     ) -> Result<Vec<PimChangeRow>, StoreError> {
-        let rows = sqlx::query(
-            "SELECT state, object_id, op FROM pim_changes
-             WHERE account_id = ?1 AND type = ?2 AND state > ?3 ORDER BY state ASC",
-        )
+        let rows = q("SELECT state, object_id, op FROM pim_changes
+             WHERE account_id = ?1 AND type = ?2 AND state > ?3 ORDER BY state ASC")
         .bind(account_id)
         .bind(type_name)
         .bind(since as i64)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.backend)
         .await?;
         Ok(rows
             .iter()
             .map(|r| PimChangeRow {
-                state: r.get::<i64, _>("state") as u64,
-                object_id: r.get("object_id"),
-                op: r.get("op"),
+                state: r.get_i64("state") as u64,
+                object_id: r.get_string("object_id"),
+                op: r.get_string("op"),
             })
             .collect())
     }
@@ -1108,22 +1105,23 @@ mod tests {
         assert!(got.pinned);
 
         // The stored BLOB is ciphertext — the plaintext body is not present.
-        let raw = sqlx::query("SELECT body_text_sealed FROM notes WHERE id = ?1")
+        let sealed = q("SELECT body_text_sealed FROM notes WHERE id = ?1")
             .bind("n1")
-            .fetch_one(&s.pool)
+            .fetch_one(s.backend())
             .await
-            .unwrap();
-        let sealed: Vec<u8> = raw.get("body_text_sealed");
+            .unwrap()
+            .get_blob("body_text_sealed");
         assert!(
             !sealed.windows(11).any(|w| w == b"SUPERSECRET"),
             "note body must be sealed at rest"
         );
         // Title/tags stay plaintext (searchable).
-        let title: String = sqlx::query_scalar("SELECT title FROM notes WHERE id = ?1")
+        let title = q("SELECT title FROM notes WHERE id = ?1")
             .bind("n1")
-            .fetch_one(&s.pool)
+            .fetch_one(s.backend())
             .await
-            .unwrap();
+            .unwrap()
+            .get_string("title");
         assert_eq!(title, "Groceries");
     }
 
