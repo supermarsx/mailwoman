@@ -1,0 +1,8 @@
+{
+  "sub": "user-abc-123",
+  "email": "ada@corp.test",
+  "email_verified": true,
+  "name": "Ada Lovelace",
+  "preferred_username": "ada",
+  "groups": ["admins", "staff"]
+}
