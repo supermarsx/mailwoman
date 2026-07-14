@@ -7,16 +7,19 @@ license.workspace = true
 repository.workspace = true
 
 # Same dual build as `languagetool`/`nextcloud`: an inert host `rlib` for
-# `cargo build --workspace` (id constants only), a real component for
-# `wasm32-wasip2`. The guest bindings are `#[cfg(target_arch = "wasm32")]`-gated so
-# the host build never sees the wasm-import extern blocks. NO new dep — serde_json
-# (the rspamd controller JSON) only, and only on the wasm build.
+# `cargo build --workspace` (the pure rspamd `/checkv2` verdict codec + its unit
+# tests), a real component for `wasm32-wasip2`. The guest wit-bindgen bindings are
+# `#[cfg(target_arch = "wasm32")]`-gated so the host build never sees the wasm-import
+# extern blocks. serde_json (already vetted in-tree — NO new dep) is needed on BOTH
+# targets: the guest parses the rspamd response, and the host unit tests parse it too.
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[dependencies]
+serde_json = { workspace = true }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wit-bindgen = { workspace = true }
-serde_json = { workspace = true }
 
 [dev-dependencies]
 mw-plugin = { path = "../../crates/mw-plugin" }

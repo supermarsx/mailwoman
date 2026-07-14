@@ -1,0 +1,28 @@
+# spam-spamassassin — the SpamAssassin spam-classification bridge plugin
+# (plan §3 e6, SPEC §10.8).
+#
+# The frozen `plugin.toml` manifest (mw-plugin §2.1). The host defaults DENY
+# everything undeclared; the effective grant is `manifest ∩ admin grant`.
+id = "spam-spamassassin"
+name = "SpamAssassin spam classifier"
+version = "26.10.0"
+
+# Unsigned in-tree; the release/signing job attaches a detached Ed25519 signature
+# over the component bytes. Until then it loads only under an admin `allow_unsigned`
+# policy (⇒ persistent banner + audit, never silent).
+# signature = "<hex ed25519 over the component bytes>"
+
+# The spam-action hook (classify a message) + host-mediated outbound byte transport to
+# `spamd`. `store-kv-scoped` lets the admin configure a per-deployment `endpoint`
+# (host:port) without rebuilding the component. Nothing else is granted.
+capabilities = ["spam-action", "net", "store-kv-scoped"]
+
+# The ONLY host the guest's http-fetch may reach. `spamassassin` is the docker-compose /
+# deployment service name of `spamd` (default TCP port 783). Replace with the
+# deployment's spamd host for an on-prem install; an empty allowlist ⇒ no outbound net
+# (fail-closed) and every classify → `unknown`.
+net_allowlist = ["spamassassin"]
+
+[limits]
+memory_mb = 32
+deadline_ms = 10000

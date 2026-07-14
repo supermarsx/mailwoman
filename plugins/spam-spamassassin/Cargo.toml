@@ -6,16 +6,21 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
-# Dual build (see `spam-rspamd`): an inert host `rlib` for `cargo build --workspace`,
-# a real component for `wasm32-wasip2`. Guest bindings are wasm-gated. NO new dep.
+# Dual build (see `spam-rspamd`): an inert host `rlib` for `cargo build --workspace`
+# (the pure SPAMC/SPAMD codec + its unit tests), a real component for `wasm32-wasip2`.
+# Guest wit-bindgen bindings are wasm-gated. The SPAMC protocol is line-based text, so
+# the guest needs NO JSON/serialize dep at all — the verdict envelope is hand-built.
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wit-bindgen = { workspace = true }
-serde_json = { workspace = true }
 
+# Host-only: the jail load test drives the committed component through the real jail;
+# serde_json (already vetted in-tree — NO new dep) is used only to assert the hand-built
+# verdict envelope is valid JSON. Dev-deps never enter the wasm build.
 [dev-dependencies]
 mw-plugin = { path = "../../crates/mw-plugin" }
+serde_json = { workspace = true }
 tokio = { workspace = true }
 async-trait = { workspace = true }

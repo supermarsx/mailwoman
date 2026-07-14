@@ -1,12 +1,16 @@
-//! The `wasm32-wasip2` guest component (t10-e0 scaffold; e6 fills). Compiled ONLY
-//! for wasm (gated by `lib.rs`) so the host build never sees the wasm-import extern
-//! blocks.
+//! The `wasm32-wasip2` guest component (t10-e6). Compiled ONLY for wasm (gated by
+//! `lib.rs`) so the host build never sees the wasm-import extern blocks.
 //!
-//! `spam-action::classify` is the real hook (rspamd controller over host
-//! `http-fetch`); every other export in the frozen `plugin` world — including the
-//! optional PIM/parity `calendar`/`tasks`/`bridge-parity` interfaces — is a trivial
-//! stub. The PIM/parity `supports-*` funcs return `false`, so the host's
-//! per-interface probe binds nothing and the engine keeps its standards fallback.
+//! `spam-action::classify` is the real hook: it POSTs the raw message to the rspamd
+//! scan worker's `/checkv2` over the host `http-fetch` import (net-allowlisted) and maps
+//! the JSON response to the verdict contract via [`crate::classify_rspamd`]. It is
+//! **fail-soft** — an unreachable daemon, a denied host, or any transport error resolves
+//! to [`crate::VERDICT_UNKNOWN`] (`Ok`, never `Err`, never a panic, never a hard block).
+//!
+//! Every other export in the frozen world — including the optional PIM/parity
+//! `calendar`/`tasks`/`bridge-parity` interfaces — is a trivial stub advertising no
+//! support, so the host's per-interface probe binds nothing and the engine keeps its
+//! standards fallback.
 
 wit_bindgen::generate!({
     world: "plugin-pim",
@@ -23,6 +27,7 @@ use exports::mailwoman::plugin::message_pipeline as pipe;
 use exports::mailwoman::plugin::spam_action as spam;
 use exports::mailwoman::plugin::tasks as tasks_ex;
 
+use mailwoman::plugin::host;
 use mailwoman::plugin::types::{
     BackendCaps, ChangeEvent, Flag, Mailbox, MailboxDelta, MailboxRef, MessageRef, PluginError,
     RawMessage, SyncCursor,
@@ -30,21 +35,62 @@ use mailwoman::plugin::types::{
 
 struct Component;
 
-/// A uniform "this hook is a scaffold stub" error.
-fn stub(what: &str) -> PluginError {
-    PluginError::Unsupported(format!(
-        "{what} not implemented in the spam-rspamd scaffold (t10-e0)"
-    ))
+/// A uniform "this hook is not implemented by the spam plugin" error (only ever hit for
+/// hooks the host would never call on a spam-action-granted component).
+fn unsupported(what: &str) -> PluginError {
+    PluginError::Unsupported(format!("{what} not implemented by spam-rspamd"))
 }
 
-// ── The real hook: rspamd classify/train over host-mediated HTTP (e6 fills) ─────
+/// The rspamd endpoint base: the `endpoint` KV config value if the admin set one (and
+/// `store:kv-scoped` is granted), else the compiled default. The host still enforces the
+/// `net_allowlist` on the resulting host regardless of this value.
+fn endpoint() -> String {
+    match host::kv_get("endpoint") {
+        Some(bytes) => match String::from_utf8(bytes) {
+            Ok(s) if !s.trim().is_empty() => s.trim().to_string(),
+            _ => crate::DEFAULT_ENDPOINT.to_string(),
+        },
+        None => crate::DEFAULT_ENDPOINT.to_string(),
+    }
+}
+
+/// Render a host error into a short, content-free note for the fail-soft verdict.
+fn err_note(e: &PluginError) -> String {
+    match e {
+        PluginError::CapabilityDenied(m) => format!("denied: {m}"),
+        PluginError::Transport(m) => format!("transport: {m}"),
+        PluginError::Auth(m) => format!("auth: {m}"),
+        PluginError::Protocol(m) => format!("protocol: {m}"),
+        PluginError::Unsupported(m) => format!("unsupported: {m}"),
+        PluginError::MailboxNotFound(m) => format!("not-found: {m}"),
+        PluginError::LimitExceeded(m) => format!("limit: {m}"),
+        PluginError::Other(m) => format!("error: {m}"),
+    }
+}
+
+// ── The real hook: rspamd `/checkv2` over host-mediated HTTP (fail-soft) ────────────
 
 impl spam::Guest for Component {
-    /// `raw` is the message to classify. e6 POSTs it to the rspamd controller's
-    /// `/checkv2` via the host `http-fetch` (net-allowlisted) and returns the action
-    /// verdict ("no action" | "add header" | "reject" | ...). Scaffold: unsupported.
-    fn classify(_raw: Vec<u8>) -> Result<String, PluginError> {
-        Err(stub("spam-action classify"))
+    fn classify(raw: Vec<u8>) -> Result<String, PluginError> {
+        let req = host::HttpRequest {
+            method: "POST".into(),
+            url: crate::check_url(&endpoint()),
+            headers: vec![
+                ("content-type".into(), "application/octet-stream".into()),
+                ("accept".into(), "application/json".into()),
+            ],
+            body: Some(raw),
+        };
+        // Fail-soft: the host's `capability-denied` (net not granted / host outside the
+        // allowlist) and any transport error map to an explicit UNKNOWN verdict — never a
+        // hard block, never a panic.
+        match host::http_fetch(&req) {
+            Ok(resp) => Ok(crate::classify_rspamd(resp.status, &resp.body)),
+            Err(e) => Ok(crate::unknown_verdict(&format!(
+                "rspamd unreachable: {}",
+                err_note(&e)
+            ))),
+        }
     }
 }
 
@@ -52,36 +98,36 @@ impl spam::Guest for Component {
 
 impl ab::Guest for Component {
     fn capabilities() -> Result<BackendCaps, PluginError> {
-        Err(stub("account-backend"))
+        Err(unsupported("account-backend"))
     }
     fn list_mailboxes() -> Result<Vec<Mailbox>, PluginError> {
-        Err(stub("account-backend"))
+        Err(unsupported("account-backend"))
     }
     fn sync_mailbox(_mbox: MailboxRef, _cursor: SyncCursor) -> Result<MailboxDelta, PluginError> {
-        Err(stub("account-backend"))
+        Err(unsupported("account-backend"))
     }
     fn fetch_raw(_refs: Vec<MessageRef>) -> Result<Vec<RawMessage>, PluginError> {
-        Err(stub("account-backend"))
+        Err(unsupported("account-backend"))
     }
     fn store_flags(
         _refs: Vec<MessageRef>,
         _add: Vec<Flag>,
         _remove: Vec<Flag>,
     ) -> Result<(), PluginError> {
-        Err(stub("account-backend"))
+        Err(unsupported("account-backend"))
     }
     fn move_messages(_refs: Vec<MessageRef>, _to: MailboxRef) -> Result<(), PluginError> {
-        Err(stub("account-backend"))
+        Err(unsupported("account-backend"))
     }
     fn submit(
         _mbox: MailboxRef,
         _raw: Vec<u8>,
         _flags: Vec<Flag>,
     ) -> Result<MessageRef, PluginError> {
-        Err(stub("account-backend"))
+        Err(unsupported("account-backend"))
     }
     fn poll_changes() -> Result<Vec<ChangeEvent>, PluginError> {
-        Err(stub("account-backend"))
+        Err(unsupported("account-backend"))
     }
 }
 
@@ -96,7 +142,7 @@ impl pipe::Guest for Component {
 
 impl addr::Guest for Component {
     fn search(_query: String) -> Result<Vec<String>, PluginError> {
-        Err(stub("addrbook-source"))
+        Err(unsupported("addrbook-source"))
     }
 }
 
@@ -119,19 +165,19 @@ impl cal::Guest for Component {
         false
     }
     fn list_calendars() -> Result<Vec<cal::CalInfo>, PluginError> {
-        Err(stub("calendar"))
+        Err(unsupported("calendar"))
     }
     fn sync_events(
         _calendar_id: String,
         _cursor: SyncCursor,
     ) -> Result<cal::EventDelta, PluginError> {
-        Err(stub("calendar"))
+        Err(unsupported("calendar"))
     }
     fn find_rooms() -> Result<Vec<cal::RoomInfo>, PluginError> {
-        Err(stub("calendar"))
+        Err(unsupported("calendar"))
     }
     fn get_schedule(_who: String, _start: String, _end: String) -> Result<String, PluginError> {
-        Err(stub("calendar"))
+        Err(unsupported("calendar"))
     }
 }
 
@@ -140,16 +186,16 @@ impl tasks_ex::Guest for Component {
         false
     }
     fn list_tasks() -> Result<Vec<tasks_ex::TaskInfo>, PluginError> {
-        Err(stub("tasks"))
+        Err(unsupported("tasks"))
     }
     fn sync_tasks(
         _list_id: String,
         _cursor: SyncCursor,
     ) -> Result<tasks_ex::TaskDelta, PluginError> {
-        Err(stub("tasks"))
+        Err(unsupported("tasks"))
     }
     fn complete(_id: String) -> Result<(), PluginError> {
-        Err(stub("tasks"))
+        Err(unsupported("tasks"))
     }
 }
 
@@ -167,25 +213,25 @@ impl parity::Guest for Component {
         false
     }
     fn set_reaction(_msg: MessageRef, _emoji: String, _add: bool) -> Result<(), PluginError> {
-        Err(stub("bridge-parity"))
+        Err(unsupported("bridge-parity"))
     }
     fn get_reactions(_msg: MessageRef) -> Result<Vec<parity::Reaction>, PluginError> {
-        Err(stub("bridge-parity"))
+        Err(unsupported("bridge-parity"))
     }
     fn cast_vote(_msg: MessageRef, _choice: String) -> Result<(), PluginError> {
-        Err(stub("bridge-parity"))
+        Err(unsupported("bridge-parity"))
     }
     fn tally(_msg: MessageRef) -> Result<Vec<parity::VoteTally>, PluginError> {
-        Err(stub("bridge-parity"))
+        Err(unsupported("bridge-parity"))
     }
     fn recall(_msg: MessageRef) -> Result<parity::RecallOutcome, PluginError> {
-        Err(stub("bridge-parity"))
+        Err(unsupported("bridge-parity"))
     }
     fn get_focused(_msg: MessageRef) -> Result<parity::FocusedState, PluginError> {
-        Err(stub("bridge-parity"))
+        Err(unsupported("bridge-parity"))
     }
     fn set_focused(_msg: MessageRef, _focused: bool) -> Result<(), PluginError> {
-        Err(stub("bridge-parity"))
+        Err(unsupported("bridge-parity"))
     }
 }
 
