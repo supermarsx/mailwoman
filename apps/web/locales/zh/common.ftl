@@ -1,6 +1,7 @@
-# Mailwoman — common UI strings — locale: zh
+# MT-SEED — NOT REVIEWED
+# Locale: zh · Module: common. Source of truth: ../en/common.ftl
 #
-# UNTRANSLATED. Source strings live in ../en/common.ftl. Translate via Weblate
-# (https://docs.weblate.org/) — do not hand-edit ad hoc. Missing keys fall back
-# to en at runtime, so a partial catalog is safe. Machine-translation seed
-# placeholders (marked "# MT-SEED — NOT REVIEWED") are added by the i18n CI track.
+# PLACEHOLDER awaiting human translation via Weblate. This catalog holds NO
+# reviewed translations — every key falls back to the en source at runtime until
+# a translator fills it in, so Weblate shows it as needing translation (0%).
+# Do NOT hand-edit or paste raw machine output as final: translate in Weblate.

@@ -1,14 +1,21 @@
 name: a11y
 
-# Accessibility + i18n gates (1.0 hardening, SPEC §24 / ROADMAP-1.0 L21).
+# Accessibility + i18n enforcement gates (1.0 hardening, SPEC §24 / ROADMAP-1.0 L21).
 #
-# SKELETON — jobs are STUBS owned by t8-e8-ci-gates, filled once the aria fixes
-# (e1–e4) and the `en` catalogs exist so a non-failing baseline can be set:
-#   • axe-core (@axe-core/playwright) over the live mock stack across key screens
-#     (calendar grid, dialogs, ribbon) — fails on new WCAG 2.2 AA violations,
-#   • i18n catalog-completeness (all 12 locales vs en) + no-hardcoded-JSX-string,
-#   • pseudolocale + RTL Playwright smoke.
-# A separate workflow (not ci.yml) to avoid the single-file ci.yml collision.
+# Filled by t8-e8-ci-gates now that the aria fixes (e1–e4) and the `en` catalogs
+# exist, so a GREEN baseline can be enforced (fail-on-violation, not a rubber stamp):
+#   • axe-wcag       — @axe-core/playwright over the live engine stack across the key
+#                      screens (login/consent, admin gate, mailbox+Ribbon, Settings
+#                      dialog, Calendar grid, Security panel). FAILS on any WCAG 2.2 AA
+#                      violation. Also runs the pseudolocale + RTL layout smoke.
+#   • i18n-catalogs  — catalog completeness (every static t() id resolves in `en`; per-
+#                      locale coverage vs `en` for all 12 locales) + no-hardcoded-string
+#                      scan (fails on a NEW un-t()'d user-facing JSX literal).
+#
+# A SEPARATE workflow (not ci.yml) to avoid the single-file ci.yml collision. The
+# Playwright specs (apps/web/e2e/{a11y,i18n-rtl}.spec.ts) run under a config this
+# workflow generates at runtime, because the shared apps/web/playwright.config.ts is
+# owned elsewhere and its projects do not match these specs.
 
 on:
   push:
@@ -25,20 +32,106 @@ permissions:
   contents: read
 
 jobs:
-  a11y-axe:
-    name: axe-core WCAG 2.2 AA (stub)
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "STUB — t8-e8 wires @axe-core/playwright over key screens."
-
+  # ---------------------------------------------------------------------------
+  # i18n completeness + no-hardcoded-strings. Pure Node (the scripts have no deps),
+  # so this is a fast gate that needs neither the browser stack nor a pnpm install.
+  # ---------------------------------------------------------------------------
   i18n-catalogs:
-    name: i18n catalog completeness + no hardcoded strings (stub)
+    name: i18n catalog completeness + no hardcoded strings
     runs-on: ubuntu-latest
     steps:
-      - run: echo "STUB — t8-e8 wires scripts/i18n/{check-catalog,no-hardcoded-strings}.mjs."
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: catalog completeness (every t() id resolves in en; 12-locale coverage)
+        run: node scripts/i18n/check-catalog.mjs
+      - name: no new hardcoded user-facing JSX literals
+        run: node scripts/i18n/no-hardcoded-strings.mjs
 
-  i18n-rtl-smoke:
-    name: pseudolocale + RTL Playwright smoke (stub)
+  # ---------------------------------------------------------------------------
+  # axe WCAG 2.2 AA gate + pseudolocale/RTL smoke, against the live engine-mode
+  # stack (mw-server MW_MODE=engine over Greenmail, :8090) — the same backend the
+  # e2e-engine/e2e-pim/e2e-crypto jobs use, so mail + PIM (calendar grid) + the
+  # server-side security verdict panel are all reachable through the real UI. One
+  # stack boot serves both the axe spec and the RTL/pseudo smoke.
+  # ---------------------------------------------------------------------------
+  axe-wcag:
+    name: axe WCAG 2.2 AA + pseudolocale/RTL smoke
     runs-on: ubuntu-latest
+    env:
+      DOCKER_BUILDKIT: "1"
+      COMPOSE_DOCKER_CLI_BUILD: "1"
     steps:
-      - run: echo "STUB — t8-e8 wires apps/web/e2e/i18n-rtl.spec.ts."
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: install web deps (axe-core + @axe-core/playwright are devDeps)
+        run: pnpm -C apps/web install --frozen-lockfile
+      - name: cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('apps/web/pnpm-lock.yaml') }}
+      - name: install Playwright chromium
+        run: pnpm -C apps/web exec playwright install --with-deps chromium
+      - name: build + start engine stack (greenmail + mailwoman-engine)
+        run: docker compose -f docker-compose.dev.yml up -d --build --wait greenmail mailwoman-engine
+      - name: wait for server health
+        run: ./scripts/wait-for-health.sh http://localhost:8090/healthz 240
+      # The shared playwright.config.ts projects don't match these specs (and it is
+      # owned elsewhere), so generate a dedicated config here that points at :8090.
+      - name: generate a11y Playwright config
+        run: |
+          cat > apps/web/playwright.a11y.config.ts <<'EOF'
+          import { defineConfig, devices } from '@playwright/test';
+
+          // Engine-mode stack the a11y.yml job boots (mock/local override via env).
+          const baseURL = process.env['PLAYWRIGHT_ENGINE_BASE_URL'] ?? 'http://localhost:8090';
+
+          export default defineConfig({
+            testDir: './e2e',
+            fullyParallel: false,
+            forbidOnly: !!process.env['CI'],
+            retries: process.env['CI'] ? 2 : 0,
+            workers: 1,
+            reporter: [['list'], ['html', { outputFolder: 'playwright-report', open: 'never' }]],
+            // The security-panel scan awaits an injected message through the engine
+            // watch loop (up to ~45s), so give each test generous headroom.
+            timeout: 90_000,
+            expect: { timeout: 15_000 },
+            use: {
+              ...devices['Desktop Chrome'],
+              baseURL,
+              trace: 'on-first-retry',
+              screenshot: 'only-on-failure',
+              actionTimeout: 15_000,
+              navigationTimeout: 20_000,
+            },
+            projects: [
+              { name: 'a11y', testMatch: ['a11y.spec.ts', 'i18n-rtl.spec.ts'] },
+            ],
+          });
+          EOF
+      - name: run axe WCAG 2.2 AA gate + pseudolocale/RTL smoke
+        run: pnpm -C apps/web exec playwright test --config=playwright.a11y.config.ts
+      - name: compose logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.dev.yml logs --no-color greenmail mailwoman-engine
+      - name: upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a11y-playwright-report
+          path: apps/web/playwright-report
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: tear down
+        if: always()
+        run: docker compose -f docker-compose.dev.yml down -v

@@ -1,0 +1,19 @@
+{
+  "_comment": "Allowlist for no-hardcoded-strings.mjs. Each entry is a user-facing literal that is NOT routed through t() and is accepted as-is. New literals NOT listed here FAIL the gate — wrap them in t() (preferred) or add them here WITH a reason below. Categories: (1) BOOTSTRAP — rendered before the i18n provider/catalog is ready, so t() cannot resolve (App.tsx outer Suspense fallback). (2) RFC-2606 example tokens — example.com/example.org placeholders are reserved and conventionally left un-localized. (3) BASELINE DEBT — pre-existing untranslated copy in areas OUTSIDE the t8 a11y/i18n executors' ownership (viewers/ built by t4-e8; platform/ServerSettings by the t7 native shell). These are recorded here so the gate is green and ratchets; they are NOT introduced by the 1.0 i18n pass and are flagged in .orchestration/logs/t8-e8.md for a follow-up i18n pass. Regenerate the raw set with `node scripts/i18n/no-hardcoded-strings.mjs --update` (then re-review this comment).",
+  "strings": [
+    "Loading…",
+    "name@example.com",
+    "https://mail.example.org",
+    "Servers",
+    "No servers configured.",
+    "Add server URL",
+    "Attachments",
+    "Loading viewer…",
+    "Loading audio…",
+    "Loading image…",
+    "Loading video…",
+    "Rendering PDF…",
+    "Could not render this PDF.",
+    "No inline preview for this file type."
+  ]
+}
