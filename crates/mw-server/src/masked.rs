@@ -332,7 +332,12 @@ async fn resolve_from(
 /// send time. `mw-server` wraps each standards-account submitter with this (see
 /// `engine_mode::register`); a submission whose envelope `From` is a masked alias
 /// is validated against the owning account before it reaches the wire.
-pub(crate) struct MaskedSubmitter {
+///
+/// `pub` (not `pub(crate)`) purely so the live-E2E harness (`tests/t11_masked_send.rs`)
+/// can construct the REAL decorator over a capture inner + a real `Store` and drive it
+/// through the engine's `EmailSubmission/set` path — proving the wiring, not a copy.
+/// The decision path itself is unchanged.
+pub struct MaskedSubmitter {
     store: Store,
     account_id: String,
     inner: Arc<dyn MailSubmitter>,
@@ -340,7 +345,7 @@ pub(crate) struct MaskedSubmitter {
 
 impl MaskedSubmitter {
     /// Wrap `inner` with masked-alias `From` enforcement for `account_id`.
-    pub(crate) fn new(store: Store, account_id: String, inner: Arc<dyn MailSubmitter>) -> Self {
+    pub fn new(store: Store, account_id: String, inner: Arc<dyn MailSubmitter>) -> Self {
         Self {
             store,
             account_id,
