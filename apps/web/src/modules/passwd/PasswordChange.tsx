@@ -11,7 +11,8 @@
 // EXPORTED for e14 to mount (e.g. inside Settings' security section); this file does
 // not touch the router or Settings.tsx (ownership boundary — coordinate with e6/e14).
 
-import { createSignal, createResource, Show, type JSX } from 'solid-js';
+import { createSignal, createResource, Show, onMount, type JSX } from 'solid-js';
+import { t, loadCatalog } from '../../i18n';
 import {
   PasswordService,
   policyViolations,
@@ -57,14 +58,16 @@ export function PasswordChange(props: PasswordChangeProps): JSX.Element {
 
   const isZeroAccess = (): boolean => props.zeroAccess?.account.enabled === true;
 
+  onMount(() => void loadCatalog('passwd'));
+
   /** Validate inputs against policy + confirmation. Returns an error string or ''. */
   function validate(): string {
     const p = policy();
-    if (oldPw() === '') return 'enter your current password';
-    if (newPw() !== confirm()) return 'the new password and its confirmation do not match';
+    if (oldPw() === '') return t('passwd-error-enter-current');
+    if (newPw() !== confirm()) return t('passwd-error-mismatch');
     if (p !== undefined) {
       const missing = policyViolations(p, newPw());
-      if (missing.length > 0) return `the new password needs ${missing.join(', ')}`;
+      if (missing.length > 0) return t('passwd-error-policy', { rules: missing.join(', ') });
     }
     return '';
   }
@@ -92,7 +95,7 @@ export function PasswordChange(props: PasswordChangeProps): JSX.Element {
       setPhrase(derived);
       setPhase('recovery');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'could not prepare the recovery phrase');
+      setError(e instanceof Error ? e.message : t('passwd-error-prepare-recovery'));
     } finally {
       setBusy(false);
     }
@@ -102,7 +105,7 @@ export function PasswordChange(props: PasswordChangeProps): JSX.Element {
    *  key hierarchy under the new password and apply the change. */
   async function onConfirmRewrap(): Promise<void> {
     if (!ack()) {
-      setError('confirm you have saved the recovery phrase first');
+      setError(t('passwd-error-ack-first'));
       return;
     }
     await applyChange();
@@ -137,68 +140,85 @@ export function PasswordChange(props: PasswordChangeProps): JSX.Element {
       setPhrase('');
       props.onChanged?.(result);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'could not change the password');
+      setError(e instanceof Error ? e.message : t('passwd-error-change'));
     } finally {
       setBusy(false);
     }
   }
 
+  const errorId = 'passwd-error';
+  const describedBy = (): string | undefined => (error() !== '' ? errorId : undefined);
+
   return (
-    <div class={css.panel} aria-label="Change password">
+    <div class={css.panel} role="form" aria-label={t('passwd-region-label')}>
       <Show when={policy()?.forceChange}>
         <p class={css.banner} role="alert" data-testid="force-change-banner">
-          Your administrator requires you to change your password before continuing.
+          {t('passwd-force-change')}
         </p>
       </Show>
 
       <Show when={phase() === 'form'}>
         <section class={css.section}>
-          <h2 class={css.heading}>Change password</h2>
+          <h2 class={css.heading}>{t('passwd-heading')}</h2>
 
           <label class={css.field}>
-            <span class={css.label}>Current password</span>
+            <span class={css.label}>{t('passwd-current-label')}</span>
             <input
               class={css.input}
               type="password"
               autocomplete="current-password"
-              aria-label="Current password"
+              aria-label={t('passwd-current-label')}
+              aria-describedby={describedBy()}
               value={oldPw()}
               onInput={(e) => setOldPw(e.currentTarget.value)}
             />
           </label>
           <label class={css.field}>
-            <span class={css.label}>New password</span>
+            <span class={css.label}>{t('passwd-new-label')}</span>
             <input
               class={css.input}
               type="password"
               autocomplete="new-password"
-              aria-label="New password"
+              aria-label={t('passwd-new-label')}
+              aria-describedby={describedBy()}
               value={newPw()}
               onInput={(e) => setNewPw(e.currentTarget.value)}
             />
           </label>
           <label class={css.field}>
-            <span class={css.label}>Confirm new password</span>
+            <span class={css.label}>{t('passwd-confirm-label')}</span>
             <input
               class={css.input}
               type="password"
               autocomplete="new-password"
-              aria-label="Confirm new password"
+              aria-label={t('passwd-confirm-label')}
+              aria-describedby={describedBy()}
               value={confirm()}
               onInput={(e) => setConfirm(e.currentTarget.value)}
             />
           </label>
+
+          <Show when={confirm() !== ''}>
+            <p
+              class={newPw() === confirm() ? css.success : css.error}
+              role="status"
+              aria-live="polite"
+              data-testid="pw-match"
+            >
+              {newPw() === confirm() ? t('passwd-match-ok') : t('passwd-match-no')}
+            </p>
+          </Show>
 
           <Show when={policy()}>
             {(p) => (
               <div data-testid="policy">
                 <p class={css.meta}>{p().description}</p>
                 <ul class={css.policyList}>
-                  <li>at least {p().minLength} characters</li>
-                  <Show when={p().requireUppercase}><li>an uppercase letter</li></Show>
-                  <Show when={p().requireLowercase}><li>a lowercase letter</li></Show>
-                  <Show when={p().requireDigit}><li>a digit</li></Show>
-                  <Show when={p().requireSymbol}><li>a symbol</li></Show>
+                  <li>{t('passwd-rule-min-length', { count: p().minLength })}</li>
+                  <Show when={p().requireUppercase}><li>{t('passwd-rule-uppercase')}</li></Show>
+                  <Show when={p().requireLowercase}><li>{t('passwd-rule-lowercase')}</li></Show>
+                  <Show when={p().requireDigit}><li>{t('passwd-rule-digit')}</li></Show>
+                  <Show when={p().requireSymbol}><li>{t('passwd-rule-symbol')}</li></Show>
                 </ul>
               </div>
             )}
@@ -206,36 +226,34 @@ export function PasswordChange(props: PasswordChangeProps): JSX.Element {
 
           <Show when={isZeroAccess()}>
             <p class={css.warn} data-testid="rewrap-notice">
-              This account is zero-access. Before the change is applied you will be shown a
-              recovery phrase — save it so you can still reach your data if anything goes wrong.
+              {t('passwd-rewrap-notice')}
             </p>
           </Show>
 
           <button type="button" class={css.button} disabled={busy()} onClick={() => void onSubmit()}>
-            {isZeroAccess() ? 'Continue' : 'Change password'}
+            {isZeroAccess() ? t('passwd-continue') : t('passwd-submit')}
           </button>
         </section>
       </Show>
 
       <Show when={phase() === 'recovery'}>
         <section class={css.section} data-testid="recovery-prompt">
-          <h2 class={css.heading}>Save your recovery phrase</h2>
+          <h2 class={css.heading}>{t('passwd-recovery-heading')}</h2>
           <p class={css.prose}>
-            Write this phrase down and keep it somewhere safe. It is shown before the password
-            change so you can recover your data even if the new password is lost. It is not
-            stored on the server.
+            {t('passwd-recovery-prose')}
           </p>
           <code class={css.phrase} data-testid="recovery-phrase">
             {phrase()}
           </code>
           <label class={css.check}>
             <input
+              class={css.checkbox}
               type="checkbox"
-              aria-label="I have saved my recovery phrase"
+              aria-label={t('passwd-recovery-ack-label')}
               checked={ack()}
               onChange={(e) => setAck(e.currentTarget.checked)}
             />
-            <span>I have saved my recovery phrase somewhere safe.</span>
+            <span>{t('passwd-recovery-ack-text')}</span>
           </label>
           <button
             type="button"
@@ -244,25 +262,25 @@ export function PasswordChange(props: PasswordChangeProps): JSX.Element {
             data-testid="confirm-change"
             onClick={() => void onConfirmRewrap()}
           >
-            Change password
+            {t('passwd-submit')}
           </button>
         </section>
       </Show>
 
       <Show when={phase() === 'done'}>
         <section class={css.section} data-testid="change-done">
-          <p class={css.success}>Your password has been changed.</p>
+          <p class={css.success}>{t('passwd-done')}</p>
           <Show when={outcome()?.reencryptCredentials}>
-            <p class={css.meta}>Your stored server credentials were re-encrypted under the new password.</p>
+            <p class={css.meta}>{t('passwd-done-reencrypt')}</p>
           </Show>
           <Show when={outcome()?.zeroaccessRewrapRequired}>
-            <p class={css.meta}>Your zero-access keys were re-wrapped under the new password.</p>
+            <p class={css.meta}>{t('passwd-done-rewrap')}</p>
           </Show>
         </section>
       </Show>
 
       <Show when={error() !== ''}>
-        <p class={css.error} role="alert">
+        <p class={css.error} id={errorId} role="alert">
           {error()}
         </p>
       </Show>

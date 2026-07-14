@@ -2,9 +2,10 @@
 // select one or more files, and hand the materialised attachments back to the composer.
 // EXPORTED for e14 to wire into the compose attach menu.
 
-import { createSignal, Show, type JSX } from 'solid-js';
+import { createSignal, onMount, Show, type JSX } from 'solid-js';
 import { NextcloudService, type Fetcher, type WebDavEntry, type AttachedFile } from './service.ts';
 import { FilePicker } from './FilePicker.tsx';
+import { t, loadCatalog } from '../../i18n';
 import * as css from './styles.css.ts';
 
 export interface NextcloudAttachProps {
@@ -16,6 +17,7 @@ export interface NextcloudAttachProps {
 }
 
 export function NextcloudAttach(props: NextcloudAttachProps): JSX.Element {
+  onMount(() => void loadCatalog('nextcloud'));
   const service = props.service ?? new NextcloudService(props.fetcher);
   const [selected, setSelected] = createSignal<Set<string>>(new Set());
   const [busy, setBusy] = createSignal(false);
@@ -34,7 +36,7 @@ export function NextcloudAttach(props: NextcloudAttachProps): JSX.Element {
     setError('');
     const paths = [...selected()];
     if (paths.length === 0) {
-      setError('select at least one file to attach');
+      setError(t('nextcloud-error-select-file'));
       return;
     }
     setBusy(true);
@@ -43,18 +45,18 @@ export function NextcloudAttach(props: NextcloudAttachProps): JSX.Element {
       props.onAttached(files);
       setSelected(new Set<string>());
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'could not attach the selected files');
+      setError(e instanceof Error ? e.message : t('nextcloud-error-attach-failed'));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div class={css.panel} data-module="nextcloud" aria-label="Attach from Nextcloud">
-      <h2 class={css.heading}>Attach from Nextcloud</h2>
+    <div class={css.panel} data-module="nextcloud" aria-label={t('nextcloud-attach-title')}>
+      <h2 class={css.heading}>{t('nextcloud-attach-title')}</h2>
       <FilePicker service={service} mode="files" selected={selected()} onToggleFile={toggle} />
       <button type="button" class={css.button} disabled={busy()} onClick={() => void attach()}>
-        Attach {selected().size > 0 ? `${selected().size} file${selected().size === 1 ? '' : 's'}` : ''}
+        {t('nextcloud-attach-action', { count: selected().size })}
       </button>
       <Show when={error() !== ''}>
         <p class={css.error} role="alert">

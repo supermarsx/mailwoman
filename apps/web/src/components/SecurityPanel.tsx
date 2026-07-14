@@ -7,8 +7,15 @@
 // e8 can mount it into the Reader toolbar and wire `SecurityVerdict/get` +
 // `SenderControl/set` without touching this file. The `onSenderControl` prop
 // defaults to a self-contained mock so the panel works + tests on its own.
+//
+// a11y (t8): every verdict badge carries a TEXT label (e.g. "DKIM passed") plus a
+// per-tone glyph (`::before`, security-panel.css) so pass/fail is never conveyed by
+// colour alone (WCAG 1.4.1). The chip is a real button (keyboard + aria-expanded);
+// Escape collapses the panel and returns focus to it. Untrusted values (hop hosts,
+// attachment names) get `dir="auto"` so a spoofed RTL run can't reorder the UI.
+// i18n (t8): all labels come from `security.ftl` via `t()`.
 
-import { For, Show, createMemo, createSignal, createUniqueId, type JSX } from 'solid-js';
+import { For, Show, createMemo, createSignal, createUniqueId, onMount, type JSX } from 'solid-js';
 import type {
   AttachmentRisk,
   AuthResult,
@@ -17,18 +24,10 @@ import type {
   SignatureVerdict,
 } from '../api/security-types.ts';
 import {
-  ANOMALY_LABEL,
-  ATTACHMENT_RISK_LABEL,
-  AUTH_RESULT_LABEL,
   AUTH_RESULT_TONE,
-  CHAIN_STATUS_LABEL,
   CHAIN_STATUS_TONE,
-  REVOCATION_STATUS_LABEL,
   REVOCATION_STATUS_TONE,
   SENDER_CONTROL_DANGER,
-  SENDER_CONTROL_DONE,
-  SENDER_CONTROL_LABEL,
-  SIGNATURE_STATUS_LABEL,
   attachmentTone,
   defaultSenderControl,
   formatDelay,
@@ -39,6 +38,7 @@ import {
   type SenderControlRequest,
   type SenderControlResult,
 } from './security/model.ts';
+import { t, loadCatalog } from '../i18n';
 import * as css from './security/security-panel.css.ts';
 
 export interface SecurityPanelProps {
@@ -67,13 +67,25 @@ const SENDER_ACTIONS: SenderControlAction[] = [
 ];
 
 export function SecurityPanel(props: SecurityPanelProps): JSX.Element {
+  onMount(() => void loadCatalog('security'));
   const [expanded, setExpanded] = createSignal(props.initiallyExpanded ?? false);
   const panelId = createUniqueId();
   const tone = createMemo(() => overallTone(props.verdict));
+  let chipRef: HTMLButtonElement | undefined;
+
+  // Escape collapses the expanded panel and returns focus to the chip (WCAG 2.1.2).
+  function onKeyDown(e: KeyboardEvent): void {
+    if (e.key === 'Escape' && expanded()) {
+      e.stopPropagation();
+      setExpanded(false);
+      chipRef?.focus();
+    }
+  }
 
   return (
-    <div class={css.root} data-tone={tone()}>
+    <div class={css.root} data-tone={tone()} onKeyDown={onKeyDown}>
       <button
+        ref={chipRef}
         type="button"
         class={`${css.chip} ${css.chipTone[tone()]}`}
         aria-expanded={expanded()}
@@ -88,7 +100,7 @@ export function SecurityPanel(props: SecurityPanelProps): JSX.Element {
       </button>
 
       <Show when={expanded()}>
-        <div id={panelId} class={css.panel} role="region" aria-label="Message security details">
+        <div id={panelId} class={css.panel} role="region" aria-label={t('security-panel-region')}>
           <p class={css.summary}>{props.verdict.plainLanguage}</p>
           <AuthSection auth={props.verdict.auth} />
           <ReceivedSection hops={props.verdict.received} />
@@ -119,25 +131,28 @@ function AuthSection(props: { auth: SecurityVerdict['auth'] }): JSX.Element {
   return (
     <section role="group" class={css.section} aria-labelledby="sec-auth-title">
       <h4 id="sec-auth-title" class={css.sectionTitle}>
-        Authentication
+        {t('security-section-auth')}
       </h4>
       <AuthRow name="DKIM" result={props.auth.dkim.result}>
         {authDetail([
-          ['domain', props.auth.dkim.domain],
-          ['selector', props.auth.dkim.selector],
+          [t('security-detail-domain'), props.auth.dkim.domain],
+          [t('security-detail-selector'), props.auth.dkim.selector],
         ])}
       </AuthRow>
       <AuthRow name="SPF" result={props.auth.spf.result}>
-        {authDetail([['domain', props.auth.spf.domain]])}
+        {authDetail([[t('security-detail-domain'), props.auth.spf.domain]])}
       </AuthRow>
       <AuthRow name="DMARC" result={props.auth.dmarc.result}>
         {authDetail([
-          ['policy', props.auth.dmarc.policy],
-          ['alignment', props.auth.dmarc.aligned ? 'aligned' : 'not aligned'],
+          [t('security-detail-policy'), props.auth.dmarc.policy],
+          [
+            t('security-detail-alignment'),
+            props.auth.dmarc.aligned ? t('security-aligned') : t('security-not-aligned'),
+          ],
         ])}
       </AuthRow>
       <AuthRow name="ARC" result={props.auth.arc.result}>
-        {authDetail([['chain length', String(props.auth.arc.chainLength)]])}
+        {authDetail([[t('security-detail-chain-length'), String(props.auth.arc.chainLength)]])}
       </AuthRow>
     </section>
   );
@@ -159,7 +174,7 @@ function AuthRow(props: {
       <span class={css.authName}>{props.name}</span>
       <span>
         <Badge tone={AUTH_RESULT_TONE[props.result]}>
-          {props.name} {AUTH_RESULT_LABEL[props.result]}
+          {props.name} {t(`security-auth-${props.result}`)}
         </Badge>
         <Show when={props.children}>
           <span class={css.authDetail}> {props.children}</span>
@@ -175,11 +190,11 @@ function ReceivedSection(props: { hops: ReceivedHop[] }): JSX.Element {
   return (
     <section role="group" class={css.section} aria-labelledby="sec-received-title">
       <h4 id="sec-received-title" class={css.sectionTitle}>
-        Delivery path
+        {t('security-section-received')}
       </h4>
       <Show
         when={props.hops.length > 0}
-        fallback={<p class={css.empty}>No Received chain available.</p>}
+        fallback={<p class={css.empty}>{t('security-received-empty')}</p>}
       >
         <div class={css.hopScroll}>
           <ol class={css.hopList}>
@@ -204,13 +219,14 @@ function HopRow(props: { hop: ReceivedHop }): JSX.Element {
     <li class={css.hop}>
       <span class={css.hopIndex}>{hop().index}</span>
       <span class={css.hopBody}>
-        <span class={css.hopHost}>
-          {hop().fromHost ?? 'unknown'} → {hop().byHost ?? 'unknown'}
+        {/* Untrusted host names — `dir="auto"` isolates their bidi run (SPEC §24). */}
+        <span class={css.hopHost} dir="auto">
+          {hop().fromHost ?? t('security-hop-unknown')} → {hop().byHost ?? t('security-hop-unknown')}
         </span>
         <span class={css.hopMeta}>
           <Show when={hop().protocol}>{(p) => <span>{p()}</span>}</Show>
           <Show when={hop().timestamp}>
-            {(t) => <time datetime={t()}>{t()}</time>}
+            {(ts) => <time datetime={ts()}>{ts()}</time>}
           </Show>
           <span>+{formatDelay(hop().delayMs)}</span>
           <Show when={geo()}>{(g) => <span>{g()}</span>}</Show>
@@ -226,11 +242,11 @@ function SignatureSection(props: { signature: SignatureVerdict | null }): JSX.El
   return (
     <section role="group" class={css.section} aria-labelledby="sec-signature-title">
       <h4 id="sec-signature-title" class={css.sectionTitle}>
-        Signature
+        {t('security-section-signature')}
       </h4>
       <Show
         when={props.signature}
-        fallback={<p class={css.empty}>{SIGNATURE_STATUS_LABEL.none}</p>}
+        fallback={<p class={css.empty}>{t('security-sig-none')}</p>}
       >
         {(sig) => <SignatureBody signature={sig()} />}
       </Show>
@@ -243,36 +259,40 @@ function SignatureBody(props: { signature: SignatureVerdict }): JSX.Element {
   return (
     <div>
       <Badge tone={signatureTone(sig())}>
-        {sig().kind.toUpperCase()}: {SIGNATURE_STATUS_LABEL[sig().status]}
+        {sig().kind.toUpperCase()}: {t(`security-sig-${sig().status}`)}
       </Badge>
       <dl class={css.factGrid}>
         <Show when={sig().signerKeyId}>
-          {(v) => <Fact k="Signer key">{v()}</Fact>}
+          {(v) => (
+            <Fact k={t('security-fact-signer-key')}>
+              <span dir="auto">{v()}</span>
+            </Fact>
+          )}
         </Show>
-        <Show when={sig().algorithm}>{(v) => <Fact k="Algorithm">{v()}</Fact>}</Show>
+        <Show when={sig().algorithm}>{(v) => <Fact k={t('security-fact-algorithm')}>{v()}</Fact>}</Show>
         <Show when={sig().keyCreatedAt}>
-          {(v) => <Fact k="Key created">{v()}</Fact>}
+          {(v) => <Fact k={t('security-fact-key-created')}>{v()}</Fact>}
         </Show>
         <Show when={sig().keyExpiresAt}>
-          {(v) => <Fact k="Key expires">{v()}</Fact>}
+          {(v) => <Fact k={t('security-fact-key-expires')}>{v()}</Fact>}
         </Show>
         <Show when={sig().chainStatus}>
           {(v) => (
-            <Fact k="Chain">
-              <Badge tone={CHAIN_STATUS_TONE[v()]}>{CHAIN_STATUS_LABEL[v()]}</Badge>
+            <Fact k={t('security-fact-chain')}>
+              <Badge tone={CHAIN_STATUS_TONE[v()]}>{t(`security-chain-${v()}`)}</Badge>
             </Fact>
           )}
         </Show>
         <Show when={sig().revocationStatus}>
           {(v) => (
-            <Fact k="Revocation">
-              <Badge tone={REVOCATION_STATUS_TONE[v()]}>{REVOCATION_STATUS_LABEL[v()]}</Badge>
+            <Fact k={t('security-fact-revocation')}>
+              <Badge tone={REVOCATION_STATUS_TONE[v()]}>{t(`security-revocation-${v()}`)}</Badge>
             </Fact>
           )}
         </Show>
         <Show when={sig().keyChanged}>
-          <Fact k="Key change">
-            <Badge tone="warning">Signer key changed since last seen</Badge>
+          <Fact k={t('security-fact-key-change')}>
+            <Badge tone="warning">{t('security-key-changed')}</Badge>
           </Fact>
         </Show>
       </dl>
@@ -295,11 +315,11 @@ function AttachmentsSection(props: { attachments: AttachmentRisk[] }): JSX.Eleme
   return (
     <section role="group" class={css.section} aria-labelledby="sec-attachments-title">
       <h4 id="sec-attachments-title" class={css.sectionTitle}>
-        Attachments
+        {t('security-section-attachments')}
       </h4>
       <Show
         when={props.attachments.length > 0}
-        fallback={<p class={css.empty}>No attachments.</p>}
+        fallback={<p class={css.empty}>{t('security-attachments-empty')}</p>}
       >
         <ul class={css.list}>
           <For each={props.attachments}>{(a) => <AttachmentRow attachment={a} />}</For>
@@ -313,12 +333,17 @@ function AttachmentRow(props: { attachment: AttachmentRisk }): JSX.Element {
   const a = (): AttachmentRisk => props.attachment;
   return (
     <li class={css.attachItem}>
-      <span class={css.attachName}>{a().name}</span>
-      <Badge tone={attachmentTone(a())}>{ATTACHMENT_RISK_LABEL[a().risk]}</Badge>
+      {/* Untrusted file name — `dir="auto"` defeats the exe.png↔gnp.exe spoof. */}
+      <span class={css.attachName} dir="auto">
+        {a().name}
+      </span>
+      <Badge tone={attachmentTone(a())}>{t(`security-attach-${a().risk}`)}</Badge>
       <Show when={a().mismatch}>
         <span class={css.mismatchNote}>
-          type mismatch (declared {a().declaredType ?? 'unknown'}, detected{' '}
-          {a().detectedType ?? 'unknown'})
+          {t('security-attach-mismatch', {
+            declared: a().declaredType ?? t('security-unknown'),
+            detected: a().detectedType ?? t('security-unknown'),
+          })}
         </span>
       </Show>
     </li>
@@ -334,7 +359,7 @@ function AnomaliesSection(props: {
     <Show when={props.anomalies.length > 0}>
       <section role="group" class={css.section} aria-labelledby="sec-anomalies-title">
         <h4 id="sec-anomalies-title" class={css.sectionTitle}>
-          Warnings
+          {t('security-section-warnings')}
         </h4>
         <ul class={css.list}>
           <For each={props.anomalies}>
@@ -343,7 +368,7 @@ function AnomaliesSection(props: {
                 <span class={css.anomalyMark} aria-hidden="true">
                   ⚠
                 </span>
-                <span>{ANOMALY_LABEL[token]}</span>
+                <span>{t(`security-anomaly-${token}`)}</span>
               </li>
             )}
           </For>
@@ -380,7 +405,7 @@ function SenderControlsSection(props: {
     try {
       const handler = props.onSenderControl ?? defaultSenderControl;
       await handler(requestFor(action));
-      setStatus(SENDER_CONTROL_DONE[action]);
+      setStatus(t(`security-control-done-${action}`));
     } finally {
       setPending(null);
     }
@@ -389,7 +414,7 @@ function SenderControlsSection(props: {
   return (
     <section role="group" class={css.section} aria-labelledby="sec-controls-title">
       <h4 id="sec-controls-title" class={css.sectionTitle}>
-        Sender controls
+        {t('security-section-controls')}
       </h4>
       <div class={css.controls}>
         <For each={SENDER_ACTIONS}>
@@ -402,7 +427,7 @@ function SenderControlsSection(props: {
               disabled={pending() !== null}
               onClick={() => void run(action)}
             >
-              {SENDER_CONTROL_LABEL[action]}
+              {t(`security-control-${action}`)}
             </button>
           )}
         </For>

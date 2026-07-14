@@ -14,6 +14,19 @@ const TONE_COLOR = {
   neutral: vars.color.textDim,
 } as const;
 
+/**
+ * Per-tone GLYPH rendered before each badge's text via `::before` (WCAG 1.4.1):
+ * a redundant, non-colour shape so pass/fail/warn is legible without colour and
+ * under forced-colors. Kept out of the DOM (CSS content) so it never merges into
+ * the badge's text node — literal-text assertions ("DKIM passed") stay intact.
+ */
+const TONE_GLYPH: Record<keyof typeof TONE_COLOR, string> = {
+  good: '✓',
+  warning: '!',
+  bad: '✕',
+  neutral: '–',
+};
+
 export const root = style({
   fontFamily: vars.font.ui,
   fontSize: vars.fontSize.base,
@@ -37,9 +50,10 @@ export const chip = style({
   fontSize: '0.85rem',
   lineHeight: 1.4,
   maxWidth: '100%',
+  minHeight: vars.a11y.touchTarget,
   selectors: {
     '&:hover': { borderColor: vars.color.accent },
-    '&:focus-visible': { outline: `2px solid ${vars.color.accent}`, outlineOffset: '1px' },
+    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
   },
 });
 
@@ -129,10 +143,14 @@ export const badge = style({
   whiteSpace: 'nowrap',
 });
 
-export const badgeTone = styleVariants(TONE_COLOR, (color) => ({
+export const badgeTone = styleVariants(TONE_COLOR, (color, key) => ({
   color,
   borderColor: `color-mix(in srgb, ${color} 40%, transparent)`,
   background: `color-mix(in srgb, ${color} 12%, transparent)`,
+  '::before': {
+    content: `"${TONE_GLYPH[key]}\\00a0"`,
+    fontWeight: 700,
+  },
 }));
 
 // ── Auth grid ────────────────────────────────────────────────────────────────
@@ -287,9 +305,10 @@ export const controlBtn = style({
   padding: `${vars.space[1]} ${vars.space[3]}`,
   font: 'inherit',
   fontSize: '0.82rem',
+  minHeight: vars.a11y.touchTarget,
   selectors: {
     '&:hover:not(:disabled)': { borderColor: vars.color.accent },
-    '&:focus-visible': { outline: `2px solid ${vars.color.accent}`, outlineOffset: '1px' },
+    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
     '&:disabled': { opacity: 0.6, cursor: 'default' },
   },
 });

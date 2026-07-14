@@ -3,8 +3,9 @@
 // directories and select files (attach) or pick a destination directory (save-to).
 // Presentational + navigation only — the caller decides what "select" means.
 
-import { createSignal, createResource, For, Show, type JSX } from 'solid-js';
+import { createSignal, createResource, onMount, For, Show, type JSX } from 'solid-js';
 import { NextcloudService, type WebDavEntry } from './service.ts';
+import { t, loadCatalog, isolate } from '../../i18n';
 import * as css from './styles.css.ts';
 
 export interface FilePickerProps {
@@ -33,6 +34,7 @@ function humanSize(bytes: number): string {
 }
 
 export function FilePicker(props: FilePickerProps): JSX.Element {
+  onMount(() => void loadCatalog('nextcloud'));
   const [dir, setDir] = createSignal('/');
   const [entries] = createResource(dir, (path) => props.service.list(path));
 
@@ -50,8 +52,14 @@ export function FilePicker(props: FilePickerProps): JSX.Element {
   return (
     <div class={css.panel} data-testid="nc-picker">
       <div class={css.bar}>
-        <button type="button" class={css.ghost} disabled={dir() === '/'} onClick={() => navigate(parentOf(dir()))}>
-          Up
+        <button
+          type="button"
+          class={css.ghost}
+          disabled={dir() === '/'}
+          aria-label={t('nextcloud-up')}
+          onClick={() => navigate(parentOf(dir()))}
+        >
+          {t('nextcloud-up')}
         </button>
         <span class={css.crumb} data-testid="nc-cwd">
           {dir()}
@@ -59,45 +67,64 @@ export function FilePicker(props: FilePickerProps): JSX.Element {
       </div>
 
       <Show when={entries.loading}>
-        <p class={css.meta}>Loading…</p>
+        <p class={css.meta}>{t('nextcloud-loading')}</p>
       </Show>
       <Show when={entries.error as unknown}>
         <p class={css.error} role="alert">
-          Could not list this folder.
+          {t('nextcloud-list-error')}
         </p>
       </Show>
 
       <Show when={!entries.loading && (entries() ?? []).length === 0}>
-        <p class={css.meta}>This folder is empty.</p>
+        <p class={css.meta}>{t('nextcloud-empty')}</p>
       </Show>
 
       <Show when={(entries() ?? []).length > 0}>
-        <ul class={css.list} role="listbox" aria-label="Nextcloud files">
+        <ul class={css.list} aria-label={t('nextcloud-file-list')}>
           <For each={entries()}>
-            {(entry) => (
-              <li
-                class={css.item}
-                role="option"
-                aria-selected={props.mode === 'files' && !entry.isDir && (props.selected?.has(entry.path) ?? false)}
-                data-nc-path={entry.path}
-                onClick={() => {
-                  if (entry.isDir) {
-                    navigate(entry.path);
-                  } else if (props.mode === 'files') {
-                    props.onToggleFile?.(entry);
-                  }
-                }}
-              >
-                <span class={css.dirIcon}>{entry.isDir ? '📁' : '📄'}</span>
-                <span class={css.name}>{entry.name}</span>
-                <Show when={!entry.isDir}>
-                  <span class={css.size}>{humanSize(entry.size)}</span>
-                </Show>
-                <Show when={props.mode === 'files' && !entry.isDir && (props.selected?.has(entry.path) ?? false)}>
-                  <span class={css.size} data-testid="nc-selected">✓</span>
-                </Show>
-              </li>
-            )}
+            {(entry) => {
+              const selectable = (): boolean => props.mode === 'files' && !entry.isDir;
+              const isSelected = (): boolean => selectable() && (props.selected?.has(entry.path) ?? false);
+              const interactive = entry.isDir || selectable();
+              const content = (): JSX.Element => (
+                <>
+                  <span class={css.dirIcon} aria-hidden="true">
+                    {entry.isDir ? '📁' : '📄'}
+                  </span>
+                  <span class={css.name}>{entry.name}</span>
+                  <Show when={!entry.isDir}>
+                    <span class={css.size}>{humanSize(entry.size)}</span>
+                  </Show>
+                  <Show when={isSelected()}>
+                    <span class={css.size} data-testid="nc-selected" aria-hidden="true">
+                      ✓
+                    </span>
+                  </Show>
+                </>
+              );
+              return (
+                <li class={css.item} data-nc-path={entry.path}>
+                  <Show when={interactive} fallback={<div class={css.rowStatic}>{content()}</div>}>
+                    <button
+                      type="button"
+                      class={css.row}
+                      aria-label={
+                        entry.isDir
+                          ? t('nextcloud-open-folder', { name: isolate(entry.name) })
+                          : t('nextcloud-select-file', { name: isolate(entry.name) })
+                      }
+                      aria-pressed={selectable() ? isSelected() : undefined}
+                      onClick={() => {
+                        if (entry.isDir) navigate(entry.path);
+                        else props.onToggleFile?.(entry);
+                      }}
+                    >
+                      {content()}
+                    </button>
+                  </Show>
+                </li>
+              );
+            }}
           </For>
         </ul>
       </Show>

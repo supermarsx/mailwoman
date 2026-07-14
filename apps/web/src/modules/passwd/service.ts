@@ -6,6 +6,7 @@
 // pre-prompt). No plaintext key ever leaves the client — only wrapped material.
 
 import type { ZaKdfParams } from '../zeroaccess/crypto.ts';
+import { t } from '../../i18n';
 
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -74,10 +75,10 @@ export class PasswordService {
 /** Validate a candidate password against a policy; returns the failing rules (empty ⇒ ok). */
 export function policyViolations(policy: PasswordPolicy, candidate: string): string[] {
   const out: string[] = [];
-  if (candidate.length < policy.minLength) out.push(`at least ${policy.minLength} characters`);
-  if (policy.requireUppercase && !/[A-Z]/.test(candidate)) out.push('an uppercase letter');
-  if (policy.requireLowercase && !/[a-z]/.test(candidate)) out.push('a lowercase letter');
-  if (policy.requireDigit && !/[0-9]/.test(candidate)) out.push('a digit');
-  if (policy.requireSymbol && !/[^A-Za-z0-9]/.test(candidate)) out.push('a symbol');
+  if (candidate.length < policy.minLength) out.push(t('passwd-rule-min-length', { count: policy.minLength }));
+  if (policy.requireUppercase && !/[A-Z]/.test(candidate)) out.push(t('passwd-rule-uppercase'));
+  if (policy.requireLowercase && !/[a-z]/.test(candidate)) out.push(t('passwd-rule-lowercase'));
+  if (policy.requireDigit && !/[0-9]/.test(candidate)) out.push(t('passwd-rule-digit'));
+  if (policy.requireSymbol && !/[^A-Za-z0-9]/.test(candidate)) out.push(t('passwd-rule-symbol'));
   return out;
 }

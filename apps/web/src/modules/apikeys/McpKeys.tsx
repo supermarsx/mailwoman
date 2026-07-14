@@ -7,16 +7,15 @@
 //
 // EXPORTED for e11 to mount; does not touch the router or Settings.tsx.
 
-import { createSignal, For, Show, type JSX } from 'solid-js';
+import { createSignal, For, Show, onMount, type JSX } from 'solid-js';
+import { t, loadCatalog } from '../../i18n';
 import { ApiKeyService, type Fetcher } from './service.ts';
-import {
-  MCP_TOOLS,
-  UNATTENDED_SEND_DISCLOSURE,
-  readOnlyScope,
-  type ApiKeyScope,
-  type MintedKey,
-} from './types.ts';
+import { MCP_TOOLS, readOnlyScope, type ApiKeyScope, type MintedKey } from './types.ts';
 import * as css from './styles.css.ts';
+
+/** Fluent message id for an MCP tool's `field` (`label`/`desc`); ids use `-`. */
+const toolMessageId = (toolId: string, field: 'label' | 'desc'): string =>
+  `apikeys-tool-${toolId.replace(/\./g, '-')}-${field}`;
 
 export interface McpKeysProps {
   accountId: string;
@@ -35,8 +34,20 @@ function withTool(scope: ApiKeyScope, toolId: string, on: boolean, sends: boolea
 }
 
 export function McpKeys(props: McpKeysProps): JSX.Element {
+  onMount(() => void loadCatalog('apikeys'));
   const service = new ApiKeyService(props.fetcher);
   const [label, setLabel] = createSignal('');
+  const [copied, setCopied] = createSignal(false);
+
+  async function copySecret(secret: string): Promise<void> {
+    try {
+      await navigator.clipboard?.writeText(secret);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+
   const [scope, setScope] = createSignal<ApiKeyScope>({ ...readOnlyScope(props.accountId), mcpTools: [] });
   const [minted, setMinted] = createSignal<MintedKey | null>(null);
   const [busy, setBusy] = createSignal(false);
@@ -47,12 +58,13 @@ export function McpKeys(props: McpKeysProps): JSX.Element {
   async function onCreate(): Promise<void> {
     setError('');
     setMinted(null);
+    setCopied(false);
     if (label().trim() === '') {
-      setError('give the MCP key a label');
+      setError(t('apikeys-mcp-error-need-label'));
       return;
     }
     if (scope().mcpTools.length === 0) {
-      setError('grant at least one tool');
+      setError(t('apikeys-mcp-error-need-tool'));
       return;
     }
     setBusy(true);
@@ -61,45 +73,42 @@ export function McpKeys(props: McpKeysProps): JSX.Element {
       setLabel('');
       setScope({ ...readOnlyScope(props.accountId), mcpTools: [] });
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'could not create the MCP key');
+      setError(e instanceof Error ? e.message : t('apikeys-mcp-error-create'));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div class={css.panel} aria-label="MCP keys">
+    <div class={css.panel} aria-label={t('apikeys-mcp-panel-label')}>
       <section class={css.section}>
-        <h2 class={css.heading}>MCP keys</h2>
-        <p class={css.prose}>
-          Grant an AI agent (over the Model Context Protocol) exactly the tools you choose. Mail
-          bodies returned to the agent are labelled untrusted input. Each tool is granted
-          individually.
-        </p>
+        <h2 class={css.heading}>{t('apikeys-mcp-heading')}</h2>
+        <p class={css.prose}>{t('apikeys-mcp-intro')}</p>
 
         <label class={css.field}>
-          <span class={css.subHeading}>Label</span>
+          <span class={css.subHeading}>{t('apikeys-label')}</span>
           <input
             class={css.input}
             value={label()}
-            placeholder="e.g. assistant agent"
-            aria-label="MCP key label"
+            placeholder={t('apikeys-mcp-label-placeholder')}
+            aria-label={t('apikeys-mcp-label-aria')}
             onInput={(e) => setLabel(e.currentTarget.value)}
           />
         </label>
 
-        <span class={css.subHeading}>Tools</span>
-        <div class={css.grid} role="group" aria-label="MCP tools">
+        <span class={css.subHeading}>{t('apikeys-tools')}</span>
+        <div class={css.grid} role="group" aria-label={t('apikeys-tools-group')}>
           <For each={MCP_TOOLS}>
             {(tool) => (
-              <label class={css.check} title={tool.description}>
+              <label class={css.check} title={t(toolMessageId(tool.id, 'desc'))}>
                 <input
+                  class={css.checkbox}
                   type="checkbox"
                   checked={scope().mcpTools.includes(tool.id)}
                   onChange={(e) => setScope(withTool(scope(), tool.id, e.currentTarget.checked, tool.sends))}
                 />
-                {tool.label}
-                {tool.sends ? ' (Outbox-gated)' : ''}
+                {t(toolMessageId(tool.id, 'label'))}
+                {tool.sends ? ` ${t('apikeys-outbox-suffix')}` : ''}
               </label>
             )}
           </For>
@@ -108,39 +117,51 @@ export function McpKeys(props: McpKeysProps): JSX.Element {
         <Show when={sendGranted()}>
           <div class={css.field} data-testid="unattended-send-block">
             <p class={css.warn} data-testid="unattended-send-disclosure">
-              {UNATTENDED_SEND_DISCLOSURE}
+              {t('apikeys-unattended-disclosure')}
             </p>
             <label class={css.check}>
               <input
+                class={css.checkbox}
                 type="checkbox"
                 checked={scope().unattendedSend}
-                aria-label="Unattended send"
+                aria-label={t('apikeys-unattended-aria')}
                 onChange={(e) => setScope({ ...scope(), unattendedSend: e.currentTarget.checked })}
               />
-              Allow unattended send (bypass the Outbox — requires admin countersign)
+              {t('apikeys-unattended-allow')}
             </label>
           </div>
         </Show>
 
         <button type="button" class={css.button} disabled={busy()} onClick={() => void onCreate()}>
-          Create MCP key
+          {t('apikeys-mcp-create')}
         </button>
 
         <Show when={minted()}>
           {(m) => (
             <div class={css.field} data-testid="minted-mcp-key">
-              <p class={css.warn}>Copy this secret now — it is shown once.</p>
+              <p class={css.warn}>{t('apikeys-mcp-reveal-warning')}</p>
               <code class={css.token} data-testid="minted-mcp-token">
                 {m().displayToken}
               </code>
               <Show when={scope().unattendedSend || m().record.scope.unattendedSend}>
-                <p class={css.prose}>
-                  Unattended send stays inactive until an administrator countersigns this key.
-                </p>
+                <p class={css.prose}>{t('apikeys-unattended-pending')}</p>
               </Show>
-              <button type="button" class={css.ghost} onClick={() => setMinted(null)}>
-                I have saved it
-              </button>
+              <div class={css.row}>
+                <button
+                  type="button"
+                  class={css.ghost}
+                  aria-label={t('apikeys-copy-aria')}
+                  onClick={() => void copySecret(m().displayToken)}
+                >
+                  {t('apikeys-copy')}
+                </button>
+                <button type="button" class={css.ghost} onClick={() => setMinted(null)}>
+                  {t('apikeys-saved')}
+                </button>
+              </div>
+              <p class={css.copiedNote} role="status" aria-live="polite">
+                {copied() ? t('apikeys-copied') : ''}
+              </p>
             </div>
           )}
         </Show>

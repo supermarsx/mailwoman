@@ -8,20 +8,26 @@
 // EXPORTED for e11 to mount into Settings/an account screen — this file does NOT touch
 // the app router or Settings.tsx (ownership boundary, plan §3 e8).
 
-import { createSignal, createResource, Show, For, type JSX } from 'solid-js';
+import { createSignal, createResource, onMount, Show, For, type JSX } from 'solid-js';
 import { ZeroAccessService, type ZeroAccessAccount, type ZeroAccessSession } from './service.ts';
 import { DevicePairing } from './DevicePairing.tsx';
 import { passkeySupported, passkeySecretB64 } from './passkey.ts';
 import { utf8ToB64, type ZeroAccessCrypto } from './crypto.ts';
 import type { Fetcher } from './service.ts';
-import {
-  ZA_PROTECTS,
-  ZA_SERVER_STILL_SEES,
-  ZA_ACTIVE_SERVER_CAVEAT,
-  ZA_NO_SEARCH_CLAIM,
-  ZA_RECOVERY_TRADEOFF,
-} from './disclosure.ts';
+import { t, loadCatalog } from '../../i18n';
 import * as css from './styles.css.ts';
+
+// The honest zero-access disclosure copy is authored in `locales/en/security.ftl`
+// (security-za-*) and rendered via `t()`. Its English is byte-identical to the
+// canonical constants in `./disclosure.ts` — the honesty unit tests compare the two.
+// A list of the five "what the server still sees" ids, in display order.
+const ZA_SEES_IDS = [
+  'security-za-sees-1',
+  'security-za-sees-2',
+  'security-za-sees-3',
+  'security-za-sees-4',
+  'security-za-sees-5',
+] as const;
 
 export interface ZeroAccessSettingsProps {
   za: ZeroAccessCrypto;
@@ -33,6 +39,7 @@ export interface ZeroAccessSettingsProps {
 type SecretMode = 'passphrase' | 'passkey';
 
 export function ZeroAccessSettings(props: ZeroAccessSettingsProps): JSX.Element {
+  onMount(() => void loadCatalog('security'));
   const service = new ZeroAccessService(props.za, props.fetcher);
   const [status, { refetch }] = createResource<ZeroAccessAccount>(
     () => props.initialStatus ?? service.status(),
@@ -53,7 +60,7 @@ export function ZeroAccessSettings(props: ZeroAccessSettingsProps): JSX.Element 
       crypto.getRandomValues(challenge);
       return passkeySecretB64('', challenge);
     }
-    if (passphrase().length < 8) throw new Error('use a passphrase of at least 8 characters');
+    if (passphrase().length < 8) throw new Error(t('security-za-err-passphrase-len'));
     return utf8ToB64(passphrase());
   }
 
@@ -66,7 +73,7 @@ export function ZeroAccessSettings(props: ZeroAccessSettingsProps): JSX.Element 
       setRecovery(await service.recoveryPhrase(sess));
       await refetch();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'could not enable zero-access');
+      setError(e instanceof Error ? e.message : t('security-za-err-enable'));
     } finally {
       setBusy(false);
     }
@@ -81,7 +88,7 @@ export function ZeroAccessSettings(props: ZeroAccessSettingsProps): JSX.Element 
       setRecovery('');
       await refetch();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'could not disable zero-access');
+      setError(e instanceof Error ? e.message : t('security-za-err-disable'));
     } finally {
       setBusy(false);
     }
@@ -90,45 +97,45 @@ export function ZeroAccessSettings(props: ZeroAccessSettingsProps): JSX.Element 
   const enabled = (): boolean => status()?.enabled === true;
 
   return (
-    <div class={css.panel} aria-label="Zero-access storage">
+    <div class={css.panel} aria-label={t('security-za-title')}>
       <section class={css.section}>
         <div class={css.row}>
-          <h2 class={css.heading}>Zero-access storage</h2>
-          <Show when={enabled()} fallback={<span class={css.badgeOff}>Off</span>}>
-            <span class={css.badgeOn}>On</span>
+          <h2 class={css.heading}>{t('security-za-title')}</h2>
+          <Show when={enabled()} fallback={<span class={css.badgeOff}>{t('security-za-off')}</span>}>
+            <span class={css.badgeOn}>{t('security-za-on')}</span>
           </Show>
         </div>
-        <p class={css.prose}>{ZA_PROTECTS}</p>
+        <p class={css.prose}>{t('security-za-protects')}</p>
       </section>
 
       {/* HONEST disclosure — always shown, never softened (plan §1.4). */}
-      <section class={css.section} aria-label="What the server still sees">
-        <span class={css.subHeading}>What the server still sees</span>
+      <section class={css.section} aria-label={t('security-za-server-sees-title')}>
+        <span class={css.subHeading}>{t('security-za-server-sees-title')}</span>
         <ul class={css.list}>
-          <For each={ZA_SERVER_STILL_SEES}>{(item) => <li>{item}</li>}</For>
+          <For each={ZA_SEES_IDS}>{(id) => <li>{t(id)}</li>}</For>
         </ul>
         <p class={css.caveat} data-testid="active-server-caveat">
-          {ZA_ACTIVE_SERVER_CAVEAT}
+          {t('security-za-active-server-caveat')}
         </p>
         <p class={css.prose} data-testid="no-search-claim">
-          {ZA_NO_SEARCH_CLAIM}
+          {t('security-za-no-search-claim')}
         </p>
         <p class={css.prose} data-testid="recovery-tradeoff">
-          {ZA_RECOVERY_TRADEOFF}
+          {t('security-za-recovery-tradeoff')}
         </p>
       </section>
 
       <Show when={!enabled()}>
-        <section class={css.section} aria-label="Enable zero-access">
-          <span class={css.subHeading}>Set up your key</span>
-          <div class={css.row} role="group" aria-label="Key source">
+        <section class={css.section} aria-label={t('security-za-enable')}>
+          <span class={css.subHeading}>{t('security-za-setup-key')}</span>
+          <div class={css.row} role="group" aria-label={t('security-za-key-source')}>
             <button
               type="button"
               class={mode() === 'passphrase' ? css.button : css.buttonGhost}
               aria-pressed={mode() === 'passphrase'}
               onClick={() => setMode('passphrase')}
             >
-              Passphrase
+              {t('security-za-passphrase')}
             </button>
             <button
               type="button"
@@ -136,37 +143,34 @@ export function ZeroAccessSettings(props: ZeroAccessSettingsProps): JSX.Element 
               aria-pressed={mode() === 'passkey'}
               onClick={() => setMode('passkey')}
               disabled={!passkeySupported()}
-              title={passkeySupported() ? '' : 'passkeys are not available in this browser'}
+              title={passkeySupported() ? '' : t('security-za-passkey-unavailable')}
             >
-              Passkey (passwordless)
+              {t('security-za-passkey')}
             </button>
           </div>
           <Show when={mode() === 'passphrase'}>
             <label class={css.field}>
-              <span class={css.subHeading}>Passphrase</span>
+              <span class={css.subHeading}>{t('security-za-passphrase')}</span>
               <input
                 class={css.input}
                 type="password"
                 autocomplete="new-password"
                 value={passphrase()}
                 onInput={(e) => setPassphrase(e.currentTarget.value)}
-                aria-label="Zero-access passphrase"
+                aria-label={t('security-za-passphrase-label')}
               />
             </label>
           </Show>
           <button type="button" class={css.button} disabled={busy()} onClick={() => void onEnable()}>
-            Enable zero-access
+            {t('security-za-enable')}
           </button>
         </section>
       </Show>
 
       <Show when={recovery() !== ''}>
-        <section class={css.section} aria-label="Recovery phrase">
-          <span class={css.subHeading}>Recovery phrase — save this offline now</span>
-          <p class={css.prose}>
-            This is the only copy. Anyone who has it can read your data; without it (and without a
-            paired device) your data cannot be recovered.
-          </p>
+        <section class={css.section} aria-label={t('security-za-recovery-title')}>
+          <span class={css.subHeading}>{t('security-za-recovery-heading')}</span>
+          <p class={css.prose}>{t('security-za-recovery-note')}</p>
           <div class={css.phrase} data-testid="recovery-phrase">
             {recovery()}
           </div>
@@ -175,14 +179,11 @@ export function ZeroAccessSettings(props: ZeroAccessSettingsProps): JSX.Element 
 
       <Show when={enabled()}>
         <DevicePairing za={props.za} rootRef={session()?.rootRef} fetcher={props.fetcher} />
-        <section class={css.section} aria-label="Disable zero-access">
-          <span class={css.subHeading}>Turn off zero-access</span>
-          <p class={css.prose}>
-            New data will be stored unencrypted again. Existing encrypted data stays readable only
-            while you can still derive your key.
-          </p>
+        <section class={css.section} aria-label={t('security-za-disable-section')}>
+          <span class={css.subHeading}>{t('security-za-disable-heading')}</span>
+          <p class={css.prose}>{t('security-za-disable-note')}</p>
           <button type="button" class={css.danger} disabled={busy()} onClick={() => void onDisable()}>
-            Disable zero-access
+            {t('security-za-disable-btn')}
           </button>
         </section>
       </Show>

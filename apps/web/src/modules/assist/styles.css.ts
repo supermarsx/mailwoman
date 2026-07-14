@@ -47,6 +47,10 @@ export const input = style({
   font: 'inherit',
   fontSize: '0.9rem',
   minWidth: 0,
+  minHeight: vars.a11y.touchTarget,
+  selectors: {
+    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+  },
 });
 
 export const button = style({
@@ -60,7 +64,11 @@ export const button = style({
   font: 'inherit',
   fontSize: '0.9rem',
   fontWeight: 600,
-  selectors: { '&:disabled': { opacity: 0.5, cursor: 'not-allowed' } },
+  minHeight: vars.a11y.touchTarget,
+  selectors: {
+    '&:disabled': { opacity: 0.5, cursor: 'not-allowed' },
+    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+  },
 });
 
 export const ghost = style({
@@ -73,7 +81,11 @@ export const ghost = style({
   padding: `${vars.space[2]} ${vars.space[3]}`,
   font: 'inherit',
   fontSize: '0.85rem',
-  selectors: { '&:disabled': { opacity: 0.5, cursor: 'not-allowed' } },
+  minHeight: vars.a11y.touchTarget,
+  selectors: {
+    '&:disabled': { opacity: 0.5, cursor: 'not-allowed' },
+    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+  },
 });
 
 // The push-to-talk dictation trigger; `active` is toggled while recording.
@@ -88,6 +100,10 @@ export const mic = style({
   font: 'inherit',
   fontSize: '0.85rem',
   fontWeight: 600,
+  minHeight: vars.a11y.touchTarget,
+  selectors: {
+    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+  },
 });
 export const micActive = style({
   background: vars.color.danger,

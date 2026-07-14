@@ -6,10 +6,11 @@
 //
 // HARD RULE (§14, R4): when the gateway is `disabled` the panel renders NOTHING.
 
-import { createSignal, For, Show, type JSX } from 'solid-js';
+import { createSignal, For, onMount, Show, type JSX } from 'solid-js';
 import { AssistService } from './service.ts';
 import { Disclosure } from './Disclosure.tsx';
 import { hasCapability, type AssistConfig, type ChatMessage, type ContextItem, type ProposedAction } from './types.ts';
+import { t, loadCatalog } from '../../i18n';
 import * as css from './styles.css.ts';
 
 let msgSeq = 0;
@@ -32,6 +33,7 @@ export interface AssistPanelProps {
 }
 
 export function AssistPanel(props: AssistPanelProps): JSX.Element {
+  onMount(() => void loadCatalog('assist'));
   const enabled = (): boolean => hasCapability(props.config, 'assistant');
   const [messages, setMessages] = createSignal<ChatMessage[]>([]);
   const [draft, setDraft] = createSignal('');
@@ -56,7 +58,7 @@ export function AssistPanel(props: AssistPanelProps): JSX.Element {
         { id: nextId(), role: 'assistant', text: result.text, actions: result.actions },
       ]);
     } catch {
-      setError('The assistant could not respond just now.');
+      setError(t('assist-error'));
     } finally {
       setBusy(false);
     }
@@ -65,26 +67,28 @@ export function AssistPanel(props: AssistPanelProps): JSX.Element {
   // Render NOTHING when the assistant capability is not available (§14 hard-hide).
   return (
     <Show when={enabled()}>
-      <section class={css.panel} data-module="assist" aria-label="Assist">
+      <section class={css.panel} data-module="assist" aria-label={t('assist-panel-label')}>
         <div class={css.section}>
-          <h2 class={css.heading}>Assistant</h2>
+          <h2 class={css.heading}>{t('assist-heading')}</h2>
           <Disclosure config={props.config} collapsible />
 
-          <div class={css.transcript} role="log" aria-label="Assistant conversation">
+          <div class={css.transcript} role="log" aria-label={t('assist-transcript-label')}>
             <For each={messages()}>
               {(m) => (
                 <div class={m.role === 'user' ? css.bubbleUser : css.bubbleAssistant} data-role={m.role}>
-                  <p class={css.prose}>{m.text}</p>
+                  {/* Model / user text — `dir="auto"` isolates its bidi run. */}
+                  <p class={css.prose} dir="auto">
+                    {m.text}
+                  </p>
                   <For each={m.actions ?? []}>
                     {(action) => (
                       <div class={css.proposal} data-testid="proposed-action">
-                        <span class={css.subHeading}>Proposed action</span>
-                        <p class={css.prose}>{action.summary}</p>
+                        <span class={css.subHeading}>{t('assist-proposed-action')}</span>
+                        <p class={css.prose} dir="auto">
+                          {action.summary}
+                        </p>
                         <Show when={action.wouldSend}>
-                          <p class={css.meta}>
-                            This would place a message in your Outbox. Nothing is sent until you confirm it
-                            there.
-                          </p>
+                          <p class={css.meta}>{t('assist-outbox-note')}</p>
                         </Show>
                         <div class={css.row}>
                           {/* Review only — the assistant never sends. The label is
@@ -95,7 +99,7 @@ export function AssistPanel(props: AssistPanelProps): JSX.Element {
                             disabled={props.onReviewAction === undefined}
                             onClick={() => props.onReviewAction?.(action)}
                           >
-                            {action.wouldSend ? 'Review in Outbox' : 'Review'}
+                            {action.wouldSend ? t('assist-review-outbox') : t('assist-review')}
                           </button>
                         </div>
                       </div>
@@ -105,8 +109,7 @@ export function AssistPanel(props: AssistPanelProps): JSX.Element {
               )}
             </For>
             <Show when={messages().length === 0}>
-              <p class={css.meta}>Ask the assistant to summarise, draft, or find things. It can propose
-                actions, but you always confirm them yourself.</p>
+              <p class={css.meta}>{t('assist-empty')}</p>
             </Show>
           </div>
 
@@ -126,14 +129,14 @@ export function AssistPanel(props: AssistPanelProps): JSX.Element {
             <input
               class={css.input}
               style={{ flex: '1 1 auto' }}
-              aria-label="Message the assistant"
-              placeholder="Ask the assistant…"
+              aria-label={t('assist-input-label')}
+              placeholder={t('assist-input-placeholder')}
               value={draft()}
               onInput={(e) => setDraft(e.currentTarget.value)}
               disabled={busy()}
             />
             <button type="submit" class={css.button} disabled={busy() || draft().trim().length === 0}>
-              {busy() ? 'Thinking…' : 'Ask'}
+              {busy() ? t('assist-thinking') : t('assist-ask')}
             </button>
           </form>
         </div>

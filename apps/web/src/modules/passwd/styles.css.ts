@@ -37,6 +37,12 @@ export const input = style({
   color: vars.color.text,
   font: 'inherit',
   fontSize: '0.9rem',
+  minHeight: vars.a11y.touchTarget,
+  transitionProperty: 'box-shadow, border-color',
+  transitionDuration: vars.a11y.motionDuration,
+  selectors: {
+    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+  },
 });
 
 export const policyList = style({
@@ -60,7 +66,13 @@ export const button = style({
   font: 'inherit',
   fontSize: '0.9rem',
   fontWeight: 600,
-  selectors: { '&:disabled': { opacity: 0.5, cursor: 'not-allowed' } },
+  minHeight: vars.a11y.touchTarget,
+  transitionProperty: 'box-shadow, background, border-color',
+  transitionDuration: vars.a11y.motionDuration,
+  selectors: {
+    '&:disabled': { opacity: 0.5, cursor: 'not-allowed' },
+    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+  },
 });
 
 export const ghost = style({
@@ -73,6 +85,12 @@ export const ghost = style({
   padding: `${vars.space[2]} ${vars.space[4]}`,
   font: 'inherit',
   fontSize: '0.9rem',
+  minHeight: vars.a11y.touchTarget,
+  transitionProperty: 'box-shadow, background, border-color',
+  transitionDuration: vars.a11y.motionDuration,
+  selectors: {
+    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+  },
 });
 
 export const check = style({
@@ -82,6 +100,20 @@ export const check = style({
   fontSize: '0.88rem',
   cursor: 'pointer',
   lineHeight: 1.4,
+});
+
+// The checkbox control itself: meet the 24×24 minimum target (WCAG 2.2 §2.5.8)
+// and carry the shared focus ring.
+export const checkbox = style({
+  width: vars.a11y.touchTarget,
+  height: vars.a11y.touchTarget,
+  minWidth: vars.a11y.touchTarget,
+  minHeight: vars.a11y.touchTarget,
+  margin: 0,
+  cursor: 'pointer',
+  selectors: {
+    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+  },
 });
 
 export const phrase = style({

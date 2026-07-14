@@ -4,7 +4,8 @@
 //
 // EXPORTED for e11 to mount; this file does not touch the router or Settings.tsx.
 
-import { createSignal, createResource, For, Show, type JSX } from 'solid-js';
+import { createSignal, createResource, For, Show, onMount, type JSX } from 'solid-js';
+import { t, isolate, loadCatalog } from '../../i18n';
 import { ApiKeyService, type Fetcher } from './service.ts';
 import { ScopeBuilder, summarizeScope } from './ScopeBuilder.tsx';
 import { readOnlyScope, type ApiKeyRecord, type ApiKeyScope, type MintedKey } from './types.ts';
@@ -18,6 +19,7 @@ export interface ApiKeysProps {
 }
 
 export function ApiKeys(props: ApiKeysProps): JSX.Element {
+  onMount(() => void loadCatalog('apikeys'));
   const service = new ApiKeyService(props.fetcher);
   const [keys, { refetch }] = createResource<ApiKeyRecord[]>(() => props.initialKeys ?? service.list());
 
@@ -26,12 +28,23 @@ export function ApiKeys(props: ApiKeysProps): JSX.Element {
   const [minted, setMinted] = createSignal<MintedKey | null>(null);
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal('');
+  const [copied, setCopied] = createSignal(false);
+
+  async function copySecret(secret: string): Promise<void> {
+    try {
+      await navigator.clipboard?.writeText(secret);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
 
   async function onCreate(): Promise<void> {
     setError('');
     setMinted(null);
+    setCopied(false);
     if (label().trim() === '') {
-      setError('give the key a label so you can recognise it later');
+      setError(t('apikeys-error-need-label'));
       return;
     }
     setBusy(true);
@@ -42,7 +55,7 @@ export function ApiKeys(props: ApiKeysProps): JSX.Element {
       setScope(readOnlyScope(props.accountId));
       await refetch();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'could not create the key');
+      setError(e instanceof Error ? e.message : t('apikeys-error-create'));
     } finally {
       setBusy(false);
     }
@@ -54,26 +67,23 @@ export function ApiKeys(props: ApiKeysProps): JSX.Element {
       await service.revoke(prefix);
       await refetch();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'could not revoke the key');
+      setError(e instanceof Error ? e.message : t('apikeys-error-revoke'));
     }
   }
 
   return (
-    <div class={css.panel} aria-label="API keys">
+    <div class={css.panel} aria-label={t('apikeys-panel-label')}>
       <section class={css.section}>
-        <h2 class={css.heading}>API keys</h2>
-        <p class={css.prose}>
-          Create scoped keys for scripts and integrations. Each key is hashed at rest, shown once,
-          and individually revocable. Grant the least scope that works.
-        </p>
+        <h2 class={css.heading}>{t('apikeys-heading')}</h2>
+        <p class={css.prose}>{t('apikeys-intro')}</p>
 
         <label class={css.field}>
-          <span class={css.subHeading}>Label</span>
+          <span class={css.subHeading}>{t('apikeys-label')}</span>
           <input
             class={css.input}
             value={label()}
-            placeholder="e.g. backup script"
-            aria-label="Key label"
+            placeholder={t('apikeys-label-placeholder')}
+            aria-label={t('apikeys-label-aria')}
             onInput={(e) => setLabel(e.currentTarget.value)}
           />
         </label>
@@ -81,21 +91,32 @@ export function ApiKeys(props: ApiKeysProps): JSX.Element {
         <ScopeBuilder scope={scope()} onChange={setScope} />
 
         <button type="button" class={css.button} disabled={busy()} onClick={() => void onCreate()}>
-          Create key
+          {t('apikeys-create')}
         </button>
 
         <Show when={minted()}>
           {(m) => (
             <div class={css.field} data-testid="minted-key">
-              <p class={css.warn}>
-                Copy this secret now — it is shown once and cannot be retrieved again.
-              </p>
+              <p class={css.warn}>{t('apikeys-reveal-warning')}</p>
               <code class={css.token} data-testid="minted-token">
                 {m().displayToken}
               </code>
-              <button type="button" class={css.ghost} onClick={() => setMinted(null)}>
-                I have saved it
-              </button>
+              <div class={css.row}>
+                <button
+                  type="button"
+                  class={css.ghost}
+                  aria-label={t('apikeys-copy-aria')}
+                  onClick={() => void copySecret(m().displayToken)}
+                >
+                  {t('apikeys-copy')}
+                </button>
+                <button type="button" class={css.ghost} onClick={() => setMinted(null)}>
+                  {t('apikeys-saved')}
+                </button>
+              </div>
+              <p class={css.copiedNote} role="status" aria-live="polite">
+                {copied() ? t('apikeys-copied') : ''}
+              </p>
             </div>
           )}
         </Show>
@@ -107,29 +128,36 @@ export function ApiKeys(props: ApiKeysProps): JSX.Element {
         </Show>
       </section>
 
-      <section class={css.section} aria-label="Existing keys">
-        <span class={css.subHeading}>Existing keys</span>
-        <Show when={(keys() ?? []).length > 0} fallback={<p class={css.prose}>No keys yet.</p>}>
+      <section class={css.section} aria-label={t('apikeys-existing-label')}>
+        <span class={css.subHeading}>{t('apikeys-existing')}</span>
+        <Show when={(keys() ?? []).length > 0} fallback={<p class={css.prose}>{t('apikeys-none')}</p>}>
           <ul class={css.keyList}>
             <For each={keys()}>
               {(k) => (
                 <li class={k.revokedAt ? `${css.keyItem} ${css.revoked}` : css.keyItem}>
                   <div class={css.field}>
-                    <strong>{k.label}</strong>
+                    <strong>{isolate(k.label)}</strong>
                     <span class={css.meta}>
                       mwk_{k.prefix} · {summarizeScope(k.scope).join(' · ')}
                     </span>
                     <span class={css.meta}>
-                      created {k.createdAt}
-                      {k.lastUsedAt ? ` · last used ${k.lastUsedAt}` : ' · never used'}
-                      {k.revokedAt ? ` · revoked ${k.revokedAt}` : ''}
+                      {t('apikeys-created', { date: isolate(k.createdAt) })}
+                      {k.lastUsedAt
+                        ? ` · ${t('apikeys-last-used', { date: isolate(k.lastUsedAt) })}`
+                        : ` · ${t('apikeys-never-used')}`}
+                      {k.revokedAt ? ` · ${t('apikeys-revoked-at', { date: isolate(k.revokedAt) })}` : ''}
                     </span>
                   </div>
-                  <Show when={!k.revokedAt}>
-                    <button type="button" class={css.danger} onClick={() => void onRevoke(k.prefix)}>
-                      Revoke
-                    </button>
-                  </Show>
+                  <div class={css.row}>
+                    <span class={k.revokedAt ? css.statusRevoked : css.statusActive}>
+                      {k.revokedAt ? t('apikeys-status-revoked') : t('apikeys-status-active')}
+                    </span>
+                    <Show when={!k.revokedAt}>
+                      <button type="button" class={css.danger} onClick={() => void onRevoke(k.prefix)}>
+                        {t('apikeys-revoke')}
+                      </button>
+                    </Show>
+                  </div>
                 </li>
               )}
             </For>

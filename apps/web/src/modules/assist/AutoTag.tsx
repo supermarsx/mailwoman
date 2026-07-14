@@ -6,8 +6,9 @@
 // The Assist UI never mutates mail itself — it calls `onApply`/`onRevert` (the mail
 // slice owns keyword mutation) and `onAudit` (the audit trail). No send path.
 
-import { createEffect, createSignal, For, Show, type JSX } from 'solid-js';
+import { createEffect, createSignal, For, onMount, Show, type JSX } from 'solid-js';
 import { hasCapability, type AssistConfig, type AutoTagMode, type TagAuditEntry, type TagSuggestion } from './types.ts';
+import { t, loadCatalog } from '../../i18n';
 import * as css from './styles.css.ts';
 
 let auditSeq = 0;
@@ -33,6 +34,7 @@ export interface AutoTagProps {
 }
 
 export function AutoTag(props: AutoTagProps): JSX.Element {
+  onMount(() => void loadCatalog('assist'));
   const [applied, setApplied] = createSignal<Set<string>>(new Set());
   // Suggestions already handled (suggested/auto-applied) so a manual revert is not
   // undone by the effect re-running, and each suggestion is audited exactly once.
@@ -82,16 +84,16 @@ export function AutoTag(props: AutoTagProps): JSX.Element {
 
   return (
     <Show when={hasCapability(props.config, 'auto-tag') && props.suggestions.length > 0}>
-      <div class={css.field} data-module="assist-autotag" aria-label="Suggested labels">
+      <div class={css.field} data-module="assist-autotag" aria-label={t('assist-autotag-label')}>
         <div class={css.row}>
-          <span class={css.subHeading}>Suggested labels</span>
+          <span class={css.subHeading}>{t('assist-autotag-label')}</span>
           <label class={css.check}>
             <input
               type="checkbox"
               checked={mode() === 'auto'}
               onChange={(e) => props.onModeChange?.(e.currentTarget.checked ? 'auto' : 'suggest')}
             />
-            <span>Apply automatically</span>
+            <span>{t('assist-apply-auto')}</span>
           </label>
         </div>
 
@@ -99,7 +101,8 @@ export function AutoTag(props: AutoTagProps): JSX.Element {
           <For each={props.suggestions}>
             {(s) => (
               <span class={css.badge} data-testid="tag-suggestion">
-                <span>{s.label}</span>
+                {/* Model-proposed label — `dir="auto"` isolates its bidi run. */}
+                <span dir="auto">{s.label}</span>
                 <span class={css.meta}>{Math.round(s.confidence * 100)}%</span>
                 <Show
                   when={!applied().has(s.keyword)}
@@ -107,20 +110,20 @@ export function AutoTag(props: AutoTagProps): JSX.Element {
                     <button
                       type="button"
                       class={css.ghost}
-                      aria-label={`Remove ${s.label}`}
+                      aria-label={t('assist-remove-label', { label: s.label })}
                       onClick={() => revert(s.keyword)}
                     >
-                      Undo
+                      {t('assist-undo')}
                     </button>
                   }
                 >
                   <button
                     type="button"
                     class={css.ghost}
-                    aria-label={`Apply ${s.label}`}
+                    aria-label={t('assist-apply-label', { label: s.label })}
                     onClick={() => apply(s.keyword, 'user')}
                   >
-                    Apply
+                    {t('assist-apply')}
                   </button>
                 </Show>
               </span>

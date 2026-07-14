@@ -3,8 +3,9 @@
 // EXPORTED for e14 to wire into the composer's "share instead of attach" path (large
 // attachments). The created link is inserted into the draft body by the caller.
 
-import { createSignal, Show, type JSX } from 'solid-js';
+import { createSignal, onMount, Show, type JSX } from 'solid-js';
 import { NextcloudService, type Fetcher, type ShareLink } from './service.ts';
+import { t, loadCatalog, isolate } from '../../i18n';
 import * as css from './styles.css.ts';
 
 export interface ShareLinkComposerProps {
@@ -17,6 +18,7 @@ export interface ShareLinkComposerProps {
 }
 
 export function ShareLinkComposer(props: ShareLinkComposerProps): JSX.Element {
+  onMount(() => void loadCatalog('nextcloud'));
   const service = props.service ?? new NextcloudService(props.fetcher);
   const [withPassword, setWithPassword] = createSignal(false);
   const [password, setPassword] = createSignal('');
@@ -29,11 +31,11 @@ export function ShareLinkComposer(props: ShareLinkComposerProps): JSX.Element {
   async function create(): Promise<void> {
     setError('');
     if (withPassword() && password().trim() === '') {
-      setError('enter a password or turn password protection off');
+      setError(t('nextcloud-error-need-password'));
       return;
     }
     if (withExpiry() && expiresAt() === '') {
-      setError('pick an expiry date or turn expiry off');
+      setError(t('nextcloud-error-need-expiry'));
       return;
     }
     setBusy(true);
@@ -46,33 +48,33 @@ export function ShareLinkComposer(props: ShareLinkComposerProps): JSX.Element {
       setLink(created);
       props.onCreated(created);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'could not create the share link');
+      setError(e instanceof Error ? e.message : t('nextcloud-error-share-failed'));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div class={css.panel} data-module="nextcloud" aria-label="Create share link">
-      <h2 class={css.heading}>Share link</h2>
-      <p class={css.meta}>Create a public link to {props.path} instead of attaching the file.</p>
+    <div class={css.panel} data-module="nextcloud" aria-label={t('nextcloud-share-panel-label')}>
+      <h2 class={css.heading}>{t('nextcloud-share-title')}</h2>
+      <p class={css.meta}>{t('nextcloud-share-intro', { path: isolate(props.path) })}</p>
 
       <label class={css.check}>
         <input
           type="checkbox"
-          aria-label="Protect with a password"
+          aria-label={t('nextcloud-protect-password')}
           checked={withPassword()}
           onChange={(e) => setWithPassword(e.currentTarget.checked)}
         />
-        <span>Protect with a password</span>
+        <span>{t('nextcloud-protect-password')}</span>
       </label>
       <Show when={withPassword()}>
         <label class={css.field}>
-          <span class={css.label}>Password</span>
+          <span class={css.label}>{t('nextcloud-password-label')}</span>
           <input
             class={css.input}
             type="password"
-            aria-label="Share password"
+            aria-label={t('nextcloud-share-password')}
             value={password()}
             onInput={(e) => setPassword(e.currentTarget.value)}
           />
@@ -82,19 +84,19 @@ export function ShareLinkComposer(props: ShareLinkComposerProps): JSX.Element {
       <label class={css.check}>
         <input
           type="checkbox"
-          aria-label="Set an expiry date"
+          aria-label={t('nextcloud-set-expiry')}
           checked={withExpiry()}
           onChange={(e) => setWithExpiry(e.currentTarget.checked)}
         />
-        <span>Set an expiry date</span>
+        <span>{t('nextcloud-set-expiry')}</span>
       </label>
       <Show when={withExpiry()}>
         <label class={css.field}>
-          <span class={css.label}>Expires on</span>
+          <span class={css.label}>{t('nextcloud-expires-on')}</span>
           <input
             class={css.input}
             type="date"
-            aria-label="Expiry date"
+            aria-label={t('nextcloud-expiry-date')}
             value={expiresAt()}
             onInput={(e) => setExpiresAt(e.currentTarget.value)}
           />
@@ -102,7 +104,7 @@ export function ShareLinkComposer(props: ShareLinkComposerProps): JSX.Element {
       </Show>
 
       <button type="button" class={css.button} disabled={busy()} onClick={() => void create()}>
-        Create link
+        {t('nextcloud-create-link')}
       </button>
 
       <Show when={link()}>
@@ -112,8 +114,9 @@ export function ShareLinkComposer(props: ShareLinkComposerProps): JSX.Element {
               {l().url}
             </code>
             <p class={css.meta}>
-              {l().passwordProtected ? 'Password-protected' : 'No password'}
-              {l().expiresAt ? ` · expires ${l().expiresAt}` : ' · no expiry'}
+              {l().passwordProtected ? t('nextcloud-password-protected') : t('nextcloud-no-password')}
+              {' · '}
+              {l().expiresAt ? t('nextcloud-expires', { date: l().expiresAt ?? '' }) : t('nextcloud-no-expiry')}
             </p>
           </div>
         )}

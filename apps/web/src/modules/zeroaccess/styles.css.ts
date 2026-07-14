@@ -86,6 +86,10 @@ export const input = style({
   color: vars.color.text,
   font: 'inherit',
   fontSize: '0.9rem',
+  minHeight: vars.a11y.touchTarget,
+  selectors: {
+    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+  },
 });
 
 export const button = style({
@@ -99,8 +103,10 @@ export const button = style({
   font: 'inherit',
   fontSize: '0.9rem',
   fontWeight: 600,
+  minHeight: vars.a11y.touchTarget,
   selectors: {
     '&:disabled': { opacity: 0.5, cursor: 'not-allowed' },
+    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
   },
 });
 
@@ -114,6 +120,10 @@ export const buttonGhost = style({
   padding: `${vars.space[2]} ${vars.space[4]}`,
   font: 'inherit',
   fontSize: '0.9rem',
+  minHeight: vars.a11y.touchTarget,
+  selectors: {
+    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+  },
 });
 
 export const danger = style({
@@ -127,6 +137,10 @@ export const danger = style({
   font: 'inherit',
   fontSize: '0.9rem',
   fontWeight: 600,
+  minHeight: vars.a11y.touchTarget,
+  selectors: {
+    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+  },
 });
 
 export const phrase = style({

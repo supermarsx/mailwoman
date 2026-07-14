@@ -7,11 +7,12 @@
 // The user compares the six SAS words on both screens; a match authenticates the
 // channel and defeats a machine-in-the-middle relay. The server only relays ciphertext.
 
-import { createSignal, Show, For, type JSX } from 'solid-js';
+import { createSignal, onMount, Show, For, type JSX } from 'solid-js';
 import { Qr } from './Qr.tsx';
 import { PairingService, sasMatches, type PairingOffer } from './pairing.ts';
 import type { ZeroAccessCrypto, ZaKeyRef } from './crypto.ts';
 import type { Fetcher } from './service.ts';
+import { t, loadCatalog } from '../../i18n';
 import * as css from './styles.css.ts';
 
 export interface DevicePairingProps {
@@ -25,6 +26,7 @@ export interface DevicePairingProps {
 type Role = 'new' | 'existing';
 
 export function DevicePairing(props: DevicePairingProps): JSX.Element {
+  onMount(() => void loadCatalog('security'));
   const service = new PairingService(props.za, props.fetcher);
   const [role, setRole] = createSignal<Role>(props.rootRef ? 'existing' : 'new');
   const [offer, setOffer] = createSignal<PairingOffer | null>(null);
@@ -40,7 +42,7 @@ export function DevicePairing(props: DevicePairingProps): JSX.Element {
     try {
       setOffer(await service.createOffer());
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'could not start pairing');
+      setError(e instanceof Error ? e.message : t('security-pair-err-start'));
     }
   }
 
@@ -53,14 +55,14 @@ export function DevicePairing(props: DevicePairingProps): JSX.Element {
       setSas(done.sasWords);
       props.onPaired?.(done.rootRef);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'could not complete pairing');
+      setError(e instanceof Error ? e.message : t('security-pair-err-complete'));
     }
   }
 
   async function sealFromExisting(): Promise<void> {
     setError('');
     if (props.rootRef === undefined) {
-      setError('unlock zero-access first to pair another device');
+      setError(t('security-pair-err-unlock'));
       return;
     }
     try {
@@ -68,26 +70,23 @@ export function DevicePairing(props: DevicePairingProps): JSX.Element {
       setEnvelopeOut(sealed.envelopeB64);
       setSas(sealed.sasWords);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'could not seal the root key');
+      setError(e instanceof Error ? e.message : t('security-pair-err-seal'));
     }
   }
 
   return (
-    <section class={css.section} aria-label="Device pairing">
-      <h3 class={css.heading}>Pair a device</h3>
-      <p class={css.prose}>
-        Move your keys to another device without sending them through the server — it relays only an
-        opaque sealed envelope. Compare the six words on both screens before trusting the pairing.
-      </p>
+    <section class={css.section} aria-label={t('security-pair-title')}>
+      <h3 class={css.heading}>{t('security-pair-heading')}</h3>
+      <p class={css.prose}>{t('security-pair-intro')}</p>
 
-      <div class={css.row} role="group" aria-label="Pairing role">
+      <div class={css.row} role="group" aria-label={t('security-pair-role')}>
         <button
           type="button"
           class={role() === 'new' ? css.button : css.buttonGhost}
           aria-pressed={role() === 'new'}
           onClick={() => setRole('new')}
         >
-          This is the new device
+          {t('security-pair-new-role')}
         </button>
         <button
           type="button"
@@ -95,7 +94,7 @@ export function DevicePairing(props: DevicePairingProps): JSX.Element {
           aria-pressed={role() === 'existing'}
           onClick={() => setRole('existing')}
         >
-          Pair another device from here
+          {t('security-pair-existing-role')}
         </button>
       </div>
 
@@ -105,26 +104,26 @@ export function DevicePairing(props: DevicePairingProps): JSX.Element {
             when={offer()}
             fallback={
               <button type="button" class={css.button} onClick={() => void startNewDevice()}>
-                Show pairing QR
+                {t('security-pair-show-qr')}
               </button>
             }
           >
             {(o) => (
               <>
-                <span class={css.subHeading}>Scan this on your existing device</span>
-                <Qr value={o().publicB64} label="Device pairing QR code" />
+                <span class={css.subHeading}>{t('security-pair-scan')}</span>
+                <Qr value={o().publicB64} label={t('security-pair-qr-label')} />
                 <label class={css.field}>
-                  <span class={css.subHeading}>Or copy this pairing code</span>
+                  <span class={css.subHeading}>{t('security-pair-copy-code')}</span>
                   <input class={css.input} readOnly value={o().publicB64} data-testid="offer-public" />
                 </label>
                 <label class={css.field}>
-                  <span class={css.subHeading}>Paste the sealed envelope from the other device</span>
+                  <span class={css.subHeading}>{t('security-pair-paste-envelope')}</span>
                   <input
                     class={css.input}
                     value={envelopeIn()}
-                    placeholder="envelope…"
+                    placeholder={t('security-pair-envelope-placeholder')}
                     onInput={(e) => setEnvelopeIn(e.currentTarget.value)}
-                    aria-label="Sealed envelope"
+                    aria-label={t('security-pair-envelope-label')}
                   />
                 </label>
                 <button
@@ -133,7 +132,7 @@ export function DevicePairing(props: DevicePairingProps): JSX.Element {
                   disabled={envelopeIn().trim() === ''}
                   onClick={() => void completeNewDevice()}
                 >
-                  Complete pairing
+                  {t('security-pair-complete')}
                 </button>
               </>
             )}
@@ -144,13 +143,13 @@ export function DevicePairing(props: DevicePairingProps): JSX.Element {
       <Show when={role() === 'existing'}>
         <div class={css.field}>
           <label class={css.field}>
-            <span class={css.subHeading}>Pairing code from the new device</span>
+            <span class={css.subHeading}>{t('security-pair-code-from-new')}</span>
             <input
               class={css.input}
               value={peerPublic()}
-              placeholder="pairing code…"
+              placeholder={t('security-pair-code-placeholder')}
               onInput={(e) => setPeerPublic(e.currentTarget.value)}
-              aria-label="Pairing code"
+              aria-label={t('security-pair-code-label')}
             />
           </label>
           <button
@@ -159,11 +158,11 @@ export function DevicePairing(props: DevicePairingProps): JSX.Element {
             disabled={peerPublic().trim() === ''}
             onClick={() => void sealFromExisting()}
           >
-            Seal my keys for that device
+            {t('security-pair-seal')}
           </button>
           <Show when={envelopeOut() !== ''}>
             <label class={css.field}>
-              <span class={css.subHeading}>Sealed envelope — paste this on the new device</span>
+              <span class={css.subHeading}>{t('security-pair-envelope-out')}</span>
               <input class={css.input} readOnly value={envelopeOut()} data-testid="envelope-out" />
             </label>
           </Show>
@@ -173,8 +172,8 @@ export function DevicePairing(props: DevicePairingProps): JSX.Element {
       <Show when={sas()}>
         {(words) => (
           <div class={css.field} data-testid="sas-block">
-            <span class={css.subHeading}>Compare these words on both devices</span>
-            <div class={css.sasGrid} aria-label="Short authentication string">
+            <span class={css.subHeading}>{t('security-pair-compare')}</span>
+            <div class={css.sasGrid} aria-label={t('security-pair-sas-label')}>
               <For each={words()}>{(w) => <span class={css.sasWord}>{w}</span>}</For>
             </div>
             <div class={css.row}>
@@ -184,15 +183,15 @@ export function DevicePairing(props: DevicePairingProps): JSX.Element {
                 onClick={() => setConfirmed(true)}
                 disabled={confirmed()}
               >
-                The words match
+                {t('security-pair-match')}
               </button>
               <button type="button" class={css.danger} onClick={() => setSas(null)}>
-                They differ — abort
+                {t('security-pair-abort')}
               </button>
             </div>
             <Show when={confirmed()}>
               <p class={css.prose} data-testid="pairing-confirmed">
-                Pairing confirmed. This channel is authenticated.
+                {t('security-pair-confirmed')}
               </p>
             </Show>
           </div>

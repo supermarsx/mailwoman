@@ -3,8 +3,9 @@
 // only rendered when the `search-semantic` capability is granted; enabling it means
 // the query text is embedded via the Assist endpoint, so the disclosure says so.
 
-import { Show, type JSX } from 'solid-js';
+import { onMount, Show, type JSX } from 'solid-js';
 import { hasCapability, type AssistConfig } from './types.ts';
+import { t, loadCatalog } from '../../i18n';
 import * as css from './styles.css.ts';
 
 export interface SemanticSearchToggleProps {
@@ -14,6 +15,7 @@ export interface SemanticSearchToggleProps {
 }
 
 export function SemanticSearchToggle(props: SemanticSearchToggleProps): JSX.Element {
+  onMount(() => void loadCatalog('assist'));
   return (
     <Show when={hasCapability(props.config, 'search-semantic')}>
       <label class={css.check} data-module="assist-semantic-search">
@@ -22,9 +24,9 @@ export function SemanticSearchToggle(props: SemanticSearchToggleProps): JSX.Elem
           checked={props.enabled}
           onChange={(e) => props.onChange(e.currentTarget.checked)}
         />
-        <span>Semantic search</span>
+        <span>{t('assist-semantic-label')}</span>
         <Show when={props.enabled}>
-          <span class={css.meta}>Query text is sent to your Assist endpoint to rank by meaning.</span>
+          <span class={css.meta}>{t('assist-semantic-note')}</span>
         </Show>
       </label>
     </Show>

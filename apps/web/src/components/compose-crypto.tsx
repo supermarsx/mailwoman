@@ -22,6 +22,7 @@ import {
   createResource,
   createSignal,
   For,
+  onMount,
   Show,
   type JSX,
 } from 'solid-js';
@@ -36,6 +37,7 @@ import {
   type TransportCapability,
 } from './compose/capability.ts';
 import type { DlpAttachmentMeta, DlpScanFn, KeyLookupFn } from './compose/crypto-jmap.ts';
+import { t, loadCatalog } from '../i18n';
 import './compose/compose-crypto.css';
 
 export type { TransportCapability, RecipientCapability } from './compose/capability.ts';
@@ -43,27 +45,15 @@ export type { DlpAttachmentMeta, DlpScanFn, KeyLookupFn } from './compose/crypto
 
 // ── Presentational: the E2EE / TLS / mixed banner ────────────────────────────
 
-const BANNER_COPY: Record<TransportCapability, { label: string; detail: string }> = {
-  e2ee: {
-    label: 'End-to-end encrypted',
-    detail: 'Every recipient has a key — the message body is encrypted on this device.',
-  },
-  tls: {
-    label: 'Transport encryption (TLS)',
-    detail: 'No recipient encryption keys were found; delivery is protected in transit only.',
-  },
-  mixed: {
-    label: 'Mixed protection',
-    detail: 'Some recipients can receive end-to-end encryption; others get TLS only.',
-  },
-};
-
 export function CapabilityBanner(props: {
   capability: TransportCapability;
   recipients: RecipientCapability[];
   loading?: boolean;
 }): JSX.Element {
-  const copy = (): { label: string; detail: string } => BANNER_COPY[props.capability];
+  const copy = (): { label: string; detail: string } => ({
+    label: t(`crypto-banner-${props.capability}-label`),
+    detail: t(`crypto-banner-${props.capability}-detail`),
+  });
   const uncovered = (): RecipientCapability[] => props.recipients.filter((r) => !r.encryptable);
   return (
     <div
@@ -81,21 +71,24 @@ export function CapabilityBanner(props: {
         <strong class="cmpcrypto-banner__label">
           {copy().label}
           <Show when={props.loading}>
-            <span class="cmpcrypto-banner__spin" aria-label="Checking recipient keys">
+            <span class="cmpcrypto-banner__spin" aria-label={t('crypto-banner-checking-label')}>
               {' '}
-              · checking…
+              {t('crypto-banner-checking')}
             </span>
           </Show>
         </strong>
         <span class="cmpcrypto-banner__detail">{copy().detail}</span>
         <Show when={props.capability === 'mixed' && uncovered().length > 0}>
           <span class="cmpcrypto-banner__uncovered">
-            TLS only for:{' '}
+            {t('crypto-banner-tls-only')}{' '}
             <For each={uncovered()}>
               {(r, i) => (
                 <>
                   <Show when={i() > 0}>, </Show>
-                  <span class="cmpcrypto-banner__addr">{r.address}</span>
+                  {/* Untrusted recipient address — `dir="auto"` isolates its bidi run. */}
+                  <span class="cmpcrypto-banner__addr" dir="auto">
+                    {r.address}
+                  </span>
                 </>
               )}
             </For>
@@ -124,7 +117,7 @@ export function EncryptSignToggles(props: {
 }): JSX.Element {
   return (
     <fieldset class="cmpcrypto-toggles">
-      <legend class="cmpcrypto-toggles__legend">Message security</legend>
+      <legend class="cmpcrypto-toggles__legend">{t('crypto-toggles-legend')}</legend>
 
       <label class="cmpcrypto-toggle" classList={{ 'cmpcrypto-toggle--disabled': props.encryptDisabled }}>
         <input
@@ -135,16 +128,16 @@ export function EncryptSignToggles(props: {
           aria-describedby="cmpcrypto-encrypt-hint"
           onChange={(e) => props.onEncryptChange(e.currentTarget.checked)}
         />
-        <span class="cmpcrypto-toggle__label">Encrypt (end-to-end)</span>
+        <span class="cmpcrypto-toggle__label">{t('crypto-encrypt-label')}</span>
       </label>
       <span id="cmpcrypto-encrypt-hint" class="cmpcrypto-toggle__hint">
         <Show
           when={!props.encryptDisabled}
-          fallback={props.encryptDisabledReason ?? 'No recipient encryption key available.'}
+          fallback={props.encryptDisabledReason ?? t('crypto-encrypt-no-key')}
         >
-          <Show when={props.encrypt && props.drafted} fallback="Encrypt the body on this device before sending.">
+          <Show when={props.encrypt && props.drafted} fallback={t('crypto-encrypt-hint-default')}>
             <span class="cmpcrypto-toggle__drafted" data-testid="encrypted-draft-indicator">
-              Draft encrypted on this device.
+              {t('crypto-encrypt-drafted')}
             </span>
           </Show>
         </Show>
@@ -157,7 +150,7 @@ export function EncryptSignToggles(props: {
           data-testid="sign-toggle"
           onChange={(e) => props.onSignChange(e.currentTarget.checked)}
         />
-        <span class="cmpcrypto-toggle__label">Sign (verify it's from you)</span>
+        <span class="cmpcrypto-toggle__label">{t('crypto-sign-label')}</span>
       </label>
 
       <Show when={props.encrypt && !props.encryptDisabled}>
@@ -168,7 +161,7 @@ export function EncryptSignToggles(props: {
             data-testid="protect-subject-toggle"
             onChange={(e) => props.onProtectSubjectChange(e.currentTarget.checked)}
           />
-          <span class="cmpcrypto-toggle__label">Also encrypt the subject line</span>
+          <span class="cmpcrypto-toggle__label">{t('crypto-protect-subject')}</span>
         </label>
       </Show>
     </fieldset>
@@ -177,11 +170,18 @@ export function EncryptSignToggles(props: {
 
 // ── Presentational: DLP pre-send warnings ────────────────────────────────────
 
-const DLP_ACTION_COPY: Record<DlpAction, { title: string; severity: 'block' | 'warn' }> = {
-  block: { title: 'Sending blocked', severity: 'block' },
-  'require-encryption': { title: 'Encryption required', severity: 'warn' },
-  warn: { title: 'Heads up', severity: 'warn' },
-  'notify-admin': { title: 'Administrator will be notified', severity: 'warn' },
+const DLP_ACTION_SEVERITY: Record<DlpAction, 'block' | 'warn'> = {
+  block: 'block',
+  'require-encryption': 'warn',
+  warn: 'warn',
+  'notify-admin': 'warn',
+};
+
+const DLP_ACTION_TITLE_ID: Record<DlpAction, string> = {
+  block: 'crypto-dlp-block',
+  'require-encryption': 'crypto-dlp-require',
+  warn: 'crypto-dlp-warn',
+  'notify-admin': 'crypto-dlp-notify',
 };
 
 export function DlpWarnings(props: { verdicts: DlpVerdict[]; loading?: boolean }): JSX.Element {
@@ -191,29 +191,35 @@ export function DlpWarnings(props: { verdicts: DlpVerdict[]; loading?: boolean }
       <ul
         class="cmpcrypto-dlp"
         data-testid="dlp-warnings"
-        aria-label="Data-loss prevention warnings"
+        aria-label={t('crypto-dlp-aria')}
         // A blocking verdict is assertive; advisory ones are polite.
         role={hasBlock() ? 'alert' : 'status'}
         aria-live={hasBlock() ? 'assertive' : 'polite'}
       >
         <For each={props.verdicts}>
           {(v) => {
-            const copy = DLP_ACTION_COPY[v.action];
+            const severity = DLP_ACTION_SEVERITY[v.action];
             return (
               <li
                 class="cmpcrypto-dlp__item"
-                classList={{ [`cmpcrypto-dlp__item--${copy.severity}`]: true }}
+                classList={{ [`cmpcrypto-dlp__item--${severity}`]: true }}
                 data-testid={v.action === 'block' ? 'dlp-block' : 'dlp-warn'}
                 data-action={v.action}
               >
-                <span class="cmpcrypto-dlp__title">{copy.title}</span>
-                <span class="cmpcrypto-dlp__msg">{v.ruleName}</span>
+                <span class="cmpcrypto-dlp__title">{t(DLP_ACTION_TITLE_ID[v.action])}</span>
+                {/* Admin-authored rule name — `dir="auto"` isolates its bidi run. */}
+                <span class="cmpcrypto-dlp__msg" dir="auto">
+                  {v.ruleName}
+                </span>
                 <Show when={v.excerptRedacted.length > 0}>
-                  <span class="cmpcrypto-dlp__excerpt">{v.excerptRedacted}</span>
+                  {/* Redacted message excerpt (user content) — isolate its direction. */}
+                  <span class="cmpcrypto-dlp__excerpt" dir="auto">
+                    {v.excerptRedacted}
+                  </span>
                 </Show>
                 <Show when={v.matchedDetectors.length > 0}>
                   <span class="cmpcrypto-dlp__detectors">
-                    Matched: {v.matchedDetectors.join(', ')}
+                    {t('crypto-dlp-matched', { list: v.matchedDetectors.join(', ') })}
                   </span>
                 </Show>
               </li>
@@ -258,6 +264,7 @@ export interface ComposeCryptoProps {
 }
 
 export function ComposeCrypto(props: ComposeCryptoProps): JSX.Element {
+  onMount(() => void loadCatalog('crypto'));
   const worker = (): CryptoWorkerApi => props.cryptoWorker ?? getCryptoWorker();
 
   const [encrypt, setEncrypt] = createSignal(false);
@@ -370,8 +377,8 @@ export function ComposeCrypto(props: ComposeCryptoProps): JSX.Element {
         encryptDisabled={encryptDisabled()}
         encryptDisabledReason={
           normalized().length === 0
-            ? 'Add a recipient to check for encryption keys.'
-            : 'No recipient encryption key available — sending over TLS.'
+            ? t('crypto-reason-add-recipient')
+            : t('crypto-reason-tls')
         }
         drafted={encryptedDraft() !== null}
         onEncryptChange={onEncryptChange}

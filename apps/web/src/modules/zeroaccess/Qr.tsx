@@ -4,6 +4,7 @@
 
 import { createMemo, For, type JSX } from 'solid-js';
 import { encodeQr, type EcLevel } from './qr.ts';
+import { t } from '../../i18n';
 import * as css from './styles.css.ts';
 
 export interface QrProps {
@@ -25,7 +26,7 @@ export function Qr(props: QrProps): JSX.Element {
       class={css.qrFrame}
       viewBox={`0 0 ${dim()} ${dim()}`}
       role="img"
-      aria-label={props.label ?? 'Pairing QR code'}
+      aria-label={props.label ?? t('security-pair-qr-default')}
       data-testid="pairing-qr"
       shape-rendering="crispEdges"
     >

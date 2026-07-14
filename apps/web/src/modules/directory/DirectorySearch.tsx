@@ -6,9 +6,10 @@
 // expand-before-send (see GroupExpand). EXPORTED for e14 to wire into the composer;
 // this file does not touch the router or the compose screen.
 
-import { createSignal, For, Show, createMemo, type JSX } from 'solid-js';
+import { createSignal, For, Show, createMemo, onMount, type JSX } from 'solid-js';
 import { DirectoryService, type Fetcher } from './service.ts';
 import type { GalEntry } from './index.ts';
+import { t, loadCatalog } from '../../i18n';
 import * as css from './styles.css.ts';
 
 export interface DirectorySearchProps {
@@ -37,6 +38,7 @@ function makeDebouncer(): (fn: () => void, ms: number) => void {
 }
 
 export function DirectorySearch(props: DirectorySearchProps): JSX.Element {
+  onMount(() => void loadCatalog('directory'));
   const service = createMemo(() => props.service ?? new DirectoryService(props.fetcher));
   const [results, setResults] = createSignal<GalEntry[]>([]);
   const [hasMore, setHasMore] = createSignal(false);
@@ -54,7 +56,7 @@ export function DirectorySearch(props: DirectorySearchProps): JSX.Element {
       setHasMore(res.hasMore);
       setPage(res.page);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'directory lookup failed');
+      setError(e instanceof Error ? e.message : t('directory-search-error'));
       if (!append) setResults([]);
     } finally {
       setBusy(false);
@@ -82,7 +84,7 @@ export function DirectorySearch(props: DirectorySearchProps): JSX.Element {
         </p>
       </Show>
       <Show when={results().length > 0}>
-        <ul class={css.listbox} role="listbox" aria-label="Directory matches">
+        <ul class={css.listbox} role="listbox" aria-label={t('directory-matches-label')}>
           <For each={results()}>
             {(entry) => (
               <li
@@ -102,7 +104,7 @@ export function DirectorySearch(props: DirectorySearchProps): JSX.Element {
                 </span>
                 <Show when={entry.isGroup}>
                   <span class={css.badge} data-testid="group-badge">
-                    Group
+                    {t('directory-group-badge')}
                   </span>
                 </Show>
               </li>
@@ -116,7 +118,7 @@ export function DirectorySearch(props: DirectorySearchProps): JSX.Element {
             disabled={busy()}
             onClick={() => void run(props.query, page() + 1, true)}
           >
-            Load more
+            {t('directory-load-more')}
           </button>
         </Show>
       </Show>

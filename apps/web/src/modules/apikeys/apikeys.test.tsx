@@ -3,6 +3,7 @@ import { render, fireEvent, screen, waitFor } from '@solidjs/testing-library';
 import { ApiKeys } from './ApiKeys.tsx';
 import { McpKeys, withTool } from './McpKeys.tsx';
 import { scopeToWire, scopeFromWire, readOnlyScope, UNATTENDED_SEND_DISCLOSURE } from './types.ts';
+import { t } from '../../test/i18n.ts';
 
 function okJson(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -67,6 +68,32 @@ describe('API keys — shown once', () => {
     render(() => <ApiKeys accountId="acct-1" fetcher={fetcher} initialKeys={[]} />);
     fireEvent.click(screen.getByRole('button', { name: 'Create key' }));
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/label/));
+  });
+});
+
+describe('API keys — accessibility (WCAG 2.2 AA)', () => {
+  it('exposes a named scope group and a labelled, announced copy control', async () => {
+    const created = {
+      displayToken: 'mwk_abcd.SECRETSECRETSECRET',
+      record: { scope: readOnlyScope('acct-1') },
+    };
+    const fetcher = vi.fn(async (input: string, init?: RequestInit) => {
+      if (input === '/api/keys' && init?.method === 'POST') return okJson(created);
+      return okJson([]);
+    });
+    render(() => <ApiKeys accountId="acct-1" fetcher={fetcher} initialKeys={[]} />);
+
+    // The scope builder is a keyboard-navigable, named grouping.
+    expect(screen.getByRole('group', { name: t('apikeys-scope-label') })).toBeInTheDocument();
+
+    fireEvent.input(screen.getByLabelText(t('apikeys-label-aria')), { target: { value: 'k' } });
+    fireEvent.click(screen.getByRole('button', { name: t('apikeys-create') }));
+
+    // The one-time reveal offers an aria-labelled copy button and a live region
+    // that announces the copy (not colour-only).
+    await waitFor(() => expect(screen.getByTestId('minted-token')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: t('apikeys-copy-aria') })).toBeInTheDocument();
+    expect(screen.getByRole('status')).toBeInTheDocument();
   });
 });
 

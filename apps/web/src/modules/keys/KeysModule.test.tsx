@@ -10,6 +10,8 @@ import { AppContext } from '../../state/context.ts';
 import { createAppState, type AppState } from '../../state/store.ts';
 import type { Client } from '../../api/client.ts';
 import { __resetCryptoWorker } from '../../crypto/index.ts';
+import { t } from '../../test/i18n.ts';
+import { isolate } from '../../i18n/index.ts';
 import { KeysModule } from './index.tsx';
 import { makeKeysClient, defaultKeysSeed, ownPgpKey, contactPgpKey, cardsFrom, type KeysSeed } from './mockClient.ts';
 
@@ -47,7 +49,7 @@ describe('KeysModule', () => {
   it('shows fingerprint safe words and a QR when a key is selected', async () => {
     renderModule();
     fireEvent.click(await screen.findByRole('button', { name: /me@example\.org/ }));
-    const card = await screen.findByRole('article', { name: 'Key me@example.org' });
+    const card = await screen.findByRole('article', { name: t('keys-key-card', { name: isolate('me@example.org') }) });
     const words = within(card).getByRole('list', { name: 'Fingerprint safe words' });
     expect(words.querySelectorAll('li')).toHaveLength(10); // 160-bit fingerprint → 10 proquints
     expect(within(card).getByRole('img', { name: 'Fingerprint QR code' })).toBeInTheDocument();
@@ -112,7 +114,7 @@ describe('KeysModule', () => {
     // Wait for contacts to load so the association picker is populated.
     await waitFor(() => expect(app.contacts().length).toBeGreaterThan(0));
     fireEvent.click(await screen.findByRole('button', { name: /me@example\.org/ }));
-    const card = await screen.findByRole('article', { name: 'Key me@example.org' });
+    const card = await screen.findByRole('article', { name: t('keys-key-card', { name: isolate('me@example.org') }) });
     fireEvent.change(within(card).getByLabelText('Contact to associate'), { target: { value: 'c2' } });
     fireEvent.click(within(card).getByRole('button', { name: 'Associate' }));
     await waitFor(async () => {

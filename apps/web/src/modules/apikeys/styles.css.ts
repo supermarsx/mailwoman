@@ -48,6 +48,8 @@ export const input = style({
   color: vars.color.text,
   font: 'inherit',
   fontSize: '0.9rem',
+  transition: `box-shadow ${vars.a11y.motionDuration} ease`,
+  selectors: { '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing } },
 });
 
 export const check = style({
@@ -56,6 +58,16 @@ export const check = style({
   gap: vars.space[2],
   fontSize: '0.9rem',
   cursor: 'pointer',
+});
+
+// The native checkbox itself: 24×24 CSS-px minimum target (WCAG 2.2 §2.5.8) and
+// a visible focus ring (§2.4.11). Applied to every `<input type="checkbox">`.
+export const checkbox = style({
+  minWidth: vars.a11y.touchTarget,
+  minHeight: vars.a11y.touchTarget,
+  cursor: 'pointer',
+  transition: `box-shadow ${vars.a11y.motionDuration} ease`,
+  selectors: { '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing } },
 });
 
 export const button = style({
@@ -69,7 +81,12 @@ export const button = style({
   font: 'inherit',
   fontSize: '0.9rem',
   fontWeight: 600,
-  selectors: { '&:disabled': { opacity: 0.5, cursor: 'not-allowed' } },
+  minHeight: vars.a11y.touchTarget,
+  transition: `box-shadow ${vars.a11y.motionDuration} ease`,
+  selectors: {
+    '&:disabled': { opacity: 0.5, cursor: 'not-allowed' },
+    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+  },
 });
 
 export const ghost = style({
@@ -82,6 +99,9 @@ export const ghost = style({
   padding: `${vars.space[2]} ${vars.space[4]}`,
   font: 'inherit',
   fontSize: '0.9rem',
+  minHeight: vars.a11y.touchTarget,
+  transition: `box-shadow ${vars.a11y.motionDuration} ease`,
+  selectors: { '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing } },
 });
 
 export const danger = style({
@@ -95,6 +115,10 @@ export const danger = style({
   font: 'inherit',
   fontSize: '0.82rem',
   fontWeight: 600,
+  minHeight: vars.a11y.touchTarget,
+  minWidth: vars.a11y.touchTarget,
+  transition: `box-shadow ${vars.a11y.motionDuration} ease`,
+  selectors: { '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing } },
 });
 
 export const token = style({
@@ -138,3 +162,20 @@ export const warn = style({
 });
 
 export const error = style({ fontSize: '0.85rem', color: vars.color.danger, margin: 0 });
+
+// Text status pill for a key (never colour-only — carries a text label so it
+// survives loss of colour perception, WCAG 1.4.1).
+const statusBase = {
+  fontSize: '0.72rem',
+  fontWeight: 600,
+  textTransform: 'uppercase',
+  letterSpacing: '0.04em',
+  whiteSpace: 'nowrap',
+} as const;
+
+export const statusActive = style({ ...statusBase, color: vars.color.success });
+export const statusRevoked = style({ ...statusBase, color: vars.color.danger });
+
+// The "copied to clipboard" confirmation (announced via an aria-live region and
+// visible — not colour-only).
+export const copiedNote = style({ fontSize: '0.8rem', color: vars.color.success, margin: 0 });

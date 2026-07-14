@@ -48,6 +48,10 @@ export const button = style({
   color: vars.color.accentText,
   font: 'inherit',
   cursor: 'pointer',
+  minHeight: vars.a11y.touchTarget,
+  selectors: {
+    '&:focus-visible': { boxShadow: vars.a11y.focusRing },
+  },
 });
 
 export const buttonGhost = style({
@@ -58,6 +62,10 @@ export const buttonGhost = style({
   color: vars.color.text,
   font: 'inherit',
   cursor: 'pointer',
+  minHeight: vars.a11y.touchTarget,
+  selectors: {
+    '&:focus-visible': { boxShadow: vars.a11y.focusRing },
+  },
 });
 
 export const keyList = style({
@@ -85,6 +93,7 @@ export const keyRow = style({
   selectors: {
     '&[aria-current="true"]': { borderColor: vars.color.accent, background: vars.color.selection },
     '&:hover': { background: vars.color.bgAlt },
+    '&:focus-visible': { boxShadow: vars.a11y.focusRing },
   },
 });
 
@@ -174,12 +183,16 @@ export const qr = style({
 export const input = style({
   flex: '1 1 auto',
   minWidth: 0,
+  minHeight: vars.a11y.touchTarget,
   padding: `${vars.space[2]} ${vars.space[3]}`,
   border: `1px solid ${vars.color.border}`,
   borderRadius: vars.radius.md,
   background: vars.color.surface,
   color: vars.color.text,
   font: 'inherit',
+  selectors: {
+    '&:focus-visible': { boxShadow: vars.a11y.focusRing },
+  },
 });
 
 export const textarea = style({
@@ -193,15 +206,32 @@ export const textarea = style({
   fontFamily: vars.font.mono,
   fontSize: '0.8rem',
   resize: 'vertical',
+  selectors: {
+    '&:focus-visible': { boxShadow: vars.a11y.focusRing },
+  },
 });
 
 export const select = style({
+  minHeight: vars.a11y.touchTarget,
   padding: `${vars.space[2]} ${vars.space[3]}`,
   border: `1px solid ${vars.color.border}`,
   borderRadius: vars.radius.md,
   background: vars.color.surface,
   color: vars.color.text,
   font: 'inherit',
+  selectors: {
+    '&:focus-visible': { boxShadow: vars.a11y.focusRing },
+  },
+});
+
+// Small (native) checkbox controls — enlarge the interactive target to the WCAG
+// 2.2 §2.5.8 minimum and give them a visible focus ring.
+export const checkbox = style({
+  minWidth: vars.a11y.touchTarget,
+  minHeight: vars.a11y.touchTarget,
+  selectors: {
+    '&:focus-visible': { boxShadow: vars.a11y.focusRing },
+  },
 });
 
 export const empty = style({ color: vars.color.textDim, fontStyle: 'italic', padding: vars.space[4] });

@@ -25,8 +25,14 @@ describe('attach-from-Nextcloud (WebDAV picker)', () => {
     render(() => <NextcloudAttach fetcher={fetcher} onAttached={(f) => (got = f)} />);
 
     await waitFor(() => expect(screen.getByText('report.pdf')).toBeInTheDocument());
+    // a11y: rows are real buttons (keyboard-operable, focusable), not click-only <li>.
+    const row = screen.getByText('report.pdf').closest('button');
+    expect(row).not.toBeNull();
+    expect(row).toHaveAttribute('aria-pressed', 'false');
     fireEvent.click(screen.getByText('report.pdf'));
     await waitFor(() => expect(screen.getByTestId('nc-selected')).toBeInTheDocument());
+    // a11y: selection is exposed non-visually via aria-pressed (WCAG 1.4.1), not colour alone.
+    expect(row).toHaveAttribute('aria-pressed', 'true');
 
     fireEvent.click(screen.getByRole('button', { name: /Attach 1 file/ }));
     await waitFor(() => expect(got).not.toBeNull());

@@ -5,9 +5,10 @@
 // leaves only); this control renders + lets the sender replace the group with its
 // members. EXPORTED for e14 to wire into the composer.
 
-import { createSignal, For, Show, createMemo, type JSX } from 'solid-js';
+import { createSignal, For, Show, createMemo, onMount, type JSX } from 'solid-js';
 import { DirectoryService, type Fetcher } from './service.ts';
 import type { GalEntry } from './index.ts';
+import { t, loadCatalog, isolate } from '../../i18n';
 import * as css from './styles.css.ts';
 
 export interface GroupExpandProps {
@@ -20,6 +21,7 @@ export interface GroupExpandProps {
 }
 
 export function GroupExpand(props: GroupExpandProps): JSX.Element {
+  onMount(() => void loadCatalog('directory'));
   const service = createMemo(() => props.service ?? new DirectoryService(props.fetcher));
   const [members, setMembers] = createSignal<GalEntry[] | null>(null);
   const [error, setError] = createSignal('');
@@ -32,29 +34,33 @@ export function GroupExpand(props: GroupExpandProps): JSX.Element {
       const found = await service().expandGroup(props.group.dn);
       setMembers(found);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'could not expand the group');
+      setError(e instanceof Error ? e.message : t('directory-expand-error'));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <section class={css.expandPanel} data-testid="group-expand" aria-label={`Members of ${props.group.displayName}`}>
+    <section
+      class={css.expandPanel}
+      data-testid="group-expand"
+      aria-label={t('directory-members-of', { name: isolate(props.group.displayName) })}
+    >
       <p class={css.meta}>
-        <strong>{props.group.displayName}</strong> is a distribution group.
+        <strong>{props.group.displayName}</strong> {t('directory-is-distribution-group')}
       </p>
       <Show
         when={members()}
         fallback={
           <button type="button" class={css.button} disabled={busy()} onClick={() => void expand()}>
-            Who is actually in this?
+            {t('directory-who-in-this')}
           </button>
         }
       >
         {(list) => (
           <>
             <p class={css.meta} data-testid="member-count">
-              {list().length} {list().length === 1 ? 'recipient' : 'recipients'}
+              {t('directory-recipient-count', { count: list().length })}
             </p>
             <ul class={css.memberList}>
               <For each={list()}>
@@ -67,7 +73,7 @@ export function GroupExpand(props: GroupExpandProps): JSX.Element {
               </For>
             </ul>
             <button type="button" class={css.button} onClick={() => props.onExpand(list())}>
-              Replace group with {list().length} {list().length === 1 ? 'recipient' : 'recipients'}
+              {t('directory-replace-with', { count: list().length })}
             </button>
           </>
         )}

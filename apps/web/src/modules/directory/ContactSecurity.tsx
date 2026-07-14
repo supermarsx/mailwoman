@@ -4,8 +4,9 @@
 // crypto is done here), and whether the contact has a verified key. EXPORTED for e14
 // to mount inside the contact card's Security tab.
 
-import { createResource, For, Show, createMemo, type JSX } from 'solid-js';
+import { createResource, For, Show, createMemo, onMount, type JSX } from 'solid-js';
 import { DirectoryService, type Fetcher, type DirectoryCert } from './service.ts';
+import { t, loadCatalog, isolate } from '../../i18n';
 import * as css from './styles.css.ts';
 
 export interface ContactSecurityProps {
@@ -21,6 +22,7 @@ interface SecurityData {
 }
 
 export function ContactSecurity(props: ContactSecurityProps): JSX.Element {
+  onMount(() => void loadCatalog('directory'));
   const service = createMemo(() => props.service ?? new DirectoryService(props.fetcher));
   const [data] = createResource<SecurityData, string>(
     () => props.email,
@@ -31,24 +33,30 @@ export function ContactSecurity(props: ContactSecurityProps): JSX.Element {
   );
 
   return (
-    <section class={css.secTab} data-testid="contact-security" aria-label="Contact security">
+    <section class={css.secTab} data-testid="contact-security" aria-label={t('directory-contact-security-label')}>
       <div class={css.secRow}>
         <div style={{ display: 'flex', 'align-items': 'center', gap: '0.75rem' }}>
           <Show when={data()?.photoB64}>
-            {(b64) => <img class={css.photo} src={`data:image/*;base64,${b64()}`} alt={`${props.email} directory photo`} />}
+            {(b64) => (
+              <img
+                class={css.photo}
+                src={`data:image/*;base64,${b64()}`}
+                alt={t('directory-photo-alt', { email: isolate(props.email) })}
+              />
+            )}
           </Show>
           <div>
             <p class={css.heading}>{props.email}</p>
-            <p class={css.meta}>Directory-published security material</p>
+            <p class={css.meta}>{t('directory-published-material')}</p>
           </div>
         </div>
       </div>
 
       <div>
-        <p class={css.subHeading}>S/MIME certificates</p>
+        <p class={css.subHeading}>{t('directory-smime-certificates')}</p>
         <Show
           when={(data()?.certs ?? []).length > 0}
-          fallback={<p class={css.meta}>No certificate published in the directory for this contact.</p>}
+          fallback={<p class={css.meta}>{t('directory-no-cert')}</p>}
         >
           <ul class={css.memberList}>
             <For each={data()?.certs}>
@@ -57,14 +65,28 @@ export function ContactSecurity(props: ContactSecurityProps): JSX.Element {
                   <div>
                     <span class={css.mono}>{cert.fingerprint}</span>
                     <p class={css.meta}>
-                      {cert.notAfter ? `Valid until ${cert.notAfter}` : 'No expiry advertised'}
+                      {cert.notAfter
+                        ? t('directory-valid-until', { date: cert.notAfter })
+                        : t('directory-no-expiry')}
                     </p>
                   </div>
                   <Show
                     when={isCurrent(cert)}
-                    fallback={<span class={css.unverified} data-testid="cert-status">Expired</span>}
+                    fallback={
+                      <span class={css.unverified} data-testid="cert-status">
+                        <span class={css.statusIcon} aria-hidden="true">
+                          ✕
+                        </span>
+                        {t('directory-cert-expired')}
+                      </span>
+                    }
                   >
-                    <span class={css.verified} data-testid="cert-status">Current</span>
+                    <span class={css.verified} data-testid="cert-status">
+                      <span class={css.statusIcon} aria-hidden="true">
+                        ✓
+                      </span>
+                      {t('directory-cert-current')}
+                    </span>
                   </Show>
                 </li>
               )}
@@ -74,11 +96,11 @@ export function ContactSecurity(props: ContactSecurityProps): JSX.Element {
       </div>
 
       <Show when={data.loading}>
-        <p class={css.meta}>Looking up directory…</p>
+        <p class={css.meta}>{t('directory-looking-up')}</p>
       </Show>
       <Show when={data.error as unknown}>
         <p class={css.error} role="alert">
-          Directory lookup failed.
+          {t('directory-lookup-failed')}
         </p>
       </Show>
     </section>

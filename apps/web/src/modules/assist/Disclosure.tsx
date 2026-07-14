@@ -2,10 +2,24 @@
 // an Assist tool can forward content, so the honesty claim is concrete: it names
 // the endpoint host and the ceilings actually in force, and states plainly that
 // send is never automated.
+//
+// i18n (t8): the sentence + the "what can leave" list are authored in `assist.ftl`
+// (assist-disclosure-*, assist-left-*). The English wording is unchanged — the
+// honesty claim ("never sends …", "excluded by default") stays accurate.
 
-import { For, Show, type JSX } from 'solid-js';
-import { disclosureSentence, WHAT_LEFT_THE_DEVICE, type AssistConfig } from './types.ts';
+import { For, Show, onMount, type JSX } from 'solid-js';
+import { disclosureSentence, type AssistConfig } from './types.ts';
+import { t, loadCatalog } from '../../i18n';
 import * as css from './styles.css.ts';
+
+/** The five "what can leave this device" line ids, in display order. */
+const WHAT_LEFT_IDS = [
+  'assist-left-1',
+  'assist-left-2',
+  'assist-left-3',
+  'assist-left-4',
+  'assist-left-5',
+] as const;
 
 export interface DisclosureProps {
   config: AssistConfig;
@@ -14,9 +28,10 @@ export interface DisclosureProps {
 }
 
 export function Disclosure(props: DisclosureProps): JSX.Element {
+  onMount(() => void loadCatalog('assist'));
   const list = (): JSX.Element => (
     <ul>
-      <For each={WHAT_LEFT_THE_DEVICE}>{(item) => <li>{item}</li>}</For>
+      <For each={WHAT_LEFT_IDS}>{(id) => <li>{t(id)}</li>}</For>
     </ul>
   );
   return (
@@ -24,7 +39,7 @@ export function Disclosure(props: DisclosureProps): JSX.Element {
       <p class={css.prose}>{disclosureSentence(props.config)}</p>
       <Show when={props.collapsible ?? false} fallback={list()}>
         <details>
-          <summary>What can leave this device</summary>
+          <summary>{t('assist-disclosure-summary')}</summary>
           {list()}
         </details>
       </Show>

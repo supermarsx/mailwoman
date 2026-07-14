@@ -5,7 +5,7 @@
 // covered by the "what left the device" disclosure. Transcribed text is handed to
 // `onTranscript`; it is NEVER auto-sent.
 
-import { createSignal, Show, onCleanup, type JSX } from 'solid-js';
+import { createSignal, Show, onCleanup, onMount, type JSX } from 'solid-js';
 import { AssistService } from './service.ts';
 import { hasCapability, type AssistConfig } from './types.ts';
 import {
@@ -14,6 +14,7 @@ import {
   transcriptFromEvent,
   type SpeechRecognitionLike,
 } from './dictation.ts';
+import { t, loadCatalog } from '../../i18n';
 import * as css from './styles.css.ts';
 
 export interface DictationProps {
@@ -28,6 +29,7 @@ export interface DictationProps {
 type Source = 'browser' | 'endpoint' | 'none';
 
 export function Dictation(props: DictationProps): JSX.Element {
+  onMount(() => void loadCatalog('assist'));
   const source = (): Source => {
     if (browserRecognitionCtor() !== null) return 'browser';
     if (mediaRecorderSupported() && hasCapability(props.config, 'dictation')) return 'endpoint';
@@ -63,7 +65,7 @@ export function Dictation(props: DictationProps): JSX.Element {
       const text = transcriptFromEvent(event);
       if (text.length > 0) props.onTranscript(text);
     };
-    recognition.onerror = () => setError('Dictation error.');
+    recognition.onerror = () => setError(t('assist-dictate-err'));
     recognition.onend = () => setRecording(false);
     recognition.start();
     setRecording(true);
@@ -85,12 +87,12 @@ export function Dictation(props: DictationProps): JSX.Element {
           .then((text) => {
             if (text.length > 0) props.onTranscript(text);
           })
-          .catch(() => setError('Could not transcribe audio.'));
+          .catch(() => setError(t('assist-transcribe-err')));
       };
       recorder.start();
       setRecording(true);
     } catch {
-      setError('Microphone unavailable.');
+      setError(t('assist-mic-err'));
       setRecording(false);
     }
   }
@@ -115,15 +117,15 @@ export function Dictation(props: DictationProps): JSX.Element {
           type="button"
           class={recording() ? `${css.mic} ${css.micActive}` : css.mic}
           aria-pressed={recording()}
-          aria-label={recording() ? 'Stop dictation' : 'Hold to dictate'}
+          aria-label={recording() ? t('assist-dictate-stop') : t('assist-dictate-hold')}
           onPointerDown={() => start()}
           onPointerUp={() => stop()}
           onPointerLeave={() => recording() && stop()}
         >
-          {recording() ? '● Listening…' : '🎙 Hold to dictate'}
+          {recording() ? t('assist-dictate-listening') : t('assist-dictate-hold-text')}
         </button>
         <Show when={source() === 'endpoint'}>
-          <span class={css.meta}>Audio is transcribed by your Assist endpoint.</span>
+          <span class={css.meta}>{t('assist-dictate-endpoint-note')}</span>
         </Show>
         <Show when={error() !== null}>
           <span class={css.error} role="alert">

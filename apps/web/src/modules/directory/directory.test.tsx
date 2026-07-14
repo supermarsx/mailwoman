@@ -25,6 +25,10 @@ describe('GAL search in recipient fields', () => {
     expect(screen.getByText('All Staff')).toBeInTheDocument();
     // Only the group carries the Group badge.
     expect(screen.getAllByTestId('group-badge')).toHaveLength(1);
+    // a11y: every result is an exposed, keyboard-focusable option (WCAG 2.1.1/4.1.2).
+    const options = screen.getAllByRole('option');
+    expect(options).toHaveLength(2);
+    for (const opt of options) expect(opt).toHaveAttribute('tabindex', '0');
 
     fireEvent.click(screen.getByText('Alice Ng'));
     expect(picked).toHaveLength(1);
@@ -77,5 +81,17 @@ describe('per-contact security tab (cert / photo rows)', () => {
     await waitFor(() => expect(screen.getByTestId('cert-row')).toBeInTheDocument());
     expect(screen.getByText('AB:CD')).toBeInTheDocument();
     expect(screen.getByTestId('cert-status')).toHaveTextContent('Current');
+  });
+
+  it('labels an expired cert with text, not colour alone (WCAG 1.4.1)', async () => {
+    const fetcher = vi.fn(async (input: string) => {
+      if (input.startsWith('/api/directory/cert')) {
+        return okJson({ certs: [{ derB64: 'AAA=', fingerprint: 'EX:PI', notAfter: '2000-01-01' }] });
+      }
+      return okJson({ photoB64: null });
+    });
+    render(() => <ContactSecurity email="bob@corp" fetcher={fetcher} />);
+
+    await waitFor(() => expect(screen.getByTestId('cert-status')).toHaveTextContent('Expired'));
   });
 });

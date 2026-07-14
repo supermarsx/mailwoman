@@ -42,11 +42,14 @@ export const option = style({
   justifyContent: 'space-between',
   gap: vars.space[3],
   padding: `${vars.space[2]} ${vars.space[3]}`,
+  minHeight: vars.a11y.touchTarget,
   borderRadius: vars.radius.md,
   cursor: 'pointer',
+  transition: `background ${vars.a11y.motionDuration}`,
   selectors: {
     '&[aria-selected="true"]': { background: vars.color.bgAlt },
     '&:hover': { background: vars.color.bgAlt },
+    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
   },
 });
 
@@ -75,10 +78,15 @@ export const button = style({
   borderRadius: vars.radius.md,
   cursor: 'pointer',
   padding: `${vars.space[1]} ${vars.space[3]}`,
+  minHeight: vars.a11y.touchTarget,
   font: 'inherit',
   fontSize: '0.82rem',
   fontWeight: 600,
-  selectors: { '&:disabled': { opacity: 0.5, cursor: 'not-allowed' } },
+  transition: `background ${vars.a11y.motionDuration}`,
+  selectors: {
+    '&:disabled': { opacity: 0.5, cursor: 'not-allowed' },
+    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+  },
 });
 
 // ── expand-group ("who is actually in this?") ─────────────────────────────────
@@ -136,8 +144,25 @@ export const secRow = style({
 
 export const mono = style({ fontFamily: vars.font.mono, fontSize: '0.8rem', wordBreak: 'break-all' });
 
-export const verified = style({ color: vars.color.success, fontWeight: 600, fontSize: '0.8rem' });
-export const unverified = style({ color: vars.color.warning, fontWeight: 600, fontSize: '0.8rem' });
+export const verified = style({
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '0.25rem',
+  color: vars.color.success,
+  fontWeight: 600,
+  fontSize: '0.8rem',
+});
+export const unverified = style({
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '0.25rem',
+  color: vars.color.warning,
+  fontWeight: 600,
+  fontSize: '0.8rem',
+});
+// Redundant (non-colour) status glyph so verified/expired isn't colour-only
+// (WCAG 1.4.1); `aria-hidden` since the adjacent word carries the meaning.
+export const statusIcon = style({ fontWeight: 700 });
 
 export const photo = style({
   width: '48px',

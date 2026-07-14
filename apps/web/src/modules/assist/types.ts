@@ -1,6 +1,8 @@
 // V7 Assist (AI) UI types (SPEC §14, plan §2.6 / §3 e6). The UI model mirrors the
 // frozen `mw_assist` surface (§2.4): capabilities, data-class scope, the
 // content-free audit, and the `Disabled`-when-unconfigured contract.
+
+import { t, isolate } from '../../i18n';
 //
 // TWO HARD, SAFETY-CRITICAL RULES bake into these types (R4):
 //   1. NO Assist path transmits / deletes / accepts. There is NO `send` capability
@@ -223,16 +225,20 @@ export const WHAT_LEFT_THE_DEVICE: readonly string[] = [
 
 /**
  * Build the honest disclosure sentence for a given config, spelling out the
- * endpoint host and the ceilings actually in force.
+ * endpoint host and the ceilings actually in force. Localized via `assist.ftl`
+ * (assist-disclosure-*); the English wording is unchanged and the endpoint host is
+ * bidi-isolated so a spoofed host name cannot reorder the surrounding sentence.
  */
 export function disclosureSentence(config: AssistConfig): string {
   if (config.availability !== 'enabled' || config.endpointHost === null) {
-    return 'Assist is off. No message content leaves this device.';
+    return t('assist-disclosure-off');
   }
-  const excluded: string[] = [];
-  if (!config.includeE2ee) excluded.push('end-to-end-encrypted content');
-  if (!config.includeAttachments) excluded.push('attachments');
-  const exclNote =
-    excluded.length > 0 ? ` It never sends ${excluded.join(' or ')}.` : ' Your admin has allowed encrypted content and attachments to be sent.';
-  return `When you use an Assist tool, the selected message text is proxied to ${config.endpointHost}.${exclNote} Send is never automated — you always confirm before anything leaves your Outbox.`;
+  const parts: string[] = [];
+  if (!config.includeE2ee) parts.push(t('assist-excluded-e2ee'));
+  if (!config.includeAttachments) parts.push(t('assist-excluded-attachments'));
+  let excl: string;
+  if (parts.length === 0) excl = t('assist-disclosure-admin-allowed');
+  else if (parts.length === 1) excl = t('assist-disclosure-excl-one', { a: parts[0] ?? '' });
+  else excl = t('assist-disclosure-excl-two', { a: parts[0] ?? '', b: parts[1] ?? '' });
+  return t('assist-disclosure-sentence', { host: isolate(config.endpointHost), excl });
 }
