@@ -572,6 +572,9 @@ mod dcr {
                 "/oauth/register/{id}",
                 get(dcr_read).put(dcr_update).delete(dcr_delete),
             )
+            // Admin enable/read surface (parity with `/admin/sso`, `/admin/ui-plugins`).
+            // Admin-session-gated; the ONLY in-band way to toggle DCR (still default off).
+            .route("/admin/oauth-dcr", get(dcr_admin_get).put(dcr_admin_put))
     }
 
     /// Env var carrying the shared initial-access-token, checked when the policy sets
@@ -929,6 +932,160 @@ mod dcr {
         StatusCode::NO_CONTENT.into_response()
     }
 
+    // ─── Admin enable route (RFC 7591 §DCR policy toggle) ─────────────────────
+    //
+    // Parity with `/admin/sso` (admin_sso.rs) + `/admin/ui-plugins` (ui_plugins.rs):
+    // the `mw_admin_session` cookie + `admin.enabled` gate, fail-closed. This is the
+    // in-band admin equivalent of writing the `oauth_dcr` policy row via config/CLI —
+    // DCR stays DEFAULT-DISABLED and only an explicit admin `enabled: true` turns it on.
+    //
+    //   * `GET /admin/oauth-dcr` — read the current policy (no secrets to elide).
+    //   * `PUT /admin/oauth-dcr` — upsert enabled + the redirect-host-suffix allowlist
+    //     + the default granted scope (+ the optional initial-access-token requirement).
+
+    /// The admin-session cookie, same name/gate as `admin_sso.rs` / `ui_plugins.rs`.
+    const ADMIN_COOKIE: &str = "mw_admin_session";
+
+    fn admin_unauthorized() -> Response {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "admin authentication required" })),
+        )
+            .into_response()
+    }
+
+    /// Extract the `mw_admin_session` cookie value (mirrors admin_sso.rs).
+    fn admin_cookie(headers: &axum::http::HeaderMap) -> Option<String> {
+        let raw = headers.get(axum::http::header::COOKIE)?.to_str().ok()?;
+        for part in raw.split(';') {
+            if let Some(v) = part.trim().strip_prefix(&format!("{ADMIN_COOKIE}="))
+                && !v.is_empty()
+            {
+                return Some(v.to_string());
+            }
+        }
+        None
+    }
+
+    /// Resolve the authenticated admin id, or a `401`. Enforces the `admin.enabled`
+    /// gate (disabled panel ⇒ every admin route is `401`). Mirrors admin_sso.rs.
+    async fn require_admin(
+        state: &AppState,
+        headers: &axum::http::HeaderMap,
+    ) -> Result<String, Response> {
+        if !state.v6.admin_enabled {
+            return Err(admin_unauthorized());
+        }
+        let token = admin_cookie(headers).ok_or_else(admin_unauthorized)?;
+        let hash = crate::push_relay::hash_token(&token);
+        match state.store.get_admin_session(&hash).await {
+            Ok(Some(admin_id)) => Ok(admin_id),
+            _ => Err(admin_unauthorized()),
+        }
+    }
+
+    /// Parse a stored JSON array (redirect-host suffixes) back to a `Value` array.
+    fn parse_suffixes(s: &str) -> Value {
+        serde_json::from_str::<Value>(s)
+            .ok()
+            .filter(Value::is_array)
+            .unwrap_or_else(|| json!([]))
+    }
+
+    /// Parse the stored default-scope JSON back to a `Value` (null when malformed).
+    fn parse_scope_value(s: &str) -> Value {
+        serde_json::from_str::<Value>(s).unwrap_or(Value::Null)
+    }
+
+    /// Render a policy row (or the default-disabled shape) as the admin JSON view. The
+    /// DCR policy holds no secrets, so every field is returned as-is.
+    fn policy_view(row: Option<&mw_store::OAuthDcrPolicyRow>) -> Value {
+        match row {
+            Some(r) => json!({
+                "enabled": r.enabled,
+                "requireInitialAccessToken": r.require_initial_access_token,
+                "allowedRedirectHostSuffixes": parse_suffixes(&r.allowed_redirect_host_suffixes_json),
+                "defaultScope": parse_scope_value(&r.default_scope_json),
+                "updatedAt": r.updated_at,
+            }),
+            None => json!({
+                "enabled": false,
+                "requireInitialAccessToken": false,
+                "allowedRedirectHostSuffixes": [],
+                "defaultScope": Value::Null,
+                "updatedAt": Value::Null,
+            }),
+        }
+    }
+
+    /// `GET /admin/oauth-dcr` — read the current DCR policy (admin-gated). An absent
+    /// policy row renders the default-DISABLED shape.
+    async fn dcr_admin_get(
+        State(state): State<AppState>,
+        headers: axum::http::HeaderMap,
+    ) -> Response {
+        if let Err(resp) = require_admin(&state, &headers).await {
+            return resp;
+        }
+        match state.store.get_oauth_dcr_policy().await {
+            Ok(row) => Json(policy_view(row.as_ref())).into_response(),
+            Err(e) => server_error(e),
+        }
+    }
+
+    /// `PUT /admin/oauth-dcr` body: the whole policy. `enabled` is required; the rest
+    /// default (empty allowlist, no default scope, no initial-access-token requirement).
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct AdminDcrReq {
+        /// Master switch: `false` (the default posture) keeps `/oauth/register` at 403.
+        enabled: bool,
+        /// Require the shared `MW_DCR_INITIAL_ACCESS_TOKEN` bearer on registration.
+        #[serde(default)]
+        require_initial_access_token: bool,
+        /// The redirect-host-suffix allowlist (empty ⇒ every redirect is denied).
+        #[serde(default)]
+        allowed_redirect_host_suffixes: Vec<String>,
+        /// The scope every DCR-issued client is granted (advisory request scope is
+        /// never escalated beyond this). Omitted ⇒ the no-privilege default scope.
+        /// Stored opaquely (the DCR core re-parses it to a [`Scope`] at register time,
+        /// falling back to the no-privilege scope if it is not a full scope object),
+        /// so this is deliberately permissive rather than a strict typed [`Scope`].
+        #[serde(default)]
+        default_scope: Option<Value>,
+    }
+
+    /// `PUT /admin/oauth-dcr` — upsert the DCR policy (admin-gated). Enabling DCR is an
+    /// explicit admin action; this does not change the default-disabled posture.
+    async fn dcr_admin_put(
+        State(state): State<AppState>,
+        headers: axum::http::HeaderMap,
+        Json(body): Json<AdminDcrReq>,
+    ) -> Response {
+        if let Err(resp) = require_admin(&state, &headers).await {
+            return resp;
+        }
+        let allowed_redirect_host_suffixes_json =
+            serde_json::to_string(&body.allowed_redirect_host_suffixes)
+                .unwrap_or_else(|_| "[]".to_string());
+        let default_scope_json = match &body.default_scope {
+            Some(scope) => serde_json::to_string(scope).unwrap_or_else(|_| "{}".to_string()),
+            None => serde_json::to_string(&mw_oauth::dcr::no_scope())
+                .unwrap_or_else(|_| "{}".to_string()),
+        };
+        let row = mw_store::OAuthDcrPolicyRow {
+            enabled: body.enabled,
+            require_initial_access_token: body.require_initial_access_token,
+            allowed_redirect_host_suffixes_json,
+            default_scope_json,
+            updated_at: crate::push_relay::now_rfc3339(),
+        };
+        match state.store.put_oauth_dcr_policy(&row).await {
+            Ok(()) => Json(policy_view(Some(&row))).into_response(),
+            Err(e) => server_error(e),
+        }
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -999,6 +1156,203 @@ mod dcr {
                 dcr_error_response(&E::Store("x".into())).status(),
                 StatusCode::INTERNAL_SERVER_ERROR
             );
+        }
+
+        // ── admin enable route (`GET/PUT /admin/oauth-dcr`) ───────────────────────
+        //
+        // Drive the REAL mounted router (`build_app_full` on a live socket, reqwest
+        // over the wire) end-to-end: fail-closed without an admin session, then an
+        // admin PUT enable flips `POST /oauth/register` 403→201, GET reflects it, and
+        // an admin PUT disable returns it to 403.
+
+        use std::net::SocketAddr;
+
+        const TEST_KEY_HEX: &str =
+            "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+        const ADMIN_TOKEN: &str = "t11-e1-admin-token";
+
+        fn unique_suffix() -> String {
+            static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            format!(
+                "{}-{}",
+                std::process::id(),
+                SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            )
+        }
+
+        /// Boot the full app on a live socket + seed an admin session in the shared
+        /// store. Returns `(base_url, admin_store)`; the admin cookie is [`ADMIN_TOKEN`].
+        async fn spawn_with_admin() -> (String, mw_store::Store) {
+            let tag = unique_suffix();
+            let db = std::env::temp_dir()
+                .join(format!("mw-t11e1-{tag}.db"))
+                .to_string_lossy()
+                .into_owned();
+            let web_dir = std::env::temp_dir().join(format!("mw-t11e1-web-{tag}"));
+            std::fs::create_dir_all(&web_dir).unwrap();
+            std::fs::write(
+                web_dir.join("index.html"),
+                "<!doctype html><title>MW</title><div id=app>MW</div>",
+            )
+            .unwrap();
+
+            let config = crate::AppConfig {
+                db_path: db.clone(),
+                server_key_hex: Some(TEST_KEY_HEX.into()),
+                web_dir: Some(web_dir),
+                cookie_secure: false,
+                mode: crate::ServerMode::Proxy,
+                hardening: crate::HardeningConfig::default(),
+                security: crate::SecurityConfig::default(),
+            };
+            let v6 = crate::V6Config {
+                admin_enabled: true,
+                admin_username: Some("root".into()),
+                admin_password: Some("hunter2".into()),
+                redis_url: None,
+            };
+            let app = crate::build_app_full(config, v6)
+                .await
+                .expect("server boots")
+                .0;
+
+            // Seed an admin session directly (the login flow is out of scope here).
+            let store =
+                mw_store::Store::open(&db, mw_store::ServerKey::from_hex(TEST_KEY_HEX).unwrap())
+                    .await
+                    .expect("open store");
+            let hash = crate::push_relay::hash_token(ADMIN_TOKEN);
+            store
+                .put_admin_session(&hash, "root", &crate::push_relay::now_rfc3339())
+                .await
+                .expect("seed admin session");
+
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr: SocketAddr = listener.local_addr().unwrap();
+            tokio::spawn(async move {
+                axum::serve(listener, app).await.unwrap();
+            });
+            (format!("http://{addr}"), store)
+        }
+
+        fn admin_cookie_header() -> String {
+            format!("{ADMIN_COOKIE}={ADMIN_TOKEN}")
+        }
+
+        #[tokio::test]
+        async fn admin_route_is_fail_closed_without_admin_session() {
+            let (base, _store) = spawn_with_admin().await;
+            let c = reqwest::Client::new();
+
+            // GET without any admin cookie → 401.
+            let r = c
+                .get(format!("{base}/admin/oauth-dcr"))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(r.status(), 401, "GET requires an admin session");
+
+            // PUT without any admin cookie → 401 (and it must NOT enable DCR).
+            let r = c
+                .put(format!("{base}/admin/oauth-dcr"))
+                .json(&json!({ "enabled": true }))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(r.status(), 401, "PUT requires an admin session");
+
+            // A bogus (non-session) admin cookie is rejected too.
+            let r = c
+                .get(format!("{base}/admin/oauth-dcr"))
+                .header(
+                    reqwest::header::COOKIE,
+                    format!("{ADMIN_COOKIE}=not-a-session"),
+                )
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(r.status(), 401, "an unknown admin token is rejected");
+
+            // The fail-closed PUT never turned DCR on: register is still 403.
+            let reg = c
+                .post(format!("{base}/oauth/register"))
+                .json(&json!({ "redirect_uris": ["https://apps.vogue-homes.com/cb"] }))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(reg.status(), 403, "DCR stays disabled after a rejected PUT");
+        }
+
+        #[tokio::test]
+        async fn admin_put_enables_then_disables_dcr_registration() {
+            let (base, _store) = spawn_with_admin().await;
+            let c = reqwest::Client::new();
+            let redirect = "https://apps.vogue-homes.com/cb";
+
+            // ── Default-disabled: register is 403 before any admin action. ──────────
+            let before = c
+                .post(format!("{base}/oauth/register"))
+                .json(&json!({ "redirect_uris": [redirect] }))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(before.status(), 403, "DCR is default-disabled");
+
+            // ── Admin PUT enables + sets the allowlist → 200. ──────────────────────
+            let put = c
+                .put(format!("{base}/admin/oauth-dcr"))
+                .header(reqwest::header::COOKIE, admin_cookie_header())
+                .json(&json!({
+                    "enabled": true,
+                    "allowedRedirectHostSuffixes": ["vogue-homes.com"],
+                    "defaultScope": { "read": true },
+                }))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(put.status(), 200, "admin enable succeeds");
+            let put_body: Value = put.json().await.unwrap();
+            assert_eq!(put_body["enabled"], true);
+
+            // ── Admin GET reflects the persisted policy. ───────────────────────────
+            let get = c
+                .get(format!("{base}/admin/oauth-dcr"))
+                .header(reqwest::header::COOKIE, admin_cookie_header())
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(get.status(), 200);
+            let got: Value = get.json().await.unwrap();
+            assert_eq!(got["enabled"], true, "GET reflects the enable");
+            assert_eq!(got["allowedRedirectHostSuffixes"][0], "vogue-homes.com");
+            assert_eq!(got["defaultScope"]["read"], true);
+
+            // ── Register now transitions 403 → 201 (an allowlisted redirect). ──────
+            let created = c
+                .post(format!("{base}/oauth/register"))
+                .json(&json!({ "redirect_uris": [redirect], "client_name": "t11 client" }))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(created.status(), 201, "enabling DCR admits registration");
+
+            // ── Admin PUT disable → register returns to 403. ───────────────────────
+            let off = c
+                .put(format!("{base}/admin/oauth-dcr"))
+                .header(reqwest::header::COOKIE, admin_cookie_header())
+                .json(&json!({ "enabled": false }))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(off.status(), 200, "admin disable succeeds");
+
+            let after = c
+                .post(format!("{base}/oauth/register"))
+                .json(&json!({ "redirect_uris": [redirect] }))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(after.status(), 403, "disabling DCR returns register to 403");
         }
     }
 }
