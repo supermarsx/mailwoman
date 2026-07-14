@@ -66,6 +66,23 @@ export interface UiPluginRegistration {
   readonly approved: boolean;
 }
 
+/// The `GET /api/ui-plugins` response the SPA tier consumes (e11 `list_public`):
+/// the approved+enabled registrations plus `unsignedBanner`, the ids of any
+/// approved-but-unsigned plugin so the host raises the persistent trust banner.
+/// Fail-soft: the registry client resolves to an EMPTY registry on any error, so a
+/// deployment with no UI plugins renders exactly the baseline mailbox.
+export interface UiPluginRegistry {
+  readonly plugins: readonly UiPluginRegistration[];
+  readonly unsignedBanner: readonly string[];
+}
+
+/// The empty registry — the fail-soft / no-plugins-configured value. Sharing one
+/// frozen literal keeps "nothing configured" byte-identical across the tier.
+export const EMPTY_REGISTRY: UiPluginRegistry = Object.freeze({
+  plugins: [],
+  unsignedBanner: [],
+});
+
 // ── RPC envelope (FROZEN §2.3): `{v,id,cap,method,args}` → `{v,id,ok|err}` ────────
 
 /// A guest→host RPC request. The broker rejects a request whose `cap` is not granted
