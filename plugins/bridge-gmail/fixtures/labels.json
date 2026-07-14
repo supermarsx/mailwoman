@@ -1,0 +1,14 @@
+{
+  "labels": [
+    { "id": "INBOX", "name": "INBOX", "type": "system", "messagesTotal": 2, "messagesUnread": 1 },
+    { "id": "SENT", "name": "SENT", "type": "system" },
+    { "id": "DRAFT", "name": "DRAFT", "type": "system" },
+    { "id": "TRASH", "name": "TRASH", "type": "system" },
+    { "id": "SPAM", "name": "SPAM", "type": "system" },
+    { "id": "STARRED", "name": "STARRED", "type": "system" },
+    { "id": "UNREAD", "name": "UNREAD", "type": "system" },
+    { "id": "IMPORTANT", "name": "IMPORTANT", "type": "system" },
+    { "id": "CATEGORY_PROMOTIONS", "name": "CATEGORY_PROMOTIONS", "type": "system" },
+    { "id": "Label_42", "name": "Receipts", "type": "user", "messagesTotal": 5, "messagesUnread": 0 }
+  ]
+}

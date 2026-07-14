@@ -6,12 +6,35 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
-# t7-e12 (FIRST CUT CANDIDATE, §27 ladder): the Gmail API bridge — true label
-# semantics, history-ID delta sync, per-user OAuth client. If the milestone runs
-# hot this is the sanctioned cut (IMAP+XOAUTH2 covers most Workspace users;
-# documented honestly). SCAFFOLD posture (e0): inert host-target lib stub; the
-# `wasm32-wasip2` component is e12/e15.
+# t7-e12: the Gmail API bridge — true label semantics (Gmail labels ↔ the engine's
+# mailbox/flag model), history-ID delta sync (via `SyncCursor::Plugin`), per-user
+# OAuth client. Builds to `wasm32-wasip2` as a real component (see `build.sh`); the
+# resulting bytes are committed at `fixtures/bridge-gmail.wasm` so `cargo test`
+# loads it through `mw-plugin` without a wasm toolchain.
+#
+# Dual-target: `cdylib` is the component artifact the `wasm32-wasip2` build
+# produces; `rlib` lets the host build (`cargo build --workspace`) + the integration
+# test link the pure Gmail logic. All the `wit-bindgen`/component glue is gated to
+# `#[cfg(target_family = "wasm")]`, so the host target compiles only the pure,
+# transport-generic backend (unit-testable without wasm).
 [lib]
-crate-type = ["rlib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+# Guest-side plugin ABI bindings (only linked on the wasm target — the macro is
+# invoked inside the `#[cfg(target_family = "wasm")]` module). Apache-2.0 WITH
+# LLVM-exception (already allowed in deny.toml).
+wit-bindgen = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+base64 = { workspace = true }
+
+[dev-dependencies]
+# Host-only: the integration test loads the committed component through the real
+# `mw-plugin` jail and drives it as an `mw_engine::AccountBackend`, replaying the
+# recorded Gmail fixtures via a mock `HttpFetcher` + `OAuthTokenProvider`.
+mw-plugin = { workspace = true }
+mw-engine = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde_json = { workspace = true }

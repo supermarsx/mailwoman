@@ -1,0 +1,26 @@
+{
+  "history": [
+    {
+      "id": "1001",
+      "messagesAdded": [
+        { "message": { "id": "m3", "threadId": "t3", "labelIds": ["INBOX", "UNREAD"] } }
+      ]
+    },
+    {
+      "id": "1002",
+      "messagesDeleted": [
+        { "message": { "id": "m1", "threadId": "t1", "labelIds": [] } }
+      ]
+    },
+    {
+      "id": "1003",
+      "labelsAdded": [
+        {
+          "message": { "id": "m2", "threadId": "t2", "labelIds": ["INBOX", "STARRED"] },
+          "labelIds": ["STARRED"]
+        }
+      ]
+    }
+  ],
+  "historyId": "1005"
+}

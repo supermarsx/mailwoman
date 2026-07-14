@@ -1,0 +1,4 @@
+# The `wasm32-wasip2` component is committed pre-built at
+# `fixtures/bridge-gmail.wasm` (rebuilt reproducibly by `build.sh`; e15 wires the
+# CI job). The intermediate host/wasm target/ tree must never be committed.
+/target

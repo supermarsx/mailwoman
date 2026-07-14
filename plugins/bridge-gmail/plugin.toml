@@ -1,0 +1,33 @@
+# bridge-gmail — Gmail API account-backend WASM plugin (plan §3 e12, SPEC §6.5).
+#
+# The frozen `plugin.toml` manifest (mw-plugin §2.1). The host defaults DENY
+# everything undeclared; the effective grant is `manifest ∩ admin grant`. An admin
+# approves this plugin and grants the `account-backend` + `net` capabilities; the
+# host then lets the guest reach ONLY the two Google hosts below via the mediated
+# `http-fetch` import. OAuth tokens are acquired host-side via `oauth-token` and
+# NEVER enter the guest.
+#
+# FIRST scope-cut candidate (§27 ladder) — Gmail is the sanctioned cut if the
+# milestone runs hot (IMAP+XOAUTH2 covers most Workspace users). It is nonetheless
+# a complete, real bridge.
+id = "bridge-gmail"
+name = "Gmail API bridge"
+version = "26.8.0"
+
+# Unsigned in-tree; the release/e15 signing job attaches a detached Ed25519
+# signature over the component bytes. Until then it loads only under an admin
+# `allow_unsigned` policy (⇒ persistent banner + audit, never silent).
+# signature = "<hex ed25519 over the component bytes>"
+
+# The account-backend (bridge) seam + host-mediated outbound HTTP.
+capabilities = ["account-backend", "net"]
+
+# The ONLY hosts the guest's http-fetch may reach. `gmail.googleapis.com` is the
+# Gmail REST surface; `oauth2.googleapis.com` is reachable for completeness though
+# token acquisition/refresh is host-side (the guest calls `oauth-token`, never the
+# token endpoint directly).
+net_allowlist = ["gmail.googleapis.com", "oauth2.googleapis.com"]
+
+[limits]
+memory_mb = 64
+deadline_ms = 15000
