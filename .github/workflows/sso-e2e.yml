@@ -1,0 +1,132 @@
+# Live SSO E2E gate (t9-e6, release 26.9) — OIDC + SAML login proven against a REAL
+# Keycloak IdP. A NEW, self-contained workflow (NOT ci.yml): brings up the
+# docker-compose.ci.yml `keycloak` service (one realm, both protocols), then drives
+# login end-to-end through the real mw-server routes twice:
+#   1. the Rust live harness (crates/mw-server/tests/sso_live.rs, MW_SSO_LIVE=1) — the
+#      authoritative headless gate. OIDC MUST pass; SAML reports the interop verdict
+#      (full-ship vs the §5 flagged-ship boundary) via saml_c14n_diagnostic.
+#   2. the Playwright browser specs (apps/web/e2e/sso-{oidc,saml}.spec.ts) against a
+#      standing, SSO-seeded mw-server serving the built SPA.
+#
+# Keycloak is a network-only CI service (Apache-2.0, mere aggregation), out of the
+# cargo-deny dependency scope — same posture as OpenLDAP/postgres/valkey.
+name: sso-e2e
+
+on:
+  workflow_dispatch: {}
+  push:
+    paths:
+      - 'crates/mw-sso/**'
+      - 'crates/mw-server/src/sso.rs'
+      - 'crates/mw-server/src/admin_sso.rs'
+      - 'crates/mw-server/tests/sso_live.rs'
+      - 'apps/web/src/modules/sso/**'
+      - 'apps/web/src/screens/Login.tsx'
+      - 'apps/web/e2e/sso-*.spec.ts'
+      - 'scripts/keycloak/**'
+      - 'docker-compose.ci.yml'
+      - '.github/workflows/sso-e2e.yml'
+
+env:
+  MW_SERVER_KEY: '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff'
+  SSO_DB: '/tmp/mw-sso-e2e.sqlite'
+
+jobs:
+  sso-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start Keycloak (one realm: OIDC client + SAML SP + test user)
+        run: docker compose -f docker-compose.ci.yml up -d keycloak
+
+      - name: Wait for the Keycloak realm to be ready
+        run: bash scripts/keycloak/wait-for-keycloak.sh http://localhost:8080 mailwoman 240
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      # ── 1. Authoritative headless gate: OIDC MUST pass; SAML reports the verdict ──
+      - name: Rust live SSO harness (OIDC full + SAML interop decision)
+        run: |
+          MW_SSO_LIVE=1 cargo test -p mw-server --test sso_live \
+            -- --nocapture --test-threads=1
+
+      # ── 2. Browser gate: seed a standing SSO server + drive the real UI ──
+      - name: Seed the standing SSO db (both backends → live Keycloak)
+        run: |
+          MW_SSO_LIVE=1 MW_SSO_SEED_DB="$SSO_DB" cargo test -p mw-server --test sso_live \
+            seed_standing_db -- --nocapture --test-threads=1
+
+      - name: Build the server binary
+        run: cargo build -p mw-server --bin mailwoman
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+
+      - name: Build the SPA
+        working-directory: apps/web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Install Playwright Chromium
+        working-directory: apps/web
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Start the standing SSO-seeded mw-server (:8090)
+        run: |
+          ./target/debug/mailwoman serve \
+            --db-path "$SSO_DB" --server-key "$MW_SERVER_KEY" \
+            --web-dir apps/web/dist --mode engine --bind 127.0.0.1:8090 &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8090/api/sso/providers && break || sleep 1
+          done
+          echo; echo "providers advertised:"; curl -s http://localhost:8090/api/sso/providers
+
+      - name: Write the SSO Playwright config
+        working-directory: apps/web
+        run: |
+          cat > playwright.sso.ci.config.ts <<'EOF'
+          import { defineConfig, devices } from '@playwright/test';
+          export default defineConfig({
+            testDir: './e2e',
+            testMatch: ['sso-oidc.spec.ts', 'sso-saml.spec.ts'],
+            fullyParallel: false,
+            workers: 1,
+            timeout: 45_000,
+            expect: { timeout: 15_000 },
+            reporter: [['list']],
+            use: {
+              baseURL: process.env.MW_SSO_E2E_BASE_URL ?? 'http://localhost:8090',
+              trace: 'retain-on-failure',
+              screenshot: 'only-on-failure',
+              serviceWorkers: 'block',
+            },
+            projects: [{ name: 'sso', use: { ...devices['Desktop Chrome'] } }],
+          });
+          EOF
+
+      # The OIDC "authenticated inbox" + SAML "interop verdict" tests pass green. The
+      # OIDC "renders the button" test is an HONEST-RED regression guard for the escalated
+      # listSsoProviders parse bug (client reads a bare array; server returns
+      # { providers: [...] }) — see .orchestration/logs/t9-e6.md. This is a NON-REQUIRED
+      # workflow: honest-red on a real, surfaced bug is the intended signal (repo posture).
+      - name: Playwright SSO browser specs (live Keycloak)
+        working-directory: apps/web
+        env:
+          MW_SSO_KC_USER: ada
+          MW_SSO_KC_PASS: keycloak-test-pw
+          MW_SSO_KC_EMAIL: ada@mailwoman.test
+        run: pnpm exec playwright test --config=playwright.sso.ci.config.ts
+
+      - name: Tear down Keycloak
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v || true

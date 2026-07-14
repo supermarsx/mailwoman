@@ -108,3 +108,38 @@ services:
       timeout: 5s
       retries: 20
       start_period: 3s
+
+  # ── t9 (26.9) SSO CI service (plan §4 t9-e6-e2e) — the real IdP for the live
+  # OIDC + SAML login E2E. ONE Keycloak serves BOTH protocols: the seeded realm
+  # (scripts/keycloak/realm.json, imported at boot) defines an OIDC client
+  # (auth-code + PKCE, secret `mailwoman-oidc-secret`) AND a SAML SP
+  # (`mailwoman-sp`, signed assertions, exc-C14N) plus the shared test user
+  # `ada` / `keycloak-test-pw` (email ada@mailwoman.test). Keycloak is a
+  # NETWORK-ONLY service (Apache-2.0, mere aggregation — same posture as
+  # OpenLDAP/postgres/valkey), OUT of the cargo-deny dependency scope.
+  #
+  #   docker compose -f docker-compose.ci.yml up -d keycloak
+  #   scripts/keycloak/wait-for-keycloak.sh            # host-side readiness poll
+  #       -> the mw-server live SSO harness (crates/mw-server/tests/sso_live.rs,
+  #          MW_SSO_LIVE=1) + the Playwright sso-oidc / sso-saml specs drive login
+  #          end-to-end against this realm. The SP ACS / OIDC redirect are
+  #          registered for the harness server on :8090 (fixed port).
+  #
+  # start-dev (H2, ephemeral — no volume) is used deliberately: a fresh CI run
+  # re-imports the realm each time. Keycloak 26's base image ships no shell/curl,
+  # so container-level HTTP healthcheck is impractical; readiness is asserted
+  # host-side by wait-for-keycloak.sh polling the realm's OIDC discovery doc.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: ["start-dev", "--import-realm", "--http-port=8080"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: "admin"
+      KC_BOOTSTRAP_ADMIN_PASSWORD: "admin"
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./scripts/keycloak/realm.json:/opt/keycloak/data/import/realm.json:ro
+    ports:
+      - "8080:8080"   # HTTP (OIDC discovery + SAML SSO endpoints)
+      - "9000:9000"   # management (health)

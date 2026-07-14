@@ -1,0 +1,100 @@
+{
+  "realm": "mailwoman",
+  "enabled": true,
+  "sslRequired": "none",
+  "loginTheme": "keycloak",
+  "registrationAllowed": false,
+  "users": [
+    {
+      "username": "ada",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "ada@mailwoman.test",
+      "firstName": "Ada",
+      "lastName": "Lovelace",
+      "credentials": [
+        { "type": "password", "value": "keycloak-test-pw", "temporary": false }
+      ],
+      "realmRoles": ["default-roles-mailwoman"]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "mailwoman-oidc",
+      "name": "Mailwoman (OIDC)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "mailwoman-oidc-secret",
+      "clientAuthenticatorType": "client-secret",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": true,
+      "redirectUris": [
+        "http://localhost:8090/*",
+        "http://127.0.0.1:8090/*"
+      ],
+      "webOrigins": ["+"],
+      "attributes": {
+        "post.logout.redirect.uris": "+",
+        "pkce.code.challenge.method": "S256"
+      }
+    },
+    {
+      "clientId": "mailwoman-sp",
+      "name": "Mailwoman (SAML SP)",
+      "enabled": true,
+      "protocol": "saml",
+      "frontchannelLogout": false,
+      "fullScopeAllowed": true,
+      "redirectUris": [
+        "http://localhost:8090/api/sso/corp-saml/acs",
+        "http://127.0.0.1:8090/api/sso/corp-saml/acs"
+      ],
+      "adminUrl": "http://localhost:8090/api/sso/corp-saml/acs",
+      "attributes": {
+        "saml.assertion.signature": "true",
+        "saml.server.signature": "false",
+        "saml.server.signature.keyinfo.ext": "false",
+        "saml.signature.algorithm": "RSA_SHA256",
+        "saml_signature_canonicalization_method": "http://www.w3.org/2001/10/xml-exc-c14n#",
+        "saml.client.signature": "false",
+        "saml.authnstatement": "true",
+        "saml.onetimeuse.condition": "false",
+        "saml_name_id_format": "email",
+        "saml_force_name_id_format": "true",
+        "saml.encrypt": "false",
+        "saml_assertion_consumer_url_post": "http://localhost:8090/api/sso/corp-saml/acs",
+        "saml_single_logout_service_url_post": "http://localhost:8090/api/sso/corp-saml/logout"
+      },
+      "protocolMappers": [
+        {
+          "name": "email",
+          "protocol": "saml",
+          "protocolMapper": "saml-user-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "email",
+            "friendly.name": "email",
+            "attribute.name": "email",
+            "attribute.nameformat": "Basic"
+          }
+        },
+        {
+          "name": "givenName",
+          "protocol": "saml",
+          "protocolMapper": "saml-user-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "firstName",
+            "friendly.name": "givenName",
+            "attribute.name": "givenName",
+            "attribute.nameformat": "Basic"
+          }
+        }
+      ]
+    }
+  ]
+}
