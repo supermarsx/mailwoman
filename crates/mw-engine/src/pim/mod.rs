@@ -14,12 +14,16 @@
 //!   autocomplete), `ContactGroup/*`.
 //! - [`sync`] — the CalDAV/CardDAV pull/push orchestration driving
 //!   `mw-dav`/`mw-carddav` (etag/sync-token/ctag reconcile, plan §2.3).
+//! - [`bridge`] — the **bridge PIM routing** (plan §2.2, t10-e5): when a backend
+//!   advertises a bridge calendar/tasks capability the engine pulls PIM through the
+//!   bridge trait objects; absence ⇒ the [`sync`] standards path runs byte-unchanged.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Map, Value, json};
 
+pub mod bridge;
 pub mod calendars;
 pub mod contacts;
 pub mod dispatch;

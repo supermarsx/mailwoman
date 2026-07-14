@@ -154,11 +154,17 @@ impl Engine {
             &row.list_id,
             id,
             &row.uid,
-            json,
+            json.clone(),
             row.etag.clone(),
             Some(rt),
         )
         .await?;
+        // Bridge write routing (plan §2.2): when the account's backend advertises a
+        // bridge tasks capability AND this update completes the task, mirror the
+        // completion upstream (best-effort, mirroring the CalDAV push). Absence ⇒ a
+        // strict no-op, so the existing local-only path is byte-for-byte unchanged.
+        self.maybe_bridge_complete_task(account_id, &row.uid, &json)
+            .await;
         self.record_pim_change(account_id, ChangeType::Task, id, ChangeOp::Updated)
             .await?;
         Ok(())

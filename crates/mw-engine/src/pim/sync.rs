@@ -91,8 +91,15 @@ impl Engine {
     /// are skipped. Best-effort per collection — one failure does not abort the
     /// rest — so the surface degrades rather than stalls.
     pub async fn sync_pim(&self, account_id: &str, rt: &AccountRuntime) -> Result<()> {
+        // Bridge PIM routing (plan §2.2, §1.3): when the account's backend advertises
+        // a bridge calendar/tasks capability, pull PIM through the bridge. When it
+        // does NOT — a plain IMAP/POP3/DAV account, or nothing attached — this is a
+        // strict no-op (`bridge_calendar`/`bridge_tasks` return `None`) and the
+        // standards CalDAV/CardDAV path below runs byte-for-byte unchanged.
+        self.sync_pim_via_bridge(account_id).await?;
+
         let Some(base) = rt.dav.clone() else {
-            return Ok(()); // mail-only account
+            return Ok(()); // mail-only account (incl. bridge-only accounts)
         };
         for cal in self.store().list_calendars(account_id).await? {
             if cal.caldav_url.is_some()
@@ -334,7 +341,11 @@ impl Engine {
 
     // ── uid → local id lookups (scan; the collections are small) ─────────────
 
-    async fn event_id_for_uid(&self, calendar_id: &str, uid: &str) -> Result<Option<String>> {
+    pub(crate) async fn event_id_for_uid(
+        &self,
+        calendar_id: &str,
+        uid: &str,
+    ) -> Result<Option<String>> {
         Ok(self
             .store()
             .list_events(calendar_id)
@@ -344,7 +355,7 @@ impl Engine {
             .map(|e| e.id))
     }
 
-    async fn task_id_for_uid(&self, list_id: &str, uid: &str) -> Result<Option<String>> {
+    pub(crate) async fn task_id_for_uid(&self, list_id: &str, uid: &str) -> Result<Option<String>> {
         Ok(self
             .store()
             .list_tasks(list_id)
