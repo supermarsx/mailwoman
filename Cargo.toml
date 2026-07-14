@@ -38,6 +38,10 @@ members = [
     "plugins/bridge-gmail",
     "plugins/nextcloud",
     "plugins/languagetool",
+    # ── t10 (26.10) tail plugins: spam trainers + masked-email (plan §3 e0). ──
+    "plugins/spam-rspamd",
+    "plugins/spam-spamassassin",
+    "plugins/masked-email",
     "apps/desktop/src-tauri",
     "apps/mobile/src-tauri",
 ]

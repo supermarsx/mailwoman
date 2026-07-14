@@ -4826,6 +4826,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "masked-email"
+version = "26.9.0"
+dependencies = [
+ "async-trait",
+ "mw-plugin",
+ "serde_json",
+ "tokio",
+ "wit-bindgen 0.46.0",
+]
+
+[[package]]
 name = "matchers"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8578,6 +8589,28 @@ dependencies = [
  "gobject-sys",
  "libc",
  "system-deps",
+]
+
+[[package]]
+name = "spam-rspamd"
+version = "26.9.0"
+dependencies = [
+ "async-trait",
+ "mw-plugin",
+ "serde_json",
+ "tokio",
+ "wit-bindgen 0.46.0",
+]
+
+[[package]]
+name = "spam-spamassassin"
+version = "26.9.0"
+dependencies = [
+ "async-trait",
+ "mw-plugin",
+ "serde_json",
+ "tokio",
+ "wit-bindgen 0.46.0",
 ]
 
 [[package]]
