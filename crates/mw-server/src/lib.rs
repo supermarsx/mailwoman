@@ -57,6 +57,11 @@ pub mod plugins;
 // V7 MOUNT/WIRE (plan §3 e14): builds + injects the five V7 extensions, backs the
 // host-service seams, the extra endpoints, and the countersign snapshot. Owned by e14.
 pub mod v7_mount;
+// V8 SSO (26.9, t9-e3): the `/api/sso/*` login routes over the frozen `mw-sso`
+// `SsoLogin` trait + the `/admin/sso` config CRUD. Additive; the password `/api/login`
+// path is byte-unchanged. Mounted by `router()` below.
+pub mod admin_sso;
+pub mod sso;
 // V6 MOUNT (t6-e11): store adapters backing the frozen Batch-B persistence seams
 // over the real 0007 tables.
 mod stores_v6;
@@ -290,6 +295,33 @@ pub async fn build_app_full(
     config: AppConfig,
     v6config: V6Config,
 ) -> anyhow::Result<(Router, PushHandle)> {
+    build_app_inner(config, v6config, sso::SsoProviderSource::Store).await
+}
+
+/// Test seam (t9-e3 `sso_e2e`): build the app with mock [`mw_sso::SsoLogin`]
+/// providers injected instead of the ones built from the 0009 `sso_config` rows, so
+/// the `/api/sso/*` routes can be driven end-to-end without a live IdP. Everything
+/// else — the store, sessions, `finish_login` — is the real path.
+#[doc(hidden)]
+pub async fn build_app_with_sso_mock(
+    config: AppConfig,
+    v6config: V6Config,
+    providers: Vec<(String, sso::SsoEntry)>,
+) -> anyhow::Result<(Router, PushHandle)> {
+    let map: std::collections::HashMap<String, sso::SsoEntry> = providers.into_iter().collect();
+    build_app_inner(
+        config,
+        v6config,
+        sso::SsoProviderSource::Mock(Arc::new(map)),
+    )
+    .await
+}
+
+async fn build_app_inner(
+    config: AppConfig,
+    v6config: V6Config,
+    sso_source: sso::SsoProviderSource,
+) -> anyhow::Result<(Router, PushHandle)> {
     let key = match &config.server_key_hex {
         Some(h) => ServerKey::from_hex(h).map_err(|_| anyhow!("MW_SERVER_KEY is not valid hex"))?,
         None => {
@@ -469,7 +501,10 @@ pub async fn build_app_full(
         plugins: plugin_host,
         nextcloud,
     };
-    Ok((router(state, mcp_router, v7), push))
+    // V8 SSO (t9-e3): the shared one-shot pending-flow store (replay/CSRF binding)
+    // plus the provider source (store-built in prod; mock in the unit gate).
+    let sso_pending = Arc::new(sso::PendingFlows::new(sso::PENDING_TTL));
+    Ok((router(state, mcp_router, v7, sso_source, sso_pending), push))
 }
 
 /// The five V7 request extensions e14 injects into the mounted route factories
@@ -482,7 +517,13 @@ pub(crate) struct V7Extensions {
     nextcloud: nextcloud::NextcloudHandle,
 }
 
-fn router(state: AppState, mcp_router: Option<Router>, v7: V7Extensions) -> Router {
+fn router(
+    state: AppState,
+    mcp_router: Option<Router>,
+    v7: V7Extensions,
+    sso_source: sso::SsoProviderSource,
+    sso_pending: Arc<sso::PendingFlows>,
+) -> Router {
     // V6 additive surfaces (plan §3 e11), merged before the fallback + guard layers
     // so they ride the same security-headers / CSRF-origin / CORS middleware. The
     // normal mailbox routes above are byte-unchanged.
@@ -511,10 +552,20 @@ fn router(state: AppState, mcp_router: Option<Router>, v7: V7Extensions) -> Rout
         .layer(Extension(v7.plugins))
         .layer(Extension(v7.nextcloud));
 
+    // ── V8 SSO MOUNT (t9-e3) ──────────────────────────────────────────────────
+    // The `/api/sso/*` login routes + the `/admin/sso` config CRUD, layered with the
+    // injected provider source + shared pending-flow store. Additive; the password
+    // `/api/login` path is untouched.
+    let sso_routes = sso::sso_router()
+        .merge(admin_sso::admin_sso_router())
+        .layer(Extension(sso_source))
+        .layer(Extension(sso_pending));
+
     let mut v6 = admin::routes()
         .merge(oauth::routes())
         .merge(rest)
         .merge(v7_routes)
+        .merge(sso_routes)
         .route("/metrics", get(observability::metrics))
         .route("/errors", post(errors::report_error))
         .route("/api/webhooks/inbound", post(webhooks::inbound_webhook));
@@ -630,6 +681,16 @@ async fn security_headers(State(state): State<AppState>, req: Request, next: Nex
 /// `csrf_strict` is enabled, the double-submit token check.
 async fn state_change_guard(State(state): State<AppState>, req: Request, next: Next) -> Response {
     if hardening::is_state_changing(req.method()) {
+        // V8 SSO (t9-e3, plan §9 R3): the OIDC callback / SAML ACS are
+        // IdP-redirect/POST landings that carry IdP-signed state (bound one-shot,
+        // server-side, in the SSO pending-flow store) — NOT an ambient session — so
+        // the cookie-CSRF + same-origin guard does not apply to them (a cross-site
+        // form POST from the IdP legitimately has a foreign/absent Origin). Exempt
+        // EXACTLY these paths; every other route (incl. `/api/sso/logout`) stays
+        // guarded.
+        if is_sso_idp_callback(req.uri().path()) {
+            return next.run(req).await;
+        }
         // V5 (plan §2.2): a native bearer request carries no ambient cookie
         // authority (origin-agnostic, no cookie) → it is not a CSRF vector, so the
         // cookie-only Origin/double-submit guard is skipped for it. Cookie/browser
@@ -658,6 +719,20 @@ async fn state_change_guard(State(state): State<AppState>, req: Request, next: N
         }
     }
     next.run(req).await
+}
+
+/// Whether `path` is an SSO IdP-callback landing (`/api/sso/{id}/callback` or
+/// `/api/sso/{id}/acs`) — the ONLY paths exempted from the state-change/CSRF guard
+/// (they carry IdP-signed state bound server-side, not an ambient session). The
+/// session-authed `/api/sso/logout` and every other route stay guarded.
+fn is_sso_idp_callback(path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/api/sso/") else {
+        return false;
+    };
+    let mut parts = rest.splitn(2, '/');
+    let id = parts.next().unwrap_or("");
+    let tail = parts.next().unwrap_or("");
+    !id.is_empty() && matches!(tail, "callback" | "acs")
 }
 
 /// V5 config-gated CORS (plan §2.2). OFF by default (`native_auth` empty): passes
@@ -794,7 +869,7 @@ async fn login(State(state): State<AppState>, Json(body): Json<LoginReq>) -> Res
 /// plan §2.2) record a `native_sessions` marker (keyed by the token HASH), set NO
 /// cookie, and return the bearer token in the JSON body. The bearer token IS the
 /// opaque session id — proxying reads its `sessions` row like any other.
-async fn finish_login(
+pub(crate) async fn finish_login(
     state: &AppState,
     id: &str,
     account_id: &str,
@@ -1891,7 +1966,7 @@ fn session_cookie(id: &str, secure: bool) -> HeaderValue {
     HeaderValue::from_str(&c).expect("cookie value is ascii")
 }
 
-fn clear_cookie(secure: bool) -> HeaderValue {
+pub(crate) fn clear_cookie(secure: bool) -> HeaderValue {
     let mut c = format!("{COOKIE_NAME}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0");
     if secure {
         c.push_str("; Secure");
@@ -1899,7 +1974,7 @@ fn clear_cookie(secure: bool) -> HeaderValue {
     HeaderValue::from_str(&c).expect("cookie value is ascii")
 }
 
-fn cookie_value(headers: &HeaderMap) -> Option<String> {
+pub(crate) fn cookie_value(headers: &HeaderMap) -> Option<String> {
     let raw = headers.get(header::COOKIE)?.to_str().ok()?;
     for part in raw.split(';') {
         if let Some(v) = part.trim().strip_prefix(&format!("{COOKIE_NAME}="))
@@ -2037,6 +2112,21 @@ mod tests {
             Some("https://mail.example.org")
         );
         assert!(origin_of("not-a-url").is_none());
+    }
+
+    #[test]
+    fn only_sso_idp_callbacks_are_csrf_exempt() {
+        // The IdP-signed landings are exempt…
+        assert!(is_sso_idp_callback("/api/sso/corp-oidc/callback"));
+        assert!(is_sso_idp_callback("/api/sso/corp-saml/acs"));
+        // …but nothing else on the SSO surface (logout/begin/providers stay guarded)…
+        assert!(!is_sso_idp_callback("/api/sso/logout"));
+        assert!(!is_sso_idp_callback("/api/sso/corp/begin"));
+        assert!(!is_sso_idp_callback("/api/sso/corp-oidc/metadata"));
+        // …and no id ⇒ no exemption; unrelated paths ⇒ no exemption.
+        assert!(!is_sso_idp_callback("/api/sso//callback"));
+        assert!(!is_sso_idp_callback("/api/login"));
+        assert!(!is_sso_idp_callback("/admin/sso"));
     }
 
     #[test]
