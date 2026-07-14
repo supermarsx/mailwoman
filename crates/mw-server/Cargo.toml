@@ -37,6 +37,11 @@ mw-directory = { workspace = true }
 mw-passwd = { workspace = true }
 mw-assist = { workspace = true }
 mw-plugin = { workspace = true }
+# V8 SSO route module (26.9, plan §3 e3): the `/api/sso/*` login routes drive the
+# frozen `mw-sso` `SsoLogin` trait (OIDC/SAML providers built from the 0009
+# `sso_config` rows). NOTE(coordinator/cargo-toml lock): this line + the Cargo.lock
+# reconcile are outside t9-e3's committed pathspec — please fold them in.
+mw-sso = { workspace = true }
 # V7 MOUNT (plan §3 e14): the RFC-3062 PasswordModify exop transport backs the
 # `mw-passwd` LDAP-3062 backend over ldap3(rustls) — mw-directory exposes no exop
 # passthrough, so e14 owns the transport. rustls-ring ONLY (no native-tls/openssl),
