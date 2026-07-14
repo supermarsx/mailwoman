@@ -15,3 +15,30 @@ wasmtime::component::bindgen!({
     imports: { default: async | trappable },
     exports: { default: async },
 });
+
+/// Host bindings for the SECOND world `plugin-pim` (t10-e0's §5 second-world
+/// fallback). `plugin-pim` `include`s `world plugin` and additionally exports the
+/// three OPTIONAL PIM/parity interfaces (`calendar`/`tasks`/`bridge-parity`).
+///
+/// A PIM-capable guest (the Graph/EWS/Gmail bridges) targets `plugin-pim` and so
+/// ALSO satisfies `world plugin` — meaning the existing [`Plugin`] bindings load it
+/// unchanged (the account-backend path is untouched). This second binding is used
+/// ONLY once [`crate::adapter_pim`] has probed the raw component and confirmed the
+/// PIM exports are present; instantiating [`pim::PluginPim`] against a component
+/// that does *not* export the three interfaces would fail, which is exactly why the
+/// probe gates it (a `world plugin`-only component — LanguageTool/Nextcloud — never
+/// reaches here and loads byte-unchanged).
+///
+/// The `host` import interface is the SAME WIT interface as `world plugin`'s, so the
+/// linker built by [`crate::host_state::build_linker`] (which registers
+/// `mailwoman:plugin/host@0.1.0` by name) satisfies `PluginPim`'s import too — no
+/// second host impl or linker is required. The generated `Host`/`add_to_linker` in
+/// this module are unused.
+pub(crate) mod pim {
+    wasmtime::component::bindgen!({
+        world: "plugin-pim",
+        path: "wit",
+        imports: { default: async | trappable },
+        exports: { default: async },
+    });
+}

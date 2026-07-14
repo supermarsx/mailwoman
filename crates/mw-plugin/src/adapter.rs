@@ -19,6 +19,14 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 
+// The t10 PIM/parity adapters (plan §4/§5). Declared here — a child of the crate
+// root — rather than in `lib.rs`, so this executor's owned file set stays exactly
+// `{engine,bindings,adapter,adapter_pim}.rs` (§ commit protocol). Being a descendant
+// of the crate root, `adapter_pim` can reach the private `PluginCtx`/`PluginHandle`
+// internals it needs; its `pub` items surface on the already-public `PluginHandle`.
+#[path = "adapter_pim.rs"]
+pub(crate) mod adapter_pim;
+
 use mw_engine::{
     AccountBackend, BackendCaps, ChangeEvent, ChangeSink, EngineError, Flag, MailboxDelta,
     MailboxRole, MessageRef, MoveOutcome, RawMailbox, RawMailboxRef, RawMessage, SyncCursor,

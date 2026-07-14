@@ -1,0 +1,4 @@
+# Build artifacts of the standalone (own-workspace) PIM guest fixture crate. The
+# COMPONENT it produces is committed pre-built at ../fixtures/pim-guest.wasm; the
+# intermediate target/ tree must never be committed.
+/target
