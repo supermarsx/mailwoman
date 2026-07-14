@@ -1,0 +1,33 @@
+{
+  "method": "GET",
+  "url_contains": "/me/mailFolders?$top",
+  "status": 200,
+  "body_json": {
+    "value": [
+      {
+        "id": "AAMk-inbox",
+        "displayName": "Inbox",
+        "wellKnownName": "inbox",
+        "parentFolderId": "AAMk-root",
+        "totalItemCount": 12,
+        "unreadItemCount": 3
+      },
+      {
+        "id": "AAMk-archive",
+        "displayName": "Archive",
+        "wellKnownName": "archive",
+        "parentFolderId": "AAMk-root",
+        "totalItemCount": 240,
+        "unreadItemCount": 0
+      },
+      {
+        "id": "AAMk-projects",
+        "displayName": "Projects",
+        "wellKnownName": null,
+        "parentFolderId": "AAMk-inbox",
+        "totalItemCount": 5,
+        "unreadItemCount": 1
+      }
+    ]
+  }
+}

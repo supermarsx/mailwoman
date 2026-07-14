@@ -1,0 +1,6 @@
+{
+  "method": "POST",
+  "url_contains": "/sendMail",
+  "status": 202,
+  "body_text": ""
+}

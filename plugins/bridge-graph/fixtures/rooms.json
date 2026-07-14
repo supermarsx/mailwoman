@@ -1,0 +1,21 @@
+{
+  "method": "GET",
+  "url_contains": "/places/microsoft.graph.room",
+  "status": 200,
+  "body_json": {
+    "value": [
+      {
+        "displayName": "Everest",
+        "emailAddress": "everest@vogue-homes.com",
+        "capacity": 12,
+        "building": "HQ"
+      },
+      {
+        "displayName": "K2",
+        "emailAddress": "k2@vogue-homes.com",
+        "capacity": 6,
+        "building": "HQ"
+      }
+    ]
+  }
+}

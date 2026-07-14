@@ -1,0 +1,6 @@
+{
+  "method": "POST",
+  "url_contains": "/react",
+  "status": 200,
+  "body_text": ""
+}

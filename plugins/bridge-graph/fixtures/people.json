@@ -1,0 +1,17 @@
+{
+  "method": "GET",
+  "url_contains": "/me/people",
+  "status": 200,
+  "body_json": {
+    "value": [
+      {
+        "displayName": "Carol Danvers",
+        "scoredEmailAddresses": [ { "address": "carol@vogue-homes.com" } ]
+      },
+      {
+        "displayName": "Erik Lehnsherr",
+        "scoredEmailAddresses": [ { "address": "erik@vogue-homes.com" } ]
+      }
+    ]
+  }
+}

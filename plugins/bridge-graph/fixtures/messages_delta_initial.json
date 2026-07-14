@@ -1,0 +1,23 @@
+{
+  "method": "GET",
+  "url_contains": "messages/delta?$select",
+  "status": 200,
+  "body_json": {
+    "value": [
+      {
+        "id": "AAMk-msg-1",
+        "isRead": false,
+        "inferenceClassification": "focused",
+        "receivedDateTime": "2026-07-10T09:15:00Z"
+      },
+      {
+        "id": "AAMk-msg-2",
+        "isRead": true,
+        "flag": { "flagStatus": "flagged" },
+        "inferenceClassification": "other",
+        "receivedDateTime": "2026-07-10T08:02:00Z"
+      }
+    ],
+    "@odata.deltaLink": "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=NEXT1"
+  }
+}

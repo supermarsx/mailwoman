@@ -1,0 +1,22 @@
+{
+  "method": "GET",
+  "url_contains": "/me/events/delta",
+  "status": 200,
+  "body_json": {
+    "value": [
+      {
+        "id": "evt-1",
+        "subject": "Sprint review",
+        "start": { "dateTime": "2026-07-15T14:00:00", "timeZone": "UTC" },
+        "end": { "dateTime": "2026-07-15T15:00:00", "timeZone": "UTC" },
+        "location": { "displayName": "Room Everest" },
+        "isAllDay": false
+      },
+      {
+        "id": "evt-2",
+        "@removed": { "reason": "deleted" }
+      }
+    ],
+    "@odata.deltaLink": "https://graph.microsoft.com/v1.0/me/events/delta?$deltatoken=EVTNEXT"
+  }
+}

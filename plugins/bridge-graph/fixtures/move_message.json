@@ -1,0 +1,6 @@
+{
+  "method": "POST",
+  "url_contains": "/move",
+  "status": 201,
+  "body_json": { "id": "AAMk-msg-1-moved" }
+}

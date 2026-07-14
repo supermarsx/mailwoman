@@ -1,0 +1,20 @@
+{
+  "method": "GET",
+  "url_contains": "/lists/list-tasks/tasks",
+  "status": 200,
+  "body_json": {
+    "value": [
+      {
+        "id": "task-1",
+        "title": "Draft release notes",
+        "status": "notStarted",
+        "dueDateTime": { "dateTime": "2026-07-20T17:00:00", "timeZone": "UTC" }
+      },
+      {
+        "id": "task-2",
+        "title": "Tag 26.8",
+        "status": "completed"
+      }
+    ]
+  }
+}

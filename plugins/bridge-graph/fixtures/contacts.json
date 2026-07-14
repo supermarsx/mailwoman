@@ -1,0 +1,17 @@
+{
+  "method": "GET",
+  "url_contains": "/me/contacts",
+  "status": 200,
+  "body_json": {
+    "value": [
+      {
+        "displayName": "Carol Danvers",
+        "emailAddresses": [ { "name": "Carol Danvers", "address": "carol@vogue-homes.com" } ]
+      },
+      {
+        "displayName": "Dave Lister",
+        "emailAddresses": [ { "name": "Dave Lister", "address": "dave@example.net" } ]
+      }
+    ]
+  }
+}

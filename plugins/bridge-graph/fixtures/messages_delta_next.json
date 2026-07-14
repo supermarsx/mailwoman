@@ -1,0 +1,19 @@
+{
+  "method": "GET",
+  "url_contains": "$deltatoken=NEXT1",
+  "status": 200,
+  "body_json": {
+    "value": [
+      {
+        "id": "AAMk-msg-1",
+        "isRead": true,
+        "inferenceClassification": "focused"
+      },
+      {
+        "id": "AAMk-msg-2",
+        "@removed": { "reason": "deleted" }
+      }
+    ],
+    "@odata.deltaLink": "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=NEXT2"
+  }
+}

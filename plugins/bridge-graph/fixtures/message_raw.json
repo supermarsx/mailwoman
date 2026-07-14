@@ -1,0 +1,6 @@
+{
+  "method": "GET",
+  "url_contains": "/$value",
+  "status": 200,
+  "body_text": "Message-ID: <AAMk-msg-1@vogue-homes.com>\r\nFrom: Alice <alice@vogue-homes.com>\r\nTo: Bob <bob@vogue-homes.com>\r\nSubject: Q3 roadmap\r\nDate: Fri, 10 Jul 2026 09:15:00 +0000\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHere is the Q3 roadmap draft for review.\r\n"
+}

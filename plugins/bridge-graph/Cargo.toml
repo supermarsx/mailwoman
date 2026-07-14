@@ -2,19 +2,44 @@
 name = "bridge-graph"
 description = "Microsoft Graph (M365/Outlook.com/Exchange-Online) account-backend bridge — a first-party WASM engine plugin for Mailwoman V7 (plan §3 e10, SPEC §6.5). CUT-PROOF."
 version.workspace = true
-edition.workspace = true
+# Pin edition 2021 to match the proven `crates/mw-plugin/tests/guest-fixture/`
+# reference guest — wit-bindgen 0.46 codegen + the `wasm32-wasip2` component build
+# are validated on 2021; the crate is still a normal workspace member (root pins
+# edition 2024) so `cargo build --workspace` compiles the host-target lib view.
+edition = "2021"
 license.workspace = true
 repository.workspace = true
 
 # t7-e10 (CUT-PROOF): the Graph bridge component. Implements the mailwoman:plugin
 # `account-backend` export (⇒ the frozen mw-engine::AccountBackend via the host
-# adapter) + optional caps (reactions/voting/recall/Focused-Inbox-sync); OAuth
-# device-code + auth-code via the host `oauth-token` import.
+# adapter) + `addrbook-source` (contacts/GAL) + optional caps (reactions/voting/
+# recall/categories/Focused-Inbox-sync); OAuth device-code + auth-code is HOST-side
+# via the `oauth-token` import (tokens never live in the guest). All Graph HTTP is
+# host-mediated via `http-fetch` under the manifest `net_allowlist`.
 #
-# SCAFFOLD posture (e0): an INERT host-target LIB stub so `cargo build --workspace`
-# is green. The real `wasm32-wasip2` component build (crate-type = ["cdylib"],
-# `wit-bindgen` guest bindings against ../../crates/mw-plugin/wit) is added by e15.
+# Dual-view build (plan §1.2): the pure Graph mapping (model/mail/calendar/contacts/
+# todo/caps) is target-independent and host-unit-tested via a fixture `Transport`;
+# the `wasm32-wasip2` guest wiring (wit-bindgen `generate!`/`export!`) is gated to
+# `cfg(target_arch = "wasm32")`. So `cargo build --workspace` yields an inert
+# host-target lib, and `cargo build -p bridge-graph --target wasm32-wasip2` (or
+# `build.sh`) yields the real component.
 [lib]
-crate-type = ["rlib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+base64 = { workspace = true }
+
+# Guest ABI bindings — only linked for the wasm component build. On the host target
+# the crate is pure Rust (mapping logic + fixtures), so wit-bindgen is not pulled.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wit-bindgen = { workspace = true }
+
+# Host-target test harness: load the committed component in the real wasmtime jail
+# (mw-plugin) and replay recorded Graph fixtures through the engine seam.
+[dev-dependencies]
+mw-plugin = { workspace = true }
+mw-engine = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }

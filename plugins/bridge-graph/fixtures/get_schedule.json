@@ -1,0 +1,11 @@
+{
+  "method": "POST",
+  "url_contains": "/getSchedule",
+  "status": 200,
+  "body_json": {
+    "value": [
+      { "scheduleId": "everest@vogue-homes.com", "availabilityView": "002200" },
+      { "scheduleId": "grace@vogue-homes.com", "availabilityView": "000000" }
+    ]
+  }
+}

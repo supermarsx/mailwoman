@@ -1,0 +1,21 @@
+{
+  "method": "GET",
+  "url_contains": "/me/calendars",
+  "status": 200,
+  "body_json": {
+    "value": [
+      {
+        "id": "cal-own",
+        "name": "Calendar",
+        "canEdit": true,
+        "owner": { "name": "You", "address": "admin@vogue-homes.com" }
+      },
+      {
+        "id": "cal-shared",
+        "name": "Team Planning",
+        "canEdit": false,
+        "owner": { "name": "Grace Hopper", "address": "grace@vogue-homes.com" }
+      }
+    ]
+  }
+}

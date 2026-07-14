@@ -1,0 +1,11 @@
+{
+  "method": "GET",
+  "url_contains": "/me/todo/lists",
+  "status": 200,
+  "body_json": {
+    "value": [
+      { "id": "list-tasks", "displayName": "Tasks", "isOwner": true },
+      { "id": "list-shared", "displayName": "Launch checklist", "isOwner": false }
+    ]
+  }
+}

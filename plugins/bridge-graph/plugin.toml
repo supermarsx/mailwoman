@@ -1,0 +1,33 @@
+# Frozen `plugin.toml` manifest for the Microsoft Graph bridge (plan §2.1).
+#
+# The admin registry (0008 `plugins` table) ingests this; the host intersects the
+# declared `capabilities` with the admin grant (deny-by-default) and enforces
+# `net_allowlist` on every host `http-fetch`. `signature` is a detached Ed25519 sig
+# over the built component bytes — populated by the signing step (e15); until then
+# the component loads only under an admin `allow_unsigned` policy (persistent banner).
+id = "bridge-graph"
+name = "Microsoft Graph bridge"
+version = "26.8.0"
+
+# account-backend ⇒ the engine seam (mail) + the `oauth-token` import (Graph OAuth,
+# host-held). net ⇒ outbound HTTP, host-mediated, restricted to `net_allowlist`.
+# addrbook-source ⇒ contacts + GAL directory search. store-kv-scoped ⇒ scratch for
+# delta cursors the host also persists via SyncCursor::Plugin.
+capabilities = [
+    "account-backend",
+    "net",
+    "addrbook-source",
+    "store-kv-scoped",
+]
+
+# The ONLY hosts the guest may reach. Token acquisition (device-code + auth-code) is
+# host-side via the `oauth-token` import, so the guest itself never contacts
+# login.microsoftonline.com — it is listed only for the host's own OAuth traffic.
+net_allowlist = [
+    "graph.microsoft.com",
+    "login.microsoftonline.com",
+]
+
+[limits]
+memory_mb = 64
+deadline_ms = 15000

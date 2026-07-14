@@ -1,0 +1,19 @@
+{
+  "method": "GET",
+  "url_contains": "/users?$search",
+  "status": 200,
+  "body_json": {
+    "value": [
+      {
+        "displayName": "Carol Danvers",
+        "mail": "carol@vogue-homes.com",
+        "userPrincipalName": "carol@vogue-homes.com"
+      },
+      {
+        "displayName": "Frank Castle",
+        "mail": null,
+        "userPrincipalName": "frank@vogue-homes.com"
+      }
+    ]
+  }
+}

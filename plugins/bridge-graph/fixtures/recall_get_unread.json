@@ -1,0 +1,6 @@
+{
+  "method": "GET",
+  "url_contains": "recall-unread?$select=isRead",
+  "status": 200,
+  "body_json": { "id": "recall-unread", "isRead": false, "inferenceClassification": "focused" }
+}
