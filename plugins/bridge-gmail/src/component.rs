@@ -1,22 +1,40 @@
 //! The `wasm32-wasip2` component boundary (gated to `target_family = "wasm"`).
 //!
-//! Binds the frozen `mailwoman:plugin` WIT world, implements a [`Transport`] over
-//! the host imports (`http-fetch` / `oauth-token` / `log`), and adapts the pure
-//! [`GmailBackend`] to the `account-backend` guest export. The other exports in the
-//! world are trivial stubs (a plugin only provides the hooks it uses; the host
-//! calls only the capability-granted ones — here, `account-backend` + `net`).
+//! Binds the `mailwoman:plugin` WIT `plugin-pim` world (the t10 second world; a
+//! superset of `world plugin`), implements a [`Transport`] over the host imports
+//! (`http-fetch` / `oauth-token` / `log`), and adapts the pure [`GmailBackend`] to
+//! the `account-backend` guest export. The other `world plugin` exports are trivial
+//! stubs (a plugin only provides the hooks it uses; the host calls only the
+//! capability-granted ones — here, `account-backend` + `net`).
+//!
+//! ## PIM / Outlook-parity (t10, the HONEST negative path)
+//! Targeting `plugin-pim` means the guest ALSO exports the three optional
+//! `calendar` / `tasks` / `bridge-parity` interfaces so the host can PROBE them.
+//! But the Gmail bridge is **mail-scoped** — its OAuth grant + REST surface cover
+//! Gmail messages/labels only; Google Calendar and Google Tasks are SEPARATE Google
+//! APIs this bridge neither authorizes nor talks to, and Gmail has none of the
+//! Outlook-native reaction/voting/recall/Focused-Inbox features. So every
+//! `supports-*()` here returns `false` (matching [`GmailBackend::capabilities`]) and
+//! every data func returns `unsupported` (recall ⇒ `recall-outcome::unsupported`,
+//! the §10.3 honesty variant). The host binds the interfaces but the honest
+//! `supports-*() -> false` keeps `Engine::bridge_*` `None` ⇒ the engine stays on its
+//! byte-unchanged standards fallback (native CalDAV/CardDAV). Honesty over
+//! feature-count: no Google API integration is fabricated here.
 
 wit_bindgen::generate!({
-    world: "plugin",
+    world: "plugin-pim",
     path: "../../crates/mw-plugin/wit",
 });
 
 use exports::mailwoman::plugin::account_backend as ab;
 use exports::mailwoman::plugin::addrbook_source as addr;
 use exports::mailwoman::plugin::autoconfig_source as autoc;
+use exports::mailwoman::plugin::bridge_parity as parity;
+use exports::mailwoman::plugin::calendar as cal;
 use exports::mailwoman::plugin::dlp_detect as dlp;
 use exports::mailwoman::plugin::message_pipeline as pipe;
 use exports::mailwoman::plugin::spam_action as spam;
+use exports::mailwoman::plugin::tasks as tasks_ex;
 
 use mailwoman::plugin::host;
 use mailwoman::plugin::types as wit;
@@ -173,6 +191,108 @@ impl pipe::Guest for Component {
 impl spam::Guest for Component {
     fn classify(_raw: Vec<u8>) -> Result<String, wit::PluginError> {
         Ok("ham".into())
+    }
+}
+
+// ── PIM / Outlook-parity (t10) — HONEST mail-only: everything unsupported ─────────
+//
+// The Gmail bridge exports these three interfaces so the host can PROBE them, but it
+// genuinely provides NONE of them: Google Calendar / Google Tasks are separate Google
+// APIs outside this bridge's OAuth scope + REST surface, and Gmail has no Outlook
+// reaction/voting/recall/Focused-Inbox parity. Each `supports-*()` therefore returns
+// `false` (matching `GmailBackend::capabilities`) and each data func returns
+// `unsupported`, so the host keeps the engine on its standards fallback. Do NOT
+// fabricate calendar/tasks support the Gmail bridge does not have.
+
+/// The one honest reason string every unsupported PIM func returns.
+const NO_PIM: &str = "bridge-gmail is mail-only: no calendar/tasks/parity support";
+
+impl cal::Guest for Component {
+    fn supports_calendar() -> bool {
+        false
+    }
+    fn list_calendars() -> Result<Vec<cal::CalInfo>, wit::PluginError> {
+        Err(wit::PluginError::Unsupported(NO_PIM.into()))
+    }
+    fn sync_events(
+        _calendar_id: String,
+        _cursor: wit::SyncCursor,
+    ) -> Result<cal::EventDelta, wit::PluginError> {
+        Err(wit::PluginError::Unsupported(NO_PIM.into()))
+    }
+    fn find_rooms() -> Result<Vec<cal::RoomInfo>, wit::PluginError> {
+        Err(wit::PluginError::Unsupported(NO_PIM.into()))
+    }
+    fn get_schedule(
+        _who: String,
+        _start: String,
+        _end: String,
+    ) -> Result<String, wit::PluginError> {
+        Err(wit::PluginError::Unsupported(NO_PIM.into()))
+    }
+}
+
+impl tasks_ex::Guest for Component {
+    fn supports_tasks() -> bool {
+        false
+    }
+    fn list_tasks() -> Result<Vec<tasks_ex::TaskInfo>, wit::PluginError> {
+        Err(wit::PluginError::Unsupported(NO_PIM.into()))
+    }
+    fn sync_tasks(
+        _list_id: String,
+        _cursor: wit::SyncCursor,
+    ) -> Result<tasks_ex::TaskDelta, wit::PluginError> {
+        Err(wit::PluginError::Unsupported(NO_PIM.into()))
+    }
+    fn complete(_id: String) -> Result<(), wit::PluginError> {
+        Err(wit::PluginError::Unsupported(NO_PIM.into()))
+    }
+}
+
+impl parity::Guest for Component {
+    fn supports_reactions() -> bool {
+        false
+    }
+    fn supports_voting() -> bool {
+        false
+    }
+    fn supports_recall() -> bool {
+        false
+    }
+    fn supports_focused() -> bool {
+        false
+    }
+
+    fn set_reaction(
+        _msg: wit::MessageRef,
+        _emoji: String,
+        _add: bool,
+    ) -> Result<(), wit::PluginError> {
+        Err(wit::PluginError::Unsupported(NO_PIM.into()))
+    }
+    fn get_reactions(_msg: wit::MessageRef) -> Result<Vec<parity::Reaction>, wit::PluginError> {
+        Err(wit::PluginError::Unsupported(NO_PIM.into()))
+    }
+
+    fn cast_vote(_msg: wit::MessageRef, _choice: String) -> Result<(), wit::PluginError> {
+        Err(wit::PluginError::Unsupported(NO_PIM.into()))
+    }
+    fn tally(_msg: wit::MessageRef) -> Result<Vec<parity::VoteTally>, wit::PluginError> {
+        Err(wit::PluginError::Unsupported(NO_PIM.into()))
+    }
+
+    // Gmail has no server-side recall — the honest §10.3 outcome is `unsupported`,
+    // NOT `failed` (nothing was attempted or lost) and NOT `requested`.
+    fn recall(_msg: wit::MessageRef) -> Result<parity::RecallOutcome, wit::PluginError> {
+        Ok(parity::RecallOutcome::Unsupported)
+    }
+
+    fn get_focused(_msg: wit::MessageRef) -> Result<parity::FocusedState, wit::PluginError> {
+        Err(wit::PluginError::Unsupported(NO_PIM.into()))
+    }
+    fn set_focused(_msg: wit::MessageRef, _focused: bool) -> Result<(), wit::PluginError> {
+        Err(wit::PluginError::Unsupported(NO_PIM.into()))
     }
 }
 
