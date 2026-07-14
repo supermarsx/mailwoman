@@ -1,0 +1,29 @@
+[package]
+name = "mw-assist"
+description = "Assist (AI) gateway: OpenAI-compatible / Anthropic / local-process adapters with per-capability scoping, redaction, rate-limit and content-free audit, for Mailwoman V7 (plan §2.4, SPEC §14)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# t7-e4: the engine-side Assist gateway (the UI never talks to an endpoint
+# directly). Adapters are HAND-ROLLED serde over the in-tree `reqwest`(rustls) — NO
+# LLM SDK (the V6 `rmcp` lesson). The gateway enforces capability + data-class
+# scope, runs redaction (E2EE-decrypted content + attachments excluded BY DEFAULT),
+# rate-limits, and writes a CONTENT-FREE audit row (capability + scope summary +
+# endpoint host, never content). The `Assistant` capability delegates to the
+# existing `mw-mcp` tool registry (inherits scope + send-gating). NO send/delete/
+# accept capability exists (compile-time: the enum has no such variant).
+#
+# SCAFFOLD posture (e0): frozen §2.4 types as stubs; the adapters + gateway
+# enforcement + streaming are e4. `reqwest` links when e4 wires the adapters.
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+# TODO(e4): link `reqwest` (in-tree, rustls) for the adapters + `futures-util` for
+# the chat stream, and consume the frozen `mw-mcp` tool contract for `Assistant`.
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

@@ -39,6 +39,41 @@ enum Command {
     /// Run the MCP server over stdio, proxying to a configured server (V6 §20.3).
     /// STUB — filled by e4.
     McpStdio(McpStdioArgs),
+    // ── V7 subcommand STUBS (plan §3 e0). Parse-only; each prints "not yet
+    // implemented" and is filled by its owning Batch-B/C executor. ──
+    /// Manage WASM engine plugins (V7 §22). STUB — filled by e14.
+    Plugin(PluginArgs),
+    /// Change an account password via a configured backend (V7 §18.3). STUB —
+    /// filled by e14 (over the `mw-passwd` backends).
+    Password(PasswordArgs),
+}
+
+/// `mailwoman plugin <list|approve>` (V7 §22). STUB: e14 backs this with the
+/// `mw-plugin` host + the 0008 `plugins` registry tables.
+#[derive(Parser)]
+struct PluginArgs {
+    #[command(subcommand)]
+    command: PluginCommand,
+}
+
+#[derive(Subcommand)]
+enum PluginCommand {
+    /// List registered plugins (id / version / approved / enabled).
+    List,
+    /// Admin-approve a plugin by id.
+    Approve {
+        /// The plugin id to approve.
+        id: String,
+    },
+}
+
+/// `mailwoman password` (V7 §18.3). STUB: e14 drives a `mw-passwd` backend +
+/// re-seals sealed upstream credentials on success.
+#[derive(Parser)]
+struct PasswordArgs {
+    /// Account id whose password to change (env: MW_ACCOUNT_ID).
+    #[arg(long, env = "MW_ACCOUNT_ID")]
+    account_id: Option<String>,
 }
 
 /// `mailwoman migrate-store` (V6 §4.2). STUB: e1 implements
@@ -191,7 +226,29 @@ async fn main() -> std::process::ExitCode {
         Command::MigrateStore(args) => run(migrate_store(args).await),
         Command::Admin(args) => run(admin_cmd(args).await),
         Command::McpStdio(args) => run(mcp_stdio_cmd(args).await),
+        Command::Plugin(args) => run(plugin_cmd(args).await),
+        Command::Password(args) => run(password_cmd(args).await),
     }
+}
+
+/// `mailwoman plugin <list|approve>` (plan §22, e14). STUB — parses and reports
+/// "not yet implemented" until e14 wires the `mw-plugin` host + registry.
+async fn plugin_cmd(args: PluginArgs) -> anyhow::Result<()> {
+    match args.command {
+        PluginCommand::List => println!("plugin list: not yet implemented (t7 e14)"),
+        PluginCommand::Approve { id } => {
+            println!("plugin approve {id}: not yet implemented (t7 e14)");
+        }
+    }
+    Ok(())
+}
+
+/// `mailwoman password` (plan §18.3, e14). STUB — parses and reports "not yet
+/// implemented" until e14 wires the `mw-passwd` backends.
+async fn password_cmd(args: PasswordArgs) -> anyhow::Result<()> {
+    let who = args.account_id.unwrap_or_else(|| "<account>".into());
+    println!("password change for {who}: not yet implemented (t7 e14)");
+    Ok(())
 }
 
 /// `mailwoman migrate-store` (plan §4.2, e1): copy a SQLite store into a Postgres

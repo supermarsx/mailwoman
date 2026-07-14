@@ -24,6 +24,19 @@ members = [
     "crates/mw-admin",
     "crates/mw-mcp",
     "crates/mw-oauth",
+    # ── V7 (26.8.0) new crates + plugin skeletons (plan §3 e0). The four native
+    # crates compile on the host; the `plugins/*` skeletons are inert host-target
+    # lib stubs today — their real `wasm32-wasip2` component build is deferred to
+    # e15 (plan §3). ──
+    "crates/mw-plugin",
+    "crates/mw-directory",
+    "crates/mw-passwd",
+    "crates/mw-assist",
+    "plugins/bridge-graph",
+    "plugins/bridge-ews",
+    "plugins/bridge-gmail",
+    "plugins/nextcloud",
+    "plugins/languagetool",
     "apps/desktop/src-tauri",
     "apps/mobile/src-tauri",
 ]
@@ -232,6 +245,57 @@ metrics-exporter-prometheus = { version = "0.17", default-features = false }
 #     its dep tree for a rustls transport with no openssl (e9/e12, plan §6 R6).
 # TODO(v6): vet-before-enable — jsonwebtoken / totp-rs / sentry.
 
+# ── V7 (26.8.0) new dependencies (plan §5). WASM plugin runtime · LDAP/GAL
+# directory · password-change · Assist(AI) · Graph/EWS/Gmail bridges · MSG/OFT/DOCX
+# export · Nextcloud. Same POSTURE as the V4/V5/V6 pre-declares above: these are
+# DECLARED here so the Batch-B crates reference them via `{ workspace = true }`, and
+# are mostly NOT YET LINKED into the tree by this e0 scaffold (the four new stub
+# crates + the five plugin skeletons link only serde/thiserror/chrono/async-trait +,
+# for mw-plugin, the frozen `mw-engine` trait). Because an UNREFERENCED
+# `[workspace.dependencies]` entry is never resolved into `Cargo.lock`, none of the
+# heavy trees below (wasmtime/ldap3/docx-rs/cfb) are fetched or seen by `cargo deny`
+# until their owning executor links them — exactly as V4/V5/V6 deferred wasmtime-class
+# deps. Each lands under the permissive allow-list (deny.toml); ALL are permissive,
+# pure-Rust, NO GPL/LGPL/AGPL, NO openssl/-sys C.
+#
+#   wasmtime / wasmtime-wasi — the WASM plugin host + WASI-p2 component model
+#     (mw-plugin, §22/§7.5). Apache-2.0 WITH LLVM-exception (already in the
+#     deny.toml `[licenses].allow`). Pure-Rust; e1 VERIFIES the whole tree = no
+#     openssl / no `-sys` C before anyone builds on it (plan §6 R3). The e0
+#     mw-plugin STUB does NOT yet depend on wasmtime (see TODO(e1) in its
+#     Cargo.toml) — pulling the large host now risks the scaffold build/lock, so it
+#     is declare-only here (same posture V4/V6 used for heavy deps). Versions are a
+#     current baseline; e1 pins the exact working release when it wires the host.
+#   wit-bindgen — the guest-side plugin ABI bindings used by `plugins/*`
+#     (component build, e15). Apache-2.0 WITH LLVM-exception. Guest-only; declare-
+#     only until e15's `wasm32-wasip2` build links it.
+#   ldap3 — LDAP/GAL/group/cert/bind (mw-directory, §13). MIT. MUST be
+#     `default-features=false, features=["tls-rustls"]` — ldap3 defaults to
+#     native-tls (→ openssl), which is BANNED; the rustls feature keeps openssl OUT
+#     (plan §1.3/§5). e2 links it and asserts no native-tls/openssl in the tree.
+#   docx-rs — DOCX export (mw-export, §10.6). MIT. e5 links it.
+#   cfb — the MS-OXMSG/OFT Compound-File-Binary container (mw-export, §10.6).
+#     MIT OR Apache-2.0. e5 layers its own MS-OXMSG on top + a CFB fuzz target.
+#   quick-xml — REUSED (already declared for V3 mw-ics/mw-dav) for the EWS SOAP
+#     subset (bridge-ews) + OXMSG XML; no new entry needed.
+#   pure-Rust NTLM (EWS on-prem auth, bridge-ews, R2) — TODO(e11): VET the exact
+#     crate before declaring (candidate: `ntlmclient`, MIT — verify it is pure-Rust
+#     with NO GSSAPI/C and clears the license floor). If none is clean, e11
+#     HAND-ROLLS the NTLMv2 message flow (plan §5/§6 R2). Kerberos stays a
+#     documented gap (BYO reverse-proxy-auth; native post-1.0). NOT declared here
+#     to avoid pinning an unvetted crate.
+#   Assist adapters (mw-assist) + Nextcloud (plugins/nextcloud) — NO new dep:
+#     hand-rolled JSON over the existing `reqwest`(rustls) (+ `quick-xml` for
+#     Nextcloud OCS/WebDAV), following the V6 `rmcp` lesson (plan §5).
+#   Plugin signature verify (mw-plugin) — REUSE `ed25519-dalek`/existing crypto via
+#     mw-crypto; no new dep (e1).
+wasmtime = "38"
+wasmtime-wasi = "38"
+wit-bindgen = "0.46"
+ldap3 = { version = "0.11", default-features = false, features = ["tls-rustls"] }
+docx-rs = "0.4"
+cfb = "0.10"
+
 mw-jmap = { path = "crates/mw-jmap" }
 mw-sanitize = { path = "crates/mw-sanitize" }
 mw-store = { path = "crates/mw-store" }
@@ -253,6 +317,11 @@ mw-cache = { path = "crates/mw-cache" }
 mw-admin = { path = "crates/mw-admin" }
 mw-mcp = { path = "crates/mw-mcp" }
 mw-oauth = { path = "crates/mw-oauth" }
+# ── V7 (26.8.0) new crate path deps (plan §3 e0). ──
+mw-plugin = { path = "crates/mw-plugin" }
+mw-directory = { path = "crates/mw-directory" }
+mw-passwd = { path = "crates/mw-passwd" }
+mw-assist = { path = "crates/mw-assist" }
 
 [profile.release]
 overflow-checks = true

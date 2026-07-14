@@ -1,0 +1,210 @@
+// The FROZEN `mailwoman:plugin` WIT world (plan §2.1, SPEC §22/§7.5).
+//
+// Authored by the scaffolder gate (t7-e0). This is the ABI contract every plugin
+// (bridges e10/e11/e12, LanguageTool e13) and the host (e1) build against.
+// **Frozen at approval** — changing a shape here requires the coordinator to
+// re-broadcast (the plugin↔host interchangeability contract).
+//
+// Design invariants:
+//   * DENY-BY-DEFAULT: a guest can do NOTHING beyond what the host imports below
+//     expose, and the host gates each import against the plugin's manifest grant
+//     (capabilities + `net_allowlist`). No ambient WASI filesystem/clock/random/net.
+//   * Transport is HOST-MEDIATED: a guest never opens a socket — it calls
+//     `host.http-fetch`, which the host runs over its own `reqwest`(rustls) and
+//     enforces the `net_allowlist` on. This keeps the sandbox intact for bridges.
+//   * The `account-backend` export MIRRORS `mw_engine::AccountBackend` (async +
+//     a change stream) so a plugin backend is indistinguishable from `mw-imap`
+//     once adapted by the host (plan §6.5). e1 owns the async/stream mapping (R1).
+
+package mailwoman:plugin@0.1.0;
+
+// ── Shared value types ────────────────────────────────────────────────────────
+interface types {
+    // Coarse, protocol-agnostic error mirroring `mw_engine::EngineError`.
+    variant plugin-error {
+        protocol(string),
+        auth(string),
+        transport(string),
+        unsupported(string),
+        mailbox-not-found(string),
+        limit-exceeded(string),
+        capability-denied(string),
+        other(string),
+    }
+
+    record mailbox-ref {
+        name: string,
+        uidvalidity: u32,
+    }
+
+    // Server-authoritative flags/keywords (mirrors `mw_engine::Flag`).
+    variant flag {
+        seen,
+        answered,
+        flagged,
+        deleted,
+        draft,
+        recent,
+        keyword(string),
+    }
+
+    // A backend message reference (opaque to the engine's stable ids).
+    record message-ref {
+        // Opaque per-backend coordinate (e.g. serialized IMAP uid or Graph id).
+        raw: string,
+        mailbox: mailbox-ref,
+    }
+
+    record raw-message {
+        message-ref: message-ref,
+        raw: list<u8>,
+        flags: list<flag>,
+        internaldate: option<string>,
+    }
+
+    record mailbox {
+        mailbox-ref: mailbox-ref,
+        // JMAP special-use role, lowercased ("inbox"|"archive"|... |"none").
+        role: string,
+        parent: option<string>,
+        total: u32,
+        unread: u32,
+    }
+
+    // Feature flags a backend advertises, incl. the optional bridge-native caps
+    // (reactions/voting/recall/focused-sync) the engine prefers when present.
+    record backend-caps {
+        idle: bool,
+        move-cap: bool,
+        // Optional bridge-native Outlook-parity capabilities (plan §2.5).
+        reactions: bool,
+        voting: bool,
+        recall: bool,
+        focused-sync: bool,
+    }
+
+    // An opaque, backend-chosen sync cursor the engine persists verbatim.
+    record sync-cursor {
+        opaque: list<u8>,
+    }
+
+    record mailbox-delta {
+        added: list<message-ref>,
+        removed: list<message-ref>,
+        // (ref, new-full-flag-set) pairs.
+        flag-changes: list<tuple<message-ref, list<flag>>>,
+        next-cursor: sync-cursor,
+    }
+
+    // A change event a backend watch loop emits (mirrors `mw_engine::ChangeEvent`).
+    variant change-event {
+        mailbox-changed(mailbox-ref),
+        disconnected,
+    }
+}
+
+// ── Host imports (capability-gated; deny-by-default) ──────────────────────────
+interface host {
+    use types.{plugin-error};
+
+    record http-request {
+        method: string,
+        url: string,
+        headers: list<tuple<string, string>>,
+        body: option<list<u8>>,
+    }
+    record http-response {
+        status: u16,
+        headers: list<tuple<string, string>>,
+        body: list<u8>,
+    }
+
+    enum log-level { error, warn, info, debug, trace }
+
+    // Outbound HTTP, host-mediated. The host ENFORCES the plugin's `net_allowlist`
+    // (a URL outside it ⇒ `capability-denied`). The guest never opens a socket.
+    http-fetch: func(req: http-request) -> result<http-response, plugin-error>;
+
+    // Acquire an OAuth token for the bound account (Graph/Gmail device/auth-code).
+    oauth-token: func(account: string) -> result<string, plugin-error>;
+
+    // Scoped KV scratch (namespaced per plugin; `store:kv-scoped` capability).
+    kv-get: func(key: string) -> option<list<u8>>;
+    kv-put: func(key: string, value: list<u8>);
+
+    // NO-CONTENT logging floor: level + an opaque message; never mail content.
+    log: func(level: log-level, message: string);
+
+    // Ambient time/random are DENIED by default — these are the only sanctioned
+    // sources, host-provided so they remain governable.
+    now: func() -> u64;                 // unix millis
+    random: func(len: u32) -> list<u8>;
+}
+
+// ── Guest exports (each optional, capability-gated) ───────────────────────────
+
+// The account-backend seam (§6.5) — mirrors `mw_engine::AccountBackend`. e1 maps
+// the async/stream shape across the WASI-p2 boundary (plan §6 R1).
+interface account-backend {
+    use types.{backend-caps, mailbox, mailbox-ref, message-ref, raw-message,
+               sync-cursor, mailbox-delta, flag, change-event, plugin-error};
+
+    capabilities: func() -> result<backend-caps, plugin-error>;
+    list-mailboxes: func() -> result<list<mailbox>, plugin-error>;
+    sync-mailbox: func(mbox: mailbox-ref, cursor: sync-cursor)
+        -> result<mailbox-delta, plugin-error>;
+    fetch-raw: func(refs: list<message-ref>) -> result<list<raw-message>, plugin-error>;
+    store-flags: func(refs: list<message-ref>, add: list<flag>, remove: list<flag>)
+        -> result<_, plugin-error>;
+    move-messages: func(refs: list<message-ref>, to: mailbox-ref)
+        -> result<_, plugin-error>;
+    submit: func(mbox: mailbox-ref, raw: list<u8>, flags: list<flag>)
+        -> result<message-ref, plugin-error>;
+    // A change stream (IMAP IDLE / provider push equivalent). Backpressured.
+    changes-stream: func() -> stream<change-event>;
+}
+
+// Message in/out pipeline hooks (§22).
+interface message-pipeline {
+    use types.{plugin-error};
+    message-in: func(raw: list<u8>) -> result<list<u8>, plugin-error>;
+    message-out: func(raw: list<u8>) -> result<list<u8>, plugin-error>;
+}
+
+// Address-book source (§13).
+interface addrbook-source {
+    use types.{plugin-error};
+    search: func(query: string) -> result<list<string>, plugin-error>;
+}
+
+// Autoconfig source.
+interface autoconfig-source {
+    use types.{plugin-error};
+    lookup: func(email: string) -> result<option<string>, plugin-error>;
+}
+
+// DLP detector (§10.8).
+interface dlp-detect {
+    use types.{plugin-error};
+    // Returns detector verdict strings for a candidate body.
+    detect: func(body: list<u8>) -> result<list<string>, plugin-error>;
+}
+
+// Spam action (§10.8).
+interface spam-action {
+    use types.{plugin-error};
+    classify: func(raw: list<u8>) -> result<string, plugin-error>;
+}
+
+world plugin {
+    import host;
+
+    // Every export is OPTIONAL — a plugin implements only the hooks its manifest
+    // capabilities declare. The host instantiates and calls only the granted ones.
+    export account-backend;
+    export message-pipeline;
+    export addrbook-source;
+    export autoconfig-source;
+    export dlp-detect;
+    export spam-action;
+}

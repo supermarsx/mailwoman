@@ -52,3 +52,56 @@ services:
       timeout: 5s
       retries: 20
       start_period: 5s
+
+  # ── V7 (26.8.0) CI services (plan §5) — SCAFFOLD stubs, COMMENTED by e0.
+  # ACTIVATED by t7-e15 once mw-directory (e2) + the Assist mock endpoint land.
+  # Both are NETWORK-ONLY services (mere aggregation, same posture as postgres/valkey
+  # above and Dovecot/Radicale in docker-compose.dev.yml) — OUT of the cargo-deny
+  # dependency scope by design (documented in deny.toml). Ephemeral (no volumes): a
+  # fresh CI run starts from the seeded LDIF each time.
+  #
+  #   docker compose -f docker-compose.ci.yml up -d --wait openldap mock-assist
+  #       -> the directory-vs-openldap live-E2E (GAL search / group expand-before-send
+  #          / S-MIME cert + photo lookup / multi-directory priority / StartTLS/LDAPS)
+  #          + the assist-mock deterministic offline Assist E2E.
+  #
+  # OpenLDAP (OpenLDAP Public License — permissive) — seeded LDIF (users, groups,
+  # S/MIME userCertificate, jpegPhoto) for mw-directory's live-E2E (e16). e15 pins the
+  # exact image + supplies the seed LDIF + admin creds under scripts/openldap/.
+  #
+  # openldap:
+  #   image: bitnami/openldap:2.6            # e15: pin the digest
+  #   environment:
+  #     LDAP_ROOT: "dc=example,dc=com"
+  #     LDAP_ADMIN_USERNAME: "admin"
+  #     LDAP_ADMIN_PASSWORD: "adminpassword"
+  #     LDAP_CUSTOM_LDIF_DIR: "/ldifs"       # seeded users/groups/certs/photos
+  #   volumes:
+  #     - ./scripts/openldap/ldifs:/ldifs:ro # e15 authors the seed LDIF
+  #   ports:
+  #     - "1389:1389"                        # LDAP (StartTLS)
+  #     - "1636:1636"                        # LDAPS
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "ldapsearch -x -H ldap://127.0.0.1:1389 -b dc=example,dc=com -s base >/dev/null 2>&1 || exit 1"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 20
+  #     start_period: 5s
+  #
+  # Mock OpenAI-compatible endpoint — a tiny in-repo fixture HTTP server returning
+  # canned chat/embeddings/transcription so the Assist E2E is deterministic + offline
+  # (§14). e15 authors the image/Dockerfile; nightly optional Ollama/OpenAI/Anthropic
+  # behind secrets is a SEPARATE secret-gated job.
+  #
+  # mock-assist:
+  #   build:
+  #     context: .
+  #     dockerfile: scripts/mock-assist/Dockerfile   # e15 authors this
+  #   ports:
+  #     - "8199:8199"
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8199/healthz >/dev/null 2>&1 || exit 1"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 20
+  #     start_period: 3s

@@ -1,0 +1,18 @@
+[package]
+name = "nextcloud"
+description = "Nextcloud plugin: attach-from / save-to / large-attachment share links over OCS/WebDAV — a first-party WASM engine plugin for Mailwoman V7 (plan §3 e0/§8, SPEC §18.4)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# Nextcloud plugin (plan §1.8, SPEC §18.4): a thin engine hook — share-link
+# creation via Nextcloud OCS/WebDAV over the host `http-fetch` (NO new dep;
+# quick-xml for OCS XML) + the apps/web attach/save UI (e7). CalDAV/CardDAV/tasks
+# already work in core (mw-dav); this plugin auto-configures them from the linked
+# account. SCAFFOLD posture (e0): inert host-target lib stub; the `wasm32-wasip2`
+# component is built by e15.
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]

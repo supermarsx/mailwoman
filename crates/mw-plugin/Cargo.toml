@@ -1,0 +1,41 @@
+[package]
+name = "mw-plugin"
+description = "WASM engine-plugin host (wasmtime + WASI-p2 component model): capability-gated, resource-limited, signed-registry plugin runtime for Mailwoman V7 (plan §2.1, SPEC §22/§7.5)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# t7-e1: the SECURITY-CORE crate — a wasmtime + WASI-p2 host that loads
+# manifest-declared, admin-approved, CAPABILITY-GATED plugins with resource limits
+# (memory ceiling + epoch-interrupt deadline + optional fuel) and signed-registry
+# verification. This crate is the §7.1 capability boundary; it is
+# `#![forbid(unsafe_code)]` at its OWN boundary (wasmtime carries its unsafe
+# internally — that is the point: the host is the trust boundary).
+#
+# SCAFFOLD posture (e0): this stub authors the FROZEN §2.1 types + the WIT ABI
+# (`wit/`) and does NOT yet depend on `wasmtime` — pulling the large host tree now
+# would risk the scaffold build/Cargo.lock, so wasmtime is DECLARE-ONLY in the root
+# manifest (same posture V4/V6 used for heavy deps). e1 adds the wasmtime deps here
+# and fills the host. See `TODO(e1)` below.
+#
+# mw-plugin depends on `mw-engine` ONLY for the frozen `AccountBackend` trait it
+# adapts a plugin's `account-backend` WIT export onto — exactly as `mw-imap`/
+# `mw-pop3` do. `mw-engine` MUST NOT depend on `mw-plugin` (no cycle): the engine
+# consumes an `Arc<dyn AccountBackend>` handed to it by `mw-server` at mount (e14),
+# it never names this crate.
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+mw-engine = { workspace = true }
+# TODO(e1): wire the real wasmtime host — add
+#   wasmtime = { workspace = true, features = ["component-model", ...] }
+#   wasmtime-wasi = { workspace = true }
+# (both declared in the root `[workspace.dependencies]`), select Pulley-vs-Cranelift
+# by build flag, and VERIFY the whole wasmtime tree clears the license/TLS floor
+# (no openssl / no -sys C) before Batch B2 builds on it (plan §6 R3).
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

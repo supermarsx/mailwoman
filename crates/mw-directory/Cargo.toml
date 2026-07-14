@@ -1,0 +1,29 @@
+[package]
+name = "mw-directory"
+description = "LDAP/GAL directory: GAL search, group expand, S/MIME cert + photo lookup, LDAP-bind auth over ldap3(rustls) for Mailwoman V7 (plan §2.2, SPEC §13)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# t7-e2: a READ-ONLY LDAP/GAL directory over `ldap3` with rustls ONLY (no
+# native-tls/openssl). GAL search (every recipient field), distribution-group
+# expand-before-send, S/MIME cert lookup (feeds mw-crypto §8.2), photo attributes,
+# paged search, StartTLS/LDAPS, multiple directories with priority order, offline
+# GAL cache via `mw-cache::CacheClass::GalDirectory`. `#![forbid(unsafe_code)]`.
+#
+# SCAFFOLD posture (e0): frozen §2.2 types as stubs. `ldap3` is DECLARE-ONLY in the
+# root manifest (default-features=false, features=["tls-rustls"]) and NOT linked
+# here yet — e2 links it and asserts the tree has NO native-tls/openssl. The stub
+# links only serde/thiserror/async-trait, so the scaffold build + `cargo deny` stay
+# clean (same posture V4/V6 used for heavy deps).
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+# TODO(e2): add `ldap3 = { workspace = true }` (rustls-only) + `mw-cache`/`mw-store`
+# for the offline GAL cache, and assert no openssl enters the tree.
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

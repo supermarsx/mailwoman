@@ -950,3 +950,102 @@ jobs:
         run: |
           docker compose -f docker-compose.ci.yml down -v || true
           docker compose -f docker-compose.dev.yml down -v || true
+
+  # ===========================================================================
+  # V7 (26.8.0) CI jobs — plan §3 e15/e16. SCAFFOLDED (commented) by e0; each is
+  # activated by its owning executor once the implementation + the
+  # docker-compose.ci.yml services (openldap / mock-assist) land. The wasm-plugin-
+  # build job adds the `wasm32-wasip2` target; bridges replay RECORDED fixtures (no
+  # live service in CI); a nightly live-interop job is secret-gated + off by default.
+  # ===========================================================================
+
+  # wasm-plugin-build (e15) — build the LanguageTool plugin + the 3 bridge components
+  # to `wasm32-wasip2` (the ONLY place the component toolchain is exercised e2e), then
+  # e16 loads a real one in the jail and proves capability + resource-limit enforcement.
+  #
+  # wasm-plugin-build:
+  #   runs-on: ubuntu-latest
+  #   needs: [rust]
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: dtolnay/rust-toolchain@stable
+  #       with:
+  #         targets: wasm32-wasip2
+  #     - uses: Swatinem/rust-cache@v2
+  #     - name: build plugin components (wasm32-wasip2)
+  #       run: cargo build --target wasm32-wasip2 -p languagetool -p bridge-graph -p bridge-ews -p bridge-gmail --release
+
+  # directory-vs-openldap (e16) — GAL search / group expand-before-send / S-MIME cert
+  # + photo lookup / multi-directory priority / StartTLS/LDAPS against REAL OpenLDAP
+  # (seeded LDIF), via the env-gated (#[ignore]) live tests in mw-directory.
+  #
+  # directory-vs-openldap:
+  #   runs-on: ubuntu-latest
+  #   needs: [rust]
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: dtolnay/rust-toolchain@stable
+  #     - uses: Swatinem/rust-cache@v2
+  #     - name: boot openldap (wait healthy)
+  #       run: docker compose -f docker-compose.ci.yml up -d --wait openldap
+  #     - name: mw-directory live conformance (GAL/group/cert/photo/bind)
+  #       env:
+  #         MW_TEST_LDAP_URL: "ldap://127.0.0.1:1389"
+  #         MW_TEST_LDAP_BASE_DN: "dc=example,dc=com"
+  #       run: cargo test -p mw-directory -- --include-ignored
+  #     - name: tear down
+  #       if: always()
+  #       run: docker compose -f docker-compose.ci.yml down -v
+
+  # assist-mock (e16) — Assist capability grant/deny, redaction (E2EE never
+  # forwarded), content-free audit, send-always-gated, against the deterministic
+  # mock OpenAI-compatible endpoint. Nightly optional Ollama/OpenAI/Anthropic behind
+  # secrets is a separate secret-gated job.
+  #
+  # assist-mock:
+  #   runs-on: ubuntu-latest
+  #   needs: [rust]
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: dtolnay/rust-toolchain@stable
+  #     - uses: Swatinem/rust-cache@v2
+  #     - name: boot mock-assist (wait healthy)
+  #       run: docker compose -f docker-compose.ci.yml up -d --wait mock-assist
+  #     - name: mw-assist gateway tests vs the mock endpoint
+  #       env:
+  #         MW_TEST_ASSIST_URL: "http://127.0.0.1:8199"
+  #       run: cargo test -p mw-assist -- --include-ignored
+  #     - name: tear down
+  #       if: always()
+  #       run: docker compose -f docker-compose.ci.yml down -v
+
+  # bridge-fixtures (e15/e16) — replay the RECORDED request/response fixtures for
+  # Graph/EWS/(Gmail) THROUGH the real engine (no live service): indistinguishable
+  # from IMAP, reactions/voting/recall/Focused-sync paths verified.
+  #
+  # bridge-fixtures:
+  #   runs-on: ubuntu-latest
+  #   needs: [rust]
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: dtolnay/rust-toolchain@stable
+  #     - uses: Swatinem/rust-cache@v2
+  #     - name: bridge fixture replay (Graph/EWS/Gmail through the real engine)
+  #       run: cargo test -p bridge-graph -p bridge-ews -p bridge-gmail -p mw-engine bridge_fixture
+
+  # e2e-v7 (e16) — the live full-stack per-capability E2E: mw-server against REAL
+  # OpenLDAP + a real loaded WASM plugin (jail: out-of-allowlist DENIED, deadline/
+  # memory trip observed, unsigned⇒banner) + the mock Assist endpoint + bridges via
+  # recorded fixtures + MSG/OFT/DOCX round-trip. Full existing web+engine suites green.
+  # e16 authors apps/web/e2e/{plugins,directory,passwd,assist,bridges}.spec.ts + the
+  # Rust integration harness + the `v7` Playwright project.
+  #
+  # e2e-v7:
+  #   runs-on: ubuntu-latest
+  #   needs: [rust, web]
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     # e16 fills: boot openldap + mock-assist, build the SPA + mailwoman binary,
+  #     # run the Rust live harness (jail + directory + assist proofs) then the `v7`
+  #     # Playwright project against the standing server. Mirrors the e2e-v6 job shape.
+  #     - run: 'echo "e2e-v7 scaffolded (t7-e0); activated by e16"'

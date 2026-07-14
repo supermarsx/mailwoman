@@ -1,0 +1,20 @@
+[package]
+name = "bridge-graph"
+description = "Microsoft Graph (M365/Outlook.com/Exchange-Online) account-backend bridge — a first-party WASM engine plugin for Mailwoman V7 (plan §3 e10, SPEC §6.5). CUT-PROOF."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# t7-e10 (CUT-PROOF): the Graph bridge component. Implements the mailwoman:plugin
+# `account-backend` export (⇒ the frozen mw-engine::AccountBackend via the host
+# adapter) + optional caps (reactions/voting/recall/Focused-Inbox-sync); OAuth
+# device-code + auth-code via the host `oauth-token` import.
+#
+# SCAFFOLD posture (e0): an INERT host-target LIB stub so `cargo build --workspace`
+# is green. The real `wasm32-wasip2` component build (crate-type = ["cdylib"],
+# `wit-bindgen` guest bindings against ../../crates/mw-plugin/wit) is added by e15.
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]

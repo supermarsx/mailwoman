@@ -1,0 +1,27 @@
+[package]
+name = "mw-passwd"
+description = "Pluggable in-app password-change backends: local / LDAP RFC 3062 / Dovecot HTTP / poppassd / HMAC webhook, for Mailwoman V7 (plan §2.3, SPEC §18.3)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# t7-e3: the `PasswordChangeBackend` trait + backends. On success it drives
+# coordinated re-encryption of sealed upstream credentials and, for zero-access
+# accounts, a client-side key-hierarchy re-wrap ceremony (reused from mw-crypto,
+# server relays ciphertext only). Webhook payloads are HMAC-SHA256 signed. Forced-
+# change-on-next-login + password-policy display. LDAP-bind login reuses
+# mw-directory's connection layer (frozen API; no shared files).
+#
+# SCAFFOLD posture (e0): frozen §2.3 types as stubs; the exop/HTTP/poppassd/webhook
+# wire logic is e3. `hmac`/`sha2` (already in-tree) land when e3 links them.
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+# TODO(e3): link `hmac`/`sha2` (in-tree) for the webhook signer; coordinate with e2
+# (mw-directory) for the LDAP-3062 connection layer via its frozen API.
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

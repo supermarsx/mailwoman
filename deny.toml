@@ -100,6 +100,49 @@
 # so its tree contributes nothing to vet. NO `openssl`/`-sys` C TLS enters the
 # tree (the `[bans]` `openssl` deny still holds); the license floor is unchanged.
 #
+# V7 (26.8.0) new dependencies (plan §5) — WASM Plugin Runtime · LDAP/GAL Directory ·
+# Password-Change · Assist(AI) · Graph/EWS/Gmail Bridges · MSG/OFT/DOCX Export ·
+# Nextcloud. ALL permissive, pure-Rust, NO GPL/LGPL/AGPL, NO openssl/-sys C. Same
+# posture as the V4/V5/V6 pre-declares: most are DECLARE-ONLY in the root
+# `[workspace.dependencies]` and NOT YET LINKED by the e0 scaffold (the four new stub
+# crates + five plugin skeletons link only serde/thiserror/chrono/async-trait +, for
+# mw-plugin, the frozen `mw-engine` trait), so they are not yet in Cargo.lock / this
+# check. Each is wired by its owning executor and lands under the allow-list:
+#   wasmtime / wasmtime-wasi / cranelift-* (via wasmtime) / wit-bindgen /
+#     wasmparser/wasm-encoder (transitive) — the WASM plugin host + WASI-p2 component
+#     model + guest ABI bindings (mw-plugin/e1, plugins/*/e15). Licensed
+#     **Apache-2.0 WITH LLVM-exception** — a permissive-WITH-exception SPDX already
+#     present in the `[licenses].allow` list below (added in V5). Pure-Rust; e1
+#     VERIFIES the WHOLE wasmtime tree contributes NO openssl / NO `-sys` C before
+#     Batch B2 builds on it (plan §6 R3). Enable the Pulley pure-interpreter feature
+#     for MemoryDenyWriteExecute (§7.5 systemd) builds; Cranelift JIT otherwise. A
+#     large tree MAY surface new `unmaintained`-class advisory ignores (documented
+#     with the bounded-justification posture); ZERO vulnerability-class is the gate.
+#   ldap3 (MIT) — LDAP/GAL/bind (mw-directory/e2). MUST be
+#     `default-features=false, features=["tls-rustls"]`: ldap3 DEFAULTS to native-tls
+#     (→ openssl, BANNED below); the rustls feature keeps openssl OUT. e2 asserts no
+#     native-tls/openssl enters the tree.
+#   docx-rs (MIT) — DOCX export (mw-export/e5).
+#   cfb (MIT OR Apache-2.0) — MS-OXMSG/OFT Compound-File-Binary container
+#     (mw-export/e5). Own MS-OXMSG layer on top; a CFB-parse fuzz target (§25).
+#   quick-xml (MIT) — REUSED (already declared V3) for the EWS SOAP subset
+#     (bridge-ews) + OXMSG XML; no new entry.
+#   pure-Rust NTLM (EWS on-prem, bridge-ews, R2) — TODO(e11): VET the exact crate
+#     (candidate `ntlmclient`, MIT — must be pure-Rust, NO GSSAPI/C) before declaring;
+#     hand-roll NTLMv2 if none is clean. Kerberos is a documented gap (BYO
+#     reverse-proxy-auth; native post-1.0). NOT declared until vetted.
+#   Assist adapters (mw-assist/e4) + Nextcloud (plugins/nextcloud) — NO new dep:
+#     hand-rolled JSON over the in-tree `reqwest`(rustls) (+ quick-xml for OCS/WebDAV),
+#     following the V6 `rmcp` lesson.
+#   Plugin signature verify (mw-plugin/e1) — REUSE `ed25519-dalek`/existing crypto via
+#     mw-crypto; no new dep.
+# CI SERVICES (activated by e15 in docker-compose.ci.yml, network-only — mere
+# aggregation, OUT of cargo-deny scope by design, same posture as postgres/valkey):
+#   OpenLDAP (bitnami/osixia — OpenLDAP Public License, permissive) — the
+#     directory-vs-openldap live-E2E service (seeded LDIF). A mock OpenAI-compatible
+#     endpoint (in-repo fixture server) for Assist E2E. Bridges use RECORDED fixtures
+#     in CI (no live service); a nightly live-interop job is secret-gated + off.
+#
 # Radicale (the CalDAV/CardDAV CI server, plan §1.5) is GPLv3 but is NOT a
 # Mailwoman dependency: it is a separate program invoked over the network in CI
 # only (docker-compose service, same posture as Dovecot/Greenmail in V1) — never
@@ -166,6 +209,11 @@ version = 2
 allow = [
     "MIT",
     "Apache-2.0",
+    # Permissive-with-exception SPDX. Carried by the LLVM/wasm ecosystem: it covered
+    # a V4 transitive originally, and in V7 it is the license of the WASM plugin-host
+    # tree — wasmtime / cranelift / wit-bindgen / wasmparser / wasm-encoder
+    # (mw-plugin, plan §5) — all permissive, pure-Rust, NO copyleft. e1 verifies the
+    # tree adds no openssl / no -sys C.
     "Apache-2.0 WITH LLVM-exception",
     "BSD-2-Clause",
     "BSD-3-Clause",

@@ -754,6 +754,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "bridge-ews"
+version = "26.7.0"
+
+[[package]]
+name = "bridge-gmail"
+version = "26.7.0"
+
+[[package]]
+name = "bridge-graph"
+version = "26.7.0"
+
+[[package]]
 name = "brotli"
 version = "8.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4002,6 +4014,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "languagetool"
+version = "26.7.0"
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4575,6 +4591,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "mw-assist"
+version = "26.7.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
 name = "mw-autoconfig"
 version = "26.7.0"
 dependencies = [
@@ -4668,6 +4695,17 @@ dependencies = [
  "quick-xml",
  "reqwest 0.12.28",
  "serde",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
+name = "mw-directory"
+version = "26.7.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
  "thiserror 2.0.18",
  "tokio",
 ]
@@ -4810,6 +4848,29 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
+name = "mw-passwd"
+version = "26.7.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
+name = "mw-plugin"
+version = "26.7.0"
+dependencies = [
+ "async-trait",
+ "mw-engine",
+ "serde",
+ "serde_json",
  "thiserror 2.0.18",
  "tokio",
 ]
@@ -4992,6 +5053,10 @@ name = "new_debug_unreachable"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
+
+[[package]]
+name = "nextcloud"
+version = "26.7.0"
 
 [[package]]
 name = "nix"

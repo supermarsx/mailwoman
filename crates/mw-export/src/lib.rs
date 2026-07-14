@@ -7,8 +7,13 @@
 //! streams into any [`std::io::Write`] sink so a large mailbox is never held in
 //! memory at once, and a thread can be exported as one concatenated document.
 //!
-//! Print-to-PDF is the browser print pipeline (web-side, not here); MSG/OFT/DOCX
-//! are V7 (out of scope).
+//! Print-to-PDF is the browser print pipeline (web-side, not here).
+//!
+//! V7 (plan §3 e5, SPEC §10.6) adds **MSG + OFT** (MS-OXMSG via `cfb`) and **DOCX**
+//! (`docx-rs`). Those modules are SCAFFOLD stubs today (e0): the [`Format`] registry
+//! carries the new variants and every export path returns
+//! [`ExportError::Unimplemented`] for them until e5 fills the writers. The existing
+//! EML / mbox / TXT / Markdown formats are **byte-unchanged**.
 
 use std::borrow::Borrow;
 use std::io::Write;
@@ -17,6 +22,11 @@ mod html2md;
 mod markdown;
 mod mbox;
 mod text;
+// V7 (plan §3 e5): MSG/OFT (cfb + own MS-OXMSG layer) + DOCX (docx-rs). Stub
+// modules returning `Unimplemented` until e5; existing formats byte-unchanged.
+mod docx;
+mod msg;
+mod oft;
 
 pub use html2md::html_to_markdown;
 pub use mbox::split as split_mbox;
@@ -46,13 +56,19 @@ impl From<&[u8]> for RawEmail {
     }
 }
 
-/// Target export format (plan §0.8).
+/// Target export format (plan §0.8; V7 §10.6 adds MSG/OFT/DOCX).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
     Eml,
     Mbox,
     Txt,
     Markdown,
+    /// MS-OXMSG `.msg` (V7, e5). Currently returns [`ExportError::Unimplemented`].
+    Msg,
+    /// Outlook `.oft` template (V7, e5). Currently returns [`ExportError::Unimplemented`].
+    Oft,
+    /// Word `.docx` (V7, e5). Currently returns [`ExportError::Unimplemented`].
+    Docx,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -63,6 +79,10 @@ pub enum ExportError {
     Render(String),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+    /// A format whose writer is scaffolded but not yet implemented (V7 MSG/OFT/DOCX
+    /// until e5).
+    #[error("export format not yet implemented: {0}")]
+    Unimplemented(&'static str),
 }
 
 pub type Result<T> = std::result::Result<T, ExportError>;
@@ -80,6 +100,10 @@ pub fn export_one(email: &RawEmail, format: Format) -> Result<Vec<u8>> {
         Format::Mbox => mbox::to_entry(&email.raw),
         Format::Txt => text::to_txt(&email.raw),
         Format::Markdown => markdown::to_markdown(&email.raw),
+        // V7 registry entries (e5 fills; stub returns Unimplemented).
+        Format::Msg => msg::to_msg(&email.raw),
+        Format::Oft => oft::to_oft(&email.raw),
+        Format::Docx => docx::to_docx(&email.raw),
     }
 }
 
@@ -129,6 +153,11 @@ where
                 };
                 // Trim the per-message trailing newline so the divider controls spacing.
                 out.write_all(trim_trailing_newline(&rendered))?;
+            }
+            // V7 binary document formats (e5). Per-message writers; the web layer
+            // zips discrete files. Stub returns `Unimplemented` via `export_one`.
+            Format::Msg | Format::Oft | Format::Docx => {
+                out.write_all(&export_one(email, format)?)?;
             }
         }
         first = false;

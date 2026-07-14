@@ -1,0 +1,19 @@
+[package]
+name = "languagetool"
+description = "LanguageTool grammar plugin (the no-AI grammar path) — the smallest real WASM plugin, the canonical jail live-E2E artifact for Mailwoman V7 (plan §3 e13, SPEC §10.3/§22)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# t7-e13 (the jail live-E2E artifact): a SMALL real WASM plugin — the no-AI grammar
+# path (§10.3). A message-out/composer-hook (or DLP-detector-style) component that
+# calls a LanguageTool HTTP endpoint via the host `http-fetch` under a NET
+# ALLOWLIST. Deliberately minimal so it is the canonical "real plugin loaded in the
+# jail" proof for e16 (capability grant enforced, resource limit trips) without
+# waiting on the huge bridges. SCAFFOLD posture (e0): inert host-target lib stub;
+# the `wasm32-wasip2` component is built by e15.
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]

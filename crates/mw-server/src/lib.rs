@@ -46,6 +46,14 @@ pub mod oauth;
 pub mod observability;
 pub mod rest;
 pub mod webhooks;
+// V7 additive route modules (plan §3 e0). SCAFFOLD stubs returning 501, declared
+// here but NOT mounted — `router()` is byte-unchanged so behaviour is identical.
+// Filled by e9 (directory/passwd/assist/plugins/nextcloud) and MOUNTED by e14.
+pub mod assist;
+pub mod directory;
+pub mod nextcloud;
+pub mod passwd;
+pub mod plugins;
 // V6 MOUNT (t6-e11): store adapters backing the frozen Batch-B persistence seams
 // over the real 0007 tables.
 mod stores_v6;

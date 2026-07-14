@@ -255,6 +255,37 @@ impl Store {
         Ok(())
     }
 
+    /// All sessions for an account, most-recently-seen first (V7 §2.7, folded V6
+    /// follow-up (a)). Lets **proxy-mode headless scoped-key REST reads** resolve a
+    /// session by `account_id` when there is no cookie (a scoped `mwk_…` Bearer key
+    /// authorizes, but the data path needs the account's sealed upstream creds).
+    /// Backed by the additive `idx_sessions_account` index (0008); no schema change
+    /// to 0001. Sealed credentials open under the same `ServerKey` as
+    /// [`get_session`](Self::get_session).
+    pub async fn sessions_by_account(&self, account_id: &str) -> Result<Vec<Session>, StoreError> {
+        let rows = q(
+            "SELECT id, account_id, username, jmap_url, api_url, sealed_creds
+             FROM sessions WHERE account_id = ?1 ORDER BY last_seen DESC",
+        )
+        .bind(account_id)
+        .fetch_all(&self.backend)
+        .await?;
+
+        let mut out = Vec::with_capacity(rows.len());
+        for row in rows {
+            let creds = decode_creds(&self.key.open(&row.get_blob("sealed_creds"))?)?;
+            out.push(Session {
+                id: row.get_string("id"),
+                account_id: row.get_string("account_id"),
+                username: row.get_string("username"),
+                jmap_url: row.get_string("jmap_url"),
+                api_url: row.get_string("api_url"),
+                credentials: creds,
+            });
+        }
+        Ok(out)
+    }
+
     pub async fn set_setting(&self, key: &str, value: &str) -> Result<(), StoreError> {
         q("INSERT INTO settings (key, value) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value")
@@ -319,6 +350,31 @@ mod tests {
             store.get_session(&id).await,
             Err(StoreError::NotFound)
         ));
+    }
+
+    #[tokio::test]
+    async fn sessions_by_account_returns_all_for_account() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        store
+            .create_session("a1", "u1", "http://mock", "http://mock", &creds())
+            .await
+            .unwrap();
+        store
+            .create_session("a1", "u1", "http://mock", "http://mock", &creds())
+            .await
+            .unwrap();
+        store
+            .create_session("a2", "u2", "http://mock", "http://mock", &creds())
+            .await
+            .unwrap();
+
+        let a1 = store.sessions_by_account("a1").await.unwrap();
+        assert_eq!(a1.len(), 2);
+        assert!(a1.iter().all(|s| s.account_id == "a1"));
+        // Sealed creds open under the same key.
+        assert_eq!(a1[0].credentials, creds());
+        assert_eq!(store.sessions_by_account("a2").await.unwrap().len(), 1);
+        assert!(store.sessions_by_account("nope").await.unwrap().is_empty());
     }
 
     #[tokio::test]

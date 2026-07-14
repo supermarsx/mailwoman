@@ -1,0 +1,16 @@
+[package]
+name = "bridge-ews"
+description = "EWS (on-prem Exchange 2013–2019/SE) account-backend bridge — a first-party WASM engine plugin for Mailwoman V7 (plan §3 e11, SPEC §6.5). CUT-PROOF."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# t7-e11 (CUT-PROOF): the EWS bridge component — a SOAP subset (quick-xml) for
+# sync/send/calendar+free-busy+rooms/GAL/OOF/recall/voting; Basic + pure-Rust NTLM
+# auth (Kerberos = documented gap, R2). SCAFFOLD posture (e0): inert host-target lib
+# stub; the `wasm32-wasip2` component + `quick-xml` + NTLM link land with e11/e15.
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]

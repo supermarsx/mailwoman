@@ -1,0 +1,17 @@
+[package]
+name = "bridge-gmail"
+description = "Gmail API account-backend bridge — a first-party WASM engine plugin for Mailwoman V7 (plan §3 e12, SPEC §6.5). FIRST scope-cut candidate (§27 ladder)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# t7-e12 (FIRST CUT CANDIDATE, §27 ladder): the Gmail API bridge — true label
+# semantics, history-ID delta sync, per-user OAuth client. If the milestone runs
+# hot this is the sanctioned cut (IMAP+XOAUTH2 covers most Workspace users;
+# documented honestly). SCAFFOLD posture (e0): inert host-target lib stub; the
+# `wasm32-wasip2` component is e12/e15.
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
