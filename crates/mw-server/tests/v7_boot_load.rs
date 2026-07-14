@@ -216,7 +216,8 @@ async fn boot_loaded_bridge_serves_mailbox_get_through_the_engine() {
     let registry = fixture_registry(http.clone());
     let engine = Arc::new(Engine::new(store.clone()));
 
-    let loaded = mw_server::v7_mount::load_plugin_backends(&engine, &registry, &store).await;
+    let (loaded, _bridge_caps) =
+        mw_server::v7_mount::load_plugin_backends(&engine, &registry, &store).await;
     assert_eq!(
         loaded, 1,
         "the boot loader auto-loaded exactly one bridge backend"
@@ -290,7 +291,8 @@ async fn boot_loader_loads_nothing_without_a_binding() {
     let http = Arc::new(GraphFixtureHttp::load());
     let registry = fixture_registry(http);
     let engine = Arc::new(Engine::new(store.clone()));
-    let loaded = mw_server::v7_mount::load_plugin_backends(&engine, &registry, &store).await;
+    let (loaded, _bridge_caps) =
+        mw_server::v7_mount::load_plugin_backends(&engine, &registry, &store).await;
     assert_eq!(loaded, 0, "no binding ⇒ nothing loads (deny-by-default)");
 }
 
@@ -345,6 +347,7 @@ async fn boot_loader_skips_unapproved_or_disabled_binding() {
     let http = Arc::new(GraphFixtureHttp::load());
     let registry = fixture_registry(http);
     let engine = Arc::new(Engine::new(store.clone()));
-    let loaded = mw_server::v7_mount::load_plugin_backends(&engine, &registry, &store).await;
+    let (loaded, _bridge_caps) =
+        mw_server::v7_mount::load_plugin_backends(&engine, &registry, &store).await;
     assert_eq!(loaded, 0, "a disabled plugin binding loads nothing");
 }

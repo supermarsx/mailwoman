@@ -454,15 +454,28 @@ async fn build_app_inner(
     // recipient resolver + assist/JMAP surface reach them through the engine. Load
     // approved plugin/bridge account backends. Inert in proxy mode (no engine).
     if let Some(engine) = &engine {
-        engine.attach_v7(
-            mw_engine::V7Hooks::new()
-                .with_directory(directory.clone())
-                .with_assist(Arc::new(v7_mount::AssistHookAdapter::from_gateway(
-                    &assist,
-                    &assist_granted,
-                ))),
-        );
-        let n = v7_mount::load_plugin_backends(engine, &plugin_host, &store).await;
+        // Register plugin/bridge account backends FIRST (this populates the engine's
+        // plugin-backing map, which `attach_v7` preserves) and collect the per-account
+        // bridge PIM capability source, gated on each bridge's honest `supports-*`
+        // (Graph = all six, EWS = calendar+tasks, Gmail = none). t10-e13.
+        let (n, bridge_caps) = v7_mount::load_plugin_backends(engine, &plugin_host, &store).await;
+        // The §10.8 spam-classification hook from the first approved+enabled
+        // `spam-action` plugin (rspamd/SpamAssassin); `None` ⇒ ingest byte-unchanged.
+        let spam_hook = v7_mount::build_spam_hook(&plugin_host, &store).await;
+
+        let mut hooks = mw_engine::V7Hooks::new()
+            .with_directory(directory.clone())
+            .with_assist(Arc::new(v7_mount::AssistHookAdapter::from_gateway(
+                &assist,
+                &assist_granted,
+            )));
+        if let Some(caps) = bridge_caps {
+            hooks = hooks.with_bridge_caps(caps);
+        }
+        if let Some(spam) = spam_hook {
+            hooks = hooks.with_spam(spam);
+        }
+        engine.attach_v7(hooks);
         if n > 0 {
             tracing::info!("registered {n} plugin/bridge account backend(s)");
         }
@@ -567,11 +580,22 @@ fn router(
         .layer(Extension(sso_source))
         .layer(Extension(sso_pending));
 
+    // ── t10 (26.10) MOUNT (plan §3 e13) ───────────────────────────────────────
+    // OAuth DCR (RFC 7591) — additive, admin/policy-gated, stays 403 until an admin
+    // writes an `enabled` `oauth_dcr` policy row (never on by default). The UI-plugin
+    // registry (`/admin/ui-plugins/*` + `/api/ui-plugins/*`) and masked-email
+    // (`/api/masked/*`) surfaces are fail-soft: with nothing approved/created they
+    // return empty, so the mailbox path is byte-unchanged.
+    let t10_routes = oauth::dcr_router()
+        .merge(ui_plugins::ui_plugins_router())
+        .merge(masked::masked_router());
+
     let mut v6 = admin::routes()
         .merge(oauth::routes())
         .merge(rest)
         .merge(v7_routes)
         .merge(sso_routes)
+        .merge(t10_routes)
         .route("/metrics", get(observability::metrics))
         .route("/errors", post(errors::report_error))
         .route("/api/webhooks/inbound", post(webhooks::inbound_webhook));

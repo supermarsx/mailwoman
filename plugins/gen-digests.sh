@@ -30,7 +30,7 @@ cd "$(dirname "$0")/.."
 DIST="plugins/dist"
 
 # The stable component ids (0008 plugins.id) → the shipped file <id>.wasm.
-IDS="bridge-graph bridge-ews bridge-gmail languagetool nextcloud"
+IDS="bridge-graph bridge-ews bridge-gmail languagetool nextcloud spam-rspamd spam-spamassassin"
 
 sha256_hex() {
   if command -v sha256sum >/dev/null 2>&1; then

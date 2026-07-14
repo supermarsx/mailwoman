@@ -254,7 +254,8 @@ async fn boot_loaded_bridge_email_submission_routes_to_the_bridge_submit_export(
     let engine = Arc::new(Engine::new(store.clone()));
 
     // The REAL boot loader wires the bridge backend + the new BridgeSubmitter.
-    let loaded = mw_server::v7_mount::load_plugin_backends(&engine, &registry, &store).await;
+    let (loaded, _bridge_caps) =
+        mw_server::v7_mount::load_plugin_backends(&engine, &registry, &store).await;
     assert_eq!(loaded, 1, "the boot loader auto-loaded the bridge backend");
     assert!(engine.is_plugin_backed(&account_id));
 
@@ -352,7 +353,8 @@ async fn boot_loaded_bridge_send_failure_surfaces_an_error() {
     let http = Arc::new(GraphFixtureHttp::load(true)); // fail the send
     let registry = fixture_registry(http.clone());
     let engine = Arc::new(Engine::new(store.clone()));
-    let loaded = mw_server::v7_mount::load_plugin_backends(&engine, &registry, &store).await;
+    let (loaded, _bridge_caps) =
+        mw_server::v7_mount::load_plugin_backends(&engine, &registry, &store).await;
     assert_eq!(loaded, 1);
     let _ = engine.resync(&account_id).await;
 

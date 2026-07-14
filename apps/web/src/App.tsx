@@ -22,6 +22,13 @@ const AdminScreen = lazy(() => import('./screens/Admin/index.tsx'));
 // `window.location.search` and posts to `/oauth/{consent,decision}`.
 const ConsentScreen = lazy(() => import('./screens/Consent/index.tsx'));
 
+// t10 UI-plugin tier (plan §3 e13, SPEC §22.2): a LAZY, fail-soft surface rendering
+// the approved+enabled sandboxed UI plugins. Code-splits into its own chunk so it is
+// ABSENT from the login→inbox mailbox bundle; the tier renders NOTHING when no plugin
+// is approved (or the registry endpoint is absent/offline), so the mailbox layout is
+// byte-unchanged. Mounted only inside the authenticated branch below.
+const UiPluginTier = lazy(() => import('./plugins-ui/Tier.tsx'));
+
 /** Is the app being served under the separate `/admin` route? */
 function isAdminRoute(): boolean {
   if (typeof location === 'undefined') return false;
@@ -133,7 +140,12 @@ export function App(): JSX.Element {
             <Login />
           </Match>
           <Match when={app.me() !== null}>
-            <MailboxScreen />
+            <>
+              <MailboxScreen />
+              <Suspense>
+                <UiPluginTier />
+              </Suspense>
+            </>
           </Match>
         </Switch>
       </Show>

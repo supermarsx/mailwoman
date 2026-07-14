@@ -35,7 +35,7 @@ use mw_passwd::{
 };
 use mw_plugin::{
     Clock, Grant, HostServices, HttpFetcher, HttpReq, HttpResp, KvStore, OAuthTokenProvider,
-    PluginHost, PluginLimits, PluginManifest, Rng,
+    PluginHandle, PluginHost, PluginLimits, PluginManifest, Rng,
 };
 use mw_store::{PluginRow, Store};
 
@@ -468,25 +468,25 @@ const FIRST_PARTY_DIGESTS: &[(&str, [u8; 32])] = &[
     (
         "bridge-graph",
         [
-            0xcd, 0xa2, 0x30, 0x01, 0xa7, 0xa7, 0xd3, 0x79, 0xc0, 0xfd, 0x51, 0x6d, 0x0c, 0x1b,
-            0x74, 0x0b, 0xa0, 0xd8, 0x6f, 0xe6, 0x0a, 0x2a, 0xef, 0xbc, 0x8d, 0xf1, 0xe4, 0xd9,
-            0xd9, 0x10, 0x95, 0x5e,
+            0xe9, 0x58, 0xaf, 0x2b, 0x11, 0x2b, 0x56, 0x95, 0xf7, 0xe7, 0x05, 0x09, 0xcd, 0x9a,
+            0xbb, 0x68, 0xc8, 0xd9, 0xa4, 0xab, 0xfd, 0x9d, 0xe2, 0xc2, 0x82, 0xef, 0x66, 0xe3,
+            0x53, 0x65, 0x3c, 0xf9,
         ],
     ),
     (
         "bridge-ews",
         [
-            0x83, 0x25, 0xdd, 0xa8, 0x5b, 0x4a, 0xe9, 0x11, 0x65, 0x3c, 0x1d, 0x2c, 0x73, 0x87,
-            0x4e, 0x76, 0x54, 0xac, 0xd8, 0xcc, 0x0b, 0xf7, 0x3a, 0x1c, 0x63, 0x89, 0x4e, 0xde,
-            0x95, 0x6c, 0x08, 0xa0,
+            0x54, 0x8b, 0xcd, 0xea, 0x1a, 0x97, 0xd6, 0xda, 0x6a, 0x9c, 0xd1, 0x38, 0xab, 0xd4,
+            0x9a, 0x4d, 0x89, 0xcf, 0x20, 0x30, 0x27, 0x84, 0x5b, 0x6d, 0xda, 0x6e, 0x43, 0x84,
+            0x86, 0xe9, 0x0c, 0xbf,
         ],
     ),
     (
         "bridge-gmail",
         [
-            0xfe, 0x4e, 0x77, 0x21, 0x8a, 0x60, 0x3f, 0xe0, 0xc4, 0xef, 0x4f, 0xc4, 0x59, 0x18,
-            0xe3, 0xcb, 0x9f, 0xc6, 0x64, 0xdc, 0x7a, 0xf8, 0xb4, 0x4f, 0x4c, 0xc7, 0x33, 0x12,
-            0xd2, 0x4a, 0x27, 0xc2,
+            0x6c, 0xaa, 0x80, 0x85, 0x6f, 0x04, 0x74, 0x2d, 0xa6, 0xb2, 0xd4, 0xde, 0xd3, 0x6a,
+            0x4e, 0xc5, 0xa7, 0xf4, 0xa4, 0x86, 0x77, 0xd7, 0xcb, 0x68, 0x1b, 0xbe, 0x0b, 0x83,
+            0x86, 0x69, 0xf0, 0xc5,
         ],
     ),
     (
@@ -503,6 +503,22 @@ const FIRST_PARTY_DIGESTS: &[(&str, [u8; 32])] = &[
             0xfb, 0xe4, 0xc8, 0x1e, 0xbe, 0x1d, 0xb0, 0x7e, 0x93, 0xa5, 0xb1, 0xb8, 0x6d, 0xa7,
             0xb8, 0xac, 0x97, 0x59, 0x91, 0xba, 0xcc, 0x40, 0xe2, 0x21, 0x85, 0x95, 0x2e, 0xb6,
             0xcf, 0x97, 0x9f, 0x24,
+        ],
+    ),
+    (
+        "spam-rspamd",
+        [
+            0x23, 0xb4, 0x2c, 0x10, 0xc4, 0xed, 0x67, 0x67, 0xb9, 0x69, 0xf3, 0x2f, 0xb1, 0x7e,
+            0x8a, 0xb4, 0xbd, 0xc6, 0x0e, 0xd4, 0xf7, 0x57, 0x67, 0xd3, 0xb1, 0x60, 0x61, 0xc3,
+            0x14, 0x3b, 0x17, 0x4a,
+        ],
+    ),
+    (
+        "spam-spamassassin",
+        [
+            0x3c, 0x6d, 0xab, 0xac, 0x3b, 0xc4, 0x47, 0xd8, 0x29, 0xeb, 0xe7, 0x44, 0x70, 0x29,
+            0xd4, 0x92, 0x15, 0x4c, 0x9f, 0xb9, 0x49, 0x9b, 0x23, 0xc1, 0xc1, 0xfe, 0x72, 0x7b,
+            0xe2, 0xa9, 0x91, 0x3a,
         ],
     ),
 ];
@@ -660,6 +676,257 @@ impl mw_engine::account::MailSubmitter for BridgeSubmitter {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 5b. Bridge PIM capability source (plan §2.5/§6.5, t10-e13) — gated on honest supports-*
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The bridge-native PIM/parity trait objects bound for ONE account, each present
+/// only when the bridge's honest per-interface `supports-*()` is true (e1's rule:
+/// bind a slot iff the accessor is `Some` AND the honest support == true — the coarse
+/// legacy `account-backend capabilities()` is NOT consulted). Every unbound slot ⇒ the
+/// engine's byte-unchanged standards fallback. Expected live shape: Graph = all six,
+/// EWS = calendar+tasks, Gmail = none.
+#[derive(Default, Clone)]
+pub(crate) struct BridgePimSlots {
+    caps: mw_engine::BridgeCaps,
+    calendar: Option<Arc<dyn mw_engine::BridgeCalendar>>,
+    tasks: Option<Arc<dyn mw_engine::BridgeTasks>>,
+    reactions: Option<Arc<dyn mw_engine::BridgeReactions>>,
+    voting: Option<Arc<dyn mw_engine::BridgeVoting>>,
+    recall: Option<Arc<dyn mw_engine::BridgeRecall>>,
+    focused: Option<Arc<dyn mw_engine::BridgeFocusedSync>>,
+}
+
+impl BridgePimSlots {
+    /// Whether ANY PIM slot is bound (i.e. the account routes some PIM to the bridge).
+    fn is_bound(&self) -> bool {
+        self.calendar.is_some()
+            || self.tasks.is_some()
+            || self.reactions.is_some()
+            || self.voting.is_some()
+            || self.recall.is_some()
+            || self.focused.is_some()
+    }
+
+    /// A content-free one-line summary of the bound interfaces (for the boot log).
+    fn summary(&self) -> String {
+        let mut on = Vec::new();
+        if self.calendar.is_some() {
+            on.push("calendar");
+        }
+        if self.tasks.is_some() {
+            on.push("tasks");
+        }
+        if self.reactions.is_some() {
+            on.push("reactions");
+        }
+        if self.voting.is_some() {
+            on.push("voting");
+        }
+        if self.recall.is_some() {
+            on.push("recall");
+        }
+        if self.focused.is_some() {
+            on.push("focused-sync");
+        }
+        if on.is_empty() {
+            "none (standards fallback)".to_string()
+        } else {
+            on.join("+")
+        }
+    }
+}
+
+/// Probe a loaded bridge handle's HONEST per-interface support (through the jail) and
+/// bind each PIM slot only when both the accessor is present AND the matching
+/// `supports-*()` is true. Fail-soft: a probe error ⇒ "no support" ⇒ the engine keeps
+/// its standards fallback (never a hard failure at boot).
+pub(crate) async fn probe_bridge_pim(handle: &PluginHandle) -> BridgePimSlots {
+    // Honest per-interface support, crossing the jail once each.
+    let parity = handle.bridge_parity_caps().await.unwrap_or_default();
+    let cal_ok = handle.bridge_supports_calendar().await.unwrap_or(false);
+    let tasks_ok = handle.bridge_supports_tasks().await.unwrap_or(false);
+
+    // `as_bridge_*` returns Some only when the interface is present AND account-backend
+    // is granted; combined with the honest support flag this binds a slot iff both hold.
+    let calendar = if cal_ok {
+        handle.as_bridge_calendar()
+    } else {
+        None
+    };
+    let tasks = if tasks_ok {
+        handle.as_bridge_tasks()
+    } else {
+        None
+    };
+    let reactions = if parity.reactions {
+        handle.as_bridge_reactions()
+    } else {
+        None
+    };
+    let voting = if parity.voting {
+        handle.as_bridge_voting()
+    } else {
+        None
+    };
+    let recall = if parity.recall {
+        handle.as_bridge_recall()
+    } else {
+        None
+    };
+    let focused = if parity.focused_sync {
+        handle.as_bridge_focused_sync()
+    } else {
+        None
+    };
+
+    // Report caps that reflect what actually bound (never overclaim).
+    let caps = mw_engine::BridgeCaps {
+        reactions: reactions.is_some(),
+        voting: voting.is_some(),
+        recall: recall.is_some(),
+        focused_sync: focused.is_some(),
+    };
+    BridgePimSlots {
+        caps,
+        calendar,
+        tasks,
+        reactions,
+        voting,
+        recall,
+        focused,
+    }
+}
+
+/// The `BridgeCapabilitySource` e13 attaches: a per-account map of the precomputed
+/// (boot-probed) PIM slots. A non-bridge account (absent from the map) yields `None`
+/// for every accessor ⇒ the engine's byte-unchanged standards fallback.
+pub(crate) struct BridgePimSource {
+    accounts: std::collections::HashMap<String, BridgePimSlots>,
+}
+
+impl mw_engine::BridgeCapabilitySource for BridgePimSource {
+    fn caps(&self, account_id: &str) -> mw_engine::BridgeCaps {
+        self.accounts
+            .get(account_id)
+            .map(|s| s.caps)
+            .unwrap_or_default()
+    }
+    fn reactions(&self, account_id: &str) -> Option<Arc<dyn mw_engine::BridgeReactions>> {
+        self.accounts
+            .get(account_id)
+            .and_then(|s| s.reactions.clone())
+    }
+    fn voting(&self, account_id: &str) -> Option<Arc<dyn mw_engine::BridgeVoting>> {
+        self.accounts.get(account_id).and_then(|s| s.voting.clone())
+    }
+    fn recall(&self, account_id: &str) -> Option<Arc<dyn mw_engine::BridgeRecall>> {
+        self.accounts.get(account_id).and_then(|s| s.recall.clone())
+    }
+    fn focused_sync(&self, account_id: &str) -> Option<Arc<dyn mw_engine::BridgeFocusedSync>> {
+        self.accounts
+            .get(account_id)
+            .and_then(|s| s.focused.clone())
+    }
+    fn calendar(&self, account_id: &str) -> Option<Arc<dyn mw_engine::BridgeCalendar>> {
+        self.accounts
+            .get(account_id)
+            .and_then(|s| s.calendar.clone())
+    }
+    fn tasks(&self, account_id: &str) -> Option<Arc<dyn mw_engine::BridgeTasks>> {
+        self.accounts.get(account_id).and_then(|s| s.tasks.clone())
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5c. Spam-classification hook (plan §10.8, t10-e13) — jailed spam-action plugin
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Wraps a loaded `spam-action` plugin handle as the engine's [`mw_engine::SpamHook`].
+/// The verdict envelope (`{"verdict":"spam"|"ham"|"unknown",…}`) is parsed here; a
+/// classify error / malformed body ⇒ `Unknown` (fail-soft, never a hard block).
+struct SpamPluginHook {
+    handle: PluginHandle,
+    plugin_id: String,
+}
+
+#[async_trait]
+impl mw_engine::SpamHook for SpamPluginHook {
+    async fn classify(&self, raw: &[u8]) -> mw_engine::SpamVerdict {
+        match self.handle.call_spam_action(raw.to_vec()).await {
+            Ok(json) => parse_spam_verdict(&json),
+            Err(e) => {
+                tracing::debug!(
+                    "spam plugin '{}' classify failed (fail-soft unknown): {e}",
+                    self.plugin_id
+                );
+                mw_engine::SpamVerdict::Unknown
+            }
+        }
+    }
+}
+
+/// Parse the plugin's verdict envelope to the engine verdict. Anything that is not an
+/// explicit `"spam"`/`"ham"` (missing field, malformed JSON, `"unknown"`) ⇒ `Unknown`.
+fn parse_spam_verdict(json: &str) -> mw_engine::SpamVerdict {
+    let verdict = serde_json::from_str::<serde_json::Value>(json)
+        .ok()
+        .and_then(|v| {
+            v.get("verdict")
+                .and_then(|x| x.as_str())
+                .map(str::to_string)
+        });
+    match verdict.as_deref() {
+        Some("spam") => mw_engine::SpamVerdict::Spam,
+        Some("ham") => mw_engine::SpamVerdict::Ham,
+        _ => mw_engine::SpamVerdict::Unknown,
+    }
+}
+
+/// Build the spam-classification hook from the 0008 registry: the FIRST approved +
+/// enabled plugin that declares the `spam-action` capability AND resolves to a
+/// digest-verified first-party component. `None` ⇒ no classifier configured (ingest is
+/// byte-unchanged). Deny-by-default: an unapproved/disabled/unpinned plugin loads nothing.
+pub(crate) async fn build_spam_hook(
+    host: &PluginRegistry,
+    store: &Store,
+) -> Option<Arc<dyn mw_engine::SpamHook>> {
+    let plugins = store.list_plugins().await.unwrap_or_default();
+    let row = plugins.iter().find(|p| {
+        p.approved_by.is_some()
+            && p.enabled
+            && serde_json::from_str::<Vec<mw_plugin::Capability>>(&p.capabilities_json)
+                .map(|caps| caps.contains(&mw_plugin::Capability::SpamAction))
+                .unwrap_or(false)
+    })?;
+    let bytes = resolve_component(&row.id)?;
+    let manifest = manifest_of(row);
+    let grant = Grant {
+        plugin_id: row.id.clone(),
+        capabilities: manifest.capabilities.clone(),
+        granted_by: row.approved_by.clone().unwrap_or_default(),
+        allow_unsigned: true,
+    };
+    let handle = {
+        let host = host.lock().expect("plugin registry lock");
+        match host.load(&bytes, &manifest, &grant) {
+            Ok(h) => h,
+            Err(e) => {
+                tracing::error!("spam plugin '{}' load failed: {e}", row.id);
+                return None;
+            }
+        }
+    };
+    tracing::info!(
+        "spam classifier plugin '{}' loaded (§10.8 delivery-filter hook)",
+        row.id
+    );
+    Some(Arc::new(SpamPluginHook {
+        handle,
+        plugin_id: row.id.clone(),
+    }))
+}
+
 /// Boot-load the approved bridge/plugin account backends from the 0008 registry
 /// (plan §6.5). For every `bridge_accounts` binding whose bound plugin is an
 /// **approved + enabled** `plugins` row *and* resolves to a digest-verified
@@ -668,7 +935,11 @@ impl mw_engine::account::MailSubmitter for BridgeSubmitter {
 /// a boot grant (host services already injected via [`build_plugin_host`]), takes
 /// `as_account_backend()`, and registers it on the engine via `register_plugin_backend`
 /// — after which the account is served by the SAME sync/JMAP dispatch as an IMAP
-/// account. Returns the number of backends loaded.
+/// account. Additionally probes each loaded bridge's HONEST per-interface PIM support
+/// and, when advertised, binds its calendar/tasks/reactions/voting/recall/focused-sync
+/// trait objects into a per-account [`BridgePimSource`] (returned for e13 to attach via
+/// [`mw_engine::V7Hooks::with_bridge_caps`]). Returns `(loaded_count, bridge_pim_source)`
+/// — the source is `None` when no account bound any PIM interface.
 ///
 /// Deny-by-default: an unbound, unapproved, disabled, or third-party (unpinned) plugin
 /// loads nothing, a component whose on-disk bytes fail the digest pin fails closed, and
@@ -678,19 +949,21 @@ pub async fn load_plugin_backends(
     engine: &Arc<mw_engine::Engine>,
     host: &PluginRegistry,
     store: &Store,
-) -> usize {
+) -> (usize, Option<Arc<dyn mw_engine::BridgeCapabilitySource>>) {
     let bindings = match store.list_bridge_accounts().await {
         Ok(b) => b,
         Err(e) => {
             tracing::warn!("bridge_accounts read failed: {e}");
-            return 0;
+            return (0, None);
         }
     };
     if bindings.is_empty() {
-        return 0;
+        return (0, None);
     }
     let plugins = store.list_plugins().await.unwrap_or_default();
     let mut loaded = 0usize;
+    let mut pim_slots: std::collections::HashMap<String, BridgePimSlots> =
+        std::collections::HashMap::new();
 
     for b in &bindings {
         // The bound plugin must be a known, approved, ENABLED registry row.
@@ -779,8 +1052,29 @@ pub async fn load_plugin_backends(
             b.bridge_id,
             b.account_id
         );
+
+        // Probe the bridge's honest PIM support and bind the advertised slots for this
+        // account (calendar/tasks via `supports-*`; parity via `bridge_parity_caps`).
+        // A bridge that supports none (e.g. Gmail) binds nothing → standards fallback.
+        let slots = probe_bridge_pim(&handle).await;
+        tracing::info!(
+            "bridge '{}' PIM binding for account {}: {}",
+            b.bridge_id,
+            b.account_id,
+            slots.summary()
+        );
+        if slots.is_bound() {
+            pim_slots.insert(b.account_id.clone(), slots);
+        }
     }
-    loaded
+    let source: Option<Arc<dyn mw_engine::BridgeCapabilitySource>> = if pim_slots.is_empty() {
+        None
+    } else {
+        Some(Arc::new(BridgePimSource {
+            accounts: pim_slots,
+        }))
+    };
+    (loaded, source)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1240,6 +1534,8 @@ mod tests {
             "bridge-gmail",
             "languagetool",
             "nextcloud",
+            "spam-rspamd",
+            "spam-spamassassin",
         ] {
             assert!(first_party_digest(id).is_some(), "'{id}' is pinned");
         }
@@ -1263,6 +1559,8 @@ mod tests {
             "bridge-gmail",
             "languagetool",
             "nextcloud",
+            "spam-rspamd",
+            "spam-spamassassin",
         ] {
             let bytes =
                 resolve_component(id).unwrap_or_else(|| panic!("'{id}' resolves + verifies"));
@@ -1289,5 +1587,106 @@ mod tests {
         good[0] ^= 0xff;
         let tampered: [u8; 32] = Sha256::digest(&good).into();
         assert_ne!(tampered, expected, "a tampered component fails the pin");
+    }
+
+    // ── Spam verdict parsing (§10.8, fail-soft) ──────────────────────────────────
+
+    #[test]
+    fn spam_verdict_parses_envelope_and_fails_soft() {
+        assert_eq!(
+            parse_spam_verdict(r#"{"verdict":"spam","score":15.2,"source":"rspamd"}"#),
+            mw_engine::SpamVerdict::Spam
+        );
+        assert_eq!(
+            parse_spam_verdict(r#"{"verdict":"ham"}"#),
+            mw_engine::SpamVerdict::Ham
+        );
+        assert_eq!(
+            parse_spam_verdict(r#"{"verdict":"unknown","note":"unreachable"}"#),
+            mw_engine::SpamVerdict::Unknown
+        );
+        // Malformed / missing field ⇒ fail-soft Unknown (NEVER Spam — no hard block).
+        assert_eq!(
+            parse_spam_verdict("not json"),
+            mw_engine::SpamVerdict::Unknown
+        );
+        assert_eq!(parse_spam_verdict("{}"), mw_engine::SpamVerdict::Unknown);
+    }
+
+    // ── Gated bridge-PIM binding shape (plan §6.5, e13 acceptance) ───────────────
+
+    /// Load a digest-verified first-party bridge component through the real jail and
+    /// probe its honest PIM binding shape (account-backend granted so `as_bridge_*`
+    /// can bind).
+    async fn probe_bridge_shape(id: &str) -> BridgePimSlots {
+        let bytes = resolve_component(id).unwrap_or_else(|| panic!("'{id}' resolves"));
+        let mut host = PluginHost::new();
+        host.set_services(host_services());
+        let manifest = PluginManifest {
+            id: id.to_string(),
+            name: id.to_string(),
+            version: "0".into(),
+            signature: None,
+            capabilities: vec![mw_plugin::Capability::AccountBackend],
+            net_allowlist: Vec::new(),
+            limits: PluginLimits::default(),
+        };
+        let grant = Grant {
+            plugin_id: id.to_string(),
+            capabilities: vec![mw_plugin::Capability::AccountBackend],
+            granted_by: "test".into(),
+            allow_unsigned: true,
+        };
+        let handle = host.load(&bytes, &manifest, &grant).expect("load bridge");
+        probe_bridge_pim(&handle).await
+    }
+
+    /// The gated PIM binding is driven by each bridge's HONEST `supports-*` (never the
+    /// coarse legacy account-backend caps): Graph binds all six, EWS calendar+tasks
+    /// only, Gmail none (pure standards fallback).
+    #[tokio::test]
+    async fn bridge_pim_binding_shape_respects_honest_supports() {
+        let graph = probe_bridge_shape("bridge-graph").await;
+        assert!(
+            graph.calendar.is_some() && graph.tasks.is_some(),
+            "graph binds calendar + tasks"
+        );
+        assert!(
+            graph.reactions.is_some()
+                && graph.voting.is_some()
+                && graph.recall.is_some()
+                && graph.focused.is_some(),
+            "graph binds all four parity interfaces"
+        );
+        assert_eq!(
+            graph.caps,
+            mw_engine::BridgeCaps {
+                reactions: true,
+                voting: true,
+                recall: true,
+                focused_sync: true,
+            },
+            "graph advertises all parity caps"
+        );
+
+        let ews = probe_bridge_shape("bridge-ews").await;
+        assert!(
+            ews.calendar.is_some() && ews.tasks.is_some(),
+            "ews binds calendar + tasks"
+        );
+        assert!(
+            ews.reactions.is_none()
+                && ews.voting.is_none()
+                && ews.recall.is_none()
+                && ews.focused.is_none(),
+            "ews parity stays on the standards fallback (EWS's legacy caps overclaim; \
+             the honest supports-* are false)"
+        );
+
+        let gmail = probe_bridge_shape("bridge-gmail").await;
+        assert!(
+            !gmail.is_bound(),
+            "gmail binds NO PIM interface (pure standards fallback)"
+        );
     }
 }
