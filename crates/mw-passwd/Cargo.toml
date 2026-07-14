@@ -20,8 +20,27 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 async-trait = { workspace = true }
-# TODO(e3): link `hmac`/`sha2` (in-tree) for the webhook signer; coordinate with e2
-# (mw-directory) for the LDAP-3062 connection layer via its frozen API.
+# Local backend: Argon2id PHC hashing/verification (same crate + params posture as mw-admin).
+argon2 = { workspace = true }
+# CSPRNG for Argon2id salts (matches mw-admin; OsRng is gated out of resolved rand_core).
+getrandom = { workspace = true }
+# Secrets zeroized on drop; never logged/serialized.
+zeroize = { workspace = true }
+# DovecotHttp + WebhookHmac backends: HTTP over rustls (no openssl).
+reqwest = { workspace = true }
+# WebhookHmac: HMAC-SHA256-signed payloads (in-tree pins; hmac 0.13 ⇄ sha2 0.11/digest 0.11).
+hmac = { workspace = true }
+sha2 = { workspace = true }
+# Dovecot doveadm HTTP `X-Dovecot-API` key header.
+base64 = { workspace = true }
+# poppassd: line protocol over a real TCP stream (transport is a port so tests need no socket).
+tokio = { workspace = true }
+
+# NOTE(e3): the Ldap3062 backend hand-rolls the RFC 3062 password-modify exop request/response
+# BER encoding and exposes an `LdapExopTransport` port. mw-directory's FROZEN `DirectorySource`
+# trait (§2.2) exposes no extended-op passthrough, so we do NOT (and cannot) route the exop
+# through it without editing mw-directory. e14 backs the port (via ldap3 or the directory conn
+# layer). We deliberately do NOT link `ldap3` here (avoids a second ldap3 link + keeps the seam).
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
