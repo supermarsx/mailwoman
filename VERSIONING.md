@@ -37,6 +37,39 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
 
 ## History
 
+- **`26.7`** — V6: server depth — zero-access storage, admin, API/OAuth, MCP,
+  Postgres, cache. An **optional zero-access (zero-knowledge) storage mode**:
+  the client-side key hierarchy (Argon2id/WebAuthn-PRF → root key → KEK →
+  per-account data keys) is built on the existing V4 `mw-crypto` WASM, rows are
+  sealed with XChaCha20-Poly1305 (AAD = table‖row‖schema-version), and a
+  device-pairing QR+SAS flow transfers the root key device-to-device with the
+  server relaying only ciphertext. Its scope is stated honestly: the server at
+  rest sees ciphertext, opaque IDs, sizes, and timestamps, and because it still
+  proxies live IMAP/SMTP a malicious *active* server is a stronger adversary
+  that this mode does **not** defend against — it protects data at rest, and
+  search stays a client-built encrypted index. A **pluggable PostgreSQL
+  backend** now sits behind `mw-store` alongside SQLite (backend chosen by DSN;
+  `mailwoman migrate-store` copies SQLite→Postgres), a **layered cache**
+  (`mw-cache`: moka→Valkey/Redis→store) with a per-class scope matrix that
+  structurally excludes zero-access plaintext from Redis/memory, a **full admin
+  panel** (domains/users/quotas/policy/integrations/observability + an
+  append-only audit log, mirrored to a `mailwoman admin` CLI), **scoped API keys
+  + an OAuth 2.1 AS** (mandatory PKCE + RFC 8707 resource indicators; keys
+  Argon2id-hashed, shown once, with per-key scope/expiry/IP-allowlist/rate-limit
+  enforced on `/api/v1`), an **MCP server** (`/mcp` + `mailwoman mcp-stdio`; ten
+  scoped tools, mail content carrying untrusted-provenance labels, and send
+  disabled by default — routed to the Outbox unless an admin-countersigned
+  `unattended-send` key is used), plus HMAC-signed webhooks, a REST convenience
+  layer, and OTLP/Prometheus observability (rustls throughout — no openssl). New
+  crates: mw-cache, mw-admin, mw-oauth, mw-mcp (Postgres lands inside mw-store).
+  SQLite single-user and the browser cookie path are unchanged. Verified: 624
+  Rust + 529 web tests; cargo-deny clean with zero new advisory ignores; and a
+  live E2E gate driving the real stack (`postgres:16` + `valkey:8` + a spawned
+  server) 7/7 green — admin provisioning+audit, OAuth consent→scoped-key→REST
+  enforcement matrix, MCP gated-send→Outbox, backend parity (SQLite==Postgres),
+  and zero-access ciphertext-at-rest proven by a direct Postgres query. One
+  Postgres-only backend bug (i64 bound into a BOOLEAN column) was caught by that
+  live gate and fixed before release.
 - **`26.6`** — V5: thin native shells. Tauri v2 desktop (Windows/macOS/Linux)
   and mobile (Android/iOS) shells that reuse the **same SPA bundle** as the web
   app behind a feature-detected `Platform` capability layer (`isTauri()` →
