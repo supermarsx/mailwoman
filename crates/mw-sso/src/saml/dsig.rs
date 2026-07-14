@@ -18,7 +18,7 @@ use sha2::{Digest, Sha256};
 use signature::Verifier;
 use spki::DecodePublicKey;
 use x509_cert::Certificate;
-use x509_cert::der::{DecodePem, Encode};
+use x509_cert::der::{Decode, Encode};
 
 use super::c14n::{self, Element};
 use crate::SsoError;
@@ -222,27 +222,54 @@ fn verify_signature(spki_der: &[u8], sig_alg: &str, message: &[u8], signature: &
 
 /// Extract the SubjectPublicKeyInfo DER from a PEM. Accepts an X.509 `CERTIFICATE`
 /// (the normal IdP form) or a bare `PUBLIC KEY` (SPKI) PEM.
+///
+/// The base64 body is decoded **tolerantly of line wrapping**: real IdP metadata and
+/// SAML descriptors (Keycloak's `/protocol/saml/descriptor`, ADFS federation metadata)
+/// as well as admin-pasted certs frequently carry the base64 on a single unwrapped
+/// line, which a strict RFC 7468 decoder (fixed 64-column lines) rejects. We locate the
+/// `-----BEGIN/END <label>-----` markers ourselves, strip all interior whitespace, and
+/// base64-decode the body directly, so any wrapping (0-col, 64-col, 76-col, CRLF)
+/// yields the same DER. This is a parsing-robustness fix only — the signature is still
+/// verified cryptographically against the resulting pinned key.
 fn spki_der_from_pem(pem: &str) -> Result<Vec<u8>, SsoError> {
     let pem = pem.trim();
     if pem.contains("BEGIN CERTIFICATE") {
-        let cert = Certificate::from_pem(pem.as_bytes())
-            .map_err(|e| SsoError::Config(format!("bad certificate PEM: {e}")))?;
+        let cert_der = pem_body_der(pem, "CERTIFICATE")?;
+        let cert = Certificate::from_der(&cert_der)
+            .map_err(|e| SsoError::Config(format!("bad certificate DER: {e}")))?;
         cert.tbs_certificate()
             .subject_public_key_info()
             .to_der()
             .map_err(|e| SsoError::Config(format!("SPKI encode: {e}")))
     } else if pem.contains("BEGIN PUBLIC KEY") {
-        let (label, der) = ::der::pem::decode_vec(pem.as_bytes())
-            .map_err(|e| SsoError::Config(format!("bad public-key PEM: {e}")))?;
-        if label != "PUBLIC KEY" {
-            return Err(SsoError::Config(format!("unexpected PEM label '{label}'")));
-        }
-        Ok(der)
+        // A `PUBLIC KEY` PEM body IS the SubjectPublicKeyInfo DER.
+        pem_body_der(pem, "PUBLIC KEY")
     } else {
         Err(SsoError::Config(
             "PEM is neither CERTIFICATE nor PUBLIC KEY".into(),
         ))
     }
+}
+
+/// Decode the base64 body of a PEM block with the given `label`, tolerant of any line
+/// wrapping. Returns the raw DER bytes.
+fn pem_body_der(pem: &str, label: &str) -> Result<Vec<u8>, SsoError> {
+    let begin = format!("-----BEGIN {label}-----");
+    let end = format!("-----END {label}-----");
+    let start = pem
+        .find(&begin)
+        .map(|i| i + begin.len())
+        .ok_or_else(|| SsoError::Config(format!("PEM missing '{begin}'")))?;
+    let stop = pem[start..]
+        .find(&end)
+        .map(|i| start + i)
+        .ok_or_else(|| SsoError::Config(format!("PEM missing '{end}'")))?;
+    let body: String = pem[start..stop]
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    B64.decode(body.as_bytes())
+        .map_err(|e| SsoError::Config(format!("bad base64 in {label} PEM: {e}")))
 }
 
 /// Build a pinned-cert PEM from the base64 DER in a `<ds:X509Certificate>` (used only
@@ -260,4 +287,59 @@ pub fn cert_pem_from_b64_der(b64_der: &str) -> String {
 
 fn strip_ws(s: &str) -> String {
     s.split_whitespace().collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The repo's SAML test IdP certificate PEM (a real X.509), read at test time so the
+    /// x509 parse path is exercised for real.
+    fn cert_pem() -> String {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/saml/idp-signing.crt.pem");
+        std::fs::read_to_string(p).expect("idp-signing.crt.pem")
+    }
+
+    /// The base64 DER body (whitespace-stripped) of the fixture certificate.
+    fn cert_b64() -> String {
+        let pem = cert_pem();
+        let body = pem
+            .split("-----BEGIN CERTIFICATE-----")
+            .nth(1)
+            .and_then(|s| s.split("-----END CERTIFICATE-----").next())
+            .expect("cert body");
+        body.split_whitespace().collect()
+    }
+
+    #[test]
+    fn spki_pem_is_line_wrapping_tolerant() {
+        let compact = cert_b64();
+        // 64-column wrapped (RFC 7468) — what our own helper emits.
+        let wrapped = cert_pem_from_b64_der(&compact);
+        // Single unwrapped line — how Keycloak's /protocol/saml/descriptor and typical
+        // admin-pasted IdP metadata deliver the cert (the case that regressed e6).
+        let single = format!("-----BEGIN CERTIFICATE-----\n{compact}\n-----END CERTIFICATE-----\n");
+        let a = spki_der_from_pem(&wrapped).expect("wrapped PEM parses");
+        let b = spki_der_from_pem(&single).expect("single-line PEM parses");
+        assert!(!a.is_empty());
+        assert_eq!(a, b, "line wrapping must not change the extracted SPKI DER");
+
+        // CRLF endings + surrounding whitespace are also tolerated.
+        let crlf = format!(
+            "\r\n  -----BEGIN CERTIFICATE-----\r\n{compact}\r\n-----END CERTIFICATE-----\r\n"
+        );
+        assert_eq!(spki_der_from_pem(&crlf).expect("crlf PEM parses"), a);
+    }
+
+    #[test]
+    fn spki_pem_rejects_garbage() {
+        assert!(spki_der_from_pem("not a pem at all").is_err());
+        assert!(
+            spki_der_from_pem(
+                "-----BEGIN CERTIFICATE-----\n!!!not base64!!!\n-----END CERTIFICATE-----"
+            )
+            .is_err()
+        );
+    }
 }
