@@ -12,18 +12,33 @@ repository.workspace = true
 # paged search, StartTLS/LDAPS, multiple directories with priority order, offline
 # GAL cache via `mw-cache::CacheClass::GalDirectory`. `#![forbid(unsafe_code)]`.
 #
-# SCAFFOLD posture (e0): frozen §2.2 types as stubs. `ldap3` is DECLARE-ONLY in the
-# root manifest (default-features=false, features=["tls-rustls"]) and NOT linked
-# here yet — e2 links it and asserts the tree has NO native-tls/openssl. The stub
-# links only serde/thiserror/async-trait, so the scaffold build + `cargo deny` stay
-# clean (same posture V4/V6 used for heavy deps).
+# t7-e2 links `ldap3` (rustls-ring, see the dep comment below), `mw-cache`, tokio,
+# and tracing; the `no_openssl_in_tree` test asserts the tree has NO
+# native-tls/openssl (and ldap3's transitive closure is clean).
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 async-trait = { workspace = true }
-# TODO(e2): add `ldap3 = { workspace = true }` (rustls-only) + `mw-cache`/`mw-store`
-# for the offline GAL cache, and assert no openssl enters the tree.
+tokio = { workspace = true }
+tracing = { workspace = true }
+# ldap3 rustls-ONLY (no native-tls/openssl). The `tls-rustls` feature +
+# `default-features=false` keep openssl OUT of the tree; the `no_openssl_in_tree`
+# test in `lib.rs` asserts it structurally from Cargo.lock (hard gate).
+#
+# VERSION DEVIATION (t7-e2 → coordinator): pinned to 0.12 here rather than the
+# root workspace pin `ldap3 = "0.11"`. ldap3 0.11 links rustls 0.21 → ring 0.16.20,
+# which cargo-deny flags `unlicensed` (ring 0.16's LICENSE file has no SPDX field
+# and scores as the OpenSSL license) → `cargo deny check licenses` FAILS. ldap3
+# 0.12.1 links rustls 0.23 (the SAME version the workspace already uses) → ring
+# 0.17 (already license-clean in-tree), NO ring 0.16, NO openssl/native-tls, NO
+# aws-lc-sys C. This is the minimal change that makes `cargo deny` green WITHOUT
+# editing root Cargo.toml or deny.toml (both out of e2's ownership). ACTION for the
+# coordinator/e0: bump the root workspace pin `ldap3` 0.11 → 0.12 so this can
+# return to `{ workspace = true }`. API is source-compatible across 0.11→0.12.
+ldap3 = { version = "0.12", default-features = false, features = ["tls-rustls-ring"] }
+# Offline GAL cache via `mw-cache::CacheClass::GalDirectory` (memory + store).
+mw-cache = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
