@@ -1,0 +1,23 @@
+[package]
+name = "mw-export-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+mw-export = { path = ".." }
+
+[[bin]]
+name = "parse_msg"
+path = "fuzz_targets/parse_msg.rs"
+test = false
+doc = false
+bench = false
+
+# Standalone workspace so the root workspace never pulls libfuzzer-sys into
+# ordinary `cargo build`/`clippy` on stable (plan §4.3 fuzz DoD).
+[workspace]

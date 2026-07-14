@@ -10,6 +10,11 @@ repository.workspace = true
 mail-parser = { workspace = true }
 mail-builder = { workspace = true }
 thiserror = { workspace = true }
+# V7 (plan §3 e5, §1.7): MSG/OFT via the CFB (OLE2 compound-file) container with
+# our own MS-OXMSG property layer on top; DOCX via docx-rs. Both permissive,
+# pure-Rust, no openssl — declared in the root `[workspace.dependencies]` (e0).
+cfb = { workspace = true }
+docx-rs = { workspace = true }
 # HTML→Markdown uses html5ever's tokenizer directly (a real HTML5 tokenizer,
 # never regex — same rule as `mw-sanitize`). Pinned to the exact version ammonia
 # already locks in the workspace, so no new crate enters `Cargo.lock`; MIT/Apache-2.0.

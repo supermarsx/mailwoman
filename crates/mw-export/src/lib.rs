@@ -30,6 +30,10 @@ mod oft;
 
 pub use html2md::html_to_markdown;
 pub use mbox::split as split_mbox;
+// V7 (plan §3 e5, §1.7): MSG/OFT import (hostile CFB parse — see the module note
+// on the render-jail boundary) exposed for round-trip tests + the CFB fuzz target.
+pub use msg::{ParsedMsg, read_msg};
+pub use oft::from_oft;
 
 /// A raw RFC 5322 message — the export unit.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
