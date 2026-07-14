@@ -150,6 +150,18 @@
 # network use, not a derivative work). It is therefore OUT of `cargo deny` and
 # the JS-license scope by design; the actual-dependency floor stays MIT/Apache/
 # BSD/ISC/Zlib/MPL-2.0.
+#
+# 26.9 (SSO) new dependencies (plan t9 §5) — full OIDC + SAML 2.0 login backends in
+# the new `mw-sso` crate. Vetted (t9-e0, 2026-07-14): `openidconnect` 4.0.1
+# (default-features=false, features=["reqwest","rustls-tls"]) + `flate2` 1.1.9
+# (default-features=false, features=["rust_backend"] = pure-Rust miniz_oxide) — both
+# MIT OR Apache-2.0, under the existing allow-list. `cargo tree` confirms the linked
+# tree adds NO openssl / openssl-sys / native-tls / zlib-C / aws-lc / boring — only
+# the pre-existing `ring` rustls provider. SAML is HAND-ROLLED (no `samael`, which
+# pulls openssl + libxml C) over in-tree RustCrypto (rsa/p256/sha2) + quick-xml, per
+# the V7 NTLMv2 precedent. Keycloak (the live-E2E IdP, both OIDC+SAML) is a networked
+# CI service — OUT of cargo-deny scope, same posture as OpenLDAP/postgres/valkey.
+# `cargo deny check` stays green with NO new [licenses].allow and NO new advisory ignore.
 
 [graph]
 all-features = false

@@ -24,6 +24,7 @@ members = [
     "crates/mw-admin",
     "crates/mw-mcp",
     "crates/mw-oauth",
+    "crates/mw-sso",
     # ── V7 (26.8.0) new crates + plugin skeletons (plan §3 e0). The four native
     # crates compile on the host; the `plugins/*` skeletons are inert host-target
     # lib stubs today — their real `wasm32-wasip2` component build is deferred to
@@ -317,6 +318,7 @@ mw-cache = { path = "crates/mw-cache" }
 mw-admin = { path = "crates/mw-admin" }
 mw-mcp = { path = "crates/mw-mcp" }
 mw-oauth = { path = "crates/mw-oauth" }
+mw-sso = { path = "crates/mw-sso" }
 # ── V7 (26.8.0) new crate path deps (plan §3 e0). ──
 mw-plugin = { path = "crates/mw-plugin" }
 mw-directory = { path = "crates/mw-directory" }
