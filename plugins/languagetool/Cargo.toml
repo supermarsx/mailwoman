@@ -7,13 +7,32 @@ license.workspace = true
 repository.workspace = true
 
 # t7-e13 (the jail live-E2E artifact): a SMALL real WASM plugin — the no-AI grammar
-# path (§10.3). A message-out/composer-hook (or DLP-detector-style) component that
-# calls a LanguageTool HTTP endpoint via the host `http-fetch` under a NET
-# ALLOWLIST. Deliberately minimal so it is the canonical "real plugin loaded in the
-# jail" proof for e16 (capability grant enforced, resource limit trips) without
-# waiting on the huge bridges. SCAFFOLD posture (e0): inert host-target lib stub;
-# the `wasm32-wasip2` component is built by e15.
+# path (§10.3). A DLP-detector-shaped component (§22): `detect(draft)` posts the
+# draft to a LanguageTool `/v2/check` endpoint via the host `http-fetch` import,
+# under a NET ALLOWLIST, and returns the grammar/spelling suggestions. Deliberately
+# minimal so it is the canonical "real plugin loaded in the jail" proof for e16
+# (capability grant enforced, out-of-allowlist host denied, resource limits trip).
+#
+# The SAME crate builds two ways:
+#   * host target (`cargo build --workspace`) → an inert `rlib` (id constants only);
+#     the guest bindings are `#[cfg(target_arch = "wasm32")]`-gated so the host build
+#     never sees the wasm-import extern blocks (which would fail to link a cdylib).
+#   * `wasm32-wasip2` (`cargo build -p languagetool --target wasm32-wasip2` / build.sh)
+#     → a real component; the built `.wasm` is committed under
+#     `tests/fixtures/languagetool.wasm` and loaded by the host jail test + e16.
 [lib]
-crate-type = ["rlib"]
+crate-type = ["cdylib", "rlib"]
 
-[dependencies]
+# Guest-only deps: pulled in ONLY for the `wasm32-wasip2` component build, so the
+# host `cargo build --workspace` stays lean and the wasm build never drags in the
+# heavy host tree.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wit-bindgen = { workspace = true }
+serde_json = { workspace = true }
+
+# Host-only: the jail load test (`tests/jail_load.rs`) drives the committed component
+# through the real `mw-plugin` wasmtime host. Dev-deps never enter the wasm build.
+[dev-dependencies]
+mw-plugin = { path = "../../crates/mw-plugin" }
+tokio = { workspace = true }
+async-trait = { workspace = true }

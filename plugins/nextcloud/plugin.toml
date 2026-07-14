@@ -1,0 +1,26 @@
+# nextcloud — large-attachment share-link engine hook (plan §8, SPEC §18.4).
+#
+# The frozen `plugin.toml` manifest (mw-plugin §2.1). The host defaults DENY
+# everything undeclared; the effective grant is `manifest ∩ admin grant`.
+id = "nextcloud"
+name = "Nextcloud share links"
+version = "26.8.0"
+
+# Unsigned in-tree; the release/e15 signing job attaches a detached Ed25519
+# signature over the component bytes. Until then it loads only under an admin
+# `allow_unsigned` policy (⇒ persistent banner + audit, never silent).
+# signature = "<hex ed25519 over the component bytes>"
+
+# The message-out pipeline hook (create a public share link on send) + host-mediated
+# outbound HTTP. The host's injected fetcher attaches the linked account's auth for
+# the allowlisted host, so the guest never handles credentials.
+capabilities = ["message-pipeline", "net"]
+
+# Nextcloud is always self-hosted, so the host is per-deployment: the admin fills the
+# linked Nextcloud host here (e.g. `cloud.example.com`) at grant time. An empty
+# allowlist ⇒ no outbound net (the component cannot reach any host — fail-closed).
+net_allowlist = []
+
+[limits]
+memory_mb = 32
+deadline_ms = 15000

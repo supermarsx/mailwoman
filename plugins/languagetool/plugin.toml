@@ -1,0 +1,29 @@
+# languagetool — the no-AI grammar plugin (plan §3 e13, SPEC §10.3/§22).
+#
+# The frozen `plugin.toml` manifest (mw-plugin §2.1). The host defaults DENY
+# everything undeclared; the effective grant is `manifest ∩ admin grant`. This is
+# the SMALLEST real plugin — the canonical "a real plugin loaded in the jail"
+# artifact e16 loads to prove the sandbox (capability grant enforced, out-of-
+# allowlist host denied, resource limits trip).
+id = "languagetool"
+name = "LanguageTool grammar"
+version = "26.8.0"
+
+# Unsigned in-tree; the release/e15 signing job attaches a detached Ed25519
+# signature over the component bytes. Until then it loads only under an admin
+# `allow_unsigned` policy (⇒ persistent banner + audit, never silent).
+# signature = "<hex ed25519 over the component bytes>"
+
+# The DLP-detector hook (grammar suggestions on a draft) + host-mediated outbound
+# HTTP. Nothing else is granted — the guest cannot touch mail, the store, or any
+# other host.
+capabilities = ["dlp-detector", "net"]
+
+# The ONLY host the guest's http-fetch may reach. Replace with a self-hosted
+# LanguageTool host (e.g. `lt.internal.example`) for an on-prem deployment; the
+# component posts to `<host>/v2/check`.
+net_allowlist = ["api.languagetool.org"]
+
+[limits]
+memory_mb = 32
+deadline_ms = 10000
