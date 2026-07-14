@@ -118,7 +118,7 @@ async fn invoke(
 /// Map an [`AssistError`] to an HTTP response. `Disabled` ⇒ `404` (the feature is
 /// off for this scope — the web hides it anyway); denied capability ⇒ `403`;
 /// rate-limit ⇒ `429`; endpoint/transport ⇒ `502`. No mail content is ever included.
-fn assist_error(e: &AssistError) -> Response {
+pub(crate) fn assist_error(e: &AssistError) -> Response {
     let (code, msg): (StatusCode, String) = match e {
         AssistError::Disabled => (StatusCode::NOT_FOUND, "assist disabled".into()),
         AssistError::CapabilityDenied(_) => (

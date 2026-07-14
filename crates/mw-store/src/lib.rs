@@ -25,6 +25,9 @@ mod v6;
 // V7 (0008) additive repo methods (t7-e9): the `passwd_config` table gap +
 // password-change audit + coordinated credential re-seal.
 mod v7;
+// V7 (0008) admin-config persistence (t7-e14 MOUNT): directory/plugins/assist
+// config rows + the content-free assist audit sink.
+mod v7_config;
 
 pub(crate) use backend::{Backend, Row, q};
 
@@ -33,6 +36,7 @@ pub use v6::{
     QuotaRow, WebhookRow, ZeroAccessRow,
 };
 pub use v7::PasswdConfigRow;
+pub use v7_config::{AssistConfigRow, DirectoryConfigRow, PluginGrantRow, PluginRow};
 
 pub use cache::{
     Account, AccountKind, Mailbox, MailboxUpsert, Message, MessageLocation, MessageUpsert,

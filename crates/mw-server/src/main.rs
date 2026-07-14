@@ -48,10 +48,16 @@ enum Command {
     Password(PasswordArgs),
 }
 
-/// `mailwoman plugin <list|approve>` (V7 §22). STUB: e14 backs this with the
-/// `mw-plugin` host + the 0008 `plugins` registry tables.
+/// `mailwoman plugin <list|approve>` (V7 §22): backed by the 0008 `plugins`
+/// registry tables via `mw_server::v7_mount` (t7-e14).
 #[derive(Parser)]
 struct PluginArgs {
+    /// SQLite/Postgres DSN (env: MW_DB_PATH).
+    #[arg(long, env = "MW_DB_PATH", default_value = "mailwoman.db")]
+    db_path: String,
+    /// Hex-encoded 32-byte server key (env: MW_SERVER_KEY).
+    #[arg(long, env = "MW_SERVER_KEY")]
+    server_key: Option<String>,
     #[command(subcommand)]
     command: PluginCommand,
 }
@@ -67,13 +73,25 @@ enum PluginCommand {
     },
 }
 
-/// `mailwoman password` (V7 §18.3). STUB: e14 drives a `mw-passwd` backend +
-/// re-seals sealed upstream credentials on success.
+/// `mailwoman password` (V7 §18.3): drives a `mw-passwd` backend (selected by
+/// `MW_PASSWD_BACKEND`) + re-seals sealed upstream credentials on success (t7-e14).
 #[derive(Parser)]
 struct PasswordArgs {
     /// Account id whose password to change (env: MW_ACCOUNT_ID).
     #[arg(long, env = "MW_ACCOUNT_ID")]
     account_id: Option<String>,
+    /// SQLite/Postgres DSN (env: MW_DB_PATH).
+    #[arg(long, env = "MW_DB_PATH", default_value = "mailwoman.db")]
+    db_path: String,
+    /// Hex-encoded 32-byte server key (env: MW_SERVER_KEY).
+    #[arg(long, env = "MW_SERVER_KEY")]
+    server_key: Option<String>,
+    /// Current password (env: MW_OLD_PASSWORD).
+    #[arg(long, env = "MW_OLD_PASSWORD")]
+    old_password: Option<String>,
+    /// New password (env: MW_NEW_PASSWORD).
+    #[arg(long, env = "MW_NEW_PASSWORD")]
+    new_password: Option<String>,
 }
 
 /// `mailwoman migrate-store` (V6 §4.2). STUB: e1 implements
@@ -231,24 +249,60 @@ async fn main() -> std::process::ExitCode {
     }
 }
 
-/// `mailwoman plugin <list|approve>` (plan §22, e14). STUB — parses and reports
-/// "not yet implemented" until e14 wires the `mw-plugin` host + registry.
+/// Open the store for a CLI command (shares the `serve` key so sealed columns
+/// round-trip).
+async fn open_store(db_path: &str, server_key: Option<&str>) -> anyhow::Result<mw_store::Store> {
+    let key = match server_key {
+        Some(h) => mw_store::ServerKey::from_hex(h)
+            .map_err(|_| anyhow::anyhow!("MW_SERVER_KEY is not valid hex"))?,
+        None => mw_store::ServerKey::generate(),
+    };
+    Ok(mw_store::Store::open(db_path, key).await?)
+}
+
+/// `mailwoman plugin <list|approve>` (plan §22, e14): over the 0008 registry.
 async fn plugin_cmd(args: PluginArgs) -> anyhow::Result<()> {
+    let store = open_store(&args.db_path, args.server_key.as_deref()).await?;
     match args.command {
-        PluginCommand::List => println!("plugin list: not yet implemented (t7 e14)"),
+        PluginCommand::List => {
+            let rows = mw_server::v7_mount::cli_plugin_list(&store).await?;
+            if rows.is_empty() {
+                println!("no plugins registered");
+            }
+            for p in rows {
+                println!(
+                    "{}\t{}\tapproved={}\tenabled={}",
+                    p.id,
+                    p.version,
+                    p.approved_by.is_some(),
+                    p.enabled
+                );
+            }
+        }
         PluginCommand::Approve { id } => {
-            println!("plugin approve {id}: not yet implemented (t7 e14)");
+            mw_server::v7_mount::cli_plugin_approve(&store, &id, "cli").await?;
+            println!("approved plugin {id}");
         }
     }
     Ok(())
 }
 
-/// `mailwoman password` (plan §18.3, e14). STUB — parses and reports "not yet
-/// implemented" until e14 wires the `mw-passwd` backends.
+/// `mailwoman password` (plan §18.3, e14): change via the configured `mw-passwd`
+/// backend + re-seal stored upstream credentials on success.
 async fn password_cmd(args: PasswordArgs) -> anyhow::Result<()> {
-    let who = args.account_id.unwrap_or_else(|| "<account>".into());
-    println!("password change for {who}: not yet implemented (t7 e14)");
-    Ok(())
+    let account_id = args
+        .account_id
+        .ok_or_else(|| anyhow::anyhow!("--account-id (MW_ACCOUNT_ID) is required"))?;
+    let old = args
+        .old_password
+        .ok_or_else(|| anyhow::anyhow!("--old-password (MW_OLD_PASSWORD) is required"))?;
+    let new = args
+        .new_password
+        .ok_or_else(|| anyhow::anyhow!("--new-password (MW_NEW_PASSWORD) is required"))?;
+    let store = open_store(&args.db_path, args.server_key.as_deref()).await?;
+    let backend = mw_server::v7_mount::build_passwd_backend(&store);
+    mw_server::v7_mount::cli_password_change(&store, backend.as_ref(), &account_id, &old, &new)
+        .await
 }
 
 /// `mailwoman migrate-store` (plan §4.2, e1): copy a SQLite store into a Postgres

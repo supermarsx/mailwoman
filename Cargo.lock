@@ -5423,6 +5423,8 @@ dependencies = [
 name = "mw-render"
 version = "26.7.0"
 dependencies = [
+ "base64 0.22.1",
+ "mw-export",
  "mw-sanitize",
  "serde",
  "serde_json",
@@ -5460,6 +5462,7 @@ dependencies = [
  "clap",
  "futures-util",
  "hmac 0.13.0",
+ "ldap3",
  "metrics",
  "metrics-exporter-prometheus",
  "mime_guess",

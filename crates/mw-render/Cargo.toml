@@ -10,6 +10,11 @@ repository.workspace = true
 mw-sanitize = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# V7 CFB render-jail seam (plan §3 e14 / e5): the untrusted `.oft`/`.msg` CFB parse
+# (`mw_export::from_oft`) runs INSIDE this disposable child — the §7.5 boundary. The
+# parser lifts in unchanged; only the job frame + isolation are added here.
+mw-export = { workspace = true }
+base64 = { workspace = true }
 
 [[bin]]
 name = "mw-render"

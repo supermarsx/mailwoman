@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use axum::body::{Body, Bytes};
-use axum::extract::{Path as UrlPath, Query, Request, State};
+use axum::extract::{Extension, Path as UrlPath, Query, Request, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, Uri, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -54,6 +54,9 @@ pub mod directory;
 pub mod nextcloud;
 pub mod passwd;
 pub mod plugins;
+// V7 MOUNT/WIRE (plan §3 e14): builds + injects the five V7 extensions, backs the
+// host-service seams, the extra endpoints, and the countersign snapshot. Owned by e14.
+pub mod v7_mount;
 // V6 MOUNT (t6-e11): store adapters backing the frozen Batch-B persistence seams
 // over the real 0007 tables.
 mod stores_v6;
@@ -400,12 +403,41 @@ pub async fn build_app_full(
         );
     }
 
+    // ── V7 MOUNT (plan §3 e14) ────────────────────────────────────────────────
+    // Build the five injected extensions from the 0008 admin-config rows (all
+    // "off/empty" when unconfigured → the non-V7 path is byte-unchanged).
+    let directory = v7_mount::build_directory(&store).await;
+    let passwd_backend = v7_mount::build_passwd_backend(&store);
+    let (assist, assist_granted) = v7_mount::build_assist(&store).await;
+    let plugin_host = v7_mount::build_plugin_host(&store).await;
+    let nextcloud = v7_mount::build_nextcloud();
+
+    // Engine wiring (plan §3 e8): attach the GAL directory + the Assist hook so the
+    // recipient resolver + assist/JMAP surface reach them through the engine. Load
+    // approved plugin/bridge account backends. Inert in proxy mode (no engine).
+    if let Some(engine) = &engine {
+        engine.attach_v7(
+            mw_engine::V7Hooks::new()
+                .with_directory(directory.clone())
+                .with_assist(Arc::new(v7_mount::AssistHookAdapter::from_gateway(
+                    &assist,
+                    &assist_granted,
+                ))),
+        );
+        let n = v7_mount::load_plugin_backends(engine, &plugin_host, &store);
+        if n > 0 {
+            tracing::info!("registered {n} plugin/bridge account backend(s)");
+        }
+    }
+
     // The `/mcp` Streamable-HTTP router over the REAL engine (a no-op mount in
-    // proxy mode — tools return an engine error but `tools/list` still works).
+    // proxy mode — tools return an engine error but `tools/list` still works). The
+    // countersign resolver now reads the REAL admin `unattended_send` flag from the
+    // 0007 `api_keys` table (folded V6 follow-up b) — no longer an empty stub.
+    let countersigned = v7_mount::load_countersigned_prefixes(&store).await;
     let mcp_router = engine.as_ref().map(|engine| {
         let audit = stores_v6::AdminOAuthAudit::new(admin.clone());
-        let countersigned = mcp_countersigned_prefixes(&store);
-        mcp::build_mcp_router(engine.clone(), auth.clone(), audit, countersigned)
+        mcp::build_mcp_router(engine.clone(), auth.clone(), audit, countersigned.clone())
     });
 
     let v6 = Arc::new(V6State {
@@ -430,20 +462,27 @@ pub async fn build_app_full(
         native_auth: NativeAuthConfig::from_env(),
         v6,
     };
-    Ok((router(state, mcp_router), push))
+    let v7 = V7Extensions {
+        directory,
+        passwd: passwd_backend,
+        assist,
+        plugins: plugin_host,
+        nextcloud,
+    };
+    Ok((router(state, mcp_router, v7), push))
 }
 
-/// A snapshot of API-key prefixes whose `unattended_send` admin countersign flag
-/// is set — read at mount time for the MCP send-gate resolver (a sync `Fn`, so a
-/// snapshot; a key minted later is treated as not-countersigned until reload).
-fn mcp_countersigned_prefixes(_store: &Store) -> std::collections::HashSet<String> {
-    // Loaded lazily-empty here (the resolver is sync). The safe default is that no
-    // key is countersigned → unattended send falls back to the Outbox / 403, which
-    // is the R4 default-off posture. Admin countersign is a deliberate, rare grant.
-    std::collections::HashSet::new()
+/// The five V7 request extensions e14 injects into the mounted route factories
+/// (plan §3 e9/e14). Built from the 0008 admin-config rows in [`build_app_full`].
+pub(crate) struct V7Extensions {
+    directory: directory::DirectoryHandle,
+    passwd: passwd::PasswdBackend,
+    assist: assist::AssistHandle,
+    plugins: plugins::PluginRegistry,
+    nextcloud: nextcloud::NextcloudHandle,
 }
 
-fn router(state: AppState, mcp_router: Option<Router>) -> Router {
+fn router(state: AppState, mcp_router: Option<Router>, v7: V7Extensions) -> Router {
     // V6 additive surfaces (plan §3 e11), merged before the fallback + guard layers
     // so they ride the same security-headers / CSRF-origin / CORS middleware. The
     // normal mailbox routes above are byte-unchanged.
@@ -455,9 +494,27 @@ fn router(state: AppState, mcp_router: Option<Router>) -> Router {
         state.clone(),
         scope_mw::rest_scope_guard,
     ));
+
+    // ── V7 MOUNT (plan §3 e14) ────────────────────────────────────────────────
+    // The five e9 route factories + the extra e14 endpoints, each layered with the
+    // request extension it needs (`Extension<X>` — mirrors e9's mount contract). A
+    // missing extension ⇒ the handler 500s, so every one is injected here.
+    let v7_routes = directory::directory_router()
+        .merge(passwd::passwd_router())
+        .merge(assist::assist_router())
+        .merge(plugins::plugins_router())
+        .merge(nextcloud::nextcloud_router())
+        .merge(v7_mount::extra_v7_router())
+        .layer(Extension(v7.directory))
+        .layer(Extension(v7.passwd))
+        .layer(Extension(v7.assist))
+        .layer(Extension(v7.plugins))
+        .layer(Extension(v7.nextcloud));
+
     let mut v6 = admin::routes()
         .merge(oauth::routes())
         .merge(rest)
+        .merge(v7_routes)
         .route("/metrics", get(observability::metrics))
         .route("/errors", post(errors::report_error))
         .route("/api/webhooks/inbound", post(webhooks::inbound_webhook));
@@ -481,6 +538,7 @@ fn router(state: AppState, mcp_router: Option<Router>) -> Router {
         .route("/api/session/rotate", post(rotate_session))
         .route("/api/discover", post(discover))
         .route("/api/sanitize", post(sanitize))
+        .route("/api/import/oft", post(import_oft))
         .route("/jmap/session", get(jmap_session))
         .route("/jmap/api", post(jmap_api))
         .route(
@@ -1611,6 +1669,108 @@ async fn sanitize(
     // `html` is the existing contract; `csp` is additive — the web app may apply
     // it to the per-message iframe. Existing consumers read only `html`.
     Json(json!({ "html": clean, "csp": MESSAGE_CSP })).into_response()
+}
+
+/// `POST /api/import/oft {contentBase64}` — import an untrusted `.oft`/`.msg`
+/// template. The hostile CFB parse runs in the disposable `mw-render` child (the
+/// §7.5 boundary, plan §3 e14/e5) via a `Cfb` [`mw_render::Job`]; the child returns
+/// the sanitized body + subject. Falls back to an in-process parse only when no
+/// render worker is present (documented, mirrors [`sanitize`]). Cookie-authed; the
+/// composer fills a new draft from the returned fields.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ImportOftReq {
+    content_base64: String,
+}
+
+async fn import_oft(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<ImportOftReq>,
+) -> Response {
+    if let Err(resp) = authed(&state, &headers).await {
+        return resp;
+    }
+    let result = match &state.render_bin {
+        Some(bin) => run_render_child_cfb(bin, &body.content_base64).await,
+        None => {
+            // No render worker: parse in-process (documented fallback, like sanitize).
+            tracing::warn!("mw-render binary not found; parsing .oft in-process");
+            match base64::engine::general_purpose::STANDARD.decode(body.content_base64.as_bytes()) {
+                Ok(bytes) => mw_export::from_oft(&bytes)
+                    .map(|p| {
+                        (
+                            mw_sanitize::sanitize_email_html(&p.body.unwrap_or_default()),
+                            p.subject,
+                        )
+                    })
+                    .map_err(|e| anyhow!("{e}")),
+                Err(e) => Err(anyhow!("bad base64: {e}")),
+            }
+        }
+    };
+    match result {
+        Ok((html, subject)) => Json(json!({
+            "html": html,
+            "subject": subject,
+            "csp": MESSAGE_CSP,
+        }))
+        .into_response(),
+        Err(e) => {
+            tracing::warn!("oft import failed: {e}");
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({ "error": "could not import the template" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// Spawn `mw-render` with a `Cfb` job and read back the imported `(html, subject)`.
+async fn run_render_child_cfb(
+    bin: &Path,
+    cfb_base64: &str,
+) -> anyhow::Result<(String, Option<String>)> {
+    use std::process::Stdio;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    let mut child = tokio::process::Command::new(bin)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| anyhow!("no child stdin"))?;
+    let job = serde_json::to_string(&json!({ "cfbBase64": cfb_base64 }))?;
+    stdin.write_all(job.as_bytes()).await?;
+    stdin.write_all(b"\n").await?;
+    stdin.shutdown().await?;
+    drop(stdin);
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow!("no child stdout"))?;
+    let mut line = String::new();
+    BufReader::new(stdout).read_line(&mut line).await?;
+    let status = child.wait().await?;
+    if !status.success() {
+        return Err(anyhow!("render child exited unsuccessfully: {status}"));
+    }
+    let out: serde_json::Value = serde_json::from_str(line.trim_end())?;
+    let html = out
+        .get("html")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let subject = out
+        .get("subject")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    Ok((html, subject))
 }
 
 /// Spawn `mw-render`, write one job line, read one output line, wait, exit.

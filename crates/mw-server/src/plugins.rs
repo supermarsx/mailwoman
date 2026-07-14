@@ -130,9 +130,16 @@ async fn approve(
         Ok(a) => a,
         Err(resp) => return resp,
     };
-    let mut host = reg.lock().expect("plugin registry lock");
-    match host.approve(&id, &admin) {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+    // Mutate the in-process host, then (guard dropped) persist to 0008 (e14).
+    let result = {
+        let mut host = reg.lock().expect("plugin registry lock");
+        host.approve(&id, &admin)
+    };
+    match result {
+        Ok(()) => {
+            let _ = state.store.set_plugin_approved(&id, &admin).await;
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => plugin_error(&e),
     }
 }
@@ -158,31 +165,39 @@ async fn enable(
         return resp;
     }
     let allow_unsigned = q.allow_unsigned;
-    let mut host = reg.lock().expect("plugin registry lock");
+    let result = {
+        let mut host = reg.lock().expect("plugin registry lock");
 
-    // Signed-registry policy: refuse an unsigned plugin without the explicit flag.
-    let signed = host
-        .list()
-        .iter()
-        .find(|e| e.manifest.id == id)
-        .map(|e| e.manifest.signature.is_some());
-    match signed {
-        None => return plugin_error(&PluginError::Manifest(format!("unknown plugin '{id}'"))),
-        Some(is_signed) if !unsigned_allowed(is_signed, allow_unsigned) => {
-            return (
-                StatusCode::FORBIDDEN,
-                Json(json!({
-                    "error": "unsigned plugin requires allowUnsigned",
-                    "signed": false,
-                })),
-            )
-                .into_response();
+        // Signed-registry policy: refuse an unsigned plugin without the explicit flag.
+        let signed = host
+            .list()
+            .iter()
+            .find(|e| e.manifest.id == id)
+            .map(|e| e.manifest.signature.is_some());
+        match signed {
+            None => {
+                return plugin_error(&PluginError::Manifest(format!("unknown plugin '{id}'")));
+            }
+            Some(is_signed) if !unsigned_allowed(is_signed, allow_unsigned) => {
+                return (
+                    StatusCode::FORBIDDEN,
+                    Json(json!({
+                        "error": "unsigned plugin requires allowUnsigned",
+                        "signed": false,
+                    })),
+                )
+                    .into_response();
+            }
+            _ => {}
         }
-        _ => {}
-    }
+        host.enable(&id)
+    };
 
-    match host.enable(&id) {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+    match result {
+        Ok(()) => {
+            let _ = state.store.set_plugin_enabled(&id, true).await;
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => plugin_error(&e),
     }
 }
@@ -197,9 +212,15 @@ async fn disable(
     if let Err(resp) = require_admin(&state, &headers).await {
         return resp;
     }
-    let mut host = reg.lock().expect("plugin registry lock");
-    match host.disable(&id) {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+    let result = {
+        let mut host = reg.lock().expect("plugin registry lock");
+        host.disable(&id)
+    };
+    match result {
+        Ok(()) => {
+            let _ = state.store.set_plugin_enabled(&id, false).await;
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => plugin_error(&e),
     }
 }
@@ -223,14 +244,36 @@ async fn grant(
     UrlPath(id): UrlPath<String>,
     Json(body): Json<GrantReq>,
 ) -> Response {
-    if let Err(resp) = require_admin(&state, &headers).await {
-        return resp;
-    }
-    let host = reg.lock().expect("plugin registry lock");
-    let Some(entry) = host.list().iter().find(|e| e.manifest.id == id) else {
-        return plugin_error(&PluginError::Manifest(format!("unknown plugin '{id}'")));
+    let admin = match require_admin(&state, &headers).await {
+        Ok(a) => a,
+        Err(resp) => return resp,
     };
-    let (granted, denied) = effective_grant(&body.capabilities, &entry.manifest.capabilities);
+    let computed = {
+        let host = reg.lock().expect("plugin registry lock");
+        let Some(entry) = host.list().iter().find(|e| e.manifest.id == id) else {
+            return plugin_error(&PluginError::Manifest(format!("unknown plugin '{id}'")));
+        };
+        effective_grant(&body.capabilities, &entry.manifest.capabilities)
+    };
+    let (granted, denied) = computed;
+    // Persist each effective (deny-by-default) grant to 0008 `plugin_grants` (e14).
+    let account_id = body.account_id.clone().unwrap_or_default();
+    for cap in &granted {
+        let capability = serde_json::to_value(cap)
+            .ok()
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default();
+        let _ = state
+            .store
+            .put_plugin_grant(&mw_store::PluginGrantRow {
+                plugin_id: id.clone(),
+                account_id: account_id.clone(),
+                capability,
+                granted_by: admin.clone(),
+                created_at: chrono::Utc::now().to_rfc3339(),
+            })
+            .await;
+    }
     Json(json!({
         "pluginId": id,
         "accountId": body.account_id,

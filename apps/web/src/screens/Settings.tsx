@@ -11,6 +11,9 @@ import { ServerSettings } from '../platform/ServerSettings.tsx';
 // appearance controls above are byte-unchanged.
 import { ZeroAccessSettings, spawnZeroAccessWorker } from '../modules/zeroaccess/index.ts';
 import { ApiKeys, McpKeys } from '../modules/apikeys/index.ts';
+// V7 (plan §3 e14): in-app password change (SPEC §18.3). Lazily importable module;
+// mounted into the authenticated settings block.
+import { PasswordChange } from '../modules/passwd/index.ts';
 import { THEME_OPTIONS, ACCENT_PRESETS } from '../theme/tokens.ts';
 import type { Density } from '../theme/contract.css.ts';
 import type { LayoutMode, UiFont } from '../state/slices/theme.ts';
@@ -178,6 +181,7 @@ export function Settings(props: SettingsProps): JSX.Element {
         <Show when={app.me?.()?.accountId ?? null}>
           {(accountId) => (
             <>
+              <PasswordChange accountId={accountId()} />
               <ZeroAccessBlock />
               <ApiKeys accountId={accountId()} />
               <McpKeys accountId={accountId()} />

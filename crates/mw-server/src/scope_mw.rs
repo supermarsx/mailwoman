@@ -78,17 +78,31 @@ pub(crate) async fn rest_session(
 ) -> Result<mw_store::Session, Response> {
     match source {
         RestSessionSource::Cookie => crate::authed(state, headers).await,
-        RestSessionSource::Key { account_id } => Ok(mw_store::Session {
-            id: String::new(),
-            account_id: account_id.clone(),
-            username: account_id,
-            jmap_url: String::new(),
-            api_url: String::new(),
-            credentials: mw_store::Credentials {
-                username: String::new(),
-                password: String::new(),
-            },
-        }),
+        RestSessionSource::Key { account_id } => {
+            // Folded V6 follow-up (a), MOUNTED by e14: a headless, cookie-less key read
+            // in PROXY mode needs the account's real upstream credentials + JMAP URL to
+            // proxy. Resolve any live session for the account via
+            // [`mw_store::Store::sessions_by_account`]; without it the proxy read had
+            // empty creds and 502'd (the V6 gap). Engine mode ignores the credentials
+            // (it reads by account id), so the account-only synthetic session there is
+            // still correct — hence the fallback when no stored session exists.
+            if let Ok(sessions) = state.store.sessions_by_account(&account_id).await
+                && let Some(session) = sessions.into_iter().next()
+            {
+                return Ok(session);
+            }
+            Ok(mw_store::Session {
+                id: String::new(),
+                account_id: account_id.clone(),
+                username: account_id,
+                jmap_url: String::new(),
+                api_url: String::new(),
+                credentials: mw_store::Credentials {
+                    username: String::new(),
+                    password: String::new(),
+                },
+            })
+        }
     }
 }
 

@@ -352,6 +352,9 @@ export const ADMIN_SECTIONS = [
   'integrations',
   'observability',
   'appearance',
+  // V7 (plan §3 e14): the plugin registry + Assist governance sections.
+  'plugins',
+  'assist',
 ] as const;
 
 export type AdminSection = (typeof ADMIN_SECTIONS)[number];
@@ -364,6 +367,8 @@ export const ADMIN_SECTION_LABELS: Record<AdminSection, string> = {
   integrations: 'Integrations',
   observability: 'Observability',
   appearance: 'Appearance',
+  plugins: 'Plugins',
+  assist: 'Assist',
 };
 
 export interface AdminSlice {

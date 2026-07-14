@@ -29,9 +29,11 @@ import { SecurityPolicy } from './SecurityPolicy.tsx';
 import { Integrations } from './Integrations.tsx';
 import { Observability } from './Observability.tsx';
 import { Appearance } from './Appearance.tsx';
+import { AdminPlugins } from './Plugins/index.tsx';
+import { AdminAssist } from './Assist/index.tsx';
 import * as css from './admin.css.ts';
 
-/** The section → component map (§19). */
+/** The section → component map (§19 + V7 plugins/assist, plan §3 e14). */
 const SECTION_VIEWS: Record<AdminSection, () => JSX.Element> = {
   domains: Domains,
   users: Users,
@@ -39,6 +41,9 @@ const SECTION_VIEWS: Record<AdminSection, () => JSX.Element> = {
   integrations: Integrations,
   observability: Observability,
   appearance: Appearance,
+  // Wrapped so their optional props default to the production HTTP clients.
+  plugins: () => <AdminPlugins />,
+  assist: () => <AdminAssist />,
 };
 
 export interface AdminScreenProps {

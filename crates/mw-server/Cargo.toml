@@ -37,6 +37,11 @@ mw-directory = { workspace = true }
 mw-passwd = { workspace = true }
 mw-assist = { workspace = true }
 mw-plugin = { workspace = true }
+# V7 MOUNT (plan §3 e14): the RFC-3062 PasswordModify exop transport backs the
+# `mw-passwd` LDAP-3062 backend over ldap3(rustls) — mw-directory exposes no exop
+# passthrough, so e14 owns the transport. rustls-ring ONLY (no native-tls/openssl),
+# matching the mw-directory pin (root workspace `ldap3 = "0.12" tls-rustls-ring`).
+ldap3 = { workspace = true }
 # Constant-time admin password comparison uses argon2 verification when a hash is
 # configured; the store-adapter needs no extra crypto (ServerKey seals/unseals).
 argon2 = { workspace = true }

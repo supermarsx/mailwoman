@@ -66,6 +66,20 @@ pub struct ShareLink {
     pub url: String,
 }
 
+/// One entry in a WebDAV directory listing (the attach picker, plan §3 e14).
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NextcloudEntry {
+    /// The path relative to the user's files root (e.g. `/Documents/report.pdf`).
+    pub path: String,
+    /// The display name (last path segment).
+    pub name: String,
+    /// Whether this entry is a collection (folder).
+    pub is_dir: bool,
+    /// Size in bytes for files (0 for folders).
+    pub size: u64,
+}
+
 /// Parameters for a public share-link creation.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -90,6 +104,11 @@ pub trait NextcloudGateway: Send + Sync {
     async fn save(&self, path: &str, bytes: &[u8]) -> Result<(), NextcloudError>;
     /// Create a public share link (optionally password/expiry-protected).
     async fn create_share_link(&self, req: &ShareLinkReq) -> Result<ShareLink, NextcloudError>;
+    /// List a WebDAV collection (attach picker, plan §3 e14). The default returns an
+    /// empty listing; [`OcsNextcloud`] does a real PROPFIND.
+    async fn list(&self, _path: &str) -> Result<Vec<NextcloudEntry>, NextcloudError> {
+        Ok(Vec::new())
+    }
 }
 
 // ── handlers ───────────────────────────────────────────────────────────────────
@@ -296,6 +315,110 @@ impl NextcloudGateway for OcsNextcloud {
             .map(|url| ShareLink { url })
             .ok_or_else(|| NextcloudError::Api("no share url in response".into()))
     }
+
+    async fn list(&self, path: &str) -> Result<Vec<NextcloudEntry>, NextcloudError> {
+        let url = webdav_url(&self.base_url, &self.username, path);
+        let resp = self
+            .client
+            .request(reqwest::Method::from_bytes(b"PROPFIND").unwrap(), url)
+            .basic_auth(&self.username, Some(&self.app_password))
+            .header("Depth", "1")
+            .header(header::CONTENT_TYPE, "application/xml")
+            .body(PROPFIND_BODY)
+            .send()
+            .await
+            .map_err(|e| NextcloudError::Transport(e.to_string()))?;
+        if !resp.status().is_success() {
+            return Err(NextcloudError::Api(resp.status().to_string()));
+        }
+        let xml = resp
+            .text()
+            .await
+            .map_err(|e| NextcloudError::Transport(e.to_string()))?;
+        Ok(parse_propfind(&xml, &self.username))
+    }
+}
+
+const PROPFIND_BODY: &str = r#"<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/><d:getcontentlength/></d:prop></d:propfind>"#;
+
+/// Extract entries from a WebDAV multistatus PROPFIND body (best-effort; namespace-
+/// prefix + case tolerant). The first `<response>` is the queried collection itself
+/// and is dropped. The picker's live fidelity is exercised by e16.
+fn parse_propfind(xml: &str, user: &str) -> Vec<NextcloudEntry> {
+    let prefix = format!("/remote.php/dav/files/{user}");
+    let lower = xml.to_lowercase();
+    let mut out = Vec::new();
+    let mut search = 0usize;
+    while let Some(rel) = lower[search..].find(":response") {
+        let start = search + rel;
+        let end = lower[start..]
+            .find("</")
+            .map(|e| {
+                start
+                    + e
+                    + lower[start + e..]
+                        .find(":response>")
+                        .map(|x| x + ":response>".len())
+                        .unwrap_or(0)
+            })
+            .unwrap_or(lower.len());
+        let block = &xml[start..end.min(xml.len())];
+        let block_lower = &lower[start..end.min(lower.len())];
+        search = end.max(start + 1);
+
+        let Some(href) = extract_tag(block, ":href>") else {
+            continue;
+        };
+        let decoded = percent_decode(href.trim());
+        let Some(rest) = decoded.strip_prefix(&prefix) else {
+            continue;
+        };
+        let clean = rest.trim_end_matches('/');
+        if clean.is_empty() {
+            continue; // the collection itself
+        }
+        let is_dir = block_lower.contains(":collection");
+        let size = extract_tag(block, ":getcontentlength>")
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .unwrap_or(0);
+        let name = clean.rsplit('/').next().unwrap_or(clean).to_string();
+        out.push(NextcloudEntry {
+            path: rest.to_string(),
+            name,
+            is_dir,
+            size,
+        });
+    }
+    out
+}
+
+/// Extract the text between the first `…{tag}` and its closing `</…>` (namespace
+/// tolerant: `tag` is the suffix like `:href>`).
+fn extract_tag(block: &str, tag: &str) -> Option<String> {
+    let lower = block.to_lowercase();
+    let open = lower.find(tag)? + tag.len();
+    let close = lower[open..].find("</")? + open;
+    Some(block[open..close].to_string())
+}
+
+/// Minimal percent-decoding for WebDAV hrefs.
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let Ok(b) = u8::from_str_radix(&s[i + 1..i + 3], 16)
+        {
+            out.push(b);
+            i += 3;
+            continue;
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// The WebDAV URL for a user's file: `{base}/remote.php/dav/files/{user}/{path}`.
