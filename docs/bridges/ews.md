@@ -23,17 +23,24 @@ EWS on-premises authentication supported in V7:
   against RFC / MS-NLMP known-answer test vectors). **Zero new dependencies**, no
   GSSAPI, no C.
 
-### Kerberos is a documented gap (BYO reverse-proxy)
+### Kerberos SSO is via a BYO reverse-proxy (not native)
 
-**Kerberos / NTLM single sign-on via the system GSSAPI is not shipped in V7.** A
-pure-Rust Kerberos/GSSAPI stack is not viable within Mailwoman's permissive-only
-license floor. If your deployment requires Kerberos SSO:
+**Kerberos / SPNEGO single sign-on via the system GSSAPI is not spoken by the bridge.**
+A production pure-Rust Kerberos/GSSAPI stack is not viable within Mailwoman's
+permissive-only, no-openssl / no-`-sys`-C license floor, so the bridge does not hold a
+Kerberos ticket. This is **not** "Kerberos supported"; it is one of:
 
-- Front EWS with a **reverse proxy that terminates Kerberos** and presents Basic or
-  NTLM to Mailwoman (the documented interim path), or
-- use Basic / NTLMv2 directly where your Exchange allows it.
+- **BYO reverse-proxy (the supported path).** Front EWS with a Kerberos-capable reverse
+  proxy (IIS+ARR+KCD, Apache `mod_auth_gssapi`, or nginx) that terminates Kerberos on
+  the back leg and accepts the bridge's already-shipped **Basic / NTLMv2** on the front
+  leg. Concrete config sketches, SPN/keytab setup, and the `net_allowlist` wiring are in
+  **`docs/deploy/kerberos.md`**.
+- **Basic / NTLMv2 directly** where your Exchange accepts them without Kerberos.
 
-Native Kerberos is tracked for post-1.0 (`docs/ROADMAP-1.0.md`).
+**Native GSSAPI Kerberos is a human-gated license-floor exception**, not an autonomous
+build — it would require accepting a non-permissive `-sys`-C GSSAPI dependency,
+feature-gated and off by default. See the decision memo at the bottom of
+`docs/deploy/kerberos.md`. It is tracked as such in `docs/ROADMAP-1.0.md`.
 
 ### App registration / endpoint
 
@@ -55,7 +62,9 @@ hits a real EWS endpoint only when secrets are present.
 - **Calendar / free-busy / rooms / GAL / OOF / recall / voting are implemented and
   fixture-tested but not yet drivable through the plugin seam** — a post-1.0
   WIT-export extension. The UI's existing standards fallbacks handle those meanwhile.
-- **Kerberos SSO is a BYO-reverse-proxy gap** (Basic + NTLMv2 ship). See above.
+- **Kerberos SSO is via a BYO reverse-proxy** (Basic + NTLMv2 ship natively; native
+  GSSAPI is a human-gated license-floor exception). See above and
+  `docs/deploy/kerberos.md`.
 - The crate uses `deny(unsafe_code)` rather than `forbid` because the generated
   wit-bindgen glue is unsafe-by-construction and localized; the bridge's own logic is
   unsafe-free, and `mw-plugin` remains the `forbid(unsafe_code)` trust boundary.
