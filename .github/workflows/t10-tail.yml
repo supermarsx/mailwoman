@@ -1,31 +1,82 @@
-# t10 (26.10) deferred-tail CI — SCAFFOLD stub (t10-e0). Manual-only + inert: the
-# real jobs are ACTIVATED by t10-e14 (backend live-E2E) and t10-e15 (web live-E2E),
-# which own this workflow. It is intentionally NOT wired to push/PR yet so it can
-# never wedge the required `ci.yml` gate while the tail is being built.
+# t10 (26.10) deferred-tail live-E2E — the "unit-green ≠ wired" gate. Owned by t10-e14
+# (backend) and t10-e15 (web). Manual + push-to-tail so it never wedges the required
+# `ci.yml` gate while the tail is built; the coordinator promotes it to a required check
+# at the 26.10 release boundary.
 #
-# Planned jobs (e14/e15 uncomment + fill):
-#   * pim-seam       — bridge calendar/tasks/reactions through the REAL jail+engine
-#                      vs fixtures, plus the byte-unchanged standards fallback leg.
-#   * spam-masked    — spam-rspamd / spam-spamassassin / masked-email in the jail vs
-#                      the docker-compose.ci.yml rspamd + spamassassin services.
-#   * dcr            — OAuth DCR (RFC 7591) vs a real AuthServer (disabled→403,
-#                      enabled→register/read/update/delete, redirect-host allowlist).
-#   * export-deep    — MSG/OFT deep write fidelity round-trip + byte-identical floor.
-#   * web-e2e        — UI-plugin tier escape-attempt matrix + PIM/masked/DCR in a
-#                      real browser (Playwright).
+# Backend scenarios (e14):
+#   * pim-export   — bridge PIM through the REAL jail+engine (Graph 6 / EWS cal+tasks /
+#                    Gmail fallback) + the byte-unchanged standards fallback, and MSG/OFT
+#                    deep write fidelity. Needs NO external services — runs on the plain
+#                    workspace (both are in-tree jail/component/export round-trips).
+#   * spam-classify — spam-rspamd / spam-spamassassin in the real jail vs REAL rspamd +
+#                    SpamAssassin (spamd behind the SPAMC→HTTP relay). GTUBE ⇒ spam,
+#                    ham ⇒ ham; fail-soft legs run without services.
+#   * dcr          — OAuth DCR (RFC 7591/7592) vs the real AuthServer against LIVE
+#                    Postgres (the V6 bool-bind lesson): disabled→403, register/read/
+#                    update/delete, redirect-host allowlist, no scope escalation.
+#
+# The web-e2e job (UI-plugin escape matrix + PIM/masked/DCR in a real browser) is owned
+# by t10-e15 and appended separately.
 
 name: t10-tail
 
 on:
   workflow_dispatch: {}
+  push:
+    branches: ["t10-**", "release/26.10**"]
 
 permissions:
   contents: read
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  placeholder:
-    # Never runs — replaced by e14/e15 with the real job matrix above.
-    if: false
+  # ── Bridge PIM seam + MSG/OFT deep fidelity — no external services. ────────────
+  pim-export:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "t10-tail CI is a scaffold stub; e14/e15 fill it."
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Bridge-PIM seam through the real jail + engine
+        run: cargo test -p mw-server --test t10_pim_seam -- --nocapture
+      - name: MSG/OFT deep write fidelity round-trip
+        run: cargo test -p mw-server --test t10_export_deep -- --nocapture
+
+  # ── Spam classify vs REAL rspamd + SpamAssassin (spamd behind the relay). ──────
+  spam-classify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Bring up rspamd + spamd + the SPAMC→HTTP relay
+        run: |
+          docker compose -f docker-compose.ci.yml up -d --wait rspamd spamd spamassassin
+      - name: Classify GTUBE=spam / ham=ham + fail-soft legs through the real jail
+        env:
+          MW_SPAM_LIVE: "1"
+          MW_RSPAMD_PORT: "11333"
+          MW_SPAMC_RELAY_PORT: "7830"
+        run: cargo test -p mw-server --test t10_spam_masked -- --nocapture --test-threads=1
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v
+
+  # ── OAuth DCR vs the real AuthServer against LIVE Postgres (the V6 lesson). ─────
+  dcr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Bring up Postgres
+        run: docker compose -f docker-compose.ci.yml up -d --wait postgres
+      - name: DCR lifecycle (disabled→403, register/read/update/delete, allowlist, no-escalation)
+        env:
+          MW_E14_PG_DSN: "postgres://mailwoman:mailwoman@localhost:5432/mailwoman"
+        run: cargo test -p mw-server --test t10_dcr -- --nocapture --test-threads=1
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v
