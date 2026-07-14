@@ -40,7 +40,12 @@ export async function listSsoProviders(base = ''): Promise<SsoProviderSummary[]>
     const res = await fetch(`${base}/api/sso/providers`, { credentials: 'same-origin' });
     if (!res.ok) return [];
     const body = (await res.json()) as unknown;
-    return Array.isArray(body) ? (body as SsoProviderSummary[]) : [];
+    // The server returns `{ providers: [...] }` (mw-server sso.rs GET /api/sso/providers);
+    // tolerate a bare array too for forward-compat.
+    const list = Array.isArray(body)
+      ? body
+      : ((body as { providers?: unknown })?.providers ?? []);
+    return Array.isArray(list) ? (list as SsoProviderSummary[]) : [];
   } catch {
     return [];
   }
