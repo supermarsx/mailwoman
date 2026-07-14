@@ -30,6 +30,13 @@ mw-oauth = { workspace = true }
 mw-mcp = { workspace = true }
 mw-admin = { workspace = true }
 mw-cache = { workspace = true }
+# V7 route modules (plan §3 e9): directory/passwd/assist/plugins consumed by the
+# additive route files (directory.rs/passwd.rs/assist.rs/plugins.rs). e14 mounts them
+# and injects the built backends as request extensions.
+mw-directory = { workspace = true }
+mw-passwd = { workspace = true }
+mw-assist = { workspace = true }
+mw-plugin = { workspace = true }
 # Constant-time admin password comparison uses argon2 verification when a hash is
 # configured; the store-adapter needs no extra crypto (ServerKey seals/unseals).
 argon2 = { workspace = true }

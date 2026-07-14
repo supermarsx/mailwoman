@@ -91,6 +91,19 @@ CREATE TABLE IF NOT EXISTS password_change_audit (
 );
 CREATE INDEX IF NOT EXISTS idx_pwchange_audit_acct ON password_change_audit (account_id);
 
+-- ── Per-account password-change config (§18.3, plan §2.3/§2.6). Holds the
+-- displayed policy + the forced-change-on-next-login flag as the JSON serialization
+-- of `mw_passwd::PasswdConfig` in `config`, with `force_change` mirrored as a
+-- queryable 0/1 column (login can gate on it without parsing JSON). Added by e9
+-- (the passwd_config table gap e0's 0008 left — password_change_audit shipped, this
+-- table did not). `account_id` is NOT a foreign key (proxy mode has no accounts row).
+CREATE TABLE IF NOT EXISTS passwd_config (
+    account_id    TEXT PRIMARY KEY NOT NULL,
+    config        TEXT NOT NULL DEFAULT '{}',     -- JSON of mw_passwd::PasswdConfig
+    force_change  INTEGER NOT NULL DEFAULT 0,     -- 0/1 mirror of force_change_on_next_login
+    updated_at    TEXT NOT NULL
+);
+
 -- ── Bridge accounts: which account is served by which bridge plugin (§6.5).
 CREATE TABLE IF NOT EXISTS bridge_accounts (
     account_id   TEXT PRIMARY KEY NOT NULL,

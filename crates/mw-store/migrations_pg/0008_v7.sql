@@ -78,6 +78,17 @@ CREATE TABLE IF NOT EXISTS password_change_audit (
 );
 CREATE INDEX IF NOT EXISTS idx_pwchange_audit_acct ON password_change_audit (account_id);
 
+-- ── Per-account password-change config (§18.3, plan §2.3/§2.6). `force_change` is
+-- BIGINT (0/1) — the uniform integer-boolean convention (matching 0001-0007), NOT
+-- native BOOLEAN (the V6 bool-bind bug). `config` holds the JSON of
+-- `mw_passwd::PasswdConfig`. Added by e9 (the passwd_config table gap in 0008).
+CREATE TABLE IF NOT EXISTS passwd_config (
+    account_id    TEXT PRIMARY KEY NOT NULL,
+    config        TEXT NOT NULL DEFAULT '{}',
+    force_change  BIGINT NOT NULL DEFAULT 0,
+    updated_at    TEXT NOT NULL
+);
+
 -- ── Bridge accounts (§6.5).
 CREATE TABLE IF NOT EXISTS bridge_accounts (
     account_id   TEXT PRIMARY KEY NOT NULL,

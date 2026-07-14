@@ -22,6 +22,9 @@ mod migrate;
 // structs over the 0007 tables, reusing the frozen dual-backend query layer;
 // no existing query or public item is touched.
 mod v6;
+// V7 (0008) additive repo methods (t7-e9): the `passwd_config` table gap +
+// password-change audit + coordinated credential re-seal.
+mod v7;
 
 pub(crate) use backend::{Backend, Row, q};
 
@@ -29,6 +32,7 @@ pub use v6::{
     AdminUserRow, ApiKeyRow, AuditRow, CacheScopeRow, DomainRow, OAuthClientRow, OAuthTokenRow,
     QuotaRow, WebhookRow, ZeroAccessRow,
 };
+pub use v7::PasswdConfigRow;
 
 pub use cache::{
     Account, AccountKind, Mailbox, MailboxUpsert, Message, MessageLocation, MessageUpsert,
