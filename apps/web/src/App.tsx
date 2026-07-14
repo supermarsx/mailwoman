@@ -1,4 +1,4 @@
-import { onMount, onCleanup, createEffect, Show, Switch, Match, type JSX } from 'solid-js';
+import { onMount, onCleanup, createEffect, lazy, Suspense, Show, Switch, Match, type JSX } from 'solid-js';
 import { AppContext } from './state/context.ts';
 import { createAppState } from './state/store.ts';
 import { createConfiguredClient } from './api/transport.ts';
@@ -9,7 +9,29 @@ import { MailboxScreen } from './screens/Mailbox.tsx';
 import { Toast } from './components/Toast.tsx';
 import { ConnectionToast } from './realtime/ConnectionToast.tsx';
 
+// V6 admin panel (plan §2.6, §3 e7): a LAZY, admin-session-gated route reached
+// ONLY via dynamic import, so the whole `screens/Admin/**` tree code-splits into
+// its own chunk and is ABSENT from the login→inbox mailbox bundle (bundle gate).
+// The panel runs under a separate admin session domain; the normal SPA path below
+// is byte-unchanged (the early return only fires on the `/admin` path).
+const AdminScreen = lazy(() => import('./screens/Admin/index.tsx'));
+
+/** Is the app being served under the separate `/admin` route? */
+function isAdminRoute(): boolean {
+  if (typeof location === 'undefined') return false;
+  const path = location.pathname.replace(/\/+$/, '');
+  return path === '/admin' || path.startsWith('/admin/');
+}
+
 export function App(): JSX.Element {
+  if (isAdminRoute()) {
+    return (
+      <Suspense fallback={<div class="boot">Loading…</div>}>
+        <AdminScreen />
+      </Suspense>
+    );
+  }
+
   const client = createConfiguredClient();
   const app = createAppState(client);
 
