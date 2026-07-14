@@ -1,27 +1,36 @@
-// V6 zero-access storage module (SPEC §9, plan §2.6, §3 e6/e8). SCAFFOLD (t6-e0):
-// inert placeholder types — importable + typecheck-green, NOT wired into any
-// route yet. e6 fills the crypto/orchestration half (composing the existing
-// `mw-crypto` WASM key stack into the §9.1 hierarchy: passphrase/passkey-PRF →
-// root key → KEK → per-account data keys; row encrypt/decrypt; device-pairing
-// QR + SAS). e8 fills the settings/UX half (enable/disable with the honest
-// trade-off disclosure, passphrase/passkey setup, recovery phrase). No new client
-// crypto — the existing crypto worker is reused.
+// V6 zero-access storage module (SPEC §9, plan §2.6 / §3 e8). Public surface for e11
+// to mount into Settings/an account screen (this module does NOT touch the router or
+// Settings.tsx — ownership boundary). Everything composes the existing `mw-crypto`
+// `za*` wasm exports through a dedicated worker; no crypto is hand-rolled in JS.
+//
+// e11 WIRE-UP:
+//   import { ZeroAccessSettings } from '@/modules/zeroaccess';
+//   import { spawnZeroAccessWorker } from '@/modules/zeroaccess';
+//   <ZeroAccessSettings za={spawnZeroAccessWorker()} />
+// Endpoints this module calls (e11 to satisfy):
+//   GET  /api/zeroaccess                         → ZeroAccessAccount
+//   POST /api/zeroaccess/enable  (ZeroAccessEnablePayload)
+//   POST /api/zeroaccess/disable
+//   POST /api/zeroaccess/pair/offer      ({publicB64})            → {pairingId}
+//   POST /api/zeroaccess/pair/envelope   ({pairingId, envelopeB64})
+//   GET  /api/zeroaccess/pair/envelope/:id                        → {envelopeB64|null}
+
+import type { ZeroAccessAccount } from './service.ts';
 
 /** Whether zero-access is enabled for an account, and what the server still sees. */
 export interface ZeroAccessStatus {
   readonly enabled: boolean;
   /**
    * The HONEST list of what the server still sees at rest (SPEC §9.2, plan §1.4):
-   * ciphertext blobs, opaque IDs, message sizes, timestamps, and the envelope
-   * routing needed to proxy IMAP/SMTP. Zero-access protects data AT REST against
-   * a curious/breached host; a malicious ACTIVE server proxying live traffic is a
-   * stronger adversary and is NOT defended by this mode. No searchable-encryption
-   * claim is made — search is a client-built encrypted slice (§9.3).
+   * ciphertext blobs, opaque IDs, message sizes, timestamps, and the envelope routing
+   * needed to proxy IMAP/SMTP. Zero-access protects data AT REST against a curious/
+   * breached host; a malicious ACTIVE server is NOT defended by this mode. No
+   * searchable-encryption claim is made.
    */
   readonly serverVisibleMetadata: readonly string[];
 }
 
-/** Placeholder default status (disabled). e6/e8 replace this module wholesale. */
+/** Default status (disabled) + the honest server-visible metadata list. */
 export const ZERO_ACCESS_DEFAULT: ZeroAccessStatus = {
   enabled: false,
   serverVisibleMetadata: [
@@ -32,3 +41,42 @@ export const ZERO_ACCESS_DEFAULT: ZeroAccessStatus = {
     'envelope routing for IMAP/SMTP proxying',
   ],
 };
+
+/** Map the server account record into the compact status summary. */
+export function toStatus(account: ZeroAccessAccount): ZeroAccessStatus {
+  return { enabled: account.enabled, serverVisibleMetadata: ZERO_ACCESS_DEFAULT.serverVisibleMetadata };
+}
+
+export { ZeroAccessSettings } from './ZeroAccessSettings.tsx';
+export { DevicePairing } from './DevicePairing.tsx';
+export { Qr } from './Qr.tsx';
+export { spawnZeroAccessWorker } from './worker.ts';
+export {
+  ZeroAccessService,
+  describeKdf,
+  type ZeroAccessAccount,
+  type ZeroAccessEnablePayload,
+  type ZeroAccessSession,
+  type PairedDevice,
+  type Fetcher,
+} from './service.ts';
+export { PairingService, sasMatches, type PairingOffer, type PairingCompletion, type PairingSeal } from './pairing.ts';
+export {
+  ZA_KDF_INTERACTIVE,
+  ZA_SUBKEY_LABELS,
+  utf8ToB64,
+  b64ToUtf8,
+  type ZeroAccessCrypto,
+  type ZaKdfParams,
+  type ZaKeyRef,
+  type ZaSubkeyLabel,
+} from './crypto.ts';
+export {
+  ZA_PROTECTS,
+  ZA_SERVER_STILL_SEES,
+  ZA_ACTIVE_SERVER_CAVEAT,
+  ZA_NO_SEARCH_CLAIM,
+  ZA_RECOVERY_TRADEOFF,
+} from './disclosure.ts';
+export { passkeySupported, passkeySecretB64 } from './passkey.ts';
+export { encodeQr, type EcLevel } from './qr.ts';
