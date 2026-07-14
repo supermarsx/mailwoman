@@ -62,6 +62,28 @@ futures-util = { workspace = true }
 rustls = { workspace = true }
 tokio-rustls = { workspace = true }
 rustls-pki-types = { workspace = true }
+# V6 observability + webhooks + REST (plan §3 e9). All workspace-declared (plan §5),
+# pure-Rust + rustls throughout — NO openssl. `hmac` (+ in-tree `sha2`) signs
+# outbound webhooks (HMAC-SHA256). `metrics`/`metrics-exporter-prometheus` back the
+# auth-gated Prometheus `/metrics` (default-features off drops its HTTP listener —
+# we render through the recorder handle). The `opentelemetry*` stack exports OTLP
+# traces+metrics over `tonic` with rustls (`tls-roots`, verified openssl-free).
+# `opentelemetry_sdk` is the provider/runtime half of that stack (not separately
+# workspace-declared; pinned to the same 0.31 line, minimal `rt-tokio` feature).
+# HMAC-SHA256 webhook signing. Pinned to 0.13 (NOT the workspace `hmac = "0.12"`,
+# plan §5) because 0.12 targets `digest` 0.10 while the in-tree `sha2` is 0.11
+# (`digest` 0.11); 0.13 is the matching RustCrypto release and is already resolved
+# in Cargo.lock. TODO(e12): realign the workspace `hmac` pin to 0.13.
+hmac = "0.13"
+# `async-trait` backs the `WebhookRegistry` dyn-dispatch seam e11 fills against the
+# 0007 `webhooks` table (already a workspace dep — used in dev-deps for tests).
+async-trait = { workspace = true }
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+opentelemetry_sdk = { version = "0.31", features = ["rt-tokio", "trace", "metrics"] }
+tracing-opentelemetry = { workspace = true }
 
 [dev-dependencies]
 mw-mock-jmap = { workspace = true }
