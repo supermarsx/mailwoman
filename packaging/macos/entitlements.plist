@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements for the notarized macOS build (SPEC §16).
+  Referenced from apps/desktop/src-tauri/tauri.conf.json bundle.macOS.entitlements.
+
+  Minimal set for a WKWebView (Tauri) thin client with an optional loopback
+  self-contained server. No entitlement grants broad disk or camera/mic access.
+-->
+<plist version="1.0">
+<dict>
+    <!-- WebKit JIT + JS heap (WKWebView requires these under hardened runtime). -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+
+    <!-- Outbound connections to the Mailwoman server (and update feed). -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <!-- Self-contained mode spawns mw-server on 127.0.0.1 (loopback listener). -->
+    <key>com.apple.security.network.server</key>
+    <true/>
+
+    <!-- Keychain access for the session token + key-vault passphrase. -->
+    <key>keychain-access-groups</key>
+    <array>
+        <!-- HUMAN: replace TEAMID with your Apple Developer Team ID. -->
+        <string>$(AppIdentifierPrefix)com.mailwoman.desktop</string>
+    </array>
+</dict>
+</plist>

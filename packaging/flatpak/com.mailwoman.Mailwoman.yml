@@ -1,0 +1,59 @@
+# Flatpak manifest for the Mailwoman thin desktop shell (SPEC §16).
+#
+# Thin client: this packages the Tauri/WebKitGTK desktop shell only. The sandbox is
+# deliberately narrow (network + display + Secret Service for the OS keychain +
+# Notifications + downloads for attachment save/drag-out). No broad filesystem, no
+# host talk-names beyond what the shell needs.
+#
+# Build locally (recipes only — Flathub submission is HUMAN-gated, see ./README.md):
+#   flatpak-builder --user --install --force-clean build-dir \
+#       packaging/flatpak/com.mailwoman.Mailwoman.yml
+#
+# HUMAN: Flathub publication requires a PR to github.com/flathub/flathub reviewed by
+#        Flathub maintainers; the app-id must be registered there. See ./README.md.
+app-id: com.mailwoman.Mailwoman
+runtime: org.gnome.Platform
+runtime-version: '46'
+sdk: org.gnome.Sdk
+command: mailwoman-desktop
+
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # OS keychain (session token + key-vault passphrase) via Secret Service:
+  - --talk-name=org.freedesktop.secrets
+  # Native notifications with actions:
+  - --talk-name=org.freedesktop.Notifications
+  # Attachment save / drag-out only — no broad host filesystem:
+  - --filesystem=xdg-download:rw
+
+modules:
+  - name: mailwoman-desktop
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 mailwoman-desktop /app/bin/mailwoman-desktop
+      - install -Dm644 com.mailwoman.Mailwoman.desktop
+          /app/share/applications/com.mailwoman.Mailwoman.desktop
+      - install -Dm644 com.mailwoman.Mailwoman.metainfo.xml
+          /app/share/metainfo/com.mailwoman.Mailwoman.metainfo.xml
+      - install -Dm644 icon-128.png
+          /app/share/icons/hicolor/128x128/apps/com.mailwoman.Mailwoman.png
+    sources:
+      # HUMAN: point these at the published, tagged release assets (with real
+      #        sha256), or convert to a `git`/`dir` source that builds the shell from
+      #        source for a reproducible Flathub build. The placeholders below expect
+      #        `flatpak-builder` to be run from a prepared build/ dir populated by
+      #        `scripts/build-shells.sh` (thin variant, MW_SELF_CONTAINED=0).
+      - type: file
+        path: ../../target/release/mailwoman-desktop
+        dest-filename: mailwoman-desktop
+      - type: file
+        path: com.mailwoman.Mailwoman.desktop
+      - type: file
+        path: com.mailwoman.Mailwoman.metainfo.xml
+      - type: file
+        path: ../../apps/desktop/src-tauri/icons/128x128.png
+        dest-filename: icon-128.png

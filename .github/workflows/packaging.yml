@@ -1,0 +1,237 @@
+# Packaging — BUILD-ONLY matrix (SPEC §16 / §18.1 / ROADMAP-1.0 L21, plan t8-e6).
+#
+# Proves the packaging recipes BUILD and meet the §16 size budgets. It NEVER signs,
+# notarizes, or submits anything — every signing key / store account / submission is a
+# HUMAN-gated input (see packaging/**/README.md + docs/deploy/packaging.md). No Apple,
+# Google, Microsoft, minisign, or repo-GPG secret is referenced here.
+#
+# §16 size budgets asserted: thin desktop shell < 10 MB, self-contained desktop < 40 MB
+# (scripts/check-bundle-size.mjs, run inside scripts/build-shells.*).
+# Separate workflow (not ci.yml) to avoid the single-file collision.
+name: packaging
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: packaging-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # manifests — fast lint/parse of every recipe + the two Tauri configs. No build.
+  # Asserts: all YAML/JSON/XML/plist parse; both tauri.conf.json are on the shipped
+  # version 26.8.0; desktop has an active updater with a HUMAN pubkey placeholder;
+  # mobile has NO self-updater (store-driven, by design).
+  # ---------------------------------------------------------------------------
+  manifests:
+    name: lint recipes + Tauri configs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: install parsers
+        run: pip install --quiet pyyaml
+      - name: validate recipes + Tauri configs
+        run: |
+          python3 - <<'PY'
+          import json, sys, glob, plistlib, pathlib
+          import xml.dom.minidom as minidom
+          import yaml
+
+          errs = []
+          def ok(p): print(f"  ok  {p}")
+
+          # --- every YAML recipe parses ---
+          for f in glob.glob("packaging/**/*.y*ml", recursive=True):
+              try:
+                  list(yaml.safe_load_all(pathlib.Path(f).read_text(encoding="utf-8")))
+                  ok(f)
+              except Exception as e:
+                  errs.append(f"YAML {f}: {e}")
+
+          # --- XML / plist ---
+          for f in glob.glob("packaging/**/*.xml", recursive=True):
+              try:
+                  minidom.parseString(pathlib.Path(f).read_bytes()); ok(f)
+              except Exception as e:
+                  errs.append(f"XML {f}: {e}")
+          for f in glob.glob("packaging/**/*.plist", recursive=True):
+              try:
+                  plistlib.loads(pathlib.Path(f).read_bytes()); ok(f)
+              except Exception as e:
+                  errs.append(f"PLIST {f}: {e}")
+
+          # --- Tauri configs: parse + version + updater posture ---
+          desk = json.loads(pathlib.Path("apps/desktop/src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
+          mob  = json.loads(pathlib.Path("apps/mobile/src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
+          for name, cfg in (("desktop", desk), ("mobile", mob)):
+              if cfg.get("version") != "26.8.0":
+                  errs.append(f"{name} tauri.conf.json version {cfg.get('version')!r} != 26.8.0")
+              else:
+                  ok(f"{name} version 26.8.0")
+          upd = desk.get("plugins", {}).get("updater", {})
+          if not upd.get("active"):
+              errs.append("desktop updater not active")
+          if "HUMAN" not in upd.get("pubkey", ""):
+              errs.append("desktop updater pubkey should be a HUMAN placeholder (unsigned build)")
+          if not desk.get("bundle", {}).get("createUpdaterArtifacts"):
+              errs.append("desktop bundle.createUpdaterArtifacts not set")
+          if "updater" in mob.get("plugins", {}):
+              errs.append("mobile must NOT ship a self-updater (store-driven)")
+          else:
+              ok("mobile has no self-updater (by design)")
+
+          if errs:
+              print("\nFAIL:"); [print("  -", e) for e in errs]; sys.exit(1)
+          print("\nAll packaging manifests + Tauri configs valid.")
+          PY
+      - name: winget manifest validate (schema)
+        run: |
+          # Structural check only — full `winget validate` needs the Windows client.
+          python3 - <<'PY'
+          import yaml, pathlib
+          req = {
+            "Mailwoman.Mailwoman.yaml": "version",
+            "Mailwoman.Mailwoman.installer.yaml": "installer",
+            "Mailwoman.Mailwoman.locale.en-US.yaml": "defaultLocale",
+          }
+          for fn, mtype in req.items():
+              d = yaml.safe_load(pathlib.Path("packaging/winget", fn).read_text(encoding="utf-8"))
+              assert d["PackageIdentifier"] == "Mailwoman.Mailwoman", fn
+              assert d["ManifestType"] == mtype, f"{fn} ManifestType"
+              assert d["PackageVersion"] == "26.8.0", f"{fn} version"
+              print("  ok ", fn)
+          PY
+
+  # ---------------------------------------------------------------------------
+  # desktop-bundles — build the thin + self-contained shell and assert the §16 size
+  # budgets. Uses scripts/build-shells.* which runs scripts/check-bundle-size.mjs.
+  # Does NOT sign or bundle installers with certs. macOS is best-effort.
+  # ---------------------------------------------------------------------------
+  desktop-bundles:
+    name: build shells + §16 size gate
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.os == 'macos-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: install Linux webview deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev libssl-dev patchelf
+      - name: build thin + self-contained shell + §16 size gate (unsigned)
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then pwsh scripts/build-shells.ps1; else bash scripts/build-shells.sh; fi
+
+  # ---------------------------------------------------------------------------
+  # flatpak — validate the manifest + AppStream metainfo + desktop entry (build-only,
+  # no publish). `--show-manifest` parses without downloading the GNOME runtime.
+  # ---------------------------------------------------------------------------
+  flatpak:
+    name: validate Flatpak recipe
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install flatpak tooling
+        run: sudo apt-get update && sudo apt-get install -y flatpak-builder desktop-file-utils appstream
+      - name: validate flatpak manifest
+        run: flatpak-builder --show-manifest packaging/flatpak/com.mailwoman.Mailwoman.yml
+      - name: validate desktop entry
+        run: desktop-file-validate packaging/flatpak/com.mailwoman.Mailwoman.desktop
+      - name: validate AppStream metainfo
+        run: appstreamcli validate --no-net packaging/flatpak/com.mailwoman.Mailwoman.metainfo.xml || true
+
+  # ---------------------------------------------------------------------------
+  # container — build the server runtime image + validate the compose stacks parse.
+  # Feeds the Cloudron/runtipi hosting-panel recipes. No push to any registry.
+  # ---------------------------------------------------------------------------
+  container:
+    name: build runtime image (no push)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: build runtime image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime
+          push: false
+          tags: mailwoman:packaging-smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: compose configs parse
+        run: |
+          for f in docker-compose.dev.yml docker-compose.ci.yml docker-compose.crypto.yml; do
+            [ -f "$f" ] && docker compose -f "$f" config >/dev/null && echo "ok  $f"
+          done
+
+  # ---------------------------------------------------------------------------
+  # android — build the APK for the Play / F-Droid recipes. continue-on-error: the
+  # F-Droid/Play toolchain provisioning is a tracked gap, not a pipeline-red (matches
+  # the ci.yml android-apk posture). Builds only — no upload key, no store submission.
+  # ---------------------------------------------------------------------------
+  android:
+    name: build APK (F-Droid/Play recipe)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - name: install Android NDK
+        run: sdkmanager "ndk;27.0.12077973"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: build shared SPA + emit UI-bundle hash (§7.4)
+        run: |
+          pnpm -C apps/web install --frozen-lockfile
+          pnpm -C apps/web build
+          node scripts/emit-bundle-hash.mjs
+      - name: tauri android build (unsigned APK)
+        env:
+          NDK_HOME: ${{ env.ANDROID_NDK_ROOT }}
+        run: |
+          pnpm -C apps/mobile install
+          pnpm -C apps/mobile exec tauri android init --ci
+          python3 apps/mobile/src-tauri/android-src/merge.py
+          pnpm -C apps/mobile exec tauri android build --apk

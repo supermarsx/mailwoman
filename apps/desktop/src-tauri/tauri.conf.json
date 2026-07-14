@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Mailwoman",
-  "version": "26.6.0",
+  "version": "26.8.0",
   "identifier": "com.mailwoman.desktop",
   "build": {
     "frontendDist": "../../web/dist",
@@ -26,13 +26,54 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "createUpdaterArtifacts": true,
+    "publisher": "Mailwoman",
+    "homepage": "https://mailwoman.example",
+    "license": "AGPL-3.0-or-later",
+    "linux": {
+      "deb": {
+        "section": "mail",
+        "priority": "optional",
+        "depends": []
+      },
+      "rpm": {
+        "release": "1",
+        "epoch": 0,
+        "depends": []
+      },
+      "appimage": {
+        "bundleMediaFramework": false
+      }
+    },
+    "windows": {
+      "certificateThumbprint": "HUMAN_PROVIDE_WINDOWS_CODE_SIGNING_THUMBPRINT__see_docs/deploy/packaging.md",
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.digicert.com",
+      "nsis": {
+        "installMode": "perMachine"
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "10.15",
+      "hardenedRuntime": true,
+      "entitlements": "../../../packaging/macos/entitlements.plist",
+      "signingIdentity": "HUMAN_PROVIDE_APPLE_DEVELOPER_ID_APPLICATION_CERT__see_packaging/macos/notarize.md",
+      "providerShortName": "HUMAN_PROVIDE_APPLE_TEAM_ID__see_packaging/macos/notarize.md",
+      "exceptionDomain": ""
+    }
   },
   "plugins": {
     "updater": {
-      "active": false,
-      "endpoints": [],
-      "pubkey": ""
+      "active": true,
+      "pubkey": "HUMAN_PROVIDE_MINISIGN_UPDATER_PUBKEY__see_packaging/updater/README.md",
+      "endpoints": [
+        "https://releases.mailwoman.example/updater/stable/{{target}}/{{arch}}/{{current_version}}",
+        "https://releases.mailwoman.example/updater/staging/{{target}}/{{arch}}/{{current_version}}"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

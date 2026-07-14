@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metainfo for Flatpak/Flathub + Linux app stores (SPEC §16).
+     HUMAN: screenshots[].image URLs and the release <url> must point at real,
+     hosted assets before Flathub review. -->
+<component type="desktop-application">
+  <id>com.mailwoman.Mailwoman</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>AGPL-3.0-or-later</project_license>
+  <name>Mailwoman</name>
+  <summary>Web-first mail, calendar, tasks and contacts — thin native shell</summary>
+  <description>
+    <p>
+      Mailwoman is a web-first mail, calendar, tasks and contacts client. The desktop
+      shell is a thin native wrapper (Tauri v2) around the same web app the server
+      serves, adding OS integration — native notifications, OS keychain, default
+      mailto handler, share targets, badge counts, biometric app-lock — and an
+      optional self-contained local server for users with no server to deploy.
+    </p>
+    <p>No protocol logic lives in the shell; it is a verified UI bundle only.</p>
+  </description>
+  <launchable type="desktop-id">com.mailwoman.Mailwoman.desktop</launchable>
+  <categories>
+    <category>Network</category>
+    <category>Email</category>
+    <category>Office</category>
+  </categories>
+  <url type="homepage">https://mailwoman.example</url>
+  <url type="bugtracker">https://github.com/mailwoman/mailwoman/issues</url>
+  <url type="vcs-browser">https://github.com/mailwoman/mailwoman</url>
+  <content_rating type="oars-1.1" />
+  <developer id="com.mailwoman">
+    <name>Mailwoman</name>
+  </developer>
+  <provides>
+    <binary>mailwoman-desktop</binary>
+  </provides>
+  <releases>
+    <release version="26.8.0" date="2026-07-14">
+      <description>
+        <p>1.0-hardening baseline: accessibility, i18n, performance and packaging.</p>
+      </description>
+    </release>
+  </releases>
+</component>

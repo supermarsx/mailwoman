@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Mailwoman
+GenericName=Email, Calendar & Contacts
+Comment=Web-first mail, calendar, tasks and contacts — thin native shell
+Exec=mailwoman-desktop %U
+Icon=com.mailwoman.Mailwoman
+Terminal=false
+Categories=Network;Email;Office;
+Keywords=email;mail;imap;jmap;calendar;contacts;
+StartupNotify=true
+StartupWMClass=Mailwoman
+MimeType=x-scheme-handler/mailto;x-scheme-handler/mailwoman;message/rfc822;text/calendar;text/vcard;

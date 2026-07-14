@@ -1,0 +1,63 @@
+# F-Droid metadata for the Mailwoman Android shell (SPEC §16, "F-Droid-friendly").
+#
+# File name MUST equal the Android applicationId: com.mailwoman.mobile
+# (matches apps/mobile/src-tauri/tauri.conf.json `identifier`).
+#
+# This is the fdroiddata recipe. Submission is a merge request to
+# gitlab.com/fdroid/fdroiddata reviewed by F-Droid maintainers (HUMAN-gated); the
+# app must build reproducibly from source in F-Droid's buildserver with NO
+# proprietary dependencies. See ./README.md.
+Categories:
+  - Internet
+License: AGPL-3.0-or-later
+AuthorName: Mailwoman
+AuthorWebSite: https://mailwoman.example
+WebSite: https://mailwoman.example
+SourceCode: https://github.com/mailwoman/mailwoman
+IssueTracker: https://github.com/mailwoman/mailwoman/issues
+Changelog: https://github.com/mailwoman/mailwoman/releases
+
+AutoName: Mailwoman
+Summary: Web-first mail, calendar, tasks and contacts
+Description: |-
+    Mailwoman is a web-first mail, calendar, tasks and contacts client. The Android
+    app is a thin native shell (Tauri v2) around the same web app the server serves,
+    adding OS integration: UnifiedPush (no Google services required), FLAG_SECURE
+    screen-capture protection, biometric app-lock, share targets and file handlers.
+
+    No protocol logic lives in the shell; it is a verified UI bundle only. The app
+    connects to a Mailwoman server you run or are given.
+
+    F-Droid anti-features: none intended — UnifiedPush avoids the proprietary FCM
+    dependency, so the F-Droid build ships without Google Play Services.
+
+RepoType: git
+Repo: https://github.com/mailwoman/mailwoman.git
+
+Builds:
+  - versionName: 26.8.0
+    versionCode: 260800
+    # HUMAN: set commit to the signed release tag once cut (e.g. '26.8.0').
+    commit: '26.8.0'
+    subdir: apps/mobile/src-tauri
+    sudo:
+      # HUMAN: F-Droid buildserver provisioning — Rust Android targets + NDK + Node.
+      - apt-get update
+      - apt-get install -y nodejs npm
+    gradle:
+      - fdroid
+    output: gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
+    prebuild:
+      - corepack enable
+      - pnpm -C ../../web install --frozen-lockfile
+      - pnpm -C ../../web build
+      - node ../../../scripts/emit-bundle-hash.mjs
+      - pnpm -C ../.. install
+      - pnpm -C ../.. exec tauri android init --ci
+      - python3 android-src/merge.py
+    ndk: r27
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: 26.8.0
+CurrentVersionCode: 260800

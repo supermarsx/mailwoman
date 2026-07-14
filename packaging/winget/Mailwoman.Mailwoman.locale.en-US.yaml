@@ -1,0 +1,30 @@
+# winget default-locale manifest. Schema 1.6.0.
+PackageIdentifier: Mailwoman.Mailwoman
+PackageVersion: 26.8.0
+PackageLocale: en-US
+Publisher: Mailwoman
+PublisherUrl: https://mailwoman.example
+PublisherSupportUrl: https://github.com/mailwoman/mailwoman/issues
+PackageName: Mailwoman
+PackageUrl: https://mailwoman.example
+License: AGPL-3.0-or-later
+LicenseUrl: https://github.com/mailwoman/mailwoman/blob/master/license.md
+Copyright: Copyright (C) Mailwoman contributors
+ShortDescription: Web-first mail, calendar, tasks and contacts — thin native shell.
+Description: >-
+  Mailwoman is a web-first mail, calendar, tasks and contacts client. The Windows app
+  is a thin native shell (Tauri v2) around the same web app the server serves, adding
+  OS integration (native notifications, Credential Manager keychain, default mailto
+  handler, share targets, badge counts, Windows Hello app-lock) and an optional
+  self-contained local server. No protocol logic lives in the shell.
+Moniker: mailwoman
+Tags:
+  - email
+  - mail
+  - imap
+  - jmap
+  - calendar
+  - contacts
+  - webmail
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0
