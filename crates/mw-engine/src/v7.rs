@@ -271,6 +271,31 @@ pub trait AssistHook: Send + Sync {
     fn granted_capabilities(&self) -> Vec<String>;
 }
 
+// ─── Spam-classification seam (plan §10.8, t10-e13) ──────────────────────────────
+
+/// The honest verdict a spam classifier returns for a message (mirrors the jailed
+/// `spam-action` plugin's `{"verdict":…}` envelope). `Unknown` is the fail-soft
+/// default — an unreachable daemon / denied host / malformed response all resolve
+/// here and NEVER hard-block or move a message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpamVerdict {
+    Spam,
+    Ham,
+    Unknown,
+}
+
+/// The engine-side spam-classification seam (§10.8). e13 backs this with a jailed
+/// `spam-action` plugin (rspamd / SpamAssassin); the engine calls it fail-soft on
+/// genuinely-new inbox arrivals only, and a [`SpamVerdict::Spam`] result tags the
+/// `$Junk` keyword + moves the message to Junk. Absence ⇒ delivery is byte-unchanged
+/// (the hard regression gate); the classifier can never drop or block a message.
+#[async_trait]
+pub trait SpamHook: Send + Sync {
+    /// Classify a raw RFC822 message. MUST NOT error — a classifier failure is
+    /// reported as [`SpamVerdict::Unknown`] (fail-soft, never a hard block).
+    async fn classify(&self, raw: &[u8]) -> SpamVerdict;
+}
+
 // ─── The additive V7 hook bundle ─────────────────────────────────────────────────
 
 /// The additive V7 hook bundle attached by e14 (MOUNT). Cheaply cloneable — every
@@ -280,6 +305,7 @@ pub struct V7Hooks {
     directory: Option<Arc<dyn DirectorySource>>,
     bridge_caps: Option<Arc<dyn BridgeCapabilitySource>>,
     assist: Option<Arc<dyn AssistHook>>,
+    spam: Option<Arc<dyn SpamHook>>,
     /// account_id → plugin/bridge id, for accounts registered via
     /// [`Engine::register_plugin_backend`]. Preserved across [`Engine::attach_v7`].
     plugin_backends: BTreeMap<String, String>,
@@ -314,6 +340,14 @@ impl V7Hooks {
         self.assist = Some(assist);
         self
     }
+
+    /// Attach the spam-classification hook (e13 → a jailed `spam-action` plugin).
+    /// Absence ⇒ ingest is byte-unchanged.
+    #[must_use]
+    pub fn with_spam(mut self, spam: Arc<dyn SpamHook>) -> Self {
+        self.spam = Some(spam);
+        self
+    }
 }
 
 impl Engine {
@@ -326,6 +360,7 @@ impl Engine {
         w.directory = hooks.directory;
         w.bridge_caps = hooks.bridge_caps;
         w.assist = hooks.assist;
+        w.spam = hooks.spam;
         // Any plugin backings the caller pre-seeded on the bundle are merged in;
         // existing registrations always win and are never dropped by a re-attach.
         for (acct, plugin) in hooks.plugin_backends {
@@ -530,6 +565,15 @@ impl Engine {
     #[must_use]
     pub fn assist_enabled(&self) -> bool {
         self.assist().is_some_and(|a| a.is_enabled())
+    }
+
+    // ── Spam-classification hook (plan §10.8, t10-e13) ───────────────────────────
+
+    /// The attached spam-classification hook, if any. `None` ⇒ no classifier is
+    /// configured and ingest is byte-unchanged (the hard regression gate).
+    #[must_use]
+    pub fn spam_hook(&self) -> Option<Arc<dyn SpamHook>> {
+        self.v7.read().expect("v7 hooks lock").spam.clone()
     }
 }
 

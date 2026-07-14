@@ -231,6 +231,19 @@ impl PluginHandle {
         }
     }
 
+    /// Invoke the `spam-action` hook (§10.8). Requires the `spam-action` capability.
+    /// Returns the guest's verdict envelope (a JSON string, `{"verdict":…}`); the
+    /// caller treats an `unknown` verdict as fail-soft (never a hard block).
+    pub async fn call_spam_action(&self, raw: Vec<u8>) -> Result<String> {
+        self.require(Capability::SpamAction)?;
+        let mut s = self.ctx.instantiate().await?;
+        let g = s.plugin.mailwoman_plugin_spam_action();
+        match g.call_classify(&mut s.store, &raw).await {
+            Ok(inner) => inner.map_err(adapter::wit_to_plugin_err),
+            Err(e) => Err(host_state::map_call_err(&s.store, e)),
+        }
+    }
+
     /// Invoke the `addrbook-source` hook (§13). Requires `addrbook-source`; the
     /// guest's outbound HTTP (if any) is separately gated by `net` + `net_allowlist`.
     pub async fn call_addrbook_search(&self, query: String) -> Result<Vec<String>> {

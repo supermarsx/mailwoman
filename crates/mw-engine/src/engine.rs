@@ -381,6 +381,16 @@ impl Engine {
         if !existed {
             self.apply_rules_at_ingest(account_id, mailbox_id, &sid, &email, &raw.flags)
                 .await?;
+            // §10.8 spam classification (fail-soft): a jailed `spam-action` plugin
+            // verdict tags $Junk + moves to Junk. Errors are swallowed so a classifier
+            // failure can NEVER drop a delivered message; a no-op when no hook is
+            // attached (byte-unchanged).
+            if let Err(e) = self
+                .apply_spam_at_ingest(account_id, mailbox_id, &sid, &raw.raw)
+                .await
+            {
+                tracing::warn!("spam classification at ingest failed (message delivered): {e}");
+            }
         }
 
         // Record the change that advances Email state (+ the mailbox counter).

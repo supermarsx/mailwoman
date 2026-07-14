@@ -105,6 +105,58 @@ impl Engine {
         Ok(())
     }
 
+    /// Classify a freshly-ingested inbox message through the attached `spam-action`
+    /// plugin (§10.8) and apply the verdict. **Fail-soft:** with no hook attached, a
+    /// non-inbox delivery, or any verdict other than `Spam`, this is a no-op (delivery
+    /// byte-unchanged). A `Spam` verdict tags the `$Junk` spam-trainer keyword and,
+    /// when a Junk mailbox exists, moves the message there — it never drops or blocks a
+    /// message. Errors are surfaced to the caller, which swallows them (delivery wins).
+    pub(crate) async fn apply_spam_at_ingest(
+        &self,
+        account_id: &str,
+        mailbox_id: &str,
+        stable_id: &str,
+        raw: &[u8],
+    ) -> Result<()> {
+        let Some(hook) = self.spam_hook() else {
+            return Ok(()); // no classifier configured — byte-unchanged.
+        };
+        // Only genuinely-new inbox arrivals are classified (mirrors the rules gate).
+        let mailbox = self
+            .store()
+            .get_mailbox(mailbox_id)
+            .await
+            .map_err(EngineError::Store)?;
+        if mailbox.role.as_deref() != Some("inbox") {
+            return Ok(());
+        }
+        // Only a "spam" verdict acts; ham/unknown/classifier-error deliver unchanged.
+        if hook.classify(raw).await != crate::v7::SpamVerdict::Spam {
+            return Ok(());
+        }
+        let Some(rt) = self.runtime(account_id) else {
+            return Ok(());
+        };
+        // Tag the spam-trainer keyword the engine already understands.
+        self.add_keyword_local(&rt, stable_id, "$Junk").await?;
+        // Move to the Junk mailbox when the account has one (else leave it tagged in
+        // the inbox rather than inventing a folder).
+        let mailboxes = self.store().list_mailboxes(account_id).await?;
+        if let Some(dest) = resolve_mailbox(&mailboxes, "Junk")
+            && dest != mailbox_id
+        {
+            self.move_email(&rt, stable_id, &dest).await?;
+        }
+        // Content-free audit (§21.1): verdict only, never the message.
+        self.emit_audit(crate::v6::AuditEvent {
+            account_id: account_id.to_string(),
+            action: "spam.classified".into(),
+            target: Some(stable_id.to_string()),
+            detail: serde_json::json!({ "verdict": "spam" }),
+        });
+        Ok(())
+    }
+
     /// Add one JMAP keyword to a message: update the cache flags, re-index, and
     /// best-effort mirror upstream (a POP3/local `Unsupported` is fine).
     pub(crate) async fn add_keyword_local(

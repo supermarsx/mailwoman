@@ -76,5 +76,6 @@ pub use v7::{
     AssistHook, BridgeCalendar, BridgeCalendarInfo, BridgeCapabilitySource, BridgeCaps,
     BridgeEventDelta, BridgeEventInfo, BridgeFocusedSync, BridgeReaction, BridgeReactions,
     BridgeRecall, BridgeRoomInfo, BridgeTaskDelta, BridgeTaskInfo, BridgeTasks, BridgeVoteTally,
-    BridgeVoting, DirectorySource, FocusedState, GalEntry, RecallOutcome, V7Hooks,
+    BridgeVoting, DirectorySource, FocusedState, GalEntry, RecallOutcome, SpamHook, SpamVerdict,
+    V7Hooks,
 };
