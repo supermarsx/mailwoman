@@ -78,10 +78,24 @@ impl Engine {
                         && dest != mailbox_id
                     {
                         self.move_email(&rt, stable_id, &dest).await?;
+                        // Audit/webhook feed off the rule execution (plan §3 e10).
+                        // Metadata only — never mail content (§21.1).
+                        self.emit_audit(crate::v6::AuditEvent {
+                            account_id: account_id.to_string(),
+                            action: "rule.executed".into(),
+                            target: Some(stable_id.to_string()),
+                            detail: serde_json::json!({ "action": "move", "mailbox": dest }),
+                        });
                     }
                 }
                 Action::Tag { keyword } | Action::Mark { keyword } => {
                     self.add_keyword_local(&rt, stable_id, keyword).await?;
+                    self.emit_audit(crate::v6::AuditEvent {
+                        account_id: account_id.to_string(),
+                        action: "rule.executed".into(),
+                        target: Some(stable_id.to_string()),
+                        detail: serde_json::json!({ "action": "tag", "keyword": keyword }),
+                    });
                 }
                 // Copy/Forward/ReplyTemplate/Notify/Stop have no local cache
                 // effect (or are handled by evaluate_all's stop semantics).

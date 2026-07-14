@@ -47,6 +47,11 @@ pub struct Engine {
     search: Arc<mw_search::Index>,
     /// Guards the single delayed dispatcher task (undo-send + snooze, §1.3/§1.5).
     dispatcher_started: AtomicBool,
+    /// V6 additive hooks (plan §3 e10): the layered cache used for cache-aside
+    /// on the read paths, the zero-access posture source, and the audit/webhook
+    /// feed. Inert (no cache, standard posture, no feed) until e11 (MOUNT) calls
+    /// [`Engine::attach_v6`], so the V5 path is byte-unchanged.
+    pub(crate) v6: std::sync::RwLock<crate::v6::V6Hooks>,
 }
 
 impl Engine {
@@ -76,6 +81,7 @@ impl Engine {
             changes,
             search,
             dispatcher_started: AtomicBool::new(false),
+            v6: std::sync::RwLock::new(crate::v6::V6Hooks::default()),
         }
     }
 
@@ -227,6 +233,7 @@ impl Engine {
         for mref in &delta.removed {
             if let Some(sid) = self.resolve_ref(account_id, mailbox_id, mref).await? {
                 self.store.delete_message(&sid).await?;
+                self.invalidate_message_cache(&sid).await;
                 let _ = self.search.delete(&sid);
                 self.record_change(account_id, ChangeType::Email, &sid, ChangeOp::Destroyed)
                     .await?;
@@ -321,6 +328,10 @@ impl Engine {
         if let Some(uidl) = &uidl {
             self.store.record_uidl(account_id, uidl, &sid).await?;
         }
+
+        // Drop any cached envelope/body for this id so the cache-aside read paths
+        // never serve a pre-update copy (plan §3 e10). No-op without a cache.
+        self.invalidate_message_cache(&sid).await;
 
         // Index for search. Keywords + attachment filenames back `tag:`/`is:` and
         // `filename:`; pin defaults false on a fresh document.
@@ -492,8 +503,10 @@ impl Engine {
         if msg.account_id != account_id {
             return Ok(None);
         }
+        // Cache-aside on the message-body read path (plan §3 e10). Inert without
+        // an attached cache; a zero-access account bypasses every shared tier.
         if let Some(blob) = &msg.blob_ref
-            && let Some(raw) = self.store.get_body(blob).await?
+            && let Some(raw) = self.cached_body(account_id, stable_id, blob).await?
         {
             return Ok(Some(raw));
         }

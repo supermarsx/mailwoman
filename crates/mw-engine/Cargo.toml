@@ -16,6 +16,12 @@ tracing = { workspace = true }
 chrono = { workspace = true }
 mw-jmap = { workspace = true }
 mw-store = { workspace = true }
+# V6 (plan §3 e10): the layered cache. A leaf crate over `mw-store` (no cycle:
+# mw-cache depends on mw-store, mw-store does not depend on the engine). The
+# engine uses it for cache-aside on the header-window / message-body read paths
+# and routes zero-access accounts' plaintext-derived reads through its structural
+# `PlaintextDerived`/`AccountPosture` exclusion. Inert until e11 attaches a Cache.
+mw-cache = { workspace = true }
 # mw-mime (→ mw-jmap only) and mw-smtp (→ no workspace crate) are cycle-free.
 # mw-imap / mw-pop3 depend on THIS crate for the frozen trait, so mw-engine must
 # NOT depend on them — backend *construction* lives in mw-server (plan §3 e6).

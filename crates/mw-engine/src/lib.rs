@@ -24,6 +24,7 @@ pub mod security;
 pub mod state;
 pub mod submission;
 pub mod thread;
+pub mod v6;
 
 pub use account::{AccountPolicy, AccountRuntime, MailSubmitter};
 pub use backend::{
@@ -54,4 +55,12 @@ pub use pim::types::{
 pub use security::types::{
     AttachmentRisk, AuthVerdict, CryptoKey, DlpRule, DlpVerdict, MailRule, ReceivedHop,
     SecurityVerdict, SignatureVerdict,
+};
+
+// ── V6 additive wiring (§3 e10): cache-aside + zero-access opacity + audit feed.
+// Inert until e11 attaches a Cache / posture source / audit feed. The mw-cache
+// types are re-exported so the mount site + engine share one contract. ──
+pub use v6::{
+    AccountPosture, AccountPostureSource, AuditEvent, AuditFeed, Cache, CacheClass,
+    PlaintextDerived, StandardPosture, V6Hooks,
 };

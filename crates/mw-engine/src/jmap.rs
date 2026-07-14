@@ -418,10 +418,14 @@ impl Engine {
             Err(e) => return Err(EngineError::Store(e)),
         };
 
-        let mut email: Value = match self.store().get_envelope(stable_id).await? {
+        // Cache-aside on the header-window (envelope) + message-body read paths
+        // (plan §3 e10). Inert without an attached cache; zero-access accounts
+        // bypass every shared tier via `get_derived` (the store already holds
+        // ciphertext the engine treats as opaque).
+        let mut email: Value = match self.cached_envelope(&msg.account_id, stable_id).await? {
             Some(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({})),
             None => match &msg.blob_ref {
-                Some(blob) => match self.store().get_body(blob).await? {
+                Some(blob) => match self.cached_body(&msg.account_id, stable_id, blob).await? {
                     Some(raw) => mw_mime::parse(&raw)
                         .ok()
                         .and_then(|p| serde_json::to_value(p.email).ok())
@@ -911,6 +915,13 @@ impl Engine {
             ChangeOp::Updated,
         )
         .await?;
+        // Audit/webhook feed off the recall (plan §3 e10). Metadata only.
+        self.emit_audit(crate::v6::AuditEvent {
+            account_id: account_id.to_string(),
+            action: "submission.recalled".into(),
+            target: Some(id.to_string()),
+            detail: serde_json::json!({ "emailId": row.email_id }),
+        });
         Ok(())
     }
 
