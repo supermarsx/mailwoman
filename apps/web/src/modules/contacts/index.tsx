@@ -15,6 +15,10 @@ import type { Id } from '../../api/jmap-types.ts';
 import { parseVCards, toVCardDocument, type ParsedContact } from './vcard.ts';
 import { contactsToCsv, csvToContacts, guessMapping, parseCsv, type CsvField, type CsvMapping } from './csv.ts';
 import { findDuplicateClusters, mergeCards } from './merge.ts';
+// V7 directory security (SPEC §13/§8.2, e14b): the per-contact cert/key rows, sourced
+// from the GAL. Gated on a configured directory, so an unconfigured deployment's
+// business card is unchanged.
+import { ContactSecurity } from '../directory/index.ts';
 import * as css from './contacts.css.ts';
 
 const CSV_FIELDS: CsvField[] = [
@@ -39,7 +43,12 @@ function primaryEmail(card: ContactCard): string {
 
 export function ContactsModule(): JSX.Element {
   const app = useApp();
-  onMount(() => void app.loadContacts());
+  onMount(() => {
+    void app.loadContacts();
+    // Probe the directory once (silent) so the per-contact Security tab appears only
+    // when a GAL is configured; unconfigured ⇒ the business card is unchanged.
+    void app.directory.ensureEnabled();
+  });
 
   const [panel, setPanel] = createSignal<'view' | 'edit' | 'create'>('view');
   const [showImport, setShowImport] = createSignal(false);
@@ -356,6 +365,16 @@ function BusinessCard(props: { card: ContactCard; onEdit: () => void }): JSX.Ele
             : 'No key on file.'}
         </p>
       </div>
+
+      {/* V7 directory-published security material (SPEC §13/§8.2): photo + S/MIME
+          certificate rows for this contact's address. Mounted only when a directory
+          is configured, so the card is unchanged for non-directory deployments. */}
+      <Show when={app.directory.enabled() && primaryEmail(card()).length > 0}>
+        <div class={css.fieldGroup}>
+          <span class={css.fieldLabel}>Directory security</span>
+          <ContactSecurity email={primaryEmail(card())} service={app.directory.service} />
+        </div>
+      </Show>
 
       <GroupMembership card={card()} />
     </article>

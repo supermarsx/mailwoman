@@ -67,6 +67,8 @@ export interface SendInput {
   sendAt?: string | null;
   /** Undo-send window in seconds; default 10. Ignored when `sendAt` is set. */
   holdSeconds?: number;
+  /** V7 (§18.4): server-materialised blob attachments (e.g. from Nextcloud). */
+  attachments?: { blobId: Id; name: string; type: string; size?: number }[];
 }
 
 /** The mail/session portion of `AppState` (accessors + actions). */
@@ -92,8 +94,10 @@ export interface MailSlice {
   /** True while the list shows search results rather than a mailbox. */
   searchActive: Accessor<boolean>;
   /** Run an `Email/query` search (engine → mw-search); offline uses the reduced
-   *  cached-header search. Empty query clears back to the current mailbox. */
-  searchMessages(query: string): Promise<void>;
+   *  cached-header search. Empty query clears back to the current mailbox. The
+   *  optional `semantic` flag (V7 §14.3) requests embedding re-ranking; it is only
+   *  ever set when the Assist semantic-search toggle is on. */
+  searchMessages(query: string, opts?: { semantic?: boolean }): Promise<void>;
   /** Clear search and reload the selected mailbox. */
   clearSearch(): Promise<void>;
   /** Refetch the current mailbox list in place (push/peer-sync), preserving the
@@ -593,7 +597,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     if (cur !== null) await selectMailbox(cur);
   }
 
-  async function searchMessages(query: string): Promise<void> {
+  async function searchMessages(query: string, opts?: { semantic?: boolean }): Promise<void> {
     const acct = accountId();
     if (acct === null) return;
     setSearch(query);
@@ -610,8 +614,11 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     setListLoading(true);
     try {
       // The whole operator string rides `filter.text`; the engine routes it to
-      // mw-search, which parses `from:`/`subject:`/`larger:`/… itself (§2.1).
-      const res = await client.jmap(searchEmails(acct, { text: query }));
+      // mw-search, which parses `from:`/`subject:`/`larger:`/… itself (§2.1). The
+      // semantic flag (V7 §14.3) is added only when the Assist toggle is on.
+      const res = await client.jmap(
+        searchEmails(acct, { text: query, ...(opts?.semantic === true ? { semantic: true } : {}) }),
+      );
       setMessages(responseFor<EmailGetResponse>(res, 'g').list);
       setSearchActive(true);
     } finally {
@@ -686,6 +693,9 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       ...(sent !== null ? { sentMailboxId: sent } : {}),
       ...(identity !== null ? { identityId: identity.id } : {}),
       ...(scheduled ? { sendAt: input.sendAt! } : {}),
+      ...(input.attachments !== undefined && input.attachments.length > 0
+        ? { attachments: input.attachments }
+        : {}),
     };
 
     // Offline: queue the send for replay on reconnect (drainOutbox → sendEnvelope).

@@ -12,6 +12,12 @@ import {
   type KeyLookupFn,
 } from './compose/crypto-jmap.ts';
 import { createConfiguredClient } from '../api/transport.ts';
+// V7 last-mile mailbox integration (plan §2.7/§14, e14b). All ADDITIVE: each block
+// is gated so a deployment with no directory / disabled Assist / no Nextcloud sees
+// the exact same composer as before.
+import { DirectorySearch, GroupExpand, type GalEntry } from '../modules/directory/index.ts';
+import { ComposerTools, Dictation } from '../modules/assist/index.ts';
+import { NextcloudAttach, type AttachedFile } from '../modules/nextcloud/index.ts';
 
 // The crypto/DLP JMAP surface (`CryptoKey/lookup`, `Dlp/scan`) is not on
 // `AppState`; drive it over a dedicated client that hits the same session as the
@@ -48,6 +54,14 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [acOpen, setAcOpen] = createSignal(false);
+  // V7 GAL (plan §2.7): the in-progress recipient token also drives a directory
+  // autocomplete as an ADDITIONAL source beside contacts. `pickedGroup` holds a
+  // distribution group the sender may expand-before-send into its leaf recipients.
+  const [galToken, setGalToken] = createSignal('');
+  const [pickedGroup, setPickedGroup] = createSignal<GalEntry | null>(null);
+  // V7 Nextcloud attach (plan §18.4): materialised attachments + the picker toggle.
+  const [attachments, setAttachments] = createSignal<AttachedFile[]>([]);
+  const [ncOpen, setNcOpen] = createSignal(false);
   // Crypto/DLP state reported up by <ComposeCrypto> (encrypt/sign toggles, the
   // E2EE/TLS/mixed capability, the DLP `canSend` gate, and the WASM-encrypted
   // draft) — plan §2.5, e8 wiring.
@@ -85,6 +99,11 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
   onMount(() => {
     void app.loadIdentities();
     void app.loadContacts().catch(() => undefined);
+    // Probe the optional V7 backends ONCE (idempotent, silent on failure): a
+    // NotConfigured directory / absent Nextcloud leaves `enabled` false so their
+    // affordances never mount and the composer is byte-unchanged.
+    void app.directory.ensureEnabled();
+    void app.nextcloud.ensureEnabled();
   });
 
   const identity = createMemo(() => app.identities().find((i) => i.id === identityId()) ?? null);
@@ -93,17 +112,39 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
     setTo(value);
     const token = value.slice(tokenBoundary(value) + 1).trim();
     contactAc.setQuery(token);
+    setGalToken(token);
     setAcOpen(token.length > 0);
+  }
+
+  /** Replace the in-progress recipient token with a resolved address (`, `-joined). */
+  function insertRecipient(address: string): void {
+    const value = to();
+    const cut = tokenBoundary(value);
+    const head = cut >= 0 ? `${value.slice(0, cut + 1)} ` : '';
+    setTo(`${head}${address}, `);
+    contactAc.reset();
+    setGalToken('');
+    setAcOpen(false);
   }
 
   /** Replace the in-progress recipient token with the picked contact. */
   function pickSuggestion(s: ContactSuggestion): void {
-    const value = to();
-    const cut = tokenBoundary(value);
-    const head = cut >= 0 ? `${value.slice(0, cut + 1)} ` : '';
-    setTo(`${head}${s.display}, `);
-    contactAc.reset();
-    setAcOpen(false);
+    insertRecipient(s.display);
+  }
+
+  /** Pick a GAL entry (plan §2.7). A person is inserted as a recipient; a
+   *  distribution group is inserted AND offered for expand-before-send. */
+  function pickGalEntry(entry: GalEntry): void {
+    insertRecipient(entry.mail);
+    setPickedGroup(entry.isGroup ? entry : null);
+  }
+
+  /** Expand-before-send: swap the group's address for its concrete leaf members. */
+  function expandGroupInTo(group: GalEntry, members: GalEntry[]): void {
+    const leaves = members.map((m) => m.mail).join(', ');
+    // Replace the group's own address token with the flattened leaves.
+    setTo((cur) => cur.replace(group.mail, leaves));
+    setPickedGroup(null);
   }
 
   async function onSubmit(e: Event): Promise<void> {
@@ -131,6 +172,7 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
         enc !== null && cs !== null && cs.protectSubject && enc.encryptedSubjectApplied
           ? 'Encrypted message'
           : subject();
+      const attached = attachments();
       await app.sendMessage({
         to: to(),
         subject: subjectToSend,
@@ -138,6 +180,17 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
         identity: identity(),
         // datetime-local yields a local wall-clock string; convert to a UTC ISO.
         sendAt: sendAt() !== '' ? new Date(sendAt()).toISOString() : null,
+        // V7 (§18.4): Nextcloud-materialised blob attachments (empty ⇒ omitted).
+        ...(attached.length > 0
+          ? {
+              attachments: attached.map((a) => ({
+                blobId: a.blobId,
+                name: a.name,
+                type: a.contentType ?? 'application/octet-stream',
+                ...(a.size > 0 ? { size: a.size } : {}),
+              })),
+            }
+          : {}),
       });
       props.onClose();
     } catch (err) {
@@ -212,6 +265,31 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
             </ul>
           </Show>
         </label>
+
+        {/* V7 GAL autocomplete (plan §2.7): an ADDITIONAL recipient source beside
+            contacts. Mounted only when a directory is configured, so an unconfigured
+            deployment's To field is unchanged. Picking a distribution group also
+            offers expand-before-send below. */}
+        <Show when={app.directory.enabled() && galToken().length > 0}>
+          <div class="compose__gal" data-testid="compose-gal">
+            <DirectorySearch
+              query={galToken()}
+              onPick={pickGalEntry}
+              service={app.directory.service}
+              debounceMs={120}
+            />
+          </div>
+        </Show>
+        <Show when={pickedGroup()}>
+          {(group) => (
+            <GroupExpand
+              group={group()}
+              service={app.directory.service}
+              onExpand={(members) => expandGroupInTo(group(), members)}
+            />
+          )}
+        </Show>
+
         <label class="field">
           <span>Subject</span>
           <input type="text" value={subject()} onInput={(e) => setSubject(e.currentTarget.value)} />
@@ -220,6 +298,73 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
           <span>Body</span>
           <textarea rows="10" value={body()} onInput={(e) => setBody(e.currentTarget.value)} />
         </label>
+
+        {/* V7 inline Assist composer tools + dictation (plan §14.3). Each component
+            self-hides on the capabilities it lacks; the whole block is additionally
+            gated on the gateway being enabled, so a Disabled Assist gateway renders
+            NOTHING here and the composer is unchanged. Nothing is auto-applied or sent. */}
+        <Show when={app.assist.enabled()}>
+          <div class="compose__assist" data-testid="compose-assist">
+            <Dictation
+              config={app.assist.config()}
+              service={app.assist.service}
+              onTranscript={(t) => setBody((cur) => (cur.length > 0 ? `${cur} ${t}` : t))}
+            />
+            <ComposerTools
+              config={app.assist.config()}
+              service={app.assist.service}
+              text={body()}
+              account={app.accountId() ?? ''}
+              onApply={setBody}
+              onDisclosure={(d) => app.assist.recordDisclosure('draft', d)}
+            />
+          </div>
+        </Show>
+
+        {/* V7 Nextcloud attach (plan §18.4): mounted only when a Nextcloud account is
+            linked. Large files are best shared as links (ShareLinkComposer) — here we
+            attach materialised blobs; the picker opens on demand. */}
+        <Show when={app.nextcloud.enabled()}>
+          <div class="compose__nextcloud" data-testid="compose-nextcloud">
+            <button
+              type="button"
+              class="btn btn--ghost"
+              aria-expanded={ncOpen()}
+              onClick={() => setNcOpen((v) => !v)}
+            >
+              {ncOpen() ? 'Close Nextcloud' : 'Attach from Nextcloud'}
+            </button>
+            <Show when={ncOpen()}>
+              <NextcloudAttach
+                service={app.nextcloud.service}
+                {...(app.accountId() !== null ? { accountId: app.accountId()! } : {})}
+                onAttached={(files) => {
+                  setAttachments((cur) => [...cur, ...files]);
+                  setNcOpen(false);
+                }}
+              />
+            </Show>
+            <Show when={attachments().length > 0}>
+              <ul class="compose__attachments" aria-label="Attachments" data-testid="compose-attachments">
+                <For each={attachments()}>
+                  {(a) => (
+                    <li>
+                      <span>{a.name}</span>
+                      <button
+                        type="button"
+                        class="btn btn--ghost"
+                        aria-label={`Remove ${a.name}`}
+                        onClick={() => setAttachments((cur) => cur.filter((x) => x.blobId !== a.blobId))}
+                      >
+                        ✕
+                      </button>
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </Show>
+          </div>
+        </Show>
 
         {/* Crypto + DLP (plan §2.5): encrypt/sign toggles, the live E2EE/TLS/mixed
             banner from real per-recipient CryptoKey/lookup, and the Dlp/scan

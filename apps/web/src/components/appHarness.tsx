@@ -6,7 +6,7 @@ import { vi } from 'vitest';
 import { render } from '@solidjs/testing-library';
 import type { JSX } from 'solid-js';
 import { AppContext } from '../state/context.ts';
-import { createAppState, type AppState } from '../state/store.ts';
+import { createAppState, type AppState, type AppStateDeps } from '../state/store.ts';
 import type { Client, Me } from '../api/client.ts';
 import {
   CAP_MAIL,
@@ -49,6 +49,9 @@ export function mkEmail(id: string, over: Partial<Email> = {}): Email {
 export interface HarnessOpts {
   emails?: Email[];
   identities?: Identity[];
+  /** V7 (e14b): inject transport doubles for the Assist/directory/Nextcloud slices
+   *  so integration tests can exercise the enabled path without a live server. */
+  deps?: AppStateDeps;
 }
 
 export function makeClient(opts: HarnessOpts = {}): Client {
@@ -107,7 +110,7 @@ export function renderWithApp(ui: () => JSX.Element, opts: HarnessOpts = {}): {
   app: AppState;
   result: ReturnType<typeof render>;
 } {
-  const app = createAppState(makeClient(opts));
+  const app = createAppState(makeClient(opts), opts.deps);
   const result = render(() => <AppContext.Provider value={app}>{ui()}</AppContext.Provider>);
   return { app, result };
 }

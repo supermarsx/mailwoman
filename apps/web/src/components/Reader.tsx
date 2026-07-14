@@ -13,6 +13,9 @@ import { ThumbnailStrip, type StripItem } from '../viewers/ThumbnailStrip.tsx';
 import { AttachmentViewer } from '../viewers/AttachmentViewer.tsx';
 import { buildDownloadUrl, fetchObjectUrl, type AttachmentPart } from '../viewers/attachments.ts';
 import { SecurityPanel } from './SecurityPanel.tsx';
+// V7 auto-tag (SPEC §14.3, e14b): model-suggested labels for the open message.
+// Gated on the `auto-tag` Assist capability, so a Disabled gateway renders nothing.
+import { AutoTag, type TagSuggestion } from '../modules/assist/index.ts';
 import type { SenderControlRequest, SenderControlResult } from './security/model.ts';
 import { defaultSenderControl } from './security/model.ts';
 import { MaxSecuritySwitch } from '../viewers/MaxSecuritySwitch.tsx';
@@ -308,6 +311,68 @@ function DecryptPanel(props: {
   );
 }
 
+/** Parse a model reply (comma/newline/semicolon-separated labels) into keyword
+ *  suggestions for auto-tag. Defensive: bounded, de-duplicated, slug-safe. */
+function parseTagSuggestions(text: string): TagSuggestion[] {
+  const seen = new Set<string>();
+  const out: TagSuggestion[] = [];
+  for (const raw of text.split(/[,\n;]+/)) {
+    const label = raw.trim().replace(/^[#\-*]\s*/, '');
+    if (label.length === 0 || label.length > 40) continue;
+    const keyword = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    if (keyword.length === 0 || seen.has(keyword)) continue;
+    seen.add(keyword);
+    out.push({ keyword, label, confidence: 0.8 });
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
+/** V7 auto-tag (§14.3): fetch model-suggested labels for the open message and render
+ *  <AutoTag>. The invoke only fires when the `auto-tag` capability is granted; the
+ *  component itself renders nothing without suggestions, so the reader is unchanged
+ *  when Assist is disabled. Apply/revert route through the mail slice's keyword path. */
+function AutoTagSection(props: { email: Email }): JSX.Element {
+  const app = useApp();
+  const [suggestions] = createResource(
+    () => (app.assist.can('auto-tag') ? props.email.id : null),
+    async (): Promise<TagSuggestion[]> => {
+      const acct = app.accountId();
+      if (acct === null) return [];
+      const boxId = Object.keys(props.email.mailboxIds ?? {})[0] ?? '';
+      const box = app.mailboxes().find((m) => m.id === boxId);
+      const text = [props.email.subject ?? '', props.email.preview ?? '']
+        .filter((s) => s.length > 0)
+        .join('\n');
+      try {
+        const res = await app.assist.service.invoke({
+          capability: 'auto-tag',
+          prompt:
+            'Suggest up to 6 short single-word labels for this message. Reply with a comma-separated list only.',
+          context: [{ account: acct, folder: box?.name ?? 'Mail', text, kind: 'plain' }],
+        });
+        app.assist.recordDisclosure('auto-tag', res.disclosure);
+        return parseTagSuggestions(res.text);
+      } catch {
+        return [];
+      }
+    },
+  );
+
+  return (
+    <AutoTag
+      config={app.assist.config()}
+      messageId={props.email.id}
+      suggestions={suggestions() ?? []}
+      mode={app.assist.autoTagMode()}
+      onModeChange={app.assist.setAutoTagMode}
+      onApply={(kw) => void app.applyTag(props.email.id, kw)}
+      onRevert={(kw) => void app.removeTag(props.email.id, kw)}
+      onAudit={app.assist.recordTagAudit}
+    />
+  );
+}
+
 export function Reader(): JSX.Element {
   const app = useApp();
 
@@ -423,6 +488,7 @@ export function Reader(): JSX.Element {
                 }}
               </Show>
               <ReaderToolbar email={email()} />
+              <AutoTagSection email={email()} />
             </header>
             <AttachmentsPane email={email()} />
             <Show

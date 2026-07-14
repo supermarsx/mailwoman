@@ -21,6 +21,12 @@ import { createTasksSlice, type TasksSlice } from './slices/tasks.ts';
 import { createNotesSlice, type NotesSlice } from './slices/notes.ts';
 import { createContactsSlice, type ContactsSlice } from './slices/contacts.ts';
 import { createKeysSlice, type KeysSlice } from './slices/keys.ts';
+import { createAssistSlice, type AssistSlice } from './slices/assist.ts';
+import { createDirectorySlice, type DirectorySlice } from './slices/directory.ts';
+import { createNextcloudSlice, type NextcloudSlice } from './slices/nextcloud.ts';
+import { AssistService } from '../modules/assist/service.ts';
+import type { Fetcher as DirectoryFetcher } from '../modules/directory/service.ts';
+import type { Fetcher as NextcloudFetcher } from '../modules/nextcloud/service.ts';
 import { broadcastChannelAvailable, openStoreChannel } from '../worker/broadcast.ts';
 import { broadcastEnvelope } from '../worker/protocol.ts';
 import type { WorkerEnvelope } from '../contracts/worker.ts';
@@ -58,7 +64,22 @@ export type AppState = StoreCoreApi &
   ContactsSlice &
   // ── V4 crypto/security slice (plan §2.5). Additive — the accessors above are
   // unchanged, preserving the frozen `AppState` public shape. e0 stub; e2 fills. ──
-  KeysSlice;
+  KeysSlice & {
+    // ── V7 last-mile mailbox integrations (plan §2.7/§14, e14b). Namespaced so
+    // their rich APIs don't collide with the flat accessors above; each is inert
+    // (hidden) until its backend is configured, keeping the disabled path unchanged.
+    readonly assist: AssistSlice;
+    readonly directory: DirectorySlice;
+    readonly nextcloud: NextcloudSlice;
+  };
+
+/** Optional transport doubles for the V7 mailbox slices (injected by tests; production
+ *  defaults to same-origin services so the mailbox behaves identically). */
+export interface AppStateDeps {
+  readonly assistService?: AssistService;
+  readonly directoryFetcher?: DirectoryFetcher;
+  readonly nextcloudFetcher?: NextcloudFetcher;
+}
 
 function createStoreCore(client: Client): StoreCoreApi {
   const [online, setOnline] = createSignal(true);
@@ -104,7 +125,7 @@ function createPeerSync(onRemote: () => void): { publish(): void } {
   return { publish: () => port.postMessage(broadcastEnvelope({ type: 'refetch' })) };
 }
 
-export function createAppState(client: Client): AppState {
+export function createAppState(client: Client, deps: AppStateDeps = {}): AppState {
   const core = createStoreCore(client);
   const ctx: SliceContext = { client, showToast: core.showToast };
 
@@ -122,6 +143,14 @@ export function createAppState(client: Client): AppState {
 
   // V4 crypto/security slice (plan §2.5): mock-backed + worker-stub until e8.
   const keys = createKeysSlice(ctx);
+
+  // V7 mailbox integrations (plan §2.7/§14, e14b): Assist (AI), directory/GAL, and
+  // Nextcloud files. Each stays hidden until its backend is configured (loadConfig /
+  // ensureEnabled probes), so an unconfigured deployment's compose/read UX is
+  // unchanged. Transports are injectable for tests; production uses same-origin.
+  const assist = createAssistSlice(ctx, deps.assistService ?? new AssistService());
+  const directory = createDirectorySlice(deps.directoryFetcher);
+  const nextcloud = createNextcloudSlice(deps.nextcloudFetcher);
 
   // Late-bound so the mail slice can broadcast before the peer channel exists.
   let publishPeerSync: () => void = () => undefined;
@@ -166,6 +195,9 @@ export function createAppState(client: Client): AppState {
     ...notes,
     ...contacts,
     ...keys,
+    assist,
+    directory,
+    nextcloud,
   };
 }
 

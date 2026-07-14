@@ -122,6 +122,10 @@ export interface FilterCondition {
   maxSize?: number;
   /** Attachment filename substring. */
   filename?: string;
+  /** V7 Assist (§14.3): opt-in semantic (embedding) re-ranking of the text query.
+   *  Omitted for an ordinary keyword search; set only when the user enables the
+   *  semantic-search toggle (gated on the `search-semantic` Assist capability). */
+  semantic?: boolean;
 }
 /** Frozen `Email/query` sort properties (§2.1); default is `receivedAt` desc. */
 export type SortProperty = 'receivedAt' | 'size' | 'from' | 'subject';

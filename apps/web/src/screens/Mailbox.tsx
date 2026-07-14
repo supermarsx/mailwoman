@@ -1,4 +1,4 @@
-import { createSignal, For, Show, Suspense, onMount, onCleanup, type JSX } from 'solid-js';
+import { createMemo, createSignal, For, Show, Suspense, onMount, onCleanup, type JSX } from 'solid-js';
 import { Dynamic } from 'solid-js/web';
 import { useApp } from '../state/context.ts';
 import { useRealtime } from '../realtime/context.ts';
@@ -15,6 +15,10 @@ import { Attachments } from './Attachments.tsx';
 import { APP_MODULES, KEYS_MODULE } from '../shell/modules.ts';
 import { createShellRouter, isPimSurface, type ShellSurface } from '../shell/router.ts';
 import { shouldRefetchPim } from '../realtime/pimRefetch.ts';
+// V7 Assist in the mailbox (plan §14.3, e14b): the chat panel + the semantic-search
+// toggle. Both are gated on the Assist gateway/capabilities, so a Disabled gateway
+// renders NOTHING and the mailbox is unchanged.
+import { AssistPanel, SemanticSearchToggle } from '../modules/assist/index.ts';
 
 // The nav-rail app modules: the four V3 PIM modules + the V4 key-management
 // module (plan §2.5, e8 mount). Keys is reachable at `#/keys` beside them.
@@ -25,6 +29,9 @@ const APP_NAV_MODULES = [...APP_MODULES, KEYS_MODULE];
 function SearchBox(): JSX.Element {
   const app = useApp();
   const [query, setQuery] = createSignal(app.search());
+  // V7 semantic search (§14.3): off by default; the toggle only renders when the
+  // `search-semantic` Assist capability is granted, and its state rides the query.
+  const [semantic, setSemantic] = createSignal(false);
 
   return (
     <form
@@ -32,7 +39,7 @@ function SearchBox(): JSX.Element {
       role="search"
       onSubmit={(e) => {
         e.preventDefault();
-        void app.searchMessages(query());
+        void app.searchMessages(query(), { semantic: semantic() });
       }}
     >
       <input
@@ -58,6 +65,7 @@ function SearchBox(): JSX.Element {
           Clear
         </button>
       </Show>
+      <SemanticSearchToggle config={app.assist.config()} enabled={semantic()} onChange={setSemantic} />
     </form>
   );
 }
@@ -80,6 +88,18 @@ export function MailboxScreen(): JSX.Element {
   // are hash-routed surfaces, so each PIM module is reachable + deep-linkable.
   const router = createShellRouter();
   const surface = (): ShellSurface => router.route().surface;
+
+  // V7 Assist context (§14.3): the open message (subject + preview) the assistant
+  // may reason over. Only plain text is ever forwarded (E2EE/attachments excluded by
+  // the gateway ceilings); empty when nothing is open.
+  const assistContext = createMemo(() => {
+    const email = app.openEmail();
+    const acct = app.accountId();
+    if (email === null || acct === null) return [];
+    const box = app.mailboxes().find((m) => m.id === app.selectedMailboxId());
+    const text = [email.subject ?? '', email.preview ?? ''].filter((s) => s.length > 0).join('\n');
+    return [{ account: acct, folder: box?.name ?? 'Mail', text, kind: 'plain' as const }];
+  });
 
   // Seed a single "messages" sub-tab so the multi-surface strip is live.
   onMount(() => {
@@ -203,6 +223,15 @@ export function MailboxScreen(): JSX.Element {
           <MessageList />
         </div>
         <Reader />
+        {/* V7 Assist chat panel (§14.3): reasons over the open thread; proposed
+            actions route to review (composer), never auto-sent. Renders NOTHING when
+            the assistant capability is absent / the gateway is disabled. */}
+        <AssistPanel
+          config={app.assist.config()}
+          service={app.assist.service}
+          context={assistContext()}
+          onReviewAction={() => setComposing(true)}
+        />
       </Show>
       <Show when={surface() === 'outbox'}>
         <Outbox />

@@ -57,6 +57,10 @@ export function App(): JSX.Element {
 
   onMount(() => {
     void app.init();
+    // V7 Assist (plan §14): read the gateway config once at boot. A gateway that is
+    // off/unreachable resolves to DISABLED_CONFIG, so every Assist surface stays
+    // hidden and the mailbox UX is unchanged (no Assist affordances render).
+    void app.assist.loadConfig();
     // Resolve the platform capability layer for this runtime (plan §2.1). In a
     // browser this is a no-op returning the browser impl; in a shell it installs
     // the native impl (dynamically importing tauri.ts). e7 relies on this at boot.

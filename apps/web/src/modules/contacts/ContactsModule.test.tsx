@@ -100,6 +100,36 @@ describe('ContactsModule', () => {
     await waitFor(() => expect(app.contacts().map((c) => c.id)).toEqual(['d1']));
   });
 
+  // V7 (e14b): the per-contact directory Security tab, gated on a configured GAL.
+  it('shows the directory security tab on a contact card when a directory is configured', async () => {
+    const directoryFetcher = async (input: string): Promise<Response> => {
+      if (input.includes('/api/directory/cert')) {
+        return new Response(
+          JSON.stringify({ certs: [{ derB64: 'AA', fingerprint: 'AB:CD:EF', notAfter: '2999-01-01' }] }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (input.includes('/api/directory/photo')) {
+        return new Response(JSON.stringify({ photoB64: null }), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    };
+    const app = createAppState(makeContactsClient(defaultSeed()), { directoryFetcher });
+    app.directory.setEnabled(true);
+    render(() => <AppContext.Provider value={app}>{ContactsModule()}</AppContext.Provider>);
+    fireEvent.click(await screen.findByText('Alan Turing'));
+    const sec = await screen.findByTestId('contact-security');
+    expect(within(sec).getByText('alan@example.org')).toBeInTheDocument();
+    expect(await within(sec).findByTestId('cert-row')).toBeInTheDocument();
+  });
+
+  it('hides the directory security tab when no directory is configured', async () => {
+    renderModule();
+    fireEvent.click(await screen.findByText('Alan Turing'));
+    await screen.findByRole('article', { name: 'Contact Alan Turing' });
+    expect(screen.queryByTestId('contact-security')).toBeNull();
+  });
+
   it('creates a group and adds a contact to it', async () => {
     const { app } = renderModule();
     fireEvent.click(await screen.findByText('Ada Lovelace'));

@@ -143,6 +143,9 @@ export interface DraftInput {
   identityId?: Id;
   /** V2 send-later: scheduled send time (ISO 8601 UTC); omitted = send now. */
   sendAt?: string;
+  /** V7 (§18.4): blob attachments materialised server-side (e.g. from Nextcloud),
+   *  referenced by blob id on the draft. Omitted for an ordinary send. */
+  attachments?: { blobId: Id; name: string; type: string; size?: number }[];
   /**
    * V2 undo-send: engine-held delay before SMTP dispatch, in seconds. The
    * client shows a Cancel toast for this window; the engine only dials SMTP
@@ -158,24 +161,28 @@ export interface DraftInput {
  */
 export function sendEnvelope(accountId: Id, input: DraftInput): JmapRequest {
   const mailboxIds: Record<Id, boolean> = { [input.draftMailboxId]: true };
-  const emailSet: Invocation = [
-    'Email/set',
-    {
-      accountId,
-      create: {
-        draft: {
-          mailboxIds,
-          keywords: { $draft: true, $seen: true },
-          from: [input.from],
-          to: parseRecipients(input.to),
-          subject: input.subject,
-          htmlBody: [{ partId: 'body', type: 'text/html' }],
-          bodyValues: { body: { value: input.htmlBody } },
-        },
-      },
-    },
-    'set',
-  ];
+  const draftCreate: Record<string, unknown> = {
+    mailboxIds,
+    keywords: { $draft: true, $seen: true },
+    from: [input.from],
+    to: parseRecipients(input.to),
+    subject: input.subject,
+    htmlBody: [{ partId: 'body', type: 'text/html' }],
+    bodyValues: { body: { value: input.htmlBody } },
+  };
+  // V7 (§18.4): server-materialised blob attachments (e.g. from Nextcloud) ride the
+  // draft create as standard RFC 8621 `attachments` blob references. Added only when
+  // present, so an ordinary send is byte-identical to before.
+  if (input.attachments !== undefined && input.attachments.length > 0) {
+    draftCreate['attachments'] = input.attachments.map((a) => ({
+      blobId: a.blobId,
+      name: a.name,
+      type: a.type,
+      ...(a.size !== undefined ? { size: a.size } : {}),
+      disposition: 'attachment',
+    }));
+  }
+  const emailSet: Invocation = ['Email/set', { accountId, create: { draft: draftCreate } }, 'set'];
 
   const onSuccessUpdate: Record<string, Record<string, unknown>> = {};
   if (input.sentMailboxId !== undefined) {
