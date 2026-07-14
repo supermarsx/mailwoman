@@ -61,12 +61,28 @@ protection, self-hostable push) adds:
   everywhere else — the matrix is in
   [`../security/screen-capture.md`](../security/screen-capture.md).
 
+V6 (zero-access storage, admin panel, scoped API keys + OAuth 2.1, MCP server,
+pluggable Postgres, layered Valkey/Redis cache, observability) adds:
+
+- [`postgres.md`](./postgres.md) — the **pluggable PostgreSQL backend**: backend
+  selection by DSN (`MW_DB_PATH=postgres://…`), rustls TLS (no OpenSSL), and the
+  `mailwoman migrate-store` SQLite→Postgres copy. SQLite stays the default.
+- [`cache.md`](./cache.md) — the layered **Valkey/Redis cache** (`MW_REDIS_URL`): the
+  §15.6 scope matrix, the structural zero-access exclusion, Redis-down degradation, and
+  the Valkey-vs-Redis licensing note.
+- Security background + the operator surface for the admin panel, API-keys/OAuth, MCP,
+  and observability live under [`../security/`](../security/README.md)
+  ([admin-panel](../security/admin-panel.md) ·
+  [api-keys-oauth](../security/api-keys-oauth.md) · [mcp](../security/mcp.md) ·
+  [observability](../security/observability.md) ·
+  [zero-access](../security/zero-access.md)).
+
 ## Configuration (environment)
 
 | Env | Default | Meaning |
 |-----|---------|---------|
 | `MW_BIND` | `0.0.0.0:8080` | Listen address for the HTTP server. |
-| `MW_DB_PATH` | `mailwoman.db` | SQLite file (sessions + settings + sealed creds). |
+| `MW_DB_PATH` | `mailwoman.db` | Store DSN. A bare path or `sqlite://…` selects the SQLite backend (default); a `postgres://…` DSN selects Postgres (V6, see [`postgres.md`](./postgres.md)). |
 | `MW_SERVER_KEY` | *(ephemeral)* | Hex-encoded 32-byte key sealing upstream creds. **Set it** in production so sessions survive restarts; keep it secret. Generate: `openssl rand -hex 32`. |
 | `MW_RENDER_BIN` | *(auto-detect)* | Path to `mw-render`. The image sets `/usr/local/bin/mw-render`. |
 | `MW_WEB_DIR` | *(embedded)* | Serve the SPA from disk instead of the embedded copy (dev override). |
@@ -77,6 +93,12 @@ protection, self-hostable push) adds:
 | `MW_SMTP_PORT` | `587`/`465`/`25` | Engine mode only. SMTP port (default keys off `MW_SMTP_SECURITY`). |
 | `MW_SMTP_SECURITY` | `starttls` | Engine mode only. `starttls` / `implicit` / `plaintext`. |
 | `RUST_LOG` | `info` | Tracing filter. |
+| `MW_REDIS_URL` | *(unset)* | V6. Redis/Valkey URL for the layered cache. Unset → memory + store only. See [`cache.md`](./cache.md). |
+| `MW_ADMIN_ENABLED` | `true` | V6. `false`/`0` unmounts the `/admin` panel (returns `401`). See [`../security/admin-panel.md`](../security/admin-panel.md). |
+| `MW_ADMIN_USER` / `MW_ADMIN_PASSWORD` | *(unset)* | V6. Admin operator credential (separate session domain). Unset → admin login fails. |
+| `MW_OTLP_ENDPOINT` | *(unset)* | V6. OTLP collector (e.g. `http://otel:4317`); rustls transport. Unset → OTLP export off. See [`../security/observability.md`](../security/observability.md). |
+| `MW_METRICS_TOKEN` | *(unset)* | V6. Bearer token guarding `GET /metrics`. Unset → `/metrics` is unreachable (never open). |
+| `MW_LOG` | `info` | V6. Per-subsystem tracing directives; hot-reloaded on `SIGHUP`. |
 
 ## Docker
 

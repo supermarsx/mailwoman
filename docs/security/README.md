@@ -36,3 +36,29 @@ Documents in this directory:
 
 Operator-facing environment variables and HTTP endpoints for all of the above are
 collected in [`../deploy/crypto-security.md`](../deploy/crypto-security.md).
+
+## V6 (release 26.7.0) — zero-access, admin, API/MCP surface, observability
+
+V6 adds a deployable, administrable, integration-ready server. Its security-relevant
+surfaces are documented here:
+
+- [`zero-access.md`](./zero-access.md) — the optional **zero-access storage mode**:
+  the client-side key hierarchy, what the server can and cannot see, and the honest
+  boundary (it protects data at rest, not a malicious active server).
+- [`admin-panel.md`](./admin-panel.md) — the separate-session **admin panel**: enable/
+  disable, the CLI + config mirror, the append-only audit log, login monitor + ban list.
+- [`api-keys-oauth.md`](./api-keys-oauth.md) — **scoped API keys** (`mwk_` opaque,
+  Argon2id-hashed, shown once) and the **OAuth 2.1** authorization server (PKCE +
+  resource indicators + admin-approved client registry); the typed scope model.
+- [`mcp.md`](./mcp.md) — the **MCP server** security model: per-tool scopes, the
+  default-off human-in-the-loop **send gating**, and the **prompt-injection posture**
+  (provenance labels, no raw protocol composition, least authority) with its honest
+  boundary.
+- [`observability.md`](./observability.md) — OTLP traces/metrics, the auth-gated
+  Prometheus `/metrics`, the `/errors` scrubber, and the no-mail-content-in-telemetry
+  rule.
+
+Operator deployment guides for the V6 data layer are in
+[`../deploy/postgres.md`](../deploy/postgres.md) (pluggable Postgres backend +
+`migrate-store`) and [`../deploy/cache.md`](../deploy/cache.md) (Valkey/Redis cache
+posture, the §15.6 scope matrix, and the zero-access exclusion).

@@ -1,13 +1,19 @@
 # Mailwoman V6 CI stack — the pluggable-Postgres + Redis/Valkey cache services
-# (plan §5, §11). SCAFFOLD (t6-e0): the services + jobs are STUBBED (commented)
-# so NOTHING runs yet — e12 activates them once e1 (Postgres backend) + e2
-# (mw-cache) + e13 (live E2E) land. Both are NETWORK-ONLY CI services (mere
-# aggregation, same posture as Dovecot/Radicale in docker-compose.dev.yml) — out
-# of the cargo-deny dependency scope by design.
+# (plan §5, §11). ACTIVATED by t6-e12 (the e0 scaffold left these STUBBED): the
+# services boot the dual-backend store job, the mw-cache-vs-Valkey job, and the
+# live full-stack E2E. Both are NETWORK-ONLY CI services (mere aggregation, same
+# posture as Dovecot/Radicale in docker-compose.dev.yml) — out of the cargo-deny
+# dependency scope by design (documented in deny.toml).
 #
 #   docker compose -f docker-compose.ci.yml up -d --wait postgres valkey
 #       -> the dual-backend store job (SQLite in-memory AND live Postgres) + the
+#          migrate-store smoke (SQLite→Postgres copy + verify) + the
 #          mw-cache-vs-Valkey job (+ a Redis-down degradation leg) + live E2E.
+#
+# The store tests read the Postgres DSN from DATABASE_URL_PG (or MW_TEST_PG); the
+# mw-cache tests read the Redis/Valkey URL from MW_TEST_REDIS_URL (or MW_TEST_REDIS
+# / REDIS_URL). Both services are EPHEMERAL — no named volumes, so a fresh CI run
+# always starts from empty state (the migrate-store smoke TRUNCATEs regardless).
 #
 # Valkey (BSD-3-Clause, Linux Foundation fork) is used instead of redis:7.4+
 # (RSALv2/SSPL, source-available NOT permissive) to keep the deployment story
@@ -15,36 +21,34 @@
 
 name: mailwoman-ci
 
-# ── e0 STUB: services defined but commented out. e12 uncomments + wires them to
-# the dual-backend / cache / live-E2E jobs. Uncommenting is intentionally a
-# separate, reviewable step (nothing boots in CI until e12).
-#
-# services:
-#   # PostgreSQL 16 — the real Postgres backend for the dual-backend store job
-#   # (e1) + live E2E (e13). SQLite stays the DEFAULT; Postgres is opt-in via DSN.
-#   postgres:
-#     image: postgres:16
-#     environment:
-#       POSTGRES_USER: mailwoman
-#       POSTGRES_PASSWORD: mailwoman
-#       POSTGRES_DB: mailwoman
-#     ports:
-#       - "5432:5432"
-#     healthcheck:
-#       test: ["CMD-SHELL", "pg_isready -U mailwoman -d mailwoman"]
-#       interval: 5s
-#       timeout: 5s
-#       retries: 20
-#       start_period: 5s
-#
-#   # Valkey 8 — the Redis-protocol cache for mw-cache tests (e2) + live E2E (e13).
-#   valkey:
-#     image: valkey/valkey:8
-#     ports:
-#       - "6379:6379"
-#     healthcheck:
-#       test: ["CMD", "valkey-cli", "ping"]
-#       interval: 5s
-#       timeout: 5s
-#       retries: 20
-#       start_period: 5s
+services:
+  # PostgreSQL 16 — the real Postgres backend for the dual-backend store job (e1)
+  # + the migrate-store smoke + live E2E (e13). SQLite stays the DEFAULT; Postgres
+  # is opt-in via DSN. Ephemeral (no volume): CI starts from an empty database.
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: mailwoman
+      POSTGRES_PASSWORD: mailwoman
+      POSTGRES_DB: mailwoman
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mailwoman -d mailwoman"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  # Valkey 8 — the Redis-protocol cache for mw-cache tests (e2) + live E2E (e13).
+  # Ephemeral (no persistence): purely an accelerator, never authoritative.
+  valkey:
+    image: valkey/valkey:8
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s

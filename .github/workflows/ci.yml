@@ -743,50 +743,89 @@ jobs:
   # ===========================================================================
 
   # store-dual-backend (e1 + e12) — the mock-vs-real backend parity gate: run the
-  # FULL mw-store suite against BOTH SQLite (in-memory) AND a live postgres:16, and
-  # assert `migrate-store` copies a populated SQLite DB into Postgres with row-count
-  # + content parity. The table-driven backend-parity test runs each repo method on
-  # both backends and asserts identical results (plan §3 e1).
-  #
-  # store-dual-backend:
-  #   runs-on: ubuntu-latest
-  #   needs: [rust]
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: dtolnay/rust-toolchain@stable
-  #     - uses: Swatinem/rust-cache@v2
-  #     - name: boot postgres:16 (wait healthy)
-  #       run: docker compose -f docker-compose.ci.yml up -d --wait postgres
-  #     - name: mw-store suite on BOTH backends + migrate-store parity
-  #       env:
-  #         MW_TEST_PG_DSN: "postgres://mailwoman:mailwoman@127.0.0.1:5432/mailwoman"
-  #       run: cargo test -p mw-store -- --include-ignored
-  #     - name: tear down
-  #       if: always()
-  #       run: docker compose -f docker-compose.ci.yml down -v
+  # mw-store / mw-engine / mw-server suites against BOTH SQLite (in-memory, the
+  # default, always) AND a live postgres:16. The table-driven backend-parity test
+  # (crates/mw-store/tests/backend_parity.rs) runs each repo method on both backends
+  # and asserts identical results; it activates its Postgres leg only when
+  # DATABASE_URL_PG is set (this job sets it), otherwise it SKIPs with a clear log
+  # (never a silent pass). SQLite-path assertions run regardless (plan §3 e1/§11).
+  store-dual-backend:
+    runs-on: ubuntu-latest
+    needs: [rust]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: boot postgres:16 (wait healthy)
+        run: docker compose -f docker-compose.ci.yml up -d --wait postgres
+      - name: store/engine/server suites on BOTH backends (SQLite + live Postgres)
+        env:
+          # The store tests read the PG DSN from DATABASE_URL_PG (or MW_TEST_PG);
+          # crates that don't consume it run their default SQLite path unchanged.
+          DATABASE_URL_PG: "postgres://mailwoman:mailwoman@127.0.0.1:5432/mailwoman"
+        run: cargo test -p mw-store -p mw-engine -p mw-server -- --include-ignored
+      - name: postgres logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.ci.yml logs --no-color postgres
+      - name: tear down
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v
+
+  # migrate-store-smoke (e1 + e12) — a focused, named gate for the `mailwoman
+  # migrate-store` engine (SPEC §4.2): populate a temp SQLite store via the public
+  # API, copy it into a freshly-TRUNCATEd postgres:16, and VERIFY row-count +
+  # content parity (sealed columns re-open under the shared ServerKey). This is the
+  # `migrate_store_sqlite_to_postgres` integration test surfaced as a first-class
+  # signal (same posture as crypto-interop / mail-auth-verdicts). It requires a live
+  # Postgres (DATABASE_URL_PG), so it lives with the compose stack rather than the
+  # always-green `rust` job.
+  migrate-store-smoke:
+    runs-on: ubuntu-latest
+    needs: [rust]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: boot postgres:16 (wait healthy)
+        run: docker compose -f docker-compose.ci.yml up -d --wait postgres
+      - name: migrate-store SQLite -> Postgres copy + verify
+        env:
+          DATABASE_URL_PG: "postgres://mailwoman:mailwoman@127.0.0.1:5432/mailwoman"
+        run: cargo test -p mw-store --test backend_parity migrate_store_sqlite_to_postgres -- --include-ignored --nocapture
+      - name: postgres logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.ci.yml logs --no-color postgres
+      - name: tear down
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v
 
   # cache-valkey (e2 + e12) — the mw-cache layered-cache gate against a live
   # valkey:8: per-class layer routing + TTL, the STRUCTURAL zero-access exclusion
   # (a PlaintextDerived value from a zero-access account is provably never written
   # to Redis/memory), and the Redis-DOWN degradation leg (falls through to store
   # with no data loss). `posture()` output matches the configured matrix (plan §3 e2).
-  #
-  # cache-valkey:
-  #   runs-on: ubuntu-latest
-  #   needs: [rust]
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: dtolnay/rust-toolchain@stable
-  #     - uses: Swatinem/rust-cache@v2
-  #     - name: boot valkey:8 (wait healthy)
-  #       run: docker compose -f docker-compose.ci.yml up -d --wait valkey
-  #     - name: mw-cache tests (live Valkey + Redis-down path)
-  #       env:
-  #         MW_TEST_REDIS_URL: "redis://127.0.0.1:6379"
-  #       run: cargo test -p mw-cache -- --include-ignored
-  #     - name: tear down
-  #       if: always()
-  #       run: docker compose -f docker-compose.ci.yml down -v
+  # The always-run tests exercise the memory-only + Redis-down paths; the
+  # #[ignore]d live-Valkey tests activate here via MW_TEST_REDIS_URL +
+  # --include-ignored (they self-SKIP with a clear log if the var is unset).
+  cache-valkey:
+    runs-on: ubuntu-latest
+    needs: [rust]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: boot valkey:8 (wait healthy)
+        run: docker compose -f docker-compose.ci.yml up -d --wait valkey
+      - name: mw-cache tests (live Valkey + Redis-down path)
+        env:
+          MW_TEST_REDIS_URL: "redis://127.0.0.1:6379"
+        run: cargo test -p mw-cache -- --include-ignored
+      - name: valkey logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.ci.yml logs --no-color valkey
+      - name: tear down
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v
 
   # e2e-v6 (e13) — the live full-stack E2E: spawn mw-server against REAL postgres:16
   # + REAL valkey:8 + a real browser, driving admin / oauth-apikey / mcp / zeroaccess

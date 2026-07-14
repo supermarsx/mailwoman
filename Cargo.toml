@@ -200,7 +200,11 @@ web-push-native = "0.4"
 #   rmcp  — official MCP Rust SDK (mw-mcp, e4). MIT. Fallback = hand-rolled
 #            JSON-RPC/Streamable-HTTP over the in-tree axum if maturity slips (§6 R3).
 #   hmac  — webhook HMAC-SHA256 signing (mw-server webhooks, e9). RustCrypto;
-#            MIT OR Apache-2.0 (pairs with the in-tree `sha2`).
+#            MIT OR Apache-2.0 (pairs with the in-tree `sha2`). Pinned to 0.13
+#            (NOT 0.12): 0.12 targets `digest` 0.10 while the in-tree `sha2` is
+#            0.11 (`digest` 0.11); 0.13 is the matching RustCrypto release. e12
+#            realigned this workspace pin to 0.13 so mw-server's webhook signer
+#            resolves a single hmac version across the tree.
 #   opentelemetry / opentelemetry-otlp / tracing-opentelemetry — OTLP traces +
 #            metrics (mw-server observability, e9). MIT OR Apache-2.0; tonic-rustls
 #            transport (e9 verifies no openssl enters the OTLP tree at wire time).
@@ -210,7 +214,7 @@ fred = "10"
 moka = { version = "0.12", features = ["future"] }
 argon2 = "0.5"
 rmcp = "0.9"
-hmac = "0.12"
+hmac = "0.13"
 opentelemetry = "0.31"
 opentelemetry-otlp = { version = "0.31", default-features = false, features = ["grpc-tonic", "tls-roots", "trace", "metrics"] }
 tracing-opentelemetry = "0.32"

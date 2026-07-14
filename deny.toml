@@ -78,15 +78,27 @@
 #   sentry (MIT/Apache-2.0) — §21.2 error reporting, OFF by default; OTLP +
 #     Prometheus are the committed observability paths. Enable only after vetting
 #     its transitive tree for a rustls transport with no openssl (plan §6 R6).
-# CI SERVICES (added by e12, network-only — mere aggregation, same posture as
-# Dovecot/Radicale below; OUT of cargo-deny scope by design):
-#   postgres:16 (PostgreSQL License — permissive) — the dual-backend store job +
-#     live E2E. valkey/valkey:8 (BSD-3-Clause) — the cache job; chosen over
-#     redis:7.4+ (RSALv2/SSPL, source-available NOT permissive) to keep the
-#     DEPLOYMENT story license-clean. `fred` speaks the same protocol to either.
-# No new `[licenses].allow` entry is expected for V6. Zero `vulnerability`-class
-# advisories is the gate; any new `unmaintained` ignores from the fred/
-# opentelemetry/rmcp trees will be added here (by e12) with bounded justification.
+# CI SERVICES (activated by e12 in docker-compose.ci.yml, network-only — mere
+# aggregation, same posture as Dovecot/Radicale below; OUT of cargo-deny scope by
+# design):
+#   postgres:16 (PostgreSQL License — permissive) — the store-dual-backend +
+#     migrate-store-smoke jobs + live E2E. valkey/valkey:8 (BSD-3-Clause) — the
+#     cache-valkey job; chosen over redis:7.4+ (RSALv2/SSPL, source-available NOT
+#     permissive) to keep the DEPLOYMENT story license-clean. `fred` speaks the
+#     same protocol to either. These are separate networked programs, never linked
+#     into or shipped with any crate/binary (network use, not a derivative work) —
+#     excluded from cargo-deny + JS-license scope, exactly like Dovecot/Radicale.
+# V6 FINALIZE (e12, verified 2026-07-14): the V6 dependency tree is now LINKED in
+# Cargo.lock (sqlx `postgres`+`tls-rustls`, fred, moka, argon2, hmac 0.13,
+# opentelemetry/opentelemetry-otlp/tracing-opentelemetry, metrics/
+# metrics-exporter-prometheus). `cargo deny check` (advisories + bans + licenses +
+# sources) is GREEN with NO new entries: no new `[licenses].allow` was required
+# (all land under the permissive list) and NO new advisory ignore was needed — the
+# fred/opentelemetry trees surfaced zero `vulnerability`- AND zero new
+# `unmaintained`-class advisories at link time. `rmcp` was NOT linked (e4
+# hand-rolled the MCP JSON-RPC/Streamable-HTTP over the in-tree axum, plan §6 R3),
+# so its tree contributes nothing to vet. NO `openssl`/`-sys` C TLS enters the
+# tree (the `[bans]` `openssl` deny still holds); the license floor is unchanged.
 #
 # Radicale (the CalDAV/CardDAV CI server, plan §1.5) is GPLv3 but is NOT a
 # Mailwoman dependency: it is a separate program invoked over the network in CI
