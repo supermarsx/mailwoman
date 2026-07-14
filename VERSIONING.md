@@ -37,6 +37,49 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
 
 ## History
 
+- **`26.8`** — V7: extensibility, directory, AI, and Exchange/Gmail bridges (the
+  last feature milestone before 1.0). A **WASM engine-plugin runtime** (`mw-plugin`
+  over wasmtime + the WASI-p2 component model): capability-deny-by-default, per-
+  plugin resource limits (epoch-deadline + memory ceiling + optional fuel → a
+  clean `LimitExceeded`, never a host panic), an Ed25519 signed registry, and a
+  host-mediated ABI (no ambient network/fs — outbound HTTP and OAuth tokens are
+  host-held) — the jail is the security boundary, proven live with a real loaded
+  component (out-of-allowlist host denied, resource trip observed). An **LDAP/GAL
+  directory** (`mw-directory`, ldap3 over rustls — no openssl): GAL search in
+  recipient fields, distribution-group expand-before-send, S/MIME cert + photo
+  lookup, multi-directory priority, StartTLS/LDAPS, read-only. **Password-change
+  backends** (`mw-passwd`): local/LDAP-3062/Dovecot/poppassd/HMAC-webhook, with
+  client-side zero-access key-hierarchy re-wrap and coordinated credential re-seal.
+  An **Assist (AI) subsystem** (`mw-assist`): a BYO-endpoint gateway (OpenAI-
+  compatible/Anthropic/local-process, hand-rolled over rustls — no LLM SDK) with
+  per-capability scoping, data-class ceilings, **E2EE content never forwarded by
+  default**, content-free audit, a "what left the device" disclosure, and — by
+  construction — no capability that sends/accepts/deletes (send stays human-gated;
+  the assistant reuses the MCP tool surface). **Graph, EWS, and Gmail bridges** as
+  first-party `wasm32-wasip2` plugins implementing the frozen `AccountBackend`
+  trait — indistinguishable from IMAP to the engine, quirks isolated to the bridge,
+  OAuth tokens never in the guest, EWS using **hand-rolled pure-Rust NTLMv2** (zero
+  new deps); they boot-load from the registry and are full **read + send** accounts.
+  Plus **MSG/OFT/DOCX export** (`mw-export` via cfb/docx-rs), a **Nextcloud** attach/
+  share-link plugin, GAL/Assist/Nextcloud wired into the mailbox compose+read UX,
+  and both V6 follow-ups closed (proxy-mode headless scoped-key REST reads; the real
+  MCP unattended-send countersign resolver). New crates: mw-plugin, mw-directory,
+  mw-passwd, mw-assist; new `plugins/` (bridge-graph/ews/gmail, languagetool,
+  nextcloud). Verified: 846 Rust + 579 web tests; cargo-deny clean; a live E2E gate
+  (12/12) against **real OpenLDAP + a real jailed plugin + a mock Assist endpoint**
+  — plugin-backed account serves JMAP identically to IMAP via the boot path, bridge
+  send routes to the provider exactly once, Assist redaction proven — which caught
+  three real deployment gaps (bridge mail-sync cursor, LDAP-3062 result-code
+  handling, and boot-time plugin loading) that were fixed before release.
+  **Honest scope boundaries** (not overclaimed): bridges deliver **mail** through
+  the jail — bridge calendar/tasks/reactions are implemented and fixture-tested but
+  reachable only through a **post-1.0 WIT-export extension**; EWS **Kerberos** is a
+  documented BYO-reverse-proxy gap (Basic + NTLMv2 ship); third-party (non-bundled)
+  plugin byte-storage is post-1.0; and a bounded `quick-xml`-reader-DoS advisory
+  ignore is scoped to write-only DOCX export. **V7 completion is not 1.0** — the
+  distinct 1.0 hardening gate (WCAG 2.2 AA, translations, perf budgets, and a funded
+  external audit incl. the MCP/plugin/Assist surfaces) is enumerated in
+  `docs/ROADMAP-1.0.md`.
 - **`26.7`** — V6: server depth — zero-access storage, admin, API/OAuth, MCP,
   Postgres, cache. An **optional zero-access (zero-knowledge) storage mode**:
   the client-side key hierarchy (Argon2id/WebAuthn-PRF → root key → KEK →
