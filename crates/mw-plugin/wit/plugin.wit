@@ -58,7 +58,11 @@ interface types {
     record raw-message {
         message-ref: message-ref,
         raw: list<u8>,
-        flags: list<flag>,
+        // NB: `flags` is a reserved WIT keyword (declares a `flags` type), so the
+        // field is named `msg-flags` (t7-e1 fix — the e0 draft used `flags`, which a
+        // real WIT parser rejects; the scaffold never built to wasm so it went
+        // unnoticed). Adapts to `mw_engine::RawMessage.flags` host-side.
+        msg-flags: list<flag>,
         internaldate: option<string>,
     }
 
@@ -158,10 +162,23 @@ interface account-backend {
         -> result<_, plugin-error>;
     move-messages: func(refs: list<message-ref>, to: mailbox-ref)
         -> result<_, plugin-error>;
-    submit: func(mbox: mailbox-ref, raw: list<u8>, flags: list<flag>)
+    submit: func(mbox: mailbox-ref, raw: list<u8>, msg-flags: list<flag>)
         -> result<message-ref, plugin-error>;
-    // A change stream (IMAP IDLE / provider push equivalent). Backpressured.
-    changes-stream: func() -> stream<change-event>;
+    // Drain any change events observed since the last call (IMAP IDLE / provider
+    // delta-query equivalent). The host adapter drives this on its own cadence and
+    // republishes events onto the engine's `ChangeSink` (see `AccountBackend::watch`).
+    //
+    // NOTE (t7-e1, frozen-ABI refinement — coordinator re-broadcast): the e0 draft
+    // modeled this as `changes-stream: func() -> stream<change-event>`. e1 replaced
+    // the WASI-p2 async `stream<>` with this synchronous poll (R1 mitigation): (1) it
+    // keeps the whole ABI on the STABLE synchronous component model — the async
+    // `stream`/`future` types are gated behind wasmtime's unstable
+    // `component-model-async` feature, which would enlarge the trust surface of the
+    // security core; (2) HTTP bridges (Graph/Gmail/EWS, e10–e12) sync via periodic
+    // delta/history queries, not a server push socket, so a host-driven poll is the
+    // natural shape anyway. The host still runs an async loop (wasmtime `async`
+    // config + epoch preemption); only the guest ABI is a plain function.
+    poll-changes: func() -> result<list<change-event>, plugin-error>;
 }
 
 // Message in/out pipeline hooks (§22).

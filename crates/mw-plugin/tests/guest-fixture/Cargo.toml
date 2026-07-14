@@ -1,0 +1,24 @@
+# Standalone (own `[workspace]` table ⇒ excluded from the parent workspace, so
+# `cargo build --workspace` never touches it and the root manifest needs no edit).
+# Built ONCE to `wasm32-wasip2` and the resulting component committed under
+# `crates/mw-plugin/tests/fixtures/guest.wasm`; the host integration tests load that
+# committed byte-for-byte so `cargo test -p mw-plugin` is green everywhere without a
+# wasm toolchain. e15 wires the reproducible rebuild job. See `build.sh` alongside.
+[package]
+name = "mw-plugin-guest-fixture"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = "0.46"
+
+[profile.release]
+opt-level = "s"
+strip = true
+lto = true

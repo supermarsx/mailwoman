@@ -13,29 +13,70 @@ repository.workspace = true
 # `#![forbid(unsafe_code)]` at its OWN boundary (wasmtime carries its unsafe
 # internally — that is the point: the host is the trust boundary).
 #
-# SCAFFOLD posture (e0): this stub authors the FROZEN §2.1 types + the WIT ABI
-# (`wit/`) and does NOT yet depend on `wasmtime` — pulling the large host tree now
-# would risk the scaffold build/Cargo.lock, so wasmtime is DECLARE-ONLY in the root
-# manifest (same posture V4/V6 used for heavy deps). e1 adds the wasmtime deps here
-# and fills the host. See `TODO(e1)` below.
-#
 # mw-plugin depends on `mw-engine` ONLY for the frozen `AccountBackend` trait it
 # adapts a plugin's `account-backend` WIT export onto — exactly as `mw-imap`/
 # `mw-pop3` do. `mw-engine` MUST NOT depend on `mw-plugin` (no cycle): the engine
 # consumes an `Arc<dyn AccountBackend>` handed to it by `mw-server` at mount (e14),
 # it never names this crate.
+
+[features]
+# Default: Cranelift JIT backend (W^X). Enable `pulley` to select the Pulley
+# pure-interpreter for MemoryDenyWriteExecute (§7.5 systemd) hosts that forbid the
+# JIT W^X page. Both backends run the same components deny-by-default.
+default = []
+pulley = []
+
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 async-trait = { workspace = true }
+tokio = { workspace = true, features = ["sync", "rt", "time"] }
 mw-engine = { workspace = true }
-# TODO(e1): wire the real wasmtime host — add
-#   wasmtime = { workspace = true, features = ["component-model", ...] }
-#   wasmtime-wasi = { workspace = true }
-# (both declared in the root `[workspace.dependencies]`), select Pulley-vs-Cranelift
-# by build flag, and VERIFY the whole wasmtime tree clears the license/TLS floor
-# (no openssl / no -sys C) before Batch B2 builds on it (plan §6 R3).
+
+# The wasmtime WASI-p2 component host (plan §5 / R3). Apache-2.0 WITH LLVM-exception
+# (already in deny.toml [licenses].allow, added V5). Pure-Rust: cranelift codegen +
+# pulley interpreter, no openssl / no `-sys` C. e1 VERIFIED the whole tree clears
+# the license/TLS floor (`cargo deny check` — licenses/bans/sources green).
+#
+# VERSION (R3, e1 ESCALATION): declared DIRECTLY (not `workspace = true`) at **46**,
+# NOT the e0-pinned **38**. Two reasons: (1) `default-features = false` is required to
+# keep the tree C-free (default `profiling` pulls `ittapi-sys`, a C VTune lib; `cache`
+# pulls `zstd-sys`), and a workspace-inherited dep may not override default-features;
+# (2) wasmtime/wasmtime-wasi **38.0.4 carry THREE vulnerability-class RustSec
+# advisories** (GHSA-2r75-cxrj-cmph, RUSTSEC-2026-0182, RUSTSEC-2026-0188 — WASI
+# fd/filesystem issues; non-exploitable here since guests get NO filesystem, but the
+# `cargo deny` gate is zero-vuln). There is no 38.x fix; the fixes land in 46.0.1.
+# Only mw-plugin uses wasmtime, so the root's declare-only `38` pin is inert (nothing
+# inherits it → it never enters Cargo.lock). **Coordinator/e15 should update the root
+# workspace pins 38→46 to match this crate's effective version.** Same major-version
+# for both wasmtime + wasmtime-wasi so they resolve consistently.
+wasmtime = { version = "46", default-features = false, features = [
+    "runtime",
+    "std",
+    "cranelift",
+    "component-model",
+    "async",
+    "gc",
+    "gc-drc",
+    "gc-null",
+    "threads",
+    "pooling-allocator",
+    "demangle",
+    "addr2line",
+    "pulley",
+] }
+wasmtime-wasi = { version = "46", default-features = false }
+
+# Ed25519 detached-signature verification over component bytes (signed registry).
+# REUSE of the crate rPGP already pulls into the tree (2.2.0) — no new supply-chain
+# surface; MIT/BSD-3, already vetted by `cargo deny`.
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+
+# CSPRNG for the default host `random` service (embedders may inject their own).
+# getrandom 0.2 is already resolved in the workspace tree — no new supply-chain
+# surface; MIT/Apache, deny-clean.
+getrandom = "0.2"
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
