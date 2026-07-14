@@ -1,6 +1,21 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export const zaDeriveKek: (a: any) => [number, number, number];
+export const zaDeriveRootKey: (a: any) => [number, number, number];
+export const zaDeriveSubkey: (a: any) => [number, number, number];
+export const zaGenerateDataKey: () => [number, number, number];
+export const zaLock: (a: any) => [number, number, number];
+export const zaLockAll: () => [number, number, number];
+export const zaOpenRow: (a: any) => [number, number, number];
+export const zaPairComplete: (a: any) => [number, number, number];
+export const zaPairGenerate: () => [number, number, number];
+export const zaPairSeal: (a: any) => [number, number, number];
+export const zaRecoveryPhrase: (a: any) => [number, number, number];
+export const zaRestoreFromPhrase: (a: any) => [number, number, number];
+export const zaSealRow: (a: any) => [number, number, number];
+export const zaUnwrapKey: (a: any) => [number, number, number];
+export const zaWrapKey: (a: any) => [number, number, number];
 export const __init: () => void;
 export const decrypt: (a: any) => [number, number, number];
 export const encrypt: (a: any) => [number, number, number];

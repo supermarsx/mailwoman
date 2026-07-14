@@ -158,6 +158,210 @@ export function verify(options) {
     }
     return takeFromExternrefTable0(ret[0]);
 }
+
+/**
+ * `zaDeriveKek({keyRef})` → `{ keyRef }` (the KEK, as a new in-worker ref).
+ * @param {any} options
+ * @returns {any}
+ */
+export function zaDeriveKek(options) {
+    const ret = wasm.zaDeriveKek(options);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * `deriveRootKey({secretB64, saltB64, mCost, tCost, pCost})` → `{ keyRef }`.
+ * The root key stays in-worker; only its ref is returned.
+ * @param {any} options
+ * @returns {any}
+ */
+export function zaDeriveRootKey(options) {
+    const ret = wasm.zaDeriveRootKey(options);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * `zaDeriveSubkey({keyRef, label})` → `{ keyRef }` — per-class keys
+ * (`"message-cache"`, `"search"`, `"notes"`, `"attachment"`).
+ * @param {any} options
+ * @returns {any}
+ */
+export function zaDeriveSubkey(options) {
+    const ret = wasm.zaDeriveSubkey(options);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * `zaGenerateDataKey()` → `{ keyRef }` — a fresh random per-account data key.
+ * @returns {any}
+ */
+export function zaGenerateDataKey() {
+    const ret = wasm.zaGenerateDataKey();
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * `zaLock({keyRef})` — zeroize + drop one cached hierarchy key.
+ * @param {any} options
+ * @returns {any}
+ */
+export function zaLock(options) {
+    const ret = wasm.zaLock(options);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * `zaLockAll()` — clear the entire zero-access session (logout/timeout).
+ * @returns {any}
+ */
+export function zaLockAll() {
+    const ret = wasm.zaLockAll();
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * `zaOpenRow({keyRef, ciphertextB64, table, rowId, schemaVersion})` →
+ * `{ plaintextB64 }`. Fails on a wrong key or a moved row (AAD mismatch).
+ * @param {any} options
+ * @returns {any}
+ */
+export function zaOpenRow(options) {
+    const ret = wasm.zaOpenRow(options);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * `zaPairComplete({envelopeB64, secretRef})` → `{ sasWords, keyRef }` (new
+ * device). Recovers the root key into the session; `sasWords` is shown for
+ * the user to compare against the other device before trusting.
+ * @param {any} options
+ * @returns {any}
+ */
+export function zaPairComplete(options) {
+    const ret = wasm.zaPairComplete(options);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * `zaPairGenerate()` → `{ publicB64, secretRef }` (new device). `publicB64`
+ * goes in the QR; the secret stays in-worker under `secretRef`.
+ * @returns {any}
+ */
+export function zaPairGenerate() {
+    const ret = wasm.zaPairGenerate();
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * `zaPairSeal({rootRef, peerPublicB64})` → `{ sasWords, envelopeB64 }`
+ * (existing device). Seals the root key to the scanned public; the envelope
+ * is opaque to the relaying server.
+ * @param {any} options
+ * @returns {any}
+ */
+export function zaPairSeal(options) {
+    const ret = wasm.zaPairSeal(options);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * `zaRecoveryPhrase({keyRef})` → `{ phrase }`. EXPLICIT user export of the
+ * root key for offline backup — the sole intentional key-egress path.
+ * @param {any} options
+ * @returns {any}
+ */
+export function zaRecoveryPhrase(options) {
+    const ret = wasm.zaRecoveryPhrase(options);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * `zaRestoreFromPhrase({phrase})` → `{ keyRef }` — re-imports the root key
+ * into the worker session (checksum-verified).
+ * @param {any} options
+ * @returns {any}
+ */
+export function zaRestoreFromPhrase(options) {
+    const ret = wasm.zaRestoreFromPhrase(options);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * `zaSealRow({keyRef, plaintextB64, table, rowId, schemaVersion})` →
+ * `{ ciphertextB64 }`. AAD is bound per [`row_aad`] (§9.3).
+ * @param {any} options
+ * @returns {any}
+ */
+export function zaSealRow(options) {
+    const ret = wasm.zaSealRow(options);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * `zaUnwrapKey({kekRef, blobB64})` → `{ keyRef }` (the data key, in-worker).
+ * @param {any} options
+ * @returns {any}
+ */
+export function zaUnwrapKey(options) {
+    const ret = wasm.zaUnwrapKey(options);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * `zaWrapKey({kekRef, dataKeyRef})` → `{ blobB64 }` (the wrapped data key,
+ * safe to persist server-side). Raw keys never cross the boundary.
+ * @param {any} options
+ * @returns {any}
+ */
+export function zaWrapKey(options) {
+    const ret = wasm.zaWrapKey(options);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,

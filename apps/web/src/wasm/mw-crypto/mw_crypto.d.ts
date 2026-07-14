@@ -70,10 +70,112 @@ export function unlockKey(options: any): any;
  */
 export function verify(options: any): any;
 
+/**
+ * `zaDeriveKek({keyRef})` → `{ keyRef }` (the KEK, as a new in-worker ref).
+ */
+export function zaDeriveKek(options: any): any;
+
+/**
+ * `deriveRootKey({secretB64, saltB64, mCost, tCost, pCost})` → `{ keyRef }`.
+ * The root key stays in-worker; only its ref is returned.
+ */
+export function zaDeriveRootKey(options: any): any;
+
+/**
+ * `zaDeriveSubkey({keyRef, label})` → `{ keyRef }` — per-class keys
+ * (`"message-cache"`, `"search"`, `"notes"`, `"attachment"`).
+ */
+export function zaDeriveSubkey(options: any): any;
+
+/**
+ * `zaGenerateDataKey()` → `{ keyRef }` — a fresh random per-account data key.
+ */
+export function zaGenerateDataKey(): any;
+
+/**
+ * `zaLock({keyRef})` — zeroize + drop one cached hierarchy key.
+ */
+export function zaLock(options: any): any;
+
+/**
+ * `zaLockAll()` — clear the entire zero-access session (logout/timeout).
+ */
+export function zaLockAll(): any;
+
+/**
+ * `zaOpenRow({keyRef, ciphertextB64, table, rowId, schemaVersion})` →
+ * `{ plaintextB64 }`. Fails on a wrong key or a moved row (AAD mismatch).
+ */
+export function zaOpenRow(options: any): any;
+
+/**
+ * `zaPairComplete({envelopeB64, secretRef})` → `{ sasWords, keyRef }` (new
+ * device). Recovers the root key into the session; `sasWords` is shown for
+ * the user to compare against the other device before trusting.
+ */
+export function zaPairComplete(options: any): any;
+
+/**
+ * `zaPairGenerate()` → `{ publicB64, secretRef }` (new device). `publicB64`
+ * goes in the QR; the secret stays in-worker under `secretRef`.
+ */
+export function zaPairGenerate(): any;
+
+/**
+ * `zaPairSeal({rootRef, peerPublicB64})` → `{ sasWords, envelopeB64 }`
+ * (existing device). Seals the root key to the scanned public; the envelope
+ * is opaque to the relaying server.
+ */
+export function zaPairSeal(options: any): any;
+
+/**
+ * `zaRecoveryPhrase({keyRef})` → `{ phrase }`. EXPLICIT user export of the
+ * root key for offline backup — the sole intentional key-egress path.
+ */
+export function zaRecoveryPhrase(options: any): any;
+
+/**
+ * `zaRestoreFromPhrase({phrase})` → `{ keyRef }` — re-imports the root key
+ * into the worker session (checksum-verified).
+ */
+export function zaRestoreFromPhrase(options: any): any;
+
+/**
+ * `zaSealRow({keyRef, plaintextB64, table, rowId, schemaVersion})` →
+ * `{ ciphertextB64 }`. AAD is bound per [`row_aad`] (§9.3).
+ */
+export function zaSealRow(options: any): any;
+
+/**
+ * `zaUnwrapKey({kekRef, blobB64})` → `{ keyRef }` (the data key, in-worker).
+ */
+export function zaUnwrapKey(options: any): any;
+
+/**
+ * `zaWrapKey({kekRef, dataKeyRef})` → `{ blobB64 }` (the wrapped data key,
+ * safe to persist server-side). Raw keys never cross the boundary.
+ */
+export function zaWrapKey(options: any): any;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly zaDeriveKek: (a: any) => [number, number, number];
+    readonly zaDeriveRootKey: (a: any) => [number, number, number];
+    readonly zaDeriveSubkey: (a: any) => [number, number, number];
+    readonly zaGenerateDataKey: () => [number, number, number];
+    readonly zaLock: (a: any) => [number, number, number];
+    readonly zaLockAll: () => [number, number, number];
+    readonly zaOpenRow: (a: any) => [number, number, number];
+    readonly zaPairComplete: (a: any) => [number, number, number];
+    readonly zaPairGenerate: () => [number, number, number];
+    readonly zaPairSeal: (a: any) => [number, number, number];
+    readonly zaRecoveryPhrase: (a: any) => [number, number, number];
+    readonly zaRestoreFromPhrase: (a: any) => [number, number, number];
+    readonly zaSealRow: (a: any) => [number, number, number];
+    readonly zaUnwrapKey: (a: any) => [number, number, number];
+    readonly zaWrapKey: (a: any) => [number, number, number];
     readonly __init: () => void;
     readonly decrypt: (a: any) => [number, number, number];
     readonly encrypt: (a: any) => [number, number, number];
