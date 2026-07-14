@@ -6,8 +6,9 @@
 // in the real engine; the recipient autocomplete hook lives in `autocomplete.ts`
 // (e10 wires it into Compose — this module does not edit Compose).
 
-import { For, Show, createMemo, createSignal, onMount, type JSX } from 'solid-js';
+import { For, Show, createMemo, createSignal, onCleanup, onMount, type JSX } from 'solid-js';
 import { createStore } from 'solid-js/store';
+import { t, loadCatalog } from '../../i18n';
 import { useApp } from '../../state/context.ts';
 import { contactDisplayName, type ContactDraft } from '../../state/slices/contacts.ts';
 import type { ContactCard, ContactEmail, ContactValue } from '../../api/pim-types.ts';
@@ -15,6 +16,7 @@ import type { Id } from '../../api/jmap-types.ts';
 import { parseVCards, toVCardDocument, type ParsedContact } from './vcard.ts';
 import { contactsToCsv, csvToContacts, guessMapping, parseCsv, type CsvField, type CsvMapping } from './csv.ts';
 import { findDuplicateClusters, mergeCards } from './merge.ts';
+import { wireDialogFocus } from './dialogFocus.ts';
 // V7 directory security (SPEC §13/§8.2, e14b): the per-contact cert/key rows, sourced
 // from the GAL. Gated on a configured directory, so an unconfigured deployment's
 // business card is unchanged.
@@ -44,6 +46,7 @@ function primaryEmail(card: ContactCard): string {
 export function ContactsModule(): JSX.Element {
   const app = useApp();
   onMount(() => {
+    void loadCatalog('contacts');
     void app.loadContacts();
     // Probe the directory once (silent) so the per-contact Security tab appears only
     // when a GAL is configured; unconfigured ⇒ the business card is unchanged.
@@ -65,7 +68,7 @@ export function ContactsModule(): JSX.Element {
   }
 
   return (
-    <section aria-label="Contacts" data-module="contacts" class={css.layout}>
+    <section aria-label={t('contacts-title')} data-module="contacts" class={css.layout}>
       <Sidebar
         isAll={isAll()}
         onNewGroup={() => setNewGroupOpen(true)}
@@ -79,24 +82,24 @@ export function ContactsModule(): JSX.Element {
           <input
             type="search"
             class={css.input}
-            aria-label="Search contacts"
-            placeholder="Search contacts"
+            aria-label={t('contacts-search')}
+            placeholder={t('contacts-search')}
             value={app.contactSearch()}
             onInput={(e) => app.setContactSearch(e.currentTarget.value)}
           />
           <button type="button" class={css.button} onClick={() => { app.selectContact(null); setPanel('create'); }}>
-            New contact
+            {t('contacts-new')}
           </button>
           <button type="button" class={css.buttonGhost} onClick={() => setShowDuplicates(true)}>
-            Find duplicates
+            {t('contacts-find-duplicates')}
           </button>
         </div>
 
         <Show
           when={app.filteredContacts().length > 0}
-          fallback={<p class={css.empty}>{app.contactsLoading() ? 'Loading…' : 'No contacts.'}</p>}
+          fallback={<p class={css.empty}>{app.contactsLoading() ? t('contacts-loading') : t('contacts-none')}</p>}
         >
-          <ul class={css.contactList} aria-label="Contact list">
+          <ul class={css.contactList} aria-label={t('contacts-list')}>
             <For each={app.filteredContacts()}>
               {(card) => (
                 <li>
@@ -111,15 +114,15 @@ export function ContactsModule(): JSX.Element {
                     <button
                       type="button"
                       class={css.star}
-                      aria-label={`Favorite ${contactDisplayName(card)}`}
+                      aria-label={t('contacts-favorite', { name: contactDisplayName(card) })}
                       aria-pressed={card.isFavorite}
                       onClick={(e) => { e.stopPropagation(); void app.toggleFavorite(card.id); }}
                     >
                       {card.isFavorite ? '★' : '☆'}
                     </button>
                     <span class={css.rowBody}>
-                      <span class={css.rowName}>{contactDisplayName(card)}</span>
-                      <span class={css.rowMeta}>{primaryEmail(card) || card.organizations[0] || ''}</span>
+                      <span class={css.rowName}><bdi>{contactDisplayName(card)}</bdi></span>
+                      <span class={css.rowMeta}><bdi>{primaryEmail(card) || card.organizations[0] || ''}</bdi></span>
                     </span>
                   </div>
                 </li>
@@ -134,14 +137,14 @@ export function ContactsModule(): JSX.Element {
             class={css.buttonGhost}
             onClick={() => download('contacts.vcf', toVCardDocument(app.filteredContacts()), 'text/vcard')}
           >
-            Export vCard
+            {t('contacts-export-vcard')}
           </button>
           <button
             type="button"
             class={css.buttonGhost}
             onClick={() => download('contacts.csv', contactsToCsv(app.filteredContacts()), 'text/csv')}
           >
-            Export CSV
+            {t('contacts-export-csv')}
           </button>
         </div>
       </div>
@@ -172,7 +175,7 @@ export function ContactsModule(): JSX.Element {
           <BusinessCard card={app.selectedContact()!} onEdit={() => setPanel('edit')} />
         </Show>
         <Show when={panel() === 'view' && app.selectedContact() === null}>
-          <p class={css.empty}>Select a contact to see their card.</p>
+          <p class={css.empty}>{t('contacts-select-hint')}</p>
         </Show>
       </div>
 
@@ -204,15 +207,15 @@ function Sidebar(props: {
   };
 
   return (
-    <aside class={css.sidebar} aria-label="Address books and groups">
-      <h2 class={css.heading}>Address books</h2>
+    <aside class={css.sidebar} aria-label={t('contacts-books-groups')}>
+      <h2 class={css.heading}>{t('contacts-address-books')}</h2>
       <button
         type="button"
         class={css.navButton}
         aria-current={props.isAll}
         onClick={() => { app.selectAddressBook(null); app.setSelectedGroup(null); app.setFavoritesOnly(false); }}
       >
-        <span>All contacts</span>
+        <span>{t('contacts-all')}</span>
         <span class={css.count}>{app.contacts().length}</span>
       </button>
       <button
@@ -221,7 +224,7 @@ function Sidebar(props: {
         aria-current={app.favoritesOnly()}
         onClick={() => { app.setFavoritesOnly(!app.favoritesOnly()); app.setSelectedGroup(null); }}
       >
-        <span>★ Favorites</span>
+        <span>{t('contacts-favorites')}</span>
         <span class={css.count}>{app.contacts().filter((c) => c.isFavorite).length}</span>
       </button>
       <For each={app.addressBooks()}>
@@ -232,21 +235,21 @@ function Sidebar(props: {
             aria-current={app.selectedAddressBookId() === book.id}
             onClick={() => { app.selectAddressBook(book.id); app.setSelectedGroup(null); app.setFavoritesOnly(false); }}
           >
-            <span>{book.name}</span>
+            <span><bdi>{book.name}</bdi></span>
           </button>
         )}
       </For>
 
       <h2 class={css.heading}>
-        <span>Groups</span>
-        <button type="button" class={css.buttonGhost} aria-label="New group" onClick={props.onNewGroup}>+</button>
+        <span>{t('contacts-groups')}</span>
+        <button type="button" class={css.buttonGhost} aria-label={t('contacts-new-group')} onClick={props.onNewGroup}>+</button>
       </h2>
       <Show when={props.newGroupOpen}>
         <div class={css.toolbar}>
           <input
             class={css.input}
-            aria-label="New group name"
-            placeholder="Group name"
+            aria-label={t('contacts-new-group-name')}
+            placeholder={t('contacts-group-name-placeholder')}
             value={groupName()}
             onInput={(e) => setGroupName(e.currentTarget.value)}
           />
@@ -261,7 +264,7 @@ function Sidebar(props: {
               props.closeNewGroup();
             }}
           >
-            Create
+            {t('contacts-create')}
           </button>
         </div>
       </Show>
@@ -273,14 +276,14 @@ function Sidebar(props: {
             aria-current={app.selectedGroupId() === group.id}
             onClick={() => { app.setSelectedGroup(app.selectedGroupId() === group.id ? null : group.id); app.setFavoritesOnly(false); }}
           >
-            <span>{group.name}</span>
+            <span><bdi>{group.name}</bdi></span>
             <span class={css.count}>{memberCount(group.id)}</span>
           </button>
         )}
       </For>
 
-      <h2 class={css.heading}>Data</h2>
-      <button type="button" class={css.navButton} onClick={props.onImport}>Import…</button>
+      <h2 class={css.heading}>{t('contacts-data')}</h2>
+      <button type="button" class={css.navButton} onClick={props.onImport}>{t('contacts-import')}</button>
     </aside>
   );
 }
@@ -295,74 +298,74 @@ function BusinessCard(props: { card: ContactCard; onEdit: () => void }): JSX.Ele
   );
 
   return (
-    <article class={css.card} aria-label={`Contact ${contactDisplayName(card())}`}>
+    <article class={css.card} aria-label={t('contacts-card', { name: contactDisplayName(card()) })}>
       <div class={css.fieldRow} style={{ 'justify-content': 'space-between' }}>
         <div>
-          <h1 class={css.cardName}>{contactDisplayName(card())}</h1>
+          <h1 class={css.cardName}><bdi>{contactDisplayName(card())}</bdi></h1>
           <Show when={card().titles.length > 0 || card().organizations.length > 0}>
-            <p class={css.cardSub}>{[card().titles[0], card().organizations[0]].filter(Boolean).join(' · ')}</p>
+            <p class={css.cardSub}><bdi>{[card().titles[0], card().organizations[0]].filter(Boolean).join(' · ')}</bdi></p>
           </Show>
         </div>
         <div class={css.actions}>
           <button
             type="button"
             class={css.buttonGhost}
-            aria-label={`Favorite ${contactDisplayName(card())}`}
+            aria-label={t('contacts-favorite', { name: contactDisplayName(card()) })}
             aria-pressed={card().isFavorite}
             onClick={() => void app.toggleFavorite(card().id)}
           >
-            {card().isFavorite ? '★ Favorited' : '☆ Favorite'}
+            {card().isFavorite ? t('contacts-favorited') : t('contacts-favorite-action')}
           </button>
-          <button type="button" class={css.button} onClick={props.onEdit}>Edit</button>
-          <button type="button" class={css.buttonGhost} onClick={() => void app.deleteContact(card().id)}>Delete</button>
+          <button type="button" class={css.button} onClick={props.onEdit}>{t('common-edit')}</button>
+          <button type="button" class={css.buttonGhost} onClick={() => void app.deleteContact(card().id)}>{t('common-delete')}</button>
         </div>
       </div>
 
       <Show when={card().emails.length > 0}>
         <div class={css.fieldGroup}>
-          <span class={css.fieldLabel}>Email</span>
+          <span class={css.fieldLabel}>{t('contacts-email')}</span>
           <For each={card().emails}>
-            {(e) => <div class={css.fieldRow}><a href={`mailto:${e.value}`}>{e.value}</a> <Show when={e.context}><span class={css.chip}>{e.context}</span></Show></div>}
+            {(e) => <div class={css.fieldRow}><a href={`mailto:${e.value}`}><bdi>{e.value}</bdi></a> <Show when={e.context}><span class={css.chip}><bdi>{e.context}</bdi></span></Show></div>}
           </For>
         </div>
       </Show>
 
       <Show when={card().phones.length > 0}>
         <div class={css.fieldGroup}>
-          <span class={css.fieldLabel}>Phone</span>
+          <span class={css.fieldLabel}>{t('contacts-phone')}</span>
           <For each={card().phones}>
-            {(p) => <div class={css.fieldRow}><span>{p.value}</span> <Show when={p.context}><span class={css.chip}>{p.context}</span></Show></div>}
+            {(p) => <div class={css.fieldRow}><span><bdi>{p.value}</bdi></span> <Show when={p.context}><span class={css.chip}><bdi>{p.context}</bdi></span></Show></div>}
           </For>
         </div>
       </Show>
 
       <Show when={card().anniversaries.length > 0}>
         <div class={css.fieldGroup}>
-          <span class={css.fieldLabel}>Dates</span>
+          <span class={css.fieldLabel}>{t('contacts-dates')}</span>
           <For each={card().anniversaries}>{(a) => <div class={css.fieldRow}><span>{a.kind}</span><span>{a.date}</span></div>}</For>
         </div>
       </Show>
 
       <Show when={groupsOf().length > 0}>
         <div class={css.fieldGroup}>
-          <span class={css.fieldLabel}>Groups</span>
-          <div class={css.fieldRow}><For each={groupsOf()}>{(g) => <span class={css.chip}>{g.name}</span>}</For></div>
+          <span class={css.fieldLabel}>{t('contacts-groups-label')}</span>
+          <div class={css.fieldRow}><For each={groupsOf()}>{(g) => <span class={css.chip}><bdi>{g.name}</bdi></span>}</For></div>
         </div>
       </Show>
 
       <Show when={card().notes.length > 0}>
         <div class={css.fieldGroup}>
-          <span class={css.fieldLabel}>Notes</span>
-          <p style={{ 'white-space': 'pre-wrap', margin: 0 }}>{card().notes}</p>
+          <span class={css.fieldLabel}>{t('contacts-notes')}</span>
+          <p style={{ 'white-space': 'pre-wrap', margin: 0 }}><bdi>{card().notes}</bdi></p>
         </div>
       </Show>
 
       <div class={css.fieldGroup}>
-        <span class={css.fieldLabel}>Security key</span>
+        <span class={css.fieldLabel}>{t('contacts-security-key')}</span>
         <p class={css.cardSub}>
           {card().pgpKey !== null || card().smimeCert !== null
-            ? 'A key/certificate is on file (display-only until PGP/S-MIME lands).'
-            : 'No key on file.'}
+            ? t('contacts-key-on-file')
+            : t('contacts-no-key')}
         </p>
       </div>
 
@@ -371,7 +374,7 @@ function BusinessCard(props: { card: ContactCard; onEdit: () => void }): JSX.Ele
           is configured, so the card is unchanged for non-directory deployments. */}
       <Show when={app.directory.enabled() && primaryEmail(card()).length > 0}>
         <div class={css.fieldGroup}>
-          <span class={css.fieldLabel}>Directory security</span>
+          <span class={css.fieldLabel}>{t('contacts-directory-security')}</span>
           <ContactSecurity email={primaryEmail(card())} service={app.directory.service} />
         </div>
       </Show>
@@ -387,7 +390,7 @@ function GroupMembership(props: { card: ContactCard }): JSX.Element {
   return (
     <Show when={app.contactGroups().length > 0}>
       <fieldset class={css.fieldGroup} style={{ border: 'none', padding: 0, margin: 0 }}>
-        <legend class={css.fieldLabel}>Member of</legend>
+        <legend class={css.fieldLabel}>{t('contacts-member-of')}</legend>
         <For each={app.contactGroups()}>
           {(group) => {
             const isMember = (): boolean =>
@@ -396,11 +399,11 @@ function GroupMembership(props: { card: ContactCard }): JSX.Element {
               <label class={css.fieldRow}>
                 <input
                   type="checkbox"
-                  aria-label={`${group.name} membership`}
+                  aria-label={t('contacts-group-membership', { name: group.name })}
                   checked={isMember()}
                   onChange={(e) => void app.setGroupMembership(props.card.id, group.id, e.currentTarget.checked)}
                 />
-                <span>{group.name}</span>
+                <span><bdi>{group.name}</bdi></span>
               </label>
             );
           }}
@@ -456,75 +459,75 @@ function ContactEditor(props: {
   }
 
   return (
-    <form class={css.card} onSubmit={submit} aria-label={props.mode === 'create' ? 'New contact' : 'Edit contact'}>
-      <h1 class={css.cardName}>{props.mode === 'create' ? 'New contact' : 'Edit contact'}</h1>
+    <form class={css.card} onSubmit={submit} aria-label={props.mode === 'create' ? t('contacts-new-contact') : t('contacts-edit-contact')}>
+      <h1 class={css.cardName}>{props.mode === 'create' ? t('contacts-new-contact') : t('contacts-edit-contact')}</h1>
 
       <div class={css.fieldGroup}>
-        <label class={css.fieldLabel} for="c-full">Full name</label>
+        <label class={css.fieldLabel} for="c-full">{t('contacts-full-name')}</label>
         <input
           id="c-full"
           class={css.input}
-          aria-label="Full name"
+          aria-label={t('contacts-full-name')}
           value={draft.name.full}
           onInput={(e) => setDraft('name', 'full', e.currentTarget.value)}
         />
       </div>
       <div class={css.fieldRow}>
-        <input class={css.input} aria-label="Given name" placeholder="Given" value={draft.name.given} onInput={(e) => setDraft('name', 'given', e.currentTarget.value)} />
-        <input class={css.input} aria-label="Surname" placeholder="Surname" value={draft.name.surname} onInput={(e) => setDraft('name', 'surname', e.currentTarget.value)} />
+        <input class={css.input} aria-label={t('contacts-given')} placeholder={t('contacts-given-placeholder')} value={draft.name.given} onInput={(e) => setDraft('name', 'given', e.currentTarget.value)} />
+        <input class={css.input} aria-label={t('contacts-surname')} placeholder={t('contacts-surname-placeholder')} value={draft.name.surname} onInput={(e) => setDraft('name', 'surname', e.currentTarget.value)} />
       </div>
 
       <div class={css.fieldGroup}>
-        <span class={css.fieldLabel}>Organization</span>
-        <input class={css.input} aria-label="Organization" value={draft.organizations[0] ?? ''} onInput={(e) => setDraft('organizations', [e.currentTarget.value])} />
-        <input class={css.input} aria-label="Job title" placeholder="Title" value={draft.titles[0] ?? ''} onInput={(e) => setDraft('titles', [e.currentTarget.value])} />
+        <span class={css.fieldLabel}>{t('contacts-organization')}</span>
+        <input class={css.input} aria-label={t('contacts-organization')} value={draft.organizations[0] ?? ''} onInput={(e) => setDraft('organizations', [e.currentTarget.value])} />
+        <input class={css.input} aria-label={t('contacts-job-title')} placeholder={t('contacts-job-title-placeholder')} value={draft.titles[0] ?? ''} onInput={(e) => setDraft('titles', [e.currentTarget.value])} />
       </div>
 
       <div class={css.fieldGroup}>
-        <span class={css.fieldLabel}>Email</span>
+        <span class={css.fieldLabel}>{t('contacts-email')}</span>
         <For each={draft.emails}>
           {(em, i) => (
             <div class={css.fieldRow}>
-              <input class={css.input} aria-label={`Email ${i() + 1}`} type="email" value={em.value} onInput={(e) => setDraft('emails', i(), 'value', e.currentTarget.value)} />
-              <input class={css.select} aria-label={`Email ${i() + 1} label`} placeholder="work" value={em.context} onInput={(e) => setDraft('emails', i(), 'context', e.currentTarget.value)} />
-              <button type="button" class={css.buttonGhost} aria-label={`Remove email ${i() + 1}`} onClick={() => setDraft('emails', (list) => list.filter((_, j) => j !== i()))}>−</button>
+              <input class={css.input} aria-label={t('contacts-email-n', { n: i() + 1 })} type="email" value={em.value} onInput={(e) => setDraft('emails', i(), 'value', e.currentTarget.value)} />
+              <input class={css.select} aria-label={t('contacts-email-label', { n: i() + 1 })} placeholder={t('contacts-email-label-placeholder')} value={em.context} onInput={(e) => setDraft('emails', i(), 'context', e.currentTarget.value)} />
+              <button type="button" class={css.buttonGhost} aria-label={t('contacts-remove-email', { n: i() + 1 })} onClick={() => setDraft('emails', (list) => list.filter((_, j) => j !== i()))}>−</button>
             </div>
           )}
         </For>
-        <button type="button" class={css.buttonGhost} onClick={() => setDraft('emails', (list) => [...list, { context: '', value: '', pref: 0 }])}>Add email</button>
+        <button type="button" class={css.buttonGhost} onClick={() => setDraft('emails', (list) => [...list, { context: '', value: '', pref: 0 }])}>{t('contacts-add-email')}</button>
       </div>
 
       <div class={css.fieldGroup}>
-        <span class={css.fieldLabel}>Phone</span>
+        <span class={css.fieldLabel}>{t('contacts-phone')}</span>
         <For each={draft.phones}>
           {(p, i) => (
             <div class={css.fieldRow}>
-              <input class={css.input} aria-label={`Phone ${i() + 1}`} value={p.value} onInput={(e) => setDraft('phones', i(), 'value', e.currentTarget.value)} />
-              <button type="button" class={css.buttonGhost} aria-label={`Remove phone ${i() + 1}`} onClick={() => setDraft('phones', (list) => list.filter((_, j) => j !== i()))}>−</button>
+              <input class={css.input} aria-label={t('contacts-phone-n', { n: i() + 1 })} value={p.value} onInput={(e) => setDraft('phones', i(), 'value', e.currentTarget.value)} />
+              <button type="button" class={css.buttonGhost} aria-label={t('contacts-remove-phone', { n: i() + 1 })} onClick={() => setDraft('phones', (list) => list.filter((_, j) => j !== i()))}>−</button>
             </div>
           )}
         </For>
-        <button type="button" class={css.buttonGhost} onClick={() => setDraft('phones', (list) => [...list, { context: '', value: '' }])}>Add phone</button>
+        <button type="button" class={css.buttonGhost} onClick={() => setDraft('phones', (list) => [...list, { context: '', value: '' }])}>{t('contacts-add-phone')}</button>
       </div>
 
       <div class={css.fieldGroup}>
-        <label class={css.fieldLabel} for="c-notes">Notes</label>
-        <textarea id="c-notes" class={css.input} aria-label="Notes" rows={3} value={draft.notes} onInput={(e) => setDraft('notes', e.currentTarget.value)} />
+        <label class={css.fieldLabel} for="c-notes">{t('contacts-notes')}</label>
+        <textarea id="c-notes" class={css.input} aria-label={t('contacts-notes')} rows={3} value={draft.notes} onInput={(e) => setDraft('notes', e.currentTarget.value)} />
       </div>
 
       <div class={css.fieldGroup}>
-        <label class={css.fieldLabel} for="c-key">Security key (opaque placeholder)</label>
-        <textarea id="c-key" class={css.input} aria-label="Security key" rows={2} placeholder="PGP key / S-MIME cert (display-only)" value={draft.pgpKey} onInput={(e) => setDraft('pgpKey', e.currentTarget.value)} />
+        <label class={css.fieldLabel} for="c-key">{t('contacts-security-key-label')}</label>
+        <textarea id="c-key" class={css.input} aria-label={t('contacts-security-key')} rows={2} placeholder={t('contacts-security-key-placeholder')} value={draft.pgpKey} onInput={(e) => setDraft('pgpKey', e.currentTarget.value)} />
       </div>
 
       <label class={css.fieldRow}>
-        <input type="checkbox" aria-label="Favorite" checked={draft.isFavorite} onChange={(e) => setDraft('isFavorite', e.currentTarget.checked)} />
-        <span>Favorite</span>
+        <input type="checkbox" aria-label={t('contacts-favorite-word')} checked={draft.isFavorite} onChange={(e) => setDraft('isFavorite', e.currentTarget.checked)} />
+        <span>{t('contacts-favorite-word')}</span>
       </label>
 
       <div class={css.actions}>
-        <button type="button" class={css.buttonGhost} onClick={props.onCancel}>Cancel</button>
-        <button type="submit" class={css.button}>Save</button>
+        <button type="button" class={css.buttonGhost} onClick={props.onCancel}>{t('common-cancel')}</button>
+        <button type="submit" class={css.button}>{t('common-save')}</button>
       </div>
     </form>
   );
@@ -580,53 +583,59 @@ function ImportDialog(props: { onClose: () => void }): JSX.Element {
     preview();
   }
 
+  let dialogRef!: HTMLDivElement;
+  onMount(() => {
+    const dispose = wireDialogFocus(dialogRef, props.onClose);
+    onCleanup(dispose);
+  });
+
   return (
-    <div class={css.dialogBackdrop} role="dialog" aria-modal="true" aria-label="Import contacts" onClick={props.onClose}>
-      <div class={css.dialog} onClick={(e) => e.stopPropagation()}>
-        <h1 class={css.cardName}>Import contacts</h1>
+    <div class={css.dialogBackdrop} onClick={props.onClose}>
+      <div ref={dialogRef} class={css.dialog} role="dialog" tabindex={-1} aria-modal="true" aria-label={t('contacts-import-title')} onClick={(e) => e.stopPropagation()}>
+        <h1 class={css.cardName}>{t('contacts-import-title')}</h1>
         <Show when={imported() === null} fallback={
           <>
-            <p role="status">Imported {imported()} contact{imported() === 1 ? '' : 's'}.</p>
-            <div class={css.actions}><button type="button" class={css.button} onClick={props.onClose}>Done</button></div>
+            <p role="status">{t('contacts-imported', { count: imported() ?? 0 })}</p>
+            <div class={css.actions}><button type="button" class={css.button} onClick={props.onClose}>{t('common-done')}</button></div>
           </>
         }>
-          <p class={css.cardSub}>Paste vCard (.vcf) or CSV, or choose a file. The format is detected automatically.</p>
-          <input type="file" aria-label="Import file" accept=".vcf,.csv,text/vcard,text/csv" onChange={onFile} />
+          <p class={css.cardSub}>{t('contacts-import-hint')}</p>
+          <input type="file" aria-label={t('contacts-import-file')} accept=".vcf,.csv,text/vcard,text/csv" onChange={onFile} />
           <textarea
             class={css.input}
-            aria-label="Paste vCard or CSV"
+            aria-label={t('contacts-paste')}
             rows={6}
             value={text()}
             onInput={(e) => setText(e.currentTarget.value)}
           />
           <div class={css.actions}>
-            <button type="button" class={css.buttonGhost} onClick={props.onClose}>Cancel</button>
-            <button type="button" class={css.button} onClick={preview}>Preview</button>
+            <button type="button" class={css.buttonGhost} onClick={props.onClose}>{t('common-cancel')}</button>
+            <button type="button" class={css.button} onClick={preview}>{t('contacts-preview')}</button>
           </div>
 
           <Show when={format() === 'csv' && parsedCsv() !== null}>
             <div class={css.fieldGroup}>
-              <span class={css.fieldLabel}>Map columns</span>
+              <span class={css.fieldLabel}>{t('contacts-map-columns')}</span>
               <table class={css.table}>
                 <thead>
-                  <tr><th class={css.th}>Column</th><th class={css.th}>Maps to</th><th class={css.th}>Sample</th></tr>
+                  <tr><th class={css.th}>{t('contacts-col')}</th><th class={css.th}>{t('contacts-maps-to')}</th><th class={css.th}>{t('contacts-sample')}</th></tr>
                 </thead>
                 <tbody>
                   <For each={parsedCsv()!.headers}>
                     {(header, i) => (
                       <tr>
-                        <td class={css.td}>{header}</td>
+                        <td class={css.td}><bdi>{header}</bdi></td>
                         <td class={css.td}>
                           <select
                             class={css.select}
-                            aria-label={`Map column ${header}`}
+                            aria-label={t('contacts-map-column', { header })}
                             value={mapping.cols[i()] ?? 'ignore'}
                             onChange={(e) => setMapping('cols', i(), e.currentTarget.value as CsvField)}
                           >
                             <For each={CSV_FIELDS}>{(f) => <option value={f}>{f}</option>}</For>
                           </select>
                         </td>
-                        <td class={css.td}>{parsedCsv()!.rows[0]?.[i()] ?? ''}</td>
+                        <td class={css.td}><bdi>{parsedCsv()!.rows[0]?.[i()] ?? ''}</bdi></td>
                       </tr>
                     )}
                   </For>
@@ -637,16 +646,16 @@ function ImportDialog(props: { onClose: () => void }): JSX.Element {
 
           <Show when={previewCards().length > 0}>
             <div class={css.fieldGroup}>
-              <span class={css.fieldLabel}>Preview ({previewCards().length})</span>
-              <ul class={css.contactList} aria-label="Import preview">
+              <span class={css.fieldLabel}>{t('contacts-preview-count', { count: previewCards().length })}</span>
+              <ul class={css.contactList} aria-label={t('contacts-import-preview')}>
                 <For each={previewCards()}>
-                  {(c) => <li class={css.rowMeta}>{c.name.full || '(no name)'} — {c.emails[0]?.value ?? 'no email'}</li>}
+                  {(c) => <li class={css.rowMeta}><bdi>{c.name.full || t('contacts-no-name')}</bdi> — <bdi>{c.emails[0]?.value ?? t('contacts-no-email')}</bdi></li>}
                 </For>
               </ul>
             </div>
             <div class={css.actions}>
               <button type="button" class={css.button} onClick={commit}>
-                Import {previewCards().length} contact{previewCards().length === 1 ? '' : 's'}
+                {t('contacts-import-n', { count: previewCards().length })}
               </button>
             </div>
           </Show>
@@ -679,43 +688,49 @@ function DuplicatesDialog(props: { onClose: () => void }): JSX.Element {
     setReview(null);
   }
 
+  let dialogRef!: HTMLDivElement;
+  onMount(() => {
+    const dispose = wireDialogFocus(dialogRef, props.onClose);
+    onCleanup(dispose);
+  });
+
   return (
-    <div class={css.dialogBackdrop} role="dialog" aria-modal="true" aria-label="Merge duplicates" onClick={props.onClose}>
-      <div class={css.dialog} onClick={(e) => e.stopPropagation()}>
-        <h1 class={css.cardName}>Merge duplicates</h1>
+    <div class={css.dialogBackdrop} onClick={props.onClose}>
+      <div ref={dialogRef} class={css.dialog} role="dialog" tabindex={-1} aria-modal="true" aria-label={t('contacts-merge-title')} onClick={(e) => e.stopPropagation()}>
+        <h1 class={css.cardName}>{t('contacts-merge-title')}</h1>
 
         <Show when={review() === null} fallback={
           <>
-            <p class={css.cardSub}>Review the merged card. The other cards become tombstones (reversible).</p>
+            <p class={css.cardSub}>{t('contacts-merge-review-hint')}</p>
             <Show when={merged() !== null}>
-              <article class={css.card} aria-label="Merged preview">
-                <h2 class={css.cardName}>{contactDisplayName(merged()!)}</h2>
+              <article class={css.card} aria-label={t('contacts-merged-preview')}>
+                <h2 class={css.cardName}><bdi>{contactDisplayName(merged()!)}</bdi></h2>
                 <div class={css.fieldGroup}>
-                  <span class={css.fieldLabel}>Emails</span>
-                  <For each={merged()!.emails}>{(e) => <span>{e.value}</span>}</For>
+                  <span class={css.fieldLabel}>{t('contacts-emails')}</span>
+                  <For each={merged()!.emails}>{(e) => <span><bdi>{e.value}</bdi></span>}</For>
                 </div>
                 <Show when={merged()!.phones.length > 0}>
                   <div class={css.fieldGroup}>
-                    <span class={css.fieldLabel}>Phones</span>
-                    <For each={merged()!.phones}>{(p) => <span>{p.value}</span>}</For>
+                    <span class={css.fieldLabel}>{t('contacts-phones')}</span>
+                    <For each={merged()!.phones}>{(p) => <span><bdi>{p.value}</bdi></span>}</For>
                   </div>
                 </Show>
               </article>
             </Show>
             <div class={css.actions}>
-              <button type="button" class={css.buttonGhost} onClick={() => setReview(null)}>Back</button>
-              <button type="button" class={css.button} onClick={confirm}>Merge contacts</button>
+              <button type="button" class={css.buttonGhost} onClick={() => setReview(null)}>{t('common-back')}</button>
+              <button type="button" class={css.button} onClick={confirm}>{t('contacts-merge-confirm')}</button>
             </div>
           </>
         }>
-          <Show when={clusters().length > 0} fallback={<p class={css.empty}>No duplicates found.</p>}>
+          <Show when={clusters().length > 0} fallback={<p class={css.empty}>{t('contacts-no-duplicates')}</p>}>
             <For each={clusters()}>
               {(cluster) => (
                 <div class={css.card}>
-                  <span class={css.fieldLabel}>{cluster.length} possible duplicates</span>
+                  <span class={css.fieldLabel}>{t('contacts-possible-duplicates', { count: cluster.length })}</span>
                   <ul class={css.contactList}>
                     <For each={cluster}>
-                      {(c) => <li class={css.rowMeta}>{contactDisplayName(c)} — {primaryEmail(c) || 'no email'}</li>}
+                      {(c) => <li class={css.rowMeta}><bdi>{contactDisplayName(c)}</bdi> — <bdi>{primaryEmail(c) || t('contacts-no-email')}</bdi></li>}
                     </For>
                   </ul>
                   <div class={css.actions}>
@@ -724,7 +739,7 @@ function DuplicatesDialog(props: { onClose: () => void }): JSX.Element {
                       class={css.button}
                       onClick={() => setReview({ keepId: cluster[0]!.id, mergeIds: cluster.slice(1).map((c) => c.id) })}
                     >
-                      Review merge
+                      {t('contacts-review-merge')}
                     </button>
                   </div>
                 </div>
@@ -732,7 +747,7 @@ function DuplicatesDialog(props: { onClose: () => void }): JSX.Element {
             </For>
           </Show>
           <div class={css.actions}>
-            <button type="button" class={css.buttonGhost} onClick={props.onClose}>Close</button>
+            <button type="button" class={css.buttonGhost} onClick={props.onClose}>{t('common-close')}</button>
           </div>
         </Show>
       </div>

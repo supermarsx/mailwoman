@@ -18,8 +18,8 @@ export const sidebar = style({
   display: 'flex',
   flexDirection: 'column',
   gap: vars.space[2],
-  borderRight: `1px solid ${vars.color.border}`,
-  paddingRight: vars.space[4],
+  borderInlineEnd: `1px solid ${vars.color.border}`,
+  paddingInlineEnd: vars.space[4],
 });
 
 export const sidebarHeading = style({
@@ -42,7 +42,8 @@ export const navButton = style({
   background: 'transparent',
   color: vars.color.text,
   font: 'inherit',
-  textAlign: 'left',
+  textAlign: 'start',
+  minHeight: vars.a11y.touchTarget,
   cursor: 'pointer',
   selectors: {
     '&[aria-current="true"]': {
@@ -51,6 +52,7 @@ export const navButton = style({
       fontWeight: 600,
     },
     '&:hover': { background: vars.color.bgAlt },
+    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
   },
 });
 
@@ -81,6 +83,8 @@ export const input = style({
   background: vars.color.surface,
   color: vars.color.text,
   font: 'inherit',
+  minHeight: vars.a11y.touchTarget,
+  selectors: { '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing } },
 });
 
 export const button = style({
@@ -90,6 +94,15 @@ export const button = style({
   background: vars.color.accent,
   color: vars.color.accentText,
   font: 'inherit',
+  minHeight: vars.a11y.touchTarget,
+  cursor: 'pointer',
+  selectors: { '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing } },
+});
+
+// WCAG 2.2 §2.5.8 — the complete/reopen checkbox is at least 24×24 CSS px.
+export const checkbox = style({
+  width: vars.a11y.touchTarget,
+  height: vars.a11y.touchTarget,
   cursor: 'pointer',
 });
 
@@ -104,7 +117,8 @@ export const taskList = style({
 
 export const subtasks = style({
   listStyle: 'none',
-  margin: `${vars.space[1]} 0 0 ${vars.space[6]}`,
+  marginBlock: `${vars.space[1]} 0`,
+  marginInline: `${vars.space[6]} 0`,
   padding: 0,
   display: 'flex',
   flexDirection: 'column',

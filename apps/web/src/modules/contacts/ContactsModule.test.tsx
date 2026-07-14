@@ -130,6 +130,20 @@ describe('ContactsModule', () => {
     expect(screen.queryByTestId('contact-security')).toBeNull();
   });
 
+  // a11y (t8-e2): the import/merge dialogs are self-contained modals — Escape
+  // closes them and focus returns to the invoking control.
+  it('closes the import dialog on Escape and restores focus to the opener', async () => {
+    renderModule();
+    await screen.findByText('Ada Lovelace');
+    const opener = screen.getByRole('button', { name: 'Import…' });
+    opener.focus();
+    fireEvent.click(opener);
+    const dialog = await screen.findByRole('dialog', { name: 'Import contacts' });
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Import contacts' })).toBeNull());
+    expect(document.activeElement).toBe(opener);
+  });
+
   it('creates a group and adds a contact to it', async () => {
     const { app } = renderModule();
     fireEvent.click(await screen.findByText('Ada Lovelace'));

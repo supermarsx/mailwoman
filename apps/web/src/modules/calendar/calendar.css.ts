@@ -25,6 +25,20 @@ export const toolbar = style({
   flexWrap: 'wrap',
 });
 
+// Visually hidden but exposed to assistive tech — used for the calendar's
+// polite live region that announces the focused day + its event count.
+export const srOnly = style({
+  position: 'absolute',
+  width: '1px',
+  height: '1px',
+  padding: 0,
+  margin: '-1px',
+  overflow: 'hidden',
+  clip: 'rect(0, 0, 0, 0)',
+  whiteSpace: 'nowrap',
+  border: 0,
+});
+
 export const title = style({
   fontSize: '1.1rem',
   fontWeight: 600,
@@ -40,11 +54,16 @@ export const button = style({
   color: vars.color.text,
   borderRadius: vars.radius.md,
   padding: `${vars.space[1]} ${vars.space[2]}`,
+  // WCAG 2.2 §2.5.8 — interactive controls are at least 24×24 CSS px.
+  minHeight: vars.a11y.touchTarget,
+  minWidth: vars.a11y.touchTarget,
   cursor: 'pointer',
   font: 'inherit',
+  transitionProperty: 'background',
+  transitionDuration: vars.a11y.motionDuration,
   selectors: {
     '&:hover': { background: vars.color.bgAlt },
-    '&:focus-visible': { outline: `2px solid ${vars.color.accent}`, outlineOffset: '1px' },
+    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
   },
 });
 
@@ -62,7 +81,7 @@ export const body = style({ display: 'flex', flex: 1, minHeight: 0 });
 export const sidebar = style({
   width: '15rem',
   flexShrink: 0,
-  borderRight: `1px solid ${vars.color.border}`,
+  borderInlineEnd: `1px solid ${vars.color.border}`,
   padding: vars.space[3],
   overflowY: 'auto',
   display: 'flex',
@@ -91,11 +110,11 @@ export const allDayRow = style({
 
 export const gutter = style({ width: '3.5rem', flexShrink: 0, color: vars.color.textDim, fontSize: '0.75rem' });
 
-export const hourCell = style({ height: '3rem', borderBottom: `1px solid ${vars.color.border}`, textAlign: 'right', paddingRight: vars.space[1], boxSizing: 'border-box' });
+export const hourCell = style({ height: '3rem', borderBottom: `1px solid ${vars.color.border}`, textAlign: 'end', paddingInlineEnd: vars.space[1], boxSizing: 'border-box' });
 
 export const dayColumns = style({ display: 'grid', position: 'relative' });
 
-export const dayColumn = style({ position: 'relative', borderRight: `1px solid ${vars.color.border}` });
+export const dayColumn = style({ position: 'relative', borderInlineEnd: `1px solid ${vars.color.border}` });
 
 export const dayHeader = style({ position: 'sticky', top: 0, textAlign: 'center', padding: vars.space[1], borderBottom: `1px solid ${vars.color.border}`, background: vars.color.bgAlt, fontSize: '0.8rem', zIndex: 2 });
 
@@ -103,8 +122,8 @@ export const hourLine = style({ height: '3rem', borderBottom: `1px solid ${vars.
 
 export const eventBlock = style({
   position: 'absolute',
-  left: '2px',
-  right: '2px',
+  insetInlineStart: '2px',
+  insetInlineEnd: '2px',
   borderRadius: vars.radius.sm,
   padding: '1px 4px',
   fontSize: '0.72rem',
@@ -112,7 +131,7 @@ export const eventBlock = style({
   overflow: 'hidden',
   cursor: 'pointer',
   boxSizing: 'border-box',
-  selectors: { '&:focus-visible': { outline: `2px solid ${vars.color.text}` } },
+  selectors: { '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing } },
 });
 
 export const allDayChip = style({
@@ -129,11 +148,31 @@ export const allDayChip = style({
 
 export const monthGridEl = style({ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gridAutoRows: '1fr', height: '100%', minHeight: '30rem' });
 
+// Row-based month grid (WAI-ARIA grid = rows of cells) for the interactive Month
+// view: a flex column of `role=row` weeks, each a 7-column CSS grid of day cells.
+export const monthGridRows = style({ display: 'flex', flexDirection: 'column', flex: 1, minHeight: '30rem' });
+
+export const monthRow = style({ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', flex: 1 });
+
 export const weekdayHead = style({ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: `1px solid ${vars.color.border}`, background: vars.color.bgAlt });
 
 export const weekdayCell = style({ padding: vars.space[1], textAlign: 'center', fontSize: '0.75rem', color: vars.color.textDim });
 
-export const monthCell = style({ border: `1px solid ${vars.color.border}`, padding: '2px', minHeight: '4.5rem', overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: '1px' });
+export const monthCell = style({
+  border: `1px solid ${vars.color.border}`,
+  padding: '2px',
+  minHeight: '4.5rem',
+  overflow: 'hidden',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '1px',
+  cursor: 'pointer',
+  selectors: {
+    // Roving-tabindex date cell — a clearly visible focus ring for keyboard nav.
+    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing, position: 'relative', zIndex: 1 },
+    '&[aria-selected="true"]': { outline: `2px solid ${vars.color.accent}`, outlineOffset: '-2px' },
+  },
+});
 
 export const monthCellOut = style([monthCell, { background: vars.color.bgSink, color: vars.color.textDim }]);
 
@@ -141,7 +180,7 @@ export const dayNum = style({ fontSize: '0.75rem', alignSelf: 'flex-end' });
 
 export const dayNumToday = style([dayNum, { background: vars.color.accent, color: vars.color.accentText, borderRadius: vars.radius.pill, padding: '0 6px' }]);
 
-export const monthEvent = style({ fontSize: '0.7rem', borderRadius: vars.radius.sm, padding: '0 3px', color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer' });
+export const monthEvent = style({ fontSize: '0.7rem', borderRadius: vars.radius.sm, padding: '0 3px', color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer', appearance: 'none', border: 'none', textAlign: 'start', selectors: { '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing } } });
 
 export const triMonth = style({ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: vars.space[3], padding: vars.space[3] });
 
@@ -153,7 +192,7 @@ export const agendaDay = style({ display: 'flex', flexDirection: 'column', gap: 
 
 export const agendaDate = style({ fontWeight: 600, borderBottom: `1px solid ${vars.color.border}`, paddingBottom: '2px', marginBottom: '2px' });
 
-export const agendaRow = style({ display: 'flex', gap: vars.space[3], alignItems: 'center', padding: '2px 0', cursor: 'pointer' });
+export const agendaRow = style({ display: 'flex', gap: vars.space[3], alignItems: 'center', padding: '2px 0', cursor: 'pointer', appearance: 'none', border: 'none', background: 'none', color: 'inherit', font: 'inherit', width: '100%', textAlign: 'start', minHeight: vars.a11y.touchTarget, selectors: { '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing } } });
 
 export const agendaTime = style({ width: '9rem', flexShrink: 0, color: vars.color.textDim, fontSize: '0.85rem' });
 
@@ -169,7 +208,7 @@ export const miniTitle = style({ textAlign: 'center', fontSize: '0.85rem', fontW
 
 export const miniGrid = style({ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '1px' });
 
-export const miniDay = style({ fontSize: '0.65rem', textAlign: 'center', padding: '1px', cursor: 'pointer', borderRadius: vars.radius.sm });
+export const miniDay = style({ fontSize: '0.65rem', textAlign: 'center', padding: '1px', cursor: 'pointer', borderRadius: vars.radius.sm, appearance: 'none', border: 'none', background: 'none', color: 'inherit', selectors: { '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing } } });
 
 export const miniDayEvent = style([miniDay, { fontWeight: 700, color: vars.color.accent }]);
 
@@ -184,7 +223,7 @@ export const conflictBadge = style({
   borderRadius: vars.radius.pill,
   fontSize: '0.6rem',
   padding: '0 4px',
-  marginLeft: '2px',
+  marginInlineStart: '2px',
 });
 
 // ── editor dialog ────────────────────────────────────────────────────────────
@@ -224,6 +263,7 @@ export const input = style({
   borderRadius: vars.radius.md,
   padding: `${vars.space[1]} ${vars.space[2]}`,
   font: 'inherit',
+  selectors: { '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing } },
 });
 
 export const row = style({ display: 'flex', gap: vars.space[2], alignItems: 'center', flexWrap: 'wrap' });

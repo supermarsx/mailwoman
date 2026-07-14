@@ -106,11 +106,35 @@ export function daysInMonth(year: number, month0: number): number {
   return new Date(year, month0 + 1, 0).getDate();
 }
 
-/** `weekStartsOn`: 0 = Sunday, 1 = Monday. */
-export function startOfWeek(d: Date, weekStartsOn: 0 | 1 = 1): Date {
+/** `weekStartsOn`: 0 = Sunday … 6 = Saturday. */
+export function startOfWeek(d: Date, weekStartsOn: number = 1): Date {
   const day = d.getDay();
   const diff = (day - weekStartsOn + 7) % 7;
   return addDays(startOfDay(d), -diff);
+}
+
+/**
+ * The locale-correct first day of the week (0 = Sunday … 6 = Saturday), read
+ * from the viewer's locale via `Intl.Locale`'s week info (e.g. Monday for most of
+ * Europe, Sunday for en-US, Saturday for many MENA locales). Falls back to Monday
+ * when the runtime doesn't expose week info. The calendar grid + the controller's
+ * load window both consult this so they always agree on where a week begins.
+ */
+export function localeWeekStart(locale?: string): number {
+  try {
+    const tag = locale ?? (typeof navigator !== 'undefined' ? navigator.language : 'en');
+    const loc = new Intl.Locale(tag) as Intl.Locale & {
+      getWeekInfo?: () => { firstDay: number };
+      weekInfo?: { firstDay: number };
+    };
+    const info = loc.getWeekInfo?.() ?? loc.weekInfo;
+    // Intl week info uses ISO firstDay 1..7 (Mon..Sun); JS getDay() is 0..6
+    // (Sun..Sat), so Sunday (7) maps to 0.
+    if (info !== undefined && typeof info.firstDay === 'number') return info.firstDay % 7;
+  } catch {
+    /* Intl.Locale unsupported / bad tag — fall through to Monday. */
+  }
+  return 1;
 }
 
 export function sameDay(a: Date, b: Date): boolean {
@@ -139,7 +163,7 @@ export function daysFrom(start: Date, n: number): Date[] {
  * the trailing days of the previous month and leading days of the next so every
  * cell is filled (the standard month-view layout).
  */
-export function monthGrid(year: number, month0: number, weekStartsOn: 0 | 1 = 1): Date[][] {
+export function monthGrid(year: number, month0: number, weekStartsOn: number = 1): Date[][] {
   const first = new Date(year, month0, 1);
   const gridStart = startOfWeek(first, weekStartsOn);
   const weeks: Date[][] = [];
@@ -177,6 +201,19 @@ export function formatMonth(d: Date): string {
 }
 export function formatFull(d: Date): string {
   return fullFmt.format(d);
+}
+
+/**
+ * Localized weekday header labels in display order for a grid that begins on
+ * `weekStart` (0 = Sunday … 6 = Saturday). Derived from `Intl` so the month
+ * header reads correctly in every locale. `2023-01-01` is a known Sunday anchor.
+ */
+export function weekdayNames(weekStart = 1, style: 'short' | 'long' = 'short'): string[] {
+  const fmt = style === 'long' ? new Intl.DateTimeFormat(undefined, { weekday: 'long' }) : weekdayFmt;
+  const sunday = new Date(2023, 0, 1);
+  const out: string[] = [];
+  for (let i = 0; i < 7; i += 1) out.push(fmt.format(addDays(sunday, weekStart + i)));
+  return out;
 }
 
 /** Minutes since local midnight — the vertical position key for time grids. */

@@ -18,8 +18,8 @@ export const sidebar = style({
   display: 'flex',
   flexDirection: 'column',
   gap: vars.space[1],
-  borderRight: `1px solid ${vars.color.border}`,
-  paddingRight: vars.space[4],
+  borderInlineEnd: `1px solid ${vars.color.border}`,
+  paddingInlineEnd: vars.space[4],
   minWidth: 0,
 });
 
@@ -46,7 +46,8 @@ export const navButton = style({
   background: 'transparent',
   color: vars.color.text,
   font: 'inherit',
-  textAlign: 'left',
+  textAlign: 'start',
+  minHeight: vars.a11y.touchTarget,
   cursor: 'pointer',
   width: '100%',
   selectors: {
@@ -56,6 +57,7 @@ export const navButton = style({
       fontWeight: 600,
     },
     '&:hover': { background: vars.color.bgAlt },
+    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
   },
 });
 
@@ -69,8 +71,8 @@ export const listPane = style({
   flexDirection: 'column',
   gap: vars.space[3],
   minWidth: 0,
-  borderRight: `1px solid ${vars.color.border}`,
-  paddingRight: vars.space[4],
+  borderInlineEnd: `1px solid ${vars.color.border}`,
+  paddingInlineEnd: vars.space[4],
 });
 
 export const toolbar = style({
@@ -89,6 +91,8 @@ export const input = style({
   background: vars.color.surface,
   color: vars.color.text,
   font: 'inherit',
+  minHeight: vars.a11y.touchTarget,
+  selectors: { '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing } },
 });
 
 export const button = style({
@@ -98,7 +102,9 @@ export const button = style({
   background: vars.color.accent,
   color: vars.color.accentText,
   font: 'inherit',
+  minHeight: vars.a11y.touchTarget,
   cursor: 'pointer',
+  selectors: { '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing } },
 });
 
 export const buttonGhost = style({
@@ -108,7 +114,9 @@ export const buttonGhost = style({
   background: 'transparent',
   color: vars.color.text,
   font: 'inherit',
+  minHeight: vars.a11y.touchTarget,
   cursor: 'pointer',
+  selectors: { '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing } },
 });
 
 export const contactList = style({
@@ -131,12 +139,13 @@ export const contactRow = style({
   background: vars.color.surface,
   cursor: 'pointer',
   width: '100%',
-  textAlign: 'left',
+  textAlign: 'start',
   font: 'inherit',
   color: vars.color.text,
   selectors: {
     '&[aria-current="true"]': { borderColor: vars.color.accent, background: vars.color.selection },
     '&:hover': { background: vars.color.bgAlt },
+    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
   },
 });
 
@@ -147,8 +156,13 @@ export const star = style({
   fontSize: '1rem',
   lineHeight: 1,
   padding: vars.space[1],
+  minWidth: vars.a11y.touchTarget,
+  minHeight: vars.a11y.touchTarget,
   color: vars.color.textDim,
-  selectors: { '&[aria-pressed="true"]': { color: vars.color.warning } },
+  selectors: {
+    '&[aria-pressed="true"]': { color: vars.color.warning },
+    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+  },
 });
 
 export const rowBody = style({ flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column' });
@@ -215,7 +229,7 @@ export const table = style({
 });
 
 export const th = style({
-  textAlign: 'left',
+  textAlign: 'start',
   padding: vars.space[2],
   borderBottom: `1px solid ${vars.color.border}`,
 });
@@ -232,6 +246,7 @@ export const select = style({
   background: vars.color.surface,
   color: vars.color.text,
   font: 'inherit',
+  selectors: { '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing } },
 });
 
 export const actions = style({ display: 'flex', gap: vars.space[2], justifyContent: 'flex-end', flexWrap: 'wrap' });

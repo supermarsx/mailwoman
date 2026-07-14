@@ -5,10 +5,18 @@
 // tentative / counter controls (iTIP, plan §2.6). Conflicts for the edited event
 // surface inline. All mutations go through the controller.
 
-import { For, Show, createMemo, createSignal, type JSX } from 'solid-js';
+import { For, Show, createMemo, createSignal, onCleanup, onMount, type JSX } from 'solid-js';
+import { t, isolate } from '../../i18n';
 import type { CalendarEvent, Participant } from '../../api/pim-types.ts';
 import type { CalendarController, EventDraft } from './controller.ts';
 import { dateToLocal, localToDate } from './datetime.ts';
+
+// Self-contained modal focus management (t8-e2 keeps focus primitives per-area —
+// does NOT import the e3-owned src/components/a11y/**). Traps Tab within the
+// dialog, closes on Escape, focuses the first control on open, and restores focus
+// to the invoking element on close.
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 import {
   describeRule,
   firstRule,
@@ -27,7 +35,7 @@ export interface EventEditorProps {
   /** The master being edited, or `null` to create. */
   event: CalendarEvent | null;
   /** Pre-fill the start when creating from a slot (defaults to now). */
-  defaultStart?: Date;
+  defaultStart?: Date | undefined;
   onClose: () => void;
 }
 
@@ -105,6 +113,36 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
       .instancesForDay(localToDate(ev.start))
       .filter((i) => i.event.id === ev.id && props.controller.hasConflict(i.event.id)).length;
   });
+
+  let dialogRef!: HTMLDivElement;
+  let restoreEl: HTMLElement | null = null;
+  onMount(() => {
+    restoreEl = (document.activeElement as HTMLElement | null) ?? null;
+    const first = dialogRef.querySelector<HTMLElement>(FOCUSABLE);
+    (first ?? dialogRef).focus();
+  });
+  onCleanup(() => restoreEl?.focus?.());
+
+  function onDialogKeyDown(e: KeyboardEvent): void {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      props.onClose();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    const nodes = Array.from(dialogRef.querySelectorAll<HTMLElement>(FOCUSABLE));
+    if (nodes.length === 0) return;
+    const first = nodes[0]!;
+    const last = nodes[nodes.length - 1]!;
+    const activeEl = document.activeElement;
+    if (e.shiftKey && activeEl === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && activeEl === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
 
   function toggleByDay(d: Weekday): void {
     setByDay((cur) => (cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d]));
@@ -200,55 +238,64 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
 
   return (
     <div class={css.dialogBackdrop} onClick={(e) => e.target === e.currentTarget && props.onClose()}>
-      <div class={css.dialog} role="dialog" aria-label={ev === null ? 'New event' : 'Edit event'} aria-modal="true">
-        <h2 style={{ margin: 0, 'font-size': '1.1rem' }}>{ev === null ? 'New event' : 'Edit event'}</h2>
+      <div
+        ref={dialogRef}
+        class={css.dialog}
+        role="dialog"
+        tabindex={-1}
+        aria-label={ev === null ? t('calendar-editor-new') : t('calendar-editor-edit')}
+        aria-modal="true"
+        onKeyDown={onDialogKeyDown}
+      >
+        <h2 style={{ margin: 0, 'font-size': '1.1rem' }}>{ev === null ? t('calendar-editor-new') : t('calendar-editor-edit')}</h2>
 
         <Show when={isInvite()}>
-          <div class={css.inviteBar} role="group" aria-label="Invitation">
+          <div class={css.inviteBar} role="group" aria-label={t('calendar-invitation')}>
             <span>
-              You're invited ({myParticipation()?.participationStatus}).
+              {t('calendar-invited', { status: myParticipation()?.participationStatus ?? '' })}
             </span>
             <button type="button" class={css.primaryButton} onClick={() => void respond('accept')}>
-              Accept
+              {t('calendar-accept')}
             </button>
             <button type="button" class={css.button} onClick={() => void respond('tentative')}>
-              Tentative
+              {t('calendar-tentative')}
             </button>
             <button type="button" class={css.button} onClick={() => void respond('decline')}>
-              Decline
+              {t('calendar-decline')}
             </button>
             <button type="button" class={css.button} onClick={() => setCounterOpen((v) => !v)}>
-              Counter…
+              {t('calendar-counter')}
             </button>
           </div>
         </Show>
         <Show when={counterOpen()}>
           <div class={css.row}>
-            <label class={css.label}>Propose new start</label>
+            <label class={css.label} for="ev-counter">{t('calendar-propose-start')}</label>
             <input
+              id="ev-counter"
               class={css.input}
               type="datetime-local"
               value={counterStart()}
               onInput={(e) => setCounterStart(e.currentTarget.value)}
             />
             <button type="button" class={css.primaryButton} onClick={() => void sendCounter()}>
-              Send counter
+              {t('calendar-send-counter')}
             </button>
           </div>
         </Show>
 
         <Show when={conflictCount() > 0}>
-          <p class={css.dangerText}>This event overlaps {conflictCount()} other event(s).</p>
+          <p class={css.dangerText} role="alert">{t('calendar-overlaps', { count: conflictCount() })}</p>
         </Show>
 
         <div class={css.field}>
-          <label class={css.label} for="ev-title">Title</label>
+          <label class={css.label} for="ev-title">{t('calendar-field-title')}</label>
           <input id="ev-title" class={css.input} value={title()} onInput={(e) => setTitle(e.currentTarget.value)} />
         </div>
 
         <div class={css.row}>
           <div class={css.field} style={{ flex: 1 }}>
-            <label class={css.label} for="ev-cal">Calendar</label>
+            <label class={css.label} for="ev-cal">{t('calendar-field-calendar')}</label>
             <select id="ev-cal" class={css.input} value={calendarId()} onChange={(e) => setCalendarId(e.currentTarget.value)}>
               <For each={props.controller.calendars()}>
                 {(c) => <option value={c.id}>{c.name}</option>}
@@ -256,13 +303,13 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
             </select>
           </div>
           <label class={css.chip}>
-            <input type="checkbox" checked={allDay()} onChange={(e) => setAllDay(e.currentTarget.checked)} /> All day
+            <input type="checkbox" checked={allDay()} onChange={(e) => setAllDay(e.currentTarget.checked)} /> {t('calendar-field-all-day')}
           </label>
         </div>
 
         <div class={css.row}>
           <div class={css.field} style={{ flex: 1 }}>
-            <label class={css.label} for="ev-start">Start</label>
+            <label class={css.label} for="ev-start">{t('calendar-field-start')}</label>
             <Show
               when={!allDay()}
               fallback={
@@ -286,7 +333,7 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
           </div>
           <Show when={!allDay()}>
             <div class={css.field}>
-              <label class={css.label} for="ev-dur">Duration (min)</label>
+              <label class={css.label} for="ev-dur">{t('calendar-field-duration')}</label>
               <input
                 id="ev-dur"
                 class={css.input}
@@ -302,24 +349,24 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
         </div>
 
         <div class={css.field}>
-          <label class={css.label} for="ev-loc">Location</label>
+          <label class={css.label} for="ev-loc">{t('calendar-field-location')}</label>
           <input id="ev-loc" class={css.input} value={location()} onInput={(e) => setLocation(e.currentTarget.value)} />
         </div>
 
         <div class={css.row}>
           <div class={css.field}>
-            <label class={css.label} for="ev-fb">Shows as</label>
+            <label class={css.label} for="ev-fb">{t('calendar-field-shows-as')}</label>
             <select id="ev-fb" class={css.input} value={freeBusyStatus()} onChange={(e) => setFreeBusyStatus(e.currentTarget.value as CalendarEvent['freeBusyStatus'])}>
-              <option value="busy">Busy</option>
-              <option value="free">Free</option>
+              <option value="busy">{t('calendar-shows-busy')}</option>
+              <option value="free">{t('calendar-shows-free')}</option>
             </select>
           </div>
           <div class={css.field}>
-            <label class={css.label} for="ev-status">Status</label>
+            <label class={css.label} for="ev-status">{t('calendar-field-status')}</label>
             <select id="ev-status" class={css.input} value={status()} onChange={(e) => setStatus(e.currentTarget.value as CalendarEvent['status'])}>
-              <option value="confirmed">Confirmed</option>
-              <option value="tentative">Tentative</option>
-              <option value="cancelled">Cancelled</option>
+              <option value="confirmed">{t('calendar-status-confirmed')}</option>
+              <option value="tentative">{t('calendar-status-tentative')}</option>
+              <option value="cancelled">{t('calendar-status-cancelled')}</option>
             </select>
           </div>
         </div>
@@ -327,18 +374,18 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
         {/* ── recurrence ── */}
         <div class={css.field}>
           <label class={css.chip}>
-            <input type="checkbox" checked={recurs()} onChange={(e) => setRecurs(e.currentTarget.checked)} /> Repeats
+            <input type="checkbox" checked={recurs()} onChange={(e) => setRecurs(e.currentTarget.checked)} /> {t('calendar-repeats')}
           </label>
           <Show when={recurs()}>
             <div class={css.row}>
-              <select class={css.input} value={freq()} onChange={(e) => setFreq(e.currentTarget.value as RecurrenceRule['frequency'])} aria-label="Frequency">
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-                <option value="yearly">Yearly</option>
+              <select class={css.input} value={freq()} onChange={(e) => setFreq(e.currentTarget.value as RecurrenceRule['frequency'])} aria-label={t('calendar-frequency')}>
+                <option value="daily">{t('calendar-freq-daily')}</option>
+                <option value="weekly">{t('calendar-freq-weekly')}</option>
+                <option value="monthly">{t('calendar-freq-monthly')}</option>
+                <option value="yearly">{t('calendar-freq-yearly')}</option>
               </select>
-              <label class={css.label}>every</label>
-              <input class={css.input} type="number" min="1" style={{ width: '4rem' }} value={interval()} onInput={(e) => setInterval(Math.max(1, Number(e.currentTarget.value) || 1))} aria-label="Interval" />
+              <label class={css.label}>{t('calendar-every')}</label>
+              <input class={css.input} type="number" min="1" style={{ width: '4rem' }} value={interval()} onInput={(e) => setInterval(Math.max(1, Number(e.currentTarget.value) || 1))} aria-label={t('calendar-interval')} />
             </div>
             <Show when={freq() === 'weekly'}>
               <div class={css.row}>
@@ -352,17 +399,17 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
               </div>
             </Show>
             <div class={css.row}>
-              <label class={css.label}>Ends</label>
-              <select class={css.input} value={endMode()} onChange={(e) => setEndMode(e.currentTarget.value as 'never' | 'count' | 'until')} aria-label="End mode">
-                <option value="never">Never</option>
-                <option value="count">After N</option>
-                <option value="until">On date</option>
+              <label class={css.label}>{t('calendar-ends')}</label>
+              <select class={css.input} value={endMode()} onChange={(e) => setEndMode(e.currentTarget.value as 'never' | 'count' | 'until')} aria-label={t('calendar-end-mode')}>
+                <option value="never">{t('calendar-end-never')}</option>
+                <option value="count">{t('calendar-end-count')}</option>
+                <option value="until">{t('calendar-end-until')}</option>
               </select>
               <Show when={endMode() === 'count'}>
-                <input class={css.input} type="number" min="1" style={{ width: '5rem' }} value={count()} onInput={(e) => setCount(Math.max(1, Number(e.currentTarget.value) || 1))} aria-label="Occurrences" />
+                <input class={css.input} type="number" min="1" style={{ width: '5rem' }} value={count()} onInput={(e) => setCount(Math.max(1, Number(e.currentTarget.value) || 1))} aria-label={t('calendar-occurrences')} />
               </Show>
               <Show when={endMode() === 'until'}>
-                <input class={css.input} type="date" value={until().slice(0, 10)} onInput={(e) => setUntil(`${e.currentTarget.value}T00:00:00`)} aria-label="Until date" />
+                <input class={css.input} type="date" value={until().slice(0, 10)} onInput={(e) => setUntil(`${e.currentTarget.value}T00:00:00`)} aria-label={t('calendar-until-date')} />
               </Show>
             </div>
             <Show when={currentRule() !== null}>
@@ -373,38 +420,38 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
 
         {/* ── reminders ── */}
         <div class={css.field}>
-          <label class={css.label}>Reminders</label>
+          <label class={css.label}>{t('calendar-reminders')}</label>
           <div class={css.row}>
             <For each={reminders()}>
               {(min, i) => (
                 <span class={css.chip}>
-                  {min}m before
-                  <button type="button" class={css.button} aria-label={`Remove reminder ${min}`} onClick={() => setReminders((r) => r.filter((_, j) => j !== i()))}>
+                  {t('calendar-reminder-before', { min })}
+                  <button type="button" class={css.button} aria-label={t('calendar-remove-reminder', { min })} onClick={() => setReminders((r) => r.filter((_, j) => j !== i()))}>
                     ×
                   </button>
                 </span>
               )}
             </For>
-            <select class={css.input} onChange={(e) => { const v = Number(e.currentTarget.value); if (v > 0) setReminders((r) => [...r, v]); e.currentTarget.value = ''; }} aria-label="Add reminder">
-              <option value="">+ reminder</option>
-              <option value="5">5 min</option>
-              <option value="15">15 min</option>
-              <option value="30">30 min</option>
-              <option value="60">1 hour</option>
-              <option value="1440">1 day</option>
+            <select class={css.input} onChange={(e) => { const v = Number(e.currentTarget.value); if (v > 0) setReminders((r) => [...r, v]); e.currentTarget.value = ''; }} aria-label={t('calendar-add-reminder')}>
+              <option value="">{t('calendar-reminder-none')}</option>
+              <option value="5">{t('calendar-reminder-5')}</option>
+              <option value="15">{t('calendar-reminder-15')}</option>
+              <option value="30">{t('calendar-reminder-30')}</option>
+              <option value="60">{t('calendar-reminder-60')}</option>
+              <option value="1440">{t('calendar-reminder-1440')}</option>
             </select>
           </div>
         </div>
 
         {/* ── attendees ── */}
         <div class={css.field}>
-          <label class={css.label}>Attendees</label>
+          <label class={css.label}>{t('calendar-attendees')}</label>
           <div class={css.row}>
             <For each={attendees()}>
               {(a, i) => (
                 <span class={css.chip}>
-                  {a.email}
-                  <button type="button" class={css.button} aria-label={`Remove ${a.email}`} onClick={() => setAttendees((cur) => cur.filter((_, j) => j !== i()))}>
+                  <bdi>{a.email}</bdi>
+                  <button type="button" class={css.button} aria-label={t('calendar-remove-attendee', { email: isolate(a.email) })} onClick={() => setAttendees((cur) => cur.filter((_, j) => j !== i()))}>
                     ×
                   </button>
                 </span>
@@ -418,24 +465,24 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
               value={newAttendee()}
               onInput={(e) => setNewAttendee(e.currentTarget.value)}
               onKeyDown={(e) => e.key === 'Enter' && addAttendee()}
-              aria-label="Add attendee"
+              aria-label={t('calendar-add-attendee')}
             />
-            <button type="button" class={css.button} onClick={addAttendee}>Add</button>
+            <button type="button" class={css.button} onClick={addAttendee}>{t('common-add')}</button>
           </div>
         </div>
 
         <div class={css.field}>
-          <label class={css.label} for="ev-desc">Notes</label>
+          <label class={css.label} for="ev-desc">{t('calendar-notes')}</label>
           <textarea id="ev-desc" class={css.input} rows="3" value={description()} onInput={(e) => setDescription(e.currentTarget.value)} />
         </div>
 
         <div class={css.dialogActions}>
           <Show when={ev !== null}>
-            <button type="button" class={css.button} onClick={() => void remove()}>Delete</button>
+            <button type="button" class={css.button} onClick={() => void remove()}>{t('common-delete')}</button>
           </Show>
           <span class={css.spacer} />
-          <button type="button" class={css.button} onClick={props.onClose}>Cancel</button>
-          <button type="button" class={css.primaryButton} onClick={() => void save()}>Save</button>
+          <button type="button" class={css.button} onClick={props.onClose}>{t('common-cancel')}</button>
+          <button type="button" class={css.primaryButton} onClick={() => void save()}>{t('common-save')}</button>
         </div>
       </div>
     </div>

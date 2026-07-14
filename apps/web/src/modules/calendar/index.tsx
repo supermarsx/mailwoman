@@ -9,6 +9,7 @@
 // explicit controller so views + tests drive it without the app store.
 
 import { For, Show, createSignal, onMount, type JSX } from 'solid-js';
+import { t, loadCatalog } from '../../i18n';
 import type { CalendarEvent } from '../../api/pim-types.ts';
 import { createCalendarController, type CalendarBackend, type CalendarController } from './controller.ts';
 import { createMockStore, mockSession, createMockJmap, type MockStore } from './mock.ts';
@@ -59,17 +60,26 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
   const c = props.controller;
   const [editorOpen, setEditorOpen] = createSignal(false);
   const [editing, setEditing] = createSignal<CalendarEvent | null>(null);
+  const [defaultStart, setDefaultStart] = createSignal<Date | undefined>(undefined);
 
   onMount(() => {
+    void loadCatalog('calendar');
     void c.load();
   });
 
   function openNew(): void {
     setEditing(null);
+    setDefaultStart(undefined);
+    setEditorOpen(true);
+  }
+  function openNewAt(day: Date): void {
+    setEditing(null);
+    setDefaultStart(day);
     setEditorOpen(true);
   }
   function openEvent(masterId: string): void {
     setEditing(c.masterById(masterId) ?? null);
+    setDefaultStart(undefined);
     setEditorOpen(true);
   }
 
@@ -98,13 +108,13 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
   let importInput: HTMLInputElement | undefined;
 
   return (
-    <section class={css.module} aria-label="Calendar" data-module="calendar">
+    <section class={css.module} aria-label={t('calendar-title')} data-module="calendar">
       <div class={css.toolbar}>
-        <span class={css.title}>{headerLabel(c)}</span>
-        <button type="button" class={css.button} onClick={() => c.goPrev()} aria-label="Previous">‹</button>
-        <button type="button" class={css.button} onClick={() => c.goToday()}>Today</button>
-        <button type="button" class={css.button} onClick={() => c.goNext()} aria-label="Next">›</button>
-        <div class={css.viewSwitch} role="tablist" aria-label="Calendar views">
+        <span class={css.title} aria-live="polite">{headerLabel(c)}</span>
+        <button type="button" class={css.button} onClick={() => c.goPrev()} aria-label={t('calendar-prev')}>‹</button>
+        <button type="button" class={css.button} onClick={() => c.goToday()}>{t('calendar-today')}</button>
+        <button type="button" class={css.button} onClick={() => c.goNext()} aria-label={t('calendar-next')}>›</button>
+        <div class={css.viewSwitch} role="tablist" aria-label={t('calendar-views')}>
           <For each={CALENDAR_VIEWS}>
             {(view) => (
               <button
@@ -114,29 +124,29 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
                 class={c.view() === view.id ? css.viewButton.active : css.viewButton.base}
                 onClick={() => c.setView(view.id as CalendarView)}
               >
-                {view.label}
+                {t(`calendar-view-${view.id}`)}
               </button>
             )}
           </For>
         </div>
         <span class={css.spacer} />
-        <button type="button" class={css.primaryButton} onClick={openNew}>+ Event</button>
-        <button type="button" class={css.button} onClick={() => importInput?.click()}>Import</button>
-        <button type="button" class={css.button} onClick={() => void onExport()}>Export</button>
+        <button type="button" class={css.primaryButton} onClick={openNew}>{t('calendar-new-event')}</button>
+        <button type="button" class={css.button} onClick={() => importInput?.click()}>{t('calendar-import')}</button>
+        <button type="button" class={css.button} onClick={() => void onExport()}>{t('calendar-export')}</button>
         <input
           ref={importInput}
           type="file"
           accept=".ics,.hol,text/calendar"
           style={{ display: 'none' }}
-          aria-label="Import calendar file"
+          aria-label={t('calendar-import-file')}
           onChange={(e) => void onImportFile(e)}
         />
       </div>
 
       <div class={css.body}>
-        <aside class={css.sidebar}>
+        <aside class={css.sidebar} aria-label={t('calendar-calendars-heading')}>
           <div>
-            <h3 style={{ margin: '0 0 0.25rem', 'font-size': '0.85rem' }}>Calendars</h3>
+            <h3 style={{ margin: '0 0 0.25rem', 'font-size': '0.85rem' }}>{t('calendar-calendars-heading')}</h3>
             <ul class={css.calList}>
               <For each={c.calendars()}>
                 {(cal) => (
@@ -145,48 +155,48 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
                       type="checkbox"
                       checked={cal.isVisible}
                       onChange={() => void c.toggleCalendar(cal.id)}
-                      aria-label={`Toggle ${cal.name}`}
+                      aria-label={t('calendar-toggle', { name: cal.name })}
                     />
                     <input
                       type="color"
                       value={cal.color}
                       onChange={(e) => void c.setCalendarColor(cal.id, e.currentTarget.value)}
-                      aria-label={`Color for ${cal.name}`}
+                      aria-label={t('calendar-color-for', { name: cal.name })}
                       style={{ width: '1.4rem', height: '1.4rem', padding: 0, border: 'none', background: 'none' }}
                     />
-                    <span>{cal.name}</span>
+                    <span><bdi>{cal.name}</bdi></span>
                     <Show when={cal.isReadOnlyOverlay || cal.caldavUrl !== null}>
-                      <span class={css.dimText} title={cal.caldavUrl ?? 'overlay'}>⇅</span>
+                      <span class={css.dimText} title={cal.caldavUrl ?? t('calendar-synced')} aria-label={t('calendar-synced')}>⇅</span>
                     </Show>
                   </li>
                 )}
               </For>
             </ul>
-            <button type="button" class={css.button} style={{ 'margin-top': '0.5rem' }} onClick={() => void c.createCalendar('New calendar', '#22c55e')}>
-              + Calendar
+            <button type="button" class={css.button} style={{ 'margin-top': '0.5rem' }} onClick={() => void c.createCalendar(t('calendar-new-calendar-name'), '#22c55e')}>
+              {t('calendar-add-calendar')}
             </button>
           </div>
 
           <div>
-            <h3 style={{ margin: '0 0 0.25rem', 'font-size': '0.85rem' }}>Holidays</h3>
-            <select class={css.input} aria-label="Subscribe to holidays" onChange={(e) => { const v = e.currentTarget.value; if (v !== '') void subscribeHoliday(v); e.currentTarget.value = ''; }}>
-              <option value="">Add a region…</option>
+            <h3 style={{ margin: '0 0 0.25rem', 'font-size': '0.85rem' }}>{t('calendar-holidays-heading')}</h3>
+            <select class={css.input} aria-label={t('calendar-subscribe-holidays')} onChange={(e) => { const v = e.currentTarget.value; if (v !== '') void subscribeHoliday(v); e.currentTarget.value = ''; }}>
+              <option value="">{t('calendar-add-region')}</option>
               <For each={HOLIDAY_PACKS}>{(p) => <option value={p.id}>{p.label}</option>}</For>
             </select>
           </div>
 
           <Show when={c.error() !== null}>
-            <p class={css.dangerText}>{c.error()}</p>
+            <p class={css.dangerText} role="alert">{c.error()}</p>
           </Show>
         </aside>
 
         <main class={css.main}>
-          <ActiveView controller={c} onOpenEvent={(inst) => openEvent(inst.event.id)} />
+          <ActiveView controller={c} onOpenEvent={(inst) => openEvent(inst.event.id)} onNewAt={(day) => openNewAt(day)} />
         </main>
       </div>
 
       <Show when={editorOpen()}>
-        <EventEditor controller={c} event={editing()} onClose={() => setEditorOpen(false)} />
+        <EventEditor controller={c} event={editing()} defaultStart={defaultStart()} onClose={() => setEditorOpen(false)} />
       </Show>
     </section>
   );

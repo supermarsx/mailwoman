@@ -1,9 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { render, fireEvent, screen, waitFor } from '@solidjs/testing-library';
 import { CalendarApp } from './index.tsx';
 import { EventEditor } from './EventEditor.tsx';
 import { createCalendarController, type CalendarController } from './controller.ts';
 import { createMockStore, createMockJmap, type MockStore } from './mock.ts';
+import { addDays, dateToCalDate, startOfDay } from './datetime.ts';
 import type { CalendarEvent } from '../../api/pim-types.ts';
 
 function makeController(store: MockStore): CalendarController {
@@ -58,7 +59,7 @@ describe('CalendarApp', () => {
 
   it('creates an event through the editor', async () => {
     const { controller } = await renderApp();
-    fireEvent.click(screen.getByRole('button', { name: '+ Event' }));
+    fireEvent.click(screen.getByRole('button', { name: 'New event' }));
     expect(await screen.findByRole('dialog', { name: 'New event' })).toBeInTheDocument();
     fireEvent.input(screen.getByLabelText('Title'), { target: { value: 'Team sync' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -79,6 +80,67 @@ describe('CalendarApp', () => {
     const before = controller.masters().length;
     fireEvent.change(screen.getByLabelText('Subscribe to holidays'), { target: { value: 'uk' } });
     await waitFor(() => expect(controller.masters().length).toBeGreaterThan(before));
+  });
+});
+
+// ── Flagship: the WAI-ARIA month grid (keyboard date nav + SR announcements +
+//    RTL mirroring). SPEC §24 L1371-1372. ──────────────────────────────────────
+describe('CalendarApp month grid (WAI-ARIA)', () => {
+  afterEach(() => document.documentElement.removeAttribute('dir'));
+
+  /** Render, switch to Month view, and return the roving-focused cell. */
+  async function renderMonthGrid(): Promise<{ grid: HTMLElement; activeCell: HTMLElement }> {
+    await renderApp();
+    fireEvent.click(screen.getByRole('tab', { name: 'Month' }));
+    const grid = await screen.findByRole('grid');
+    const cells = screen.getAllByRole('gridcell');
+    const activeCell = cells.find((c) => c.getAttribute('tabindex') === '0')!;
+    return { grid, activeCell };
+  }
+
+  it('exposes a grid of rows and day cells with a single roving tabindex', async () => {
+    const { grid } = await renderMonthGrid();
+    expect(grid).toBeInTheDocument();
+    // 6 weeks × 7 days = 42 day cells; exactly one is in the tab order.
+    const cells = screen.getAllByRole('gridcell');
+    expect(cells).toHaveLength(42);
+    expect(cells.filter((c) => c.getAttribute('tabindex') === '0')).toHaveLength(1);
+    // The active cell is today (the initial focus date).
+    const today = dateToCalDate(startOfDay(new Date()));
+    expect(cells.find((c) => c.getAttribute('tabindex') === '0')?.getAttribute('data-date')).toBe(today);
+  });
+
+  it('moves focus by day/week with the arrow keys (roving tabindex follows)', async () => {
+    const { activeCell } = await renderMonthGrid();
+    const today = startOfDay(new Date());
+    activeCell.focus();
+
+    fireEvent.keyDown(activeCell, { key: 'ArrowRight' });
+    expect((document.activeElement as HTMLElement).getAttribute('data-date')).toBe(dateToCalDate(addDays(today, 1)));
+
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' });
+    expect((document.activeElement as HTMLElement).getAttribute('data-date')).toBe(dateToCalDate(addDays(today, 8)));
+  });
+
+  it('announces the focused day and its event count via a live region', async () => {
+    const { activeCell } = await renderMonthGrid();
+    activeCell.focus();
+    const live = screen.getByTestId('calendar-live');
+    // "Today" carries the seeded Lunch + Design review, so ≥2 events are announced.
+    expect(live).toHaveTextContent(/event/i);
+    // Navigating updates the announcement to the newly focused day.
+    fireEvent.keyDown(activeCell, { key: 'ArrowRight' });
+    expect(live.textContent ?? '').not.toBe('');
+  });
+
+  it('mirrors arrow-key navigation under dir="rtl"', async () => {
+    const { activeCell } = await renderMonthGrid();
+    document.documentElement.setAttribute('dir', 'rtl');
+    const today = startOfDay(new Date());
+    activeCell.focus();
+    // In RTL, ArrowRight is the INLINE-start direction → the previous day.
+    fireEvent.keyDown(activeCell, { key: 'ArrowRight' });
+    expect((document.activeElement as HTMLElement).getAttribute('data-date')).toBe(dateToCalDate(addDays(today, -1)));
   });
 });
 

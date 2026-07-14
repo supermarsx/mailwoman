@@ -9,6 +9,7 @@
 // this module owns only its own view. Styling is token-native (`tasks.css.ts`).
 
 import { For, Show, createSignal, onMount, type JSX } from 'solid-js';
+import { t, loadCatalog } from '../../i18n';
 import { useApp } from '../../state/context.ts';
 import { isDone } from '../../state/slices/tasks.ts';
 import type { Id } from '../../api/jmap-types.ts';
@@ -32,7 +33,10 @@ export function TasksModule(): JSX.Element {
   const [eventId, setEventId] = createSignal('');
   const [dragId, setDragId] = createSignal<Id | null>(null);
 
-  onMount(() => void app.loadTasks());
+  onMount(() => {
+    void loadCatalog('tasks');
+    void app.loadTasks();
+  });
 
   /** The list a new/converted task lands in: the focused list, else the first. */
   function targetList(): Id {
@@ -51,14 +55,14 @@ export function TasksModule(): JSX.Element {
     const id = mailId().trim();
     if (id === '') return;
     setMailId('');
-    await app.convertMailToTask(id, targetList(), { title: `Follow up: mail ${id}` });
+    await app.convertMailToTask(id, targetList(), { title: t('tasks-followup-mail', { id }) });
   }
 
   async function convertEvent(): Promise<void> {
     const id = eventId().trim();
     if (id === '') return;
     setEventId('');
-    await app.convertEventToTask(id, targetList(), { title: `Prep: event ${id}` });
+    await app.convertEventToTask(id, targetList(), { title: t('tasks-prep-event', { id }) });
   }
 
   function selectAll(): void {
@@ -89,15 +93,15 @@ export function TasksModule(): JSX.Element {
     view() === 'list' && app.selectedListId() === id;
 
   return (
-    <section class={css.layout} aria-label="Tasks" data-module="tasks">
-      <nav class={css.sidebar} aria-label="Task lists">
+    <section class={css.layout} aria-label={t('tasks-title')} data-module="tasks">
+      <nav class={css.sidebar} aria-label={t('tasks-lists')}>
         <button
           type="button"
           class={css.navButton}
           aria-current={listActive(null)}
           onClick={selectAll}
         >
-          All tasks
+          {t('tasks-all')}
         </button>
         <button
           type="button"
@@ -105,11 +109,11 @@ export function TasksModule(): JSX.Element {
           aria-current={view() === 'myDay'}
           onClick={() => setView('myDay')}
         >
-          My Day
+          {t('tasks-my-day')}
         </button>
 
-        <h2 class={css.sidebarHeading}>Lists</h2>
-        <For each={app.taskLists()} fallback={<p class={css.meta}>No lists yet.</p>}>
+        <h2 class={css.sidebarHeading}>{t('tasks-lists-heading')}</h2>
+        <For each={app.taskLists()} fallback={<p class={css.meta}>{t('tasks-no-lists')}</p>}>
           {(list) => (
             <button
               type="button"
@@ -118,7 +122,7 @@ export function TasksModule(): JSX.Element {
               onClick={() => selectList(list.id)}
             >
               <span class={css.colorDot} style={{ background: list.color }} aria-hidden="true" />
-              <span class={css.title}>{list.name}</span>
+              <span class={css.title}><bdi>{list.name}</bdi></span>
             </button>
           )}
         </For>
@@ -129,22 +133,22 @@ export function TasksModule(): JSX.Element {
           <input
             class={css.input}
             type="text"
-            aria-label="New task title"
-            placeholder="Add a task…"
+            aria-label={t('tasks-new-title')}
+            placeholder={t('tasks-add-placeholder')}
             value={newTitle()}
             onInput={(e) => setNewTitle(e.currentTarget.value)}
           />
-          <button class={css.button} type="submit">Add</button>
+          <button class={css.button} type="submit">{t('common-add')}</button>
         </form>
 
         <Show
           when={view() === 'myDay'}
           fallback={<TaskTree roots={app.rootTasks()} />}
         >
-          <ol class={css.taskList} aria-label="My Day">
+          <ol class={css.taskList} aria-label={t('tasks-my-day')}>
             <For
               each={app.myDayTasks()}
-              fallback={<li class={css.empty}>Nothing due today. Enjoy the quiet.</li>}
+              fallback={<li class={css.empty}>{t('tasks-my-day-empty')}</li>}
             >
               {(task) => (
                 <li
@@ -162,28 +166,28 @@ export function TasksModule(): JSX.Element {
         </Show>
 
         <div class={css.convert}>
-          <span class={css.meta}>Convert:</span>
+          <span class={css.meta}>{t('tasks-convert')}</span>
           <input
             class={css.input}
             type="text"
-            aria-label="Message id to convert"
-            placeholder="message id"
+            aria-label={t('tasks-mail-id')}
+            placeholder={t('tasks-mail-id-placeholder')}
             value={mailId()}
             onInput={(e) => setMailId(e.currentTarget.value)}
           />
           <button class={css.button} type="button" onClick={convertMail}>
-            Mail → task
+            {t('tasks-mail-to-task')}
           </button>
           <input
             class={css.input}
             type="text"
-            aria-label="Event id to convert"
-            placeholder="event id"
+            aria-label={t('tasks-event-id')}
+            placeholder={t('tasks-event-id-placeholder')}
             value={eventId()}
             onInput={(e) => setEventId(e.currentTarget.value)}
           />
           <button class={css.button} type="button" onClick={convertEvent}>
-            Event → task
+            {t('tasks-event-to-task')}
           </button>
         </div>
       </div>
@@ -194,8 +198,8 @@ export function TasksModule(): JSX.Element {
 /** The root task list of the focused list, each with its subtasks nested. */
 function TaskTree(props: { roots: Task[] }): JSX.Element {
   return (
-    <ul class={css.taskList} aria-label="Tasks">
-      <For each={props.roots} fallback={<li class={css.empty}>No tasks in this list.</li>}>
+    <ul class={css.taskList} aria-label={t('tasks-list-label')}>
+      <For each={props.roots} fallback={<li class={css.empty}>{t('tasks-empty-list')}</li>}>
         {(task) => (
           <li data-task-id={task.id}>
             <TaskItem task={task} />
@@ -213,7 +217,7 @@ function Subtasks(props: { parentId: Id }): JSX.Element {
   const kids = (): Task[] => app.subtasksOf(props.parentId);
   return (
     <Show when={kids().length > 0}>
-      <ul class={css.subtasks} aria-label="Subtasks">
+      <ul class={css.subtasks} aria-label={t('tasks-subtasks')}>
         <For each={kids()}>
           {(task) => (
             <li data-task-id={task.id}>
@@ -234,13 +238,14 @@ function TaskItem(props: { task: Task }): JSX.Element {
     <div class={`${css.row} ${done() ? css.rowDone : ''}`}>
       <input
         type="checkbox"
+        class={css.checkbox}
         checked={done()}
-        aria-label={done() ? `Reopen ${props.task.title}` : `Complete ${props.task.title}`}
+        aria-label={done() ? t('tasks-reopen', { title: props.task.title }) : t('tasks-complete', { title: props.task.title })}
         onChange={() => void app.toggleComplete(props.task.id)}
       />
-      <span class={css.title}>{props.task.title}</span>
+      <span class={css.title}><bdi>{props.task.title}</bdi></span>
       <Show when={props.task.priority >= 1 && props.task.priority <= 4}>
-        <span class={css.priorityHigh} aria-label="High priority">!</span>
+        <span class={css.priorityHigh} aria-label={t('tasks-high-priority')}>!</span>
       </Show>
       <Show when={scheduleLabel(props.task) !== ''}>
         <span class={css.meta}>{scheduleLabel(props.task)}</span>

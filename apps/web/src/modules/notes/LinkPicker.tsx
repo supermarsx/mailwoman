@@ -6,13 +6,15 @@
 // is entered directly; the type selector mirrors the frozen `NoteLink.type` set.
 
 import { createSignal, type JSX } from 'solid-js';
+import { t } from '../../i18n';
 import type { NoteLink } from '../../api/pim-types.ts';
 
-/** The three cross-link targets (frozen `NoteLink.type`, plan §2.1). */
-export const LINK_TYPES: ReadonlyArray<{ type: NoteLink['type']; label: string; icon: string }> = [
-  { type: 'email', label: 'Message', icon: '✉️' },
-  { type: 'event', label: 'Event', icon: '📅' },
-  { type: 'contact', label: 'Contact', icon: '👤' },
+/** The three cross-link targets (frozen `NoteLink.type`, plan §2.1). Labels are
+ *  resolved through `t()` at render time (see `linkMeta`) so they localize. */
+export const LINK_TYPES: ReadonlyArray<{ type: NoteLink['type']; labelKey: string; icon: string }> = [
+  { type: 'email', labelKey: 'notes-link-message', icon: '✉️' },
+  { type: 'event', labelKey: 'notes-link-event', icon: '📅' },
+  { type: 'contact', labelKey: 'notes-link-contact', icon: '👤' },
 ];
 
 /** The `mailwoman:` URI form of a cross-link (plan §2.5 picker → URI). */
@@ -20,9 +22,10 @@ export function linkUri(link: NoteLink): string {
   return `mailwoman:${link.type}/${link.id}`;
 }
 
-/** Human label + glyph for a stored link (chip rendering). */
+/** Human (localized) label + glyph for a stored link (chip rendering). */
 export function linkMeta(type: NoteLink['type']): { label: string; icon: string } {
-  return LINK_TYPES.find((t) => t.type === type) ?? { label: type, icon: '🔗' };
+  const found = LINK_TYPES.find((l) => l.type === type);
+  return found === undefined ? { label: type, icon: '🔗' } : { label: t(found.labelKey), icon: found.icon };
 }
 
 export interface LinkPickerProps {
@@ -43,29 +46,29 @@ export function LinkPicker(props: LinkPickerProps): JSX.Element {
   }
 
   return (
-    <form class="note-linkpicker" onSubmit={add} aria-label="Add cross-link">
+    <form class="note-linkpicker" onSubmit={add} aria-label={t('notes-link-add')}>
       <select
         class="note-linkpicker__type"
-        aria-label="Link type"
+        aria-label={t('notes-link-type')}
         value={type()}
         onChange={(e) => setType(e.currentTarget.value as NoteLink['type'])}
       >
-        {LINK_TYPES.map((t) => (
-          <option value={t.type}>
-            {t.icon} {t.label}
+        {LINK_TYPES.map((lt) => (
+          <option value={lt.type}>
+            {lt.icon} {t(lt.labelKey)}
           </option>
         ))}
       </select>
       <input
         class="note-linkpicker__id"
         type="text"
-        placeholder="id to link…"
-        aria-label="Link target id"
+        placeholder={t('notes-link-target-placeholder')}
+        aria-label={t('notes-link-target')}
         value={id()}
         onInput={(e) => setId(e.currentTarget.value)}
       />
       <button type="submit" class="note-linkpicker__add" disabled={id().trim().length === 0}>
-        Link
+        {t('notes-link-button')}
       </button>
     </form>
   );

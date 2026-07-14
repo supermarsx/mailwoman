@@ -6,26 +6,27 @@
 // "editor output sanitized — no script survives").
 
 import { For, onMount, createEffect, type JSX } from 'solid-js';
+import { t } from '../../i18n';
 import { sanitizeNoteHtml } from './sanitize.ts';
 
-/** One toolbar command: an `execCommand` name + its label/glyph + a11y title. */
+/** One toolbar command: an `execCommand` name + its label/glyph + a11y title key. */
 interface ToolbarCommand {
   cmd: string;
   value?: string;
   label: string;
-  title: string;
+  titleKey: string;
 }
 
 const COMMANDS: readonly ToolbarCommand[] = [
-  { cmd: 'bold', label: 'B', title: 'Bold' },
-  { cmd: 'italic', label: 'I', title: 'Italic' },
-  { cmd: 'underline', label: 'U', title: 'Underline' },
-  { cmd: 'strikeThrough', label: 'S', title: 'Strikethrough' },
-  { cmd: 'formatBlock', value: 'h2', label: 'H', title: 'Heading' },
-  { cmd: 'insertUnorderedList', label: '•', title: 'Bulleted list' },
-  { cmd: 'insertOrderedList', label: '1.', title: 'Numbered list' },
-  { cmd: 'formatBlock', value: 'blockquote', label: '❝', title: 'Quote' },
-  { cmd: 'removeFormat', label: '⌫', title: 'Clear formatting' },
+  { cmd: 'bold', label: 'B', titleKey: 'notes-fmt-bold' },
+  { cmd: 'italic', label: 'I', titleKey: 'notes-fmt-italic' },
+  { cmd: 'underline', label: 'U', titleKey: 'notes-fmt-underline' },
+  { cmd: 'strikeThrough', label: 'S', titleKey: 'notes-fmt-strike' },
+  { cmd: 'formatBlock', value: 'h2', label: 'H', titleKey: 'notes-fmt-heading' },
+  { cmd: 'insertUnorderedList', label: '•', titleKey: 'notes-fmt-ul' },
+  { cmd: 'insertOrderedList', label: '1.', titleKey: 'notes-fmt-ol' },
+  { cmd: 'formatBlock', value: 'blockquote', label: '❝', titleKey: 'notes-fmt-quote' },
+  { cmd: 'removeFormat', label: '⌫', titleKey: 'notes-fmt-clear' },
 ];
 
 export interface NoteEditorProps {
@@ -58,7 +59,7 @@ export function NoteEditor(props: NoteEditorProps): JSX.Element {
   }
 
   function insertLink(): void {
-    const url = globalThis.prompt?.('Link URL (https://…)') ?? '';
+    const url = globalThis.prompt?.(t('notes-link-prompt')) ?? '';
     if (url.length === 0) return;
     ref.focus();
     document.execCommand('createLink', false, url);
@@ -80,14 +81,14 @@ export function NoteEditor(props: NoteEditorProps): JSX.Element {
 
   return (
     <div class="note-editor">
-      <div class="note-editor__toolbar" role="toolbar" aria-label="Formatting">
+      <div class="note-editor__toolbar" role="toolbar" aria-label={t('notes-formatting')}>
         <For each={COMMANDS}>
           {(c) => (
             <button
               type="button"
               class="note-editor__btn"
-              title={c.title}
-              aria-label={c.title}
+              title={t(c.titleKey)}
+              aria-label={t(c.titleKey)}
               onMouseDown={(e) => e.preventDefault() /* keep selection */}
               onClick={() => run(c)}
             >
@@ -98,8 +99,8 @@ export function NoteEditor(props: NoteEditorProps): JSX.Element {
         <button
           type="button"
           class="note-editor__btn"
-          title="Insert link"
-          aria-label="Insert link"
+          title={t('notes-fmt-link')}
+          aria-label={t('notes-fmt-link')}
           onMouseDown={(e) => e.preventDefault()}
           onClick={insertLink}
         >
@@ -112,7 +113,7 @@ export function NoteEditor(props: NoteEditorProps): JSX.Element {
         contentEditable
         role="textbox"
         aria-multiline="true"
-        aria-label={props.ariaLabel ?? 'Note body'}
+        aria-label={props.ariaLabel ?? t('notes-body')}
         data-testid="note-body"
         onInput={emit}
         onBlur={emit}

@@ -18,7 +18,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-right: 1px solid var(--border);
+  border-inline-end: 1px solid var(--border);
   background: var(--bg-alt);
 }
 
@@ -92,7 +92,7 @@
   border-bottom: 1px solid var(--border);
   background: transparent;
   color: inherit;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
 }
 
@@ -361,4 +361,35 @@
 .note-linkpicker__add:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* ── Accessibility: visible focus + WCAG 2.2 touch targets ─────────────────
+   Plain-CSS module (not vanilla-extract), so the shared focus ring is
+   approximated with the themed --accent token. */
+.notes :focus-visible,
+.note-editor :focus-visible,
+.note-linkpicker :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.notes__new,
+.notes__pin-btn,
+.notes__delete,
+.notes__tagchip,
+.note-editor__btn {
+  min-height: 24px;
+}
+
+.notes__color {
+  width: 24px;
+  height: 24px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notes *,
+  .note-editor * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }

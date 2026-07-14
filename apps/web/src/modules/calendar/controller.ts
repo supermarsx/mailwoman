@@ -40,6 +40,7 @@ import {
   addDays,
   addMonths,
   dateToLocal,
+  localeWeekStart,
   localToDate,
   startOfDay,
   startOfMonth,
@@ -131,21 +132,22 @@ export interface CalendarController {
 /** Compute the [start,end) window a view needs expanded around `focus`. */
 export function windowFor(view: CalendarView, focus: Date): ViewWindow {
   const day = startOfDay(focus);
+  const ws = localeWeekStart();
   switch (view) {
     case 'day':
       return { start: day, end: addDays(day, 1) };
     case '3day':
       return { start: day, end: addDays(day, 3) };
     case 'work-week': {
-      const mon = startOfWeek(focus, 1);
+      const mon = startOfWeek(focus, ws);
       return { start: mon, end: addDays(mon, 5) };
     }
     case 'week': {
-      const start = startOfWeek(focus, 1);
+      const start = startOfWeek(focus, ws);
       return { start, end: addDays(start, 7) };
     }
     case 'month': {
-      const gridStart = startOfWeek(startOfMonth(focus), 1);
+      const gridStart = startOfWeek(startOfMonth(focus), ws);
       return { start: gridStart, end: addDays(gridStart, 42) };
     }
     case 'tri-month': {
