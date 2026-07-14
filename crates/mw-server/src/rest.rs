@@ -28,14 +28,15 @@ use axum::extract::{Path as UrlPath, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use axum::{Router, body::Bytes};
+use axum::{Extension, Router, body::Bytes};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use mw_jmap::JmapClient;
 use mw_store::Session;
 
-use crate::{AppState, authed, engine_mode};
+use crate::scope_mw::{RestSessionSource, rest_session};
+use crate::{AppState, engine_mode};
 
 /// The default and maximum page size for `GET /api/v1/messages`.
 const DEFAULT_LIMIT: u64 = 50;
@@ -233,9 +234,10 @@ struct ListQuery {
 async fn list_messages(
     State(state): State<AppState>,
     headers: HeaderMap,
+    Extension(source): Extension<RestSessionSource>,
     Query(q): Query<ListQuery>,
 ) -> Response {
-    let session = match authed(&state, &headers).await {
+    let session = match rest_session(&state, &headers, source).await {
         Ok(s) => s,
         Err(resp) => return resp,
     };
@@ -256,9 +258,10 @@ async fn list_messages(
 async fn get_message(
     State(state): State<AppState>,
     headers: HeaderMap,
+    Extension(source): Extension<RestSessionSource>,
     UrlPath(id): UrlPath<String>,
 ) -> Response {
-    let session = match authed(&state, &headers).await {
+    let session = match rest_session(&state, &headers, source).await {
         Ok(s) => s,
         Err(resp) => return resp,
     };
@@ -285,8 +288,12 @@ async fn get_message(
 }
 
 /// `GET /api/v1/mailboxes` → `Mailbox/get`.
-async fn list_mailboxes(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let session = match authed(&state, &headers).await {
+async fn list_mailboxes(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Extension(source): Extension<RestSessionSource>,
+) -> Response {
+    let session = match rest_session(&state, &headers, source).await {
         Ok(s) => s,
         Err(resp) => return resp,
     };

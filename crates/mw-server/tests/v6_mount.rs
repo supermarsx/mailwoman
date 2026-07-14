@@ -433,6 +433,188 @@ async fn admin_disabled_unmounts_the_panel() {
     assert_eq!(login.status(), 401, "disabled panel: login refused");
 }
 
+/// Scoped-API-key enforcement on `/api/v1/*` (t6-e11b): a real minted `mwk_…` key
+/// authorizes REST through the real server, and every out-of-scope / IP / expiry /
+/// rate-limit case is denied. The cookie-authed browser path stays working.
+///
+/// The key is presented in `x-api-key` alongside the cookie session, so the guard
+/// downscopes that session to the key's grant: an in-scope key reaches the JMAP
+/// surface (200), an out-of-scope key is denied *even though the cookie alone would
+/// have full access* — proving the key genuinely gates the request.
+#[tokio::test]
+async fn scoped_key_enforced_on_rest() {
+    let mock = spawn_mock().await;
+    let server = spawn_server(ServerMode::Proxy, admin_v6()).await;
+    let c = client();
+    let account_id = login(&c, &server, &mock).await;
+
+    // Helper: mint a key for `account_id` with an explicit scope, return the token.
+    async fn mint(c: &reqwest::Client, server: &str, account_id: &str, scope: Value) -> String {
+        let mint: Value = c
+            .post(format!("{server}/api/keys"))
+            .json(&json!({ "label": "e11b", "accountId": account_id, "scope": scope }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        mint["displayToken"]
+            .as_str()
+            .expect("display token")
+            .to_string()
+    }
+
+    fn scope(account: &str, read: bool, mail: bool) -> Value {
+        json!({
+            "read": read, "send": false, "delete": false,
+            "accounts": { "subset": [account] }, "folders": "all",
+            "mail": mail, "pim": !mail, "ip_allowlist": [], "expires_at": null,
+            "rate_limit": null, "mcp_tools": [], "unattended_send": false,
+        })
+    }
+
+    // ── GRANT: an in-scope key (read + account:X + mail) GETs /api/v1/messages ──
+    let good = mint(&c, &server, &account_id, scope(&account_id, true, true)).await;
+    let resp = c
+        .get(format!("{server}/api/v1/messages?limit=5"))
+        .header("x-api-key", &good)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "in-scope scoped key authorizes /api/v1/messages"
+    );
+    assert!(
+        resp.json::<Value>()
+            .await
+            .unwrap()
+            .get("messages")
+            .is_some(),
+        "scoped key returns the JMAP list verbatim"
+    );
+
+    // ── DENY: a key without `read` → 403 (capability) ──────────────────────────
+    let no_read = mint(&c, &server, &account_id, scope(&account_id, false, true)).await;
+    let resp = c
+        .get(format!("{server}/api/v1/messages"))
+        .header("x-api-key", &no_read)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 403, "no-read key is denied");
+
+    // ── DENY: a PIM-only key (mail=false) on a mail route → 403 (surface) ──────
+    let pim_only = mint(&c, &server, &account_id, scope(&account_id, true, false)).await;
+    let resp = c
+        .get(format!("{server}/api/v1/messages"))
+        .header("x-api-key", &pim_only)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 403, "PIM-only key can't hit a mail route");
+
+    // ── DENY: a key scoped to a DIFFERENT account → 403 (account selector) ─────
+    let wrong_acct = mint(
+        &c,
+        &server,
+        &account_id,
+        scope("someone-else@example.org", true, true),
+    )
+    .await;
+    let resp = c
+        .get(format!("{server}/api/v1/messages"))
+        .header("x-api-key", &wrong_acct)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 403, "wrong-account key is denied");
+
+    // ── DENY: an expired key → 401 ─────────────────────────────────────────────
+    let mut expired = scope(&account_id, true, true);
+    expired["expires_at"] = json!("2000-01-01T00:00:00Z");
+    let expired_key = mint(&c, &server, &account_id, expired).await;
+    let resp = c
+        .get(format!("{server}/api/v1/messages"))
+        .header("x-api-key", &expired_key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401, "expired key is rejected");
+
+    // ── DENY: a source IP outside the allowlist → 403 ──────────────────────────
+    let mut ip_scoped = scope(&account_id, true, true);
+    ip_scoped["ip_allowlist"] = json!(["10.0.0.0/8"]);
+    let ip_key = mint(&c, &server, &account_id, ip_scoped).await;
+    let resp = c
+        .get(format!("{server}/api/v1/messages"))
+        .header("x-api-key", &ip_key)
+        .header("x-forwarded-for", "8.8.8.8")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        403,
+        "source IP outside the allowlist is denied"
+    );
+    // …and an IP inside the allowlist is authorized (200).
+    let resp = c
+        .get(format!("{server}/api/v1/messages"))
+        .header("x-api-key", &ip_key)
+        .header("x-forwarded-for", "10.1.2.3")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "source IP inside the allowlist is allowed"
+    );
+
+    // ── DENY: over the per-key rate limit → 429 ────────────────────────────────
+    let mut rl = scope(&account_id, true, true);
+    rl["rate_limit"] = json!(1);
+    let rl_key = mint(&c, &server, &account_id, rl).await;
+    let first = c
+        .get(format!("{server}/api/v1/messages"))
+        .header("x-api-key", &rl_key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(first.status(), 200, "first request within the rate limit");
+    let second = c
+        .get(format!("{server}/api/v1/messages"))
+        .header("x-api-key", &rl_key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        second.status(),
+        429,
+        "second request over the rate limit is 429"
+    );
+
+    // ── DENY: an unknown / malformed key → 401 ─────────────────────────────────
+    let resp = c
+        .get(format!("{server}/api/v1/messages"))
+        .header("x-api-key", "mwk_deadbeef.notarealsecret")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401, "unknown key is rejected");
+
+    // ── The cookie-only browser path is unchanged (no key → cookie session) ────
+    let resp = c
+        .get(format!("{server}/api/v1/messages?limit=5"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "cookie-authed REST still works");
+}
+
 /// The MCP Streamable-HTTP transport is nested at `/mcp` in engine mode: a real
 /// JSON-RPC `initialize` + `tools/list` round-trip returns the frozen 10-tool set.
 #[tokio::test]

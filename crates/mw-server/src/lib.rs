@@ -49,6 +49,10 @@ pub mod webhooks;
 // V6 MOUNT (t6-e11): store adapters backing the frozen Batch-B persistence seams
 // over the real 0007 tables.
 mod stores_v6;
+// V6 scoped-API-key enforcement middleware (t6-e11b): the `Send` guard that lets a
+// scoped `mwk_…` key authorize `/api/v1/*` REST + adds IP-allowlist/rate-limit to
+// `/mcp`. Keeps the cookie path unchanged.
+mod scope_mw;
 
 pub use engine_mode::ServerMode;
 pub use hardening::HardeningConfig;
@@ -435,15 +439,29 @@ fn router(state: AppState, mcp_router: Option<Router>) -> Router {
     // V6 additive surfaces (plan §3 e11), merged before the fallback + guard layers
     // so they ride the same security-headers / CSRF-origin / CORS middleware. The
     // normal mailbox routes above are byte-unchanged.
+    // Scoped-API-key enforcement (t6-e11b): a `mwk_…` key on `/api/v1/*` is resolved
+    // to its `Scope` and enforced (scope + IP + rate-limit + expiry); no key present
+    // → the cookie/native path passes through unchanged. `route_layer` scopes the
+    // guard to the REST routes only (admin/oauth keep their own auth).
+    let rest = rest::rest_router().route_layer(middleware::from_fn_with_state(
+        state.clone(),
+        scope_mw::rest_scope_guard,
+    ));
     let mut v6 = admin::routes()
         .merge(oauth::routes())
-        .merge(rest::rest_router())
+        .merge(rest)
         .route("/metrics", get(observability::metrics))
         .route("/errors", post(errors::report_error))
         .route("/api/webhooks/inbound", post(webhooks::inbound_webhook));
     if let Some(mcp) = mcp_router {
         // The MCP router is a self-contained `Router<()>` (its own `Arc<McpServer>`
-        // state); mount it as a service so it need not share `AppState`.
+        // state); mount it as a service so it need not share `AppState`. The e11b
+        // guard in front adds IP-allowlist + per-key rate-limit + expiry for a
+        // presented key (the per-tool scope/countersign check stays inline).
+        let mcp = mcp.route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            scope_mw::mcp_scope_guard,
+        ));
         v6 = v6.nest_service("/mcp", mcp);
     }
 

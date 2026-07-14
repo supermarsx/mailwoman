@@ -214,6 +214,39 @@ impl<S: OAuthStore> AuthServer<S> {
         required: &Scope,
         audit: &dyn AuditSink,
     ) -> Result<Granted, OAuthError> {
+        let (outcome, event) = self.enforce(ctx, required).await;
+        audit.emit(&event);
+        outcome
+    }
+
+    /// `Send`-friendly variant of [`require_scope`] for the axum middleware mount
+    /// (`mw-server` scoped-key guard, t6-e11b).
+    ///
+    /// Identical policy to [`require_scope`], but the audit sink is `Send + Sync`
+    /// (the caller passes an owned `Arc<dyn AuditSink + Send + Sync>` borrowed as
+    /// `&(dyn AuditSink + Send + Sync)`), so no non-`Send` reference is held across
+    /// an await and the returned future is `Send` — the requirement for living in an
+    /// axum handler. [`require_scope`] (a bare `&dyn AuditSink`) is retained
+    /// unchanged for existing callers/tests.
+    pub async fn require_scope_send(
+        &self,
+        ctx: &RequestContext<'_>,
+        required: &Scope,
+        audit: &(dyn AuditSink + Send + Sync),
+    ) -> Result<Granted, OAuthError> {
+        let (outcome, event) = self.enforce(ctx, required).await;
+        audit.emit(&event);
+        outcome
+    }
+
+    /// Resolve + policy-check a request, returning the outcome and the single audit
+    /// event to emit. Holds no audit-sink reference across an await, so both public
+    /// entry points build a `Send` future when their sink permits.
+    async fn enforce(
+        &self,
+        ctx: &RequestContext<'_>,
+        required: &Scope,
+    ) -> (Result<Granted, OAuthError>, AuditEvent) {
         let resolved = self.resolve(ctx.credential).await;
         let (actor, actor_kind) = match &resolved {
             Ok(r) => (r.actor.clone(), r.kind.as_str()),
@@ -230,7 +263,7 @@ impl<S: OAuthStore> AuthServer<S> {
             }),
         };
 
-        audit.emit(&AuditEvent {
+        let event = AuditEvent {
             actor,
             actor_kind,
             action: "require_scope".to_string(),
@@ -238,9 +271,8 @@ impl<S: OAuthStore> AuthServer<S> {
             reason: outcome.as_ref().err().map(|e| e.to_string()),
             ip: ctx.source_ip.map(|i| i.to_string()),
             ts: Utc::now().to_rfc3339(),
-        });
-
-        outcome
+        };
+        (outcome, event)
     }
 
     async fn resolve(&self, credential: &str) -> Result<Resolved, OAuthError> {
