@@ -325,3 +325,13 @@ mw-assist = { path = "crates/mw-assist" }
 
 [profile.release]
 overflow-checks = true
+# 1.0 hardening (§23 size budget): strip debug symbols from the release binary
+# (~104MB → ~80MB, zero runtime cost). This is the safe autonomous size win; the
+# residual gap to the §23 45MB-binary / 30MB-image budgets is structural — the
+# full V7 feature set (wasmtime plugin JIT + all bridges/crypto/protocols, all
+# statically linked + the embedded SPA) — and closing it needs a deeper decision
+# (a feature-gated "core server" build dropping bundled bridges/plugins, LTO+opt-z
+# at a build-time/runtime cost, or a §23 budget revision to full-feature-realistic
+# numbers). That decision is HUMAN-GATED, paired with the 1.0 tag; the perf.yml
+# binary-size/image-size gates stay honest (red against the SPEC number) until then.
+strip = true
