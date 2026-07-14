@@ -1,0 +1,26 @@
+# Registry manifest for the EWS bridge (plan §2.1). Consumed by `mw-plugin`
+# (`PluginManifest`) via the server registry at mount (e14). Host defaults DENY
+# everything undeclared: this plugin may only reach the on-prem EWS endpoint host in
+# `net_allowlist`, and only the listed capabilities are granted after admin approval.
+#
+# `signature` is intentionally omitted — first-party components are signed by the
+# release pipeline (e15/e17) and the detached signature is recorded here then; until
+# then the component loads only under an admin `allow_unsigned` policy (persistent
+# banner + audit).
+
+id = "bridge-ews"
+name = "Exchange EWS bridge"
+version = "26.8.0"
+
+# account-backend: the §6.5 bridge role (sync/fetch/send/flags/move).
+# net:            host-mediated http-fetch, restricted to net_allowlist below.
+# addrbook-source: GAL resolution via ResolveNames.
+capabilities = ["account-backend", "net", "addrbook-source"]
+
+# The EWS SOAP endpoint host. Replace with the deployment's real Exchange host at
+# provisioning time; the host `http-fetch` gate admits this host and nothing else.
+net_allowlist = ["ews.example.com"]
+
+[limits]
+memory_mb = 128
+deadline_ms = 10000
