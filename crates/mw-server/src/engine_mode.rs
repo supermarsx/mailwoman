@@ -187,9 +187,18 @@ async fn register(
     submitter: mw_smtp::Submitter,
     identity: &str,
 ) {
+    // Wrap the SMTP submitter with masked-email on-send From enforcement (26.10
+    // follow-up a): a submission whose envelope `From` is one of this account's
+    // enabled masked aliases is presented as the alias (real address hidden), and
+    // an alias the account may not send as is refused fail-closed. A non-alias
+    // `From` is forwarded byte-unchanged. Bridge/plugin accounts are not wrapped
+    // (they send through the provider's own identity, see `v7_mount`).
+    let base: Arc<dyn MailSubmitter> = Arc::new(submitter);
+    let masked =
+        crate::masked::MaskedSubmitter::new(engine.store().clone(), account_id.to_string(), base);
     let runtime = AccountRuntime::new(
         backend,
-        Arc::new(submitter) as Arc<dyn MailSubmitter>,
+        Arc::new(masked) as Arc<dyn MailSubmitter>,
         identity,
     );
     engine.register_backend(account_id.to_string(), runtime);

@@ -28,6 +28,9 @@
 //! index in 0010.
 #![allow(dead_code)]
 
+use std::sync::Arc;
+
+use async_trait::async_trait;
 use axum::Router;
 use axum::extract::{Path as UrlPath, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -37,6 +40,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+use mw_engine::account::MailSubmitter;
+use mw_engine::backend::{EngineError, Result as EngineResult};
+use mw_smtp::{Outgoing, SubmissionResult};
 use mw_store::{MaskedEmailRow, Store, StoreError};
 
 use crate::AppState;
@@ -267,6 +273,115 @@ async fn soft_delete(store: &Store, account_id: &str, id: &str) -> Result<bool, 
     }
     store.set_masked_email_state(id, STATE_DELETED).await?;
     Ok(true)
+}
+
+// ── on-send From-rewrite (26.10 follow-up a) ──────────────────────────────────────
+//
+// When a user submits a message whose envelope `From` is one of THEIR masked
+// aliases, the alias must be what the recipient sees (the real address stays
+// hidden in the Return-Path), and an alias they may NOT send as must be refused
+// fail-closed. The store-layer alias service (above) already holds the mapping;
+// this is the send-time seam the 26.10 mount deferred (there was "no host plumbing
+// to feed the per-send alias→target map"). It lives server-side as a
+// [`MailSubmitter`] decorator — `mw-server` builds the per-account submitter, so it
+// can wrap it with masked-alias enforcement without any change to `mw-engine`'s
+// frozen submission path. A non-alias `From` is passed through byte-unchanged.
+
+/// The outcome of resolving a candidate envelope `From` against the masked-alias
+/// store, for one sending account.
+enum FromDecision {
+    /// Not a masked alias (of any account) — send the envelope byte-unchanged.
+    Pass,
+    /// An `enabled` alias OWNED BY the sending account — present it as `From`.
+    Allow(MaskedEmailRow),
+    /// Fail-closed: a masked alias this account must not send as — another
+    /// account's alias, or an owned-but-disabled/deleted one.
+    Reject(&'static str),
+}
+
+/// Resolve a candidate envelope `From` for `account_id` (global, per-address).
+/// Security model (fail-closed):
+///   * unknown address ⇒ [`FromDecision::Pass`] (an ordinary sender, unchanged);
+///   * a masked alias owned by ANOTHER account ⇒ [`FromDecision::Reject`]
+///     (never let account A send as account B's alias);
+///   * an owned alias that is not `enabled` (disabled/deleted) ⇒
+///     [`FromDecision::Reject`] (a disabled/deleted alias is not usable as `From`);
+///   * an owned + `enabled` alias ⇒ [`FromDecision::Allow`].
+async fn resolve_from(
+    store: &Store,
+    account_id: &str,
+    from_addr: &str,
+) -> Result<FromDecision, StoreError> {
+    let addr = from_addr.trim();
+    if addr.is_empty() {
+        return Ok(FromDecision::Pass);
+    }
+    match store.get_masked_email_by_addr(addr).await? {
+        None => Ok(FromDecision::Pass),
+        Some(row) if row.account_id != account_id => Ok(FromDecision::Reject(
+            "From is another account's masked alias",
+        )),
+        Some(row) if row.state != STATE_ENABLED => Ok(FromDecision::Reject(
+            "From is a disabled or deleted masked alias",
+        )),
+        Some(row) => Ok(FromDecision::Allow(row)),
+    }
+}
+
+/// A [`MailSubmitter`] decorator that enforces masked-email `From` semantics at
+/// send time. `mw-server` wraps each standards-account submitter with this (see
+/// `engine_mode::register`); a submission whose envelope `From` is a masked alias
+/// is validated against the owning account before it reaches the wire.
+pub(crate) struct MaskedSubmitter {
+    store: Store,
+    account_id: String,
+    inner: Arc<dyn MailSubmitter>,
+}
+
+impl MaskedSubmitter {
+    /// Wrap `inner` with masked-alias `From` enforcement for `account_id`.
+    pub(crate) fn new(store: Store, account_id: String, inner: Arc<dyn MailSubmitter>) -> Self {
+        Self {
+            store,
+            account_id,
+            inner,
+        }
+    }
+}
+
+#[async_trait]
+impl MailSubmitter for MaskedSubmitter {
+    async fn submit(&self, mut msg: Outgoing) -> EngineResult<SubmissionResult> {
+        match resolve_from(&self.store, &self.account_id, &msg.mail_from).await {
+            // Ordinary sender: envelope untouched, forward as-is.
+            Ok(FromDecision::Pass) => {}
+            // Owned + enabled alias: present the canonical alias as the envelope
+            // sender (so bounces/replies route through the masked domain to the
+            // alias's forwarding target, keeping the real address out of the
+            // Return-Path) and record best-effort usage. The message `From:` header
+            // the recipient sees is already the alias the composer set.
+            Ok(FromDecision::Allow(row)) => {
+                msg.mail_from = row.alias_addr.clone();
+                let now = chrono::Utc::now().to_rfc3339();
+                let _ = self.store.touch_masked_email(&row.id, &now).await;
+            }
+            // Fail-closed: never send as an alias this account may not use.
+            Ok(FromDecision::Reject(why)) => {
+                return Err(EngineError::Protocol(format!(
+                    "masked-email: refusing to send as '{}' ({why})",
+                    msg.mail_from
+                )));
+            }
+            // A store error must not fall through to an unvalidated masked send;
+            // surface it as a (retryable) protocol error instead.
+            Err(e) => {
+                return Err(EngineError::Protocol(format!(
+                    "masked-email: alias resolution failed: {e}"
+                )));
+            }
+        }
+        self.inner.submit(msg).await
+    }
 }
 
 // ── handlers ─────────────────────────────────────────────────────────────────────
@@ -545,5 +660,169 @@ mod tests {
                 .unwrap(),
             Outcome::Ok(_)
         ));
+    }
+
+    // ── on-send From-rewrite (26.10 follow-up a) ─────────────────────────────────
+
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// A fake inner submitter: records the last `Outgoing` it was handed and how
+    /// many times it fired (so a fail-closed rejection can assert it was NEVER
+    /// reached, i.e. no bytes hit the wire).
+    #[derive(Default)]
+    struct FakeInner {
+        last: Mutex<Option<Outgoing>>,
+        calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl MailSubmitter for FakeInner {
+        async fn submit(&self, msg: Outgoing) -> EngineResult<SubmissionResult> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let accepted = msg.rcpt_to.clone();
+            *self.last.lock().unwrap() = Some(msg);
+            Ok(SubmissionResult {
+                accepted,
+                rejected: Vec::new(),
+            })
+        }
+    }
+
+    fn outgoing(from: &str) -> Outgoing {
+        Outgoing {
+            mail_from: from.to_string(),
+            rcpt_to: vec!["dest@partner.example".into()],
+            raw: b"From: whoever\r\n\r\nhi".to_vec(),
+        }
+    }
+
+    /// Sending FROM an enabled alias the account owns rewrites the envelope to the
+    /// canonical alias and reaches the wire.
+    #[tokio::test]
+    async fn send_from_owned_enabled_alias_rewrites_and_delivers() {
+        let store = store().await;
+        let row = create_alias(
+            &store,
+            "acct-a",
+            "alice@corp.example",
+            &CreateReq::default(),
+        )
+        .await
+        .unwrap();
+        let inner = Arc::new(FakeInner::default());
+        let sub = MaskedSubmitter::new(store.clone(), "acct-a".into(), inner.clone());
+
+        // Submit with the alias in mixed case — the canonical (stored) form is presented.
+        let res = sub
+            .submit(outgoing(&row.alias_addr.to_ascii_uppercase()))
+            .await
+            .unwrap();
+        assert_eq!(res.accepted, vec!["dest@partner.example".to_string()]);
+        assert_eq!(inner.calls.load(Ordering::SeqCst), 1, "reached the wire");
+        assert_eq!(
+            inner.last.lock().unwrap().as_ref().unwrap().mail_from,
+            row.alias_addr,
+            "envelope From is the canonical alias"
+        );
+        // Usage was recorded.
+        assert!(
+            store
+                .get_masked_email(&row.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .last_used_at
+                .is_some()
+        );
+    }
+
+    /// Sending FROM another account's alias is refused fail-closed — nothing sends.
+    #[tokio::test]
+    async fn send_from_non_owned_alias_fails_closed() {
+        let store = store().await;
+        // acct-b owns the alias; acct-a tries to send as it.
+        let b = create_alias(&store, "acct-b", "bob@corp.example", &CreateReq::default())
+            .await
+            .unwrap();
+        let inner = Arc::new(FakeInner::default());
+        let sub = MaskedSubmitter::new(store.clone(), "acct-a".into(), inner.clone());
+
+        let err = sub.submit(outgoing(&b.alias_addr)).await.unwrap_err();
+        assert!(matches!(err, EngineError::Protocol(_)));
+        assert_eq!(
+            inner.calls.load(Ordering::SeqCst),
+            0,
+            "cross-account alias must never reach the wire"
+        );
+    }
+
+    /// A disabled or deleted owned alias is not usable as `From` (fail-closed).
+    #[tokio::test]
+    async fn send_from_disabled_or_deleted_alias_fails_closed() {
+        let store = store().await;
+        let inner = Arc::new(FakeInner::default());
+        let sub = MaskedSubmitter::new(store.clone(), "acct-a".into(), inner.clone());
+
+        // Disabled.
+        let disabled = create_alias(
+            &store,
+            "acct-a",
+            "alice@corp.example",
+            &CreateReq::default(),
+        )
+        .await
+        .unwrap();
+        change_state(&store, "acct-a", &disabled.id, STATE_DISABLED)
+            .await
+            .unwrap();
+        let err = sub
+            .submit(outgoing(&disabled.alias_addr))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, EngineError::Protocol(_)));
+
+        // Deleted (soft-delete tombstone still occupies the address).
+        let deleted = create_alias(
+            &store,
+            "acct-a",
+            "alice@corp.example",
+            &CreateReq::default(),
+        )
+        .await
+        .unwrap();
+        soft_delete(&store, "acct-a", &deleted.id).await.unwrap();
+        let err = sub.submit(outgoing(&deleted.alias_addr)).await.unwrap_err();
+        assert!(matches!(err, EngineError::Protocol(_)));
+
+        assert_eq!(
+            inner.calls.load(Ordering::SeqCst),
+            0,
+            "a disabled/deleted alias must never reach the wire"
+        );
+    }
+
+    /// An ordinary (non-alias) `From` is forwarded byte-for-byte unchanged.
+    #[tokio::test]
+    async fn normal_from_is_byte_unchanged() {
+        let store = store().await;
+        // An alias exists for the account, but the send is from the real address.
+        let _ = create_alias(
+            &store,
+            "acct-a",
+            "alice@corp.example",
+            &CreateReq::default(),
+        )
+        .await
+        .unwrap();
+        let inner = Arc::new(FakeInner::default());
+        let sub = MaskedSubmitter::new(store.clone(), "acct-a".into(), inner.clone());
+
+        let original = outgoing("alice@corp.example");
+        sub.submit(original.clone()).await.unwrap();
+        let seen = inner.last.lock().unwrap().clone().unwrap();
+        assert_eq!(seen.mail_from, original.mail_from);
+        assert_eq!(seen.rcpt_to, original.rcpt_to);
+        assert_eq!(seen.raw, original.raw, "message bytes untouched");
     }
 }

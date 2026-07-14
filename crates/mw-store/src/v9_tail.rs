@@ -289,6 +289,25 @@ impl Store {
         Ok(row.map(|r| Self::map_masked_row(&r)))
     }
 
+    /// Read the masked-email alias whose `alias_addr` matches (case-insensitively),
+    /// across ALL accounts, or `None`. Backs the on-send From-rewrite's global,
+    /// per-address ownership check: the 0010 `alias_addr` UNIQUE index guarantees at
+    /// most one row (a soft-deleted tombstone still occupies the address, so the
+    /// caller can fail-closed on a disabled/deleted alias).
+    pub async fn get_masked_email_by_addr(
+        &self,
+        addr: &str,
+    ) -> Result<Option<MaskedEmailRow>, StoreError> {
+        let row = q(
+            "SELECT id, account_id, alias_addr, target_desc, state, created_at, last_used_at
+             FROM masked_email WHERE lower(alias_addr) = lower(?1)",
+        )
+        .bind(addr)
+        .fetch_optional(&self.backend)
+        .await?;
+        Ok(row.map(|r| Self::map_masked_row(&r)))
+    }
+
     /// Every masked-email alias for an account, newest-first.
     pub async fn list_masked_email(
         &self,
@@ -519,6 +538,21 @@ mod tests {
         assert_eq!(got.state, "disabled");
         assert_eq!(got.last_used_at.as_deref(), Some("2026-07-15T00:00:00Z"));
         assert!(store.list_masked_email("nope").await.unwrap().is_empty());
+
+        // By-address lookup is global + case-insensitive; the tombstone still resolves.
+        let by = store
+            .get_masked_email_by_addr("X7F2@Masked.Example")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(by.id, "m1");
+        assert!(
+            store
+                .get_masked_email_by_addr("nobody@masked.example")
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[tokio::test]
