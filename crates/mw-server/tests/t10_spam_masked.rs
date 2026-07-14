@@ -173,13 +173,18 @@ impl HttpFetcher for LiveRewriteFetcher {
     async fn fetch(&self, req: HttpReq) -> Result<HttpResp, String> {
         let url = req
             .url
-            .replacen("//rspamd:11333", &format!("//127.0.0.1:{}", rspamd_port()), 1)
+            .replacen(
+                "//rspamd:11333",
+                &format!("//127.0.0.1:{}", rspamd_port()),
+                1,
+            )
             .replacen(
                 "//spamassassin:783",
                 &format!("//127.0.0.1:{}", relay_port()),
                 1,
             );
-        let method = reqwest::Method::from_bytes(req.method.as_bytes()).map_err(|e| e.to_string())?;
+        let method =
+            reqwest::Method::from_bytes(req.method.as_bytes()).map_err(|e| e.to_string())?;
         let mut rb = self.client.request(method, &url);
         for (k, v) in &req.headers {
             rb = rb.header(k.as_str(), v.as_str());
@@ -226,10 +231,16 @@ async fn spam_live_gtube_is_spam_ham_is_ham() {
         ("spam-spamassassin", "spamassassin"),
     ] {
         let spam = classify_live(id, allow, gtube_message()).await;
-        assert_eq!(spam, "spam", "{id}: GTUBE must classify as spam (got {spam})");
+        assert_eq!(
+            spam, "spam",
+            "{id}: GTUBE must classify as spam (got {spam})"
+        );
 
         let ham = classify_live(id, allow, ham_message()).await;
-        assert_eq!(ham, "ham", "{id}: a benign message must classify as ham (got {ham})");
+        assert_eq!(
+            ham, "ham",
+            "{id}: a benign message must classify as ham (got {ham})"
+        );
     }
 }
 
@@ -262,7 +273,12 @@ async fn masked_email_lifecycle_round_trips() {
         .await
         .unwrap();
     assert_eq!(
-        store.get_masked_email("mask-1").await.unwrap().unwrap().state,
+        store
+            .get_masked_email("mask-1")
+            .await
+            .unwrap()
+            .unwrap()
+            .state,
         "disabled"
     );
 
@@ -275,7 +291,9 @@ async fn masked_email_lifecycle_round_trips() {
         .unwrap();
     let all = store.list_masked_email(account).await.unwrap();
     assert_eq!(
-        all.iter().find(|r| r.id == "mask-1").map(|r| r.state.as_str()),
+        all.iter()
+            .find(|r| r.id == "mask-1")
+            .map(|r| r.state.as_str()),
         Some("deleted"),
         "the store soft-deletes (retains the row with state='deleted')"
     );

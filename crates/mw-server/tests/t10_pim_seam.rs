@@ -221,7 +221,10 @@ async fn ews_bridge_binds_calendar_tasks_only_parity_on_fallback() {
     let acct = seed_bridge_account(&store, "bridge-ews", "outlook.office365.com").await;
     let engine = boot(&store).await;
 
-    assert!(engine.bridge_calendar(&acct).is_some(), "EWS calendar binds");
+    assert!(
+        engine.bridge_calendar(&acct).is_some(),
+        "EWS calendar binds"
+    );
     assert!(engine.bridge_tasks(&acct).is_some(), "EWS tasks bind");
     // EWS's legacy coarse caps overclaim parity; the honest per-interface supports-* are
     // false, so parity MUST stay on the standards fallback (e3's warning, plan §6.5).

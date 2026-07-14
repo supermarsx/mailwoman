@@ -25,9 +25,7 @@ use std::path::PathBuf;
 
 use serde_json::{Value, json};
 
-use mw_server::{
-    AppConfig, HardeningConfig, SecurityConfig, ServerMode, V6Config, build_app_full,
-};
+use mw_server::{AppConfig, HardeningConfig, SecurityConfig, ServerMode, V6Config, build_app_full};
 use mw_store::{OAuthDcrPolicyRow, ServerKey, Store};
 
 const INDEX_HTML: &str = "<!doctype html><title>Mailwoman</title><div id=app>MW</div>";
@@ -276,12 +274,20 @@ async fn dcr_full_lifecycle_against_real_authserver() {
         .send()
         .await
         .unwrap();
-    assert_eq!(deleted.status(), 204, "authed delete deprovisions the client");
+    assert_eq!(
+        deleted.status(),
+        204,
+        "authed delete deprovisions the client"
+    );
     let after = c
         .get(format!("{server}/oauth/register/{client_id}"))
         .bearer_auth(&rat)
         .send()
         .await
         .unwrap();
-    assert_eq!(after.status(), 401, "the deleted client's RAT no longer authenticates");
+    assert_eq!(
+        after.status(),
+        401,
+        "the deleted client's RAT no longer authenticates"
+    );
 }

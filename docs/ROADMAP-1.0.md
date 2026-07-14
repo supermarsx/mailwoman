@@ -34,27 +34,46 @@ links to its SPEC section and owner as work begins.
 
 ## Deferred-to-1.0-or-post items (from the V7 OUT list)
 
-- [ ] **UI-plugin (TypeScript sandboxed) tier** (§22.2) — document-only in V7; V7 ships
-      the engine (WASM) plugin tier only.
-- [ ] **Calendar / tasks / reactions / voting / recall plugin-seam export** (§6.5, §22)
-      — the frozen WIT world exports the **account-backend (MAIL)** interface only. The
-      bridges already **implement and fixture-test** these surfaces (advertised via
-      `capabilities()`), but they are **not yet drivable through the plugin seam** — the
-      WIT export for them is a post-1.0 extension. Until then the UI's existing
-      standards/header-convention fallbacks handle them. (See
-      `docs/RELEASE-NOTES-26.8.md` and `docs/bridges/`.)
-- [ ] **Rspamd / SpamAssassin trainer plugins** (§10.8) — the LanguageTool plugin
-      already proves the plugin runtime end-to-end, so these were off the V7 path.
-- [ ] **Masked-email plugins** (§28.4).
-- [ ] **OAuth dynamic client registration** (V6 follow-up c) — bridges use
-      Mailwoman-as-OAuth-*client*; admin-seeded / BYO client IDs suffice. Add only if
-      third-party self-registration is wanted.
-- [ ] **EWS native Kerberos/NTLM-SSO via system GSSAPI** (§6.5, R2) — pure-Rust
-      NTLMv2 + Basic ship in V7; Kerberos needs non-permissive platform libs. BYO
-      reverse-proxy-auth is the documented interim path; native Kerberos is post-1.0.
-- [ ] **MSG/OFT deep write fidelity** (embedded objects, custom named properties,
-      §28.8) — V7 ships the body + attachments + headers floor; deep fidelity is
-      best-effort.
+**Update (release 26.10):** the deferred-spec tail below shipped — additively, over the
+frozen V7 surfaces — in the rolling `26.10` release. See the `26.10` entry in
+`VERSIONING.md` for the full changelog and the two non-blocking follow-ups.
+
+- [x] **UI-plugin (TypeScript sandboxed) tier** (§22.2) — **shipped in 26.10**: approved
+      plugins render in an opaque-origin `<iframe sandbox="allow-scripts">` (no
+      `allow-same-origin`) behind a deny-by-default `postMessage` broker, with an Ed25519
+      signed registry + admin approval and an unsigned-plugin banner. The sandbox-escape
+      gate (all 12 vectors) found no hole in a real browser. (V7 shipped the engine WASM
+      tier only.)
+- [x] **Calendar / tasks / reactions / voting / recall plugin-seam export** (§6.5, §22)
+      — **shipped in 26.10**: a second `mailwoman:plugin-pim` WIT world (`calendar` /
+      `tasks` / `bridge-parity` interfaces) is bound by the host via per-interface export
+      probing, so the Graph/EWS/Gmail bridges now drive these surfaces **through the plugin
+      jail** with honest per-provider support (Graph all six, EWS calendar + tasks, Gmail
+      none). `mw-engine` prefers the bridge when a capability is genuinely advertised and
+      otherwise keeps the byte-unchanged standards fallback; `account-backend`-only
+      components (LanguageTool, Nextcloud) load unchanged. (See `docs/bridges/`.)
+- [x] **Rspamd / SpamAssassin trainer plugins** (§10.8) — **shipped in 26.10** as jailed
+      `wasm32-wasip2` classifiers reaching their daemons only through host `http-fetch`
+      under a net allowlist (no C linkage), feeding a fail-soft `SpamHook` in
+      `Engine::ingest` (a classifier failure never drops mail).
+- [x] **Masked-email plugins** (§28.4) — **shipped in 26.10**: store-layer alias service +
+      lifecycle + `/api/masked/*` routes. (On-send From-rewrite is a documented non-blocking
+      follow-up — see the `26.10` VERSIONING entry.)
+- [x] **OAuth dynamic client registration** (V6 follow-up c) — **shipped in 26.10**:
+      RFC 7591 register + RFC 7592 read/update/delete in `mw-oauth`, **default-disabled and
+      ops-gated** (policy row + redirect-host-suffix allowlist + registration-access-tokens,
+      no scope escalation).
+- [ ] **EWS native Kerberos/NTLM-SSO via system GSSAPI** (§6.5, R2) — **partially addressed
+      in 26.10**: the BYO SPNEGO reverse-proxy path is documented + fixture-tested
+      (`docs/deploy/kerberos.md` — IIS+ARR+KCD / Apache `mod_auth_gssapi` / nginx SPNEGO
+      recipes) on top of the shipped Basic + pure-Rust NTLMv2. **Native GSSAPI stays
+      unbuilt**: it needs a non-permissive `-sys`-C dep, so it is a **flagged human
+      license-floor decision** (feature-gated, off by default) the autonomous pipeline will
+      not take.
+- [x] **MSG/OFT deep write fidelity** (embedded objects, custom named properties,
+      §28.8) — **shipped in 26.10**: additive `__nameid` named-property map + embedded-OLE
+      message writing in `mw-export`; a message with no named properties or embedded objects
+      stays byte-identical to the 26.9 floor.
 - [x] **Gmail bridge** — this was the §27 scope-cut ladder's first candidate (R6) but
       was **NOT cut**: it shipped fully in V7 (true label semantics + history-ID delta
       sync). No follow-up needed.

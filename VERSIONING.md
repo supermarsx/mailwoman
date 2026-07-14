@@ -37,6 +37,63 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
 
 ## History
 
+- **`26.10`** — the deferred-spec tail: bridge PIM through the plugin seam, spam
+  classifiers, masked email, OAuth dynamic client registration, a sandboxed TypeScript
+  UI-plugin tier, and MSG/OFT deep write fidelity — all additive over the frozen V7
+  surfaces, with a comprehensive live-E2E pass. **Bridge personal-information management
+  is now drivable through the WASM plugin jail.** The plugin ABI gains a second
+  `mailwoman:plugin-pim` world (`calendar` / `tasks` / `bridge-parity` interfaces) that
+  the host binds via **per-interface export probing** — a component that exports only the
+  frozen `account-backend` interface (LanguageTool, Nextcloud) loads byte-unchanged and
+  advertises no PIM caps. The Graph/EWS/Gmail bridges wire their existing calendar / tasks /
+  reactions / voting / recall / focused-sync implementations to the new exports with
+  **honest per-provider support**: Graph advertises all six, EWS binds calendar + tasks
+  only (its legacy coarse caps overclaim parity; the per-interface `supports-*` funcs are
+  false), and Gmail advertises none — so `mw-engine` routes PIM to the bridge when a
+  capability is genuinely advertised and otherwise keeps the **byte-unchanged standards
+  fallback** (a plain IMAP/DAV account is unaffected). Two first-party **spam classifiers**
+  ship as jailed `wasm32-wasip2` components (`spam-rspamd` talking to a real rspamd scan
+  worker, `spam-spamassassin` via a SPAMC→HTTP relay) reaching their daemons only through
+  the host `http-fetch` egress under a net allowlist (no C linkage). They feed a
+  **fail-soft `SpamHook`** in `Engine::ingest` that runs on genuinely-new INBOX arrivals
+  only: a `Spam` verdict tags `$Junk` and moves to Junk, while any classifier failure,
+  denied host, non-INBOX message, or `Ham`/`Unknown` verdict delivers the message
+  byte-unchanged (a classifier can never drop mail). A **masked-email** alias service
+  (store repo + `/api/masked/*` routes) generates, enables/disables, and deletes
+  per-account aliases. **OAuth 2.0 Dynamic Client Registration** (RFC 7591 register +
+  RFC 7592 read/update/delete) is additive to `mw-oauth`, **default-disabled and
+  ops-gated**: enabled only via an `oauth_dcr` policy row, with a redirect-host-suffix
+  allowlist, optional initial-access-token, per-client registration-access-tokens, and no
+  scope escalation. A **sandboxed TypeScript UI-plugin tier** renders approved plugins
+  inside an **opaque-origin `<iframe sandbox="allow-scripts">`** (no `allow-same-origin`,
+  host CSP `connect-src 'none'`) behind a **deny-by-default `postMessage` broker** —
+  ungranted capabilities and off-allowlist methods are rejected before any host call — with
+  an **Ed25519 signed registry**, admin approval, and an unsigned-plugin banner the guest
+  cannot reach. **MSG/OFT deep write fidelity** adds a `__nameid` named-property map
+  (MS-OXMSG) and embedded-OLE message writing to `mw-export`, additively: a message with no
+  custom named properties or embedded objects stays byte-identical to the 26.9 floor.
+  **EWS Kerberos** ships as a documented **BYO SPNEGO reverse-proxy** path (IIS+ARR+KCD /
+  Apache mod_auth_gssapi / nginx SPNEGO recipes) on top of the shipped Basic + pure-Rust
+  NTLMv2 — native GSSAPI stays a **flagged human license-floor decision** (it needs a
+  non-permissive `-sys`-C dep, so the autonomous pipeline will not add it). **Net zero new
+  Rust/npm dependencies**; no openssl / no `-sys` C; `0010` migration added both dialects,
+  `0001`–`0009` untouched; the SQLite-default + browser-cookie paths are unchanged.
+  Verified: **1023 Rust** tests (138 suites) + **671 web** tests; `cargo deny` clean with
+  no new advisory ignore and no openssl anywhere; a comprehensive live-E2E gate green —
+  **13 backend live-E2E** tests (bridge PIM through the real jail + engine matching the
+  honest support matrix, standards fallback proven byte-unchanged, spam fail-soft vs the
+  real components plus a gated real-daemon leg, DCR vs the real AuthServer on SQLite and
+  Postgres, MSG/OFT deep round-trip), and **12 browser live-E2E** passing with 1 honest
+  skip — the UI-plugin **sandbox-escape gate found no hole** (all 12 escape vectors —
+  parent cookies/DOM/location, session token, storage, off-allowlist network — blocked by
+  the browser and the broker). Rolling `YY.N` scheme retained (this is 26.10, not a "1.0"
+  tag). Non-blocking 26.10 follow-ups (documented, not release-gating): (a) **masked-email
+  on-send From-rewrite** — the store-layer alias service + lifecycle + routes are complete,
+  but automatic envelope rewrite on send needs a per-send alias→target seam that feeds the
+  selected alias through the jail (the `masked-email` `message-out` component stays an
+  identity passthrough until then); and (b) an optional **`PUT /admin/oauth-dcr` admin
+  toggle** — DCR is currently config/CLI-enabled by design (the browser proves the mounted,
+  default-closed gate; the enabled-path mint is proven in the Rust harness).
 - **`26.9`** — enterprise SSO + the accessibility/i18n/perf/packaging hardening pass.
   **Full OIDC and SAML 2.0 single sign-on** as login backends (new `mw-sso` crate),
   configured per-deployment/domain via the admin panel + a `0009` `sso_config` table
