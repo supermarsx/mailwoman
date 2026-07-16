@@ -37,6 +37,78 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
 
 ## History
 
+- **`26.12`** — spec-conformance closure: real SPEC-feature gaps the 2026-07-16 audit found
+  in otherwise-complete code, closed additively over the frozen V0–V7 surfaces. **HTML
+  sanitizer CSS-rewrite**: `mw-sanitize` no longer wholesale-strips CSS — it parses both inline
+  `style=` and `<style>` blocks (via `cssparser`, MPL-2.0, already in-tree through ammonia),
+  keeps an allowlist of ~130 visual properties, namespaces every selector under
+  `.mw-email-body`, drops `position:fixed/sticky`, `@import`, external `url()` (only internal
+  `cid:` survives) and every non-`@media`/`@supports` at-rule, clamps `z-index` to 1000, and
+  drops `expression()`/`javascript:` values; the public `sanitize_email_html` signature and the
+  wasm cdylib are unchanged. **Sieve source parser + web rules UI**: a hand-rolled
+  recursive-descent `mw-sieve::parse` (zero new dep) is the round-trip inverse of the existing
+  codegen; a new `apps/web` rules module ships a condition/action builder, a raw-Sieve editor
+  with lint surface, a where-it-runs indicator, and a dry-run preview over the existing MailRule
+  JMAP/ManageSieve path. **EWS real auth**: the bridge's NTLM-only placeholder-constant +
+  hardcoded-endpoint auth is replaced with a Basic path (empty NT domain) alongside NTLMv2, keyed
+  by per-account, host-held, sealed credentials — an additive `0011 ews_account_cred` table (both
+  dialects, INTEGER/BIGINT 0/1 booleans, secret sealed with XChaCha20-Poly1305, `0001`–`0010`
+  untouched), reached through a new additive `basic-credentials(account)` import on the frozen
+  `host` WIT interface (backward-compatible; pre-t12 guests don't import it). The empty-account
+  handle the guest passes ("one instance backs one account") is now resolved host-side to the
+  plugin instance's bound account, fixing EWS auth end-to-end (and a latent same-shape gap in the
+  OAuth bridges). **Compose sign-on-send**: the `sign` toggle now folds into encrypt
+  (`signWithKeyRef` unwrapped at the worker boundary) for a signed-AND-encrypted `PGP MESSAGE`; a
+  clear-signed sign-only branch emits a real RFC 9580 `PGP SIGNED MESSAGE` with the body inline
+  (previously the body was discarded); and the reader now verifies the embedded signature on
+  decrypt (`signerPublicKey` threaded additively through `DecryptRequest` → `Reader`, resolving
+  the sender key from the keyring), so encrypt+sign mail reads back as "Signature verified".
+  Encrypt-on-send and plain sends are byte-unchanged. **SASL + IMAP extensions**: SCRAM-SHA-256
+  (and -PLUS) + OAUTHBEARER across `mw-imap`/`mw-pop3`/`mw-smtp` (PBKDF2 derived from in-tree
+  `hmac`+`sha2`; no new dep), plus IMAP SORT + THREAD (RFC 5256) advertised through `BackendCaps`.
+  **SMTP extensions**: DSN (`RET`/`ENVID`/`NOTIFY`/`ORCPT`), REQUIRETLS (fails closed when
+  unadvertised), SMTPUTF8, and CHUNKING/BDAT. **Engine security**: DLP now evaluates the
+  previously-unread `dictionaries` + `classification` conditions and adds a `notify`/`notify-admin`
+  action; SPF is evaluated (origin IP from the top Received hop via `mail-auth`); the S/MIME
+  recipient-cert lookup is wired to the GAL/LDAP `gal_lookup_cert` seam; identities are pulled
+  from the server (source `"server"`) beyond the single seeded identity. **Search** gains fuzzy
+  (`~`) and prefix/wildcard (`*`) queries within the existing p95 budget. **Autoconfig** adds a
+  `.well-known/jmap` rung and a live SRV resolver (`hickory-resolver`, MIT/Apache, already in-tree
+  via mail-auth). **Calendar** adds a side-by-side conflict resolver (consuming the previously
+  unused `queryFreeBusy` free/busy grid), a distinct schedule view (no longer aliasing agenda),
+  attendee `ROLE`/`CUTYPE` parse/emit + pickers, `RDATE` and `RECURRENCE-ID` overrides on
+  expansion, and `.hol` export. **Packaging + CI**: the workspace version is now the single source
+  of truth — `scripts/stamp-version.sh` stamps winget/flatpak/fdroid/both `tauri.conf.json`/both
+  shell `package.json`, and `packaging.yml` parses it and compares every manifest (the three
+  hardcoded `26.8.0` literals are gone); desktop/mobile unit tests + clippy run in a dedicated CI
+  job and `desktop-e2e` is activated (honestly `continue-on-error`-gated for the hosted-runner
+  WebView2↔msedgedriver pin); false 501/stub/"until eN"/"NOT mounted" doc comments were scrubbed.
+  **Net zero new dependency graph nodes** (`cssparser`/`hickory-resolver` already resolved in-tree;
+  SCRAM reuses `hmac`/`sha2`); no openssl/`-sys`/C; `cargo deny` clean (MPL-2.0 `cssparser` note
+  recorded, permitted). Verified: **1152 Rust** tests (0 failed, 12 ignored) across the full
+  workspace (the 1082 desktop/mobile-excluded baseline plus the now-included desktop/mobile crate
+  tests and the t12 additions) + **714 web** tests; live-E2E green — **17 backend** live tests
+  (IMAP/POP3 SCRAM + SORT/THREAD vs a SCRAM-only Dovecot; SMTP DSN/SMTPUTF8/BDAT; S/MIME GAL cert
+  vs real OpenLDAP; autoconfig `.well-known/jmap`+SRV; EWS Basic + per-account sealed creds through
+  the jail on live Postgres) and the browser compose wire-assertion gate (a sent message is
+  byte-verified genuinely encrypted, and — signed — reads back "Signature verified"), plus sieve
+  round-trip, calendar resolver, and a real sanitizer CSS render. The EWS auth bug and both compose
+  signing holes (encrypt+sign fold, clear-signed sign-only) plus the decrypt-side verify gap were
+  each found by that live gate — "unit-green ≠ wired" — and fixed + re-verified before this tag.
+  **Honest deferrals**: iOS shell (needs macOS + Xcode + a paid Apple account and a macOS runner —
+  unbuildable on this toolchain); GeoIP/ASN enrichment (a BYO-database admin hook only — no
+  permissively-redistributable DB is bundled; SPF itself shipped); full JWZ threading (the
+  References/In-Reply-To heuristic stays — a ~250–400 LOC rewrite with incremental-ingest
+  blast-radius); and IMAP ACL (4314) / METADATA (5464) editing UI (detection/read only — the
+  editing surface is deferred). **Minor residual**: SCRAM channel-binding — the non-`PLUS`
+  mechanisms are complete across all three protocols, and IMAP `-PLUS` assumes SHA-256 certificate
+  leaves. **Artifact note**: the `mw-crypto` browser crypto-worker (`apps/web/src/wasm/mw-crypto/*`)
+  is **git-tracked** (shipped committed, not built at package time); the committed bytes were
+  functionally verified (native unit + Node wasm-runtime smoke tests + the live browser gate) but
+  were hand-assembled on Windows due to a local toolchain gap (the vendored `wasm-opt` was invoked
+  without the bulk-memory feature flags and this box's `rustc` omitted the `target_features`
+  section) — the canonical artifact is regenerated by CI (e9) on Linux via the stock
+  `build-wasm.sh` toolchain. Rolling `YY.N` scheme retained (this is 26.12, not a "1.0" tag).
 - **`26.11`** — closes the two non-blocking follow-ups documented in `26.10`, both
   server-side and additive over the frozen surfaces. **Masked-email on-send From-rewrite**:
   a server-side `MaskedSubmitter` decorator wraps the standards-account submitter at the

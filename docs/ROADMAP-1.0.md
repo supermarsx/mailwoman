@@ -69,10 +69,14 @@ frozen V7 surfaces — in the rolling `26.10` release. See the `26.10` entry in
 - [ ] **EWS native Kerberos/NTLM-SSO via system GSSAPI** (§6.5, R2) — **partially addressed
       in 26.10**: the BYO SPNEGO reverse-proxy path is documented + fixture-tested
       (`docs/deploy/kerberos.md` — IIS+ARR+KCD / Apache `mod_auth_gssapi` / nginx SPNEGO
-      recipes) on top of the shipped Basic + pure-Rust NTLMv2. **Native GSSAPI stays
-      unbuilt**: it needs a non-permissive `-sys`-C dep, so it is a **flagged human
-      license-floor decision** (feature-gated, off by default) the autonomous pipeline will
-      not take.
+      recipes) on top of the shipped Basic + pure-Rust NTLMv2. **26.12** then replaced the EWS
+      bridge's placeholder credential constants + hardcoded endpoint with real per-account,
+      host-held **sealed** credentials (`0011 ews_account_cred`, both dialects) resolved through a
+      new additive `basic-credentials(account)` WIT host import, selecting HTTP Basic (empty NT
+      domain) or NTLMv2 per account — so both authenticate against a real Exchange per account
+      (live-verified through the jail on Postgres). **Native GSSAPI Kerberos stays unbuilt**: it
+      needs a non-permissive `-sys`-C dep, so it remains a **flagged human license-floor decision**
+      (feature-gated, off by default) the autonomous pipeline will not take.
 - [x] **MSG/OFT deep write fidelity** (embedded objects, custom named properties,
       §28.8) — **shipped in 26.10**: additive `__nameid` named-property map + embedded-OLE
       message writing in `mw-export`; a message with no named properties or embedded objects
