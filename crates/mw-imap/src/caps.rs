@@ -67,9 +67,17 @@ impl CapabilitySet {
             enable: self.has("ENABLE"),
             id: self.has("ID"),
             compress: self.has("COMPRESS=DEFLATE"),
+            sort: self.has("SORT"),
+            thread_references: self.has("THREAD=REFERENCES"),
+            thread_orderedsubject: self.has("THREAD=ORDEREDSUBJECT"),
+            acl: self.has("ACL"),
+            metadata: self.has("METADATA") || self.has("METADATA-SERVER"),
             sasl_plain: self.has_auth("PLAIN"),
             sasl_login: self.has_auth("LOGIN"),
             sasl_xoauth2: self.has_auth("XOAUTH2"),
+            sasl_oauthbearer: self.has_auth("OAUTHBEARER"),
+            sasl_scram_sha256: self.has_auth("SCRAM-SHA-256"),
+            sasl_scram_sha256_plus: self.has_auth("SCRAM-SHA-256-PLUS"),
         }
     }
 }

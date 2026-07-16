@@ -6,11 +6,14 @@
 //! complete response, so literals (`{n}`) and multi-line responses are framed
 //! by the parser rather than by hand.
 
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use bytes::{Buf, BytesMut};
 use imap_proto::{RequestId, Response, ResponseCode, Status};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::error::{ImapError, ImapResult};
+use crate::sasl::SaslClient;
 use crate::transport::{ImapStream, TlsMode};
 
 /// A fully-owned parsed response (no borrow into the read buffer).
@@ -237,6 +240,133 @@ impl Connection {
                     });
                 }
                 other => untagged.push(other),
+            }
+        }
+    }
+
+    /// Drive an interactive SASL `AUTHENTICATE` exchange (SCRAM, …).
+    ///
+    /// One [`SaslClient::step`] per server continuation; the first step receives
+    /// an empty challenge (the server's bare `+`), matching the no-`SASL-IR`
+    /// choreography [`Self::authenticate`] uses. A `step` error aborts the
+    /// exchange (`*`) and surfaces an [`ImapError::Auth`].
+    pub async fn authenticate_sasl(
+        &mut self,
+        mechanism: &str,
+        client: &mut (dyn SaslClient + Send),
+    ) -> ImapResult<Tagged> {
+        let tag = self.next_tag();
+        tracing::trace!(target: "mw_imap::wire", tag = %tag, "C: AUTHENTICATE {mechanism}");
+        self.write_all(format!("{tag} AUTHENTICATE {mechanism}\r\n").as_bytes())
+            .await?;
+
+        let mut untagged = Vec::new();
+        loop {
+            let resp = self.read_response().await?;
+            match resp {
+                Response::Continue { information, .. } => {
+                    let challenge = match &information {
+                        Some(text) => B64.decode(text.trim().as_bytes()).map_err(|e| {
+                            ImapError::Protocol(format!("invalid base64 SASL challenge: {e}"))
+                        })?,
+                        None => Vec::new(),
+                    };
+                    match client.step(&challenge) {
+                        Ok(response) => {
+                            let encoded = B64.encode(&response);
+                            self.write_all(format!("{encoded}\r\n").as_bytes()).await?;
+                        }
+                        Err(msg) => {
+                            // Abort the exchange; drain to the tagged completion.
+                            self.write_all(b"*\r\n").await?;
+                            let _ = self.collect_until_tagged(&tag).await;
+                            return Err(ImapError::Auth(msg));
+                        }
+                    }
+                }
+                Response::Done {
+                    tag: RequestId(t),
+                    status,
+                    code,
+                    information,
+                } => {
+                    if t != tag {
+                        return Err(ImapError::Protocol(format!(
+                            "tag mismatch: expected {tag}, got {t}"
+                        )));
+                    }
+                    return Ok(Tagged {
+                        untagged,
+                        status,
+                        code,
+                        information: information.map(|c| c.into_owned()),
+                    });
+                }
+                other => untagged.push(other),
+            }
+        }
+    }
+
+    /// The SCRAM `-PLUS` channel binding for the current transport:
+    /// `tls-server-end-point` = SHA-256 of the server's leaf certificate
+    /// (RFC 5929). `None` on a plaintext transport or when the server presented
+    /// no certificate.
+    pub fn channel_binding(&self) -> Option<Vec<u8>> {
+        match self.stream.as_ref()? {
+            ImapStream::Tls(tls) => {
+                let (_, conn) = tls.get_ref();
+                let leaf = conn.peer_certificates()?.first()?;
+                Some(crate::sasl::tls_server_end_point(leaf.as_ref()))
+            }
+            ImapStream::Plain(_) => None,
+        }
+    }
+
+    /// Execute a command whose untagged responses this crate parses by hand —
+    /// used for `THREAD`, which `imap-proto` does not model. Returns the raw
+    /// untagged lines (CRLF stripped); errors on a `NO`/`BAD`/`BYE` completion.
+    ///
+    /// Safe only for commands that never return synchronizing literals (true of
+    /// `THREAD`): the reply is a sequence of CRLF-terminated lines.
+    pub async fn execute_lines(&mut self, command: &str) -> ImapResult<Vec<String>> {
+        let tag = self.next_tag();
+        tracing::trace!(target: "mw_imap::wire", tag = %tag, "C: {command}");
+        self.write_all(format!("{tag} {command}\r\n").as_bytes())
+            .await?;
+        let completion = format!("{tag} ");
+        let mut lines = Vec::new();
+        loop {
+            let line = self.read_line().await?;
+            if let Some(rest) = line.strip_prefix(&completion) {
+                let status = rest.split_whitespace().next().unwrap_or("");
+                let info = rest[status.len()..].trim().to_string();
+                return match status.to_ascii_uppercase().as_str() {
+                    "OK" => Ok(lines),
+                    "NO" => Err(ImapError::No(info)),
+                    "BAD" => Err(ImapError::Bad(info)),
+                    "BYE" => Err(ImapError::Bye(info)),
+                    _ => Err(ImapError::Protocol(format!(
+                        "unexpected completion: {line}"
+                    ))),
+                };
+            }
+            lines.push(line);
+        }
+    }
+
+    /// Read one CRLF-terminated line (CRLF stripped), growing the buffer as
+    /// needed. Used by [`Self::execute_lines`].
+    async fn read_line(&mut self) -> ImapResult<String> {
+        loop {
+            if let Some(pos) = self.buf.windows(2).position(|w| w == b"\r\n") {
+                let line = self.buf.split_to(pos);
+                self.buf.advance(2); // consume the CRLF
+                return Ok(String::from_utf8_lossy(&line).into_owned());
+            }
+            let stream = self.stream.as_mut().ok_or(ImapError::Eof)?;
+            let n = stream.read_buf(&mut self.buf).await?;
+            if n == 0 {
+                return Err(ImapError::Eof);
             }
         }
     }

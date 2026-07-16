@@ -88,6 +88,8 @@ pub struct Session {
     caps: CapabilitySet,
     selected: Option<String>,
     qresync_enabled: bool,
+    host: String,
+    port: u16,
 }
 
 impl Session {
@@ -108,6 +110,8 @@ impl Session {
             caps,
             selected: None,
             qresync_enabled: false,
+            host: host.to_string(),
+            port,
         };
         if mode == TlsMode::StartTls && !session.conn.is_encrypted() {
             session.ensure_capabilities().await?;
@@ -154,14 +158,35 @@ impl Session {
         self.ensure_capabilities().await?;
         let tagged = match creds {
             Credentials::XOAuth2 { username, token } => {
-                if !self.caps.has_auth("XOAUTH2") {
-                    return Err(ImapError::Unsupported("AUTH=XOAUTH2 not advertised".into()));
+                if self.caps.has_auth("XOAUTH2") {
+                    let frame = crate::sasl::xoauth2(username, token);
+                    self.conn.authenticate("XOAUTH2", &[frame]).await?
+                } else if self.caps.has_auth("OAUTHBEARER") {
+                    let frame = crate::sasl::oauthbearer(username, token, &self.host, self.port);
+                    self.conn.authenticate("OAUTHBEARER", &[frame]).await?
+                } else {
+                    return Err(ImapError::Unsupported(
+                        "neither AUTH=XOAUTH2 nor AUTH=OAUTHBEARER advertised".into(),
+                    ));
                 }
-                let frame = crate::sasl::xoauth2(username, token);
-                self.conn.authenticate("XOAUTH2", &[frame]).await?
             }
             Credentials::Password { username, password } => {
-                if self.caps.has_auth("PLAIN") {
+                // Preference: SCRAM-SHA-256-PLUS (channel-bound) → SCRAM-SHA-256
+                // → PLAIN → LOGIN → the LOGIN command. SCRAM keeps the password
+                // off the wire; `-PLUS` additionally binds it to the TLS channel.
+                let channel_binding = self.conn.channel_binding();
+                if self.caps.has_auth("SCRAM-SHA-256-PLUS") && channel_binding.is_some() {
+                    let mut client =
+                        crate::sasl::ScramSha256::new(username, password, channel_binding);
+                    self.conn
+                        .authenticate_sasl("SCRAM-SHA-256-PLUS", &mut client)
+                        .await?
+                } else if self.caps.has_auth("SCRAM-SHA-256") {
+                    let mut client = crate::sasl::ScramSha256::new(username, password, None);
+                    self.conn
+                        .authenticate_sasl("SCRAM-SHA-256", &mut client)
+                        .await?
+                } else if self.caps.has_auth("PLAIN") {
                     let frame = crate::sasl::plain(username, password);
                     self.conn.authenticate("PLAIN", &[frame]).await?
                 } else if self.caps.has_auth("LOGIN") {
@@ -437,6 +462,76 @@ impl Session {
         Ok(uids)
     }
 
+    // --- SORT / THREAD (RFC 5256) --------------------------------------------
+
+    /// `UID SORT (<criteria>) UTF-8 <search>` (RFC 5256): server-side ordering.
+    ///
+    /// Returns the matching UIDs in the requested order. `search` is an IMAP
+    /// search-key string (`ALL` when empty). Errors if the server does not
+    /// advertise `SORT`.
+    pub async fn uid_sort(
+        &mut self,
+        criteria: &[SortCriterion],
+        search: &str,
+    ) -> ImapResult<Vec<u32>> {
+        if !self.caps.has("SORT") {
+            return Err(ImapError::Unsupported(
+                "SORT (RFC 5256) not advertised".into(),
+            ));
+        }
+        let keys = criteria
+            .iter()
+            .map(|c| c.render())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let search = if search.trim().is_empty() {
+            "ALL"
+        } else {
+            search
+        };
+        let cmd = format!("UID SORT ({keys}) UTF-8 {search}");
+        let tagged = self.conn.execute(&cmd).await?.ok()?;
+        let mut uids = Vec::new();
+        for resp in tagged.untagged {
+            if let Response::MailboxData(MailboxDatum::Sort(mut s)) = resp {
+                uids.append(&mut s);
+            }
+        }
+        Ok(uids)
+    }
+
+    /// `UID THREAD <algorithm> UTF-8 <search>` (RFC 5256): server-side threading.
+    ///
+    /// Returns the thread forest as [`ThreadNode`] roots. `imap-proto` does not
+    /// model the `* THREAD (…)` reply, so it is read and parsed at the raw-line
+    /// level ([`Connection::execute_lines`]). Errors if the server does not
+    /// advertise the requested `THREAD=` algorithm.
+    pub async fn uid_thread(
+        &mut self,
+        algorithm: ThreadAlgorithm,
+        search: &str,
+    ) -> ImapResult<Vec<ThreadNode>> {
+        if !self.caps.has(algorithm.cap()) {
+            return Err(ImapError::Unsupported(format!(
+                "{} not advertised",
+                algorithm.cap()
+            )));
+        }
+        let search = if search.trim().is_empty() {
+            "ALL"
+        } else {
+            search
+        };
+        let cmd = format!("UID THREAD {} UTF-8 {search}", algorithm.token());
+        let lines = self.conn.execute_lines(&cmd).await?;
+        for line in lines {
+            if let Some(rest) = line.strip_prefix("* THREAD") {
+                return Ok(parse_thread_response(rest.trim()));
+            }
+        }
+        Ok(Vec::new())
+    }
+
     /// Fetch full raw RFC822 bytes for a set of UIDs in an already-known mailbox.
     pub async fn fetch_raw(
         &mut self,
@@ -607,6 +702,178 @@ impl Session {
     pub(crate) async fn ensure_qresync(&mut self) -> ImapResult<()> {
         self.ensure_qresync_enabled().await
     }
+}
+
+// --- SORT / THREAD types (RFC 5256) -----------------------------------------
+
+/// A SORT (RFC 5256) ordering key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortKey {
+    Arrival,
+    Cc,
+    Date,
+    From,
+    Size,
+    Subject,
+    To,
+}
+
+impl SortKey {
+    fn token(self) -> &'static str {
+        match self {
+            SortKey::Arrival => "ARRIVAL",
+            SortKey::Cc => "CC",
+            SortKey::Date => "DATE",
+            SortKey::From => "FROM",
+            SortKey::Size => "SIZE",
+            SortKey::Subject => "SUBJECT",
+            SortKey::To => "TO",
+        }
+    }
+}
+
+/// One SORT ordering term: a [`SortKey`] optionally in reverse (RFC 5256 allows
+/// `REVERSE` per key).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SortCriterion {
+    pub key: SortKey,
+    pub reverse: bool,
+}
+
+impl SortCriterion {
+    /// Ascending order on `key`.
+    pub fn asc(key: SortKey) -> Self {
+        Self {
+            key,
+            reverse: false,
+        }
+    }
+
+    /// Descending (`REVERSE`) order on `key`.
+    pub fn desc(key: SortKey) -> Self {
+        Self { key, reverse: true }
+    }
+
+    fn render(self) -> String {
+        if self.reverse {
+            format!("REVERSE {}", self.key.token())
+        } else {
+            self.key.token().to_string()
+        }
+    }
+}
+
+/// A THREAD (RFC 5256) threading algorithm.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThreadAlgorithm {
+    /// ORDEREDSUBJECT — subject + date "poor man's threading".
+    OrderedSubject,
+    /// REFERENCES — References/In-Reply-To message-graph threading.
+    References,
+}
+
+impl ThreadAlgorithm {
+    fn token(self) -> &'static str {
+        match self {
+            ThreadAlgorithm::OrderedSubject => "ORDEREDSUBJECT",
+            ThreadAlgorithm::References => "REFERENCES",
+        }
+    }
+
+    fn cap(self) -> &'static str {
+        match self {
+            ThreadAlgorithm::OrderedSubject => "THREAD=ORDEREDSUBJECT",
+            ThreadAlgorithm::References => "THREAD=REFERENCES",
+        }
+    }
+}
+
+/// A node in a THREAD (RFC 5256) tree: a message UID and its child threads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThreadNode {
+    /// The message's UID (this is a `UID THREAD` reply).
+    pub id: u32,
+    /// Reply threads rooted at this message.
+    pub children: Vec<ThreadNode>,
+}
+
+/// One token of a THREAD reply body: a number or a parenthesised sub-thread.
+enum ThreadElem {
+    Num(u32),
+    List(Vec<ThreadElem>),
+}
+
+/// Parse a `* THREAD` reply body (e.g. `(2)(3 6 (4 23)(44 7 96))`) into roots.
+fn parse_thread_response(body: &str) -> Vec<ThreadNode> {
+    let bytes = body.as_bytes();
+    let mut pos = 0;
+    let elems = parse_thread_elems(bytes, &mut pos);
+    thread_members(&elems)
+}
+
+/// Recursive-descent over the THREAD grammar: a sequence of numbers and
+/// parenthesised sub-lists, stopping at the matching `)` or end of input.
+fn parse_thread_elems(bytes: &[u8], pos: &mut usize) -> Vec<ThreadElem> {
+    let mut elems = Vec::new();
+    while *pos < bytes.len() {
+        match bytes[*pos] {
+            b' ' => *pos += 1,
+            b'(' => {
+                *pos += 1;
+                elems.push(ThreadElem::List(parse_thread_elems(bytes, pos)));
+            }
+            b')' => {
+                *pos += 1;
+                break;
+            }
+            b'0'..=b'9' => {
+                let start = *pos;
+                while *pos < bytes.len() && bytes[*pos].is_ascii_digit() {
+                    *pos += 1;
+                }
+                let n = std::str::from_utf8(&bytes[start..*pos])
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0);
+                elems.push(ThreadElem::Num(n));
+            }
+            _ => *pos += 1,
+        }
+    }
+    elems
+}
+
+/// Fold an element sequence into thread roots. Leading numbers form a
+/// parent→child chain; trailing sub-lists attach as children of the last
+/// number. With no leading number, each sub-list is an independent sibling root
+/// (the top-level `(A)(B)(C)` case).
+fn thread_members(elems: &[ThreadElem]) -> Vec<ThreadNode> {
+    let mut nums = Vec::new();
+    let mut i = 0;
+    while let Some(ThreadElem::Num(n)) = elems.get(i) {
+        nums.push(*n);
+        i += 1;
+    }
+    let mut branch_children = Vec::new();
+    for elem in &elems[i..] {
+        if let ThreadElem::List(inner) = elem {
+            branch_children.extend(thread_members(inner));
+        }
+    }
+    if nums.is_empty() {
+        return branch_children;
+    }
+    let mut node = ThreadNode {
+        id: *nums.last().unwrap(),
+        children: branch_children,
+    };
+    for &n in nums[..nums.len() - 1].iter().rev() {
+        node = ThreadNode {
+            id: n,
+            children: vec![node],
+        };
+    }
+    vec![node]
 }
 
 // --- free helpers -----------------------------------------------------------
@@ -839,4 +1106,83 @@ pub(crate) fn quote(s: &str) -> String {
     }
     out.push('"');
     out
+}
+
+#[cfg(test)]
+mod sort_thread_tests {
+    use super::*;
+
+    fn leaf(id: u32) -> ThreadNode {
+        ThreadNode {
+            id,
+            children: vec![],
+        }
+    }
+
+    #[test]
+    fn sort_criteria_render_with_reverse() {
+        let crit = [
+            SortCriterion::desc(SortKey::Date),
+            SortCriterion::asc(SortKey::Subject),
+        ];
+        let rendered = crit
+            .iter()
+            .map(|c| c.render())
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert_eq!(rendered, "REVERSE DATE SUBJECT");
+    }
+
+    #[test]
+    fn thread_parses_flat_siblings() {
+        // `* THREAD (1)(2)(3)` → three independent single-message threads.
+        let roots = parse_thread_response("(1)(2)(3)");
+        assert_eq!(roots, vec![leaf(1), leaf(2), leaf(3)]);
+    }
+
+    #[test]
+    fn thread_parses_rfc5256_nested_example() {
+        // The RFC 5256 §4 illustrative reply.
+        let roots = parse_thread_response("(2)(3 6 (4 23)(44 7 96))");
+        assert_eq!(roots.len(), 2);
+        assert_eq!(roots[0], leaf(2));
+
+        // 3 → 6, and 6 has two child branches: (4 → 23) and (44 → 7 → 96).
+        let three = &roots[1];
+        assert_eq!(three.id, 3);
+        assert_eq!(three.children.len(), 1);
+        let six = &three.children[0];
+        assert_eq!(six.id, 6);
+        assert_eq!(six.children.len(), 2);
+
+        let branch_a = &six.children[0];
+        assert_eq!(branch_a.id, 4);
+        assert_eq!(branch_a.children, vec![leaf(23)]);
+
+        let branch_b = &six.children[1];
+        assert_eq!(branch_b.id, 44);
+        assert_eq!(branch_b.children[0].id, 7);
+        assert_eq!(branch_b.children[0].children, vec![leaf(96)]);
+    }
+
+    #[test]
+    fn thread_parses_linear_chain() {
+        // `(1 2 3)` → 1 → 2 → 3.
+        let roots = parse_thread_response("(1 2 3)");
+        assert_eq!(
+            roots,
+            vec![ThreadNode {
+                id: 1,
+                children: vec![ThreadNode {
+                    id: 2,
+                    children: vec![leaf(3)],
+                }],
+            }]
+        );
+    }
+
+    #[test]
+    fn thread_empty_reply_is_no_threads() {
+        assert!(parse_thread_response("").is_empty());
+    }
 }

@@ -119,12 +119,30 @@ pub struct BackendCaps {
     pub id: bool,
     /// COMPRESS=DEFLATE (RFC 4978) — optional in V1.
     pub compress: bool,
+    /// SORT (RFC 5256) — server-side result ordering.
+    pub sort: bool,
+    /// THREAD=REFERENCES (RFC 5256) — References-based server-side threading.
+    pub thread_references: bool,
+    /// THREAD=ORDEREDSUBJECT (RFC 5256) — subject-based server-side threading.
+    pub thread_orderedsubject: bool,
+    /// ACL (RFC 4314) advertised. Detection only — mailbox-rights read/edit UI
+    /// is deferred (t12 plan §6); the flag lets callers feature-probe.
+    pub acl: bool,
+    /// METADATA / METADATA-SERVER (RFC 5464) advertised. Detection only —
+    /// annotation read/edit UI is deferred (t12 plan §6).
+    pub metadata: bool,
     /// SASL AUTHENTICATE PLAIN.
     pub sasl_plain: bool,
     /// SASL AUTHENTICATE LOGIN.
     pub sasl_login: bool,
     /// SASL AUTHENTICATE XOAUTH2 (Gmail/Outlook).
     pub sasl_xoauth2: bool,
+    /// SASL AUTHENTICATE OAUTHBEARER (RFC 7628).
+    pub sasl_oauthbearer: bool,
+    /// SASL AUTHENTICATE SCRAM-SHA-256 (RFC 7677).
+    pub sasl_scram_sha256: bool,
+    /// SASL AUTHENTICATE SCRAM-SHA-256-PLUS (RFC 7677, channel-bound).
+    pub sasl_scram_sha256_plus: bool,
 }
 
 /// Special-use role of a mailbox (RFC 6154), mapped to `mw_jmap::Mailbox.role`.

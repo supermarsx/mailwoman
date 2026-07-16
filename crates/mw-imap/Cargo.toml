@@ -18,6 +18,13 @@ async-trait = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
 tracing = { workspace = true }
+# SASL SCRAM-SHA-256(-PLUS): HMAC-SHA-256 + SHA-256 primitives (in-tree pins,
+# hmac 0.13 ⇄ sha2 0.11); PBKDF2 is derived from HMAC here — no `pbkdf2` dep.
+# `sha2` also computes the `tls-server-end-point` channel binding for `-PLUS`.
+hmac = { workspace = true }
+sha2 = { workspace = true }
+# CSPRNG for the SCRAM client nonce (in-tree pin, matches mw-passwd).
+getrandom = { workspace = true }
 # Direct dep, version-matched to imap-proto's own `nom` (7.1.x) so there is no
 # second nom in the tree. Needed only to classify streaming parse results
 # (Incomplete vs. malformed) from `imap_proto::parse_response`.
