@@ -228,12 +228,15 @@ pub fn sign(options: JsValue) -> Result<JsValue, JsValue> {
     let armored = match i.kind.as_str() {
         // `detached:false` (clear-sign) keeps the body inline as a `PGP SIGNED
         // MESSAGE`; `detached:true` emits only the `PGP SIGNATURE` armor.
-        "pgp" if i.detached => {
-            pgp::sign_detached(i.data.as_bytes(), &i.encrypted_private_bundle, &i.passphrase)
-                .map_err(js_err)?
+        "pgp" if i.detached => pgp::sign_detached(
+            i.data.as_bytes(),
+            &i.encrypted_private_bundle,
+            &i.passphrase,
+        )
+        .map_err(js_err)?,
+        "pgp" => {
+            pgp::clear_sign(&i.data, &i.encrypted_private_bundle, &i.passphrase).map_err(js_err)?
         }
-        "pgp" => pgp::clear_sign(&i.data, &i.encrypted_private_bundle, &i.passphrase)
-            .map_err(js_err)?,
         "smime" => {
             let cert = i
                 .cert_pem

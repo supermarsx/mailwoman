@@ -247,13 +247,9 @@ pub fn sign_detached(
 /// so the body is never discarded (the sign-only wire hole).
 pub fn clear_sign(data: &str, encrypted_private_bundle: &str, passphrase: &str) -> Result<String> {
     let ssk = parse_secret(encrypted_private_bundle)?;
-    let signed = CleartextSignedMessage::sign(
-        rng::pgp_rng(),
-        data,
-        &ssk.primary_key,
-        &pw(passphrase),
-    )
-    .map_err(|e| CryptoError::Sign(e.to_string()))?;
+    let signed =
+        CleartextSignedMessage::sign(rng::pgp_rng(), data, &ssk.primary_key, &pw(passphrase))
+            .map_err(|e| CryptoError::Sign(e.to_string()))?;
     signed
         .to_armored_string(ArmorOptions::default())
         .map_err(|e| CryptoError::Sign(e.to_string()))
