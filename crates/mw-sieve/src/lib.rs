@@ -10,6 +10,8 @@
 //! ## Layers
 //! - the [`Rule`]/[`Condition`]/[`Action`] model (this module, frozen by e0);
 //! - [`codegen`] — [`Rule`]`[]` → Sieve source (the GATE direction);
+//! - [`parse`] — Sieve source → [`Rule`], the round-trip inverse of [`codegen`]
+//!   over the constrained subset it emits (`parse(generate(rules)) == rules`);
 //! - [`eval`] — the engine-side [`evaluate`]/[`evaluate_all`] (no-ManageSieve path);
 //! - [`lint`] — basic syntactic validation of raw Sieve text;
 //! - [`managesieve`] — the RFC 5804 client (CAPABILITY, AUTHENTICATE, PUTSCRIPT,
@@ -25,6 +27,7 @@ pub mod codegen;
 pub mod eval;
 pub mod lint;
 pub mod managesieve;
+pub mod parse;
 mod tls;
 pub mod transport;
 
@@ -33,6 +36,7 @@ pub use codegen::generate;
 pub use eval::{evaluate, evaluate_all};
 pub use lint::lint;
 pub use managesieve::{Capabilities, Connection, Credentials, ScriptInfo};
+pub use parse::parse;
 pub use transport::{SieveStream, TlsMode};
 
 /// A GUI rule: when ALL (or ANY) conditions match, run the actions in order.
@@ -117,6 +121,8 @@ pub enum SieveError {
     ManageSieve(String),
     #[error("lint error: {0}")]
     Lint(String),
+    #[error("parse error: {0}")]
+    Parse(String),
     #[error("i/o error: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -134,6 +140,9 @@ pub fn fuzz_sieve_text(data: &[u8]) {
     let _ = lint(&text);
     // The best-effort tokenizer must also survive arbitrary input.
     let _ = lint::tokenize(&text);
+    // The round-trip parser must never panic either — it returns `Err` on
+    // anything outside the codegen subset, but never unwinds.
+    let _ = parse(&text);
 }
 
 #[cfg(test)]

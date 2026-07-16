@@ -16,6 +16,10 @@ import { ApiKeys, McpKeys } from '../modules/apikeys/index.ts';
 // V7 (plan §3 e14): in-app password change (SPEC §18.3). Lazily importable module;
 // mounted into the authenticated settings block.
 import { PasswordChange } from '../modules/passwd/index.ts';
+// t12 (audit #1, SPEC §6.1/§10.5): mail rules/filters — condition/action builder,
+// raw-Sieve editor, where-it-runs indicator, and dry-run. Self-contained module;
+// rides the existing MailRule JMAP + server Sieve codegen/PUTSCRIPT path.
+import { RulesSettings } from '../modules/rules/index.ts';
 import { THEME_OPTIONS, ACCENT_PRESETS } from '../theme/tokens.ts';
 import type { Density } from '../theme/contract.css.ts';
 import type { LayoutMode, UiFont } from '../state/slices/theme.ts';
@@ -190,6 +194,7 @@ export function Settings(props: SettingsProps): JSX.Element {
           {(accountId) => (
             <>
               <PasswordChange accountId={accountId()} />
+              <RulesSettings accountId={accountId()} />
               <ZeroAccessBlock />
               <ApiKeys accountId={accountId()} />
               <McpKeys accountId={accountId()} />

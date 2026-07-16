@@ -12,6 +12,8 @@ use crate::Result;
 
 /// A coarse Sieve token. Comments and whitespace are dropped by [`tokenize`];
 /// what remains is enough to check bracket balance and required-extension use.
+/// [`tokenize_with_comments`] additionally emits [`Token::Comment`] so the
+/// round-trip parser can recover the `# rule:`/`# notify:` markers codegen writes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Token {
     /// A quoted string literal (contents, unescaped is not needed here).
@@ -22,6 +24,10 @@ pub enum Token {
     Word(String),
     /// One of `{` `}` `(` `)` `[` `]` `;` `,`.
     Punct(char),
+    /// A `#` line comment's text (the bytes after `#` to end-of-line, trailing
+    /// `\r` stripped). Only emitted by [`tokenize_with_comments`]; [`tokenize`]
+    /// (and therefore [`lint`]) drops comments as before.
+    Comment(String),
 }
 
 /// Tokenize Sieve text, skipping `#` line comments and `/* */` block comments.
@@ -30,6 +36,19 @@ pub enum Token {
 /// length runs past end-of-input) simply ends the scan. [`lint`] inspects the
 /// same conditions and reports them; this function only produces tokens.
 pub fn tokenize(input: &str) -> Vec<Token> {
+    tokenize_impl(input, false)
+}
+
+/// Like [`tokenize`], but line comments are emitted as [`Token::Comment`] rather
+/// than dropped. The round-trip [`crate::parse`] uses this to recover the rule
+/// name (`# rule: <name>`) and the `Notify` marker (`# notify: <msg>`) that
+/// [`crate::codegen`] writes as comments. Block comments are still dropped (the
+/// generator never emits them). Same never-panics guarantee.
+pub fn tokenize_with_comments(input: &str) -> Vec<Token> {
+    tokenize_impl(input, true)
+}
+
+fn tokenize_impl(input: &str, keep_comments: bool) -> Vec<Token> {
     let bytes = input.as_bytes();
     let mut tokens = Vec::new();
     let mut i = 0usize;
@@ -41,8 +60,13 @@ pub fn tokenize(input: &str) -> Vec<Token> {
             b' ' | b'\t' | b'\r' | b'\n' => i += 1,
             b'#' => {
                 // Line comment to end-of-line.
+                let start = i + 1;
                 while i < n && bytes[i] != b'\n' {
                     i += 1;
+                }
+                if keep_comments {
+                    let text = input[start..i].trim_end_matches('\r').to_string();
+                    tokens.push(Token::Comment(text));
                 }
             }
             b'/' if i + 1 < n && bytes[i + 1] == b'*' => {
@@ -423,5 +447,22 @@ mod tests {
         let toks = tokenize("if x {\n keep;\n}");
         assert!(toks.contains(&Token::Punct('{')));
         assert!(toks.contains(&Token::Punct('}')));
+    }
+
+    #[test]
+    fn plain_tokenize_drops_comments() {
+        // The lint path must be unchanged: comments never surface as tokens.
+        let toks = tokenize("# rule: News\nkeep;");
+        assert!(!toks.iter().any(|t| matches!(t, Token::Comment(_))));
+    }
+
+    #[test]
+    fn comment_tokenizer_recovers_marker_text() {
+        let toks = tokenize_with_comments("# rule: News\r\nfileinto \"A\";\n# notify: hi\n");
+        assert_eq!(
+            toks.first(),
+            Some(&Token::Comment(" rule: News".to_string()))
+        );
+        assert!(toks.contains(&Token::Comment(" notify: hi".to_string())));
     }
 }
