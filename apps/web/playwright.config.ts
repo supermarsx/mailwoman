@@ -168,6 +168,23 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], baseURL: v7BaseURL },
     },
     {
+      name: 't12',
+      // 26.12 conformance-closure live E2E (plan §2 Batch-4 e-e2e-web). The SAME
+      // engine-mode server (:8090) as the `engine`/`pim`/`crypto` projects, backed by
+      // the REAL WASM crypto worker + REAL mw-sanitize (native, in mw-render) + the
+      // real engine. The `t12-*.spec.ts` specs drive the NEW 26.12 user surfaces:
+      //   - Sieve rule builder + raw-editor round-trip (MailRule JMAP);
+      //   - compose sign+encrypt AND sign-only — the wire message is byte-asserted
+      //     genuinely encrypted AND (when signed) carries a valid signature (§8 gate);
+      //   - the side-by-side calendar conflict resolver + distinct schedule view + role UI;
+      //   - the CSS-rewrite sanitizer in a real server-rendered message.
+      // Brought up by `docker compose -f docker-compose.dev.yml -f docker-compose.crypto.yml
+      // up -d --build --wait greenmail mailwoman-engine`; added to the t12-conformance.yml
+      // workflow by e-e2e-backend. Sibling of the other engine projects — all must stay green.
+      testMatch: ['t12-*.spec.ts'],
+      use: { ...devices['Desktop Chrome'], baseURL: engineBaseURL },
+    },
+    {
       name: 't10',
       // 26.10 tail live E2E (plan §3 e15). The HEADLINE UI-plugin sandbox-escape gate
       // (ui-plugin.spec.ts) is browser-only — it drives the SHIPPED opaque-origin
