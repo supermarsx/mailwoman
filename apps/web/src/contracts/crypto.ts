@@ -78,6 +78,16 @@ export interface DecryptRequest {
   ciphertext: string;
   encryptedPrivateBundle: string;
   passphrase: string;
+  /**
+   * The sender's armored public key, supplied so the worker VERIFIES an inline
+   * signature and returns a real `signature` verdict. Additive + optional: when
+   * omitted the decrypt runs exactly as before (verdict status `"none"` — the
+   * signature is not verified). An absent/mismatched key never yields a false
+   * `"verified"` (the worker returns `"none"`/`"invalid"`). The wasm `decrypt`
+   * DTO already accepts this key (`signerPublicKey`); mirrored native in
+   * `crates/mw-crypto/src/pgp.rs::decrypt`.
+   */
+  signerPublicKey?: string;
 }
 /**
  * `decrypt` result — the plaintext is sanitized IN-WORKER via the mw-sanitize

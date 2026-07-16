@@ -27,7 +27,7 @@ import { getCryptoWorker } from '../crypto/index.ts';
 import { createConfiguredClient } from '../api/transport.ts';
 import { responseFor } from '../api/jmap.ts';
 import { CAP_CORE } from '../api/jmap-types.ts';
-import { CAP_CRYPTO, CAP_SECURITY } from '../api/crypto-types.ts';
+import { CAP_CRYPTO, CAP_SECURITY, type CryptoKey } from '../api/crypto-types.ts';
 import type { Email, EmailAddress } from '../api/jmap-types.ts';
 import type { SecurityVerdict, SignatureVerdict } from '../api/security-types.ts';
 
@@ -240,6 +240,7 @@ function AttachmentsPane(props: { email: Email }): JSX.Element {
  *  signature verdict back to the reader. */
 function DecryptPanel(props: {
   armor: string;
+  senderAddress: string;
   onDecrypted: (content: { html?: string; text?: string }, signature: SignatureVerdict) => void;
 }): JSX.Element {
   const app = useApp();
@@ -252,6 +253,50 @@ function DecryptPanel(props: {
     if (app.ownKeys().length === 0) void app.loadKeys();
   });
 
+  /** Resolve the sender's armored PGP public key so the worker can VERIFY the
+   *  embedded signature — mirrors how compose resolves recipient keys: first the
+   *  already-loaded keyring (own + harvested/looked-up), then the same
+   *  `CryptoKey/lookup` discovery (harvested/autocrypt/WKD/VKS).
+   *
+   *  This only picks a CANDIDATE key by the From address; the actual verdict is
+   *  decided by real cryptography in the worker (`pgp::decrypt` → "verified" only
+   *  for a genuine signature match, "invalid" for a wrong key, "none" when no key
+   *  is supplied). So a false "verified" is impossible regardless of how the
+   *  candidate is chosen — a wrong candidate yields an honest "invalid", and no
+   *  candidate yields an honest "none". Matching therefore tolerates a From that
+   *  is a bare local part (no domain — some transports, incl. the engine loopback,
+   *  present addresses that way) by also comparing local parts. Returns undefined
+   *  when the keyring holds no key relatable to the sender. */
+  async function resolveSignerPublicKey(address: string): Promise<string | undefined> {
+    if (address === '') return undefined;
+    const norm = address.toLowerCase();
+    const localOf = (a: string): string => a.split('@')[0] ?? '';
+    const senderLocal = localOf(norm);
+    const relatesToSender = (a: string): boolean => {
+      const al = a.toLowerCase();
+      return al === norm || (senderLocal !== '' && localOf(al) === senderLocal);
+    };
+    const usableArmor = (k: CryptoKey): string | undefined =>
+      k.kind === 'pgp' && k.publicKeyArmored !== null && k.addresses.some(relatesToSender)
+        ? (k.publicKeyArmored ?? undefined)
+        : undefined;
+    for (const k of app.keys()) {
+      const armored = usableArmor(k);
+      if (armored !== undefined) return armored;
+    }
+    try {
+      const found = await app.lookupContactKey(address, ['harvested', 'autocrypt', 'wkd', 'vks']);
+      for (const k of found) {
+        const armored = usableArmor(k);
+        if (armored !== undefined) return armored;
+      }
+    } catch {
+      // Key discovery failure → no signer key → honest unverified verdict (never
+      // a hard error, and never a false "verified").
+    }
+    return undefined;
+  }
+
   async function decryptNow(): Promise<void> {
     setError(null);
     setBusy(true);
@@ -261,11 +306,13 @@ function DecryptPanel(props: {
       );
       const bundle = own?.encryptedPrivateBackup ?? null;
       if (bundle === null) throw new Error(t('mail-decrypt-no-key'));
+      const signerPublicKey = await resolveSignerPublicKey(props.senderAddress);
       const result = await getCryptoWorker().decrypt({
         kind: 'pgp',
         ciphertext: props.armor,
         encryptedPrivateBundle: bundle,
         passphrase: passphrase(),
+        ...(signerPublicKey !== undefined ? { signerPublicKey } : {}),
       });
       // The worker sanitized any HTML plaintext IN-WORKER (§1.3): `plaintextHtml` is
       // already safe to render as HTML; `plaintextText` renders escaped.
@@ -518,6 +565,7 @@ export function Reader(): JSX.Element {
             >
               <DecryptPanel
                 armor={armor() ?? ''}
+                senderAddress={sender()}
                 onDecrypted={(content, signature) => {
                   if (content.html !== undefined) setDecryptedHtml(content.html);
                   else setDecryptedText(content.text ?? '');
