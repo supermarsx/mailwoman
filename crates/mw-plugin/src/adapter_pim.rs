@@ -168,6 +168,7 @@ impl PluginPimBackend {
             self.ctx.services.clone(),
             &self.ctx.limits,
             self.ctx.plugin_id.clone(),
+            self.ctx.bound_account.clone(),
         )?;
         let pim = PluginPim::instantiate_async(&mut store, &self.ctx.component, &self.ctx.linker)
             .await

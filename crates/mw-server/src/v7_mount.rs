@@ -1065,7 +1065,11 @@ pub async fn load_plugin_backends(
 
         let handle = {
             let host = host.lock().expect("plugin registry lock");
-            match host.load(&bytes, &manifest, &grant) {
+            // Bind THIS account to the instance so the guest's per-account host imports
+            // (`basic-credentials`/`oauth-token`) — which pass an EMPTY handle per the
+            // "one instance backs one account" contract — resolve to this account's
+            // sealed creds host-side (fixes the EWS empty-handle bug; latent OAuth too).
+            match host.load_for_account(&bytes, &manifest, &grant, &b.account_id) {
                 Ok(h) => h,
                 Err(e) => {
                     tracing::error!("plugin '{}' load failed: {e}", b.bridge_id);

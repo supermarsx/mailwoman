@@ -378,36 +378,45 @@ async fn ews_net_allowlist_admits_only_account_endpoint_host() {
     );
 }
 
-/// ESCALATED-BUG REPRODUCTION (ignored so CI stays green). Faithfully mirrors
-/// PRODUCTION: the mounted `StoreEwsCredProvider` looks up by the LITERAL guest
-/// handle, and the guest sends `ACCOUNT = ""`. This asserts the DESIRED outcome
-/// (auth succeeds and reaches the account's mailbox) — which currently FAILS with
-/// "no enabled EWS credentials stored for account ''". Un-ignore once the
-/// empty-handle → bound-account resolution is wired host-side (see the module doc +
-/// t12-e-e2e-backend.md for the minimal-fix proposal).
+/// ESCALATED-BUG REGRESSION (was `#[ignore]`d; now GREEN after the host-layer fix).
+/// Faithfully mirrors PRODUCTION: the mounted `StoreEwsCredProvider` (here
+/// `LiteralStoreCreds`) looks up by the LITERAL handle it receives, and the guest sends
+/// `ACCOUNT = ""`. Before the fix this failed with "no enabled EWS credentials stored
+/// for account ''"; now the instance is bound to its account via
+/// `PluginHost::load_for_account` (exactly what `v7_mount::load_plugin_backends` does),
+/// so the host substitutes the bound account id for the guest's empty handle BEFORE the
+/// provider looks it up → the sealed 0011 creds resolve and Basic auth succeeds. This is
+/// the end-to-end gate for the empty-handle → bound-account resolution.
 #[tokio::test]
-#[ignore = "ESCALATED: guest ACCOUNT=\"\" is never mapped to the mounted account; the global StoreEwsCredProvider looks up account '' and EWS auth fails. See t12-e-e2e-backend.md."]
 async fn ews_empty_handle_production_provider_repro() {
-    let Some((store, _account)) = seed_basic_account().await else {
+    let Some((store, account)) = seed_basic_account().await else {
         return;
     };
     let fake = FakeEws::new();
     let services = HostServices {
         http: fake.clone(),
-        // Production-shaped: literal-handle lookup, NOT bound to the account.
+        // Production-shaped: literal-handle lookup, NOT bound in the provider itself —
+        // the host binding (load_for_account) is what makes the empty handle resolve.
         basic_creds: Arc::new(LiteralStoreCreds { store }),
         ..HostServices::default()
     };
     let host = PluginHost::try_new(services, TrustRoot::empty()).unwrap();
+    // Mirror production mount: bind THIS account to the loaded instance.
     let handle = host
-        .load(GUEST, &manifest(&[ENDPOINT_HOST]), &grant())
+        .load_for_account(GUEST, &manifest(&[ENDPOINT_HOST]), &grant(), &account)
         .expect("load bridge-ews");
     let backend = handle.as_account_backend().unwrap();
 
-    // DESIRED (post-fix) behaviour: the bound account's creds resolve and auth works.
+    // Post-fix: the bound account's creds resolve (guest's "" → bound id) and auth works.
     let boxes = backend
         .list_mailboxes()
         .await
-        .expect("EWS per-account auth must resolve the mounted account (currently fails: bug)");
+        .expect("EWS per-account auth resolves the mounted account via the host binding");
     assert!(boxes.iter().any(|b| b.role == MailboxRole::Inbox));
+    assert!(fake.saw_basic.load(Ordering::SeqCst), "Basic auth reached");
+    assert_eq!(
+        fake.saw_authz_user.lock().unwrap().as_deref(),
+        Some("user@example.com"),
+        "the resolved per-account STORED user authenticated (empty handle → bound account)"
+    );
 }

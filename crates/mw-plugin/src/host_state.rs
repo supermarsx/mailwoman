@@ -282,6 +282,13 @@ pub(crate) struct HostState {
     gate: CapGate,
     services: Arc<HostServices>,
     plugin_id: String,
+    /// The account this plugin instance backs (set at load, plan §2.5 "one
+    /// instance backs one account"). When a guest calls a per-account host import
+    /// (`oauth-token`/`basic-credentials`) with an EMPTY handle, the host resolves
+    /// it to this bound id — the guest never has to know its own account id. `None`
+    /// for a non-account plugin (spam/DLP/addrbook/pipeline), where the empty handle
+    /// simply passes through unchanged (fail-closed at the provider).
+    bound_account: Option<String>,
 }
 
 impl HostState {
@@ -290,6 +297,7 @@ impl HostState {
         services: Arc<HostServices>,
         limits: &PluginLimits,
         plugin_id: String,
+        bound_account: Option<String>,
     ) -> Self {
         // A MAXIMALLY-RESTRICTED WASI ctx: no preopened dirs (no filesystem), no
         // env, no args, no inherited stdio, no network. A std guest instantiates,
@@ -303,7 +311,23 @@ impl HostState {
             gate,
             services,
             plugin_id,
+            bound_account,
         }
+    }
+
+    /// Resolve the account handle a guest supplied for a per-account host import.
+    /// A guest that follows the "one instance backs one account" contract passes an
+    /// EMPTY/blank handle, expecting the host to fill in the account this instance is
+    /// bound to; a non-empty explicit handle passes through UNCHANGED (backward
+    /// compatible — no WIT change). When unbound, the (empty) handle passes through
+    /// and the provider fails closed.
+    fn resolve_account(&self, handle: &str) -> String {
+        if handle.trim().is_empty()
+            && let Some(bound) = &self.bound_account
+        {
+            return bound.clone();
+        }
+        handle.to_string()
     }
 }
 
@@ -394,6 +418,8 @@ impl Host for HostState {
                 "oauth-token requires the account-backend capability",
             )));
         }
+        // Empty handle ⇒ this instance's bound account (§2.5); explicit handle unchanged.
+        let account = self.resolve_account(&account);
         Ok(self
             .services
             .oauth
@@ -413,6 +439,8 @@ impl Host for HostState {
                 "basic-credentials requires the account-backend capability",
             )));
         }
+        // Empty handle ⇒ this instance's bound account (§2.5); explicit handle unchanged.
+        let account = self.resolve_account(&account);
         Ok(self
             .services
             .basic_creds
@@ -487,8 +515,12 @@ pub(crate) fn new_store(
     services: Arc<HostServices>,
     limits: &PluginLimits,
     plugin_id: String,
+    bound_account: Option<String>,
 ) -> Result<Store<HostState>> {
-    let mut store = Store::new(engine, HostState::new(gate, services, limits, plugin_id));
+    let mut store = Store::new(
+        engine,
+        HostState::new(gate, services, limits, plugin_id, bound_account),
+    );
     store.limiter(|s| &mut s.limits);
     // Wall-clock deadline via epoch interruption (default: trap on deadline).
     store.set_epoch_deadline(crate::engine::EpochTicker::ticks_for(limits.deadline_ms));

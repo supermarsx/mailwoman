@@ -178,6 +178,11 @@ struct PluginCtx {
     plugin_id: String,
     granted: BTreeSet<Capability>,
     signature: SignatureStatus,
+    /// The account this handle backs, if loaded via [`PluginHost::load_for_account`]
+    /// (plan §2.5, "one instance backs one account"). Threaded into each instance so
+    /// a guest's per-account host import (`oauth-token`/`basic-credentials`) with an
+    /// EMPTY handle resolves to this account host-side. `None` ⇒ not account-bound.
+    bound_account: Option<String>,
 }
 
 /// A loaded, verified plugin. Compilation + signature verification happen at
@@ -288,6 +293,7 @@ impl PluginCtx {
             self.services.clone(),
             &self.limits,
             self.plugin_id.clone(),
+            self.bound_account.clone(),
         )?;
         let plugin = bindings::Plugin::instantiate_async(&mut store, &self.component, &self.linker)
             .await
@@ -359,6 +365,40 @@ impl PluginHost {
         manifest: &PluginManifest,
         grant: &Grant,
     ) -> Result<PluginHandle> {
+        self.load_inner(component_bytes, manifest, grant, None)
+    }
+
+    /// Load + verify a component BOUND to a specific account (plan §2.5/§6.5). Same
+    /// verification + capability intersection as [`PluginHost::load`], but the returned
+    /// handle carries `account_id` so that when the account-backend guest calls a
+    /// per-account host import (`oauth-token`/`basic-credentials`) with an EMPTY handle
+    /// — the documented "one instance backs one account" contract — the host resolves it
+    /// to this account before hitting the provider. A non-empty explicit handle still
+    /// passes through unchanged. Backward-compatible: the WIT ABI is untouched (this is
+    /// pure host-side resolution). `mw-server` uses this at bridge mount, where
+    /// `bridge_accounts` binds exactly one account per loaded instance.
+    pub fn load_for_account(
+        &self,
+        component_bytes: &[u8],
+        manifest: &PluginManifest,
+        grant: &Grant,
+        account_id: &str,
+    ) -> Result<PluginHandle> {
+        self.load_inner(
+            component_bytes,
+            manifest,
+            grant,
+            Some(account_id.to_string()),
+        )
+    }
+
+    fn load_inner(
+        &self,
+        component_bytes: &[u8],
+        manifest: &PluginManifest,
+        grant: &Grant,
+        bound_account: Option<String>,
+    ) -> Result<PluginHandle> {
         // 1. Signed-registry verification (fails closed).
         let signature = signature::decide(
             component_bytes,
@@ -389,6 +429,7 @@ impl PluginHost {
             plugin_id: manifest.id.clone(),
             granted,
             signature,
+            bound_account,
         });
         Ok(PluginHandle { ctx })
     }
