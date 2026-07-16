@@ -9,11 +9,10 @@
 //!
 //! Print-to-PDF is the browser print pipeline (web-side, not here).
 //!
-//! V7 (plan §3 e5, SPEC §10.6) adds **MSG + OFT** (MS-OXMSG via `cfb`) and **DOCX**
-//! (`docx-rs`). Those modules are SCAFFOLD stubs today (e0): the [`Format`] registry
-//! carries the new variants and every export path returns
-//! [`ExportError::Unimplemented`] for them until e5 fills the writers. The existing
-//! EML / mbox / TXT / Markdown formats are **byte-unchanged**.
+//! V7 (SPEC §10.6) adds **MSG + OFT** (MS-OXMSG via `cfb`) and **DOCX**
+//! (`docx-rs`): the [`Format`] registry carries these variants and each has a
+//! working per-message writer ([`msg`]/[`oft`]/[`docx`]). MSG/OFT also expose an
+//! import path (hostile CFB parse) used by the round-trip tests and CFB fuzz target.
 
 use std::borrow::Borrow;
 use std::io::Write;
@@ -22,8 +21,7 @@ mod html2md;
 mod markdown;
 mod mbox;
 mod text;
-// V7 (plan §3 e5): MSG/OFT (cfb + own MS-OXMSG layer) + DOCX (docx-rs). Stub
-// modules returning `Unimplemented` until e5; existing formats byte-unchanged.
+// V7: MSG/OFT (cfb + own MS-OXMSG layer) + DOCX (docx-rs) writers.
 mod docx;
 mod msg;
 mod oft;
@@ -67,11 +65,11 @@ pub enum Format {
     Mbox,
     Txt,
     Markdown,
-    /// MS-OXMSG `.msg` (V7, e5). Currently returns [`ExportError::Unimplemented`].
+    /// MS-OXMSG `.msg` (V7) — CFB container built by [`msg::to_msg`].
     Msg,
-    /// Outlook `.oft` template (V7, e5). Currently returns [`ExportError::Unimplemented`].
+    /// Outlook `.oft` template (V7) — built by [`oft::to_oft`].
     Oft,
-    /// Word `.docx` (V7, e5). Currently returns [`ExportError::Unimplemented`].
+    /// Word `.docx` (V7) — built by [`docx::to_docx`].
     Docx,
 }
 
@@ -83,8 +81,8 @@ pub enum ExportError {
     Render(String),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
-    /// A format whose writer is scaffolded but not yet implemented (V7 MSG/OFT/DOCX
-    /// until e5).
+    /// A format whose writer is unavailable in this build. The shipped writers
+    /// (EML/mbox/TXT/Markdown/MSG/OFT/DOCX) do not return this.
     #[error("export format not yet implemented: {0}")]
     Unimplemented(&'static str),
 }
@@ -104,7 +102,7 @@ pub fn export_one(email: &RawEmail, format: Format) -> Result<Vec<u8>> {
         Format::Mbox => mbox::to_entry(&email.raw),
         Format::Txt => text::to_txt(&email.raw),
         Format::Markdown => markdown::to_markdown(&email.raw),
-        // V7 registry entries (e5 fills; stub returns Unimplemented).
+        // V7 binary document writers.
         Format::Msg => msg::to_msg(&email.raw),
         Format::Oft => oft::to_oft(&email.raw),
         Format::Docx => docx::to_docx(&email.raw),
@@ -158,8 +156,8 @@ where
                 // Trim the per-message trailing newline so the divider controls spacing.
                 out.write_all(trim_trailing_newline(&rendered))?;
             }
-            // V7 binary document formats (e5). Per-message writers; the web layer
-            // zips discrete files. Stub returns `Unimplemented` via `export_one`.
+            // V7 binary document formats — per-message writers; the web layer
+            // zips discrete files.
             Format::Msg | Format::Oft | Format::Docx => {
                 out.write_all(&export_one(email, format)?)?;
             }

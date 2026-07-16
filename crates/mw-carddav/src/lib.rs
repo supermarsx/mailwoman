@@ -8,19 +8,15 @@
 //! CardDAV-namespaced REPORTs on top and projects vCard bodies to the frozen
 //! `ContactCard` shape (§2.1).
 //!
-//! ## Seam / integration points (dependencies still resuming)
-//! `mw-dav` (e2) and `mw-ics` (e1) build in parallel; their public bodies are
-//! still `todo!()` stubs, so this crate builds against the **frozen contract**
-//! (§2.1/§2.3) plus a thin local seam and integrates as they land:
+//! ## Transport and vCard projection
 //! - **DAV core:** `mw-dav`'s DTOs (`DavConfig`, `Collection`, `Resource`,
-//!   `SyncDelta`, `DavError`) are frozen and reused verbatim; a live
-//!   [`mw_dav::DavClient`] is held (see [`CardDavClient::dav`]) so discovery/sync
-//!   collapse to delegation once `e2` exposes generic REPORT/PROPFIND helpers.
-//!   Until then the REPORTs ride the in-tree `reqwest` directly ([`transport`]).
-//! - **vCard:** the authoritative parser is `mw_ics::parse_vcard`; while it is a
-//!   `todo!()` stub, [`vcard::from_vcard`] is a thin local projection over the
-//!   common fields, producing the identical `ContactCard` wire shape so the swap
-//!   is mechanical (see `vcard.rs`).
+//!   `SyncDelta`, `DavError`) are reused verbatim; a live [`mw_dav::DavClient`]
+//!   is held (see [`CardDavClient::dav`]) for the shared account config, while the
+//!   CardDAV-namespaced REPORTs run over this crate's own `reqwest` (rustls)
+//!   transport ([`transport`]).
+//! - **vCard:** [`vcard::from_vcard`] projects vCard 3/4 bodies to the frozen
+//!   `ContactCard` wire shape (§2.1) over the common fields, producing the same
+//!   shape as `mw_ics::parse_vcard` (see `vcard.rs`).
 
 mod request;
 mod response;
@@ -39,9 +35,8 @@ pub type Error = mw_dav::DavError;
 /// The convenience result alias for this crate.
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// The CardDAV client: owns the shared [`mw_dav::DavClient`] (the delegation
-/// seam) and the CardDAV HTTP transport, adding the address-book REPORTs
-/// (plan §1.3).
+/// The CardDAV client: owns the shared [`mw_dav::DavClient`] (shared DAV core)
+/// and the CardDAV HTTP transport, adding the address-book REPORTs (plan §1.3).
 pub struct CardDavClient {
     dav: mw_dav::DavClient,
     http: Http,
@@ -55,9 +50,8 @@ impl CardDavClient {
         Ok(Self { dav, http })
     }
 
-    /// The underlying shared DAV core. Discovery + sync + `PUT`/`DELETE` will
-    /// delegate here verbatim once `mw-dav` (e2) publishes its generic
-    /// REPORT/PROPFIND primitives (the seam noted at the crate root).
+    /// The underlying shared DAV core (holds the account `DavConfig`); the
+    /// CardDAV REPORTs run over this crate's own transport (see the crate root).
     pub fn dav(&self) -> &mw_dav::DavClient {
         &self.dav
     }
@@ -170,8 +164,8 @@ impl CardDavClient {
 
     /// `addressbook-multiget` + project each vCard to a [`ContactCard`] (§2.1) —
     /// the `addressbook-multiget → ContactCard` path. The resource href seeds the
-    /// card `id`; `collection_href` seeds `addressBookId`. vCard projection is the
-    /// `mw_ics::parse_vcard` seam (see [`vcard`]).
+    /// card `id`; `collection_href` seeds `addressBookId`. vCard bodies are
+    /// projected by [`vcard::from_vcard`].
     pub async fn fetch_cards(
         &self,
         collection_href: &str,

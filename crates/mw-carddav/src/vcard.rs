@@ -1,15 +1,10 @@
-//! vCard → `ContactCard` projection seam (§2.1, JSContact-aligned).
+//! vCard → `ContactCard` projection (§2.1, JSContact-aligned).
 //!
-//! ## Integration point (plan §1.3 — "vCard bodies via `mw-ics`")
-//! The authoritative vCard 3/4 parser is `mw_ics::parse_vcard`, which returns
-//! the same `ContactCard` projection as a `serde_json::Value` alongside the
-//! verbatim `vcard_raw` (the round-trip source of truth, risk #13). While `e1`
-//! (`mw-ics`) is still resuming and its `parse_vcard` is a `todo!()` stub, this
-//! module carries a **thin local projection** over the common vCard fields so
-//! `mw-carddav`'s `addressbook-multiget → ContactCard` path is testable without
-//! blocking on `e1`. When `mw_ics::parse_vcard` lands, [`from_vcard`] collapses
-//! to delegation (`serde_json::from_value` over its projection) — the wire shape
-//! is identical, so the swap is mechanical and the fixtures stay valid.
+//! [`from_vcard`] projects a vCard 3/4 body to the frozen `ContactCard` wire
+//! shape over the common fields (name, org, emails, phones, online services,
+//! anniversaries, notes, etc.). It produces the same `ContactCard` shape as
+//! `mw_ics::parse_vcard` (which also carries the verbatim `vcard_raw` for
+//! round-tripping), so the two are interchangeable at the wire level.
 
 use serde::{Deserialize, Serialize};
 
@@ -199,8 +194,7 @@ fn unescape(v: &str) -> String {
 
 /// Project a single vCard body into a [`ContactCard`] (§2.1). `id`/`addressBookId`
 /// are supplied by the caller (the engine assigns local ids); `etag` is the
-/// resource ETag. This is the thin local seam standing in for
-/// `mw_ics::parse_vcard` until `e1` lands (see the module note).
+/// resource ETag. Covers the common vCard fields (see the module note).
 pub fn from_vcard(
     body: &str,
     id: &str,
@@ -343,11 +337,10 @@ mod tests {
 
     #[test]
     fn projection_fits_mw_ics_parsed_vcard_contract() {
-        // The integration seam (plan §1.3): once `mw_ics::parse_vcard` (e1) lands,
-        // `from_vcard` delegates to it. Its projection is a `ParsedVcard { vcard_raw,
-        // json }` where `json` is the same `ContactCard` shape produced here — so
-        // the swap is mechanical and the fixtures stay valid. Assert our projection
-        // is assignable into that contract verbatim.
+        // `from_vcard`'s projection is wire-compatible with `mw_ics::parse_vcard`:
+        // a `ParsedVcard { vcard_raw, json }` whose `json` is the same `ContactCard`
+        // shape produced here. Assert our projection is assignable into that
+        // contract verbatim.
         let card = from_vcard(RADICALE_VCARD, "i", "a", None);
         let json = serde_json::to_value(&card).unwrap();
         let parsed = mw_ics::ParsedVcard {

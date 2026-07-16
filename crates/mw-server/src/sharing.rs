@@ -9,9 +9,9 @@
 //! (and `AddressBook/get` / `ContactCard/*`) — the same envelope the web client
 //! speaks. No new store accessor is introduced: the grants ride on
 //! `Calendar.shareWith`, and the events/cards come back as the standard JMAP
-//! `get` list. Those handlers are filled by **e8** (`dispatch_pim`); until e8
-//! lands the ACL + projection logic here is exercised by the unit tests below,
-//! and the live end-to-end path is proven by e12 against Radicale + the engine.
+//! `get` list. Those PIM handlers (`dispatch_pim`) are live; the ACL + projection
+//! logic here is covered by the unit tests below and proven end-to-end against
+//! Radicale + the engine.
 //!
 //! ## What the frozen contract does and does not cover
 //! - **Calendars** carry `shareWith: [{principal, access}]` (§2.1) → real

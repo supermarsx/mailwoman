@@ -35,10 +35,10 @@ pub mod sharing;
 pub mod tls;
 pub mod watermark;
 pub mod wkd;
-// V6 additive route modules (plan §1.8, §3 e0). SCAFFOLD stubs returning 501,
-// declared here but NOT mounted — `router()` is byte-unchanged so behaviour is
-// identical. Each file is owned by exactly one Batch-B executor (e5 admin, e9
-// observability/webhooks/rest/errors) and mounted into `router()` by e11.
+// V6 additive route modules (plan §1.8): the admin console, OAuth authorization
+// server, `/mcp` router, observability/metrics, outbound/inbound webhooks, the
+// scoped `/api/v1` REST surface, and structured error reporting. All are
+// implemented and mounted into `router()` below.
 pub mod admin;
 pub mod errors;
 pub mod mcp;
@@ -46,9 +46,9 @@ pub mod oauth;
 pub mod observability;
 pub mod rest;
 pub mod webhooks;
-// V7 additive route modules (plan §3 e0). SCAFFOLD stubs returning 501, declared
-// here but NOT mounted — `router()` is byte-unchanged so behaviour is identical.
-// Filled by e9 (directory/passwd/assist/plugins/nextcloud) and MOUNTED by e14.
+// V7 additive route modules (plan §3): the GAL directory, password self-service,
+// the Assist hook, the plugin registry, and the Nextcloud bridge. All are
+// implemented and mounted into the V7 route group in `router()` below.
 pub mod assist;
 pub mod directory;
 pub mod nextcloud;
@@ -62,10 +62,10 @@ pub mod v7_mount;
 // path is byte-unchanged. Mounted by `router()` below.
 pub mod admin_sso;
 pub mod sso;
-// t10 (26.10) deferred-tail additive route modules (plan §3 e0). SCAFFOLD stubs
-// returning 501, declared here but NOT mounted — `router()` is byte-unchanged so
-// behaviour is identical. `ui_plugins` filled by e11, `masked` by e7, the DCR
-// handlers appended to `oauth.rs` by e8; all MOUNTED by e13.
+// t10 (26.10) deferred-tail additive route modules (plan §3): the UI plugin
+// surface and masked-alias routes. The OAuth Dynamic Client Registration handlers
+// live in `oauth.rs`. All are implemented and mounted into the t10 route group in
+// `router()` below.
 pub mod masked;
 pub mod ui_plugins;
 // V6 MOUNT (t6-e11): store adapters backing the frozen Batch-B persistence seams

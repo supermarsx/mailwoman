@@ -1,14 +1,11 @@
 //! The async DAV/HTTP transport for the CardDAV REPORTs (plan §1.3/§2.3).
 //!
-//! ## Integration point (the thin seam, plan §1.3)
-//! This rides the in-tree `reqwest` (rustls) directly — the same primitive
-//! `mw-dav`'s shared core uses — because `mw-dav`'s committed surface does not
-//! yet expose generic `PROPFIND`/`REPORT` helpers (its bodies are `todo!()`
-//! stubs while `e2` resumes). [`CardDavClient`](crate::CardDavClient) keeps a
-//! live [`mw_dav::DavClient`] (see `CardDavClient::dav`) so that once `e2`
-//! publishes those primitives this transport collapses to delegation; the CardDAV
-//! request/response *shapes* (`crate::request` / `crate::response`) are unchanged
-//! by that swap.
+//! Rides an in-tree `reqwest` (rustls) client directly — the same primitive
+//! `mw-dav`'s shared core uses — issuing the CardDAV `PROPFIND`/`REPORT`/`PUT`/
+//! `DELETE` requests with basic auth. [`CardDavClient`](crate::CardDavClient)
+//! also keeps a live [`mw_dav::DavClient`] (see `CardDavClient::dav`) for the
+//! shared account config; the CardDAV request/response shapes live in
+//! `crate::request` / `crate::response`.
 
 use mw_dav::DavConfig;
 use reqwest::Method;

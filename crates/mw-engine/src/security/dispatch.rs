@@ -5,7 +5,7 @@
 //!
 //! The set of method names here IS the §2.2 contract the web client and the
 //! parallel builders compile against — do not add/rename without a coordinator
-//! re-broadcast. e0 froze the arms (bodies `todo!()`); e6 fills the handlers.
+//! re-broadcast.
 
 use serde_json::{Value, json};
 
@@ -72,9 +72,8 @@ impl Engine {
     }
 
     /// The generic crypto/security `*/changes` handler (frozen §2.1) for
-    /// `CryptoKey`/`MailRule`, sourced from the `crypto_changes` log (e6). e0
-    /// returns an empty diff envelope so a polling client never panics; e6 wires
-    /// it to the real state tokens.
+    /// `CryptoKey`/`MailRule`, sourced from the `crypto_changes` log via
+    /// [`Engine::build_crypto_changes`] and stamped with `accountId`.
     pub(crate) async fn security_type_changes(
         &self,
         account_id: &str,
