@@ -5,7 +5,9 @@
 //! re-keyed at `store.relocate_message`/`delete_message`. Query operators
 //! (`from/to/subject/body/text/has:attachment/filename/before/after/in/
 //! is:unread/larger/smaller/tag/pinned`, boolean) parse into a Tantivy query;
-//! the searcher returns ordered stable ids. **p95 < 50 ms over 100k** is the
+//! the searcher returns ordered stable ids. Text terms also support fuzzy
+//! (`helo~`, `helo~2` → `FuzzyTermQuery`) and prefix/wildcard (`proj*` →
+//! `RegexQuery`) matching (SPEC §10.4). **p95 < 50 ms over 100k** is the
 //! timing-harness gate (SPEC §23, `tests/bench.rs`).
 //!
 //! ## Layering
@@ -26,7 +28,8 @@ use serde::{Deserialize, Serialize};
 use tantivy::collector::TopDocs;
 use tantivy::directory::MmapDirectory;
 use tantivy::query::{
-    AllQuery, BooleanQuery, EmptyQuery, Occur, PhraseQuery, Query, RangeQuery, TermQuery,
+    AllQuery, BooleanQuery, EmptyQuery, FuzzyTermQuery, Occur, PhraseQuery, Query, RangeQuery,
+    RegexQuery, TermQuery,
 };
 use tantivy::schema::{
     FAST, Field, INDEXED, IndexRecordOption, STORED, STRING, Schema, TEXT, TantivyDocument, Value,
@@ -500,16 +503,31 @@ fn clause_query(c: &Clause, f: &Fields) -> Box<dyn Query> {
             if tokens.is_empty() {
                 return Box::new(EmptyQuery);
             }
-            let fields = text_field(f, *field);
-            let mut per_field: Vec<(Occur, Box<dyn Query>)> = fields
-                .iter()
-                .map(|fld| (Occur::Should, field_text_query(*fld, &tokens, *phrase)))
-                .collect();
-            if per_field.len() == 1 {
-                per_field.pop().expect("len == 1").1
-            } else {
-                Box::new(BooleanQuery::new(per_field))
+            fan_out(text_field(f, *field), |fld| {
+                field_text_query(fld, &tokens, *phrase)
+            })
+        }
+        Clause::Fuzzy {
+            field,
+            value,
+            distance,
+        } => {
+            let tokens = tokenize(value);
+            if tokens.is_empty() {
+                return Box::new(EmptyQuery);
             }
+            fan_out(text_field(f, *field), |fld| {
+                fuzzy_field_query(fld, &tokens, *distance)
+            })
+        }
+        Clause::Wildcard { field, value } => {
+            let pattern = wildcard_pattern(value);
+            if pattern.is_empty() {
+                return Box::new(EmptyQuery);
+            }
+            fan_out(text_field(f, *field), |fld| {
+                wildcard_field_query(fld, &pattern)
+            })
         }
         Clause::Keyword(kw) => term_query(f.keywords, kw),
         Clause::NotKeyword(kw) => negate(term_query(f.keywords, kw)),
@@ -549,6 +567,20 @@ fn clause_query(c: &Clause, f: &Fields) -> Box<dyn Query> {
     }
 }
 
+/// Fan a per-field query builder across one or more fields: a single field
+/// yields that query directly; several (the `TextField::All` set) are OR'd.
+fn fan_out(fields: Vec<Field>, mut make: impl FnMut(Field) -> Box<dyn Query>) -> Box<dyn Query> {
+    let mut per_field: Vec<(Occur, Box<dyn Query>)> = fields
+        .into_iter()
+        .map(|fld| (Occur::Should, make(fld)))
+        .collect();
+    if per_field.len() == 1 {
+        per_field.pop().expect("len == 1").1
+    } else {
+        Box::new(BooleanQuery::new(per_field))
+    }
+}
+
 fn field_text_query(field: Field, tokens: &[String], phrase: bool) -> Box<dyn Query> {
     if phrase && tokens.len() > 1 {
         let terms = tokens
@@ -579,6 +611,55 @@ fn field_text_query(field: Field, tokens: &[String], phrase: bool) -> Box<dyn Qu
     }
 }
 
+/// Typo-tolerant query for one field: a `FuzzyTermQuery` per token (usually a
+/// single token), AND'd together. Transpositions count as one edit.
+fn fuzzy_field_query(field: Field, tokens: &[String], distance: u8) -> Box<dyn Query> {
+    let fuzzy = |t: &str| -> Box<dyn Query> {
+        Box::new(FuzzyTermQuery::new(
+            Term::from_field_text(field, t),
+            distance,
+            true,
+        ))
+    };
+    if tokens.len() == 1 {
+        fuzzy(&tokens[0])
+    } else {
+        let subs = tokens
+            .iter()
+            .map(|t| (Occur::Must, fuzzy(t)))
+            .collect::<Vec<_>>();
+        Box::new(BooleanQuery::new(subs))
+    }
+}
+
+/// Translate a user wildcard term into a Tantivy `RegexQuery` pattern that
+/// matches a whole indexed term: `*` → `.*`, letters are lowercased to match
+/// the indexed (lowercased) tokens, every other char is regex-escaped. Since
+/// indexed terms are alphanumeric, escaped punctuation simply matches nothing.
+fn wildcard_pattern(value: &str) -> String {
+    let mut out = String::new();
+    for c in value.chars() {
+        if c == '*' {
+            out.push_str(".*");
+        } else if c.is_alphanumeric() {
+            out.extend(c.to_lowercase());
+        } else {
+            out.push('\\');
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Prefix/wildcard query for one field. A malformed pattern (rejected by the
+/// FST regex compiler) degrades to an empty match rather than an error.
+fn wildcard_field_query(field: Field, pattern: &str) -> Box<dyn Query> {
+    match RegexQuery::from_pattern(pattern, field) {
+        Ok(q) => Box::new(q),
+        Err(_) => Box::new(EmptyQuery),
+    }
+}
+
 fn term_query(field: Field, value: &str) -> Box<dyn Query> {
     Box::new(TermQuery::new(
         Term::from_field_text(field, value),
@@ -591,4 +672,73 @@ fn u64_term(field: Field, value: u64) -> Box<dyn Query> {
         Term::from_field_u64(field, value),
         IndexRecordOption::Basic,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn doc(id: &str, subject: &str, from: &str) -> IndexDoc {
+        IndexDoc {
+            stable_id: id.to_string(),
+            account_id: "acct".to_string(),
+            mailbox_id: "INBOX".to_string(),
+            from: from.to_string(),
+            subject: subject.to_string(),
+            body: subject.to_string(),
+            ..IndexDoc::default()
+        }
+    }
+
+    fn seeded() -> Index {
+        let idx = Index::open_in_ram().expect("open ram index");
+        idx.upsert_batch(&[
+            doc("m1", "Quarterly report ready", "alice@example.com"),
+            doc("m2", "Project status update", "bob@acme.org"),
+            doc("m3", "Lunch on Friday", "carol@vendor.net"),
+        ])
+        .expect("index");
+        idx
+    }
+
+    fn find(idx: &Index, q: &str) -> Vec<String> {
+        let query = parse_query(q).expect("parse");
+        let mut ids = idx.search(&query, 0).expect("search");
+        ids.sort();
+        ids
+    }
+
+    #[test]
+    fn fuzzy_tolerates_a_typo() {
+        let idx = seeded();
+        // One-edit typo (`reprot` -> `report`) still matches.
+        assert_eq!(find(&idx, "subject:reprot~"), vec!["m1".to_string()]);
+        // A transposition counts as a single edit.
+        assert_eq!(find(&idx, "subject:qaurterly~"), vec!["m1".to_string()]);
+        // Two edits need an explicit distance.
+        assert_eq!(find(&idx, "subject:proejct~2"), vec!["m2".to_string()]);
+        // Distance 0 is exact: the typo no longer matches.
+        assert!(find(&idx, "subject:reprot~0").is_empty());
+    }
+
+    #[test]
+    fn wildcard_matches_prefix_and_middle() {
+        let idx = seeded();
+        // Prefix.
+        assert_eq!(find(&idx, "subject:proj*"), vec!["m2".to_string()]);
+        // Trailing-wildcard prefix on a field operator.
+        assert_eq!(find(&idx, "from:ali*"), vec!["m1".to_string()]);
+        // `*` in the middle of a term.
+        assert_eq!(find(&idx, "subject:qu*ly"), vec!["m1".to_string()]);
+        // Bare-term wildcard fans across all text fields.
+        assert_eq!(find(&idx, "quarter*"), vec!["m1".to_string()]);
+    }
+
+    #[test]
+    fn exact_terms_still_match() {
+        let idx = seeded();
+        assert_eq!(find(&idx, "subject:report"), vec!["m1".to_string()]);
+        assert!(find(&idx, "subject:reprot").is_empty());
+        assert_eq!(find(&idx, "subject:project"), vec!["m2".to_string()]);
+    }
 }

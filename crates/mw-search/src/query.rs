@@ -16,6 +16,14 @@
 //! `is:unread|read|flagged|unflagged|pinned` · `larger:`/`smaller:` (size) ·
 //! `tag:` (keyword) · `pinned:true|false`.
 //!
+//! Text terms additionally support (SPEC §10.4):
+//! - **fuzzy** — a trailing `~` (`helo~`) does a typo-tolerant match; an
+//!   optional edit distance follows (`helo~2`, clamped to 0–2, transpositions
+//!   count as one edit). Applies to bare terms and to `field:value` text
+//!   operators (`subject:recieve~`). Never inside a quoted phrase.
+//! - **prefix / wildcard** — a `*` glob (`proj*`, `*ject`, `p*ct`) matches any
+//!   run of characters within a single indexed term. `?` is not special.
+//!
 //! The parser is **panic-free** (fuzzed, plan §1.12): it only ever returns
 //! [`SearchError::Parse`] on malformed input and never indexes into byte slices
 //! at non-char-boundaries.
@@ -23,6 +31,12 @@
 /// System keyword for a read message (JMAP `$seen`); `is:unread` = its absence.
 const KW_SEEN: &str = "$seen";
 const KW_FLAGGED: &str = "$flagged";
+
+/// Default max edit distance for a bare fuzzy marker (`term~`).
+const FUZZY_DEFAULT_DISTANCE: u8 = 1;
+/// Upper bound on fuzzy edit distance (Tantivy's Levenshtein automaton caps at
+/// 2); larger explicit distances are clamped here.
+const FUZZY_MAX_DISTANCE: u8 = 2;
 
 /// Which field(s) a text clause searches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,6 +60,15 @@ pub enum Clause {
         value: String,
         phrase: bool,
     },
+    /// Typo-tolerant fuzzy text (`term~` / `term~N`). `distance` is the max
+    /// Levenshtein edit distance (0–2; transpositions count as one edit).
+    Fuzzy {
+        field: TextField,
+        value: String,
+        distance: u8,
+    },
+    /// Prefix / wildcard text: a `*` glob in the term (`term*`, `*term`, `t*m`).
+    Wildcard { field: TextField, value: String },
     /// Exact JMAP keyword present (`tag:`, `is:read`, `is:flagged`).
     Keyword(String),
     /// Exact JMAP keyword absent (`is:unread` = not `$seen`).
@@ -200,46 +223,64 @@ fn parse_size(s: &str) -> Option<u64> {
     num.trim().parse::<u64>().ok()?.checked_mul(mult)
 }
 
+/// Detect a trailing fuzzy marker on a text term: `term~` (default distance) or
+/// `term~N`. Returns `(base_term, distance)`, or `None` when there is no valid
+/// marker (a `~` that is not near the end, an empty base, or a non-numeric
+/// suffix all stay literal). `distance` is clamped to [`FUZZY_MAX_DISTANCE`].
+fn split_fuzzy(value: &str) -> Option<(String, u8)> {
+    let tilde = value.rfind('~')?;
+    let base = &value[..tilde];
+    if base.is_empty() {
+        return None;
+    }
+    let suffix = &value[tilde + 1..];
+    let distance = if suffix.is_empty() {
+        FUZZY_DEFAULT_DISTANCE
+    } else {
+        suffix.parse::<u8>().ok()?.min(FUZZY_MAX_DISTANCE)
+    };
+    Some((base.to_string(), distance))
+}
+
+/// Build a text-family [`Clause`] for `field`, detecting a fuzzy marker (`~`)
+/// or an embedded wildcard (`*`). A quoted phrase is always literal.
+fn text_clause(field: TextField, value: String, phrase: bool) -> Clause {
+    if phrase {
+        return Clause::Text {
+            field,
+            value,
+            phrase: true,
+        };
+    }
+    if let Some((base, distance)) = split_fuzzy(&value) {
+        return Clause::Fuzzy {
+            field,
+            value: base,
+            distance,
+        };
+    }
+    if value.contains('*') {
+        return Clause::Wildcard { field, value };
+    }
+    Clause::Text {
+        field,
+        value,
+        phrase: false,
+    }
+}
+
 /// Build the leaf [`Expr`] for a `field:value` operator (or a literal term when
 /// `field` is not a known operator).
 fn operator_atom(field: &str, value: String, phrase: bool) -> Expr {
     let f = field.to_ascii_lowercase();
     let clause = match f.as_str() {
-        "from" => Clause::Text {
-            field: TextField::From,
-            value,
-            phrase,
-        },
-        "to" => Clause::Text {
-            field: TextField::To,
-            value,
-            phrase,
-        },
-        "cc" => Clause::Text {
-            field: TextField::Cc,
-            value,
-            phrase,
-        },
-        "subject" => Clause::Text {
-            field: TextField::Subject,
-            value,
-            phrase,
-        },
-        "body" => Clause::Text {
-            field: TextField::Body,
-            value,
-            phrase,
-        },
-        "filename" => Clause::Text {
-            field: TextField::Filename,
-            value,
-            phrase,
-        },
-        "text" => Clause::Text {
-            field: TextField::All,
-            value,
-            phrase,
-        },
+        "from" => text_clause(TextField::From, value, phrase),
+        "to" => text_clause(TextField::To, value, phrase),
+        "cc" => text_clause(TextField::Cc, value, phrase),
+        "subject" => text_clause(TextField::Subject, value, phrase),
+        "body" => text_clause(TextField::Body, value, phrase),
+        "filename" => text_clause(TextField::Filename, value, phrase),
+        "text" => text_clause(TextField::All, value, phrase),
         "tag" => Clause::Keyword(value),
         "in" => Clause::Mailbox(value),
         "has" => Clause::HasAttachment(value.eq_ignore_ascii_case("attachment")),
@@ -310,11 +351,11 @@ fn lex(input: &str) -> Vec<Tok> {
             }
             '"' => {
                 let (phrase, next) = read_quoted(&chars, i + 1);
-                out.push(Tok::Atom(Expr::Clause(Clause::Text {
-                    field: TextField::All,
-                    value: phrase,
-                    phrase: true,
-                })));
+                out.push(Tok::Atom(Expr::Clause(text_clause(
+                    TextField::All,
+                    phrase,
+                    true,
+                ))));
                 i = next;
             }
             _ => {
@@ -380,11 +421,7 @@ fn classify_word(chars: &[char], word: String, i: &mut usize) -> Tok {
             return Tok::Atom(operator_atom(field, value.to_string(), false));
         }
     }
-    Tok::Atom(Expr::Clause(Clause::Text {
-        field: TextField::All,
-        value: word,
-        phrase: false,
-    }))
+    Tok::Atom(Expr::Clause(text_clause(TextField::All, word, false)))
 }
 
 // ---------------------------------------------------------------------------
@@ -611,6 +648,73 @@ mod tests {
             }
             other => panic!("expected AND, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn fuzzy_marker_parses() {
+        // Bare `~` uses the default distance.
+        assert_eq!(
+            cl("helo~"),
+            Expr::Clause(Clause::Fuzzy {
+                field: TextField::All,
+                value: "helo".into(),
+                distance: FUZZY_DEFAULT_DISTANCE
+            })
+        );
+        // Explicit distance, on a field operator.
+        assert_eq!(
+            cl("subject:recieve~2"),
+            Expr::Clause(Clause::Fuzzy {
+                field: TextField::Subject,
+                value: "recieve".into(),
+                distance: 2
+            })
+        );
+        // Distance is clamped to the automaton max.
+        assert_eq!(
+            cl("x~9"),
+            Expr::Clause(Clause::Fuzzy {
+                field: TextField::All,
+                value: "x".into(),
+                distance: FUZZY_MAX_DISTANCE
+            })
+        );
+        // A `~` that isn't a trailing marker stays a literal term.
+        assert_eq!(
+            cl("a~b"),
+            Expr::Clause(Clause::Text {
+                field: TextField::All,
+                value: "a~b".into(),
+                phrase: false
+            })
+        );
+    }
+
+    #[test]
+    fn wildcard_marker_parses() {
+        assert_eq!(
+            cl("proj*"),
+            Expr::Clause(Clause::Wildcard {
+                field: TextField::All,
+                value: "proj*".into()
+            })
+        );
+        assert_eq!(
+            cl("from:ali*"),
+            Expr::Clause(Clause::Wildcard {
+                field: TextField::From,
+                value: "ali*".into()
+            })
+        );
+        // A quoted phrase keeps `*` literal (no wildcard).
+        assert_eq!(
+            cl("\"two * words\""),
+            Expr::Clause(Clause::Text {
+                field: TextField::All,
+                value: "two * words".into(),
+                phrase: true
+            })
+        );
     }
 
     #[test]
