@@ -14,8 +14,8 @@ use async_trait::async_trait;
 use base64::Engine as _;
 use mw_engine::MessageRef;
 use mw_plugin::{
-    Capability, Grant, HostServices, HttpFetcher, HttpReq, HttpResp, PluginHost, PluginLimits,
-    PluginManifest, TrustRoot,
+    BasicCredentialProvider, BasicCredentials, Capability, Grant, HostServices, HttpFetcher,
+    HttpReq, HttpResp, PluginHost, PluginLimits, PluginManifest, TrustRoot,
 };
 
 const GUEST: &[u8] = include_bytes!("../fixtures/bridge-ews.wasm");
@@ -44,6 +44,23 @@ fn ntlm_type2() -> Vec<u8> {
     assert_eq!(m.len(), 48);
     m.extend_from_slice(&[0, 0, 0, 0]);
     m
+}
+
+/// A fixture EWS credential provider (t12: the guest pulls endpoint + creds through
+/// the `basic-credentials` host import). A non-empty domain selects the NTLMv2 path.
+struct FixtureCreds;
+
+#[async_trait]
+impl BasicCredentialProvider for FixtureCreds {
+    async fn credentials(&self, _account: &str) -> Result<BasicCredentials, String> {
+        Ok(BasicCredentials {
+            user: "svc-mailwoman".into(),
+            domain: "CORP".into(),
+            password: "fixture-secret".into(),
+            workstation: "MAILWOMAN".into(),
+            endpoint: "https://ews.example.com/EWS/Exchange.asmx".into(),
+        })
+    }
 }
 
 /// A fake EWS server: NTLM handshake + fixture dispatch for the PIM operations.
@@ -139,6 +156,7 @@ fn grant() -> Grant {
 fn host() -> PluginHost {
     let services = HostServices {
         http: Arc::new(FakeEws),
+        basic_creds: Arc::new(FixtureCreds),
         ..HostServices::default()
     };
     PluginHost::try_new(services, TrustRoot::empty()).unwrap()

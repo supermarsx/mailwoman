@@ -11,7 +11,7 @@
 
 use base64::Engine as _;
 
-use crate::{ENDPOINT_URL, ews, ntlm, pim, wire};
+use crate::{ews, ntlm, pim, wire};
 
 // t10-e3: target the `plugin-pim` second world (plan §5 / t10-e0) so this bridge ALSO
 // exports the optional `calendar`/`tasks`/`bridge-parity` interfaces the host probes.
@@ -39,13 +39,12 @@ use mailwoman::plugin::types::{
     RawMessage, SyncCursor,
 };
 
-// Placeholder on-prem credentials — a real deployment binds these per-account at
-// mount (sealed store / scoped KV). The recorded-fixture server does not validate
-// them; they exist so the NTLMv2 handshake produces a well-formed Type 3 message.
-const EWS_USER: &str = "svc-mailwoman";
-const EWS_DOMAIN: &str = "CORP";
-const EWS_PASSWORD: &str = "placeholder";
-const EWS_WORKSTATION: &str = "MAILWOMAN";
+// The account this component instance is bound to. The host maps it to the concrete
+// account and unseals THAT account's EWS endpoint + credentials via the gated
+// `basic-credentials` import; the guest passes it opaquely and holds no long-lived
+// secret (mirrors the Graph/Gmail `oauth-token` account handle). One instance backs
+// one account, so the empty handle resolves to the bound account host-side.
+const ACCOUNT: &str = "";
 
 struct Component;
 
@@ -64,7 +63,7 @@ fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
         .map(|(_, v)| v.as_str())
 }
 
-fn post(auth: Option<&str>, body: &[u8]) -> Result<host::HttpResponse, PluginError> {
+fn post(url: &str, auth: Option<&str>, body: &[u8]) -> Result<host::HttpResponse, PluginError> {
     let mut headers = vec![(
         "Content-Type".to_string(),
         "text/xml; charset=utf-8".to_string(),
@@ -74,21 +73,54 @@ fn post(auth: Option<&str>, body: &[u8]) -> Result<host::HttpResponse, PluginErr
     }
     host::http_fetch(&host::HttpRequest {
         method: "POST".into(),
-        url: ENDPOINT_URL.into(),
+        url: url.into(),
         headers,
         body: Some(body.to_vec()),
     })
 }
 
-/// Run one EWS SOAP call over the host transport, performing the NTLMv2 401
-/// challenge/response dance when the server demands it.
+/// Run one EWS SOAP call over the host transport. The bound account's endpoint +
+/// credentials are pulled per call through the gated `basic-credentials` host import
+/// (the secret is host-held; the guest keeps it only for the duration of this call).
+/// The auth scheme is selected PER ACCOUNT: an account configured without an NT
+/// domain uses HTTP Basic; one with a domain uses pure-Rust NTLMv2 (which needs the
+/// cleartext password + domain + workstation to derive NTOWFv2 — an OAuth bearer
+/// cannot serve it, which is why this seam exists alongside `oauth-token`).
 fn ews_call(soap_body: &str) -> Result<String, PluginError> {
+    let creds = host::basic_credentials(ACCOUNT)?;
     let body = soap_body.as_bytes();
+    if creds.domain.is_empty() {
+        basic_call(&creds, body)
+    } else {
+        ntlm_call(&creds, body)
+    }
+}
 
+/// HTTP Basic path: attach `Authorization: Basic base64(user:password)` up front.
+fn basic_call(creds: &host::HostCredentials, body: &[u8]) -> Result<String, PluginError> {
+    let auth = format!(
+        "Basic {}",
+        b64(format!("{}:{}", creds.user, creds.password).as_bytes())
+    );
+    let r = post(&creds.endpoint, Some(&auth), body)?;
+    if (200..300).contains(&r.status) {
+        return Ok(String::from_utf8_lossy(&r.body).into_owned());
+    }
+    if r.status == 401 {
+        return Err(PluginError::Auth(
+            "EWS Basic authentication failed (HTTP 401)".into(),
+        ));
+    }
+    Err(PluginError::Transport(format!("EWS HTTP {}", r.status)))
+}
+
+/// NTLMv2 path: the 401 NEGOTIATE (Type 1) → CHALLENGE (Type 2) → AUTHENTICATE
+/// (Type 3) dance, keyed by the account's cleartext credential.
+fn ntlm_call(creds: &host::HostCredentials, body: &[u8]) -> Result<String, PluginError> {
     // Step 1: send the request with an NTLM NEGOTIATE (Type 1) token.
     let type1 = ntlm::type1_message();
     let neg = format!("NTLM {}", b64(&type1));
-    let r1 = post(Some(&neg), body)?;
+    let r1 = post(&creds.endpoint, Some(&neg), body)?;
 
     if r1.status == 401 {
         // Step 2: parse the CHALLENGE (Type 2) and answer with AUTHENTICATE (Type 3).
@@ -109,7 +141,7 @@ fn ews_call(soap_body: &str) -> Result<String, PluginError> {
             client_challenge[i] = *b;
         }
         let timestamp = ntlm::filetime_from_unix_millis(host::now());
-        let ntowf2 = ntlm::ntowf_v2(EWS_USER, EWS_DOMAIN, EWS_PASSWORD);
+        let ntowf2 = ntlm::ntowf_v2(&creds.user, &creds.domain, &creds.password);
         let resp = ntlm::ntlmv2_response(
             &ntowf2,
             &challenge.server_challenge,
@@ -117,9 +149,9 @@ fn ews_call(soap_body: &str) -> Result<String, PluginError> {
             timestamp,
             &challenge.target_info,
         );
-        let type3 = ntlm::type3_message(EWS_USER, EWS_DOMAIN, EWS_WORKSTATION, &resp);
+        let type3 = ntlm::type3_message(&creds.user, &creds.domain, &creds.workstation, &resp);
         let auth = format!("NTLM {}", b64(&type3));
-        let r2 = post(Some(&auth), body)?;
+        let r2 = post(&creds.endpoint, Some(&auth), body)?;
         if (200..300).contains(&r2.status) {
             return Ok(String::from_utf8_lossy(&r2.body).into_owned());
         }

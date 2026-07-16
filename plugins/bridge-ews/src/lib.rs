@@ -46,15 +46,14 @@ mod guest;
 /// The manifest plugin id (matches `plugin.toml`).
 pub const PLUGIN_ID: &str = "bridge-ews";
 
-/// The EWS endpoint host the bridge talks to. In production the concrete endpoint +
-/// credentials are bound per-account by the mount layer (e14) via the scoped host
-/// KV / sealed-credential seam; the fixtures use this placeholder host, which the
-/// plugin manifest lists in its `net_allowlist` (so the host `http-fetch` gate
-/// admits it and nothing else).
+/// The EWS host used by the recorded-fixture tests. In production the concrete
+/// endpoint + credentials are bound PER ACCOUNT and pulled by the guest at call time
+/// through the host `basic-credentials` import (sealed, host-held — the endpoint and
+/// secret never live in the guest binary); the account's endpoint host is mirrored
+/// into the plugin `net_allowlist` at mount (t12 e-mount) so the `http-fetch` gate
+/// admits it and nothing else. This constant is the fixture default that the
+/// committed `plugin.toml` `net_allowlist` lists.
 pub const ENDPOINT_HOST: &str = "ews.example.com";
-
-/// The full EWS SOAP endpoint URL derived from [`ENDPOINT_HOST`].
-pub const ENDPOINT_URL: &str = "https://ews.example.com/EWS/Exchange.asmx";
 
 #[must_use]
 pub fn plugin_id() -> &'static str {

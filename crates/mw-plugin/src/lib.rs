@@ -42,7 +42,8 @@ mod host_state;
 pub mod signature;
 
 pub use host_state::{
-    Clock, HostServices, HttpFetcher, HttpReq, HttpResp, KvStore, OAuthTokenProvider, Rng,
+    BasicCredentialProvider, BasicCredentials, Clock, HostServices, HttpFetcher, HttpReq, HttpResp,
+    KvStore, OAuthTokenProvider, Rng,
 };
 pub use signature::{SignatureStatus, TrustRoot};
 

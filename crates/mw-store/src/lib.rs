@@ -35,9 +35,14 @@ mod sso;
 // masked-email aliases, OAuth DCR policy + DCR-client metadata. New `Store` methods
 // over the 0010 tables; no secret columns (signature is public, tokens hashed).
 mod v9_tail;
+// 0011 (26.12 t12 conformance): per-account EWS credential binding (sealed) for the
+// on-prem Exchange bridge. New `Store` methods over the 0011 `ews_account_cred`
+// table; sealed secret column (zero-access posture). No existing item touched.
+mod ews_cred;
 
 pub(crate) use backend::{Backend, Row, q};
 
+pub use ews_cred::EwsAccountCred;
 pub use sso::SsoConfigRow;
 pub use v6::{
     AdminUserRow, ApiKeyRow, AuditRow, CacheScopeRow, DomainRow, OAuthClientRow, OAuthTokenRow,

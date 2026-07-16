@@ -11,7 +11,9 @@ use wasmtime::component::{Linker, ResourceTable};
 use wasmtime::{ResourceLimiter, Store};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
-use crate::bindings::mailwoman::plugin::host::{self, Host, HttpRequest, HttpResponse, LogLevel};
+use crate::bindings::mailwoman::plugin::host::{
+    self, Host, HostCredentials, HttpRequest, HttpResponse, LogLevel,
+};
 use crate::bindings::mailwoman::plugin::types::PluginError as WitError;
 use crate::{Capability, PluginError, PluginLimits, Result};
 
@@ -52,6 +54,31 @@ pub trait OAuthTokenProvider: Send + Sync {
     async fn token(&self, account: &str) -> std::result::Result<String, String>;
 }
 
+/// Per-account cleartext credentials for a password-based bridge (on-prem EWS
+/// Basic / NTLMv2). Held decrypted only transiently in the host while answering one
+/// [`BasicCredentialProvider::credentials`] call; the store keeps it SEALED at rest.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BasicCredentials {
+    pub user: String,
+    /// NT domain. Empty ⇒ the account uses HTTP Basic; non-empty ⇒ NTLMv2.
+    pub domain: String,
+    pub password: String,
+    pub workstation: String,
+    /// The account's EWS SOAP endpoint URL (host-provisioned; not in the guest).
+    pub endpoint: String,
+}
+
+/// Supplies per-account credentials for a password-based bridge (EWS Basic/NTLMv2).
+/// This is the password-auth analogue of [`OAuthTokenProvider`]: OAuth bearer tokens
+/// cannot serve NTLMv2 (which derives NTOWFv2 from the cleartext password), so the
+/// host holds the sealed secret, unseals it per call, and hands it to the bound
+/// account's guest — which never persists it (plan §2.1; t12 §5 flag 1). `mw-server`
+/// injects a store-backed impl at mount (e-mount); the default refuses.
+#[async_trait]
+pub trait BasicCredentialProvider: Send + Sync {
+    async fn credentials(&self, account: &str) -> std::result::Result<BasicCredentials, String>;
+}
+
 /// A per-plugin scoped KV scratch store.
 #[async_trait]
 pub trait KvStore: Send + Sync {
@@ -74,6 +101,8 @@ pub trait Rng: Send + Sync {
 pub struct HostServices {
     pub http: Arc<dyn HttpFetcher>,
     pub oauth: Arc<dyn OAuthTokenProvider>,
+    /// Per-account password-auth credentials (EWS Basic/NTLMv2), t12 additive seam.
+    pub basic_creds: Arc<dyn BasicCredentialProvider>,
     pub kv: Arc<dyn KvStore>,
     pub clock: Arc<dyn Clock>,
     pub rng: Arc<dyn Rng>,
@@ -84,6 +113,7 @@ impl Default for HostServices {
         Self {
             http: Arc::new(DeniedHttp),
             oauth: Arc::new(DeniedOAuth),
+            basic_creds: Arc::new(DeniedBasicCreds),
             kv: Arc::new(MemoryKv::default()),
             clock: Arc::new(SystemClock),
             rng: Arc::new(OsRng),
@@ -110,6 +140,14 @@ struct DeniedOAuth;
 impl OAuthTokenProvider for DeniedOAuth {
     async fn token(&self, _account: &str) -> std::result::Result<String, String> {
         Err("no OAuth provider configured".into())
+    }
+}
+
+struct DeniedBasicCreds;
+#[async_trait]
+impl BasicCredentialProvider for DeniedBasicCreds {
+    async fn credentials(&self, _account: &str) -> std::result::Result<BasicCredentials, String> {
+        Err("no basic-credential provider configured".into())
     }
 }
 
@@ -361,6 +399,32 @@ impl Host for HostState {
             .oauth
             .token(&account)
             .await
+            .map_err(WitError::Auth))
+    }
+
+    async fn basic_credentials(
+        &mut self,
+        account: String,
+    ) -> wasmtime::Result<std::result::Result<HostCredentials, WitError>> {
+        // Password-auth credential acquisition is, like `oauth-token`, an
+        // account-backend (bridge) capability — deny-by-default otherwise.
+        if !self.gate.has(Capability::AccountBackend) {
+            return Ok(Err(denied(
+                "basic-credentials requires the account-backend capability",
+            )));
+        }
+        Ok(self
+            .services
+            .basic_creds
+            .credentials(&account)
+            .await
+            .map(|c| HostCredentials {
+                user: c.user,
+                domain: c.domain,
+                password: c.password,
+                workstation: c.workstation,
+                endpoint: c.endpoint,
+            })
             .map_err(WitError::Auth))
     }
 

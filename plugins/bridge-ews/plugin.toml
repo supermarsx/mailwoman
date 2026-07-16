@@ -17,8 +17,11 @@ version = "26.8.0"
 # addrbook-source: GAL resolution via ResolveNames.
 capabilities = ["account-backend", "net", "addrbook-source"]
 
-# The EWS SOAP endpoint host. Replace with the deployment's real Exchange host at
-# provisioning time; the host `http-fetch` gate admits this host and nothing else.
+# The EWS SOAP endpoint host. ACCOUNT-DERIVED: at mount (t12 e-mount) the host
+# rewrites this to the per-account `ews_account_cred.endpoint_host` (0011) so the
+# `http-fetch` gate admits exactly the bound account's Exchange host and nothing
+# else — matching the endpoint the guest pulls from the `basic-credentials` import.
+# The value below is the recorded-fixture host used by the bridge integration tests.
 net_allowlist = ["ews.example.com"]
 
 [limits]

@@ -13,8 +13,8 @@ use async_trait::async_trait;
 use base64::Engine as _;
 use mw_engine::{Flag, MailboxRole, SyncCursor};
 use mw_plugin::{
-    Capability, Grant, HostServices, HttpFetcher, HttpReq, HttpResp, PluginHost, PluginLimits,
-    PluginManifest, TrustRoot,
+    BasicCredentialProvider, BasicCredentials, Capability, Grant, HostServices, HttpFetcher,
+    HttpReq, HttpResp, PluginHost, PluginLimits, PluginManifest, TrustRoot,
 };
 
 const GUEST: &[u8] = include_bytes!("../fixtures/bridge-ews.wasm");
@@ -47,11 +47,35 @@ fn ntlm_type2() -> Vec<u8> {
     m
 }
 
+/// A fixture EWS credential provider standing in for the host's sealed per-account
+/// credential store (t12: the guest pulls endpoint + creds through `basic-credentials`
+/// exactly where OAuth bridges pull `oauth-token`). A non-empty `domain` selects the
+/// NTLMv2 path; an empty `domain` selects HTTP Basic — the per-account rule the guest
+/// applies. These are FIXTURE-SUPPLIED, non-placeholder values.
+struct FixtureCreds {
+    domain: String,
+}
+
+#[async_trait]
+impl BasicCredentialProvider for FixtureCreds {
+    async fn credentials(&self, _account: &str) -> Result<BasicCredentials, String> {
+        Ok(BasicCredentials {
+            user: "svc-mailwoman".into(),
+            domain: self.domain.clone(),
+            password: "fixture-secret".into(),
+            workstation: "MAILWOMAN".into(),
+            endpoint: "https://ews.example.com/EWS/Exchange.asmx".into(),
+        })
+    }
+}
+
 /// A fake EWS server: enforces the NTLM handshake (Type 1 → 401 challenge → Type 3 →
-/// 200) and returns the fixture matching the SOAP operation in the request body.
+/// 200) OR accepts an up-front HTTP Basic header, and returns the fixture matching
+/// the SOAP operation in the request body.
 struct FakeEws {
     saw_type1: AtomicBool,
     saw_type3: AtomicBool,
+    saw_basic: AtomicBool,
 }
 
 impl FakeEws {
@@ -59,6 +83,7 @@ impl FakeEws {
         Arc::new(Self {
             saw_type1: AtomicBool::new(false),
             saw_type3: AtomicBool::new(false),
+            saw_basic: AtomicBool::new(false),
         })
     }
 
@@ -88,6 +113,16 @@ impl HttpFetcher for FakeEws {
             .find(|(k, _)| k.eq_ignore_ascii_case("authorization"))
             .map(|(_, v)| v.clone())
             .unwrap_or_default();
+
+        if auth.starts_with("Basic ") {
+            self.saw_basic.store(true, Ordering::SeqCst);
+            let body = String::from_utf8_lossy(&req.body.unwrap_or_default()).into_owned();
+            return Ok(HttpResp {
+                status: 200,
+                headers: vec![],
+                body: FakeEws::dispatch(&body).as_bytes().to_vec(),
+            });
+        }
 
         if let Some(tok) = auth.strip_prefix("NTLM ") {
             let bytes = base64::engine::general_purpose::STANDARD
@@ -160,9 +195,19 @@ fn grant() -> Grant {
     }
 }
 
+/// Wire the fake EWS server with an NTLM-configured account (non-empty domain).
 fn host_with_fake(fake: Arc<FakeEws>) -> PluginHost {
+    host_with(fake, "CORP")
+}
+
+/// Wire the fake EWS server with a per-account credential provider whose `domain`
+/// selects the auth scheme (empty ⇒ Basic).
+fn host_with(fake: Arc<FakeEws>, domain: &str) -> PluginHost {
     let services = HostServices {
         http: fake,
+        basic_creds: Arc::new(FixtureCreds {
+            domain: domain.into(),
+        }),
         ..HostServices::default()
     };
     PluginHost::try_new(services, TrustRoot::empty()).unwrap()
@@ -229,6 +274,45 @@ async fn ews_bridge_serves_mail_through_the_engine_with_ntlm() {
         .await
         .unwrap();
     assert!(matches!(sent, mw_engine::MessageRef::Plugin { .. }));
+}
+
+#[tokio::test]
+async fn ews_bridge_serves_mail_through_basic_auth() {
+    // An account configured WITHOUT an NT domain ⇒ the guest selects HTTP Basic and
+    // attaches `Authorization: Basic base64(user:pass)` up front (no NTLM dance).
+    let fake = FakeEws::new();
+    let host = host_with(fake.clone(), "");
+    let handle = host
+        .load(GUEST, &manifest(&["ews.example.com"]), &grant())
+        .unwrap();
+    let backend = handle
+        .as_account_backend()
+        .expect("account-backend granted");
+
+    let boxes = backend.list_mailboxes().await.unwrap();
+    assert!(boxes.iter().any(|b| b.role == MailboxRole::Inbox));
+
+    // Basic was exercised; the NTLM handshake was NOT taken.
+    assert!(
+        fake.saw_basic.load(Ordering::SeqCst),
+        "Basic Authorization header sent"
+    );
+    assert!(
+        !fake.saw_type1.load(Ordering::SeqCst),
+        "no NTLM negotiate on the Basic path"
+    );
+
+    let inbox = boxes
+        .iter()
+        .find(|b| b.role == MailboxRole::Inbox)
+        .unwrap()
+        .clone();
+    let delta = backend
+        .sync_mailbox(&inbox.mailbox_ref, &SyncCursor::Plugin { opaque: vec![] })
+        .await
+        .unwrap();
+    let msgs = backend.fetch_raw(&delta.added).await.unwrap();
+    assert!(String::from_utf8_lossy(&msgs[0].raw).contains("Subject: Quarterly numbers"));
 }
 
 #[tokio::test]

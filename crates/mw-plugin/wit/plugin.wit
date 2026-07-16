@@ -153,6 +153,31 @@ interface host {
     // Acquire an OAuth token for the bound account (Graph/Gmail device/auth-code).
     oauth-token: func(account: string) -> result<string, plugin-error>;
 
+    // ── t12 (26.12) ADDITIVE host import — per-account password-auth credentials ──
+    // The password-auth analogue of `oauth-token`, for legacy Basic / NTLMv2 bridges
+    // (on-prem EWS, SPEC §6.5/§27). An OAuth bearer CANNOT serve NTLMv2, which derives
+    // NTOWFv2 from the CLEARTEXT password — so the host unseals the account's stored
+    // credential (zero-access sealing posture, same as `accounts.sealed_creds`) and
+    // returns it here for the BOUND account only. The guest forms the request's auth
+    // header from it and does NOT persist it between calls (the long-lived secret stays
+    // host-held). The scheme is DERIVED from `domain`: empty ⇒ HTTP Basic,
+    // non-empty ⇒ NTLMv2 (which additionally needs `workstation`). `endpoint` is the
+    // account's EWS SOAP URL (host-provisioned; kept out of the guest binary).
+    // Gated on the `account-backend` capability, like `oauth-token`.
+    //
+    // ADDITIVE / backward-compatible: pre-t12 guests (Graph/Gmail/LanguageTool/
+    // Nextcloud) do not import this func and load unchanged — the host provides a
+    // SUPERSET of `host@0.1.0`, which the component-model import subtyping accepts, so
+    // the package stays @0.1.0 and committed .wasm fixtures keep linking.
+    record host-credentials {
+        user: string,
+        domain: string,
+        password: string,
+        workstation: string,
+        endpoint: string,
+    }
+    basic-credentials: func(account: string) -> result<host-credentials, plugin-error>;
+
     // Scoped KV scratch (namespaced per plugin; `store:kv-scoped` capability).
     kv-get: func(key: string) -> option<list<u8>>;
     kv-put: func(key: string, value: list<u8>);
