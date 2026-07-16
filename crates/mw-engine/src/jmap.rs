@@ -1006,6 +1006,7 @@ impl Engine {
     /// default identity from the account's own address on first access.
     async fn identity_get(&self, account_id: &str, rt: &AccountRuntime, args: &Value) -> Value {
         self.ensure_default_identity(account_id, rt).await;
+        self.ensure_server_identities(account_id).await;
         let rows = match self.store().list_identities(account_id).await {
             Ok(v) => v,
             Err(e) => return server_fail(&e),
@@ -1032,6 +1033,7 @@ impl Engine {
     /// `Identity/query` — the ids of the account's identities.
     async fn identity_query(&self, account_id: &str, rt: &AccountRuntime) -> Value {
         self.ensure_default_identity(account_id, rt).await;
+        self.ensure_server_identities(account_id).await;
         let ids: Vec<String> = self
             .store()
             .list_identities(account_id)
@@ -1083,6 +1085,49 @@ impl Engine {
                 source: "configured".to_string(),
             })
             .await;
+    }
+
+    /// Pull the deployment's server-advertised allowed-froms (`MW_ALLOWED_FROMS`,
+    /// source `"server"`) into the identity store, beyond the single configured
+    /// seed. Deduped by email against existing rows (case-insensitive) so repeated
+    /// access is idempotent; the row id is derived from the address so the same
+    /// allowed-from never duplicates. Best-effort — a store error leaves the
+    /// configured identities intact.
+    async fn ensure_server_identities(&self, account_id: &str) {
+        let advertised = crate::identity::load_server_identities();
+        if advertised.is_empty() {
+            return;
+        }
+        let existing = self
+            .store()
+            .list_identities(account_id)
+            .await
+            .unwrap_or_default();
+        // Reuse the Sent mailbox the configured identity resolved (if any).
+        let sent = existing.iter().find_map(|r| r.sent_mailbox_id.clone());
+        for si in advertised {
+            let email = si.email.trim();
+            if email.is_empty() {
+                continue;
+            }
+            if existing.iter().any(|r| r.email.eq_ignore_ascii_case(email)) {
+                continue;
+            }
+            let _ = self
+                .store()
+                .upsert_identity(&IdentityRow {
+                    id: format!("identity-server-{account_id}-{}", identity_slug(email)),
+                    account_id: account_id.to_string(),
+                    name: si.name.clone(),
+                    email: email.to_string(),
+                    reply_to: si.reply_to.clone(),
+                    signature_html: si.signature_html.clone(),
+                    signature_text: si.signature_text.clone(),
+                    sent_mailbox_id: sent.clone(),
+                    source: "server".to_string(),
+                })
+                .await;
+        }
     }
 
     /// Submit a draft's MIME through the account submitter, then file the sent
@@ -1513,7 +1558,9 @@ fn submission_json(row: &SubmissionRow) -> Value {
     })
 }
 
-/// The JMAP `Identity` object for a stored row (frozen §2.1).
+/// The JMAP `Identity` object for a stored row (frozen §2.1). `source`
+/// (`"configured"` | `"server"`) is surfaced additively so a client can tell a
+/// server-advertised allowed-from from the account's own configured identity.
 fn identity_json(row: &IdentityRow) -> Value {
     json!({
         "id": row.id,
@@ -1523,5 +1570,22 @@ fn identity_json(row: &IdentityRow) -> Value {
         "signatureHtml": row.signature_html,
         "signatureText": row.signature_text,
         "sentMailboxId": row.sent_mailbox_id,
+        "source": row.source,
     })
+}
+
+/// A filesystem/id-safe slug of an email address for a server-identity row id
+/// (non-alphanumerics collapse to `-`), so the same allowed-from maps to a stable
+/// row on every pull.
+fn identity_slug(email: &str) -> String {
+    email
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect()
 }

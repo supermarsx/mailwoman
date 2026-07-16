@@ -12,12 +12,15 @@ use std::hash::Hash;
 use std::sync::Mutex;
 use std::time::Instant;
 
+use std::net::IpAddr;
+
 use mail_auth::common::parse::TxtRecordParser;
 use mail_auth::common::verify::DomainKey;
 use mail_auth::dmarc::verify::DmarcParameters;
+use mail_auth::spf::verify::SpfParameters;
 use mail_auth::{
     AuthenticatedMessage, DkimResult, DmarcResult, MessageAuthenticator, Parameters, ResolverCache,
-    SpfResult, Txt,
+    SpfOutput, SpfResult, Txt,
 };
 use mail_parser::{Host, MessageParser, MimeHeaders};
 use serde_json::{Value, json};
@@ -53,6 +56,17 @@ impl SeededTxtCache {
         match DomainKey::parse(record.as_bytes()) {
             Ok(k) => {
                 self.insert_txt(name, k.into());
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Seed an SPF record (`domain` in trailing-dot form → the `v=spf1 …` value).
+    pub fn insert_spf(&self, name: &str, record: &str) -> bool {
+        match mail_auth::spf::Spf::parse(record.as_bytes()) {
+            Ok(spf) => {
+                self.insert_txt(name, spf.into());
                 true
             }
             Err(_) => false,
@@ -173,12 +187,18 @@ pub(crate) async fn compute_verdict(
     txt_cache: Option<&SeededTxtCache>,
     allow_network: bool,
 ) -> SecurityVerdict {
+    let parsed = MessageParser::default().parse(raw);
+    // The connecting-client context (IP/HELO/MAIL-FROM) SPF is evaluated against,
+    // recovered from the Received chain (no live SMTP session here).
+    let spf_ctx = parsed.as_ref().and_then(spf_context);
+
     let auth = match (authenticator, AuthenticatedMessage::parse(raw)) {
-        (Some(a), Some(msg)) => compute_auth(a, txt_cache, allow_network, &msg).await,
+        (Some(a), Some(msg)) => {
+            compute_auth(a, txt_cache, allow_network, &msg, spf_ctx.as_ref()).await
+        }
         _ => empty_auth(),
     };
 
-    let parsed = MessageParser::default().parse(raw);
     let received = parsed.as_ref().map(received_chain).unwrap_or_default();
     let attachments = parsed.as_ref().map(attachment_risks).unwrap_or_default();
     let anomalies = parsed.as_ref().map(detect_anomalies).unwrap_or_default();
@@ -205,6 +225,7 @@ async fn compute_auth(
     txt_cache: Option<&SeededTxtCache>,
     allow_network: bool,
     msg: &AuthenticatedMessage<'_>,
+    spf_ctx: Option<&SpfContext>,
 ) -> AuthVerdict {
     // DKIM — always (cache first, resolver on miss).
     let dkim_out = match txt_cache {
@@ -254,9 +275,23 @@ async fn compute_auth(
 
     // SPF/DMARC — network-gated (they need the sender IP + the domain's records).
     let from_domain = domain_of(msg.from());
-    let mut spf = SpfVerdict {
-        result: "none".into(),
-        domain: from_domain.clone(),
+    // SPF: evaluate the connecting-client IP (from the Received chain) against the
+    // MAIL-FROM domain's published `v=spf1` record. Without a client context or
+    // when offline, the result stays "none". The native `SpfOutput` is reused for
+    // DMARC's SPF-alignment leg so the two never disagree.
+    let spf_out = if allow_network {
+        match spf_ctx {
+            Some(ctx) => compute_spf(authr, txt_cache, ctx).await,
+            None => SpfOutput::new(String::new()).with_result(SpfResult::None),
+        }
+    } else {
+        SpfOutput::new(String::new()).with_result(SpfResult::None)
+    };
+    let spf = SpfVerdict {
+        result: spf_result_str(spf_out.result()).to_string(),
+        domain: spf_ctx
+            .map(|c| c.domain.clone())
+            .or_else(|| from_domain.clone()),
     };
     let mut dmarc = DmarcVerdict {
         result: "none".into(),
@@ -264,32 +299,21 @@ async fn compute_auth(
         aligned: false,
     };
     if allow_network {
-        // Best-effort: without a live SMTP session we lack the true client IP, so
-        // SPF is evaluated against the earliest Received `from` IP when present.
-        // DMARC always consults the published policy for the From domain.
+        // DMARC always consults the published policy for the From domain, aligning
+        // the real DKIM + SPF results computed above.
         if let Some(fd) = &from_domain {
             let dmarc_out = match txt_cache {
                 Some(c) => {
                     authr
                         .verify_dmarc(
-                            Parameters::new(DmarcParameters::new(
-                                msg,
-                                &dkim_out,
-                                fd,
-                                &spf_output(&spf, fd),
-                            ))
-                            .with_txt_cache(c),
+                            Parameters::new(DmarcParameters::new(msg, &dkim_out, fd, &spf_out))
+                                .with_txt_cache(c),
                         )
                         .await
                 }
                 None => {
                     authr
-                        .verify_dmarc(DmarcParameters::new(
-                            msg,
-                            &dkim_out,
-                            fd,
-                            &spf_output(&spf, fd),
-                        ))
+                        .verify_dmarc(DmarcParameters::new(msg, &dkim_out, fd, &spf_out))
                         .await
                 }
             };
@@ -311,7 +335,6 @@ async fn compute_auth(
                 aligned,
             };
         }
-        let _ = &mut spf; // SPF stays "none" without a client IP (documented gap).
     }
 
     AuthVerdict {
@@ -322,16 +345,85 @@ async fn compute_auth(
     }
 }
 
-fn spf_output(spf: &SpfVerdict, domain: &str) -> mail_auth::SpfOutput {
-    let result = match spf.result.as_str() {
-        "pass" => SpfResult::Pass,
-        "fail" => SpfResult::Fail,
-        "neutral" => SpfResult::Neutral,
-        "temperror" => SpfResult::TempError,
-        "permerror" => SpfResult::PermError,
-        _ => SpfResult::None,
+/// The connecting-client context SPF is evaluated against, recovered from the
+/// message's `Received` chain (no live SMTP session is available server-side).
+#[derive(Debug, Clone)]
+struct SpfContext {
+    /// The connecting client's IP.
+    ip: IpAddr,
+    /// The HELO/EHLO identity (falls back to the `from` hostname).
+    helo: String,
+    /// The MAIL-FROM address (falls back to `postmaster@<from-domain>`).
+    mail_from: String,
+    /// The MAIL-FROM domain (what SPF actually checks).
+    domain: String,
+}
+
+/// Recover the SPF client context from the parsed message: the most-recent
+/// `Received` hop that carries a `from` IP is the client that connected to our
+/// boundary MX; its `helo`/`from` host is the HELO identity; the envelope
+/// return-path (or the `From` domain) supplies the MAIL-FROM. `None` when no
+/// Received hop exposes an IP (SPF then stays "none").
+fn spf_context(msg: &mail_parser::Message) -> Option<SpfContext> {
+    let hop = msg.received_all().find(|r| r.from_ip().is_some())?;
+    let ip = hop.from_ip()?;
+    let helo = hop
+        .helo()
+        .map(host_str)
+        .or_else(|| hop.from.as_ref().map(host_str))
+        .unwrap_or_default();
+    // Envelope MAIL-FROM (Return-Path) is authoritative; else From-domain postmaster.
+    let from_domain = first_addr_domain(msg.from());
+    let (mail_from, domain) = match msg.return_address() {
+        Some(rp) if rp.contains('@') => {
+            let d = rp.rsplit_once('@').map(|(_, d)| d.to_lowercase());
+            (rp.to_string(), d.or_else(|| from_domain.clone()))
+        }
+        _ => match &from_domain {
+            Some(d) => (format!("postmaster@{d}"), Some(d.clone())),
+            None => (String::new(), None),
+        },
     };
-    mail_auth::SpfOutput::new(domain.to_string()).with_result(result)
+    Some(SpfContext {
+        ip,
+        helo,
+        mail_from,
+        domain: domain.unwrap_or_default(),
+    })
+}
+
+/// Run a single SPF `check_host` for the recovered client context, honouring the
+/// seeded TXT cache (CI) or the system resolver (prod). Returns the native
+/// `SpfOutput` so callers read both the string result and reuse it for DMARC.
+async fn compute_spf(
+    authr: &MessageAuthenticator,
+    txt_cache: Option<&SeededTxtCache>,
+    ctx: &SpfContext,
+) -> SpfOutput {
+    if ctx.domain.is_empty() {
+        return SpfOutput::new(String::new()).with_result(SpfResult::None);
+    }
+    let params = SpfParameters::verify_mail_from(ctx.ip, &ctx.helo, "", &ctx.mail_from);
+    match txt_cache {
+        Some(c) => {
+            authr
+                .verify_spf(Parameters::new(params).with_txt_cache(c))
+                .await
+        }
+        None => authr.verify_spf(params).await,
+    }
+}
+
+fn spf_result_str(r: SpfResult) -> &'static str {
+    match r {
+        SpfResult::Pass => "pass",
+        SpfResult::Fail => "fail",
+        SpfResult::SoftFail => "softfail",
+        SpfResult::Neutral => "neutral",
+        SpfResult::TempError => "temperror",
+        SpfResult::PermError => "permerror",
+        SpfResult::None => "none",
+    }
 }
 
 fn empty_auth() -> AuthVerdict {
@@ -399,6 +491,7 @@ fn received_chain(msg: &mail_parser::Message) -> Vec<ReceivedHop> {
             }
             _ => None,
         };
+        let geo = geoip_enrich(r.from_ip());
         out.push(ReceivedHop {
             index: i as i64,
             by_host: r.by.as_ref().map(host_str),
@@ -406,9 +499,9 @@ fn received_chain(msg: &mail_parser::Message) -> Vec<ReceivedHop> {
             protocol: r.with.map(|p| p.to_string()),
             timestamp: ts,
             delay_ms,
-            asn: None,
-            asn_org: None,
-            country: None,
+            asn: geo.asn,
+            asn_org: geo.asn_org,
+            country: geo.country,
         });
     }
     out
@@ -418,6 +511,44 @@ fn host_str(h: &Host) -> String {
     match h {
         Host::Name(n) => n.to_string(),
         Host::IpAddr(ip) => ip.to_string(),
+    }
+}
+
+// ── GeoIP / ASN enrichment (BYO database) ────────────────────────────────────
+
+/// ASN/country enrichment for one Received hop.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+struct GeoEnrichment {
+    asn: Option<i64>,
+    asn_org: Option<String>,
+    country: Option<String>,
+}
+
+/// The admin-supplied GeoIP database path (`MW_GEOIP_DB`), when it points at an
+/// existing file. `None` (the default) leaves every hop's ASN/country unset.
+fn geoip_db_path() -> Option<std::path::PathBuf> {
+    std::env::var_os("MW_GEOIP_DB")
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.exists())
+}
+
+/// BYO GeoIP/ASN enrichment seam (SPEC §7.3). MaxMind GeoLite2 is NOT permissively
+/// redistributable (account + attribution required), so **no database is bundled**
+/// (t12 §5 flag 3 — the user's decision). ASN/country are resolved only from an
+/// admin-supplied database pointed to by `MW_GEOIP_DB`; unset (the default) leaves
+/// the fields `None`. The database *reader* is intentionally out of tree until a
+/// permissively-licensed source is chosen — this hook establishes the wiring and
+/// the admin-supplied-path contract without shipping a licence-encumbered DB or
+/// pulling a new dependency.
+fn geoip_enrich(ip: Option<IpAddr>) -> GeoEnrichment {
+    match (ip, geoip_db_path()) {
+        (Some(_ip), Some(_db)) => {
+            // An admin database is configured; ASN/country resolution against it
+            // activates when a permissively-licensed reader is wired in. No
+            // bundled DB, no new dependency — the fields stay `None` until then.
+            GeoEnrichment::default()
+        }
+        _ => GeoEnrichment::default(),
     }
 }
 
@@ -762,6 +893,57 @@ mod tests {
         let cache = seeded_cache();
         let v = compute_verdict("e2", tampered.as_bytes(), Some(&authr), Some(&cache), false).await;
         assert_eq!(v.auth.dkim.result, "fail", "expected DKIM fail on tamper");
+    }
+
+    #[test]
+    fn spf_context_recovers_client_ip_and_mail_from() {
+        let raw = "Received: from mail.example.com (mail.example.com [192.0.2.10])\r\n\
+             \tby mx.example.org with ESMTPS; Mon, 13 Jul 2026 09:00:00 +0000\r\n\
+             Return-Path: <alice@example.com>\r\n\
+             From: alice@example.com\r\n\
+             To: bob@example.org\r\n\
+             Subject: Hi\r\n\r\nbody\r\n"
+            .as_bytes();
+        let parsed = MessageParser::default().parse(raw).unwrap();
+        let ctx = spf_context(&parsed).expect("client context recovered from Received");
+        assert_eq!(ctx.ip, "192.0.2.10".parse::<IpAddr>().unwrap());
+        assert_eq!(ctx.domain, "example.com");
+        assert_eq!(ctx.mail_from, "alice@example.com");
+    }
+
+    #[tokio::test]
+    async fn spf_pass_and_fail_against_seeded_record() {
+        // Offline: an `ip4:` record needs only the (seeded) TXT lookup.
+        let authr = MessageAuthenticator::new_system_conf().unwrap();
+        let cache = SeededTxtCache::default();
+        assert!(cache.insert_spf("example.com.", "v=spf1 ip4:192.0.2.10 -all"));
+
+        let pass_ctx = SpfContext {
+            ip: "192.0.2.10".parse().unwrap(),
+            helo: "mail.example.com".into(),
+            mail_from: "alice@example.com".into(),
+            domain: "example.com".into(),
+        };
+        let out = compute_spf(&authr, Some(&cache), &pass_ctx).await;
+        assert_eq!(spf_result_str(out.result()), "pass", "authorized IP passes");
+
+        let fail_ctx = SpfContext {
+            ip: "198.51.100.7".parse().unwrap(),
+            ..pass_ctx.clone()
+        };
+        let out = compute_spf(&authr, Some(&cache), &fail_ctx).await;
+        assert_eq!(
+            spf_result_str(out.result()),
+            "fail",
+            "unauthorized IP hard-fails (-all)"
+        );
+    }
+
+    #[test]
+    fn geoip_enrich_is_none_without_a_configured_db() {
+        // No `MW_GEOIP_DB` set in the test env ⇒ no bundled DB ⇒ all fields None.
+        let geo = geoip_enrich("192.0.2.10".parse::<IpAddr>().ok());
+        assert_eq!(geo, GeoEnrichment::default());
     }
 
     #[tokio::test]

@@ -15,7 +15,7 @@ use crate::engine::Engine;
 use crate::security::convert::{
     initial_history, key_dto_to_row, key_row_to_dto, mail_rule_to_rule, rule_to_mail_rule,
 };
-use crate::security::types::{CryptoKey, MailRule};
+use crate::security::types::{CryptoKey, KeyHistoryEntry, MailRule};
 
 use super::{gen_id, server_fail};
 
@@ -245,9 +245,10 @@ impl Engine {
 
     /// `CryptoKey/lookup {address, sources}` → `{accountId, list, notFound}`.
     /// Orchestrates (in order, best-effort): locally-stored/harvested keys for the
-    /// address, then WKD fetch when `"wkd"` is requested and the host is reachable.
-    /// VKS/autocrypt sources fall through to the stored set (harvest is recorded at
-    /// ingest). Never surfaces private material.
+    /// address, then WKD fetch (PGP) when `"wkd"` is requested, then the GAL/LDAP
+    /// S/MIME certificate lookup (`"gal"`) via the attached directory. VKS/autocrypt
+    /// sources fall through to the stored set (harvest is recorded at ingest). Never
+    /// surfaces private material.
     pub(crate) async fn crypto_key_lookup(
         &self,
         account_id: &str,
@@ -268,7 +269,7 @@ impl Engine {
                     .map(String::from)
                     .collect()
             })
-            .unwrap_or_else(|| vec!["harvested".into(), "wkd".into()]);
+            .unwrap_or_else(|| vec!["harvested".into(), "wkd".into(), "gal".into()]);
 
         let mut list: Vec<Value> = Vec::new();
         // 1. Locally stored (harvested / imported / previously looked-up) keys.
@@ -300,6 +301,38 @@ impl Engine {
                 )
                 .await;
             list.push(serde_json::to_value(&key).unwrap_or(Value::Null));
+        }
+        // 3. GAL/LDAP S/MIME certificate lookup (via the attached directory, §8.2).
+        // `gal_lookup_cert` returns the recipient's `userCertificate` DER blobs; an
+        // empty vec when no directory is attached / none configured. Each cert is
+        // materialized as an S/MIME `CryptoKey` (public cert only), persisted so a
+        // repeat lookup is local, and returned. Best-effort — a directory error is
+        // ignored so lookup never hard-fails on it.
+        if sources.iter().any(|s| s == "gal")
+            && !address.is_empty()
+            && let Ok(ders) = self.gal_lookup_cert(&address).await
+        {
+            for der in &ders {
+                let key = der_to_smime_key(der, &address);
+                // Skip a cert already present locally (idempotent re-lookup).
+                if list
+                    .iter()
+                    .any(|v| v.get("fingerprint") == Some(&json!(key.fingerprint)))
+                {
+                    continue;
+                }
+                let row = key_dto_to_row(account_id, &key);
+                let _ = self.store().upsert_crypto_key(&row).await;
+                let _ = self
+                    .record_crypto_change(
+                        account_id,
+                        ChangeType::CryptoKey,
+                        &key.id,
+                        ChangeOp::Created,
+                    )
+                    .await;
+                list.push(serde_json::to_value(&key).unwrap_or(Value::Null));
+            }
         }
         let not_found = if list.is_empty() {
             vec![json!(address)]
@@ -491,6 +524,87 @@ fn inject_defaults(spec: &Value) -> Value {
     Value::Object(obj)
 }
 
+/// Materialize a GAL/LDAP `userCertificate` (DER-encoded X.509) as an S/MIME
+/// `CryptoKey` — public cert only, `source = "gal"`. The `cert_pem` this produces
+/// is exactly what `mw_crypto::smime::encrypt` consumes as a recipient cert. The
+/// fingerprint is the SHA-256 of the DER (uppercase hex), matching the harvested-
+/// cert convention so the same certificate never duplicates across sources.
+fn der_to_smime_key(der: &[u8], address: &str) -> CryptoKey {
+    use sha2::{Digest, Sha256};
+    let fingerprint = hex_upper(&Sha256::digest(der));
+    let now = chrono::Utc::now().to_rfc3339();
+    CryptoKey {
+        id: format!("smime:{fingerprint}"),
+        kind: "smime".into(),
+        is_own: false,
+        addresses: vec![address.to_string()],
+        fingerprint: fingerprint.clone(),
+        key_id: fingerprint[..16.min(fingerprint.len())].to_string(),
+        algorithm: "rsa".into(),
+        created_at: now.clone(),
+        expires_at: None,
+        public_key_armored: None,
+        cert_pem: Some(der_to_cert_pem(der)),
+        trust: "unverified".into(),
+        autocrypt: false,
+        source: "gal".into(),
+        has_private: false,
+        encrypted_private_backup: None,
+        verified_at: None,
+        key_history: vec![KeyHistoryEntry {
+            fingerprint,
+            seen_at: now,
+        }],
+    }
+}
+
+/// PEM-wrap a DER certificate (`-----BEGIN CERTIFICATE-----`, base64 in 64-char
+/// lines). Dependency-free so no new crate is pulled into `mw-engine`.
+fn der_to_cert_pem(der: &[u8]) -> String {
+    let b64 = base64_encode(der);
+    let mut body = String::with_capacity(b64.len() + b64.len() / 64 + 64);
+    for chunk in b64.as_bytes().chunks(64) {
+        body.push_str(std::str::from_utf8(chunk).unwrap_or(""));
+        body.push('\n');
+    }
+    format!("-----BEGIN CERTIFICATE-----\n{body}-----END CERTIFICATE-----\n")
+}
+
+/// Uppercase-hex of a byte slice (SHA-256 fingerprint form).
+fn hex_upper(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        let _ = write!(s, "{b:02X}");
+    }
+    s
+}
+
+/// Standard RFC 4648 base64 (with `=` padding).
+fn base64_encode(input: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
+    for chunk in input.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = *chunk.get(1).unwrap_or(&0) as u32;
+        let b2 = *chunk.get(2).unwrap_or(&0) as u32;
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(ALPHABET[(n >> 18) as usize & 0x3f] as char);
+        out.push(ALPHABET[(n >> 12) as usize & 0x3f] as char);
+        out.push(if chunk.len() > 1 {
+            ALPHABET[(n >> 6) as usize & 0x3f] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            ALPHABET[n as usize & 0x3f] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
 /// Apply a JMAP patch object to a `MailRule` (name/enabled/conditions/actions).
 fn apply_mail_rule_patch(mr: &mut MailRule, patch: &Value) {
     if let Some(name) = patch.get("name").and_then(Value::as_str) {
@@ -508,5 +622,39 @@ fn apply_mail_rule_patch(mr: &mut MailRule, patch: &Value) {
         && let Ok(a) = serde_json::from_value(acts.clone())
     {
         mr.actions = a;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn base64_matches_known_vectors() {
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"foo"), "Zm9v");
+        assert_eq!(base64_encode(b"foob"), "Zm9vYg==");
+        assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
+    }
+
+    #[test]
+    fn gal_der_becomes_smime_crypto_key() {
+        // The GAL cert bytes are opaque to the engine — it wraps them as a PEM
+        // S/MIME cert with a SHA-256 fingerprint for the queried address.
+        let der = b"\x30\x82\x00\x10 fake DER certificate body";
+        let key = der_to_smime_key(der, "priya@contoso.com");
+        assert_eq!(key.kind, "smime");
+        assert_eq!(key.source, "gal");
+        assert_eq!(key.addresses, vec!["priya@contoso.com".to_string()]);
+        assert!(!key.has_private);
+        assert_eq!(key.fingerprint.len(), 64, "SHA-256 hex");
+        assert!(key.fingerprint.chars().all(|c| c.is_ascii_hexdigit()));
+        let pem = key.cert_pem.expect("cert PEM present");
+        assert!(pem.starts_with("-----BEGIN CERTIFICATE-----"));
+        assert!(pem.trim_end().ends_with("-----END CERTIFICATE-----"));
+        // Deterministic id ⇒ a repeat lookup upserts the same row (no duplicate).
+        assert_eq!(der_to_smime_key(der, "priya@contoso.com").id, key.id);
     }
 }

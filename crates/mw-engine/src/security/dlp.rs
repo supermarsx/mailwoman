@@ -202,17 +202,27 @@ pub(crate) fn scan(rules: &[DlpRule], input: &DlpInput) -> Vec<DlpVerdict> {
         {
             matched.push("custom-regex".into());
         }
+        // Keyword-dictionary terms (case-insensitive, word-boundary aware).
+        if dictionary_hit(rule, &text) {
+            matched.push("dictionary".into());
+        }
+        // Data-classification marker (e.g. a "Confidential" banner in the text).
+        if classification_hit(rule, &text) {
+            matched.push("classification".into());
+        }
         if attachment_type_hit(rule, &input.attachments) {
             matched.push("attachment-type".into());
         }
         if attachment_size_hit(rule, &input.attachments) {
             matched.push("attachment-size".into());
         }
-        // A pure recipient-domain rule (no content detectors) fires on the gate.
+        // A pure recipient-domain rule (no content conditions) fires on the gate.
         if matched.is_empty()
             && !rule.conditions.recipient_domains.is_empty()
             && rule.conditions.detectors.is_empty()
             && rule.conditions.custom_regex.is_none()
+            && rule.conditions.dictionaries.is_empty()
+            && rule.conditions.classification.is_none()
         {
             matched.push("recipient-domain".into());
         }
@@ -272,6 +282,53 @@ fn attachment_size_hit(rule: &DlpRule, atts: &[AttachmentMeta]) -> bool {
         Some(max) => atts.iter().any(|a| a.size > max),
         None => false,
     }
+}
+
+/// A keyword-dictionary hit: any of the rule's `dictionaries` terms occurs in the
+/// text, matched case-insensitively with word boundaries (so `"cat"` does not
+/// match `"category"`). Each entry is a literal term/phrase, not a dictionary name.
+fn dictionary_hit(rule: &DlpRule, text: &str) -> bool {
+    let hay = text.to_lowercase();
+    rule.conditions.dictionaries.iter().any(|term| {
+        let t = term.trim().to_lowercase();
+        !t.is_empty() && contains_word(&hay, &t)
+    })
+}
+
+/// A data-classification hit: the rule's `classification` label (e.g.
+/// `"confidential"`) appears as a marker in the text (case-insensitive,
+/// word-boundary aware). `None`/blank ⇒ no classification condition.
+fn classification_hit(rule: &DlpRule, text: &str) -> bool {
+    match rule.conditions.classification.as_deref() {
+        Some(label) if !label.trim().is_empty() => {
+            contains_word(&text.to_lowercase(), &label.trim().to_lowercase())
+        }
+        _ => false,
+    }
+}
+
+/// `needle` (already lowercased) occurs in `hay` (already lowercased) delimited by
+/// non-word characters on both sides. UTF-8 safe (operates on char boundaries).
+fn contains_word(hay: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return false;
+    }
+    for (idx, _) in hay.match_indices(needle) {
+        let before_ok = hay[..idx]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !is_wordish(c));
+        let end = idx + needle.len();
+        let after_ok = hay[end..].chars().next().is_none_or(|c| !is_wordish(c));
+        if before_ok && after_ok {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_wordish(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
 }
 
 /// Run one built-in detector over `text`. `custom-regex` is handled by the rule's
@@ -477,7 +534,82 @@ pub(crate) async fn evaluate(engine: &Engine, account_id: &str, email_id: &str) 
             })
             .await;
     }
+    // `notify`/`notify-admin` (non-blocking): email a REDACTED notice to the
+    // deployment admin. Best-effort — a send failure never blocks the message.
+    if verdicts.iter().any(|v| is_notify_action(&v.action)) {
+        notify_admin(engine, account_id, &verdicts).await;
+    }
     verdicts
+}
+
+/// `notify`/`notify-admin` — surface the match to the deployment admin without
+/// blocking. `notify-admin` is the frozen §2.1 action name; `notify` is accepted
+/// as a shorthand.
+fn is_notify_action(action: &str) -> bool {
+    matches!(action, "notify" | "notify-admin")
+}
+
+/// The env-configured DLP admin notification address (redacted notices only).
+fn dlp_admin_address() -> Option<String> {
+    std::env::var("MW_DLP_ADMIN")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// Best-effort redacted admin notification for `notify`/`notify-admin` verdicts:
+/// emails `MW_DLP_ADMIN` (when set) a content-free notice carrying the rule +
+/// matched detector tokens only — NEVER the matched content or the message body.
+/// No-op when the address is unset or the account has no live submitter.
+async fn notify_admin(engine: &Engine, account_id: &str, verdicts: &[DlpVerdict]) {
+    let Some(admin) = dlp_admin_address() else {
+        return;
+    };
+    let Some(rt) = engine.runtime(account_id) else {
+        return;
+    };
+    let notices: Vec<&DlpVerdict> = verdicts
+        .iter()
+        .filter(|v| is_notify_action(&v.action))
+        .collect();
+    if notices.is_empty() {
+        return;
+    }
+    let raw = build_dlp_notice(&rt.identity, &admin, &notices);
+    let _ = rt
+        .submitter
+        .submit(mw_smtp::Outgoing {
+            mail_from: rt.identity.clone(),
+            rcpt_to: vec![admin],
+            raw,
+        })
+        .await;
+}
+
+/// A content-free DLP admin notice (`text/plain`) — rule names + detector tokens
+/// only, never the matched content or the message body.
+fn build_dlp_notice(from: &str, to: &str, verdicts: &[&DlpVerdict]) -> Vec<u8> {
+    use std::fmt::Write;
+    let date = chrono::Utc::now().to_rfc2822();
+    let mut body = String::from("A Data Loss Prevention rule matched an outbound message.\r\n\r\n");
+    for v in verdicts {
+        let _ = write!(
+            body,
+            "- rule: {} ({})\r\n  action: {}\r\n  matched: {}\r\n",
+            v.rule_name,
+            v.rule_id,
+            v.action,
+            v.matched_detectors.join(", ")
+        );
+    }
+    body.push_str(
+        "\r\nThis notice is redacted: it carries detector tokens only, never the matched content.\r\n",
+    );
+    format!(
+        "From: {from}\r\nTo: {to}\r\nSubject: [DLP] outbound match notice\r\nDate: {date}\r\n\
+         MIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{body}"
+    )
+    .into_bytes()
 }
 
 #[cfg(test)]
@@ -534,5 +666,95 @@ mod tests {
         };
         // The trailing check digit is wrong, so Luhn rejects it → no PAN verdict.
         assert!(scan(&[pan_rule()], &input).is_empty());
+    }
+
+    /// A rule with a keyword dictionary, a classification label, and the
+    /// `notify-admin` action.
+    fn dictionary_rule() -> DlpRule {
+        DlpRule {
+            id: "rule-dict".into(),
+            name: "Project code names".into(),
+            enabled: true,
+            priority: 5,
+            conditions: DlpConditions {
+                detectors: vec![],
+                custom_regex: None,
+                dictionaries: vec!["Blackbird".into(), "code red".into()],
+                attachment_types: vec![],
+                max_attachment_size: None,
+                recipient_domains: vec![],
+                recipient_domain_mode: None,
+                classification: Some("Confidential".into()),
+            },
+            action: "notify-admin".into(),
+            message: "Sensitive terms detected.".into(),
+        }
+    }
+
+    #[test]
+    fn dictionary_term_matches_word_boundary() {
+        let input = DlpInput {
+            subject: "Status".into(),
+            body: "The Blackbird launch is on track.".into(),
+            ..Default::default()
+        };
+        let v = scan(&[dictionary_rule()], &input);
+        assert_eq!(v.len(), 1);
+        assert!(v[0].matched_detectors.contains(&"dictionary".to_string()));
+        // notify-admin is a non-blocking action.
+        assert!(!v[0].blocked);
+        assert_eq!(v[0].action, "notify-admin");
+    }
+
+    #[test]
+    fn dictionary_does_not_match_substring() {
+        // "code red" (a phrase term) must not fire on "encoded" / "recode".
+        let input = DlpInput {
+            subject: "".into(),
+            body: "the payload was recoded and encoded twice".into(),
+            ..Default::default()
+        };
+        assert!(scan(&[dictionary_rule()], &input).is_empty());
+    }
+
+    #[test]
+    fn classification_marker_matches() {
+        let input = DlpInput {
+            subject: "CONFIDENTIAL — Q3 plan".into(),
+            body: "internal only".into(),
+            ..Default::default()
+        };
+        let v = scan(&[dictionary_rule()], &input);
+        assert_eq!(v.len(), 1);
+        assert!(
+            v[0].matched_detectors
+                .contains(&"classification".to_string())
+        );
+    }
+
+    #[test]
+    fn notify_action_is_recognized_and_non_blocking() {
+        assert!(is_notify_action("notify"));
+        assert!(is_notify_action("notify-admin"));
+        assert!(!is_notify_action("block"));
+    }
+
+    #[test]
+    fn dlp_notice_is_content_free() {
+        let v = DlpVerdict {
+            rule_id: "r1".into(),
+            rule_name: "Card numbers".into(),
+            action: "notify-admin".into(),
+            matched_detectors: vec!["pan".into()],
+            excerpt_redacted: "•••• redacted (pan)".into(),
+            blocked: false,
+        };
+        let notice = build_dlp_notice("me@example.org", "admin@example.org", &[&v]);
+        let text = String::from_utf8(notice).unwrap();
+        assert!(text.contains("[DLP]"));
+        assert!(text.contains("pan"));
+        assert!(text.contains("Card numbers"));
+        // No message content leaks into the notice.
+        assert!(!text.contains("4111"));
     }
 }
