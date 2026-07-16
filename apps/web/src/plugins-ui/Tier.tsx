@@ -9,7 +9,8 @@
 // absent/offline) the tier renders NOTHING, so the mailbox path is byte-unchanged. The
 // tier is mounted lazily by the app shell (e13 MOUNT) — importing it has no side effects.
 
-import { For, Show, createResource, onCleanup, type JSX } from 'solid-js';
+import { For, Show, createResource, onCleanup, onMount, type JSX } from 'solid-js';
+import { t, loadCatalog } from '../i18n';
 import { listUiPlugins } from './client';
 import { attachBroker } from './broker';
 import {
@@ -35,14 +36,14 @@ export function UnsignedBanner(props: { readonly ids: readonly string[] }): JSX.
       <section
         class={css.banner}
         role="note"
-        aria-label="Unsigned UI plugin warning"
+        aria-label={t('plugins-unsigned-warning-label')}
         data-testid="ui-plugin-unsigned-banner"
       >
         <span class={css.bannerIcon} aria-hidden="true">
           &#9888;
         </span>
         <div class={css.bannerBody}>
-          <p class={css.bannerTitle}>Unsigned plugins are running</p>
+          <p class={css.bannerTitle}>{t('plugins-unsigned-title')}</p>
           <p class={css.bannerText}>
             These plugins were admitted without a verified signature. They run sandboxed, but
             their code has not been checked against a trusted key.
@@ -104,6 +105,9 @@ function PluginFrame(props: {
 /// The UI-plugin tier. Renders the unsigned banner + one sandboxed frame per
 /// approved+enabled plugin. Renders nothing at all when the registry is empty.
 export function UiPluginTier(props: UiPluginTierProps): JSX.Element {
+  // Pull this surface's copy catalog (unsigned-plugin banner); fail-soft — `t()`
+  // shows the message id until it settles, then repaints reactively.
+  onMount(() => void loadCatalog('plugins'));
   const base = (): string => props.base ?? '';
   const [fetched] = createResource(
     () => (props.registry === undefined ? base() : null),
