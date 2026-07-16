@@ -85,9 +85,10 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
   WebView2↔msedgedriver pin); false 501/stub/"until eN"/"NOT mounted" doc comments were scrubbed.
   **Net zero new dependency graph nodes** (`cssparser`/`hickory-resolver` already resolved in-tree;
   SCRAM reuses `hmac`/`sha2`); no openssl/`-sys`/C; `cargo deny` clean (MPL-2.0 `cssparser` note
-  recorded, permitted). Verified: **1152 Rust** tests (0 failed, 12 ignored) across the full
-  workspace (the 1082 desktop/mobile-excluded baseline plus the now-included desktop/mobile crate
-  tests and the t12 additions) + **714 web** tests; live-E2E green — **17 backend** live tests
+  recorded, permitted). Verified: **1101 Rust** tests (0 failed, 11 ignored) across the workspace
+  with the `mailwoman-desktop`/`mailwoman-mobile` crates excluded (they need a generated
+  `bundle-hash.json` fresh-checkout artifact and run in their own dedicated CI job, where desktop's
+  11 unit tests pass) + **714 web** tests; live-E2E green — **17 backend** live tests
   (IMAP/POP3 SCRAM + SORT/THREAD vs a SCRAM-only Dovecot; SMTP DSN/SMTPUTF8/BDAT; S/MIME GAL cert
   vs real OpenLDAP; autoconfig `.well-known/jmap`+SRV; EWS Basic + per-account sealed creds through
   the jail on live Postgres) and the browser compose wire-assertion gate (a sent message is
