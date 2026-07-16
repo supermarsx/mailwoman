@@ -53,6 +53,28 @@ jobs:
         run: cargo build --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile
 
   # -------------------------------------------------------------------------
+  # desktop/mobile shell crates: clippy + unit tests. The lean `rust` job above
+  # EXCLUDES mailwoman-desktop / mailwoman-mobile (their WebView backend needs
+  # platform libs on Linux). This job is their real lint+test home: it runs on
+  # windows-latest, where WebView2 is present so both crates build directly with
+  # no extra system libraries. The host (rlib) unit tests — badge / keychain /
+  # capture / selfcontained / notifications / deeplink / dragout / push — run
+  # here; the full app launch is the separate `desktop-e2e` live gate below.
+  # -------------------------------------------------------------------------
+  desktop-mobile-tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: clippy (desktop + mobile shells)
+        run: cargo clippy -p mailwoman-desktop -p mailwoman-mobile --all-targets -- -D warnings
+      - name: test (desktop + mobile shells)
+        run: cargo test -p mailwoman-desktop -p mailwoman-mobile
+
+  # -------------------------------------------------------------------------
   # Supply chain: licenses + advisories + bans + sources (deny.toml).
   # -------------------------------------------------------------------------
   deny:
@@ -723,23 +745,66 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # desktop-e2e (e9) — the live tauri-driver / WebdriverIO per-capability E2E on
-  # Windows (WebView2 ↔ msedgedriver pinning). SCAFFOLDED here; e9 owns apps/desktop/e2e
-  # and activates this job (launch → SPA → notification → keychain → capture).
+  # desktop-e2e (e9) — the LIVE tauri-driver / WebdriverIO desktop E2E on Windows.
+  # It builds the PRODUCTION shell (embedded, §7.4-hash-verified SPA + the staged
+  # self-contained mw-server) via scripts/build-shells.ps1, installs tauri-driver
+  # plus a msedgedriver matched to the runner's WebView2 runtime, and drives the
+  # REAL app through apps/desktop/e2e/specs/desktop.e2e.mjs: boot past the integrity
+  # gate → keychain (DPAPI) → capture protection → notification → badge → the
+  # self-contained mw-server spawn.
   #
-  # desktop-e2e:
-  #   runs-on: windows-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: dtolnay/rust-toolchain@stable
-  #     - name: install tauri-driver
-  #       run: cargo install tauri-driver --locked
-  #     - name: build SPA + desktop shell
-  #       run: |
-  #         pnpm -C apps/web install --frozen-lockfile && pnpm -C apps/web build
-  #         cargo build -p mailwoman-desktop
-  #     - name: run WebdriverIO live E2E (launch → SPA → notification → keychain → capture)
-  #       run: pnpm -C apps/desktop exec wdio run e2e/wdio.conf.ts   # e9 authors this
+  # continue-on-error is HONEST, not a silent omission: the job genuinely runs (the
+  # harness is verified live on a Windows dev machine — apps/desktop/e2e/README.md).
+  # Its one non-deterministic dependency is the WebView2-runtime ↔ msedgedriver
+  # version match on the HOSTED runner — Evergreen WebView2 on windows-latest updates
+  # independently, and if Microsoft has not yet published the exactly-matching driver
+  # the session cannot attach. So it is informational (same posture as the dovecot
+  # fidelity + android-apk legs) rather than reddening PR CI on a driver-pin drift.
+  desktop-e2e:
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: install tauri-driver
+        run: cargo install tauri-driver --locked
+      - name: build production desktop shell (embedded SPA + staged mw-server)
+        run: pwsh scripts/build-shells.ps1
+      - name: resolve a WebView2-matched msedgedriver
+        shell: pwsh
+        run: |
+          $guid = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'   # Evergreen WebView2 runtime
+          $keys = @(
+            "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\$guid",
+            "HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients\$guid",
+            "HKCU:\Software\Microsoft\EdgeUpdate\Clients\$guid"
+          )
+          $ver = $null
+          foreach ($k in $keys) {
+            try { $ver = (Get-ItemProperty -Path $k -Name pv -ErrorAction Stop).pv } catch {}
+            if ($ver) { break }
+          }
+          if (-not $ver) { throw 'WebView2 Evergreen runtime not found on this runner' }
+          Write-Host "WebView2 runtime version: $ver"
+          $url = "https://msedgedriver.microsoft.com/$ver/edgedriver_win64.zip"
+          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\edgedriver.zip"
+          Expand-Archive -Path "$env:RUNNER_TEMP\edgedriver.zip" -DestinationPath "$env:RUNNER_TEMP\edgedriver" -Force
+          "MSEDGEDRIVER=$env:RUNNER_TEMP\edgedriver\msedgedriver.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: install desktop E2E harness deps
+        run: pnpm -C apps/desktop/e2e install
+      # wdio.conf.mjs auto-resolves target/release/mailwoman-desktop.exe (repo-root
+      # relative) and reads MSEDGEDRIVER from the env set above.
+      - name: run desktop live E2E (tauri-driver + WebdriverIO)
+        run: pnpm -C apps/desktop/e2e test
 
   # ===========================================================================
   # V6 (26.7.0) CI jobs — plan §3 e12/e13. SCAFFOLDED (commented) by e0; each is

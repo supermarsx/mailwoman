@@ -27,9 +27,12 @@ concurrency:
 jobs:
   # ---------------------------------------------------------------------------
   # manifests — fast lint/parse of every recipe + the two Tauri configs. No build.
-  # Asserts: all YAML/JSON/XML/plist parse; both tauri.conf.json are on the shipped
-  # version 26.8.0; desktop has an active updater with a HUMAN pubkey placeholder;
-  # mobile has NO self-updater (store-driven, by design).
+  # Asserts: all YAML/JSON/XML/plist parse; EVERY versioned manifest (both
+  # tauri.conf.json, the three winget manifests, the Flatpak AppStream release, the
+  # F-Droid metadata, and both native-shell package.json) matches the SINGLE source
+  # of truth — `[workspace.package] version` in the root Cargo.toml. Run
+  # `scripts/stamp-version.sh` to (re)unify them. The desktop has an active updater
+  # with a HUMAN pubkey placeholder; mobile has NO self-updater (store-driven).
   # ---------------------------------------------------------------------------
   manifests:
     name: lint recipes + Tauri configs
@@ -44,12 +47,23 @@ jobs:
       - name: validate recipes + Tauri configs
         run: |
           python3 - <<'PY'
-          import json, sys, glob, plistlib, pathlib
+          import json, sys, glob, plistlib, pathlib, tomllib
           import xml.dom.minidom as minidom
           import yaml
 
           errs = []
           def ok(p): print(f"  ok  {p}")
+
+          # --- the single source of truth: [workspace.package] version ---
+          cargo = tomllib.loads(pathlib.Path("Cargo.toml").read_text(encoding="utf-8"))
+          VER = cargo["workspace"]["package"]["version"]
+          print(f"workspace version (source of truth) = {VER}")
+
+          def check(label, got):
+              if got != VER:
+                  errs.append(f"{label} version {got!r} != workspace {VER!r} (run scripts/stamp-version.sh)")
+              else:
+                  ok(f"{label} == {VER}")
 
           # --- every YAML recipe parses ---
           for f in glob.glob("packaging/**/*.y*ml", recursive=True):
@@ -74,11 +88,25 @@ jobs:
           # --- Tauri configs: parse + version + updater posture ---
           desk = json.loads(pathlib.Path("apps/desktop/src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
           mob  = json.loads(pathlib.Path("apps/mobile/src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
-          for name, cfg in (("desktop", desk), ("mobile", mob)):
-              if cfg.get("version") != "26.8.0":
-                  errs.append(f"{name} tauri.conf.json version {cfg.get('version')!r} != 26.8.0")
-              else:
-                  ok(f"{name} version 26.8.0")
+          check("desktop tauri.conf.json", desk.get("version"))
+          check("mobile tauri.conf.json", mob.get("version"))
+
+          # --- native-shell package.json ---
+          for name in ("desktop", "mobile"):
+              pj = json.loads(pathlib.Path(f"apps/{name}/package.json").read_text(encoding="utf-8"))
+              check(f"{name} package.json", pj.get("version"))
+
+          # --- Flatpak AppStream: the newest <release> must be on VER ---
+          meta = minidom.parse("packaging/flatpak/com.mailwoman.Mailwoman.metainfo.xml")
+          rels = meta.getElementsByTagName("release")
+          check("flatpak metainfo release", rels[0].getAttribute("version") if rels else None)
+
+          # --- F-Droid metadata: versionName build + CurrentVersion ---
+          fd = yaml.safe_load(pathlib.Path("packaging/fdroid/metadata/com.mailwoman.mobile.yml").read_text(encoding="utf-8"))
+          builds = fd.get("Builds", [])
+          check("fdroid Builds[-1].versionName", str(builds[-1].get("versionName")) if builds else None)
+          check("fdroid CurrentVersion", str(fd.get("CurrentVersion")))
+
           upd = desk.get("plugins", {}).get("updater", {})
           if not upd.get("active"):
               errs.append("desktop updater not active")
@@ -98,8 +126,10 @@ jobs:
       - name: winget manifest validate (schema)
         run: |
           # Structural check only — full `winget validate` needs the Windows client.
+          # PackageVersion on all three manifests must match the workspace version.
           python3 - <<'PY'
-          import yaml, pathlib
+          import yaml, pathlib, tomllib
+          VER = tomllib.loads(pathlib.Path("Cargo.toml").read_text(encoding="utf-8"))["workspace"]["package"]["version"]
           req = {
             "Mailwoman.Mailwoman.yaml": "version",
             "Mailwoman.Mailwoman.installer.yaml": "installer",
@@ -109,7 +139,7 @@ jobs:
               d = yaml.safe_load(pathlib.Path("packaging/winget", fn).read_text(encoding="utf-8"))
               assert d["PackageIdentifier"] == "Mailwoman.Mailwoman", fn
               assert d["ManifestType"] == mtype, f"{fn} ManifestType"
-              assert d["PackageVersion"] == "26.8.0", f"{fn} version"
+              assert str(d["PackageVersion"]) == VER, f"{fn} version {d['PackageVersion']!r} != workspace {VER!r} (run scripts/stamp-version.sh)"
               print("  ok ", fn)
           PY
 
