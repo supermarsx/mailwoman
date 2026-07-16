@@ -20,6 +20,15 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 ammonia = { workspace = true }
 
+# CSS rewrite (SPEC §7.2 item 3): parse `<style>` blocks + inline `style=` with a
+# real CSS parser (never regex), then property-allowlist, namespace selectors under
+# the message container, drop positioning/@import/external-url, and clamp z-index.
+# `cssparser` (MPL-2.0, pure-Rust) is ALREADY in-tree as a direct dependency of
+# `ammonia`, so this adds zero new crates and is wasm-safe by construction (ammonia
+# itself compiles this crate to wasm32). NOT wasm-gated — the CSS policy runs both
+# server-side and in the browser crypto worker.
+cssparser = "0.37"
+
 # ── wasm-only browser boundary (plan §1.3): sanitize decrypted E2EE HTML in the
 # crypto Web Worker, never on the server (that would defeat end-to-end encryption).
 # Gated on the wasm32 target so the NATIVE build (mw-render/mw-export/mw-server) never
