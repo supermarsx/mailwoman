@@ -1,0 +1,109 @@
+# t12 (26.12) SPEC-conformance backend live-E2E — the "unit-green ≠ wired" gate.
+# Owned by t12-e-e2e-backend. Manual + push-to-t12 branches so it never wedges the
+# required `ci.yml` gate while the conformance tail lands; the coordinator promotes it
+# to a required check at the 26.12 release boundary.
+#
+# Each job reuses the established harness (docker-compose.ci.yml services, the
+# MW_*_LIVE loud-skip toggles, the MW_E14_PG_DSN Postgres leg) and drives the REAL
+# t12 backend surfaces against REAL services:
+#
+#   * sasl-sort-thread — IMAP SCRAM-SHA-256 + SORT/THREAD (RFC 5256) and POP3
+#                        SCRAM-SHA-256 vs a REAL Dovecot that advertises ONLY SCRAM
+#                        (so a successful login is a genuine SCRAM negotiation),
+#                        seeded with a References thread for THREAD + distinct Date
+#                        headers for SORT.
+#   * smtp-autoconfig  — SMTP DSN/SMTPUTF8/CHUNKING(BDAT) + REQUIRETLS-fails-closed
+#                        over a real TCP ESMTP sidecar, and the autoconfig
+#                        `.well-known/jmap` rung over a real HTTP round-trip + the SRV
+#                        rung. No external services (deterministic gate).
+#   * smime-gal        — S/MIME GAL recipient-cert lookup through the engine seam
+#                        (`Engine::gal_lookup_cert`, the keyring wiring) vs REAL
+#                        OpenLDAP seeded with alice's userCertificate;binary.
+#   * ews-postgres     — EWS Basic + per-account sealed 0011 creds through the REAL
+#                        wasmtime jail, with the store leg on LIVE Postgres (the V6
+#                        bool-bind lesson: BIGINT 0/1 `enabled`, BYTEA sealed_cred).
+
+name: t12-conformance
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: ["t12-**", "release/26.12**"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── IMAP/POP3 SASL SCRAM + IMAP SORT/THREAD vs a real SCRAM-only Dovecot. ───────
+  sasl-sort-thread:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Bring up the SCRAM-only Dovecot (seeded thread + SORT fixtures)
+        run: docker compose -f docker-compose.ci.yml up -d --wait dovecot-sasl
+      - name: IMAP SCRAM-SHA-256 login vs real Dovecot
+        env:
+          MW_IMAP_LIVE: "1"
+        run: cargo test -p mw-server --test t12_sasl -- --nocapture --test-threads=1
+      - name: IMAP SORT + THREAD (RFC 5256) vs real Dovecot
+        env:
+          MW_IMAP_LIVE: "1"
+        run: cargo test -p mw-server --test t12_imap_sort_thread -- --nocapture --test-threads=1
+      - name: POP3 SCRAM-SHA-256 login vs real Dovecot
+        env:
+          MW_POP3_LIVE: "1"
+        run: cargo test -p mw-server --test t12_pop3_sasl -- --nocapture --test-threads=1
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v
+
+  # ── SMTP extensions + autoconfig — deterministic (no external services). ────────
+  smtp-autoconfig:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: SMTP DSN/SMTPUTF8/BDAT + REQUIRETLS fails-closed (real TCP ESMTP sidecar)
+        run: cargo test -p mw-server --test t12_smtp_ext -- --nocapture --test-threads=1
+      - name: Autoconfig .well-known/jmap rung (real HTTP) + SRV rung
+        run: cargo test -p mw-server --test t12_autoconfig -- --nocapture --test-threads=1
+
+  # ── S/MIME GAL recipient-cert lookup vs REAL OpenLDAP. ──────────────────────────
+  smime-gal:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Bring up OpenLDAP (seeded alice userCertificate;binary)
+        run: docker compose -f docker-compose.ci.yml up -d --wait openldap
+      - name: S/MIME GAL cert lookup through the engine seam vs real OpenLDAP
+        env:
+          MW_LDAP_LIVE: "1"
+        run: cargo test -p mw-server --test t12_dlp_spf_smime -- --nocapture --test-threads=1
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v
+
+  # ── EWS Basic + per-account sealed 0011 creds through the jail on LIVE Postgres. ─
+  ews-postgres:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Bring up Postgres (0011 ews_account_cred applies on the PG dialect)
+        run: docker compose -f docker-compose.ci.yml up -d --wait postgres
+      - name: EWS Basic/per-account through the jail + 0011 round-trip on Postgres
+        env:
+          MW_E14_PG_DSN: "postgres://mailwoman:mailwoman@localhost:5432/mailwoman"
+        run: cargo test -p mw-server --test t12_ews_auth -- --nocapture --test-threads=1
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v

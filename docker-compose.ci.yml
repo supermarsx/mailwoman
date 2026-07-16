@@ -70,8 +70,11 @@ services:
   # is cn=admin,dc=example,dc=com / adminpassword; the LDAP-bind test users are
   # uid={alice,bob,carol},ou=people,dc=example,dc=com. Bitnami serves LDAP on 1389
   # (StartTLS) and LDAPS on 1636 as an unprivileged (non-root) listener.
+  # NOTE (t12): Bitnami retired the `bitnami/openldap:2.6` tag from Docker Hub
+  # (moved to the `bitnamilegacy/` namespace); the pin is updated so the seeded
+  # directory service still resolves. Env/LDIF contract is unchanged.
   openldap:
-    image: bitnami/openldap:2.6
+    image: bitnamilegacy/openldap:2.6
     environment:
       LDAP_ROOT: "dc=example,dc=com"
       LDAP_ADMIN_USERNAME: "admin"
@@ -85,7 +88,9 @@ services:
       - "1389:1389"                          # LDAP (StartTLS)
       - "1636:1636"                          # LDAPS
     healthcheck:
-      test: ["CMD-SHELL", "ldapsearch -x -H ldap://127.0.0.1:1389 -b dc=example,dc=com -s base >/dev/null 2>&1 || exit 1"]
+      # Authenticated probe: LDAP_ALLOW_ANON_BINDING=no rejects the anonymous bind
+      # an unauthenticated `ldapsearch -x` would use, so bind as the seeded admin.
+      test: ["CMD-SHELL", "ldapsearch -x -H ldap://127.0.0.1:1389 -D cn=admin,dc=example,dc=com -w adminpassword -b dc=example,dc=com -s base >/dev/null 2>&1 || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -211,4 +216,38 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+      start_period: 5s
+
+  # ── t12 (26.12) SASL + SORT/THREAD conformance target — ACTIVATED by t12-e-e2e-backend.
+  # A dedicated Dovecot that advertises ONLY SCRAM-SHA-256 to its login listeners, so a
+  # successful IMAP/POP3 login PROVES mw-imap/mw-pop3's SCRAM client round-tripped against
+  # a real server (no silent PLAIN fallback). Seeded with a References/In-Reply-To thread
+  # + a standalone message so IMAP SORT (RFC 5256) + THREAD REFERENCES are exercised over a
+  # known mailbox. NETWORK-ONLY service (mere aggregation, same posture as the V1 dovecot
+  # in docker-compose.dev.yml) — OUT of the cargo-deny scope. Ephemeral (re-seeds each run).
+  #
+  #   docker compose -f docker-compose.ci.yml up -d --wait dovecot-sasl
+  #       -> t12_sasl (IMAP SCRAM), t12_pop3_sasl (POP3 SCRAM), t12_imap_sort_thread
+  #          (SORT + THREAD) drive it at MW_IMAP_LIVE_HOST:3243 / MW_POP3_LIVE_HOST:3210.
+  #
+  # Same testuser/{PLAIN}testpass account as the V1 leg; Dovecot derives the SCRAM
+  # SaltedPassword (salt+iterations in its server-first) from the cleartext at auth time.
+  dovecot-sasl:
+    image: dovecot/dovecot:2.4.1
+    command: ["/bin/sh", "/seed-and-serve.sh"]
+    volumes:
+      - ./scripts/dovecot-sasl/zz-sasl.conf:/etc/dovecot/conf.d/zz-mailwoman.conf:ro
+      - ./scripts/dovecot-sasl/mailwoman-users:/etc/dovecot/mailwoman-users:ro
+      - ./scripts/dovecot-sasl/seed:/seed:ro
+      - ./scripts/dovecot-sasl/seed-and-serve.sh:/seed-and-serve.sh:ro
+    ports:
+      - "3243:143"   # IMAP  (SCRAM-SHA-256 only)
+      - "3210:110"   # POP3  (SCRAM-SHA-256 only)
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "nc -z -w 2 127.0.0.1 143 </dev/null && nc -z -w 2 127.0.0.1 110 </dev/null"
+      interval: 5s
+      timeout: 5s
+      retries: 24
       start_period: 5s

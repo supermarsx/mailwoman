@@ -1,0 +1,5 @@
+# Dovecot passwd-file for the CI/dev fidelity target (plan §3 e7). CI ONLY.
+# Format: user:password:uid:gid:gecos:home:shell:extra
+# {PLAIN} secret so the same testuser/testpass works as against Greenmail.
+# uid/gid = vmail (1000); home drives the maildir at ~/mail per dovecot.conf.
+testuser:{PLAIN}testpass:1000:1000::/srv/vmail/testuser::
