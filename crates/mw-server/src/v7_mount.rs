@@ -34,8 +34,9 @@ use mw_passwd::{
     PasswordPolicy, Result as PwResult, Secret,
 };
 use mw_plugin::{
-    Clock, Grant, HostServices, HttpFetcher, HttpReq, HttpResp, KvStore, OAuthTokenProvider,
-    PluginHandle, PluginHost, PluginLimits, PluginManifest, Rng,
+    BasicCredentialProvider, BasicCredentials, Clock, Grant, HostServices, HttpFetcher, HttpReq,
+    HttpResp, KvStore, OAuthTokenProvider, PluginHandle, PluginHost, PluginLimits, PluginManifest,
+    Rng,
 };
 use mw_store::{PluginRow, Store};
 
@@ -139,6 +140,38 @@ impl OAuthTokenProvider for DeniedOAuthProvider {
     }
 }
 
+/// The host `basic-credentials` provider for password-based bridges (on-prem EWS
+/// Basic/NTLMv2, t12 §2). OAuth bearers cannot serve NTLMv2 (which derives NTOWFv2
+/// from the cleartext password), so the host holds the secret SEALED at rest in the
+/// 0011 `ews_account_cred` rows and unseals it only to answer one gated
+/// `basic-credentials` import for the bound account. The guest never persists it.
+///
+/// Fail-closed: an account with no stored row, or a disabled row, returns an auth
+/// error (that account simply fails to authenticate) — never a panic.
+pub(crate) struct StoreEwsCredProvider {
+    store: Store,
+}
+
+#[async_trait]
+impl BasicCredentialProvider for StoreEwsCredProvider {
+    async fn credentials(&self, account: &str) -> std::result::Result<BasicCredentials, String> {
+        match self.store.get_ews_account_cred(account).await {
+            Ok(Some(c)) if c.enabled => Ok(BasicCredentials {
+                user: c.user,
+                domain: c.domain,
+                password: c.password,
+                workstation: c.workstation,
+                endpoint: c.endpoint,
+            }),
+            // Absent or disabled row ⇒ no usable credential ⇒ auth fails cleanly.
+            Ok(_) => Err(format!(
+                "no enabled EWS credentials stored for account '{account}'"
+            )),
+            Err(e) => Err(format!("EWS credential store error: {e}")),
+        }
+    }
+}
+
 struct HostKv;
 #[async_trait]
 impl KvStore for HostKv {
@@ -169,12 +202,15 @@ impl Rng for HostRng {
 }
 
 /// Build the host-service bundle e14 injects: reqwest(rustls) HTTP (defaults deny at
-/// the allowlist boundary in `mw-plugin`), a deny-by-default OAuth provider, and
-/// scoped KV/clock/rng.
-pub(crate) fn host_services() -> HostServices {
+/// the allowlist boundary in `mw-plugin`), a deny-by-default OAuth provider, the
+/// store-backed EWS per-account basic-credential provider, and scoped KV/clock/rng.
+pub(crate) fn host_services(store: &Store) -> HostServices {
     HostServices {
         http: Arc::new(ReqwestFetcher::from_env(reqwest::Client::new())),
         oauth: Arc::new(DeniedOAuthProvider),
+        basic_creds: Arc::new(StoreEwsCredProvider {
+            store: store.clone(),
+        }),
         kv: Arc::new(HostKv),
         clock: Arc::new(HostClock),
         rng: Arc::new(HostRng),
@@ -439,7 +475,7 @@ fn manifest_of(row: &PluginRow) -> PluginManifest {
 /// (e16 loads the real LanguageTool component live).
 pub(crate) async fn build_plugin_host(store: &Store) -> PluginRegistry {
     let mut host = PluginHost::new();
-    host.set_services(host_services());
+    host.set_services(host_services(store));
     let rows = store.list_plugins().await.unwrap_or_default();
     for row in &rows {
         host.register(manifest_of(row));
@@ -997,7 +1033,23 @@ pub async fn load_plugin_backends(
             continue;
         };
 
-        let manifest = manifest_of(row);
+        let mut manifest = manifest_of(row);
+        // EWS (password-auth bridge): the account's real Exchange host is provisioned
+        // per-account in the sealed 0011 `ews_account_cred` row, not in the committed
+        // fixture `plugin.toml` allowlist. Mirror its `endpoint_host` into the manifest
+        // `net_allowlist` at mount so the jailed guest's host-mediated `http-fetch` to
+        // the account's endpoint is admitted through the gate (deny-by-default holds for
+        // every other host). Absent/disabled row ⇒ no rewrite (the guest then has no
+        // reachable endpoint and fails auth via the credential provider above).
+        if let Ok(Some(cred)) = store.get_ews_account_cred(&b.account_id).await
+            && !cred.endpoint_host.is_empty()
+            && !manifest
+                .net_allowlist
+                .iter()
+                .any(|h| h.eq_ignore_ascii_case(&cred.endpoint_host))
+        {
+            manifest.net_allowlist.push(cred.endpoint_host);
+        }
         let grant = Grant {
             plugin_id: row.id.clone(),
             capabilities: manifest.capabilities.clone(),
@@ -1620,8 +1672,9 @@ mod tests {
     /// can bind).
     async fn probe_bridge_shape(id: &str) -> BridgePimSlots {
         let bytes = resolve_component(id).unwrap_or_else(|| panic!("'{id}' resolves"));
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
         let mut host = PluginHost::new();
-        host.set_services(host_services());
+        host.set_services(host_services(&store));
         let manifest = PluginManifest {
             id: id.to_string(),
             name: id.to_string(),
