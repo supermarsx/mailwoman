@@ -18,6 +18,11 @@ webpki-roots = { workspace = true }
 base64 = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+# SCRAM-SHA-256 SASL (RFC 5802/7677): SHA-256 + HMAC from the in-tree RustCrypto
+# workspace deps; PBKDF2 is derived inline (single-block HMAC), so no `pbkdf2`
+# crate is added. Not new workspace deps — already declared/resolved in-tree.
+sha2 = { workspace = true }
+hmac = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

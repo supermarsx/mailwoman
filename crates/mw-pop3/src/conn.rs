@@ -8,6 +8,8 @@
 
 use std::sync::Arc;
 
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as B64;
 use mw_engine::backend::EngineError;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
@@ -199,6 +201,75 @@ impl Pop3Conn {
         Ok(())
     }
 
+    /// SASL `SCRAM-SHA-256` (RFC 5802 / RFC 7677) over POP3 `AUTH` (RFC 5034),
+    /// challenge/response form: `AUTH SCRAM-SHA-256` → `+` → client-first → `+`
+    /// server-first → client-final → server-final/`+OK`. The proof math is in
+    /// [`crate::sasl::ScramSha256`] (pinned by the RFC 7677 vector test).
+    ///
+    /// Not yet reachable from [`Pop3Config`](crate::Pop3Config): selecting it
+    /// needs a `Pop3Auth::SaslScram` variant in `backend.rs` (a separate owner).
+    pub async fn authenticate_scram_sha256(
+        &mut self,
+        username: &str,
+        password: &str,
+    ) -> Result<()> {
+        let nonce = sasl::client_nonce();
+        let (mut scram, client_first) = sasl::ScramSha256::new(username, password, &nonce);
+
+        self.send("AUTH SCRAM-SHA-256").await?;
+        // First continuation asks for the client-first-message (payload empty).
+        self.expect_continue().await?;
+        self.send(&B64.encode(&client_first)).await?;
+
+        // Second continuation carries the base64 server-first-message.
+        let server_first = self.decode_continuation().await?;
+        let client_final = scram
+            .client_final(&server_first)
+            .map_err(EngineError::Auth)?;
+        self.send(&B64.encode(&client_final)).await?;
+
+        match self.read_auth_step().await? {
+            AuthStep::Ok => Ok(()),
+            AuthStep::Err(m) => Err(EngineError::Auth(m)),
+            AuthStep::Continue(c) => {
+                // Server-final (v=) delivered as a final continuation: verify it,
+                // acknowledge with an empty line, then read the +OK/-ERR.
+                let server_final = decode_b64_utf8(&c)?;
+                scram.verify(&server_final).map_err(EngineError::Auth)?;
+                self.send("").await?;
+                self.require_ok_auth().await
+            }
+        }
+    }
+
+    /// SASL `OAUTHBEARER` (RFC 7628) over POP3 `AUTH` with an inline initial
+    /// response (mirrors the `XOAUTH2` path). On failure the server sends a
+    /// continuation error challenge; the client acks with the `%x01` kvsep.
+    ///
+    /// Not yet reachable from [`Pop3Config`](crate::Pop3Config): selecting it
+    /// needs a `Pop3Auth::OAuthBearer` variant in `backend.rs`.
+    pub async fn authenticate_oauthbearer(&mut self, username: &str, token: &str) -> Result<()> {
+        let ir = sasl::oauthbearer(username, token);
+        self.send(&format!("AUTH OAUTHBEARER {ir}")).await?;
+        match self.read_auth_step().await? {
+            AuthStep::Ok => Ok(()),
+            AuthStep::Err(m) => Err(EngineError::Auth(m)),
+            AuthStep::Continue(_) => {
+                self.send(&B64.encode("\x01")).await?;
+                let msg = match self.read_status().await? {
+                    Status::Err(m) | Status::Ok(m) => m,
+                };
+                Err(EngineError::Auth(msg))
+            }
+        }
+    }
+
+    /// Read a SASL continuation and decode its base64 payload to UTF-8.
+    async fn decode_continuation(&mut self) -> Result<String> {
+        let c = self.expect_continue().await?;
+        decode_b64_utf8(&c)
+    }
+
     async fn read_auth_step(&mut self) -> Result<AuthStep> {
         let line = self.read_line_raw().await?;
         let trimmed = trim_eol(&line);
@@ -316,6 +387,14 @@ fn require_ok(status: Status) -> Result<String> {
     }
 }
 
+/// Decode a base64 SASL blob to its UTF-8 payload (SCRAM messages are text).
+fn decode_b64_utf8(s: &str) -> Result<String> {
+    let bytes = B64
+        .decode(s.trim())
+        .map_err(|e| EngineError::Protocol(format!("bad base64 SASL blob: {e}")))?;
+    String::from_utf8(bytes).map_err(|e| EngineError::Protocol(format!("non-UTF-8 SASL blob: {e}")))
+}
+
 async fn tls_connect(
     io: Box<dyn AsyncStream>,
     host: &str,
@@ -374,5 +453,99 @@ mod tests {
         assert_eq!(sent, "STLS");
         // No queued plaintext before the handshake -> upgrade would be safe.
         assert!(conn.into_inner().is_ok());
+    }
+
+    /// Drive a full `AUTH SCRAM-SHA-256` challenge/response exchange against a
+    /// mock server that echoes the client nonce and accepts the proof. The proof
+    /// math is pinned by the RFC 7677 vector test in `sasl`; this pins the POP3
+    /// framing/dispatch (`AUTH` → `+` → client-first → `+` server-first →
+    /// client-final → `+OK`).
+    #[tokio::test]
+    async fn scram_sha256_dispatch_framing() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (sock, _) = listener.accept().await.unwrap();
+            let (rd, mut wr) = sock.into_split();
+            let mut reader = BufReader::new(rd);
+            wr.write_all(b"+OK mailwoman ready\r\n").await.unwrap();
+
+            let mut line = String::new();
+            reader.read_line(&mut line).await.unwrap();
+            assert_eq!(line.trim_end_matches(['\r', '\n']), "AUTH SCRAM-SHA-256");
+            wr.write_all(b"+ \r\n").await.unwrap();
+
+            line.clear();
+            reader.read_line(&mut line).await.unwrap();
+            let client_first =
+                String::from_utf8(B64.decode(line.trim_end_matches(['\r', '\n'])).unwrap())
+                    .unwrap();
+            assert!(client_first.starts_with("n,,n=user,r="), "{client_first}");
+            let nonce = client_first
+                .rsplit(',')
+                .next()
+                .and_then(|f| f.strip_prefix("r="))
+                .unwrap()
+                .to_string();
+            let server_first = format!("r={nonce}SRV,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096");
+            wr.write_all(format!("+ {}\r\n", B64.encode(&server_first)).as_bytes())
+                .await
+                .unwrap();
+
+            line.clear();
+            reader.read_line(&mut line).await.unwrap();
+            let client_final =
+                String::from_utf8(B64.decode(line.trim_end_matches(['\r', '\n'])).unwrap())
+                    .unwrap();
+            assert!(client_final.starts_with("c=biws,r=") && client_final.contains(",p="));
+            wr.write_all(b"+OK maildrop locked and ready\r\n")
+                .await
+                .unwrap();
+        });
+
+        let tcp = TcpStream::connect(addr).await.unwrap();
+        let mut conn = Pop3Conn::new(Box::new(tcp));
+        conn.read_greeting().await.unwrap();
+        conn.authenticate_scram_sha256("user", "pencil")
+            .await
+            .expect("SCRAM authentication succeeds");
+        server.await.unwrap();
+    }
+
+    /// `AUTH OAUTHBEARER` inline-IR dispatch: assert the RFC 7628 client
+    /// response and that a `+OK` completes authentication.
+    #[tokio::test]
+    async fn oauthbearer_dispatch_framing() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (sock, _) = listener.accept().await.unwrap();
+            let (rd, mut wr) = sock.into_split();
+            let mut reader = BufReader::new(rd);
+            wr.write_all(b"+OK mailwoman ready\r\n").await.unwrap();
+
+            let mut line = String::new();
+            reader.read_line(&mut line).await.unwrap();
+            let got = line.trim_end_matches(['\r', '\n']).to_string();
+            let ir = got
+                .strip_prefix("AUTH OAUTHBEARER ")
+                .expect("AUTH OAUTHBEARER line");
+            let decoded = B64.decode(ir).unwrap();
+            assert_eq!(
+                decoded,
+                b"n,a=user@example.com,\x01auth=Bearer tok123\x01\x01"
+            );
+            wr.write_all(b"+OK maildrop locked and ready\r\n")
+                .await
+                .unwrap();
+        });
+
+        let tcp = TcpStream::connect(addr).await.unwrap();
+        let mut conn = Pop3Conn::new(Box::new(tcp));
+        conn.read_greeting().await.unwrap();
+        conn.authenticate_oauthbearer("user@example.com", "tok123")
+            .await
+            .expect("OAUTHBEARER authentication succeeds");
+        server.await.unwrap();
     }
 }

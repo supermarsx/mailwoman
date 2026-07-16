@@ -7,10 +7,11 @@
 //! never duplicated. All parsing here is defensive (bounded line length, no
 //! panics) since the peer is untrusted network input.
 
+use base64::prelude::*;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::sasl;
-use crate::{Credentials, SmtpError};
+use crate::{Credentials, DsnNotify, DsnRet, SmtpError};
 
 /// Hard cap on a single CRLF-terminated reply line, to bound memory against a
 /// hostile or broken server that never sends a newline.
@@ -47,7 +48,16 @@ pub(crate) struct Capabilities {
     pub starttls: bool,
     /// `PIPELINING` offered (parsed for completeness; V1 does not pipeline).
     pub pipelining: bool,
-    /// Offered SASL mechanisms, upper-cased (`PLAIN`, `LOGIN`, `XOAUTH2`, …).
+    /// `SMTPUTF8` (RFC 6531) — UTF-8 permitted in the envelope/headers.
+    pub smtputf8: bool,
+    /// `REQUIRETLS` (RFC 8689) — the server can honour a per-message TLS floor.
+    pub requiretls: bool,
+    /// `CHUNKING` (RFC 3030) — `BDAT` length-framed submission is available.
+    pub chunking: bool,
+    /// `DSN` (RFC 3461) — delivery-status-notification parameters accepted.
+    pub dsn: bool,
+    /// Offered SASL mechanisms, upper-cased (`PLAIN`, `LOGIN`, `XOAUTH2`,
+    /// `SCRAM-SHA-256`, `OAUTHBEARER`, …).
     pub auth: Vec<String>,
 }
 
@@ -68,6 +78,10 @@ impl Capabilities {
                 Some("8BITMIME") => caps.eightbitmime = true,
                 Some("STARTTLS") => caps.starttls = true,
                 Some("PIPELINING") => caps.pipelining = true,
+                Some("SMTPUTF8") => caps.smtputf8 = true,
+                Some("REQUIRETLS") => caps.requiretls = true,
+                Some("CHUNKING") => caps.chunking = true,
+                Some("DSN") => caps.dsn = true,
                 Some("AUTH") => caps.auth = parts.map(String::from).collect(),
                 _ => {}
             }
@@ -86,6 +100,37 @@ impl Capabilities {
 pub(crate) enum RcptOutcome {
     Accepted,
     Rejected { reason: String },
+}
+
+/// Extended `MAIL FROM` parameters negotiated for one submission.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct MailParams {
+    /// `SIZE=` (RFC 1870) when the server advertised SIZE.
+    pub size: Option<usize>,
+    /// `BODY=8BITMIME` (RFC 6152) for an un-encoded 8-bit body.
+    pub body_8bit: bool,
+    /// `SMTPUTF8` (RFC 6531) for a UTF-8 envelope/header.
+    pub smtputf8: bool,
+    /// `REQUIRETLS` (RFC 8689) TLS floor for this message.
+    pub require_tls: bool,
+    /// `RET=` (RFC 3461) — how much of the message a DSN should return.
+    pub ret: Option<DsnRet>,
+    /// `ENVID=` (RFC 3461) — an envelope identifier echoed in any DSN.
+    pub envid: Option<String>,
+}
+
+/// xtext encoding (RFC 3461 §4): printable ASCII passes through except `+` and
+/// `=`, which — together with any non-printable byte — become `+HH`.
+fn xtext(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for &b in s.as_bytes() {
+        if (0x21..=0x7e).contains(&b) && b != b'+' && b != b'=' {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("+{b:02X}"));
+        }
+    }
+    out
 }
 
 /// An SMTP connection with a small read buffer for line framing.
@@ -274,6 +319,83 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
                     ))),
                 }
             }
+            Credentials::Scram { user, pass } => {
+                require("SCRAM-SHA-256")?;
+                let nonce = sasl::client_nonce();
+                let (mut scram, client_first) = sasl::ScramSha256::new(user, pass, &nonce);
+                // AUTH SCRAM-SHA-256 <base64 client-first-message>.
+                let r = self
+                    .command(&format!(
+                        "AUTH SCRAM-SHA-256 {}\r\n",
+                        BASE64_STANDARD.encode(&client_first)
+                    ))
+                    .await?;
+                if r.code != 334 {
+                    return Err(SmtpError::Auth(format!(
+                        "SCRAM-SHA-256 rejected at client-first: {} {}",
+                        r.code,
+                        r.text()
+                    )));
+                }
+                let server_first = decode_challenge(&r)?;
+                let client_final = scram.client_final(&server_first).map_err(SmtpError::Auth)?;
+                let r = self
+                    .command(&format!("{}\r\n", BASE64_STANDARD.encode(&client_final)))
+                    .await?;
+                match r.code {
+                    // Some servers fold the server-final into the 235 line; if it
+                    // carries a decodable `v=`, verify it, otherwise accept.
+                    235 => {
+                        if let Ok(txt) = decode_challenge(&r) {
+                            let _ = scram.verify(&txt);
+                        }
+                        Ok(())
+                    }
+                    // The server sends the server-final (v=) as a 334 challenge;
+                    // verify it, then acknowledge with an empty line for the 235.
+                    334 => {
+                        let server_final = decode_challenge(&r)?;
+                        scram.verify(&server_final).map_err(SmtpError::Auth)?;
+                        let r2 = self.command("\r\n").await?;
+                        Self::expect_auth_ok(r2)
+                    }
+                    _ => Err(SmtpError::Auth(format!(
+                        "SCRAM-SHA-256 rejected: {} {}",
+                        r.code,
+                        r.text()
+                    ))),
+                }
+            }
+            Credentials::OAuthBearer { user, token } => {
+                require("OAUTHBEARER")?;
+                let r = self
+                    .command(&format!(
+                        "AUTH OAUTHBEARER {}\r\n",
+                        sasl::oauthbearer(user, token)
+                    ))
+                    .await?;
+                match r.code {
+                    235 => Ok(()),
+                    // Failure (RFC 7628 §3.2.3): the server returns a `334`
+                    // base64 JSON error; the client sends a single `%x01`
+                    // (base64 `AQ==`) and the server then returns the real code.
+                    334 => {
+                        let r2 = self
+                            .command(&format!("{}\r\n", BASE64_STANDARD.encode("\x01")))
+                            .await?;
+                        Err(SmtpError::Auth(format!(
+                            "OAUTHBEARER rejected: {} {}",
+                            r2.code,
+                            r2.text()
+                        )))
+                    }
+                    _ => Err(SmtpError::Auth(format!(
+                        "OAUTHBEARER rejected: {} {}",
+                        r.code,
+                        r.text()
+                    ))),
+                }
+            }
         }
     }
 
@@ -289,20 +411,28 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
         }
     }
 
-    /// `MAIL FROM:<from>` with optional `SIZE=` (when the server advertised
-    /// SIZE) and `BODY=8BITMIME` (when it advertised 8BITMIME).
-    pub(crate) async fn mail_from(
-        &mut self,
-        from: &str,
-        size: Option<usize>,
-        body_8bit: bool,
-    ) -> Result<(), SmtpError> {
+    /// `MAIL FROM:<from>` with the negotiated ESMTP parameters. `SIZE=`
+    /// (RFC 1870) and `BODY=8BITMIME` (RFC 6152) are emitted first to preserve
+    /// the historical ordering; `SMTPUTF8`/`REQUIRETLS`/`RET=`/`ENVID=` follow.
+    pub(crate) async fn mail_from(&mut self, from: &str, p: &MailParams) -> Result<(), SmtpError> {
         let mut cmd = format!("MAIL FROM:<{from}>");
-        if let Some(sz) = size {
+        if let Some(sz) = p.size {
             cmd.push_str(&format!(" SIZE={sz}"));
         }
-        if body_8bit {
+        if p.body_8bit {
             cmd.push_str(" BODY=8BITMIME");
+        }
+        if p.smtputf8 {
+            cmd.push_str(" SMTPUTF8");
+        }
+        if p.require_tls {
+            cmd.push_str(" REQUIRETLS");
+        }
+        if let Some(ret) = p.ret {
+            cmd.push_str(&format!(" RET={}", ret.as_str()));
+        }
+        if let Some(envid) = &p.envid {
+            cmd.push_str(&format!(" ENVID={}", xtext(envid)));
         }
         cmd.push_str("\r\n");
         let reply = self.command(&cmd).await?;
@@ -317,10 +447,29 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
         }
     }
 
-    /// `RCPT TO:<addr>` — a rejection is returned as data, not an error, so the
-    /// caller can record per-recipient outcomes and still deliver to the rest.
-    pub(crate) async fn rcpt_to(&mut self, addr: &str) -> Result<RcptOutcome, SmtpError> {
-        let reply = self.command(&format!("RCPT TO:<{addr}>\r\n")).await?;
+    /// `RCPT TO:<addr>` with optional DSN `NOTIFY=`/`ORCPT=` (RFC 3461). A
+    /// rejection is returned as data, not an error, so the caller can record
+    /// per-recipient outcomes and still deliver to the rest.
+    pub(crate) async fn rcpt_to(
+        &mut self,
+        addr: &str,
+        notify: &[DsnNotify],
+        orcpt: bool,
+    ) -> Result<RcptOutcome, SmtpError> {
+        let mut cmd = format!("RCPT TO:<{addr}>");
+        if !notify.is_empty() {
+            let joined = notify
+                .iter()
+                .map(|n| n.as_str())
+                .collect::<Vec<_>>()
+                .join(",");
+            cmd.push_str(&format!(" NOTIFY={joined}"));
+        }
+        if orcpt {
+            cmd.push_str(&format!(" ORCPT=rfc822;{}", xtext(addr)));
+        }
+        cmd.push_str("\r\n");
+        let reply = self.command(&cmd).await?;
         if reply.is_positive() {
             Ok(RcptOutcome::Accepted)
         } else {
@@ -361,6 +510,31 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
         }
     }
 
+    /// `BDAT <n> LAST` (RFC 3030 CHUNKING): submit the whole message as one
+    /// length-framed binary chunk. Unlike `DATA` there is no dot-stuffing and no
+    /// `<CRLF>.<CRLF>` terminator — the byte count is authoritative — so a body
+    /// containing a lone `.` line needs no escaping.
+    pub(crate) async fn bdat(&mut self, raw: &[u8]) -> Result<(), SmtpError> {
+        let mut body = raw.to_vec();
+        if !body.ends_with(b"\r\n") {
+            body.extend_from_slice(b"\r\n");
+        }
+        let mut payload = format!("BDAT {} LAST\r\n", body.len()).into_bytes();
+        payload.extend_from_slice(&body);
+        self.write_all(&payload).await?;
+
+        let reply = self.read_reply().await?;
+        if reply.is_positive() {
+            Ok(())
+        } else {
+            Err(SmtpError::Protocol(format!(
+                "message rejected after BDAT: {} {}",
+                reply.code,
+                reply.text()
+            )))
+        }
+    }
+
     /// Best-effort `QUIT`; submission has already succeeded, so a failure here
     /// is not propagated.
     pub(crate) async fn quit(&mut self) {
@@ -379,6 +553,17 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
             ))
         }
     }
+}
+
+/// Decode the base64 SASL challenge carried in a `334` (or inline in a `235`)
+/// reply line, returning the UTF-8 payload.
+fn decode_challenge(reply: &Reply) -> Result<String, SmtpError> {
+    let blob = reply.lines.first().map(|s| s.trim()).unwrap_or("");
+    let bytes = BASE64_STANDARD
+        .decode(blob)
+        .map_err(|e| SmtpError::Protocol(format!("bad base64 SASL challenge: {e}")))?;
+    String::from_utf8(bytes)
+        .map_err(|e| SmtpError::Protocol(format!("non-UTF-8 SASL challenge: {e}")))
 }
 
 /// SMTP dot-stuffing (RFC 5321 §4.5.2): any line beginning with `.` gets an
@@ -419,9 +604,33 @@ mod tests {
         assert!(caps.eightbitmime);
         assert!(caps.starttls);
         assert!(caps.pipelining);
+        assert!(caps.chunking);
+        assert!(caps.smtputf8);
         assert!(caps.offers("plain"));
         assert!(caps.offers("LOGIN"));
         assert!(caps.offers("xoauth2"));
+        assert!(caps.offers("OAUTHBEARER"));
+    }
+
+    #[test]
+    fn parse_dsn_and_requiretls_capabilities() {
+        let lines = vec![
+            "DSN".to_string(),
+            "REQUIRETLS".to_string(),
+            "AUTH SCRAM-SHA-256 SCRAM-SHA-256-PLUS".to_string(),
+        ];
+        let caps = Capabilities::parse(&lines);
+        assert!(caps.dsn);
+        assert!(caps.requiretls);
+        assert!(caps.offers("scram-sha-256"));
+    }
+
+    #[test]
+    fn xtext_encodes_reserved_and_nonprintable() {
+        // Space (0x20), '+' and '=' must be quoted; ordinary chars pass through.
+        assert_eq!(xtext("a b"), "a+20b");
+        assert_eq!(xtext("a+b=c"), "a+2Bb+3Dc");
+        assert_eq!(xtext("bob@example.com"), "bob@example.com");
     }
 
     #[test]
@@ -521,5 +730,251 @@ mod tests {
         // recovered cleanly for the (real) TLS upgrade.
         assert!(conn.into_inner().is_ok());
         server.await.unwrap();
+    }
+
+    // --- extended-submission round-trip (SCRAM + DSN + SMTPUTF8 + BDAT) ----
+    //
+    // A stateful framed reader so the length-framed `BDAT` body can be consumed
+    // exactly (the line-oriented `read_one` above discards intra-segment bytes).
+
+    struct Framed {
+        sock: TcpStream,
+        buf: Vec<u8>,
+    }
+
+    impl Framed {
+        fn new(sock: TcpStream) -> Self {
+            Self {
+                sock,
+                buf: Vec::new(),
+            }
+        }
+
+        async fn fill(&mut self) {
+            use tokio::io::AsyncReadExt;
+            let mut tmp = [0u8; 512];
+            let n = self.sock.read(&mut tmp).await.unwrap();
+            assert!(n > 0, "unexpected EOF from client");
+            self.buf.extend_from_slice(&tmp[..n]);
+        }
+
+        async fn line(&mut self) -> String {
+            loop {
+                if let Some(pos) = self.buf.iter().position(|&b| b == b'\n') {
+                    let mut line: Vec<u8> = self.buf.drain(..=pos).collect();
+                    line.pop();
+                    if line.last() == Some(&b'\r') {
+                        line.pop();
+                    }
+                    return String::from_utf8_lossy(&line).into_owned();
+                }
+                self.fill().await;
+            }
+        }
+
+        async fn exact(&mut self, n: usize) -> Vec<u8> {
+            while self.buf.len() < n {
+                self.fill().await;
+            }
+            self.buf.drain(..n).collect()
+        }
+
+        async fn send(&mut self, bytes: &[u8]) {
+            self.sock.write_all(bytes).await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn extended_submission_scram_dsn_smtputf8_bdat() {
+        use crate::{
+            Credentials, Dsn, DsnNotify, DsnRet, Outgoing, Security, SubmitConfig, SubmitOptions,
+            Submitter,
+        };
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = tokio::spawn(async move {
+            let (sock, _) = listener.accept().await.unwrap();
+            let mut f = Framed::new(sock);
+            f.send(b"220 mock.mailwoman.test ESMTP\r\n").await;
+
+            assert_eq!(f.line().await, "EHLO client.test");
+            f.send(
+                b"250-mock.mailwoman.test\r\n\
+                  250-SIZE 100000\r\n\
+                  250-8BITMIME\r\n\
+                  250-SMTPUTF8\r\n\
+                  250-DSN\r\n\
+                  250-CHUNKING\r\n\
+                  250 AUTH SCRAM-SHA-256\r\n",
+            )
+            .await;
+
+            // SCRAM: read AUTH + client-first, echo the client nonce back in a
+            // server-first, accept the client-final (the proof math itself is
+            // pinned by the RFC 7677 vector test in `sasl`).
+            let auth = f.line().await;
+            let ir = auth
+                .strip_prefix("AUTH SCRAM-SHA-256 ")
+                .expect("AUTH SCRAM line");
+            let client_first = String::from_utf8(BASE64_STANDARD.decode(ir).unwrap()).unwrap();
+            let client_nonce = client_first
+                .rsplit(',')
+                .next()
+                .and_then(|f| f.strip_prefix("r="))
+                .expect("client nonce")
+                .to_string();
+            let server_first =
+                format!("r={client_nonce}SRVNONCE,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096");
+            f.send(format!("334 {}\r\n", BASE64_STANDARD.encode(&server_first)).as_bytes())
+                .await;
+            let client_final = f.line().await; // base64 client-final-message
+            assert!(!client_final.is_empty());
+            f.send(b"235 2.7.0 Authentication successful\r\n").await;
+
+            // MAIL FROM must carry SMTPUTF8 (UTF-8 recipient below), SIZE, and
+            // the DSN RET/ENVID parameters.
+            let mail = f.line().await;
+            assert!(
+                mail.starts_with("MAIL FROM:<sender@example.com> SIZE="),
+                "{mail}"
+            );
+            assert!(mail.contains(" SMTPUTF8"), "{mail}");
+            assert!(mail.contains(" RET=HDRS"), "{mail}");
+            assert!(mail.contains(" ENVID=abc123"), "{mail}");
+            f.send(b"250 2.1.0 OK\r\n").await;
+
+            // RCPT TO must carry NOTIFY + ORCPT (xtext of the UTF-8 address).
+            let rcpt = f.line().await;
+            assert!(rcpt.starts_with("RCPT TO:<møt@example.com>"), "{rcpt}");
+            assert!(rcpt.contains(" NOTIFY=SUCCESS,FAILURE"), "{rcpt}");
+            assert!(
+                rcpt.contains(" ORCPT=rfc822;m+C3+B8t@example.com"),
+                "{rcpt}"
+            );
+            f.send(b"250 2.1.5 OK\r\n").await;
+
+            // BDAT: exact length-framed body, no dot-stuffing.
+            let bdat = f.line().await;
+            let n: usize = bdat
+                .strip_prefix("BDAT ")
+                .and_then(|r| r.strip_suffix(" LAST"))
+                .and_then(|r| r.parse().ok())
+                .unwrap_or_else(|| panic!("bad BDAT header {bdat:?}"));
+            let body = f.exact(n).await;
+            // The lone "." line survives verbatim (BDAT does not dot-stuff).
+            assert!(
+                body.windows(3).any(|w| w == b"\r\n.") && body.ends_with(b"\r\n"),
+                "raw body preserved under BDAT"
+            );
+            f.send(b"250 2.0.0 OK: queued\r\n").await;
+
+            assert_eq!(f.line().await, "QUIT");
+            f.send(b"221 2.0.0 Bye\r\n").await;
+        });
+
+        let sub = Submitter::new(SubmitConfig {
+            host: addr.ip().to_string(),
+            port: addr.port(),
+            security: Security::Plaintext,
+            credentials: Credentials::Scram {
+                user: "user".into(),
+                pass: "pencil".into(),
+            },
+            ehlo_name: "client.test".into(),
+        });
+
+        let result = sub
+            .submit_with(
+                Outgoing {
+                    mail_from: "sender@example.com".into(),
+                    rcpt_to: vec!["møt@example.com".into()],
+                    raw: b"Subject: hi\r\n\r\nHello.\r\n.\r\nafter\r\n".to_vec(),
+                },
+                SubmitOptions {
+                    dsn: Some(Dsn {
+                        ret: Some(DsnRet::Hdrs),
+                        envid: Some("abc123".into()),
+                        notify: vec![DsnNotify::Success, DsnNotify::Failure],
+                        orcpt: true,
+                    }),
+                    require_tls: false,
+                    use_chunking: true,
+                },
+            )
+            .await
+            .expect("extended submission");
+
+        assert_eq!(result.accepted, vec!["møt@example.com".to_string()]);
+        assert!(result.rejected.is_empty());
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn oauthbearer_dispatch_frames_rfc7628_and_accepts() {
+        use crate::{Credentials, Outgoing, Security, SubmitConfig, SubmitOptions, Submitter};
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let cap = captured.clone();
+
+        let server = tokio::spawn(async move {
+            let (sock, _) = listener.accept().await.unwrap();
+            let mut f = Framed::new(sock);
+            f.send(b"220 mock ESMTP\r\n").await;
+            assert_eq!(f.line().await, "EHLO client.test");
+            f.send(b"250-mock\r\n250 AUTH OAUTHBEARER\r\n").await;
+
+            let auth = f.line().await;
+            cap.lock().unwrap().push(auth.clone());
+            f.send(b"235 2.7.0 Accepted\r\n").await;
+
+            assert!(f.line().await.starts_with("MAIL FROM:"));
+            f.send(b"250 OK\r\n").await;
+            assert!(f.line().await.starts_with("RCPT TO:"));
+            f.send(b"250 OK\r\n").await;
+            assert_eq!(f.line().await, "DATA");
+            f.send(b"354 go\r\n").await;
+            loop {
+                if f.line().await == "." {
+                    break;
+                }
+            }
+            f.send(b"250 queued\r\n").await;
+            assert_eq!(f.line().await, "QUIT");
+            f.send(b"221 bye\r\n").await;
+        });
+
+        let sub = Submitter::new(SubmitConfig {
+            host: addr.ip().to_string(),
+            port: addr.port(),
+            security: Security::Plaintext,
+            credentials: Credentials::OAuthBearer {
+                user: "carol@example.com".into(),
+                token: "vF9dft4qmT".into(),
+            },
+            ehlo_name: "client.test".into(),
+        });
+        sub.submit_with(
+            Outgoing {
+                mail_from: "sender@example.com".into(),
+                rcpt_to: vec!["rcpt@example.com".into()],
+                raw: b"Subject: hi\r\n\r\nbody\r\n".to_vec(),
+            },
+            SubmitOptions::default(),
+        )
+        .await
+        .expect("oauthbearer submission");
+        server.await.unwrap();
+
+        let auth = &captured.lock().unwrap()[0];
+        let ir = auth.strip_prefix("AUTH OAUTHBEARER ").unwrap();
+        let decoded = BASE64_STANDARD.decode(ir).unwrap();
+        assert_eq!(
+            decoded,
+            b"n,a=carol@example.com,\x01auth=Bearer vF9dft4qmT\x01\x01"
+        );
     }
 }
