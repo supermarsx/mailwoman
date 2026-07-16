@@ -92,14 +92,55 @@ pub fn expand_recurrence(
         .filter_map(|r| r.get("rrule").and_then(Value::as_str))
         .collect();
 
-    // No recurrence rule → single occurrence; `rrule` requires an RRULE/RDATE,
-    // so resolve the lone DTSTART instant directly.
-    let occurrences: Vec<DateTime<Utc>> = if rules.is_empty() {
+    // Recurrence overrides split into: RDATE additions (empty patch) and
+    // per-instance overrides that reschedule/re-length the matching instance.
+    // Every override recurrence-id is injected as an RDATE so it materializes;
+    // non-empty ones then remap the occurrence's start/duration by base instant.
+    let mut override_rids: Vec<String> = vec![];
+    let mut remaps: Vec<(DateTime<Utc>, DateTime<Utc>, i64)> = vec![];
+    if let Some(overrides) = event_json
+        .get("recurrenceOverrides")
+        .and_then(Value::as_object)
+    {
+        for (rid, patch) in overrides {
+            override_rids.push(rid.clone());
+            let Some(patch_obj) = patch.as_object() else {
+                continue;
+            };
+            if patch_obj.is_empty() {
+                continue; // pure RDATE addition, no remap.
+            }
+            let base = local_to_utc(rid, tz)?;
+            let new_local = patch_obj
+                .get("start")
+                .and_then(Value::as_str)
+                .unwrap_or(rid);
+            let new_start = local_to_utc(new_local, tz)?;
+            let dur = patch_obj
+                .get("duration")
+                .and_then(Value::as_str)
+                .and_then(dt::iso_duration_to_secs)
+                .unwrap_or(duration_secs);
+            remaps.push((base, new_start, dur));
+        }
+    }
+
+    // No RRULE and no RDATE → single occurrence; `rrule` requires an
+    // RRULE/RDATE, so resolve the lone DTSTART instant directly.
+    let occurrences: Vec<DateTime<Utc>> = if rules.is_empty() && override_rids.is_empty() {
         vec![local_to_utc(start, tz)?]
     } else {
         let mut lines = vec![date_line("DTSTART", start, tz)];
         for r in &rules {
             lines.push(format!("RRULE:{r}"));
+        }
+        // With no RRULE the DTSTART is not implicitly an occurrence; add it as
+        // an RDATE so a pure-RDATE event still yields its base instance.
+        if rules.is_empty() {
+            lines.push(date_line("RDATE", start, tz));
+        }
+        for rid in &override_rids {
+            lines.push(date_line("RDATE", rid, tz));
         }
         for ex in event_json
             .get("excludedRecurrenceDates")
@@ -116,22 +157,31 @@ pub fn expand_recurrence(
             .parse()
             .map_err(|e| IcsError::Rrule(format!("{e}")))?;
         let before = win_end.with_timezone(&Tz::UTC);
-        set.before(before)
+        let mut dates: Vec<DateTime<Utc>> = set
+            .before(before)
             .all(EXPAND_LIMIT)
             .dates
             .into_iter()
             .map(|d| d.with_timezone(&Utc))
-            .collect()
+            .collect();
+        dates.sort_unstable();
+        dates.dedup();
+        dates
     };
 
     let mut out = vec![];
     for occ_utc in occurrences {
-        if occ_utc < win_start || occ_utc >= win_end {
+        // A per-instance override remaps this occurrence's start/duration.
+        let (start_utc, dur) = match remaps.iter().find(|(base, _, _)| *base == occ_utc) {
+            Some((_, new_start, dur)) => (*new_start, *dur),
+            None => (occ_utc, duration_secs),
+        };
+        if start_utc < win_start || start_utc >= win_end {
             continue;
         }
-        let end_utc = occ_utc + chrono::Duration::seconds(duration_secs);
+        let end_utc = start_utc + chrono::Duration::seconds(dur);
         out.push(Instance {
-            start_utc: occ_utc.to_rfc3339_opts(SecondsFormat::Secs, true),
+            start_utc: start_utc.to_rfc3339_opts(SecondsFormat::Secs, true),
             end_utc: end_utc.to_rfc3339_opts(SecondsFormat::Secs, true),
         });
     }

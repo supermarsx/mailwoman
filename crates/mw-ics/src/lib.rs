@@ -15,7 +15,8 @@
 //!   expansion → [`Instance`] UTC bounds (plan §1.12 gate).
 //! - [`build_itip`] / [`parse_itip`] — iTIP `METHOD` framing ([`ItipMethod`]).
 //! - [`parse_vcard`] / [`emit_vcard`] — vCard 3/4 ⇄ [`ParsedVcard`].
-//! - [`parse_hol`] — Outlook `.hol` holiday packs → all-day events.
+//! - [`parse_hol`] / [`write_hol`] — Outlook `.hol` holiday packs ⇄ all-day
+//!   events.
 //! - [`aggregate_free_busy`] — VFREEBUSY merge → [`BusyInterval`].
 
 mod dt;
@@ -27,7 +28,7 @@ mod recur;
 mod vcard;
 
 pub use freebusy::{BusyInterval, aggregate_free_busy};
-pub use hol::parse_hol;
+pub use hol::{parse_hol, write_hol};
 pub use ical::{ParsedIcal, emit_ical, parse_ical};
 pub use itip::{ItipMethod, build_itip, parse_itip};
 pub use recur::{Instance, expand_recurrence};

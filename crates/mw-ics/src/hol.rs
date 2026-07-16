@@ -96,3 +96,39 @@ pub fn parse_hol(bytes: &[u8]) -> Result<Vec<ParsedIcal>> {
     }
     Ok(out)
 }
+
+/// Serialize all-day event projections into an Outlook `.hol` holiday pack.
+///
+/// The inverse of [`parse_hol`]: emits a single `[Holidays] <count>` section of
+/// `Description,YYYY/MM/DD` lines (CRLF, the format Outlook expects). Only the
+/// event's `title` and `start` date are used — the time and all other fields are
+/// not representable in `.hol`. Titles are flattened (commas/newlines → spaces)
+/// so each holiday stays on one parseable line.
+pub fn write_hol(events: &[Value]) -> Result<String> {
+    let mut body = Vec::new();
+    for ev in events {
+        let title = ev
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .trim();
+        let start = ev.get("start").and_then(Value::as_str).unwrap_or_default();
+        if title.is_empty() || start.is_empty() {
+            continue;
+        }
+        // Take the date portion (drop any time) and switch to slash form.
+        let date = start.split('T').next().unwrap_or(start);
+        let parts: Vec<&str> = date.split('-').collect();
+        if parts.len() != 3 {
+            continue;
+        }
+        let safe_title = title.replace([',', '\r', '\n'], " ");
+        body.push(format!(
+            "{safe_title},{}/{}/{}",
+            parts[0], parts[1], parts[2]
+        ));
+    }
+    let mut lines = vec![format!("[Holidays] {}", body.len())];
+    lines.extend(body);
+    Ok(format!("{}\r\n", lines.join("\r\n")))
+}

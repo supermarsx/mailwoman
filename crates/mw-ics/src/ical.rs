@@ -80,6 +80,18 @@ fn prop_p(name: &str, val: String, params: Vec<PParameter<'static>>) -> PPropert
     }
 }
 
+/// RFC 5545 content-line unfolding: a CRLF (or bare LF, tolerantly) immediately
+/// followed by a single space or HTAB is a line fold and is removed. Real-world
+/// `.ics` files fold long lines (and the `icalendar` serializer folds at 75
+/// octets), but the low-level `read_calendar` parser does not unfold, so we do
+/// it before handing bytes to the parser.
+fn unfold(s: &str) -> String {
+    s.replace("\r\n ", "")
+        .replace("\r\n\t", "")
+        .replace("\n ", "")
+        .replace("\n\t", "")
+}
+
 /// RFC 5545 TEXT escaping (backslash, semicolon, comma, newline).
 fn esc(s: &str) -> String {
     s.replace('\\', "\\\\")
@@ -135,6 +147,52 @@ fn read_datetime(c: &PComponent, name: &str) -> Option<(String, Option<String>, 
     Some((parsed.local, tz, parsed.is_date))
 }
 
+/// Map an iCalendar `ROLE` parameter to the JSCalendar participant-role key
+/// (RFC 8984 §4.4.5). `REQ-PARTICIPANT` is the default and maps to `attendee`.
+fn ical_role_to_json(role: &str) -> &'static str {
+    match role.to_ascii_uppercase().as_str() {
+        "CHAIR" => "chair",
+        "OPT-PARTICIPANT" => "optional",
+        "NON-PARTICIPANT" => "informational",
+        _ => "attendee",
+    }
+}
+
+/// Map a JSCalendar participant-role set back to a single iCalendar `ROLE`
+/// value. `REQ-PARTICIPANT` is the default (caller may omit emitting it).
+fn json_roles_to_ical(roles: &serde_json::Map<String, Value>) -> &'static str {
+    if roles.contains_key("chair") {
+        "CHAIR"
+    } else if roles.contains_key("optional") {
+        "OPT-PARTICIPANT"
+    } else if roles.contains_key("informational") {
+        "NON-PARTICIPANT"
+    } else {
+        "REQ-PARTICIPANT"
+    }
+}
+
+/// Map an iCalendar `CUTYPE` parameter to the JSCalendar participant `kind`
+/// (RFC 8984 §4.4.2). `ROOM` maps to `location` per the JSCalendar model.
+fn ical_cutype_to_kind(cutype: &str) -> &'static str {
+    match cutype.to_ascii_uppercase().as_str() {
+        "RESOURCE" => "resource",
+        "ROOM" => "location",
+        "GROUP" => "group",
+        _ => "individual",
+    }
+}
+
+/// Map a JSCalendar `kind` back to an iCalendar `CUTYPE`.
+fn kind_to_ical_cutype(kind: &str) -> &'static str {
+    match kind {
+        "resource" => "RESOURCE",
+        "location" => "ROOM",
+        "group" => "GROUP",
+        _ => "INDIVIDUAL",
+    }
+}
+
 fn read_participants(c: &PComponent) -> Value {
     let mut map = serde_json::Map::new();
     let mut add = |p: &PProperty, role: &str| {
@@ -150,16 +208,23 @@ fn read_participants(c: &PComponent) -> Value {
         let rsvp = get_param(p, "RSVP")
             .map(|v| v.eq_ignore_ascii_case("TRUE"))
             .unwrap_or(false);
-        map.insert(
-            email.to_string(),
-            json!({
-                "name": name,
-                "email": email,
-                "role": role,
-                "participationStatus": partstat,
-                "expectReply": rsvp,
-            }),
-        );
+        let mut obj = json!({
+            "name": name,
+            "email": email,
+            "role": role,
+            "participationStatus": partstat,
+            "expectReply": rsvp,
+        });
+        // Attendees carry the JSCalendar `roles` set + `kind` (from ATTENDEE
+        // ROLE/CUTYPE). ORGANIZER never carries these params.
+        if role != "organizer" {
+            let jrole = ical_role_to_json(get_param(p, "ROLE").unwrap_or("REQ-PARTICIPANT"));
+            obj["roles"] = json!({ jrole: true });
+            if let Some(cutype) = get_param(p, "CUTYPE") {
+                obj["kind"] = Value::String(ical_cutype_to_kind(cutype).to_string());
+            }
+        }
+        map.insert(email.to_string(), obj);
     };
     if let Some(org) = find(c, "ORGANIZER") {
         add(org, "organizer");
@@ -376,6 +441,16 @@ fn participant_props(v: &Value) -> Vec<PProperty<'static>> {
             {
                 params.push(param("RSVP", "TRUE"));
             }
+            // Emit ROLE only when non-default (REQ-PARTICIPANT is the default).
+            if let Some(roles) = part.get("roles").and_then(Value::as_object) {
+                let ics_role = json_roles_to_ical(roles);
+                if ics_role != "REQ-PARTICIPANT" {
+                    params.push(param("ROLE", ics_role));
+                }
+            }
+            if let Some(kind) = part.get("kind").and_then(Value::as_str) {
+                params.push(param("CUTYPE", kind_to_ical_cutype(kind)));
+            }
             out.push(prop_p("ATTENDEE", format!("mailto:{email}"), params));
         }
     }
@@ -519,6 +594,18 @@ pub(crate) fn to_component(v: &Value) -> PComponent<'static> {
             props.push(date_prop("EXDATE", d, tz.as_deref(), is_date));
         }
     }
+    // recurrenceOverrides entries with an empty patch are pure RDATE additions
+    // (an added instance with no property changes); overrides that change
+    // properties are emitted as separate RECURRENCE-ID components (see
+    // `override_components`), not here.
+    if let Some(overrides) = v.get("recurrenceOverrides").and_then(Value::as_object) {
+        for (rid, patch) in overrides {
+            if patch.as_object().is_some_and(serde_json::Map::is_empty) {
+                let is_date = !rid.contains('T');
+                props.push(date_prop("RDATE", rid, tz.as_deref(), is_date));
+            }
+        }
+    }
 
     let alarms = if is_todo { vec![] } else { alarm_components(v) };
     PComponent {
@@ -528,21 +615,178 @@ pub(crate) fn to_component(v: &Value) -> PComponent<'static> {
     }
 }
 
+// ── recurrence overrides (RDATE / RECURRENCE-ID) ─────────────────────────────
+
+/// Event fields that a per-instance `RECURRENCE-ID` override may change; `start`
+/// is handled separately (it is only recorded when the instance was moved off
+/// its recurrence-id).
+const OVERRIDE_DIFF_KEYS: &[&str] = &[
+    "title",
+    "description",
+    "duration",
+    "timeZone",
+    "locations",
+    "status",
+    "freeBusyStatus",
+    "priority",
+    "sequence",
+    "participants",
+    "showWithoutTime",
+];
+
+/// Build the JSCalendar patch for one `RECURRENCE-ID` override VEVENT relative
+/// to its master. `start` is recorded only when the instance was rescheduled
+/// (its DTSTART differs from the recurrence-id `rid`); other differing fields
+/// from [`OVERRIDE_DIFF_KEYS`] are copied verbatim.
+fn override_patch(master: &Value, over: &Value, rid: &str) -> Value {
+    let mut patch = serde_json::Map::new();
+    let over_start = over
+        .get("start")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if !over_start.is_empty() && over_start != rid {
+        patch.insert("start".into(), Value::String(over_start.to_string()));
+    }
+    for key in OVERRIDE_DIFF_KEYS {
+        if master.get(*key) != over.get(*key)
+            && let Some(val) = over.get(*key)
+        {
+            patch.insert((*key).to_string(), val.clone());
+        }
+    }
+    Value::Object(patch)
+}
+
+/// Collect `recurrenceOverrides` for a master VEVENT: RDATE additions (empty
+/// patches) plus sibling VEVENTs sharing the UID that carry a `RECURRENCE-ID`.
+fn collect_overrides(
+    cal: &PCalendar,
+    master: &PComponent,
+    master_json: &Value,
+) -> serde_json::Map<String, Value> {
+    let uid = text(master, "UID");
+    let mut overrides = serde_json::Map::new();
+    for rdate in find_all(master, "RDATE") {
+        for part in rdate.val.as_str().split(',') {
+            if let Some(d) = dt::parse_ical_dt(part) {
+                overrides.entry(d.local).or_insert_with(|| json!({}));
+            }
+        }
+    }
+    for comp in &cal.components {
+        if !comp.name.as_str().eq_ignore_ascii_case("VEVENT") {
+            continue;
+        }
+        let Some(rid_prop) = find(comp, "RECURRENCE-ID") else {
+            continue;
+        };
+        if text(comp, "UID") != uid {
+            continue;
+        }
+        let Some(rid) = dt::parse_ical_dt(rid_prop.val.as_str()) else {
+            continue;
+        };
+        let over_json = event_to_json(comp);
+        let patch = override_patch(master_json, &over_json, &rid.local);
+        overrides.insert(rid.local, patch);
+    }
+    overrides
+}
+
+/// Build the separate `RECURRENCE-ID` VEVENT components for a projection's
+/// non-empty `recurrenceOverrides` (empty patches ride RDATE on the master).
+fn override_components(v: &Value) -> Vec<PComponent<'static>> {
+    let mut out = vec![];
+    let tz = opt_s(v, "timeZone");
+    let Some(overrides) = v.get("recurrenceOverrides").and_then(Value::as_object) else {
+        return out;
+    };
+    for (rid, patch) in overrides {
+        let Some(patch_obj) = patch.as_object() else {
+            continue;
+        };
+        if patch_obj.is_empty() {
+            continue; // pure RDATE addition — emitted on the master.
+        }
+        let mut over = v.clone();
+        if let Some(obj) = over.as_object_mut() {
+            obj.insert("recurrenceRules".into(), json!([]));
+            obj.insert("recurrenceOverrides".into(), json!({}));
+            obj.insert("excludedRecurrenceDates".into(), json!([]));
+            let start = patch_obj
+                .get("start")
+                .and_then(Value::as_str)
+                .unwrap_or(rid)
+                .to_string();
+            obj.insert("start".into(), Value::String(start));
+            for (key, val) in patch_obj {
+                if key != "start" {
+                    obj.insert(key.clone(), val.clone());
+                }
+            }
+        }
+        let mut comp = to_component(&over);
+        let is_date = !rid.contains('T');
+        comp.properties
+            .push(date_prop("RECURRENCE-ID", rid, tz.as_deref(), is_date));
+        out.push(comp);
+    }
+    out
+}
+
+/// The master component plus any `RECURRENCE-ID` override components for a
+/// projection.
+fn components_for(v: &Value) -> Vec<PComponent<'static>> {
+    let mut comps = vec![to_component(v)];
+    comps.extend(override_components(v));
+    comps
+}
+
 // ── public API ───────────────────────────────────────────────────────────────
 
 /// Parse an iCalendar document into per-component Mailwoman projections.
+///
+/// VEVENTs sharing a UID are folded: the master (no `RECURRENCE-ID`) carries
+/// its overriding instances in `recurrenceOverrides`; RDATE dates become
+/// empty-patch overrides. A detached override with no master in the document is
+/// projected standalone.
 pub fn parse_ical(bytes: &[u8]) -> Result<Vec<ParsedIcal>> {
-    let text = String::from_utf8_lossy(bytes);
-    let cal = read_calendar(&text).map_err(IcsError::Ical)?;
+    let doc = unfold(&String::from_utf8_lossy(bytes));
+    let cal = read_calendar(&doc).map_err(IcsError::Ical)?;
+    // UIDs that have a master VEVENT (no RECURRENCE-ID) in this document.
+    let master_uids: std::collections::HashSet<String> = cal
+        .components
+        .iter()
+        .filter(|c| {
+            c.name.as_str().eq_ignore_ascii_case("VEVENT") && find(c, "RECURRENCE-ID").is_none()
+        })
+        .map(|c| text(c, "UID"))
+        .collect();
     let mut out = vec![];
     for comp in &cal.components {
         let name = comp.name.as_str().to_ascii_uppercase();
         let json = match name.as_str() {
-            "VEVENT" => event_to_json(comp),
+            "VEVENT" => {
+                if find(comp, "RECURRENCE-ID").is_some() {
+                    // An override instance whose master is present is folded
+                    // into that master; a detached one is projected standalone.
+                    if master_uids.contains(&text(comp, "UID")) {
+                        continue;
+                    }
+                    event_to_json(comp)
+                } else {
+                    let mut json = event_to_json(comp);
+                    let overrides = collect_overrides(&cal, comp, &json);
+                    if !overrides.is_empty() {
+                        json["recurrenceOverrides"] = Value::Object(overrides);
+                    }
+                    json
+                }
+            }
             "VTODO" => todo_to_json(comp),
             _ => continue,
         };
-        let ical_raw = wrap_calendar(vec![to_component(&json)], vec![]);
+        let ical_raw = wrap_calendar(components_for(&json), vec![]);
         out.push(ParsedIcal {
             ical_raw,
             json,
@@ -552,7 +796,8 @@ pub fn parse_ical(bytes: &[u8]) -> Result<Vec<ParsedIcal>> {
     Ok(out)
 }
 
-/// Emit a single-component `VCALENDAR` from a Mailwoman event/task projection.
+/// Emit a `VCALENDAR` from a Mailwoman event/task projection (master component
+/// plus any `RECURRENCE-ID` override components).
 pub fn emit_ical(event_json: &Value) -> Result<String> {
-    Ok(wrap_calendar(vec![to_component(event_json)], vec![]))
+    Ok(wrap_calendar(components_for(event_json), vec![]))
 }

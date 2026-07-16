@@ -4,7 +4,7 @@
 
 use mw_ics::{
     ItipMethod, aggregate_free_busy, build_itip, emit_ical, emit_vcard, expand_recurrence,
-    parse_hol, parse_ical, parse_itip, parse_vcard,
+    parse_hol, parse_ical, parse_itip, parse_vcard, write_hol,
 };
 use serde_json::{Value, json};
 
@@ -240,6 +240,131 @@ fn freebusy_merges_overlapping_and_skips_free() {
     assert_eq!(merged[0].start_utc, "2026-07-10T09:00:00Z");
     assert_eq!(merged[0].end_utc, "2026-07-10T11:30:00Z");
     assert_eq!(merged[0].status, "busy");
+}
+
+// ── attendee ROLE / CUTYPE (#15) ─────────────────────────────────────────────
+
+const ROLES_ICS: &str = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Test//EN\r\n\
+BEGIN:VEVENT\r\nUID:roles-1@mailwoman\r\nSUMMARY:Board Review\r\n\
+DTSTART:20260401T090000Z\r\nDTEND:20260401T100000Z\r\n\
+ORGANIZER;CN=Alice:mailto:alice@example.com\r\n\
+ATTENDEE;CN=Bob;ROLE=CHAIR;CUTYPE=INDIVIDUAL:mailto:bob@example.com\r\n\
+ATTENDEE;CN=Room1;ROLE=OPT-PARTICIPANT;CUTYPE=ROOM:mailto:room1@example.com\r\n\
+END:VEVENT\r\nEND:VCALENDAR\r\n";
+
+#[test]
+fn attendee_role_and_cutype_projected() {
+    let p = parse_ical(ROLES_ICS.as_bytes()).unwrap();
+    let e = &p[0].json;
+    // Chair attendee, an individual.
+    assert_eq!(e["participants"]["bob@example.com"]["roles"]["chair"], true);
+    assert_eq!(e["participants"]["bob@example.com"]["kind"], "individual");
+    // Optional attendee, a room (JSCalendar kind = location).
+    assert_eq!(
+        e["participants"]["room1@example.com"]["roles"]["optional"],
+        true
+    );
+    assert_eq!(e["participants"]["room1@example.com"]["kind"], "location");
+    // Organizer never carries a roles/kind set.
+    assert!(
+        e["participants"]["alice@example.com"]
+            .get("roles")
+            .is_none()
+    );
+}
+
+#[test]
+fn attendee_role_cutype_roundtrip() {
+    let p1 = parse_ical(ROLES_ICS.as_bytes()).unwrap();
+    let emitted = emit_ical(&p1[0].json).unwrap();
+    // ROLE/CUTYPE survive the emit as real parameters.
+    assert!(emitted.contains("ROLE=CHAIR"));
+    assert!(emitted.contains("CUTYPE=ROOM"));
+    let p2 = parse_ical(emitted.as_bytes()).unwrap();
+    assert_eq!(p1[0].json, p2[0].json, "role/cutype must survive emit");
+}
+
+// ── RDATE additions (#15) ────────────────────────────────────────────────────
+
+const RDATE_ICS: &str = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Test//EN\r\n\
+BEGIN:VEVENT\r\nUID:rdate-1@mailwoman\r\nSUMMARY:Ad-hoc\r\n\
+DTSTART:20260320T090000Z\r\nDTEND:20260320T100000Z\r\n\
+RDATE:20260325T090000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+
+#[test]
+fn rdate_becomes_override_and_expands() {
+    let p = parse_ical(RDATE_ICS.as_bytes()).unwrap();
+    let e = &p[0].json;
+    // RDATE date lands as an empty-patch recurrence override.
+    assert_eq!(
+        e["recurrenceOverrides"]["2026-03-25T09:00:00"],
+        json!({}),
+        "RDATE should project as an empty-patch override"
+    );
+    // Expansion yields both the base instance and the RDATE instance.
+    let inst = expand_recurrence(e, "2026-03-01T00:00:00Z", "2026-04-01T00:00:00Z").unwrap();
+    let starts: Vec<&str> = inst.iter().map(|i| i.start_utc.as_str()).collect();
+    assert_eq!(starts, vec!["2026-03-20T09:00:00Z", "2026-03-25T09:00:00Z"]);
+    // Round-trips.
+    let p2 = parse_ical(emit_ical(e).unwrap().as_bytes()).unwrap();
+    assert_eq!(*e, p2[0].json, "RDATE override must survive emit");
+}
+
+// ── RECURRENCE-ID overrides (#15) ────────────────────────────────────────────
+
+const OVERRIDE_ICS: &str = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Test//EN\r\n\
+BEGIN:VEVENT\r\nUID:ov-1@mailwoman\r\nSUMMARY:Standup\r\n\
+DTSTART:20260320T090000Z\r\nDTEND:20260320T093000Z\r\n\
+RRULE:FREQ=WEEKLY;COUNT=3\r\nEND:VEVENT\r\n\
+BEGIN:VEVENT\r\nUID:ov-1@mailwoman\r\nSUMMARY:Standup (special)\r\n\
+RECURRENCE-ID:20260327T090000Z\r\n\
+DTSTART:20260327T110000Z\r\nDTEND:20260327T113000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+
+#[test]
+fn recurrence_id_override_folds_and_reschedules() {
+    let p = parse_ical(OVERRIDE_ICS.as_bytes()).unwrap();
+    // The two VEVENTs fold into one master carrying the override.
+    assert_eq!(p.len(), 1);
+    let e = &p[0].json;
+    let patch = &e["recurrenceOverrides"]["2026-03-27T09:00:00"];
+    assert_eq!(patch["title"], "Standup (special)");
+    assert_eq!(patch["start"], "2026-03-27T11:00:00");
+
+    // Expansion applies the reschedule to the second occurrence only.
+    let inst = expand_recurrence(e, "2026-03-01T00:00:00Z", "2026-04-10T00:00:00Z").unwrap();
+    let starts: Vec<&str> = inst.iter().map(|i| i.start_utc.as_str()).collect();
+    assert_eq!(
+        starts,
+        vec![
+            "2026-03-20T09:00:00Z",
+            "2026-03-27T11:00:00Z", // rescheduled
+            "2026-04-03T09:00:00Z",
+        ]
+    );
+
+    // Round-trips through emit (master + RECURRENCE-ID component).
+    let p2 = parse_ical(emit_ical(e).unwrap().as_bytes()).unwrap();
+    assert_eq!(*e, p2[0].json, "override must survive emit");
+}
+
+// ── .hol export (#15) ────────────────────────────────────────────────────────
+
+#[test]
+fn hol_export_roundtrips_import() {
+    let imported = parse_hol(HOLIDAYS_HOL.as_bytes()).unwrap();
+    let jsons: Vec<Value> = imported.iter().map(|p| p.json.clone()).collect();
+    let text = write_hol(&jsons).unwrap();
+    assert!(text.starts_with("[Holidays] 3"));
+    assert!(text.contains("New Year,2026/01/01"));
+    assert!(text.contains("Christmas Day,2026/12/25"));
+    // Re-importing the exported pack yields the same titles + dates.
+    let reimported = parse_hol(text.as_bytes()).unwrap();
+    assert_eq!(reimported.len(), 3);
+    for (a, b) in imported.iter().zip(reimported.iter()) {
+        assert_eq!(a.json["title"], b.json["title"]);
+        assert_eq!(a.json["start"], b.json["start"]);
+        assert_eq!(b.json["showWithoutTime"], true);
+    }
 }
 
 #[test]
