@@ -16,6 +16,7 @@ import { createMockStore, mockSession, createMockJmap, type MockStore } from './
 import { CALENDAR_VIEWS, type CalendarView } from './types.ts';
 import { ActiveView } from './views.tsx';
 import { EventEditor } from './EventEditor.tsx';
+import { ConflictResolver } from './ConflictResolver.tsx';
 import { formatFull, formatMonth, formatMonthYear } from './datetime.ts';
 import { HOLIDAY_PACKS } from './holidays.ts';
 import * as css from './calendar.css.ts';
@@ -61,6 +62,7 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
   const [editorOpen, setEditorOpen] = createSignal(false);
   const [editing, setEditing] = createSignal<CalendarEvent | null>(null);
   const [defaultStart, setDefaultStart] = createSignal<Date | undefined>(undefined);
+  const [resolverOpen, setResolverOpen] = createSignal(false);
 
   onMount(() => {
     void loadCatalog('calendar');
@@ -130,6 +132,16 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
           </For>
         </div>
         <span class={css.spacer} />
+        <Show when={c.conflicts().length > 0}>
+          <button
+            type="button"
+            class={css.conflictButton}
+            onClick={() => setResolverOpen(true)}
+            aria-label={t('calendar-resolve-conflicts', { count: c.conflicts().length })}
+          >
+            {t('calendar-resolve-conflicts', { count: c.conflicts().length })}
+          </button>
+        </Show>
         <button type="button" class={css.primaryButton} onClick={openNew}>{t('calendar-new-event')}</button>
         <button type="button" class={css.button} onClick={() => importInput?.click()}>{t('calendar-import')}</button>
         <button type="button" class={css.button} onClick={() => void onExport()}>{t('calendar-export')}</button>
@@ -197,6 +209,10 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
 
       <Show when={editorOpen()}>
         <EventEditor controller={c} event={editing()} defaultStart={defaultStart()} onClose={() => setEditorOpen(false)} />
+      </Show>
+
+      <Show when={resolverOpen()}>
+        <ConflictResolver controller={c} onClose={() => setResolverOpen(false)} />
       </Show>
     </section>
   );

@@ -116,3 +116,58 @@ calendar-attendees = Attendees
 calendar-add-attendee = Add attendee
 calendar-remove-attendee = Remove { $email }
 calendar-notes = Notes
+
+# -- Attendee roles / kind (iCal ROLE / CUTYPE) ------------------------------
+calendar-attendee-role-for = Role for { $email }
+calendar-attendee-cutype-for = Type for { $email }
+calendar-role-chair = Chair
+calendar-role-required = Required
+calendar-role-optional = Optional
+calendar-role-non-participant = Non-participant
+calendar-cutype-individual = Person
+calendar-cutype-group = Group
+calendar-cutype-resource = Resource
+calendar-cutype-room = Room
+calendar-partstat-needs-action = No reply
+calendar-partstat-accepted = Accepted
+calendar-partstat-declined = Declined
+calendar-partstat-tentative = Tentative
+
+# -- Schedule view (distinct from Agenda) ------------------------------------
+# Accessible name for one schedule row: start–end time + (isolated) title.
+calendar-schedule-row = { $start } to { $end }: { $title }
+calendar-schedule-free = { $gap } free
+calendar-gap-hm = { $h }h { $m }m
+calendar-gap-h = { $h }h
+calendar-gap-m = { $m }m
+
+# -- Conflict resolver -------------------------------------------------------
+calendar-resolve-conflicts = Resolve { $count ->
+    [one] { $count } conflict
+   *[other] { $count } conflicts
+}
+calendar-resolver-title = Resolve conflicts
+calendar-resolver-none = No conflicts to resolve.
+calendar-resolver-pick = Conflict
+calendar-resolver-pair-n = { $n } of { $total }: { $a } vs { $b }
+calendar-resolver-time = Time
+calendar-resolver-overlap = Overlap { $start } – { $end }
+calendar-resolver-update-note = Rescheduling or shortening an event with attendees sends them an update.
+calendar-resolver-reschedule = Reschedule later event
+calendar-resolver-shorten = Shorten earlier event
+calendar-resolver-tentative = Mark later tentative
+calendar-resolver-double-book = Double-book (mark free)
+calendar-resolver-keep = Keep both
+calendar-events-count-people = { $count ->
+    [zero] No attendees
+    [one] { $count } attendee
+   *[other] { $count } attendees
+}
+
+# -- Free/busy grid ----------------------------------------------------------
+calendar-fb-caption = Attendee availability across the conflict window, by hour.
+calendar-fb-attendee = Attendee
+calendar-fb-cell = { $principal } at { $hour }: { $status }
+calendar-fb-busy = Busy
+calendar-fb-tentative = Tentative
+calendar-fb-free = Free

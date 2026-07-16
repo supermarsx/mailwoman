@@ -10,6 +10,17 @@ import { t, isolate } from '../../i18n';
 import type { CalendarEvent, Participant } from '../../api/pim-types.ts';
 import type { CalendarController, EventDraft } from './controller.ts';
 import { dateToLocal, localToDate } from './datetime.ts';
+import {
+  ATTENDEE_CUTYPES,
+  ATTENDEE_ROLES,
+  attendeeRoleToLegacy,
+  attendeeRoleToRoles,
+  participantCutype,
+  participantRole,
+  type AttendeeCutype,
+  type AttendeeRole,
+  type ParticipantExt,
+} from './types.ts';
 
 // Self-contained modal focus management (t8-e2 keeps focus primitives per-area —
 // does NOT import the e3-owned src/components/a11y/**). Traps Tab within the
@@ -50,6 +61,12 @@ function toInputDate(local: string): string {
 interface AttendeeRow {
   name: string;
   email: string;
+  /** ROLE (chair / required / optional / non-participant). */
+  role: AttendeeRole;
+  /** CUTYPE (individual / group / resource / room). */
+  cutype: AttendeeCutype;
+  /** Reply state, shown as a status badge (read-only in the editor). */
+  participationStatus: Participant['participationStatus'];
 }
 
 export function EventEditor(props: EventEditorProps): JSX.Element {
@@ -151,23 +168,37 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
   function addAttendee(): void {
     const raw = newAttendee().trim();
     if (raw === '') return;
-    setAttendees((a) => [...a, { name: raw.split('@')[0] ?? raw, email: raw }]);
+    setAttendees((a) => [
+      ...a,
+      { name: raw.split('@')[0] ?? raw, email: raw, role: 'required', cutype: 'individual', participationStatus: 'needs-action' },
+    ]);
     setNewAttendee('');
+  }
+
+  function setAttendeeRole(i: number, role: AttendeeRole): void {
+    setAttendees((cur) => cur.map((a, j) => (j === i ? { ...a, role } : a)));
+  }
+  function setAttendeeCutype(i: number, cutype: AttendeeCutype): void {
+    setAttendees((cur) => cur.map((a, j) => (j === i ? { ...a, cutype } : a)));
   }
 
   function buildDraft(): EventDraft {
     const s = allDay() ? toInputDate(start()) : start();
     const duration = allDay() ? 'P1D' : formatDuration(durationMin() * 60000);
     const rule = currentRule();
-    const participants: CalendarEvent['participants'] = {};
+    // Built as ParticipantExt (Participant + the JSCalendar `roles` JSMap + `kind`
+    // the ICS layer round-trips) then narrowed to the frozen `participants` shape.
+    const participants: Record<string, ParticipantExt> = {};
     if (ev !== null && ev.participants['me'] !== undefined) participants['me'] = ev.participants['me'];
     attendees().forEach((a, i) => {
       participants[`a${i}`] = {
         name: a.name,
         email: a.email,
-        role: 'attendee',
-        participationStatus: 'needs-action',
-        expectReply: true,
+        role: attendeeRoleToLegacy(a.role),
+        roles: attendeeRoleToRoles(a.role),
+        kind: a.cutype,
+        participationStatus: a.participationStatus,
+        expectReply: a.role !== 'non-participant',
       };
     });
     const alerts: CalendarEvent['alerts'] = {};
@@ -187,7 +218,7 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
       excludedRecurrenceDates: ev?.excludedRecurrenceDates ?? [],
       status: status(),
       freeBusyStatus: freeBusyStatus(),
-      participants,
+      participants: participants as CalendarEvent['participants'],
       alerts,
     };
   }
@@ -443,21 +474,40 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
           </div>
         </div>
 
-        {/* ── attendees ── */}
+        {/* ── attendees (with ROLE / CUTYPE pickers + reply status) ── */}
         <div class={css.field}>
           <label class={css.label}>{t('calendar-attendees')}</label>
-          <div class={css.row}>
+          <ul class={css.attendeeList}>
             <For each={attendees()}>
               {(a, i) => (
-                <span class={css.chip}>
-                  <bdi>{a.email}</bdi>
+                <li class={css.attendeeRow}>
+                  <span class={css.attendeeEmail}><bdi>{a.email}</bdi></span>
+                  <span class={css.attendeeStatus} data-status={a.participationStatus}>
+                    {t(`calendar-partstat-${a.participationStatus}`)}
+                  </span>
+                  <select
+                    class={css.input}
+                    value={a.role}
+                    onChange={(e) => setAttendeeRole(i(), e.currentTarget.value as AttendeeRole)}
+                    aria-label={t('calendar-attendee-role-for', { email: isolate(a.email) })}
+                  >
+                    <For each={ATTENDEE_ROLES}>{(r) => <option value={r}>{t(`calendar-role-${r}`)}</option>}</For>
+                  </select>
+                  <select
+                    class={css.input}
+                    value={a.cutype}
+                    onChange={(e) => setAttendeeCutype(i(), e.currentTarget.value as AttendeeCutype)}
+                    aria-label={t('calendar-attendee-cutype-for', { email: isolate(a.email) })}
+                  >
+                    <For each={ATTENDEE_CUTYPES}>{(k) => <option value={k}>{t(`calendar-cutype-${k}`)}</option>}</For>
+                  </select>
                   <button type="button" class={css.button} aria-label={t('calendar-remove-attendee', { email: isolate(a.email) })} onClick={() => setAttendees((cur) => cur.filter((_, j) => j !== i()))}>
                     ×
                   </button>
-                </span>
+                </li>
               )}
             </For>
-          </div>
+          </ul>
           <div class={css.row}>
             <input
               class={css.input}
@@ -502,9 +552,19 @@ export function extractReminders(ev: CalendarEvent): number[] {
   return out;
 }
 
-/** Pull the non-self attendees out of an event's participants map. */
+/** Pull the non-self attendees out of an event's participants map, reading the
+ *  JSCalendar `roles`/`kind` fields (falling back to the legacy `role` string). */
 export function extractAttendees(ev: CalendarEvent): AttendeeRow[] {
   return Object.entries(ev.participants)
     .filter(([id]) => id !== 'me')
-    .map(([, p]) => ({ name: p.name, email: p.email }));
+    .map(([, raw]) => {
+      const p = raw as ParticipantExt;
+      return {
+        name: p.name,
+        email: p.email,
+        role: participantRole(p),
+        cutype: participantCutype(p),
+        participationStatus: p.participationStatus,
+      };
+    });
 }

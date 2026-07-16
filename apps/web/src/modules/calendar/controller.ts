@@ -46,7 +46,7 @@ import {
   startOfMonth,
   startOfWeek,
 } from './datetime.ts';
-import type { CalendarView, EventInstance } from './types.ts';
+import type { CalendarView, ConflictPair, EventInstance } from './types.ts';
 
 /** The transport the controller runs over (mock or the real engine). */
 export interface CalendarBackend {
@@ -91,6 +91,8 @@ export interface CalendarController {
   error: Accessor<string | null>;
   /** Ids of events with at least one overlapping instance in the window. */
   conflictEventIds: Accessor<Set<Id>>;
+  /** The overlapping instance pairs in the window (for the resolver). */
+  conflicts: Accessor<ConflictPair[]>;
 
   // ── derived ──
   visibleCalendars: Accessor<Calendar[]>;
@@ -197,6 +199,7 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [conflictEventIds, setConflictEventIds] = createSignal<Set<Id>>(new Set());
+  const [conflicts, setConflicts] = createSignal<ConflictPair[]>([]);
 
   const window = createMemo<ViewWindow>(() => windowFor(view(), focusDate()));
 
@@ -282,6 +285,14 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
           ids.add(p.eventB);
         }
         setConflictEventIds(ids);
+        setConflicts(
+          conflicts.map((p) => ({
+            a: p.eventA,
+            b: p.eventB,
+            overlapStart: p.overlapStart,
+            overlapEnd: p.overlapEnd,
+          })),
+        );
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'failed to load calendar');
@@ -445,6 +456,7 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
     loading,
     error,
     conflictEventIds,
+    conflicts,
     visibleCalendars,
     visibleInstances,
     window,

@@ -3,7 +3,7 @@
 // V2 Ribbon). Dynamic geometry (event block top/height, grid column counts) is
 // applied inline by the views; everything static lives here.
 
-import { style, styleVariants } from '@vanilla-extract/css';
+import { globalStyle, style, styleVariants } from '@vanilla-extract/css';
 import { vars } from '../../theme/contract.css.ts';
 
 export const module = style({
@@ -68,6 +68,8 @@ export const button = style({
 });
 
 export const primaryButton = style([button, { background: vars.color.accent, color: vars.color.accentText, borderColor: vars.color.accent }]);
+
+export const conflictButton = style([button, { background: vars.color.danger, color: '#fff', borderColor: vars.color.danger }]);
 
 export const viewSwitch = style({ display: 'flex', gap: vars.space[1], flexWrap: 'wrap' });
 
@@ -292,3 +294,120 @@ export const chip = style({
 
 export const dangerText = style({ color: vars.color.danger });
 export const dimText = style({ color: vars.color.textDim, fontSize: '0.85rem' });
+
+// ── schedule view (distinct from the agenda list) ───────────────────────────
+
+export const schedule = style({ display: 'flex', flexDirection: 'column', padding: vars.space[3], gap: '2px' });
+
+export const scheduleDay = style({
+  fontWeight: 600,
+  fontSize: '0.9rem',
+  padding: `${vars.space[2]} 0 ${vars.space[1]}`,
+  borderBottom: `2px solid ${vars.color.border}`,
+  marginTop: vars.space[2],
+});
+
+export const scheduleGap = style({
+  color: vars.color.textDim,
+  fontSize: '0.75rem',
+  fontStyle: 'italic',
+  padding: '1px 0 1px 9rem',
+  borderInlineStart: `2px dashed ${vars.color.border}`,
+  marginInlineStart: '4.4rem',
+});
+
+export const scheduleRow = style({
+  display: 'flex',
+  gap: vars.space[3],
+  alignItems: 'center',
+  padding: `${vars.space[1]} ${vars.space[2]}`,
+  cursor: 'pointer',
+  appearance: 'none',
+  border: `1px solid transparent`,
+  background: 'none',
+  color: 'inherit',
+  font: 'inherit',
+  width: '100%',
+  textAlign: 'start',
+  borderRadius: vars.radius.md,
+  minHeight: vars.a11y.touchTarget,
+  selectors: {
+    '&:hover': { background: vars.color.bgAlt, borderColor: vars.color.border },
+    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+  },
+});
+
+export const scheduleRange = style({ width: '9rem', flexShrink: 0, color: vars.color.textDim, fontSize: '0.85rem', fontVariantNumeric: 'tabular-nums' });
+
+export const scheduleDot = style({ width: '0.6rem', height: '0.6rem', borderRadius: '50%', flexShrink: 0 });
+
+export const scheduleTitle = style({ fontWeight: 500 });
+
+// ── attendee rows (role / cutype pickers + reply status) ────────────────────
+
+export const attendeeList = style({ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: vars.space[1] });
+
+export const attendeeRow = style({ display: 'flex', alignItems: 'center', gap: vars.space[2], flexWrap: 'wrap' });
+
+export const attendeeEmail = style({ flex: 1, minWidth: '8rem', fontSize: '0.85rem' });
+
+export const attendeeStatus = style({
+  fontSize: '0.7rem',
+  borderRadius: vars.radius.pill,
+  padding: '0 6px',
+  border: `1px solid ${vars.color.border}`,
+  color: vars.color.textDim,
+  whiteSpace: 'nowrap',
+});
+
+// ── conflict resolver ───────────────────────────────────────────────────────
+
+export const resolverDialog = style([dialog, { width: 'min(46rem, 94vw)' }]);
+
+export const resolverGridTwo = style({
+  display: 'grid',
+  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gap: vars.space[3],
+  '@media': { 'screen and (max-width: 40rem)': { gridTemplateColumns: '1fr' } },
+});
+
+export const resolverSide = style({
+  border: `1px solid ${vars.color.border}`,
+  borderRadius: vars.radius.md,
+  padding: vars.space[2],
+  minWidth: 0,
+});
+
+export const resolverSideTitle = style({ margin: `0 0 ${vars.space[1]}`, fontSize: '0.95rem', overflowWrap: 'anywhere' });
+
+export const resolverMeta = style({
+  display: 'grid',
+  gridTemplateColumns: 'auto 1fr',
+  gap: '2px 8px',
+  margin: 0,
+  fontSize: '0.8rem',
+});
+globalStyle(`${resolverMeta} dt`, { color: vars.color.textDim });
+globalStyle(`${resolverMeta} dd`, { margin: 0, overflowWrap: 'anywhere' });
+
+export const resolverActions = style({ display: 'flex', gap: vars.space[2], flexWrap: 'wrap', marginTop: vars.space[2] });
+
+// ── free/busy grid ──────────────────────────────────────────────────────────
+
+export const fbScroll = style({ overflowX: 'auto', border: `1px solid ${vars.color.border}`, borderRadius: vars.radius.md });
+
+export const fbGrid = style({ borderCollapse: 'collapse', fontSize: '0.7rem', width: '100%' });
+
+export const fbCorner = style({ textAlign: 'start', padding: '2px 6px', position: 'sticky', insetInlineStart: 0, background: vars.color.surface, color: vars.color.textDim, fontWeight: 600 });
+
+export const fbHead = style({ padding: '2px 4px', color: vars.color.textDim, fontWeight: 500, textAlign: 'center', fontVariantNumeric: 'tabular-nums' });
+
+export const fbRowHead = style({ textAlign: 'start', padding: '2px 6px', position: 'sticky', insetInlineStart: 0, background: vars.color.surface, whiteSpace: 'nowrap', maxWidth: '10rem', overflow: 'hidden', textOverflow: 'ellipsis' });
+
+const fbCellBase = style({ textAlign: 'center', border: `1px solid ${vars.color.border}`, minWidth: '1.4rem', height: '1.4rem', color: vars.color.text });
+
+export const fbCell = styleVariants({
+  free: [fbCellBase, { background: vars.color.bg }],
+  busy: [fbCellBase, { background: vars.color.danger, color: '#fff' }],
+  tentative: [fbCellBase, { background: vars.color.bgAlt }],
+});

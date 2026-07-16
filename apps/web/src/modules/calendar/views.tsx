@@ -458,7 +458,8 @@ export function TriMonthView(props: ViewProps): JSX.Element {
   );
 }
 
-/** schedule + agenda: a flat, date-grouped list of upcoming instances. */
+/** Agenda: upcoming instances grouped under per-day headers (distinct from the
+ *  flat, gap-aware Schedule feed below). */
 export function AgendaView(props: ViewProps): JSX.Element {
   const days = (): Date[] => {
     const start = startOfDay(props.controller.focusDate());
@@ -491,6 +492,96 @@ export function AgendaView(props: ViewProps): JSX.Element {
               </For>
             </div>
           )}
+        </For>
+      </Show>
+    </div>
+  );
+}
+
+/** A compact "Xh Ym" gap duration for the schedule's free-time rows. */
+function formatGap(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h > 0 && m > 0) return t('calendar-gap-hm', { h, m });
+  if (h > 0) return t('calendar-gap-h', { h });
+  return t('calendar-gap-m', { m });
+}
+
+/**
+ * The Schedule view — a distinct render from the Agenda list (which groups
+ * events under per-day headers). Schedule is a single flat chronological feed of
+ * every upcoming instance across the 30-day window, with a day divider whenever
+ * the date changes and an explicit free-time row between consecutive same-day
+ * events, plus a start–end time range and duration per event. This planner-style
+ * timeline is what makes it visibly different from Agenda (plan #15: "stop
+ * aliasing agenda — render a real distinct schedule view").
+ */
+export function ScheduleView(props: ViewProps): JSX.Element {
+  const c = props.controller;
+  const items = createMemo<EventInstance[]>(() => {
+    const start = startOfDay(c.focusDate());
+    const seen = new Set<string>();
+    const out: EventInstance[] = [];
+    for (let i = 0; i < 30; i += 1) {
+      for (const inst of c.instancesForDay(addDays(start, i))) {
+        if (seen.has(inst.key)) continue;
+        seen.add(inst.key);
+        out.push(inst);
+      }
+    }
+    return out.sort((a, b) => a.start.getTime() - b.start.getTime());
+  });
+
+  function scheduleLabel(inst: EventInstance): string {
+    const title = isolate(inst.event.title);
+    return inst.allDay
+      ? t('calendar-event-allday', { title })
+      : t('calendar-schedule-row', { start: formatTime(inst.start), end: formatTime(inst.end), title });
+  }
+
+  return (
+    <div class={css.schedule} role="list" aria-label={t('calendar-view-schedule')} data-testid="schedule-view">
+      <Show when={items().length > 0} fallback={<p class={css.dimText}>{t('calendar-no-events-30')}</p>}>
+        <For each={items()}>
+          {(inst, i) => {
+            const prev = (): EventInstance | undefined => (i() > 0 ? items()[i() - 1] : undefined);
+            const newDay = (): boolean => {
+              const p = prev();
+              return p === undefined || !sameDay(p.start, inst.start);
+            };
+            const gapMin = (): number => {
+              const p = prev();
+              if (p === undefined || newDay() || inst.allDay || p.allDay) return 0;
+              return Math.round((inst.start.getTime() - p.end.getTime()) / 60000);
+            };
+            return (
+              <>
+                <Show when={newDay()}>
+                  <div class={css.scheduleDay} role="listitem">{formatFull(inst.start)}</div>
+                </Show>
+                <Show when={gapMin() > 0}>
+                  <div class={css.scheduleGap} role="listitem" data-testid="schedule-gap">
+                    {t('calendar-schedule-free', { gap: formatGap(gapMin()) })}
+                  </div>
+                </Show>
+                <div role="listitem">
+                  <button type="button" class={css.scheduleRow} aria-label={scheduleLabel(inst)} onClick={() => props.onOpenEvent(inst)}>
+                    <span class={css.scheduleRange} aria-hidden="true">
+                      {inst.allDay ? t('calendar-all-day-full') : `${formatTime(inst.start)} – ${formatTime(inst.end)}`}
+                    </span>
+                    <span class={css.scheduleDot} style={{ background: inst.color }} aria-hidden="true" />
+                    <span class={css.scheduleTitle}><bdi>{inst.event.title}</bdi></span>
+                    <Show when={inst.event.locations[0] !== undefined}>
+                      <span class={css.dimText}><bdi>{inst.event.locations[0]!.name}</bdi></span>
+                    </Show>
+                    <Show when={c.hasConflict(inst.event.id)}>
+                      <span class={css.conflictBadge} aria-label={t('calendar-conflict')}>{t('calendar-conflict')}</span>
+                    </Show>
+                  </button>
+                </div>
+              </>
+            );
+          }}
         </For>
       </Show>
     </div>
@@ -540,7 +631,6 @@ export function YearView(props: ViewProps): JSX.Element {
 export function ActiveView(props: ViewProps): JSX.Element {
   const v = (): CalendarView => props.controller.view();
   const isGrid = (): boolean => v() === 'day' || v() === '3day' || v() === 'work-week' || v() === 'week';
-  const isList = (): boolean => v() === 'schedule' || v() === 'agenda';
   return (
     <Switch fallback={<TimeGridView {...props} />}>
       <Match when={isGrid()}>
@@ -552,7 +642,10 @@ export function ActiveView(props: ViewProps): JSX.Element {
       <Match when={v() === 'tri-month'}>
         <TriMonthView {...props} />
       </Match>
-      <Match when={isList()}>
+      <Match when={v() === 'schedule'}>
+        <ScheduleView {...props} />
+      </Match>
+      <Match when={v() === 'agenda'}>
         <AgendaView {...props} />
       </Match>
       <Match when={v() === 'year'}>

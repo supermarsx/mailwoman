@@ -19,6 +19,7 @@ import type {
   EventImportResponse,
   EventSetResponse,
   ExpandedInstance,
+  FreeBusyBlock,
   FreeBusyResponse,
   ConflictPairResponse,
 } from './api.ts';
@@ -269,7 +270,31 @@ function dispatch(store: MockStore, call: Invocation): Invocation {
       return ok(callId, name, res);
     }
     case 'Calendar/freeBusy': {
-      const res: FreeBusyResponse = { accountId: ACCOUNT, blocks: [] };
+      // Derive each principal's busy blocks from the events they participate in
+      // (the real engine reads the principal's own calendars). `me@example.com`
+      // and the mock session user see every timed event as their own busy time.
+      const principals = (args['principals'] as string[]) ?? [];
+      const start = localToDate(args['start'] as string);
+      const end = localToDate(args['end'] as string);
+      const self = new Set([mockSession().username, 'me@example.com']);
+      const blocks: FreeBusyBlock[] = [];
+      for (const principal of principals) {
+        for (const ev of store.events) {
+          if (ev.showWithoutTime) continue;
+          const attends =
+            self.has(principal) || Object.values(ev.participants).some((p) => p.email === principal);
+          if (!attends) continue;
+          for (const inst of expandEvent(ev, start, end, '#000')) {
+            blocks.push({
+              principal,
+              start: dateToLocal(inst.start),
+              end: dateToLocal(inst.end),
+              status: ev.status === 'tentative' ? 'tentative' : 'busy',
+            });
+          }
+        }
+      }
+      const res: FreeBusyResponse = { accountId: ACCOUNT, blocks };
       return ok(callId, name, res);
     }
     case 'CalendarEvent/import': {
