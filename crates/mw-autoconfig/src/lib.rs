@@ -2,27 +2,31 @@
 //! `mw-autoconfig` — server discovery for a login email (plan §0/§2.4).
 //!
 //! [`discover`] walks a fallback ladder and returns the first
-//! [`AccountCandidate`] it can build:
+//! [`AccountCandidate`] it can build (SPEC §6.3):
 //!
-//! 1. **RFC 6186 SRV** (`_imaps._tcp` / `_submission._tcp`, …). Best-effort in
-//!    V1: the default [`ReqwestFetcher`] does not ship a DNS resolver (to stay
-//!    within the license floor — no async-std/copyleft SRV crate), so its SRV
-//!    rung is a no-op and the ladder relies on the HTTP methods. The rung is
-//!    fully wired and unit-tested through the injectable [`Fetcher`] seam so a
-//!    resolver can be dropped in later without touching the ladder.
-//! 2. **Thunderbird autoconfig XML** — provider-hosted
+//! 1. **JMAP session autodiscovery** — `GET https://<domain>/.well-known/jmap`
+//!    (RFC 8620 §2.2). A valid session resource short-circuits the ladder: for a
+//!    JMAP-native host it is the authoritative source, so it is tried first.
+//! 2. **RFC 6186 SRV** (`_imaps._tcp` / `_submission._tcp`, …), resolved live by
+//!    [`HickoryResolver`] (pure-Rust DNS — see [`resolver`]). The resolver sits
+//!    behind the injectable [`Fetcher`]/[`resolver::SrvResolver`] seam so the
+//!    ladder is exercised against a stub with no live network.
+//! 3. **Thunderbird autoconfig XML** — provider-hosted
 //!    `https://autoconfig.<domain>/mail/config-v1.1.xml` then the ISPDB
 //!    `https://autoconfig.thunderbird.net/v1.1/<domain>`.
-//! 3. **MS Autodiscover v2** — `GET /autodiscover/autodiscover.json`.
-//! 4. **Offline provider DB** — bundled JSON for the big providers.
-//! 5. **Manual** — every rung missed; return [`DiscoverError::NotFound`] and
+//! 4. **MS Autodiscover v2** — `GET /autodiscover/autodiscover.json`.
+//! 5. **Offline provider DB** — bundled JSON for the big providers.
+//! 6. **Manual** — every rung missed; return [`DiscoverError::NotFound`] and
 //!    the UI shows its manual fields.
 //!
 //! Network access is behind the [`Fetcher`] trait so the ladder is exercised
 //! against recorded fixtures with no live network (see the crate tests).
 
 mod provider;
+mod resolver;
 mod xml;
+
+pub use resolver::{HickoryResolver, SrvResolver};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -53,6 +57,11 @@ pub enum AuthMethod {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DiscoverySource {
+    /// JMAP session autodiscovery (`/.well-known/jmap`, RFC 8620). For a
+    /// `Jmap` candidate the `imap`/`smtp` [`ServerSpec`]s both carry the JMAP
+    /// endpoint host (from the session `apiUrl`); the client re-fetches the
+    /// session resource for the full `apiUrl`/capabilities.
+    Jmap,
     /// RFC 6186 DNS SRV records.
     Srv,
     /// Thunderbird autoconfig XML (ISPDB / provider-hosted).
@@ -144,6 +153,9 @@ pub async fn discover_with(
 ) -> Result<AccountCandidate, DiscoverError> {
     let (_local, domain) = split_email(email)?;
 
+    if let Some(c) = try_well_known_jmap(fetcher, domain).await {
+        return Ok(c);
+    }
     if let Some(c) = try_srv(fetcher, domain).await {
         return Ok(c);
     }
@@ -159,7 +171,62 @@ pub async fn discover_with(
     Err(DiscoverError::NotFound(domain.to_string()))
 }
 
-// ---- rung 1: RFC 6186 SRV -------------------------------------------------
+// ---- rung 1: JMAP .well-known/jmap session autodiscovery ------------------
+
+async fn try_well_known_jmap(fetcher: &dyn Fetcher, domain: &str) -> Option<AccountCandidate> {
+    let url = format!("https://{domain}/.well-known/jmap");
+    let body = fetcher.get(&url).await.ok()??;
+    parse_jmap_session(&body, domain)
+}
+
+/// Parse a JMAP session resource (RFC 8620 §2). A resource is "valid" when it
+/// advertises the core capability and an `apiUrl`; the endpoint host becomes the
+/// candidate's [`ServerSpec`] (implicit TLS on 443 unless the `apiUrl` says
+/// otherwise). Auth is left at the neutral default — the session does not carry
+/// a SASL mechanism (JMAP authenticates at the HTTP layer).
+fn parse_jmap_session(body: &str, domain: &str) -> Option<AccountCandidate> {
+    let v: serde_json::Value = serde_json::from_str(body).ok()?;
+    let caps = v.get("capabilities")?.as_object()?;
+    if !caps.contains_key("urn:ietf:params:jmap:core") {
+        return None;
+    }
+    let api_url = v.get("apiUrl")?.as_str()?;
+    let (host, port) = url_host_port(api_url).unwrap_or_else(|| (domain.to_string(), 443));
+    let spec = ServerSpec {
+        host,
+        port,
+        tls: TlsMode::Implicit,
+    };
+    Some(AccountCandidate {
+        imap: spec.clone(),
+        pop3: None,
+        smtp: spec,
+        auth: AuthMethod::Password,
+        source: DiscoverySource::Jmap,
+    })
+}
+
+/// Extract the host and port from an absolute URL (defaulting to 443). Kept
+/// deliberately small — JMAP `apiUrl`s are DNS-name HTTPS URLs.
+fn url_host_port(url: &str) -> Option<(String, u16)> {
+    let rest = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
+    let authority = rest.split(['/', '?', '#']).next()?;
+    // Drop any userinfo (`user:pass@host`).
+    let authority = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    if authority.is_empty() {
+        return None;
+    }
+    // `host:port` (IPv6 literals carry ':' inside brackets — not expected here).
+    if !authority.starts_with('[')
+        && let Some((h, p)) = authority.rsplit_once(':')
+        && let Ok(port) = p.parse::<u16>()
+    {
+        return Some((h.to_string(), port));
+    }
+    Some((authority.to_string(), 443))
+}
+
+// ---- rung 2: RFC 6186 SRV -------------------------------------------------
 
 async fn try_srv(fetcher: &dyn Fetcher, domain: &str) -> Option<AccountCandidate> {
     let imap = pick_srv(fetcher, &format!("_imaps._tcp.{domain}"), TlsMode::Implicit).await;
@@ -216,7 +283,7 @@ async fn pick_srv(fetcher: &dyn Fetcher, service: &str, tls: TlsMode) -> Option<
     })
 }
 
-// ---- rung 2: Thunderbird autoconfig XML -----------------------------------
+// ---- rung 3: Thunderbird autoconfig XML -----------------------------------
 
 async fn try_autoconfig(
     fetcher: &dyn Fetcher,
@@ -290,7 +357,7 @@ fn server_from_xml(node: &xml::Node) -> Option<(ServerSpec, AuthMethod)> {
     Some((ServerSpec { host, port, tls }, auth))
 }
 
-// ---- rung 3: MS Autodiscover v2 -------------------------------------------
+// ---- rung 4: MS Autodiscover v2 -------------------------------------------
 
 async fn try_autodiscover(fetcher: &dyn Fetcher, domain: &str) -> Option<AccountCandidate> {
     let urls = [
@@ -367,28 +434,45 @@ fn parse_autodiscover(body: &str) -> Option<AccountCandidate> {
 
 // ---- default live fetcher -------------------------------------------------
 
-/// Live [`Fetcher`] over `reqwest` (rustls). SRV is a no-op in V1 (see the
-/// module docs); the HTTP rungs are real.
+/// Live [`Fetcher`] over `reqwest` (rustls) for the HTTP rungs, with SRV
+/// resolved live by a [`resolver::SrvResolver`] (the [`HickoryResolver`] by
+/// default). If the system resolver cannot be built, SRV degrades to a no-op
+/// and the ladder relies on the HTTP rungs.
 pub struct ReqwestFetcher {
     client: reqwest::Client,
+    resolver: Box<dyn resolver::SrvResolver>,
 }
 
 impl ReqwestFetcher {
-    /// Build the HTTPS client used for autoconfig/autodiscover fetches.
+    /// Build the HTTPS client and live SRV resolver.
     pub fn new() -> Result<Self, DiscoverError> {
         let client = reqwest::Client::builder()
             .user_agent("mailwoman-autoconfig")
             .build()
             .map_err(|e| DiscoverError::Lookup(e.to_string()))?;
-        Ok(Self { client })
+        let resolver: Box<dyn resolver::SrvResolver> = match HickoryResolver::new() {
+            Ok(r) => Box::new(r),
+            Err(_) => Box::new(resolver::NoopResolver),
+        };
+        Ok(Self { client, resolver })
+    }
+
+    /// Build a fetcher with an injected SRV resolver — the seam the SRV tests
+    /// use to exercise the ladder against a stub with no live network.
+    #[cfg(test)]
+    fn with_resolver(resolver: Box<dyn resolver::SrvResolver>) -> Self {
+        let client = reqwest::Client::builder()
+            .user_agent("mailwoman-autoconfig")
+            .build()
+            .expect("reqwest client builds");
+        Self { client, resolver }
     }
 }
 
 #[async_trait]
 impl Fetcher for ReqwestFetcher {
-    async fn srv(&self, _service: &str) -> Result<Vec<SrvRecord>, DiscoverError> {
-        // Best-effort/skippable in V1 (no bundled DNS resolver — plan §0 rung 1).
-        Ok(Vec::new())
+    async fn srv(&self, service: &str) -> Result<Vec<SrvRecord>, DiscoverError> {
+        self.resolver.lookup_srv(service).await
     }
 
     async fn get(&self, url: &str) -> Result<Option<String>, DiscoverError> {
@@ -462,6 +546,103 @@ mod tests {
             split_email("a@localhost"),
             Err(DiscoverError::InvalidEmail(_))
         ));
+    }
+
+    const JMAP_SESSION: &str = r#"{
+        "capabilities": {
+            "urn:ietf:params:jmap:core": { "maxSizeUpload": 50000000 },
+            "urn:ietf:params:jmap:mail": {}
+        },
+        "accounts": {},
+        "primaryAccounts": {},
+        "username": "user@corp.example",
+        "apiUrl": "https://jmap.corp.example/jmap/api/",
+        "downloadUrl": "https://jmap.corp.example/jmap/download/",
+        "uploadUrl": "https://jmap.corp.example/jmap/upload/",
+        "eventSourceUrl": "https://jmap.corp.example/jmap/eventsource/",
+        "state": "cyrus-0"
+    }"#;
+
+    #[tokio::test]
+    async fn well_known_jmap_is_rung_one_and_short_circuits() {
+        // A valid session resource wins even when SRV records also resolve.
+        let f = MockFetcher::default()
+            .page("https://corp.example/.well-known/jmap", JMAP_SESSION)
+            .srv_record(
+                "_imaps._tcp.corp.example",
+                vec![SrvRecord {
+                    target: "imap.corp.example.".into(),
+                    port: 993,
+                    priority: 10,
+                    weight: 1,
+                }],
+            );
+        let c = discover_with("user@corp.example", &f).await.unwrap();
+        assert_eq!(c.source, DiscoverySource::Jmap);
+        // The endpoint host comes from the session apiUrl, on implicit-TLS 443.
+        assert_eq!(c.imap.host, "jmap.corp.example");
+        assert_eq!(c.imap.port, 443);
+        assert_eq!(c.imap.tls, TlsMode::Implicit);
+        assert_eq!(c.smtp.host, "jmap.corp.example");
+        assert!(c.pop3.is_none());
+    }
+
+    #[tokio::test]
+    async fn jmap_session_without_core_capability_falls_through() {
+        // A resource lacking the mandatory core capability is not a JMAP session;
+        // the ladder falls through to the offline provider DB.
+        let bogus = r#"{ "capabilities": { "urn:example:other": {} }, "apiUrl": "https://x/" }"#;
+        let f = MockFetcher::default().page("https://yahoo.com/.well-known/jmap", bogus);
+        let c = discover_with("someone@yahoo.com", &f).await.unwrap();
+        assert_eq!(c.source, DiscoverySource::ProviderDb);
+    }
+
+    #[tokio::test]
+    async fn jmap_api_url_with_explicit_port() {
+        let session = JMAP_SESSION.replace(
+            "https://jmap.corp.example/jmap/api/",
+            "https://jmap.corp.example:8443/jmap/api/",
+        );
+        let f = MockFetcher::default().page("https://corp.example/.well-known/jmap", &session);
+        let c = discover_with("user@corp.example", &f).await.unwrap();
+        assert_eq!(c.imap.host, "jmap.corp.example");
+        assert_eq!(c.imap.port, 8443);
+    }
+
+    #[test]
+    fn url_host_port_parses_variants() {
+        assert_eq!(
+            url_host_port("https://api.example.org/jmap/"),
+            Some(("api.example.org".into(), 443))
+        );
+        assert_eq!(
+            url_host_port("https://api.example.org:8443/jmap"),
+            Some(("api.example.org".into(), 8443))
+        );
+        assert_eq!(
+            url_host_port("https://user@api.example.org/jmap"),
+            Some(("api.example.org".into(), 443))
+        );
+    }
+
+    #[tokio::test]
+    async fn reqwest_fetcher_resolves_srv_via_injected_resolver() {
+        // The real ReqwestFetcher's srv() delegates to its SrvResolver; a stub
+        // exercises the seam (and pick_srv's host normalization) with no network.
+        let f = ReqwestFetcher::with_resolver(Box::new(resolver::StubResolver(vec![SrvRecord {
+            target: "imap.corp.example.".into(),
+            port: 993,
+            priority: 10,
+            weight: 1,
+        }])));
+        let recs = f.srv("_imaps._tcp.corp.example").await.unwrap();
+        assert_eq!(recs.len(), 1);
+        assert_eq!(recs[0].port, 993);
+        let spec = pick_srv(&f, "_imaps._tcp.corp.example", TlsMode::Implicit)
+            .await
+            .unwrap();
+        assert_eq!(spec.host, "imap.corp.example");
+        assert_eq!(spec.tls, TlsMode::Implicit);
     }
 
     #[tokio::test]

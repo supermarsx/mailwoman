@@ -12,6 +12,10 @@ serde_json = { workspace = true }
 reqwest = { workspace = true }
 thiserror = { workspace = true }
 async-trait = { workspace = true }
+# Live RFC 6186 SRV resolution (pure-Rust DNS over UDP/TCP + rustls; no -sys/C/
+# openssl). Default features = system-config + tokio. Already in-tree via
+# mail-auth; coordinator reconciles Cargo.lock/deny.toml.
+hickory-resolver = "0.26"
 
 [dev-dependencies]
 tokio = { workspace = true }
