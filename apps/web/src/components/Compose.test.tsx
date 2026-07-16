@@ -170,6 +170,16 @@ describe('Compose', () => {
     expect(within(list).getByText('report.pdf')).toBeInTheDocument();
   });
 
+  it('opens the signing-key unlock panel when the sign toggle is switched on', async () => {
+    renderWithApp(() => <Compose onClose={() => undefined} />);
+    fireEvent.input(screen.getByLabelText('To'), { target: { value: 'you@example.org' } });
+    // Enabling the sign toggle while the signing key is locked prompts to unlock
+    // it (once per composer) rather than sending silently unsigned.
+    fireEvent.click(await screen.findByTestId('sign-toggle'));
+    expect(await screen.findByTestId('compose-sign-unlock')).toBeInTheDocument();
+    expect(screen.getByTestId('sign-passphrase')).toBeInTheDocument();
+  });
+
   it('is unchanged when Assist is disabled and no directory/Nextcloud is configured', async () => {
     renderWithApp(() => <Compose onClose={() => undefined} />);
     // Type a recipient — contacts autocomplete still works; NO directory GAL, no

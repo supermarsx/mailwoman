@@ -1,20 +1,23 @@
-// Compose-crypto JMAP glue (plan §2.2, e4). The `compose-crypto.tsx`
-// subcomponents are transport-agnostic: they take a `KeyLookupFn` +
-// `DlpScanFn` as props so they can be component-tested with plain mocks. This
-// module supplies the REAL request builders + client-backed factories so e8's
-// mount/wire step can drop them in without re-deriving the envelope:
+// Compose-crypto JMAP glue (plan §2.2). The `compose-crypto.tsx` subcomponents
+// are transport-agnostic: they take a `KeyLookupFn` + `DlpScanFn` as props so
+// they can be component-tested with plain mocks. This module supplies the REAL
+// request builders + client-backed factories the host Compose drops in without
+// re-deriving the envelope:
 //
 //   <ComposeCrypto lookupKeys={createJmapKeyLookup(client, acct)}
 //                  scanDlp={createJmapDlpScan(client, acct)} … />
 //
 // The method names / arg shapes mirror the frozen §2.2 families
 // (`CryptoKey/lookup`, `Dlp/scan`) and the mock (`mw-mock-jmap`); the engine
-// (e6) emits byte-identical shapes (the §1.5 parity gate).
+// emits byte-identical shapes (the §1.5 parity gate). It also holds the
+// sign-only clear-sign helper (`clearSignBody`) the host uses when a signature
+// is requested without encryption.
 
 import { CAP_CORE, type Id, type JmapRequest, type JmapResponse } from '../../api/jmap-types.ts';
 import { responseFor } from '../../api/jmap.ts';
 import { CAP_CRYPTO, CAP_SECURITY, type CryptoKey, type DlpVerdict } from '../../api/crypto-types.ts';
 import type { Client } from '../../api/client.ts';
+import type { CryptoWorkerApi } from '../../contracts/crypto.ts';
 
 const CRYPTO_USING = [CAP_CORE, CAP_CRYPTO, CAP_SECURITY];
 
@@ -85,10 +88,40 @@ export function createJmapKeyLookup(
   };
 }
 
-/** A client-backed `DlpScanFn` for e8 to hand `ComposeCrypto` (real engine). */
+/** A client-backed `DlpScanFn` the host hands `ComposeCrypto` (real engine). */
 export function createJmapDlpScan(client: Pick<Client, 'jmap'>, accountId: Id): DlpScanFn {
   return async (draft: DlpScanDraft): Promise<DlpVerdict[]> => {
     const res: JmapResponse = await client.jmap(dlpScanRequest(accountId, draft));
     return responseFor<DlpScanResponse>(res, 's').list;
   };
+}
+
+// ── Compose-session signing ──────────────────────────────────────────────────
+
+/** A compose-session signing context (plan §2.5). `keyRef` (from the worker's
+ *  `unlockKey`) folds a signature into an encrypt call via `signWithKeyRef`; the
+ *  wrapped `bundle` + `passphrase` back the worker's `sign` for a clear-signed
+ *  (unencrypted) message — the frozen worker `sign` takes a passphrase, not a
+ *  keyRef. Held only for the life of the composer; never persisted or sent. */
+export interface SigningSession {
+  keyRef: string;
+  bundle: string;
+  passphrase: string;
+}
+
+/** Clear-sign an unencrypted body (inline `PGP SIGNED MESSAGE`) via the worker,
+ *  returning the armored, signed text to send as the message body. */
+export async function clearSignBody(
+  worker: Pick<CryptoWorkerApi, 'sign'>,
+  session: SigningSession,
+  body: string,
+): Promise<string> {
+  const res = await worker.sign({
+    kind: 'pgp',
+    data: body,
+    encryptedPrivateBundle: session.bundle,
+    passphrase: session.passphrase,
+    detached: false,
+  });
+  return res.signatureArmored;
 }

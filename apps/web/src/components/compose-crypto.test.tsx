@@ -14,6 +14,7 @@ import {
   normalizeRecipients,
   type RecipientCapability,
 } from './compose/capability.ts';
+import { clearSignBody } from './compose/crypto-jmap.ts';
 import { createStubCryptoWorker } from '../crypto/index.ts';
 import type { CryptoKey, DlpVerdict } from '../api/crypto-types.ts';
 
@@ -372,5 +373,108 @@ describe('ComposeCrypto (container)', () => {
     ));
     await waitFor(() => expect(screen.getByTestId('dlp-warn')).toBeInTheDocument());
     expect(states.at(-1)?.canSend).toBe(true);
+  });
+});
+
+// ── Sign-on-send: encrypt+sign folds a signature via signWithKeyRef ──────────
+
+describe('ComposeCrypto — sign-on-send', () => {
+  const noDlp = vi.fn(async (): Promise<DlpVerdict[]> => []);
+
+  it('folds a signature into the encrypt call via signWithKeyRef when sign is on', async () => {
+    const [recipients] = createSignal(['a@example.org']);
+    const [body] = createSignal('secret');
+    const worker = createStubCryptoWorker();
+    const encryptSpy = vi.spyOn(worker, 'encrypt');
+    render(() => (
+      <ComposeCrypto
+        recipients={recipients}
+        bodyText={body}
+        lookupKeys={lookupFrom({ 'a@example.org': [pgpKey({ publicKeyArmored: 'RCPT' })] })}
+        scanDlp={noDlp}
+        cryptoWorker={worker}
+        signingKeyRef={() => 'keyref-1'}
+      />
+    ));
+    const encToggle = await screen.findByTestId('encrypt-toggle');
+    await waitFor(() => expect(encToggle).not.toBeDisabled());
+
+    // Encrypt with sign still off → no signature folded in.
+    fireEvent.click(encToggle);
+    await waitFor(() => expect(encryptSpy).toHaveBeenCalledTimes(1));
+    expect(encryptSpy.mock.calls[0]![0].signWithKeyRef).toBeUndefined();
+
+    // Turn sign on with the key already unlocked → re-encrypt WITH signWithKeyRef.
+    fireEvent.click(screen.getByTestId('sign-toggle'));
+    await waitFor(() => expect(encryptSpy).toHaveBeenCalledTimes(2));
+    expect(encryptSpy.mock.calls[1]![0]).toMatchObject({ signWithKeyRef: 'keyref-1' });
+  });
+
+  it('asks the host to unlock the signing key when sign is enabled while locked', async () => {
+    const [recipients] = createSignal(['a@example.org']);
+    const onRequestSigningKey = vi.fn();
+    render(() => (
+      <ComposeCrypto
+        recipients={recipients}
+        lookupKeys={lookupFrom({})}
+        scanDlp={noDlp}
+        signingKeyRef={() => null}
+        onRequestSigningKey={onRequestSigningKey}
+      />
+    ));
+    fireEvent.click(await screen.findByTestId('sign-toggle'));
+    expect(onRequestSigningKey).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-encrypts to add the signature once the key is unlocked after toggling sign', async () => {
+    const [recipients] = createSignal(['a@example.org']);
+    const [body] = createSignal('secret');
+    const [ref, setRef] = createSignal<string | null>(null);
+    const worker = createStubCryptoWorker();
+    const encryptSpy = vi.spyOn(worker, 'encrypt');
+    render(() => (
+      <ComposeCrypto
+        recipients={recipients}
+        bodyText={body}
+        lookupKeys={lookupFrom({ 'a@example.org': [pgpKey()] })}
+        scanDlp={noDlp}
+        cryptoWorker={worker}
+        signingKeyRef={ref}
+        onRequestSigningKey={() => undefined}
+      />
+    ));
+    const encToggle = await screen.findByTestId('encrypt-toggle');
+    await waitFor(() => expect(encToggle).not.toBeDisabled());
+    fireEvent.click(encToggle);
+    await waitFor(() => expect(encryptSpy).toHaveBeenCalled());
+
+    // Sign on while still locked → encrypt runs but without a keyRef.
+    fireEvent.click(screen.getByTestId('sign-toggle'));
+    await waitFor(() => expect(encryptSpy.mock.calls.at(-1)![0].signWithKeyRef).toBeUndefined());
+    const before = encryptSpy.mock.calls.length;
+
+    // Unlock completes → the deferred effect re-encrypts WITH the signature.
+    setRef('keyref-late');
+    await waitFor(() => expect(encryptSpy.mock.calls.length).toBeGreaterThan(before));
+    expect(encryptSpy.mock.calls.at(-1)![0]).toMatchObject({ signWithKeyRef: 'keyref-late' });
+  });
+});
+
+// ── Sign-only: clear-sign an unencrypted body ────────────────────────────────
+
+describe('clearSignBody (sign-only clear-signed send)', () => {
+  it('clear-signs the body via the worker sign() with detached:false', async () => {
+    const worker = createStubCryptoWorker();
+    const signSpy = vi.spyOn(worker, 'sign');
+    const out = await clearSignBody(worker, { keyRef: 'r', bundle: 'BUNDLE', passphrase: 'pw' }, 'hello world');
+    expect(signSpy).toHaveBeenCalledTimes(1);
+    expect(signSpy.mock.calls[0]![0]).toMatchObject({
+      kind: 'pgp',
+      data: 'hello world',
+      encryptedPrivateBundle: 'BUNDLE',
+      passphrase: 'pw',
+      detached: false,
+    });
+    expect(out).toContain('PGP SIGNATURE');
   });
 });

@@ -118,6 +118,14 @@ mail-compose-sending = Sending…
 mail-compose-encrypted-subject = Encrypted message
 mail-compose-dlp-blocked = Sending is blocked by a data-loss-prevention rule (see the warning above).
 mail-compose-send-failed = Send failed
+# Signing-key unlock (sign-on-send)
+mail-compose-sign-unlock-title = Unlock signing key
+mail-compose-sign-unlock-note = Enter your key passphrase to sign this message. It stays unlocked for this composer only.
+mail-compose-sign-unlock = Unlock
+mail-compose-sign-unlocking = Unlocking…
+mail-compose-sign-no-key = No signing key is available on this device.
+mail-compose-sign-unlock-failed = Could not unlock the signing key.
+mail-compose-sign-unlock-required = Unlock your signing key to send this signed message.
 
 # -- Outbox ------------------------------------------------------------------
 mail-outbox-label = Outbox

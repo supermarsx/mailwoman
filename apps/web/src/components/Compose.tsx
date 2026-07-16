@@ -8,11 +8,14 @@ import {
 } from '../modules/contacts/autocomplete.ts';
 import { ComposeCrypto, type ComposeCryptoState } from './compose-crypto.tsx';
 import {
+  clearSignBody,
   createJmapDlpScan,
   createJmapKeyLookup,
   type DlpScanFn,
   type KeyLookupFn,
+  type SigningSession,
 } from './compose/crypto-jmap.ts';
+import { getCryptoWorker } from '../crypto/index.ts';
 import { createConfiguredClient } from '../api/transport.ts';
 // V7 last-mile mailbox integration (plan §2.7/§14, e14b). All ADDITIVE: each block
 // is gated so a deployment with no directory / disabled Assist / no Nextcloud sees
@@ -66,8 +69,19 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
   const [ncOpen, setNcOpen] = createSignal(false);
   // Crypto/DLP state reported up by <ComposeCrypto> (encrypt/sign toggles, the
   // E2EE/TLS/mixed capability, the DLP `canSend` gate, and the WASM-encrypted
-  // draft) — plan §2.5, e8 wiring.
+  // draft) — plan §2.5.
   const [cryptoState, setCryptoState] = createSignal<ComposeCryptoState | null>(null);
+  // Signing session (plan §2.5, decision flag 2): the signing key is unlocked
+  // ONCE per composer via the passphrase prompt below (mirroring
+  // Reader.tsx::decryptNow's unlock), then cached so encrypt+sign and sign-only
+  // sends reuse it without re-prompting. `signingKeyRef` is handed to
+  // <ComposeCrypto> to fold a signature into its encrypt call; the panel opens
+  // on demand when `sign` is switched on while still locked.
+  const [signingSession, setSigningSession] = createSignal<SigningSession | null>(null);
+  const [unlockOpen, setUnlockOpen] = createSignal(false);
+  const [unlockPass, setUnlockPass] = createSignal('');
+  const [unlockError, setUnlockError] = createSignal<string | null>(null);
+  const [unlocking, setUnlocking] = createSignal(false);
 
   // Client-backed key lookup + DLP scan for <ComposeCrypto> (real engine). Read
   // the account id at call time (it is null until the session loads). A lookup /
@@ -148,7 +162,40 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
     void app.nextcloud.ensureEnabled();
   });
 
-  onCleanup(() => previouslyFocused?.focus());
+  onCleanup(() => {
+    previouslyFocused?.focus();
+    // Drop the cached signing key from the worker session when the composer closes
+    // (the worker zeroizes the unlocked private key for this ref).
+    const s = signingSession();
+    if (s !== null) void getCryptoWorker().lockKey({ keyRef: s.keyRef });
+  });
+
+  /** Unlock the sending key ONCE per composer session (decision flag 2): find the
+   *  own PGP private bundle (as Reader.tsx::decryptNow does), unlock it in the
+   *  worker to get a session keyRef, and cache the ref + bundle + passphrase so
+   *  signed sends reuse it without re-prompting. */
+  async function unlockSigningKey(e: Event): Promise<void> {
+    e.preventDefault();
+    setUnlockError(null);
+    setUnlocking(true);
+    try {
+      if (app.ownKeys().length === 0) await app.loadKeys();
+      const own = app.ownKeys().find((k) => k.kind === 'pgp' && k.encryptedPrivateBackup !== null);
+      const bundle = own?.encryptedPrivateBackup ?? null;
+      if (bundle === null) throw new Error(t('mail-compose-sign-no-key'));
+      const keyRef = await getCryptoWorker().unlockKey({
+        encryptedPrivateBundle: bundle,
+        passphrase: unlockPass(),
+      });
+      setSigningSession({ keyRef, bundle, passphrase: unlockPass() });
+      setUnlockPass('');
+      setUnlockOpen(false);
+    } catch (err) {
+      setUnlockError(err instanceof Error ? err.message : t('mail-compose-sign-unlock-failed'));
+    } finally {
+      setUnlocking(false);
+    }
+  }
 
   const identity = createMemo(() => app.identities().find((i) => i.id === identityId()) ?? null);
 
@@ -202,16 +249,36 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
       setError(t('mail-compose-dlp-blocked'));
       return;
     }
+    // Signing gate (plan §2.5): a signed send — whether folded into encrypt or a
+    // clear-signed sign-only send — needs the signing key unlocked first. Prompt
+    // for the passphrase once per composer session; never send silently unsigned.
+    if (cs !== null && cs.sign && signingSession() === null) {
+      setUnlockOpen(true);
+      setError(t('mail-compose-sign-unlock-required'));
+      return;
+    }
     setBusy(true);
     try {
-      // Encrypt-on-send (plan §2.5): when encryption is on and the worker has
-      // produced an encrypted draft (real WASM), send the armored ciphertext as
-      // the body so the recipient decrypts it client-side. Protected-subject
-      // replaces the visible subject with a placeholder.
+      // Encrypt-on-send (plan §2.5): when encryption is on the worker has already
+      // produced the armored ciphertext (signed in-place when `sign` is on, via
+      // `signWithKeyRef`); send it as the body so the recipient decrypts it
+      // client-side. Protected-subject replaces the visible subject with a
+      // placeholder.
       const enc =
         cs !== null && cs.encrypt && cs.encryptedDraft !== null ? cs.encryptedDraft : null;
-      const htmlBody =
-        enc !== null ? enc.armoredCiphertext : `<p>${escapeHtml(body()).replace(/\n/g, '<br>')}</p>`;
+      // Sign-only (plan §2.5): a signature requested WITHOUT encryption → clear-sign
+      // the body (inline PGP SIGNED MESSAGE) so the recipient can verify it's from
+      // us while the content stays readable.
+      const session = signingSession();
+      const signOnly = enc === null && cs !== null && cs.sign && session !== null;
+      let htmlBody: string;
+      if (enc !== null) {
+        htmlBody = enc.armoredCiphertext;
+      } else if (signOnly && session !== null) {
+        htmlBody = await clearSignBody(getCryptoWorker(), session, body());
+      } else {
+        htmlBody = `<p>${escapeHtml(body()).replace(/\n/g, '<br>')}</p>`;
+      }
       const subjectToSend =
         enc !== null && cs !== null && cs.protectSubject && enc.encryptedSubjectApplied
           ? t('mail-compose-encrypted-subject')
@@ -427,8 +494,55 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
           bodyText={() => body()}
           lookupKeys={lookupKeys}
           scanDlp={scanDlp}
+          signingKeyRef={() => signingSession()?.keyRef ?? null}
+          onRequestSigningKey={() => setUnlockOpen(true)}
           onChange={setCryptoState}
         />
+
+        {/* Signing-key unlock (plan §2.5, decision flag 2): opens when the sign
+            toggle is switched on while the key is locked, or on a signed send with
+            no cached session. Unlocks the sending key ONCE — subsequent signed
+            sends this session reuse the cached keyRef with no further prompt. */}
+        <Show when={unlockOpen()}>
+          <section
+            class="compose__sign-unlock"
+            data-testid="compose-sign-unlock"
+            aria-label={t('mail-compose-sign-unlock-title')}
+          >
+            <p class="compose__sign-unlock-note">{t('mail-compose-sign-unlock-note')}</p>
+            <div class="compose__sign-unlock-row">
+              <label class="field">
+                <span>{t('mail-key-passphrase')}</span>
+                <input
+                  type="password"
+                  class={a11y.focusable}
+                  autocomplete="off"
+                  data-testid="sign-passphrase"
+                  value={unlockPass()}
+                  onInput={(e) => setUnlockPass(e.currentTarget.value)}
+                  onKeyDown={(e) => {
+                    // Enter unlocks without submitting the outer compose form.
+                    if (e.key === 'Enter') void unlockSigningKey(e);
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                class={`btn btn--primary ${a11y.focusable}`}
+                data-testid="sign-unlock-submit"
+                disabled={unlocking()}
+                onClick={(e) => void unlockSigningKey(e)}
+              >
+                {unlocking() ? t('mail-compose-sign-unlocking') : t('mail-compose-sign-unlock')}
+              </button>
+            </div>
+            <Show when={unlockError()}>
+              <p class="login__error" role="alert">
+                {unlockError()}
+              </p>
+            </Show>
+          </section>
+        </Show>
 
         <Show when={identity()?.signatureText}>
           {(sig) => <p class="compose__signature">— {isolate(sig())}</p>}

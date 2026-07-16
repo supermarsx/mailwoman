@@ -1,7 +1,6 @@
-// Compose crypto + DLP subcomponents (plan §2.5, §3 e4). STANDALONE, self-
-// contained pieces that take props + callbacks — e8 mounts them into `Compose.tsx`
-// during its mount/wire pass (this file never imports or edits Compose, so the two
-// executors don't collide). Three concerns, each independently testable:
+// Compose crypto + DLP subcomponents (plan §2.5). STANDALONE, self-contained
+// pieces that take props + callbacks so each is independently testable; the host
+// `Compose.tsx` mounts them and reads the reported state on send. Three concerns:
 //
 //   • <EncryptSignToggles>  — per-message encrypt / sign switches + the
 //                             encrypted-draft & protected-subject affordances.
@@ -11,10 +10,12 @@
 //                             `Dlp/scan`; a `block` shows the rule message + gates send.
 //
 // <ComposeCrypto> wires all three: it probes recipient keys + DLP through the
-// `lookupKeys` / `scanDlp` callbacks (mock in tests, `crypto-jmap.ts` factories in
-// e8), calls the crypto-worker STUB to encrypt the draft when encryption is enabled
-// (real WASM is e8), and reports {encrypt, sign, capability, canSend, …} up via
-// `onChange` so the host Compose can encrypt-on-send + honor the DLP gate.
+// `lookupKeys` / `scanDlp` callbacks (mock in tests, `crypto-jmap.ts` factories at
+// runtime), calls the crypto worker to encrypt the draft when encryption is enabled
+// (the real WASM worker in the browser; a deterministic stub under vitest), folds a
+// signature into that encrypt via `signWithKeyRef` when `sign` is on, and reports
+// {encrypt, sign, capability, canSend, …} up via `onChange` so the host Compose can
+// encrypt-on-send, clear-sign a sign-only send, and honor the DLP gate.
 
 import {
   createEffect,
@@ -22,6 +23,7 @@ import {
   createResource,
   createSignal,
   For,
+  on,
   onMount,
   Show,
   type JSX,
@@ -241,7 +243,7 @@ export interface ComposeCryptoState {
   capability: TransportCapability;
   /** False when a `block` DLP verdict is present — the host must not send. */
   canSend: boolean;
-  /** The worker-produced encrypted draft (stub until e8), or `null`. */
+  /** The worker-produced encrypted draft (signed in-place when `sign` is on), or `null`. */
   encryptedDraft: EncryptResult | null;
   verdicts: DlpVerdict[];
   recipients: RecipientCapability[];
@@ -257,8 +259,16 @@ export interface ComposeCryptoProps {
   lookupKeys: KeyLookupFn;
   /** DLP dry-run (mock in tests; `createJmapDlpScan` in e8). */
   scanDlp: DlpScanFn;
-  /** Override the crypto worker (defaults to the process stub, swapped in e8). */
+  /** Override the crypto worker (defaults to the process worker: real WASM in the
+   *  browser, a deterministic stub under vitest). */
   cryptoWorker?: CryptoWorkerApi;
+  /** The session-cached signing keyRef (from `unlockKey`), or `null` when the
+   *  signing key is locked. When `sign` is on and this is non-null, the encrypt
+   *  call folds in a signature via `signWithKeyRef`. */
+  signingKeyRef?: () => string | null;
+  /** Ask the host to unlock the signing key (prompt for the passphrase) — called
+   *  when `sign` is switched on while the key is still locked. */
+  onRequestSigningKey?: () => void;
   /** Report crypto/DLP state to the host Compose after every change. */
   onChange?: (state: ComposeCryptoState) => void;
 }
@@ -306,7 +316,9 @@ export function ComposeCrypto(props: ComposeCryptoProps): JSX.Element {
   const verdicts = (): DlpVerdict[] => dlpData() ?? [];
   const canSend = createMemo(() => !verdicts().some((v) => v.action === 'block'));
 
-  /** Encrypt the current draft body via the worker (stub until e8). */
+  /** Encrypt the current draft body via the worker; folds in a signature via
+   *  `signWithKeyRef` when `sign` is on and the signing key is unlocked, so
+   *  encrypt+sign produces one signed-and-encrypted message. */
   async function runEncrypt(): Promise<void> {
     const caps = recipientCaps().filter((r) => r.encryptable);
     const recipientPublicKeys = caps
@@ -320,11 +332,18 @@ export function ComposeCrypto(props: ComposeCryptoProps): JSX.Element {
       protectSubject() && subject !== undefined && subject.length > 0
         ? { protectedSubject: subject }
         : {};
+    // Sign-on-send: when the sign toggle is on and the host has unlocked the
+    // signing key, hand the worker the session keyRef so the ciphertext is
+    // signed as well as encrypted (omit it when locked → an unsigned draft that
+    // the effect below re-signs once the key is unlocked).
+    const signRef = sign() ? props.signingKeyRef?.() ?? null : null;
+    const signField = signRef !== null ? { signWithKeyRef: signRef } : {};
     const result = await worker().encrypt({
       kind,
       plaintext: props.bodyText?.() ?? '',
       recipientPublicKeys,
       ...subjectField,
+      ...signField,
     });
     setEncryptedDraft(result);
   }
@@ -345,8 +364,33 @@ export function ComposeCrypto(props: ComposeCryptoProps): JSX.Element {
     if (encrypt()) void runEncrypt();
   }
 
-  // Report the merged state to the host Compose after any change (e8 reads this
-  // to encrypt-on-send, set the sign flag, and honor the DLP `canSend` gate).
+  // Toggling `sign`: when turning it on while the signing key is still locked,
+  // ask the host to unlock it. Re-encrypt whenever encryption is on so the draft
+  // reflects the new sign state (turning sign OFF re-encrypts without a
+  // signature; turning it ON with the key already unlocked folds one in).
+  function onSignChange(next: boolean): void {
+    setSign(next);
+    if (next && (props.signingKeyRef?.() ?? null) === null) props.onRequestSigningKey?.();
+    if (encrypt()) void runEncrypt();
+  }
+
+  // When the signing key finishes unlocking (the host's `signingKeyRef` changes
+  // to a non-null ref) while sign + encrypt are both on, re-encrypt so the
+  // ciphertext carries the signature. `defer` skips the initial run; `on` tracks
+  // only the ref, so a sign-toggle handled above doesn't double-encrypt here.
+  createEffect(
+    on(
+      () => props.signingKeyRef?.() ?? null,
+      (ref) => {
+        if (ref !== null && sign() && encrypt()) void runEncrypt();
+      },
+      { defer: true },
+    ),
+  );
+
+  // Report the merged state to the host Compose after any change (the host reads
+  // this to encrypt-on-send, clear-sign a sign-only send, and honor the DLP
+  // `canSend` gate).
   createEffect(() => {
     props.onChange?.({
       encrypt: encrypt(),
@@ -382,7 +426,7 @@ export function ComposeCrypto(props: ComposeCryptoProps): JSX.Element {
         }
         drafted={encryptedDraft() !== null}
         onEncryptChange={onEncryptChange}
-        onSignChange={setSign}
+        onSignChange={onSignChange}
         onProtectSubjectChange={onProtectSubjectChange}
       />
 
