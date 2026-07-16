@@ -188,13 +188,13 @@ export interface InitOutput {
     readonly sign: (a: any) => [number, number, number];
     readonly unlockKey: (a: any) => [number, number, number];
     readonly verify: (a: any) => [number, number, number];
-    readonly __wbindgen_malloc: (a: number, b: number) => number;
-    readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
-    readonly __wbindgen_exn_store: (a: number) => void;
-    readonly __externref_table_alloc: () => number;
+    readonly __wbindgen_export: (a: number, b: number) => number;
+    readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
+    readonly __wbindgen_export3: (a: number) => void;
+    readonly __wbindgen_export4: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
-    readonly __wbindgen_free: (a: number, b: number, c: number) => void;
-    readonly __externref_table_dealloc: (a: number) => void;
+    readonly __wbindgen_export5: (a: number, b: number, c: number) => void;
+    readonly __wbindgen_export6: (a: number) => void;
     readonly __wbindgen_start: () => void;
 }
 

@@ -208,7 +208,8 @@ struct SignIn {
     data: String,
     encrypted_private_bundle: String,
     passphrase: String,
-    #[allow(dead_code)]
+    /// `false` → an inline cleartext-signed `PGP SIGNED MESSAGE` (the body stays
+    /// readable); `true` → a bare detached `PGP SIGNATURE`. PGP only.
     detached: bool,
     /// For S/MIME the signer certificate PEM (the worker holds it beside the key).
     cert_pem: Option<String>,
@@ -225,12 +226,14 @@ struct SignOut {
 pub fn sign(options: JsValue) -> Result<JsValue, JsValue> {
     let i: SignIn = from_js(options)?;
     let armored = match i.kind.as_str() {
-        "pgp" => pgp::sign_detached(
-            i.data.as_bytes(),
-            &i.encrypted_private_bundle,
-            &i.passphrase,
-        )
-        .map_err(js_err)?,
+        // `detached:false` (clear-sign) keeps the body inline as a `PGP SIGNED
+        // MESSAGE`; `detached:true` emits only the `PGP SIGNATURE` armor.
+        "pgp" if i.detached => {
+            pgp::sign_detached(i.data.as_bytes(), &i.encrypted_private_bundle, &i.passphrase)
+                .map_err(js_err)?
+        }
+        "pgp" => pgp::clear_sign(&i.data, &i.encrypted_private_bundle, &i.passphrase)
+            .map_err(js_err)?,
         "smime" => {
             let cert = i
                 .cert_pem

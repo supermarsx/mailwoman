@@ -60,6 +60,25 @@ function normalizeArgs(method: string, args: Record<string, unknown>): Record<st
   return args;
 }
 
+// The wasm boundary shapes some results differently from the frozen §2.3 return
+// types; unwrap them here so the app-side interface (`contracts/crypto.ts`) stays
+// untouched. Currently just `unlockKey`: the wasm `UnlockOut` marshals to a
+// `{ keyRef }` object, but the frozen `CryptoWorkerApi.unlockKey` resolves to the
+// bare `KeyRef` (string). Without this, `Compose` would pass the whole object as
+// `signWithKeyRef` and the wasm `encrypt` (`sign_with_key_ref: Option<String>`)
+// panics `expected a string`, breaking encrypt+sign.
+function normalizeResult(method: string, value: unknown): unknown {
+  if (
+    method === 'unlockKey' &&
+    typeof value === 'object' &&
+    value !== null &&
+    'keyRef' in value
+  ) {
+    return (value as { keyRef: unknown }).keyRef;
+  }
+  return value;
+}
+
 // Run one RPC method: dispatch to the wasm export, then — for `decrypt` — route the
 // plaintext through the in-worker mw-sanitize wasm (HTML sanitized before it leaves
 // the worker; non-HTML kept as escaped text). See `sanitize.ts` (plan §1.3).
@@ -72,7 +91,7 @@ async function runMethod(method: string, rawArgs: unknown): Promise<unknown> {
     await ensureSanitize();
     return sanitizeDecryptResult(value as RawDecryptResult, sanitizeEmailHtml);
   }
-  return value;
+  return normalizeResult(method, value);
 }
 
 self.onmessage = (ev: MessageEvent<CryptoWorkerRequest>): void => {

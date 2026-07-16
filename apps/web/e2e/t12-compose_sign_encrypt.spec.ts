@@ -16,34 +16,21 @@ import {
  * using the REAL WASM crypto worker + real engine. Every send's outgoing `/jmap/api`
  * request bodies are captured (the Email/set create carries the message body).
  *
- * GREEN (proven working):
+ * All four send paths are wire-asserted GREEN (fixed in 26.12; see
+ * .orchestration/logs/t12-fix-compose-sign.md):
  *   • encrypt — the body is a real armored `PGP MESSAGE`, the plaintext marker appears
  *     in NO outgoing request (genuinely encrypted, §8), and it DECRYPTS back to the
  *     marker on receipt through the real worker (reversible, not garbage).
  *   • plain — the body is the exact `<p>…</p>` HTML, NO PGP armor (byte-unchanged).
- *
- * ESCALATED — sign-on-send (audit #3's residual) is BROKEN end-to-end in a real
- * browser (two independent wire holes; both `test.fail`-tracked, both flip to
- * UNEXPECTED PASS once fixed → the owner removes the annotation). See
- * .orchestration/logs/t12-e-e2e-web.md + state.md Escalations for repro/expected/actual.
- *
- *   BUG A — encrypt+sign folded via `signWithKeyRef`: the worker's `unlockKey` returns
- *   `{keyRef}` (mw-crypto wasm `UnlockOut{keyRef}`) but the FROZEN `contracts/crypto.ts`
- *   declares `unlockKey(): Promise<KeyRef=string>`; `worker.entry.ts` normalizes
- *   unlockKey's INPUT but never unwraps its OUTPUT, so `Compose.tsx` stores `{keyRef}`
- *   and passes it as `signWithKeyRef`, and the wasm `encrypt` (sign_with_key_ref:
- *   Option<String>) panics `expected a string` → no signed ciphertext is drafted.
- *   Minimal fix: unwrap `{keyRef}`→string in worker.entry.ts (frozen contract/wasm
- *   untouched).
- *
- *   BUG B — sign-only clear-sign: `clearSignBody` calls the worker `sign` with
- *   `detached:false` intending an inline `PGP SIGNED MESSAGE`, but the wasm `sign`
- *   IGNORES `detached` (`#[allow(dead_code)]`) and always returns a DETACHED signature
- *   (`pgp::sign_detached`). `clearSignBody` then sends ONLY that `-----BEGIN PGP
- *   SIGNATURE-----` armor as the body, so the actual message text is DISCARDED and the
- *   result is not a clear-signed message. Minimal fix: honor `detached:false` in the
- *   wasm `sign` (emit a real cleartext-signed message) OR have `clearSignBody` assemble
- *   the cleartext-signature framework around the detached signature.
+ *   • sign-only — the body is a clear-signed inline `PGP SIGNED MESSAGE`: the cleartext
+ *     stays readable AND carries a signature block (BUG B fix: the mw-crypto wasm `sign`
+ *     now honors `detached:false`, emitting a real Cleartext Signature Framework message
+ *     via rPGP instead of discarding the body behind a bare detached signature).
+ *   • encrypt+sign folded — a signed-AND-encrypted `PGP MESSAGE` is drafted, sent, and
+ *     decrypts back on receipt with the embedded signature VERIFIED (BUG A fix:
+ *     `worker.entry.ts` unwraps `unlockKey`'s `{keyRef}`→string at the worker boundary
+ *     so `signWithKeyRef` reaches the wasm `encrypt` as a string, honoring the frozen
+ *     `contracts/crypto.ts`).
  *
  * Serial; each test mints its OWN PGP key in its OWN browser context (the private
  * backup is context-local under zero-access), so encrypt (newest-own) and decrypt
@@ -158,15 +145,12 @@ test('encrypt — the wire body is genuinely encrypted (no cleartext leak) and d
   });
 });
 
-// KNOWN-BROKEN + ESCALATED (BUG B, see file header + state.md). Asserts the INTENDED
-// clear-signed behavior (an inline PGP SIGNED MESSAGE whose cleartext stays readable);
-// today the wire body is a bare detached PGP SIGNATURE with the message text discarded,
-// so the first assertion fails. Marked test.fail to keep the suite green while tracking
-// the bug; flips to UNEXPECTED PASS once the clear-sign is emitted correctly.
+// BUG B fix (26.12): the mw-crypto wasm `sign` now honors `detached:false` and emits a
+// real inline PGP SIGNED MESSAGE (Cleartext Signature Framework), so the cleartext body
+// stays readable AND carries a verifiable signature block — the body is no longer lost.
 test('sign-only — the wire body is a clear-signed PGP SIGNED MESSAGE with a real signature block', async ({
   page,
 }) => {
-  test.fail(true, 'compose-crypto wire hole: worker sign ignores detached:false; clearSignBody loses the body — escalated');
   test.setTimeout(90_000);
   const token = uid();
   const subject = `sign-only ${token}`;
@@ -190,16 +174,15 @@ test('sign-only — the wire body is a clear-signed PGP SIGNED MESSAGE with a re
   expect(signedReq!).not.toContain('-----BEGIN PGP MESSAGE-----');
 });
 
-// KNOWN-BROKEN + ESCALATED (see file header + state.md Escalations). Drives the
-// encrypt+sign fold; currently the worker keyRef mismatch prevents a signed ciphertext
-// from ever being drafted, so the encrypted-draft indicator never appears. Marked
-// test.fail so the suite stays green while tracking the bug; flips to UNEXPECTED PASS
-// once worker.entry.ts unwraps unlockKey's `{keyRef}`.
-test('encrypt+sign (folded via signWithKeyRef) produces a signed-and-encrypted draft', async ({
+// BUG A fix (26.12): `worker.entry.ts` unwraps `unlockKey`'s `{keyRef}`→string at the
+// worker boundary, so `signWithKeyRef` reaches the wasm `encrypt` as a string (frozen
+// `contracts/crypto.ts` honored). The fold now drafts a signed-AND-encrypted PGP MESSAGE
+// that goes out on the wire, carries no cleartext, decrypts back on receipt, and whose
+// embedded signature VERIFIES.
+test('encrypt+sign (folded via signWithKeyRef) produces a signed-and-encrypted draft that verifies', async ({
   page,
 }) => {
-  test.fail(true, 'compose-crypto wire hole: unlockKey `{keyRef}` vs frozen string contract — escalated');
-  test.setTimeout(90_000);
+  test.setTimeout(150_000);
   const token = uid();
   const subject = `enc-sign ${token}`;
   const marker = `SIGNED_ENCRYPTED_${token}`;
@@ -216,11 +199,38 @@ test('encrypt+sign (folded via signWithKeyRef) produces a signed-and-encrypted d
   // Unlock the signing key FIRST, then encrypt so the first encrypt folds the signature.
   await unlockSigning(dialog);
   await dialog.locator('[data-testid="encrypt-toggle"]').check();
-  // BUG: the fold throws in the worker (`expected a string`), so no encrypted draft is
-  // produced — this assertion times out (the tracked failure).
+  // The fold succeeds now: a signed-and-encrypted draft is produced.
   await expect(dialog.locator('[data-testid="encrypted-draft-indicator"]')).toBeVisible({
-    timeout: 8_000,
+    timeout: 20_000,
   });
+
+  const bodies = await captureJmap(page, () => submitCompose(dialog));
+
+  // WIRE ASSERTION (§8): the outgoing body is a real armored PGP MESSAGE (encrypted)...
+  const encryptedReq = bodies.find((b) => b.includes('-----BEGIN PGP MESSAGE-----'));
+  expect(encryptedReq, 'an outgoing request carrying an armored PGP MESSAGE').toBeTruthy();
+  expect(encryptedReq!).toContain('-----END PGP MESSAGE-----');
+  // ...the plaintext marker went out in NO request (genuinely encrypted, not clear)...
+  for (const b of bodies) {
+    expect(b, 'plaintext marker must never appear on the wire').not.toContain(marker);
+  }
+
+  // ...and on receipt it decrypts back to the marker AND the embedded signature verifies
+  // (signed-AND-encrypted) — the property BUG A blocked.
+  await waitForInboxMessage(page, subject, 120_000);
+  await openMessage(page, subject);
+  await expect(page.locator('[data-testid="reader-decrypt"]')).toBeVisible();
+  await page.locator('[data-testid="decrypt-passphrase"]').fill(passphrase);
+  await page.locator('[data-testid="decrypt-submit"]').click();
+  await expect(page.frameLocator('iframe.reader__frame').getByText(marker)).toBeVisible({
+    timeout: 20_000,
+  });
+  // Expand the security chip (the reader header's aria-expanded control) and assert the
+  // client-side decrypt+verify reported the embedded signature as VERIFIED.
+  await page.locator('.reader__header button[aria-expanded]').first().click();
+  await expect(
+    page.getByRole('region', { name: 'Message security details' }).getByText('Signature verified'),
+  ).toBeVisible({ timeout: 10_000 });
 });
 
 test('plain — the wire body is exact <p>…</p> HTML with no PGP armor (byte-unchanged)', async ({

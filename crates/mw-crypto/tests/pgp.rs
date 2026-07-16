@@ -63,6 +63,30 @@ fn detached_sign_verify_and_tamper() {
 }
 
 #[test]
+fn clear_sign_roundtrip_body_preserved_and_verifies() {
+    let k = pgp::generate_key("F <f@example.com>", "pw").expect("keygen");
+    let body = "Hello, clear-signed world\n- a dash line\nlast";
+    let armored = pgp::clear_sign(body, &k.encrypted_private_bundle, "pw").expect("clear_sign");
+
+    // A real cleartext-signature framework: the body stays readable inline and the
+    // signature block is present (NOT a bare detached signature that drops the body).
+    assert!(armored.contains("-----BEGIN PGP SIGNED MESSAGE-----"));
+    assert!(armored.contains("-----BEGIN PGP SIGNATURE-----"));
+    assert!(armored.contains("-----END PGP SIGNATURE-----"));
+
+    // The signature verifies against the signer's key AND the recovered cleartext is
+    // exactly the original body.
+    let (verdict, text) =
+        pgp::verify_clear_signed(&armored, &k.public_key_armored).expect("verify clear-signed");
+    assert_eq!(verdict.status, "verified");
+    // The recovered content is the original body (de-dash-escaped), CRLF-normalized
+    // as the cleartext-signature framework canonicalizes it — the body is NOT lost.
+    assert_eq!(text, "Hello, clear-signed world\r\n- a dash line\r\nlast");
+    // The armored transport form dash-escapes the leading-dash line ("- - a dash…").
+    assert!(armored.contains("- - a dash line"));
+}
+
+#[test]
 fn protected_subject_roundtrip() {
     let k = pgp::generate_key("D <d@example.com>", "pw").expect("keygen");
     let wrapped = pgp::wrap_protected_headers("Secret Subject", b"body text");

@@ -11,9 +11,9 @@
 //! feature split is purely which functions each side calls.
 
 use pgp::composed::{
-    ArmorOptions, Deserializable, DetachedSignature, EncryptionCaps, KeyType, Message,
-    MessageBuilder, SecretKeyParamsBuilder, SignedPublicKey, SignedPublicSubKey, SignedSecretKey,
-    SubkeyParamsBuilder,
+    ArmorOptions, CleartextSignedMessage, Deserializable, DetachedSignature, EncryptionCaps,
+    KeyType, Message, MessageBuilder, SecretKeyParamsBuilder, SignedPublicKey, SignedPublicSubKey,
+    SignedSecretKey, SubkeyParamsBuilder,
 };
 use pgp::crypto::aead::AeadAlgorithm;
 use pgp::crypto::hash::HashAlgorithm;
@@ -236,6 +236,45 @@ pub fn sign_detached(
     .map_err(|e| CryptoError::Sign(e.to_string()))?;
     sig.to_armored_string(ArmorOptions::default())
         .map_err(|e| CryptoError::Sign(e.to_string()))
+}
+
+/// Produce an inline cleartext-signed message (RFC 9580 Cleartext Signature
+/// Framework) over `data` with the locked `bundle`. Unlike [`sign_detached`], the
+/// returned armor is a complete `-----BEGIN PGP SIGNED MESSAGE-----` block: the
+/// original text (dash-escaped where required) stays readable inline and carries
+/// the `Hash:` armor header + signature that an OpenPGP verifier accepts. rPGP owns
+/// the canonicalization (CRLF normalization, trailing-whitespace, dash-escaping),
+/// so the body is never discarded (the sign-only wire hole).
+pub fn clear_sign(data: &str, encrypted_private_bundle: &str, passphrase: &str) -> Result<String> {
+    let ssk = parse_secret(encrypted_private_bundle)?;
+    let signed = CleartextSignedMessage::sign(
+        rng::pgp_rng(),
+        data,
+        &ssk.primary_key,
+        &pw(passphrase),
+    )
+    .map_err(|e| CryptoError::Sign(e.to_string()))?;
+    signed
+        .to_armored_string(ArmorOptions::default())
+        .map_err(|e| CryptoError::Sign(e.to_string()))
+}
+
+/// Verify an inline cleartext-signed message (`PGP SIGNED MESSAGE`, produced by
+/// [`clear_sign`]) against `signer_public_key`, returning `(verdict, cleartext)`.
+/// The cleartext is the recovered, un-escaped message body.
+pub fn verify_clear_signed(
+    armored: &str,
+    signer_public_key: &str,
+) -> Result<(SignatureVerdict, String)> {
+    let cert = parse_public(signer_public_key)?;
+    let (msg, _) = CleartextSignedMessage::from_string(armored).map_err(parse)?;
+    let verdict = match msg.verify(&cert) {
+        Ok(_) => verdict_verified(&cert),
+        Err(_) => verdict("invalid", None),
+    };
+    // `signed_text` is the de-dash-escaped, CRLF-normalized content the signature
+    // actually covers (`text()` would return the dash-escaped transport form).
+    Ok((verdict, msg.signed_text()))
 }
 
 /// Verify a detached armored signature over `data` against `signer_public_key`.
