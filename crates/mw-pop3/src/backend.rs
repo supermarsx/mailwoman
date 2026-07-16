@@ -47,6 +47,10 @@ pub enum Pop3Auth {
     SaslLogin,
     /// SASL `AUTH XOAUTH2` (Gmail/Outlook; `secret` is the access token).
     XOAuth2,
+    /// SASL `SCRAM-SHA-256` (RFC 5802/7677); `secret` is the password.
+    SaslScram,
+    /// SASL `OAUTHBEARER` (RFC 7628); `secret` is the bearer token.
+    OAuthBearer,
 }
 
 /// Everything needed to open and authenticate a POP3 session, plus the

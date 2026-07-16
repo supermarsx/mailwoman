@@ -197,6 +197,14 @@ impl Pop3Conn {
                     }
                 }
             }
+            Pop3Auth::SaslScram => {
+                self.authenticate_scram_sha256(&cfg.username, &cfg.secret)
+                    .await?;
+            }
+            Pop3Auth::OAuthBearer => {
+                self.authenticate_oauthbearer(&cfg.username, &cfg.secret)
+                    .await?;
+            }
         }
         Ok(())
     }
@@ -206,8 +214,8 @@ impl Pop3Conn {
     /// server-first → client-final → server-final/`+OK`. The proof math is in
     /// [`crate::sasl::ScramSha256`] (pinned by the RFC 7677 vector test).
     ///
-    /// Not yet reachable from [`Pop3Config`](crate::Pop3Config): selecting it
-    /// needs a `Pop3Auth::SaslScram` variant in `backend.rs` (a separate owner).
+    /// Selected via [`Pop3Auth::SaslScram`](crate::backend::Pop3Auth) on the
+    /// config; [`authenticate`](Self::authenticate) dispatches here.
     pub async fn authenticate_scram_sha256(
         &mut self,
         username: &str,
@@ -246,8 +254,8 @@ impl Pop3Conn {
     /// response (mirrors the `XOAUTH2` path). On failure the server sends a
     /// continuation error challenge; the client acks with the `%x01` kvsep.
     ///
-    /// Not yet reachable from [`Pop3Config`](crate::Pop3Config): selecting it
-    /// needs a `Pop3Auth::OAuthBearer` variant in `backend.rs`.
+    /// Selected via [`Pop3Auth::OAuthBearer`](crate::backend::Pop3Auth) on the
+    /// config; [`authenticate`](Self::authenticate) dispatches here.
     pub async fn authenticate_oauthbearer(&mut self, username: &str, token: &str) -> Result<()> {
         let ir = sasl::oauthbearer(username, token);
         self.send(&format!("AUTH OAUTHBEARER {ir}")).await?;

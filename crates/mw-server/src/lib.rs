@@ -631,9 +631,9 @@ fn router(
             post(jmap_upload).get(jmap_upload),
         )
         .route("/api/export/{stableId}", get(export_message))
-        // ── V3 PIM endpoints (plan §3 e0/e9). Route seams reserved now; e9 fills
-        // Mailwoman-native calendar/address-book sharing (ACL-checked serving of
-        // a collection to another principal) + the holiday-feed. 501 until then. ──
+        // ── V3 PIM endpoints: Mailwoman-native calendar/address-book sharing
+        // (ACL-checked serving of a collection to another principal) + the
+        // holiday-feed. Handlers are live. ──
         .route("/dav/calendars/{accountId}/{calendarId}", get(caldav_share))
         .route(
             "/dav/addressbooks/{accountId}/{addressBookId}",
@@ -641,9 +641,9 @@ fn router(
         )
         .route("/api/holidays", get(holiday_regions))
         .route("/api/holidays/{region}", get(holiday_feed))
-        // ── V4 crypto/security endpoints (plan §3 e0/e7). Route seams reserved
-        // now; e7 fills WKD publishing (serve own public keys), ARF report
-        // submission (abuse-address relay), and DLP config load. 501 until then. ──
+        // ── V4 crypto/security endpoints: WKD publishing (serve own public
+        // keys), ARF report submission (abuse-address relay), and DLP config
+        // load. Handlers are live. ──
         .route("/.well-known/openpgpkey/hu/{hash}", get(wkd_lookup))
         .route("/.well-known/openpgpkey/policy", get(wkd_policy))
         .route(
@@ -656,11 +656,11 @@ fn router(
         .route("/api/security/watermark", get(watermark_config))
         .route("/jmap/ws", get(push::jmap_ws))
         .route("/jmap/eventsource", get(push::jmap_eventsource))
-        // ── V5 push relay (plan §3 e0/e5). Route seams reserved now; e5 fills VAPID
-        // key serving, subscription storage, and the opaque-wake dispatcher. Cookie-
-        // authed like every other endpoint; 501 until then (never falls through to
-        // the SPA index.html). The additive native bearer-auth mode + CORS gate are
-        // OFF by default (browser cookie/same-origin path UNCHANGED). ──
+        // ── V5 push relay: VAPID key serving, subscription storage, and the
+        // opaque-wake dispatcher. Handlers are live, cookie-authed like every
+        // other endpoint (never falls through to the SPA index.html). The
+        // additive native bearer-auth mode + CORS gate are OFF by default
+        // (browser cookie/same-origin path UNCHANGED). ──
         .route("/api/push/vapid", get(push_relay::push_vapid))
         .route("/api/push/subscribe", post(push_relay::push_subscribe))
         .route("/api/push/unsubscribe", post(push_relay::push_unsubscribe))
