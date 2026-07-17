@@ -1,0 +1,95 @@
+# t13 (26.13) live-E2E conformance — the "unit-green ≠ wired" gate for the four
+# 26.13 workstreams. Owned by t13-e10. Manual + push-to-t13 branches so it never
+# wedges the required `ci.yml` gate; the coordinator promotes it to a required check
+# at the 26.13 release boundary (mirrors t12-conformance.yml).
+#
+# Each job reuses the established harness (docker-compose.ci.yml services, the
+# MW_T13_* / MW_E14_PG_DSN loud-skip toggles) and drives the REAL 26.13 surfaces
+# against REAL services:
+#
+#   * scram-plus  — SCRAM-SHA-256-PLUS channel binding over REAL TLS vs a CB-capable
+#                   Dovecot (SHA-256 + SHA-512 leaf). PROVES the shipped
+#                   tls-server-end-point binding computation from the real cert +
+#                   documents the Dovecot cbind-type gap (see the test module docs).
+#   * acl-metadata — IMAP ACL (RFC 4314) + METADATA (RFC 5464) round-trip vs Dovecot
+#                   (acl + imap_acl + imap_metadata), incl. the E9 DELETEACL semantics,
+#                   through the E6 session client AND the E7 engine seam.
+#   * jwz-geoip   — JWZ threading ingest convergence/repair (SQLite + LIVE Postgres)
+#                   + GeoIP/ASN Received-hop enrichment against the committed .mmdb
+#                   fixtures.
+
+name: t13-conformance
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: ["t13-**", "release/26.13**"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── SCRAM-SHA-256-PLUS channel binding over real TLS vs a CB-capable Dovecot. ────
+  scram-plus:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Generate the test-only server certs (SHA-256 + SHA-512 leaves)
+        run: sh scripts/dovecot-t13/gen-certs.sh
+      - name: Bring up the CB-capable Dovecot (TLS, both cert digests)
+        run: docker compose -f docker-compose.ci.yml up -d --wait dovecot-t13 dovecot-t13-sha512
+      - name: SCRAM-SHA-256-PLUS binding + cbind-gap vs real Dovecot
+        env:
+          MW_T13_TLS_LIVE: "1"
+        run: cargo test -p mw-server --test t13_scram_plus -- --nocapture --test-threads=1
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v
+
+  # ── ACL/METADATA (RFC 4314/5464) round-trip vs Dovecot (acl + metadata plugins). ─
+  acl-metadata:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Generate certs (Dovecot requires TLS provisioned even for plaintext)
+        run: sh scripts/dovecot-t13/gen-certs.sh
+      - name: Bring up the ACL/METADATA Dovecot (seeded Shared mailbox + corpus)
+        run: docker compose -f docker-compose.ci.yml up -d --wait dovecot-t13
+      - name: ACL/METADATA round-trip + DELETEACL semantics vs real Dovecot
+        env:
+          MW_T13_LIVE: "1"
+        run: cargo test -p mw-server --test t13_acl_metadata -- --nocapture --test-threads=1
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v
+
+  # ── JWZ threading (SQLite + LIVE Postgres) + GeoIP Received-hop enrichment. ──────
+  jwz-geoip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Generate certs
+        run: sh scripts/dovecot-t13/gen-certs.sh
+      - name: Bring up Dovecot (seeded threaded + GeoIP corpus) + Postgres
+        run: docker compose -f docker-compose.ci.yml up -d --wait dovecot-t13 postgres
+      - name: JWZ ingest convergence/repair on SQLite AND live Postgres
+        env:
+          MW_T13_LIVE: "1"
+          MW_E14_PG_DSN: "postgres://mailwoman:mailwoman@localhost:5432/mailwoman"
+        run: cargo test -p mw-server --test t13_jwz -- --nocapture --test-threads=1
+      - name: GeoIP/ASN Received-hop enrichment vs the committed .mmdb fixtures
+        env:
+          MW_T13_LIVE: "1"
+        run: cargo test -p mw-server --test t13_geoip -- --nocapture --test-threads=1
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v

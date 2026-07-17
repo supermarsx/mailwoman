@@ -1,0 +1,7 @@
+Message-ID: <o2@jwz.t13>
+References: <ghost-root@jwz.t13> <o1@jwz.t13>
+Subject: Re: Orphan thread
+From: o2@example.test
+
+Also references the missing ghost-root (and o1). o1 + o2 must converge under the
+same empty-container thread — distinct from the Widget thread.

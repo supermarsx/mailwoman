@@ -1,0 +1,7 @@
+Message-ID: <o1@jwz.t13>
+References: <ghost-root@jwz.t13>
+Subject: Re: Orphan thread
+From: o1@example.test
+
+References a root message-id that is NOT in the corpus (ghost-root). JWZ must
+group it under an empty (phantom) container representing the missing original.

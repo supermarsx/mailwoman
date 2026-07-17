@@ -1,0 +1,11 @@
+Received: from relay.se.example (relay.se.example [89.160.20.128]) by mx.telstra.example with ESMTP id def456; Mon, 6 Jul 2026 09:59:00 +0000
+Received: from mail.telstra.example (mail.telstra.example [1.128.0.0]) by mx.mailwoman.test with ESMTP id abc123; Mon, 6 Jul 2026 10:00:00 +0000
+Message-ID: <geo@t13.mailwoman.test>
+From: Notifier <notify@t13.mailwoman.test>
+To: You <you@t13.mailwoman.test>
+Subject: Login from new location
+Date: Mon, 6 Jul 2026 10:00:05 +0000
+
+A message whose Received chain carries two known GeoIP vectors: hop [1.128.0.0]
+resolves to AS1221 (Telstra) in the ASN test DB, and hop [89.160.20.128]
+resolves to country SE in the City/Country test DB.

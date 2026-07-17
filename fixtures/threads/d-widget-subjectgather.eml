@@ -1,0 +1,6 @@
+Message-ID: <d@jwz.t13>
+Subject: Widget
+From: d@example.test
+
+A second non-reply "Widget" with NO References/In-Reply-To. JWZ subject-gather
+must merge it into the same thread as a (same normalized subject).

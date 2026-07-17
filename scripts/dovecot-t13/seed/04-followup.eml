@@ -1,0 +1,11 @@
+Message-ID: <followup@t13.mailwoman.test>
+In-Reply-To: <reply-a@t13.mailwoman.test>
+References: <reply-a@t13.mailwoman.test>
+From: Alice <alice@t13.mailwoman.test>
+To: Team <team@t13.mailwoman.test>
+Subject: Re: Design review
+Date: Mon, 6 Jul 2026 12:00:00 +0000
+
+A follow-up with a TRUNCATED References header (names only its immediate parent
+reply-a, not the origin). JWZ sibling-repair must chain it onto the origin
+thread via the already-ingested reply-a's recorded root.

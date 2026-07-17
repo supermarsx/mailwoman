@@ -1,4 +1,7 @@
 /target
+# t13 (26.13) SCRAM-PLUS live gate: ephemeral test-only server certs+keys,
+# regenerated per run by scripts/dovecot-t13/gen-certs.sh — never committed.
+scripts/dovecot-t13/certs/
 node_modules/
 apps/web/dist/*
 !apps/web/dist/.gitkeep

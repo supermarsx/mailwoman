@@ -1,0 +1,5 @@
+# Dovecot passwd-file for the t13 (26.13) live-E2E conformance target. CI ONLY.
+# Format: user:password:uid:gid:gecos:home:shell:extra
+# {PLAIN} secret so Dovecot derives the SCRAM SaltedPassword at auth time.
+# uid/gid = vmail (1000); home drives the maildir + the metadata dict file.
+testuser:{PLAIN}testpass:1000:1000::/srv/vmail/testuser::

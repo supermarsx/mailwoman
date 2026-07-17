@@ -1,0 +1,10 @@
+Message-ID: <reply-a@t13.mailwoman.test>
+In-Reply-To: <origin@t13.mailwoman.test>
+References: <origin@t13.mailwoman.test>
+From: Bob <bob@t13.mailwoman.test>
+To: Team <team@t13.mailwoman.test>
+Subject: Re: Design review
+Date: Mon, 6 Jul 2026 11:00:00 +0000
+
+The reply arrives (and is ingested) BEFORE its original — JWZ must still
+converge it onto the origin thread once the original lands.

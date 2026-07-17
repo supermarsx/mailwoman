@@ -1,0 +1,19 @@
+GeoIP test fixtures (t13 / 26.13 live-E2E)
+==========================================
+
+Files:
+  GeoLite2-ASN-Test.mmdb
+  GeoIP2-Country-Test.mmdb
+  GeoIP2-City-Test.mmdb
+
+Source:   MaxMind's open-source MaxMind-DB test-data repository
+          https://github.com/maxmind/MaxMind-DB (test-data/)
+License:  Apache-2.0 / MIT (dual-licensed; both permissive) — see the repo's
+          LICENSE-APACHE and LICENSE-MIT. These are SYNTHETIC TEST databases, not
+          production GeoIP data; they are committed solely to exercise the BYO
+          MaxMind-DB reader (mw-engine `MW_GEOIP_DB`). No production GeoLite2/GeoIP2
+          database is bundled — those remain admin-supplied.
+
+Known-good vectors used by crates/mw-server/tests/t13_geoip.rs:
+  GeoLite2-ASN-Test.mmdb   1.128.0.0      -> ASN 1221 (Telstra)
+  GeoIP2-Country-Test.mmdb 89.160.20.128  -> country SE
