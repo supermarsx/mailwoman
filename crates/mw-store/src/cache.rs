@@ -686,6 +686,28 @@ impl Store {
         Ok(row.get_string("thread_id"))
     }
 
+    /// Read-only: the JWZ root Message-ID already recorded for a stored message,
+    /// looked up by that message's own Message-ID within an account (joins
+    /// `messages` → `threads`). Used by the engine's incremental JWZ ingest to
+    /// converge a newly-arriving reply onto the thread its referenced ancestors
+    /// already belong to, without re-threading history (new-ingest-only). Keyed
+    /// off the existing `message_id` column (indexed by `idx_messages_message_id`)
+    /// so no migration is required. Returns `None` when no stored message carries
+    /// that Message-ID or it is not yet threaded.
+    pub async fn thread_root_for_message_id(
+        &self,
+        account_id: &str,
+        message_id: &str,
+    ) -> Result<Option<String>, StoreError> {
+        Ok(q("SELECT t.root_message_id FROM messages m \
+             JOIN threads t ON m.thread_id = t.thread_id \
+             WHERE m.account_id = ?1 AND m.message_id = ?2 LIMIT 1")
+        .bind(account_id)
+        .bind(message_id)
+        .fetch_opt_scalar_string(&self.backend)
+        .await?)
+    }
+
     /// Look up an existing thread id by its root Message-ID.
     pub async fn thread_for_root(
         &self,

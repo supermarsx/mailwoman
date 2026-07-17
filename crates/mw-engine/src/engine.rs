@@ -28,7 +28,7 @@ use crate::mapping::{
     role_to_store,
 };
 use crate::search_index;
-use crate::thread::thread_root;
+use crate::thread::{self, Message as ThreadMessage};
 
 /// The engine: one local store plus a registry of live account backends.
 ///
@@ -313,8 +313,11 @@ impl Engine {
             .or_else(|| email.sent_at.clone());
         email.received_at = received_at.clone();
 
-        // Engine-side JWZ thread assignment.
-        let thread_id = match thread_root(&parsed.envelope) {
+        // Engine-side JWZ thread assignment (new-ingest-only; see `thread.rs`).
+        let thread_id = match self
+            .jwz_thread_root(account_id, &parsed.envelope, email.subject.as_deref())
+            .await?
+        {
             Some(root) => Some(self.store.assign_thread(account_id, &root).await?),
             None => None,
         };
@@ -409,6 +412,50 @@ impl Engine {
         )
         .await?;
         Ok(sid)
+    }
+
+    /// Compute the JWZ root Message-ID for a newly-arriving message
+    /// (new-ingest-only; no re-thread of history).
+    ///
+    /// Full JWZ is a set algorithm, so we assemble the incremental *member set*:
+    /// the message itself plus the reply-chain ancestors the store already knows
+    /// about. The ancestors are looked up read-only by Message-ID over the
+    /// existing `messages.message_id` column (walk `{message_id} ∪ references ∪
+    /// {in_reply_to}` → look each up), so no schema/migration is needed. Each
+    /// found ancestor contributes a stub carrying its already-recorded root,
+    /// which lets a message with a truncated `References` header still converge
+    /// onto the correct thread. `thread::thread_root` then runs the JWZ
+    /// build/link/root phases over that set and returns the target's stable root.
+    async fn jwz_thread_root(
+        &self,
+        account_id: &str,
+        envelope: &mw_mime::ParsedEnvelope,
+        subject: Option<&str>,
+    ) -> Result<Option<String>> {
+        let target = ThreadMessage::from_envelope(envelope, subject);
+
+        // Candidate ancestor ids: everything the message points at, minus its
+        // own id (which JWZ derives from `target` directly).
+        let mut seen = std::collections::HashSet::new();
+        let mut ancestors = Vec::new();
+        for id in envelope
+            .references
+            .iter()
+            .chain(envelope.in_reply_to.iter())
+        {
+            if Some(id) == envelope.message_id.as_ref() || !seen.insert(id.clone()) {
+                continue;
+            }
+            if let Some(root) = self
+                .store
+                .thread_root_for_message_id(account_id, id)
+                .await?
+            {
+                ancestors.push(ThreadMessage::stub(id.clone(), root));
+            }
+        }
+
+        Ok(thread::thread_root(&target, &ancestors))
     }
 
     /// Rebuild a message's search-index document from the store (after a flag,
