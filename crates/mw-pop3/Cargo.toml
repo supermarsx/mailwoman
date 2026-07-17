@@ -22,6 +22,11 @@ tracing = { workspace = true }
 # crate is added. Not new workspace deps — already declared/resolved in-tree.
 sha2 = { workspace = true }
 hmac = { workspace = true }
+# ADDED 26.13 (t13 E3) — FLAG: SCRAM-SHA-256-PLUS `tls-server-end-point` channel
+# binding (RFC 5929) parses the server leaf cert's signature-algorithm OID to pick
+# the endpoint digest (SHA-256/384/512, floor SHA-256). In-tree RustCrypto pin
+# (Apache-2.0/MIT, pure-Rust, no -sys/C); already a workspace dep (S/MIME stack).
+x509-cert = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

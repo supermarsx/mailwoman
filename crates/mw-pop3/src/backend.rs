@@ -53,6 +53,21 @@ pub enum Pop3Auth {
     OAuthBearer,
 }
 
+impl Pop3Auth {
+    /// SCRAM mechanism selection for the [`SaslScram`](Pop3Auth::SaslScram)
+    /// path: prefer `SCRAM-SHA-256-PLUS` only when a `tls-server-end-point`
+    /// channel binding was captured at the TLS handshake (`binding.is_some()`)
+    /// **and** the server advertised the `-PLUS` mechanism in its `CAPA`/`AUTH`
+    /// SASL list; otherwise fall back to plain `SCRAM-SHA-256` (the
+    /// always-interoperable case, e.g. plaintext or an unadvertised server).
+    ///
+    /// `advertised` is the upper-cased SASL mechanism list from
+    /// [`CapaInfo::sasl`](crate::proto::CapaInfo::sasl).
+    pub(crate) fn scram_prefers_plus(binding: Option<&[u8]>, advertised: &[String]) -> bool {
+        binding.is_some() && advertised.iter().any(|m| m == "SCRAM-SHA-256-PLUS")
+    }
+}
+
 /// Everything needed to open and authenticate a POP3 session, plus the
 /// leave-on-server policy the backend honours.
 #[derive(Debug, Clone)]

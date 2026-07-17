@@ -39,6 +39,11 @@ fn transport(e: impl std::fmt::Display) -> EngineError {
 /// One live POP3 session (greeting consumed, ready for AUTHORIZATION/TRANSACTION).
 pub struct Pop3Conn {
     stream: BufReader<Box<dyn AsyncStream>>,
+    /// The `tls-server-end-point` channel binding (RFC 5929) captured from the
+    /// server's leaf certificate at the TLS handshake, before the typed stream
+    /// was boxed. `None` on a plaintext transport (no certificate). Enables the
+    /// `SCRAM-SHA-256-PLUS` mechanism when the server also advertises it.
+    channel_binding: Option<Vec<u8>>,
 }
 
 /// Outcome of reading one line during a SASL `AUTH` exchange.
@@ -52,6 +57,16 @@ impl Pop3Conn {
     fn new(stream: Box<dyn AsyncStream>) -> Self {
         Self {
             stream: BufReader::new(stream),
+            channel_binding: None,
+        }
+    }
+
+    /// Like [`new`](Self::new) but carrying a `tls-server-end-point` channel
+    /// binding captured at the TLS handshake (`None` for plaintext).
+    fn with_binding(stream: Box<dyn AsyncStream>, channel_binding: Option<Vec<u8>>) -> Self {
+        Self {
+            stream: BufReader::new(stream),
+            channel_binding,
         }
     }
 
@@ -68,8 +83,8 @@ impl Pop3Conn {
                 c
             }
             TlsMode::Implicit => {
-                let tls = tls_connect(Box::new(tcp), &cfg.host).await?;
-                let mut c = Pop3Conn::new(Box::new(tls));
+                let (tls, binding) = tls_connect(Box::new(tcp), &cfg.host).await?;
+                let mut c = Pop3Conn::with_binding(tls, binding);
                 c.read_greeting().await?;
                 c
             }
@@ -78,8 +93,8 @@ impl Pop3Conn {
                 c.read_greeting().await?;
                 c.stls().await?;
                 let inner = c.into_inner()?;
-                let tls = tls_connect(inner, &cfg.host).await?;
-                Pop3Conn::new(Box::new(tls))
+                let (tls, binding) = tls_connect(inner, &cfg.host).await?;
+                Pop3Conn::with_binding(tls, binding)
             }
         };
         conn.authenticate(cfg).await?;
@@ -198,7 +213,17 @@ impl Pop3Conn {
                 }
             }
             Pop3Auth::SaslScram => {
-                self.authenticate_scram_sha256(&cfg.username, &cfg.secret)
+                // Prefer `-PLUS` only when we captured a channel binding at the
+                // handshake AND the server advertises it (probe `CAPA` — a
+                // no-op on the plaintext path since the binding is `None`). The
+                // policy itself lives with the `Pop3Auth` enum in `backend.rs`.
+                let use_plus = if self.channel_binding.is_some() {
+                    let capa = self.capa().await?;
+                    Pop3Auth::scram_prefers_plus(self.channel_binding.as_deref(), &capa.sasl)
+                } else {
+                    false
+                };
+                self.authenticate_scram_sha256(&cfg.username, &cfg.secret, use_plus)
                     .await?;
             }
             Pop3Auth::OAuthBearer => {
@@ -209,10 +234,17 @@ impl Pop3Conn {
         Ok(())
     }
 
-    /// SASL `SCRAM-SHA-256` (RFC 5802 / RFC 7677) over POP3 `AUTH` (RFC 5034),
-    /// challenge/response form: `AUTH SCRAM-SHA-256` → `+` → client-first → `+`
-    /// server-first → client-final → server-final/`+OK`. The proof math is in
-    /// [`crate::sasl::ScramSha256`] (pinned by the RFC 7677 vector test).
+    /// SASL `SCRAM-SHA-256`(`-PLUS`) (RFC 5802 / RFC 7677) over POP3 `AUTH`
+    /// (RFC 5034), challenge/response form: `AUTH SCRAM-SHA-256[-PLUS]` → `+` →
+    /// client-first → `+` server-first → client-final → server-final/`+OK`. The
+    /// proof math is in [`crate::sasl::ScramSha256`] (pinned by the RFC 7677
+    /// vector test).
+    ///
+    /// When `use_plus` is set, sends `AUTH SCRAM-SHA-256-PLUS` and binds the
+    /// exchange to the `tls-server-end-point` binding captured at the handshake
+    /// (`self.channel_binding`); otherwise the plain `n,,` mechanism. The
+    /// caller ([`authenticate`](Self::authenticate)) only sets `use_plus` when a
+    /// binding is present and the server advertised the `-PLUS` mechanism.
     ///
     /// Selected via [`Pop3Auth::SaslScram`](crate::backend::Pop3Auth) on the
     /// config; [`authenticate`](Self::authenticate) dispatches here.
@@ -220,11 +252,17 @@ impl Pop3Conn {
         &mut self,
         username: &str,
         password: &str,
+        use_plus: bool,
     ) -> Result<()> {
+        let (mech, binding) = if use_plus {
+            ("AUTH SCRAM-SHA-256-PLUS", self.channel_binding.clone())
+        } else {
+            ("AUTH SCRAM-SHA-256", None)
+        };
         let nonce = sasl::client_nonce();
-        let (mut scram, client_first) = sasl::ScramSha256::new(username, password, &nonce);
+        let (mut scram, client_first) = sasl::ScramSha256::new(username, password, &nonce, binding);
 
-        self.send("AUTH SCRAM-SHA-256").await?;
+        self.send(mech).await?;
         // First continuation asks for the client-first-message (payload empty).
         self.expect_continue().await?;
         self.send(&B64.encode(&client_first)).await?;
@@ -403,15 +441,31 @@ fn decode_b64_utf8(s: &str) -> Result<String> {
     String::from_utf8(bytes).map_err(|e| EngineError::Protocol(format!("non-UTF-8 SASL blob: {e}")))
 }
 
+/// Run the TLS handshake and, **while the stream is still typed**, read the
+/// server's leaf certificate to compute the `tls-server-end-point` channel
+/// binding (RFC 5929) — this is the one moment `peer_certificates()` is
+/// reachable, before the stream is erased into `Box<dyn AsyncStream>`. Returns
+/// the boxed stream alongside the binding (`None` if the peer presented no
+/// certificate, which is not expected for a completed TLS handshake).
 async fn tls_connect(
     io: Box<dyn AsyncStream>,
     host: &str,
-) -> Result<tokio_rustls::client::TlsStream<Box<dyn AsyncStream>>> {
+) -> Result<(Box<dyn AsyncStream>, Option<Vec<u8>>)> {
     let config = tls_client_config()?;
     let connector = TlsConnector::from(config);
     let server_name = rustls_pki_types::ServerName::try_from(host.to_string())
         .map_err(|_| EngineError::Transport(format!("invalid TLS server name: {host}")))?;
-    connector.connect(server_name, io).await.map_err(transport)
+    let tls = connector
+        .connect(server_name, io)
+        .await
+        .map_err(transport)?;
+    let binding = {
+        let (_, conn) = tls.get_ref();
+        conn.peer_certificates()
+            .and_then(|certs| certs.first())
+            .map(|leaf| sasl::tls_server_end_point(leaf.as_ref()))
+    };
+    Ok((Box::new(tls), binding))
 }
 
 fn tls_client_config() -> Result<Arc<rustls::ClientConfig>> {
@@ -514,9 +568,82 @@ mod tests {
         let tcp = TcpStream::connect(addr).await.unwrap();
         let mut conn = Pop3Conn::new(Box::new(tcp));
         conn.read_greeting().await.unwrap();
-        conn.authenticate_scram_sha256("user", "pencil")
+        conn.authenticate_scram_sha256("user", "pencil", false)
             .await
             .expect("SCRAM authentication succeeds");
+        server.await.unwrap();
+    }
+
+    /// Drive `AUTH SCRAM-SHA-256-PLUS` against a mock server: assert the `-PLUS`
+    /// mechanism is sent and the client-final `c=` echoes the base64 of
+    /// `p=tls-server-end-point,,` || the captured channel binding. The plain
+    /// path is pinned by `scram_sha256_dispatch_framing`.
+    #[tokio::test]
+    async fn scram_sha256_plus_dispatch_framing() {
+        let binding = vec![0x5Au8; 32];
+        let expected_cbind = {
+            let mut v = b"p=tls-server-end-point,,".to_vec();
+            v.extend_from_slice(&binding);
+            B64.encode(&v)
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let expected = expected_cbind.clone();
+        let server = tokio::spawn(async move {
+            let (sock, _) = listener.accept().await.unwrap();
+            let (rd, mut wr) = sock.into_split();
+            let mut reader = BufReader::new(rd);
+            wr.write_all(b"+OK mailwoman ready\r\n").await.unwrap();
+
+            let mut line = String::new();
+            reader.read_line(&mut line).await.unwrap();
+            assert_eq!(
+                line.trim_end_matches(['\r', '\n']),
+                "AUTH SCRAM-SHA-256-PLUS"
+            );
+            wr.write_all(b"+ \r\n").await.unwrap();
+
+            line.clear();
+            reader.read_line(&mut line).await.unwrap();
+            let client_first =
+                String::from_utf8(B64.decode(line.trim_end_matches(['\r', '\n'])).unwrap())
+                    .unwrap();
+            assert!(
+                client_first.starts_with("p=tls-server-end-point,,n=user,r="),
+                "{client_first}"
+            );
+            let nonce = client_first
+                .rsplit(',')
+                .next()
+                .and_then(|f| f.strip_prefix("r="))
+                .unwrap()
+                .to_string();
+            let server_first = format!("r={nonce}SRV,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096");
+            wr.write_all(format!("+ {}\r\n", B64.encode(&server_first)).as_bytes())
+                .await
+                .unwrap();
+
+            line.clear();
+            reader.read_line(&mut line).await.unwrap();
+            let client_final =
+                String::from_utf8(B64.decode(line.trim_end_matches(['\r', '\n'])).unwrap())
+                    .unwrap();
+            assert!(
+                client_final.starts_with(&format!("c={expected},r=")),
+                "c= must echo the channel binding: {client_final}"
+            );
+            assert!(client_final.contains(",p="));
+            wr.write_all(b"+OK maildrop locked and ready\r\n")
+                .await
+                .unwrap();
+        });
+
+        let tcp = TcpStream::connect(addr).await.unwrap();
+        let mut conn = Pop3Conn::with_binding(Box::new(tcp), Some(binding));
+        conn.read_greeting().await.unwrap();
+        conn.authenticate_scram_sha256("user", "pencil", true)
+            .await
+            .expect("SCRAM-SHA-256-PLUS authentication succeeds");
         server.await.unwrap();
     }
 
