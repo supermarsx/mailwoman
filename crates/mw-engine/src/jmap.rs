@@ -151,6 +151,14 @@ impl Engine {
             }
             "Identity/get" => self.identity_get(account_id, rt, args).await,
             "Identity/query" => self.identity_query(account_id, rt).await,
+            // ACL (RFC 4314) + METADATA (RFC 5464) read-through seam (t13 §6 E7):
+            // ride the same envelope; the backend handle is the account's
+            // `AccountBackend`, delegating to the upstream server. Handlers live
+            // in `acl.rs`.
+            "MailboxRights/get" => self.mailbox_rights_get(account_id, rt, args).await,
+            "MailboxRights/set" => self.mailbox_rights_set(account_id, rt, args).await,
+            "ServerMetadata/get" => self.server_metadata_get(account_id, rt, args).await,
+            "ServerMetadata/set" => self.server_metadata_set(account_id, rt, args).await,
             // Mailwoman-native PIM families (§2.2) ride the same envelope; e8
             // fills the handlers behind `dispatch_pim`.
             other if crate::pim::dispatch::is_pim_method(other) => {

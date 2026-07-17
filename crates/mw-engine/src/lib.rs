@@ -8,6 +8,7 @@
 //! [`backend`] seam; the orchestration itself is filled in by e6.
 
 pub mod account;
+pub mod acl;
 pub mod backend;
 pub mod change;
 pub mod dispatcher;
