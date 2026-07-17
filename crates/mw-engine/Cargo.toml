@@ -65,6 +65,14 @@ sha2 = { workspace = true }
 # DLP custom-regex detector (plan §1.8). Built-in detectors (PAN/IBAN/SSN) are
 # hand-scanned; custom-regex rules compile a user pattern.
 regex = { workspace = true }
+# 26.13 (t13 E5): BYO MaxMind-DB reader for the Received-chain GeoIP/ASN
+# enrichment (SPEC §7.3). Pure-Rust, ISC, NO C / no `-sys` crates. maxminddb's
+# `default = []` (empty), so plain workspace inheritance already links ONLY the
+# serde-deserialize reader — the perf features (`mmap`, `simdutf8`,
+# `unsafe-str-decode`) are all opt-in and deliberately left off, keeping the
+# dependency surface minimal with no unsafe UTF-8 path. Native-only (mw-engine is
+# native). NO database is bundled — the `.mmdb` is admin-supplied via `MW_GEOIP_DB`.
+maxminddb = { workspace = true }
 
 [dev-dependencies]
 # The env-gated Radicale round-trip test names `mw_dav::DavConfig` (the public

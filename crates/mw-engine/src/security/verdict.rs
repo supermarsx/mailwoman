@@ -9,7 +9,8 @@
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::sync::Mutex;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
 use std::net::IpAddr;
@@ -23,6 +24,7 @@ use mail_auth::{
     SpfOutput, SpfResult, Txt,
 };
 use mail_parser::{Host, MessageParser, MimeHeaders};
+use maxminddb::{Reader, geoip2};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -532,24 +534,70 @@ fn geoip_db_path() -> Option<std::path::PathBuf> {
         .filter(|p| p.exists())
 }
 
-/// BYO GeoIP/ASN enrichment seam (SPEC §7.3). MaxMind GeoLite2 is NOT permissively
+/// A MaxMind-DB reader over an in-memory copy of the `.mmdb` file (pure-Rust, no
+/// mmap/`unsafe` decode features). `Send + Sync`, so one instance is shared across
+/// every Received hop and every concurrent verdict.
+type GeoReader = Reader<Vec<u8>>;
+
+/// Open (once) and cache the admin `.mmdb` reader keyed by path, so the file is
+/// memory-parsed a single time and reused rather than re-opened per Received hop.
+/// The open *outcome* is cached — including failure as `None` — so a bad/corrupt
+/// path is not re-opened on every lookup. (An admin fixing the file re-reads on the
+/// next process start; the path is a deploy-time configuration.)
+fn geoip_reader(path: &Path) -> Option<Arc<GeoReader>> {
+    static CACHE: OnceLock<Mutex<HashMap<PathBuf, Option<Arc<GeoReader>>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = cache.lock().unwrap();
+    if let Some(entry) = guard.get(path) {
+        return entry.clone();
+    }
+    let opened = Reader::open_readfile(path).ok().map(Arc::new);
+    guard.insert(path.to_path_buf(), opened.clone());
+    opened
+}
+
+/// BYO GeoIP/ASN enrichment (SPEC §7.3). MaxMind GeoLite2 is NOT permissively
 /// redistributable (account + attribution required), so **no database is bundled**
 /// (t12 §5 flag 3 — the user's decision). ASN/country are resolved only from an
-/// admin-supplied database pointed to by `MW_GEOIP_DB`; unset (the default) leaves
-/// the fields `None`. The database *reader* is intentionally out of tree until a
-/// permissively-licensed source is chosen — this hook establishes the wiring and
-/// the admin-supplied-path contract without shipping a licence-encumbered DB or
-/// pulling a new dependency.
+/// admin-supplied database pointed to by `MW_GEOIP_DB`; unset/unreadable (the
+/// default) leaves the fields `None`. A single admin DB may be a Country, City, or
+/// ASN database — whichever fields it provides are resolved; a missing field is
+/// `None` and never errors the verdict.
 fn geoip_enrich(ip: Option<IpAddr>) -> GeoEnrichment {
-    match (ip, geoip_db_path()) {
-        (Some(_ip), Some(_db)) => {
-            // An admin database is configured; ASN/country resolution against it
-            // activates when a permissively-licensed reader is wired in. No
-            // bundled DB, no new dependency — the fields stay `None` until then.
-            GeoEnrichment::default()
-        }
-        _ => GeoEnrichment::default(),
+    let (Some(ip), Some(db)) = (ip, geoip_db_path()) else {
+        return GeoEnrichment::default();
+    };
+    let Some(reader) = geoip_reader(&db) else {
+        return GeoEnrichment::default();
+    };
+    geoip_lookup(&reader, ip)
+}
+
+/// Resolve one IP against an opened reader. Tries the ASN schema (GeoLite2-ASN:
+/// `autonomous_system_number` + `autonomous_system_organization`) and the
+/// Country/City schema (`country.iso_code`, shared by GeoLite2-Country and -City).
+/// Whichever the DB actually carries populates its fields; the other stays `None`.
+/// Any lookup/decode error degrades to `GeoEnrichment::default()` — a GeoIP miss
+/// must never fail the security verdict.
+fn geoip_lookup(reader: &GeoReader, ip: IpAddr) -> GeoEnrichment {
+    let Ok(result) = reader.lookup(ip) else {
+        return GeoEnrichment::default();
+    };
+    if !result.has_data() {
+        return GeoEnrichment::default();
     }
+    let mut geo = GeoEnrichment::default();
+    // ASN leg (absent in a Country/City DB → fields stay None).
+    if let Ok(Some(asn)) = result.decode::<geoip2::Asn>() {
+        geo.asn = asn.autonomous_system_number.map(i64::from);
+        geo.asn_org = asn.autonomous_system_organization.map(str::to_string);
+    }
+    // Country leg — `City` is a superset of `Country`, so it decodes both schemas;
+    // its `country.iso_code` is `None` for an ASN-only DB.
+    if let Ok(Some(city)) = result.decode::<geoip2::City>() {
+        geo.country = city.country.iso_code.map(str::to_string);
+    }
+    geo
 }
 
 // ── Attachment risk (ext-vs-magic) ───────────────────────────────────────────
@@ -944,6 +992,25 @@ mod tests {
         // No `MW_GEOIP_DB` set in the test env ⇒ no bundled DB ⇒ all fields None.
         let geo = geoip_enrich("192.0.2.10".parse::<IpAddr>().ok());
         assert_eq!(geo, GeoEnrichment::default());
+    }
+
+    #[test]
+    fn geoip_reader_degrades_gracefully_on_a_non_mmdb_file() {
+        // A path that exists but is NOT a valid MaxMind DB must not open (and must
+        // not panic): the reader open fails and is cached as `None`, so the verdict
+        // path degrades to no enrichment rather than erroring. This exercises the
+        // open + per-path caching wiring without needing env or a real `.mmdb`
+        // (the live fixture-backed resolution is E10's leg). No `MW_GEOIP_DB` is
+        // touched, so the sibling no-DB test stays independent under parallelism.
+        let mut junk = std::env::temp_dir();
+        junk.push(format!("mw-geoip-not-a-db-{}.mmdb", std::process::id()));
+        std::fs::write(&junk, b"this is plainly not a MaxMind database").unwrap();
+
+        assert!(geoip_reader(&junk).is_none(), "junk file must not open");
+        // Second call resolves from the cache — still `None`, still no panic.
+        assert!(geoip_reader(&junk).is_none(), "cached failure stays None");
+
+        let _ = std::fs::remove_file(&junk);
     }
 
     #[tokio::test]
