@@ -308,9 +308,11 @@ impl Connection {
     }
 
     /// The SCRAM `-PLUS` channel binding for the current transport:
-    /// `tls-server-end-point` = SHA-256 of the server's leaf certificate
-    /// (RFC 5929). `None` on a plaintext transport or when the server presented
-    /// no certificate.
+    /// `tls-server-end-point` (RFC 5929) over the server's leaf certificate.
+    /// The digest tracks the certificate's own signature hash
+    /// (SHA-256/384/512); that selection lives in
+    /// [`crate::sasl::tls_server_end_point`]. `None` on a plaintext transport or
+    /// when the server presented no certificate.
     pub fn channel_binding(&self) -> Option<Vec<u8>> {
         match self.stream.as_ref()? {
             ImapStream::Tls(tls) => {

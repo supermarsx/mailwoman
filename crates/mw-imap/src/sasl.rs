@@ -15,11 +15,14 @@
 //! SCRAM's salted password uses PBKDF2-HMAC-SHA-256, derived here from the
 //! in-tree `hmac` + `sha2` primitives (single output block, since `dkLen ==
 //! hLen == 32`) — no separate `pbkdf2` dependency. The `-PLUS` channel binding
-//! is `tls-server-end-point` = SHA-256 of the server's leaf certificate. Per
-//! RFC 5929 the endpoint hash should track the certificate's own signature
-//! digest; we use SHA-256, which is exact for SHA-256/-signed certificates (the
-//! overwhelming majority) — SHA-384/-512-signed leaves are a known gap, so the
-//! plain SCRAM-SHA-256 mechanism stays the always-interoperable default.
+//! is `tls-server-end-point` (RFC 5929 §4.1): a digest of the server's leaf
+//! certificate DER hashed with the **certificate's own signature hash**. Per
+//! the RFC, MD5/SHA-1 (and any unrecognised or hash-less signature algorithm,
+//! e.g. RSASSA-PSS or Ed25519) floor to SHA-256, a SHA-256 signature uses
+//! SHA-256, a SHA-384 signature uses SHA-384, and a SHA-512 signature uses
+//! SHA-512. The leaf's `signatureAlgorithm` OID is read with the pure-Rust
+//! `x509-cert` DER parser; SHA-384/-512-signed leaves are therefore fully
+//! supported (no longer a gap).
 //!
 //! SASLprep (RFC 4013) normalisation of the username/password is not applied;
 //! this is a no-op for ASCII credentials (the common case and the RFC 7677
@@ -29,7 +32,10 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::engine::general_purpose::STANDARD_NO_PAD as B64_NOPAD;
 use hmac::{Hmac, KeyInit, Mac};
-use sha2::{Digest, Sha256};
+use sha2::{Digest, Sha256, Sha384, Sha512};
+use x509_cert::Certificate;
+use x509_cert::der::Decode;
+use x509_cert::der::asn1::ObjectIdentifier;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -105,6 +111,24 @@ fn sha256(data: &[u8]) -> [u8; 32] {
     out
 }
 
+/// One SHA-384 digest of `data`.
+fn sha384(data: &[u8]) -> [u8; 48] {
+    let mut h = Sha384::new();
+    h.update(data);
+    let mut out = [0u8; 48];
+    out.copy_from_slice(&h.finalize());
+    out
+}
+
+/// One SHA-512 digest of `data`.
+fn sha512(data: &[u8]) -> [u8; 64] {
+    let mut h = Sha512::new();
+    h.update(data);
+    let mut out = [0u8; 64];
+    out.copy_from_slice(&h.finalize());
+    out
+}
+
 /// PBKDF2-HMAC-SHA-256 for a single output block (`dkLen == hLen == 32`, so the
 /// block index is always 1) — the shape SCRAM's `SaltedPassword` needs.
 fn pbkdf2_hmac_sha256(password: &[u8], salt: &[u8], iterations: u32) -> [u8; 32] {
@@ -121,10 +145,52 @@ fn pbkdf2_hmac_sha256(password: &[u8], salt: &[u8], iterations: u32) -> [u8; 32]
     out
 }
 
-/// The `tls-server-end-point` channel binding (RFC 5929): SHA-256 of the
-/// server's leaf certificate DER.
+// `signatureAlgorithm` OIDs whose message digest is SHA-384 / SHA-512. Every
+// other signature algorithm — SHA-256, SHA-1, MD5, RSASSA-PSS (hash in the
+// parameters), Ed25519/Ed448, or anything unrecognised — floors to SHA-256 per
+// RFC 5929 §4.1.
+const ECDSA_WITH_SHA_384: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.10045.4.3.3");
+const ECDSA_WITH_SHA_512: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.10045.4.3.4");
+const SHA_384_WITH_RSA: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.12");
+const SHA_512_WITH_RSA: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.13");
+
+/// Which digest RFC 5929 §4.1 selects for a `tls-server-end-point` binding.
+#[derive(Debug, PartialEq, Eq)]
+enum EndpointDigest {
+    Sha256,
+    Sha384,
+    Sha512,
+}
+
+/// Map a leaf certificate's `signatureAlgorithm` to its endpoint digest.
+///
+/// An unparseable leaf (or any algorithm outside the SHA-384/512 set) yields the
+/// RFC-mandated SHA-256 floor, so the binding is always defined.
+fn endpoint_digest_for(leaf_cert_der: &[u8]) -> EndpointDigest {
+    let oid = match Certificate::from_der(leaf_cert_der) {
+        Ok(cert) => cert.signature_algorithm().oid,
+        Err(_) => return EndpointDigest::Sha256,
+    };
+    if oid == ECDSA_WITH_SHA_384 || oid == SHA_384_WITH_RSA {
+        EndpointDigest::Sha384
+    } else if oid == ECDSA_WITH_SHA_512 || oid == SHA_512_WITH_RSA {
+        EndpointDigest::Sha512
+    } else {
+        EndpointDigest::Sha256
+    }
+}
+
+/// The `tls-server-end-point` channel binding (RFC 5929 §4.1): a digest of the
+/// server's leaf certificate DER computed with the certificate's **own**
+/// signature hash — SHA-384 for a SHA-384 signature, SHA-512 for a SHA-512
+/// signature, and SHA-256 for a SHA-256 signature or the MD5/SHA-1/unknown
+/// floor. The binding is therefore 32, 48, or 64 bytes.
 pub fn tls_server_end_point(leaf_cert_der: &[u8]) -> Vec<u8> {
-    sha256(leaf_cert_der).to_vec()
+    match endpoint_digest_for(leaf_cert_der) {
+        EndpointDigest::Sha256 => sha256(leaf_cert_der).to_vec(),
+        EndpointDigest::Sha384 => sha384(leaf_cert_der).to_vec(),
+        EndpointDigest::Sha512 => sha512(leaf_cert_der).to_vec(),
+    }
 }
 
 /// Escape a SCRAM `username` (`,` → `=2C`, `=` → `=3D`; RFC 5802 §5.1).
@@ -401,5 +467,53 @@ mod tests {
     #[test]
     fn escape_scram_encodes_reserved_chars() {
         assert_eq!(escape_scram("a,b=c"), "a=2Cb=3Dc");
+    }
+
+    // `tls-server-end-point` digest selection (RFC 5929 §4.1). The fixtures are
+    // self-signed leaves generated with `openssl`, one per signature hash:
+    //   leaf_rsa_sha256.der — sha256WithRSAEncryption (the RFC-common case)
+    //   leaf_ec_sha384.der  — ecdsa-with-SHA384
+    //   leaf_ec_sha512.der  — ecdsa-with-SHA512
+    const LEAF_RSA_SHA256: &[u8] = include_bytes!("../tests/fixtures/leaf_rsa_sha256.der");
+    const LEAF_EC_SHA384: &[u8] = include_bytes!("../tests/fixtures/leaf_ec_sha384.der");
+    const LEAF_EC_SHA512: &[u8] = include_bytes!("../tests/fixtures/leaf_ec_sha512.der");
+
+    #[test]
+    fn endpoint_digest_tracks_certificate_signature_hash() {
+        assert_eq!(endpoint_digest_for(LEAF_RSA_SHA256), EndpointDigest::Sha256);
+        assert_eq!(endpoint_digest_for(LEAF_EC_SHA384), EndpointDigest::Sha384);
+        assert_eq!(endpoint_digest_for(LEAF_EC_SHA512), EndpointDigest::Sha512);
+    }
+
+    #[test]
+    fn sha256_signed_leaf_yields_32_byte_binding() {
+        // Pins the RFC-common case: a SHA-256-signed leaf still hashes with
+        // SHA-256, byte-for-byte the previous behaviour.
+        let binding = tls_server_end_point(LEAF_RSA_SHA256);
+        assert_eq!(binding.len(), 32);
+        assert_eq!(binding, sha256(LEAF_RSA_SHA256).to_vec());
+    }
+
+    #[test]
+    fn sha384_signed_leaf_yields_48_byte_binding() {
+        let binding = tls_server_end_point(LEAF_EC_SHA384);
+        assert_eq!(binding.len(), 48);
+        assert_eq!(binding, sha384(LEAF_EC_SHA384).to_vec());
+    }
+
+    #[test]
+    fn sha512_signed_leaf_yields_64_byte_binding() {
+        let binding = tls_server_end_point(LEAF_EC_SHA512);
+        assert_eq!(binding.len(), 64);
+        assert_eq!(binding, sha512(LEAF_EC_SHA512).to_vec());
+    }
+
+    #[test]
+    fn unparseable_leaf_floors_to_sha256() {
+        // A non-certificate blob must never panic: it floors to the 32-byte
+        // SHA-256 binding.
+        let junk = b"not a certificate";
+        assert_eq!(endpoint_digest_for(junk), EndpointDigest::Sha256);
+        assert_eq!(tls_server_end_point(junk).len(), 32);
     }
 }
