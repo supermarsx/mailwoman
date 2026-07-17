@@ -9,9 +9,9 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use mw_engine::backend::{
-    AccountBackend, BackendCaps, ChangeEvent, ChangeSink, EngineError, Flag, MailboxDelta,
-    MessageRef, MoveOutcome, RawMailbox, RawMailboxRef, RawMessage, Result, SyncCursor,
-    WatchHandle,
+    AccountBackend, AclEntry, BackendCaps, ChangeEvent, ChangeSink, EngineError, Flag,
+    MailboxDelta, MessageRef, MetadataEntry, MoveOutcome, RawMailbox, RawMailboxRef, RawMessage,
+    Result, SyncCursor, WatchHandle,
 };
 use tokio::sync::{Mutex, watch};
 
@@ -150,6 +150,61 @@ impl AccountBackend for ImapBackend {
             watch_loop(config, sink, stop_rx).await;
         });
         Ok(WatchHandle::new(stop_tx))
+    }
+
+    // --- ACL (RFC 4314) + METADATA (RFC 5464) --------------------------------
+    // Delegate to the live session's client commands. The upstream IMAP server
+    // is the enforcement point; `Unsupported` surfaces when it advertises no
+    // ACL / METADATA capability (mapped from `ImapError::Unsupported`).
+
+    async fn get_acl(&self, mbox: &RawMailboxRef) -> Result<Vec<AclEntry>> {
+        let mut session = self.session.lock().await;
+        Ok(session.get_acl(&mbox.name).await?)
+    }
+
+    async fn set_acl(&self, mbox: &RawMailboxRef, identifier: &str, rights: &str) -> Result<()> {
+        let mut session = self.session.lock().await;
+        session.set_acl(&mbox.name, identifier, rights).await?;
+        Ok(())
+    }
+
+    async fn delete_acl(&self, mbox: &RawMailboxRef, identifier: &str) -> Result<()> {
+        let mut session = self.session.lock().await;
+        session.delete_acl(&mbox.name, identifier).await?;
+        Ok(())
+    }
+
+    async fn list_rights(&self, mbox: &RawMailboxRef, identifier: &str) -> Result<Vec<String>> {
+        let mut session = self.session.lock().await;
+        Ok(session.list_rights(&mbox.name, identifier).await?)
+    }
+
+    async fn my_rights(&self, mbox: &RawMailboxRef) -> Result<String> {
+        let mut session = self.session.lock().await;
+        Ok(session.my_rights(&mbox.name).await?)
+    }
+
+    async fn get_metadata(
+        &self,
+        mbox: Option<&RawMailboxRef>,
+        entries: &[String],
+    ) -> Result<Vec<MetadataEntry>> {
+        // `None` = server-level: the empty mailbox name (RFC 5464).
+        let name = mbox.map(|m| m.name.as_str()).unwrap_or("");
+        let mut session = self.session.lock().await;
+        Ok(session.get_metadata(name, entries).await?)
+    }
+
+    async fn set_metadata(
+        &self,
+        mbox: Option<&RawMailboxRef>,
+        entry: &str,
+        value: Option<&str>,
+    ) -> Result<()> {
+        let name = mbox.map(|m| m.name.as_str()).unwrap_or("");
+        let mut session = self.session.lock().await;
+        session.set_metadata(name, entry, value).await?;
+        Ok(())
     }
 }
 

@@ -10,7 +10,8 @@ use imap_proto::{
     StatusAttribute, UidSetMember,
 };
 use mw_engine::backend::{
-    BackendCaps, Flag, MailboxRole, MessageRef, MoveOutcome, RawMailbox, RawMailboxRef, RawMessage,
+    AclEntry, BackendCaps, Flag, MailboxRole, MessageRef, MetadataEntry, MoveOutcome, RawMailbox,
+    RawMailboxRef, RawMessage,
 };
 
 use crate::caps::CapabilitySet;
@@ -689,6 +690,155 @@ impl Session {
         Ok(())
     }
 
+    // --- ACL (RFC 4314) + METADATA (RFC 5464) --------------------------------
+    //
+    // `mw-imap` is the CLIENT: these commands are sent to the upstream IMAP
+    // server, which is the real ACL enforcement point. Each is guarded behind
+    // the advertised capability (`ACL` / `METADATA`|`METADATA-SERVER`) and returns
+    // `Unsupported` otherwise. `imap-proto` models none of the `ACL`/`LISTRIGHTS`/
+    // `MYRIGHTS`/`METADATA` untagged replies, so — as with `THREAD` — they are
+    // read and parsed at the raw-line level via [`Connection::execute_lines`].
+
+    fn require_acl(&self) -> ImapResult<()> {
+        if self.caps.has("ACL") {
+            Ok(())
+        } else {
+            Err(ImapError::Unsupported(
+                "ACL (RFC 4314) not advertised".into(),
+            ))
+        }
+    }
+
+    fn require_metadata(&self) -> ImapResult<()> {
+        if self.caps.has("METADATA") || self.caps.has("METADATA-SERVER") {
+            Ok(())
+        } else {
+            Err(ImapError::Unsupported(
+                "METADATA (RFC 5464) not advertised".into(),
+            ))
+        }
+    }
+
+    /// `GETACL <mailbox>` (RFC 4314): every `identifier`→`rights` grant on the
+    /// mailbox, parsed from the untagged `* ACL <mailbox> <id> <rights> …` reply.
+    pub async fn get_acl(&mut self, mailbox: &str) -> ImapResult<Vec<AclEntry>> {
+        self.require_acl()?;
+        let cmd = format!("GETACL {}", quote(mailbox));
+        let lines = self.conn.execute_lines(&cmd).await?;
+        for line in lines {
+            if let Some(rest) = untagged_payload(&line, "ACL") {
+                return Ok(parse_acl(rest));
+            }
+        }
+        Ok(Vec::new())
+    }
+
+    /// `SETACL <mailbox> <identifier> <rights>` (RFC 4314): set (replace) the
+    /// rights `identifier` holds on the mailbox.
+    pub async fn set_acl(
+        &mut self,
+        mailbox: &str,
+        identifier: &str,
+        rights: &str,
+    ) -> ImapResult<()> {
+        self.require_acl()?;
+        let cmd = format!(
+            "SETACL {} {} {}",
+            quote(mailbox),
+            quote(identifier),
+            quote(rights)
+        );
+        self.conn.execute(&cmd).await?.ok()?;
+        Ok(())
+    }
+
+    /// `DELETEACL <mailbox> <identifier>` (RFC 4314): remove `identifier`'s
+    /// entire ACL entry on the mailbox.
+    pub async fn delete_acl(&mut self, mailbox: &str, identifier: &str) -> ImapResult<()> {
+        self.require_acl()?;
+        let cmd = format!("DELETEACL {} {}", quote(mailbox), quote(identifier));
+        self.conn.execute(&cmd).await?.ok()?;
+        Ok(())
+    }
+
+    /// `LISTRIGHTS <mailbox> <identifier>` (RFC 4314): the rights tokens that may
+    /// be granted to `identifier` (first token = always-granted set, the rest =
+    /// individually-optional rights), parsed from the untagged `* LISTRIGHTS`
+    /// reply.
+    pub async fn list_rights(
+        &mut self,
+        mailbox: &str,
+        identifier: &str,
+    ) -> ImapResult<Vec<String>> {
+        self.require_acl()?;
+        let cmd = format!("LISTRIGHTS {} {}", quote(mailbox), quote(identifier));
+        let lines = self.conn.execute_lines(&cmd).await?;
+        for line in lines {
+            if let Some(rest) = untagged_payload(&line, "LISTRIGHTS") {
+                // Tokens after the mailbox + identifier are the rights tokens.
+                return Ok(tokenize(rest).into_iter().skip(2).map(tok_value).collect());
+            }
+        }
+        Ok(Vec::new())
+    }
+
+    /// `MYRIGHTS <mailbox>` (RFC 4314): the rights string the authenticated user
+    /// holds on the mailbox, parsed from the untagged `* MYRIGHTS` reply.
+    pub async fn my_rights(&mut self, mailbox: &str) -> ImapResult<String> {
+        self.require_acl()?;
+        let cmd = format!("MYRIGHTS {}", quote(mailbox));
+        let lines = self.conn.execute_lines(&cmd).await?;
+        for line in lines {
+            if let Some(rest) = untagged_payload(&line, "MYRIGHTS") {
+                // `* MYRIGHTS <mailbox> <rights>` — the rights is the 2nd token.
+                if let Some(r) = tokenize(rest).into_iter().nth(1) {
+                    return Ok(tok_value(r));
+                }
+            }
+        }
+        Ok(String::new())
+    }
+
+    /// `GETMETADATA <mailbox> (<entry> …)` (RFC 5464): fetch annotation values.
+    /// A server-level lookup uses the empty mailbox name (`""`). Parsed from the
+    /// untagged `* METADATA <mailbox> (<entry> <value> …)` reply; a missing entry
+    /// (NIL) yields a [`MetadataEntry`] with `value == None`.
+    pub async fn get_metadata(
+        &mut self,
+        mailbox: &str,
+        entries: &[String],
+    ) -> ImapResult<Vec<MetadataEntry>> {
+        self.require_metadata()?;
+        let entry_list = entries.join(" ");
+        let cmd = format!("GETMETADATA {} ({entry_list})", quote(mailbox));
+        let lines = self.conn.execute_lines(&cmd).await?;
+        let mut out = Vec::new();
+        for line in lines {
+            if let Some(rest) = untagged_payload(&line, "METADATA") {
+                out.extend(parse_metadata(rest));
+            }
+        }
+        Ok(out)
+    }
+
+    /// `SETMETADATA <mailbox> (<entry> <value>)` (RFC 5464): set one annotation,
+    /// or remove it when `value == None` (RFC 5464 NIL). Server-level uses `""`.
+    pub async fn set_metadata(
+        &mut self,
+        mailbox: &str,
+        entry: &str,
+        value: Option<&str>,
+    ) -> ImapResult<()> {
+        self.require_metadata()?;
+        let rendered = match value {
+            Some(v) => quote(v),
+            None => "NIL".to_string(),
+        };
+        let cmd = format!("SETMETADATA {} ({entry} {rendered})", quote(mailbox));
+        self.conn.execute(&cmd).await?.ok()?;
+        Ok(())
+    }
+
     // --- accessors used by the sync ladder + backend -------------------------
 
     pub(crate) fn caps(&self) -> &CapabilitySet {
@@ -1094,6 +1244,132 @@ fn imap_to_flag(s: &str) -> Flag {
     }
 }
 
+// --- ACL / METADATA response parsing (RFC 4314 / RFC 5464) ------------------
+
+/// If `line` is an untagged `* <KEYWORD> …` response, return the payload after
+/// the keyword (trimmed). The keyword must be followed by whitespace (or end of
+/// line) so `MYRIGHTS` never matches for `METADATA` and vice-versa.
+fn untagged_payload<'a>(line: &'a str, keyword: &str) -> Option<&'a str> {
+    let rest = line.strip_prefix("* ")?.strip_prefix(keyword)?;
+    match rest.chars().next() {
+        Some(c) if c.is_whitespace() => Some(rest.trim_start()),
+        None => Some(""),
+        _ => None,
+    }
+}
+
+/// One token of an IMAP response fragment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Tok {
+    Open,
+    Close,
+    /// A quoted-string value (quotes stripped, `\` escapes resolved).
+    Str(String),
+    /// A bare atom (mailbox name, entry name, rights, or `NIL`).
+    Atom(String),
+}
+
+/// The string carried by a value token (both quoted strings and atoms).
+fn tok_value(t: Tok) -> String {
+    match t {
+        Tok::Str(s) | Tok::Atom(s) => s,
+        Tok::Open => "(".to_string(),
+        Tok::Close => ")".to_string(),
+    }
+}
+
+/// Tokenize an IMAP response fragment, honoring quoted-strings and parentheses.
+/// (Synchronizing literals are not modelled — the ACL/METADATA replies this
+/// crate parses use quoted-strings/atoms; the live leg is covered by E10.)
+fn tokenize(s: &str) -> Vec<Tok> {
+    let mut toks = Vec::new();
+    let mut chars = s.chars().peekable();
+    while let Some(&c) = chars.peek() {
+        match c {
+            ' ' | '\t' => {
+                chars.next();
+            }
+            '(' => {
+                chars.next();
+                toks.push(Tok::Open);
+            }
+            ')' => {
+                chars.next();
+                toks.push(Tok::Close);
+            }
+            '"' => {
+                chars.next(); // opening quote
+                let mut val = String::new();
+                while let Some(ch) = chars.next() {
+                    match ch {
+                        '\\' => {
+                            if let Some(esc) = chars.next() {
+                                val.push(esc);
+                            }
+                        }
+                        '"' => break,
+                        other => val.push(other),
+                    }
+                }
+                toks.push(Tok::Str(val));
+            }
+            _ => {
+                let mut val = String::new();
+                while let Some(&ch) = chars.peek() {
+                    if matches!(ch, ' ' | '\t' | '(' | ')') {
+                        break;
+                    }
+                    val.push(ch);
+                    chars.next();
+                }
+                toks.push(Tok::Atom(val));
+            }
+        }
+    }
+    toks
+}
+
+/// Parse a `* ACL <mailbox> <id> <rights> …` payload into grants. The leading
+/// mailbox token is dropped; the remainder are `(identifier, rights)` pairs.
+fn parse_acl(payload: &str) -> Vec<AclEntry> {
+    let mut iter = tokenize(payload).into_iter().skip(1);
+    let mut out = Vec::new();
+    while let (Some(id), Some(rights)) = (iter.next(), iter.next()) {
+        out.push(AclEntry {
+            identifier: tok_value(id),
+            rights: tok_value(rights),
+        });
+    }
+    out
+}
+
+/// Parse a `* METADATA <mailbox> (<entry> <value> …)` payload into annotations.
+/// A bare `NIL` value maps to `None`; a quoted string (or atom) maps to `Some`.
+fn parse_metadata(payload: &str) -> Vec<MetadataEntry> {
+    let mut iter = tokenize(payload).into_iter();
+    // Advance to the opening paren of the (entry value …) list.
+    for t in iter.by_ref() {
+        if t == Tok::Open {
+            break;
+        }
+    }
+    let mut out = Vec::new();
+    loop {
+        let entry = match iter.next() {
+            Some(Tok::Close) | None => break,
+            Some(t) => tok_value(t),
+        };
+        let value = match iter.next() {
+            Some(Tok::Str(s)) => Some(s),
+            Some(Tok::Atom(a)) if a.eq_ignore_ascii_case("NIL") => None,
+            Some(Tok::Atom(a)) => Some(a),
+            Some(Tok::Close) | Some(Tok::Open) | None => None,
+        };
+        out.push(MetadataEntry { entry, value });
+    }
+    out
+}
+
 /// Quote a mailbox/argument as an IMAP quoted-string.
 pub(crate) fn quote(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
@@ -1184,5 +1460,329 @@ mod sort_thread_tests {
     #[test]
     fn thread_empty_reply_is_no_threads() {
         assert!(parse_thread_response("").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod acl_metadata_tests {
+    //! ACL (RFC 4314) + METADATA (RFC 5464) response parsing and command
+    //! framing, driven against an in-crate scripted IMAP socket (a `tokio`
+    //! `TcpListener` replaying server lines — no live server required).
+
+    use super::*;
+    use std::net::SocketAddr;
+    use std::sync::{Arc, Mutex};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    // --- pure parser round-trips --------------------------------------------
+
+    #[test]
+    fn getacl_reply_parses_into_grants() {
+        // A quoted identifier (with a space) and `anyone` special identifier.
+        let entries = parse_acl(r#""INBOX" "John Smith" lrswi anyone lr"#);
+        assert_eq!(
+            entries,
+            vec![
+                AclEntry {
+                    identifier: "John Smith".into(),
+                    rights: "lrswi".into(),
+                },
+                AclEntry {
+                    identifier: "anyone".into(),
+                    rights: "lr".into(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn myrights_reply_yields_rights_string() {
+        // `* MYRIGHTS <mailbox> <rights>` — rights is the 2nd token.
+        let rights = tokenize(r#""INBOX" lrswipkxtea"#)
+            .into_iter()
+            .nth(1)
+            .map(tok_value);
+        assert_eq!(rights.as_deref(), Some("lrswipkxtea"));
+    }
+
+    #[test]
+    fn listrights_reply_yields_rights_tokens() {
+        // `* LISTRIGHTS <mailbox> <identifier> <req> <opt> …`.
+        let toks: Vec<String> = tokenize(r#""INBOX" smith la r s w i p k x t e"#)
+            .into_iter()
+            .skip(2)
+            .map(tok_value)
+            .collect();
+        assert_eq!(
+            toks,
+            vec!["la", "r", "s", "w", "i", "p", "k", "x", "t", "e"]
+        );
+    }
+
+    #[test]
+    fn getmetadata_reply_parses_value_and_nil() {
+        let entries =
+            parse_metadata(r#""INBOX" (/shared/comment "Shared note" /private/comment NIL)"#);
+        assert_eq!(
+            entries,
+            vec![
+                MetadataEntry {
+                    entry: "/shared/comment".into(),
+                    value: Some("Shared note".into()),
+                },
+                MetadataEntry {
+                    entry: "/private/comment".into(),
+                    value: None,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn server_level_metadata_uses_empty_mailbox() {
+        // A server-level GETMETADATA reply carries the empty mailbox name.
+        let entries = parse_metadata(r#""" (/shared/comment "site-wide")"#);
+        assert_eq!(
+            entries,
+            vec![MetadataEntry {
+                entry: "/shared/comment".into(),
+                value: Some("site-wide".into()),
+            }]
+        );
+    }
+
+    #[test]
+    fn untagged_payload_distinguishes_myrights_from_metadata() {
+        assert!(untagged_payload("* METADATA \"INBOX\" ()", "MYRIGHTS").is_none());
+        assert!(untagged_payload("* MYRIGHTS \"INBOX\" lr", "METADATA").is_none());
+        assert_eq!(
+            untagged_payload("* MYRIGHTS \"INBOX\" lr", "MYRIGHTS"),
+            Some("\"INBOX\" lr")
+        );
+    }
+
+    // --- scripted-socket command framing ------------------------------------
+
+    /// Spawn a mock that greets with `greeting`, then for each client command
+    /// line replies with the next scripted response (`{tag}` substituted).
+    /// Returns the bound address and a shared log of the client lines read.
+    async fn spawn(
+        greeting: &'static str,
+        replies: Vec<String>,
+    ) -> (SocketAddr, Arc<Mutex<Vec<String>>>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let log2 = log.clone();
+        tokio::spawn(async move {
+            let (sock, _) = listener.accept().await.unwrap();
+            let (rd, mut wr) = sock.into_split();
+            let mut rd = BufReader::new(rd);
+            wr.write_all(greeting.as_bytes()).await.unwrap();
+            for reply in replies {
+                let mut line = String::new();
+                if rd.read_line(&mut line).await.unwrap() == 0 {
+                    break;
+                }
+                let tag = line.split_whitespace().next().unwrap_or("*").to_string();
+                log2.lock().unwrap().push(line.trim_end().to_string());
+                wr.write_all(reply.replace("{tag}", &tag).as_bytes())
+                    .await
+                    .unwrap();
+            }
+            // Hold the socket open briefly so the client reads the last reply.
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        });
+        (addr, log)
+    }
+
+    async fn connect(addr: SocketAddr) -> Session {
+        Session::connect(&addr.ip().to_string(), addr.port(), TlsMode::Plaintext)
+            .await
+            .expect("connect")
+    }
+
+    const CAPS: &str = "* OK [CAPABILITY IMAP4rev1 ACL METADATA] ready\r\n";
+
+    #[tokio::test]
+    async fn get_acl_round_trips() {
+        let reply =
+            "* ACL \"INBOX\" alice lrswipkxtea bob lr\r\n{tag} OK Getacl completed\r\n".to_string();
+        let (addr, log) = spawn(CAPS, vec![reply]).await;
+        let mut session = connect(addr).await;
+
+        let entries = session.get_acl("INBOX").await.unwrap();
+        assert_eq!(
+            entries,
+            vec![
+                AclEntry {
+                    identifier: "alice".into(),
+                    rights: "lrswipkxtea".into(),
+                },
+                AclEntry {
+                    identifier: "bob".into(),
+                    rights: "lr".into(),
+                },
+            ]
+        );
+        assert!(
+            log.lock()
+                .unwrap()
+                .iter()
+                .any(|l| l.contains("GETACL \"INBOX\""))
+        );
+    }
+
+    #[tokio::test]
+    async fn my_rights_round_trips() {
+        let reply =
+            "* MYRIGHTS \"INBOX\" lrswipkxtea\r\n{tag} OK Myrights completed\r\n".to_string();
+        let (addr, _log) = spawn(CAPS, vec![reply]).await;
+        let mut session = connect(addr).await;
+        assert_eq!(session.my_rights("INBOX").await.unwrap(), "lrswipkxtea");
+    }
+
+    #[tokio::test]
+    async fn list_rights_round_trips() {
+        let reply = "* LISTRIGHTS \"INBOX\" smith la r s w i\r\n{tag} OK Listrights completed\r\n"
+            .to_string();
+        let (addr, _log) = spawn(CAPS, vec![reply]).await;
+        let mut session = connect(addr).await;
+        let rights = session.list_rights("INBOX", "smith").await.unwrap();
+        assert_eq!(rights, vec!["la", "r", "s", "w", "i"]);
+    }
+
+    #[tokio::test]
+    async fn get_metadata_round_trips() {
+        let reply =
+            "* METADATA \"INBOX\" (/shared/comment \"Team inbox\")\r\n{tag} OK Getmetadata completed\r\n"
+                .to_string();
+        let (addr, log) = spawn(CAPS, vec![reply]).await;
+        let mut session = connect(addr).await;
+        let entries = session
+            .get_metadata("INBOX", &["/shared/comment".to_string()])
+            .await
+            .unwrap();
+        assert_eq!(
+            entries,
+            vec![MetadataEntry {
+                entry: "/shared/comment".into(),
+                value: Some("Team inbox".into()),
+            }]
+        );
+        assert!(
+            log.lock()
+                .unwrap()
+                .iter()
+                .any(|l| l.contains("GETMETADATA \"INBOX\" (/shared/comment)"))
+        );
+    }
+
+    #[tokio::test]
+    async fn get_server_metadata_uses_empty_mailbox() {
+        let reply =
+            "* METADATA \"\" (/shared/comment \"site\")\r\n{tag} OK Getmetadata completed\r\n"
+                .to_string();
+        let (addr, log) = spawn(CAPS, vec![reply]).await;
+        let mut session = connect(addr).await;
+        let entries = session
+            .get_metadata("", &["/shared/comment".to_string()])
+            .await
+            .unwrap();
+        assert_eq!(entries.len(), 1);
+        assert!(
+            log.lock()
+                .unwrap()
+                .iter()
+                .any(|l| l.contains("GETMETADATA \"\" (/shared/comment)"))
+        );
+    }
+
+    #[tokio::test]
+    async fn set_acl_request_shape() {
+        let (addr, log) = spawn(CAPS, vec!["{tag} OK Setacl completed\r\n".to_string()]).await;
+        let mut session = connect(addr).await;
+        session.set_acl("INBOX", "alice", "lrswi").await.unwrap();
+        assert!(
+            log.lock()
+                .unwrap()
+                .iter()
+                .any(|l| l.contains(r#"SETACL "INBOX" "alice" "lrswi""#))
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_acl_request_shape() {
+        let (addr, log) = spawn(CAPS, vec!["{tag} OK Deleteacl completed\r\n".to_string()]).await;
+        let mut session = connect(addr).await;
+        session.delete_acl("INBOX", "alice").await.unwrap();
+        assert!(
+            log.lock()
+                .unwrap()
+                .iter()
+                .any(|l| l.contains(r#"DELETEACL "INBOX" "alice""#))
+        );
+    }
+
+    #[tokio::test]
+    async fn set_metadata_value_and_nil_request_shapes() {
+        let (addr, log) = spawn(
+            CAPS,
+            vec![
+                "{tag} OK Setmetadata completed\r\n".to_string(),
+                "{tag} OK Setmetadata completed\r\n".to_string(),
+            ],
+        )
+        .await;
+        let mut session = connect(addr).await;
+        session
+            .set_metadata("INBOX", "/shared/comment", Some("hi"))
+            .await
+            .unwrap();
+        // value: None → RFC 5464 NIL (remove the entry).
+        session
+            .set_metadata("INBOX", "/shared/comment", None)
+            .await
+            .unwrap();
+        let log = log.lock().unwrap();
+        assert!(
+            log.iter()
+                .any(|l| l.contains(r#"SETMETADATA "INBOX" (/shared/comment "hi")"#))
+        );
+        assert!(
+            log.iter()
+                .any(|l| l.contains(r#"SETMETADATA "INBOX" (/shared/comment NIL)"#))
+        );
+    }
+
+    #[tokio::test]
+    async fn not_advertised_returns_unsupported_without_sending() {
+        // Greeting advertises neither ACL nor METADATA.
+        let greeting = "* OK [CAPABILITY IMAP4rev1] ready\r\n";
+        let (addr, log) = spawn(greeting, vec![]).await;
+        let mut session = connect(addr).await;
+
+        assert!(matches!(
+            session.get_acl("INBOX").await,
+            Err(ImapError::Unsupported(_))
+        ));
+        assert!(matches!(
+            session.my_rights("INBOX").await,
+            Err(ImapError::Unsupported(_))
+        ));
+        assert!(matches!(
+            session
+                .get_metadata("INBOX", &["/shared/comment".to_string()])
+                .await,
+            Err(ImapError::Unsupported(_))
+        ));
+        assert!(matches!(
+            session
+                .set_metadata("INBOX", "/shared/comment", Some("x"))
+                .await,
+            Err(ImapError::Unsupported(_))
+        ));
+        // Guarded commands must never reach the wire.
+        assert!(log.lock().unwrap().is_empty());
     }
 }
