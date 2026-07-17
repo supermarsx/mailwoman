@@ -37,6 +37,40 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
 
 ## History
 
+- **`26.13`** — buildable residuals & deferrals left after 26.12, closed additively. **SCRAM-`PLUS`
+  channel binding completed** across `mw-imap`/`mw-smtp`/`mw-pop3`: `tls-server-end-point` (RFC 5929)
+  now hashes the TLS leaf with the cert's own signature digest (SHA-256/384/512, floor SHA-256 — the
+  prior SHA-256-only assumption is gone), plumbed through each protocol's TLS upgrade (SMTP/POP3
+  previously dropped the leaf cert before auth). The client is correct and its binding computation is
+  live-proven byte-exact against real certs; **note**: Dovecot 2.4.x advertises `SCRAM-SHA-256-PLUS`
+  but implements only `tls-unique`/`tls-exporter`, **not** `tls-server-end-point`, so full `-PLUS`
+  login-acceptance can't be proven against it (a server interop gap, not a client defect) — the login
+  leg is unit/mock-proven. `tls-exporter` (RFC 9266, TLS 1.3-native) is a noted future interop
+  enhancement, not shipped here. **IMAP ACL (RFC 4314) + METADATA (RFC 5464)**: full protocol commands
+  in `mw-imap` (GETACL/SETACL/DELETEACL/LISTRIGHTS/MYRIGHTS + GET/SETMETADATA, sent to the upstream
+  server which stays the enforcement point), an engine read-through JMAP seam (`MailboxRights/get|set`,
+  `ServerMetadata/get|set` — no persistence, no migration, no new frozen type), and a web mailbox ACL
+  editor (the 11 RFC 4314 rights bits as labeled checkboxes, write affordances gated on the caller's
+  `a` right) + server-metadata view. Live-verified vs real Dovecot (ACL+METADATA plugins): grant →
+  GETACL shows the identifier → revoke issues a real **DELETEACL** (identifier gone, not zero-rights).
+  Metadata `mbox`-none = server scope, `Some` = mailbox; `value` NIL = remove. **JWZ threading**: the
+  27-LOC References-head heuristic is replaced by the canonical JWZ algorithm (containers, id_table,
+  reference linking, root set, subject-gather, empty-container prune); applied **new-ingest-only** (no
+  historical re-key), keyed off the existing `messages.message_id` column so **no migration** —
+  incremental ingest gathers the reply-chain member set, runs JWZ, repairs truncated `References`.
+  Live-proven on SQLite and **live Postgres** (reply-before-original convergence, sibling repair).
+  **GeoIP/ASN**: a pure-Rust BYO `.mmdb` reader (`maxminddb`, ISC, no C) resolves country + ASN from an
+  admin-supplied MaxMind DB via `MW_GEOIP_DB`, cached per path; **no DB is bundled** (admin-supplied
+  only). Live-proven against MaxMind's Apache-2.0 test DBs. **Net zero new dependency-graph nodes**
+  (`x509-cert`/`maxminddb` already resolved in-tree); no openssl/`-sys`/C; `cargo deny` clean. Verified:
+  **1170 Rust** tests (0 failed, 11 ignored, desktop/mobile-excluded baseline) + **737 web**; the
+  live-E2E wave (`13 passed`, vs real Dovecot + live Postgres + GeoIP fixtures) again earned its keep —
+  it caught a real **METADATA GET literal-parsing** bug (Dovecot returns values as synchronizing
+  literals `{n}`; the parser returned the length marker) that every unit test passed, fixed + re-verified
+  live before this tag. **Deferred**: iOS shell (still needs macOS + Xcode + a paid Apple account — not
+  buildable here); IMAP ACL/METADATA *editing UI* is shipped, ACL `SETACL` write is exposed in the web
+  editor (server-metadata editing stays admin-gated); `tls-exporter` channel binding. Rolling `YY.N`
+  scheme retained (this is 26.13, not a "1.0" tag).
 - **`26.12`** — spec-conformance closure: real SPEC-feature gaps the 2026-07-16 audit found
   in otherwise-complete code, closed additively over the frozen V0–V7 surfaces. **HTML
   sanitizer CSS-rewrite**: `mw-sanitize` no longer wholesale-strips CSS — it parses both inline
