@@ -248,10 +248,15 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
     }
 
     /// Perform SASL authentication per the configured credentials.
+    ///
+    /// `channel_binding` carries the `tls-server-end-point` bytes (RFC 5929) when
+    /// the transport is TLS; it enables SCRAM-SHA-256-PLUS when the server also
+    /// advertises the `-PLUS` mechanism.
     pub(crate) async fn authenticate(
         &mut self,
         creds: &Credentials,
         caps: &Capabilities,
+        channel_binding: Option<&[u8]>,
     ) -> Result<(), SmtpError> {
         let require = |mech: &str| -> Result<(), SmtpError> {
             if caps.auth.is_empty() || caps.offers(mech) {
@@ -320,19 +325,29 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
                 }
             }
             Credentials::Scram { user, pass } => {
-                require("SCRAM-SHA-256")?;
+                // Preference: SCRAM-SHA-256-PLUS when a channel binding is present
+                // AND the server advertised `-PLUS`; otherwise plain SCRAM-SHA-256
+                // (which also covers the plaintext / implicit-TLS-without-binding
+                // path).
+                let use_plus = channel_binding.is_some() && caps.offers("SCRAM-SHA-256-PLUS");
+                let (mech, binding) = if use_plus {
+                    ("SCRAM-SHA-256-PLUS", channel_binding)
+                } else {
+                    require("SCRAM-SHA-256")?;
+                    ("SCRAM-SHA-256", None)
+                };
                 let nonce = sasl::client_nonce();
-                let (mut scram, client_first) = sasl::ScramSha256::new(user, pass, &nonce);
-                // AUTH SCRAM-SHA-256 <base64 client-first-message>.
+                let (mut scram, client_first) = sasl::ScramSha256::new(user, pass, &nonce, binding);
+                // AUTH <mech> <base64 client-first-message>.
                 let r = self
                     .command(&format!(
-                        "AUTH SCRAM-SHA-256 {}\r\n",
+                        "AUTH {mech} {}\r\n",
                         BASE64_STANDARD.encode(&client_first)
                     ))
                     .await?;
                 if r.code != 334 {
                     return Err(SmtpError::Auth(format!(
-                        "SCRAM-SHA-256 rejected at client-first: {} {}",
+                        "{mech} rejected at client-first: {} {}",
                         r.code,
                         r.text()
                     )));
@@ -360,7 +375,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
                         Self::expect_auth_ok(r2)
                     }
                     _ => Err(SmtpError::Auth(format!(
-                        "SCRAM-SHA-256 rejected: {} {}",
+                        "{mech} rejected: {} {}",
                         r.code,
                         r.text()
                     ))),
@@ -976,5 +991,140 @@ mod tests {
             decoded,
             b"n,a=carol@example.com,\x01auth=Bearer vF9dft4qmT\x01\x01"
         );
+    }
+
+    // --- SCRAM-SHA-256-PLUS channel-binding negotiation ------------------
+    //
+    // These drive `authenticate` directly over a cleartext mock socket with a
+    // synthetic `tls-server-end-point` binding (a real TLS handshake can't run
+    // against a mock), asserting the mechanism preference and the `c=` echo.
+
+    /// When a binding is present AND the server advertises `-PLUS`, the client
+    /// sends `AUTH SCRAM-SHA-256-PLUS` and the client-final `c=` decodes to
+    /// `p=tls-server-end-point,,` followed by the raw binding bytes.
+    #[tokio::test]
+    async fn scram_plus_selected_and_binds_channel() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let binding = vec![0x5Au8; 32];
+        let server_binding = binding.clone();
+
+        let server = tokio::spawn(async move {
+            let (sock, _) = listener.accept().await.unwrap();
+            let mut f = Framed::new(sock);
+            f.send(b"220 mock ESMTP\r\n").await;
+            assert_eq!(f.line().await, "EHLO client.test");
+            f.send(b"250-mock\r\n250 AUTH SCRAM-SHA-256 SCRAM-SHA-256-PLUS\r\n")
+                .await;
+
+            // The client must prefer the `-PLUS` mechanism.
+            let auth = f.line().await;
+            let ir = auth
+                .strip_prefix("AUTH SCRAM-SHA-256-PLUS ")
+                .expect("AUTH SCRAM-SHA-256-PLUS line");
+            let client_first = String::from_utf8(BASE64_STANDARD.decode(ir).unwrap()).unwrap();
+            assert!(
+                client_first.starts_with("p=tls-server-end-point,,"),
+                "gs2 header selects channel binding: {client_first}"
+            );
+            let client_nonce = client_first
+                .rsplit(',')
+                .next()
+                .and_then(|f| f.strip_prefix("r="))
+                .expect("client nonce")
+                .to_string();
+            let server_first =
+                format!("r={client_nonce}SRVNONCE,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096");
+            f.send(format!("334 {}\r\n", BASE64_STANDARD.encode(&server_first)).as_bytes())
+                .await;
+
+            // The client-final `c=` must echo gs2-header || binding.
+            let client_final =
+                String::from_utf8(BASE64_STANDARD.decode(f.line().await).unwrap()).unwrap();
+            let c = client_final
+                .split(',')
+                .find_map(|t| t.strip_prefix("c="))
+                .expect("client-final c=");
+            let mut expected = b"p=tls-server-end-point,,".to_vec();
+            expected.extend_from_slice(&server_binding);
+            assert_eq!(BASE64_STANDARD.decode(c).unwrap(), expected);
+            f.send(b"235 2.7.0 Authentication successful\r\n").await;
+        });
+
+        let tcp = TcpStream::connect(addr).await.unwrap();
+        let mut conn = Connection::new(tcp);
+        conn.read_greeting().await.unwrap();
+        let caps = conn.ehlo("client.test").await.unwrap();
+        assert!(caps.offers("SCRAM-SHA-256-PLUS"));
+        conn.authenticate(
+            &Credentials::Scram {
+                user: "user".into(),
+                pass: "pencil".into(),
+            },
+            &caps,
+            Some(&binding),
+        )
+        .await
+        .expect("SCRAM-SHA-256-PLUS authentication");
+        server.await.unwrap();
+    }
+
+    /// A binding is present but the server does NOT advertise `-PLUS`: the client
+    /// falls back to plain `SCRAM-SHA-256` with the unbound gs2 header (`c=biws`).
+    #[tokio::test]
+    async fn scram_falls_back_to_plain_when_plus_absent() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let binding = vec![0x5Au8; 32];
+
+        let server = tokio::spawn(async move {
+            let (sock, _) = listener.accept().await.unwrap();
+            let mut f = Framed::new(sock);
+            f.send(b"220 mock ESMTP\r\n").await;
+            assert_eq!(f.line().await, "EHLO client.test");
+            f.send(b"250-mock\r\n250 AUTH SCRAM-SHA-256\r\n").await;
+
+            let auth = f.line().await;
+            let ir = auth
+                .strip_prefix("AUTH SCRAM-SHA-256 ")
+                .expect("plain SCRAM-SHA-256 line (no -PLUS)");
+            let client_first = String::from_utf8(BASE64_STANDARD.decode(ir).unwrap()).unwrap();
+            assert!(
+                client_first.starts_with("n,,"),
+                "unbound gs2 header when -PLUS absent: {client_first}"
+            );
+            let client_nonce = client_first
+                .rsplit(',')
+                .next()
+                .and_then(|f| f.strip_prefix("r="))
+                .unwrap()
+                .to_string();
+            let server_first =
+                format!("r={client_nonce}SRVNONCE,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096");
+            f.send(format!("334 {}\r\n", BASE64_STANDARD.encode(&server_first)).as_bytes())
+                .await;
+            let client_final =
+                String::from_utf8(BASE64_STANDARD.decode(f.line().await).unwrap()).unwrap();
+            // Unbound: c= is base64("n,,") = "biws".
+            assert!(client_final.starts_with("c=biws,"), "{client_final}");
+            f.send(b"235 2.7.0 Authentication successful\r\n").await;
+        });
+
+        let tcp = TcpStream::connect(addr).await.unwrap();
+        let mut conn = Connection::new(tcp);
+        conn.read_greeting().await.unwrap();
+        let caps = conn.ehlo("client.test").await.unwrap();
+        conn.authenticate(
+            &Credentials::Scram {
+                user: "user".into(),
+                pass: "pencil".into(),
+            },
+            &caps,
+            // A binding is available, but the server never advertised `-PLUS`.
+            Some(&binding),
+        )
+        .await
+        .expect("plain SCRAM-SHA-256 fallback");
+        server.await.unwrap();
     }
 }

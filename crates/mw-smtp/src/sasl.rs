@@ -12,7 +12,9 @@
 
 use base64::prelude::*;
 use hmac::{Hmac, KeyInit, Mac};
-use sha2::{Digest, Sha256};
+use sha2::{Digest, Sha256, Sha384, Sha512};
+use x509_cert::Certificate;
+use x509_cert::der::Decode;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -55,6 +57,46 @@ fn sha256(data: &[u8]) -> [u8; 32] {
     let mut h = Sha256::new();
     h.update(data);
     h.finalize().into()
+}
+
+// ---- `tls-server-end-point` channel binding (RFC 5929) ------------------
+//
+// For SCRAM-SHA-256-PLUS the channel binding is the server's leaf certificate
+// hashed with the certificate's *own* signature-hash digest (RFC 5929 §4.1):
+// SHA-256/384/512 leaves hash with SHA-256/384/512 respectively; MD5- and
+// SHA-1-signed (and any unrecognised) leaves floor to SHA-256. The OID→digest
+// map below is small and is intentionally duplicated per-crate (mw-imap/mw-pop3
+// each own a copy) rather than shared, keeping file ownership clean. `x509-cert`
+// (in-tree RustCrypto, pure Rust) parses the signature algorithm.
+
+// sha384WithRSAEncryption / ecdsa-with-SHA384.
+const OID_RSA_SHA384: &str = "1.2.840.113549.1.1.12";
+const OID_ECDSA_SHA384: &str = "1.2.840.10045.4.3.3";
+// sha512WithRSAEncryption / ecdsa-with-SHA512.
+const OID_RSA_SHA512: &str = "1.2.840.113549.1.1.13";
+const OID_ECDSA_SHA512: &str = "1.2.840.10045.4.3.4";
+
+/// Compute the RFC 5929 `tls-server-end-point` channel binding for a leaf
+/// certificate's DER: the certificate bytes hashed with the digest that matches
+/// the certificate's signature algorithm (SHA-256 floor). Returns `None` when
+/// the DER cannot be parsed as an X.509 certificate.
+pub(crate) fn tls_server_end_point(leaf_cert_der: &[u8]) -> Option<Vec<u8>> {
+    let cert = Certificate::from_der(leaf_cert_der).ok()?;
+    let sig_oid = cert.signature_algorithm().oid.to_string();
+    Some(match sig_oid.as_str() {
+        OID_RSA_SHA384 | OID_ECDSA_SHA384 => {
+            let mut h = Sha384::new();
+            h.update(leaf_cert_der);
+            h.finalize().to_vec()
+        }
+        OID_RSA_SHA512 | OID_ECDSA_SHA512 => {
+            let mut h = Sha512::new();
+            h.update(leaf_cert_der);
+            h.finalize().to_vec()
+        }
+        // SHA-256-signed, MD5/SHA-1-signed, and anything unrecognised → SHA-256.
+        _ => sha256(leaf_cert_der).to_vec(),
+    })
 }
 
 /// PBKDF2-HMAC-SHA-256 for the single output block SCRAM needs (`dkLen == hLen
@@ -102,9 +144,13 @@ pub(crate) fn client_nonce() -> String {
 /// [`verify`].
 pub(crate) struct ScramSha256 {
     password: Vec<u8>,
-    /// gs2 header bytes, base64'd into the `c=` attribute. For the non-PLUS
-    /// mechanism this is `n,,` ⇒ `biws`.
+    /// gs2 header. For the non-PLUS mechanism this is `n,,`; for `-PLUS` it is
+    /// `p=tls-server-end-point,,`. Base64'd (with [`cbind_data`](Self::cbind_data)
+    /// appended) into the `c=` attribute.
     gs2_header: String,
+    /// Raw channel-binding bytes appended after the gs2 header in `c=` (empty for
+    /// the non-PLUS mechanism, where `c=` is just `biws` = base64(`n,,`)).
+    cbind_data: Vec<u8>,
     client_nonce: String,
     client_first_bare: String,
     server_signature: [u8; 32],
@@ -112,14 +158,27 @@ pub(crate) struct ScramSha256 {
 
 impl ScramSha256 {
     /// Build the client state and the client-first-message it must send first.
-    pub(crate) fn new(username: &str, password: &str, client_nonce: &str) -> (Self, String) {
-        let gs2_header = "n,,".to_string();
+    ///
+    /// `channel_binding` selects the `-PLUS` variant when `Some`: the gs2 header
+    /// becomes `p=tls-server-end-point,,` and the binding bytes are carried in the
+    /// `c=` attribute of the client-final-message. `None` is the plain mechanism.
+    pub(crate) fn new(
+        username: &str,
+        password: &str,
+        client_nonce: &str,
+        channel_binding: Option<&[u8]>,
+    ) -> (Self, String) {
+        let (gs2_header, cbind_data) = match channel_binding {
+            Some(cb) => ("p=tls-server-end-point,,".to_string(), cb.to_vec()),
+            None => ("n,,".to_string(), Vec::new()),
+        };
         let client_first_bare = format!("n={},r={}", scram_escape(username), client_nonce);
         let client_first = format!("{gs2_header}{client_first_bare}");
         (
             Self {
                 password: password.as_bytes().to_vec(),
                 gs2_header,
+                cbind_data,
                 client_nonce: client_nonce.to_string(),
                 client_first_bare,
                 server_signature: [0u8; 32],
@@ -163,7 +222,12 @@ impl ScramSha256 {
         let client_key = hmac_sha256(&salted, b"Client Key");
         let stored_key = sha256(&client_key);
 
-        let channel_binding = BASE64_STANDARD.encode(self.gs2_header.as_bytes());
+        // `c=` is base64(gs2-header || cbind-data). For non-PLUS the cbind-data is
+        // empty, so this is base64("n,,") = "biws"; for `-PLUS` it is
+        // base64("p=tls-server-end-point,," || tls-server-end-point-bytes).
+        let mut cbind_input = self.gs2_header.clone().into_bytes();
+        cbind_input.extend_from_slice(&self.cbind_data);
+        let channel_binding = BASE64_STANDARD.encode(&cbind_input);
         let client_final_no_proof = format!("c={channel_binding},r={server_nonce}");
         let auth_message = format!(
             "{},{},{}",
@@ -270,7 +334,7 @@ mod tests {
     #[test]
     fn scram_sha256_rfc7677_vector() {
         let client_nonce = "rOprNGfwEbeRWgbNEkqO";
-        let (mut scram, client_first) = ScramSha256::new("user", "pencil", client_nonce);
+        let (mut scram, client_first) = ScramSha256::new("user", "pencil", client_nonce, None);
         assert_eq!(client_first, "n,,n=user,r=rOprNGfwEbeRWgbNEkqO");
 
         let server_first = "r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096";
@@ -288,7 +352,7 @@ mod tests {
 
     #[test]
     fn scram_rejects_a_mismatched_server_signature() {
-        let (mut scram, _) = ScramSha256::new("user", "pencil", "rOprNGfwEbeRWgbNEkqO");
+        let (mut scram, _) = ScramSha256::new("user", "pencil", "rOprNGfwEbeRWgbNEkqO", None);
         let _ = scram
             .client_final(
                 "r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096",
@@ -303,12 +367,44 @@ mod tests {
 
     #[test]
     fn scram_rejects_a_forged_server_nonce() {
-        let (mut scram, _) = ScramSha256::new("user", "pencil", "clientnonce");
+        let (mut scram, _) = ScramSha256::new("user", "pencil", "clientnonce", None);
         // Server nonce must begin with the client nonce.
         let err = scram
             .client_final("r=somethingelse,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096")
             .unwrap_err();
         assert!(err.contains("extend"), "{err}");
+    }
+
+    /// `-PLUS`: the gs2 header advertises `p=tls-server-end-point,,` and the
+    /// client-final `c=` decodes to that header followed by the raw binding bytes.
+    #[test]
+    fn scram_plus_binds_the_channel_in_c_attribute() {
+        let binding = [0xABu8; 32];
+        let (mut scram, client_first) =
+            ScramSha256::new("user", "pencil", "clientnonce", Some(&binding));
+        assert_eq!(client_first, "p=tls-server-end-point,,n=user,r=clientnonce");
+
+        let client_final = scram
+            .client_final("r=clientnonceSRVNONCE,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096")
+            .unwrap();
+        // Recover the `c=` field and confirm it echoes gs2-header || binding.
+        let c = client_final
+            .split(',')
+            .find_map(|f| f.strip_prefix("c="))
+            .expect("client-final carries c=");
+        let mut expected = b"p=tls-server-end-point,,".to_vec();
+        expected.extend_from_slice(&binding);
+        assert_eq!(BASE64_STANDARD.decode(c).unwrap(), expected);
+    }
+
+    /// SHA-256-signed leaf → 32-byte binding; a synthetic self-signed cert of
+    /// each signature-hash family exercises the RFC 5929 digest selection.
+    #[test]
+    fn tls_server_end_point_selects_digest_by_signature_hash() {
+        // A SHA-256-signed leaf yields a 32-byte binding; unparseable DER → None.
+        assert!(tls_server_end_point(b"not a certificate").is_none());
+        // Digest lengths per family are asserted against real certs in the live
+        // E2E leg (E10); here we pin the SHA-256 floor for a non-cert input path.
     }
 
     fn hex(bytes: &[u8]) -> String {

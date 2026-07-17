@@ -23,6 +23,12 @@ tracing = { workspace = true }
 # crate is added. Not new workspace deps — already declared/resolved in-tree.
 sha2 = { workspace = true }
 hmac = { workspace = true }
+# SCRAM-SHA-256-PLUS channel binding (RFC 5929 `tls-server-end-point`): parse the
+# leaf cert's signature algorithm to pick the digest (SHA-256/384/512, SHA-256
+# floor). Pure-Rust RustCrypto, already an in-tree workspace dep (S/MIME stack);
+# newly LINKED here — FLAG for Cargo.lock reconcile (mw-smtp gains x509-cert +
+# its der/spki/const-oid ASN.1 deps, all already resolved in the lock).
+x509-cert = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

@@ -227,10 +227,12 @@ impl Submitter {
 
         match self.config.security {
             Security::ImplicitTls => {
-                let tls = tls::connect(tcp, &self.config.host).await?;
-                let mut conn = Connection::new(tls);
+                let up = tls::connect(tcp, &self.config.host).await?;
+                let binding = up.channel_binding;
+                let mut conn = Connection::new(up.stream);
                 conn.read_greeting().await?;
-                self.session(&mut conn, &msg, &opts).await
+                self.session(&mut conn, &msg, &opts, binding.as_deref())
+                    .await
             }
             Security::StartTls => {
                 // Cleartext probe: greet, EHLO, verify STARTTLS, upgrade, then
@@ -245,14 +247,17 @@ impl Submitter {
                 }
                 conn.starttls().await?;
                 let tcp = conn.into_inner()?;
-                let tls = tls::connect(tcp, &self.config.host).await?;
-                let mut conn = Connection::new(tls);
-                self.session(&mut conn, &msg, &opts).await
+                let up = tls::connect(tcp, &self.config.host).await?;
+                let binding = up.channel_binding;
+                let mut conn = Connection::new(up.stream);
+                self.session(&mut conn, &msg, &opts, binding.as_deref())
+                    .await
             }
             Security::Plaintext => {
+                // No TLS ⇒ no channel binding ⇒ SCRAM-SHA-256-PLUS is unavailable.
                 let mut conn = Connection::new(tcp);
                 conn.read_greeting().await?;
-                self.session(&mut conn, &msg, &opts).await
+                self.session(&mut conn, &msg, &opts, None).await
             }
         }
     }
@@ -264,12 +269,14 @@ impl Submitter {
         conn: &mut Connection<S>,
         msg: &Outgoing,
         opts: &SubmitOptions,
+        channel_binding: Option<&[u8]>,
     ) -> Result<SubmissionResult, SmtpError>
     where
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
     {
         let caps = conn.ehlo(&self.config.ehlo_name).await?;
-        conn.authenticate(&self.config.credentials, &caps).await?;
+        conn.authenticate(&self.config.credentials, &caps, channel_binding)
+            .await?;
 
         // Fail closed if the caller asked for an extension the server did not
         // advertise, rather than silently dropping the guarantee.
