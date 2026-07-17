@@ -130,14 +130,16 @@ describe('createAclClient wires the JMAP method surface', () => {
     expect(rights.acl).toEqual([{ identifier: 'bob', rights: 'lr' }]);
   });
 
-  it('grant / revoke build MailboxRights/set with the rights string (revoke = empty)', async () => {
+  it('grant builds MailboxRights/set with rights; revoke sends null (DELETEACL, not SETACL-empty)', async () => {
     const { jmap, calls } = fakeJmap();
     const client = createAclClient('acc', jmap);
     await client.grant('mbx1', 'alice', 'lr');
     await client.revoke('mbx1', 'alice');
 
     expect(calls[0]!.methodCalls[0]![1]).toMatchObject({ mailboxId: 'mbx1', identifier: 'alice', rights: 'lr' });
-    expect(calls[1]!.methodCalls[0]![1]).toMatchObject({ mailboxId: 'mbx1', identifier: 'alice', rights: '' });
+    // E9 reconcile: E7 maps null/absent rights → DELETEACL; an empty string would
+    // be a SETACL to empty rights, so revoke must send null.
+    expect(calls[1]!.methodCalls[0]![1]).toMatchObject({ mailboxId: 'mbx1', identifier: 'alice', rights: null });
   });
 
   it('getServerMetadata builds ServerMetadata/get (null scope) and parses the list', async () => {

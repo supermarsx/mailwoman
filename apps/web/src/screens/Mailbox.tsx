@@ -13,6 +13,7 @@ import { UndoToast } from '../components/UndoToast.tsx';
 import { SubTabStrip } from '../components/SubTabStrip.tsx';
 import { Ribbon } from '../components/Ribbon.tsx';
 import { Settings } from './Settings.tsx';
+import { SharingDialog } from './SharingDialog.tsx';
 import { Attachments } from './Attachments.tsx';
 import { APP_MODULES, KEYS_MODULE } from '../shell/modules.ts';
 import { createShellRouter, isPimSurface, type ShellSurface } from '../shell/router.ts';
@@ -85,6 +86,16 @@ export function MailboxScreen(): JSX.Element {
   const { subTabs } = useRealtime();
   const [composing, setComposing] = createSignal(false);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
+  // t13 26.13 (E9 mount): the mailbox ACL editor, reachable from the mailbox
+  // context. Open for the currently-selected mailbox; only meaningful once a
+  // mailbox + account are resolved.
+  const [sharingOpen, setSharingOpen] = createSignal(false);
+  const shareMailbox = createMemo(() => {
+    const id = app.selectedMailboxId();
+    if (id === null) return null;
+    const box = app.mailboxes().find((m) => m.id === id);
+    return box ? { id: box.id, name: box.name } : null;
+  });
 
   // The shell router (plan §2.5): Mail/Outbox/Attachments + the four PIM modules
   // are hash-routed surfaces, so each PIM module is reachable + deep-linkable.
@@ -190,6 +201,19 @@ export function MailboxScreen(): JSX.Element {
               <span class="sidebar__badge">{app.cancelableOutbox().length}</span>
             </Show>
           </button>
+          {/* Share the selected folder (t13 ACL editor). Only offered once a
+              mailbox + account are resolved; the editor self-gates writes on the
+              caller's administer right. */}
+          <Show when={shareMailbox() !== null && app.accountId() !== null}>
+            <button
+              type="button"
+              class={`sidebar__box ${a11y.focusable}`}
+              data-testid="nav-sharing"
+              onClick={() => setSharingOpen(true)}
+            >
+              <span class="sidebar__box-name">{t('mail-nav-sharing')}</span>
+            </button>
+          </Show>
         </nav>
 
         {/* PIM modules (plan §2.5): Calendar / Tasks / Notes / Contacts, each
@@ -270,6 +294,14 @@ export function MailboxScreen(): JSX.Element {
       </Show>
       <Show when={settingsOpen()}>
         <Settings onClose={() => setSettingsOpen(false)} />
+      </Show>
+      <Show when={sharingOpen() && shareMailbox() !== null && app.accountId() !== null}>
+        <SharingDialog
+          mailboxId={shareMailbox()!.id}
+          accountId={app.accountId()!}
+          mailboxName={shareMailbox()!.name}
+          onClose={() => setSharingOpen(false)}
+        />
       </Show>
       <UndoToast />
     </div>

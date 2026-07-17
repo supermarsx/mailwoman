@@ -20,6 +20,14 @@ import { PasswordChange } from '../modules/passwd/index.ts';
 // raw-Sieve editor, where-it-runs indicator, and dry-run. Self-contained module;
 // rides the existing MailRule JMAP + server Sieve codegen/PUTSCRIPT path.
 import { RulesSettings } from '../modules/rules/index.ts';
+// t13 (26.13, E9 mount): the server-level METADATA (RFC 5464) view. Self-contained
+// module; rides the same JMAP surface as `SecurityVerdict/get`. Mounted read-only
+// here — editing server annotations is an admin concern (HUMAN-DECISION flag 3,
+// METADATA scope, is still open), and the plain settings surface resolves no admin
+// right, so `canEdit` stays false (honest: read-only unless the permission is known).
+import { MetadataView } from '../modules/servermeta/index.ts';
+import { createAclClient } from '../api/acl-types.ts';
+import { createConfiguredClient } from '../api/transport.ts';
 import { THEME_OPTIONS, ACCENT_PRESETS } from '../theme/tokens.ts';
 import type { Density } from '../theme/contract.css.ts';
 import type { LayoutMode, UiFont } from '../state/slices/theme.ts';
@@ -198,12 +206,21 @@ export function Settings(props: SettingsProps): JSX.Element {
               <ZeroAccessBlock />
               <ApiKeys accountId={accountId()} />
               <McpKeys accountId={accountId()} />
+              <ServerMetadataSection accountId={accountId()} />
             </>
           )}
         </Show>
       </section>
     </div>
   );
+}
+
+// t13 (26.13, E9 mount): server-level METADATA, read-only. Builds the production
+// ACL client (same-origin JMAP transport) once and renders the E8 view with no
+// `mailboxId` (server-level scope). `canEdit` is omitted → read-only.
+function ServerMetadataSection(props: { accountId: string }): JSX.Element {
+  const client = createAclClient(props.accountId, createConfiguredClient().jmap);
+  return <MetadataView client={client} />;
 }
 
 // The zero-access section. Its wasm-backed worker is spawned lazily on mount (and

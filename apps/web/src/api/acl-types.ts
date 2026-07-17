@@ -10,21 +10,30 @@
 // gate on the editor is UX honesty, not enforcement — the server rejects an
 // unauthorised SETACL regardless.
 //
-// ⚠️ E7 documents the exact `MailboxRights/*` + `ServerMetadata/*` request/response
-// shapes in `.orchestration/logs/t13-E7.md`. This file builds against the plan
-// §Contract shapes; E9 (mount) reconciles the capability URN + arg names with E7
-// if they diverged. The request builders are the ONE place a name would change.
+// E7's exact `MailboxRights/*` + `ServerMetadata/*` request/response shapes are in
+// `.orchestration/logs/t13-E7.md`. E9 (mount) RECONCILED this file against E7's
+// ACTUAL engine contract (`crates/mw-engine/src/acl.rs`):
+//   • method names + arg shapes (`mailboxId`/`identifier`/`rights?`,
+//     `entries[]`/`entry`/`value?`) and get-response fields (`myRights`+`acl`;
+//     `list`) all matched the plan §Contract shapes — no change.
+//   • REVOKE fix: E7's `mailbox_rights_set` reads `rights` with `as_str`, so an
+//     EMPTY string `""` is `Some("")` → SETACL-empty, NOT DELETEACL. Only a null
+//     /absent `rights` takes the DELETEACL arm. So `revoke` now sends `rights:
+//     null` (below), and `mailboxRightsSet` accepts `string | null`.
+//   • `using` URN: E7's dispatch (and mw-server `/jmap/api`) do NOT validate
+//     `using` at all, and the session never advertises `urn:mailwoman:acl`. These
+//     methods ride the existing session method surface by name. So `using` carries
+//     only the always-advertised JMAP core capability — no invented URN.
 
 import { CAP_CORE, type Id, type Invocation, type JmapRequest, type JmapResponse } from './jmap-types.ts';
 import { responseFor } from './jmap.ts';
 
 /**
- * Capability URN advertised in `using` for the ACL/METADATA methods. Rides the
- * JMAP session like `urn:mailwoman:security`. If E7 named it differently, E9
- * updates this single constant.
+ * `using` for the ACL/METADATA method calls. The engine dispatches these by method
+ * name and checks nothing in `using` (§reconcile above), so this carries only the
+ * base JMAP core capability — the server advertises no ACL-specific URN.
  */
-export const CAP_ACL = 'urn:mailwoman:acl';
-const ACL_USING = [CAP_CORE, CAP_ACL];
+const ACL_USING = [CAP_CORE];
 
 // ── shapes (mirror the E0 frozen serde structs, byte-for-byte) ───────────────
 
@@ -104,15 +113,17 @@ export function mailboxRightsGet(accountId: Id, mailboxId: Id, callId = 'mr'): J
 }
 
 /**
- * `MailboxRights/set` → grant (`identifier` + non-empty `rights`) or revoke
- * (`identifier` + empty `rights`, mapping engine-side to DELETEACL). One grant
- * per call, matching the E0 `set_acl` / `delete_acl` backend seam.
+ * `MailboxRights/set` → grant (`identifier` + a `rights` string, SETACL) or revoke
+ * (`identifier` + `rights: null`, DELETEACL). E7's engine takes the DELETEACL arm
+ * ONLY on a null/absent `rights`; an empty string is a SETACL to empty rights, so
+ * `revoke` MUST pass `null` here. One grant per call, matching the E0 `set_acl` /
+ * `delete_acl` backend seam.
  */
 export function mailboxRightsSet(
   accountId: Id,
   mailboxId: Id,
   identifier: string,
-  rights: string,
+  rights: string | null,
   callId = 'mrs',
 ): JmapRequest {
   return {
@@ -205,7 +216,9 @@ export function createAclClient(accountId: Id, jmap: JmapFn): AclClient {
       responseFor<unknown>(res, 'mrs');
     },
     async revoke(mailboxId, identifier) {
-      const res = await jmap(mailboxRightsSet(accountId, mailboxId, identifier, ''));
+      // `null` (not '') → E7's DELETEACL arm; an empty string would be a SETACL to
+      // empty rights, leaving a zero-rights entry rather than removing it.
+      const res = await jmap(mailboxRightsSet(accountId, mailboxId, identifier, null));
       responseFor<unknown>(res, 'mrs');
     },
     async getServerMetadata(mailboxId) {

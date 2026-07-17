@@ -13,6 +13,7 @@ mail-compose = Compose
 mail-nav-mailboxes = Mailboxes
 mail-nav-attachments = Attachments
 mail-nav-outbox = Outbox
+mail-nav-sharing = Share folder
 mail-nav-apps = Apps
 mail-logout = Log out
 mail-offline = Offline
