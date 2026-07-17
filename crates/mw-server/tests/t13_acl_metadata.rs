@@ -137,19 +137,14 @@ async fn session_acl_roundtrip_and_deleteacl_is_gone() {
 
 // ── 2. E6 session client: METADATA round-trip ────────────────────────────────────
 //
-// ⚠️ REAL BUG (t13-E10, ESCALATED): Dovecot returns METADATA values as IMAP
+// ✅ FIXED (t13-26.13 fast-follow): Dovecot returns METADATA values as IMAP
 // synchronizing literals (`* METADATA INBOX (/private/comment {9}\r\nhello t13)`),
-// per RFC 5464. E6's `parse_metadata` tokenizer (`crates/mw-imap/src/session.rs`)
-// reads the raw line via `execute_lines` and treats `{9}` as an atom — it does NOT
-// consume the following-line literal payload — so `get_metadata` returns the value
-// `"{9}"` (the length marker) instead of `"hello t13"`. The SET path is fine; only
-// GET mis-parses. Masked by E6's mock socket, which used quoted values. This test
-// asserts the CORRECT behavior and is `#[ignore]`d until the parser reassembles
-// literals; `session_metadata_get_literal_value_bug_present` (below) characterizes
-// the current defect and stays green. Minimal fix proposal in the t13-E10 log.
+// per RFC 5464. `crates/mw-imap/src/session.rs` now reassembles the raw reply with
+// its inter-line CRLFs restored and its tokenizer is literal-aware, so `get_metadata`
+// returns `"hello t13"` (not the `{9}` length marker). This round-trip asserts the
+// CORRECT behavior against the real server; the former green defect-guard
+// (`session_metadata_get_literal_value_bug_present`) was deleted with the fix.
 #[tokio::test]
-#[ignore = "BLOCKED by t13-E10 METADATA literal-value bug (mw-imap parse_metadata does \
-            not reassemble IMAP {n} literals); un-ignore when session.rs is fixed"]
 async fn session_metadata_roundtrip_mailbox_and_server_level() {
     if !live() {
         return;
@@ -206,47 +201,6 @@ async fn session_metadata_roundtrip_mailbox_and_server_level() {
         "after NIL SETMETADATA the entry value must be None: {removed:?}"
     );
 
-    let _ = s.logout().await;
-}
-
-/// Characterizes the CURRENT metadata-literal defect (t13-E10) as a green,
-/// regression-guarding assertion: SETMETADATA succeeds and Dovecot stores the value
-/// (the write path is correct), but GETMETADATA returns the un-reassembled IMAP
-/// literal length-marker (`{n}`) instead of the value. When `parse_metadata` is
-/// fixed this test will start failing — that is the signal to delete it and
-/// un-ignore `session_metadata_roundtrip_mailbox_and_server_level`.
-#[tokio::test]
-async fn session_metadata_get_literal_value_bug_present() {
-    if !live() {
-        return;
-    }
-    let Some(mut s) = login_session("session_metadata_literal_bug").await else {
-        return;
-    };
-
-    // The SET path works (Dovecot accepts + stores the value — verified independently
-    // by the raw-socket probe): SETMETADATA must not error.
-    s.set_metadata("INBOX", "/private/comment", Some("hello t13"))
-        .await
-        .expect("SETMETADATA succeeds (write path is correct)");
-
-    let md = s
-        .get_metadata("INBOX", &["/private/comment".to_string()])
-        .await
-        .expect("GETMETADATA returns a parsed (but currently mis-parsed) entry");
-    let value = md
-        .iter()
-        .find(|e| e.entry == "/private/comment")
-        .and_then(|e| e.value.as_deref());
-    assert!(
-        matches!(value, Some(v) if v.starts_with('{') && v != "hello t13"),
-        "DOCUMENTS the t13-E10 bug: GETMETADATA leaks the IMAP literal marker instead \
-         of the value. If this now returns the real value, the parser was fixed — \
-         delete this test and un-ignore session_metadata_roundtrip_mailbox_and_server_level. \
-         got value={value:?}"
-    );
-
-    let _ = s.set_metadata("INBOX", "/private/comment", None).await;
     let _ = s.logout().await;
 }
 
@@ -400,13 +354,12 @@ async fn engine_mailbox_rights_grant_then_revoke_deleteacl() {
     );
 }
 
-// Same t13-E10 literal-value bug, surfaced through the E7 engine seam: the
-// ServerMetadata/get response carries the un-reassembled `{n}` marker. `#[ignore]`d
-// (asserts correct behavior) until mw-imap `parse_metadata` is fixed;
-// `engine_server_metadata_get_literal_value_bug_present` stays green below.
+// Same METADATA-literal path, surfaced through the E7 engine seam: the
+// ServerMetadata/get response now reassembles the `{n}` literal (fixed in
+// `mw-imap` `parse_metadata`), so this round-trip asserts the correct value. The
+// former green defect-guard (`engine_server_metadata_get_literal_value_bug_present`)
+// was deleted with the fix.
 #[tokio::test]
-#[ignore = "BLOCKED by t13-E10 METADATA literal-value bug (mw-imap parse_metadata); \
-            un-ignore when session.rs reassembles IMAP {n} literals"]
 async fn engine_server_metadata_set_get_and_remove() {
     if !live() {
         return;
@@ -442,50 +395,5 @@ async fn engine_server_metadata_set_get_and_remove() {
             .and_then(|e| e["value"].as_str()),
         Some("abc"),
         "server-level ServerMetadata/get must round-trip the value: {got}"
-    );
-}
-
-/// Green regression-guard for the engine-seam view of the t13-E10 metadata-literal
-/// bug: ServerMetadata/set works, ServerMetadata/get leaks the `{n}` literal marker.
-#[tokio::test]
-async fn engine_server_metadata_get_literal_value_bug_present() {
-    if !live() {
-        return;
-    }
-    let Some((engine, account_id, _mailbox_id)) = engine_with_live_backend().await else {
-        return;
-    };
-
-    let set = jmap(
-        &engine,
-        &account_id,
-        "ServerMetadata/set",
-        json!({ "mailboxId": Value::Null, "entry": "/private/vendor/mw-e10", "value": "abc" }),
-    )
-    .await;
-    assert!(
-        set.get("updated")
-            .and_then(|u| u.get("/private/vendor/mw-e10"))
-            .is_some(),
-        "ServerMetadata/set (write path) must succeed: {set}"
-    );
-    let got = jmap(
-        &engine,
-        &account_id,
-        "ServerMetadata/get",
-        json!({ "mailboxId": Value::Null, "entries": ["/private/vendor/mw-e10"] }),
-    )
-    .await;
-    let value = got["list"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|e| e["entry"] == "/private/vendor/mw-e10")
-        .and_then(|e| e["value"].as_str());
-    assert!(
-        matches!(value, Some(v) if v.starts_with('{') && v != "abc"),
-        "DOCUMENTS t13-E10: ServerMetadata/get leaks the IMAP literal marker. If this \
-         returns the real value, the parser was fixed — delete this test and un-ignore \
-         engine_server_metadata_set_get_and_remove. got value={value:?}"
     );
 }

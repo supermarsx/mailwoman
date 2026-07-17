@@ -812,13 +812,13 @@ impl Session {
         let entry_list = entries.join(" ");
         let cmd = format!("GETMETADATA {} ({entry_list})", quote(mailbox));
         let lines = self.conn.execute_lines(&cmd).await?;
-        let mut out = Vec::new();
-        for line in lines {
-            if let Some(rest) = untagged_payload(&line, "METADATA") {
-                out.extend(parse_metadata(rest));
-            }
-        }
-        Ok(out)
+        // RFC 5464 servers (Dovecot always) return values as IMAP synchronizing
+        // literals whose octet count spans the CRLF `execute_lines` stripped
+        // between lines. Reassemble the reply with those CRLFs restored so the
+        // literal-aware tokenizer consumes each value octet-exactly instead of
+        // leaking the `{n}` length marker.
+        let blob = lines.join("\r\n");
+        Ok(parse_metadata(&blob))
     }
 
     /// `SETMETADATA <mailbox> (<entry> <value>)` (RFC 5464): set one annotation,
@@ -1278,55 +1278,109 @@ fn tok_value(t: Tok) -> String {
     }
 }
 
-/// Tokenize an IMAP response fragment, honoring quoted-strings and parentheses.
-/// (Synchronizing literals are not modelled — the ACL/METADATA replies this
-/// crate parses use quoted-strings/atoms; the live leg is covered by E10.)
+/// Tokenize an IMAP response fragment, honoring quoted-strings, parentheses, and
+/// RFC 3501 synchronizing literals (`{n}` — optionally the non-synchronizing
+/// `{n+}` — followed by CRLF and then exactly `n` octets).
+///
+/// Literals are read **octet-exactly**: the count spans the CRLF that terminates
+/// the `{n}` marker *and* any CRLFs inside the value itself. Callers that read a
+/// multi-line reply line-by-line (stripping the terminating CRLFs) must therefore
+/// reassemble it with those inter-line CRLFs restored before tokenizing — see
+/// [`Session::get_metadata`], which is why RFC 5464 METADATA values (Dovecot
+/// always returns them as literals) round-trip instead of leaking the `{n}` marker.
 fn tokenize(s: &str) -> Vec<Tok> {
+    let bytes = s.as_bytes();
     let mut toks = Vec::new();
-    let mut chars = s.chars().peekable();
-    while let Some(&c) = chars.peek() {
-        match c {
-            ' ' | '\t' => {
-                chars.next();
-            }
-            '(' => {
-                chars.next();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b' ' | b'\t' | b'\r' | b'\n' => i += 1,
+            b'(' => {
                 toks.push(Tok::Open);
+                i += 1;
             }
-            ')' => {
-                chars.next();
+            b')' => {
                 toks.push(Tok::Close);
+                i += 1;
             }
-            '"' => {
-                chars.next(); // opening quote
-                let mut val = String::new();
-                while let Some(ch) = chars.next() {
-                    match ch {
-                        '\\' => {
-                            if let Some(esc) = chars.next() {
-                                val.push(esc);
+            b'"' => {
+                i += 1; // opening quote
+                let mut val = Vec::new();
+                while i < bytes.len() {
+                    match bytes[i] {
+                        b'\\' => {
+                            i += 1;
+                            if i < bytes.len() {
+                                val.push(bytes[i]);
+                                i += 1;
                             }
                         }
-                        '"' => break,
-                        other => val.push(other),
+                        b'"' => {
+                            i += 1;
+                            break;
+                        }
+                        other => {
+                            val.push(other);
+                            i += 1;
+                        }
                     }
                 }
-                toks.push(Tok::Str(val));
+                toks.push(Tok::Str(String::from_utf8_lossy(&val).into_owned()));
             }
-            _ => {
-                let mut val = String::new();
-                while let Some(&ch) = chars.peek() {
-                    if matches!(ch, ' ' | '\t' | '(' | ')') {
-                        break;
-                    }
-                    val.push(ch);
-                    chars.next();
+            b'{' => {
+                // A synchronizing literal marker: read the `n` octets that follow
+                // its terminating CRLF as the value. On a malformed marker, fall
+                // back to treating `{` as the start of a bare atom.
+                if let Some(lit) = read_literal(bytes, &mut i) {
+                    toks.push(Tok::Str(lit));
+                } else {
+                    toks.push(Tok::Atom(read_atom(bytes, &mut i)));
                 }
-                toks.push(Tok::Atom(val));
             }
+            _ => toks.push(Tok::Atom(read_atom(bytes, &mut i))),
         }
     }
     toks
+}
+
+/// Read a bare atom starting at `*pos`, advancing past it. Stops at whitespace or
+/// a parenthesis.
+fn read_atom(bytes: &[u8], pos: &mut usize) -> String {
+    let start = *pos;
+    while *pos < bytes.len() && !matches!(bytes[*pos], b' ' | b'\t' | b'\r' | b'\n' | b'(' | b')') {
+        *pos += 1;
+    }
+    String::from_utf8_lossy(&bytes[start..*pos]).into_owned()
+}
+
+/// At a `{` literal marker, parse `{n}` (or the non-synchronizing `{n+}`), skip
+/// the CRLF that terminates the marker, and return the following `n` octets as a
+/// string — advancing `*pos` past them. Returns `None` (leaving `*pos` unmoved) if
+/// the bytes at `*pos` are not a well-formed literal marker, so the caller can
+/// treat `{` as an ordinary atom character.
+fn read_literal(bytes: &[u8], pos: &mut usize) -> Option<String> {
+    debug_assert_eq!(bytes[*pos], b'{');
+    let close = bytes[*pos + 1..].iter().position(|&b| b == b'}')? + *pos + 1;
+    let mut digits = &bytes[*pos + 1..close];
+    // Tolerate the non-synchronizing `{n+}` form (client→server, but be lenient).
+    if digits.last() == Some(&b'+') {
+        digits = &digits[..digits.len() - 1];
+    }
+    if digits.is_empty() || !digits.iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    let n: usize = std::str::from_utf8(digits).ok()?.parse().ok()?;
+    let mut start = close + 1;
+    // The literal-length marker is terminated by CRLF (accept a bare LF too).
+    if bytes.get(start) == Some(&b'\r') {
+        start += 1;
+    }
+    if bytes.get(start) == Some(&b'\n') {
+        start += 1;
+    }
+    let end = (start + n).min(bytes.len());
+    *pos = end;
+    Some(String::from_utf8_lossy(&bytes[start..end]).into_owned())
 }
 
 /// Parse a `* ACL <mailbox> <id> <rights> …` payload into grants. The leading
@@ -1343,29 +1397,51 @@ fn parse_acl(payload: &str) -> Vec<AclEntry> {
     out
 }
 
-/// Parse a `* METADATA <mailbox> (<entry> <value> …)` payload into annotations.
-/// A bare `NIL` value maps to `None`; a quoted string (or atom) maps to `Some`.
+/// Parse a `* METADATA <mailbox> (<entry> <value> …)` reply into annotations.
+///
+/// Each `(entry value …)` list is a run of `entry`/`value` pairs. A value may be a
+/// **quoted string**, an IMAP **synchronizing literal** (`{n}` + payload — the form
+/// Dovecot and every RFC 5464 server actually returns, reassembled octet-exactly by
+/// [`tokenize`]), or **NIL** (no value / a removed entry → `None`). Tokens outside a
+/// paren list (the `* METADATA` keyword and the mailbox name) are skipped, so this
+/// accepts either the bare payload or the full untagged line, and tolerates more
+/// than one `* METADATA` response reassembled into `payload`.
 fn parse_metadata(payload: &str) -> Vec<MetadataEntry> {
-    let mut iter = tokenize(payload).into_iter();
-    // Advance to the opening paren of the (entry value …) list.
-    for t in iter.by_ref() {
-        if t == Tok::Open {
-            break;
-        }
-    }
+    let toks = tokenize(payload);
     let mut out = Vec::new();
-    loop {
-        let entry = match iter.next() {
-            Some(Tok::Close) | None => break,
-            Some(t) => tok_value(t),
-        };
-        let value = match iter.next() {
-            Some(Tok::Str(s)) => Some(s),
-            Some(Tok::Atom(a)) if a.eq_ignore_ascii_case("NIL") => None,
-            Some(Tok::Atom(a)) => Some(a),
-            Some(Tok::Close) | Some(Tok::Open) | None => None,
-        };
-        out.push(MetadataEntry { entry, value });
+    let mut i = 0;
+    while i < toks.len() {
+        // Skip everything up to the opening paren of an (entry value …) list.
+        if toks[i] != Tok::Open {
+            i += 1;
+            continue;
+        }
+        i += 1; // consume Open
+        while i < toks.len() && toks[i] != Tok::Close {
+            let entry = tok_value(toks[i].clone());
+            i += 1;
+            let value = match toks.get(i) {
+                Some(Tok::Str(s)) => {
+                    i += 1;
+                    Some(s.clone())
+                }
+                Some(Tok::Atom(a)) if a.eq_ignore_ascii_case("NIL") => {
+                    i += 1;
+                    None
+                }
+                Some(Tok::Atom(a)) => {
+                    let v = a.clone();
+                    i += 1;
+                    Some(v)
+                }
+                // A dangling entry with no value token (malformed / truncated).
+                Some(Tok::Open) | Some(Tok::Close) | None => None,
+            };
+            out.push(MetadataEntry { entry, value });
+        }
+        if i < toks.len() {
+            i += 1; // consume Close
+        }
     }
     out
 }
@@ -1552,6 +1628,102 @@ mod acl_metadata_tests {
     }
 
     #[test]
+    fn getmetadata_reply_parses_synchronizing_literal_value() {
+        // The EXACT framing Dovecot returns (RFC 5464): the value is an IMAP
+        // synchronizing literal `{9}` whose 9 octets (`hello t13`) follow the CRLF
+        // that terminates the marker. The parser must consume those octets across
+        // the line boundary — NOT leak the `{9}` length marker as the value (the
+        // t13-E10 live bug).
+        let entries =
+            parse_metadata("* METADATA \"INBOX\" (/private/comment {9}\r\nhello t13)\r\n");
+        assert_eq!(
+            entries,
+            vec![MetadataEntry {
+                entry: "/private/comment".into(),
+                value: Some("hello t13".into()),
+            }]
+        );
+    }
+
+    #[test]
+    fn getmetadata_reply_parses_multiple_literal_entries() {
+        // Two entries, each returned as a literal; octet counts must be honored
+        // independently so the second entry name is not swallowed by the first.
+        let entries = parse_metadata(
+            "* METADATA \"INBOX\" (/private/comment {5}\r\nhello /shared/comment {3}\r\nbye)\r\n",
+        );
+        assert_eq!(
+            entries,
+            vec![
+                MetadataEntry {
+                    entry: "/private/comment".into(),
+                    value: Some("hello".into()),
+                },
+                MetadataEntry {
+                    entry: "/shared/comment".into(),
+                    value: Some("bye".into()),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn getmetadata_reply_mixes_literal_quoted_and_nil() {
+        // A literal value, a quoted value (the E6 regression form), and NIL
+        // (removed entry) must all parse in one list.
+        let entries = parse_metadata(
+            "* METADATA \"INBOX\" (/private/comment {9}\r\nhello t13 /shared/comment \"quoted val\" /private/gone NIL)\r\n",
+        );
+        assert_eq!(
+            entries,
+            vec![
+                MetadataEntry {
+                    entry: "/private/comment".into(),
+                    value: Some("hello t13".into()),
+                },
+                MetadataEntry {
+                    entry: "/shared/comment".into(),
+                    value: Some("quoted val".into()),
+                },
+                MetadataEntry {
+                    entry: "/private/gone".into(),
+                    value: None,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn getmetadata_reply_literal_value_spanning_a_crlf() {
+        // The literal octet count INCLUDES CRLFs inside the value: `line1\r\nline2`
+        // is 12 octets. This proves octet-exact consumption — a char/line-oriented
+        // parser would stop at the embedded CRLF and mis-slice the value (and the
+        // trailing `)`), whereas the count `{12}` pulls exactly the right bytes.
+        let entries =
+            parse_metadata("* METADATA \"INBOX\" (/private/note {12}\r\nline1\r\nline2)\r\n");
+        assert_eq!(
+            entries,
+            vec![MetadataEntry {
+                entry: "/private/note".into(),
+                value: Some("line1\r\nline2".into()),
+            }]
+        );
+    }
+
+    #[test]
+    fn getmetadata_reply_empty_literal_value() {
+        // A `{0}` literal is a present-but-empty value (distinct from NIL/None).
+        let entries = parse_metadata("* METADATA \"INBOX\" (/private/comment {0}\r\n)\r\n");
+        assert_eq!(
+            entries,
+            vec![MetadataEntry {
+                entry: "/private/comment".into(),
+                value: Some(String::new()),
+            }]
+        );
+    }
+
+    #[test]
     fn untagged_payload_distinguishes_myrights_from_metadata() {
         assert!(untagged_payload("* METADATA \"INBOX\" ()", "MYRIGHTS").is_none());
         assert!(untagged_payload("* MYRIGHTS \"INBOX\" lr", "METADATA").is_none());
@@ -1675,6 +1847,36 @@ mod acl_metadata_tests {
                 .unwrap()
                 .iter()
                 .any(|l| l.contains("GETMETADATA \"INBOX\" (/shared/comment)"))
+        );
+    }
+
+    #[tokio::test]
+    async fn get_metadata_literal_value_round_trips() {
+        // Full client path against the exact framing Dovecot returns: the value is
+        // a synchronizing literal split across a CRLF that `execute_lines` strips.
+        // `get_metadata` must reassemble it and return the value, not the `{9}`
+        // marker (the t13-E10 live bug).
+        let reply =
+            "* METADATA \"INBOX\" (/private/comment {9}\r\nhello t13)\r\n{tag} OK Getmetadata completed\r\n"
+                .to_string();
+        let (addr, log) = spawn(CAPS, vec![reply]).await;
+        let mut session = connect(addr).await;
+        let entries = session
+            .get_metadata("INBOX", &["/private/comment".to_string()])
+            .await
+            .unwrap();
+        assert_eq!(
+            entries,
+            vec![MetadataEntry {
+                entry: "/private/comment".into(),
+                value: Some("hello t13".into()),
+            }]
+        );
+        assert!(
+            log.lock()
+                .unwrap()
+                .iter()
+                .any(|l| l.contains("GETMETADATA \"INBOX\" (/private/comment)"))
         );
     }
 
