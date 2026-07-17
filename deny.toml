@@ -162,6 +162,18 @@
 # the V7 NTLMv2 precedent. Keycloak (the live-E2E IdP, both OIDC+SAML) is a networked
 # CI service — OUT of cargo-deny scope, same posture as OpenLDAP/postgres/valkey.
 # `cargo deny check` stays green with NO new [licenses].allow and NO new advisory ignore.
+#
+# 26.13 (t13 residuals) — GeoIP/ASN BYO `.mmdb` reader. `maxminddb` 0.29 (ISC,
+# pure-Rust, NO C / no `-sys`; pre-declared in root `Cargo.toml` line 162 and
+# pre-listed in the V4 note above as "ISC, optional geo") is now **LINKED** into
+# `mw-engine` (t13 E5 wires `maxminddb::Reader` into the Received-chain GeoIP
+# enrichment; only the reader ships, never a bundled DB — the `.mmdb` stays
+# admin-supplied). Its transitive tree is all Rust + permissive under the
+# existing allow-list — `ipnetwork` (MIT), `memchr` (MIT/Unlicense → MIT
+# satisfies), `log`/`serde`/`thiserror` (MIT/Apache-2.0), optional `memmap2`
+# (MIT/Apache-2.0), optional `simdutf8` (MIT/Apache-2.0). No GPL/LGPL/AGPL, no
+# openssl/-sys C. NO new `[licenses].allow` and NO new advisory ignore required;
+# `cargo deny check` stays green. (E11 records the final "now linked" confirmation.)
 
 [graph]
 all-features = false

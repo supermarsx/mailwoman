@@ -159,6 +159,9 @@ sha1 = "0.11"
 # (hickory/reqwest); a direct dep for the engine's rule engine. MIT/Apache-2.0.
 regex = "1"
 zeroize = { version = "1.9", features = ["derive"] }
+# ISC, pure-Rust MaxMind-DB reader (no C / no -sys). LINKED into mw-engine as of
+# 26.13 (t13 E5) for BYO GeoIP/ASN `.mmdb` enrichment of the Received chain; only
+# the reader ships — the DB stays admin-supplied. See deny.toml 26.13 note.
 maxminddb = "0.29"
 wasm-bindgen = "0.2"
 js-sys = "0.3"

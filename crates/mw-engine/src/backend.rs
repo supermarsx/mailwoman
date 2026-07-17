@@ -83,6 +83,101 @@ pub trait AccountBackend: Send + Sync {
     /// Optional: begin an idle/poll loop feeding a change channel
     /// (IMAP IDLE / POP3 poll). Returns a handle whose drop stops the loop.
     async fn watch(&self, sink: ChangeSink) -> Result<WatchHandle>;
+
+    // ── ACL (RFC 4314) + METADATA (RFC 5464), added 26.13 (t13 plan §6) ──────
+    //
+    // Additive, model-agnostic transport surface. Backends that do not speak
+    // ACL/METADATA inherit the default `EngineError::Unsupported` below and
+    // compile unchanged (POP3, plugin/bridge, and any future backend). Only
+    // `mw-imap` (t13 E6) overrides them, delegating to the upstream server's
+    // ACL/METADATA commands; the engine seam (E7) exposes them on the JMAP
+    // method surface. The upstream IMAP server is the real enforcement point —
+    // these methods carry the `identifier`+`rights` shape verbatim and do not
+    // impose a policy of their own.
+
+    /// GETACL (RFC 4314): list every `identifier`→`rights` grant on `mbox`.
+    async fn get_acl(&self, mbox: &RawMailboxRef) -> Result<Vec<AclEntry>> {
+        let _ = mbox;
+        Err(EngineError::Unsupported("get_acl".into()))
+    }
+
+    /// SETACL (RFC 4314): set (replace) `identifier`'s `rights` on `mbox`.
+    ///
+    /// `rights` is an RFC 4314 rights string (e.g. `"lrswipkxtea"`); the
+    /// upstream server is the authority on which bits the caller may grant.
+    async fn set_acl(&self, mbox: &RawMailboxRef, identifier: &str, rights: &str) -> Result<()> {
+        let _ = (mbox, identifier, rights);
+        Err(EngineError::Unsupported("set_acl".into()))
+    }
+
+    /// DELETEACL (RFC 4314): remove `identifier`'s entire ACL entry on `mbox`.
+    async fn delete_acl(&self, mbox: &RawMailboxRef, identifier: &str) -> Result<()> {
+        let _ = (mbox, identifier);
+        Err(EngineError::Unsupported("delete_acl".into()))
+    }
+
+    /// LISTRIGHTS (RFC 4314): the set of rights `identifier` may be granted on
+    /// `mbox` (required + optional rights tokens, server-defined).
+    async fn list_rights(&self, mbox: &RawMailboxRef, identifier: &str) -> Result<Vec<String>> {
+        let _ = (mbox, identifier);
+        Err(EngineError::Unsupported("list_rights".into()))
+    }
+
+    /// MYRIGHTS (RFC 4314): the rights string the authenticated user holds on
+    /// `mbox`. Drives the web UI's read/write affordance gating (E8).
+    async fn my_rights(&self, mbox: &RawMailboxRef) -> Result<String> {
+        let _ = mbox;
+        Err(EngineError::Unsupported("my_rights".into()))
+    }
+
+    /// GETMETADATA (RFC 5464): fetch annotation `entries`. `mbox == None`
+    /// targets server-level metadata (the empty mailbox `""`); `Some(_)` targets
+    /// a specific mailbox's annotations.
+    async fn get_metadata(
+        &self,
+        mbox: Option<&RawMailboxRef>,
+        entries: &[String],
+    ) -> Result<Vec<MetadataEntry>> {
+        let _ = (mbox, entries);
+        Err(EngineError::Unsupported("get_metadata".into()))
+    }
+
+    /// SETMETADATA (RFC 5464): set one annotation `entry` to `value`, or remove
+    /// it when `value == None` (RFC 5464 NIL). `mbox` scope as in `get_metadata`.
+    async fn set_metadata(
+        &self,
+        mbox: Option<&RawMailboxRef>,
+        entry: &str,
+        value: Option<&str>,
+    ) -> Result<()> {
+        let _ = (mbox, entry, value);
+        Err(EngineError::Unsupported("set_metadata".into()))
+    }
+}
+
+/// One ACL grant (RFC 4314): an `identifier` (user/group/`anyone`) paired with
+/// its rights string. Frozen transport shape shared by the `mw-imap` impl
+/// (t13 E6) and the engine seam (E7); serializes directly onto the JMAP surface
+/// (no separate JMAP type is required — t13 plan §6 E7).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AclEntry {
+    /// RFC 4314 identifier: a username, a group (`-`-prefixed negative rights
+    /// included), or a special identifier such as `anyone`.
+    pub identifier: String,
+    /// RFC 4314 rights string — the subset of `lrswipkxtea` (+ server
+    /// extensions) granted to `identifier`.
+    pub rights: String,
+}
+
+/// One METADATA annotation (RFC 5464): an entry name paired with its value.
+/// `value == None` encodes the RFC 5464 NIL (entry absent / removed). Frozen
+/// transport shape shared by the `mw-imap` impl (E6) and the engine seam (E7).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MetadataEntry {
+    /// RFC 5464 entry name, e.g. `/shared/comment` or `/private/comment`.
+    pub entry: String,
+    /// Entry value; `None` is the RFC 5464 NIL (no value / removed).
+    pub value: Option<String>,
 }
 
 /// Feature flags detected from the server so `mw-engine` can degrade (plan §6.1).
