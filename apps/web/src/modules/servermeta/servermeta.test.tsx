@@ -1,0 +1,162 @@
+import { describe, it, expect, vi } from 'vitest';
+import { render, fireEvent, screen, waitFor } from '@solidjs/testing-library';
+import { MetadataView } from './MetadataView.tsx';
+import { createAclClient, type AclClient, type MetadataEntry } from '../../api/acl-types.ts';
+import type { JmapRequest, JmapResponse } from '../../api/jmap-types.ts';
+
+function makeClient(entries: MetadataEntry[]): {
+  client: AclClient;
+  set: ReturnType<typeof vi.fn>;
+  remove: ReturnType<typeof vi.fn>;
+  get: ReturnType<typeof vi.fn>;
+} {
+  const set = vi.fn(async () => {});
+  const remove = vi.fn(async () => {});
+  const get = vi.fn(async () => entries);
+  const client: AclClient = {
+    getMailboxRights: async () => ({ myRights: '', acl: [] }),
+    grant: async () => {},
+    revoke: async () => {},
+    getServerMetadata: get,
+    setServerMetadata: set,
+    removeServerMetadata: remove,
+  };
+  return { client, set, remove, get };
+}
+
+describe('metadata view — read-only listing (default)', () => {
+  it('lists entries with values and shows the read-only notice, no edit controls', async () => {
+    const { client } = makeClient([
+      { entry: '/shared/comment', value: 'hello' },
+      { entry: '/shared/admin', value: null },
+    ]);
+    const { container } = render(() => <MetadataView client={client} />);
+
+    await waitFor(() => expect(screen.getAllByTestId('metadata-entry')).toHaveLength(2));
+    // the entry path is bidi-isolated in the DOM, so match on the data attribute
+    expect(container.querySelector('[data-entry="/shared/comment"]')).toBeInTheDocument();
+    expect(screen.getByText('hello')).toBeInTheDocument();
+    // an unset value renders the "Not set" placeholder, not an empty node
+    expect(screen.getByText('Not set')).toBeInTheDocument();
+    expect(screen.getByTestId('readonly-notice')).toBeInTheDocument();
+    expect(screen.queryByTestId('value-input')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('add-entry-form')).not.toBeInTheDocument();
+  });
+
+  it('passes null scope for server-level and the mailbox id for a mailbox scope', async () => {
+    const server = makeClient([]);
+    render(() => <MetadataView client={server.client} />);
+    await waitFor(() => expect(server.get).toHaveBeenCalledWith(null));
+
+    const box = makeClient([]);
+    render(() => <MetadataView client={box.client} mailboxId="mbx7" />);
+    await waitFor(() => expect(box.get).toHaveBeenCalledWith('mbx7'));
+  });
+});
+
+describe('metadata view — guarded edit (canEdit)', () => {
+  it('exposes edit + remove + add controls when canEdit', async () => {
+    const { client } = makeClient([{ entry: '/shared/comment', value: 'hello' }]);
+    render(() => <MetadataView client={client} canEdit />);
+
+    await waitFor(() => expect(screen.getByTestId('add-entry-form')).toBeInTheDocument());
+    expect(screen.getByTestId('value-input')).toBeInTheDocument();
+    expect(screen.getByTestId('save-entry')).toBeInTheDocument();
+    expect(screen.getByTestId('remove-entry')).toBeInTheDocument();
+    expect(screen.queryByTestId('readonly-notice')).not.toBeInTheDocument();
+  });
+
+  it('saving an edited value calls setServerMetadata', async () => {
+    const { client, set } = makeClient([{ entry: '/shared/comment', value: 'hello' }]);
+    render(() => <MetadataView client={client} mailboxId="mbx1" canEdit />);
+
+    await waitFor(() => expect(screen.getByTestId('value-input')).toBeInTheDocument());
+    fireEvent.input(screen.getByTestId('value-input'), { target: { value: 'updated' } });
+    fireEvent.click(screen.getByTestId('save-entry'));
+
+    await waitFor(() => expect(set).toHaveBeenCalledWith('mbx1', '/shared/comment', 'updated'));
+  });
+
+  it('removing an entry calls removeServerMetadata', async () => {
+    const { client, remove } = makeClient([{ entry: '/shared/comment', value: 'hello' }]);
+    render(() => <MetadataView client={client} canEdit />);
+
+    await waitFor(() => expect(screen.getByTestId('remove-entry')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('remove-entry'));
+
+    await waitFor(() => expect(remove).toHaveBeenCalledWith(null, '/shared/comment'));
+  });
+
+  it('adds a new annotation from the form', async () => {
+    const { client, set } = makeClient([]);
+    render(() => <MetadataView client={client} canEdit />);
+
+    await waitFor(() => expect(screen.getByTestId('add-entry-form')).toBeInTheDocument());
+    fireEvent.input(screen.getByTestId('new-entry'), { target: { value: '/shared/comment' } });
+    fireEvent.input(screen.getByTestId('new-value'), { target: { value: 'note' } });
+    fireEvent.click(screen.getByTestId('submit-entry'));
+
+    await waitFor(() => expect(set).toHaveBeenCalledWith(null, '/shared/comment', 'note'));
+  });
+});
+
+// ── createAclClient — request building + response parsing over a fake jmap ────
+
+describe('createAclClient wires the JMAP method surface', () => {
+  function fakeJmap(): { jmap: ReturnType<typeof vi.fn>; calls: JmapRequest[] } {
+    const calls: JmapRequest[] = [];
+    const jmap = vi.fn(async (body: JmapRequest): Promise<JmapResponse> => {
+      calls.push(body);
+      const [name, , callId] = body.methodCalls[0]!;
+      const arg =
+        name === 'MailboxRights/get'
+          ? { accountId: 'acc', myRights: 'lra', acl: [{ identifier: 'bob', rights: 'lr' }] }
+          : name === 'ServerMetadata/get'
+            ? { accountId: 'acc', list: [{ entry: '/shared/comment', value: 'hi' }] }
+            : { accountId: 'acc' };
+      return { methodResponses: [[name, arg, callId]], sessionState: 's0' };
+    });
+    return { jmap, calls };
+  }
+
+  it('getMailboxRights builds MailboxRights/get and parses myRights + acl', async () => {
+    const { jmap, calls } = fakeJmap();
+    const client = createAclClient('acc', jmap);
+    const rights = await client.getMailboxRights('mbx1');
+
+    expect(calls[0]!.methodCalls[0]![0]).toBe('MailboxRights/get');
+    expect(calls[0]!.methodCalls[0]![1]).toMatchObject({ accountId: 'acc', mailboxId: 'mbx1' });
+    expect(rights.myRights).toBe('lra');
+    expect(rights.acl).toEqual([{ identifier: 'bob', rights: 'lr' }]);
+  });
+
+  it('grant / revoke build MailboxRights/set with the rights string (revoke = empty)', async () => {
+    const { jmap, calls } = fakeJmap();
+    const client = createAclClient('acc', jmap);
+    await client.grant('mbx1', 'alice', 'lr');
+    await client.revoke('mbx1', 'alice');
+
+    expect(calls[0]!.methodCalls[0]![1]).toMatchObject({ mailboxId: 'mbx1', identifier: 'alice', rights: 'lr' });
+    expect(calls[1]!.methodCalls[0]![1]).toMatchObject({ mailboxId: 'mbx1', identifier: 'alice', rights: '' });
+  });
+
+  it('getServerMetadata builds ServerMetadata/get (null scope) and parses the list', async () => {
+    const { jmap, calls } = fakeJmap();
+    const client = createAclClient('acc', jmap);
+    const list = await client.getServerMetadata(null);
+
+    expect(calls[0]!.methodCalls[0]![0]).toBe('ServerMetadata/get');
+    expect(calls[0]!.methodCalls[0]![1]).toMatchObject({ mailboxId: null });
+    expect(list).toEqual([{ entry: '/shared/comment', value: 'hi' }]);
+  });
+
+  it('set / remove build ServerMetadata/set (remove = null value)', async () => {
+    const { jmap, calls } = fakeJmap();
+    const client = createAclClient('acc', jmap);
+    await client.setServerMetadata('mbx1', '/shared/comment', 'x');
+    await client.removeServerMetadata('mbx1', '/shared/comment');
+
+    expect(calls[0]!.methodCalls[0]![1]).toMatchObject({ entry: '/shared/comment', value: 'x' });
+    expect(calls[1]!.methodCalls[0]![1]).toMatchObject({ entry: '/shared/comment', value: null });
+  });
+});
