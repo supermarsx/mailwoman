@@ -87,7 +87,7 @@ fn admin_cookie(headers: &HeaderMap) -> Option<String> {
 }
 
 fn set_admin_cookie(token: &str, secure: bool) -> String {
-    let mut c = format!("{ADMIN_COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/admin");
+    let mut c = format!("{ADMIN_COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/");
     if secure {
         c.push_str("; Secure");
     }
@@ -95,7 +95,7 @@ fn set_admin_cookie(token: &str, secure: bool) -> String {
 }
 
 fn clear_admin_cookie(secure: bool) -> String {
-    let mut c = format!("{ADMIN_COOKIE}=; HttpOnly; SameSite=Strict; Path=/admin; Max-Age=0");
+    let mut c = format!("{ADMIN_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0");
     if secure {
         c.push_str("; Secure");
     }
