@@ -307,18 +307,39 @@ impl Connection {
         }
     }
 
-    /// The SCRAM `-PLUS` channel binding for the current transport:
-    /// `tls-server-end-point` (RFC 5929) over the server's leaf certificate.
-    /// The digest tracks the certificate's own signature hash
-    /// (SHA-256/384/512); that selection lives in
-    /// [`crate::sasl::tls_server_end_point`]. `None` on a plaintext transport or
-    /// when the server presented no certificate.
-    pub fn channel_binding(&self) -> Option<Vec<u8>> {
+    /// The SCRAM `-PLUS` channel binding for the current transport, as
+    /// `(cb-name, bytes)` where `cb-name` is the SASL channel-binding type name
+    /// that goes into the gs2 header (`p=<cb-name>,,`).
+    ///
+    /// On **TLS 1.3** this is `tls-exporter` (RFC 9266): 32 bytes of exported
+    /// keying material under the label `"EXPORTER-Channel-Binding"` with an
+    /// empty context. On **TLS 1.2** it falls back to `tls-server-end-point`
+    /// (RFC 5929) over the server's leaf certificate, whose digest tracks the
+    /// certificate's own signature hash (SHA-256/384/512; selection lives in
+    /// [`crate::sasl::tls_server_end_point`]). `None` on a plaintext transport,
+    /// when the exporter is unavailable, or when the server presented no
+    /// certificate.
+    ///
+    /// This selection matches Dovecot 2.4.x, which implements
+    /// `tls-unique`/`tls-exporter` but not `tls-server-end-point`, so `-PLUS`
+    /// login only completes when `tls-exporter` is offered on TLS 1.3.
+    pub fn channel_binding(&self) -> Option<(&'static str, Vec<u8>)> {
         match self.stream.as_ref()? {
             ImapStream::Tls(tls) => {
                 let (_, conn) = tls.get_ref();
+                if conn.protocol_version() == Some(rustls::ProtocolVersion::TLSv1_3) {
+                    // RFC 9266: label "EXPORTER-Channel-Binding", empty context,
+                    // 32-byte output.
+                    let material = conn
+                        .export_keying_material([0u8; 32], b"EXPORTER-Channel-Binding", Some(&[]))
+                        .ok()?;
+                    return Some(("tls-exporter", material.to_vec()));
+                }
                 let leaf = conn.peer_certificates()?.first()?;
-                Some(crate::sasl::tls_server_end_point(leaf.as_ref()))
+                Some((
+                    "tls-server-end-point",
+                    crate::sasl::tls_server_end_point(leaf.as_ref()),
+                ))
             }
             ImapStream::Plain(_) => None,
         }

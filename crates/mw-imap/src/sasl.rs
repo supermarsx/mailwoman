@@ -207,12 +207,13 @@ enum ScramState {
 }
 
 /// A SCRAM-SHA-256 (RFC 7677) client. When constructed with channel-binding
-/// data it speaks the `-PLUS` variant (`p=tls-server-end-point`); otherwise the
-/// plain variant (`n,,`).
+/// data it speaks the `-PLUS` variant (`p=<cb-name>,,`, where `cb-name` is the
+/// negotiated binding type — `tls-exporter` on TLS 1.3, `tls-server-end-point`
+/// on TLS 1.2); otherwise the plain variant (`n,,`).
 pub struct ScramSha256 {
     authcid: String,
     password: String,
-    /// gs2-header, e.g. `n,,` (plain) or `p=tls-server-end-point,,` (PLUS).
+    /// gs2-header, e.g. `n,,` (plain) or `p=tls-exporter,,` (PLUS).
     gs2_header: String,
     /// Raw channel-binding data appended after the gs2-header (empty = plain).
     cbind_data: Vec<u8>,
@@ -224,8 +225,10 @@ pub struct ScramSha256 {
 
 impl ScramSha256 {
     /// A SCRAM client with a fresh random nonce. `channel_binding` selects the
-    /// `-PLUS` variant when `Some` (the `tls-server-end-point` bytes).
-    pub fn new(username: &str, password: &str, channel_binding: Option<Vec<u8>>) -> Self {
+    /// `-PLUS` variant when `Some`, carrying the `(cb-name, bytes)` for the
+    /// negotiated binding type (`tls-exporter` on TLS 1.3,
+    /// `tls-server-end-point` on TLS 1.2).
+    pub fn new(username: &str, password: &str, channel_binding: Option<(&str, Vec<u8>)>) -> Self {
         let mut nonce = [0u8; 24];
         getrandom::fill(&mut nonce).expect("system CSPRNG unavailable");
         Self::with_nonce(
@@ -240,11 +243,11 @@ impl ScramSha256 {
     pub fn with_nonce(
         username: &str,
         password: &str,
-        channel_binding: Option<Vec<u8>>,
+        channel_binding: Option<(&str, Vec<u8>)>,
         client_nonce: &str,
     ) -> Self {
         let (gs2_header, cbind_data) = match channel_binding {
-            Some(cb) => ("p=tls-server-end-point,,".to_string(), cb),
+            Some((cb_name, cb)) => (format!("p={cb_name},,"), cb),
             None => ("n,,".to_string(), Vec::new()),
         };
         ScramSha256 {
@@ -451,8 +454,13 @@ mod tests {
 
     #[test]
     fn scram_plus_uses_channel_bound_gs2_header() {
-        let mut client =
-            ScramSha256::with_nonce("user", "pencil", Some(vec![0xAB; 32]), "nonce123");
+        // TLS 1.2 path: cb-name `tls-server-end-point`.
+        let mut client = ScramSha256::with_nonce(
+            "user",
+            "pencil",
+            Some(("tls-server-end-point", vec![0xAB; 32])),
+            "nonce123",
+        );
         let client_first = client.step(b"").unwrap();
         assert_eq!(client_first, b"p=tls-server-end-point,,n=user,r=nonce123");
         // The client-final `c=` echoes gs2-header || cbind-data, base64'd.
@@ -462,6 +470,32 @@ mod tests {
         let mut cbind = b"p=tls-server-end-point,,".to_vec();
         cbind.extend_from_slice(&[0xAB; 32]);
         assert!(client_final.starts_with(&format!("c={},", B64.encode(&cbind))));
+    }
+
+    #[test]
+    fn scram_plus_tls_exporter_gs2_header_and_c_echo() {
+        // TLS 1.3 path: cb-name `tls-exporter` (RFC 9266) with 32-byte exported
+        // keying material. The gs2 header and the `c=` echo must both reflect
+        // the negotiated `tls-exporter` type, not the 1.2 fallback.
+        let exporter = vec![0xCD; 32];
+        let mut client = ScramSha256::with_nonce(
+            "user",
+            "pencil",
+            Some(("tls-exporter", exporter.clone())),
+            "nonce123",
+        );
+        let client_first = client.step(b"").unwrap();
+        assert_eq!(client_first, b"p=tls-exporter,,n=user,r=nonce123");
+        // client-final `c=` echoes `p=tls-exporter,,` || exporter material.
+        let server_first = "r=nonce123SERVER,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096";
+        let client_final =
+            String::from_utf8(client.step(server_first.as_bytes()).unwrap()).unwrap();
+        let mut cbind = b"p=tls-exporter,,".to_vec();
+        cbind.extend_from_slice(&exporter);
+        assert!(
+            client_final.starts_with(&format!("c={},", B64.encode(&cbind))),
+            "c= must echo the tls-exporter gs2 header + material: {client_final}"
+        );
     }
 
     #[test]
