@@ -15,6 +15,7 @@ admin-nav-appearance = Appearance
 admin-nav-plugins = Plugins
 admin-nav-assist = Assist
 admin-nav-sso = Single sign-on
+admin-nav-servermeta = Server metadata
 
 # Shared admin actions / states
 admin-delete = Delete
@@ -284,3 +285,14 @@ admin-sso-delete = Delete
 admin-sso-enable-for = Enable { $name }
 admin-sso-disable-for = Disable { $name }
 admin-sso-delete-for = Delete { $name }
+
+# -- Server metadata editor (t14, RFC 5464 annotations under /admin) ----------
+# The editor body (entry list, add form) reuses the servermeta.ftl catalog; these
+# ids cover only the admin wrapper (account picker + framing).
+admin-servermeta-title = Server metadata
+admin-servermeta-intro = View and edit RFC 5464 server annotations for a provisioned account. Changes are written straight to the mail server, which decides whether the account may set them.
+admin-servermeta-account = Account
+admin-servermeta-select-option = Select an account…
+admin-servermeta-select-prompt = Select an account to view and edit its server annotations.
+admin-servermeta-load-error = Could not load the account list.
+admin-servermeta-no-accounts = No accounts are provisioned.

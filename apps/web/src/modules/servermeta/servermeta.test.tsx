@@ -1,8 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, fireEvent, screen, waitFor } from '@solidjs/testing-library';
 import { MetadataView } from './MetadataView.tsx';
+import { ServerMetadata } from '../../screens/Admin/ServerMetadata.tsx';
 import { createAclClient, type AclClient, type MetadataEntry } from '../../api/acl-types.ts';
 import type { JmapRequest, JmapResponse } from '../../api/jmap-types.ts';
+import type { AdminApi, UserSummary } from '../../state/slices/admin.ts';
 
 function makeClient(entries: MetadataEntry[]): {
   client: AclClient;
@@ -160,5 +162,94 @@ describe('createAclClient wires the JMAP method surface', () => {
 
     expect(calls[0]!.methodCalls[0]![1]).toMatchObject({ entry: '/shared/comment', value: 'x' });
     expect(calls[1]!.methodCalls[0]![1]).toMatchObject({ entry: '/shared/comment', value: null });
+  });
+});
+
+// ── Admin mount (t14 E4): write-capable editor behind an account picker ───────
+
+describe('admin server-metadata mount — write-capable behind an account picker', () => {
+  function makeAdminApi(users: UserSummary[]): AdminApi {
+    // Only `listUsers` is exercised by the wrapper; the rest are inert stubs.
+    const api: Partial<AdminApi> = { listUsers: async () => users };
+    return api as AdminApi;
+  }
+
+  function fakeJmap(): { jmap: ReturnType<typeof vi.fn>; calls: JmapRequest[] } {
+    const calls: JmapRequest[] = [];
+    const jmap = vi.fn(async (body: JmapRequest): Promise<JmapResponse> => {
+      calls.push(body);
+      const [name, , callId] = body.methodCalls[0]!;
+      const arg =
+        name === 'ServerMetadata/get'
+          ? { accountId: 'acc', list: [{ entry: '/shared/comment', value: 'hi' }] }
+          : { accountId: 'acc' };
+      return { methodResponses: [[name, arg, callId]], sessionState: 's0' };
+    });
+    return { jmap, calls };
+  }
+
+  const USERS: UserSummary[] = [
+    {
+      accountId: 'acc-1',
+      username: 'alice',
+      domain: 'example.com',
+      quota: null,
+      flags: { zeroAccess: false, forcePasswordChange: false, remoteCacheWipe: false, disabled: false },
+    },
+  ];
+
+  it('prompts for an account and shows no editor until one is picked', async () => {
+    const { jmap } = fakeJmap();
+    render(() => <ServerMetadata api={makeAdminApi(USERS)} jmap={jmap} />);
+
+    // the account picker is populated from listUsers()
+    await waitFor(() => expect(screen.getByRole('option', { name: 'alice@example.com' })).toBeInTheDocument());
+    // nothing is scoped yet → the view is not mounted and no JMAP call was made
+    expect(screen.queryByTestId('metadata-view')).not.toBeInTheDocument();
+    expect(jmap).not.toHaveBeenCalled();
+  });
+
+  it('mounts the write-capable MetadataView (canEdit) for the picked account', async () => {
+    const { jmap, calls } = fakeJmap();
+    render(() => <ServerMetadata api={makeAdminApi(USERS)} jmap={jmap} />);
+
+    await waitFor(() => expect(screen.getByTestId('admin-servermeta-account')).toBeInTheDocument());
+    fireEvent.change(screen.getByTestId('admin-servermeta-account'), { target: { value: 'acc-1' } });
+
+    // the editor mounts with edit controls (canEdit) — add form + per-entry save
+    // (the loaded entry row), no read-only notice
+    await waitFor(() => expect(screen.getByTestId('add-entry-form')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('save-entry')).toBeInTheDocument());
+    expect(screen.queryByTestId('readonly-notice')).not.toBeInTheDocument();
+
+    // the metadata load rode the injected transport, server-level scope (mailboxId null),
+    // carrying the SELECTED account id — the passthrough contract E-mount fulfils.
+    await waitFor(() => expect(calls.length).toBeGreaterThan(0));
+    expect(calls[0]!.methodCalls[0]![0]).toBe('ServerMetadata/get');
+    expect(calls[0]!.methodCalls[0]![1]).toMatchObject({ accountId: 'acc-1', mailboxId: null });
+  });
+
+  it('writes reach ServerMetadata/set for the selected account', async () => {
+    const { jmap, calls } = fakeJmap();
+    render(() => <ServerMetadata api={makeAdminApi(USERS)} jmap={jmap} />);
+
+    await waitFor(() => expect(screen.getByTestId('admin-servermeta-account')).toBeInTheDocument());
+    fireEvent.change(screen.getByTestId('admin-servermeta-account'), { target: { value: 'acc-1' } });
+
+    await waitFor(() => expect(screen.getByTestId('add-entry-form')).toBeInTheDocument());
+    fireEvent.input(screen.getByTestId('new-entry'), { target: { value: '/shared/comment' } });
+    fireEvent.input(screen.getByTestId('new-value'), { target: { value: 'note' } });
+    fireEvent.click(screen.getByTestId('submit-entry'));
+
+    await waitFor(() => {
+      const setCall = calls.find((c) => c.methodCalls[0]![0] === 'ServerMetadata/set');
+      expect(setCall).toBeDefined();
+      expect(setCall!.methodCalls[0]![1]).toMatchObject({
+        accountId: 'acc-1',
+        mailboxId: null,
+        entry: '/shared/comment',
+        value: 'note',
+      });
+    });
   });
 });

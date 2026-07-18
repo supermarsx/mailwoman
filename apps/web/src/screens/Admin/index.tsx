@@ -33,6 +33,7 @@ import { Appearance } from './Appearance.tsx';
 import { AdminPlugins } from './Plugins/index.tsx';
 import { AdminAssist } from './Assist/index.tsx';
 import { AdminSso } from './Sso/index.tsx';
+import { ServerMetadata } from './ServerMetadata.tsx';
 import * as css from './admin.css.ts';
 
 /** Localised nav labels per section (the source labels live in admin.ftl). */
@@ -75,6 +76,11 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
   // set — the shared `state/slices/admin.ts` union stays untouched (ownership
   // boundary), so SSO is tracked with its own flag rather than in `admin.section`.
   const [ssoActive, setSsoActive] = createSignal(false);
+  // t14 server-metadata editor (§24): a second local section layered on the frozen
+  // `AdminSection` set, mirroring `ssoActive` — the write-capable `MetadataView`
+  // (canEdit) under /admin. `metaActive`/`ssoActive` are mutually exclusive with
+  // each other and with the union sections (each click resets the others).
+  const [metaActive, setMetaActive] = createSignal(false);
   onMount(() => void admin.loadSession());
   onMount(() => void loadCatalog('admin'));
   // Roving-tabindex nav: one Tab lands on the current section, arrows move
@@ -94,9 +100,10 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
                     type="button"
                     class={css.navItem}
                     data-roving-item
-                    aria-current={!ssoActive() && admin.section() === s}
+                    aria-current={!ssoActive() && !metaActive() && admin.section() === s}
                     onClick={() => {
                       setSsoActive(false);
+                      setMetaActive(false);
                       admin.setSection(s);
                     }}
                   >
@@ -109,9 +116,24 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
                 class={css.navItem}
                 data-roving-item
                 aria-current={ssoActive()}
-                onClick={() => setSsoActive(true)}
+                onClick={() => {
+                  setMetaActive(false);
+                  setSsoActive(true);
+                }}
               >
                 {t('admin-nav-sso')}
+              </button>
+              <button
+                type="button"
+                class={css.navItem}
+                data-roving-item
+                aria-current={metaActive()}
+                onClick={() => {
+                  setSsoActive(false);
+                  setMetaActive(true);
+                }}
+              >
+                {t('admin-nav-servermeta')}
               </button>
               <button type="button" class="btn btn--ghost" onClick={() => void admin.logout()}>
                 {t('admin-sign-out')}
@@ -119,8 +141,15 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
             </nav>
             <main class={css.main}>
               <Suspense fallback={<div class={css.note}>{t('common-loading')}</div>}>
-                <Show when={ssoActive()} fallback={<Dynamic component={SECTION_VIEWS[admin.section()]} />}>
-                  <AdminSso />
+                <Show
+                  when={metaActive()}
+                  fallback={
+                    <Show when={ssoActive()} fallback={<Dynamic component={SECTION_VIEWS[admin.section()]} />}>
+                      <AdminSso />
+                    </Show>
+                  }
+                >
+                  <ServerMetadata api={admin.api} />
                 </Show>
               </Suspense>
             </main>
