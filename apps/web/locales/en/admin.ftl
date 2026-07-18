@@ -16,6 +16,7 @@ admin-nav-plugins = Plugins
 admin-nav-assist = Assist
 admin-nav-sso = Single sign-on
 admin-nav-servermeta = Server metadata
+admin-nav-rethread = Re-thread mailbox
 
 # Shared admin actions / states
 admin-delete = Delete
@@ -296,3 +297,23 @@ admin-servermeta-select-option = Select an account…
 admin-servermeta-select-prompt = Select an account to view and edit its server annotations.
 admin-servermeta-load-error = Could not load the account list.
 admin-servermeta-no-accounts = No accounts are provisioned.
+
+# -- Re-thread mailbox: one-shot JWZ backfill (t14, admin opt-in) --------------
+# Keys are disjoint from admin-servermeta-* (E4) — additive. This drives the
+# admin-gated POST /admin/maintenance/rethread; the action is non-destructive by
+# default and never fires without the explicit confirmation below.
+admin-rethread-title = Re-thread mailbox
+admin-rethread-intro = Re-runs conversation threading (JWZ) over a provisioned account's stored mail and re-keys its thread grouping. This is a one-time maintenance action, not something that runs automatically.
+admin-rethread-account = Account
+admin-rethread-select-option = Select an account…
+admin-rethread-no-accounts = No accounts are provisioned.
+admin-rethread-load-error = Could not load the account list.
+admin-rethread-run = Re-thread mailbox
+admin-rethread-confirm-title = Re-thread this mailbox?
+admin-rethread-confirm-warning = Re-threading re-keys conversation grouping for this account. Existing threads may merge or split, and users may see conversations regrouped.
+admin-rethread-confirm-detail = This is a one-time maintenance action. It runs once now; it is safe to re-run and does not delete any mail.
+admin-rethread-confirm = Re-thread mailbox
+admin-rethread-running = Re-threading…
+admin-rethread-cancel = Cancel
+admin-rethread-summary = Re-threaded { $messages } message(s) into { $threads } thread(s) across { $accounts } account(s); { $reassigned } message(s) moved to a different thread.
+admin-rethread-error = The re-thread action failed. No thread grouping was changed if the server rejected the request; check the server logs and try again.

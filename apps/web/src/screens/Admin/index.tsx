@@ -34,6 +34,7 @@ import { AdminPlugins } from './Plugins/index.tsx';
 import { AdminAssist } from './Assist/index.tsx';
 import { AdminSso } from './Sso/index.tsx';
 import { ServerMetadata } from './ServerMetadata.tsx';
+import { RethreadMaintenance } from './RethreadMaintenance.tsx';
 import * as css from './admin.css.ts';
 
 /** Localised nav labels per section (the source labels live in admin.ftl). */
@@ -81,6 +82,11 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
   // (canEdit) under /admin. `metaActive`/`ssoActive` are mutually exclusive with
   // each other and with the union sections (each click resets the others).
   const [metaActive, setMetaActive] = createSignal(false);
+  // t14 JWZ backfill (§Workstream-3): a third local section layered on the frozen
+  // `AdminSection` set, mirroring `metaActive` — the admin-gated one-shot re-thread
+  // action. `rethreadActive`/`metaActive`/`ssoActive` and the union sections are
+  // mutually exclusive (each click resets the others).
+  const [rethreadActive, setRethreadActive] = createSignal(false);
   onMount(() => void admin.loadSession());
   onMount(() => void loadCatalog('admin'));
   // Roving-tabindex nav: one Tab lands on the current section, arrows move
@@ -100,10 +106,11 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
                     type="button"
                     class={css.navItem}
                     data-roving-item
-                    aria-current={!ssoActive() && !metaActive() && admin.section() === s}
+                    aria-current={!ssoActive() && !metaActive() && !rethreadActive() && admin.section() === s}
                     onClick={() => {
                       setSsoActive(false);
                       setMetaActive(false);
+                      setRethreadActive(false);
                       admin.setSection(s);
                     }}
                   >
@@ -118,6 +125,7 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
                 aria-current={ssoActive()}
                 onClick={() => {
                   setMetaActive(false);
+                  setRethreadActive(false);
                   setSsoActive(true);
                 }}
               >
@@ -130,10 +138,24 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
                 aria-current={metaActive()}
                 onClick={() => {
                   setSsoActive(false);
+                  setRethreadActive(false);
                   setMetaActive(true);
                 }}
               >
                 {t('admin-nav-servermeta')}
+              </button>
+              <button
+                type="button"
+                class={css.navItem}
+                data-roving-item
+                aria-current={rethreadActive()}
+                onClick={() => {
+                  setSsoActive(false);
+                  setMetaActive(false);
+                  setRethreadActive(true);
+                }}
+              >
+                {t('admin-nav-rethread')}
               </button>
               <button type="button" class="btn btn--ghost" onClick={() => void admin.logout()}>
                 {t('admin-sign-out')}
@@ -142,14 +164,21 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
             <main class={css.main}>
               <Suspense fallback={<div class={css.note}>{t('common-loading')}</div>}>
                 <Show
-                  when={metaActive()}
+                  when={rethreadActive()}
                   fallback={
-                    <Show when={ssoActive()} fallback={<Dynamic component={SECTION_VIEWS[admin.section()]} />}>
-                      <AdminSso />
+                    <Show
+                      when={metaActive()}
+                      fallback={
+                        <Show when={ssoActive()} fallback={<Dynamic component={SECTION_VIEWS[admin.section()]} />}>
+                          <AdminSso />
+                        </Show>
+                      }
+                    >
+                      <ServerMetadata api={admin.api} />
                     </Show>
                   }
                 >
-                  <ServerMetadata api={admin.api} />
+                  <RethreadMaintenance api={admin.api} />
                 </Show>
               </Suspense>
             </main>
