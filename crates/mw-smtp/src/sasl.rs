@@ -145,8 +145,9 @@ pub(crate) fn client_nonce() -> String {
 pub(crate) struct ScramSha256 {
     password: Vec<u8>,
     /// gs2 header. For the non-PLUS mechanism this is `n,,`; for `-PLUS` it is
-    /// `p=tls-server-end-point,,`. Base64'd (with [`cbind_data`](Self::cbind_data)
-    /// appended) into the `c=` attribute.
+    /// `p=<cb-name>,,` where `<cb-name>` is the negotiated binding type
+    /// (`tls-exporter` on TLS 1.3, `tls-server-end-point` on TLS 1.2). Base64'd
+    /// (with [`cbind_data`](Self::cbind_data) appended) into the `c=` attribute.
     gs2_header: String,
     /// Raw channel-binding bytes appended after the gs2 header in `c=` (empty for
     /// the non-PLUS mechanism, where `c=` is just `biws` = base64(`n,,`)).
@@ -159,17 +160,18 @@ pub(crate) struct ScramSha256 {
 impl ScramSha256 {
     /// Build the client state and the client-first-message it must send first.
     ///
-    /// `channel_binding` selects the `-PLUS` variant when `Some`: the gs2 header
-    /// becomes `p=tls-server-end-point,,` and the binding bytes are carried in the
+    /// `channel_binding` selects the `-PLUS` variant when `Some((cb_name, bytes))`:
+    /// the gs2 header becomes `p=<cb_name>,,` (`tls-exporter` on TLS 1.3,
+    /// `tls-server-end-point` on TLS 1.2) and the binding bytes are carried in the
     /// `c=` attribute of the client-final-message. `None` is the plain mechanism.
     pub(crate) fn new(
         username: &str,
         password: &str,
         client_nonce: &str,
-        channel_binding: Option<&[u8]>,
+        channel_binding: Option<(&str, &[u8])>,
     ) -> (Self, String) {
         let (gs2_header, cbind_data) = match channel_binding {
-            Some(cb) => ("p=tls-server-end-point,,".to_string(), cb.to_vec()),
+            Some((cb_name, cb)) => (format!("p={cb_name},,"), cb.to_vec()),
             None => ("n,,".to_string(), Vec::new()),
         };
         let client_first_bare = format!("n={},r={}", scram_escape(username), client_nonce);
@@ -224,7 +226,7 @@ impl ScramSha256 {
 
         // `c=` is base64(gs2-header || cbind-data). For non-PLUS the cbind-data is
         // empty, so this is base64("n,,") = "biws"; for `-PLUS` it is
-        // base64("p=tls-server-end-point,," || tls-server-end-point-bytes).
+        // base64("p=<cb-name>,," || binding-bytes).
         let mut cbind_input = self.gs2_header.clone().into_bytes();
         cbind_input.extend_from_slice(&self.cbind_data);
         let channel_binding = BASE64_STANDARD.encode(&cbind_input);
@@ -375,13 +377,17 @@ mod tests {
         assert!(err.contains("extend"), "{err}");
     }
 
-    /// `-PLUS`: the gs2 header advertises `p=tls-server-end-point,,` and the
-    /// client-final `c=` decodes to that header followed by the raw binding bytes.
+    /// `-PLUS` (TLS 1.2): the gs2 header advertises `p=tls-server-end-point,,` and
+    /// the client-final `c=` decodes to that header followed by the raw binding.
     #[test]
     fn scram_plus_binds_the_channel_in_c_attribute() {
         let binding = [0xABu8; 32];
-        let (mut scram, client_first) =
-            ScramSha256::new("user", "pencil", "clientnonce", Some(&binding));
+        let (mut scram, client_first) = ScramSha256::new(
+            "user",
+            "pencil",
+            "clientnonce",
+            Some(("tls-server-end-point", &binding)),
+        );
         assert_eq!(client_first, "p=tls-server-end-point,,n=user,r=clientnonce");
 
         let client_final = scram
@@ -393,6 +399,34 @@ mod tests {
             .find_map(|f| f.strip_prefix("c="))
             .expect("client-final carries c=");
         let mut expected = b"p=tls-server-end-point,,".to_vec();
+        expected.extend_from_slice(&binding);
+        assert_eq!(BASE64_STANDARD.decode(c).unwrap(), expected);
+    }
+
+    /// `-PLUS` (TLS 1.3): with cb-name `tls-exporter` (RFC 9266) the gs2 header
+    /// advertises `p=tls-exporter,,` and the client-final `c=` decodes to that
+    /// header followed by the raw 32-byte exporter binding — proving the cb-name
+    /// threads through the gs2 header and the `c=` echo unchanged from the
+    /// endpoint case save for the negotiated name.
+    #[test]
+    fn scram_plus_tls_exporter_binds_the_channel_in_c_attribute() {
+        let binding = [0xCDu8; 32];
+        let (mut scram, client_first) = ScramSha256::new(
+            "user",
+            "pencil",
+            "clientnonce",
+            Some(("tls-exporter", &binding)),
+        );
+        assert_eq!(client_first, "p=tls-exporter,,n=user,r=clientnonce");
+
+        let client_final = scram
+            .client_final("r=clientnonceSRVNONCE,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096")
+            .unwrap();
+        let c = client_final
+            .split(',')
+            .find_map(|f| f.strip_prefix("c="))
+            .expect("client-final carries c=");
+        let mut expected = b"p=tls-exporter,,".to_vec();
         expected.extend_from_slice(&binding);
         assert_eq!(BASE64_STANDARD.decode(c).unwrap(), expected);
     }

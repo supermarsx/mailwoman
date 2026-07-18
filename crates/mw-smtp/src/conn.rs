@@ -249,14 +249,15 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
 
     /// Perform SASL authentication per the configured credentials.
     ///
-    /// `channel_binding` carries the `tls-server-end-point` bytes (RFC 5929) when
-    /// the transport is TLS; it enables SCRAM-SHA-256-PLUS when the server also
-    /// advertises the `-PLUS` mechanism.
+    /// `channel_binding` carries the negotiated SCRAM-`PLUS` binding as
+    /// `(cb_name, bytes)` when the transport is TLS — `tls-exporter` (RFC 9266)
+    /// on TLS 1.3, `tls-server-end-point` (RFC 5929) on TLS 1.2. It enables
+    /// SCRAM-SHA-256-PLUS when the server also advertises the `-PLUS` mechanism.
     pub(crate) async fn authenticate(
         &mut self,
         creds: &Credentials,
         caps: &Capabilities,
-        channel_binding: Option<&[u8]>,
+        channel_binding: Option<(&str, &[u8])>,
     ) -> Result<(), SmtpError> {
         let require = |mech: &str| -> Result<(), SmtpError> {
             if caps.auth.is_empty() || caps.offers(mech) {
@@ -1062,10 +1063,78 @@ mod tests {
                 pass: "pencil".into(),
             },
             &caps,
-            Some(&binding),
+            Some(("tls-server-end-point", &binding)),
         )
         .await
         .expect("SCRAM-SHA-256-PLUS authentication");
+        server.await.unwrap();
+    }
+
+    /// TLS-1.3 path: with cb-name `tls-exporter` (RFC 9266) the client sends
+    /// `AUTH SCRAM-SHA-256-PLUS` and the client-final `c=` decodes to
+    /// `p=tls-exporter,,` followed by the raw exporter binding bytes.
+    #[tokio::test]
+    async fn scram_plus_tls_exporter_selected_and_binds_channel() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let binding = vec![0xC3u8; 32];
+        let server_binding = binding.clone();
+
+        let server = tokio::spawn(async move {
+            let (sock, _) = listener.accept().await.unwrap();
+            let mut f = Framed::new(sock);
+            f.send(b"220 mock ESMTP\r\n").await;
+            assert_eq!(f.line().await, "EHLO client.test");
+            f.send(b"250-mock\r\n250 AUTH SCRAM-SHA-256 SCRAM-SHA-256-PLUS\r\n")
+                .await;
+
+            let auth = f.line().await;
+            let ir = auth
+                .strip_prefix("AUTH SCRAM-SHA-256-PLUS ")
+                .expect("AUTH SCRAM-SHA-256-PLUS line");
+            let client_first = String::from_utf8(BASE64_STANDARD.decode(ir).unwrap()).unwrap();
+            assert!(
+                client_first.starts_with("p=tls-exporter,,"),
+                "gs2 header selects the tls-exporter binding: {client_first}"
+            );
+            let client_nonce = client_first
+                .rsplit(',')
+                .next()
+                .and_then(|f| f.strip_prefix("r="))
+                .expect("client nonce")
+                .to_string();
+            let server_first =
+                format!("r={client_nonce}SRVNONCE,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096");
+            f.send(format!("334 {}\r\n", BASE64_STANDARD.encode(&server_first)).as_bytes())
+                .await;
+
+            let client_final =
+                String::from_utf8(BASE64_STANDARD.decode(f.line().await).unwrap()).unwrap();
+            let c = client_final
+                .split(',')
+                .find_map(|t| t.strip_prefix("c="))
+                .expect("client-final c=");
+            let mut expected = b"p=tls-exporter,,".to_vec();
+            expected.extend_from_slice(&server_binding);
+            assert_eq!(BASE64_STANDARD.decode(c).unwrap(), expected);
+            f.send(b"235 2.7.0 Authentication successful\r\n").await;
+        });
+
+        let tcp = TcpStream::connect(addr).await.unwrap();
+        let mut conn = Connection::new(tcp);
+        conn.read_greeting().await.unwrap();
+        let caps = conn.ehlo("client.test").await.unwrap();
+        assert!(caps.offers("SCRAM-SHA-256-PLUS"));
+        conn.authenticate(
+            &Credentials::Scram {
+                user: "user".into(),
+                pass: "pencil".into(),
+            },
+            &caps,
+            Some(("tls-exporter", &binding)),
+        )
+        .await
+        .expect("SCRAM-SHA-256-PLUS (tls-exporter) authentication");
         server.await.unwrap();
     }
 
@@ -1121,7 +1190,7 @@ mod tests {
             },
             &caps,
             // A binding is available, but the server never advertised `-PLUS`.
-            Some(&binding),
+            Some(("tls-server-end-point", &binding)),
         )
         .await
         .expect("plain SCRAM-SHA-256 fallback");
