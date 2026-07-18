@@ -68,6 +68,10 @@ pub mod sso;
 // `router()` below.
 pub mod masked;
 pub mod ui_plugins;
+// t14 (26.14) MOUNT/WIRE (plan §Wave-B E-mount): the admin-session-gated JWZ
+// backfill endpoint + the server-metadata admin account passthrough helper the
+// `/jmap/api` handler calls. Additive; fail-closed.
+pub mod admin_maintenance;
 // V6 MOUNT (t6-e11): store adapters backing the frozen Batch-B persistence seams
 // over the real 0007 tables.
 mod stores_v6;
@@ -596,6 +600,8 @@ fn router(
         .merge(v7_routes)
         .merge(sso_routes)
         .merge(t10_routes)
+        // t14 (26.14): the admin-gated JWZ backfill endpoint (§Wave-B E-mount).
+        .merge(admin_maintenance::admin_maintenance_router())
         .route("/metrics", get(observability::metrics))
         .route("/errors", post(errors::report_error))
         .route("/api/webhooks/inbound", post(webhooks::inbound_webhook));
@@ -1141,7 +1147,21 @@ async fn jmap_session(State(state): State<AppState>, headers: HeaderMap) -> Resp
 async fn jmap_api(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
     let session = match authed(&state, &headers).await {
         Ok(s) => s,
-        Err(resp) => return resp,
+        Err(resp) => {
+            // t14 (26.14, §Wave-B E-mount): the server-metadata admin editor drives
+            // `ServerMetadata/*` + `MailboxRights/*` against an admin-SELECTED account.
+            // When the normal mailbox-cookie auth fails, an authenticated admin session
+            // may still issue exactly those methods against the selected account's
+            // backend (the accountId is carried in each method call). Purely additive —
+            // this only runs on the auth-failure path, so the normal JMAP auth is
+            // never weakened; a non-admin / non-metadata request falls through to `resp`.
+            if let Some(admin_resp) =
+                admin_maintenance::try_admin_jmap_passthrough(&state, &headers, &body).await
+            {
+                return admin_resp;
+            }
+            return resp;
+        }
     };
     if let Some(engine) = &state.engine {
         if let Err(e) = engine_mode::ensure_account(engine, &session.account_id).await {

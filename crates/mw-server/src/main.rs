@@ -46,6 +46,34 @@ enum Command {
     /// Change an account password via a configured backend (V7 §18.3). STUB —
     /// filled by e14 (over the `mw-passwd` backends).
     Password(PasswordArgs),
+    /// One-shot store maintenance (t14 26.14): `maintenance rethread <account>`
+    /// runs the idempotent JWZ historical backfill. Explicit, never automatic.
+    Maintenance(MaintenanceArgs),
+}
+
+/// `mailwoman maintenance <verb>` (t14 26.14, plan §Wave-B E-mount): admin/operator
+/// one-shot store maintenance over the constructed engine.
+#[derive(Parser)]
+struct MaintenanceArgs {
+    /// SQLite/Postgres DSN (env: MW_DB_PATH).
+    #[arg(long, env = "MW_DB_PATH", default_value = "mailwoman.db")]
+    db_path: String,
+    /// Hex-encoded 32-byte server key (env: MW_SERVER_KEY).
+    #[arg(long, env = "MW_SERVER_KEY")]
+    server_key: Option<String>,
+    #[command(subcommand)]
+    command: MaintenanceCommand,
+}
+
+#[derive(Subcommand)]
+enum MaintenanceCommand {
+    /// Re-thread all stored mail for an account with the full JWZ set algorithm.
+    /// Idempotent: re-running converges (`reassigned=0`). Re-keys thread ids, so
+    /// it is explicit and operator-driven — there is no automatic trigger.
+    Rethread {
+        /// The account id whose stored mail to re-thread.
+        account: String,
+    },
 }
 
 /// `mailwoman plugin <list|approve>` (V7 §22): backed by the 0008 `plugins`
@@ -246,7 +274,30 @@ async fn main() -> std::process::ExitCode {
         Command::McpStdio(args) => run(mcp_stdio_cmd(args).await),
         Command::Plugin(args) => run(plugin_cmd(args).await),
         Command::Password(args) => run(password_cmd(args).await),
+        Command::Maintenance(args) => run(maintenance_cmd(args).await),
     }
+}
+
+/// `mailwoman maintenance rethread <account>` (t14 26.14, plan §Wave-B E-mount):
+/// construct the engine over the store and run E5's idempotent one-shot JWZ
+/// backfill for the account. The backfill reads the sealed store only (no live
+/// backend connection), prints the summary, and is safe to re-run.
+async fn maintenance_cmd(args: MaintenanceArgs) -> anyhow::Result<()> {
+    let store = open_store(&args.db_path, args.server_key.as_deref()).await?;
+    let engine = mw_engine::Engine::new(store);
+    match args.command {
+        MaintenanceCommand::Rethread { account } => {
+            let summary = engine
+                .rethread_account(&account)
+                .await
+                .map_err(|e| anyhow::anyhow!("rethread failed for {account}: {e}"))?;
+            println!(
+                "rethread {account}: accounts={} messages={} threads={} reassigned={}",
+                summary.accounts, summary.messages, summary.threads, summary.reassigned
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Open the store for a CLI command (shares the `serve` key so sealed columns
