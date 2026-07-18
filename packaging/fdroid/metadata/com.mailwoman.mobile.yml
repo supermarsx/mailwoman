@@ -35,10 +35,10 @@ RepoType: git
 Repo: https://github.com/mailwoman/mailwoman.git
 
 Builds:
-  - versionName: 26.13.0
-    versionCode: 261300
+  - versionName: 26.14.0
+    versionCode: 261400
     # HUMAN: set commit to the signed release tag once cut (e.g. '26.8.0').
-    commit: '26.13.0'
+    commit: '26.14.0'
     subdir: apps/mobile/src-tauri
     sudo:
       # HUMAN: F-Droid buildserver provisioning — Rust Android targets + NDK + Node.
@@ -59,5 +59,5 @@ Builds:
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
-CurrentVersion: 26.13.0
-CurrentVersionCode: 261300
+CurrentVersion: 26.14.0
+CurrentVersionCode: 261400

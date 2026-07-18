@@ -1,6 +1,6 @@
 # winget installer manifest. Schema 1.6.0.
 PackageIdentifier: Mailwoman.Mailwoman
-PackageVersion: 26.13.0
+PackageVersion: 26.14.0
 Platform:
   - Windows.Desktop
 MinimumOSVersion: 10.0.17763.0
@@ -17,11 +17,11 @@ Installers:
   #        of the tagged release; InstallerSha256 is that file's SHA-256. winget
   #        validation downloads the URL and verifies the hash + signature.
   - Architecture: x64
-    InstallerUrl: https://releases.mailwoman.example/desktop/26.13.0/Mailwoman_26.13.0_x64-setup.exe
+    InstallerUrl: https://releases.mailwoman.example/desktop/26.14.0/Mailwoman_26.14.0_x64-setup.exe
     InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
     ProductCode: '{HUMAN_PROVIDE_NSIS_PRODUCT_CODE}'
   - Architecture: arm64
-    InstallerUrl: https://releases.mailwoman.example/desktop/26.13.0/Mailwoman_26.13.0_arm64-setup.exe
+    InstallerUrl: https://releases.mailwoman.example/desktop/26.14.0/Mailwoman_26.14.0_arm64-setup.exe
     InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
     ProductCode: '{HUMAN_PROVIDE_NSIS_PRODUCT_CODE}'
 ManifestType: installer

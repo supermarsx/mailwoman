@@ -37,6 +37,37 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
 
 ## History
 
+- **`26.14`** — follow-ups closing the residuals 26.13 left open. **`tls-exporter` (RFC 9266) channel
+  binding** across `mw-imap`/`mw-smtp`/`mw-pop3`: on TLS 1.3 the SCRAM-`PLUS` client now computes the
+  RFC 9266 exporter binding (`export_keying_material`, label `"EXPORTER-Channel-Binding"`, empty
+  context, 32 bytes) and sets the gs2 cb-name to `tls-exporter`; on TLS 1.2 it keeps
+  `tls-server-end-point` (RFC 5929). This is the piece that lets **SCRAM-SHA-256-PLUS login actually
+  COMPLETE** — proven live for **IMAP and POP3 against real Dovecot 2.4.4 over TLS 1.3** (the exact
+  acceptance 26.13 could not reach, since Dovecot implements `tls-exporter`, not
+  `tls-server-end-point`). SMTP `-PLUS` stays unit/mock-proven (no channel-binding-capable submission
+  server in-env — the same honest disposition as 26.13; identical per-crate design). No config knob.
+  **Server-metadata admin editor**: the write-capable `MetadataView` is now mounted under `/admin`
+  (admin selects a provisioned account), reaching the account's backend through an admin-gated
+  `/jmap/api` passthrough for `ServerMetadata/get|set` + `MailboxRights/get|set` (normal JMAP auth
+  unweakened, fail-closed); the `mw_admin_session` cookie Path was broadened `/admin`→`/`
+  (HttpOnly + SameSite=Strict + Secure unchanged, so the CSRF/XSS posture is identical) so the browser
+  sends it to `/jmap/api`. **JWZ historical backfill** (admin opt-in): an idempotent one-shot re-thread
+  of existing mail via the shipped full JWZ set algorithm, exposed as a `mailwoman maintenance rethread
+  <account>` CLI subcommand AND an admin-panel button behind an explicit confirmation (it re-keys thread
+  grouping — never automatic), over `POST /admin/maintenance/rethread`; new-ingest-only stays the
+  default, no migration (reuses the `messages`/`threads` tables). Idempotency is machine-checked
+  (`reassigned==0` on re-run); live-proven on SQLite and **Postgres**. **Blob-attachment honoring** on
+  `Email/set` create — attachments whose `blobId` resolves to an existing stored message/part
+  (forward / attach-from-mail) now ride into the built + sent message via `mail-builder`; an unresolved
+  blobId is a clean `notCreated`, never a panic. New-file upload stays de-scoped (the `jmap_upload`
+  stub / upload blob-store is a separate seam). **Net zero new dependency-graph nodes** (`tls-exporter`
+  uses the already-vendored rustls `export_keying_material`); no openssl/`-sys`/C; `cargo deny` clean.
+  Verified: **1196 Rust** tests (0 failed, 11 ignored, desktop/mobile-excluded) + **745 web**; the
+  live-E2E wave (7 tests vs real Dovecot 2.4.4 / TLS 1.3 / Postgres 16) came up clean — **no
+  feature-code bug this milestone** (the discipline still ran in full). **Still deferred**: iOS shell
+  (needs macOS + Xcode + a paid Apple account); new-file blob upload; third-party (non-bundled) plugin
+  byte-storage (needs a trust model + a bytes persistence seam); a live SMTP `-PLUS` proof (needs a
+  channel-binding-capable submission server). Rolling `YY.N` retained (this is 26.14, not a "1.0" tag).
 - **`26.13`** — buildable residuals & deferrals left after 26.12, closed additively. **SCRAM-`PLUS`
   channel binding completed** across `mw-imap`/`mw-smtp`/`mw-pop3`: `tls-server-end-point` (RFC 5929)
   now hashes the TLS leaf with the cert's own signature digest (SHA-256/384/512, floor SHA-256 — the
