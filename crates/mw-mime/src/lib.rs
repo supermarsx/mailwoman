@@ -18,7 +18,7 @@
 mod build;
 mod parse;
 
-pub use build::{ComposeRequest, build};
+pub use build::{Attachment, ComposeRequest, build};
 pub use parse::{Parsed, ParsedEnvelope, PartBlob, decode_charset, parse, part_blob};
 
 // Re-export the frozen JMAP types callers map to/from, so downstream crates

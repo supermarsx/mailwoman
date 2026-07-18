@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use mw_mime::{ComposeRequest, EmailAddress};
+use mw_mime::{Attachment, ComposeRequest, EmailAddress};
 use mw_store::{IdentityRow, StoredMeta, SubmissionRow};
 use serde_json::{Map, Value, json};
 
@@ -547,7 +547,9 @@ impl Engine {
         spec: &Value,
     ) -> Result<(String, Option<String>)> {
         let message_id = gen_message_id();
-        let req = compose_from_spec(spec, &rt.identity, &message_id);
+        let req = self
+            .compose_from_spec(account_id, spec, &rt.identity, &message_id)
+            .await?;
         let raw = mw_mime::build(&req).map_err(|e| EngineError::Protocol(e.to_string()))?;
 
         let (mailbox_id, imap_name) = self
@@ -583,6 +585,54 @@ impl Engine {
         // The draft's download blobId is the whole-message form `<stableId>`
         // (see `Engine::fetch_blob`), so a just-composed draft is exportable.
         Ok((sid.clone(), Some(sid)))
+    }
+
+    /// Build a [`ComposeRequest`] from an `Email/set` create spec, resolving any
+    /// `attachments` whose `blobId` names an existing stored message/part via
+    /// [`Engine::fetch_blob`] (forward / attach-from-mail). A blobId that
+    /// resolves to nothing is a clean error (→ `notCreated`), never a panic.
+    /// New-file upload is out of scope — the upload blob store is unimplemented,
+    /// so only already-stored blobs are honored here.
+    async fn compose_from_spec(
+        &self,
+        account_id: &str,
+        spec: &Value,
+        identity: &str,
+        message_id: &str,
+    ) -> Result<ComposeRequest> {
+        let mut req = compose_base_from_spec(spec, identity, message_id);
+        if let Some(atts) = spec.get("attachments").and_then(Value::as_array) {
+            for att in atts {
+                // An attachment entry without a blobId (e.g. an inline body-part
+                // reference) is not a stored-blob attachment; skip it.
+                let Some(blob_id) = att.get("blobId").and_then(Value::as_str) else {
+                    continue;
+                };
+                let blob = self.fetch_blob(account_id, blob_id).await?.ok_or_else(|| {
+                    EngineError::Protocol(format!(
+                        "attachment blobId {blob_id:?} does not resolve to a stored message part"
+                    ))
+                })?;
+                // Prefer the client-declared type/name; fall back to what the
+                // stored part reports (fetch_blob derives both from the MIME part).
+                let content_type = att
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .map(String::from)
+                    .unwrap_or(blob.content_type);
+                let filename = att
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .map(String::from)
+                    .unwrap_or(blob.filename);
+                req.attachments.push(Attachment {
+                    filename,
+                    content_type,
+                    bytes: blob.bytes,
+                });
+            }
+        }
+        Ok(req)
     }
 
     /// Apply an Email/set update: keyword changes, engine-local meta
@@ -1380,8 +1430,10 @@ fn resolve_email_id(email_ref: &str, created_ids: &HashMap<String, String>) -> S
     }
 }
 
-/// Build a [`ComposeRequest`] from an `Email/set` create spec.
-fn compose_from_spec(spec: &Value, identity: &str, message_id: &str) -> ComposeRequest {
+/// Build the base [`ComposeRequest`] (headers + bodies) from an `Email/set`
+/// create spec. Attachment resolution is layered on by
+/// [`Engine::compose_from_spec`], which needs an async blob lookup.
+fn compose_base_from_spec(spec: &Value, identity: &str, message_id: &str) -> ComposeRequest {
     let from = parse_addrs(spec.get("from"))
         .into_iter()
         .next()
@@ -1420,6 +1472,7 @@ fn compose_from_spec(spec: &Value, identity: &str, message_id: &str) -> ComposeR
             })
             .unwrap_or_default(),
         headers: Vec::new(),
+        attachments: Vec::new(),
     }
 }
 
