@@ -277,7 +277,8 @@ async fn imap_scram_plus_dovecot_lacks_tls_server_end_point_live() {
     let binding = mw_imap::sasl::tls_server_end_point(&leaf);
     let _greeting = read_line(&mut s).await;
 
-    let mut client = mw_imap::sasl::ScramSha256::new(USER, PASS, Some(binding));
+    let mut client =
+        mw_imap::sasl::ScramSha256::new(USER, PASS, Some(("tls-server-end-point", binding)));
     let result = imap_authenticate(&mut s, "SCRAM-SHA-256-PLUS", &mut client).await;
 
     // The client framing reached the server; Dovecot rejects only the cbind TYPE.
@@ -334,8 +335,12 @@ async fn pop3_tls_server_end_point_binding_and_cbind_gap_live() {
             .unwrap()
             .as_nanos()
     );
-    let (_client, client_first) =
-        mw_pop3::sasl::ScramSha256::new(USER, PASS, &nonce, Some(binding));
+    let (_client, client_first) = mw_pop3::sasl::ScramSha256::new(
+        USER,
+        PASS,
+        &nonce,
+        Some(("tls-server-end-point", binding)),
+    );
     write_line(&mut s, "AUTH SCRAM-SHA-256-PLUS").await;
     let prompt = read_line(&mut s).await;
     assert!(prompt.starts_with("+"), "POP3 AUTH prompt: {prompt:?}");
