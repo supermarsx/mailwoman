@@ -1,0 +1,97 @@
+# t14 (26.14) live-E2E conformance — the "unit-green ≠ wired" gate for the four
+# 26.14 residuals. Owned by t14-E-e2e. Manual + push-to-t14 branches so it never
+# wedges the required `ci.yml` gate; the coordinator promotes it to a required check
+# at the 26.14 release boundary (mirrors t12/t13-conformance.yml).
+#
+# Reuses the established harness (docker-compose.ci.yml services, the MW_T14_* /
+# MW_E14_PG_DSN loud-skip toggles) and the EXISTING dovecot-t13 container — Dovecot
+# 2.4.4 implements `tls-exporter` over TLS 1.3, so the SCRAM-PLUS-via-tls-exporter
+# HEADLINE needs no new server image. Legs:
+#
+#   * scram-plus-login — HEADLINE: SCRAM-SHA-256-PLUS login COMPLETES via tls-exporter
+#                        (RFC 9266) over REAL TLS 1.3 vs Dovecot 2.4.4, for IMAP AND
+#                        POP3 (the exact acceptance 26.13 could not reach —
+#                        tls-server-end-point was rejected). The TLS-1.2
+#                        tls-server-end-point path stays covered by t13_scram_plus.
+#   * metadata-admin  — admin-gated /jmap/api passthrough drives ServerMetadata
+#                        set/get/NIL against the selected account's REAL Dovecot
+#                        METADATA store (RFC 5464 + the 26.13 literal fix).
+#   * jwz-backfill    — POST /admin/maintenance/rethread over an out-of-order corpus:
+#                        full-set JWZ convergence + idempotent re-run, on SQLite AND
+#                        live Postgres.
+#   * blob-attach     — Email/set create referencing an existing stored part's blobId
+#                        + inline EmailSubmission: the SENT message carries the part,
+#                        on SQLite AND live Postgres.
+
+name: t14-conformance
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: ["t14-**", "release/26.14**"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── HEADLINE: SCRAM-SHA-256-PLUS login completes via tls-exporter over TLS 1.3. ──
+  scram-plus-login:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Generate the test-only server certs (SHA-256 leaf)
+        run: sh scripts/dovecot-t13/gen-certs.sh
+      - name: Bring up the CB-capable Dovecot (TLS 1.3 tls-exporter)
+        run: docker compose -f docker-compose.ci.yml up -d --wait dovecot-t13
+      - name: SCRAM-SHA-256-PLUS login via tls-exporter (IMAP + POP3) vs real Dovecot
+        env:
+          MW_T14_TLS_LIVE: "1"
+        run: cargo test -p mw-server --test t14_scram_plus_login -- --nocapture --test-threads=1
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v
+
+  # ── Server-metadata admin write round-trip vs real Dovecot METADATA. ─────────────
+  metadata-admin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Generate certs (Dovecot requires TLS provisioned even for plaintext)
+        run: sh scripts/dovecot-t13/gen-certs.sh
+      - name: Bring up the METADATA Dovecot (imap_metadata enabled)
+        run: docker compose -f docker-compose.ci.yml up -d --wait dovecot-t13
+      - name: Admin ServerMetadata set/get/NIL round-trip through /jmap/api passthrough
+        env:
+          MW_T14_LIVE: "1"
+        run: cargo test -p mw-server --test t14_metadata_admin -- --nocapture --test-threads=1
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v
+
+  # ── JWZ backfill (endpoint) + blob-attachment send, on SQLite AND live Postgres. ─
+  jwz-blob-postgres:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Bring up Postgres
+        run: docker compose -f docker-compose.ci.yml up -d --wait postgres
+      - name: JWZ backfill endpoint — convergence + idempotency (SQLite + live Postgres)
+        env:
+          MW_E14_PG_DSN: "postgres://mailwoman:mailwoman@localhost:5432/mailwoman"
+        run: cargo test -p mw-server --test t14_jwz_backfill -- --nocapture --test-threads=1
+      - name: Blob-attachment forward — SENT message carries the part (SQLite + live Postgres)
+        env:
+          MW_E14_PG_DSN: "postgres://mailwoman:mailwoman@localhost:5432/mailwoman"
+        run: cargo test -p mw-server --test t14_blob_attach -- --nocapture --test-threads=1
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v
