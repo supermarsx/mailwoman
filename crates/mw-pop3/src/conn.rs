@@ -39,11 +39,12 @@ fn transport(e: impl std::fmt::Display) -> EngineError {
 /// One live POP3 session (greeting consumed, ready for AUTHORIZATION/TRANSACTION).
 pub struct Pop3Conn {
     stream: BufReader<Box<dyn AsyncStream>>,
-    /// The `tls-server-end-point` channel binding (RFC 5929) captured from the
-    /// server's leaf certificate at the TLS handshake, before the typed stream
-    /// was boxed. `None` on a plaintext transport (no certificate). Enables the
-    /// `SCRAM-SHA-256-PLUS` mechanism when the server also advertises it.
-    channel_binding: Option<Vec<u8>>,
+    /// The channel binding captured at the TLS handshake, before the typed
+    /// stream was boxed, as a `(cb-name, bytes)` pair: `tls-exporter` (RFC 9266)
+    /// on TLS 1.3, `tls-server-end-point` (RFC 5929) on TLS 1.2. `None` on a
+    /// plaintext transport. Enables the `SCRAM-SHA-256-PLUS` mechanism when the
+    /// server also advertises it, binding the exchange to the negotiated type.
+    channel_binding: Option<(&'static str, Vec<u8>)>,
 }
 
 /// Outcome of reading one line during a SASL `AUTH` exchange.
@@ -61,9 +62,12 @@ impl Pop3Conn {
         }
     }
 
-    /// Like [`new`](Self::new) but carrying a `tls-server-end-point` channel
+    /// Like [`new`](Self::new) but carrying the `(cb-name, bytes)` channel
     /// binding captured at the TLS handshake (`None` for plaintext).
-    fn with_binding(stream: Box<dyn AsyncStream>, channel_binding: Option<Vec<u8>>) -> Self {
+    fn with_binding(
+        stream: Box<dyn AsyncStream>,
+        channel_binding: Option<(&'static str, Vec<u8>)>,
+    ) -> Self {
         Self {
             stream: BufReader::new(stream),
             channel_binding,
@@ -219,7 +223,8 @@ impl Pop3Conn {
                 // policy itself lives with the `Pop3Auth` enum in `backend.rs`.
                 let use_plus = if self.channel_binding.is_some() {
                     let capa = self.capa().await?;
-                    Pop3Auth::scram_prefers_plus(self.channel_binding.as_deref(), &capa.sasl)
+                    let binding = self.channel_binding.as_ref().map(|(_, b)| b.as_slice());
+                    Pop3Auth::scram_prefers_plus(binding, &capa.sasl)
                 } else {
                     false
                 };
@@ -241,9 +246,10 @@ impl Pop3Conn {
     /// vector test).
     ///
     /// When `use_plus` is set, sends `AUTH SCRAM-SHA-256-PLUS` and binds the
-    /// exchange to the `tls-server-end-point` binding captured at the handshake
-    /// (`self.channel_binding`); otherwise the plain `n,,` mechanism. The
-    /// caller ([`authenticate`](Self::authenticate)) only sets `use_plus` when a
+    /// exchange to the `(cb-name, bytes)` binding captured at the handshake
+    /// (`self.channel_binding`) — `tls-exporter` on TLS 1.3, `tls-server-end-point`
+    /// on TLS 1.2; otherwise the plain `n,,` mechanism. The caller
+    /// ([`authenticate`](Self::authenticate)) only sets `use_plus` when a
     /// binding is present and the server advertised the `-PLUS` mechanism.
     ///
     /// Selected via [`Pop3Auth::SaslScram`](crate::backend::Pop3Auth) on the
@@ -441,16 +447,15 @@ fn decode_b64_utf8(s: &str) -> Result<String> {
     String::from_utf8(bytes).map_err(|e| EngineError::Protocol(format!("non-UTF-8 SASL blob: {e}")))
 }
 
-/// Run the TLS handshake and, **while the stream is still typed**, read the
-/// server's leaf certificate to compute the `tls-server-end-point` channel
-/// binding (RFC 5929) — this is the one moment `peer_certificates()` is
-/// reachable, before the stream is erased into `Box<dyn AsyncStream>`. Returns
-/// the boxed stream alongside the binding (`None` if the peer presented no
-/// certificate, which is not expected for a completed TLS handshake).
+/// Run the TLS handshake and, **while the stream is still typed**, compute the
+/// SCRAM channel binding — this is the one moment the negotiated
+/// [`rustls::ClientConnection`] is reachable, before the stream is erased into
+/// `Box<dyn AsyncStream>`. Returns the boxed stream alongside the
+/// `(cb-name, bytes)` binding (see [`channel_binding`]).
 async fn tls_connect(
     io: Box<dyn AsyncStream>,
     host: &str,
-) -> Result<(Box<dyn AsyncStream>, Option<Vec<u8>>)> {
+) -> Result<(Box<dyn AsyncStream>, Option<(&'static str, Vec<u8>)>)> {
     let config = tls_client_config()?;
     let connector = TlsConnector::from(config);
     let server_name = rustls_pki_types::ServerName::try_from(host.to_string())
@@ -461,11 +466,42 @@ async fn tls_connect(
         .map_err(transport)?;
     let binding = {
         let (_, conn) = tls.get_ref();
-        conn.peer_certificates()
-            .and_then(|certs| certs.first())
-            .map(|leaf| sasl::tls_server_end_point(leaf.as_ref()))
+        channel_binding(conn)
     };
     Ok((Box::new(tls), binding))
+}
+
+/// Compute the SCRAM `-PLUS` channel binding from the negotiated connection,
+/// preferring `tls-exporter` (RFC 9266) on **TLS 1.3** and falling back to
+/// `tls-server-end-point` (RFC 5929) on **TLS 1.2** — matching the reality of
+/// current servers (Dovecot 2.4.x implements only `tls-unique`/`tls-exporter`)
+/// and RFC 9266's TLS-1.3 scope. There is no config knob: the type follows the
+/// negotiated protocol version.
+///
+/// On TLS 1.3 the binding is a 32-byte exporter keyed on the RFC 9266 label
+/// `EXPORTER-Channel-Binding` with an empty context. On TLS 1.2 it is the
+/// leaf certificate's `tls-server-end-point` digest. Returns `None` if neither
+/// is derivable (no negotiated version / no peer certificate), which is not
+/// expected for a completed TLS handshake.
+fn channel_binding(conn: &rustls::ClientConnection) -> Option<(&'static str, Vec<u8>)> {
+    match conn.protocol_version() {
+        Some(rustls::ProtocolVersion::TLSv1_3) => {
+            let out = [0u8; 32];
+            let material = conn
+                .export_keying_material(out, b"EXPORTER-Channel-Binding", Some(&[]))
+                .ok()?;
+            Some(("tls-exporter", material.to_vec()))
+        }
+        _ => conn
+            .peer_certificates()
+            .and_then(|certs| certs.first())
+            .map(|leaf| {
+                (
+                    "tls-server-end-point",
+                    sasl::tls_server_end_point(leaf.as_ref()),
+                )
+            }),
+    }
 }
 
 fn tls_client_config() -> Result<Arc<rustls::ClientConfig>> {
@@ -574,18 +610,18 @@ mod tests {
         server.await.unwrap();
     }
 
-    /// Drive `AUTH SCRAM-SHA-256-PLUS` against a mock server: assert the `-PLUS`
-    /// mechanism is sent and the client-final `c=` echoes the base64 of
-    /// `p=tls-server-end-point,,` || the captured channel binding. The plain
-    /// path is pinned by `scram_sha256_dispatch_framing`.
-    #[tokio::test]
-    async fn scram_sha256_plus_dispatch_framing() {
-        let binding = vec![0x5Au8; 32];
+    /// Drive `AUTH SCRAM-SHA-256-PLUS` against a mock server that asserts the
+    /// `-PLUS` mechanism is sent, the client-first gs2-header advertises the
+    /// given `cb_name`, and the client-final `c=` echoes the base64 of
+    /// `p=<cb_name>,,` || the captured channel binding. The plain path is pinned
+    /// by `scram_sha256_dispatch_framing`.
+    async fn drive_scram_plus_dispatch(cb_name: &'static str, binding: Vec<u8>) {
         let expected_cbind = {
-            let mut v = b"p=tls-server-end-point,,".to_vec();
+            let mut v = format!("p={cb_name},,").into_bytes();
             v.extend_from_slice(&binding);
             B64.encode(&v)
         };
+        let gs2_prefix = format!("p={cb_name},,n=user,r=");
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let expected = expected_cbind.clone();
@@ -608,10 +644,7 @@ mod tests {
             let client_first =
                 String::from_utf8(B64.decode(line.trim_end_matches(['\r', '\n'])).unwrap())
                     .unwrap();
-            assert!(
-                client_first.starts_with("p=tls-server-end-point,,n=user,r="),
-                "{client_first}"
-            );
+            assert!(client_first.starts_with(&gs2_prefix), "{client_first}");
             let nonce = client_first
                 .rsplit(',')
                 .next()
@@ -639,12 +672,26 @@ mod tests {
         });
 
         let tcp = TcpStream::connect(addr).await.unwrap();
-        let mut conn = Pop3Conn::with_binding(Box::new(tcp), Some(binding));
+        let mut conn = Pop3Conn::with_binding(Box::new(tcp), Some((cb_name, binding)));
         conn.read_greeting().await.unwrap();
         conn.authenticate_scram_sha256("user", "pencil", true)
             .await
             .expect("SCRAM-SHA-256-PLUS authentication succeeds");
         server.await.unwrap();
+    }
+
+    /// TLS 1.2 fallback: `-PLUS` binds `tls-server-end-point` (RFC 5929).
+    #[tokio::test]
+    async fn scram_sha256_plus_dispatch_framing() {
+        drive_scram_plus_dispatch("tls-server-end-point", vec![0x5Au8; 32]).await;
+    }
+
+    /// TLS 1.3 headline: `-PLUS` binds `tls-exporter` (RFC 9266). The gs2-header
+    /// and the `c=` echo both carry `p=tls-exporter,,`, proving the cb-name
+    /// threads through the full POP3 `AUTH` dispatch.
+    #[tokio::test]
+    async fn scram_sha256_plus_tls_exporter_dispatch_framing() {
+        drive_scram_plus_dispatch("tls-exporter", vec![0x77u8; 32]).await;
     }
 
     /// `AUTH OAUTHBEARER` inline-IR dispatch: assert the RFC 7628 client
