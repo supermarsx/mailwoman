@@ -614,6 +614,29 @@ impl Engine {
         Ok(None)
     }
 
+    // ---- maintenance (admin opt-in one-shot; plan t14 §WS3) -------------
+
+    /// One-shot, **admin-opt-in** JWZ re-thread of an account's already-stored
+    /// mail: run the full, corpora-tested JWZ set algorithm ([`crate::thread`])
+    /// over the account's complete message set and re-key each `thread_id` via
+    /// the store. Returns a [`RethreadSummary`](crate::maintenance::RethreadSummary)
+    /// of what was touched.
+    ///
+    /// Idempotent — the same corpus yields the same thread ids, so a re-run is a
+    /// no-op. Reuses the `messages`/`threads` tables (`assign_thread`/`set_thread`)
+    /// with **no migration**.
+    ///
+    /// **Never automatic.** Nothing in the engine calls this; the sole callers
+    /// are the admin surfaces `mw-server` mounts (an admin-session endpoint + a
+    /// `maintenance rethread` CLI subcommand). Re-keying `thread_id` is a visible
+    /// change to thread identity, so it is strictly admin opt-in.
+    pub async fn rethread_account(
+        &self,
+        account_id: &str,
+    ) -> Result<crate::maintenance::RethreadSummary> {
+        crate::maintenance::rethread_account(self, account_id).await
+    }
+
     // ---- change ingestion ----------------------------------------------
 
     /// Start the backend's watch loop; on each `MailboxChanged` re-sync then

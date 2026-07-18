@@ -15,6 +15,7 @@ pub mod dispatcher;
 pub mod engine;
 pub mod identity;
 pub mod jmap;
+pub mod maintenance;
 pub mod mapping;
 pub mod meta;
 pub mod pim;
