@@ -5583,6 +5583,7 @@ dependencies = [
  "mw-passwd",
  "mw-plugin",
  "mw-pop3",
+ "mw-render",
  "mw-sandbox",
  "mw-sanitize",
  "mw-smtp",
