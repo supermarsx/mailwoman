@@ -41,6 +41,13 @@ pub enum AuditKind {
     IpBanned,
     IpUnbanned,
     ConfigReloaded,
+    // 26.15 t15: third-party plugin load/allowlist events (component load gate + admin
+    // allowlist actions). Additive — appended so existing serialized actions are stable.
+    PluginLoadAdmitted,
+    PluginLoadRefused,
+    PluginAllowlistApproved,
+    PluginAllowlistRevoked,
+    PluginUninstalled,
 }
 
 impl AuditKind {
@@ -68,6 +75,11 @@ impl AuditKind {
             AuditKind::IpBanned => "ip-banned",
             AuditKind::IpUnbanned => "ip-unbanned",
             AuditKind::ConfigReloaded => "config-reloaded",
+            AuditKind::PluginLoadAdmitted => "plugin-load-admitted",
+            AuditKind::PluginLoadRefused => "plugin-load-refused",
+            AuditKind::PluginAllowlistApproved => "plugin-allowlist-approved",
+            AuditKind::PluginAllowlistRevoked => "plugin-allowlist-revoked",
+            AuditKind::PluginUninstalled => "plugin-uninstalled",
         }
     }
 }

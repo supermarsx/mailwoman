@@ -10,7 +10,7 @@
 //! as before.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -44,6 +44,15 @@ use crate::AppState;
 use crate::assist::AssistHandle;
 use crate::nextcloud::{NextcloudGateway, OcsNextcloud};
 use crate::plugins::PluginRegistry;
+
+// The third-party allowlist admin API (approve/revoke/list-pending/uninstall). Declared
+// as a CHILD module of `v7_mount` (via `#[path]`) rather than a top-level `mod` in
+// `lib.rs`: `lib.rs` is owned by another executor this wave and must not be
+// concurrently edited, and `extra_v7_router()` (below, owned here) already merges into
+// the mounted router — so these routes reach the app without any `lib.rs` change. The
+// file lives at `crates/mw-server/src/admin_plugins.rs`.
+#[path = "admin_plugins.rs"]
+mod admin_plugins;
 
 fn env(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|s| !s.is_empty())
@@ -676,27 +685,24 @@ fn hex32(b: &[u8; 32]) -> String {
 }
 
 /// Resolve a FIRST-PARTY bridge/plugin component from the external plugins dir and
-/// VERIFY it against its compiled-in SHA-256 before handing back the bytes (§7.2,
-/// D5). This replaces the old `include_bytes!` embedding: the components ship as
-/// external data files (stripping their bytes from the server binary), while
-/// integrity is preserved by the digest pin.
+/// VERIFY it against its compiled-in SHA-256 before handing back the bytes (§7.2, D5).
+/// The components ship as external data files (stripping their bytes from the server
+/// binary); integrity is preserved by the digest pin.
+///
+/// This is the FROZEN, authoritative path and it is TERMINAL for a first-party id:
+/// [`resolve_component`] NEVER consults the third-party allowlist for an id this
+/// recognises, even on a miss/tamper here (see the ordering contract on the gate).
 ///
 /// Deny-by-default / fail-closed, and it NEVER panics:
-///   - an id with no pinned digest is not first-party ⇒ `None`;
+///   - an id with no pinned digest is not first-party ⇒ `None` (the gate then tries the
+///     third-party allowlist path);
 ///   - a missing / unreadable file ⇒ try the next dir, else `None`;
 ///   - a present-but-tampered file (digest mismatch) ⇒ logged + skipped (only a
 ///     byte-exact match to the pin ever loads).
 ///
-/// Every skip is `tracing::warn`-logged (never silent). Third-party on-disk /
-/// bytes-in-DB loading remains a documented post-1.0 extension.
-fn resolve_component(plugin_id: &str) -> Option<Vec<u8>> {
-    let Some((id, expected)) = first_party_digest(plugin_id) else {
-        tracing::warn!(
-            "plugin '{plugin_id}' is not a pinned first-party component; not loaded \
-             (third-party on-disk loading is post-1.0, deny-by-default)"
-        );
-        return None;
-    };
+/// Every skip is `tracing::warn`-logged (never silent).
+fn first_party_component(plugin_id: &str) -> Option<Vec<u8>> {
+    let (id, expected) = first_party_digest(plugin_id)?;
     let file = format!("{id}.wasm");
     let mut tried = Vec::new();
     for dir in plugin_dirs() {
@@ -731,6 +737,266 @@ fn resolve_component(plugin_id: &str) -> Option<Vec<u8>> {
         }
     );
     None
+}
+
+/// The SEPARATE directory third-party (non-first-party) components load from — NEVER the
+/// first-party `plugin_dirs()`, so a third-party file can never shadow a first-party
+/// filename or vice versa (TQ2). Unset ⇒ third-party loading is off entirely.
+fn thirdparty_plugin_dir() -> Option<PathBuf> {
+    env("MW_THIRDPARTY_PLUGIN_DIR").map(PathBuf::from)
+}
+
+/// The authoritative first-party id list (including the `nextcloud-plugin` alias). The
+/// allowlist approve path uses it to reject a spoofing id (TQ2 anti-spoof); `mw-store`
+/// cannot know it on its own because the compiled-in first-party table lives here.
+pub(crate) fn first_party_ids() -> Vec<&'static str> {
+    let mut ids: Vec<&'static str> = FIRST_PARTY_DIGESTS.iter().map(|(id, _)| *id).collect();
+    ids.push("nextcloud-plugin");
+    ids
+}
+
+/// THE code-load gate (§7.2, D5 + TQ1–TQ5). Ordering here is SECURITY-CRITICAL:
+///   1. `first_party_digest(plugin_id)` is consulted FIRST. If it is `Some`, run the
+///      frozen first-party verify ([`first_party_component`]) and RETURN its result —
+///      the third-party allowlist is NEVER consulted for a first-party id, even on a
+///      first-party miss/tamper (`None`, no fall-through). This makes a third-party
+///      allowlist row whose id collides with a first-party id UNREACHABLE, so it can
+///      never override, shadow, or spoof a first-party identity (TQ2).
+///   2. ONLY for a non-first-party id, consult the 0014 admin-pinned-digest allowlist via
+///      [`resolve_third_party_component`], which admits bytes ONLY on a byte-exact SHA-256
+///      match to a non-revoked admin-approved pin and audits every refusal.
+///
+/// The digest pin alone is sufficient to admit bytes here (⇒ an `UnsignedAllowed`
+/// indication + audit at load). The EXISTING `PluginHost::load` signature path
+/// (`signature::decide`) still runs on top: if a `TrustRoot` + manifest signature are
+/// configured it ALSO verifies them — a defense-in-depth layer that reuses the vendored
+/// `ed25519-dalek`, adding no dependency and never weakening the digest gate.
+async fn resolve_component(plugin_id: &str, store: &Store) -> Option<Vec<u8>> {
+    if first_party_digest(plugin_id).is_some() {
+        // First-party: frozen, authoritative, TERMINAL — no fall-through to the allowlist.
+        return first_party_component(plugin_id);
+    }
+    resolve_third_party_component(plugin_id, store).await
+}
+
+/// Resolve a NON-first-party component: admit its bytes IFF their exact SHA-256 is an
+/// active (non-revoked) admin pin in the 0014 allowlist for this exact id (TQ1/TQ2/TQ4).
+/// Fail-closed + audited on every refuse; NEVER panics. Reads the dir from
+/// `MW_THIRDPARTY_PLUGIN_DIR`; the core is [`resolve_third_party_in_dir`].
+async fn resolve_third_party_component(plugin_id: &str, store: &Store) -> Option<Vec<u8>> {
+    // Never reachable for a first-party id (the gate checks first-party FIRST); assert the
+    // invariant defensively so a future refactor can't turn this into a spoof vector.
+    debug_assert!(first_party_digest(plugin_id).is_none());
+    let Some(dir) = thirdparty_plugin_dir() else {
+        tracing::warn!(
+            "plugin '{plugin_id}' is not first-party and MW_THIRDPARTY_PLUGIN_DIR is unset; \
+             third-party loading is off (deny-by-default)"
+        );
+        return None;
+    };
+    resolve_third_party_in_dir(plugin_id, store, &dir).await
+}
+
+/// The TOCTOU-safe third-party verify core: read the candidate bytes ONCE into memory,
+/// hash THOSE bytes, and return the SAME buffer the caller then loads — there is no second
+/// filesystem read between the hash and the load, so a file swapped after the check can
+/// never be loaded. Split out so tests can point it at a temp dir without touching the
+/// process-global env var.
+async fn resolve_third_party_in_dir(plugin_id: &str, store: &Store, dir: &Path) -> Option<Vec<u8>> {
+    // The id maps to <dir>/<id>.wasm. ids come from the 0008 registry, but fail closed on
+    // any id that could escape the dir (empty / separators / traversal) regardless.
+    if plugin_id.is_empty()
+        || plugin_id.contains('/')
+        || plugin_id.contains('\\')
+        || plugin_id.contains("..")
+    {
+        tracing::warn!("refusing unsafe third-party plugin id '{plugin_id}'");
+        audit_plugin_event(
+            store,
+            mw_admin::AuditKind::PluginLoadRefused,
+            plugin_id,
+            json!({ "reason": "unsafe-id" }),
+        )
+        .await;
+        return None;
+    }
+    let path = dir.join(format!("{plugin_id}.wasm"));
+    let Ok(bytes) = std::fs::read(&path) else {
+        tracing::warn!(
+            "no third-party component file for plugin '{plugin_id}' at {}; not loaded",
+            path.display()
+        );
+        audit_plugin_event(
+            store,
+            mw_admin::AuditKind::PluginLoadRefused,
+            plugin_id,
+            json!({ "reason": "absent-file" }),
+        )
+        .await;
+        return None;
+    };
+    // Hash the EXACT in-memory bytes we will return (single read, no re-open).
+    let actual: [u8; 32] = Sha256::digest(&bytes).into();
+    let actual_hex = hex32(&actual);
+    match store
+        .is_third_party_digest_approved(plugin_id, &actual_hex)
+        .await
+    {
+        Ok(true) => {
+            tracing::info!(
+                "loaded third-party component '{plugin_id}' from {} (admin-pinned digest {})",
+                path.display(),
+                actual_hex
+            );
+            audit_plugin_event(
+                store,
+                mw_admin::AuditKind::PluginLoadAdmitted,
+                plugin_id,
+                json!({ "digest": actual_hex, "signature": "unsigned-allowed" }),
+            )
+            .await;
+            Some(bytes)
+        }
+        Ok(false) => {
+            tracing::warn!(
+                "third-party component '{plugin_id}' at {} has digest {} which is NOT an active \
+                 admin-approved pin; REFUSED (fail-closed)",
+                path.display(),
+                actual_hex
+            );
+            audit_plugin_event(
+                store,
+                mw_admin::AuditKind::PluginLoadRefused,
+                plugin_id,
+                json!({ "reason": "digest-not-approved", "digest": actual_hex }),
+            )
+            .await;
+            None
+        }
+        Err(e) => {
+            tracing::error!(
+                "allowlist lookup failed for third-party plugin '{plugin_id}': {e}; REFUSED"
+            );
+            audit_plugin_event(
+                store,
+                mw_admin::AuditKind::PluginLoadRefused,
+                plugin_id,
+                json!({ "reason": "allowlist-error" }),
+            )
+            .await;
+            None
+        }
+    }
+}
+
+// ── HIGH_POWER capability provenance gate (TQ4 sub-Q — the user's 26.15 decision) ──────
+
+/// The maintained HIGH_POWER capability set: the account-backend / send-as-user class.
+/// Per the user's explicit 26.15 decision these are FIRST-PARTY ONLY. A non-first-party
+/// (third-party) plugin can never be granted one, even by admin action —
+/// [`provenance_filtered_grant`] strips them at Grant construction, the point a capability
+/// becomes runtime-effective, so the refusal cannot be overridden by a persisted
+/// `plugin_grants` row. `AccountBackend` IS the "be the account / send as the user" seam
+/// (the bridge role, §6.5); a third-party plugin must never hold it. First-party plugins
+/// are unaffected. Extend this list if a future capability joins that class.
+const HIGH_POWER_CAPABILITIES: &[mw_plugin::Capability] = &[mw_plugin::Capability::AccountBackend];
+
+/// Whether `cap` is in the HIGH_POWER (first-party-only) class.
+fn is_high_power(cap: mw_plugin::Capability) -> bool {
+    HIGH_POWER_CAPABILITIES.contains(&cap)
+}
+
+/// Whether `plugin_id` is a pinned first-party component — the ONLY provenance permitted a
+/// HIGH_POWER capability.
+fn is_first_party_plugin(plugin_id: &str) -> bool {
+    first_party_digest(plugin_id).is_some()
+}
+
+/// Filter a requested capability set by provenance. A first-party plugin keeps every
+/// capability; a third-party plugin has EVERY HIGH_POWER capability stripped (returned in
+/// `refused`). Returns `(kept, refused)`. This is the provenance gate; it runs where the
+/// runtime [`Grant`] is built, so a third-party plugin never receives a HIGH_POWER
+/// capability at runtime regardless of what an admin persisted.
+fn provenance_filtered_grant(
+    plugin_id: &str,
+    requested: &[mw_plugin::Capability],
+) -> (Vec<mw_plugin::Capability>, Vec<mw_plugin::Capability>) {
+    if is_first_party_plugin(plugin_id) {
+        return (requested.to_vec(), Vec::new());
+    }
+    let mut kept = Vec::new();
+    let mut refused = Vec::new();
+    for &c in requested {
+        if is_high_power(c) {
+            refused.push(c);
+        } else {
+            kept.push(c);
+        }
+    }
+    (kept, refused)
+}
+
+// ── Content-free audit for plugin load / allowlist events ──────────────────────────────
+
+/// Append a content-free audit row for a loader-side plugin event (admit/refuse). The
+/// actor is the loader; `detail` MUST carry no mail content — only ids/digests/reasons.
+async fn audit_plugin_event(
+    store: &Store,
+    kind: mw_admin::AuditKind,
+    plugin_id: &str,
+    detail: serde_json::Value,
+) {
+    append_plugin_audit(
+        store,
+        "plugin-loader",
+        mw_admin::ActorKind::System,
+        kind,
+        plugin_id,
+        detail,
+    )
+    .await;
+}
+
+/// The shared audit-append used by both the loader and the admin allowlist routes. Reuses
+/// `mw-admin`'s [`mw_admin::AuditEvent`] (which mints the id + timestamp and REDACTS the
+/// detail) then maps it into the 0007 `audit_log` row. Best-effort: an audit-store error
+/// is logged, never propagated — a failed audit must not change a load/deny decision.
+pub(crate) async fn append_plugin_audit(
+    store: &Store,
+    actor: &str,
+    actor_kind: mw_admin::ActorKind,
+    kind: mw_admin::AuditKind,
+    plugin_id: &str,
+    detail: serde_json::Value,
+) {
+    let entry = mw_admin::AuditEvent::new(actor, actor_kind, kind)
+        .target(plugin_id)
+        .detail(detail)
+        .into_entry();
+    let row = mw_store::AuditRow {
+        id: entry.id,
+        ts: entry.ts,
+        actor: entry.actor,
+        actor_kind: actor_kind_str(entry.actor_kind).to_string(),
+        action: entry.action,
+        target: entry.target,
+        detail_json: entry.detail_json,
+        ip: entry.ip,
+    };
+    if let Err(e) = store.append_audit(&row).await {
+        tracing::warn!("plugin audit append failed ({}): {e}", row.action);
+    }
+}
+
+/// Serialize an [`mw_admin::ActorKind`] to its stable kebab-case string for the audit row
+/// (mirrors the mapping in `stores_v6`, kept local to avoid a cross-module private dep).
+fn actor_kind_str(k: mw_admin::ActorKind) -> &'static str {
+    match k {
+        mw_admin::ActorKind::Admin => "admin",
+        mw_admin::ActorKind::User => "user",
+        mw_admin::ActorKind::ApiKey => "api-key",
+        mw_admin::ActorKind::System => "system",
+    }
 }
 
 /// The send seam for a bridge-backed account. A bridge's outbound mail flows through
@@ -1002,11 +1268,29 @@ pub(crate) async fn build_spam_hook(
                 .map(|caps| caps.contains(&mw_plugin::Capability::SpamAction))
                 .unwrap_or(false)
     })?;
-    let bytes = resolve_component(&row.id)?;
+    let bytes = resolve_component(&row.id, store).await?;
     let manifest = manifest_of(row);
+    // Provenance gate: a third-party spam plugin keeps its `spam-action` (and other
+    // non-HIGH_POWER) caps, but any HIGH_POWER cap it declared is stripped here — never
+    // granted to a non-first-party plugin (the user's 26.15 decision).
+    let (granted_caps, refused_caps) = provenance_filtered_grant(&row.id, &manifest.capabilities);
+    if !refused_caps.is_empty() {
+        tracing::warn!(
+            "third-party plugin '{}' refused HIGH_POWER capability(ies) {:?} (first-party only)",
+            row.id,
+            refused_caps
+        );
+        audit_plugin_event(
+            store,
+            mw_admin::AuditKind::PluginLoadRefused,
+            &row.id,
+            json!({ "reason": "high-power-cap-refused", "caps": format!("{refused_caps:?}") }),
+        )
+        .await;
+    }
     let grant = Grant {
         plugin_id: row.id.clone(),
-        capabilities: manifest.capabilities.clone(),
+        capabilities: granted_caps,
         granted_by: row.approved_by.clone().unwrap_or_default(),
         allow_unsigned: true,
     };
@@ -1086,14 +1370,15 @@ pub async fn load_plugin_backends(
             );
             continue;
         }
-        // Deny-by-default: only a digest-verified FIRST-PARTY component auto-loads
-        // (third-party byte storage is a post-1.0 extension). `resolve_component`
-        // reads the external `<MW_PLUGIN_DIR>/<id>.wasm` and verifies it against the
-        // compiled-in SHA-256 pin — a missing/tampered component fails closed.
-        let Some(bytes) = resolve_component(&b.bridge_id) else {
+        // Deny-by-default code load. `resolve_component` admits bytes ONLY if they are a
+        // digest-verified FIRST-PARTY component (frozen compiled-in pin, checked first and
+        // terminally) OR a non-first-party component whose exact SHA-256 is an active
+        // admin-approved pin in the 0014 allowlist (TQ1/TQ2/TQ4). A missing/tampered/
+        // unapproved/revoked component fails closed (and audits).
+        let Some(bytes) = resolve_component(&b.bridge_id, store).await else {
             tracing::warn!(
-                "no digest-verified component for plugin '{}' (third-party byte storage \
-                 is post-1.0); account {} not loaded",
+                "no digest-verified or admin-pinned component for plugin '{}'; \
+                 account {} not loaded",
                 b.bridge_id,
                 b.account_id
             );
@@ -1117,16 +1402,42 @@ pub async fn load_plugin_backends(
         {
             manifest.net_allowlist.push(cred.endpoint_host);
         }
+        // Provenance gate (the user's 26.15 decision): a first-party plugin keeps every
+        // declared capability; a THIRD-PARTY plugin has every HIGH_POWER
+        // (account-backend / send-as-user class) capability stripped here — the point the
+        // runtime grant is built — so it can never act as an account backend even if an
+        // admin persisted such a grant. A third-party bridge thus stripped will fail
+        // `as_account_backend()` below and not load as a backend (fail-closed, as intended).
+        let (granted_caps, refused_caps) =
+            provenance_filtered_grant(&row.id, &manifest.capabilities);
+        if !refused_caps.is_empty() {
+            tracing::warn!(
+                "third-party plugin '{}' refused HIGH_POWER capability(ies) {:?} for account {} \
+                 (first-party only)",
+                b.bridge_id,
+                refused_caps,
+                b.account_id
+            );
+            audit_plugin_event(
+                store,
+                mw_admin::AuditKind::PluginLoadRefused,
+                &row.id,
+                json!({ "reason": "high-power-cap-refused", "caps": format!("{refused_caps:?}") }),
+            )
+            .await;
+        }
         let grant = Grant {
             plugin_id: row.id.clone(),
-            capabilities: manifest.capabilities.clone(),
+            capabilities: granted_caps,
             granted_by: row.approved_by.clone().unwrap_or_default(),
             // A digest-verified first-party component is trusted by virtue of matching
-            // the compiled-in SHA-256 pin. The boot host carries an empty trust root,
+            // the compiled-in SHA-256 pin; a third-party component is trusted by an
+            // admin-approved allowlist pin. The boot host carries an empty trust root,
             // which can't verify a detached signature, so the boot grant allows unsigned
-            // — surfacing the persistent unsigned banner until a signing trust root is
-            // configured (post-1.0). Deny-by-default still holds: it took an
-            // approved+enabled row + a binding + a passing digest pin to reach here.
+            // — surfacing the persistent unsigned banner + audit until a signing trust
+            // root is configured. Deny-by-default still holds: it took an approved+enabled
+            // row + a binding + a passing digest pin (first-party OR admin allowlist) to
+            // reach here, and HIGH_POWER caps are already stripped for third-party above.
             allow_unsigned: true,
         };
 
@@ -1260,6 +1571,10 @@ pub(crate) fn extra_v7_router() -> Router<AppState> {
             "/admin/plugins/{id}/allow-unsigned",
             post(plugin_allow_unsigned),
         )
+        // The third-party allowlist admin API (approve/revoke/list-pending/uninstall),
+        // admin-session-gated + audited. Registered on this already-mounted router so no
+        // `lib.rs` mount edit is needed this wave.
+        .merge(admin_plugins::allowlist_router())
 }
 
 // ── Assist: dictation transcription ──────────────────────────────────────────
@@ -1686,15 +2001,15 @@ mod tests {
             "spam-spamassassin",
         ] {
             let bytes =
-                resolve_component(id).unwrap_or_else(|| panic!("'{id}' resolves + verifies"));
+                first_party_component(id).unwrap_or_else(|| panic!("'{id}' resolves + verifies"));
             assert!(!bytes.is_empty(), "'{id}' has bytes");
             let (_, expected) = first_party_digest(id).unwrap();
             let actual: [u8; 32] = Sha256::digest(&bytes).into();
             assert_eq!(actual, expected, "'{id}' bytes match its pinned digest");
         }
         assert!(
-            resolve_component("totally-unknown").is_none(),
-            "an unpinned id never loads"
+            first_party_component("totally-unknown").is_none(),
+            "an unpinned id never loads via the first-party path"
         );
     }
 
@@ -1703,7 +2018,7 @@ mod tests {
     #[test]
     fn digest_pin_rejects_tampered_bytes() {
         let (_, expected) = first_party_digest("languagetool").unwrap();
-        let mut good = resolve_component("languagetool").expect("shipped bytes");
+        let mut good = first_party_component("languagetool").expect("shipped bytes");
         let good_digest: [u8; 32] = Sha256::digest(&good).into();
         assert_eq!(good_digest, expected);
         // Flip one byte ⇒ the digest no longer matches the pin ⇒ would be skipped.
@@ -1742,7 +2057,7 @@ mod tests {
     /// probe its honest PIM binding shape (account-backend granted so `as_bridge_*`
     /// can bind).
     async fn probe_bridge_shape(id: &str) -> BridgePimSlots {
-        let bytes = resolve_component(id).unwrap_or_else(|| panic!("'{id}' resolves"));
+        let bytes = first_party_component(id).unwrap_or_else(|| panic!("'{id}' resolves"));
         let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
         let mut host = PluginHost::new();
         host.set_services(host_services(&store));
@@ -1812,5 +2127,158 @@ mod tests {
             !gmail.is_bound(),
             "gmail binds NO PIM interface (pure standards fallback)"
         );
+    }
+
+    // ── Third-party allowlist load gate (TQ1–TQ5) + HIGH_POWER provenance (26.15) ────
+
+    /// A throwaway temp dir for a fake third-party `.wasm` (the gate only hashes bytes;
+    /// wasm validity is the loader's concern, not `resolve_component`'s).
+    fn temp_dir() -> PathBuf {
+        let d = std::env::temp_dir().join(format!("mw-t15-e6-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn sha256_hex(bytes: &[u8]) -> String {
+        let d: [u8; 32] = Sha256::digest(bytes).into();
+        hex32(&d)
+    }
+
+    /// A non-approved third-party component is REFUSED; approving its EXACT digest admits
+    /// exactly those bytes; a revoked pin refuses on the next load; a tampered byte
+    /// (digest mismatch) is refused. Every refuse path writes an audit row.
+    #[tokio::test]
+    async fn third_party_load_gate_positive_and_negatives() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let dir = temp_dir();
+        let id = "acme-thirdparty";
+        let bytes = b"\x00asm-not-really-but-hashable".to_vec();
+        std::fs::write(dir.join(format!("{id}.wasm")), &bytes).unwrap();
+        let digest = sha256_hex(&bytes);
+
+        // (a) No approval row ⇒ REFUSED.
+        assert!(
+            resolve_third_party_in_dir(id, &store, &dir).await.is_none(),
+            "a non-approved third-party component must not load"
+        );
+
+        // Approve the EXACT digest ⇒ admits exactly those bytes.
+        store
+            .put_plugin_allowlist(
+                &mw_store::new_allowlist_pin(id, &digest, "admin@x", None, None, None, None),
+                &first_party_ids(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resolve_third_party_in_dir(id, &store, &dir)
+                .await
+                .as_deref(),
+            Some(&bytes[..]),
+            "an approved exact-digest component loads its exact bytes"
+        );
+
+        // (c) Tamper one byte on disk ⇒ digest mismatch ⇒ REFUSED (the approved pin is
+        // for the ORIGINAL bytes).
+        let mut tampered = bytes.clone();
+        tampered[0] ^= 0xff;
+        std::fs::write(dir.join(format!("{id}.wasm")), &tampered).unwrap();
+        assert!(
+            resolve_third_party_in_dir(id, &store, &dir).await.is_none(),
+            "a tampered third-party component (digest mismatch) must not load"
+        );
+        // Restore the good bytes, then (b) REVOKE ⇒ refused on the next load.
+        std::fs::write(dir.join(format!("{id}.wasm")), &bytes).unwrap();
+        assert!(store.revoke_plugin_allowlist(id, &digest).await.unwrap());
+        assert!(
+            resolve_third_party_in_dir(id, &store, &dir).await.is_none(),
+            "a revoked pin must refuse on the next load"
+        );
+
+        // Every refuse (and the admit) wrote an audit row (no mail content).
+        let audit = store.list_audit(50).await.unwrap();
+        assert!(
+            audit.iter().any(|r| r.action == "plugin-load-refused"),
+            "a refusal is audited"
+        );
+        assert!(
+            audit.iter().any(|r| r.action == "plugin-load-admitted"),
+            "the admit is audited"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// TQ2 no-spoof: for a FIRST-PARTY id the gate NEVER consults the allowlist. Even if a
+    /// (hypothetical) allowlist row existed for a first-party id, first-party resolution is
+    /// unchanged; and approve-time refuses such a row outright.
+    #[tokio::test]
+    async fn first_party_id_is_terminal_and_never_consults_allowlist() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        // The gate resolves a first-party id via the frozen pin with an EMPTY allowlist.
+        let via_gate = resolve_component("languagetool", &store)
+            .await
+            .expect("first-party still resolves through the gate");
+        let via_first_party = first_party_component("languagetool").unwrap();
+        assert_eq!(
+            via_gate, via_first_party,
+            "gate uses the frozen first-party pin"
+        );
+
+        // Approving a first-party id into the allowlist is refused (anti-spoof), so a
+        // colliding row can never even be created.
+        let digest = sha256_hex(b"attacker-supplied");
+        let err = store
+            .put_plugin_allowlist(
+                &mw_store::new_allowlist_pin(
+                    "languagetool",
+                    &digest,
+                    "admin@x",
+                    None,
+                    None,
+                    None,
+                    None,
+                ),
+                &first_party_ids(),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            mw_store::PluginAllowlistError::FirstPartyCollision(_)
+        ));
+
+        // A non-first-party id with no dir/approval ⇒ None (deny-by-default).
+        assert!(resolve_component("totally-unknown", &store).await.is_none());
+    }
+
+    /// HIGH_POWER provenance gate: a first-party plugin keeps every capability; a
+    /// third-party plugin has AccountBackend (and any HIGH_POWER cap) stripped, even
+    /// though an admin "requested" it — while non-HIGH_POWER caps survive.
+    #[test]
+    fn high_power_caps_are_first_party_only() {
+        use mw_plugin::Capability::{AccountBackend, Net, SpamAction, StoreKvScoped};
+
+        // First-party: nothing stripped.
+        let (kept, refused) =
+            provenance_filtered_grant("bridge-graph", &[AccountBackend, Net, SpamAction]);
+        assert_eq!(kept, vec![AccountBackend, Net, SpamAction]);
+        assert!(
+            refused.is_empty(),
+            "a first-party plugin keeps HIGH_POWER caps"
+        );
+
+        // Third-party: AccountBackend refused, the rest kept — an admin cannot override it.
+        let (kept, refused) = provenance_filtered_grant(
+            "acme-thirdparty",
+            &[AccountBackend, Net, SpamAction, StoreKvScoped],
+        );
+        assert_eq!(kept, vec![Net, SpamAction, StoreKvScoped]);
+        assert_eq!(
+            refused,
+            vec![AccountBackend],
+            "a third-party plugin can never be granted a HIGH_POWER cap"
+        );
+        assert!(is_high_power(AccountBackend));
+        assert!(!is_high_power(SpamAction));
     }
 }

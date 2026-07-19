@@ -50,10 +50,17 @@ mod upload;
 // rest, quota-bounded, isolated by (plugin_id, account_id) derived host-side. New
 // `Store` methods over the 0013 `plugin_kv` table; no existing item touched.
 mod plugin_kv;
+// 0014 (26.15 t15): admin-managed third-party component load allowlist
+// (admin-pins-digest-at-install). New `Store` methods over the 0014 `plugin_allowlist`
+// table — the trust store behind `resolve_component`'s third-party path. A SEPARATE,
+// admin-managed fallback the compiled-in first-party pin always takes precedence over;
+// stores only the pinned identity + admin provenance, never component bytes.
+mod plugin_allowlist;
 
 pub(crate) use backend::{Backend, Row, q};
 
 pub use ews_cred::EwsAccountCred;
+pub use plugin_allowlist::{PluginAllowlistError, PluginAllowlistRow, new_allowlist_pin};
 pub use plugin_kv::{PluginKvError, PluginKvLimits};
 pub use sso::SsoConfigRow;
 pub use upload::{FsUploadBackend, Upload, UploadBackend, UploadError};
