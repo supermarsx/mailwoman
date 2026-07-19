@@ -178,9 +178,22 @@ interface host {
     }
     basic-credentials: func(account: string) -> result<host-credentials, plugin-error>;
 
-    // Scoped KV scratch (namespaced per plugin; `store:kv-scoped` capability).
+    // Scoped KV scratch (namespaced per (plugin, account) host-side; `store:kv-scoped`
+    // capability). `kv-put` silently no-ops when the capability is ungranted; when
+    // granted, a value that would exceed the deployment quota (per-value / per-value-key
+    // / total-bytes / key-count) is REFUSED — the host surfaces the rejection as a trap
+    // so the guest's put fails visibly rather than appearing to succeed.
     kv-get: func(key: string) -> option<list<u8>>;
     kv-put: func(key: string, value: list<u8>);
+
+    // ── t15 (26.15) ADDITIVE host imports — scoped KV delete + list ──
+    // Additive to the t7 `kv-get`/`kv-put` over the SAME (plugin, account) namespace and
+    // the SAME `store:kv-scoped` gate. Backward-compatible: pre-t15 guests do not import
+    // these and load unchanged — the host provides a SUPERSET of `host@0.1.0`, which the
+    // component-model import subtyping accepts, so the package stays @0.1.0 and committed
+    // .wasm fixtures keep linking (the t12 `basic-credentials` precedent).
+    kv-delete: func(key: string);
+    kv-list: func() -> list<string>;
 
     // NO-CONTENT logging floor: level + an opaque message; never mail content.
     log: func(level: log-level, message: string);

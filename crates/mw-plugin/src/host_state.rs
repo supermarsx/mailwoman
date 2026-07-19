@@ -79,11 +79,25 @@ pub trait BasicCredentialProvider: Send + Sync {
     async fn credentials(&self, account: &str) -> std::result::Result<BasicCredentials, String>;
 }
 
-/// A per-plugin scoped KV scratch store.
+/// A per-(plugin, account) scoped KV store. The `plugin_id` and `account_id`
+/// coordinates are derived HOST-side (from the bound [`HostState`]) and passed here —
+/// NEVER taken from a guest argument — so a guest can only ever reach its own
+/// namespace (a deployment-wide plugin uses `account_id = ""`). The host injects a
+/// store-backed, sealed, quota-bounded impl at mount; the default is in-memory.
 #[async_trait]
 pub trait KvStore: Send + Sync {
-    async fn get(&self, namespaced_key: &str) -> Option<Vec<u8>>;
-    async fn put(&self, namespaced_key: &str, value: Vec<u8>);
+    async fn get(&self, plugin_id: &str, account_id: &str, key: &str) -> Option<Vec<u8>>;
+    /// Store `value`. `Err(msg)` on an over-quota / oversize put, so the host can fail
+    /// the guest's put VISIBLY rather than silently dropping the value.
+    async fn put(
+        &self,
+        plugin_id: &str,
+        account_id: &str,
+        key: &str,
+        value: Vec<u8>,
+    ) -> std::result::Result<(), String>;
+    async fn delete(&self, plugin_id: &str, account_id: &str, key: &str);
+    async fn list(&self, plugin_id: &str, account_id: &str) -> Vec<String>;
 }
 
 /// Governable wall-clock source (host-provided ⇒ no ambient WASI clock).
@@ -151,17 +165,58 @@ impl BasicCredentialProvider for DeniedBasicCreds {
     }
 }
 
+/// The default in-memory KV: non-persistent, unquotaed, keyed by the full
+/// `(plugin_id, account_id, key)` triple so it preserves the same isolation the
+/// store-backed impl enforces. `mw-server` replaces it with the sealed, quota-bounded,
+/// store-backed impl at mount.
 #[derive(Default)]
 struct MemoryKv {
-    map: tokio::sync::Mutex<std::collections::HashMap<String, Vec<u8>>>,
+    map: tokio::sync::Mutex<std::collections::HashMap<(String, String, String), Vec<u8>>>,
 }
 #[async_trait]
 impl KvStore for MemoryKv {
-    async fn get(&self, key: &str) -> Option<Vec<u8>> {
-        self.map.lock().await.get(key).cloned()
+    async fn get(&self, plugin_id: &str, account_id: &str, key: &str) -> Option<Vec<u8>> {
+        let k = (
+            plugin_id.to_string(),
+            account_id.to_string(),
+            key.to_string(),
+        );
+        self.map.lock().await.get(&k).cloned()
     }
-    async fn put(&self, key: &str, value: Vec<u8>) {
-        self.map.lock().await.insert(key.to_string(), value);
+    async fn put(
+        &self,
+        plugin_id: &str,
+        account_id: &str,
+        key: &str,
+        value: Vec<u8>,
+    ) -> std::result::Result<(), String> {
+        let k = (
+            plugin_id.to_string(),
+            account_id.to_string(),
+            key.to_string(),
+        );
+        self.map.lock().await.insert(k, value);
+        Ok(())
+    }
+    async fn delete(&self, plugin_id: &str, account_id: &str, key: &str) {
+        let k = (
+            plugin_id.to_string(),
+            account_id.to_string(),
+            key.to_string(),
+        );
+        self.map.lock().await.remove(&k);
+    }
+    async fn list(&self, plugin_id: &str, account_id: &str) -> Vec<String> {
+        let mut keys: Vec<String> = self
+            .map
+            .lock()
+            .await
+            .keys()
+            .filter(|(p, a, _)| p == plugin_id && a == account_id)
+            .map(|(_, _, k)| k.clone())
+            .collect();
+        keys.sort();
+        keys
     }
 }
 
@@ -460,15 +515,47 @@ impl Host for HostState {
         if !self.gate.has(Capability::StoreKvScoped) {
             return Ok(None);
         }
-        Ok(self.services.kv.get(&self.namespaced(&key)).await)
+        let account = self.kv_account();
+        Ok(self.services.kv.get(&self.plugin_id, &account, &key).await)
     }
 
     async fn kv_put(&mut self, key: String, value: Vec<u8>) -> wasmtime::Result<()> {
+        // DENY-BY-DEFAULT: ungranted ⇒ a silent no-op (the documented contract). When
+        // granted, an over-quota / oversize put is surfaced as a TRAP so the guest's put
+        // fails visibly (a distinct runtime error) rather than appearing to succeed —
+        // the WIT `kv-put` returns unit, so a trap is the only non-silent signal.
+        if !self.gate.has(Capability::StoreKvScoped) {
+            return Ok(());
+        }
+        let account = self.kv_account();
+        match self
+            .services
+            .kv
+            .put(&self.plugin_id, &account, &key, value)
+            .await
+        {
+            Ok(()) => Ok(()),
+            Err(e) => Err(wasmtime::Error::msg(format!("kv-put rejected: {e}"))),
+        }
+    }
+
+    async fn kv_delete(&mut self, key: String) -> wasmtime::Result<()> {
         if self.gate.has(Capability::StoreKvScoped) {
-            let k = self.namespaced(&key);
-            self.services.kv.put(&k, value).await;
+            let account = self.kv_account();
+            self.services
+                .kv
+                .delete(&self.plugin_id, &account, &key)
+                .await;
         }
         Ok(())
+    }
+
+    async fn kv_list(&mut self) -> wasmtime::Result<Vec<String>> {
+        if !self.gate.has(Capability::StoreKvScoped) {
+            return Ok(Vec::new());
+        }
+        let account = self.kv_account();
+        Ok(self.services.kv.list(&self.plugin_id, &account).await)
     }
 
     async fn log(&mut self, _level: LogLevel, _message: String) -> wasmtime::Result<()> {
@@ -489,8 +576,11 @@ impl Host for HostState {
 }
 
 impl HostState {
-    fn namespaced(&self, key: &str) -> String {
-        format!("plugin:{}:{key}", self.plugin_id)
+    /// The account coordinate the KV namespace is keyed by, derived HOST-side from the
+    /// bound state (never a guest argument): the bound account, or `""` for a
+    /// deployment-wide (unbound) plugin — matching the `plugin_grants` convention.
+    fn kv_account(&self) -> String {
+        self.bound_account.clone().unwrap_or_default()
     }
 }
 

@@ -45,10 +45,16 @@ mod ews_cred;
 // DB). Backend construction (the upload dir) lives in `mw-server` and is injected via
 // `Store::with_upload_backend`.
 mod upload;
+// 0013 (26.15 t15): persistent per-(plugin, account) plugin KV backing the
+// `store:kv-scoped` capability (replaces the non-persistent HostKv stub). Sealed at
+// rest, quota-bounded, isolated by (plugin_id, account_id) derived host-side. New
+// `Store` methods over the 0013 `plugin_kv` table; no existing item touched.
+mod plugin_kv;
 
 pub(crate) use backend::{Backend, Row, q};
 
 pub use ews_cred::EwsAccountCred;
+pub use plugin_kv::{PluginKvError, PluginKvLimits};
 pub use sso::SsoConfigRow;
 pub use upload::{FsUploadBackend, Upload, UploadBackend, UploadError};
 pub use v6::{

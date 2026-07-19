@@ -38,7 +38,7 @@ use mw_plugin::{
     HttpResp, KvStore, OAuthTokenProvider, PluginHandle, PluginHost, PluginLimits, PluginManifest,
     Rng,
 };
-use mw_store::{PluginRow, Store};
+use mw_store::{PluginKvLimits, PluginRow, Store};
 
 use crate::AppState;
 use crate::assist::AssistHandle;
@@ -172,13 +172,77 @@ impl BasicCredentialProvider for StoreEwsCredProvider {
     }
 }
 
-struct HostKv;
+/// The persistent, sealed, quota-bounded plugin KV backing `store:kv-scoped` (plan
+/// §e5 / PQ1–PQ6). Replaces the former non-persistent `HostKv` stub (get→None,
+/// put→no-op) with the store-backed 0013 `plugin_kv` methods.
+///
+/// The `(plugin_id, account_id)` namespace is derived HOST-side by `mw-plugin` from
+/// the bound plugin instance and passed in here — never from a guest argument — so a
+/// guest can only reach its own namespace. Values are sealed at rest by the store, and
+/// per-namespace quotas are enforced at put; an over-quota put returns `Err`, which
+/// `mw-plugin` surfaces to the guest as a visible (trapping) failure.
+struct StorePluginKv {
+    store: Store,
+    limits: PluginKvLimits,
+}
+
 #[async_trait]
-impl KvStore for HostKv {
-    async fn get(&self, _key: &str) -> Option<Vec<u8>> {
-        None
+impl KvStore for StorePluginKv {
+    async fn get(&self, plugin_id: &str, account_id: &str, key: &str) -> Option<Vec<u8>> {
+        // A read error (corrupt/unopenable seal) is treated as absent rather than
+        // surfaced — the guest sees `None`, never host internals.
+        self.store
+            .plugin_kv_get(plugin_id, account_id, key)
+            .await
+            .ok()
+            .flatten()
     }
-    async fn put(&self, _key: &str, _value: Vec<u8>) {}
+
+    async fn put(
+        &self,
+        plugin_id: &str,
+        account_id: &str,
+        key: &str,
+        value: Vec<u8>,
+    ) -> std::result::Result<(), String> {
+        self.store
+            .plugin_kv_set(plugin_id, account_id, key, &value, &self.limits)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    async fn delete(&self, plugin_id: &str, account_id: &str, key: &str) {
+        let _ = self
+            .store
+            .plugin_kv_delete(plugin_id, account_id, key)
+            .await;
+    }
+
+    async fn list(&self, plugin_id: &str, account_id: &str) -> Vec<String> {
+        self.store
+            .plugin_kv_list(plugin_id, account_id)
+            .await
+            .unwrap_or_default()
+    }
+}
+
+/// Build the plugin-KV quota ceilings, deployment-configurable via env with the
+/// advertised defaults (256 B key, 64 KiB value, 5 MiB total, 1000 keys per namespace).
+fn plugin_kv_limits() -> PluginKvLimits {
+    let mut l = PluginKvLimits::default();
+    if let Some(v) = env("MW_PLUGIN_KV_MAX_KEY_BYTES").and_then(|s| s.parse().ok()) {
+        l.max_key_bytes = v;
+    }
+    if let Some(v) = env("MW_PLUGIN_KV_MAX_VALUE_BYTES").and_then(|s| s.parse().ok()) {
+        l.max_value_bytes = v;
+    }
+    if let Some(v) = env("MW_PLUGIN_KV_MAX_TOTAL_BYTES").and_then(|s| s.parse().ok()) {
+        l.max_total_bytes = v;
+    }
+    if let Some(v) = env("MW_PLUGIN_KV_MAX_KEYS").and_then(|s| s.parse().ok()) {
+        l.max_keys = v;
+    }
+    l
 }
 
 struct HostClock;
@@ -211,7 +275,10 @@ pub(crate) fn host_services(store: &Store) -> HostServices {
         basic_creds: Arc::new(StoreEwsCredProvider {
             store: store.clone(),
         }),
-        kv: Arc::new(HostKv),
+        kv: Arc::new(StorePluginKv {
+            store: store.clone(),
+            limits: plugin_kv_limits(),
+        }),
         clock: Arc::new(HostClock),
         rng: Arc::new(HostRng),
     }
