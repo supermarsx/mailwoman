@@ -37,6 +37,27 @@ mail-unread = Unread
 # Announced row summary for screen readers (position within the whole list).
 mail-row-position = Message { $pos } of { $total }
 
+# -- Conversation threading (W2) ---------------------------------------------
+mail-thread-count = { $count ->
+    [one] { $count } message
+   *[other] { $count } messages
+}
+mail-thread-expand = Expand conversation, { $count ->
+    [one] { $count } message
+   *[other] { $count } messages
+}
+mail-thread-collapse = Collapse conversation, { $count ->
+    [one] { $count } message
+   *[other] { $count } messages
+}
+
+# -- View options / reading pane (W3) ----------------------------------------
+mail-view-options = View options
+mail-reading-pane = Reading pane
+mail-reading-pane-right = Right
+mail-reading-pane-bottom = Bottom
+mail-reading-pane-off = Off
+
 # -- Inbox tabs --------------------------------------------------------------
 mail-inbox-focused-enable = Focused inbox
 mail-inbox-filter = Inbox filter
@@ -133,6 +154,43 @@ mail-compose-sign-unlocking = Unlocking…
 mail-compose-sign-no-key = No signing key is available on this device.
 mail-compose-sign-unlock-failed = Could not unlock the signing key.
 mail-compose-sign-unlock-required = Unlock your signing key to send this signed message.
+
+# Rich-text editor (W1)
+mail-compose-format-plain = Plain text
+mail-compose-format-rich = Rich text
+mail-compose-rt-toolbar = Formatting
+mail-compose-rt-bold = Bold
+mail-compose-rt-italic = Italic
+mail-compose-rt-underline = Underline
+mail-compose-rt-strike = Strikethrough
+mail-compose-rt-bullet = Bulleted list
+mail-compose-rt-ordered = Numbered list
+mail-compose-rt-quote = Quote
+mail-compose-rt-link = Link
+mail-compose-rt-link-placeholder = https://example.org
+mail-compose-rt-link-apply = Apply
+
+# Signature picker (W12)
+mail-compose-signature = Signature
+mail-compose-signature-none = Add a signature…
+
+# Send options (W11)
+mail-compose-options = Options
+mail-compose-receipt = Request a read receipt
+mail-compose-tracking = Add an open-tracking pixel
+mail-compose-tracking-hint = A tracking pixel embeds a remote image that reports when the message is opened. Off by default.
+
+# Recall (W10)
+mail-compose-recall = Recall
+mail-compose-recall-action = Recall
+mail-compose-recall-holding = Held, waiting to send
+mail-compose-recall-scheduled = Scheduled for { $when }
+
+# Drafts drawer (W9)
+mail-compose-drafts = Drafts
+mail-compose-drafts-empty = No saved drafts
+mail-compose-drafts-delete = Delete draft
+mail-compose-drafts-no-recipient = (no recipient)
 
 # -- Outbox ------------------------------------------------------------------
 mail-outbox-label = Outbox

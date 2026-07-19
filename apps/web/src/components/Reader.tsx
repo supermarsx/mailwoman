@@ -10,6 +10,9 @@ import {
 import { useApp } from '../state/context.ts';
 import { t, isolate } from '../i18n/index.ts';
 import * as a11y from './mailA11y.css.ts';
+// Reading-pane layout switch (W3): the globalStyle overrides keyed on
+// `:root[data-reading-pane]`. Imported for its side effect so the rules ship.
+import './readerPane.css.ts';
 import { SweepDialog } from './SweepDialog.tsx';
 import { ThumbnailStrip, type StripItem } from '../viewers/ThumbnailStrip.tsx';
 import { AttachmentViewer } from '../viewers/AttachmentViewer.tsx';
@@ -508,7 +511,11 @@ export function Reader(): JSX.Element {
   }
 
   return (
-    <section class="reader" aria-label={t('mail-reader-label')}>
+    <section
+      class="reader"
+      classList={{ 'reader--open': app.openEmail() !== null }}
+      aria-label={t('mail-reader-label')}
+    >
       <Show when={app.openEmail()} fallback={<p class="reader__empty">{t('mail-reader-empty')}</p>}>
         {(email) => (
           <>
