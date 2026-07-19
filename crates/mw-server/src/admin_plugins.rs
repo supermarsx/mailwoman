@@ -221,6 +221,12 @@ async fn revoke_digest(
         Ok(a) => a,
         Err(resp) => return resp,
     };
+    // Canonicalize the URL digest to lowercase-64-hex BEFORE the revoke lookup, mirroring
+    // `approve_digest` (which stores `digest_hex.trim().to_ascii_lowercase()`). Stored pins
+    // are always canonical lowercase, so a case-mismatched revoke would otherwise match no
+    // row — disabling the plugin but leaving the pin `revoked = 0`, admitting those bytes
+    // again on a later re-enable (E8 low finding).
+    let digest_hex = digest_hex.trim().to_ascii_lowercase();
     let revoked = match state
         .store
         .revoke_plugin_allowlist(&plugin_id, &digest_hex)
@@ -309,5 +315,77 @@ mod tests {
     fn allowlist_routes_merge_without_conflict() {
         let _router: axum::Router<crate::AppState> =
             crate::plugins::plugins_router().merge(super::super::extra_v7_router());
+    }
+
+    /// E8 low finding: a revoke whose URL digest differs only in CASE from the stored
+    /// (canonical lowercase) pin must still revoke that pin — not just disable the plugin.
+    /// `revoke_digest` now canonicalizes the URL digest with `.trim().to_ascii_lowercase()`
+    /// before the store lookup, exactly as `approve_digest` does when it stores the pin.
+    /// This test asserts that contract: the raw mixed-case digest would revoke nothing (the
+    /// bug), while the normalized form the handler applies revokes the pin so a later load
+    /// check refuses it.
+    #[tokio::test]
+    async fn revoke_normalizes_digest_case_before_lookup() {
+        use mw_store::{ServerKey, Store, new_allowlist_pin};
+
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        // A stored pin is always canonical lowercase-64-hex (approve lowercases it).
+        let canonical = "ab".repeat(32);
+        let mixed_case_url = canonical.to_ascii_uppercase();
+        store
+            .put_plugin_allowlist(
+                &new_allowlist_pin(
+                    "third-party-x",
+                    &canonical,
+                    "admin@x",
+                    None,
+                    None,
+                    None,
+                    None,
+                ),
+                &[],
+            )
+            .await
+            .unwrap();
+        assert!(
+            store
+                .is_third_party_digest_approved("third-party-x", &canonical)
+                .await
+                .unwrap()
+        );
+
+        // The bug: passing the URL digest raw (upper-case) matches no lowercase row, so the
+        // pin would remain active even though the plugin was disabled.
+        assert!(
+            !store
+                .revoke_plugin_allowlist("third-party-x", &mixed_case_url)
+                .await
+                .unwrap(),
+            "raw mixed-case revoke matches no canonical pin"
+        );
+        assert!(
+            store
+                .is_third_party_digest_approved("third-party-x", &canonical)
+                .await
+                .unwrap(),
+            "pin still active after a case-mismatched raw revoke"
+        );
+
+        // The fix: `revoke_digest` normalizes the URL digest exactly like `approve_digest`.
+        let normalized = mixed_case_url.trim().to_ascii_lowercase();
+        assert!(
+            store
+                .revoke_plugin_allowlist("third-party-x", &normalized)
+                .await
+                .unwrap(),
+            "normalized revoke marks the stored pin revoked"
+        );
+        assert!(
+            !store
+                .is_third_party_digest_approved("third-party-x", &canonical)
+                .await
+                .unwrap(),
+            "revoked pin no longer admits the bytes on a later load"
+        );
     }
 }
