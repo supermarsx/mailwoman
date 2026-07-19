@@ -13,6 +13,8 @@
 
 use cms::cert::{CertificateChoices, IssuerAndSerialNumber};
 use cms::content_info::{CmsVersion, ContentInfo};
+#[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
+use cms::enveloped_data::OriginatorInfo;
 use cms::enveloped_data::{
     EncryptedContentInfo, EnvelopedData, KeyTransRecipientInfo, RecipientIdentifier, RecipientInfo,
     RecipientInfos,
@@ -42,6 +44,14 @@ const OID_AES_256_CBC: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.16.840
 const OID_SHA_256: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.16.840.1.101.3.4.2.1");
 const OID_CONTENT_TYPE: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.9.3");
 const OID_MESSAGE_DIGEST: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.9.4");
+/// `id-ct-authEnvelopedData` (RFC 5083) — the AEAD S/MIME content type.
+const OID_AUTH_ENVELOPED_DATA: ObjectIdentifier =
+    ObjectIdentifier::new_unwrap("1.2.840.113549.1.9.16.1.23");
+/// `id-aes256-GCM` (RFC 5084) — AES-256 in Galois/Counter Mode.
+const OID_AES_256_GCM: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.16.840.1.101.3.4.1.46");
+/// AES-GCM authentication-tag length in octets (128-bit tag).
+#[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
+const GCM_TAG_LEN: usize = 16;
 
 /// Result of [`import_pkcs12`].
 pub struct Pkcs12Import {
@@ -314,6 +324,153 @@ pub fn decrypt(
     aes256_cbc_decrypt(&cek, iv.as_bytes(), ct.as_bytes())
 }
 
+// ── Authenticated encryption (CMS AuthEnvelopedData, AES-256-GCM, RFC 5083/5084) ─
+//
+// The AEAD S/MIME profile (`id-ct-authEnvelopedData`): RSA key transport of the
+// content-encryption key + AES-256-GCM content, the GCM authentication tag carried
+// in the `mac` field (NOT appended to `encryptedContent`, RFC 5083 §2.1). Native-
+// scoped — `aes-gcm` is a native-only dependency, and the GCM AEAD path is the
+// server/interop side; the CBC profile above stays available on both targets.
+
+/// Encrypt `plaintext` to each recipient cert (PEM), RSA key transport +
+/// AES-256-GCM content (CMS AuthEnvelopedData, RFC 5083). Returns a DER
+/// `ContentInfo(AuthEnvelopedData)`. The 16-byte GCM tag rides the `mac` field.
+#[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
+pub fn encrypt_authenveloped(plaintext: &[u8], recipient_cert_pems: &[String]) -> Result<Vec<u8>> {
+    use aes_gcm::aead::{Aead, KeyInit};
+    use aes_gcm::{Aes256Gcm, Nonce};
+
+    if recipient_cert_pems.is_empty() {
+        return Err(CryptoError::Input("no recipients".into()));
+    }
+    let mut cek = [0u8; 32];
+    let mut nonce_bytes = [0u8; 12];
+    rng::fill_random(&mut cek);
+    rng::fill_random(&mut nonce_bytes);
+    let mut rng = rng::rc10();
+
+    let cipher = Aes256Gcm::new((&cek).into());
+    let mut sealed = cipher
+        .encrypt(Nonce::from_slice(&nonce_bytes), plaintext)
+        .map_err(|_| CryptoError::Encrypt("aes-gcm seal".into()))?;
+    // aes-gcm appends the 16-byte tag; CMS carries it in `mac`, so split it off.
+    if sealed.len() < GCM_TAG_LEN {
+        return Err(CryptoError::Encrypt("aes-gcm output too short".into()));
+    }
+    let tag = sealed.split_off(sealed.len() - GCM_TAG_LEN);
+    let ciphertext = sealed;
+
+    let mut recipients = Vec::new();
+    for pem in recipient_cert_pems {
+        let cert = Certificate::from_pem(pem).map_err(parse)?;
+        let spki_der = cert
+            .tbs_certificate()
+            .subject_public_key_info()
+            .to_der()
+            .map_err(parse)?;
+        let rsa_pub = RsaPublicKey::from_public_key_der(&spki_der)
+            .map_err(|e| CryptoError::Encrypt(format!("recipient key not RSA: {e}")))?;
+        let enc_cek = rsa_pub
+            .encrypt(&mut rng, Pkcs1v15Encrypt, &cek)
+            .map_err(|e| CryptoError::Encrypt(e.to_string()))?;
+        recipients.push(RecipientInfo::Ktri(KeyTransRecipientInfo {
+            version: CmsVersion::V0,
+            rid: RecipientIdentifier::IssuerAndSerialNumber(issuer_and_serial(&cert)),
+            key_enc_alg: alg(OID_RSA_ENCRYPTION, Some(Any::null())),
+            enc_key: OctetString::new(enc_cek).map_err(parse)?,
+        }));
+    }
+
+    let gcm_params = GcmParameters {
+        nonce: OctetString::new(&nonce_bytes[..]).map_err(parse)?,
+        icv_len: GCM_TAG_LEN as u32,
+    };
+    let eci = EncryptedContentInfo {
+        content_type: ID_DATA,
+        content_enc_alg: alg(
+            OID_AES_256_GCM,
+            Some(Any::encode_from(&gcm_params).map_err(parse)?),
+        ),
+        encrypted_content: Some(OctetString::new(ciphertext).map_err(parse)?),
+    };
+    let aed = AuthEnvelopedData {
+        version: CmsVersion::V0,
+        originator_info: None,
+        recip_infos: RecipientInfos(SetOfVec::try_from(recipients).map_err(parse)?),
+        auth_encrypted_content_info: eci,
+        auth_attrs: None,
+        mac: OctetString::new(tag).map_err(parse)?,
+        unauth_attrs: None,
+    };
+    let ci = ContentInfo {
+        content_type: OID_AUTH_ENVELOPED_DATA,
+        content: Any::encode_from(&aed).map_err(parse)?,
+    };
+    ci.to_der().map_err(parse)
+}
+
+/// Decrypt a DER `ContentInfo(AuthEnvelopedData)` (AES-256-GCM content, RSA
+/// key-transport recipients) with the passphrase-locked `bundle`. The GCM tag is
+/// read from the `mac` field and verified as part of the AEAD open, so a tampered
+/// ciphertext or tag fails (returns a decrypt error).
+#[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
+pub fn decrypt_authenveloped(
+    auth_enveloped_der: &[u8],
+    encrypted_private_bundle: &str,
+    passphrase: &str,
+) -> Result<Vec<u8>> {
+    use aes_gcm::aead::{Aead, KeyInit};
+    use aes_gcm::{Aes256Gcm, Nonce};
+
+    let ci = ContentInfo::from_der(auth_enveloped_der).map_err(parse)?;
+    let aed = ci
+        .content
+        .decode_as::<AuthEnvelopedData>()
+        .map_err(|_| CryptoError::Parse("not an AuthEnvelopedData".into()))?;
+    let key = load_rsa(encrypted_private_bundle, Some(passphrase))?;
+
+    let cek = aed
+        .recip_infos
+        .0
+        .iter()
+        .find_map(|ri| match ri {
+            RecipientInfo::Ktri(ktri) => key.decrypt(Pkcs1v15Encrypt, ktri.enc_key.as_bytes()).ok(),
+            _ => None,
+        })
+        .ok_or_else(|| CryptoError::Decrypt("no usable RSA recipient".into()))?;
+    if cek.len() != 32 {
+        return Err(CryptoError::Decrypt("bad AES-256-GCM key length".into()));
+    }
+
+    let eci = &aed.auth_encrypted_content_info;
+    if eci.content_enc_alg.oid != OID_AES_256_GCM {
+        return Err(CryptoError::Decrypt("content not AES-256-GCM".into()));
+    }
+    let params: GcmParameters = eci
+        .content_enc_alg
+        .parameters
+        .as_ref()
+        .ok_or_else(|| CryptoError::Decrypt("no GCM parameters".into()))?
+        .decode_as()
+        .map_err(parse)?;
+    let ct = eci
+        .encrypted_content
+        .as_ref()
+        .ok_or_else(|| CryptoError::Decrypt("no encrypted content".into()))?;
+
+    // Reassemble ciphertext‖tag for the AEAD open (aes-gcm expects the tag appended).
+    let mut sealed = ct.as_bytes().to_vec();
+    sealed.extend_from_slice(aed.mac.as_bytes());
+
+    let cipher = Aes256Gcm::new(cek.as_slice().into());
+    cipher
+        .decrypt(
+            Nonce::from_slice(params.nonce.as_bytes()),
+            sealed.as_slice(),
+        )
+        .map_err(|_| CryptoError::Decrypt("aes-gcm open (bad key/tag/ciphertext)".into()))
+}
+
 fn aes256_cbc_encrypt(key: &[u8], iv: &[u8], pt: &[u8]) -> Result<Vec<u8>> {
     use aes::Aes256;
     use cbc::cipher::{BlockModeEncrypt, KeyIvInit, block_padding::Pkcs7};
@@ -556,6 +713,38 @@ fn verdict(status: &str, key_id: Option<String>) -> SignatureVerdict {
         revocation_status: Some("unknown".into()),
         key_changed: false,
     }
+}
+
+// ── CMS AuthEnvelopedData ASN.1 (RFC 5083/5084) — self-defined; cms 0.2 ships no
+//    AuthEnvelopedData/GCMParameters type. Reuses the enveloped_data recipient +
+//    content types. Optional context-specific fields are decoded when present but
+//    omitted on emit (we never write originatorInfo/authAttrs/unauthAttrs). ───────
+
+/// `GCMParameters ::= SEQUENCE { aes-nonce OCTET STRING, aes-ICVlen INTEGER }`
+/// (RFC 5084 §3.2). We always emit an explicit 16-octet ICV length.
+#[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
+#[derive(der::Sequence)]
+struct GcmParameters {
+    nonce: OctetString,
+    icv_len: u32,
+}
+
+/// `AuthEnvelopedData ::= SEQUENCE { version, originatorInfo [0] OPTIONAL,
+/// recipientInfos, authEncryptedContentInfo, authAttrs [1] OPTIONAL, mac,
+/// unauthAttrs [2] OPTIONAL }` (RFC 5083 §2.1).
+#[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
+#[derive(der::Sequence)]
+struct AuthEnvelopedData {
+    version: CmsVersion,
+    #[asn1(context_specific = "0", optional = "true", tag_mode = "IMPLICIT")]
+    originator_info: Option<OriginatorInfo>,
+    recip_infos: RecipientInfos,
+    auth_encrypted_content_info: EncryptedContentInfo,
+    #[asn1(context_specific = "1", optional = "true", tag_mode = "IMPLICIT")]
+    auth_attrs: Option<SetOfVec<Attribute>>,
+    mac: OctetString,
+    #[asn1(context_specific = "2", optional = "true", tag_mode = "IMPLICIT")]
+    unauth_attrs: Option<SetOfVec<Attribute>>,
 }
 
 // ── minimal PKCS#12 ASN.1 (RFC 7292) — self-defined to avoid a `pkcs12` crate

@@ -50,6 +50,10 @@ impl Engine {
             }
             "Calendar/freeBusy" => self.calendar_free_busy(account_id, rt, args).await,
             "Calendar/detectConflicts" => self.calendar_detect_conflicts(account_id, args).await,
+            "Calendar/subscribe" => self.calendar_subscribe(account_id, args).await,
+            "Calendar/refreshSubscription" => {
+                self.calendar_refresh_subscription(account_id, args).await
+            }
             // ── Calendar events (§2.2) ──
             "CalendarEvent/get" => self.event_get(account_id, args).await,
             "CalendarEvent/set" => self.event_set(account_id, rt, args).await,
@@ -64,6 +68,7 @@ impl Engine {
             "CalendarEvent/import" => self.event_import(account_id, rt, args).await,
             "CalendarEvent/export" => self.event_export(account_id, args).await,
             "CalendarEvent/respond" => self.event_respond(account_id, rt, args).await,
+            "CalendarEvent/quickAdd" => self.event_quick_add(account_id, rt, args).await,
             // ── Tasks (§2.2) ──
             "Task/get" => self.task_get(account_id, args).await,
             "Task/set" => self.task_set(account_id, rt, args).await,
@@ -77,6 +82,7 @@ impl Engine {
             "Note/get" => self.note_get(account_id, args).await,
             "Note/set" => self.note_set(account_id, args).await,
             "Note/query" => self.note_query(account_id, args).await,
+            "Note/export" => self.note_export(account_id, args).await,
             "Note/changes" => {
                 self.pim_type_changes(account_id, crate::change::ChangeType::Note, args)
                     .await

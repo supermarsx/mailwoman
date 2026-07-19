@@ -12,6 +12,7 @@ use crate::backend::{EngineError, Result};
 use crate::change::{ChangeOp, ChangeType};
 use crate::engine::Engine;
 
+use super::quickadd::parse_quick_add;
 use super::{
     SetOutcome, gen_id, gen_token, get_response, materialize_window, query_response, server_fail,
     set_error, wanted_ids,
@@ -218,6 +219,18 @@ impl Engine {
         set_str(&mut json, "calendarId", calendar_id);
         set_str(&mut json, "uid", uid);
 
+        // P4/P5: `categories` + `attachments` are engine-carried projection fields —
+        // `mw-ics` does not round-trip CATEGORIES/ATTACH, so capture them before the
+        // ICS canonicalization and re-apply below (get/query then see them).
+        let carried: Vec<(&str, Value)> = ["categories", "attachments"]
+            .iter()
+            .filter_map(|k| {
+                json.get(*k)
+                    .filter(|v| !v.is_null())
+                    .map(|v| (*k, v.clone()))
+            })
+            .collect();
+
         let ical_raw = mw_ics::emit_ical(&json).map_err(ics_err)?;
         // Re-parse so the stored json is the canonical round-trip projection.
         let mut canonical = mw_ics::parse_ical(ical_raw.as_bytes())
@@ -229,6 +242,9 @@ impl Engine {
         set_str(&mut canonical, "id", id);
         set_str(&mut canonical, "calendarId", calendar_id);
         set_str(&mut canonical, "uid", uid);
+        for (key, val) in carried {
+            set_json(&mut canonical, key, val);
+        }
 
         let tzid = canonical
             .get("timeZone")
@@ -326,8 +342,25 @@ impl Engine {
             .and_then(Value::as_str);
         let after = filter.get("after").and_then(Value::as_str);
         let before = filter.get("before").and_then(Value::as_str);
+        // P4: optional category filter (`category: "x"` or `categories: [..]`).
+        let wanted_categories: Vec<String> = filter
+            .get("categories")
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .map(String::from)
+                    .collect()
+            })
+            .or_else(|| {
+                filter
+                    .get("category")
+                    .and_then(Value::as_str)
+                    .map(|s| vec![s.to_string()])
+            })
+            .unwrap_or_default();
 
-        if let (Some(after), Some(before)) = (after, before) {
+        let ids = if let (Some(after), Some(before)) = (after, before) {
             // Window path: distinct events with a materialized instance in range.
             let insts = self
                 .store()
@@ -350,7 +383,7 @@ impl Engine {
                 }
                 ids = kept;
             }
-            Ok(ids)
+            ids
         } else {
             // Full path: all events (optionally one calendar), start-ordered.
             let cals = self.store().list_calendars(account_id).await?;
@@ -368,8 +401,11 @@ impl Engine {
                     ids.push(ev.id);
                 }
             }
-            Ok(ids)
-        }
+            ids
+        };
+
+        self.filter_events_by_categories(ids, &wanted_categories)
+            .await
     }
 
     pub(crate) async fn event_query_changes(&self, account_id: &str, args: &Value) -> Value {
@@ -473,6 +509,25 @@ impl Engine {
                 Err(e) => return server_fail(e),
             },
         };
+        let created = self
+            .persist_parsed_events(account_id, &calendar_id, events, Some(rt))
+            .await;
+        self.broadcast_state(account_id).await;
+        json!({ "accountId": account_id, "imported": created.clone(), "count": created.len() })
+    }
+
+    /// Persist a batch of parsed event projections into `calendar_id`, recording a
+    /// `Created` change per event. `push_rt` drives CalDAV push (None = local only,
+    /// e.g. a webcal subscription overlay). Returns the created ids. Skips (logs)
+    /// any single event that fails to persist. Shared by `CalendarEvent/import`
+    /// and the webcal subscription path (P6).
+    pub(crate) async fn persist_parsed_events(
+        &self,
+        account_id: &str,
+        calendar_id: &str,
+        events: Vec<Value>,
+        push_rt: Option<&AccountRuntime>,
+    ) -> Vec<String> {
         let mut created = Vec::new();
         for ev in events {
             let uid = ev
@@ -483,7 +538,7 @@ impl Engine {
                 .unwrap_or_else(|| format!("{}@mailwoman.local", gen_token()));
             let id = gen_id("ev");
             match self
-                .persist_event(account_id, &calendar_id, &id, &uid, ev, None, Some(rt))
+                .persist_event(account_id, calendar_id, &id, &uid, ev, None, push_rt)
                 .await
             {
                 Ok(_) => {
@@ -500,8 +555,13 @@ impl Engine {
                 Err(e) => tracing::warn!("event import skipped one: {e}"),
             }
         }
-        self.broadcast_state(account_id).await;
-        json!({ "accountId": account_id, "imported": created.clone(), "count": created.len() })
+        created
+    }
+
+    /// Parse an ICS/iTIP/`.hol` blob into event projections (P6 subscription
+    /// refresh helper; exposes the module-private feature-detecting parser).
+    pub(crate) fn parse_calendar_document(&self, blob: &str) -> Result<Vec<Value>> {
+        parse_calendar_blob(blob)
     }
 
     /// Export events (by id) to a single ICS document (§2.2).
@@ -613,7 +673,108 @@ impl Engine {
         json!({ "accountId": account_id, "updated": self.reload_event_json(event_id).await })
     }
 
+    // ── CalendarEvent/quickAdd (P3 — natural-language create) ────────────────
+
+    /// Parse a natural-language phrase (`{text, calendarId?}`) into an event and
+    /// create it (P3). Returns `{created:{id}, parsed:{title,start,duration,allDay,
+    /// location}}` so the UI can echo what was understood. A phrase with no
+    /// recognizable day/time becomes an all-day event today.
+    pub(crate) async fn event_quick_add(
+        &self,
+        account_id: &str,
+        rt: &AccountRuntime,
+        args: &Value,
+    ) -> Value {
+        let text = args.get("text").and_then(Value::as_str).unwrap_or_default();
+        if text.trim().is_empty() {
+            return server_fail("CalendarEvent/quickAdd requires a non-empty text");
+        }
+        let parsed = parse_quick_add(text, chrono::Utc::now());
+        let title = if parsed.title.trim().is_empty() {
+            text.trim().to_string()
+        } else {
+            parsed.title.clone()
+        };
+
+        let mut spec = json!({ "title": title });
+        if let Some(cid) = args.get("calendarId").and_then(Value::as_str) {
+            spec["calendarId"] = json!(cid);
+        }
+        match &parsed.start {
+            Some(start) => {
+                spec["start"] = json!(start);
+                spec["showWithoutTime"] = json!(parsed.all_day);
+                spec["duration"] = json!(parsed.duration);
+            }
+            None => {
+                // No day/time recognized → an all-day event today.
+                spec["start"] = json!(
+                    chrono::Utc::now()
+                        .date_naive()
+                        .format("%Y-%m-%d")
+                        .to_string()
+                );
+                spec["showWithoutTime"] = json!(true);
+                spec["duration"] = json!("P1D");
+            }
+        }
+        if let Some(loc) = &parsed.location {
+            spec["locations"] = json!([{ "name": loc }]);
+        }
+
+        match self.event_create(account_id, rt, &spec).await {
+            Ok(id) => {
+                self.broadcast_state(account_id).await;
+                json!({
+                    "accountId": account_id,
+                    "created": { "id": id },
+                    "parsed": {
+                        "title": title,
+                        "start": parsed.start,
+                        "duration": parsed.duration,
+                        "allDay": parsed.all_day,
+                        "location": parsed.location,
+                    },
+                })
+            }
+            Err(e) => server_fail(e),
+        }
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
+
+    /// Restrict `ids` to events whose stored `categories` intersect `wanted`
+    /// (case-insensitive). Used by `CalendarEvent/query` category filtering (P4).
+    async fn filter_events_by_categories(
+        &self,
+        ids: Vec<String>,
+        wanted: &[String],
+    ) -> Result<Vec<String>> {
+        if wanted.is_empty() {
+            return Ok(ids);
+        }
+        let want: Vec<String> = wanted.iter().map(|s| s.to_lowercase()).collect();
+        let mut kept = Vec::new();
+        for id in ids {
+            if let Some(row) = self.store().get_event(&id).await? {
+                let cats: Vec<String> = self
+                    .event_row_to_json(&row)
+                    .get("categories")
+                    .and_then(Value::as_array)
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_lowercase)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if cats.iter().any(|c| want.contains(c)) {
+                    kept.push(id);
+                }
+            }
+        }
+        Ok(kept)
+    }
 
     /// The stored projection for an event row, patched with its row identity.
     pub(crate) fn event_row_to_json(&self, row: &EventRow) -> Value {

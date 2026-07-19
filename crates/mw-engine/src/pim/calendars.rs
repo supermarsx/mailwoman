@@ -192,21 +192,160 @@ impl Engine {
         Ok(())
     }
 
+    /// P1: replace a calendar's ACL `shareWith` grants. Each grant is
+    /// `{principal, access}` with `access ∈ {"read","readWrite"}` (an unknown or
+    /// absent access is normalized to `"read"` — never silently escalated). A
+    /// blank principal is dropped; duplicate principals collapse to the last grant.
     async fn apply_shares(&self, calendar_id: &str, spec: &Value) -> Result<()> {
         if let Some(shares) = spec.get("shareWith").and_then(Value::as_array) {
-            let pairs: Vec<(String, String)> = shares
-                .iter()
-                .filter_map(|s| {
-                    let principal = s.get("principal").and_then(Value::as_str)?;
-                    let access = s.get("access").and_then(Value::as_str).unwrap_or("read");
-                    Some((principal.to_string(), access.to_string()))
-                })
-                .collect();
+            let mut pairs: Vec<(String, String)> = Vec::new();
+            for s in shares {
+                let Some(principal) = s
+                    .get("principal")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|p| !p.is_empty())
+                else {
+                    continue;
+                };
+                let access = match s.get("access").and_then(Value::as_str) {
+                    Some("readWrite") => "readWrite",
+                    _ => "read",
+                };
+                // Last grant for a principal wins (dedupe).
+                pairs.retain(|(p, _)| p != principal);
+                pairs.push((principal.to_string(), access.to_string()));
+            }
             self.store()
                 .replace_calendar_shares(calendar_id, &pairs)
                 .await?;
         }
         Ok(())
+    }
+
+    // ── Calendar/subscribe + Calendar/refreshSubscription (P6 — webcal) ───────
+
+    /// Subscribe to a remote iCalendar feed (P6). `{url, name?, blob?}`: registers a
+    /// read-only overlay calendar for `url` (a `webcal://` URL is normalized to
+    /// `https://`) and, when a `blob` (the fetched `.ics` body) is supplied,
+    /// imports it immediately. The network fetch itself is performed by the caller /
+    /// a sync driver (the engine holds no general HTTP client); a subsequent
+    /// `Calendar/refreshSubscription {calendarId, blob}` re-imports fresh contents.
+    pub(crate) async fn calendar_subscribe(&self, account_id: &str, args: &Value) -> Value {
+        let Some(url) = args.get("url").and_then(Value::as_str).map(str::trim) else {
+            return server_fail("Calendar/subscribe requires a url");
+        };
+        if url.is_empty() {
+            return server_fail("Calendar/subscribe requires a non-empty url");
+        }
+        let normalized = normalize_webcal(url);
+        let name = args
+            .get("name")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("Subscription")
+            .to_string();
+        let id = gen_id("cal");
+        let row = CalendarRow {
+            id: id.clone(),
+            account_id: account_id.to_string(),
+            name,
+            color: args
+                .get("color")
+                .and_then(Value::as_str)
+                .unwrap_or("#3366ff")
+                .to_string(),
+            sort_order: 0,
+            is_visible: true,
+            role: None,
+            caldav_url: Some(normalized.clone()),
+            sync_token: None,
+            ctag: None,
+            is_overlay: true,
+            component: "VEVENT".to_string(),
+        };
+        if let Err(e) = self.store().upsert_calendar(&row).await {
+            return server_fail(e);
+        }
+        if let Err(e) = self
+            .record_pim_change(account_id, ChangeType::Calendar, &id, ChangeOp::Created)
+            .await
+        {
+            return server_fail(e);
+        }
+
+        // Optional immediate import of the fetched feed body.
+        let mut imported = 0usize;
+        if let Some(blob) = args.get("blob").and_then(Value::as_str) {
+            match self.parse_calendar_document(blob) {
+                Ok(events) => {
+                    imported = self
+                        .persist_parsed_events(account_id, &id, events, None)
+                        .await
+                        .len();
+                }
+                Err(e) => return server_fail(e),
+            }
+        }
+        self.broadcast_state(account_id).await;
+        json!({
+            "accountId": account_id,
+            "created": { "id": id },
+            "url": normalized,
+            "imported": imported,
+        })
+    }
+
+    /// Re-import a subscription overlay from a freshly-fetched feed body (P6).
+    /// `{calendarId, blob}`: replaces the overlay's events with the parsed contents.
+    pub(crate) async fn calendar_refresh_subscription(
+        &self,
+        account_id: &str,
+        args: &Value,
+    ) -> Value {
+        let Some(calendar_id) = args.get("calendarId").and_then(Value::as_str) else {
+            return server_fail("Calendar/refreshSubscription requires calendarId");
+        };
+        let blob = args.get("blob").and_then(Value::as_str).unwrap_or_default();
+        if blob.is_empty() {
+            return server_fail("Calendar/refreshSubscription requires the fetched blob");
+        }
+        // Confirm the target is an overlay owned by this account.
+        match self.store().get_calendar(calendar_id).await {
+            Ok(Some(cal)) if cal.account_id == account_id && cal.is_overlay => {}
+            Ok(Some(_)) => return server_fail("target calendar is not a subscription overlay"),
+            Ok(None) => return server_fail(format!("unknown calendar {calendar_id}")),
+            Err(e) => return server_fail(e),
+        }
+        // Clear existing overlay events, then re-import.
+        match self.store().list_events(calendar_id).await {
+            Ok(existing) => {
+                for ev in existing {
+                    if let Err(e) = self.store().delete_event(&ev.id).await {
+                        return server_fail(e);
+                    }
+                    let _ = self
+                        .record_pim_change(
+                            account_id,
+                            ChangeType::CalendarEvent,
+                            &ev.id,
+                            ChangeOp::Destroyed,
+                        )
+                        .await;
+                }
+            }
+            Err(e) => return server_fail(e),
+        }
+        let events = match self.parse_calendar_document(blob) {
+            Ok(v) => v,
+            Err(e) => return server_fail(e),
+        };
+        let imported = self
+            .persist_parsed_events(account_id, calendar_id, events, None)
+            .await
+            .len();
+        self.broadcast_state(account_id).await;
+        json!({ "accountId": account_id, "calendarId": calendar_id, "imported": imported })
     }
 
     // ── Calendar/freeBusy (§2.2) ─────────────────────────────────────────────
@@ -243,7 +382,7 @@ impl Engine {
                     .collect();
                 json!({ "accountId": account_id, "list": list })
             }
-            Err(e) => server_fail(super::events::ics_err(e)),
+            Err(e) => server_fail(e),
         }
     }
 
@@ -390,5 +529,40 @@ impl Engine {
             "isReadOnlyOverlay": row.is_overlay,
             "component": row.component,
         })
+    }
+}
+
+/// Normalize a subscription URL for storage: `webcal://` and `webcals://` are the
+/// calendar-subscription schemes for plain HTTP feeds — rewrite them to `https://`
+/// (`webcals`) / `http://` is left as-is only when explicitly given, else `webcal`
+/// maps to `https`. Any other scheme is returned unchanged.
+fn normalize_webcal(url: &str) -> String {
+    if let Some(rest) = url.strip_prefix("webcals://") {
+        format!("https://{rest}")
+    } else if let Some(rest) = url.strip_prefix("webcal://") {
+        format!("https://{rest}")
+    } else {
+        url.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_webcal;
+
+    #[test]
+    fn webcal_normalizes_to_https() {
+        assert_eq!(
+            normalize_webcal("webcal://example.com/cal.ics"),
+            "https://example.com/cal.ics"
+        );
+        assert_eq!(
+            normalize_webcal("webcals://example.com/cal.ics"),
+            "https://example.com/cal.ics"
+        );
+        assert_eq!(
+            normalize_webcal("https://example.com/cal.ics"),
+            "https://example.com/cal.ics"
+        );
     }
 }

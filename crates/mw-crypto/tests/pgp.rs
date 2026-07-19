@@ -115,6 +115,54 @@ fn autocrypt_header_and_backup() {
     assert!(asm.contains("BEGIN PGP PRIVATE KEY"));
 }
 
+/// C3: the full Autocrypt Setup Message wire format round-trips under the setup
+/// code, carries the `Passphrase-Format`/`Passphrase-Begin` armor headers, and a
+/// wrong code fails to decrypt.
+#[test]
+fn autocrypt_setup_message_full_roundtrip() {
+    let k = pgp::generate_key("G <g@example.com>", "userpass").expect("keygen");
+    let code = pgp::generate_setup_code();
+    // numeric9x4: 9 groups of 4 digits.
+    assert_eq!(code.len(), 9 * 4 + 8);
+    assert_eq!(code.split('-').count(), 9);
+    assert!(
+        code.split('-')
+            .all(|g| g.len() == 4 && g.chars().all(|c| c.is_ascii_digit()))
+    );
+
+    let payload =
+        pgp::autocrypt_setup_message_full(&k.encrypted_private_bundle, &code).expect("asm full");
+    assert!(payload.contains("-----BEGIN PGP MESSAGE-----"));
+    assert!(payload.contains("Passphrase-Format: numeric9x4"));
+    assert!(payload.contains("Passphrase-Begin: "));
+
+    // Recover the inner (still passphrase-locked) bundle with the setup code.
+    let recovered = pgp::decrypt_autocrypt_setup_message(&payload, &code).expect("asm decrypt");
+    assert!(recovered.contains("BEGIN PGP PRIVATE KEY"));
+    // The recovered bundle still unlocks the key with the user passphrase.
+    let sig = pgp::sign_detached(b"post-transfer", &recovered, "userpass").expect("sign recovered");
+    assert_eq!(
+        pgp::verify_detached(b"post-transfer", &sig, &k.public_key_armored)
+            .unwrap()
+            .status,
+        "verified"
+    );
+
+    // Wrong setup code cannot decrypt.
+    assert!(
+        pgp::decrypt_autocrypt_setup_message(
+            &payload,
+            "0000-0000-0000-0000-0000-0000-0000-0000-0000"
+        )
+        .is_err()
+    );
+
+    // The MIME framing carries the Autocrypt-Setup-Message marker + attachment.
+    let mime = pgp::autocrypt_setup_message_mime("g@example.com", &payload);
+    assert!(mime.contains("Autocrypt-Setup-Message: v1"));
+    assert!(mime.contains(pgp::AUTOCRYPT_SETUP_CONTENT_TYPE));
+}
+
 #[test]
 fn tofu_eval_transitions() {
     assert_eq!(pgp::tofu_eval(None, "AABB"), ("tofu".into(), false));

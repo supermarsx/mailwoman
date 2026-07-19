@@ -375,6 +375,139 @@ pub fn autocrypt_setup_message(encrypted_private_bundle: &str) -> Result<String>
         .map_err(parse)
 }
 
+// ── Autocrypt Setup Message — full wire format (Autocrypt Level 1 §4.2) ───────
+//
+// The full ASM is a symmetrically-encrypted OpenPGP MESSAGE guarded by a numeric
+// **Setup Code** (9 groups of 4 digits), armored with the `Passphrase-Format:
+// numeric9x4` / `Passphrase-Begin: <first two digits>` headers, and delivered as an
+// `application/autocrypt-setup` attachment in an `Autocrypt-Setup-Message: v1`
+// email. Unlike the simple backup above (still-S2K-locked armor), this container is
+// what another Autocrypt client consumes: it hands the user the setup code out of
+// band and decrypts the attachment with it. The inner payload we wrap is the
+// passphrase-locked secret bundle, so recovery restores the same at-rest-locked key
+// (defense in depth — the importing device unlocks with the user passphrase).
+
+/// The armor header naming the setup-code format (Autocrypt §4.2).
+const ASM_PASSPHRASE_FORMAT: &str = "Passphrase-Format: numeric9x4";
+/// The `application/autocrypt-setup` MIME type of the ASM attachment.
+pub const AUTOCRYPT_SETUP_CONTENT_TYPE: &str = "application/autocrypt-setup";
+
+/// Generate an Autocrypt Setup Code: 9 groups of 4 decimal digits (`numeric9x4`,
+/// Autocrypt §4.3), e.g. `"1234-5678-9012-3456-7890-1234-5678-9012-3456"`. Sourced
+/// from the same portable CSPRNG the key/nonce paths use.
+pub fn generate_setup_code() -> String {
+    use rand::Rng;
+    let mut rng = rng::pgp_rng();
+    let groups: Vec<String> = (0..9)
+        .map(|_| format!("{:04}", rng.gen_range(0..10_000u32)))
+        .collect();
+    groups.join("-")
+}
+
+/// Produce the `application/autocrypt-setup` payload: the secret `bundle`,
+/// symmetrically encrypted under `setup_code` (SEIPDv2 / AES-256 / OCB), armored
+/// with the `Passphrase-Format` / `Passphrase-Begin` headers so an Autocrypt client
+/// prompts for the code. `setup_code` should be a [`generate_setup_code`] value; its
+/// first two digits are advertised in `Passphrase-Begin` as an entry hint.
+pub fn autocrypt_setup_message_full(
+    encrypted_private_bundle: &str,
+    setup_code: &str,
+) -> Result<String> {
+    // Validate the bundle parses (fail fast on a non-key input).
+    let _ = parse_secret(encrypted_private_bundle)?;
+
+    let mut builder = MessageBuilder::from_bytes("", encrypted_private_bundle.as_bytes().to_vec())
+        .seipd_v2(
+            rng::pgp_rng(),
+            SymmetricKeyAlgorithm::AES256,
+            AeadAlgorithm::Ocb,
+            Default::default(),
+        );
+    let s2k = pgp::types::StringToKey::new_default(rng::pgp_rng());
+    builder
+        .encrypt_with_password(rng::pgp_rng(), s2k, &pw(setup_code))
+        .map_err(|e| CryptoError::Encrypt(e.to_string()))?;
+    let armored = builder
+        .to_armored_string(rng::pgp_rng(), ArmorOptions::default())
+        .map_err(|e| CryptoError::Encrypt(e.to_string()))?;
+
+    // Inject the Autocrypt armor headers right after the BEGIN line (RFC 9580 armor
+    // permits arbitrary headers; a decoder that does not recognize them ignores them).
+    let begin = "-----BEGIN PGP MESSAGE-----";
+    let hint = setup_code
+        .chars()
+        .filter(|c| c.is_ascii_digit())
+        .take(2)
+        .collect::<String>();
+    let headers = format!("{ASM_PASSPHRASE_FORMAT}\nPassphrase-Begin: {hint}");
+    let out = match armored.split_once('\n') {
+        Some((first, rest)) if first.trim_end() == begin => format!("{first}\n{headers}\n{rest}"),
+        _ => format!("{begin}\n{headers}\n{armored}"),
+    };
+    Ok(out)
+}
+
+/// Recover the inner secret bundle from an [`autocrypt_setup_message_full`] payload
+/// using its `setup_code`. The returned armor is the passphrase-locked secret key
+/// (unlock with the user passphrase to use it).
+pub fn decrypt_autocrypt_setup_message(payload: &str, setup_code: &str) -> Result<String> {
+    let (message, _) = Message::from_string(payload).map_err(parse)?;
+    let mut decrypted = message
+        .decrypt_with_password(&pw(setup_code))
+        .map_err(|e| CryptoError::Decrypt(e.to_string()))?;
+    if decrypted.is_compressed() {
+        decrypted = decrypted
+            .decompress()
+            .map_err(|e| CryptoError::Decrypt(e.to_string()))?;
+    }
+    let data = decrypted
+        .as_data_vec()
+        .map_err(|e| CryptoError::Decrypt(e.to_string()))?;
+    String::from_utf8(data).map_err(|e| CryptoError::Parse(format!("ASM payload not UTF-8: {e}")))
+}
+
+/// Frame an ASM `payload` (from [`autocrypt_setup_message_full`]) as a complete
+/// `Autocrypt-Setup-Message: v1` email (RFC5322 + `multipart/mixed`): a human-
+/// readable part plus the `application/autocrypt-setup` attachment. `from` seeds the
+/// `From:`/`To:` (the message is sent to oneself, Autocrypt §4.2).
+pub fn autocrypt_setup_message_mime(from: &str, payload: &str) -> String {
+    let boundary = format!("mw-asm-{:x}", Sha1Hint::of(payload));
+    format!(
+        "From: {from}\r\n\
+         To: {from}\r\n\
+         Subject: Autocrypt Setup Message\r\n\
+         Autocrypt-Setup-Message: v1\r\n\
+         MIME-Version: 1.0\r\n\
+         Content-Type: multipart/mixed; boundary=\"{boundary}\"\r\n\
+         \r\n\
+         --{boundary}\r\n\
+         Content-Type: text/plain\r\n\
+         \r\n\
+         This is the Autocrypt Setup Message used to transfer your key between \
+         clients. To decrypt it you need the Setup Code shown on the sending device.\r\n\
+         --{boundary}\r\n\
+         Content-Type: {AUTOCRYPT_SETUP_CONTENT_TYPE}\r\n\
+         Content-Disposition: attachment; filename=\"autocrypt-setup-message.txt\"\r\n\
+         \r\n\
+         {payload}\r\n\
+         --{boundary}--\r\n"
+    )
+}
+
+/// A tiny non-cryptographic tag used only to derive a unique MIME boundary from the
+/// payload (never a security primitive).
+struct Sha1Hint;
+impl Sha1Hint {
+    fn of(s: &str) -> u64 {
+        let mut h: u64 = 0xcbf29ce484222325;
+        for b in s.bytes() {
+            h ^= u64::from(b);
+            h = h.wrapping_mul(0x1000_0000_0000_01b3);
+        }
+        h
+    }
+}
+
 /// Evaluate a TOFU trust transition given the currently-recorded fingerprint (if
 /// any) and a freshly-seen one. Returns the new trust token + whether the key
 /// changed (a key-change alert, §2.1 `signature.keyChanged`).

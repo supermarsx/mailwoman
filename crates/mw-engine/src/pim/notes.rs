@@ -232,6 +232,70 @@ impl Engine {
             .collect();
         query_response(account_id, &state, ids)
     }
+
+    // ── Note/export (P7 — VJOURNAL) ──────────────────────────────────────────
+
+    /// Export notes as an iCalendar `VCALENDAR` of `VJOURNAL` components (RFC 5545
+    /// §3.6.3), P7. `{ids?}` selects notes (default: the whole account). Each note
+    /// maps to a VJOURNAL: `SUMMARY`=title, `DESCRIPTION`=plaintext body,
+    /// `CATEGORIES`=tags. Returns `{blob}`.
+    pub(crate) async fn note_export(&self, account_id: &str, args: &Value) -> Value {
+        let ids = wanted_ids(args);
+        let notes = match self.store().list_notes(account_id).await {
+            Ok(v) => v,
+            Err(e) => return server_fail(e),
+        };
+        let dtstamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+        let mut body =
+            String::from("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mailwoman//EN\r\n");
+        for note in &notes {
+            if note.account_id != account_id {
+                continue;
+            }
+            if let Some(want) = &ids
+                && !want.contains(&note.id)
+            {
+                continue;
+            }
+            body.push_str(&vjournal_component(note, &dtstamp));
+        }
+        body.push_str("END:VCALENDAR\r\n");
+        json!({ "accountId": account_id, "blob": body })
+    }
+}
+
+/// Build one `VJOURNAL` component for a note (RFC 5545 §3.6.3 / P7).
+fn vjournal_component(note: &NoteRow, dtstamp: &str) -> String {
+    let mut out = String::from("BEGIN:VJOURNAL\r\n");
+    out.push_str(&format!("UID:{}@mailwoman.local\r\n", note.id));
+    out.push_str(&format!("DTSTAMP:{dtstamp}\r\n"));
+    if !note.title.is_empty() {
+        out.push_str(&format!("SUMMARY:{}\r\n", ics_escape(&note.title)));
+    }
+    if !note.body_text.is_empty() {
+        out.push_str(&format!("DESCRIPTION:{}\r\n", ics_escape(&note.body_text)));
+    }
+    let tags: Vec<String> =
+        serde_json::from_str::<Vec<String>>(&note.tags_json).unwrap_or_default();
+    if !tags.is_empty() {
+        let joined = tags
+            .iter()
+            .map(|t| ics_escape(t))
+            .collect::<Vec<_>>()
+            .join(",");
+        out.push_str(&format!("CATEGORIES:{joined}\r\n"));
+    }
+    out.push_str("END:VJOURNAL\r\n");
+    out
+}
+
+/// RFC 5545 TEXT escaping (backslash, semicolon, comma, newline).
+fn ics_escape(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace(';', "\\;")
+        .replace(',', "\\,")
+        .replace('\n', "\\n")
+        .replace('\r', "")
 }
 
 // ── free helpers ─────────────────────────────────────────────────────────────

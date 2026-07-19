@@ -56,6 +56,29 @@ fn encrypt_then_decrypt() {
     assert_eq!(pt, b"round trip body");
 }
 
+/// C4: AES-256-GCM AuthEnvelopedData round-trips (RSA key transport + GCM content).
+#[test]
+fn authenveloped_gcm_encrypt_then_decrypt() {
+    let imp = import();
+    let cert = read_str("alice.crt.pem");
+    let ct = smime::encrypt_authenveloped(b"aead round trip", &[cert]).expect("gcm encrypt");
+    let pt = smime::decrypt_authenveloped(&ct, &imp.encrypted_private_bundle, "test")
+        .expect("gcm decrypt");
+    assert_eq!(pt, b"aead round trip");
+}
+
+/// C4: a tampered GCM ciphertext fails the AEAD tag check (does not silently decrypt).
+#[test]
+fn authenveloped_gcm_tamper_rejected() {
+    let imp = import();
+    let cert = read_str("alice.crt.pem");
+    let mut ct = smime::encrypt_authenveloped(b"integrity matters", &[cert]).expect("gcm encrypt");
+    // Flip a byte late in the DER (inside the encrypted content / tag region).
+    let n = ct.len();
+    ct[n - 20] ^= 0x01;
+    assert!(smime::decrypt_authenveloped(&ct, &imp.encrypted_private_bundle, "test").is_err());
+}
+
 /// Interop: verify a message signed by openssl `cms -sign`.
 #[test]
 fn openssl_signed_interop() {

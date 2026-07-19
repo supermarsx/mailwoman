@@ -29,6 +29,7 @@ pub mod contacts;
 pub mod dispatch;
 pub mod events;
 pub mod notes;
+pub mod quickadd;
 pub mod sync;
 pub mod tasks;
 pub mod types;

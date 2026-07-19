@@ -31,6 +31,7 @@ pub use error::{CryptoError, Result};
 
 mod rng;
 
+pub mod keyring;
 pub mod pgp;
 pub mod smime;
 
