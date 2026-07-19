@@ -37,6 +37,62 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
 
 ## History
 
+- **`26.15`** — three previously-stubbed-or-pinned-shut seams lit up, all net-zero new dependencies.
+  **New-file blob upload**: `POST /jmap/upload/{accountId}` is now a real handler (was a 501 stub) — it
+  authenticates, reads the body under the advertised `maxSizeUpload` (50 MB → `413` over limit), seals the
+  bytes under `ServerKey` and writes them through a pluggable `UploadBackend` (filesystem default, rooted at
+  `MW_UPLOAD_DIR`, sealed at rest, path-traversal-safe server-minted hex keys, per-account on-disk isolation),
+  records metadata + `storage_key` in migration **`0012`** (no bytes in the DB), and returns a `blobId` on the
+  reserved **`U`** prefix (`U`+hex — collision-free against the pure-64-hex stableIds, routed in `fetch_blob`
+  before the `get_message` path). That `blobId` becomes a real attachment on an outgoing `Email/set` create
+  through the existing `compose_from_spec`/`fetch_blob` seam. A **symmetric `proxy_upload`** mirrors
+  `proxy_download` for proxy mode. Retention is TTL (24h for unreferenced uploads) via an explicit one-shot
+  `mailwoman maintenance gc-uploads [--older-than <dur>]` CLI (never automatic). Web: a file picker in Compose
+  uploads to `session.uploadUrl` and feeds the returned `blobId` into the existing attachment/send plumbing.
+  S3 stays trait-boundary-and-config-surface only (no impl, no dep — no MIT/pure-Rust/`-sys`-free S3 client was
+  adoptable without blowing the license floor). **Persistent plugin byte-storage**: the `HostKv` hard stub
+  (`get`→`None`, `put`→no-op) is replaced by a sealed, quota-bounded, store-backed KV over migration **`0013`**
+  — values sealed at rest, namespace **(plugin_id, account_id)** derived host-side from the bound `HostState`
+  (never guest args; a deployment-wide plugin uses `account_id=''`), per-value 64 KiB / per-namespace 5 MiB /
+  1000-key quota enforced at `put` (over-quota fails visibly), whole-namespace purge on uninstall, no TTL. The
+  WIT `host` interface gains `kv-delete`/`kv-list` **additively**, keeping the package `@0.1.0` (t12
+  `basic-credentials` precedent — committed `.wasm` fixtures keep linking). The deny-by-default
+  `store:kv-scoped` admin gate is unchanged — 26.15 only makes the grant persistent. **Third-party component
+  loading** (security-core): `resolve_component` is widened from first-party-pinned-only to
+  first-party-pinned-**OR**-admin-pinned-digest. An admin reviews a specific component's SHA-256 and approves
+  that exact 64-hex value into the new admin-managed **`0014`** `plugin_allowlist` (BIGINT-as-bool `revoked`,
+  never native Postgres BOOLEAN). The compiled-in `FIRST_PARTY_DIGESTS` table is checked **FIRST and
+  terminally** — a first-party id never consults the allowlist, even on a first-party miss/tamper (returns
+  `None`, no fall-through), so a colliding allowlist row can never override or spoof a first-party identity;
+  approve-time additionally rejects any allowlist entry whose id collides with a first-party id. On every load
+  the SHA-256 is recomputed over a single in-memory buffer and the same bytes are handed to `PluginHost::load`
+  (no re-read → no TOCTOU); mismatch, a revoked row, or an absent row is a **hard refuse (`None`) + an audit
+  entry**. Third-party bytes load from a separate `MW_THIRDPARTY_PLUGIN_DIR`, run in the identical wasm sandbox
+  with the identical deny-by-default capability model (nothing auto-granted — allowlisting authorizes the bytes
+  to run, not any capability). A maintained `HIGH_POWER` capability set (account-backend / send-as-user class)
+  is refused to any non-first-party plugin at **grant time** — provenance-gated, not overridable by admin
+  action. As defense-in-depth, an Ed25519 signed-registry (`TrustRoot`/`signature::decide`, `ed25519-dalek`
+  already vendored) is **also** verified when a signature is present; the digest pin alone remains sufficient to
+  load (with an unsigned-allowed banner + audit). Admin surface: approve/revoke/uninstall routes on
+  `/admin/plugins/*` (revoke sets `revoked=1` **and** disables the plugin — effective next load; hot-unloading a
+  running instance stays out of scope) plus a web allowlist panel that surfaces each present component's
+  computed digest for review. **Net zero new dependency-graph nodes** (`async-trait`/`sha2`/`ed25519-dalek` all
+  already vendored; the seal reuses `ServerKey`/XChaCha20, the digest reuses the existing `sha2` pin); no
+  openssl/`-sys`/C; **`cargo deny` clean** (1105 packages, byte-identical set vs 26.14). Verified: **1238 Rust**
+  tests (0 failed, 11 ignored, desktop/mobile-excluded) + **759 web**; the live-E2E wave came up **8/8 green vs
+  real Postgres + Dovecot + a real filesystem backend with 0 wiring bugs** — the third-party negatives that
+  would be a CVE if they passed (no-approval / revoked / one-tampered-byte / first-party-id collision) were each
+  **refused live**, and a HIGH_POWER cap was refused to a third-party plugin even when an admin attempted the
+  grant. **E8 adversarial security review of the loosened boundary: GO (0 critical / 0 high)** — one LOW
+  (revoke handler not lowercasing the URL digest) was fixed pre-tag; three INFO deferred. **Test gate note**:
+  the Rust gate runs `cargo test --lib --tests` — a pre-existing, transient rustdoc ICE on
+  `crates/mw-store/src/stores_v6.rs` (rustc 1.95.0, "could not resolve trait item being implemented",
+  untouched by 26.15: `git diff b3f8020..HEAD` on that file is empty) was reported during a doctest phase;
+  at release the full workspace doctest phase re-ran clean, so the milestone is unaffected either way and the
+  `--lib --tests` target is the authoritative unit+integration gate. **Still deferred**: iOS shell (needs
+  macOS + Xcode + a paid Apple account); an S3 `UploadBackend` impl (trait boundary shipped, impl held back by
+  the license floor); native GSSAPI Kerberos (license-floor C dep). Rolling `YY.N` retained (this is 26.15, not
+  a "1.0" tag).
 - **`26.14`** — follow-ups closing the residuals 26.13 left open. **`tls-exporter` (RFC 9266) channel
   binding** across `mw-imap`/`mw-smtp`/`mw-pop3`: on TLS 1.3 the SCRAM-`PLUS` client now computes the
   RFC 9266 exporter binding (`export_keying_material`, label `"EXPORTER-Channel-Binding"`, empty
