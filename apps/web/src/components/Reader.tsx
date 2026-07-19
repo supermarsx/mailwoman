@@ -38,8 +38,10 @@ import {
   coveringGrant,
   createRemoteImageApi,
   hasBlockedContent,
+  rewriteGrantedImages,
   type GrantScope,
 } from '../api/remote-images.ts';
+import { extractHtmlBody } from '../state/slices/mail.ts';
 import { RemoteContentBar } from './RemoteContentBar.tsx';
 
 // The crypto/security JMAP surface (`SecurityVerdict/get`, `SenderControl/set`)
@@ -50,9 +52,9 @@ import { RemoteContentBar } from './RemoteContentBar.tsx';
 const jmapClient = createConfiguredClient();
 const maxsec = createMaxSecurityStore();
 // Remote-image grant surface (t16 §S8/S9): the reader drives grant/revoke/list
-// over the same session client. The wire shapes are localized in
+// over e6's same-origin REST endpoints. The wire shapes are localized in
 // `api/remote-images.ts` (the e6 seam); this reader only calls the interface.
-const remoteImages = createRemoteImageApi(jmapClient);
+const remoteImages = createRemoteImageApi();
 
 const SECURITY_USING = [CAP_CORE, CAP_CRYPTO, CAP_SECURITY];
 
@@ -484,56 +486,11 @@ export function Reader(): JSX.Element {
   const showDecrypt = (): boolean =>
     armor() !== null && decryptedHtml() === null && decryptedText() === null;
 
-  // The message-body `srcdoc`, honoring the max-security mode + the decrypt path.
-  // The DEFAULT (full-sanitized cleartext) path is the unchanged raw sanitized
-  // fragment, so the existing sandbox/e2e contract is byte-identical.
-  const bodySrcdoc = createMemo<string | null>(() => {
-    const email = app.openEmail();
-    if (email === null) return null;
-    const mode = maxsec.effectiveMode(sender());
-    // Decrypted E2EE body (§1.3): HTML was sanitized IN-WORKER (never round-trips to
-    // the server sanitizer) and renders as sanitized HTML in the sandbox, honoring
-    // the max-security mode; non-HTML plaintext renders escaped. Same no-scripts /
-    // no-same-origin iframe as cleartext mail.
-    const decHtml = decryptedHtml();
-    if (decHtml !== null) {
-      if (mode === 'plain-text') return bodyFrameDoc('plain-text', { text: decHtml });
-      if (mode === 'sanitized-no-media') return bodyFrameDoc('sanitized-no-media', { html: decHtml });
-      return bodyFrameDoc('full-sanitized', { html: decHtml });
-    }
-    const decText = decryptedText();
-    if (decText !== null) return bodyFrameDoc('plain-text', { text: decText });
-    if (mode === 'plain-text') return bodyFrameDoc('plain-text', { text: plainTextOf(email) });
-    const html = app.sanitizedHtml();
-    if (html === null) return null;
-    // no-media: reuse the server-sanitized HTML but pin a media-free CSP so no
-    // image/media loads (belt-and-braces). full: unchanged raw fragment.
-    if (mode === 'sanitized-no-media') return bodyFrameDoc('sanitized-no-media', { html });
-    return html;
-  });
-
-  async function onSenderControl(req: SenderControlRequest): Promise<SenderControlResult> {
-    const acct = app.accountId();
-    const id = emailId();
-    if (acct === null || id === null) return defaultSenderControl(req);
-    try {
-      return await dispatchSenderControl(acct, id, req);
-    } catch {
-      return { updated: false };
-    }
-  }
-
-  // ── Remote-content (image-grant) bar (t16 §S8/S9) ──────────────────────────
-  // What the sanitizer blocked in the CURRENT body (derived from the sanitized
-  // string, no round-trip). Only meaningful in the full-sanitized mode — in the
-  // no-media / plain-text modes images are stripped regardless of any grant, so
-  // the bar is hidden there rather than offering an action that can't take effect.
-  const blockedReport = createMemo(() => analyzeBlockedContent(app.sanitizedHtml()));
-  const fullMode = (): boolean => maxsec.effectiveMode(sender()) === 'full-sanitized';
-
   // Active grants for the account, so the bar can show "turn off" (revoke) once a
-  // grant covers the open message. Resilient: a missing/failing endpoint (e.g. e6
-  // not yet deployed) yields no grants, so the blocked state still renders.
+  // grant covers the open message, and the body render can route that message's
+  // remote images through the proxy. Resilient: a missing/failing endpoint yields
+  // no grants, so the blocked state still renders. Defined before `bodySrcdoc`
+  // because it reads `activeGrant()` (Solid memos evaluate eagerly on creation).
   const [grants, { refetch: refetchGrants }] = createResource(
     (): { acct: string; id: string } | null => {
       const id = emailId();
@@ -554,6 +511,57 @@ export function Reader(): JSX.Element {
     if (id === null) return null;
     return coveringGrant(grants() ?? [], { emailId: id, sender: sender() });
   });
+
+  // The message-body `srcdoc`, honoring the max-security mode + the decrypt path.
+  // The DEFAULT (full-sanitized cleartext) path is the unchanged raw sanitized
+  // fragment, so the existing sandbox/e2e contract is byte-identical — UNLESS a
+  // grant covers the open message, in which case its remote images are repointed
+  // at the anonymizing proxy (still deny-by-default: no grant → no rewrite).
+  const bodySrcdoc = createMemo<string | null>(() => {
+    const email = app.openEmail();
+    if (email === null) return null;
+    const mode = maxsec.effectiveMode(sender());
+    // Decrypted E2EE body (§1.3): HTML was sanitized IN-WORKER (never round-trips to
+    // the server sanitizer) and renders as sanitized HTML in the sandbox, honoring
+    // the max-security mode; non-HTML plaintext renders escaped. Same no-scripts /
+    // no-same-origin iframe as cleartext mail.
+    const decHtml = decryptedHtml();
+    if (decHtml !== null) {
+      if (mode === 'plain-text') return bodyFrameDoc('plain-text', { text: decHtml });
+      if (mode === 'sanitized-no-media') return bodyFrameDoc('sanitized-no-media', { html: decHtml });
+      return bodyFrameDoc('full-sanitized', { html: decHtml });
+    }
+    const decText = decryptedText();
+    if (decText !== null) return bodyFrameDoc('plain-text', { text: decText });
+    if (mode === 'plain-text') return bodyFrameDoc('plain-text', { text: plainTextOf(email) });
+    const html = app.sanitizedHtml();
+    if (html === null) return null;
+    // no-media: reuse the server-sanitized HTML but pin a media-free CSP so no
+    // image/media loads (belt-and-braces). full: the sanitized fragment, with the
+    // open message's remote images repointed at the proxy when a grant covers it
+    // (no covering grant → the fragment is returned unchanged).
+    if (mode === 'sanitized-no-media') return bodyFrameDoc('sanitized-no-media', { html });
+    return rewriteGrantedImages(html, extractHtmlBody(email), activeGrant() !== null) ?? html;
+  });
+
+  async function onSenderControl(req: SenderControlRequest): Promise<SenderControlResult> {
+    const acct = app.accountId();
+    const id = emailId();
+    if (acct === null || id === null) return defaultSenderControl(req);
+    try {
+      return await dispatchSenderControl(acct, id, req);
+    } catch {
+      return { updated: false };
+    }
+  }
+
+  // ── Remote-content (image-grant) bar (t16 §S8/S9) ──────────────────────────
+  // What the sanitizer blocked in the CURRENT body (derived from the sanitized
+  // string, no round-trip). Only meaningful in the full-sanitized mode — in the
+  // no-media / plain-text modes images are stripped regardless of any grant, so
+  // the bar is hidden there rather than offering an action that can't take effect.
+  const blockedReport = createMemo(() => analyzeBlockedContent(app.sanitizedHtml()));
+  const fullMode = (): boolean => maxsec.effectiveMode(sender()) === 'full-sanitized';
 
   const showRemoteBar = (): boolean =>
     fullMode() && (hasBlockedContent(blockedReport()) || activeGrant() !== null);

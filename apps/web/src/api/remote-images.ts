@@ -1,10 +1,18 @@
 // Thin client wrapper for the anonymizing image proxy's remote-image display
 // grants (t16 §S8/S9, e14b UI ↔ e6 server). This is the ONE file that binds the
 // UI to e6's wire shapes: the reader's grant bar (`RemoteContentBar.tsx`) and its
-// tests import ONLY the interface + types below, never a raw JMAP call, so when e6
-// (image proxy, `crates/mw-server/src/image_proxy.rs` + `mw-store/src/image_grants
-// .rs`) finalizes the exact method names/args, this module is the single place
-// that changes.
+// tests import ONLY the interface + types below, never a raw request, so this
+// module is the single place that tracks e6's server contract.
+//
+// e6 (`crates/mw-server/src/image_proxy.rs`) ships the grant surface as REST over
+// the 0016 4-scope model, session-authed (the account is the session; a
+// client-supplied account id is never trusted):
+//   • `GET  /api/remote-images/grants`  → `{ accountId, list: RemoteImageGrant[] }`
+//   • `POST /api/remote-images/grant`   ← `{ scopeKind, scopeValue }`
+//   • `POST /api/remote-images/revoke`  ← `{ scopeKind, scopeValue }`
+// and the anonymizing fetch as `GET /api/image-proxy?url=<original>` — the reader
+// rewrites a GRANTED remote image's `src` to that same-origin URL ({@link
+// rewriteGrantedImages}) so the browser only ever contacts Mailwoman itself.
 //
 // The grant model is the 0016 `remote_image_grants` table's 4-scope shape
 // (`crates/mw-store/src/image_grants.rs`): a remote image loads only when a
@@ -21,12 +29,6 @@
 // (1×1 beacon / known-tracker host) additionally carries `data-mw-tracker`. When
 // those markers are absent (a body with nothing blocked, or a pre-e6 sanitizer)
 // the report is empty and the bar stays hidden — honest by construction.
-
-import { responseFor } from './jmap.ts';
-import { CAP_CORE } from './jmap-types.ts';
-import { CAP_SECURITY } from './crypto-types.ts';
-import type { Client } from './client.ts';
-import type { Invocation } from './jmap-types.ts';
 
 /** The 4 grant scopes (0016 `scope_kind`). */
 export type GrantScopeKind = 'single' | 'all' | 'per-sender' | 'per-domain';
@@ -69,44 +71,118 @@ export interface RemoteImageApi {
   listGrants(accountId: string): Promise<RemoteImageGrant[]>;
 }
 
-// The JMAP capability set the grant methods ride. Kept local (not exported) so the
-// exact `using` is part of the e6-localized seam, not a cross-module constant.
-const REMOTE_IMAGE_USING = [CAP_CORE, CAP_SECURITY];
+/** An injectable request function so the reader unit-tests with a fake — the
+ *  default is a same-origin cookie-authed `fetch`, matching the sibling settings
+ *  service (`screens/Settings/service.ts`). */
+export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
-interface GrantGetResponse {
+const defaultFetcher: Fetcher = (input, init) => fetch(input, { credentials: 'same-origin', ...init });
+
+/** The account-wide grants list the server returns. */
+interface GrantsResponse {
   accountId: string;
   list: RemoteImageGrant[];
 }
 
 /**
- * Build the production {@link RemoteImageApi} over a JMAP {@link Client} (the same
- * session the reader already uses). The three methods map onto the engine's
- * `RemoteImage/{set,get}` extension — grant and revoke are one `RemoteImage/set`
- * each (distinguished by the `grant` / `revoke` arg), and `listGrants` is
- * `RemoteImage/get`. This mapping is the whole e6 seam.
+ * Build the production {@link RemoteImageApi} over e6's REST grant endpoints (the
+ * same session the reader already uses; the server derives the account from the
+ * session, so the `accountId` argument is accepted for interface compatibility but
+ * not sent). This mapping is the whole e6 seam.
  */
-export function createRemoteImageApi(client: Pick<Client, 'jmap'>): RemoteImageApi {
-  async function set(accountId: string, key: 'grant' | 'revoke', scope: GrantScope): Promise<void> {
-    const call: Invocation = [
-      'RemoteImage/set',
-      { accountId, [key]: { scopeKind: scope.kind, scopeValue: scope.value } },
-      's',
-    ];
-    const res = await client.jmap({ using: REMOTE_IMAGE_USING, methodCalls: [call] });
-    // Surface a method-level error (responseFor throws on an `error` tuple).
-    responseFor<unknown>(res, 's');
+export function createRemoteImageApi(fetcher: Fetcher = defaultFetcher): RemoteImageApi {
+  async function mutate(action: 'grant' | 'revoke', scope: GrantScope): Promise<void> {
+    const res = await fetcher(`/api/remote-images/${action}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scopeKind: scope.kind, scopeValue: scope.value }),
+    });
+    if (!res.ok) throw new Error(`remote-image ${action} failed with ${res.status}`);
   }
   return {
-    grant: (accountId, scope) => set(accountId, 'grant', scope),
-    revoke: (accountId, scope) => set(accountId, 'revoke', scope),
-    async listGrants(accountId) {
-      const res = await client.jmap({
-        using: REMOTE_IMAGE_USING,
-        methodCalls: [['RemoteImage/get', { accountId }, 'g']],
-      });
-      return responseFor<GrantGetResponse>(res, 'g').list ?? [];
+    grant: (_accountId, scope) => mutate('grant', scope),
+    revoke: (_accountId, scope) => mutate('revoke', scope),
+    async listGrants(_accountId) {
+      const res = await fetcher('/api/remote-images/grants');
+      if (!res.ok) throw new Error(`remote-image grants failed with ${res.status}`);
+      const body = (await res.json()) as GrantsResponse;
+      return body.list ?? [];
     },
   };
+}
+
+/**
+ * The same-origin URL that routes an original remote image URL through e6's
+ * anonymizing proxy (`GET /api/image-proxy?url=…`). Same-origin so the shell CSP's
+ * `img-src 'self'` admits it inside the sandboxed body frame while the original
+ * remote host stays disallowed; the proxy — not the browser — fetches the bytes.
+ */
+export function imageProxyUrl(originalUrl: string): string {
+  return `/api/image-proxy?url=${encodeURIComponent(originalUrl)}`;
+}
+
+/** An absolute `http`/`https` URL (trimmed), else `null` — the proxy only fetches
+ *  those, so a `cid:`/`data:`/relative/empty `src` is never rewritten. */
+function absoluteRemoteSrc(src: string | null): string | null {
+  if (src === null) return null;
+  const s = src.trim();
+  return /^https?:\/\//i.test(s) ? s : null;
+}
+
+/**
+ * Route a message body's GRANTED remote images through the anonymizing proxy.
+ *
+ * The sanitizer (`crates/mw-sanitize`) strips every remote `<img src>` by default
+ * and keeps NO loadable URL, so the originals are recovered from the message's RAW
+ * html: the sanitizer preserves every `<img>` element in document order (it removes
+ * only the remote `src`, never the element), so the k-th sanitized `<img>`
+ * corresponds to the k-th raw `<img>`. For a body the caller says is `granted` (a
+ * covering grant exists — see {@link coveringGrant}), each raw absolute-http(s)
+ * image whose sanitized twin had its `src` stripped is repointed at
+ * {@link imageProxyUrl}; everything else is left exactly as the sanitizer produced
+ * it.
+ *
+ * Safety (deny-by-default is never weakened):
+ *   • `granted === false` → the sanitized body is returned BYTE-for-byte (no parse,
+ *     no reserialize), so the default reader path is unchanged.
+ *   • if the raw and sanitized `<img>` lists can't be aligned 1:1, NO change is
+ *     made — a granted image simply stays blocked, never an ungranted one loaded.
+ *   • only images the sanitizer actually stripped are touched, and only to a
+ *     same-origin proxy URL; a surviving `cid:` image is left alone.
+ */
+export function rewriteGrantedImages(
+  sanitizedHtml: string | null,
+  rawHtml: string | null,
+  granted: boolean,
+): string | null {
+  if (sanitizedHtml === null) return null;
+  if (!granted || rawHtml === null || rawHtml === '') return sanitizedHtml;
+
+  let rawDoc: Document;
+  let cleanDoc: Document;
+  try {
+    rawDoc = new DOMParser().parseFromString(rawHtml, 'text/html');
+    cleanDoc = new DOMParser().parseFromString(sanitizedHtml, 'text/html');
+  } catch {
+    return sanitizedHtml;
+  }
+  const rawImgs = Array.from(rawDoc.querySelectorAll('img'));
+  const cleanImgs = Array.from(cleanDoc.querySelectorAll('img'));
+  // Can't align → make no change (fail closed: keep ungranted content blocked).
+  if (rawImgs.length !== cleanImgs.length) return sanitizedHtml;
+
+  let rewrote = false;
+  for (let i = 0; i < rawImgs.length; i += 1) {
+    const original = absoluteRemoteSrc(rawImgs[i]!.getAttribute('src'));
+    if (original === null) continue; // cid:/data:/relative/none — not proxied.
+    const img = cleanImgs[i]!;
+    // Only repoint an image the sanitizer stripped; a surviving src (e.g. cid:) is
+    // left untouched.
+    if (img.getAttribute('src') !== null) continue;
+    img.setAttribute('src', imageProxyUrl(original));
+    rewrote = true;
+  }
+  return rewrote ? cleanDoc.body.innerHTML : sanitizedHtml;
 }
 
 /** The sender domain of an address (`a@b.example` → `b.example`), lower-cased;

@@ -4,23 +4,31 @@ import {
   coveringGrant,
   createRemoteImageApi,
   hasBlockedContent,
+  imageProxyUrl,
+  rewriteGrantedImages,
   scopeFor,
   senderDomain,
+  type Fetcher,
   type RemoteImageGrant,
 } from './remote-images.ts';
-import type { Invocation, JmapRequest, JmapResponse } from './jmap-types.ts';
 
-// A `Pick<Client,'jmap'>` fake that records the request and returns a canned
-// response — the grant methods are the whole e6 seam, so we assert their shape.
-function fakeClient(response: JmapResponse) {
-  const calls: JmapRequest[] = [];
-  return {
-    calls,
-    jmap: vi.fn(async (body: JmapRequest): Promise<JmapResponse> => {
-      calls.push(body);
-      return response;
-    }),
-  };
+interface FetchCall {
+  input: string;
+  init: RequestInit | undefined;
+}
+
+/** A `Fetcher` fake that records each call and returns a canned JSON response —
+ *  e6's REST grant endpoints are the whole seam, so we assert their shape. */
+function fakeFetcher(status: number, body: unknown): { fetcher: Fetcher; calls: FetchCall[] } {
+  const calls: FetchCall[] = [];
+  const fetcher: Fetcher = vi.fn(async (input: string, init?: RequestInit): Promise<Response> => {
+    calls.push({ input, init });
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    });
+  });
+  return { fetcher, calls };
 }
 
 describe('senderDomain', () => {
@@ -108,44 +116,100 @@ describe('coveringGrant', () => {
   });
 });
 
-describe('createRemoteImageApi', () => {
-  function okResponse(callId: string, args: Record<string, unknown> = {}): JmapResponse {
-    return { methodResponses: [[callId === 'g' ? 'RemoteImage/get' : 'RemoteImage/set', args, callId]], sessionState: 's' };
-  }
-
-  it('grant sends RemoteImage/set with a grant arg', async () => {
-    const c = fakeClient(okResponse('s'));
-    const api = createRemoteImageApi(c);
-    await api.grant('acct1', { kind: 'per-domain', value: 'spam.example' });
-    const [call] = c.calls[0]!.methodCalls as [Invocation];
-    expect(call[0]).toBe('RemoteImage/set');
-    expect(call[1]).toEqual({
-      accountId: 'acct1',
-      grant: { scopeKind: 'per-domain', scopeValue: 'spam.example' },
+describe('createRemoteImageApi (REST)', () => {
+  it('grant POSTs the scope to /api/remote-images/grant', async () => {
+    const { fetcher, calls } = fakeFetcher(200, { ok: true });
+    await createRemoteImageApi(fetcher).grant('acct1', { kind: 'per-domain', value: 'spam.example' });
+    expect(calls[0]!.input).toBe('/api/remote-images/grant');
+    expect(calls[0]!.init?.method).toBe('POST');
+    expect(JSON.parse(calls[0]!.init!.body as string)).toEqual({
+      scopeKind: 'per-domain',
+      scopeValue: 'spam.example',
     });
   });
 
-  it('revoke sends RemoteImage/set with a revoke arg', async () => {
-    const c = fakeClient(okResponse('s'));
-    const api = createRemoteImageApi(c);
-    await api.revoke('acct1', { kind: 'all', value: '' });
-    const [call] = c.calls[0]!.methodCalls as [Invocation];
-    expect(call[1]).toEqual({ accountId: 'acct1', revoke: { scopeKind: 'all', scopeValue: '' } });
+  it('revoke POSTs the scope to /api/remote-images/revoke', async () => {
+    const { fetcher, calls } = fakeFetcher(200, { ok: true });
+    await createRemoteImageApi(fetcher).revoke('acct1', { kind: 'all', value: '' });
+    expect(calls[0]!.input).toBe('/api/remote-images/revoke');
+    expect(JSON.parse(calls[0]!.init!.body as string)).toEqual({ scopeKind: 'all', scopeValue: '' });
   });
 
-  it('listGrants returns the RemoteImage/get list', async () => {
+  it('listGrants GETs /api/remote-images/grants and returns the list', async () => {
     const grants: RemoteImageGrant[] = [{ scopeKind: 'all', scopeValue: '', grantedAt: '2026-07-19T00:00:00Z' }];
-    const c = fakeClient(okResponse('g', { accountId: 'acct1', list: grants }));
-    const api = createRemoteImageApi(c);
+    const { fetcher, calls } = fakeFetcher(200, { accountId: 'acct1', list: grants });
+    const api = createRemoteImageApi(fetcher);
     expect(await api.listGrants('acct1')).toEqual(grants);
+    expect(calls[0]!.input).toBe('/api/remote-images/grants');
+    expect(calls[0]!.init?.method ?? 'GET').toBe('GET');
   });
 
-  it('propagates a JMAP method error', async () => {
-    const errRes: JmapResponse = {
-      methodResponses: [['error', { type: 'forbidden', description: 'no' }, 's']],
-      sessionState: 's',
-    };
-    const api = createRemoteImageApi(fakeClient(errRes));
-    await expect(api.grant('acct1', { kind: 'single', value: 'M1' })).rejects.toThrow(/forbidden/);
+  it('listGrants tolerates a missing list', async () => {
+    const { fetcher } = fakeFetcher(200, { accountId: 'acct1' });
+    expect(await createRemoteImageApi(fetcher).listGrants('acct1')).toEqual([]);
+  });
+
+  it('throws on a non-2xx grant response', async () => {
+    const { fetcher } = fakeFetcher(403, { error: 'no' });
+    await expect(
+      createRemoteImageApi(fetcher).grant('acct1', { kind: 'single', value: 'M1' }),
+    ).rejects.toThrow(/403/);
+  });
+});
+
+describe('imageProxyUrl', () => {
+  it('routes an original URL through the same-origin proxy, encoded', () => {
+    expect(imageProxyUrl('https://cdn.example/a b.png?x=1&y=2')).toBe(
+      '/api/image-proxy?url=https%3A%2F%2Fcdn.example%2Fa%20b.png%3Fx%3D1%26y%3D2',
+    );
+  });
+});
+
+describe('rewriteGrantedImages', () => {
+  const raw = '<p>hi</p><img src="https://cdn.example/logo.png"><img src="cid:inline">';
+  // What the sanitizer produces from `raw`: the remote src is stripped (element
+  // kept, in order), the cid: src survives, and a block marker is appended.
+  const sanitized =
+    '<div class="mw-email-body"><p>hi</p><img><img src="cid:inline">' +
+    '<span hidden data-mw-blocked-host="cdn.example"></span></div>';
+
+  it('returns the sanitized body BYTE-for-byte when not granted', () => {
+    expect(rewriteGrantedImages(sanitized, raw, false)).toBe(sanitized);
+  });
+
+  it('routes a granted message\'s remote image through the proxy', () => {
+    const out = rewriteGrantedImages(sanitized, raw, true)!;
+    expect(out).toContain('src="/api/image-proxy?url=https%3A%2F%2Fcdn.example%2Flogo.png"');
+    // The cid: image is untouched; no bare remote URL is ever reintroduced.
+    expect(out).toContain('src="cid:inline"');
+    expect(out).not.toContain('https://cdn.example/logo.png"');
+  });
+
+  it('leaves an ungranted remote image stripped (deny-by-default)', () => {
+    // With no covering grant the sanitized body is unchanged, so the stripped
+    // <img> stays srcless — nothing loads.
+    const out = rewriteGrantedImages(sanitized, raw, false)!;
+    expect(out).not.toContain('image-proxy');
+    expect(out).not.toContain('https://cdn.example');
+  });
+
+  it('fails closed (no rewrite) when the img lists cannot be aligned 1:1', () => {
+    // A sanitized body with FEWER imgs than the raw (e.g. one dropped inside a
+    // removed container) can't be aligned → returned unchanged, nothing loaded.
+    const mismatched = '<p>hi</p><img>';
+    expect(rewriteGrantedImages(mismatched, raw, true)).toBe(mismatched);
+  });
+
+  it('does not touch a cid-only or image-free body even when granted', () => {
+    const cidRaw = '<img src="cid:x">';
+    const cidClean = '<img src="cid:x">';
+    expect(rewriteGrantedImages(cidClean, cidRaw, true)).toBe(cidClean);
+    expect(rewriteGrantedImages('<p>plain</p>', '<p>plain</p>', true)).toBe('<p>plain</p>');
+  });
+
+  it('is null/empty-safe', () => {
+    expect(rewriteGrantedImages(null, raw, true)).toBeNull();
+    expect(rewriteGrantedImages(sanitized, null, true)).toBe(sanitized);
+    expect(rewriteGrantedImages(sanitized, '', true)).toBe(sanitized);
   });
 });
