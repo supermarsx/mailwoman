@@ -98,6 +98,34 @@ impl Store {
         .await?;
         Ok(rows.iter().map(grant_from_row).collect())
     }
+
+    /// Whether remote images should load for a message in ONE query, resolving all
+    /// four grant scopes at once: an account-wide `all` grant, a `single` grant for
+    /// this message, a `per-sender` grant for its sender address, or a `per-domain`
+    /// grant for its sender domain (all lower-cased by the caller). Deny-by-default —
+    /// `false` unless a matching, non-revoked grant exists. The image proxy and any
+    /// server-side gate use this rather than reassembling the 4-scope check.
+    pub async fn remote_image_allowed(
+        &self,
+        account_id: &str,
+        message_id: &str,
+        sender: &str,
+        domain: &str,
+    ) -> Result<bool, StoreError> {
+        let n = q("SELECT COUNT(*) FROM remote_image_grants
+                     WHERE account_id = ?1 AND revoked = 0 AND (
+                         scope_kind = 'all'
+                         OR (scope_kind = 'single' AND scope_value = ?2)
+                         OR (scope_kind = 'per-sender' AND scope_value = ?3)
+                         OR (scope_kind = 'per-domain' AND scope_value = ?4))")
+        .bind(account_id)
+        .bind(message_id)
+        .bind(sender)
+        .bind(domain)
+        .fetch_scalar_i64(&self.backend)
+        .await?;
+        Ok(n > 0)
+    }
 }
 
 fn grant_from_row(r: &crate::backend::Row) -> RemoteImageGrantRow {
@@ -139,5 +167,73 @@ mod tests {
         s.grant_remote_image("a1", "all", "").await.unwrap();
         assert!(s.is_remote_image_granted("a1", "all", "").await.unwrap());
         assert_eq!(s.list_active_image_grants("a1").await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn remote_image_allowed_resolves_every_scope() {
+        let s = store().await;
+        let ctx = ("a1", "m7", "sales@shop.example", "shop.example");
+
+        // Deny-by-default: no grant → not allowed.
+        assert!(
+            !s.remote_image_allowed(ctx.0, ctx.1, ctx.2, ctx.3)
+                .await
+                .unwrap()
+        );
+
+        // A per-domain grant covers the message.
+        s.grant_remote_image("a1", "per-domain", "shop.example")
+            .await
+            .unwrap();
+        assert!(
+            s.remote_image_allowed(ctx.0, ctx.1, ctx.2, ctx.3)
+                .await
+                .unwrap()
+        );
+        // ...but not a different sender domain.
+        assert!(
+            !s.remote_image_allowed("a1", "m9", "x@other.example", "other.example")
+                .await
+                .unwrap()
+        );
+        s.revoke_remote_image("a1", "per-domain", "shop.example")
+            .await
+            .unwrap();
+        assert!(
+            !s.remote_image_allowed(ctx.0, ctx.1, ctx.2, ctx.3)
+                .await
+                .unwrap()
+        );
+
+        // A single-message grant covers only that message.
+        s.grant_remote_image("a1", "single", "m7").await.unwrap();
+        assert!(
+            s.remote_image_allowed(ctx.0, ctx.1, ctx.2, ctx.3)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !s.remote_image_allowed("a1", "m8", ctx.2, ctx.3)
+                .await
+                .unwrap()
+        );
+
+        // A per-sender grant matches the exact address.
+        s.grant_remote_image("a1", "per-sender", "sales@shop.example")
+            .await
+            .unwrap();
+        assert!(
+            s.remote_image_allowed("a1", "m8", "sales@shop.example", "shop.example")
+                .await
+                .unwrap()
+        );
+
+        // An account-wide grant covers anything.
+        s.grant_remote_image("a1", "all", "").await.unwrap();
+        assert!(
+            s.remote_image_allowed("a1", "zzz", "anyone@anywhere.example", "anywhere.example")
+                .await
+                .unwrap()
+        );
     }
 }

@@ -27,6 +27,12 @@ mw-mfa = { path = "../mw-mfa" }
 # refusal, and the sandbox posture for `mailwoman doctor`.
 mw-sandbox = { workspace = true }
 mw-sanitize = { workspace = true }
+# t16 (26.16) S7 — the anonymizing image proxy re-encodes fetched bytes through the
+# wasm media jail (`mw_render::media_jail::reencode_image`, owned by t16-e5) before
+# serving them. Declared as a direct path dep (not `workspace = true`) so wiring it
+# does not touch the shared root Cargo.toml other 26.16 lanes are editing. No cycle:
+# mw-render → mw-sanitize/mw-export/wasmtime; nothing depends back on mw-server.
+mw-render = { path = "../mw-render" }
 mw-engine = { workspace = true }
 mw-export = { workspace = true }
 mw-imap = { workspace = true }

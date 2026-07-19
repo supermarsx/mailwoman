@@ -10,6 +10,12 @@
 //!   `data:` URLs are neutralized by the scheme allowlist.
 //! - Remote images are OFF by default: any `<img src>` that is not a `cid:`
 //!   reference has its `src` removed (SPEC §7.2 remote-content policy).
+//! - When a remote image is stripped, its host is recorded and a hidden block
+//!   marker (`data-mw-blocked-host`, plus `data-mw-tracker` when the host is a
+//!   known tracker) is appended to the body (t16 S9). The strip default is
+//!   unchanged — the marker only *reports* what was already blocked, so the web
+//!   reader can surface "N trackers blocked" without an extra round-trip. The
+//!   marker never carries a loadable URL.
 //!
 //! CSS rewrite (SPEC §7.2 item 3), instead of stripping CSS wholesale:
 //! - Inline `style="…"` and `<style>…</style>` blocks are parsed with a real
@@ -28,6 +34,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 
 use cssparser::{
     AtRuleParser, BasicParseErrorKind, CowRcStr, DeclarationParser, ParseError, Parser,
@@ -53,8 +60,26 @@ pub const CONTAINER_CLASS: &str = "mw-email-body";
 /// against overlay tricks within the message itself.
 pub const MAX_Z_INDEX: i64 = 1000;
 
+/// A remote resource the sanitizer stripped from a message body: the host it would
+/// have loaded from, and whether that host was classified as a tracker. Surfaced to
+/// the body as a hidden block marker so the web reader can report it (t16 S9).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BlockedResource {
+    host: String,
+    tracker: bool,
+}
+
 /// Sanitize untrusted HTML email content. Always returns owned, safe HTML.
 pub fn sanitize_email_html(input: &str) -> String {
+    // S9 side-channel: the attribute filter runs inside ammonia's single parse and
+    // cannot ADD attributes to an element, so it records each stripped remote
+    // `<img src>` here. After cleaning we emit one hidden marker per blocked
+    // resource. `Arc<Mutex<…>>` because ammonia requires the filter be
+    // `Send + Sync + 'static`; there is no cross-thread contention (the clean runs
+    // synchronously on this thread).
+    let blocked: Arc<Mutex<Vec<BlockedResource>>> = Arc::new(Mutex::new(Vec::new()));
+    let blocked_sink = Arc::clone(&blocked);
+
     let mut builder = ammonia::Builder::default();
 
     // `<script>` content is dropped entirely (tag + text). `<style>` is dropped
@@ -89,8 +114,17 @@ pub fn sanitize_email_html(input: &str) -> String {
 
     // One attribute filter: strip remote (non-cid) img@src, and rewrite inline
     // `style` through the CSS declaration sanitizer.
-    builder.attribute_filter(|element, attribute, value| -> Option<Cow<str>> {
+    builder.attribute_filter(move |element, attribute, value| -> Option<Cow<str>> {
         if element == "img" && attribute == "src" && !value.starts_with("cid:") {
+            // Remote image: stripped as before (strip default UNCHANGED). Record its
+            // host + tracker classification for the block-marker report (S9).
+            if let Some(host) = url_host(value) {
+                let tracker = is_tracker_host(&host);
+                blocked_sink
+                    .lock()
+                    .expect("sanitize blocked-resource lock")
+                    .push(BlockedResource { host, tracker });
+            }
             return None;
         }
         if attribute == "style" {
@@ -111,11 +145,130 @@ pub fn sanitize_email_html(input: &str) -> String {
     // Extract every `<style>` block from the original input, allowlist + scope
     // its CSS under the container, and prepend the result inside the wrapper.
     let scoped_css = extract_and_scope_styles(input);
-    if scoped_css.is_empty() {
+
+    // S9: emit one hidden block marker per stripped remote image, carrying the host
+    // (and a tracker flag) the web reader reports. Inert — a `<span hidden>` with no
+    // loadable URL.
+    let blocked = blocked.lock().expect("sanitize blocked-resource lock");
+    let mut markers = String::new();
+    for r in blocked.iter() {
+        markers.push_str("<span hidden data-mw-blocked-host=\"");
+        markers.push_str(&escape_attr(&r.host));
+        markers.push('"');
+        if r.tracker {
+            markers.push_str(" data-mw-tracker");
+        }
+        markers.push_str("></span>");
+    }
+
+    if scoped_css.is_empty() && markers.is_empty() {
         body
     } else {
-        format!("<div class=\"{CONTAINER_CLASS}\"><style>{scoped_css}</style>{body}</div>")
+        let style = if scoped_css.is_empty() {
+            String::new()
+        } else {
+            format!("<style>{scoped_css}</style>")
+        };
+        format!("<div class=\"{CONTAINER_CLASS}\">{style}{body}{markers}</div>")
     }
+}
+
+/// Extract the lower-cased host from an absolute `http`/`https` URL (the only
+/// remote schemes ammonia lets through to a stripped `<img src>`). Strips any
+/// `user:pass@` userinfo and `:port`. Returns `None` for a URL with no host.
+fn url_host(url: &str) -> Option<String> {
+    // Drop the scheme (`http://` / `https://`); `//host…` protocol-relative refs are
+    // denied upstream by `url_relative(Deny)`, so an absolute scheme is present.
+    let after_scheme = url.split_once("://").map(|(_, rest)| rest)?;
+    // Authority ends at the first `/`, `?`, or `#`.
+    let authority = after_scheme
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or(after_scheme);
+    // Drop any userinfo before an `@`.
+    let host_port = authority.rsplit_once('@').map_or(authority, |(_, hp)| hp);
+    // Drop a `:port` suffix. An IPv6 literal is bracketed (`[::1]`) — keep the
+    // brackets' contents; there is no bare `:port` to trim inside them.
+    let host = if let Some(stripped) = host_port.strip_prefix('[') {
+        stripped.split(']').next().unwrap_or(stripped)
+    } else {
+        host_port.split(':').next().unwrap_or(host_port)
+    };
+    let host = host.trim().to_ascii_lowercase();
+    (!host.is_empty()).then_some(host)
+}
+
+/// Best-effort classification of a remote-image host as an email tracker (open/read
+/// pixel), used only to set the OPTIONAL `data-mw-tracker` marker. The honest
+/// primary signal is the blocked COUNT (every stripped remote image); this subset
+/// flag is heuristic, matching a curated set of known bulk-mail/analytics tracking
+/// domains plus a small set of conventional tracking sub-domain labels. It never
+/// gates loading — an image is blocked (or granted) regardless of this flag.
+fn is_tracker_host(host: &str) -> bool {
+    // Known tracker / bulk-mail-analytics domains (matched as a domain suffix so
+    // `x.list-manage.com` counts). Not exhaustive; a reporting aid, not a blocklist.
+    const TRACKER_SUFFIXES: &[&str] = &[
+        "list-manage.com",
+        "mailchimp.com",
+        "sendgrid.net",
+        "sendgrid.com",
+        "mailgun.org",
+        "mandrillapp.com",
+        "sparkpostmail.com",
+        "sendinblue.com",
+        "sibautomation.com",
+        "hubspot.com",
+        "hubspotemail.net",
+        "doubleclick.net",
+        "google-analytics.com",
+        "googletagmanager.com",
+        "mixpanel.com",
+        "segment.com",
+        "branch.io",
+        "mailtrack.io",
+        "bananatag.com",
+        "yesware.com",
+        "streak.com",
+        "getnotify.com",
+        "convertkit-mail.com",
+        "constantcontact.com",
+        "rs6.net",
+        "exct.net",
+        "mktoresp.com",
+        "pardot.com",
+        "cmail19.com",
+        "createsend.com",
+    ];
+    if TRACKER_SUFFIXES
+        .iter()
+        .any(|s| host == *s || host.ends_with(&format!(".{s}")))
+    {
+        return true;
+    }
+    // Conventional tracking sub-domain labels (`track.`, `click.`, `pixel.`, …).
+    const TRACKER_LABELS: &[&str] = &[
+        "track", "tracking", "trk", "click", "clicks", "pixel", "beacon", "open", "opens", "email",
+        "mailstat", "mtrack",
+    ];
+    let first_label = host.split('.').next().unwrap_or(host);
+    TRACKER_LABELS.contains(&first_label)
+}
+
+/// Minimal HTML attribute-value escaping for the block-marker host (already a
+/// parsed, lower-cased host, but escaped defensively so a hostile label cannot break
+/// out of the double-quoted attribute).
+fn escape_attr(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '"' => out.push_str("&quot;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 /// Parse the input, isolate its `<style>` blocks, and return one scoped, filtered
@@ -738,8 +891,64 @@ mod tests {
     #[test]
     fn blocks_remote_images_keeps_cid() {
         let out = clean(r#"<img src="https://tracker.evil/p.gif"><img src="cid:inline1">"#);
-        assert!(!out.contains("tracker.evil"));
+        // The remote image is NOT loaded (no remote src survives)...
+        assert!(!out.contains(r#"src="https://tracker.evil"#), "{out}");
+        assert!(!out.contains("p.gif"), "{out}");
+        // ...but the host is surfaced in a hidden, non-loadable block marker (S9).
+        assert!(
+            out.contains(r#"data-mw-blocked-host="tracker.evil""#),
+            "{out}"
+        );
         assert!(out.contains("cid:inline1"));
+    }
+
+    #[test]
+    fn emits_block_marker_per_stripped_remote_image() {
+        let out = clean(
+            r#"<img src="https://a.example/1.gif"><img src="https://b.example/2.png"><img src="cid:x">"#,
+        );
+        // One marker per blocked remote image; the cid image is not counted.
+        assert_eq!(out.matches("data-mw-blocked-host=").count(), 2, "{out}");
+        assert!(out.contains(r#"data-mw-blocked-host="a.example""#), "{out}");
+        assert!(out.contains(r#"data-mw-blocked-host="b.example""#), "{out}");
+        // Markers are hidden + carry no loadable URL.
+        assert!(out.contains("<span hidden data-mw-blocked-host="), "{out}");
+    }
+
+    #[test]
+    fn marker_host_drops_userinfo_and_port() {
+        let out = clean(r#"<img src="https://user:pw@Host.Example:8443/p.gif?u=1">"#);
+        assert!(
+            out.contains(r#"data-mw-blocked-host="host.example""#),
+            "{out}"
+        );
+        // Credentials never appear in the output.
+        assert!(!out.contains("user:pw"), "{out}");
+        assert!(!out.contains("8443"), "{out}");
+    }
+
+    #[test]
+    fn tracker_host_gets_tracker_marker() {
+        // A known tracker domain suffix is flagged.
+        let out = clean(r#"<img src="https://x.list-manage.com/track/open.php?u=1">"#);
+        assert!(out.contains("data-mw-tracker"), "{out}");
+        // A conventional `track.` sub-domain label is flagged.
+        let out2 = clean(r#"<img src="https://track.shop.example/o.gif">"#);
+        assert!(out2.contains("data-mw-tracker"), "{out2}");
+        // A plain remote image is blocked but NOT flagged as a tracker.
+        let out3 = clean(r#"<img src="https://cdn.shop.example/logo.png">"#);
+        assert!(
+            out3.contains(r#"data-mw-blocked-host="cdn.shop.example""#),
+            "{out3}"
+        );
+        assert!(!out3.contains("data-mw-tracker"), "{out3}");
+    }
+
+    #[test]
+    fn no_remote_image_means_no_marker_or_wrapper() {
+        let out = clean(r#"<p>hi</p><img src="cid:inline">"#);
+        assert!(!out.contains("data-mw-blocked-host"), "{out}");
+        assert!(!out.contains(CONTAINER_CLASS), "{out}");
     }
 
     #[test]
