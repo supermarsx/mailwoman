@@ -3,7 +3,7 @@ import { render, fireEvent, screen } from '@solidjs/testing-library';
 import { Login } from './Login.tsx';
 import { AppContext } from '../state/context.ts';
 import { createAppState } from '../state/store.ts';
-import { ApiError, type Client, type LoginInput, type Me } from '../api/client.ts';
+import { ApiError, TwoFactorRequired, type Client, type LoginInput, type Me } from '../api/client.ts';
 import { CAP_MAIL, type JmapResponse, type JmapSession } from '../api/jmap-types.ts';
 
 function fakeClient(overrides: Partial<Client> = {}): Client {
@@ -84,6 +84,95 @@ describe('Login', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Invalid credentials');
+  });
+});
+
+describe('Login › 2FA', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function submitCreds(): void {
+    fireEvent.input(screen.getByPlaceholderText('https://jmap.example.org'), {
+      target: { value: 'https://jmap.example.org' },
+    });
+    fireEvent.input(screen.getByLabelText('Username'), { target: { value: 'u@example.org' } });
+    fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'pw' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+  }
+
+  it('renders the challenge (no session) when login reports twofaRequired', async () => {
+    // A correct password that is 2FA-gated: the client throws before any session.
+    const client = fakeClient({
+      login: vi.fn(async () => {
+        throw new TwoFactorRequired({ pendingToken: 'tok', factors: ['totp', 'recovery'] });
+      }),
+    });
+    renderLogin(client);
+    submitCreds();
+
+    // The second-factor challenge replaces the credential form…
+    expect(await screen.findByTestId('twofa-challenge')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull();
+    // …and NO session bootstrap ran (no downgrade: /api/me is never consulted).
+    expect(client.me).not.toHaveBeenCalled();
+  });
+
+  it('re-inits the session only after a factor verifies', async () => {
+    // /api/login/2fa (the challenge verify) succeeds; app.init() then reads /api/me.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('{}', { status: 200 })),
+    );
+    const client = fakeClient({
+      login: vi.fn(async () => {
+        throw new TwoFactorRequired({ pendingToken: 'tok', factors: ['totp'] });
+      }),
+    });
+    renderLogin(client);
+    submitCreds();
+
+    await screen.findByTestId('twofa-challenge');
+    expect(client.me).not.toHaveBeenCalled(); // still no session before the factor
+
+    fireEvent.input(screen.getByLabelText('Authenticator code'), { target: { value: '123456' } });
+    fireEvent.click(screen.getByTestId('challenge-verify'));
+
+    // The factor cleared → the normal post-login bootstrap runs (client.me()).
+    await vi.waitFor(() => expect(client.me).toHaveBeenCalled());
+  });
+
+  it('shows an enrollment notice when a required user has nothing enrolled', async () => {
+    const client = fakeClient({
+      login: vi.fn(async () => {
+        throw new TwoFactorRequired({
+          pendingToken: 'tok',
+          factors: ['totp', 'webauthn'],
+          enrollmentRequired: true,
+        });
+      }),
+    });
+    renderLogin(client);
+    submitCreds();
+
+    expect(await screen.findByTestId('twofa-enroll-required')).toBeInTheDocument();
+    // The verify challenge is NOT offered (there is nothing to verify against).
+    expect(screen.queryByTestId('twofa-challenge')).toBeNull();
+    expect(client.me).not.toHaveBeenCalled();
+  });
+
+  it('returns to the credential form from the challenge', async () => {
+    const client = fakeClient({
+      login: vi.fn(async () => {
+        throw new TwoFactorRequired({ pendingToken: 'tok', factors: ['totp'] });
+      }),
+    });
+    renderLogin(client);
+    submitCreds();
+
+    await screen.findByTestId('twofa-challenge');
+    fireEvent.click(screen.getByRole('button', { name: 'Back to sign in' }));
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
   });
 });
 

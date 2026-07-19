@@ -1,8 +1,9 @@
 import { createSignal, onMount, For, Show, type JSX } from 'solid-js';
-import { ApiError } from '../api/client.ts';
+import { ApiError, TwoFactorRequired, type LoginChallenge } from '../api/client.ts';
 import { useApp } from '../state/context.ts';
 import { t, loadCatalog } from '../i18n';
 import { listSsoProviders, ssoBeginPath, type SsoProviderSummary } from '../modules/sso';
+import { TwoFactorChallenge } from './Settings/index.ts';
 
 /**
  * Did the browser land back here from a failed SSO round-trip? The IdP
@@ -20,11 +21,24 @@ function ssoErrorReturn(): boolean {
 export function Login(): JSX.Element {
   const app = useApp();
   onMount(() => void loadCatalog('auth'));
+  onMount(() => void loadCatalog('login2fa'));
   const [jmapUrl, setJmapUrl] = createSignal('');
   const [username, setUsername] = createSignal('');
   const [password, setPassword] = createSignal('');
   const [error, setError] = createSignal<string | null>(ssoErrorReturn() ? t('auth-sso-error') : null);
   const [busy, setBusy] = createSignal(false);
+
+  // When the password is accepted but a second factor is required, the login is
+  // NOT complete: `app.login` threw `TwoFactorRequired` before any session was
+  // established. Hold the challenge and render `<TwoFactorChallenge>`; only once a
+  // factor verifies (its `onSuccess`) do we bootstrap the session — no downgrade.
+  const [challenge, setChallenge] = createSignal<LoginChallenge | null>(null);
+
+  async function onFactorCleared(): Promise<void> {
+    // The factor cleared and the server issued the session cookie; run the same
+    // post-login bootstrap the normal path does (`app.init` reads `/api/me`).
+    await app.init();
+  }
 
   // Advertise configured IdPs (pre-auth). Fail-soft to `[]` — a deployment with
   // no SSO renders the login exactly as today (the `<Show>` blocks collapse).
@@ -38,7 +52,10 @@ export function Login(): JSX.Element {
     try {
       await app.login({ jmapUrl: jmapUrl(), username: username(), password: password() });
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
+      if (err instanceof TwoFactorRequired) {
+        // Not an error: swap the credential form for the second-factor challenge.
+        setChallenge(err.challenge);
+      } else if (err instanceof ApiError && err.status === 401) {
         setError(t('auth-invalid-credentials'));
       } else {
         setError(t('auth-unreachable'));
@@ -49,6 +66,32 @@ export function Login(): JSX.Element {
   }
 
   return (
+    <Show when={challenge()} fallback={credentialForm()}>
+      {(ch) => (
+        <main class="login">
+          <div class="login__card">
+            <h1 class="login__title">{t('auth-app-name')}</h1>
+            <Show
+              when={!ch().enrollmentRequired}
+              fallback={
+                <p class="login__hint" role="status" data-testid="twofa-enroll-required">
+                  {t('login-2fa-enroll-required')}
+                </p>
+              }
+            >
+              <TwoFactorChallenge challenge={ch()} onSuccess={() => void onFactorCleared()} />
+            </Show>
+            <button type="button" class="btn btn--ghost" onClick={() => setChallenge(null)}>
+              {t('login-2fa-back')}
+            </button>
+          </div>
+        </main>
+      )}
+    </Show>
+  );
+
+  function credentialForm(): JSX.Element {
+    return (
     <main class="login">
       <form class="login__card" onSubmit={(e) => void onSubmit(e)} aria-label={t('auth-sign-in')}>
         <h1 class="login__title">{t('auth-app-name')}</h1>
@@ -112,5 +155,6 @@ export function Login(): JSX.Element {
         <p class="login__hint">{t('auth-mock-hint')}</p>
       </form>
     </main>
-  );
+    );
+  }
 }

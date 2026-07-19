@@ -40,6 +40,50 @@ export interface Me {
   accountId: string;
 }
 
+/**
+ * The `twofaRequired` body `/api/login` returns when the credentials are correct
+ * but a second factor must be cleared before a session is issued (SPEC §7.4/§19).
+ * Mirrors the server shape in `crates/mw-server/src/twofa_routes.rs::gate_login`
+ * and is structurally the `LoginChallenge` the `TwoFactorChallenge` component
+ * consumes — kept here (api layer) so nothing in `api/` depends on a screen.
+ */
+export interface LoginChallenge {
+  readonly pendingToken: string;
+  /** Which factors the user may present ("totp" | "webauthn" | "recovery"). */
+  readonly factors: readonly string[];
+  /** Present when a policy-required user has nothing enrolled yet. */
+  readonly enrollmentRequired?: boolean;
+  readonly webauthn?: {
+    readonly challenge: string;
+    readonly credentialIds: readonly string[];
+    readonly rpId: string;
+    readonly userVerification: string;
+  };
+}
+
+/**
+ * Thrown by `login()` when the server answers `twofaRequired`: the password was
+ * accepted but NO session cookie was issued. Carries the challenge the caller
+ * must clear (there is no password-only downgrade — the login is not complete
+ * until a factor verifies). Modelled as a throw so `app.login` propagates it
+ * WITHOUT running its post-login session bootstrap.
+ */
+export class TwoFactorRequired extends Error {
+  readonly challenge: LoginChallenge;
+  constructor(challenge: LoginChallenge) {
+    super('second factor required');
+    this.name = 'TwoFactorRequired';
+    this.challenge = challenge;
+  }
+}
+
+/** What `/api/login` returns: either the authenticated identity, or a 2FA gate. */
+type LoginResponse = Me | ({ readonly twofaRequired: true } & LoginChallenge);
+
+function isTwofaGate(body: LoginResponse): body is { readonly twofaRequired: true } & LoginChallenge {
+  return (body as { twofaRequired?: unknown }).twofaRequired === true;
+}
+
 export type NetworkListener = (online: boolean) => void;
 
 /**
@@ -124,7 +168,15 @@ export function createClient(base = '', auth?: ClientAuth): Client {
         if (res.status === 401) {
           throw new ApiError(401, 'invalid credentials');
         }
-        return jsonOrThrow<Me>(res);
+        const body = await jsonOrThrow<LoginResponse>(res);
+        // A 2FA-gated response is a SUCCESSFUL request that is not yet an
+        // authenticated session: surface the challenge (no session cookie was
+        // set) rather than mistaking the body for a `Me`.
+        if (isTwofaGate(body)) {
+          const { twofaRequired: _required, ...challenge } = body;
+          throw new TwoFactorRequired(challenge);
+        }
+        return body;
       });
     },
     logout() {
