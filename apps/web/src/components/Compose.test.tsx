@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { screen, fireEvent, waitFor, within } from '@solidjs/testing-library';
+import { render, screen, fireEvent, waitFor, within } from '@solidjs/testing-library';
 import { Compose } from './Compose.tsx';
-import { renderWithApp } from './appHarness.tsx';
+import { renderWithApp, makeClient } from './appHarness.tsx';
+import { createAppState } from '../state/store.ts';
+import { AppContext } from '../state/context.ts';
 import { AssistService } from '../modules/assist/index.ts';
 import type { Identity } from '../api/jmap-types.ts';
 
@@ -85,8 +87,10 @@ describe('Compose', () => {
     await app.loadIdentities();
     const select = await screen.findByLabelText('From');
     expect(select).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: /Work/ })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: /Personal/ })).toBeInTheDocument();
+    // Scope to the From select — the signature picker (W12) also renders an
+    // option named after each identity's signature.
+    expect(within(select).getByRole('option', { name: /Work/ })).toBeInTheDocument();
+    expect(within(select).getByRole('option', { name: /Personal/ })).toBeInTheDocument();
   });
 
   it('sends via the chosen identity', async () => {
@@ -261,5 +265,84 @@ describe('Compose', () => {
     expect(screen.queryByTestId('compose-nextcloud')).toBeNull();
     // The core composer contract is intact.
     expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
+  });
+
+  // ── 26.16 (W1): rich-text editor + plain-text / format=flowed toggle ─────────
+
+  it('defaults to the rich editor and toggles to a plain-text textarea', async () => {
+    renderWithApp(() => <Compose onClose={() => undefined} />);
+    // The rich editor mounts lazily; its editable region carries the Body label.
+    expect(await screen.findByTestId('compose-richtext')).toBeInTheDocument();
+    // Toggle to plain text: a textarea takes over, still labelled Body.
+    fireEvent.click(screen.getByTestId('format-toggle'));
+    expect(screen.queryByTestId('compose-richtext')).toBeNull();
+    expect((screen.getByLabelText('Body') as HTMLElement).tagName).toBe('TEXTAREA');
+  });
+
+  it('round-trips the body text between plain and rich modes', async () => {
+    renderWithApp(() => <Compose onClose={() => undefined} />);
+    await screen.findByTestId('compose-richtext');
+    fireEvent.click(screen.getByTestId('format-toggle')); // rich -> plain
+    fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'hello\nworld' } });
+    fireEvent.click(screen.getByTestId('format-toggle')); // plain -> rich (seeds editor)
+    await screen.findByTestId('compose-richtext');
+    fireEvent.click(screen.getByTestId('format-toggle')); // rich -> plain
+    expect((screen.getByLabelText('Body') as HTMLTextAreaElement).value).toBe('hello\nworld');
+  });
+
+  // ── W11: open-tracking pixel toggle feeds the send payload ───────────────────
+
+  it('embeds an open-tracking pixel only when the toggle is on', async () => {
+    const client = makeClient({ identities: IDENTITIES });
+    const app = createAppState(client);
+    render(() => (
+      <AppContext.Provider value={app}>
+        <Compose onClose={() => undefined} />
+      </AppContext.Provider>
+    ));
+    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    fireEvent.click(screen.getByTestId('format-toggle')); // plain text (no PM in jsdom)
+    fireEvent.input(screen.getByLabelText('To'), { target: { value: 'you@example.org' } });
+    fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'hi' } });
+    fireEvent.click(screen.getByTestId('opt-tracking'));
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(app.pendingUndo()?.actionLabel).toBe('Cancel'));
+    const sent = JSON.stringify(vi.mocked(client.jmap).mock.calls);
+    expect(sent).toContain('/api/track/open/');
+  });
+
+  it('sends without a tracking pixel by default', async () => {
+    const client = makeClient({ identities: IDENTITIES });
+    const app = createAppState(client);
+    render(() => (
+      <AppContext.Provider value={app}>
+        <Compose onClose={() => undefined} />
+      </AppContext.Provider>
+    ));
+    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    fireEvent.click(screen.getByTestId('format-toggle'));
+    fireEvent.input(screen.getByLabelText('To'), { target: { value: 'you@example.org' } });
+    fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'plain body' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(app.pendingUndo()?.actionLabel).toBe('Cancel'));
+    const sent = JSON.stringify(vi.mocked(client.jmap).mock.calls);
+    expect(sent).not.toContain('/api/track/open/');
+  });
+
+  // ── W9 / W10 / W12: drawers + signature picker ───────────────────────────────
+
+  it('opens the Drafts drawer from the header', () => {
+    renderWithApp(() => <Compose onClose={() => undefined} />);
+    fireEvent.click(screen.getByTestId('open-drafts'));
+    expect(screen.getByTestId('compose-drafts')).toBeInTheDocument();
+  });
+
+  it('inserts a chosen signature into the plain-text body', async () => {
+    const { app } = renderWithApp(() => <Compose onClose={() => undefined} />, { identities: IDENTITIES });
+    await app.loadIdentities();
+    fireEvent.click(screen.getByTestId('format-toggle')); // plain text
+    const picker = await screen.findByTestId('compose-signature');
+    fireEvent.change(within(picker).getByRole('combobox'), { target: { value: 'id1' } });
+    expect((screen.getByLabelText('Body') as HTMLTextAreaElement).value).toContain('Sent from Mailwoman');
   });
 });

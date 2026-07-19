@@ -1,7 +1,43 @@
-import { createMemo, createSignal, For, Show, onMount, onCleanup, type JSX } from 'solid-js';
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  lazy,
+  For,
+  Show,
+  Suspense,
+  onMount,
+  onCleanup,
+  type JSX,
+} from 'solid-js';
 import { useApp } from '../state/context.ts';
 import { t, isolate, loadCatalog } from '../i18n/index.ts';
 import * as a11y from './mailA11y.css.ts';
+import type { RichTextApi } from './compose/RichTextEditor.tsx';
+import {
+  SignaturePicker,
+  SendOptions,
+  RecallPanel,
+  DraftsDrawer,
+  DEFAULT_SEND_OPTIONS,
+  type ComposeSignature,
+  type SendOptionsState,
+} from './compose/ComposerExtras.tsx';
+import {
+  listDrafts,
+  saveDraft,
+  deleteDraft,
+  newDraftId,
+  type StoredDraft,
+} from './compose/drafts-store.ts';
+
+// The rich-text editor pulls in ProseMirror (MIT, self-hosted). Loaded lazily so
+// those libraries land in their own chunk and never inflate the login→inbox
+// entry the size gate measures — the composer is user-triggered, so the small
+// deferred load is invisible in practice. A plain textarea backs the Suspense
+// fallback, so the Body field is usable (and its label present) before the
+// chunk resolves.
+const RichTextEditor = lazy(() => import('./compose/RichTextEditor.tsx'));
 import {
   createContactAutocomplete,
   type ContactSuggestion,
@@ -55,7 +91,22 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
   const app = useApp();
   const [to, setTo] = createSignal('');
   const [subject, setSubject] = createSignal('');
+  // `body` stays the PLAIN-TEXT source of truth (crypto/DLP/dictation read it).
+  // `bodyHtml` carries the rich-text HTML for the normal send path; the rich
+  // editor keeps both in sync. `richMode` toggles the ProseMirror editor vs a
+  // plain-text / format=flowed textarea; the toggle round-trips the text.
   const [body, setBody] = createSignal('');
+  const [bodyHtml, setBodyHtml] = createSignal('');
+  const [richMode, setRichMode] = createSignal(true);
+  const [editorApi, setEditorApi] = createSignal<RichTextApi | null>(null);
+  // W11 send-option toggles (read receipt + open-tracking pixel).
+  const [sendOptions, setSendOptions] = createSignal<SendOptionsState>(DEFAULT_SEND_OPTIONS);
+  // W9 drafts drawer + W10 recall panel visibility, and the loaded draft list.
+  const [draftsOpen, setDraftsOpen] = createSignal(false);
+  const [recallOpen, setRecallOpen] = createSignal(false);
+  const [drafts, setDrafts] = createSignal<StoredDraft[]>([]);
+  // Stable id for THIS composer's auto-saved draft (W9).
+  const draftId = newDraftId();
   const [identityId, setIdentityId] = createSignal<string>('');
   const [sendAt, setSendAt] = createSignal('');
   const [busy, setBusy] = createSignal(false);
@@ -223,6 +274,112 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
 
   const identity = createMemo(() => app.identities().find((i) => i.id === identityId()) ?? null);
 
+  /** Plain text → the same minimal HTML the plain-text send path has always
+   *  produced (escaped, newlines as `<br>`). Used to seed the rich editor when
+   *  switching plain → rich, so the typed text carries over. No ProseMirror here
+   *  (that would drag the lazy editor's libraries onto the entry chunk). */
+  function plainToHtml(text: string): string {
+    return `<p>${escapeHtml(text).replace(/\n/g, '<br>')}</p>`;
+  }
+
+  /** The rich editor reports HTML (for the send) + a plain-text projection (for
+   *  crypto/DLP/dictation, which read `body()`). */
+  function onEditorChange(html: string, text: string): void {
+    setBodyHtml(html);
+    setBody(text);
+  }
+
+  /** Toggle the body between the rich editor and a plain-text / format=flowed
+   *  textarea. Rich → plain just reveals the already-synced text; plain → rich
+   *  re-seeds the editor from that text so the content round-trips. */
+  function toggleFormat(): void {
+    if (richMode()) {
+      setRichMode(false);
+    } else {
+      setBodyHtml(plainToHtml(body()));
+      setRichMode(true);
+    }
+  }
+
+  // W12: signatures the picker offers, derived from the sending identities that
+  // carry one. A signatures CRUD backend (e15) can supply the same shape later.
+  const signatures = createMemo<ComposeSignature[]>(() =>
+    app
+      .identities()
+      .map((id) => {
+        const text = (id.signatureText ?? '').trim();
+        const htmlText = (id.signatureHtml ?? '').replace(/<[^>]*>/g, '').trim();
+        const plain = text !== '' ? text : htmlText;
+        return { id: id.id, name: id.name, text: plain, html: id.signatureHtml };
+      })
+      .filter((s) => s.text !== '' || (s.html ?? '') !== ''),
+  );
+
+  /** Insert a chosen signature (W12). In rich mode it appends as HTML through the
+   *  editor handle (keeping existing formatting); otherwise it appends its text
+   *  to the plain body. */
+  function insertSignature(sig: ComposeSignature): void {
+    const api = editorApi();
+    if (richMode() && api !== null) {
+      api.appendHtml(sig.html !== null && sig.html !== '' ? sig.html : plainToHtml(sig.text));
+    } else {
+      setBody((cur) => (cur.trim() !== '' ? `${cur}\n\n-- \n${sig.text}` : sig.text));
+    }
+  }
+
+  /** Resume a locally auto-saved draft (W9) into this composer. */
+  function resumeDraft(d: StoredDraft): void {
+    setTo(d.to);
+    setSubject(d.subject);
+    setBody(d.bodyText);
+    setBodyHtml(d.bodyHtml);
+    const api = editorApi();
+    if (richMode() && api !== null) api.setHtml(d.bodyHtml);
+    setDraftsOpen(false);
+  }
+
+  /** Discard a stored draft and refresh the list (W9). */
+  function discardDraft(id: string): void {
+    deleteDraft(id);
+    setDrafts(listDrafts());
+  }
+
+  /** Open the Drafts drawer, refreshing the list from storage first (W9). */
+  function openDrafts(): void {
+    setDrafts(listDrafts());
+    setDraftsOpen(true);
+  }
+
+  /** Open the recall panel, refreshing the server-held submission queue (W10). */
+  function openRecall(): void {
+    void app.refreshOutbox();
+    setRecallOpen(true);
+  }
+
+  /** Recall (cancel) a still-holding / scheduled submission before it dispatches. */
+  function recallSubmission(id: string): void {
+    void app.cancelOutbox(id).then(() => app.refreshOutbox());
+  }
+
+  // W9 auto-save: debounce a snapshot of the composition to local storage so a
+  // closed / refreshed composer can be resumed. Empty compositions are skipped
+  // (see `draftHasContent`).
+  onMount(() => setDrafts(listDrafts()));
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  createEffect(() => {
+    const snapshot: StoredDraft = {
+      id: draftId,
+      to: to(),
+      subject: subject(),
+      bodyHtml: richMode() ? bodyHtml() : plainToHtml(body()),
+      bodyText: body(),
+      savedAt: Date.now(),
+    };
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => saveDraft(snapshot), 800);
+  });
+  onCleanup(() => clearTimeout(saveTimer));
+
   function onToInput(value: string): void {
     setTo(value);
     const token = value.slice(tokenBoundary(value) + 1).trim();
@@ -345,8 +502,18 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
         htmlBody = enc.armoredCiphertext;
       } else if (signOnly && session !== null) {
         htmlBody = await clearSignBody(getCryptoWorker(), session, body());
+      } else if (richMode()) {
+        // W1: the rich editor's serialized HTML feeds the SAME send payload.
+        htmlBody = bodyHtml();
       } else {
+        // Plain-text / format=flowed: the original escaped-body behavior.
         htmlBody = `<p>${escapeHtml(body()).replace(/\n/g, '<br>')}</p>`;
+      }
+      // W11: an opt-in open-tracking pixel, only on a normal (not encrypted,
+      // not clear-signed) send. Off by default; the toggle copy is explicit
+      // that it embeds a remote image.
+      if (enc === null && !signOnly && sendOptions().trackingPixel) {
+        htmlBody += `<img src="/api/track/open/${encodeURIComponent(draftId)}.gif" width="1" height="1" alt="">`;
       }
       const subjectToSend =
         enc !== null && cs !== null && cs.protectSubject && enc.encryptedSubjectApplied
@@ -372,6 +539,8 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
             }
           : {}),
       });
+      // W9: the composition was sent — drop its auto-saved draft.
+      deleteDraft(draftId);
       props.onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('mail-compose-send-failed'));
@@ -392,10 +561,41 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
       <form class="compose" onSubmit={(e) => void onSubmit(e)}>
         <header class="compose__header">
           <h2>{t('mail-compose-title')}</h2>
-          <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-label={t('mail-compose-close')} onClick={() => props.onClose()}>
-            ✕
-          </button>
+          <div class="compose__header-actions">
+            <button
+              type="button"
+              class={`btn btn--ghost ${a11y.focusable}`}
+              data-testid="open-drafts"
+              aria-expanded={draftsOpen()}
+              onClick={() => (draftsOpen() ? setDraftsOpen(false) : openDrafts())}
+            >
+              {t('mail-compose-drafts')}
+            </button>
+            <button
+              type="button"
+              class={`btn btn--ghost ${a11y.focusable}`}
+              data-testid="open-recall"
+              aria-expanded={recallOpen()}
+              onClick={() => (recallOpen() ? setRecallOpen(false) : openRecall())}
+            >
+              {t('mail-compose-recall')}
+            </button>
+            <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-label={t('mail-compose-close')} onClick={() => props.onClose()}>
+              ✕
+            </button>
+          </div>
         </header>
+
+        <DraftsDrawer
+          open={draftsOpen()}
+          drafts={drafts}
+          onResume={resumeDraft}
+          onDelete={discardDraft}
+          onClose={() => setDraftsOpen(false)}
+        />
+        <Show when={recallOpen()}>
+          <RecallPanel submissions={app.cancelableOutbox} onRecall={recallSubmission} />
+        </Show>
 
         <Show when={app.identities().length > 0}>
           <label class="field">
@@ -482,10 +682,52 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
           <span>{t('mail-compose-subject')}</span>
           <input type="text" value={subject()} onInput={(e) => setSubject(e.currentTarget.value)} />
         </label>
-        <label class="field field--grow">
-          <span>{t('mail-compose-body')}</span>
-          <textarea rows="10" value={body()} onInput={(e) => setBody(e.currentTarget.value)} />
-        </label>
+        <div class="field field--grow">
+          <div class="compose__body-head">
+            <span>{t('mail-compose-body')}</span>
+            <button
+              type="button"
+              class={`btn btn--ghost ${a11y.focusable}`}
+              data-testid="format-toggle"
+              aria-pressed={!richMode()}
+              onClick={() => toggleFormat()}
+            >
+              {richMode() ? t('mail-compose-format-plain') : t('mail-compose-format-rich')}
+            </button>
+          </div>
+          <Show
+            when={richMode()}
+            fallback={
+              <textarea
+                aria-label={t('mail-compose-body')}
+                rows="10"
+                value={body()}
+                onInput={(e) => setBody(e.currentTarget.value)}
+              />
+            }
+          >
+            <Suspense
+              fallback={
+                <textarea
+                  aria-label={t('mail-compose-body')}
+                  rows="10"
+                  value={body()}
+                  onInput={(e) => setBody(e.currentTarget.value)}
+                />
+              }
+            >
+              <RichTextEditor
+                initialHtml={bodyHtml()}
+                externalText={body}
+                ariaLabel={t('mail-compose-body')}
+                onChange={onEditorChange}
+                onReady={setEditorApi}
+              />
+            </Suspense>
+          </Show>
+        </div>
+
+        <SignaturePicker signatures={signatures} onInsert={insertSignature} />
 
         {/* V7 inline Assist composer tools + dictation (plan §14.3). Each component
             self-hides on the capabilities it lacks; the whole block is additionally
@@ -588,6 +830,11 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
             </For>
           </ul>
         </Show>
+
+        {/* W11: read-receipt request + open-tracking pixel toggles. Both off by
+            default; the tracking-pixel copy states plainly that it embeds a
+            remote image. */}
+        <SendOptions state={sendOptions} onChange={setSendOptions} />
 
         {/* Crypto + DLP (plan §2.5): encrypt/sign toggles, the live E2EE/TLS/mixed
             banner from real per-recipient CryptoKey/lookup, and the Dlp/scan

@@ -1,0 +1,117 @@
+/* Composer side-features (W9/W10/W11/W12) styling. Uses the V2 design tokens so
+ * it tracks light/dark. Scoped to `.compose-extra*`. */
+
+.compose-extra__signature select {
+  width: 100%;
+}
+
+.compose-extra__options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.2rem 0 0.6rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.compose-extra__options legend {
+  padding: 0 0.3rem;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+.compose-extra__option {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.compose-extra__hint {
+  margin: 0.1rem 0 0;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+.compose-extra__recall {
+  margin: 0.2rem 0 0.6rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--text-dim);
+  border-radius: 6px;
+  background: var(--bg-alt);
+}
+.compose-extra__recall-title {
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+}
+.compose-extra__recall-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.compose-extra__recall-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  font-size: 0.82rem;
+}
+
+.compose-extra__drafts {
+  margin: 0.2rem 0 0.6rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-alt);
+}
+.compose-extra__drafts-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.4rem;
+}
+.compose-extra__drafts-head h3 {
+  margin: 0;
+  font-size: 0.9rem;
+}
+.compose-extra__drafts-empty {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+.compose-extra__drafts-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.compose-extra__drafts-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.compose-extra__drafts-open {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.compose-extra__drafts-subject {
+  font-size: 0.85rem;
+}
+.compose-extra__drafts-preview {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
