@@ -302,24 +302,67 @@ async fn download_proxies_upstream_blob_with_injected_auth() {
 }
 
 #[tokio::test]
-async fn upload_route_returns_501_not_index_fallthrough() {
+async fn upload_route_proxies_to_upstream() {
     let mock = spawn_mock().await;
     let (server, _web) = spawn_server().await;
     let c = client();
     do_login(&c, &server, &mock).await;
 
-    // The rewritten uploadUrl is registered (not silently served the SPA shell).
+    // Proxy mode: the upload is forwarded to the upstream uploadUrl with auth injected
+    // and the client's Content-Type, and the upstream `{accountId, blobId, type, size}`
+    // JSON is relayed back verbatim (the symmetric counterpart of the download proxy).
+    let payload = b"upload-body-bytes";
     let resp = c
-        .get(format!("{server}/jmap/upload/{}", mw_mock_jmap::ACCOUNT_ID))
+        .post(format!("{server}/jmap/upload/{}", mw_mock_jmap::ACCOUNT_ID))
+        .header(reqwest::header::CONTENT_TYPE, "text/plain")
+        .body(payload.to_vec())
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 501);
-    let body = resp.text().await.unwrap();
-    assert!(
-        !body.contains("MW_TEST_INDEX"),
-        "fell through to SPA: {body}"
-    );
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await.unwrap();
+    assert_eq!(body["accountId"], mw_mock_jmap::ACCOUNT_ID);
+    assert_eq!(body["blobId"], format!("upload-{}", payload.len()));
+    assert_eq!(body["type"], "text/plain");
+    assert_eq!(body["size"], payload.len());
+}
+
+#[tokio::test]
+async fn upload_over_max_size_is_413() {
+    let mock = spawn_mock().await;
+    let (server, _web) = spawn_server().await;
+    let c = client();
+    do_login(&c, &server, &mock).await;
+
+    // A body above the advertised maxSizeUpload (50_000_000) is refused with 413 before
+    // any storage write or upstream forwarding — this cap is enforced in both modes.
+    let oversize = vec![0u8; 50_000_001];
+    let resp = c
+        .post(format!("{server}/jmap/upload/{}", mw_mock_jmap::ACCOUNT_ID))
+        .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+        .body(oversize)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 413);
+}
+
+#[tokio::test]
+async fn upload_route_rejects_foreign_account() {
+    let mock = spawn_mock().await;
+    let (server, _web) = spawn_server().await;
+    let c = client();
+    do_login(&c, &server, &mock).await;
+
+    // A session may only upload to its own account (scoped like the download route).
+    let resp = c
+        .post(format!("{server}/jmap/upload/someone-else"))
+        .header(reqwest::header::CONTENT_TYPE, "text/plain")
+        .body(b"x".to_vec())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 403);
 }
 
 #[tokio::test]

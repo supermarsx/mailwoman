@@ -74,6 +74,15 @@ enum MaintenanceCommand {
         /// The account id whose stored mail to re-thread.
         account: String,
     },
+    /// Reclaim unreferenced uploaded blobs older than a TTL (default 24h): deletes
+    /// both the metadata row and the sealed backend object. Explicit one-shot, never
+    /// automatic. Wire the same `MW_UPLOAD_DIR` the server uses so the on-disk object
+    /// is removed alongside the row.
+    GcUploads {
+        /// Reclaim uploads older than this many hours (by `created_at`). Default 24.
+        #[arg(long, default_value_t = 24)]
+        older_than_hours: i64,
+    },
 }
 
 /// `mailwoman plugin <list|approve>` (V7 §22): backed by the 0008 `plugins`
@@ -284,9 +293,9 @@ async fn main() -> std::process::ExitCode {
 /// backend connection), prints the summary, and is safe to re-run.
 async fn maintenance_cmd(args: MaintenanceArgs) -> anyhow::Result<()> {
     let store = open_store(&args.db_path, args.server_key.as_deref()).await?;
-    let engine = mw_engine::Engine::new(store);
     match args.command {
         MaintenanceCommand::Rethread { account } => {
+            let engine = mw_engine::Engine::new(store);
             let summary = engine
                 .rethread_account(&account)
                 .await
@@ -295,6 +304,22 @@ async fn maintenance_cmd(args: MaintenanceArgs) -> anyhow::Result<()> {
                 "rethread {account}: accounts={} messages={} threads={} reassigned={}",
                 summary.accounts, summary.messages, summary.threads, summary.reassigned
             );
+        }
+        MaintenanceCommand::GcUploads { older_than_hours } => {
+            // Inject the same filesystem upload backend the server uses so the sweep
+            // removes the on-disk sealed object alongside the metadata row. Unset
+            // MW_UPLOAD_DIR → rows are still reclaimed, objects left for a later run.
+            let store = match std::env::var_os("MW_UPLOAD_DIR").filter(|s| !s.is_empty()) {
+                Some(dir) => store.with_upload_backend(std::sync::Arc::new(
+                    mw_store::FsUploadBackend::new(std::path::PathBuf::from(dir)),
+                )),
+                None => store,
+            };
+            let reclaimed = store
+                .sweep_uploads(chrono::Duration::hours(older_than_hours))
+                .await
+                .map_err(|e| anyhow::anyhow!("gc-uploads failed: {e}"))?;
+            println!("gc-uploads: reclaimed {reclaimed} upload(s) older than {older_than_hours}h");
         }
     }
     Ok(())

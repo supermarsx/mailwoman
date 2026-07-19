@@ -344,6 +344,16 @@ async fn build_app_inner(
         }
     };
     let store = Store::open(&config.db_path, key.clone()).await?;
+    // Attachment upload store (t15): when `MW_UPLOAD_DIR` is configured, seal + write
+    // uploaded blobs to that filesystem backend. Unset → the store keeps its default
+    // fail-closed backend (an upload attempt returns an error, never a plaintext blob).
+    let store = match upload_dir_from_env() {
+        Some(dir) => {
+            tracing::info!("upload store: filesystem backend at {}", dir.display());
+            store.with_upload_backend(Arc::new(mw_store::FsUploadBackend::new(dir)))
+        }
+        None => store,
+    };
     let render_bin = locate_render_bin();
     match &render_bin {
         Some(p) => tracing::info!("render worker: {}", p.display()),
@@ -632,10 +642,7 @@ fn router(
             "/jmap/download/{accountId}/{blobId}/{name}",
             get(jmap_download),
         )
-        .route(
-            "/jmap/upload/{accountId}",
-            post(jmap_upload).get(jmap_upload),
-        )
+        .route("/jmap/upload/{accountId}", post(jmap_upload))
         .route("/api/export/{stableId}", get(export_message))
         // ── V3 PIM endpoints: Mailwoman-native calendar/address-book sharing
         // (ACL-checked serving of a collection to another principal) + the
@@ -1310,19 +1317,141 @@ async fn proxy_download(
     }
 }
 
-/// `POST/GET /jmap/upload/{accountId}` — the rewritten uploadUrl. Attachment
-/// upload / compose-with-attachments is out of scope for this build (not a V2
-/// DoD item), so this returns a clean `501` rather than letting the rewritten
-/// URL fall through to the SPA `index.html`.
-async fn jmap_upload(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(resp) = authed(&state, &headers).await {
-        return resp;
+/// Upload size cap enforced by [`jmap_upload`], matching the `maxSizeUpload` the
+/// session advertises (`mw_engine::session_json` / `mw-autoconfig`). A body above
+/// this is refused with `413` before any storage or upstream forwarding.
+const MAX_UPLOAD_BYTES: usize = 50_000_000;
+
+/// The configured upload directory (`MW_UPLOAD_DIR`), or `None` when unset/empty.
+/// The filesystem [`mw_store::FsUploadBackend`] is rooted here; an unset directory
+/// leaves the store's fail-closed backend in place.
+fn upload_dir_from_env() -> Option<PathBuf> {
+    std::env::var_os("MW_UPLOAD_DIR")
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+}
+
+/// `POST /jmap/upload/{accountId}` — the JMAP upload endpoint the session advertises
+/// via `uploadUrl`/`maxSizeUpload` (RFC 8620 §6.1). Cookie-authed and account-scoped
+/// (a session may only upload to its own account). The raw request body is read up to
+/// `maxSizeUpload` (over-limit → `413`), the `Content-Type` header is taken as the
+/// blob type (default `application/octet-stream`), and in engine mode the bytes are
+/// sealed + written to the configured upload backend by
+/// [`mw_engine::Engine::store_upload`], which mints a `U`-prefixed `blobId`. Returns
+/// `200 {accountId, blobId, type, size}`; that blobId then resolves through
+/// `fetch_blob` as an outgoing `Email/set` attachment. In proxy mode the upload is
+/// forwarded to the upstream uploadUrl ([`proxy_upload`]).
+async fn jmap_upload(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    UrlPath(account_id): UrlPath<String>,
+    body: Body,
+) -> Response {
+    let session = match authed(&state, &headers).await {
+        Ok(s) => s,
+        Err(resp) => return resp,
+    };
+    // A session may only upload to its own account.
+    if account_id != session.account_id {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "account mismatch" })),
+        )
+            .into_response();
     }
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string)
+        .unwrap_or_else(|| "application/octet-stream".to_string());
+    // Read the body with a hard cap at `maxSizeUpload`; a larger body → 413 (before
+    // any storage write or upstream forwarding). `Body` is extracted directly so the
+    // read is bounded here rather than by the default (smaller) extractor limit.
+    let bytes = match axum::body::to_bytes(body, MAX_UPLOAD_BYTES).await {
+        Ok(b) => b,
+        Err(_) => return upload_too_large(),
+    };
+    let Some(engine) = &state.engine else {
+        return proxy_upload(&session, &account_id, &content_type, bytes).await;
+    };
+    match engine
+        .store_upload(&account_id, &content_type, &bytes)
+        .await
+    {
+        Ok(blob_id) => (
+            StatusCode::OK,
+            Json(json!({
+                "accountId": account_id,
+                "blobId": blob_id,
+                "type": content_type,
+                "size": bytes.len(),
+            })),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::warn!("upload store failed: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "upload storage failed" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// `413` for an upload body over `maxSizeUpload`. Factual, concrete size in the body.
+fn upload_too_large() -> Response {
     (
-        StatusCode::NOT_IMPLEMENTED,
-        Json(json!({ "error": "attachment upload is not implemented in this build" })),
+        StatusCode::PAYLOAD_TOO_LARGE,
+        Json(json!({
+            "error": format!("upload exceeds maxSizeUpload ({MAX_UPLOAD_BYTES} bytes)"),
+        })),
     )
         .into_response()
+}
+
+/// Forward an upload to the upstream JMAP server (proxy mode): fetch its Session for
+/// the real uploadUrl template, substitute the accountId, POST the bytes with injected
+/// auth + the client's `Content-Type`, and relay the upstream `{accountId, blobId,
+/// type, size}` response (status + content-type + body) straight back — the symmetric
+/// counterpart of [`proxy_download`].
+async fn proxy_upload(
+    session: &mw_store::Session,
+    account_id: &str,
+    content_type: &str,
+    bytes: Bytes,
+) -> Response {
+    let client = match JmapClient::new(&session.credentials.username, &session.credentials.password)
+    {
+        Ok(c) => c,
+        Err(_) => return upstream_error(),
+    };
+    let upstream = match client.session(&session.jmap_url).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!("upstream session for upload failed: {e}");
+            return upstream_error();
+        }
+    };
+    let url = upstream
+        .upload_url
+        .replace("{accountId}", &percent_encode(account_id));
+    let abs = resolve_api_url(&session.jmap_url, &url);
+    match client.post_bytes(&abs, content_type, bytes).await {
+        Ok((status, ct, body)) => {
+            let code = StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+            let mut resp = Response::new(Body::from(body));
+            *resp.status_mut() = code;
+            if let Some(ct) = ct.and_then(|v| HeaderValue::from_str(&v).ok()) {
+                resp.headers_mut().insert(header::CONTENT_TYPE, ct);
+            }
+            resp
+        }
+        Err(e) => {
+            tracing::warn!("upload proxy failed: {e}");
+            upstream_error()
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

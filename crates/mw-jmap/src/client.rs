@@ -102,6 +102,35 @@ impl JmapClient {
         Ok((status, bytes))
     }
 
+    /// POST raw bytes to an upload URL with injected auth and a caller-supplied
+    /// `Content-Type`, returning `(status, content_type, body)` so the proxy can
+    /// relay the upstream `{accountId, blobId, type, size}` upload response back
+    /// to the browser verbatim (RFC 8620 §6.1) — the symmetric counterpart of
+    /// [`JmapClient::get_bytes`].
+    pub async fn post_bytes(
+        &self,
+        url: &str,
+        content_type: &str,
+        body: bytes::Bytes,
+    ) -> Result<(reqwest::StatusCode, Option<String>, bytes::Bytes), JmapError> {
+        let resp = self
+            .http
+            .post(url)
+            .header("Authorization", &self.authorization)
+            .header("Content-Type", content_type)
+            .body(body)
+            .send()
+            .await?;
+        let status = resp.status();
+        let content_type = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .map(String::from);
+        let bytes = resp.bytes().await?;
+        Ok((status, content_type, bytes))
+    }
+
     /// GET a blob/download URL with injected auth, returning
     /// `(status, content_type, content_disposition, body)` so the proxy can
     /// stream an upstream attachment/message download back to the browser

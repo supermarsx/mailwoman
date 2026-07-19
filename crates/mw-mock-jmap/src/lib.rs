@@ -133,6 +133,7 @@ pub fn router() -> Router {
         .route("/jmap/session", get(session))
         .route("/jmap", post(api))
         .route("/jmap/download/{accountId}/{blobId}/{name}", get(download))
+        .route("/jmap/upload/{accountId}", post(upload))
         .route("/healthz", get(|| async { "ok" }))
         .with_state(store)
 }
@@ -244,6 +245,32 @@ async fn download(
         format!("attachment; filename=\"{name}\"").parse().unwrap(),
     );
     resp
+}
+
+/// Accept a blob upload (RFC 8620 §6.1) and return the standard upload response.
+/// The `blobId` echoes the byte length so a proxy test can prove the bytes and the
+/// client-declared `Content-Type` were forwarded verbatim with auth injected; a real
+/// server would seal + store the bytes here.
+async fn upload(headers: HeaderMap, Path(account): Path<String>, body: Body) -> Response {
+    if !check_auth(&headers) {
+        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+    }
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream")
+        .to_string();
+    let bytes = match axum::body::to_bytes(body, 64 * 1024 * 1024).await {
+        Ok(b) => b,
+        Err(_) => return (StatusCode::PAYLOAD_TOO_LARGE, "too large").into_response(),
+    };
+    axum::Json(json!({
+        "accountId": account,
+        "blobId": format!("upload-{}", bytes.len()),
+        "type": content_type,
+        "size": bytes.len(),
+    }))
+    .into_response()
 }
 
 fn dispatch(store: &MailStore, name: &str, args: &Value) -> Value {
