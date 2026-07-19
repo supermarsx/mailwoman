@@ -537,6 +537,29 @@ impl Engine {
         })
     }
 
+    // ---- blob upload (plan §1 / t15) -----------------------------------
+
+    /// Store freshly-uploaded bytes for `account_id` and return the reserved
+    /// `U`-prefixed blobId (`U` + 64-hex) that [`Engine::fetch_blob`] later
+    /// resolves back to these exact bytes. The engine-level entry the
+    /// `POST /jmap/upload/{accountId}` handler calls: the store seals the bytes
+    /// under the server key and writes them to the configured upload backend
+    /// (never plaintext, never in the DB), then hands back the id the client
+    /// attaches to an outgoing `Email/set` create.
+    ///
+    /// Fails (never silently drops bytes) when no upload backend is configured.
+    pub async fn store_upload(
+        &self,
+        account_id: &str,
+        content_type: &str,
+        bytes: &[u8],
+    ) -> Result<String> {
+        Ok(self
+            .store
+            .put_upload(account_id, content_type, bytes)
+            .await?)
+    }
+
     // ---- blob download (plan §2.4 / e14) -------------------------------
 
     /// Resolve a download `blobId` to its bytes plus the HTTP framing the server
@@ -550,7 +573,31 @@ impl Engine {
     /// Bytes come from the sealed body cache when present, else a backend
     /// `fetch_raw`. Returns `Ok(None)` when the id names no message/part owned by
     /// `account_id` (→ 404); cross-account ids never resolve.
+    ///
+    /// A blobId in the reserved `U` namespace (`U` + 64-hex — see
+    /// [`Engine::store_upload`]) names a new-file upload instead of a stored
+    /// message, and is resolved from the sealed upload store before the
+    /// message-lookup path. Because stableIds are pure lowercase 64-hex, a
+    /// `U`-prefixed id never collides with one; an unknown or cross-account
+    /// upload id resolves to `Ok(None)` exactly like an unknown message id.
     pub async fn fetch_blob(&self, account_id: &str, blob_id: &str) -> Result<Option<BlobData>> {
+        // Reserved `U`-prefix upload namespace (plan §1, decision 4): route to
+        // the account-scoped upload store before the message path. An unknown /
+        // cross-account id → Ok(None), the same clean not-found the message
+        // path returns.
+        if blob_id.starts_with('U') {
+            let Some(upload) = self.store.get_upload(account_id, blob_id).await? else {
+                return Ok(None);
+            };
+            return Ok(Some(BlobData {
+                content_type: upload.content_type,
+                // Uploads store no original filename (only the content-type); a
+                // compose that references the upload supplies its own `name`,
+                // and this fallback only frames a direct download.
+                filename: format!("{blob_id}.bin"),
+                bytes: upload.bytes,
+            }));
+        }
         let (stable_id, part_id) = match blob_id.split_once('.') {
             Some((sid, pid)) => (sid, Some(pid)),
             None => (blob_id, None),
@@ -837,4 +884,124 @@ fn pop3_pseudo_uid(uidl: &str) -> u32 {
     let mut h = DefaultHasher::new();
     uidl.hash(&mut h);
     (h.finish() as u32) | 1
+}
+
+#[cfg(test)]
+mod upload_blob_tests {
+    //! `store_upload` + the `fetch_blob` `U`-prefix branch (plan §1 / t15 E3).
+    //! The stored-message resolution path is proven end-to-end by
+    //! `tests/t14_attach.rs`; these unit tests cover the new upload namespace and
+    //! confirm it does not capture ordinary (pure-hex) stableIds.
+
+    use std::path::{Path, PathBuf};
+    use std::sync::Arc;
+
+    use mw_store::{FsUploadBackend, ServerKey, Store};
+
+    use super::Engine;
+
+    /// A unique temp dir for one test's FS upload backend (no `tempfile`
+    /// dev-dependency, mirroring the mw-store upload tests).
+    fn temp_root(tag: &str) -> PathBuf {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("mw-engine-upload-{tag}-{unique}"))
+    }
+
+    async fn engine_with_uploads(root: &Path) -> Engine {
+        let store = Store::open_in_memory(ServerKey::generate())
+            .await
+            .unwrap()
+            .with_upload_backend(Arc::new(FsUploadBackend::new(root.to_path_buf())));
+        Engine::new(store)
+    }
+
+    #[tokio::test]
+    async fn store_upload_then_fetch_blob_returns_exact_bytes_and_type() {
+        let root = temp_root("roundtrip");
+        let engine = engine_with_uploads(&root).await;
+        let bytes = b"\x89PNG\r\n\x1a\n upload payload";
+
+        let blob_id = engine
+            .store_upload("acct-a", "image/png", bytes)
+            .await
+            .unwrap();
+        assert!(blob_id.starts_with('U'), "upload blobId is U-prefixed");
+        assert_eq!(blob_id.len(), 65, "U + 64-hex");
+
+        let blob = engine
+            .fetch_blob("acct-a", &blob_id)
+            .await
+            .unwrap()
+            .expect("upload blobId resolves");
+        assert_eq!(blob.content_type, "image/png");
+        assert_eq!(blob.bytes, bytes);
+        assert!(
+            blob.filename.ends_with(".bin"),
+            "download filename fallback"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn fetch_blob_upload_is_account_scoped() {
+        let root = temp_root("scope");
+        let engine = engine_with_uploads(&root).await;
+        let blob_id = engine
+            .store_upload("acct-a", "text/plain", b"hi")
+            .await
+            .unwrap();
+
+        // Another account's fetch of the same `U`-id resolves to nothing.
+        assert!(
+            engine
+                .fetch_blob("acct-b", &blob_id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        // The owner still resolves it.
+        assert!(
+            engine
+                .fetch_blob("acct-a", &blob_id)
+                .await
+                .unwrap()
+                .is_some()
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn bogus_upload_id_is_clean_not_found() {
+        let root = temp_root("bogus");
+        let engine = engine_with_uploads(&root).await;
+        // A well-formed but unknown `U`-id → Ok(None), never an error/panic.
+        let bogus = format!("U{}", "0".repeat(64));
+        assert!(engine.fetch_blob("acct-a", &bogus).await.unwrap().is_none());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn pure_hex_stable_id_is_not_captured_by_the_upload_branch() {
+        let root = temp_root("stableid");
+        let engine = engine_with_uploads(&root).await;
+        // A pure lowercase-64-hex id is a message stableId, never an upload id: it
+        // must route to the message path (which returns a clean `None` for an
+        // unknown message here), NOT the `U`-prefix upload branch.
+        let stable_id = "a".repeat(64);
+        assert!(
+            engine
+                .fetch_blob("acct-a", &stable_id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

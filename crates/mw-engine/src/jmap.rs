@@ -588,11 +588,11 @@ impl Engine {
     }
 
     /// Build a [`ComposeRequest`] from an `Email/set` create spec, resolving any
-    /// `attachments` whose `blobId` names an existing stored message/part via
-    /// [`Engine::fetch_blob`] (forward / attach-from-mail). A blobId that
-    /// resolves to nothing is a clean error (→ `notCreated`), never a panic.
-    /// New-file upload is out of scope — the upload blob store is unimplemented,
-    /// so only already-stored blobs are honored here.
+    /// `attachments` whose `blobId` names an existing stored message/part or a
+    /// new-file upload (the reserved `U` namespace) via [`Engine::fetch_blob`]
+    /// — forward / attach-from-mail as well as attach-uploaded-file. A blobId
+    /// that resolves to nothing is a clean error (→ `notCreated`), never a
+    /// panic.
     async fn compose_from_spec(
         &self,
         account_id: &str,
@@ -610,7 +610,7 @@ impl Engine {
                 };
                 let blob = self.fetch_blob(account_id, blob_id).await?.ok_or_else(|| {
                     EngineError::Protocol(format!(
-                        "attachment blobId {blob_id:?} does not resolve to a stored message part"
+                        "attachment blobId {blob_id:?} does not resolve to a stored message part or uploaded blob"
                     ))
                 })?;
                 // Prefer the client-declared type/name; fall back to what the
