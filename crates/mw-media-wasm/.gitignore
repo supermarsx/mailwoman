@@ -1,0 +1,4 @@
+# Build artifacts of the standalone (own-workspace) media-jail guest crate. The
+# core module it produces is committed pre-built at ./media.wasm; the intermediate
+# target/ tree must never be committed.
+/target

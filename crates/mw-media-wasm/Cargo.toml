@@ -1,0 +1,43 @@
+# Standalone (own `[workspace]` table ⇒ excluded from the parent workspace, so
+# `cargo build --workspace` never touches it and the root manifest needs no edit).
+# Built ONCE to `wasm32-unknown-unknown` and the resulting core module committed
+# alongside as `media.wasm`; `mw-render` loads that committed module byte-for-byte
+# via `include_bytes!`, so `cargo test -p mw-render` is green everywhere without a
+# wasm toolchain. See `build.sh`. Mirrors the `mw-plugin` guest-fixture pattern.
+#
+# This is the SPEC §7.5 second-layer media jail: the hostile CFB/MSG/OFT compound-
+# file parse and the remote-image re-encode run INSIDE this wasm sandbox, never as
+# native Rust in the render child. It has NO host imports (a pure core module) — the
+# strongest jail posture: the guest cannot perform I/O at all.
+[package]
+name = "mw-media-wasm"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# CFB / OLE2 compound-file reader — the hostile MS-OXMSG (.msg/.oft) container
+# parse. Same crate + version `mw-export` uses on the host; pure-Rust, no C.
+cfb = "0.10"
+# Image decode + re-encode. `default-features = false` drops `rayon` (threads —
+# unavailable on `wasm32-unknown-unknown`) and every C/`-sys` codec; only the
+# pure-Rust png/jpeg/gif backends are enabled. Re-encoding to PNG drops every
+# ancillary chunk (EXIF/GPS/comments), normalising the image.
+image = { version = "0.25", default-features = false, features = [
+    "png",
+    "jpeg",
+    "gif",
+] }
+
+[profile.release]
+opt-level = "s"
+strip = true
+lto = true
+# A panic in the hostile parse aborts the guest → a wasm trap the host maps to a
+# clean error. No unwinding across the wasm boundary.
+panic = "abort"

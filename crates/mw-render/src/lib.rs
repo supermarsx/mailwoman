@@ -9,6 +9,11 @@
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 
+/// Second-layer WASM media jail (SPEC §7.5, plan t16 S5): the hostile CFB/MS-OXMSG
+/// parse and remote-image re-encode run inside a wasmtime sandbox, not native Rust.
+/// `media_jail::reencode_image` is the entry the image proxy (t16-e6) consumes.
+pub mod media_jail;
+
 pub const MAX_INPUT_BYTES: usize = 4 * 1024 * 1024; // parser resource limit (SPEC §7.2)
 
 /// One render job. **Untagged** so the existing HTML sanitize frame
@@ -21,8 +26,9 @@ pub enum Job {
     /// Sanitize untrusted message HTML (the V2 path — unchanged).
     Html { html: String },
     /// Import an untrusted `.oft`/`.msg` CFB template: parse it in this child and
-    /// return the sanitized body + subject. The CFB parser (`mw_export::from_oft`)
-    /// runs ONLY here (§7.5) — the parent never parses the compound file.
+    /// return the sanitized body + subject. The hostile CFB parse runs inside the
+    /// WASM media jail (`media_jail::parse_cfb`, §7.5) — never native Rust, and the
+    /// parent never parses the compound file.
     Cfb {
         #[serde(rename = "cfbBase64")]
         cfb_base64: String,
@@ -55,12 +61,12 @@ pub fn process_line(line: &str) -> Result<String, String> {
             if bytes.len() > MAX_INPUT_BYTES {
                 return Err("cfb exceeds size limit".to_string());
             }
-            // Hostile CFB parse — isolated in this disposable child (SPEC §7.5).
+            // Hostile CFB parse — runs INSIDE the WASM media jail (SPEC §7.5), never
+            // as native Rust in this child. Malformed input returns a clean error.
             let parsed =
-                mw_export::from_oft(&bytes).map_err(|e| format!("oft import failed: {e}"))?;
-            let body = parsed.body.unwrap_or_default();
+                media_jail::parse_cfb(&bytes).map_err(|e| format!("oft import failed: {e}"))?;
             Output {
-                html: mw_sanitize::sanitize_email_html(&body),
+                html: mw_sanitize::sanitize_email_html(&parsed.body),
                 subject: parsed.subject,
             }
         }

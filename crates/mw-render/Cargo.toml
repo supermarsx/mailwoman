@@ -10,11 +10,29 @@ repository.workspace = true
 mw-sanitize = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-# V7 CFB render-jail seam (plan §3 e14 / e5): the untrusted `.oft`/`.msg` CFB parse
-# (`mw_export::from_oft`) runs INSIDE this disposable child — the §7.5 boundary. The
-# parser lifts in unchanged; only the job frame + isolation are added here.
-mw-export = { workspace = true }
 base64 = { workspace = true }
+# t16 (26.16) S5 — second-layer media jail (SPEC §7.5, plan DQ5). The hostile
+# CFB/MS-OXMSG (`.oft`/`.msg`) parse and the remote-image re-encode run INSIDE a
+# `wasm32` module in a wasmtime jail (see `media_jail.rs` + `crates/mw-media-wasm`),
+# never as native Rust here. `mw-export`'s native `from_oft` is no longer on the
+# runtime path — it is a dev-dependency only (used to write test `.oft` fixtures).
+#
+# Reuses the vendored `wasmtime` tree (already in the workspace via `mw-plugin`) — no
+# new dep. `default-features = false` keeps it C-free (no `profiling`/`cache` -sys);
+# `pulley` selects the pure-interpreter target (no JIT W^X page → survives the render
+# child's seccomp/Landlock jail from t16-e4). No `component-model`/`wasi`: the guest
+# is a bare core module with zero host imports.
+wasmtime = { version = "46", default-features = false, features = [
+    "runtime",
+    "std",
+    "cranelift",
+    "pulley",
+] }
+
+[dev-dependencies]
+# Only to WRITE `.oft`/`.msg` test fixtures the jail then parses — never on the
+# runtime hostile-parse path (that moved into the wasm jail above).
+mw-export = { workspace = true }
 
 [[bin]]
 name = "mw-render"
