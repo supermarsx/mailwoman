@@ -376,6 +376,15 @@ impl Store {
         Ok(row.as_ref().map(identity_from_row))
     }
 
+    /// Delete a sending identity by id.
+    pub async fn delete_identity(&self, id: &str) -> Result<(), StoreError> {
+        q("DELETE FROM identities WHERE id = ?1")
+            .bind(id)
+            .execute(&self.backend)
+            .await?;
+        Ok(())
+    }
+
     // ---- changes -----------------------------------------------------------
 
     /// Append one change and return the new per-`(account,type)` monotonic
