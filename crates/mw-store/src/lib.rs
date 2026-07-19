@@ -39,11 +39,18 @@ mod v9_tail;
 // on-prem Exchange bridge. New `Store` methods over the 0011 `ews_account_cred`
 // table; sealed secret column (zero-access posture). No existing item touched.
 mod ews_cred;
+// 0012 (26.15 t15): new-file upload store + pluggable at-rest storage backend. New
+// `Store` methods over the 0012 `uploaded_blobs` table (metadata only) + the
+// `UploadBackend` trait and its filesystem impl (sealed objects on disk, never in the
+// DB). Backend construction (the upload dir) lives in `mw-server` and is injected via
+// `Store::with_upload_backend`.
+mod upload;
 
 pub(crate) use backend::{Backend, Row, q};
 
 pub use ews_cred::EwsAccountCred;
 pub use sso::SsoConfigRow;
+pub use upload::{FsUploadBackend, Upload, UploadBackend, UploadError};
 pub use v6::{
     AdminUserRow, ApiKeyRow, AuditRow, CacheScopeRow, DomainRow, OAuthClientRow, OAuthTokenRow,
     QuotaRow, WebhookRow, ZeroAccessRow,
@@ -77,6 +84,7 @@ pub use v4::{
 pub use v5::{NativeSessionRow, PushSubscriptionRow};
 
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
@@ -93,6 +101,8 @@ pub enum StoreError {
     Migrate(#[from] sqlx::migrate::MigrateError),
     #[error("seal error: {0}")]
     Seal(#[from] SealError),
+    #[error("upload backend error: {0}")]
+    Upload(#[from] upload::UploadError),
     #[error("session not found")]
     NotFound,
     #[error("corrupt store data: {0}")]
@@ -137,6 +147,10 @@ pub struct Session {
 pub struct Store {
     backend: Backend,
     key: ServerKey,
+    /// At-rest storage for sealed upload objects (0012). Defaults to a fail-closed
+    /// backend; `mw-server` injects a real [`FsUploadBackend`] via
+    /// [`Store::with_upload_backend`] at build time.
+    uploads: Arc<dyn UploadBackend>,
 }
 
 impl Store {
@@ -180,6 +194,7 @@ impl Store {
         let store = Self {
             backend: Backend::Postgres(pool),
             key,
+            uploads: upload::fail_closed_backend(),
         };
         sqlx::migrate!("./migrations_pg")
             .run(store.pg_pool())
@@ -201,7 +216,16 @@ impl Store {
         Ok(Self {
             backend: Backend::Sqlite(pool),
             key,
+            uploads: upload::fail_closed_backend(),
         })
+    }
+
+    /// Inject the at-rest upload storage backend (0012). `mw-server` calls this at
+    /// build time with the deployment-configured [`FsUploadBackend`]; a store that
+    /// never has one injected is fail-closed on every upload operation.
+    pub fn with_upload_backend(mut self, backend: Arc<dyn UploadBackend>) -> Self {
+        self.uploads = backend;
+        self
     }
 
     /// The active backend (used by in-crate tests that assert through the shared
@@ -432,6 +456,7 @@ mod tests {
         let other = Store {
             backend: store.backend().clone(),
             key: ServerKey::generate(),
+            uploads: store.uploads.clone(),
         };
         assert!(other.get_session(&id).await.is_err());
     }

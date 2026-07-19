@@ -20,6 +20,12 @@ chrono = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# 0012 upload store (t15): async storage-backend trait (`UploadBackend`) needs a
+# dyn-compatible async trait, and the per-account on-disk subdirectory token is a
+# SHA-256 of the account id. Both crates are already vendored workspace-wide, so this
+# is net-zero new dependency-graph nodes (no C/-sys/openssl).
+async-trait = { workspace = true }
+sha2 = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
