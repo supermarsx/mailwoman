@@ -8,7 +8,7 @@ import {
   type JSX,
 } from 'solid-js';
 import { useApp } from '../state/context.ts';
-import { t, isolate } from '../i18n/index.ts';
+import { t, isolate, loadCatalog } from '../i18n/index.ts';
 import * as a11y from './mailA11y.css.ts';
 // Reading-pane layout switch (W3): the globalStyle overrides keyed on
 // `:root[data-reading-pane]`. Imported for its side effect so the rules ship.
@@ -33,6 +33,14 @@ import { CAP_CORE } from '../api/jmap-types.ts';
 import { CAP_CRYPTO, CAP_SECURITY, type CryptoKey } from '../api/crypto-types.ts';
 import type { Email, EmailAddress } from '../api/jmap-types.ts';
 import type { SecurityVerdict, SignatureVerdict } from '../api/security-types.ts';
+import {
+  analyzeBlockedContent,
+  coveringGrant,
+  createRemoteImageApi,
+  hasBlockedContent,
+  type GrantScope,
+} from '../api/remote-images.ts';
+import { RemoteContentBar } from './RemoteContentBar.tsx';
 
 // The crypto/security JMAP surface (`SecurityVerdict/get`, `SenderControl/set`)
 // is not exposed on `AppState`, so this component drives it over its own client
@@ -41,6 +49,10 @@ import type { SecurityVerdict, SignatureVerdict } from '../api/security-types.ts
 // app-singleton (per-sender + global, persisted in localStorage) — plan §2.5.
 const jmapClient = createConfiguredClient();
 const maxsec = createMaxSecurityStore();
+// Remote-image grant surface (t16 §S8/S9): the reader drives grant/revoke/list
+// over the same session client. The wire shapes are localized in
+// `api/remote-images.ts` (the e6 seam); this reader only calls the interface.
+const remoteImages = createRemoteImageApi(jmapClient);
 
 const SECURITY_USING = [CAP_CORE, CAP_CRYPTO, CAP_SECURITY];
 
@@ -427,6 +439,7 @@ function AutoTagSection(props: { email: Email }): JSX.Element {
 
 export function Reader(): JSX.Element {
   const app = useApp();
+  onMount(() => void loadCatalog('remote-images'));
 
   const emailId = (): string | null => app.openEmail()?.id ?? null;
   const sender = (): string => app.openEmail()?.from?.[0]?.email ?? '';
@@ -510,6 +523,63 @@ export function Reader(): JSX.Element {
     }
   }
 
+  // ── Remote-content (image-grant) bar (t16 §S8/S9) ──────────────────────────
+  // What the sanitizer blocked in the CURRENT body (derived from the sanitized
+  // string, no round-trip). Only meaningful in the full-sanitized mode — in the
+  // no-media / plain-text modes images are stripped regardless of any grant, so
+  // the bar is hidden there rather than offering an action that can't take effect.
+  const blockedReport = createMemo(() => analyzeBlockedContent(app.sanitizedHtml()));
+  const fullMode = (): boolean => maxsec.effectiveMode(sender()) === 'full-sanitized';
+
+  // Active grants for the account, so the bar can show "turn off" (revoke) once a
+  // grant covers the open message. Resilient: a missing/failing endpoint (e.g. e6
+  // not yet deployed) yields no grants, so the blocked state still renders.
+  const [grants, { refetch: refetchGrants }] = createResource(
+    (): { acct: string; id: string } | null => {
+      const id = emailId();
+      const acct = app.accountId();
+      return id !== null && acct !== null ? { acct, id } : null;
+    },
+    async (k) => {
+      try {
+        return await remoteImages.listGrants(k.acct);
+      } catch {
+        return [];
+      }
+    },
+  );
+
+  const activeGrant = createMemo(() => {
+    const id = emailId();
+    if (id === null) return null;
+    return coveringGrant(grants() ?? [], { emailId: id, sender: sender() });
+  });
+
+  const showRemoteBar = (): boolean =>
+    fullMode() && (hasBlockedContent(blockedReport()) || activeGrant() !== null);
+
+  async function reloadOpenMessage(): Promise<void> {
+    const id = emailId();
+    if (id !== null) await app.openMessage(id);
+  }
+
+  async function onRemoteGrant(scope: GrantScope): Promise<void> {
+    const acct = app.accountId();
+    if (acct === null) return;
+    await remoteImages.grant(acct, scope);
+    void refetchGrants();
+    // Re-fetch + re-sanitize so the now-permitted images load through the proxy.
+    await reloadOpenMessage();
+  }
+
+  async function onRemoteRevoke(scope: GrantScope): Promise<void> {
+    const acct = app.accountId();
+    if (acct === null) return;
+    await remoteImages.revoke(acct, scope);
+    void refetchGrants();
+    await reloadOpenMessage();
+  }
+
   return (
     <section
       class="reader"
@@ -547,6 +617,18 @@ export function Reader(): JSX.Element {
               <AutoTagSection email={email()} />
             </header>
             <AttachmentsPane email={email()} />
+            {/* Remote-content bar (§S8/S9): blocked-image/tracker count + the
+                4 grant scopes, above the body it governs. */}
+            <Show when={showRemoteBar()}>
+              <RemoteContentBar
+                emailId={email().id}
+                sender={sender()}
+                report={blockedReport()}
+                activeGrant={activeGrant()}
+                onGrant={onRemoteGrant}
+                onRevoke={onRemoteRevoke}
+              />
+            </Show>
             <Show
               when={showDecrypt()}
               fallback={
