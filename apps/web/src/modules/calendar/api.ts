@@ -116,6 +116,28 @@ export interface EventExportResponse {
   ics: string;
 }
 
+/** A `CalendarEvent/quickAdd` result — the created event id (P3). */
+export interface EventQuickAddResponse {
+  accountId: Id;
+  /** The created master's id, or `null` when the text could not be parsed. */
+  created: Id | null;
+}
+
+/** A `Calendar/subscribe` result — the created subscription calendar id (P6). */
+export interface CalendarSubscribeResponse {
+  accountId: Id;
+  /** The created (read-only overlay) calendar id, or `null` on failure. */
+  created: Id | null;
+}
+
+/** A `Calendar/refreshSubscription` result — the re-sync outcome (P6). */
+export interface CalendarRefreshResponse {
+  accountId: Id;
+  calendarId: Id;
+  /** Events added/updated/removed by the refresh. */
+  changed: number;
+}
+
 /** A `CalendarEvent/import` result — the created event ids. */
 export interface EventImportResponse {
   accountId: Id;
@@ -182,6 +204,27 @@ export function eventsQueryGet(accountId: Id, calendarIds: Id[], limit = 1000): 
   return request(CAL_USING, [
     ['CalendarEvent/query', { accountId, filter: { inCalendars: calendarIds }, limit }, 'q'],
     ['CalendarEvent/get', { accountId, '#ids': { resultOf: 'q', name: 'CalendarEvent/query', path: '/ids' } }, 'g'],
+  ]);
+}
+
+/**
+ * Query the events in `calendarIds` carrying `category` (P4). Uses the engine's
+ * `CalendarEvent/query` `categories` filter condition (e11) and returns the raw
+ * id set — the controller intersects it with the expanded window to narrow the
+ * view to a single category without a second round-trip per instance.
+ */
+export function eventsQueryByCategory(
+  accountId: Id,
+  calendarIds: Id[],
+  category: string,
+  limit = 1000,
+): JmapRequest {
+  return request(CAL_USING, [
+    [
+      'CalendarEvent/query',
+      { accountId, filter: { inCalendars: calendarIds, categories: [category] }, limit },
+      'q',
+    ],
   ]);
 }
 
@@ -264,4 +307,53 @@ export function eventsExport(
   callId = 'export',
 ): JmapRequest {
   return request(CAL_USING, [['CalendarEvent/export', { accountId, ...opts }, callId]]);
+}
+
+/**
+ * Create an event from a natural-language line (P3). The engine's `quickAdd`
+ * parser (e11) turns e.g. "Lunch with Sam Friday 1pm" into a dated event on
+ * `calendarId` (defaulting server-side to the primary calendar when omitted).
+ */
+export function eventQuickAdd(
+  accountId: Id,
+  text: string,
+  calendarId?: Id,
+  callId = 'qa',
+): JmapRequest {
+  const args: Record<string, unknown> = { accountId, text };
+  if (calendarId !== undefined) args['calendarId'] = calendarId;
+  return request(CAL_USING, [['CalendarEvent/quickAdd', args, callId]]);
+}
+
+/**
+ * Subscribe to an external (webcal / ICS URL) calendar as a read-only overlay
+ * (P6). The engine has no arbitrary-URL fetcher, so when the caller already holds
+ * the fetched ICS it passes it as `blob`; otherwise the server-side sync driver
+ * fetches `url`. `name`/`color` seed the overlay's display.
+ */
+export function calendarSubscribe(
+  accountId: Id,
+  opts: { url: string; name?: string; color?: string; blob?: string },
+  callId = 'sub',
+): JmapRequest {
+  const args: Record<string, unknown> = { accountId, url: opts.url };
+  if (opts.name !== undefined) args['name'] = opts.name;
+  if (opts.color !== undefined) args['color'] = opts.color;
+  if (opts.blob !== undefined) args['blob'] = opts.blob;
+  return request(CAL_USING, [['Calendar/subscribe', args, callId]]);
+}
+
+/**
+ * Re-sync a subscription calendar from freshly fetched ICS (P6). `blob` is the
+ * newly fetched calendar body; the engine reconciles the overlay's events to it.
+ */
+export function calendarRefreshSubscription(
+  accountId: Id,
+  calendarId: Id,
+  blob?: string,
+  callId = 'refresh',
+): JmapRequest {
+  const args: Record<string, unknown> = { accountId, calendarId };
+  if (blob !== undefined) args['blob'] = blob;
+  return request(CAL_USING, [['Calendar/refreshSubscription', args, callId]]);
 }

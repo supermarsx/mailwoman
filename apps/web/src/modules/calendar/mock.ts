@@ -11,18 +11,23 @@ import { dateToLocal, localToDate } from './datetime.ts';
 import { expandEvent } from './recurrence.ts';
 import type {
   CalendarGetResponse,
+  CalendarRefreshResponse,
   CalendarSetResponse,
+  CalendarSubscribeResponse,
   DetectConflictsResponse,
   EventExpandResponse,
   EventExportResponse,
   EventGetResponse,
   EventImportResponse,
+  EventQueryResponse,
+  EventQuickAddResponse,
   EventSetResponse,
   ExpandedInstance,
   FreeBusyBlock,
   FreeBusyResponse,
   ConflictPairResponse,
 } from './api.ts';
+import type { CalendarEventExt } from './types.ts';
 
 const ACCOUNT = 'acct-mock';
 
@@ -311,6 +316,70 @@ function dispatch(store: MockStore, call: Invocation): Invocation {
         created.push(id);
       }
       const res: EventImportResponse = { accountId: ACCOUNT, created, notCreated: [] };
+      return ok(callId, name, res);
+    }
+    case 'CalendarEvent/query': {
+      // Minimal query: honour `inCalendars` + the P4 `categories` condition. Ids
+      // are returned in store order (the controller only needs the set).
+      const filter = (args['filter'] as Record<string, unknown> | undefined) ?? {};
+      const inCals = filter['inCalendars'] as string[] | undefined;
+      const wantCats = filter['categories'] as string[] | undefined;
+      const ids = store.events
+        .filter((e) => inCals === undefined || inCals.includes(e.calendarId))
+        .filter((e) => {
+          if (wantCats === undefined || wantCats.length === 0) return true;
+          const have = (e as CalendarEventExt).categories ?? [];
+          return wantCats.every((c) => have.includes(c));
+        })
+        .map((e) => e.id);
+      const res: EventQueryResponse = { accountId: ACCOUNT, queryState: '1', ids, position: 0, total: ids.length };
+      return ok(callId, name, res);
+    }
+    case 'CalendarEvent/quickAdd': {
+      // Stand-in NL parse: the real engine (e11) derives the date/time; the mock
+      // just anchors the typed text as a 1-hour event on the target calendar.
+      const text = String(args['text'] ?? '').trim();
+      if (text === '') {
+        const res: EventQuickAddResponse = { accountId: ACCOUNT, created: null };
+        return ok(callId, name, res);
+      }
+      const id = nextId('ev');
+      store.events.push(
+        baseEvent({
+          id,
+          calendarId: (args['calendarId'] as string) ?? store.calendars[0]!.id,
+          title: text,
+          start: dateToLocal(new Date()),
+        }),
+      );
+      const res: EventQuickAddResponse = { accountId: ACCOUNT, created: id };
+      return ok(callId, name, res);
+    }
+    case 'Calendar/subscribe': {
+      // A subscription is a read-only overlay pinned to the source URL. The mock
+      // creates an empty overlay; the engine populates it from the fetched ICS.
+      const id = nextId('cal');
+      const url = String(args['url'] ?? '');
+      const cal: Calendar = {
+        id,
+        name: (args['name'] as string) ?? url,
+        color: (args['color'] as string) ?? '#22c55e',
+        order: store.calendars.length,
+        isVisible: true,
+        isSubscribed: true,
+        role: null,
+        shareWith: [],
+        caldavUrl: url,
+        syncToken: null,
+        isReadOnlyOverlay: true,
+      };
+      store.calendars.push(cal);
+      const res: CalendarSubscribeResponse = { accountId: ACCOUNT, created: id };
+      return ok(callId, name, res);
+    }
+    case 'Calendar/refreshSubscription': {
+      const calendarId = String(args['calendarId'] ?? '');
+      const res: CalendarRefreshResponse = { accountId: ACCOUNT, calendarId, changed: 0 };
       return ok(callId, name, res);
     }
     case 'CalendarEvent/export': {

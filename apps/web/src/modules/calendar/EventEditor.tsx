@@ -15,10 +15,13 @@ import {
   ATTENDEE_ROLES,
   attendeeRoleToLegacy,
   attendeeRoleToRoles,
+  eventAttachments,
+  eventCategories,
   participantCutype,
   participantRole,
   type AttendeeCutype,
   type AttendeeRole,
+  type EventAttachment,
   type ParticipantExt,
 } from './types.ts';
 
@@ -116,6 +119,13 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
   const [attendees, setAttendees] = createSignal<AttendeeRow[]>(initialAttendees);
   const [newAttendee, setNewAttendee] = createSignal('');
 
+  // ── categories (P4) + attachments (P5) ──
+  const [categories, setCategories] = createSignal<string[]>(ev !== null ? eventCategories(ev) : []);
+  const [newCategory, setNewCategory] = createSignal('');
+  const [attachments, setAttachments] = createSignal<EventAttachment[]>(ev !== null ? eventAttachments(ev) : []);
+  const [newAttachTitle, setNewAttachTitle] = createSignal('');
+  const [newAttachUri, setNewAttachUri] = createSignal('');
+
   // ── invite state (is this event addressed to me and awaiting a reply?) ──
   const myParticipation = createMemo<Participant | null>(() => (ev !== null ? (ev.participants['me'] ?? null) : null));
   const isInvite = createMemo(() => myParticipation() !== null);
@@ -175,6 +185,22 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
     setNewAttendee('');
   }
 
+  function addCategory(): void {
+    const raw = newCategory().trim();
+    if (raw === '') return;
+    setCategories((cur) => (cur.includes(raw) ? cur : [...cur, raw]));
+    setNewCategory('');
+  }
+
+  function addAttachment(): void {
+    const uri = newAttachUri().trim();
+    if (uri === '') return;
+    const title = newAttachTitle().trim();
+    setAttachments((cur) => [...cur, title === '' ? { uri } : { uri, title }]);
+    setNewAttachTitle('');
+    setNewAttachUri('');
+  }
+
   function setAttendeeRole(i: number, role: AttendeeRole): void {
     setAttendees((cur) => cur.map((a, j) => (j === i ? { ...a, role } : a)));
   }
@@ -220,6 +246,8 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
       freeBusyStatus: freeBusyStatus(),
       participants: participants as CalendarEvent['participants'],
       alerts,
+      categories: categories(),
+      attachments: attachments(),
     };
   }
 
@@ -228,6 +256,8 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
     if (ev === null) {
       await props.controller.createEvent(draft);
     } else {
+      // The P4/P5 fields are additive over the frozen `CalendarEvent` patch shape
+      // (see `CalendarEventExt`); the cast keeps that frozen type untouched.
       await props.controller.updateEvent(ev.id, {
         calendarId: draft.calendarId,
         title: draft.title,
@@ -242,7 +272,9 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
         freeBusyStatus: draft.freeBusyStatus ?? 'busy',
         participants: draft.participants ?? {},
         alerts: draft.alerts ?? {},
-      });
+        categories: draft.categories ?? [],
+        attachments: draft.attachments ?? [],
+      } as Partial<CalendarEvent>);
     }
     props.onClose();
   }
@@ -518,6 +550,79 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
               aria-label={t('calendar-add-attendee')}
             />
             <button type="button" class={css.button} onClick={addAttendee}>{t('common-add')}</button>
+          </div>
+        </div>
+
+        {/* ── categories (P4) ── */}
+        <div class={css.field}>
+          <label class={css.label}>{t('calendar-categories')}</label>
+          <div class={css.row}>
+            <For each={categories()}>
+              {(cat, i) => (
+                <span class={css.chip}>
+                  <bdi>{cat}</bdi>
+                  <button
+                    type="button"
+                    class={css.button}
+                    aria-label={t('calendar-remove-category', { name: isolate(cat) })}
+                    onClick={() => setCategories((cur) => cur.filter((_, j) => j !== i()))}
+                  >
+                    ×
+                  </button>
+                </span>
+              )}
+            </For>
+            <input
+              class={css.input}
+              placeholder={t('calendar-category-placeholder')}
+              value={newCategory()}
+              onInput={(e) => setNewCategory(e.currentTarget.value)}
+              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addCategory())}
+              aria-label={t('calendar-add-category')}
+            />
+            <button type="button" class={css.button} onClick={addCategory} aria-label={t('calendar-add-category')}>{t('common-add')}</button>
+          </div>
+        </div>
+
+        {/* ── attachments (P5) ── */}
+        <div class={css.field}>
+          <label class={css.label}>{t('calendar-attachments')}</label>
+          <ul class={css.attendeeList}>
+            <For each={attachments()}>
+              {(att, i) => (
+                <li class={css.attendeeRow}>
+                  <span class={css.attendeeEmail}>
+                    <bdi>{att.title !== undefined && att.title !== '' ? att.title : (att.uri ?? att.blobId ?? '')}</bdi>
+                  </span>
+                  <button
+                    type="button"
+                    class={css.button}
+                    aria-label={t('calendar-remove-attachment', { name: isolate(att.title ?? att.uri ?? '') })}
+                    onClick={() => setAttachments((cur) => cur.filter((_, j) => j !== i()))}
+                  >
+                    ×
+                  </button>
+                </li>
+              )}
+            </For>
+          </ul>
+          <div class={css.row}>
+            <input
+              class={css.input}
+              placeholder={t('calendar-attachment-title-placeholder')}
+              value={newAttachTitle()}
+              onInput={(e) => setNewAttachTitle(e.currentTarget.value)}
+              aria-label={t('calendar-attachment-title')}
+            />
+            <input
+              class={css.input}
+              placeholder="https://…"
+              value={newAttachUri()}
+              onInput={(e) => setNewAttachUri(e.currentTarget.value)}
+              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addAttachment())}
+              aria-label={t('calendar-attachment-uri')}
+            />
+            <button type="button" class={css.button} onClick={addAttachment} aria-label={t('calendar-attachment-add')}>{t('common-add')}</button>
           </div>
         </div>
 

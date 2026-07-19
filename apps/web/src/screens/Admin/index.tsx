@@ -35,6 +35,7 @@ import { AdminAssist } from './Assist/index.tsx';
 import { AdminSso } from './Sso/index.tsx';
 import { ServerMetadata } from './ServerMetadata.tsx';
 import { RethreadMaintenance } from './RethreadMaintenance.tsx';
+import { TwoFactorPolicy } from './TwoFactorPolicy.tsx';
 import * as css from './admin.css.ts';
 
 /** Localised nav labels per section (the source labels live in admin.ftl). */
@@ -87,6 +88,11 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
   // action. `rethreadActive`/`metaActive`/`ssoActive` and the union sections are
   // mutually exclusive (each click resets the others).
   const [rethreadActive, setRethreadActive] = createSignal(false);
+  // t16 require-2FA policy (DQ2): a fourth local section layered on the frozen
+  // `AdminSection` set, mirroring `rethreadActive` — the admin require-2FA policy
+  // (global / per-domain). Mutually exclusive with the others (each click resets
+  // the rest); the frozen `AdminSection` union stays untouched.
+  const [twofaActive, setTwofaActive] = createSignal(false);
   onMount(() => void admin.loadSession());
   onMount(() => void loadCatalog('admin'));
   // Roving-tabindex nav: one Tab lands on the current section, arrows move
@@ -106,11 +112,14 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
                     type="button"
                     class={css.navItem}
                     data-roving-item
-                    aria-current={!ssoActive() && !metaActive() && !rethreadActive() && admin.section() === s}
+                    aria-current={
+                      !ssoActive() && !metaActive() && !rethreadActive() && !twofaActive() && admin.section() === s
+                    }
                     onClick={() => {
                       setSsoActive(false);
                       setMetaActive(false);
                       setRethreadActive(false);
+                      setTwofaActive(false);
                       admin.setSection(s);
                     }}
                   >
@@ -126,6 +135,7 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
                 onClick={() => {
                   setMetaActive(false);
                   setRethreadActive(false);
+                  setTwofaActive(false);
                   setSsoActive(true);
                 }}
               >
@@ -139,6 +149,7 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
                 onClick={() => {
                   setSsoActive(false);
                   setRethreadActive(false);
+                  setTwofaActive(false);
                   setMetaActive(true);
                 }}
               >
@@ -152,10 +163,25 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
                 onClick={() => {
                   setSsoActive(false);
                   setMetaActive(false);
+                  setTwofaActive(false);
                   setRethreadActive(true);
                 }}
               >
                 {t('admin-nav-rethread')}
+              </button>
+              <button
+                type="button"
+                class={css.navItem}
+                data-roving-item
+                aria-current={twofaActive()}
+                onClick={() => {
+                  setSsoActive(false);
+                  setMetaActive(false);
+                  setRethreadActive(false);
+                  setTwofaActive(true);
+                }}
+              >
+                {t('admin-nav-2fa')}
               </button>
               <button type="button" class="btn btn--ghost" onClick={() => void admin.logout()}>
                 {t('admin-sign-out')}
@@ -164,21 +190,28 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
             <main class={css.main}>
               <Suspense fallback={<div class={css.note}>{t('common-loading')}</div>}>
                 <Show
-                  when={rethreadActive()}
+                  when={twofaActive()}
                   fallback={
                     <Show
-                      when={metaActive()}
+                      when={rethreadActive()}
                       fallback={
-                        <Show when={ssoActive()} fallback={<Dynamic component={SECTION_VIEWS[admin.section()]} />}>
-                          <AdminSso />
+                        <Show
+                          when={metaActive()}
+                          fallback={
+                            <Show when={ssoActive()} fallback={<Dynamic component={SECTION_VIEWS[admin.section()]} />}>
+                              <AdminSso />
+                            </Show>
+                          }
+                        >
+                          <ServerMetadata api={admin.api} />
                         </Show>
                       }
                     >
-                      <ServerMetadata api={admin.api} />
+                      <RethreadMaintenance api={admin.api} />
                     </Show>
                   }
                 >
-                  <RethreadMaintenance api={admin.api} />
+                  <TwoFactorPolicy api={admin.api} />
                 </Show>
               </Suspense>
             </main>

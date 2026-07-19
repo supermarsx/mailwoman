@@ -17,6 +17,7 @@ admin-nav-assist = Assist
 admin-nav-sso = Single sign-on
 admin-nav-servermeta = Server metadata
 admin-nav-rethread = Re-thread mailbox
+admin-nav-2fa = Require two-factor
 
 # Shared admin actions / states
 admin-delete = Delete
@@ -367,3 +368,27 @@ admin-rethread-running = Re-threading…
 admin-rethread-cancel = Cancel
 admin-rethread-summary = Re-threaded { $messages } message(s) into { $threads } thread(s) across { $accounts } account(s); { $reassigned } message(s) moved to a different thread.
 admin-rethread-error = The re-thread action failed. No thread grouping was changed if the server rejected the request; check the server logs and try again.
+
+# -- Require two-factor policy (DQ2, t16 26.16) ------------------------------
+# The require-2FA policy (global / per-domain). Any user may enrol a factor on
+# their own; this panel governs where a second factor is REQUIRED. A required but
+# not-yet-enrolled account is prompted to enrol on its next sign-in. Keys are
+# disjoint from admin-security-* (SecurityPolicy has its own global require2fa
+# checkbox; this panel adds the per-domain policy and shares the same intent).
+admin-2fa-title = Require two-factor
+admin-2fa-intro = Require a second factor (passkey or authenticator app) for sign-in. Any user may enrol a factor on their own; requiring it here forces accounts in scope to enrol on their next sign-in.
+admin-2fa-load-error = Could not load the two-factor policy.
+admin-2fa-save-error = Could not save the two-factor policy.
+admin-2fa-global = Require two-factor for the whole deployment
+admin-2fa-global-label = Require two-factor for the whole deployment
+admin-2fa-global-note = When on, every account must have a second factor. A per-domain rule below can also require it for one domain without requiring it everywhere.
+admin-2fa-domains-heading = Per-domain requirements
+admin-2fa-domains-empty = No per-domain requirements set.
+admin-2fa-col-domain = Domain
+admin-2fa-col-require = Required
+admin-2fa-require-for = Require two-factor for { $domain }
+admin-2fa-add-domain = Domain
+admin-2fa-add-domain-placeholder = example.com
+admin-2fa-add-require = Require two-factor for this domain
+admin-2fa-add-require-label = Require two-factor for this domain
+admin-2fa-add-save = Add domain rule

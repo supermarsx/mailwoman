@@ -136,3 +136,48 @@ export function participantCutype(p: ParticipantExt): AttendeeCutype {
   const kind = (p.kind ?? '').toLowerCase();
   return (ATTENDEE_CUTYPES as readonly string[]).includes(kind) ? (kind as AttendeeCutype) : 'individual';
 }
+
+// ── Event categories + attachments (P4 / P5) ─────────────────────────────────
+//
+// The frozen `CalendarEvent` surface (`api/pim-types.ts`) predates the P4
+// categories + P5 attachments the engine (e11) now accepts on create/set. Rather
+// than edit that frozen shape, the module overlays the two optional fields here —
+// the same additive pattern `ParticipantExt` uses for the JSCalendar attendee
+// fields. Both are optional so an event that predates them round-trips unchanged
+// (the editor reads `categories`/`attachments` when present, defaults to `[]`).
+
+/** A JSCalendar `links`-style attachment on an event (P5). One of `blobId`/`uri`
+ *  identifies the payload; `title` is the display name shown in the editor. */
+export interface EventAttachment {
+  /** An uploaded-blob id (Mailwoman blob store), when the file was uploaded. */
+  blobId?: string;
+  /** An external URI (e.g. a shared-drive link), when not an uploaded blob. */
+  uri?: string;
+  /** Display name for the attachment. */
+  title?: string;
+  /** MIME type, when known. */
+  contentType?: string;
+}
+
+/**
+ * `CalendarEvent` overlaid with the optional P4/P5 fields the engine round-trips
+ * on `CalendarEvent/set` (`categories` free-form tags, `attachments`). Built over
+ * the frozen shape: both are optional, so the module reads/writes them when
+ * present and degrades cleanly when absent.
+ */
+export interface CalendarEventExt extends CalendarEvent {
+  categories?: string[];
+  attachments?: EventAttachment[];
+}
+
+/** Read an event's categories (P4), tolerating the frozen shape without them. */
+export function eventCategories(ev: CalendarEvent): string[] {
+  const cats = (ev as CalendarEventExt).categories;
+  return Array.isArray(cats) ? cats : [];
+}
+
+/** Read an event's attachments (P5), tolerating the frozen shape without them. */
+export function eventAttachments(ev: CalendarEvent): EventAttachment[] {
+  const atts = (ev as CalendarEventExt).attachments;
+  return Array.isArray(atts) ? atts : [];
+}

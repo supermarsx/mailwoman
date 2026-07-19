@@ -171,3 +171,45 @@ calendar-fb-cell = { $principal } at { $hour }: { $status }
 calendar-fb-busy = Busy
 calendar-fb-tentative = Tentative
 calendar-fb-free = Free
+
+# -- Quick add (P3): natural-language event line ------------------------------
+calendar-quick-add = Quick add event
+calendar-quick-add-placeholder = Quick add, e.g. Lunch Friday 1pm
+calendar-quick-add-btn = Add
+calendar-quick-add-do = Quick add
+
+# -- Categories (P4) ---------------------------------------------------------
+calendar-categories = Categories
+calendar-add-category = Add category
+calendar-category-placeholder = Add a category
+calendar-remove-category = Remove category { $name }
+calendar-filter-heading = Filter
+calendar-filter-category = Filter by category
+calendar-filter-category-placeholder = Category to show
+
+# -- Attachments (P5) --------------------------------------------------------
+calendar-attachments = Attachments
+calendar-attachment-title = Attachment name
+calendar-attachment-title-placeholder = Name (optional)
+calendar-attachment-uri = Attachment link
+calendar-attachment-add = Add attachment
+calendar-remove-attachment = Remove attachment { $name }
+
+# -- Subscribe to a calendar URL (P6) ----------------------------------------
+calendar-subscribe-heading = Subscribe by URL
+calendar-subscribe-url = Calendar URL
+calendar-subscribe-add = Subscribe
+
+# -- Calendar sharing (P1) ---------------------------------------------------
+calendar-share = Share
+calendar-share-for = Share { $name }
+calendar-share-title = Share { $name }
+calendar-share-intro = People you share with can see this calendar. Give read-write access to let them add and edit events.
+calendar-share-people = Shared with
+calendar-share-empty = This calendar is not shared with anyone.
+calendar-share-add = Add a person
+calendar-share-new-access = Access for the new person
+calendar-share-access-for = Access for { $principal }
+calendar-share-remove = Remove { $principal }
+calendar-share-read = Read only
+calendar-share-readwrite = Read & write

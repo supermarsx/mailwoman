@@ -10,12 +10,13 @@
 
 import { For, Show, createSignal, onMount, type JSX } from 'solid-js';
 import { t, loadCatalog } from '../../i18n';
-import type { CalendarEvent } from '../../api/pim-types.ts';
+import type { Calendar, CalendarEvent } from '../../api/pim-types.ts';
 import { createCalendarController, type CalendarBackend, type CalendarController } from './controller.ts';
 import { createMockStore, mockSession, createMockJmap, type MockStore } from './mock.ts';
 import { CALENDAR_VIEWS, type CalendarView } from './types.ts';
 import { ActiveView } from './views.tsx';
 import { EventEditor } from './EventEditor.tsx';
+import { ShareDialog } from './ShareDialog.tsx';
 import { ConflictResolver } from './ConflictResolver.tsx';
 import { formatFull, formatMonth, formatMonthYear } from './datetime.ts';
 import { HOLIDAY_PACKS } from './holidays.ts';
@@ -63,6 +64,11 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
   const [editing, setEditing] = createSignal<CalendarEvent | null>(null);
   const [defaultStart, setDefaultStart] = createSignal<Date | undefined>(undefined);
   const [resolverOpen, setResolverOpen] = createSignal(false);
+  // P1 share dialog target, P3 quick-add line, P4 category filter, P6 webcal URL.
+  const [sharing, setSharing] = createSignal<Calendar | null>(null);
+  const [quickText, setQuickText] = createSignal('');
+  const [catFilter, setCatFilter] = createSignal('');
+  const [webcalUrl, setWebcalUrl] = createSignal('');
 
   onMount(() => {
     void loadCatalog('calendar');
@@ -107,6 +113,25 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
     await c.importIcs(target, pack.ics);
   }
 
+  async function onQuickAdd(): Promise<void> {
+    const text = quickText().trim();
+    if (text === '') return;
+    await c.quickAdd(text);
+    setQuickText('');
+  }
+
+  async function onWebcalSubscribe(): Promise<void> {
+    const url = webcalUrl().trim();
+    if (url === '') return;
+    await c.subscribeUrl(url);
+    setWebcalUrl('');
+  }
+
+  function onCategoryFilter(value: string): void {
+    setCatFilter(value);
+    c.setCategoryFilter(value === '' ? null : value);
+  }
+
   let importInput: HTMLInputElement | undefined;
 
   return (
@@ -143,6 +168,16 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
           </button>
         </Show>
         <button type="button" class={css.primaryButton} onClick={openNew}>{t('calendar-new-event')}</button>
+        <input
+          class={css.input}
+          style={{ 'min-width': '12rem' }}
+          placeholder={t('calendar-quick-add-placeholder')}
+          value={quickText()}
+          onInput={(e) => setQuickText(e.currentTarget.value)}
+          onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), void onQuickAdd())}
+          aria-label={t('calendar-quick-add')}
+        />
+        <button type="button" class={css.button} onClick={() => void onQuickAdd()} aria-label={t('calendar-quick-add-do')}>{t('calendar-quick-add-btn')}</button>
         <button type="button" class={css.button} onClick={() => importInput?.click()}>{t('calendar-import')}</button>
         <button type="button" class={css.button} onClick={() => void onExport()}>{t('calendar-export')}</button>
         <input
@@ -176,10 +211,18 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
                       aria-label={t('calendar-color-for', { name: cal.name })}
                       style={{ width: '1.4rem', height: '1.4rem', padding: 0, border: 'none', background: 'none' }}
                     />
-                    <span><bdi>{cal.name}</bdi></span>
+                    <span style={{ flex: 1 }}><bdi>{cal.name}</bdi></span>
                     <Show when={cal.isReadOnlyOverlay || cal.caldavUrl !== null}>
                       <span class={css.dimText} title={cal.caldavUrl ?? t('calendar-synced')} aria-label={t('calendar-synced')}>⇅</span>
                     </Show>
+                    <button
+                      type="button"
+                      class={css.button}
+                      onClick={() => setSharing(cal)}
+                      aria-label={t('calendar-share-for', { name: cal.name })}
+                    >
+                      {t('calendar-share')}
+                    </button>
                   </li>
                 )}
               </For>
@@ -187,6 +230,35 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
             <button type="button" class={css.button} style={{ 'margin-top': '0.5rem' }} onClick={() => void c.createCalendar(t('calendar-new-calendar-name'), '#22c55e')}>
               {t('calendar-add-calendar')}
             </button>
+          </div>
+
+          <div>
+            <h3 style={{ margin: '0 0 0.25rem', 'font-size': '0.85rem' }}>{t('calendar-filter-heading')}</h3>
+            <input
+              class={css.input}
+              placeholder={t('calendar-filter-category-placeholder')}
+              value={catFilter()}
+              onInput={(e) => onCategoryFilter(e.currentTarget.value)}
+              aria-label={t('calendar-filter-category')}
+            />
+          </div>
+
+          <div>
+            <h3 style={{ margin: '0 0 0.25rem', 'font-size': '0.85rem' }}>{t('calendar-subscribe-heading')}</h3>
+            <div class={css.row}>
+              <input
+                class={css.input}
+                type="url"
+                placeholder="https://…/calendar.ics"
+                value={webcalUrl()}
+                onInput={(e) => setWebcalUrl(e.currentTarget.value)}
+                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), void onWebcalSubscribe())}
+                aria-label={t('calendar-subscribe-url')}
+              />
+              <button type="button" class={css.button} onClick={() => void onWebcalSubscribe()}>
+                {t('calendar-subscribe-add')}
+              </button>
+            </div>
           </div>
 
           <div>
@@ -213,6 +285,10 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
 
       <Show when={resolverOpen()}>
         <ConflictResolver controller={c} onClose={() => setResolverOpen(false)} />
+      </Show>
+
+      <Show when={sharing()}>
+        {(cal) => <ShareDialog controller={c} calendar={cal()} onClose={() => setSharing(null)} />}
       </Show>
     </section>
   );

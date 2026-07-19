@@ -13,23 +13,30 @@ import type { Id, JmapRequest, JmapResponse } from '../../api/jmap-types.ts';
 import { responseFor } from '../../api/jmap.ts';
 import type { Calendar, CalendarEvent } from '../../api/pim-types.ts';
 import {
+  calendarRefreshSubscription,
   calendarSet,
+  calendarSubscribe,
   calendarsGet,
   detectConflicts,
+  eventQuickAdd,
   eventRespond,
   eventSet,
   eventsExpand,
   eventsExport,
   eventsGetAll,
   eventsImport,
+  eventsQueryByCategory,
   freeBusy,
   type CalendarGetResponse,
   type CalendarSetResponse,
+  type CalendarSubscribeResponse,
   type DetectConflictsResponse,
   type EventExpandResponse,
   type EventExportResponse,
   type EventGetResponse,
   type EventImportResponse,
+  type EventQueryResponse,
+  type EventQuickAddResponse,
   type EventSetResponse,
   type ExpandedInstance,
   type FreeBusyBlock,
@@ -46,7 +53,7 @@ import {
   startOfMonth,
   startOfWeek,
 } from './datetime.ts';
-import type { CalendarView, ConflictPair, EventInstance } from './types.ts';
+import type { CalendarView, ConflictPair, EventAttachment, EventInstance } from './types.ts';
 
 /** The transport the controller runs over (mock or the real engine). */
 export interface CalendarBackend {
@@ -71,6 +78,10 @@ export interface EventDraft {
   freeBusyStatus?: CalendarEvent['freeBusyStatus'];
   participants?: CalendarEvent['participants'];
   alerts?: CalendarEvent['alerts'];
+  /** Free-form category tags (P4). */
+  categories?: string[];
+  /** Blob/URI attachments (P5). */
+  attachments?: EventAttachment[];
 }
 
 /** The inclusive-start / exclusive-end window a view displays. */
@@ -93,6 +104,8 @@ export interface CalendarController {
   conflictEventIds: Accessor<Set<Id>>;
   /** The overlapping instance pairs in the window (for the resolver). */
   conflicts: Accessor<ConflictPair[]>;
+  /** The active category filter (P4), or `null` when unfiltered. */
+  categoryFilter: Accessor<string | null>;
 
   // ── derived ──
   visibleCalendars: Accessor<Calendar[]>;
@@ -112,11 +125,17 @@ export interface CalendarController {
   // ── data ──
   load(): Promise<void>;
 
+  // ── category filter (P4) ──
+  /** Restrict the view to events carrying `category` (or clear with `null`). */
+  setCategoryFilter(category: string | null): void;
+
   // ── event mutations ──
   createEvent(draft: EventDraft): Promise<Id | null>;
   updateEvent(id: Id, patch: Partial<CalendarEvent>): Promise<void>;
   deleteEvent(id: Id): Promise<void>;
   respond(eventId: Id, action: RespondAction, counter?: { start: string; duration: string }): Promise<void>;
+  /** Create an event from a natural-language line (P3). */
+  quickAdd(text: string): Promise<Id | null>;
 
   // ── calendar mutations ──
   toggleCalendar(id: Id): Promise<void>;
@@ -124,6 +143,12 @@ export interface CalendarController {
   createCalendar(name: string, color: string): Promise<Id | null>;
   deleteCalendar(id: Id): Promise<void>;
   shareCalendar(id: Id, principal: string, access: 'read' | 'readWrite'): Promise<void>;
+  /** Remove a principal's share grant from a calendar (P1). */
+  unshareCalendar(id: Id, principal: string): Promise<void>;
+  /** Subscribe to an external ICS/webcal URL as a read-only overlay (P6). */
+  subscribeUrl(url: string, name?: string, color?: string): Promise<Id | null>;
+  /** Re-sync a subscription calendar (P6). */
+  refreshSubscription(calendarId: Id, blob?: string): Promise<void>;
 
   // ── ics / free-busy ──
   importIcs(calendarId: Id, ics: string): Promise<number>;
@@ -200,6 +225,7 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
   const [error, setError] = createSignal<string | null>(null);
   const [conflictEventIds, setConflictEventIds] = createSignal<Set<Id>>(new Set());
   const [conflicts, setConflicts] = createSignal<ConflictPair[]>([]);
+  const [categoryFilter, setCategoryFilterSig] = createSignal<string | null>(null);
 
   const window = createMemo<ViewWindow>(() => windowFor(view(), focusDate()));
 
@@ -276,9 +302,22 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
       const conRes = await backend.jmap(detectConflicts(acct, calIds, startL, endL));
       const conflicts = responseFor<DetectConflictsResponse>(conRes, 'conflicts').list;
 
+      // P4: when a category filter is active, ask the engine which event ids carry
+      // it (`CalendarEvent/query` `categories` condition) and narrow the masters +
+      // expanded instances to that set. Clearing the filter skips the query.
+      const cat = categoryFilter();
+      let masterList = allMasters;
+      let instanceRows = expanded;
+      if (cat !== null && cat !== '') {
+        const qRes = await backend.jmap(eventsQueryByCategory(acct, calIds, cat));
+        const matched = new Set(responseFor<EventQueryResponse>(qRes, 'q').ids);
+        masterList = allMasters.filter((m) => matched.has(m.id));
+        instanceRows = expanded.filter((i) => matched.has(i.eventId));
+      }
+
       batch(() => {
-        setMasters(allMasters);
-        setInstances(buildInstances(allMasters, expanded));
+        setMasters(masterList);
+        setInstances(buildInstances(masterList, instanceRows));
         const ids = new Set<Id>();
         for (const p of conflicts) {
           ids.add(p.eventA);
@@ -327,7 +366,10 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
   async function createEvent(draft: EventDraft): Promise<Id | null> {
     const acct = await backend.resolveAccount();
     if (acct === null) return null;
-    const create: Partial<CalendarEvent> = {
+    // Built as the frozen shape plus the additive P4/P5 fields (categories /
+    // attachments) the engine accepts on set; the cast keeps the frozen
+    // `CalendarEvent` type untouched (see `CalendarEventExt`).
+    const create: Partial<CalendarEvent> & { categories?: string[]; attachments?: EventAttachment[] } = {
       calendarId: draft.calendarId,
       title: draft.title,
       description: draft.description ?? '',
@@ -342,6 +384,8 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
       freeBusyStatus: draft.freeBusyStatus ?? 'busy',
       participants: draft.participants ?? {},
       alerts: draft.alerts ?? {},
+      categories: draft.categories ?? [],
+      attachments: draft.attachments ?? [],
     };
     const res = await backend.jmap(eventSet(acct, { create: { new: create } }));
     const set = responseFor<EventSetResponse>(res, 'set');
@@ -373,6 +417,27 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
     if (acct === null) return;
     await backend.jmap(eventRespond(acct, eventId, action, counter));
     await load();
+  }
+
+  async function quickAdd(text: string): Promise<Id | null> {
+    const trimmed = text.trim();
+    if (trimmed === '') return null;
+    const acct = await backend.resolveAccount();
+    if (acct === null) return null;
+    // Default the target to the first visible calendar (else the first calendar);
+    // the engine falls back to the primary calendar when none is passed.
+    const target = visibleCalendars()[0]?.id ?? calendars()[0]?.id;
+    const res = await backend.jmap(eventQuickAdd(acct, trimmed, target));
+    const id = responseFor<EventQuickAddResponse>(res, 'qa').created;
+    await load();
+    return id;
+  }
+
+  // ── category filter (P4) ──
+  function setCategoryFilter(category: string | null): void {
+    const next = category === null || category.trim() === '' ? null : category.trim();
+    setCategoryFilterSig(next);
+    void load();
   }
 
   // ── calendar mutations ──
@@ -423,6 +488,38 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
     await load();
   }
 
+  async function unshareCalendar(id: Id, principal: string): Promise<void> {
+    const acct = await backend.resolveAccount();
+    if (acct === null) return;
+    const cal = calendars().find((c) => c.id === id);
+    if (cal === undefined) return;
+    const shareWith = cal.shareWith.filter((s) => s.principal !== principal);
+    await backend.jmap(calendarSet(acct, { update: { [id]: { shareWith } } }));
+    await load();
+  }
+
+  // ── subscriptions (P6) ──
+  async function subscribeUrl(url: string, name?: string, color?: string): Promise<Id | null> {
+    const trimmed = url.trim();
+    if (trimmed === '') return null;
+    const acct = await backend.resolveAccount();
+    if (acct === null) return null;
+    const opts: { url: string; name?: string; color?: string } = { url: trimmed };
+    if (name !== undefined && name !== '') opts.name = name;
+    if (color !== undefined && color !== '') opts.color = color;
+    const res = await backend.jmap(calendarSubscribe(acct, opts));
+    const id = responseFor<CalendarSubscribeResponse>(res, 'sub').created;
+    await load();
+    return id;
+  }
+
+  async function refreshSubscription(calendarId: Id, blob?: string): Promise<void> {
+    const acct = await backend.resolveAccount();
+    if (acct === null) return;
+    await backend.jmap(calendarRefreshSubscription(acct, calendarId, blob));
+    await load();
+  }
+
   // ── ics / free-busy ──
   async function importIcs(calendarId: Id, ics: string): Promise<number> {
     const acct = await backend.resolveAccount();
@@ -457,6 +554,7 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
     error,
     conflictEventIds,
     conflicts,
+    categoryFilter,
     visibleCalendars,
     visibleInstances,
     window,
@@ -469,15 +567,20 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
     goNext,
     goToDate,
     load,
+    setCategoryFilter,
     createEvent,
     updateEvent,
     deleteEvent,
     respond,
+    quickAdd,
     toggleCalendar,
     setCalendarColor,
     createCalendar,
     deleteCalendar,
     shareCalendar,
+    unshareCalendar,
+    subscribeUrl,
+    refreshSubscription,
     importIcs,
     exportIcs,
     queryFreeBusy,
