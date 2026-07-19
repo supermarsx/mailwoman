@@ -54,6 +54,15 @@ use crate::plugins::PluginRegistry;
 #[path = "admin_plugins.rs"]
 mod admin_plugins;
 
+// The host-side bridge OAuth client (26.16 B1): device-code / auth-code / refresh flows
+// backing the `oauth-token` import. Declared as a CHILD module of `v7_mount` (via
+// `#[path]`) for the same reason as `admin_plugins` above — `lib.rs` is owned by another
+// executor this wave and must not be concurrently edited, and the provider this module
+// backs is injected through [`host_services`] (owned here), so it reaches the running
+// host without any `lib.rs` change. The file lives at `crates/mw-server/src/oauth_client.rs`.
+#[path = "oauth_client.rs"]
+mod oauth_client;
+
 fn env(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|s| !s.is_empty())
 }
@@ -136,16 +145,36 @@ impl HttpFetcher for ReqwestFetcher {
     }
 }
 
-/// The host `oauth-token` provider. Bridges acquire short-lived tokens through this;
-/// the host holds the long-lived secret, the guest never sees it. Deployments seed
-/// bridge tokens out-of-band (the `bridge_accounts` table / admin flow) — until then
-/// this denies (the fixture-tested bridges never call it in CI, plan §2.5/§5).
-pub(crate) struct DeniedOAuthProvider;
+/// The host `oauth-token` provider (26.16 B1). Bridges acquire short-lived tokens
+/// through this; the host holds the long-lived secret, the guest never sees it. On a
+/// guest call it returns the account's cached 0018 access token when unexpired, else
+/// refreshes it (over the host `reqwest`(rustls) client, against the provider's token
+/// endpoint) and re-caches the pair sealed at rest — see
+/// [`oauth_client::acquire_access_token`]. The first refresh token is minted out of
+/// band by the admin device-code / authorization-code enrolment; until an account is
+/// enrolled, a guest call fails cleanly (it can't drive an interactive flow).
+///
+/// Config (provider/client id/tenant/scopes) is the account's NON-secret
+/// `bridge_accounts.oauth_ref`; the optional confidential-client secret is read once
+/// from the deployment env (`MW_BRIDGE_OAUTH_CLIENT_SECRET`) — a public PKCE client
+/// leaves it unset. The refresh token, the one long-lived secret, lives only sealed.
+pub(crate) struct StoreOAuthProvider {
+    store: Store,
+    poster: Arc<oauth_client::ReqwestPoster>,
+    /// Deployment-wide confidential-client secret; `None` for a public PKCE client.
+    client_secret: Option<String>,
+}
 
 #[async_trait]
-impl OAuthTokenProvider for DeniedOAuthProvider {
-    async fn token(&self, _account: &str) -> std::result::Result<String, String> {
-        Err("no OAuth token provider is configured for bridge accounts".into())
+impl OAuthTokenProvider for StoreOAuthProvider {
+    async fn token(&self, account: &str) -> std::result::Result<String, String> {
+        oauth_client::acquire_access_token(
+            &self.store,
+            self.poster.as_ref(),
+            self.client_secret.as_deref(),
+            account,
+        )
+        .await
     }
 }
 
@@ -275,12 +304,17 @@ impl Rng for HostRng {
 }
 
 /// Build the host-service bundle e14 injects: reqwest(rustls) HTTP (defaults deny at
-/// the allowlist boundary in `mw-plugin`), a deny-by-default OAuth provider, the
+/// the allowlist boundary in `mw-plugin`), the store-backed bridge OAuth provider (B1 —
+/// cached-or-refreshed 0018 tokens over the host reqwest/rustls client), the
 /// store-backed EWS per-account basic-credential provider, and scoped KV/clock/rng.
 pub(crate) fn host_services(store: &Store) -> HostServices {
     HostServices {
         http: Arc::new(ReqwestFetcher::from_env(reqwest::Client::new())),
-        oauth: Arc::new(DeniedOAuthProvider),
+        oauth: Arc::new(StoreOAuthProvider {
+            store: store.clone(),
+            poster: Arc::new(oauth_client::ReqwestPoster::new(reqwest::Client::new())),
+            client_secret: env("MW_BRIDGE_OAUTH_CLIENT_SECRET"),
+        }),
         basic_creds: Arc::new(StoreEwsCredProvider {
             store: store.clone(),
         }),
