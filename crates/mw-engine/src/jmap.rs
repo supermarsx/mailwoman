@@ -27,14 +27,28 @@ use crate::mapping::{
 use crate::query::{Comparator, EmailFilter};
 use crate::search_index;
 
+// The mail-family completeness surface (t16 J1–J5): `Thread/*`, `SearchSnippet/get`,
+// `VacationResponse/get|set`, `Quota/get`, and `Email/copy|import|parse`. Declared
+// here (not in `lib.rs`) so the dispatch owner also owns the mod line; the files
+// live under `src/mail_ext/` (mirrors `pim/`). Reached from `dispatch` below via
+// the `is_mail_ext_method` guard.
+#[path = "mail_ext/mod.rs"]
+pub(crate) mod mail_ext;
+
 /// Build the JMAP [`Session`](mw_jmap::Session) resource for a connected account,
 /// advertising core + mail + submission and pointing every URL back at us.
 pub fn session_json(account_id: &str, username: &str) -> Value {
     json!({
         "capabilities": {
             "urn:ietf:params:jmap:core": { "maxSizeUpload": 50_000_000, "maxConcurrentRequests": 4 },
+            // The core mail capability covers `Thread/*`, `SearchSnippet/get`, and
+            // `Email/copy|import|parse` (RFC 8621) — all answered by the `mail_ext`
+            // dispatch alongside the `Email/*`/`Mailbox/*` handlers.
             "urn:ietf:params:jmap:mail": {},
             "urn:ietf:params:jmap:submission": {},
+            // t16 J4/J3: VacationResponse (RFC 8621 §8) + Quota (RFC 9425).
+            "urn:ietf:params:jmap:vacationresponse": {},
+            "urn:ietf:params:jmap:quota": {},
             // Mailwoman-native PIM capabilities (frozen §1.1/§2.2). The web
             // transport/offline/push layers reuse the mail machinery verbatim;
             // these URNs advertise the PIM method families under our own types.
@@ -50,6 +64,8 @@ pub fn session_json(account_id: &str, username: &str) -> Value {
         },
         "accounts": {
             account_id: { "name": username, "isPersonal": true, "isReadOnly": false, "accountCapabilities": {
+                "urn:ietf:params:jmap:vacationresponse": {},
+                "urn:ietf:params:jmap:quota": {},
                 "urn:mailwoman:calendars": {},
                 "urn:mailwoman:tasks": {},
                 "urn:mailwoman:notes": {},
@@ -61,6 +77,8 @@ pub fn session_json(account_id: &str, username: &str) -> Value {
         "primaryAccounts": {
             "urn:ietf:params:jmap:mail": account_id,
             "urn:ietf:params:jmap:submission": account_id,
+            "urn:ietf:params:jmap:vacationresponse": account_id,
+            "urn:ietf:params:jmap:quota": account_id,
             "urn:mailwoman:calendars": account_id,
             "urn:mailwoman:tasks": account_id,
             "urn:mailwoman:notes": account_id,
@@ -159,6 +177,13 @@ impl Engine {
             "MailboxRights/set" => self.mailbox_rights_set(account_id, rt, args).await,
             "ServerMetadata/get" => self.server_metadata_get(account_id, rt, args).await,
             "ServerMetadata/set" => self.server_metadata_set(account_id, rt, args).await,
+            // Mail-family completeness (t16 J1–J5): `Thread/*`, `SearchSnippet/get`,
+            // `VacationResponse/get|set`, `Quota/get`, `Email/copy|import|parse` ride
+            // the same envelope behind `dispatch_mail_ext`. Ordered after the explicit
+            // `Email/*` arms above so `Email/get`/`set`/`query` still win.
+            other if mail_ext::dispatch::is_mail_ext_method(other) => {
+                self.dispatch_mail_ext(account_id, other, args).await
+            }
             // Mailwoman-native PIM families (§2.2) ride the same envelope; e8
             // fills the handlers behind `dispatch_pim`.
             other if crate::pim::dispatch::is_pim_method(other) => {
