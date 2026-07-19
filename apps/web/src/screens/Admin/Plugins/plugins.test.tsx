@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, fireEvent, screen, waitFor } from '@solidjs/testing-library';
 import { AdminPlugins, UNSIGNED_BANNER } from './index.tsx';
-import { anyUnsignedEnabled, type PluginInfo, type PluginsApi } from '../../../state/slices/plugins.ts';
+import { anyUnsignedEnabled, EMPTY_ALLOWLIST, type PluginInfo, type PluginsApi } from '../../../state/slices/plugins.ts';
 
 function plugin(over: Partial<PluginInfo>): PluginInfo {
   return {
@@ -45,6 +45,18 @@ function mockApi(list: PluginInfo[]): PluginsApi & { calls: string[] } {
     async setAllowUnsigned(id, allow) {
       calls.push(`allow:${id}:${allow}`);
       current = current.map((p) => (p.id === id ? { ...p, allowUnsigned: allow } : p));
+    },
+    async listAllowlist() {
+      return EMPTY_ALLOWLIST;
+    },
+    async approveDigest(pluginId, digestHex) {
+      calls.push(`approveDigest:${pluginId}:${digestHex}`);
+    },
+    async revokeDigest(pluginId, digestHex) {
+      calls.push(`revokeDigest:${pluginId}:${digestHex}`);
+    },
+    async uninstall(id) {
+      calls.push(`uninstall:${id}`);
     },
   };
 }

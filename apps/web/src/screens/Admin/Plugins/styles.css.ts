@@ -100,3 +100,40 @@ export const danger = style({
 export const check = style({ display: 'flex', alignItems: 'center', gap: vars.space[2], fontSize: '0.84rem', cursor: 'pointer' });
 export const limits = style({ fontSize: '0.78rem', color: vars.color.textDim, fontFamily: vars.font.mono });
 export const error = style({ fontSize: '0.85rem', color: vars.color.danger, margin: 0 });
+
+// -- Third-party allowlist panel (t15 26.15) --------------------------------
+
+/** The computed SHA-256 the admin approves — full, legible, wraps rather than truncates
+ *  (the admin must be able to read the exact bytes they are trusting). */
+export const digest = style({
+  fontFamily: vars.font.mono,
+  fontSize: '0.8rem',
+  wordBreak: 'break-all',
+  margin: 0,
+  padding: `${vars.space[2]} ${vars.space[3]}`,
+  borderRadius: vars.radius.md,
+  background: vars.color.bgSink,
+  color: vars.color.text,
+});
+
+/** A small label for a labelled value (e.g. "Computed SHA-256"). */
+export const fieldLabel = style({
+  fontSize: '0.72rem',
+  fontWeight: 700,
+  textTransform: 'uppercase',
+  letterSpacing: '0.04em',
+  color: vars.color.textDim,
+  margin: 0,
+});
+
+/** A neutral informational note (unsigned-but-pinned, high-power caps). NOT an alarm —
+ *  no danger colour, no heavy weight. */
+export const infoNote = style({
+  fontSize: '0.8rem',
+  lineHeight: 1.5,
+  color: vars.color.textDim,
+  margin: 0,
+});
+
+/** A revoked pin, visually de-emphasised in the oversight list. */
+export const revokedRow = style({ opacity: 0.6 });

@@ -18,6 +18,7 @@ import {
   type PluginInfo,
 } from '../../../state/slices/plugins.ts';
 import { t, loadCatalog } from '../../../i18n';
+import { AllowlistPanel } from './Allowlist.tsx';
 import * as css from './styles.css.ts';
 
 export interface AdminPluginsProps {
@@ -60,6 +61,10 @@ export function AdminPlugins(props: AdminPluginsProps): JSX.Element {
       <ul class={css.list}>
         <For each={slice.plugins()}>{(plugin) => <PluginCard plugin={plugin} slice={slice} />}</For>
       </ul>
+
+      {/* Third-party allowlist: the trust surface for loading non-first-party components.
+          Shares this screen's slice (one client, one load lifecycle). */}
+      <AllowlistPanel slice={slice} />
     </section>
   );
 }

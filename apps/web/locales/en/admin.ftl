@@ -175,6 +175,56 @@ admin-plugins-allow-unsigned-for = Allow unsigned plugin { $name }
 admin-plugins-allow-unsigned = Allow this unsigned plugin to run
 admin-plugins-version = v{ $version }
 
+# -- Third-party plugin allowlist (§7.2 / t15 26.15) -------------------------
+# The trust surface for loading non-first-party components. An operator drops a
+# <id>.wasm into the third-party plugin directory; the server computes its SHA-256
+# and shows it here. An admin approves that exact digest to let it load — nothing
+# else does. Copy is factual: this is a security action, neither alarmist nor
+# reassuring-marketing.
+admin-allowlist-title = Third-party plugin allowlist
+admin-allowlist-intro = A third-party (non-first-party) component loads only after an administrator approves its exact SHA-256 digest. The digest below is computed by the server over the component's bytes on disk; approving it pins those exact bytes. First-party components are pinned in the build and are not managed here.
+admin-allowlist-load-error = Could not load the plugin allowlist.
+admin-allowlist-present-heading = Components on disk
+admin-allowlist-present-empty = No third-party components are present. Place a component in the third-party plugin directory for it to appear here.
+admin-allowlist-digest-label = Computed SHA-256
+admin-allowlist-status-approved = Approved
+admin-allowlist-status-pending = Not approved
+admin-allowlist-status-firstparty = First-party
+# A component approved by digest without a signature is expected — a neutral note,
+# not a warning. The digest pin is what authorizes loading.
+admin-allowlist-unsigned-note = Admitted by digest pin. This component carries no signature; approval trusts the exact bytes whose digest is shown, which is the expected posture for a component approved this way.
+# High-power capabilities are refused to third-party plugins at grant time by the
+# server, regardless of admin action. Surfaced so an admin is not surprised by a
+# rejected grant.
+admin-allowlist-highpower-note = High-power capabilities ({ $caps }) cannot be granted to a third-party plugin. The server refuses them regardless of approval; they are available to first-party components only.
+admin-allowlist-firstparty-note = This id matches a first-party component. The first-party pin always takes precedence, so this id cannot be approved as third-party.
+admin-allowlist-approve = Approve digest
+admin-allowlist-approve-for = Approve digest for { $id }
+admin-allowlist-revoke = Revoke
+admin-allowlist-revoke-for = Revoke pin for { $id }
+admin-allowlist-uninstall = Uninstall
+admin-allowlist-uninstall-for = Uninstall { $id }
+admin-allowlist-pins-heading = Approved and revoked pins
+admin-allowlist-pins-empty = No pins recorded.
+admin-allowlist-pin-approved-by = Approved by { $by } on { $at }
+admin-allowlist-pin-revoked = Revoked
+admin-allowlist-cancel = Cancel
+
+# Approve confirmation (shows the exact digest being trusted).
+admin-allowlist-approve-title = Approve this component to load?
+admin-allowlist-approve-detail = Approving pins the exact bytes whose SHA-256 is shown below. After approval, only bytes matching this digest will load for this id; any change to the component produces a different digest and will not load until re-approved. Approval grants no capabilities on its own.
+admin-allowlist-approve-confirm = Approve digest
+
+# Revoke confirmation.
+admin-allowlist-revoke-title = Revoke this pin?
+admin-allowlist-revoke-detail = Revoking removes approval for this digest and disables the plugin. It takes effect on the next load; an already-running instance is not stopped until then.
+admin-allowlist-revoke-confirm = Revoke pin
+
+# Uninstall confirmation (clear about what it deletes).
+admin-allowlist-uninstall-title = Uninstall this plugin?
+admin-allowlist-uninstall-detail = Uninstalling deletes the plugin's stored key/value data for every account, removes its allowlist pins, and disables it. The component file on disk is not deleted; it can be re-approved later.
+admin-allowlist-uninstall-confirm = Uninstall plugin
+
 # -- Assist governance (§14/§19) ---------------------------------------------
 admin-assist-title = Assist
 admin-assist-intro = Assist proxies selected message text to an AI endpoint you configure. It never sends, deletes, or accepts mail on a user's behalf — those always require a person. End-to-end-encrypted content and attachments are withheld unless you explicitly allow them below.
