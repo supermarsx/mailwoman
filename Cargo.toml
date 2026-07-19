@@ -33,6 +33,9 @@ members = [
     "crates/mw-directory",
     "crates/mw-passwd",
     "crates/mw-assist",
+    # ── t16 (26.16) 2FA crate (plan §Wave-A e2): pure-Rust WebAuthn RP verify +
+    # RFC 6238 TOTP + Argon2 recovery codes. One net-new dep: `sha1`. ──
+    "crates/mw-mfa",
     "plugins/bridge-graph",
     "plugins/bridge-ews",
     "plugins/bridge-gmail",

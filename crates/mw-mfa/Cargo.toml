@@ -1,0 +1,36 @@
+[package]
+name = "mw-mfa"
+description = "Mailwoman login second-factor primitives: pure-Rust WebAuthn relying-party verification (attestation \"none\", ES256 + EdDSA), RFC 6238 TOTP, and Argon2-hashed recovery codes. Pure logic — no DB, no server wiring (SPEC §5, t16 plan §Wave-A e2)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# clientDataJSON is parsed with the already-vendored serde_json (not net-new).
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Hashing: SHA-256 for WebAuthn (rpIdHash / clientDataHash), SHA-1 for RFC 6238
+# TOTP (HMAC-SHA1). `sha1` is the ONE net-new crate for the whole 2FA lane (MIT,
+# pure-Rust, RustCrypto) — already declared in the workspace dep table.
+sha2 = { workspace = true }
+sha1 = { workspace = true }
+hmac = { workspace = true }
+
+# WebAuthn assertion signature verification over the already-vendored RustCrypto
+# primitives. ES256 = ECDSA/P-256/SHA-256 with an ASN.1 DER signature; EdDSA =
+# Ed25519 over the raw message. No openssl, no `-sys` — pure Rust.
+p256 = { workspace = true, features = ["ecdsa"] }
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+
+# Recovery-code hashing (Argon2id) + CSPRNG for code + TOTP-secret generation.
+argon2 = { workspace = true }
+rand = { workspace = true }
+
+base64 = { workspace = true }
+hex = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+hex = { workspace = true }
