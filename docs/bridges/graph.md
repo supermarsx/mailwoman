@@ -13,11 +13,14 @@ the host `http-fetch` import (restricted to the Graph hosts in the plugin's
 
 - **Mail** — folders, message sync (delta), fetch (MIME), flag/move/submit — through
   the real jail, indistinguishable from IMAP.
-- Implemented and fixture-tested: calendar (including shared calendars and rooms),
-  contacts + GAL, To-Do, reactions, voting, message-recall (honesty matrix respected),
-  and Focused-Inbox sync. **See the scope boundary below** — mail is drivable through
-  the plugin seam today; the PIM/reactions surfaces are implemented and tested but not
-  yet wired through the seam.
+- **Calendar (including shared calendars and rooms), contacts + GAL, To-Do,
+  reactions, voting, message-recall, and Focused-Inbox sync** — implemented, mapped,
+  and fixture-tested. The bridge targets the `plugin-pim` WIT world, so these
+  PIM/parity surfaces are exported across the plugin seam (not mail-only) and
+  round-trip through the real jail in the recorded-fixture suite. Provider limits are
+  stated honestly — e.g. message recall is best-effort and org-internal (the recall
+  honesty matrix never reports a false success). **See the scope boundary below** for
+  what is seam-proven vs. user-surface-complete.
 
 ## Authentication (OAuth)
 
@@ -55,9 +58,13 @@ real tenant only when tenant secrets are present.
 
 ## Scope boundary (honest)
 
-- **Mail is delivered through the real plugin jail.** The WIT world currently exports
-  the **account-backend (MAIL)** interface only.
-- **Calendar / tasks / reactions / voting / recall / Focused-sync are implemented and
-  fixture-tested but not yet drivable through the plugin seam** — advertised via the
-  bridge's `capabilities()`, they are a post-1.0 WIT-export extension. Until then, the
-  UI's existing standards/header-convention fallbacks handle those surfaces.
+- **Mail is delivered through the real plugin jail** and is drivable end-to-end today.
+- **Calendar / tasks / contacts / reactions / voting / recall / Focused-sync are
+  implemented and exported through the `plugin-pim` WIT seam** (the `calendar`,
+  `tasks`, and `bridge-parity` interfaces) and round-trip through the real jail in the
+  fixture suite. What is not yet fully proven is the **end-to-end engine→CalDAV/JMAP
+  user-facing surface** and **live-tenant interop** (the nightly, secret-gated
+  `live-interop` job). Treat these surfaces as seam-proven and fixture-proven, not yet
+  user-surface-complete against a live tenant. Where a surface is not yet driven
+  through the engine end-to-end, the UI's existing standards/header-convention
+  fallbacks handle it.

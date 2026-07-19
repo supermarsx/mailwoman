@@ -11,8 +11,12 @@ uses the host `http-fetch` import — it opens no sockets.
 ## What it delivers
 
 - **Mail** — sync/send/fetch through the real jail, indistinguishable from IMAP.
-- Implemented and fixture-tested: calendar + free/busy + rooms, GAL, Out-of-Office
-  (OOF), message-recall, and voting. **See the scope boundary below.**
+- **Calendar + free/busy + rooms, GAL, Out-of-Office (OOF), message-recall, and
+  voting** — implemented, mapped, and fixture-tested. The bridge targets the
+  `plugin-pim` WIT world, so these PIM/parity surfaces are exported across the plugin
+  seam (not mail-only) and round-trip through the real jail in the recorded-fixture
+  suite. **See the scope boundary below** for what is seam-proven vs.
+  user-surface-complete.
 
 ## Authentication
 
@@ -57,11 +61,15 @@ hits a real EWS endpoint only when secrets are present.
 
 ## Scope boundary (honest)
 
-- **Mail is delivered through the real plugin jail.** The WIT world currently exports
-  the **account-backend (MAIL)** interface only.
+- **Mail is delivered through the real plugin jail** and is drivable end-to-end today.
 - **Calendar / free-busy / rooms / GAL / OOF / recall / voting are implemented and
-  fixture-tested but not yet drivable through the plugin seam** — a post-1.0
-  WIT-export extension. The UI's existing standards fallbacks handle those meanwhile.
+  exported through the `plugin-pim` WIT seam** (the `calendar`, `tasks`, and
+  `bridge-parity` interfaces) and round-trip through the real jail in the fixture
+  suite. What is not yet fully proven is the **end-to-end engine→CalDAV/JMAP
+  user-facing surface** and **live-tenant interop** (the nightly, secret-gated
+  `live-interop` job). Treat these surfaces as seam-proven and fixture-proven, not yet
+  user-surface-complete against a live endpoint; where a surface is not yet driven
+  through the engine end-to-end, the UI's existing standards fallbacks handle it.
 - **Kerberos SSO is via a BYO reverse-proxy** (Basic + NTLMv2 ship natively; native
   GSSAPI is a human-gated license-floor exception). See above and
   `docs/deploy/kerberos.md`.

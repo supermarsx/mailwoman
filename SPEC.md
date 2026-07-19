@@ -456,8 +456,15 @@ to expand):
   the JMAP session state token.
 - Login: constant-time compares, uniform error messages/timing, Argon2id
   (m=64 MiB, t=3, p=4 baseline; admin-tunable upward).
-- 2FA: **WebAuthn/passkeys first-class** (also usable as passwordless primary),
-  TOTP (RFC 6238) fallback, recovery codes.
+- 2FA: WebAuthn/passkeys and TOTP (RFC 6238) as a **second factor**, with
+  recovery codes as the break-glass path. Passkey verification uses attestation
+  `"none"` — the server verifies the assertion signature and stores the COSE
+  public key; it does not validate attestation certificate chains. A factor,
+  once enrolled, is required at login (no silent downgrade to password-only);
+  admins may require a second factor org-wide or per domain. A passkey as a
+  **passwordless primary** login credential (replacing the password) is not yet
+  offered — the passwordless mechanism today is the zero-access WebAuthn-PRF
+  root-key derivation (§9.1), a separate feature.
 - Secrets in memory: `zeroize` on drop; `mlock` best-effort for key material.
 - Web-asset integrity manifest: thin shells verify the UI bundle hash served
   by the server against the shell's pinned release manifest before executing it.
@@ -485,13 +492,21 @@ mailwoman (supervisor, no network)
 - **`mw-render` workers are the hostile-input jail.** CPU/memory/time-limited
   (rlimits + cgroup); a successful exploit lands in a process that can reach
   nothing — no keys, no network, no disk — and dies in seconds.
-- **Linux:** per-worker seccomp-BPF allowlists, Landlock filesystem scoping,
-  unprivileged user + PID/net namespaces — containerization-grade isolation
-  *without requiring* Docker, so bare-metal self-hosters get it too.
-- **WASM second layer:** the riskiest transformers (image re-encoder, PDF
-  thumbnailer, MSG/OFT CFB parsing) run compiled to WASM in wasmtime even in
-  first-party builds. On platforms without good process-sandbox primitives
-  (Windows service mode, macOS) the WASM layer is the primary jail.
+- **Linux (kernel jail):** per-worker seccomp-BPF allowlists, Landlock
+  filesystem scoping, unprivileged user + PID/net namespaces —
+  containerization-grade isolation *without requiring* Docker, so bare-metal
+  self-hosters get it too. These kernel features are Linux-only
+  (`#[cfg(target_os = "linux")]`) and **fail closed**: where a jail was expected
+  but its setup fails, the render child is refused rather than run unsandboxed.
+- **Non-Linux (degraded mode):** on Windows and macOS the kernel jail is
+  unavailable; isolation is the disposable process split plus the WASM layer
+  below, with no seccomp/Landlock/namespace enforcement. `mailwoman doctor`
+  reports this reduced posture plainly rather than letting operators assume it.
+- **WASM second layer:** the riskiest transformers run compiled to WASM in
+  wasmtime even in first-party builds. In this layer today: MSG/OFT CFB parsing
+  and remote-image re-encode; PDF thumbnailing is tracked but not yet run here.
+  On platforms without good process-sandbox primitives the WASM layer is the
+  primary jail.
 - A dedicated `mw-sandbox` crate owns spawn/seccomp/Landlock/wasmtime policy.
 
 #### Toolchain & allocator hardening
@@ -593,7 +608,11 @@ allowlists and worker recycling; the external audit at V6 validates the posture.
 
 ### 8.3 Post-quantum readiness
 
-- **TLS:** hybrid X25519MLKEM768 enabled by default (rustls).
+- **TLS:** hybrid X25519MLKEM768 is **not enabled**. The shipped rustls `ring`
+  provider does not offer the group, and the only provider that does
+  (`aws-lc-rs`) is a C/`-sys` dependency the project's pure-Rust, no-`-sys`
+  dependency posture excludes — so it cannot ship today. Tracked for when a
+  pure-Rust rustls provider offers the group. (See `docs/security/crypto.md`.)
 - **At rest:** store master keys wrapped with hybrid X25519 + ML-KEM-768.
 - **OpenPGP PQC:** track `draft-ietf-openpgp-pqc`; behind a feature flag as
   rPGP lands support; interop-test with GnuPG 2.5+ and Thunderbird.
@@ -1223,7 +1242,8 @@ containers on every merge.
 ## 19. Admin Panel
 
 Separate route (`/admin`), separate session domain, optional separate
-port/Unix socket; passkey-only option. **Full management surface:**
+port/Unix socket; a required second factor (passkey/TOTP) can be enforced for
+admin access (§7.4). **Full management surface:**
 
 - **Domains:** per-domain upstream settings, autoconfig test button, login
   domain allow/blocklists, per-domain identity/alias provisioning (feeds

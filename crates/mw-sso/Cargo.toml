@@ -6,10 +6,12 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
-# t9-e0 SCAFFOLD. This crate freezes the §3 SSO contract (types + the `SsoLogin`
-# trait) as compiling stubs so e1 (OIDC) and e2 (SAML) implement, and e3 (server
-# mount) / e4 (web-admin) consume, in parallel. `oidc.rs`/`saml.rs` are stubs whose
-# `SsoLogin` methods `unimplemented!()`; `state.rs` is the real PendingState store.
+# OIDC + SAML 2.0 SSO login backends. This crate defines the §3 SSO contract
+# (types + the `SsoLogin` trait) and its two full implementations: `oidc.rs`
+# (OIDC discovery + auth-code+PKCE + JWKS ID-token validation) and `saml.rs`
+# (SAML 2.0 + XML-DSig); `state.rs` is the PendingState store. The server mount
+# (mw-server) and web-admin consume the trait. (Originally a t9-e0 scaffold; the
+# `SsoLogin` methods are now fully implemented — no `unimplemented!()` stubs remain.)
 #
 # DEP VET (e0 deliverable — crate-local pins like mw-directory's ldap3 0.12; the
 # coordinator reconciles these into root `[workspace.dependencies]`):
