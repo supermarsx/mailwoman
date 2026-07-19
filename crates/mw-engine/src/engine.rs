@@ -372,8 +372,16 @@ impl Engine {
         // `filename:`; pin defaults false on a fresh document.
         let keywords: Vec<String> = flags_to_keywords(&raw.flags).into_keys().collect();
         let filenames = search_index::attachment_filenames(&raw.raw);
+        let attachment_text = search_index::attachment_text(&raw.raw);
         let doc = search_index::build_index_doc(
-            &sid, account_id, mailbox_id, &email, keywords, filenames, false,
+            &sid,
+            account_id,
+            mailbox_id,
+            &email,
+            keywords,
+            filenames,
+            attachment_text,
+            false,
         );
         if let Err(e) = self.search.upsert(&doc) {
             tracing::warn!("search index upsert failed for {sid}: {e}");
@@ -483,12 +491,17 @@ impl Engine {
                 None => mw_jmap::Email::default(),
             },
         };
-        let filenames = match &msg.blob_ref {
+        // Derive attachment filenames + text from the raw bytes once (a single
+        // get_body), so re-index matches ingest-time indexing (W19).
+        let (filenames, attachment_text) = match &msg.blob_ref {
             Some(blob) => match self.store.get_body(blob).await? {
-                Some(raw) => search_index::attachment_filenames(&raw),
-                None => Vec::new(),
+                Some(raw) => (
+                    search_index::attachment_filenames(&raw),
+                    search_index::attachment_text(&raw),
+                ),
+                None => (Vec::new(), String::new()),
             },
-            None => Vec::new(),
+            None => (Vec::new(), String::new()),
         };
         let keywords: Vec<String> =
             flags_to_keywords(&crate::mapping::flags_from_json(&msg.flags_json))
@@ -507,6 +520,7 @@ impl Engine {
             &email,
             keywords,
             filenames,
+            attachment_text,
             pinned,
         );
         self.search

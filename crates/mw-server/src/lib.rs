@@ -17,7 +17,7 @@ use axum::{Json, Router};
 use base64::Engine as _;
 use rand::RngCore;
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{Value, json};
 
 use mw_directory::BindOutcome;
 use mw_engine::Engine;
@@ -78,6 +78,16 @@ pub mod admin_maintenance;
 // `gate_login` hook is called from both login branches below; `twofa_router()` is
 // merged into `router()`.
 pub mod twofa_routes;
+// t16 (26.16, e10 chain link 3) MOUNT: the anonymizing image proxy + remote-image
+// grants (e6, S7/S8), the account-preferences router (e18, W12/W13/W15), and the
+// mailbox-import + webcal sync driver (e10, W18). e10 owns the `mod` lines + the
+// merges in `router()`; the module bodies are owned by e6/e18/e10 respectively.
+pub mod image_proxy;
+pub mod import_routes;
+pub mod prefs_routes;
+// t16 (26.16, e10) A9: a runtime ManageSieve caller — compile the account's rules to
+// a Sieve script and upload+activate it on the user's ManageSieve server.
+pub mod sieve_sync;
 // V6 MOUNT (t6-e11): store adapters backing the frozen Batch-B persistence seams
 // over the real 0007 tables.
 mod stores_v6;
@@ -98,17 +108,63 @@ use hardening::SessionGuard;
 /// Cookie carrying the opaque session token.
 const COOKIE_NAME: &str = "mw_session";
 
-/// Strict CSP for the SPA shell (SPEC §7.4). The message body is rendered in
-/// a separate sandboxed `<iframe srcdoc>` with its own restrictions.
-// `'wasm-unsafe-eval'` permits WebAssembly compilation/instantiation ONLY (not
-// JS `eval()`) — required for the client-side crypto worker (mw-crypto +
-// mw-sanitize wasm, plan §1.1/§1.3). It does not weaken the XSS posture the way
-// `'unsafe-eval'` would; untrusted message bodies render under the far stricter
-// per-message [`MESSAGE_CSP`] in a sandboxed iframe, unaffected by this.
+/// Strict CSP for the SPA shell (SPEC §7.4, t16 S10 tightening). The message body
+/// is rendered in a separate sandboxed `<iframe srcdoc>` with its own restrictions.
+///
+/// `'wasm-unsafe-eval'` permits WebAssembly compilation/instantiation ONLY (not
+/// JS `eval()`) — required for the client-side crypto worker (mw-crypto +
+/// mw-sanitize wasm, plan §1.1/§1.3). It does not weaken the XSS posture the way
+/// `'unsafe-eval'` would; untrusted message bodies render under the far stricter
+/// per-message [`MESSAGE_CSP`] in a sandboxed iframe, unaffected by this.
+///
+/// # t16 S10 (e10 apply-site — chain link 3)
+/// This is [`image_proxy::SHELL_CSP_TIGHTENED`] **minus** `require-trusted-types-for
+/// 'script'`. The two S10 changes e6 delivered were (a) drop style `'unsafe-inline'`
+/// and (b) enforce Trusted Types.
+///   * **(a) shipped.** `style-src 'self'` is verified safe for the *shell*: every
+///     inline style in the SPA is Solid object-form (`style={{…}}`) which Solid
+///     applies through the CSSOM (`el.style.setProperty`), NOT a `style="…"`
+///     attribute — CSSOM mutations are not subject to `style-src`. All real CSS is
+///     bundled to a `'self'` `<link>` stylesheet (Vite extracts it in the production
+///     build); the shell injects no runtime `<style>` element. So the `'unsafe-inline'`
+///     style source e6 dropped is genuinely unused by the shell.
+///   * **(b) deferred — would break the shell today.** `require-trusted-types-for
+///     'script'` blocks any `Element.innerHTML =` string assignment that does not go
+///     through a Trusted Types policy. Solid's template instantiation (`index-*.js`:
+///     `createElement("template")` + `.innerHTML = …`) does exactly that, and the SPA
+///     registers **no default TT policy** (the only `createPolicy` in the bundle is
+///     ProseMirror's scoped `ProseMirrorClipboard`). Enforcing it here makes the SPA
+///     fail to render at boot. It is a web-side follow-up (register a default
+///     `trustedTypes` policy in the app entrypoint) — tracked for a later tag; the
+///     directive is re-added the moment that policy exists. No-hype: we do not claim
+///     Trusted Types enforcement until it actually ships.
 const CSP: &str = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; \
-     style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self'; \
+     style-src 'self'; img-src 'self' blob: data:; font-src 'self'; \
      connect-src 'self' blob:; frame-src 'self'; worker-src 'self' blob:; \
      base-uri 'none'; form-action 'none'";
+
+/// Compile-time use of e6's constant so applying the safe subset above does not
+/// leave `SHELL_CSP_TIGHTENED` an unused (`dead_code`) item. A `#[cfg(test)]`
+/// assertion (`csp_is_e6_tightened_minus_trusted_types`) verifies the shipped
+/// [`CSP`] is exactly that constant with the deferred Trusted-Types directive
+/// removed, so the tie can't silently drift.
+const _: &str = image_proxy::SHELL_CSP_TIGHTENED;
+
+/// The raw seal-master-key bytes behind a [`ServerKey`] (for the C6 PQC wrap).
+/// `ServerKey` exposes only its hex form, so decode it back to the 32 raw bytes;
+/// the hex is well-formed by construction (`to_hex`), so a bad nibble is treated
+/// as `0` rather than panicking.
+fn seal_key_bytes(key: &ServerKey) -> Vec<u8> {
+    let hex = key.to_hex();
+    hex.as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            let hi = (pair[0] as char).to_digit(16).unwrap_or(0);
+            let lo = (pair[1] as char).to_digit(16).unwrap_or(0);
+            ((hi << 4) | lo) as u8
+        })
+        .collect()
+}
 
 /// A locked-down CSP returned alongside sanitized message HTML so the web app
 /// can apply it to the per-message iframe (§7.4). Additive: the SPA shell keeps
@@ -412,6 +468,29 @@ async fn build_app_inner(
         tokio::spawn(push::bridge_engine(engine.subscribe(), push.clone()));
     }
 
+    // ── C6 (t16 26.16): PQC-hybrid wrap of the mw-store seal key at rest ────────
+    // Crypto-agility groundwork (plan §1.7/§2.4): on first boot wrap the seal master
+    // key under the hybrid X25519+ML-KEM-768 primitive and persist the wrapped blob
+    // (`store_key_material`). Idempotent — skipped once material exists — and
+    // best-effort (a failure logs, never blocks boot, like `ensure_vapid`). This is
+    // NOT a user-facing security claim (ml-kem is unaudited, plan §6#8); the fresh
+    // recipient secret is groundwork only — a real deploy safeguards it in an
+    // HSM/env master. Engine mode only: the helper lives on `Engine` and writes
+    // through the store it wraps.
+    if let Some(engine) = &engine {
+        match store.get_store_key_material().await {
+            Ok(Some(_)) => {} // already wrapped — nothing to do.
+            Ok(None) => match engine.pqc_wrap_store_seal(&seal_key_bytes(&key)).await {
+                Ok(_recipient) => tracing::info!(
+                    "store seal key wrapped for crypto-agility (PQC groundwork; recipient \
+                     secret ephemeral — provision an HSM/env master to enable unwrap)"
+                ),
+                Err(e) => tracing::warn!("PQC store-key wrap failed (non-fatal): {e}"),
+            },
+            Err(e) => tracing::warn!("store_key_material lookup failed (skipping PQC wrap): {e}"),
+        }
+    }
+
     // V5 (plan §2.3): ensure a VAPID keypair exists (generated on first boot, its
     // private key sealed at rest) so `GET /api/push/vapid` and the push dispatcher
     // always have a key. Non-fatal on error — the endpoints degrade to 500/skip.
@@ -469,6 +548,16 @@ async fn build_app_inner(
             .filter(|s| !s.is_empty())
             .map(String::into_bytes),
     );
+    // A5 (t16 e10, e9 handoff): inject the engine-backed inbound-webhook action sink,
+    // mirroring the outbound `WebhookRegistryAdapter` wiring above. Until this is set
+    // the inbound endpoint authenticates but returns `202 {dispatched:false}`. Engine
+    // mode only (the sink evaluates stored rules / applies JMAP mutations through the
+    // engine); proxy mode has no engine, so inbound stays a no-op there.
+    if let Some(engine) = &engine {
+        webhooks::set_inbound_dispatcher(Some(Arc::new(EngineWebhookActionSink {
+            engine: engine.clone(),
+        })));
+    }
 
     // Engine wiring (plan §3 e10): attach the layered cache, the zero-access
     // posture source (0007 `zeroaccess_accounts`), and the audit/webhook feed.
@@ -674,6 +763,18 @@ fn router(
         // `/api/login/2fa*` are pre-auth (pending-token) and CSRF-exempt like
         // `/api/login`; the `/api/account/*` routes are session-authed.
         .merge(twofa_routes::twofa_router())
+        // t16 (26.16, e10 chain link 3): the additive route modules e6/e18/e10 deliver.
+        // All session-authed and ride the same CSRF/security-headers middleware below.
+        //   * image_proxy (e6, S7/S8): the anonymizing `/api/image-proxy` + the
+        //     remote-image display grants. The proxy fetch is additionally SSRF-gated.
+        //   * prefs_routes (e18, W12/W13/W15): `/api/account/*` signatures / notifications
+        //     / saved-searches / identities persistence.
+        //   * import_routes (e10, W18): mbox/EML/Maildir import + the webcal sync driver
+        //     (its GET reuses e6's SSRF-safe fetcher).
+        .merge(image_proxy::image_proxy_router())
+        .merge(prefs_routes::prefs_router())
+        .merge(import_routes::import_router())
+        .merge(sieve_sync::sieve_sync_router())
         .route("/api/login", post(login))
         .route("/api/logout", post(logout))
         .route("/api/me", get(me))
@@ -739,6 +840,168 @@ fn router(
             security_headers,
         ))
         .with_state(state)
+}
+
+// ---------------------------------------------------------------------------
+// A5 — engine-backed inbound-webhook action sink (t16 e10, e9 handoff)
+// ---------------------------------------------------------------------------
+
+/// Drives an authenticated inbound webhook's mapped action against the real engine
+/// (the parallel of the outbound [`stores_v6::WebhookRegistryAdapter`]). Installed at
+/// boot in engine mode via [`webhooks::set_inbound_dispatcher`].
+///
+///   * [`InboundAction::RunRules`] re-evaluates the account's stored GUI/Sieve rules
+///     ([`Engine::get_rules`] + [`mw_sieve::evaluate_all`]) against the supplied
+///     envelope and reports how many actions fired. It does not mutate a stored
+///     message — a `run_rules` webhook carries an external envelope, not a message id.
+///   * [`InboundAction::Sieve`] applies one Sieve action to a target `message_id`
+///     through [`Engine::handle_jmap`] (`Email/set`): `Tag`/`Mark` add a keyword;
+///     `Move` resolves the destination mailbox by name/role (via `Mailbox/get`) and
+///     re-homes the message. Actions with no local single-message effect
+///     (`Copy`/`Forward`/`ReplyTemplate`/`Notify`/`Stop`) are recognized as a no-op
+///     (`fired: 0`), mirroring the engine's own ingest-time rule application.
+struct EngineWebhookActionSink {
+    engine: Arc<Engine>,
+}
+
+#[async_trait::async_trait]
+impl webhooks::WebhookActionSink for EngineWebhookActionSink {
+    async fn fire(
+        &self,
+        account: &str,
+        action: &webhooks::InboundAction,
+    ) -> Result<webhooks::WebhookDispatch, String> {
+        match action {
+            webhooks::InboundAction::RunRules { envelope } => {
+                let rules = self
+                    .engine
+                    .get_rules(account)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let parsed = mw_sieve::ParsedEnvelope {
+                    from: envelope.from.clone(),
+                    to: envelope.to.clone(),
+                    subject: envelope.subject.clone(),
+                    // The inbound envelope is header-shaped only (§21.1) — no body /
+                    // size / keyword facts are carried, so body-based tests simply
+                    // don't match, which is the honest evaluation of what we know.
+                    ..Default::default()
+                };
+                let fired = mw_sieve::evaluate_all(&rules, &parsed).len() as u64;
+                Ok(webhooks::WebhookDispatch { fired })
+            }
+            webhooks::InboundAction::Sieve { action, message_id } => {
+                let message_id = message_id
+                    .as_deref()
+                    .filter(|s| !s.is_empty())
+                    .ok_or_else(|| "sieve webhook action requires a messageId".to_string())?;
+                let action: mw_sieve::Action = serde_json::from_value(action.clone())
+                    .map_err(|e| format!("unrecognized sieve action: {e}"))?;
+                self.apply_sieve_action(account, message_id, &action).await
+            }
+        }
+    }
+}
+
+impl EngineWebhookActionSink {
+    /// Apply one Sieve [`Action`](mw_sieve::Action) to `message_id` via the engine's
+    /// JMAP surface. Returns the fired count (`1` when a mutation was issued).
+    async fn apply_sieve_action(
+        &self,
+        account: &str,
+        message_id: &str,
+        action: &mw_sieve::Action,
+    ) -> Result<webhooks::WebhookDispatch, String> {
+        let patch = match action {
+            mw_sieve::Action::Tag { keyword } | mw_sieve::Action::Mark { keyword } => {
+                json!({ format!("keywords/{keyword}"): true })
+            }
+            mw_sieve::Action::Move { mailbox } => {
+                let Some(dest) = self.resolve_mailbox(account, mailbox).await? else {
+                    return Err(format!("no mailbox matches '{mailbox}'"));
+                };
+                json!({ "mailboxIds": { dest: true } })
+            }
+            // No single-message local effect (mirrors the ingest-time rule handler).
+            _ => return Ok(webhooks::WebhookDispatch { fired: 0 }),
+        };
+        let request = json!({
+            "methodCalls": [[
+                "Email/set",
+                { "accountId": account, "update": { message_id: patch } },
+                "wh0"
+            ]]
+        });
+        let resp = self.engine.handle_jmap(account, &request).await;
+        if jmap_updated(&resp, message_id) {
+            Ok(webhooks::WebhookDispatch { fired: 1 })
+        } else {
+            Err(format!(
+                "engine did not apply the action to {message_id}: {}",
+                jmap_first_error(&resp).unwrap_or_else(|| "unknown".into())
+            ))
+        }
+    }
+
+    /// Resolve a mailbox name or role to its id via `Mailbox/get`.
+    async fn resolve_mailbox(&self, account: &str, target: &str) -> Result<Option<String>, String> {
+        let request = json!({
+            "methodCalls": [["Mailbox/get", { "accountId": account, "ids": null }, "mb0"]]
+        });
+        let resp = self.engine.handle_jmap(account, &request).await;
+        let list = resp
+            .get("methodResponses")
+            .and_then(Value::as_array)
+            .and_then(|r| r.first())
+            .and_then(|c| c.as_array())
+            .and_then(|c| c.get(1))
+            .and_then(|a| a.get("list"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        Ok(list
+            .iter()
+            .find(|m| {
+                let by_name = m.get("name").and_then(Value::as_str);
+                let by_role = m.get("role").and_then(Value::as_str);
+                by_name.is_some_and(|n| n.eq_ignore_ascii_case(target))
+                    || by_role.is_some_and(|r| r.eq_ignore_ascii_case(target))
+            })
+            .and_then(|m| m.get("id").and_then(Value::as_str))
+            .map(str::to_string))
+    }
+}
+
+/// Whether a JMAP response's first `Email/set` marked `id` as updated.
+fn jmap_updated(resp: &Value, id: &str) -> bool {
+    resp.get("methodResponses")
+        .and_then(Value::as_array)
+        .and_then(|r| r.first())
+        .and_then(|c| c.as_array())
+        .and_then(|c| c.get(1))
+        .and_then(|a| a.get("updated"))
+        .and_then(|u| u.get(id))
+        .is_some()
+}
+
+/// The first `notUpdated`/`type` error description in a JMAP response, if any.
+fn jmap_first_error(resp: &Value) -> Option<String> {
+    let call = resp
+        .get("methodResponses")
+        .and_then(Value::as_array)?
+        .first()?
+        .as_array()?
+        .get(1)?;
+    if let Some(err) = call.get("type").and_then(Value::as_str) {
+        return Some(err.to_string());
+    }
+    let not_updated = call.get("notUpdated")?.as_object()?;
+    not_updated
+        .values()
+        .next()
+        .and_then(|v| v.get("description").or_else(|| v.get("type")))
+        .and_then(Value::as_str)
+        .map(str::to_string)
 }
 
 // ---------------------------------------------------------------------------
@@ -1195,8 +1458,33 @@ struct DiscoverReq {
 }
 
 async fn discover(Json(body): Json<DiscoverReq>) -> Response {
+    // A10 (RFC 8620 §2.2): the JMAP service may live on a different host than the
+    // mail domain, advertised as a `_jmap._tcp.<domain>` SRV record. Resolve it
+    // (best-effort) and surface the endpoint alongside the autoconfig candidate so a
+    // JMAP-native client can locate the API host without guessing.
+    let jmap_srv = match body.email.rsplit_once('@') {
+        Some((_, domain)) if !domain.is_empty() => lookup_jmap_srv(domain).await,
+        _ => None,
+    };
+    let jmap_srv_json = jmap_srv
+        .as_ref()
+        .map(|(host, port)| json!({ "host": host, "port": port }));
+
     match mw_autoconfig::discover(&body.email).await {
-        Ok(candidate) => Json(candidate).into_response(),
+        Ok(candidate) => {
+            // Augment the candidate JSON with the `_jmap._tcp` hint (additive; the web
+            // ignores unknown fields). Serialization of a plain struct never fails.
+            let mut value = serde_json::to_value(&candidate).unwrap_or_else(|_| json!({}));
+            if let (Some(obj), Some(srv)) = (value.as_object_mut(), jmap_srv_json.clone()) {
+                obj.insert("jmapSrv".into(), srv);
+            }
+            Json(value).into_response()
+        }
+        // No autoconfig candidate, but a `_jmap._tcp` SRV exists → a JMAP-only server.
+        // Return it as a minimal candidate so the login flow can proceed to JMAP.
+        Err(mw_autoconfig::DiscoverError::NotFound(_)) if jmap_srv_json.is_some() => {
+            Json(json!({ "source": "jmap-srv", "jmapSrv": jmap_srv_json })).into_response()
+        }
         Err(mw_autoconfig::DiscoverError::InvalidEmail(_)) => (
             StatusCode::BAD_REQUEST,
             Json(json!({ "error": "invalid email address" })),
@@ -1213,6 +1501,23 @@ async fn discover(Json(body): Json<DiscoverReq>) -> Response {
         )
             .into_response(),
     }
+}
+
+/// Resolve `_jmap._tcp.<domain>` (A10) and return the preferred `(host, port)` —
+/// lowest SRV priority, then highest weight — with the trailing dot stripped. A
+/// resolver-build failure, an absent record, or a `.` target (RFC 2782 "service
+/// decidedly not available") yields `None` so discovery degrades cleanly.
+async fn lookup_jmap_srv(domain: &str) -> Option<(String, u16)> {
+    use mw_autoconfig::SrvResolver;
+    let resolver = mw_autoconfig::HickoryResolver::new().ok()?;
+    let mut records = resolver
+        .lookup_srv(&format!("_jmap._tcp.{domain}"))
+        .await
+        .ok()?;
+    records.retain(|r| r.target != "." && !r.target.is_empty());
+    records.sort_by(|a, b| a.priority.cmp(&b.priority).then(b.weight.cmp(&a.weight)));
+    let best = records.into_iter().next()?;
+    Some((best.target.trim_end_matches('.').to_string(), best.port))
 }
 
 async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -1778,6 +2083,14 @@ fn export_format(name: &str) -> Option<(mw_export::Format, &'static str, &'stati
             mw_export::Format::Markdown,
             "text/markdown; charset=utf-8",
             "md",
+        )),
+        // t16 W7: the MS-OXMSG `.msg` (CFB) and Office Open XML `.docx` writers
+        // (`msg::to_msg` / `docx::to_docx`) exist + are tested — expose them here.
+        "msg" => Some((mw_export::Format::Msg, "application/vnd.ms-outlook", "msg")),
+        "docx" => Some((
+            mw_export::Format::Docx,
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "docx",
         )),
         _ => None,
     }
@@ -2465,6 +2778,42 @@ fn origin_of(url: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The shipped shell [`CSP`] is exactly e6's [`image_proxy::SHELL_CSP_TIGHTENED`]
+    /// with the deferred `require-trusted-types-for 'script'` directive removed (see
+    /// the `CSP` docs for why Trusted Types is deferred). Normalize whitespace since
+    /// the constants are written across continuation lines.
+    #[test]
+    fn csp_is_e6_tightened_minus_trusted_types() {
+        let norm = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
+        let ours = norm(CSP);
+        let e6 = norm(image_proxy::SHELL_CSP_TIGHTENED);
+        let expected = e6
+            .strip_suffix("; require-trusted-types-for 'script'")
+            .expect("e6 constant ends with the Trusted-Types directive");
+        assert_eq!(
+            ours, expected,
+            "shipped CSP must be e6's minus Trusted Types"
+        );
+    }
+
+    #[test]
+    fn export_format_covers_w7_msg_and_docx() {
+        assert!(export_format("msg").is_some());
+        assert!(export_format("docx").is_some());
+        assert!(export_format("eml").is_some());
+        assert!(export_format("nope").is_none());
+    }
+
+    #[test]
+    fn seal_key_bytes_roundtrips_hex() {
+        let key = ServerKey::generate();
+        let bytes = seal_key_bytes(&key);
+        assert_eq!(bytes.len(), 32, "seal key is 32 raw bytes");
+        // Re-encoding the decoded bytes reproduces the hex form.
+        let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(hex, key.to_hex());
+    }
 
     #[test]
     fn resolves_relative_api_url_against_server_origin() {

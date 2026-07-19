@@ -63,6 +63,12 @@ pub struct IndexDoc {
     pub filenames: Vec<String>,
     /// Engine-local pin flag (plan §1.5) — backs `pinned:`.
     pub pinned: bool,
+    /// W19 (t16): decoded text of the message's text/* attachments, concatenated.
+    /// Indexed into the same `body` field so `body:` and bare full-text search match
+    /// attachment content (binary formats like PDF/DOCX are not extracted here).
+    /// `#[serde(default)]` so an index doc written before this field still loads.
+    #[serde(default)]
+    pub attachment_text: String,
 }
 
 /// A parsed operator query (plan §0.1) plus its result ordering.
@@ -271,6 +277,12 @@ impl Index {
         td.add_text(f.cc, &doc.cc);
         td.add_text(f.subject, &doc.subject);
         td.add_text(f.body, &doc.body);
+        // W19: index attachment text into the `body` field too (Tantivy allows
+        // multiple values per field), so it is searchable via `body:` and the
+        // all-fields default without a schema change.
+        if !doc.attachment_text.is_empty() {
+            td.add_text(f.body, &doc.attachment_text);
+        }
         for name in &doc.filenames {
             td.add_text(f.filename, name);
         }
@@ -740,5 +752,18 @@ mod tests {
         assert_eq!(find(&idx, "subject:report"), vec!["m1".to_string()]);
         assert!(find(&idx, "subject:reprot").is_empty());
         assert_eq!(find(&idx, "subject:project"), vec!["m2".to_string()]);
+    }
+
+    #[test]
+    fn attachment_text_is_searchable_via_body() {
+        let idx = Index::open_in_ram().expect("open ram index");
+        let mut d = doc("a1", "Invoice", "biller@example.com");
+        d.attachment_text = "netsuite purchaseorder 4471 grand total".to_string();
+        idx.upsert(&d).expect("index");
+        // A term that appears ONLY in the attachment text still matches.
+        assert_eq!(find(&idx, "purchaseorder"), vec!["a1".to_string()]);
+        assert_eq!(find(&idx, "body:netsuite"), vec!["a1".to_string()]);
+        // A term in neither body nor attachment does not match.
+        assert!(find(&idx, "unrelatedterm").is_empty());
     }
 }

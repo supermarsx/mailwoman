@@ -35,6 +35,10 @@ mw-sanitize = { workspace = true }
 mw-render = { path = "../mw-render" }
 mw-engine = { workspace = true }
 mw-export = { workspace = true }
+# t16 (26.16, e10) A5 inbound-webhook sink: evaluate an account's stored rules
+# (`mw_sieve::evaluate_all`) against a webhook envelope + translate a Sieve action
+# to a JMAP `Email/set`. In-tree crate (no external dep); mw-engine already links it.
+mw-sieve = { workspace = true }
 mw-imap = { workspace = true }
 mw-pop3 = { workspace = true }
 mw-smtp = { workspace = true }

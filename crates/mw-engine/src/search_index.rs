@@ -56,6 +56,41 @@ pub(crate) fn attachment_filenames(raw: &[u8]) -> Vec<String> {
         .collect()
 }
 
+/// W19: decoded text of a message's `text/*` attachments, concatenated, for
+/// full-text search over attachment content. Binary attachments (PDF/DOCX/images)
+/// yield no text here and are skipped — extracting them needs format parsers that
+/// are out of this milestone's scope. Best-effort + panic-free. Bounded so one
+/// pathological message can't bloat the index.
+pub(crate) fn attachment_text(raw: &[u8]) -> String {
+    /// Cap on total indexed attachment text per message (2 MiB of tokens is ample).
+    const MAX_ATTACH_TEXT: usize = 2 * 1024 * 1024;
+    let Some(msg) = MessageParser::default().parse(raw) else {
+        return String::new();
+    };
+    let mut out = String::new();
+    for part in msg.attachments() {
+        let Some(text) = part.text_contents() else {
+            continue; // not a text part (binary attachment) — skip.
+        };
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        let remaining = MAX_ATTACH_TEXT.saturating_sub(out.len());
+        if remaining == 0 {
+            break;
+        }
+        // Push at most `remaining` bytes, respecting UTF-8 char boundaries.
+        let take = text
+            .char_indices()
+            .take_while(|(i, _)| *i < remaining)
+            .last()
+            .map(|(i, c)| i + c.len_utf8())
+            .unwrap_or(0);
+        out.push_str(&text[..take]);
+    }
+    out
+}
+
 /// Build the `mw-search` [`IndexDoc`] for one message at `Engine::ingest`.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_index_doc(
@@ -65,6 +100,7 @@ pub(crate) fn build_index_doc(
     email: &Email,
     keywords: Vec<String>,
     filenames: Vec<String>,
+    attachment_text: String,
     pinned: bool,
 ) -> IndexDoc {
     IndexDoc {
@@ -81,6 +117,7 @@ pub(crate) fn build_index_doc(
         keywords,
         size: email.size,
         filenames,
+        attachment_text,
         pinned,
     }
 }

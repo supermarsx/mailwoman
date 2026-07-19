@@ -284,8 +284,9 @@ enum Hop {
 /// Fetch ONE hop from a pinned target with redirects disabled + size/timeout caps.
 /// The reqwest client pins `host → addr`, so even though the URL still names `host`
 /// (for TLS/SNI/Host correctness) the connection goes only to the address we
-/// validated. No cookie store; no forwarded headers.
-async fn fetch_hop(target: &Target) -> Result<Hop, Refusal> {
+/// validated. No cookie store; no forwarded headers. `accept` is the `Accept`
+/// header (the image proxy asks for `image/*`; other reusers pass their own).
+async fn fetch_hop(target: &Target, accept: &str) -> Result<Hop, Refusal> {
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(FETCH_TIMEOUT)
@@ -296,7 +297,7 @@ async fn fetch_hop(target: &Target) -> Result<Hop, Refusal> {
     let resp = client
         .get(target.url.clone())
         .header(header::USER_AGENT, PROXY_UA)
-        .header(header::ACCEPT, "image/*")
+        .header(header::ACCEPT, accept)
         // Ask for no transfer compression — one less decompression-bomb surface.
         .header(header::ACCEPT_ENCODING, "identity")
         .send()
@@ -348,10 +349,17 @@ async fn read_capped(mut resp: reqwest::Response) -> Result<Vec<u8>, Refusal> {
 /// including each redirect target — goes through [`validate_and_resolve`], so a
 /// redirect to a private/metadata address is refused exactly like a direct one.
 async fn fetch_remote(start: reqwest::Url) -> Result<Vec<u8>, Refusal> {
+    fetch_remote_accepting(start, "image/*").await
+}
+
+/// [`fetch_remote`] with a caller-chosen `Accept` header. The SSRF gate
+/// ([`validate_and_resolve`] per hop + redirect re-validation + the size/timeout
+/// caps) is identical; only the advertised content preference differs.
+async fn fetch_remote_accepting(start: reqwest::Url, accept: &str) -> Result<Vec<u8>, Refusal> {
     let mut url = start;
     for _ in 0..=MAX_REDIRECTS {
         let target = validate_and_resolve(url.clone()).await?;
-        match fetch_hop(&target).await? {
+        match fetch_hop(&target, accept).await? {
             Hop::Body(bytes) => return Ok(bytes),
             Hop::Redirect(loc) => {
                 // Resolve the Location against the current URL (handles relative
@@ -361,6 +369,25 @@ async fn fetch_remote(start: reqwest::Url) -> Result<Vec<u8>, Refusal> {
         }
     }
     Err(Refusal::Upstream)
+}
+
+/// Reuse hook (t16 e10, webcal driver): fetch `url_str` through the exact same
+/// SSRF-hardened path the image proxy uses — scheme/credential checks, DNS-pin,
+/// per-hop re-validation, and the size/timeout caps — with a caller-chosen `Accept`.
+/// This exists so a second attacker-influenceable fetch surface (a `webcal://`
+/// subscription URL) does NOT hand-roll its own, weaker fetcher. The concurrency
+/// limiter is the image proxy's own; a non-image reuser bounds its own call rate.
+pub(crate) async fn fetch_url_hardened(url_str: &str, accept: &str) -> Result<Vec<u8>, String> {
+    let url = reqwest::Url::parse(url_str).map_err(|_| "malformed URL".to_string())?;
+    fetch_remote_accepting(url, accept)
+        .await
+        .map_err(|r| match r {
+            Refusal::BadRequest(m) => m.to_string(),
+            Refusal::Blocked => "target address is not permitted".to_string(),
+            Refusal::Timeout => "upstream timed out".to_string(),
+            Refusal::Upstream => "upstream fetch failed".to_string(),
+            Refusal::TooLarge => "upstream response too large".to_string(),
+        })
 }
 
 // ── content-hash cache ─────────────────────────────────────────────────────────
@@ -767,14 +794,14 @@ mod tests {
     async fn fetch_hop_enforces_size_cap() {
         let big = vec![0u8; MAX_IMAGE_BYTES + 1];
         let addr = spawn_origin(big, None, StatusCode::OK, None).await;
-        let err = fetch_hop(&target_for(addr)).await.unwrap_err();
+        let err = fetch_hop(&target_for(addr), "image/*").await.unwrap_err();
         assert_eq!(err, Refusal::TooLarge);
     }
 
     #[tokio::test]
     async fn fetch_hop_returns_small_body() {
         let addr = spawn_origin(b"hello".to_vec(), None, StatusCode::OK, None).await;
-        match fetch_hop(&target_for(addr)).await.unwrap() {
+        match fetch_hop(&target_for(addr), "image/*").await.unwrap() {
             Hop::Body(b) => assert_eq!(b, b"hello"),
             Hop::Redirect(_) => panic!("unexpected redirect"),
         }
@@ -789,7 +816,7 @@ mod tests {
             Some("http://127.0.0.1/next".into()),
         )
         .await;
-        match fetch_hop(&target_for(addr)).await.unwrap() {
+        match fetch_hop(&target_for(addr), "image/*").await.unwrap() {
             Hop::Redirect(loc) => assert_eq!(loc, "http://127.0.0.1/next"),
             Hop::Body(_) => panic!("expected redirect"),
         }
@@ -822,7 +849,7 @@ mod tests {
             0x3B,
         ];
         let addr = spawn_origin(gif, None, StatusCode::OK, None).await;
-        let bytes = match fetch_hop(&target_for(addr)).await.unwrap() {
+        let bytes = match fetch_hop(&target_for(addr), "image/*").await.unwrap() {
             Hop::Body(b) => b,
             Hop::Redirect(_) => panic!("unexpected redirect"),
         };
