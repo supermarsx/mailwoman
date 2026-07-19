@@ -26,6 +26,11 @@ import { RulesSettings } from '../modules/rules/index.ts';
 // METADATA scope, is still open), and the plain settings surface resolves no admin
 // right, so `canEdit` stays false (honest: read-only unless the permission is known).
 import { MetadataView } from '../modules/servermeta/index.ts';
+// t16 (26.16, e15): the account-settings surface — 2FA enrolment/verification,
+// active sessions, signatures, identities, notification rules, saved-search
+// folders, and device preferences. Self-contained; mounted for an authenticated
+// account alongside the existing feature modules.
+import { AccountSettings } from './Settings/index.ts';
 import { createAclClient } from '../api/acl-types.ts';
 import { createConfiguredClient } from '../api/transport.ts';
 import { THEME_OPTIONS, ACCENT_PRESETS } from '../theme/tokens.ts';
@@ -202,6 +207,7 @@ export function Settings(props: SettingsProps): JSX.Element {
           {(accountId) => (
             <>
               <PasswordChange accountId={accountId()} />
+              <AccountSettings />
               <RulesSettings accountId={accountId()} />
               <ZeroAccessBlock />
               <ApiKeys accountId={accountId()} />
