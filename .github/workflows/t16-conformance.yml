@@ -1,0 +1,62 @@
+# t16 (26.16) live-E2E conformance — the "unit-green != wired" gate for the 26.16
+# headline seams: login 2FA (TOTP + a virtual WebAuthn authenticator + recovery +
+# forced enrolment + no-downgrade), the anonymizing image proxy (LIVE SSRF refusal),
+# conversation threading over real JWZ data, the render kernel-jail posture / fail-closed
+# contract, the sealed bridge-OAuth token cache, the shipped tightened shell CSP, and the
+# route-wiring proofs (inbound webhook, MSG/DOCX export, attachment-text search). Owned by
+# t16-e-e2e. Manual + push-to-t16 branches so it never wedges the required `ci.yml` gate;
+# the coordinator promotes it to a required check at the 26.16 release boundary (mirrors
+# t12/t13/t14/t15-conformance.yml).
+#
+# Every store-touching leg runs on SQLite unconditionally AND on live Postgres when the
+# DSN is present (the 0015–0018 migrations + SQL exercised in BOTH dialects over real
+# infrastructure). A leg whose infra/env is absent LOUD-SKIPS (prints its reason); it
+# never silently passes. This is a Linux runner, so the render kernel-jail cfg paths
+# (`jail_expected()` true) run here — the win32 dev host loud-skips them.
+
+name: t16-conformance
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: ["t16-**", "release/26.16**"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── The 26.16 live-E2E legs, on SQLite AND live Postgres. ────────────────────────────
+  twofa-proxy-threading-postgres:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Bring up Postgres
+        run: docker compose -f docker-compose.ci.yml up -d --wait postgres
+      - name: Login 2FA end-to-end (TOTP + virtual WebAuthn + recovery + forced-enrol + no-downgrade + sealed) — SQLite + live Postgres
+        env:
+          MW_E14_PG_DSN: "postgres://mailwoman:mailwoman@localhost:5432/mailwoman"
+        run: cargo test -p mw-server --test t16_twofa -- --nocapture --test-threads=1
+      - name: Anonymizing image proxy — LIVE SSRF refusal + re-encode/anonymize
+        run: cargo test -p mw-server --test t16_image_proxy -- --nocapture --test-threads=1
+      - name: Conversation threading over real JWZ data — SQLite + live Postgres
+        env:
+          MW_E14_PG_DSN: "postgres://mailwoman:mailwoman@localhost:5432/mailwoman"
+        run: cargo test -p mw-server --test t16_threading -- --nocapture --test-threads=1
+      - name: Render kernel-jail posture + fail-closed contract (Linux cfg paths)
+        run: cargo test -p mw-server --test t16_sandbox -- --nocapture --test-threads=1
+      - name: Bridge OAuth token cache sealed at rest — SQLite + live Postgres
+        env:
+          MW_E14_PG_DSN: "postgres://mailwoman:mailwoman@localhost:5432/mailwoman"
+        run: cargo test -p mw-server --test t16_bridge_oauth -- --nocapture --test-threads=1
+      - name: Shell served under the shipped tightened CSP (S10)
+        run: cargo test -p mw-server --test t16_csp_shell -- --nocapture --test-threads=1
+      - name: Route-wiring — inbound webhook (A5) + MSG/DOCX export (W7) + attachment search (W19)
+        run: cargo test -p mw-server --test t16_routes -- --nocapture --test-threads=1
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v

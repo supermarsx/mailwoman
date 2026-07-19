@@ -145,3 +145,6 @@ futures-util = { workspace = true }
 # dispatcher round-trip (plan §3 e5 acceptance).
 p256 = { workspace = true }
 base64 = { workspace = true }
+# t16 (26.16, e-e2e): drive the W19 attachment-search index end-to-end (build + query)
+# from the live-E2E route-wiring proofs (mw-export is already a normal dep, for W7).
+mw-search = { workspace = true }
