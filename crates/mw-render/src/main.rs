@@ -6,6 +6,23 @@
 use std::io::{BufRead, Write};
 
 fn main() -> std::process::ExitCode {
+    // SPEC §7.5: confine this disposable child BEFORE reading any hostile input. On
+    // Linux this installs the seccomp + Landlock + namespace + rlimit kernel jail; if
+    // a jail was expected (the DQ4 default on Linux) but could not be installed, fail
+    // closed — never parse hostile input unconfined. On non-Linux it is a degraded
+    // no-op and processing continues (documented; the WASM media jail still applies).
+    match mw_render::enter_render_jail() {
+        Ok(report) => {
+            if let Some(reason) = &report.degraded {
+                eprintln!("mw-render: jail degraded: {reason}");
+            }
+        }
+        Err(e) => {
+            eprintln!("mw-render: refusing to run without the required jail: {e}");
+            return std::process::ExitCode::FAILURE;
+        }
+    }
+
     let stdin = std::io::stdin();
     let mut line = String::new();
     if let Err(e) = stdin.lock().read_line(&mut line) {

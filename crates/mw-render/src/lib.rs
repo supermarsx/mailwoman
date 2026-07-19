@@ -16,6 +16,26 @@ pub mod media_jail;
 
 pub const MAX_INPUT_BYTES: usize = 4 * 1024 * 1024; // parser resource limit (SPEC §7.2)
 
+/// Confine THIS render-child process before it reads any hostile input (SPEC §7.5,
+/// plan t16 S2/S3, DQ4). On Linux this installs the kernel jail (seccomp-BPF +
+/// Landlock + network namespace + rlimits) via [`mw_sandbox`]; on non-Linux it is a
+/// documented degraded no-op (the child still runs process-isolated with the WASM
+/// media jail, just without the kernel layer).
+///
+/// **Fail-closed:** when a jail is *expected* on this platform ([`mw_sandbox::jail_expected`]
+/// — the default on Linux) but cannot be installed, this returns `Err`. The binary
+/// (`main`) then exits without processing, so hostile input is never parsed
+/// unconfined. The returned [`mw_sandbox::SandboxReport`] describes what was applied
+/// (for logging / `mailwoman doctor`).
+///
+/// This wraps the spawn boundary: `mw-server` spawns the child, the child jails
+/// itself here, then [`process_line`] runs entirely inside the jail (including the
+/// WASM `media_jail` interpreter, which the Pulley target keeps working under it).
+pub fn enter_render_jail() -> Result<mw_sandbox::SandboxReport, String> {
+    mw_sandbox::confine_current_process(&mw_sandbox::JailPolicy::render_child())
+        .map_err(|e| e.to_string())
+}
+
 /// One render job. **Untagged** so the existing HTML sanitize frame
 /// (`{"html": …}`) is byte-identical (existing callers unchanged); the V7 CFB
 /// import frame (`{"cfbBase64": …}`) selects the disposable `.oft`/`.msg` parse

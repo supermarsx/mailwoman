@@ -36,6 +36,10 @@ members = [
     # ── t16 (26.16) 2FA crate (plan §Wave-A e2): pure-Rust WebAuthn RP verify +
     # RFC 6238 TOTP + Argon2 recovery codes. One net-new dep: `sha1`. ──
     "crates/mw-mfa",
+    # ── t16 (26.16) kernel jail crate (plan §Wave-C e4, DQ4): Linux seccomp-BPF +
+    # Landlock + namespaces + rlimits for the render child; a degraded no-op on
+    # non-Linux. Net-new deps (Linux-only, target-gated): seccompiler + landlock. ──
+    "crates/mw-sandbox",
     "plugins/bridge-graph",
     "plugins/bridge-ews",
     "plugins/bridge-gmail",
@@ -334,6 +338,8 @@ mw-plugin = { path = "crates/mw-plugin" }
 mw-directory = { path = "crates/mw-directory" }
 mw-passwd = { path = "crates/mw-passwd" }
 mw-assist = { path = "crates/mw-assist" }
+# ── t16 (26.16) kernel jail (plan §Wave-C e4). ──
+mw-sandbox = { path = "crates/mw-sandbox" }
 
 [profile.release]
 overflow-checks = true

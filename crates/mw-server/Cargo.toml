@@ -22,6 +22,10 @@ mw-store = { workspace = true }
 # dep (not `workspace = true`) so wiring it does not touch the shared root Cargo.toml
 # that other 26.16 lanes are concurrently adding their crates to.
 mw-mfa = { path = "../mw-mfa" }
+# t16 (26.16) S6/S4 — kernel jail posture + fail-closed policy. Provides
+# `jail_expected()` (shared with the render child) for the in-process-fallback
+# refusal, and the sandbox posture for `mailwoman doctor`.
+mw-sandbox = { workspace = true }
 mw-sanitize = { workspace = true }
 mw-engine = { workspace = true }
 mw-export = { workspace = true }

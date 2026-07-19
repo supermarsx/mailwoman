@@ -1,0 +1,26 @@
+[package]
+name = "mw-sandbox"
+description = "Kernel jail for the disposable render child (SPEC §7.5): Linux seccomp-BPF + Landlock + namespaces + rlimits; a documented degraded no-op elsewhere"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+# The kernel jail is Linux-only (seccomp-BPF, Landlock, namespaces). These crates
+# are pulled in ONLY on Linux so the crate still compiles as a degraded no-op on
+# the win32 dev host / macOS / any non-Linux CI (plan t16 DQ4, `#[cfg]`-gated).
+#
+# License + supply-chain floor (verified before adding — t16-e4):
+#   seccompiler 0.5 — Apache-2.0 OR BSD-3-Clause; AWS Firecracker's pure-Rust BPF
+#     assembler; deps = libc + serde/serde_json (all already vendored). NO -sys, NO C.
+#   landlock 0.4 — MIT OR Apache-2.0; pure-Rust Landlock LSM bindings; deps = libc +
+#     thiserror + enumflags2 (all already vendored). NO -sys, NO C.
+#   libc — raw FFI declarations (SYS_* numbers, setrlimit/unshare/prctl); no C build.
+# Net-new to the workspace tree: seccompiler + landlock only (the two approved for
+# this lane). `cargo deny` stays green (Apache-2.0/MIT/BSD-3-Clause all allow-listed).
+[target.'cfg(target_os = "linux")'.dependencies]
+seccompiler = "0.5"
+landlock = "0.4"
+libc = "0.2"

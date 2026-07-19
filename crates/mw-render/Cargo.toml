@@ -8,6 +8,10 @@ repository.workspace = true
 
 [dependencies]
 mw-sanitize = { workspace = true }
+# t16 (26.16) S2/S3 — kernel jail (SPEC §7.5, plan DQ4). The child confines ITSELF
+# before reading hostile input: on Linux seccomp+Landlock+namespaces+rlimits, a
+# documented degraded no-op elsewhere. Consumed by `main.rs` via `enter_render_jail`.
+mw-sandbox = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 base64 = { workspace = true }

@@ -49,6 +49,23 @@ enum Command {
     /// One-shot store maintenance (t14 26.14): `maintenance rethread <account>`
     /// runs the idempotent JWZ historical backfill. Explicit, never automatic.
     Maintenance(MaintenanceArgs),
+    /// Print deployment posture: the cache scope matrix (SPEC §15.6) and the render
+    /// kernel-jail posture (SPEC §7.5). Read-only; wires `mw_cache::posture()` +
+    /// `mw_sandbox::probe()`. Reports the degraded mode plainly on non-Linux (t16 S4).
+    Doctor(DoctorArgs),
+}
+
+/// `mailwoman doctor` (t16 26.16, plan §Wave-C e4 S4): diagnostics only. Reports the
+/// effective cache posture and the render sandbox posture, then exits.
+#[derive(Parser)]
+struct DoctorArgs {
+    /// SQLite/Postgres DSN (env: MW_DB_PATH). Best-effort — the store fall-through is
+    /// reported as unattached if it cannot be opened.
+    #[arg(long, env = "MW_DB_PATH", default_value = "mailwoman.db")]
+    db_path: String,
+    /// Hex-encoded 32-byte server key (env: MW_SERVER_KEY).
+    #[arg(long, env = "MW_SERVER_KEY")]
+    server_key: Option<String>,
 }
 
 /// `mailwoman maintenance <verb>` (t14 26.14, plan §Wave-B E-mount): admin/operator
@@ -298,7 +315,41 @@ async fn main() -> std::process::ExitCode {
         Command::Plugin(args) => run(plugin_cmd(args).await),
         Command::Password(args) => run(password_cmd(args).await),
         Command::Maintenance(args) => run(maintenance_cmd(args).await),
+        Command::Doctor(args) => run(doctor_cmd(args).await),
     }
+}
+
+/// Print the cache posture (SPEC §15.6) + render sandbox posture (SPEC §7.5) and
+/// exit. The store is opened best-effort (diagnostics must still print when the DB is
+/// unavailable); the sandbox posture is a non-mutating probe (it does NOT confine the
+/// doctor process itself).
+async fn doctor_cmd(args: DoctorArgs) -> anyhow::Result<()> {
+    // Cache posture — mirror the server's cache wiring (spec-default matrix +
+    // MW_REDIS_URL) so the printed posture matches what `serve` would use.
+    let store = open_store(&args.db_path, args.server_key.as_deref())
+        .await
+        .ok();
+    if store.is_none() {
+        eprintln!(
+            "doctor: could not open the store at {} — cache store fall-through shown as unattached",
+            args.db_path
+        );
+    }
+    let cache = mw_cache::Cache::connect(
+        mw_cache::CacheConfig {
+            matrix: mw_cache::ScopeMatrix::spec_defaults(),
+            redis_url: std::env::var("MW_REDIS_URL").ok(),
+            memory_capacity: 10_000,
+        },
+        store,
+    )
+    .await;
+    print!("{}", mw_cache::render_posture(&cache.posture()));
+    println!();
+
+    // Render sandbox posture — what the render child's kernel jail applies here.
+    print!("{}", mw_sandbox::render_posture(&mw_sandbox::probe()));
+    Ok(())
 }
 
 /// `mailwoman maintenance rethread <account>` (t14 26.14, plan §Wave-B E-mount):

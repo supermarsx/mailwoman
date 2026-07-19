@@ -199,6 +199,11 @@ impl SecurityConfig {
 pub(crate) struct AppState {
     store: Store,
     render_bin: Option<PathBuf>,
+    /// Whether a render kernel jail is expected on this deployment (DQ4/S6, via
+    /// [`mw_sandbox::jail_expected`]). When set, the in-process render fallbacks
+    /// (HTML sanitize / `.oft` parse) fail closed instead of running hostile input in
+    /// this trusted process without the jail.
+    render_jail_required: bool,
     web_dir: Option<PathBuf>,
     cookie_secure: bool,
     /// Present only in engine mode; drives IMAP/POP3 behind the JMAP surface.
@@ -369,11 +374,30 @@ async fn build_app_inner(
         None => store,
     };
     let render_bin = locate_render_bin();
+    // DQ4/S6: is a render kernel jail expected here? On Linux (or when
+    // `MW_RENDER_JAIL=require`), the hostile-input render must run in the jailed
+    // child — the in-process fallbacks then fail closed rather than parse untrusted
+    // input in this trusted process. On non-Linux this is the documented degraded
+    // mode (process-split only) and the fallbacks are permitted.
+    let render_jail_required = mw_sandbox::jail_expected();
     match &render_bin {
-        Some(p) => tracing::info!("render worker: {}", p.display()),
-        None => {
-            tracing::warn!("mw-render binary not found; /api/sanitize will sanitize in-process")
-        }
+        Some(p) => tracing::info!(
+            "render worker: {} (kernel jail {})",
+            p.display(),
+            if render_jail_required {
+                "required — SPEC §7.5"
+            } else {
+                "degraded/not required on this platform"
+            }
+        ),
+        None if render_jail_required => tracing::error!(
+            "mw-render binary not found but a kernel jail is required (SPEC §7.5): \
+             /api/sanitize and /api/import/oft will FAIL CLOSED (no in-process fallback). \
+             Deploy the mw-render worker or set MW_RENDER_JAIL=off to run degraded."
+        ),
+        None => tracing::warn!(
+            "mw-render binary not found; /api/sanitize will sanitize in-process (degraded, no jail)"
+        ),
     }
     let engine = match config.mode {
         ServerMode::Engine => {
@@ -531,6 +555,7 @@ async fn build_app_inner(
     let state = AppState {
         store,
         render_bin,
+        render_jail_required,
         web_dir: config.web_dir,
         cookie_secure: config.cookie_secure,
         engine,
@@ -2061,11 +2086,29 @@ async fn sanitize(
     let clean = match &state.render_bin {
         Some(bin) => match run_render_child(bin, &body.html).await {
             Ok(html) => html,
+            Err(e) if state.render_jail_required => {
+                // S6/DQ4 fail-closed: the jailed child was expected but failed. Do NOT
+                // sanitize hostile HTML in this trusted process without the jail.
+                tracing::error!(
+                    "render child failed ({e}) and a kernel jail is required; \
+                     refusing in-process fallback (SPEC §7.5)"
+                );
+                return render_unavailable();
+            }
             Err(e) => {
-                tracing::warn!("render child failed ({e}); falling back to in-process sanitize");
+                tracing::warn!(
+                    "render child failed ({e}); degraded in-process sanitize (no jail expected)"
+                );
                 mw_sanitize::sanitize_email_html(&body.html)
             }
         },
+        // No render worker at all: fail closed when a jail was expected, else degrade.
+        None if state.render_jail_required => {
+            tracing::error!(
+                "no render worker and a kernel jail is required; refusing /api/sanitize (SPEC §7.5)"
+            );
+            return render_unavailable();
+        }
         None => mw_sanitize::sanitize_email_html(&body.html),
     };
     // `html` is the existing contract; `csp` is additive — the web app may apply
@@ -2096,19 +2139,16 @@ async fn import_oft(
     let result = match &state.render_bin {
         Some(bin) => run_render_child_cfb(bin, &body.content_base64).await,
         None => {
-            // No render worker: parse in-process (documented fallback, like sanitize).
-            tracing::warn!("mw-render binary not found; parsing .oft in-process");
-            match base64::engine::general_purpose::STANDARD.decode(body.content_base64.as_bytes()) {
-                Ok(bytes) => mw_export::from_oft(&bytes)
-                    .map(|p| {
-                        (
-                            mw_sanitize::sanitize_email_html(&p.body.unwrap_or_default()),
-                            p.subject,
-                        )
-                    })
-                    .map_err(|e| anyhow!("{e}")),
-                Err(e) => Err(anyhow!("bad base64: {e}")),
-            }
+            // S6/DQ4 + SPEC §7.5: the hostile OLE2/MS-OXMSG parse has NO safe
+            // in-process path — the native `from_oft` parser was removed from the
+            // runtime path (it survives only as a test-fixture writer). The CFB parse
+            // runs only inside the render child's WASM media jail. Never parse a
+            // compound file natively in this trusted process — refuse.
+            tracing::error!(
+                "no render worker; refusing to import .oft/.msg in-process \
+                 (the compound-file parse requires the WASM media jail — SPEC §7.5)"
+            );
+            return render_unavailable();
         }
     };
     match result {
@@ -2127,6 +2167,20 @@ async fn import_oft(
                 .into_response()
         }
     }
+}
+
+/// The S6/DQ4 fail-closed response: a render kernel jail was expected but the jailed
+/// child is unavailable, so we refuse rather than process hostile input unconfined in
+/// this trusted process. Plain, no-hype (`503`).
+fn render_unavailable() -> Response {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(json!({
+            "error": "the render worker is unavailable; \
+                      hostile content is not processed without its sandbox"
+        })),
+    )
+        .into_response()
 }
 
 /// Spawn `mw-render` with a `Cfb` job and read back the imported `(html, subject)`.
