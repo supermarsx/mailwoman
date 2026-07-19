@@ -1,0 +1,50 @@
+# Production hardening overlay (X4).
+#
+# Layers container-runtime confinement onto the Mailwoman app services WITHOUT
+# altering the deterministic E2E stack. Apply it on top of the base compose:
+#
+#   docker compose -f docker-compose.dev.yml -f docker-compose.hardened.yml \
+#                  up -d --build mailwoman
+#
+# It is deliberately a separate overlay: the base docker-compose.dev.yml (and
+# docker-compose.ci.yml) drive live-E2E and must keep their current behaviour.
+# This file only touches the two app services (`mailwoman`, `mailwoman-engine`),
+# never the test backends.
+#
+# Posture applied to each app container:
+#   - read-only root filesystem (only /data volume + a small /tmp tmpfs writable)
+#   - all Linux capabilities dropped (the server needs none; :8080 is unprivileged)
+#   - no-new-privileges (no setuid escalation from inside the container)
+#   - Docker's default seccomp profile retained (NOT set to unconfined)
+#   - PID cap + memory/CPU-independent (limits left to the deployer's platform)
+#
+# A custom AppArmor profile can be layered per host by uncommenting the
+# `apparmor=` line and installing packaging/apparmor/mailwoman to the host.
+
+services:
+  mailwoman:
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+      # Docker applies its default seccomp profile unless told otherwise; it is
+      # left in place here. To pin an explicit profile instead:
+      #   - seccomp:packaging/seccomp/mailwoman.json
+      # To confine with AppArmor (host must load the profile first):
+      #   - apparmor=mailwoman
+    tmpfs:
+      # Render worker + rustls scratch space; noexec/nosuid so a dropped file
+      # cannot be run or gain privilege.
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    pids_limit: 512
+
+  mailwoman-engine:
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    pids_limit: 512

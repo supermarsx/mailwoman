@@ -1,0 +1,69 @@
+# cargo-fuzz harnesses for Mailwoman's network- and attacker-facing parsers.
+#
+# These crates all consume bytes that originate off the wire or out of untrusted
+# email: MIME messages, HTML bodies, IMAP/POP3 server responses, and Sieve
+# scripts. Each parser is contracted to never panic on arbitrary input; the fuzz
+# targets exercise that contract. Run them with `cargo +nightly fuzz run <target>`
+# (see fuzz/README.md); CI runs a bounded smoke pass on every push.
+#
+# This package carries its own empty `[workspace]` table so `cargo` invoked at
+# the repository root ignores the sanitizer-instrumented crate — the standard
+# cargo-fuzz convention. It is not a member of the main workspace.
+[package]
+name = "mailwoman-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+mw-mime = { path = "../crates/mw-mime" }
+mw-sanitize = { path = "../crates/mw-sanitize" }
+mw-imap = { path = "../crates/mw-imap" }
+mw-pop3 = { path = "../crates/mw-pop3" }
+mw-sieve = { path = "../crates/mw-sieve" }
+
+# Prevent `cargo` at the repo root from pulling this instrumented crate into the
+# main workspace build.
+[workspace]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "mime_parse"
+path = "fuzz_targets/mime_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sanitize_html"
+path = "fuzz_targets/sanitize_html.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "imap_parse_response"
+path = "fuzz_targets/imap_parse_response.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pop3_parse"
+path = "fuzz_targets/pop3_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sieve_parse"
+path = "fuzz_targets/sieve_parse.rs"
+test = false
+doc = false
+bench = false

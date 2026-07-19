@@ -1,0 +1,15 @@
+apiVersion: v2
+name: mailwoman
+description: Mailwoman mail server — hardened Kubernetes deployment
+type: application
+# Chart version is independent of the app; bump on chart changes.
+version: 0.1.0
+# Tracks the Mailwoman release the chart is tested against. Kept in sync with
+# the workspace version by scripts/stamp-version.sh at release time.
+appVersion: "26.16.0"
+home: https://github.com/mailwoman/mailwoman
+sources:
+  - https://github.com/mailwoman/mailwoman
+maintainers:
+  - name: Mailwoman
+kubeVersion: ">=1.25.0-0"

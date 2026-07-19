@@ -86,3 +86,70 @@ USER nonroot
 HEALTHCHECK --interval=15s --timeout=5s --start-period=5s --retries=5 \
     CMD ["/usr/local/bin/mailwoman", "healthcheck", "--url", "http://127.0.0.1:8181/healthz"]
 ENTRYPOINT ["/usr/local/bin/mw-mock-jmap"]
+
+# ---------------------------------------------------------------------------
+# Stage 5 — build-musl: statically link the server + render worker against musl
+# libc, so the runtime image can be `FROM scratch` (no libc, no shell, no
+# package manager, nothing to attack). The whole floor is pure-Rust/rustls, so
+# no C/OpenSSL is pulled in and the static link is self-contained.
+#
+# The Alpine rust image targets musl natively; RUSTFLAGS static-links the
+# crt so the binaries have zero shared-object dependencies.
+# ---------------------------------------------------------------------------
+FROM rust:1.95-alpine AS build-musl
+# build-base = gcc + make + musl-dev, needed to compile the C/asm in `ring` and
+# `zstd-sys` against musl for a fully static link. ca-certificates provides the
+# root bundle copied into the scratch image for rustls upstream TLS.
+RUN apk add --no-cache build-base ca-certificates
+WORKDIR /src
+ENV RUSTFLAGS="-C target-feature=+crt-static"
+COPY . .
+# Reuse the SPA already built in the `web` stage so rust-embed bakes it in.
+RUN rm -rf apps/web/dist
+COPY --from=web /web/dist apps/web/dist
+# Build a nonroot passwd/group and an empty data dir to carry into scratch.
+RUN printf 'nonroot:x:65532:65532:nonroot:/data:/sbin/nologin\n' > /etc/mw-passwd \
+    && printf 'nonroot:x:65532:\n' > /etc/mw-group \
+    && mkdir -p /data-empty /tmp-empty
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/src/target \
+    cargo build --release --target x86_64-unknown-linux-musl \
+        --bin mailwoman --bin mw-render \
+    && mkdir -p /out-musl \
+    && cp target/x86_64-unknown-linux-musl/release/mailwoman \
+          target/x86_64-unknown-linux-musl/release/mw-render /out-musl/
+
+# ---------------------------------------------------------------------------
+# Stage 6 — runtime-static: FROM scratch. The hardened production image (X3).
+# Ships only the two static binaries, the CA bundle (for rustls upstream TLS),
+# a single nonroot passwd/group entry, and the read-only first-party plugins.
+# No libc, no shell, no coreutils — the attack surface is the binary alone.
+#
+# Build/select explicitly:  docker build --target runtime-static -t mailwoman:static .
+# The default target stays `runtime` (distroless) so nothing else changes.
+# ---------------------------------------------------------------------------
+FROM scratch AS runtime-static
+COPY --from=build-musl /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=build-musl /etc/mw-passwd /etc/passwd
+COPY --from=build-musl /etc/mw-group  /etc/group
+COPY --from=build-musl /out-musl/mailwoman /usr/local/bin/mailwoman
+COPY --from=build-musl /out-musl/mw-render /usr/local/bin/mw-render
+# Plugins are committed, read-only data files — take them from the musl build
+# context so the scratch image never depends on the glibc `build` stage.
+COPY --from=build-musl /src/plugins/dist /usr/lib/mailwoman/plugins
+# Writable data dir + /tmp, owned by the nonroot uid. A named volume mounted at
+# /data inherits this ownership so the server can create its DB.
+COPY --from=build-musl --chown=65532:65532 /data-empty /data
+COPY --from=build-musl --chown=65532:65532 /tmp-empty  /tmp
+ENV MW_BIND=0.0.0.0:8080 \
+    MW_DB_PATH=/data/mailwoman.db \
+    MW_RENDER_BIN=/usr/local/bin/mw-render \
+    MW_PLUGIN_DIR=/usr/lib/mailwoman/plugins \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+EXPOSE 8080
+VOLUME ["/data"]
+USER 65532:65532
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD ["/usr/local/bin/mailwoman", "healthcheck"]
+ENTRYPOINT ["/usr/local/bin/mailwoman"]
+CMD ["serve"]

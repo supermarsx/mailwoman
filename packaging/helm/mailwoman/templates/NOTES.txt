@@ -1,0 +1,21 @@
+Mailwoman {{ .Chart.AppVersion }} deployed as {{ include "mailwoman.fullname" . }}.
+
+The pod runs non-root (uid {{ .Values.runAsUser }}), read-only root filesystem,
+all Linux capabilities dropped, no privilege escalation, RuntimeDefault seccomp.
+
+{{- if not .Values.serverKeySecret.name }}
+
+WARNING: serverKeySecret.name is unset. Without MW_SERVER_KEY the server cannot
+seal data at rest across restarts. Create a Secret and set serverKeySecret.name:
+
+  kubectl create secret generic mailwoman-key \
+    --from-literal=MW_SERVER_KEY=$(openssl rand -hex 32)
+{{- end }}
+
+Reach the service inside the cluster at:
+
+  http://{{ include "mailwoman.fullname" . }}:{{ .Values.service.port }}
+
+Port-forward to try it locally:
+
+  kubectl port-forward svc/{{ include "mailwoman.fullname" . }} 8080:{{ .Values.service.port }}

@@ -1,0 +1,81 @@
+# Default values for the Mailwoman chart.
+# Every default here is chosen for a hardened, non-root, read-only deployment.
+
+image:
+  # Point this at your registry. The hardened FROM-scratch image is built with
+  #   docker build --target runtime-static -t <repo>:<tag> .
+  repository: ghcr.io/mailwoman/mailwoman
+  # Defaults to .Chart.AppVersion when empty.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+replicaCount: 1
+
+# The scratch image runs as this fixed non-root uid/gid (see Dockerfile).
+runAsUser: 65532
+runAsGroup: 65532
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# Persistent volume for the SQLite DB and sealed data at /data.
+persistence:
+  enabled: true
+  size: 5Gi
+  accessMode: ReadWriteOnce
+  # storageClass: ""            # unset => cluster default
+  # existingClaim: ""           # reuse a PVC instead of creating one
+
+# MW_SERVER_KEY (seals data at rest) MUST come from a Secret, never values.yaml.
+# Create it out-of-band and reference it here:
+#   kubectl create secret generic mailwoman-key --from-literal=MW_SERVER_KEY=<hex>
+serverKeySecret:
+  # Name of an existing Secret holding the key. Required for a real deployment.
+  name: ""
+  key: MW_SERVER_KEY
+
+# Extra plain environment for the container (non-secret).
+env:
+  MW_BIND: "0.0.0.0:8080"
+  MW_DB_PATH: "/data/mailwoman.db"
+  MW_RENDER_BIN: "/usr/local/bin/mw-render"
+  MW_PLUGIN_DIR: "/usr/lib/mailwoman/plugins"
+  RUST_LOG: "info"
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "2"
+    memory: 1Gi
+
+# Pod-level security context.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+# Container-level security context — the hardened defaults.
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  privileged: false
+  capabilities:
+    drop:
+      - ALL
+
+# Size of the writable /tmp emptyDir (root fs is read-only).
+tmpSizeLimit: 64Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}
