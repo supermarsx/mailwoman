@@ -1,0 +1,66 @@
+# t15 (26.15) live-E2E conformance — the "unit-green != wired" gate for the three
+# 26.15 seams (new-file blob upload, persistent plugin KV, third-party component
+# loading). Owned by t15-E-e2e. Manual + push-to-t15 branches so it never wedges the
+# required `ci.yml` gate; the coordinator promotes it to a required check at the 26.15
+# release boundary (mirrors t12/t13/t14-conformance.yml).
+#
+# Reuses the established harness (docker-compose.ci.yml Postgres + the MW_E14_PG_DSN
+# loud-skip toggle). Every leg runs on SQLite unconditionally AND on live Postgres when
+# the DSN is present, so the 0012/0013/0014 migrations + SQL are exercised in BOTH
+# dialects across real infrastructure. A leg with no infra LOUD-SKIPS (prints its reason),
+# it never silently passes.
+#
+#   * upload         — HEADLINE: POST-equivalent store_upload -> U-blobId; the sealed
+#                      object is on a REAL filesystem backend (NOT plaintext); an
+#                      Email/set create referencing the blobId + inline EmailSubmission
+#                      SENDS a message carrying EXACTLY the uploaded bytes; metadata lands
+#                      in real Postgres. Plus account isolation (foreign account -> None)
+#                      and gc-uploads reclamation (row + on-disk object). The HTTP
+#                      200/413/403 surface is covered by tests/integration.rs.
+#   * plugin-kv      — a value written through one host SURVIVES a store drop + fresh
+#                      re-open over the SAME Postgres/SQLite with the SAME ServerKey
+#                      (proves persisted + sealed, not in-memory); per-(plugin,account)
+#                      isolation; a visible quota rejection; whole-namespace purge.
+#   * thirdparty     — the security headline: an admin-pinned exact digest ADMITS a
+#                      third-party component; NO approval / REVOKED / TAMPERED-byte are
+#                      each REFUSED; approving a first-party id is refused (anti-spoof);
+#                      a malformed/empty digest is never a wildcard. Over real 0014.
+
+name: t15-conformance
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: ["t15-**", "release/26.15**"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── The three 26.15 live-E2E legs, on SQLite AND live Postgres. ──────────────────────
+  upload-kv-thirdparty-postgres:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Bring up Postgres
+        run: docker compose -f docker-compose.ci.yml up -d --wait postgres
+      - name: New-file blob upload round-trip + isolation + gc (SQLite + live Postgres)
+        env:
+          MW_E14_PG_DSN: "postgres://mailwoman:mailwoman@localhost:5432/mailwoman"
+        run: cargo test -p mw-server --test t15_upload -- --nocapture --test-threads=1
+      - name: Persistent plugin KV across a host restart (SQLite + live Postgres)
+        env:
+          MW_E14_PG_DSN: "postgres://mailwoman:mailwoman@localhost:5432/mailwoman"
+        run: cargo test -p mw-server --test t15_plugin_kv -- --nocapture --test-threads=1
+      - name: Third-party load trust store — positive + the negatives (SQLite + live Postgres)
+        env:
+          MW_E14_PG_DSN: "postgres://mailwoman:mailwoman@localhost:5432/mailwoman"
+        run: cargo test -p mw-server --test t15_thirdparty_load -- --nocapture --test-threads=1
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v
