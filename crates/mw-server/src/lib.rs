@@ -19,6 +19,7 @@ use rand::RngCore;
 use serde::Deserialize;
 use serde_json::json;
 
+use mw_directory::BindOutcome;
 use mw_engine::Engine;
 use mw_jmap::JmapClient;
 use mw_store::{Credentials, NativeSessionRow, ServerKey, Store};
@@ -72,6 +73,11 @@ pub mod ui_plugins;
 // backfill endpoint + the server-metadata admin account passthrough helper the
 // `/jmap/api` handler calls. Additive; fail-closed.
 pub mod admin_maintenance;
+// t16 (26.16, e3): the login second-factor gate + enrolment/verification/recovery
+// and session-management routes over `mw-mfa` + the 0015 store tables. The
+// `gate_login` hook is called from both login branches below; `twofa_router()` is
+// merged into `router()`.
+pub mod twofa_routes;
 // V6 MOUNT (t6-e11): store adapters backing the frozen Batch-B persistence seams
 // over the real 0007 tables.
 mod stores_v6;
@@ -210,6 +216,14 @@ pub(crate) struct AppState {
     /// V6 MOUNT (plan §3 e11): the mounted OAuth AS, admin domain logic, and the
     /// store [`ServerKey`] backing the admin/oauth/mcp/zero-access surfaces.
     pub(crate) v6: Arc<V6State>,
+    /// t16 (26.16, e3): server-side login second-factor state (one-shot pending
+    /// logins + passkey registration challenges). Inert until a user enrols a factor
+    /// or an admin sets a require-2FA policy — the default login path is unchanged.
+    pub(crate) twofa: Arc<twofa_routes::TwofaState>,
+    /// t16 (26.16, e3, A1): the GAL/LDAP directory handle, so the login path can add
+    /// an LDAP-bind pre-check (§18.3) when `MW_LDAP_BIND_AUTH` is set. Inert (never
+    /// consulted) unless that env flag is on — the default login path is unchanged.
+    pub(crate) directory: directory::DirectoryHandle,
 }
 
 /// V6 mount-time configuration (plan §3 e11). All fields default to "off" so a
@@ -526,6 +540,8 @@ async fn build_app_inner(
         security: config.security,
         native_auth: NativeAuthConfig::from_env(),
         v6,
+        twofa: Arc::new(twofa_routes::TwofaState::new()),
+        directory: directory.clone(),
     };
     let v7 = V7Extensions {
         directory,
@@ -629,6 +645,10 @@ fn router(
 
     Router::new()
         .merge(v6)
+        // t16 (26.16, e3): 2FA login-step / enrolment / recovery + session management.
+        // `/api/login/2fa*` are pre-auth (pending-token) and CSRF-exempt like
+        // `/api/login`; the `/api/account/*` routes are session-authed.
+        .merge(twofa_routes::twofa_router())
         .route("/api/login", post(login))
         .route("/api/logout", post(logout))
         .route("/api/me", get(me))
@@ -747,8 +767,13 @@ async fn state_change_guard(State(state): State<AppState>, req: Request, next: N
                     .into_response();
             }
             // Pre-auth bootstrap routes have no prior token to double-submit; they
-            // are covered by the Origin check + SameSite=Strict cookie instead.
-            let csrf_exempt = matches!(req.uri().path(), "/api/login" | "/api/discover");
+            // are covered by the Origin check + SameSite=Strict cookie instead. The
+            // 2FA login step + forced-enrolment routes (t16 e3) are the same kind of
+            // pre-auth bootstrap: authority is the unguessable one-shot pending token
+            // in the body, not an ambient cookie, and no session cookie exists yet.
+            let path = req.uri().path();
+            let csrf_exempt = matches!(path, "/api/login" | "/api/discover")
+                || path.starts_with("/api/login/2fa");
             if state.hardening.csrf_strict
                 && !csrf_exempt
                 && !hardening::csrf_double_submit_ok(req.headers())
@@ -856,9 +881,24 @@ fn unauthorized() -> Response {
         .into_response()
 }
 
-async fn login(State(state): State<AppState>, Json(body): Json<LoginReq>) -> Response {
+async fn login(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<LoginReq>,
+) -> Response {
+    // A2 (header-auth trusted proxy): if the deployment trusts an upstream that has
+    // already authenticated the user and asserts it via `X-Remote-User`, mint the
+    // session from that header without a password. OFF unless configured.
+    if let Some(resp) = header_auth_login(&state, &headers, &body).await {
+        return resp;
+    }
+    // A1 (LDAP-bind login backend, §18.3): an env-gated pre-check against the
+    // directory. Off by default → the mail backend remains the sole authority.
+    if let Err(resp) = directory_bind_gate(&state, &body.username, &body.password).await {
+        return resp;
+    }
     if let Some(engine) = &state.engine {
-        return engine_login(&state, engine, body).await;
+        return engine_login(&state, &headers, engine, body).await;
     }
     let client = match JmapClient::new(&body.username, &body.password) {
         Ok(c) => c,
@@ -885,26 +925,112 @@ async fn login(State(state): State<AppState>, Json(body): Json<LoginReq>) -> Res
         username: body.username.clone(),
         password: body.password.clone(),
     };
-    let id = match state
-        .store
-        .create_session(&account_id, &username, &body.jmap_url, &api_url, &creds)
-        .await
-    {
-        Ok(id) => id,
-        Err(e) => {
-            tracing::error!("failed to persist session: {e}");
-            return (StatusCode::INTERNAL_SERVER_ERROR, "server error").into_response();
-        }
-    };
-    state.sessions.begin(&id);
-    finish_login(
+    // Credentials validated — hand off to the 2FA gate (DQ2). It either completes the
+    // login (no factor enrolled/required) or returns a `twofaRequired` challenge and
+    // withholds the session until the second factor clears.
+    twofa_routes::gate_login(
         &state,
-        &id,
-        &account_id,
-        &username,
-        body.client_type.as_deref(),
+        &headers,
+        twofa_routes::SessionArgs {
+            account_id,
+            username,
+            jmap_url: body.jmap_url.clone(),
+            api_url,
+            creds,
+            client_type: body.client_type.clone(),
+        },
     )
     .await
+}
+
+/// Truthy env flag (`"1"`/`"true"`, case-insensitive). Used by the default-off
+/// alt-auth toggles (A1 LDAP-bind, A2 header-auth).
+fn env_flag(key: &str) -> bool {
+    std::env::var(key)
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
+/// A2 (trusted-proxy header auth, §18.3). When `MW_HEADER_AUTH` is set, a reverse
+/// proxy that has ALREADY authenticated the user asserts the identity in a trusted
+/// header (default `X-Remote-User`, override `MW_HEADER_AUTH_HEADER`). If that header
+/// is present and non-empty, the session is minted for that user WITHOUT a password —
+/// but still through the 2FA gate (DQ2: no downgrade). Returns `None` (fall through to
+/// the password path) when the feature is off or the header is absent.
+///
+/// SECURITY: this trusts the asserted header ABSOLUTELY, so it is safe ONLY behind a
+/// proxy that STRIPS any client-supplied copy of the header. It is OFF by default.
+/// In this mode the account identity IS the asserted remote user, so 2FA enrolment
+/// keys off that same identity.
+async fn header_auth_login(
+    state: &AppState,
+    headers: &HeaderMap,
+    body: &LoginReq,
+) -> Option<Response> {
+    if !env_flag("MW_HEADER_AUTH") {
+        return None;
+    }
+    let header_name = std::env::var("MW_HEADER_AUTH_HEADER")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "X-Remote-User".to_string());
+    let username = headers
+        .get(header_name.as_str())
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?
+        .to_string();
+    // Downstream mail access uses a configured service password (empty if unset — the
+    // proxy/network is expected to authorize the upstream in this deployment shape).
+    let password = std::env::var("MW_HEADER_AUTH_PASSWORD").unwrap_or_default();
+    let creds = Credentials {
+        username: username.clone(),
+        password,
+    };
+    let (jmap_url, api_url) = if state.engine.is_some() {
+        ("engine".to_string(), "engine".to_string())
+    } else {
+        let url = if body.jmap_url.is_empty() {
+            std::env::var("MW_HEADER_AUTH_JMAP_URL").unwrap_or_default()
+        } else {
+            body.jmap_url.clone()
+        };
+        (url.clone(), url)
+    };
+    Some(
+        twofa_routes::gate_login(
+            state,
+            headers,
+            twofa_routes::SessionArgs {
+                account_id: username.clone(),
+                username,
+                jmap_url,
+                api_url,
+                creds,
+                client_type: body.client_type.clone(),
+            },
+        )
+        .await,
+    )
+}
+
+/// A1 (LDAP-bind login backend, §18.3). When `MW_LDAP_BIND_AUTH` is set, authenticate
+/// the presented password against the configured directory via the directory
+/// handle's `bind_auth` BEFORE the mail-backend credential check; a denied
+/// bind (or, fail-closed, a bind error while enabled) is the uniform 401. Off by
+/// default → `Ok(())`, leaving the mail backend as the sole authority.
+async fn directory_bind_gate(state: &AppState, user: &str, pass: &str) -> Result<(), Response> {
+    if !env_flag("MW_LDAP_BIND_AUTH") {
+        return Ok(());
+    }
+    match state.directory.bind_auth(user, pass).await {
+        Ok(BindOutcome::Ok { .. }) => Ok(()),
+        Ok(BindOutcome::Denied) => Err(unauthorized()),
+        Err(e) => {
+            tracing::warn!("ldap bind auth error (failing closed): {e}");
+            Err(unauthorized())
+        }
+    }
 }
 
 /// Complete a login: for a browser client (`client_type` absent) set the session +
@@ -918,6 +1044,20 @@ pub(crate) async fn finish_login(
     account_id: &str,
     username: &str,
     client_type: Option<&str>,
+) -> Response {
+    finish_login_ext(state, id, account_id, username, client_type, json!({})).await
+}
+
+/// Like [`finish_login`] but merges the object `extra` into the success body. The
+/// 2FA forced-enrolment completion (t16 e3) uses it to hand the one-time recovery
+/// codes back alongside the freshly-issued session, without a second round-trip.
+pub(crate) async fn finish_login_ext(
+    state: &AppState,
+    id: &str,
+    account_id: &str,
+    username: &str,
+    client_type: Option<&str>,
+    extra: serde_json::Value,
 ) -> Response {
     if client_type == Some("native") {
         let now = push_relay::now_rfc3339();
@@ -934,29 +1074,42 @@ pub(crate) async fn finish_login(
             return (StatusCode::INTERNAL_SERVER_ERROR, "server error").into_response();
         }
         // No cookie, no double-submit CSRF token — the bearer token is the credential.
-        return Json(json!({
+        let mut body = json!({
             "ok": true,
             "accountId": account_id,
             "username": username,
             "token": id,
-        }))
-        .into_response();
+        });
+        merge_body(&mut body, extra);
+        return Json(body).into_response();
     }
-    authenticated_response(
-        state,
-        id,
-        json!({
-            "ok": true,
-            "accountId": account_id,
-            "username": username,
-        }),
-    )
+    let mut body = json!({
+        "ok": true,
+        "accountId": account_id,
+        "username": username,
+    });
+    merge_body(&mut body, extra);
+    authenticated_response(state, id, body)
+}
+
+/// Shallow-merge the fields of `extra` (if an object) into `base` (if an object).
+fn merge_body(base: &mut serde_json::Value, extra: serde_json::Value) {
+    if let (Some(b), serde_json::Value::Object(e)) = (base.as_object_mut(), extra) {
+        for (k, v) in e {
+            b.insert(k, v);
+        }
+    }
 }
 
 /// Engine-mode login: `jmapUrl` is read as an `imap(s)://`/`pop3(s)://` server
 /// URL. Connects the account, then issues the same session cookie the proxy path
 /// uses so the browser flow is identical.
-async fn engine_login(state: &AppState, engine: &Arc<Engine>, body: LoginReq) -> Response {
+async fn engine_login(
+    state: &AppState,
+    headers: &HeaderMap,
+    engine: &Arc<Engine>,
+    body: LoginReq,
+) -> Response {
     let (account_id, username) =
         match engine_mode::engine_login(engine, &body.jmap_url, &body.username, &body.password)
             .await
@@ -971,24 +1124,19 @@ async fn engine_login(state: &AppState, engine: &Arc<Engine>, body: LoginReq) ->
         username: body.username.clone(),
         password: body.password.clone(),
     };
-    let id = match state
-        .store
-        .create_session(&account_id, &username, "engine", "engine", &creds)
-        .await
-    {
-        Ok(id) => id,
-        Err(e) => {
-            tracing::error!("failed to persist engine session: {e}");
-            return (StatusCode::INTERNAL_SERVER_ERROR, "server error").into_response();
-        }
-    };
-    state.sessions.begin(&id);
-    finish_login(
+    // Credentials validated — same 2FA gate as the proxy branch (DQ2). The session
+    // persists the `"engine"` sentinel for jmap/api URLs.
+    twofa_routes::gate_login(
         state,
-        &id,
-        &account_id,
-        &username,
-        body.client_type.as_deref(),
+        headers,
+        twofa_routes::SessionArgs {
+            account_id,
+            username,
+            jmap_url: "engine".to_string(),
+            api_url: "engine".to_string(),
+            creds,
+            client_type: body.client_type.clone(),
+        },
     )
     .await
 }

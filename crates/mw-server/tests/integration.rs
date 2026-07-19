@@ -395,3 +395,161 @@ async fn logout_clears_session() {
     let me = c.get(format!("{server}/api/me")).send().await.unwrap();
     assert_eq!(me.status(), 401);
 }
+
+// ── t16 (26.16, e3): login second-factor gate ────────────────────────────────
+
+fn totp_now(secret: &[u8]) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    mw_mfa::totp::totp_at(secret, now, &mw_mfa::totp::TotpParams::default())
+}
+
+fn has_session_cookie(resp: &reqwest::Response) -> bool {
+    resp.headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .any(|v| v.to_str().unwrap_or_default().contains("mw_session="))
+}
+
+/// The full acceptance path: a user enrols TOTP, and every subsequent login is then
+/// gated on the second factor (no password-only downgrade). Recovery codes log in
+/// and are single-use; a wrong code is a uniform 401.
+#[tokio::test]
+async fn totp_enrolment_gates_subsequent_logins() {
+    let mock = spawn_mock().await;
+    let (server, _web) = spawn_server().await;
+
+    // 1) First login (no factor yet) → a normal cookie session.
+    let c = client();
+    let resp = do_login(&c, &server, &mock).await;
+    assert_eq!(resp.status(), 200);
+    assert!(has_session_cookie(&resp), "opt-in user logs in normally");
+
+    // 2) Enrol + confirm TOTP; the confirm response reveals the recovery codes once.
+    let begin: Value = c
+        .post(format!("{server}/api/account/2fa/totp/begin"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let secret = mw_mfa::totp::base32_decode(begin["secret"].as_str().unwrap()).unwrap();
+    let confirm: Value = c
+        .post(format!("{server}/api/account/2fa/totp/confirm"))
+        .json(&json!({ "code": totp_now(&secret) }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(confirm["ok"], json!(true));
+    let recovery: Vec<String> = confirm["recoveryCodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(recovery.len(), 10, "DEFAULT_RECOVERY_CODES");
+
+    // 3) A fresh login is now CHALLENGED, not sessioned — no cookie until 2FA clears.
+    let c2 = client();
+    let resp2 = do_login(&c2, &server, &mock).await;
+    assert_eq!(resp2.status(), 200);
+    assert!(!has_session_cookie(&resp2), "no session cookie before 2FA");
+    let ch: Value = resp2.json().await.unwrap();
+    assert_eq!(ch["twofaRequired"], json!(true));
+    let pending = ch["pendingToken"].as_str().unwrap().to_string();
+    assert!(
+        ch["factors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f == "totp"),
+        "totp is an offered factor: {ch}"
+    );
+
+    // 4) A valid TOTP completes the login (session cookie issued).
+    let step = c2
+        .post(format!("{server}/api/login/2fa"))
+        .json(&json!({ "pendingToken": pending, "method": "totp", "code": totp_now(&secret) }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(step.status(), 200);
+    assert!(
+        has_session_cookie(&step),
+        "the second factor issues the session"
+    );
+    let done: Value = step.json().await.unwrap();
+    assert_eq!(done["accountId"], json!(mw_mock_jmap::ACCOUNT_ID));
+
+    // 5) A wrong TOTP is a uniform 401 (pending token stays live for a retry).
+    let c3 = client();
+    let ch3: Value = do_login(&c3, &server, &mock).await.json().await.unwrap();
+    let pending3 = ch3["pendingToken"].as_str().unwrap().to_string();
+    let bad = c3
+        .post(format!("{server}/api/login/2fa"))
+        .json(&json!({ "pendingToken": pending3, "method": "totp", "code": "000000" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bad.status(), 401, "wrong code rejected");
+
+    // 6) A recovery code logs in on the same pending token, and is single-use.
+    let good = c3
+        .post(format!("{server}/api/login/2fa"))
+        .json(&json!({ "pendingToken": pending3, "method": "recovery", "code": recovery[0] }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(good.status(), 200, "recovery code is break-glass");
+    assert!(has_session_cookie(&good));
+
+    // The consumed recovery code cannot be replayed on a new login attempt.
+    let c4 = client();
+    let ch4: Value = do_login(&c4, &server, &mock).await.json().await.unwrap();
+    let pending4 = ch4["pendingToken"].as_str().unwrap().to_string();
+    let replay = c4
+        .post(format!("{server}/api/login/2fa"))
+        .json(&json!({ "pendingToken": pending4, "method": "recovery", "code": recovery[0] }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(replay.status(), 401, "recovery code is single-use");
+}
+
+/// The 2FA challenge withholds the session, and an unknown/opt-out user path is
+/// unchanged (no factor, no policy → straight to a session). Also proves the
+/// session-management list surfaces the current session without leaking its id.
+#[tokio::test]
+async fn session_list_marks_current_without_leaking_id() {
+    let mock = spawn_mock().await;
+    let (server, _web) = spawn_server().await;
+    let c = client();
+    let login: Value = do_login(&c, &server, &mock).await.json().await.unwrap();
+    // Opt-in user, no factor: straight session (unchanged default path).
+    assert_eq!(login["ok"], json!(true));
+
+    let list: Value = c
+        .get(format!("{server}/api/account/sessions"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let sessions = list["sessions"].as_array().unwrap();
+    assert_eq!(sessions.len(), 1, "one active session");
+    assert_eq!(sessions[0]["current"], json!(true), "flagged current");
+    // The raw opaque session id must never appear in the listing.
+    let handle = sessions[0]["handle"].as_str().unwrap();
+    assert_eq!(
+        handle.len(),
+        16,
+        "handle is a truncated hash, not the token"
+    );
+}

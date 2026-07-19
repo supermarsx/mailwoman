@@ -17,6 +17,11 @@ path = "src/main.rs"
 [dependencies]
 mw-jmap = { workspace = true }
 mw-store = { workspace = true }
+# t16 (26.16) login second-factor primitives: pure-Rust WebAuthn RP verify + RFC 6238
+# TOTP + Argon2id recovery codes (crate owned by t16-e2). Declared as a direct path
+# dep (not `workspace = true`) so wiring it does not touch the shared root Cargo.toml
+# that other 26.16 lanes are concurrently adding their crates to.
+mw-mfa = { path = "../mw-mfa" }
 mw-sanitize = { workspace = true }
 mw-engine = { workspace = true }
 mw-export = { workspace = true }
@@ -113,6 +118,9 @@ tracing-opentelemetry = { workspace = true }
 
 [dev-dependencies]
 mw-mock-jmap = { workspace = true }
+# t16 (26.16, e3): the integration test computes valid TOTP codes + decodes the
+# base32 enrolment secret to prove the login 2FA gate end-to-end.
+mw-mfa = { path = "../mw-mfa" }
 reqwest = { workspace = true, features = ["cookies", "stream"] }
 tokio = { workspace = true }
 serde_json = { workspace = true }

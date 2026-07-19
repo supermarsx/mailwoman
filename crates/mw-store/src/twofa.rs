@@ -51,6 +51,27 @@ pub struct TwofaPolicyRow {
     pub updated_at: String,
 }
 
+/// Non-secret metadata for one active session (S11 session-management UI). The raw
+/// session id is the bearer credential and is NEVER exposed; `handle` is a stable,
+/// non-reversible truncated SHA-256 of it, safe to render and to revoke against.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionMeta {
+    /// Stable non-reversible display id (first 8 bytes of SHA-256 of the session id).
+    pub handle: String,
+    pub username: String,
+    pub created_at: String,
+    pub last_seen: String,
+}
+
+/// Stable, non-reversible display handle for a session id (first 8 bytes of its
+/// SHA-256, hex). Used so the session-management surface can list and revoke
+/// sessions without ever handing the opaque bearer token back to the client.
+pub fn session_handle(id: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(id.as_bytes());
+    digest[..8].iter().map(|b| format!("{b:02x}")).collect()
+}
+
 impl Store {
     // ---- TOTP ----------------------------------------------------------------
 
@@ -307,6 +328,75 @@ impl Store {
     }
 }
 
+impl Store {
+    // ---- session management (S11) --------------------------------------------
+
+    /// Non-secret metadata for every active session of `account_id`, most-recently
+    /// seen first. Never returns the raw session id (see [`SessionMeta`]).
+    pub async fn list_session_meta(
+        &self,
+        account_id: &str,
+    ) -> Result<Vec<SessionMeta>, StoreError> {
+        let rows = q("SELECT id, username, created_at, last_seen
+                      FROM sessions WHERE account_id = ?1 ORDER BY last_seen DESC")
+        .bind(account_id)
+        .fetch_all(&self.backend)
+        .await?;
+        Ok(rows
+            .iter()
+            .map(|r| SessionMeta {
+                handle: session_handle(&r.get_string("id")),
+                username: r.get_string("username"),
+                created_at: r.get_string("created_at"),
+                last_seen: r.get_string("last_seen"),
+            })
+            .collect())
+    }
+
+    /// Revoke one session of `account_id` by its non-secret [`session_handle`].
+    /// Returns the raw id iff a session was deleted, so the caller can drop the
+    /// matching in-process guard entry; `None` means no session had that handle.
+    pub async fn revoke_session_by_handle(
+        &self,
+        account_id: &str,
+        handle: &str,
+    ) -> Result<Option<String>, StoreError> {
+        for id in self.session_ids_for_account(account_id).await? {
+            if session_handle(&id) == handle {
+                self.delete_session(&id).await?;
+                return Ok(Some(id));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Revoke every session of `account_id` EXCEPT the one whose handle is
+    /// `keep_handle` ("sign out everywhere else"). Returns the raw ids deleted.
+    pub async fn revoke_other_sessions(
+        &self,
+        account_id: &str,
+        keep_handle: &str,
+    ) -> Result<Vec<String>, StoreError> {
+        let mut deleted = Vec::new();
+        for id in self.session_ids_for_account(account_id).await? {
+            if session_handle(&id) != keep_handle {
+                self.delete_session(&id).await?;
+                deleted.push(id);
+            }
+        }
+        Ok(deleted)
+    }
+
+    /// The raw session ids for an account (server-side only; never leaves the host).
+    async fn session_ids_for_account(&self, account_id: &str) -> Result<Vec<String>, StoreError> {
+        let rows = q("SELECT id FROM sessions WHERE account_id = ?1")
+            .bind(account_id)
+            .fetch_all(&self.backend)
+            .await?;
+        Ok(rows.iter().map(|r| r.get_string("id")).collect())
+    }
+}
+
 fn webauthn_from_row(r: &crate::backend::Row) -> WebauthnCredentialRow {
     WebauthnCredentialRow {
         credential_id: r.get_string("credential_id"),
@@ -332,7 +422,7 @@ fn twofa_policy_from_row(r: &crate::backend::Row) -> TwofaPolicyRow {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ServerKey;
+    use crate::{Credentials, ServerKey};
 
     async fn store() -> Store {
         Store::open_in_memory(ServerKey::generate()).await.unwrap()
@@ -420,6 +510,59 @@ mod tests {
 
         s.clear_recovery_codes("a1").await.unwrap();
         assert!(s.list_unused_recovery_codes("a1").await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn session_meta_lists_and_revokes_by_handle() {
+        let s = store().await;
+        let creds = Credentials {
+            username: "u@ex".into(),
+            password: "pw".into(),
+        };
+        let a = s
+            .create_session("acct", "u@ex", "j", "a", &creds)
+            .await
+            .unwrap();
+        let b = s
+            .create_session("acct", "u@ex", "j", "a", &creds)
+            .await
+            .unwrap();
+        // A different account's session must never appear in acct's listing.
+        let _other = s
+            .create_session("other", "o@ex", "j", "a", &creds)
+            .await
+            .unwrap();
+
+        let metas = s.list_session_meta("acct").await.unwrap();
+        assert_eq!(metas.len(), 2);
+        // The raw id is never surfaced; the handle is its truncated hash.
+        assert!(metas.iter().all(|m| m.handle != a && m.handle != b));
+        assert_eq!(session_handle(&a).len(), 16);
+
+        // Revoke everything but a's session.
+        let deleted = s
+            .revoke_other_sessions("acct", &session_handle(&a))
+            .await
+            .unwrap();
+        assert_eq!(deleted, vec![b.clone()]);
+        assert_eq!(s.list_session_meta("acct").await.unwrap().len(), 1);
+        assert!(s.get_session(&a).await.is_ok());
+        assert!(s.get_session(&b).await.is_err());
+
+        // Revoke a's session by handle; unknown handle is a no-op.
+        assert!(
+            s.revoke_session_by_handle("acct", "deadbeef")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            s.revoke_session_by_handle("acct", &session_handle(&a))
+                .await
+                .unwrap(),
+            Some(a.clone())
+        );
+        assert!(s.list_session_meta("acct").await.unwrap().is_empty());
     }
 
     #[tokio::test]
