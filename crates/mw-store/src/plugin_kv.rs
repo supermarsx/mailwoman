@@ -369,7 +369,7 @@ mod tests {
     async fn oversize_value_is_rejected() {
         let s = store().await;
         let err = s
-            .plugin_kv_set("p", "acct", "k", &vec![0u8; 51], &tiny())
+            .plugin_kv_set("p", "acct", "k", &[0u8; 51], &tiny())
             .await
             .unwrap_err();
         assert!(matches!(err, PluginKvError::ValueTooLarge { .. }));
@@ -412,10 +412,10 @@ mod tests {
     async fn total_bytes_quota_is_enforced() {
         let s = store().await;
         let lim = tiny(); // max_total_bytes = 100, max_value_bytes = 50
-        s.plugin_kv_set("p", "acct", "a", &vec![0u8; 50], &lim)
+        s.plugin_kv_set("p", "acct", "a", &[0u8; 50], &lim)
             .await
             .unwrap();
-        s.plugin_kv_set("p", "acct", "b", &vec![0u8; 50], &lim)
+        s.plugin_kv_set("p", "acct", "b", &[0u8; 50], &lim)
             .await
             .unwrap();
         // Total is now 100; another 1 byte would exceed the 100-byte quota.

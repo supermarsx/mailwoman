@@ -330,6 +330,7 @@ impl Store {
 mod tests {
     use super::*;
     use crate::ServerKey;
+    use std::path::Path;
 
     /// A unique temp directory for one test's FS backend (avoids a `tempfile`
     /// dev-dependency, mirroring the file-backed store test in `lib.rs`).
@@ -341,11 +342,11 @@ mod tests {
         std::env::temp_dir().join(format!("mw-upload-{tag}-{unique}"))
     }
 
-    async fn fs_store(root: &PathBuf) -> Store {
+    async fn fs_store(root: &Path) -> Store {
         Store::open_in_memory(ServerKey::generate())
             .await
             .unwrap()
-            .with_upload_backend(Arc::new(FsUploadBackend::new(root.clone())))
+            .with_upload_backend(Arc::new(FsUploadBackend::new(root.to_path_buf())))
     }
 
     #[tokio::test]
