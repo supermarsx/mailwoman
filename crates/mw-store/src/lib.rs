@@ -56,14 +56,38 @@ mod plugin_kv;
 // admin-managed fallback the compiled-in first-party pin always takes precedence over;
 // stores only the pinned identity + admin provenance, never component bytes.
 mod plugin_allowlist;
+// 0015 (26.16 t16): login second-factor persistence. New `Store` methods over the
+// 0015 `totp_secrets`/`webauthn_credentials`/`recovery_codes`/`twofa_policy` tables —
+// TOTP secret sealed at rest, WebAuthn COSE public key stored opaque, recovery codes
+// argon2-hashed + single-use, admin require-2FA policy. e3 fills the verification-side
+// callers; the module body here is functional CRUD.
+mod twofa;
+// 0016 (26.16 t16): remote-image display grants (4-grant model: single/all/per-sender/
+// per-domain + soft revoke) backing the anonymizing image proxy. New `Store` methods
+// over the 0016 `remote_image_grants` table; deny-by-default, no secret columns. e6
+// fills the proxy callers.
+mod image_grants;
+// 0017 (26.16 t16): user preferences — signature templates + notification rules/quiet
+// hours. New `Store` methods over the 0017 `signatures`/`notification_rules` tables.
+// Saved searches (W13) reuse the FROZEN 0003 `saved_searches` table, not a new one.
+// e15/e11 fill the endpoint callers.
+mod user_prefs;
+// 0018 (26.16 t16): cached bridge OAuth tokens (B1). New `Store` methods over the 0018
+// `bridge_oauth_tokens` table; both tokens sealed at rest. e7 fills the OAuth-client
+// callers.
+mod bridge_tokens;
 
 pub(crate) use backend::{Backend, Row, q};
 
+pub use bridge_tokens::BridgeOauthTokenRow;
 pub use ews_cred::EwsAccountCred;
+pub use image_grants::RemoteImageGrantRow;
 pub use plugin_allowlist::{PluginAllowlistError, PluginAllowlistRow, new_allowlist_pin};
 pub use plugin_kv::{PluginKvError, PluginKvLimits};
 pub use sso::SsoConfigRow;
+pub use twofa::{TotpSecret, TwofaPolicyRow, WebauthnCredentialRow};
 pub use upload::{FsUploadBackend, Upload, UploadBackend, UploadError};
+pub use user_prefs::{NotificationRulesRow, SignatureRow};
 pub use v6::{
     AdminUserRow, ApiKeyRow, AuditRow, CacheScopeRow, DomainRow, OAuthClientRow, OAuthTokenRow,
     QuotaRow, WebhookRow, ZeroAccessRow,
