@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   emailGetFull,
   listMailbox,
@@ -6,6 +6,7 @@ import {
   parseRecipients,
   responseFor,
   sendEnvelope,
+  uploadBlob,
 } from './jmap.ts';
 import { CAP_MAIL, CAP_SUBMISSION, type Invocation, type JmapResponse } from './jmap-types.ts';
 
@@ -106,6 +107,50 @@ describe('sendEnvelope', () => {
     });
     const [, submissionSet] = r.methodCalls as [Invocation, Invocation];
     expect(submissionSet[1]['onSuccessUpdateEmail']).toBeUndefined();
+  });
+});
+
+describe('uploadBlob', () => {
+  const okUpload = (over: Record<string, unknown> = {}): Response =>
+    new Response(
+      JSON.stringify({ accountId: 'acct1', blobId: 'Uabc123', type: 'text/plain', size: 5, ...over }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+
+  it('POSTs the file to the account-substituted uploadUrl with the file content-type', async () => {
+    const fetcher = vi.fn(async (_url: string, _init?: RequestInit) => okUpload());
+    const file = new File(['hello'], 'note.txt', { type: 'text/plain' });
+    const out = await uploadBlob('/jmap/upload/{accountId}', 'acct1', file, fetcher);
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    const [url, init] = fetcher.mock.calls[0]!;
+    expect(url).toBe('/jmap/upload/acct1');
+    expect(init!.method).toBe('POST');
+    expect((init!.headers as Record<string, string>)['content-type']).toBe('text/plain');
+    expect(init!.body).toBe(file);
+    expect(out).toEqual({ accountId: 'acct1', blobId: 'Uabc123', type: 'text/plain', size: 5 });
+  });
+
+  it('defaults the content-type to application/octet-stream when the file reports none', async () => {
+    const fetcher = vi.fn(async (_url: string, _init?: RequestInit) =>
+      okUpload({ type: 'application/octet-stream' }),
+    );
+    const file = new File([new Uint8Array([1, 2, 3])], 'blob.bin', { type: '' });
+    await uploadBlob('/jmap/upload/{accountId}', 'acct1', file, fetcher);
+    const init = fetcher.mock.calls[0]![1]!;
+    expect((init.headers as Record<string, string>)['content-type']).toBe('application/octet-stream');
+  });
+
+  it('url-encodes the account id in the upload URL', async () => {
+    const fetcher = vi.fn(async (_url: string, _init?: RequestInit) => okUpload());
+    await uploadBlob('/jmap/upload/{accountId}', 'a b', new File(['x'], 'x.txt'), fetcher);
+    expect(fetcher.mock.calls[0]![0]).toBe('/jmap/upload/a%20b');
+  });
+
+  it('throws with the status on a non-2xx response', async () => {
+    const fetcher = vi.fn(async (_url: string, _init?: RequestInit) => new Response('too big', { status: 413 }));
+    const file = new File(['x'], 'x.txt', { type: 'text/plain' });
+    await expect(uploadBlob('/jmap/upload/{accountId}', 'acct1', file, fetcher)).rejects.toThrow(/413/);
   });
 });
 

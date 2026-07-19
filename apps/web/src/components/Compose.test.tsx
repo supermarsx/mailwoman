@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { screen, fireEvent, waitFor, within } from '@solidjs/testing-library';
 import { Compose } from './Compose.tsx';
 import { renderWithApp } from './appHarness.tsx';
@@ -178,6 +178,74 @@ describe('Compose', () => {
     fireEvent.click(await screen.findByTestId('sign-toggle'));
     expect(await screen.findByTestId('compose-sign-unlock')).toBeInTheDocument();
     expect(screen.getByTestId('sign-passphrase')).toBeInTheDocument();
+  });
+
+  // ── 26.15 (§1): new-file local blob upload ───────────────────────────────────
+
+  /** A global-`fetch` double for the composer's OWN `jmapClient` (created via
+   *  `createConfiguredClient()`, which uses the global `fetch`): serves the
+   *  session probe (uploadUrl + a small `maxSizeUpload`) and the per-account
+   *  upload endpoint. The harness `app` still uses its own fake client. */
+  function mockUploadFetch(): ReturnType<typeof vi.fn> {
+    return vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/jmap/session')) {
+        return json({
+          capabilities: { 'urn:ietf:params:jmap:core': { maxSizeUpload: 20 } },
+          accounts: {},
+          primaryAccounts: {},
+          username: 'me@example.org',
+          apiUrl: '/jmap/api',
+          downloadUrl: '/d',
+          uploadUrl: '/jmap/upload/{accountId}',
+          eventSourceUrl: '/e',
+          state: 's0',
+        });
+      }
+      if (url.includes('/jmap/upload/')) {
+        return json({ accountId: 'acct1', blobId: 'Ublob-file-1', type: 'text/plain', size: 5 });
+      }
+      return json({}, 404);
+    });
+  }
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('uploads a locally-picked file and adds it as an attachment', async () => {
+    vi.stubGlobal('fetch', mockUploadFetch());
+    const { app } = renderWithApp(() => <Compose onClose={() => undefined} />, { identities: IDENTITIES });
+    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+
+    const input = (await screen.findByLabelText('Attach a file')) as HTMLInputElement;
+    // The picker enables once the session probe lands (uploadUrl + accountId).
+    await waitFor(() => expect(input.disabled).toBe(false));
+
+    const file = new File(['hello'], 'note.txt', { type: 'text/plain' });
+    fireEvent.change(input, { target: { files: [file] } });
+
+    const list = await screen.findByTestId('compose-attachments');
+    expect(within(list).getByText('note.txt')).toBeInTheDocument();
+  });
+
+  it('refuses a file larger than the upload limit and never uploads it', async () => {
+    const fetchSpy = mockUploadFetch();
+    vi.stubGlobal('fetch', fetchSpy);
+    const { app } = renderWithApp(() => <Compose onClose={() => undefined} />, { identities: IDENTITIES });
+    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+
+    const input = (await screen.findByLabelText('Attach a file')) as HTMLInputElement;
+    await waitFor(() => expect(input.disabled).toBe(false));
+
+    // The mocked session caps uploads at 20 bytes; this file is over it.
+    const big = new File(['x'.repeat(64)], 'big.bin', { type: 'application/octet-stream' });
+    fireEvent.change(input, { target: { files: [big] } });
+
+    const attach = screen.getByTestId('compose-attach');
+    expect(await within(attach).findByRole('alert')).toHaveTextContent(/maximum upload size/i);
+    // Nothing attached, and the upload endpoint was never hit (only the probe).
+    expect(screen.queryByTestId('compose-attachments')).toBeNull();
+    const uploadCalls = fetchSpy.mock.calls.filter((c) => String(c[0]).includes('/jmap/upload/'));
+    expect(uploadCalls).toHaveLength(0);
   });
 
   it('is unchanged when Assist is disabled and no directory/Nextcloud is configured', async () => {

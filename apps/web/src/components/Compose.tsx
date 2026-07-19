@@ -17,6 +17,8 @@ import {
 } from './compose/crypto-jmap.ts';
 import { getCryptoWorker } from '../crypto/index.ts';
 import { createConfiguredClient } from '../api/transport.ts';
+import { uploadBlob } from '../api/jmap.ts';
+import { CAP_CORE } from '../api/jmap-types.ts';
 // V7 last-mile mailbox integration (plan §2.7/§14, e14b). All ADDITIVE: each block
 // is gated so a deployment with no directory / disabled Assist / no Nextcloud sees
 // the exact same composer as before.
@@ -67,6 +69,14 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
   // V7 Nextcloud attach (plan §18.4): materialised attachments + the picker toggle.
   const [attachments, setAttachments] = createSignal<AttachedFile[]>([]);
   const [ncOpen, setNcOpen] = createSignal(false);
+  // New-file blob upload (26.15 §1): the per-account upload endpoint + size limit
+  // are pulled from the JMAP session; a local file is POSTed to `uploadUrl` and
+  // the returned blob folds into the SAME `attachments` list as the Nextcloud
+  // path. `uploadUrl` null ⇒ the session probe hasn't landed (picker disabled).
+  const [uploadUrl, setUploadUrl] = createSignal<string | null>(null);
+  const [maxUploadSize, setMaxUploadSize] = createSignal<number>(50_000_000);
+  const [uploading, setUploading] = createSignal(false);
+  const [attachError, setAttachError] = createSignal<string | null>(null);
   // Crypto/DLP state reported up by <ComposeCrypto> (encrypt/sign toggles, the
   // E2EE/TLS/mixed capability, the DLP `canSend` gate, and the WASM-encrypted
   // draft) — plan §2.5.
@@ -160,6 +170,20 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
     // affordances never mount and the composer is byte-unchanged.
     void app.directory.ensureEnabled();
     void app.nextcloud.ensureEnabled();
+    // Pull the session's upload contract (uploadUrl template + maxSizeUpload) so
+    // the local-file picker can POST bytes to the per-account endpoint and guard
+    // the size client-side. A failed probe (offline / no session) simply leaves
+    // the picker disabled; the rest of the composer is unchanged.
+    void jmapClient
+      .session()
+      .then((s) => {
+        setUploadUrl(s.uploadUrl);
+        const core = s.capabilities[CAP_CORE] as { maxSizeUpload?: number } | undefined;
+        if (core?.maxSizeUpload !== undefined && core.maxSizeUpload > 0) {
+          setMaxUploadSize(core.maxSizeUpload);
+        }
+      })
+      .catch(() => undefined);
   });
 
   onCleanup(() => {
@@ -236,6 +260,51 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
     // Replace the group's own address token with the flattened leaves.
     setTo((cur) => cur.replace(group.mail, leaves));
     setPickedGroup(null);
+  }
+
+  /** Upload one or more locally-picked files to the account's JMAP upload
+   *  endpoint and fold each returned blob into the SAME attachment list the
+   *  Nextcloud path uses (so the send payload carries `{blobId,name,type,size}`
+   *  unchanged). An over-`maxSizeUpload` file is refused BEFORE upload with a
+   *  concrete size message; a failed upload reports the file by name and leaves
+   *  the rest of the selection intact. */
+  async function onFilesPicked(fileList: FileList | null): Promise<void> {
+    if (fileList === null || fileList.length === 0) return;
+    const url = uploadUrl();
+    const acct = app.accountId();
+    if (url === null || acct === null) {
+      setAttachError(t('mail-compose-upload-unavailable'));
+      return;
+    }
+    setAttachError(null);
+    const max = maxUploadSize();
+    const files = Array.from(fileList);
+    setUploading(true);
+    try {
+      for (const file of files) {
+        if (file.size > max) {
+          setAttachError(
+            t('mail-compose-upload-too-large', {
+              name: isolate(file.name),
+              size: megabytes(file.size),
+              max: megabytes(max),
+            }),
+          );
+          continue;
+        }
+        try {
+          const up = await uploadBlob(url, acct, file);
+          setAttachments((cur) => [
+            ...cur,
+            { name: file.name, blobId: up.blobId, size: up.size, contentType: up.type },
+          ]);
+        } catch {
+          setAttachError(t('mail-compose-upload-failed', { name: isolate(file.name) }));
+        }
+      }
+    } finally {
+      setUploading(false);
+    }
   }
 
   async function onSubmit(e: Event): Promise<void> {
@@ -440,6 +509,37 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
           </div>
         </Show>
 
+        {/* New-file attach (26.15 §1): pick a local file, upload its bytes to the
+            account's JMAP upload endpoint, and fold the returned blob into the
+            shared attachment list below. Always available (core compose); the
+            input is disabled until the session's upload contract has loaded. The
+            file input is visually hidden behind the styled label so the composer
+            keeps its own button look rather than the native file control. */}
+        <div class="compose__attach" data-testid="compose-attach">
+          <label class={`btn btn--ghost ${a11y.focusable}`}>
+            {uploading() ? t('mail-compose-uploading') : t('mail-compose-attach-file')}
+            <input
+              type="file"
+              multiple
+              class={a11y.srOnly}
+              aria-label={t('mail-compose-attach-file')}
+              disabled={uploading() || uploadUrl() === null || app.accountId() === null}
+              onChange={(e) => {
+                const input = e.currentTarget;
+                void onFilesPicked(input.files).finally(() => {
+                  // Reset so re-selecting the same file fires another change.
+                  input.value = '';
+                });
+              }}
+            />
+          </label>
+          <Show when={attachError()}>
+            <p class="login__error" role="alert">
+              {attachError()}
+            </p>
+          </Show>
+        </div>
+
         {/* V7 Nextcloud attach (plan §18.4): mounted only when a Nextcloud account is
             linked. Large files are best shared as links (ShareLinkComposer) — here we
             attach materialised blobs; the picker opens on demand. */}
@@ -463,26 +563,30 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
                 }}
               />
             </Show>
-            <Show when={attachments().length > 0}>
-              <ul class="compose__attachments" aria-label={t('mail-compose-attachments')} data-testid="compose-attachments">
-                <For each={attachments()}>
-                  {(a) => (
-                    <li>
-                      <span>{a.name}</span>
-                      <button
-                        type="button"
-                        class={`btn btn--ghost ${a11y.iconButton}`}
-                        aria-label={t('mail-compose-remove-attachment', { name: isolate(a.name) })}
-                        onClick={() => setAttachments((cur) => cur.filter((x) => x.blobId !== a.blobId))}
-                      >
-                        ✕
-                      </button>
-                    </li>
-                  )}
-                </For>
-              </ul>
-            </Show>
           </div>
+        </Show>
+
+        {/* Shared attachment list (Nextcloud + local-file uploads). Rendered
+            independent of any backend gate so a local-file attach shows even when
+            no Nextcloud account is linked. */}
+        <Show when={attachments().length > 0}>
+          <ul class="compose__attachments" aria-label={t('mail-compose-attachments')} data-testid="compose-attachments">
+            <For each={attachments()}>
+              {(a) => (
+                <li>
+                  <span>{a.name}</span>
+                  <button
+                    type="button"
+                    class={`btn btn--ghost ${a11y.iconButton}`}
+                    aria-label={t('mail-compose-remove-attachment', { name: isolate(a.name) })}
+                    onClick={() => setAttachments((cur) => cur.filter((x) => x.blobId !== a.blobId))}
+                  >
+                    ✕
+                  </button>
+                </li>
+              )}
+            </For>
+          </ul>
         </Show>
 
         {/* Crypto + DLP (plan §2.5): encrypt/sign toggles, the live E2EE/TLS/mixed
@@ -577,4 +681,10 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** Bytes → megabytes (decimal, 1 MB = 1,000,000 B, matching `maxSizeUpload`),
+ *  rounded to one decimal place for a concise, honest size in the UI copy. */
+function megabytes(bytes: number): number {
+  return Math.round((bytes / 1_000_000) * 10) / 10;
 }

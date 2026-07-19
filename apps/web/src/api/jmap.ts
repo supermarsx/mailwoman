@@ -228,6 +228,58 @@ export function parseRecipients(raw: string): EmailAddress[] {
     .map((email) => ({ name: null, email }));
 }
 
+// ── New-file blob upload (26.15 §1) ─────────────────────────────────────────
+// The one piece of I/O in this module: POST a locally-picked file's bytes to the
+// session `uploadUrl` for an account and read back the RFC 8620 §6.1 upload
+// response. It lives beside the request builders (rather than on the JMAP
+// `Client`) so the compose file picker drives it directly; the transport is
+// injectable so it unit-tests without a live server, mirroring the Nextcloud
+// module's `Fetcher` seam. The returned `blobId` is fed straight into the
+// existing `Email/set` create `attachments` array (see `sendEnvelope`).
+
+/** The JMAP upload response (RFC 8620 §6.1) for one stored blob. */
+export interface UploadResponse {
+  accountId: Id;
+  blobId: Id;
+  type: string;
+  size: number;
+}
+
+/** Injectable transport for `uploadBlob` (defaults to a same-origin `fetch`). */
+export type UploadFetcher = (input: string, init?: RequestInit) => Promise<Response>;
+
+const defaultUploadFetcher: UploadFetcher = (input, init) =>
+  fetch(input, { credentials: 'same-origin', ...init });
+
+/**
+ * Upload one file's bytes to the session `uploadUrl` for `accountId` and return
+ * the stored blob's `{ accountId, blobId, type, size }`. `uploadUrl` is the raw
+ * session template (`/jmap/upload/{accountId}`); its `{accountId}` placeholder is
+ * substituted here. The request body is the file itself and its Content-Type is
+ * the file's own type (or `application/octet-stream` when the browser reports
+ * none). A non-2xx response throws with the status so the caller can surface a
+ * concrete failure. Size limits are the caller's job (guard against the session's
+ * `maxSizeUpload` BEFORE calling, to avoid a wasted round-trip).
+ */
+export async function uploadBlob(
+  uploadUrl: string,
+  accountId: Id,
+  file: Blob & { name?: string },
+  fetcher: UploadFetcher = defaultUploadFetcher,
+): Promise<UploadResponse> {
+  const url = uploadUrl.replace('{accountId}', encodeURIComponent(accountId));
+  const contentType = file.type !== '' ? file.type : 'application/octet-stream';
+  const res = await fetcher(url, {
+    method: 'POST',
+    headers: { 'content-type': contentType },
+    body: file,
+  });
+  if (!res.ok) {
+    throw new Error(`upload failed with ${res.status}`);
+  }
+  return (await res.json()) as UploadResponse;
+}
+
 // ── V2 modern-mail operations (plan §1.5, §2.1) ─────────────────────────────
 // All are single Email/set or EmailSubmission/set builders returning one
 // request. Keyword changes round-trip to IMAP keywords; pinned/snoozedUntil/

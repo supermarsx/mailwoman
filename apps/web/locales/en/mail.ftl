@@ -111,6 +111,12 @@ mail-compose-attachments = Attachments
 mail-compose-remove-attachment = Remove { $name }
 mail-compose-attach-nextcloud = Attach from Nextcloud
 mail-compose-close-nextcloud = Close Nextcloud
+# New-file blob upload (attach a local file from this device)
+mail-compose-attach-file = Attach a file
+mail-compose-uploading = Uploading…
+mail-compose-upload-unavailable = File upload is not available right now.
+mail-compose-upload-failed = Could not upload { $name }.
+mail-compose-upload-too-large = { $name } is { $size } MB. The maximum upload size is { $max } MB.
 mail-compose-send-later = Send later
 mail-compose-cancel = Cancel
 mail-compose-send = Send
