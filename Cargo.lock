@@ -5586,6 +5586,7 @@ dependencies = [
  "mw-render",
  "mw-sandbox",
  "mw-sanitize",
+ "mw-sieve",
  "mw-smtp",
  "mw-sso",
  "mw-store",
