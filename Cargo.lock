@@ -5385,6 +5385,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "mw-mfa"
+version = "26.15.0"
+dependencies = [
+ "argon2",
+ "base64 0.22.1",
+ "ed25519-dalek",
+ "hex",
+ "hmac 0.13.0",
+ "p256 0.14.0",
+ "rand 0.8.7",
+ "serde",
+ "serde_json",
+ "sha1 0.11.0",
+ "sha2 0.11.0",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "mw-mime"
 version = "26.15.0"
 dependencies = [
@@ -5488,6 +5506,7 @@ dependencies = [
  "mw-sanitize",
  "serde",
  "serde_json",
+ "wasmtime",
 ]
 
 [[package]]
@@ -5537,6 +5556,7 @@ dependencies = [
  "mw-imap",
  "mw-jmap",
  "mw-mcp",
+ "mw-mfa",
  "mw-mock-jmap",
  "mw-oauth",
  "mw-passwd",
