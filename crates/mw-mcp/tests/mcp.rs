@@ -15,7 +15,8 @@ use serde_json::{Value, json};
 use mw_mcp::mock::{MockAuthorizer, MockBackend};
 use mw_mcp::{Credential, McpServer, RpcForwarder, mcp_router, run_stdio};
 use mw_oauth::{
-    AuthServer, CollectingAudit, InMemoryOAuthStore, OAuthStore, Scope, ScopeSelector, mint_api_key,
+    AuthServer, AuthServerConfig, AuthorizeRequest, CollectingAudit, InMemoryOAuthStore,
+    OAuthClient, OAuthStore, Scope, ScopeSelector, TokenRequest, challenge_s256, mint_api_key,
 };
 
 // ── helpers ──────────────────────────────────────────────────────────────
@@ -435,6 +436,128 @@ async fn stdio_bridge_round_trips_a_call() {
     assert_eq!(results[0]["provenance"]["trust"], "untrusted");
 }
 
+// ── RFC 8707 resource-indicator (audience) enforcement (A3) ────────────────
+
+/// Issue a real OAuth 2.1 access token bound to `resource`, granting mail.search.
+async fn oauth_token_for_resource(
+    resource: &str,
+) -> (
+    Arc<AuthServer<InMemoryOAuthStore>>,
+    Arc<CollectingAudit>,
+    String,
+) {
+    let server = Arc::new(AuthServer::with_config(
+        InMemoryOAuthStore::new(),
+        AuthServerConfig::default(),
+    ));
+    server
+        .store()
+        .put_client(OAuthClient {
+            client_id: "client-1".into(),
+            name: "Test App".into(),
+            redirect_uris: vec!["https://app.example/cb".into()],
+            approved_by: "admin".into(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+        })
+        .await
+        .unwrap();
+
+    // A scope that grants exactly mail.search on acct1.
+    let mut scope = Scope::read_only("acct1");
+    scope.mail = true;
+    scope.accounts = ScopeSelector::All;
+    scope.mcp_tools = vec!["mail.search".to_string()];
+
+    let verifier = "verifier-abc-123-verifier-abc-123-verifier";
+    let challenge = challenge_s256(verifier);
+    let auth = server
+        .authorize(
+            &AuthorizeRequest {
+                response_type: "code".into(),
+                client_id: "client-1".into(),
+                redirect_uri: "https://app.example/cb".into(),
+                scope,
+                state: None,
+                code_challenge: challenge,
+                code_challenge_method: "S256".into(),
+                resource: resource.into(),
+            },
+            "acct1",
+        )
+        .await
+        .unwrap();
+    let tokens = server
+        .token(&TokenRequest::AuthorizationCode {
+            code: auth.code,
+            redirect_uri: "https://app.example/cb".into(),
+            client_id: "client-1".into(),
+            code_verifier: verifier.into(),
+            resource: resource.into(),
+        })
+        .await
+        .unwrap();
+
+    let audit = Arc::new(CollectingAudit::new());
+    (server, audit, tokens.access_token)
+}
+
+#[tokio::test]
+async fn wrong_audience_token_is_rejected_at_mcp() {
+    let resource = "https://mcp.example/mcp";
+    let (auth_server, audit, token) = oauth_token_for_resource(resource).await;
+    let authz = Arc::new(mw_mcp::OAuthAuthorizer::without_countersign(
+        auth_server,
+        audit,
+    ));
+    let server = McpServer::new(Arc::new(MockBackend::new()), authz);
+
+    // Right audience → the resource-bound token is accepted and the tool runs.
+    let right = Credential {
+        token: &token,
+        source_ip: None,
+        resource: Some(resource),
+    };
+    let ok = server
+        .handle_rpc(&right, call("mail.search", json!({ "account": "acct1" })))
+        .await
+        .expect("response");
+    assert!(
+        ok["result"].is_object(),
+        "matching audience should pass: {ok}"
+    );
+
+    // Wrong audience → the token was issued for another resource server; REJECT it
+    // before any tool runs (RFC 8707).
+    let wrong = Credential {
+        token: &token,
+        source_ip: None,
+        resource: Some("https://other.example/mcp"),
+    };
+    let denied = server
+        .handle_rpc(&wrong, call("mail.search", json!({ "account": "acct1" })))
+        .await
+        .expect("response");
+    assert_eq!(
+        denied["error"]["code"], -32001,
+        "wrong-audience token must be scope-denied: {denied}"
+    );
+
+    // No endpoint resource configured → audience enforcement is off (accepted).
+    let unset = Credential {
+        token: &token,
+        source_ip: None,
+        resource: None,
+    };
+    let ok2 = server
+        .handle_rpc(&unset, call("mail.search", json!({ "account": "acct1" })))
+        .await
+        .expect("response");
+    assert!(
+        ok2["result"].is_object(),
+        "no configured audience → not enforced: {ok2}"
+    );
+}
+
 // ── the axum router is constructible (mounts by e11) ───────────────────────
 
 #[tokio::test]
@@ -443,5 +566,5 @@ async fn http_router_builds() {
         Arc::new(MockBackend::new()),
         MockAuthorizer::new("acct1", full_scope()),
     ));
-    let _router: axum::Router = mcp_router(server);
+    let _router: axum::Router = mcp_router(server, Some("https://mcp.example/mcp".into()));
 }

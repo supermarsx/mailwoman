@@ -182,6 +182,9 @@ pub struct ObservabilityConfig {
     pub metrics_token: Option<String>,
     /// Initial per-subsystem log directives (env: `MW_LOG`, default `"info"`).
     pub log_directives: String,
+    /// Sentry/GlitchTip DSN for the error relay (env: `MW_SENTRY_DSN`). `None` (the
+    /// default) → the relay is OFF; nothing is sent anywhere. Operator opt-in only.
+    pub sentry_dsn: Option<String>,
 }
 
 impl ObservabilityConfig {
@@ -193,6 +196,7 @@ impl ObservabilityConfig {
             service_name: s("MW_OTEL_SERVICE").unwrap_or_else(|| "mailwoman".to_string()),
             metrics_token: s("MW_METRICS_TOKEN"),
             log_directives: s("MW_LOG").unwrap_or_else(|| "info".to_string()),
+            sentry_dsn: s("MW_SENTRY_DSN"),
         }
     }
 }
@@ -219,11 +223,19 @@ impl Drop for OtelGuard {
     }
 }
 
+/// Guards against a second OTLP initialisation registering a duplicate pair of
+/// global providers. `main` initialises OTLP before composing the subscriber (so
+/// the `tracing_opentelemetry` layer binds the registered tracer); `build_app`
+/// also calls [`init_otlp`], and that second call must be a no-op.
+static OTLP_INITIALIZED: OnceLock<()> = OnceLock::new();
+
 /// Initialise OTLP export from configuration. When `otlp_endpoint` is set, build a
 /// tonic (rustls) span + metric exporter, wrap each in an SDK provider, and
-/// register both globally so [`tracing_opentelemetry::layer`] (added by e11) bridges
-/// spans out and OTel metrics flow. Returns `Ok(None)` (a clean no-op) when no
-/// endpoint is configured. Must be called inside the tokio runtime.
+/// register both globally so [`tracing_opentelemetry::layer`] (composed in `main`)
+/// bridges spans out and OTel metrics flow. Returns `Ok(None)` (a clean no-op) when
+/// no endpoint is configured OR when OTLP was already initialised earlier in the
+/// process (idempotent — the first caller owns the returned guard). Must be called
+/// inside the tokio runtime.
 pub fn init_otlp(config: &ObservabilityConfig) -> anyhow::Result<Option<OtelGuard>> {
     use opentelemetry::trace::TracerProvider as _;
     use opentelemetry_otlp::WithExportConfig as _;
@@ -231,6 +243,11 @@ pub fn init_otlp(config: &ObservabilityConfig) -> anyhow::Result<Option<OtelGuar
     let Some(endpoint) = config.otlp_endpoint.clone() else {
         return Ok(None);
     };
+    // Already initialised earlier in this process (e.g. by `main` before the
+    // subscriber was composed) → do not register a second provider pair.
+    if OTLP_INITIALIZED.set(()).is_err() {
+        return Ok(None);
+    }
 
     let resource = opentelemetry_sdk::Resource::builder()
         .with_service_name(config.service_name.clone())
@@ -300,10 +317,12 @@ pub fn set_metrics_token(token: Option<String>) {
 }
 
 /// Apply the observability config that does not depend on the subscriber: install
-/// the Prometheus recorder and set the `/metrics` token. Called from `build_app`.
+/// the Prometheus recorder, set the `/metrics` token, and configure the (opt-in,
+/// off-by-default) Sentry/GlitchTip error relay. Called from `build_app`.
 pub fn init_metrics(config: &ObservabilityConfig) {
     install_prometheus_recorder();
     set_metrics_token(config.metrics_token.clone());
+    set_sentry_dsn(config.sentry_dsn.clone());
 }
 
 /// Constant-time byte comparison (no early-out on the first mismatched byte) so a
@@ -355,6 +374,161 @@ pub async fn metrics(headers: HeaderMap) -> Response {
         body,
     )
         .into_response()
+}
+
+// ---------------------------------------------------------------------------
+// Sentry / GlitchTip error relay (A7 — off by default, operator opt-in)
+// ---------------------------------------------------------------------------
+//
+// A minimal, hand-rolled relay to a Sentry-compatible ingest endpoint (Sentry SaaS
+// or a self-hosted GlitchTip), over the in-tree `reqwest` (rustls) — NO `sentry`
+// crate (its default transport pulls `native-tls`, a floor ban, and it is not an
+// approved net-new dependency). Only an operator-supplied error message is sent;
+// NO mail content ever transits the relay (the caller passes redacted text, the
+// same contract the webhook + REST modules follow).
+
+/// A parsed Sentry DSN: the store ingest URL plus the public key used in the auth
+/// header. DSN shape: `<scheme>://<public_key>@<host>[:port]/<project_id>`.
+#[derive(Debug, Clone)]
+struct SentryDsn {
+    /// `<scheme>://<host>[:port]/api/<project_id>/store/`.
+    ingest_url: String,
+    public_key: String,
+}
+
+/// The configured relay (client + DSN). `None` (default) → the relay is OFF.
+static SENTRY: RwLock<Option<Arc<SentryRelay>>> = RwLock::new(None);
+
+/// The active Sentry relay: a reused `reqwest` client bound to a parsed DSN.
+struct SentryRelay {
+    client: reqwest::Client,
+    dsn: SentryDsn,
+}
+
+/// Parse a Sentry/GlitchTip DSN into its ingest URL + public key. Returns `None` for
+/// anything that is not a well-formed DSN (the relay then stays OFF, never erroring).
+fn parse_sentry_dsn(dsn: &str) -> Option<SentryDsn> {
+    let (scheme, rest) = dsn.split_once("://")?;
+    if scheme != "http" && scheme != "https" {
+        return None;
+    }
+    let (public_key, host_and_path) = rest.split_once('@')?;
+    if public_key.is_empty() {
+        return None;
+    }
+    // The path's last non-empty segment is the numeric project id; the rest (if any)
+    // is a path prefix (self-hosted GlitchTip can live under a subpath).
+    let (authority, path) = match host_and_path.split_once('/') {
+        Some((a, p)) => (a, p),
+        None => return None,
+    };
+    if authority.is_empty() {
+        return None;
+    }
+    let project_id = path
+        .trim_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or_default();
+    if project_id.is_empty() || !project_id.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let prefix = path.trim_matches('/');
+    let prefix = prefix
+        .strip_suffix(project_id)
+        .unwrap_or("")
+        .trim_matches('/');
+    let ingest_url = if prefix.is_empty() {
+        format!("{scheme}://{authority}/api/{project_id}/store/")
+    } else {
+        format!("{scheme}://{authority}/{prefix}/api/{project_id}/store/")
+    };
+    Some(SentryDsn {
+        ingest_url,
+        public_key: public_key.to_string(),
+    })
+}
+
+/// Configure (or clear) the Sentry/GlitchTip relay. A `None` or unparseable DSN
+/// leaves the relay OFF. Wired from [`init_metrics`] (`MW_SENTRY_DSN`).
+pub fn set_sentry_dsn(dsn: Option<String>) {
+    let relay = dsn
+        .as_deref()
+        .filter(|d| !d.is_empty())
+        .and_then(parse_sentry_dsn)
+        .map(|dsn| {
+            Arc::new(SentryRelay {
+                client: reqwest::Client::new(),
+                dsn,
+            })
+        });
+    if relay.is_some() {
+        tracing::info!("Sentry/GlitchTip error relay enabled (operator opt-in)");
+    }
+    *SENTRY.write().expect("sentry lock") = relay;
+}
+
+/// Whether the relay is currently configured.
+pub fn sentry_enabled() -> bool {
+    SENTRY.read().expect("sentry lock").is_some()
+}
+
+/// Relay one error event to the configured Sentry/GlitchTip endpoint. A no-op
+/// (returns `false`) when the relay is off. `message` MUST be mail-content-free
+/// (redacted at the call site, like the webhook/REST error contract). Returns `true`
+/// when the ingest endpoint accepted the event.
+pub async fn capture_error(message: &str) -> bool {
+    let relay = SENTRY.read().expect("sentry lock").clone();
+    let Some(relay) = relay else {
+        return false;
+    };
+    let event_id = uuid::Uuid::new_v4().simple().to_string();
+    let auth = format!(
+        "Sentry sentry_version=7, sentry_client=mailwoman/{}, sentry_key={}",
+        env!("CARGO_PKG_VERSION"),
+        relay.dsn.public_key,
+    );
+    let event = serde_json::json!({
+        "event_id": event_id,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "platform": "rust",
+        "level": "error",
+        "logger": "mailwoman",
+        "release": env!("CARGO_PKG_VERSION"),
+        "message": { "formatted": message },
+    });
+    match relay
+        .client
+        .post(&relay.dsn.ingest_url)
+        .header("X-Sentry-Auth", auth)
+        .header(header::CONTENT_TYPE, "application/json")
+        .timeout(std::time::Duration::from_secs(5))
+        .json(&event)
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            let ok = resp.status().is_success();
+            metrics::counter!("mw_sentry_events_total", "result" => if ok { "ok" } else { "rejected" })
+                .increment(1);
+            ok
+        }
+        Err(_) => {
+            metrics::counter!("mw_sentry_events_total", "result" => "error").increment(1);
+            false
+        }
+    }
+}
+
+/// Fire-and-forget error relay for non-async / hot call sites: spawns
+/// [`capture_error`] on the tokio runtime. A no-op when the relay is off (the spawned
+/// task returns immediately). `message` MUST be mail-content-free.
+pub fn report_error(message: String) {
+    if sentry_enabled() {
+        tokio::spawn(async move {
+            let _ = capture_error(&message).await;
+        });
+    }
 }
 
 #[cfg(test)]
@@ -442,5 +616,79 @@ mod tests {
         assert!(constant_time_eq(b"abc", b"abc"));
         assert!(!constant_time_eq(b"abc", b"abd"));
         assert!(!constant_time_eq(b"abc", b"abcd"));
+    }
+
+    #[test]
+    fn sentry_dsn_parses_and_rejects() {
+        let d = parse_sentry_dsn("https://abc123@sentry.example/7").expect("valid dsn");
+        assert_eq!(d.public_key, "abc123");
+        assert_eq!(d.ingest_url, "https://sentry.example/api/7/store/");
+        // Self-hosted GlitchTip under a subpath + port.
+        let d2 = parse_sentry_dsn("http://k@glitch.local:9000/base/42").expect("valid");
+        assert_eq!(d2.ingest_url, "http://glitch.local:9000/base/api/42/store/");
+        // Rejected shapes → relay stays off.
+        assert!(parse_sentry_dsn("ftp://k@h/1").is_none());
+        assert!(parse_sentry_dsn("https://h/1").is_none()); // no key
+        assert!(parse_sentry_dsn("https://k@h/abc").is_none()); // non-numeric project
+        assert!(parse_sentry_dsn("not-a-dsn").is_none());
+    }
+
+    #[tokio::test]
+    async fn sentry_relay_posts_an_error_only_when_configured() {
+        use std::net::SocketAddr;
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        use axum::body::Bytes;
+        use axum::routing::post;
+        use axum::{Router, extract::State};
+
+        #[derive(Clone)]
+        struct Rec {
+            hits: Arc<AtomicU32>,
+            last_auth: Arc<Mutex<String>>,
+            last_body: Arc<Mutex<Vec<u8>>>,
+        }
+
+        async fn ingest(State(rec): State<Rec>, headers: HeaderMap, body: Bytes) -> StatusCode {
+            rec.hits.fetch_add(1, Ordering::SeqCst);
+            *rec.last_auth.lock().unwrap() = headers
+                .get("x-sentry-auth")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            *rec.last_body.lock().unwrap() = body.to_vec();
+            StatusCode::OK
+        }
+
+        let rec = Rec {
+            hits: Arc::new(AtomicU32::new(0)),
+            last_auth: Arc::new(Mutex::new(String::new())),
+            last_body: Arc::new(Mutex::new(Vec::new())),
+        };
+        let app = Router::new()
+            .route("/api/42/store/", post(ingest))
+            .with_state(rec.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        // Off by default → no post, returns false.
+        set_sentry_dsn(None);
+        assert!(!capture_error("ignored while off").await);
+        assert_eq!(rec.hits.load(Ordering::SeqCst), 0);
+
+        // Configure the relay against the local ingest origin and capture an error.
+        set_sentry_dsn(Some(format!("http://pubkey@{addr}/42")));
+        assert!(sentry_enabled());
+        assert!(capture_error("render worker crashed [redacted]").await);
+        assert_eq!(rec.hits.load(Ordering::SeqCst), 1);
+        assert!(rec.last_auth.lock().unwrap().contains("sentry_key=pubkey"));
+        let body = String::from_utf8(rec.last_body.lock().unwrap().clone()).unwrap();
+        assert!(body.contains("render worker crashed"));
+        assert!(body.contains("\"level\":\"error\""));
+
+        set_sentry_dsn(None);
     }
 }

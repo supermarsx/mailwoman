@@ -27,20 +27,33 @@ use crate::{McpError, McpServer};
 
 // ── Streamable-HTTP transport ───────────────────────────────────────────────
 
+/// The axum state behind the `/mcp` route: the dispatch server plus this endpoint's
+/// canonical RFC 8707 resource identifier (the audience tokens must be issued for).
+struct McpState<B: McpBackend, A: Authorizer> {
+    server: Arc<McpServer<B, A>>,
+    /// This MCP endpoint's canonical resource (`MW_MCP_RESOURCE`). `None` disables
+    /// audience enforcement (a token bound to any resource is accepted).
+    resource: Option<String>,
+}
+
 /// Build the axum router for the MCP Streamable-HTTP endpoint. e11 nests this at
-/// `/mcp`: `router.nest("/mcp", mcp_router(server))`.
-pub fn mcp_router<B, A>(server: Arc<McpServer<B, A>>) -> Router
+/// `/mcp`: `router.nest("/mcp", mcp_router(server, resource))`.
+///
+/// `resource` is this endpoint's canonical RFC 8707 resource indicator. When set, a
+/// bearer token bound to a different resource is rejected (wrong audience) before it
+/// reaches a tool; `None` leaves audience enforcement off.
+pub fn mcp_router<B, A>(server: Arc<McpServer<B, A>>, resource: Option<String>) -> Router
 where
     B: McpBackend + 'static,
     A: Authorizer + 'static,
 {
     Router::new()
         .route("/", post(handle::<B, A>))
-        .with_state(server)
+        .with_state(Arc::new(McpState { server, resource }))
 }
 
 async fn handle<B, A>(
-    State(server): State<Arc<McpServer<B, A>>>,
+    State(state): State<Arc<McpState<B, A>>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response
@@ -65,9 +78,11 @@ where
     let cred = Credential {
         token,
         source_ip: None,
-        resource: None,
+        // The endpoint's canonical resource — a token bound to a different audience
+        // is rejected in the authorizer (RFC 8707).
+        resource: state.resource.as_deref(),
     };
-    match server.handle_rpc(&cred, req).await {
+    match state.server.handle_rpc(&cred, req).await {
         // A single JSON response satisfies the Streamable-HTTP request/response case.
         Some(resp) => Json(resp).into_response(),
         // Notification accepted, no body (per the transport spec).

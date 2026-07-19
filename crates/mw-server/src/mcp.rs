@@ -269,37 +269,143 @@ impl McpBackend for McpEngineBackend {
         self.submit(account, &draft_id).await
     }
 
-    async fn calendar_read(
-        &self,
-        _account: &str,
-        _range: &str,
-    ) -> Result<Vec<Value>, BackendError> {
-        Ok(Vec::new())
+    async fn calendar_read(&self, account: &str, range: &str) -> Result<Vec<Value>, BackendError> {
+        // Real engine call: `CalendarEvent/query` (optionally windowed by a
+        // `<after>/<before>` RFC3339 range) → `CalendarEvent/get` on the returned
+        // ids. An empty/unparsed range falls back to all events (`ids: null`).
+        let filter = parse_range(range);
+        let ids = if filter.is_some() {
+            let q = json!({
+                "using": PIM_USING,
+                "methodCalls": [["CalendarEvent/query", {
+                    "accountId": account,
+                    "filter": filter,
+                }, "q"]],
+            });
+            let resp = self.jmap(account, q).await?;
+            method_args(&resp, "q")
+                .and_then(|a| a.get("ids"))
+                .cloned()
+                .unwrap_or(Value::Null)
+        } else {
+            Value::Null // all events
+        };
+        let req = json!({
+            "using": PIM_USING,
+            "methodCalls": [["CalendarEvent/get", { "accountId": account, "ids": ids }, "g"]],
+        });
+        let resp = self.jmap(account, req).await?;
+        Ok(pim_list(&resp, "g"))
     }
 
     async fn calendar_propose(
         &self,
-        _account: &str,
-        _proposal: Value,
+        account: &str,
+        proposal: Value,
     ) -> Result<String, BackendError> {
-        Err(BackendError::new(
-            "calendar.propose is not available over MCP in this build",
-        ))
+        // Create a proposed (tentative) event from the JSCalendar-shaped proposal
+        // via `CalendarEvent/set`. Does not auto-accept on anyone's behalf.
+        let mut spec = proposal;
+        if let Some(obj) = spec.as_object_mut() {
+            obj.entry("status")
+                .or_insert_with(|| Value::String("tentative".into()));
+        }
+        let req = json!({
+            "using": PIM_USING,
+            "methodCalls": [["CalendarEvent/set", {
+                "accountId": account,
+                "create": { "p0": spec },
+            }, "s"]],
+        });
+        let resp = self.jmap(account, req).await?;
+        pim_created_id(&resp, "s", "p0")
+            .ok_or_else(|| BackendError::new("calendar proposal was not accepted by the engine"))
     }
 
-    async fn tasks_read(&self, _account: &str) -> Result<Vec<Value>, BackendError> {
-        Ok(Vec::new())
+    async fn tasks_read(&self, account: &str) -> Result<Vec<Value>, BackendError> {
+        let req = json!({
+            "using": PIM_USING,
+            "methodCalls": [["Task/get", { "accountId": account, "ids": null }, "g"]],
+        });
+        let resp = self.jmap(account, req).await?;
+        Ok(pim_list(&resp, "g"))
     }
 
-    async fn tasks_write(&self, _account: &str, _task: Value) -> Result<String, BackendError> {
-        Err(BackendError::new(
-            "tasks.write is not available over MCP in this build",
-        ))
+    async fn tasks_write(&self, account: &str, task: Value) -> Result<String, BackendError> {
+        // Update when the task carries an `id`; otherwise create. Returns the id.
+        let existing = task.get("id").and_then(Value::as_str).map(String::from);
+        let set_args = if let Some(id) = &existing {
+            json!({ "accountId": account, "update": { id: task } })
+        } else {
+            json!({ "accountId": account, "create": { "t0": task } })
+        };
+        let req = json!({
+            "using": PIM_USING,
+            "methodCalls": [["Task/set", set_args, "s"]],
+        });
+        let resp = self.jmap(account, req).await?;
+        if let Some(id) = existing {
+            // Confirm the update was applied (id present in `updated`).
+            method_args(&resp, "s")
+                .and_then(|a| a.get("updated"))
+                .and_then(|u| u.as_object())
+                .filter(|u| u.contains_key(&id))
+                .map(|_| id.clone())
+                .ok_or_else(|| BackendError::new("task update was not accepted by the engine"))
+        } else {
+            pim_created_id(&resp, "s", "t0")
+                .ok_or_else(|| BackendError::new("task creation was not accepted by the engine"))
+        }
     }
 
-    async fn contacts_read(&self, _account: &str) -> Result<Vec<Value>, BackendError> {
-        Ok(Vec::new())
+    async fn contacts_read(&self, account: &str) -> Result<Vec<Value>, BackendError> {
+        let req = json!({
+            "using": PIM_USING,
+            "methodCalls": [["ContactCard/get", { "accountId": account, "ids": null }, "g"]],
+        });
+        let resp = self.jmap(account, req).await?;
+        Ok(pim_list(&resp, "g"))
     }
+}
+
+/// The Mailwoman-native PIM capability URNs (frozen §2.2) advertised in `using` for
+/// the calendar/task/contact method families. Dispatch keys on the method name, but
+/// the request declares the capabilities it exercises.
+const PIM_USING: &[&str] = &[
+    "urn:ietf:params:jmap:core",
+    "urn:mailwoman:calendars",
+    "urn:mailwoman:tasks",
+    "urn:mailwoman:contacts",
+];
+
+/// A `<after>/<before>` RFC3339 window → a `CalendarEvent/query` filter, or `None`
+/// when `range` is empty or not a two-part `start/end` string.
+fn parse_range(range: &str) -> Option<Value> {
+    let (after, before) = range.split_once('/')?;
+    let (after, before) = (after.trim(), before.trim());
+    if after.is_empty() || before.is_empty() {
+        return None;
+    }
+    Some(json!({ "after": after, "before": before }))
+}
+
+/// Extract the `list` array from a PIM `*/get` response envelope by call id.
+fn pim_list(resp: &Value, call_id: &str) -> Vec<Value> {
+    method_args(resp, call_id)
+        .and_then(|a| a.get("list"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// The server-assigned id of a `*/set` create, by call id + create id.
+fn pim_created_id(resp: &Value, call_id: &str, create_id: &str) -> Option<String> {
+    method_args(resp, call_id)?
+        .get("created")?
+        .get(create_id)?
+        .get("id")?
+        .as_str()
+        .map(String::from)
 }
 
 impl McpEngineBackend {
@@ -378,7 +484,14 @@ pub fn build_mcp_router(
         OAuthAuthorizer::new(auth, audit, countersign_resolver(countersigned_prefixes)),
     );
     let server: Arc<Server> = Arc::new(McpServer::new(backend, authorizer));
-    mcp_router(server)
+    // RFC 8707 (A3): this endpoint's canonical resource identifier. When
+    // `MW_MCP_RESOURCE` is set, a bearer token issued for a different resource is
+    // rejected as a wrong-audience token before it can reach a tool. Unset → audience
+    // enforcement is off (tokens are accepted regardless of their bound resource).
+    let resource = std::env::var("MW_MCP_RESOURCE")
+        .ok()
+        .filter(|s| !s.is_empty());
+    mcp_router(server, resource)
 }
 
 /// The `mailwoman mcp-stdio` bridge body (wired from `main.rs` by e11). Proxies

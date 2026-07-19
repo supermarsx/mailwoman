@@ -129,8 +129,10 @@ impl<S: OAuthStore, A: AuditSink + Send + Sync> Authorizer for OAuthAuthorizer<S
         cred: &Credential<'_>,
         required: &Scope,
     ) -> Result<AuthorizedCall, McpError> {
-        // 1. Resolve the credential to (actor, account, scope) via mw-oauth.
-        let (actor, account_id, scope) = if cred.token.starts_with(KEY_SCHEME) {
+        // 1. Resolve the credential to (actor, account, scope, bound-resource) via
+        //    mw-oauth. `token_resource` is the RFC 8707 audience the token was issued
+        //    for (OAuth tokens only; API keys are not resource-bound, so `None`).
+        let (actor, account_id, scope, token_resource) = if cred.token.starts_with(KEY_SCHEME) {
             let Some(prefix) = key_prefix(cred.token) else {
                 self.emit("unknown", "api-key", false, Some("malformed key".into()));
                 return Err(McpError::ScopeDenied);
@@ -152,7 +154,7 @@ impl<S: OAuthStore, A: AuditSink + Send + Sync> Authorizer for OAuthAuthorizer<S
                 self.emit(prefix, "api-key", false, Some("invalid credential".into()));
                 return Err(McpError::ScopeDenied);
             }
-            (key.prefix.clone(), key.account_id, key.scope)
+            (key.prefix.clone(), key.account_id, key.scope, None)
         } else {
             // OAuth access token — introspection validates active/kind/expiry.
             let intro = self
@@ -173,6 +175,7 @@ impl<S: OAuthStore, A: AuditSink + Send + Sync> Authorizer for OAuthAuthorizer<S
                 intro.client_id.clone().unwrap_or_else(|| "unknown".into()),
                 intro.account_id.unwrap_or_default(),
                 intro.scope.ok_or(McpError::ScopeDenied)?,
+                intro.resource,
             )
         };
         let actor_kind: &'static str = if cred.token.starts_with(KEY_SCHEME) {
@@ -189,7 +192,20 @@ impl<S: OAuthStore, A: AuditSink + Send + Sync> Authorizer for OAuthAuthorizer<S
             return Err(McpError::ScopeDenied);
         }
 
-        // 3. Per-tool capability — no scope escalation.
+        // 3. RFC 8707 resource-indicator (audience) binding. `cred.resource` is this
+        //    MCP endpoint's canonical resource identifier (populated at the `/mcp`
+        //    transport from `MW_MCP_RESOURCE`). A token bound to a DIFFERENT resource
+        //    was issued for another audience and must be rejected here — a
+        //    wrong-audience token never reaches a tool. API keys carry no resource
+        //    binding and so are exempt (consistent with `mw_oauth::require_scope`).
+        if let (Some(bound), Some(want)) = (&token_resource, cred.resource)
+            && bound != want
+        {
+            self.emit(&actor, actor_kind, false, Some("audience mismatch".into()));
+            return Err(McpError::ScopeDenied);
+        }
+
+        // 4. Per-tool capability — no scope escalation.
         if !scope.allows(required) {
             self.emit(&actor, actor_kind, false, Some("scope denied".into()));
             return Err(McpError::ScopeDenied);

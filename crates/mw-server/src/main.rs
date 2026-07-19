@@ -267,10 +267,24 @@ struct HealthArgs {
 
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
+    use tracing_subscriber::prelude::*;
+
+    // Observability (A6): initialise OTLP export BEFORE composing the subscriber so
+    // the `tracing_opentelemetry` bridge layer binds the just-registered global
+    // tracer provider (the layer captures the provider at construction time). Both
+    // are a clean no-op unless `MW_OTLP_ENDPOINT` is set; the guard is held for the
+    // process lifetime so the exporters flush + shut down on exit. `build_app` calls
+    // `init_otlp` again — that second call is idempotent and returns `None`.
+    let obs = mw_server::observability::ObservabilityConfig::from_env();
+    let otel_guard = mw_server::observability::init_otlp(&obs).ok().flatten();
+    let otlp_layer = otel_guard.as_ref().map(|_| tracing_opentelemetry::layer());
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&obs.log_directives)),
         )
+        .with(tracing_subscriber::fmt::layer())
+        .with(otlp_layer)
         .init();
 
     let cli = Cli::parse();

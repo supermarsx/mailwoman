@@ -288,18 +288,121 @@ async fn deliver_with_retry(
 /// `MW_WEBHOOK_INBOUND_SECRET`); `None` → inbound webhooks are disabled (`404`).
 static INBOUND_SECRET: std::sync::RwLock<Option<Vec<u8>>> = std::sync::RwLock::new(None);
 
+/// The dispatcher that runs an inbound webhook's mapped rule/Sieve action against
+/// the engine. `None` (the default) → the endpoint authenticates but reports that no
+/// action dispatcher is wired (a no-op `202`). The engine-backed sink is injected at
+/// mount, exactly like the outbound [`WebhookRegistry`] adapter.
+static INBOUND_SINK: std::sync::RwLock<Option<Arc<dyn WebhookActionSink>>> =
+    std::sync::RwLock::new(None);
+
 /// Configure the inbound-webhook shared secret (wired by e11).
 pub fn set_inbound_secret(secret: Option<Vec<u8>>) {
     *INBOUND_SECRET.write().expect("inbound secret lock") = secret;
 }
 
-/// `POST /api/webhooks/inbound` — accept an external system's signed call and
-/// trigger the mapped rule action. The body is HMAC-verified against the configured
-/// shared secret before anything runs (constant-time). Disabled (`404`) when no
-/// secret is set; rejected (`401`) on a bad/absent signature.
+/// Install (or clear) the inbound-action dispatcher. The mount lane injects an
+/// engine-backed [`WebhookActionSink`] here (see the outbound
+/// [`WebhookRegistry`] wiring for the parallel); tests install an in-memory double.
+pub fn set_inbound_dispatcher(sink: Option<Arc<dyn WebhookActionSink>>) {
+    *INBOUND_SINK.write().expect("inbound sink lock") = sink;
+}
+
+/// The minimal envelope an inbound `run_rules` action evaluates the account's stored
+/// mail rules against. Only header-shaped fields — never a full body dump in a log.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookEnvelope {
+    #[serde(default)]
+    pub from: String,
+    #[serde(default)]
+    pub to: String,
+    #[serde(default)]
+    pub subject: String,
+    #[serde(default)]
+    pub message_id: Option<String>,
+}
+
+/// A rule/Sieve action an authenticated inbound webhook asks the server to run.
 ///
-/// The rule-action data path (which engine action fires) is wired by e11 against the
-/// engine; this handler owns authentication + acceptance so the boundary is proven.
+/// `run_rules` re-evaluates the account's stored GUI/Sieve rules against a supplied
+/// envelope; `sieve` carries one Sieve action (`{"kind":"move","mailbox":"…"}`, the
+/// `mw_sieve::Action` wire shape) to execute on a target message — the Sieve webhook
+/// action.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum InboundAction {
+    RunRules {
+        envelope: WebhookEnvelope,
+    },
+    Sieve {
+        /// A single `mw_sieve::Action` in its serde form, validated by the sink.
+        action: serde_json::Value,
+        #[serde(default)]
+        message_id: Option<String>,
+    },
+}
+
+/// The parsed inbound webhook body: which account, which action.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+pub struct InboundWebhookRequest {
+    pub account: String,
+    pub action: InboundAction,
+}
+
+/// The outcome of a dispatched inbound action — an opaque count safe to return
+/// (never mail content).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WebhookDispatch {
+    /// How many rule/Sieve actions the dispatch fired.
+    pub fired: u64,
+}
+
+/// The engine seam an inbound webhook drives. The mount lane backs it with the real
+/// engine (evaluate stored rules / apply a Sieve action); the in-memory
+/// [`InMemoryWebhookActionSink`] exercises the boundary in tests.
+#[async_trait]
+pub trait WebhookActionSink: Send + Sync {
+    /// Run `action` for `account`. Returns the fired-action count, or an error
+    /// string (never containing mail content) that maps to a `502`.
+    async fn fire(&self, account: &str, action: &InboundAction) -> Result<WebhookDispatch, String>;
+}
+
+/// An in-memory [`WebhookActionSink`] for tests: records every dispatched action and
+/// reports a fixed fired-count so a test can assert an inbound webhook fired a rule.
+#[derive(Debug, Default)]
+pub struct InMemoryWebhookActionSink {
+    fired: std::sync::Mutex<Vec<(String, InboundAction)>>,
+}
+
+impl InMemoryWebhookActionSink {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The (account, action) pairs dispatched so far.
+    pub fn dispatched(&self) -> Vec<(String, InboundAction)> {
+        self.fired.lock().expect("sink lock").clone()
+    }
+}
+
+#[async_trait]
+impl WebhookActionSink for InMemoryWebhookActionSink {
+    async fn fire(&self, account: &str, action: &InboundAction) -> Result<WebhookDispatch, String> {
+        self.fired
+            .lock()
+            .expect("sink lock")
+            .push((account.to_string(), action.clone()));
+        Ok(WebhookDispatch { fired: 1 })
+    }
+}
+
+/// `POST /api/webhooks/inbound` — accept an external system's signed call and run the
+/// mapped rule/Sieve action. The body is HMAC-verified against the configured shared
+/// secret before anything runs (constant-time). Disabled (`404`) when no secret is
+/// set; rejected (`401`) on a bad/absent signature; `400` on an unrecognized action;
+/// `502` when the dispatcher errors. On success returns `202` with the opaque
+/// fired-action count. When no dispatcher is wired the boundary still authenticates
+/// and returns `202` (`no_dispatcher`) so the mount can be completed independently.
 pub async fn inbound_webhook(headers: HeaderMap, body: Bytes) -> Response {
     let secret = INBOUND_SECRET.read().expect("inbound secret lock").clone();
     let Some(secret) = secret else {
@@ -312,9 +415,49 @@ pub async fn inbound_webhook(headers: HeaderMap, body: Bytes) -> Response {
     if !verify_signature(&secret, &body, signature) {
         return (StatusCode::UNAUTHORIZED, "invalid webhook signature").into_response();
     }
-    metrics::counter!("mw_webhook_inbound_total", "result" => "accepted").increment(1);
-    // Rule-action dispatch is e11's wiring seam; the verified boundary returns 202.
-    StatusCode::ACCEPTED.into_response()
+
+    let request: InboundWebhookRequest = match serde_json::from_slice(&body) {
+        Ok(r) => r,
+        Err(_) => {
+            metrics::counter!("mw_webhook_inbound_total", "result" => "bad_request").increment(1);
+            return (
+                StatusCode::BAD_REQUEST,
+                "unrecognized inbound webhook action",
+            )
+                .into_response();
+        }
+    };
+
+    let sink = INBOUND_SINK.read().expect("inbound sink lock").clone();
+    let Some(sink) = sink else {
+        // Authenticated + parsed, but no engine dispatcher is wired yet.
+        metrics::counter!("mw_webhook_inbound_total", "result" => "no_dispatcher").increment(1);
+        return (
+            StatusCode::ACCEPTED,
+            axum::Json(serde_json::json!({ "dispatched": false })),
+        )
+            .into_response();
+    };
+
+    match sink.fire(&request.account, &request.action).await {
+        Ok(outcome) => {
+            metrics::counter!("mw_webhook_inbound_total", "result" => "dispatched").increment(1);
+            (
+                StatusCode::ACCEPTED,
+                axum::Json(serde_json::json!({ "dispatched": true, "fired": outcome.fired })),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            metrics::counter!("mw_webhook_inbound_total", "result" => "error").increment(1);
+            // The error string is dispatcher-authored + mail-content-free by contract.
+            tracing::warn!(
+                "inbound webhook action failed for account {}: {e}",
+                request.account
+            );
+            (StatusCode::BAD_GATEWAY, "inbound action dispatch failed").into_response()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -480,28 +623,86 @@ mod tests {
         let _ = handle.await;
     }
 
+    /// Sign `body` and return the header map carrying the signature.
+    fn signed_headers(secret: &[u8], body: &[u8]) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            SIGNATURE_HEADER,
+            HeaderValue::from_str(&sign(secret, body)).unwrap(),
+        );
+        headers
+    }
+
+    /// One sequential test drives auth → parse → dispatch. It is the only test that
+    /// touches the process-global inbound secret + sink, so there is no cross-test
+    /// race on those statics.
     #[tokio::test]
-    async fn inbound_webhook_verifies_signature() {
+    async fn inbound_webhook_auth_parse_and_dispatch() {
         // Disabled when no secret configured.
         set_inbound_secret(None);
+        set_inbound_dispatcher(None);
         let disabled = inbound_webhook(HeaderMap::new(), Bytes::from_static(b"{}")).await;
         assert_eq!(disabled.status(), StatusCode::NOT_FOUND);
 
         let secret = b"inbound-shared".to_vec();
         set_inbound_secret(Some(secret.clone()));
-        let body = Bytes::from_static(b"{\"action\":\"resync\"}");
-        let sig = sign(&secret, &body);
 
-        // Valid signature → 202.
-        let mut headers = HeaderMap::new();
-        headers.insert(SIGNATURE_HEADER, HeaderValue::from_str(&sig).unwrap());
-        let ok = inbound_webhook(headers, body.clone()).await;
-        assert_eq!(ok.status(), StatusCode::ACCEPTED);
+        let run_rules = serde_json::to_vec(&serde_json::json!({
+            "account": "acct1",
+            "action": { "kind": "run_rules", "envelope": { "from": "a@b.c", "subject": "hi" } },
+        }))
+        .unwrap();
 
-        // Missing/invalid signature → 401.
-        let bad = inbound_webhook(HeaderMap::new(), body).await;
+        // Bad/absent signature → 401.
+        let bad = inbound_webhook(HeaderMap::new(), Bytes::from(run_rules.clone())).await;
         assert_eq!(bad.status(), StatusCode::UNAUTHORIZED);
 
+        // Valid signature but an unrecognized action → 400.
+        let junk = Bytes::from_static(b"{\"action\":\"resync\"}");
+        let junk_sig = signed_headers(&secret, &junk);
+        let bad_body = inbound_webhook(junk_sig, junk).await;
+        assert_eq!(bad_body.status(), StatusCode::BAD_REQUEST);
+
+        // Valid + parsed, but no dispatcher wired → 202 (dispatched:false).
+        let ok_no_sink = inbound_webhook(
+            signed_headers(&secret, &run_rules),
+            Bytes::from(run_rules.clone()),
+        )
+        .await;
+        assert_eq!(ok_no_sink.status(), StatusCode::ACCEPTED);
+
+        // Install the in-memory sink; a valid call now FIRES the rule action.
+        let sink = Arc::new(InMemoryWebhookActionSink::new());
+        set_inbound_dispatcher(Some(sink.clone()));
+        let fired = inbound_webhook(
+            signed_headers(&secret, &run_rules),
+            Bytes::from(run_rules.clone()),
+        )
+        .await;
+        assert_eq!(fired.status(), StatusCode::ACCEPTED);
+        let dispatched = sink.dispatched();
+        assert_eq!(dispatched.len(), 1, "the inbound webhook fired one action");
+        assert_eq!(dispatched[0].0, "acct1");
+        assert!(matches!(dispatched[0].1, InboundAction::RunRules { .. }));
+
+        // The Sieve webhook action variant also dispatches.
+        let sieve = serde_json::to_vec(&serde_json::json!({
+            "account": "acct1",
+            "action": {
+                "kind": "sieve",
+                "action": { "kind": "move", "mailbox": "Archive" },
+                "message_id": "m1",
+            },
+        }))
+        .unwrap();
+        let sieve_resp =
+            inbound_webhook(signed_headers(&secret, &sieve), Bytes::from(sieve.clone())).await;
+        assert_eq!(sieve_resp.status(), StatusCode::ACCEPTED);
+        let after = sink.dispatched();
+        assert_eq!(after.len(), 2);
+        assert!(matches!(after[1].1, InboundAction::Sieve { .. }));
+
         set_inbound_secret(None);
+        set_inbound_dispatcher(None);
     }
 }
