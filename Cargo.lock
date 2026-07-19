@@ -4467,6 +4467,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "landlock"
+version = "0.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "635839550ae8b90d9fd2571460a6645dc0aec070225956ca7a2831ed31d2795d"
+dependencies = [
+ "enumflags2",
+ "libc",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "languagetool"
 version = "26.15.0"
 dependencies = [
@@ -5503,10 +5514,20 @@ version = "26.15.0"
 dependencies = [
  "base64 0.22.1",
  "mw-export",
+ "mw-sandbox",
  "mw-sanitize",
  "serde",
  "serde_json",
  "wasmtime",
+]
+
+[[package]]
+name = "mw-sandbox"
+version = "26.15.0"
+dependencies = [
+ "landlock",
+ "libc",
+ "seccompiler",
 ]
 
 [[package]]
@@ -5562,6 +5583,7 @@ dependencies = [
  "mw-passwd",
  "mw-plugin",
  "mw-pop3",
+ "mw-sandbox",
  "mw-sanitize",
  "mw-smtp",
  "mw-sso",
@@ -8022,6 +8044,15 @@ dependencies = [
  "hybrid-array",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "seccompiler"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4ae55de56877481d112a559bbc12667635fdaf5e005712fd4e2b2fa50ffc884"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
