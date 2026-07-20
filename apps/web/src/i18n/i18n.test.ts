@@ -31,20 +31,23 @@ describe('i18n registry / t()', () => {
 });
 
 describe('locale negotiation + direction', () => {
-  it('ships exactly the 12 gate locales', () => {
-    expect(LOCALES).toHaveLength(12);
+  it('ships exactly the 13 gate locales (twelve + ar)', () => {
+    expect(LOCALES).toHaveLength(13);
     expect(LOCALES).toContain('pt-BR');
     expect(LOCALES).toContain('uk');
+    expect(LOCALES).toContain('ar');
   });
 
   it('negotiates a requested tag down to a shipped locale', () => {
     expect(negotiateLocale(['de-AT', 'de'])).toBe('de');
     expect(negotiateLocale(['pt', 'en'])).toBe('pt-BR');
+    expect(negotiateLocale(['ar'])).toBe('ar');
+    expect(negotiateLocale(['ar-EG', 'ar'])).toBe('ar');
     expect(negotiateLocale(['xx-YY'])).toBe('en');
   });
 
-  it('resolves LTR for all shipped locales, RTL for ar/he plumbing', () => {
-    for (const l of LOCALES) expect(resolveDir(l)).toBe('ltr');
+  it('resolves LTR for the LTR locales, RTL for ar + he plumbing', () => {
+    for (const l of LOCALES) expect(resolveDir(l)).toBe(l === 'ar' ? 'rtl' : 'ltr');
     expect(resolveDir('ar')).toBe('rtl');
     expect(resolveDir('he-IL')).toBe('rtl');
   });
@@ -52,9 +55,10 @@ describe('locale negotiation + direction', () => {
   it('derives base language + fallback chain', () => {
     expect(baseLanguage('pt-BR')).toBe('pt');
     expect(isKnownLocale('ja')).toBe(true);
-    expect(isKnownLocale('ar')).toBe(false);
+    expect(isKnownLocale('ar')).toBe(true);
     expect(fallbackChain('de')).toEqual(['de', 'en']);
     expect(fallbackChain('en')).toEqual(['en']);
+    expect(fallbackChain('ar')).toEqual(['ar', 'en']);
   });
 });
 

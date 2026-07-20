@@ -1,14 +1,15 @@
-// The 12 shipped locales + RTL/direction plumbing (plan §4, SPEC §24).
+// The shipped locales + RTL/direction plumbing (plan §4, SPEC §24).
 //
 // This is the single source of truth for WHICH locales exist and WHICH way each
-// one reads. The set is the 1.0 gate's twelve (ROADMAP-1.0 L21 / state.md L13);
-// none of them are RTL, but the `dir` resolver is written against a general RTL
-// language set so `ar`/`he`/`fa`/`ur` become first-class the moment their catalog
-// dirs are added — no code change, just a new `locales/<lang>/` tree.
+// one reads. The set is the 1.0 gate's twelve plus `ar`; only `ar` is RTL, and
+// the `dir` resolver is written against a general RTL language set so
+// `he`/`fa`/`ur` also become first-class the moment their catalog dirs are added
+// — no code change, just a new `locales/<lang>/` tree. `ar` ships a stub catalog
+// (settings only); missing keys fall back to `en` via the fallback chain.
 
 import { negotiateLanguages } from '@fluent/langneg';
 
-/** Every locale Mailwoman ships a catalog dir for (the 1.0 gate's twelve). */
+/** Every locale Mailwoman ships a catalog dir for (the 1.0 gate's twelve + `ar`). */
 export const LOCALES = [
   'en',
   'de',
@@ -22,6 +23,7 @@ export const LOCALES = [
   'uk',
   'zh',
   'ja',
+  'ar',
 ] as const;
 
 export type Locale = (typeof LOCALES)[number];
@@ -31,9 +33,10 @@ export const SOURCE_LOCALE: Locale = 'en';
 
 export type Dir = 'ltr' | 'rtl';
 
-// Base languages that read right-to-left. None are in `LOCALES` today, but the
-// resolver consults this set so adding e.g. `locales/ar/` is enough to get a
-// mirrored UI. Kept as base-language codes (compared against the primary subtag).
+// Base languages that read right-to-left. `ar` is now in `LOCALES`; the others
+// are not shipped yet, but the resolver consults this set so adding e.g.
+// `locales/he/` is enough to get a mirrored UI. Kept as base-language codes
+// (compared against the primary subtag).
 const RTL_BASE_LANGUAGES = new Set(['ar', 'he', 'fa', 'ur', 'ps', 'dv', 'yi', 'ckb']);
 
 /** The primary language subtag of a BCP-47 tag (`pt-BR` -> `pt`, `zh-Hans` -> `zh`). */
