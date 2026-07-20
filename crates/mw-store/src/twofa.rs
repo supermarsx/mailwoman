@@ -139,6 +139,39 @@ impl Store {
         Ok(())
     }
 
+    /// The last TOTP step (RFC 6238 counter) a login consumed for this account, or
+    /// `0` if none has been consumed / no secret exists (0021 `last_step`). A code
+    /// whose matched step is `<= ` this has already been used and must be rejected.
+    pub async fn totp_last_step(&self, account_id: &str) -> Result<i64, StoreError> {
+        let row = q("SELECT last_step FROM totp_secrets WHERE account_id = ?1")
+            .bind(account_id)
+            .fetch_optional(&self.backend)
+            .await?;
+        Ok(row.map(|r| r.get_i64("last_step")).unwrap_or(0))
+    }
+
+    /// Advance the last-consumed TOTP step to `step`, but ONLY if it strictly
+    /// increases the stored value (compare-and-swap over 0021 `last_step`, mirroring
+    /// the single-use [`consume_recovery_code`](Self::consume_recovery_code) guard).
+    /// Returns `true` iff this call won the advance — i.e. the step had not already
+    /// been consumed, so the code is fresh. A replay of an already-consumed step, and
+    /// two concurrent logins racing the same code, all resolve to exactly one winner
+    /// because the DB `last_step < ?` predicate admits a single row update.
+    pub async fn advance_totp_last_step(
+        &self,
+        account_id: &str,
+        step: i64,
+    ) -> Result<bool, StoreError> {
+        let affected =
+            q("UPDATE totp_secrets SET last_step = ?2 WHERE account_id = ?1 AND last_step < ?3")
+                .bind(account_id)
+                .bind(step)
+                .bind(step)
+                .execute(&self.backend)
+                .await?;
+        Ok(affected == 1)
+    }
+
     // ---- WebAuthn ------------------------------------------------------------
 
     /// Register a WebAuthn credential (0015), setting `created_at` to now.
@@ -453,6 +486,40 @@ mod tests {
 
         s.delete_totp_secret("a1").await.unwrap();
         assert!(s.get_totp_secret("a1").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn totp_last_step_cas_is_monotonic() {
+        let s = store().await;
+        s.put_totp_secret("a1", b"12345678901234567890", true)
+            .await
+            .unwrap();
+
+        // No step consumed yet.
+        assert_eq!(s.totp_last_step("a1").await.unwrap(), 0);
+
+        // First accept at step 100 wins and advances the marker.
+        assert!(s.advance_totp_last_step("a1", 100).await.unwrap());
+        assert_eq!(s.totp_last_step("a1").await.unwrap(), 100);
+
+        // Replaying the same step is refused (not a strict increase) …
+        assert!(!s.advance_totp_last_step("a1", 100).await.unwrap());
+        // … as is any earlier step within a still-live ±window.
+        assert!(!s.advance_totp_last_step("a1", 99).await.unwrap());
+        assert_eq!(s.totp_last_step("a1").await.unwrap(), 100);
+
+        // A later step still advances (a fresh code in a later window).
+        assert!(s.advance_totp_last_step("a1", 101).await.unwrap());
+        assert_eq!(s.totp_last_step("a1").await.unwrap(), 101);
+
+        // Two logins racing the SAME fresh code (step 102, last_step is 101) — the
+        // CAS admits EXACTLY ONE winner; the loser sees the already-advanced marker.
+        let (r1, r2) = tokio::join!(
+            s.advance_totp_last_step("a1", 102),
+            s.advance_totp_last_step("a1", 102),
+        );
+        assert!(r1.unwrap() ^ r2.unwrap());
+        assert_eq!(s.totp_last_step("a1").await.unwrap(), 102);
     }
 
     #[tokio::test]

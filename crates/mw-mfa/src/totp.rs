@@ -123,21 +123,26 @@ pub fn totp_at(secret: &[u8], unix_time: u64, params: &TotpParams) -> String {
 }
 
 /// Verify `code` against `secret` at `unix_time`, accepting any step within the
-/// ±`skew` window. Constant-time: every candidate step is compared and the results
-/// are OR-folded, so a match's position is not leaked by timing.
-pub fn totp_verify(secret: &[u8], code: &str, unix_time: u64, params: &TotpParams) -> bool {
+/// ±`skew` window. Returns the RFC 6238 step counter that matched (`Some`) so the
+/// caller can enforce a replay guard by remembering the last-consumed step, or
+/// `None` if no step in the window matched. The whole window is scanned without an
+/// early-out and each candidate is compared constant-time, so a match's position is
+/// not leaked by timing.
+pub fn totp_verify(secret: &[u8], code: &str, unix_time: u64, params: &TotpParams) -> Option<u64> {
     let code = code.trim();
     // A well-formed code is exactly `digits` ASCII digits.
     if code.len() != params.digits as usize || !code.bytes().all(|b| b.is_ascii_digit()) {
-        return false;
+        return None;
     }
     let center = unix_time / params.step;
     let lo = center.saturating_sub(params.skew);
     let hi = center.saturating_add(params.skew);
-    let mut matched = false;
+    let mut matched = None;
     for counter in lo..=hi {
         let candidate = hotp(secret, counter, params.digits);
-        matched |= ct_eq(candidate.as_bytes(), code.as_bytes());
+        if ct_eq(candidate.as_bytes(), code.as_bytes()) {
+            matched = Some(counter);
+        }
     }
     matched
 }

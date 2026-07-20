@@ -407,12 +407,19 @@ async fn verify_totp_factor(
     if !secret.confirmed {
         return Ok(false);
     }
-    Ok(totp::totp_verify(
-        &secret.secret,
-        code,
-        now_unix(),
-        &TotpParams::default(),
-    ))
+    let Some(matched_step) =
+        totp::totp_verify(&secret.secret, code, now_unix(), &TotpParams::default())
+    else {
+        return Ok(false);
+    };
+    // Replay guard (L1): a valid code stays live for the ±1 window, so the same code
+    // could be captured and reused within ~90 s. Remember the last step a login
+    // consumed and refuse any step at or below it. `advance_totp_last_step` is a
+    // compare-and-swap: it returns `true` (fresh, accept) only if this step strictly
+    // exceeds the stored one, and `false` (replay, reject) otherwise — which also
+    // makes two logins racing the same code resolve to a single winner at the DB.
+    let step = i64::try_from(matched_step).unwrap_or(i64::MAX);
+    state.store.advance_totp_last_step(account_id, step).await
 }
 
 async fn verify_recovery_factor(
@@ -923,7 +930,9 @@ async fn confirm_totp_and_seed_recovery(
     let Some(secret) = state.store.get_totp_secret(account_id).await? else {
         return Ok(None);
     };
-    if !totp::totp_verify(&secret.secret, code, now_unix(), &TotpParams::default()) {
+    // Enrolment confirmation only proves possession of the secret; the login-time
+    // replay guard ([`verify_totp_factor`]) is what advances `last_step`.
+    if totp::totp_verify(&secret.secret, code, now_unix(), &TotpParams::default()).is_none() {
         return Ok(None);
     }
     state.store.confirm_totp(account_id).await?;

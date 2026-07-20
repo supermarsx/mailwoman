@@ -62,18 +62,24 @@ fn totp_verify_accepts_window_and_rejects_others() {
     };
     let now = 1_234_567_890u64;
     let code = totp_at(RFC_SEED, now, &p);
-    // Current step verifies.
-    assert!(totp_verify(RFC_SEED, &code, now, &p));
-    // Previous and next steps verify within ±1.
-    assert!(totp_verify(RFC_SEED, &code, now.saturating_sub(30), &p));
-    assert!(totp_verify(RFC_SEED, &code, now + 30, &p));
+    // Current step verifies, returning the matched step counter (now / step).
+    assert_eq!(totp_verify(RFC_SEED, &code, now, &p), Some(now / p.step));
+    // Previous and next steps verify within ±1, reporting the step whose code it is.
+    assert_eq!(
+        totp_verify(RFC_SEED, &code, now.saturating_sub(30), &p),
+        Some(now / p.step)
+    );
+    assert_eq!(
+        totp_verify(RFC_SEED, &code, now + 30, &p),
+        Some(now / p.step)
+    );
     // Two steps away is rejected.
-    assert!(!totp_verify(RFC_SEED, &code, now + 60, &p));
+    assert_eq!(totp_verify(RFC_SEED, &code, now + 60, &p), None);
     // A wrong code is rejected.
-    assert!(!totp_verify(RFC_SEED, "000000", now, &p));
+    assert_eq!(totp_verify(RFC_SEED, "000000", now, &p), None);
     // Malformed inputs are rejected without panicking.
-    assert!(!totp_verify(RFC_SEED, "12ab56", now, &p));
-    assert!(!totp_verify(RFC_SEED, "1234567", now, &p));
+    assert_eq!(totp_verify(RFC_SEED, "12ab56", now, &p), None);
+    assert_eq!(totp_verify(RFC_SEED, "1234567", now, &p), None);
 }
 
 #[test]
