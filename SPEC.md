@@ -379,7 +379,7 @@ nightly live-interop job against real test tenants.
 | **Malicious email sender** | Hostile MIME/HTML/CSS/attachments, tracking, phishing, MIME smuggling, decompression bombs | Rust parsers (fuzzed), sanitizer (§7.2), no remote content by default, attachment sandbox, parser resource limits (depth/size/time) |
 | **Network attacker** | MitM, downgrade, traffic analysis | rustls + no-cleartext policy, HSTS preload, pinning option, REQUIRETLS |
 | **Compromised/curious host server** | Reads disk, memory, logs | Zero-access mode (§9); in standard mode: encrypted at rest, no plaintext logging of bodies/subjects ever |
-| **Malicious other tenant / XSS** | Script injection via email content | CSP `default-src 'none'`-rooted policy (no inline scripts, `style-src 'self'`), sandboxed iframe rendering, no `innerHTML` of unsanitized data (lint-banned); Trusted Types enforcement is tracked, not yet on (§7.4) |
+| **Malicious other tenant / XSS** | Script injection via email content | CSP `default-src 'none'`-rooted policy (no inline scripts, `style-src 'self'`), sandboxed iframe rendering, no `innerHTML` of unsanitized data (lint-banned); Trusted Types enforced (`require-trusted-types-for 'script'` in the shipped CSP, §7.4) |
 | **Stolen device** | Local data access | OS keychain-wrapped keys, optional app lock (biometric/PIN), auto-lock timer, remote cache wipe on next connect |
 | **Credential stuffing / account takeover** | Password attacks on the webmail login | Argon2id, rate limiting + exponential backoff, WebAuthn/passkeys, TOTP, IP allowlists (admin), new-device notification |
 | **Supply chain** | Malicious dependency | `cargo-deny` + `cargo-vet`/`cargo-audit`, lockfiles, pinned CI actions, reproducible builds, signed releases |
@@ -401,7 +401,11 @@ Rendering pipeline, all engine-side in Rust before anything reaches the DOM:
 4. **Remote content proxy:** images load **off by default**; when enabled they
    go through an engine-side anonymizing proxy (strips cookies/referrer,
    normalizes UA, caches, optionally re-encodes images in the WASM jail to
-   strip exploit payloads and metadata). **Partial image loading:** load a
+   strip exploit payloads and metadata). The proxy fetch is SSRF-filtered
+   deny-by-default: DNS-pinned against rebinding, private/loopback/link-local/
+   ULA and the cloud-metadata address refused — including the IPv4 those ranges
+   embed in NAT64 (`64:ff9b::/96`) and 6to4 (`2002::/16`) v6 forms — and every
+   redirect hop re-validated. **Partial image loading:** load a
    single image, load all from this message, always-load per sender, or
    always-load per domain — four distinct grants, each revocable, with the
    remote-content bar showing exactly how many images were blocked and from
@@ -445,7 +449,7 @@ to expand):
 
 ### 7.4 Web application hardening
 
-- CSP: `default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self' blob:; frame-src 'self'; worker-src 'self' blob:; base-uri 'none'; form-action 'none'` (message iframes get their own stricter policy). No inline scripts anywhere, and `style-src 'self'` carries no `'unsafe-inline'`. Trusted Types (`require-trusted-types-for 'script'`) is **not yet enforced** — the shell's template engine assigns `innerHTML` with no default Trusted Types policy, so enforcing it would break the SPA at boot; it is a tracked web-side follow-up (register a default policy, then re-add the directive). Fonts are self-hosted (§17.2) so `font-src 'self'` — never a third-party origin.
+- CSP: `default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self' blob:; frame-src 'self'; worker-src 'self' blob:; base-uri 'none'; form-action 'none'; require-trusted-types-for 'script'` (message iframes get their own stricter policy). No inline scripts anywhere, and `style-src 'self'` carries no `'unsafe-inline'`. Trusted Types (`require-trusted-types-for 'script'`) is **enforced**: the SPA entrypoint registers a **default** Trusted Types policy before first render, so the shell's template engine (`innerHTML` on a `<template>`) and every other HTML sink pass through a policy while dynamic script/script-URL sinks stay fail-closed. Fonts are self-hosted (§17.2) so `font-src 'self'` — never a third-party origin.
 - `Cross-Origin-Opener-Policy: same-origin`, `COEP: require-corp`, `CORP`,
   `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`,
   `Permissions-Policy` denying everything unused.
@@ -457,7 +461,10 @@ to expand):
 - Login: constant-time compares, uniform error messages/timing, Argon2id
   (m=64 MiB, t=3, p=4 baseline; admin-tunable upward).
 - 2FA: WebAuthn/passkeys and TOTP (RFC 6238) as a **second factor**, with
-  recovery codes as the break-glass path. Passkey verification uses attestation
+  recovery codes as the break-glass path. A TOTP code cannot be replayed within
+  its validity window — the last step a login consumed is recorded and any step
+  at or below it is refused (a compare-and-swap that also resolves two logins
+  racing the same code to a single winner). Passkey verification uses attestation
   `"none"` — the server verifies the assertion signature and stores the COSE
   public key; it does not validate attestation certificate chains. A factor,
   once enrolled, is required at login (no silent downgrade to password-only);
@@ -498,6 +505,11 @@ mailwoman (supervisor, no network)
   self-hosters get it too. These kernel features are Linux-only
   (`#[cfg(target_os = "linux")]`) and **fail closed**: where a jail was expected
   but its setup fails, the render child is refused rather than run unsandboxed.
+  Landlock is applied best-effort by default (it is unavailable on kernels
+  < 5.13, so a missing/partial ruleset does not by itself refuse the child);
+  `MW_RENDER_JAIL=strict` makes a Landlock setup that is not fully enforced
+  fatal under a required jail, for operators who want fail-closed filesystem
+  confinement.
 - **Non-Linux (degraded mode):** on Windows and macOS the kernel jail is
   unavailable; isolation is the disposable process split plus the WASM layer
   below, with no seccomp/Landlock/namespace enforcement. `mailwoman doctor`
@@ -962,7 +974,10 @@ numbers optional, configurable work hours/days, mini-calendar navigator.
   pinning; linkable to messages/events/contacts.
 - **Encryption at rest is not optional for notes:** stored via the notes key
   (§9.1) even for accounts not otherwise in zero-access mode — server sees
-  ciphertext only; search via the client-side index slice.
+  ciphertext only; search via the client-side index slice. Sealing covers the
+  note's metadata as well as its body: title, tags, color, and the pinned flag
+  are sealed columns at rest, with the pinned-first list ordering applied in
+  Rust after decrypt so no plaintext sort key survives on disk.
 - Sync: Mailwoman-native (encrypted blobs through the server) as primary;
   optional export/interop via IMAP Notes folder convention and CalDAV
   VJOURNAL for interoperability (both lose the zero-access property when
@@ -1304,8 +1319,14 @@ verdicts, admin events. Inbound webhook actions available to rules.
   §10.3 pending in-app confirmation unless the key was explicitly created
   with `unattended-send`, which requires admin countersign), calendar
   read/propose, tasks read/write, contacts read.
-- Auth per MCP spec: OAuth 2.1 with resource indicators; MCP keys are API
-  keys (§20.1) and inherit the same scoping, expiry, rate limiting, and audit.
+- Auth per MCP spec: OAuth 2.1 with resource indicators (RFC 8707); MCP keys
+  are API keys (§20.1) and inherit the same scoping, expiry, rate limiting, and
+  audit. Audience enforcement is **on by default** for any deployment that has
+  configured its public origin (`MW_WEBAUTHN_ORIGIN`) or set `MW_MCP_RESOURCE`
+  explicitly: a bearer token bound to a different resource is rejected as
+  wrong-audience before it reaches a tool. With neither configured, no canonical
+  resource can be derived and enforcement stays off — so a deployment exposing
+  MCP publicly must set one of the two.
   Zero-access accounts: MCP sees only what a logged-in client session could
   decrypt — i.e., nothing, unless the user runs a client-side MCP bridge.
 - Prompt-injection posture: tool results carry provenance labels (message

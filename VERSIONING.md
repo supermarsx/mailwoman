@@ -90,12 +90,14 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
   infrastructure. The release gate itself caught a real **date-dependent latent bug** the narrower e2e run
   missed — `pim/quick-add`'s bare-time branch read the wall clock instead of the injected reference date, so
   it went red the moment the system clock rolled past the test's hardcoded day; fixed pre-tag by threading
-  the reference date into the helper. **Deferred to 26.17**: sealing Note title/tags/color/pinned (needs a
-  new migration + sortable index since sealing breaks `ORDER BY`), `Identity.signatureName` persistence,
-  `ar` app-wide locale negotiation, a web default Trusted-Types policy (to re-enable
-  `require-trusted-types-for` in the CSP), and the 6 LOW security-hardening notes. **Floor-blocked** (not
-  buildable under the license floor): A8 semantic search re-rank (needs an ML embedding model) — the
-  embedding capability ships, the index re-rank does not.
+  the reference date into the helper. **Deferred to 26.17 — all since shipped in 26.17**: sealing Note
+  title/tags/color/pinned (a new migration adds sealed columns and the pinned-first sort moved into Rust,
+  so no plaintext sort key remains at rest — no sortable-index leak), `Identity.signatureName` persistence,
+  `ar` app-wide locale negotiation, a web default Trusted-Types policy (re-enabling
+  `require-trusted-types-for` in the CSP), and the 6 LOW security-hardening notes. **Floor/platform-blocked**
+  (still not buildable under the license floor or pending platform work, unchanged from prior tags): A8
+  semantic search re-rank (needs an ML embedding model) — the embedding capability ships, the index re-rank
+  does not; the iOS/native shell; native GSSAPI Kerberos; and a first-party S3 blob backend.
 - **`26.15`** — three previously-stubbed-or-pinned-shut seams lit up, all net-zero new dependencies.
   **New-file blob upload**: `POST /jmap/upload/{accountId}` is now a real handler (was a 501 stub) — it
   authenticates, reads the body under the advertised `maxSizeUpload` (50 MB → `413` over limit), seals the
