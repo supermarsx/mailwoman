@@ -1,6 +1,6 @@
 {
   "name": "@mailwoman/desktop",
-  "version": "26.15.0",
+  "version": "26.16.0",
   "private": true,
   "type": "module",
   "description": "Mailwoman thin desktop shell (Tauri v2). Ships the shared apps/web SPA + native OS integration; no forked UI.",

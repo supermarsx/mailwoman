@@ -1,8 +1,8 @@
 # winget version manifest (SPEC §16, Windows). Schema 1.6.0.
 # Submitted as a PR to github.com/microsoft/winget-pkgs under
-#   manifests/m/Mailwoman/Mailwoman/26.15.0/ (HUMAN-gated — see ./README.md).
+#   manifests/m/Mailwoman/Mailwoman/26.16.0/ (HUMAN-gated — see ./README.md).
 PackageIdentifier: Mailwoman.Mailwoman
-PackageVersion: 26.15.0
+PackageVersion: 26.16.0
 DefaultLocale: en-US
 ManifestType: version
 ManifestVersion: 1.6.0

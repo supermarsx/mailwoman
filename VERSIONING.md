@@ -37,6 +37,65 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
 
 ## History
 
+- **`26.16`** — the largest milestone since V7: the 7 material spec gaps an independent audit found
+  still open at 26.15 (plus ~34 minor ones), closed across 13 parallel executor lanes, adversarially
+  reviewed and live-verified. Net-new third-party crates for the whole milestone: **`seccompiler` +
+  `landlock`** (both pure-Rust, MIT/Apache, no `-sys`/C, Linux-gated) — 2FA added **zero** (its
+  primitives were already vendored). **Login two-factor auth** (§7.4): a hand-rolled, license-floor-clean
+  relying-party stack in the new `mw-mfa` crate — `webauthn-rs` is banned (it pulls `openssl`, a hard
+  `deny.toml` `[bans]` entry), so WebAuthn attestation-`none` assertion verification is implemented on the
+  already-vendored `p256` (ES256) + `ed25519-dalek` (EdDSA) + `sha2` + a hand-written definite-length CBOR
+  reader (no `ciborium` in-tree), alongside RFC 6238 TOTP and argon2-hashed recovery codes. Secrets sealed
+  under `ServerKey` in migration **`0015`** (`cose_public_key` stored unsealed — it is public). The login
+  gate runs after credential validation and **before any `create_session` in all three branches** (proxy,
+  engine, header-auth) — an enrolled factor is **required with no password-only downgrade**; challenges and
+  recovery codes are single-use; sign-counter regression is rejected. Admins can require 2FA globally or
+  **per-domain** (`twofa_policy`, BIGINT-as-bool). **Kernel sandbox jail** (§7.5): the new `mw-sandbox`
+  crate applies Linux seccomp-BPF (default-kill allowlist; no socket/execve/ptrace) + Landlock (deny-all
+  FS) + PID/net namespaces + rlimits to the render child, **fail-closed** (a jail-expected-but-absent path
+  refuses — `503` — rather than parsing in-process); non-Linux is a documented degraded mode, reported by a
+  new `mailwoman doctor`. **WASM 2nd-layer media jail**: hostile CFB/MSG/OFT parsing + image re-encode now
+  run inside a zero-host-import `wasm32` core module (`mw-media-wasm`) in a wasmtime Pulley interpreter
+  (no JIT W^X page → survives the seccomp jail + systemd MDWE); the native `from_oft` in-process parse is
+  **removed entirely** from the server runtime. **Anonymizing image proxy** (§7.2): `GET /api/image-proxy`
+  fetches attacker-controlled email images under a deny-by-default SSRF policy — http/https only, DNS
+  resolved once then the fetch **pinned to that IP** (anti-rebinding), every redirect hop re-validated,
+  loopback/link-local/private/ULA/CGNAT/multicast + cloud-metadata (`169.254.169.254`) refused (IPv4-mapped
+  v6 unwrapped and re-checked), size/timeout/concurrency caps, no `Cookie`/`Referer`/`Auth` forwarded,
+  bytes re-encoded in the media jail, session-gated (never an open relay), content-hash cached — plus a
+  4-grant model (single / all / per-sender / per-domain) over migration **`0016`**, tracker classification
+  + count, and a tightened CSP (`style-src 'self'`, no `'unsafe-inline'`). **Rich-text compose**: the plain
+  `<textarea>` is replaced by a lazy-loaded ProseMirror editor (all-MIT, self-hosted, 75 KB-gzip chunk)
+  with a plain-text/format-flowed toggle, feeding the existing send path unchanged. **Conversation
+  threading UI**: the flat message list groups on the already-plumbed JWZ `threadId`. **Bridge OAuth token
+  acquisition**: device-code/auth-code/refresh flows against Microsoft/Google over the host rustls client,
+  sealed token cache in migration **`0018`**, replacing `DeniedOAuthProvider`. **Prefs backends + Settings
+  UI**: 2FA enrolment/sessions/signatures/notification-rules/keyboard-presets/offline-policy/RTL web
+  screens over new prefs HTTP routes (migration **`0017`**; saved-searches reuse the frozen `0003` table).
+  Plus **JMAP completeness** (`Thread/get`+`changes`, `SearchSnippet/get`, `VacationResponse/get|set`,
+  `Quota/get`, `Email/copy|import|parse`), **MCP RFC 8707 audience enforcement** + real PIM tool backends +
+  inbound-webhook action sink + OTLP span export + a hand-rolled Sentry/GlitchTip relay (off by default, no
+  `sentry` crate/native-tls, no mail content), **crypto tail** (S/MIME AES-GCM AuthEnvelopedData, VKS key
+  lookup, full Autocrypt Setup Message, PQC store-key wrap invoked at boot), **PIM** (calendar sharing/ACL,
+  NL quick-add, categories, event attachments, webcal subscribe via the SSRF-hardened fetcher, VJOURNAL
+  export), **mbox/EML/Maildir import**, **MSG/DOCX export**, **attachment-content search**, and a
+  **container + supply-chain** pass (musl-static image, hardened compose/Helm, cosign/SBOM/scan workflow,
+  fuzz targets). A **SPEC-honesty pass** corrected over-claims to match what actually ships (the PQ-hybrid
+  TLS `X25519MLKEM768` "on by default" claim removed — only the banned `aws-lc-rs` C dep provides it).
+  **`cargo deny` clean**; no openssl/`-sys`/C. **Adversarial security review: GO (0 critical / 0 high /
+  0 medium)** — 6 LOW hardening notes deferred to 26.17. **Live-E2E: 22/22 green vs real Postgres, 0 wiring
+  bugs** — the SSRF block (private/metadata/loopback all refused live), the 2FA no-downgrade gate (enrolled
+  user gets no session cookie password-only; a virtual WebAuthn authenticator asserted and a tampered
+  signature was refused), sealed-secrets-at-rest, and the tightened-CSP shell all proven against real
+  infrastructure. The release gate itself caught a real **date-dependent latent bug** the narrower e2e run
+  missed — `pim/quick-add`'s bare-time branch read the wall clock instead of the injected reference date, so
+  it went red the moment the system clock rolled past the test's hardcoded day; fixed pre-tag by threading
+  the reference date into the helper. **Deferred to 26.17**: sealing Note title/tags/color/pinned (needs a
+  new migration + sortable index since sealing breaks `ORDER BY`), `Identity.signatureName` persistence,
+  `ar` app-wide locale negotiation, a web default Trusted-Types policy (to re-enable
+  `require-trusted-types-for` in the CSP), and the 6 LOW security-hardening notes. **Floor-blocked** (not
+  buildable under the license floor): A8 semantic search re-rank (needs an ML embedding model) — the
+  embedding capability ships, the index re-rank does not.
 - **`26.15`** — three previously-stubbed-or-pinned-shut seams lit up, all net-zero new dependencies.
   **New-file blob upload**: `POST /jmap/upload/{accountId}` is now a real handler (was a 501 stub) — it
   authenticates, reads the body under the advertised `maxSizeUpload` (50 MB → `413` over limit), seals the
