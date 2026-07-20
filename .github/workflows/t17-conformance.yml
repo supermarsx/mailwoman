@@ -1,0 +1,67 @@
+# t17 (26.17) live-E2E conformance — the "unit-green != wired" gate for the 26.17
+# polish + hardening seams: C8 Note-metadata sealing at rest + store-open backfill,
+# Identity.signatureName persistence (0020), the 'ar' app-wide locale, the Trusted-Types
+# shell boot under the enforced CSP, the TOTP replay-within-window guard (L1), the
+# NAT64/6to4 SSRF refusal (L3), the MCP audience default-on (L6), and the ManageSieve
+# egress gate (L5). Owned by t17-e-e2e. Manual + push-to-t17 branches so it never wedges
+# the required `ci.yml` gate; the coordinator promotes it to a required check at the 26.17
+# release boundary (mirrors t12..t16-conformance.yml).
+#
+# Every store-touching leg runs on SQLite unconditionally AND on live Postgres when the
+# DSN is present (the 0019–0021 migrations + SQL exercised in BOTH dialects over real
+# infrastructure). A leg whose infra/env is absent LOUD-SKIPS (prints its reason); it
+# never silently passes.
+
+name: t17-conformance
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: ["t17-**", "release/26.17**"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── The 26.17 backend live-E2E legs, on SQLite AND live Postgres. ────────────────────
+  hardening-postgres:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # The Trusted-Types leg serves the REAL built dist, so build the SPA first.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build the web SPA (for the Trusted-Types served-artifact leg)
+        run: pnpm -C apps/web install --frozen-lockfile && pnpm -C apps/web build
+      - name: 'ar' app-wide locale negotiation + RTL + en-fallback (vitest)
+        run: pnpm -C apps/web exec vitest run src/i18n/i18n.test.ts
+      - name: Bring up Postgres
+        run: docker compose -f docker-compose.ci.yml up -d --wait postgres
+      - name: C8 Note-metadata sealed at rest + list order + store-open backfill — SQLite + live Postgres
+        env:
+          MW_E14_PG_DSN: "postgres://mailwoman:mailwoman@localhost:5432/mailwoman"
+        run: cargo test -p mw-server --test t17_note_seal -- --nocapture --test-threads=1
+      - name: Identity.signatureName round-trips through the prefs route (0020 column)
+        run: cargo test -p mw-server --test t17_identity_signature -- --nocapture --test-threads=1
+      - name: TOTP replay-within-window rejected on login (L1)
+        run: cargo test -p mw-server --test t17_totp_replay -- --nocapture --test-threads=1
+      - name: SSRF NAT64/6to4 embedded-IPv4 refused LIVE through the image proxy (L3)
+        run: cargo test -p mw-server --test t17_ssrf_nat64 -- --nocapture --test-threads=1
+      - name: MCP RFC 8707 audience enforced by default (L6) — wrong-aud rejected, API key exempt
+        run: cargo test -p mw-server --test t17_mcp_audience -- --nocapture --test-threads=1
+      - name: ManageSieve egress gate — metadata/loopback refused, RFC1918 allowed (L5)
+        run: cargo test -p mw-server --test t17_sieve_egress -- --nocapture --test-threads=1
+      - name: Trusted-Types — shipped bundle served under enforced CSP + registers default policy
+        run: cargo test -p mw-server --test t17_tt_shell -- --nocapture --test-threads=1
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v

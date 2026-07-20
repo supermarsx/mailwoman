@@ -5604,6 +5604,7 @@ dependencies = [
  "serde_json",
  "sha1 0.11.0",
  "sha2 0.11.0",
+ "sqlx",
  "tokio",
  "tokio-rustls",
  "tokio-rustls-acme",

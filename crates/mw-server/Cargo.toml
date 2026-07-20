@@ -148,3 +148,8 @@ base64 = { workspace = true }
 # t16 (26.16, e-e2e): drive the W19 attachment-search index end-to-end (build + query)
 # from the live-E2E route-wiring proofs (mw-export is already a normal dep, for W7).
 mw-search = { workspace = true }
+# t17 (26.17, e-e2e): the C8 note-seal live-E2E raw-inserts a *legacy* (pre-0019,
+# `title_sealed IS NULL`) notes row so the store-open backfill has something to seal,
+# and reads the raw sealed/plaintext columns back to prove at-rest sealing on live
+# Postgres. sqlx is already the mw-store backend (workspace crate) → NET-ZERO deps.
+sqlx = { workspace = true, features = ["postgres", "tls-rustls"] }
