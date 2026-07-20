@@ -12,7 +12,9 @@
 //!    into an empty net namespace (best-effort; the socket syscalls are killed by
 //!    seccomp regardless, so this is defense in depth).
 //! 4. **Landlock** — an empty filesystem ruleset: every path access is denied
-//!    (best-effort across kernel ABIs).
+//!    (best-effort across kernel ABIs; unavailable on kernels < 5.13). Under a
+//!    **strict** jail (`MW_RENDER_JAIL=strict`) a Landlock that is not fully
+//!    enforced is fatal, so a kernel without it fails closed instead of degrading.
 //! 5. **seccomp-BPF** — a default-**kill-process** syscall allowlist. Anything outside
 //!    the render child's small working set (notably `execve`, `ptrace`, `socket`,
 //!    `connect`) terminates the process with `SIGSYS`.
@@ -42,14 +44,17 @@ use std::fmt;
 /// in-process render fallback when a jail was expected). It is driven by the
 /// `MW_RENDER_JAIL` environment variable:
 ///
-/// - `require` / `required` / `on` / `1` → expected on **every** platform (harden a
-///   deployment, or exercise the fail-closed path on a non-Linux dev host).
+/// - `require` / `required` / `on` / `1` / `strict` → expected on **every** platform
+///   (harden a deployment, or exercise the fail-closed path on a non-Linux dev host).
 /// - `off` / `degraded` / `0` → **not** expected (run the documented degraded mode).
 /// - unset (the default) → expected on Linux, not expected on other platforms.
+///
+/// `strict` additionally hardens the Landlock layer (see [`jail_strict`]); it always
+/// implies a required jail.
 pub fn jail_expected() -> bool {
     match std::env::var("MW_RENDER_JAIL") {
         Ok(v) => match v.trim().to_ascii_lowercase().as_str() {
-            "require" | "required" | "on" | "1" | "yes" => true,
+            "require" | "required" | "on" | "1" | "yes" | "strict" => true,
             "off" | "degraded" | "0" | "no" => false,
             // An unrecognised value falls back to the platform default rather than
             // silently disabling the jail.
@@ -59,13 +64,31 @@ pub fn jail_expected() -> bool {
     }
 }
 
+/// Whether the render jail is in **strict** mode (`MW_RENDER_JAIL=strict`).
+///
+/// In strict mode a Landlock layer that is not fully enforced is treated as fatal
+/// under a required jail — the operator has opted into fail-closed filesystem
+/// confinement and would rather refuse to run than parse hostile input on a kernel
+/// without Landlock (< 5.13). The default stays best-effort ([`jail_expected`]
+/// controls whether the jail is required at all; strict only upgrades Landlock from
+/// best-effort to load-bearing). Off Linux there is no Landlock layer, so strict is
+/// subsumed by the existing "required jail fails closed off Linux" contract.
+pub fn jail_strict() -> bool {
+    matches!(
+        std::env::var("MW_RENDER_JAIL"),
+        Ok(v) if v.trim().eq_ignore_ascii_case("strict")
+    )
+}
+
 /// How the render child should treat a jail it cannot fully install.
 #[derive(Debug, Clone, Copy)]
 pub struct JailPolicy {
     /// When `true`, [`confine_current_process`] returns [`SandboxError::Unavailable`]
     /// if a *required* layer (`no_new_privs` or seccomp) cannot be installed, so the
     /// caller fails closed. Best-effort layers (namespace, Landlock) never fail the
-    /// call; they are recorded in the report as degraded instead.
+    /// call by default; they are recorded in the report as degraded instead. Under a
+    /// **strict** jail ([`jail_strict`]) Landlock is promoted to a required layer — a
+    /// kernel without it then also fails the call closed.
     pub required: bool,
 }
 
@@ -184,7 +207,8 @@ impl std::error::Error for SandboxError {}
 /// seccomp) cannot be installed — including "not on Linux at all" — this returns
 /// [`SandboxError::Unavailable`] so the caller can refuse to run unconfined. A
 /// best-effort layer that degrades (namespace/Landlock unavailable on the kernel) is
-/// recorded in the report and never fails a required jail on its own.
+/// recorded in the report and never fails a required jail on its own — *except* that
+/// under a strict jail ([`jail_strict`]) an under-enforced Landlock is also fatal.
 pub fn confine_current_process(policy: &JailPolicy) -> Result<SandboxReport, SandboxError> {
     #[cfg(target_os = "linux")]
     {
@@ -255,8 +279,14 @@ pub fn render_posture(report: &SandboxReport) -> String {
 mod tests {
     use super::*;
 
+    /// Serializes the env-mutating tests: `MW_RENDER_JAIL` is process-global and the
+    /// test harness runs tests in parallel, so two of them writing it would race.
+    /// Poisoning is tolerated (a panic in one holder must not wedge the others).
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn jail_expected_env_overrides() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // Serialize env mutation within this test; MW_RENDER_JAIL is process-global.
         // SAFETY: single-threaded test, restored before returning.
         let restore = std::env::var("MW_RENDER_JAIL").ok();
@@ -265,6 +295,7 @@ mod tests {
             ("required", true),
             ("on", true),
             ("1", true),
+            ("strict", true),
             ("off", false),
             ("degraded", false),
             ("0", false),
@@ -275,6 +306,35 @@ mod tests {
         // Unrecognised value → platform default.
         unsafe { std::env::set_var("MW_RENDER_JAIL", "banana") };
         assert_eq!(jail_expected(), cfg!(target_os = "linux"));
+        match restore {
+            Some(v) => unsafe { std::env::set_var("MW_RENDER_JAIL", v) },
+            None => unsafe { std::env::remove_var("MW_RENDER_JAIL") },
+        }
+    }
+
+    #[test]
+    fn jail_strict_only_for_strict_value() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // The strict flag (L2) is plumbed independently of `required`: only the exact
+        // `strict` value arms the fatal-Landlock path, and it always implies a
+        // required jail. SAFETY: single-threaded test, restored before returning.
+        let restore = std::env::var("MW_RENDER_JAIL").ok();
+        for (val, strict) in [
+            ("strict", true),
+            ("STRICT", true),
+            (" strict ", true),
+            ("require", false),
+            ("on", false),
+            ("off", false),
+        ] {
+            unsafe { std::env::set_var("MW_RENDER_JAIL", val) };
+            assert_eq!(jail_strict(), strict, "MW_RENDER_JAIL={val}");
+            if strict {
+                assert!(jail_expected(), "strict implies a required jail");
+            }
+        }
+        unsafe { std::env::remove_var("MW_RENDER_JAIL") };
+        assert!(!jail_strict(), "unset is not strict");
         match restore {
             Some(v) => unsafe { std::env::set_var("MW_RENDER_JAIL", v) },
             None => unsafe { std::env::remove_var("MW_RENDER_JAIL") },

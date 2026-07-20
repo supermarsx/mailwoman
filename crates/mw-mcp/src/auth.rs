@@ -193,11 +193,15 @@ impl<S: OAuthStore, A: AuditSink + Send + Sync> Authorizer for OAuthAuthorizer<S
         }
 
         // 3. RFC 8707 resource-indicator (audience) binding. `cred.resource` is this
-        //    MCP endpoint's canonical resource identifier (populated at the `/mcp`
-        //    transport from `MW_MCP_RESOURCE`). A token bound to a DIFFERENT resource
-        //    was issued for another audience and must be rejected here — a
-        //    wrong-audience token never reaches a tool. API keys carry no resource
-        //    binding and so are exempt (consistent with `mw_oauth::require_scope`).
+        //    MCP endpoint's canonical resource identifier, resolved at the `/mcp`
+        //    mount. Audience enforcement is ON BY DEFAULT: `MW_MCP_RESOURCE` overrides,
+        //    but when it is unset the resource is derived from the deployment's
+        //    configured public origin, so `cred.resource` is normally `Some`. A token
+        //    bound to a DIFFERENT resource was issued for another audience and must be
+        //    rejected here — a wrong-audience token never reaches a tool. API keys
+        //    carry no resource binding and so are exempt (consistent with
+        //    `mw_oauth::require_scope`). Enforcement is off only when neither an
+        //    override nor a public origin is configured (`cred.resource` is `None`).
         if let (Some(bound), Some(want)) = (&token_resource, cred.resource)
             && bound != want
         {

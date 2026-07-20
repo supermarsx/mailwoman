@@ -47,8 +47,25 @@ pub(crate) fn confine(policy: &JailPolicy) -> Result<SandboxReport, SandboxError
     layers.push(Layer::new("net-namespace", apply_net_namespace()));
 
     // 4. Landlock — an empty filesystem ruleset: every path access is denied.
-    //    Best-effort across kernel ABIs; unavailable on kernels < 5.13.
-    layers.push(Layer::new("landlock", apply_landlock()));
+    //    Best-effort across kernel ABIs by default; unavailable on kernels < 5.13.
+    //    Under a STRICT required jail (`MW_RENDER_JAIL=strict`) a Landlock that is
+    //    not fully enforced is fatal: the operator has opted into fail-closed
+    //    filesystem confinement and would rather refuse to run than parse hostile
+    //    input on a kernel without it.
+    let landlock = apply_landlock();
+    if policy.required && crate::jail_strict() && !matches!(landlock, LayerState::Enforced) {
+        let why = match &landlock {
+            LayerState::Unavailable(e) => e.clone(),
+            LayerState::Partial => {
+                "Landlock only partially enforced on this kernel ABI".to_string()
+            }
+            _ => "Landlock not fully enforced".to_string(),
+        };
+        return Err(SandboxError::Unavailable(format!(
+            "strict jail requires Landlock: {why}"
+        )));
+    }
+    layers.push(Layer::new("landlock", landlock));
 
     // 5. seccomp-BPF — default kill-process, small syscall allowlist. Installed LAST.
     //    Fatal if the jail is required (this is the load-bearing layer).

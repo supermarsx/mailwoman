@@ -484,14 +484,41 @@ pub fn build_mcp_router(
         OAuthAuthorizer::new(auth, audit, countersign_resolver(countersigned_prefixes)),
     );
     let server: Arc<Server> = Arc::new(McpServer::new(backend, authorizer));
-    // RFC 8707 (A3): this endpoint's canonical resource identifier. When
-    // `MW_MCP_RESOURCE` is set, a bearer token issued for a different resource is
-    // rejected as a wrong-audience token before it can reach a tool. Unset → audience
-    // enforcement is off (tokens are accepted regardless of their bound resource).
-    let resource = std::env::var("MW_MCP_RESOURCE")
-        .ok()
-        .filter(|s| !s.is_empty());
-    mcp_router(server, resource)
+    // RFC 8707 (A3 / L6): this endpoint's canonical resource identifier — the
+    // audience a bearer token must be bound to. Audience enforcement is now ON BY
+    // DEFAULT: a bearer token issued for a different resource is rejected as a
+    // wrong-audience token before it can reach a tool. See [`mcp_resource`] for how
+    // the resource is resolved (explicit override, else derived from the deployment's
+    // configured public origin).
+    mcp_router(server, mcp_resource())
+}
+
+/// The canonical RFC 8707 resource identifier for the `/mcp` endpoint (L6).
+///
+/// Resolution order:
+/// 1. `MW_MCP_RESOURCE` — an explicit override; authoritative whenever set (non-empty).
+/// 2. otherwise the deployment's configured public origin (`MW_WEBAUTHN_ORIGIN`, the
+///    server's existing public-origin signal — the same value the WebAuthn ceremony
+///    uses), yielding `<origin>/mcp`.
+///
+/// So audience enforcement is **on by default** for any deployment that has
+/// configured its public origin (or set `MW_MCP_RESOURCE`); `None` — no override and
+/// no configured origin — leaves enforcement off, so such a deployment must set one
+/// of the two to enforce.
+fn mcp_resource() -> Option<String> {
+    let explicit = std::env::var("MW_MCP_RESOURCE").ok();
+    let public_origin = std::env::var("MW_WEBAUTHN_ORIGIN").ok();
+    resolve_mcp_resource(explicit.as_deref(), public_origin.as_deref())
+}
+
+/// Pure resolution of the MCP resource from its two config inputs, factored out of
+/// [`mcp_resource`] so it is unit-testable without mutating process-global env.
+fn resolve_mcp_resource(explicit: Option<&str>, public_origin: Option<&str>) -> Option<String> {
+    if let Some(r) = explicit.map(str::trim).filter(|s| !s.is_empty()) {
+        return Some(r.to_string());
+    }
+    let origin = public_origin.map(str::trim).filter(|s| !s.is_empty())?;
+    Some(format!("{}/mcp", origin.trim_end_matches('/')))
 }
 
 /// The `mailwoman mcp-stdio` bridge body (wired from `main.rs` by e11). Proxies
@@ -500,4 +527,46 @@ pub async fn run_stdio(url: &str, token: Option<String>) -> anyhow::Result<()> {
     mw_mcp::run_stdio_http(url, token)
         .await
         .map_err(|e| anyhow::anyhow!("mcp-stdio: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_mcp_resource;
+
+    #[test]
+    fn explicit_resource_overrides_derivation() {
+        // MW_MCP_RESOURCE is authoritative and ignores the public origin entirely.
+        assert_eq!(
+            resolve_mcp_resource(Some("https://mcp.example/mcp"), Some("https://ignored")),
+            Some("https://mcp.example/mcp".to_string()),
+        );
+    }
+
+    #[test]
+    fn resource_is_derived_from_public_origin_by_default() {
+        // Default-on (L6): no explicit resource → derive `<origin>/mcp` so a
+        // wrong-audience token is rejected without any explicit MCP config.
+        assert_eq!(
+            resolve_mcp_resource(None, Some("https://mail.example.com")),
+            Some("https://mail.example.com/mcp".to_string()),
+        );
+        // A trailing slash on the origin does not double up.
+        assert_eq!(
+            resolve_mcp_resource(None, Some("https://mail.example.com/")),
+            Some("https://mail.example.com/mcp".to_string()),
+        );
+    }
+
+    #[test]
+    fn enforcement_off_only_when_nothing_configured() {
+        // Neither configured → None (enforcement off), the sole remaining off case.
+        assert_eq!(resolve_mcp_resource(None, None), None);
+        // Blank values are treated as unset, not as a literal empty audience.
+        assert_eq!(resolve_mcp_resource(Some("  "), Some("")), None);
+        // A blank override still falls back to the configured origin.
+        assert_eq!(
+            resolve_mcp_resource(Some(""), Some("https://h")),
+            Some("https://h/mcp".to_string()),
+        );
+    }
 }

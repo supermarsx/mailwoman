@@ -31,17 +31,22 @@ use crate::{McpError, McpServer};
 /// canonical RFC 8707 resource identifier (the audience tokens must be issued for).
 struct McpState<B: McpBackend, A: Authorizer> {
     server: Arc<McpServer<B, A>>,
-    /// This MCP endpoint's canonical resource (`MW_MCP_RESOURCE`). `None` disables
-    /// audience enforcement (a token bound to any resource is accepted).
+    /// This MCP endpoint's canonical resource, resolved by the mount (`mw-server`):
+    /// `MW_MCP_RESOURCE` when set, else derived from the deployment's configured
+    /// public origin — so it is normally `Some` and audience enforcement is on by
+    /// default. `None` (nothing configured) disables enforcement (a token bound to
+    /// any resource is accepted).
     resource: Option<String>,
 }
 
 /// Build the axum router for the MCP Streamable-HTTP endpoint. e11 nests this at
 /// `/mcp`: `router.nest("/mcp", mcp_router(server, resource))`.
 ///
-/// `resource` is this endpoint's canonical RFC 8707 resource indicator. When set, a
-/// bearer token bound to a different resource is rejected (wrong audience) before it
-/// reaches a tool; `None` leaves audience enforcement off.
+/// `resource` is this endpoint's canonical RFC 8707 resource indicator, resolved by
+/// the caller (default-on: `MW_MCP_RESOURCE`, else derived from the deployment's
+/// configured public origin). When set, a bearer token bound to a different resource
+/// is rejected (wrong audience) before it reaches a tool; `None` (nothing configured)
+/// leaves audience enforcement off.
 pub fn mcp_router<B, A>(server: Arc<McpServer<B, A>>, resource: Option<String>) -> Router
 where
     B: McpBackend + 'static,
