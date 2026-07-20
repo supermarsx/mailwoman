@@ -37,6 +37,59 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
 
 ## History
 
+- **`26.17`** — a polish + defense-in-depth tag that closes the four feature carryovers and the six
+  LOW security-hardening notes deferred from 26.16, with **net-zero new third-party crates** (every
+  item lands in existing files on `std`/already-vendored deps). Three additive migrations
+  (**`0019`**/**`0020`**/**`0021`**), both dialects in lockstep, BIGINT-as-bool preserved. **Note
+  metadata sealed at rest** (§7 PIM): a note's `title`, `tags`, `color`, and `pinned` flag were
+  plaintext columns; migration **`0019`** adds sealed BLOB columns under `ServerKey`, `upsert_note`
+  seals the four values and blanks the legacy plaintext columns to neutral defaults, and
+  `note_from_row` unseals (falling back to the plaintext column only for a not-yet-backfilled row).
+  The one load-bearing SQL that referenced these — `list_notes`'s `ORDER BY pinned DESC` — is
+  re-homed: the query now orders by `updated_at DESC, id` (both untouched) and a **Rust stable sort
+  by `pinned`** reproduces the exact prior order after decrypt, so **no plaintext sort key remains at
+  rest** (Option A — a separate deterministic sort-key column was rejected because it would leak the
+  ordering relationship we are sealing). A one-shot **idempotent store-open backfill** seals+blanks
+  any pre-upgrade row; the redundant `idx_notes_pinned` index is dropped. Note filtering was already
+  Rust-side, so the engine query path is unchanged. **`Identity.signatureName` persistence** (§7.2):
+  the display name for a signing identity was accepted by the prefs route then dropped; migration
+  **`0020`** adds the `identities.signature_name` column and it now round-trips through `v2.rs` and
+  the prefs route (the web client already carried it). **`ar` app-wide locale negotiation**: Arabic
+  joins the negotiated `LOCALES` set (12 → 13) with RTL layout via the existing direction resolver;
+  the shipped `ar` catalog is a stub, so absent keys fall back to `en` through the normal fallback
+  chain (a complete `ar` UI remains a follow-up). **Trusted Types now enforced** (§7.5): the web
+  shell registers a `default` Trusted-Types policy in `main.tsx` (guarded on `window.trustedTypes`)
+  before boot, and the server CSP re-enables `require-trusted-types-for 'script'` — the shell CSP
+  and the tightened image-proxy CSP are now equal, and the drift-guard test asserts that equality.
+  **Six 26.16 LOW hardening notes closed**: **L3** — the SSRF denylist now decodes NAT64
+  (`64:ff9b::/96`) and 6to4 (`2002::/16`) embedded IPv4 and re-checks it, so a smuggled private
+  target is refused; **L5** — ManageSieve egress resolves the user-supplied host and blocks
+  cloud-metadata / loopback / link-local **while keeping RFC1918 reachable** (syncing to your own
+  internal Sieve server is a legitimate case, so a full deny-by-default gate would over-block); **L1**
+  — TOTP login is no longer replayable within a code's time window: `totp_verify` returns the matched
+  step counter and a compare-and-swap `last_step` advance (migration **`0021`**) rejects a re-used or
+  regressed counter; **L6** — MCP RFC 8707 audience enforcement is **default-on**, deriving the
+  canonical resource from the configured public origin when `MW_MCP_RESOURCE` is unset (the env var
+  still overrides; with no public origin configured, enforcement stays off) — a wrong-audience token
+  is now rejected by default, and API-key auth stays exempt; **L2** — an opt-in `MW_RENDER_JAIL=strict`
+  makes a failed Landlock setup **fatal** under a required jail, while the default stays best-effort so
+  rendering still works on kernels < 5.13 (the hostile parse already runs in the syscall-less wasm
+  guest). **L4** is a deliberate posture decision, not a code change: the image-proxy fetch stays
+  session-authed + SSRF-filtered + re-encoded in the jail and is **not** grant-gated by default (full
+  grant-gating would thread message-id/sender through the proxy URL and risk breaking already-granted
+  loads); a per-account rate-limit is tracked as a follow-up. **`cargo deny` clean**; no
+  openssl/`-sys`/C; license floor holds. **Adversarial security review: GO (0 critical / 0 high / 0
+  medium)** — all six 26.16 LOW notes verified closed; 6 new LOW notes open a 26.18 hardening backlog,
+  the prioritized one being that the note-metadata backfill blanks plaintext in place, so pre-upgrade
+  notes can leave plaintext residue in SQLite free-pages/WAL and Postgres dead tuples until a VACUUM
+  (new notes are unaffected). **Live-E2E: 8 legs green vs real infrastructure, 0 wiring bugs** —
+  note-metadata sealed at rest (raw-store scan) with pinned-first order preserved and the backfill
+  idempotent (verified on both SQLite and live Postgres), `signatureName` round-trip, `ar` negotiation
+  winning, the shipped bundle served under enforced Trusted Types, a TOTP code rejected on replay
+  within its window, a NAT64/6to4-smuggled private target refused, MCP default-on audience enforcement
+  with API-key exemption, and the narrowed Sieve egress refusing metadata/loopback while allowing
+  RFC1918. Two legs loud-skip on this host and are covered by CI: the browser-boot Trusted-Types
+  pixel check (Playwright) and, when Docker is unavailable, the live-Postgres note-seal leg.
 - **`26.16`** — the largest milestone since V7: the 7 material spec gaps an independent audit found
   still open at 26.15 (plus ~34 minor ones), closed across 13 parallel executor lanes, adversarially
   reviewed and live-verified. Net-new third-party crates for the whole milestone: **`seccompiler` +
