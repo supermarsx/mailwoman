@@ -148,7 +148,10 @@ impl IntoResponse for Refusal {
 /// Deny-by-default — anything loopback/private/link-local/ULA/multicast/reserved/
 /// unspecified (incl. the cloud-metadata `169.254.169.254`) is refused. IPv4-mapped
 /// IPv6 is unwrapped so `::ffff:127.0.0.1` cannot smuggle a loopback target.
-fn ip_allowed(ip: &IpAddr) -> bool {
+///
+/// `pub(crate)` so a second egress surface (the ManageSieve caller, t17-e6/L5) can
+/// reuse this classification — while applying its own, deliberately narrower policy.
+pub(crate) fn ip_allowed(ip: &IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => ipv4_allowed(v4),
         IpAddr::V6(v6) => {
@@ -170,7 +173,7 @@ fn ip_allowed(ip: &IpAddr) -> bool {
     }
 }
 
-fn ipv4_allowed(ip: &Ipv4Addr) -> bool {
+pub(crate) fn ipv4_allowed(ip: &Ipv4Addr) -> bool {
     if ip.is_loopback()          // 127.0.0.0/8
         || ip.is_private()       // 10/8, 172.16/12, 192.168/16
         || ip.is_link_local()    // 169.254/16 (incl. 169.254.169.254 metadata)
@@ -202,7 +205,7 @@ fn ipv4_allowed(ip: &Ipv4Addr) -> bool {
     true
 }
 
-fn ipv6_allowed(ip: &Ipv6Addr) -> bool {
+pub(crate) fn ipv6_allowed(ip: &Ipv6Addr) -> bool {
     if ip.is_loopback() || ip.is_unspecified() || ip.is_multicast() {
         return false;
     }
@@ -219,7 +222,49 @@ fn ipv6_allowed(ip: &Ipv6Addr) -> bool {
     if seg[0] == 0x2001 && seg[1] == 0x0db8 {
         return false;
     }
+    // NAT64 / 6to4 carry a routable IPv4 embedded in the v6 address; decode it and
+    // apply the IPv4 egress policy so a private/metadata v4 cannot be smuggled past
+    // the v6 gate as e.g. `64:ff9b::7f00:1` (127.0.0.1) or `2002:a9fe:a9fe::`
+    // (169.254.169.254). (IPv4-mapped/compat `::ffff:a.b.c.d` / `::a.b.c.d` are
+    // already unwrapped upstream by `ip_allowed` via `Ipv6Addr::to_ipv4`.)
+    if let Some(v4) = nat64_or_6to4_embedded_ipv4(ip) {
+        return ipv4_allowed(&v4);
+    }
     true
+}
+
+/// Decode the IPv4 address embedded in a NAT64 well-known-prefix (`64:ff9b::/96`) or
+/// 6to4 (`2002::/16`) IPv6 address, or `None` if `ip` is neither transitional form.
+/// Both encodings carry a routable IPv4 inside the v6 address, so returning it lets a
+/// caller re-apply the IPv4 egress policy and refuse a smuggled private/metadata
+/// target. `pub(crate)` so the Sieve caller (t17-e6/L5) can unwrap the same forms.
+pub(crate) fn nat64_or_6to4_embedded_ipv4(ip: &Ipv6Addr) -> Option<Ipv4Addr> {
+    let seg = ip.segments();
+    // NAT64 well-known prefix 64:ff9b::/96 — the embedded IPv4 is the last 32 bits.
+    if seg[0] == 0x0064
+        && seg[1] == 0xff9b
+        && seg[2] == 0
+        && seg[3] == 0
+        && seg[4] == 0
+        && seg[5] == 0
+    {
+        return Some(v4_from_segments(seg[6], seg[7]));
+    }
+    // 6to4 2002::/16 — the embedded IPv4 is bits 16..48 (segments 1 and 2).
+    if seg[0] == 0x2002 {
+        return Some(v4_from_segments(seg[1], seg[2]));
+    }
+    None
+}
+
+/// Reassemble an IPv4 address from the two 16-bit v6 segments that carry it.
+fn v4_from_segments(hi: u16, lo: u16) -> Ipv4Addr {
+    Ipv4Addr::new(
+        (hi >> 8) as u8,
+        (hi & 0xff) as u8,
+        (lo >> 8) as u8,
+        (lo & 0xff) as u8,
+    )
 }
 
 // ── validate + resolve (the SSRF gate) ─────────────────────────────────────────
@@ -702,6 +747,41 @@ mod tests {
         ] {
             let ip: IpAddr = s.parse().unwrap();
             assert!(!ip_allowed(&ip), "{s} must be blocked");
+        }
+    }
+
+    #[test]
+    fn blocks_nat64_and_6to4_embedded_private_ipv4() {
+        // L3 (t17-e6): a private/metadata IPv4 smuggled inside a NAT64 (64:ff9b::/96)
+        // or 6to4 (2002::/16) IPv6 address must be decoded and refused.
+        for s in [
+            "64:ff9b::7f00:1",    // NAT64 → 127.0.0.1 loopback
+            "64:ff9b::a9fe:a9fe", // NAT64 → 169.254.169.254 metadata
+            "64:ff9b::c0a8:101",  // NAT64 → 192.168.1.1 private
+            "64:ff9b::a00:1",     // NAT64 → 10.0.0.1 private
+            "2002:7f00:1::",      // 6to4  → 127.0.0.1 loopback
+            "2002:a9fe:a9fe::",   // 6to4  → 169.254.169.254 metadata
+            "2002:c0a8:101::",    // 6to4  → 192.168.1.1 private
+        ] {
+            let ip: IpAddr = s.parse().unwrap();
+            assert!(
+                !ip_allowed(&ip),
+                "{s} must be blocked (embedded private v4)"
+            );
+        }
+    }
+
+    #[test]
+    fn allows_nat64_and_6to4_embedded_public_ipv4() {
+        // A NAT64/6to4 address whose embedded IPv4 is public unicast stays allowed —
+        // the decode re-checks the v4, it does not blanket-refuse the prefix.
+        for s in [
+            "64:ff9b::808:808", // NAT64 → 8.8.8.8
+            "64:ff9b::101:101", // NAT64 → 1.1.1.1
+            "2002:808:808::",   // 6to4  → 8.8.8.8
+        ] {
+            let ip: IpAddr = s.parse().unwrap();
+            assert!(ip_allowed(&ip), "{s} must be allowed (embedded public v4)");
         }
     }
 
