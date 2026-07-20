@@ -1,14 +1,17 @@
-//! t16-e-e2e — the SPA shell is served under the SHIPPED tightened CSP (S10).
+//! t16-e-e2e — the SPA shell is served under the SHIPPED tightened CSP (S10),
+//! completed by 26.17 t17-e5 (Trusted-Types enforcement re-enabled).
 //!
-//! e10 shipped `SHELL_CSP_TIGHTENED` MINUS `require-trusted-types-for 'script'`
-//! (Trusted-Types enforcement deferred; it would break the shell today). A broken
+//! 26.16 shipped `SHELL_CSP_TIGHTENED` MINUS `require-trusted-types-for 'script'`
+//! (enforcement was deferred until the SPA registered a default TT policy). 26.17
+//! registers that default policy (`apps/web/src/main.tsx`) and re-enables the
+//! directive, so the shipped shell CSP is now the full tightened value. A broken
 //! shell here blocks release, so this leg drives the REAL shell route through
 //! `build_app` and asserts:
 //!   * `GET /` returns the shell (200) with its content delivered;
 //!   * the `content-security-policy` header is EXACTLY the shipped tightened value —
 //!     `style-src 'self'` (the `'unsafe-inline'` style source is dropped),
-//!     `script-src 'self' 'wasm-unsafe-eval'`, `default-src 'none'`, and NO
-//!     `require-trusted-types-for` (the deferred directive is absent, as e10 shipped).
+//!     `script-src 'self' 'wasm-unsafe-eval'`, `default-src 'none'`, and
+//!     `require-trusted-types-for 'script'` (enforcement now present).
 //!
 //! NOTE (honest scope): a pixel-level "the built SPA paints under this CSP" check needs
 //! a browser + the production `apps/web/dist` bundle and is owned by the web gate
@@ -92,10 +95,11 @@ async fn shell_is_served_under_the_shipped_tightened_csp() {
         csp.contains("default-src 'none'"),
         "default-src locked down: {csp}"
     );
-    // … and Trusted-Types enforcement is DEFERRED (absent), exactly as e10 shipped.
+    // … and Trusted-Types enforcement is now ON (26.17: a default TT policy ships in
+    // apps/web/src/main.tsx, so the directive no longer breaks the shell at boot).
     assert!(
-        !csp.contains("require-trusted-types-for"),
-        "Trusted-Types enforcement is deferred and must NOT be claimed in the shipped CSP: {csp}"
+        csp.contains("require-trusted-types-for 'script'"),
+        "Trusted-Types enforcement must be present in the shipped shell CSP: {csp}"
     );
 
     eprintln!("[t16 csp] shipped shell CSP:\n  {csp}");

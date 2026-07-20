@@ -117,37 +117,37 @@ const COOKIE_NAME: &str = "mw_session";
 /// `'unsafe-eval'` would; untrusted message bodies render under the far stricter
 /// per-message [`MESSAGE_CSP`] in a sandboxed iframe, unaffected by this.
 ///
-/// # t16 S10 (e10 apply-site — chain link 3)
-/// This is [`image_proxy::SHELL_CSP_TIGHTENED`] **minus** `require-trusted-types-for
-/// 'script'`. The two S10 changes e6 delivered were (a) drop style `'unsafe-inline'`
-/// and (b) enforce Trusted Types.
-///   * **(a) shipped.** `style-src 'self'` is verified safe for the *shell*: every
-///     inline style in the SPA is Solid object-form (`style={{…}}`) which Solid
+/// # t16 S10 (e10 apply-site — chain link 3), completed in 26.17 (t17-e5)
+/// This is now **exactly** [`image_proxy::SHELL_CSP_TIGHTENED`]. The two S10 changes
+/// e6 delivered were (a) drop style `'unsafe-inline'` and (b) enforce Trusted Types;
+/// both are shipped.
+///   * **(a) shipped (26.16).** `style-src 'self'` is verified safe for the *shell*:
+///     every inline style in the SPA is Solid object-form (`style={{…}}`) which Solid
 ///     applies through the CSSOM (`el.style.setProperty`), NOT a `style="…"`
 ///     attribute — CSSOM mutations are not subject to `style-src`. All real CSS is
 ///     bundled to a `'self'` `<link>` stylesheet (Vite extracts it in the production
 ///     build); the shell injects no runtime `<style>` element. So the `'unsafe-inline'`
 ///     style source e6 dropped is genuinely unused by the shell.
-///   * **(b) deferred — would break the shell today.** `require-trusted-types-for
-///     'script'` blocks any `Element.innerHTML =` string assignment that does not go
-///     through a Trusted Types policy. Solid's template instantiation (`index-*.js`:
-///     `createElement("template")` + `.innerHTML = …`) does exactly that, and the SPA
-///     registers **no default TT policy** (the only `createPolicy` in the bundle is
-///     ProseMirror's scoped `ProseMirrorClipboard`). Enforcing it here makes the SPA
-///     fail to render at boot. It is a web-side follow-up (register a default
-///     `trustedTypes` policy in the app entrypoint) — tracked for a later tag; the
-///     directive is re-added the moment that policy exists. No-hype: we do not claim
-///     Trusted Types enforcement until it actually ships.
+///   * **(b) shipped (26.17).** `require-trusted-types-for 'script'` blocks any
+///     `Element.innerHTML =`/`iframe.srcdoc =` string assignment that does not go
+///     through a Trusted Types policy. Solid's template instantiation
+///     (`createElement("template")` + `.innerHTML = …`) does exactly that, so the SPA
+///     entrypoint (`apps/web/src/main.tsx`) now registers a **default** Trusted Types
+///     policy before `render()`. The policy passes app-controlled HTML through (every
+///     sink is a Solid compile-time template, module-generated QR SVG, `sanitizeNoteHtml`
+///     output, a detached ProseMirror parse container, or the plugin host's own iframe
+///     srcdoc) and exposes only `createHTML`, so dynamic script/script-URL sinks stay
+///     fail-closed. ProseMirror's scoped `ProseMirrorClipboard` policy reuses this
+///     default. With the policy in place the directive is safe to enforce.
 const CSP: &str = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; \
      style-src 'self'; img-src 'self' blob: data:; font-src 'self'; \
      connect-src 'self' blob:; frame-src 'self'; worker-src 'self' blob:; \
-     base-uri 'none'; form-action 'none'";
+     base-uri 'none'; form-action 'none'; require-trusted-types-for 'script'";
 
-/// Compile-time use of e6's constant so applying the safe subset above does not
-/// leave `SHELL_CSP_TIGHTENED` an unused (`dead_code`) item. A `#[cfg(test)]`
-/// assertion (`csp_is_e6_tightened_minus_trusted_types`) verifies the shipped
-/// [`CSP`] is exactly that constant with the deferred Trusted-Types directive
-/// removed, so the tie can't silently drift.
+/// Compile-time use of e6's constant so the shell CSP tie does not leave
+/// `SHELL_CSP_TIGHTENED` an unused (`dead_code`) item. A `#[cfg(test)]` assertion
+/// (`csp_equals_e6_tightened`) verifies the shipped [`CSP`] is exactly that constant,
+/// so the tie can't silently drift.
 const _: &str = image_proxy::SHELL_CSP_TIGHTENED;
 
 /// The raw seal-master-key bytes behind a [`ServerKey`] (for the C6 PQC wrap).
@@ -2780,20 +2780,22 @@ mod tests {
     use super::*;
 
     /// The shipped shell [`CSP`] is exactly e6's [`image_proxy::SHELL_CSP_TIGHTENED`]
-    /// with the deferred `require-trusted-types-for 'script'` directive removed (see
-    /// the `CSP` docs for why Trusted Types is deferred). Normalize whitespace since
+    /// (26.17 re-enabled `require-trusted-types-for 'script'` once the SPA registered a
+    /// default Trusted Types policy — see the `CSP` docs). Normalize whitespace since
     /// the constants are written across continuation lines.
     #[test]
-    fn csp_is_e6_tightened_minus_trusted_types() {
+    fn csp_equals_e6_tightened() {
         let norm = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
-        let ours = norm(CSP);
-        let e6 = norm(image_proxy::SHELL_CSP_TIGHTENED);
-        let expected = e6
-            .strip_suffix("; require-trusted-types-for 'script'")
-            .expect("e6 constant ends with the Trusted-Types directive");
         assert_eq!(
-            ours, expected,
-            "shipped CSP must be e6's minus Trusted Types"
+            norm(CSP),
+            norm(image_proxy::SHELL_CSP_TIGHTENED),
+            "shipped shell CSP must equal e6's SHELL_CSP_TIGHTENED"
+        );
+        // The Trusted-Types enforcement directive is now present (a default TT policy
+        // ships in apps/web/src/main.tsx).
+        assert!(
+            norm(CSP).contains("require-trusted-types-for 'script'"),
+            "shell CSP enforces Trusted Types"
         );
     }
 
