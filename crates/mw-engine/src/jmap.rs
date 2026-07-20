@@ -1164,6 +1164,7 @@ impl Engine {
                 reply_to: None,
                 signature_html: None,
                 signature_text: None,
+                signature_name: None,
                 sent_mailbox_id: sent,
                 source: "configured".to_string(),
             })
@@ -1206,6 +1207,7 @@ impl Engine {
                     reply_to: si.reply_to.clone(),
                     signature_html: si.signature_html.clone(),
                     signature_text: si.signature_text.clone(),
+                    signature_name: None,
                     sent_mailbox_id: sent.clone(),
                     source: "server".to_string(),
                 })

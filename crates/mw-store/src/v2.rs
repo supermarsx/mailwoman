@@ -75,6 +75,8 @@ pub struct IdentityRow {
     pub reply_to: Option<String>,
     pub signature_html: Option<String>,
     pub signature_text: Option<String>,
+    /// Name of the signature TEMPLATE (see `signatures`) this identity applies.
+    pub signature_name: Option<String>,
     pub sent_mailbox_id: Option<String>,
     /// `configured` | `pulled`.
     pub source: String,
@@ -331,11 +333,12 @@ impl Store {
     pub async fn upsert_identity(&self, i: &IdentityRow) -> Result<(), StoreError> {
         q(
             "INSERT INTO identities
-                 (id, account_id, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                 (id, account_id, name, email, reply_to, signature_html, signature_text, signature_name, sent_mailbox_id, source)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(id) DO UPDATE SET
                  name = excluded.name, email = excluded.email, reply_to = excluded.reply_to,
                  signature_html = excluded.signature_html, signature_text = excluded.signature_text,
+                 signature_name = excluded.signature_name,
                  sent_mailbox_id = excluded.sent_mailbox_id, source = excluded.source",
         )
         .bind(&i.id)
@@ -345,6 +348,7 @@ impl Store {
         .bind(i.reply_to.as_deref())
         .bind(i.signature_html.as_deref())
         .bind(i.signature_text.as_deref())
+        .bind(i.signature_name.as_deref())
         .bind(i.sent_mailbox_id.as_deref())
         .bind(&i.source)
         .execute(&self.backend)
@@ -355,7 +359,7 @@ impl Store {
     /// List an account's sending identities.
     pub async fn list_identities(&self, account_id: &str) -> Result<Vec<IdentityRow>, StoreError> {
         let rows = q(
-            "SELECT id, account_id, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source
+            "SELECT id, account_id, name, email, reply_to, signature_html, signature_text, signature_name, sent_mailbox_id, source
              FROM identities WHERE account_id = ?1 ORDER BY source, email",
         )
         .bind(account_id)
@@ -367,7 +371,7 @@ impl Store {
     /// Fetch one identity by id.
     pub async fn get_identity(&self, id: &str) -> Result<Option<IdentityRow>, StoreError> {
         let row = q(
-            "SELECT id, account_id, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source
+            "SELECT id, account_id, name, email, reply_to, signature_html, signature_text, signature_name, sent_mailbox_id, source
              FROM identities WHERE id = ?1",
         )
         .bind(id)
@@ -492,6 +496,7 @@ fn identity_from_row(r: &Row) -> IdentityRow {
         reply_to: r.get_opt_string("reply_to"),
         signature_html: r.get_opt_string("signature_html"),
         signature_text: r.get_opt_string("signature_text"),
+        signature_name: r.get_opt_string("signature_name"),
         sent_mailbox_id: r.get_opt_string("sent_mailbox_id"),
         source: r.get_string("source"),
     }
@@ -690,13 +695,17 @@ mod tests {
             reply_to: None,
             signature_html: None,
             signature_text: Some("--\nMe".into()),
+            signature_name: Some("work".into()),
             sent_mailbox_id: None,
             source: "configured".into(),
         })
         .await
         .unwrap();
         assert_eq!(s.list_identities(&account_id).await.unwrap().len(), 1);
-        assert_eq!(s.get_identity("id1").await.unwrap().unwrap().email, "me@x");
+        let got = s.get_identity("id1").await.unwrap().unwrap();
+        assert_eq!(got.email, "me@x");
+        // The named signature template round-trips (0020 signature_name column).
+        assert_eq!(got.signature_name.as_deref(), Some("work"));
 
         s.upsert_tag(&TagRow {
             id: "t1".into(),

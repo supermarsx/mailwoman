@@ -19,10 +19,10 @@
 //! * Saved searches reuse the frozen 0003 table whose `user` column is the account
 //!   id (matching `Mailbox/get`'s `list_saved_searches(account_id)` caller).
 //! * Identities map to the 0003 `identities` rows. The web model's optional
-//!   `signatureName` (a reference to a named signature TEMPLATE) has no column in the
-//!   frozen schema and is NOT persisted here — see the DONE report's backend note;
-//!   the JMAP-shaped `signature_html`/`signature_text` columns are left untouched so
-//!   `Identity/get` semantics are not corrupted.
+//!   `signatureName` (a reference to a named signature TEMPLATE) persists in the
+//!   `signature_name` column added by migration 0020; the JMAP-shaped
+//!   `signature_html`/`signature_text` columns are left untouched so `Identity/get`
+//!   semantics are not corrupted.
 
 use axum::Json;
 use axum::Router;
@@ -109,8 +109,8 @@ struct SavedSearchDto {
     as_folder: bool,
 }
 
-/// A sending identity (0003 `identities`). `signatureName` is accepted for forward
-/// compatibility but not persisted (no column in the frozen schema).
+/// A sending identity (0003 `identities`). `signatureName` names the signature
+/// TEMPLATE this identity applies; it persists in the 0020 `signature_name` column.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 struct IdentityDto {
@@ -416,8 +416,9 @@ async fn do_list_identities(store: &Store, account: &str) -> Result<Vec<Identity
 }
 
 /// Upsert an identity under `account`. A body carrying an id owned by ANOTHER account
-/// is refused (`Ok(None)`). New identities are `source = "configured"`; the
-/// JMAP-shaped signature columns are left null (see module note on `signatureName`).
+/// is refused (`Ok(None)`). New identities are `source = "configured"`; `signatureName`
+/// persists in the 0020 column while the JMAP-shaped signature columns are left null
+/// (see module note on `signatureName`).
 async fn do_upsert_identity(
     store: &Store,
     account: &str,
@@ -442,6 +443,7 @@ async fn do_upsert_identity(
             reply_to: dto.reply_to.clone(),
             signature_html: None,
             signature_text: None,
+            signature_name: dto.signature_name.clone(),
             sent_mailbox_id: None,
             source: "configured".to_string(),
         })
@@ -523,8 +525,7 @@ fn identity_to_dto(row: &IdentityRow) -> IdentityDto {
         name: row.name.clone(),
         email: row.email.clone(),
         reply_to: row.reply_to.clone(),
-        // Not persisted in the frozen schema (see module note).
-        signature_name: None,
+        signature_name: row.signature_name.clone(),
     }
 }
 
@@ -840,6 +841,8 @@ mod tests {
         assert_eq!(list[0].id, id);
         assert_eq!(list[0].email, "sales@example.com");
         assert_eq!(list[0].reply_to.as_deref(), Some("help@example.com"));
+        // signatureName persists (0020 column) and survives the GET round-trip.
+        assert_eq!(list[0].signature_name.as_deref(), Some("work"));
 
         assert!(do_delete_identity(&s, &a1, &id).await.unwrap());
         assert!(do_list_identities(&s, &a1).await.unwrap().is_empty());
