@@ -169,13 +169,14 @@ pub fn parse_quick_add(input: &str, now: DateTime<Utc>) -> QuickAdd {
         .collect::<Vec<_>>()
         .join(" ");
 
-    let mut qa = build(title, date, start_time, end_time, explicit_duration);
+    let mut qa = build(title, today, date, start_time, end_time, explicit_duration);
     qa.location = location;
     qa
 }
 
 fn build(
     title: String,
+    today: NaiveDate,
     date: Option<NaiveDate>,
     start_time: Option<(u32, u32)>,
     end_time: Option<(u32, u32)>,
@@ -203,8 +204,8 @@ fn build(
             location: None,
         },
         (None, Some((h, m))) => {
-            // Time but no day → assume today.
-            let today = Utc::now().date_naive();
+            // Time but no day → assume the reference day (the injected `now`,
+            // not the wall clock — keeps the parse deterministic for a given now).
             let start = format!("{}T{:02}:{:02}:00", today.format("%Y-%m-%d"), h, m);
             QuickAdd {
                 title,
