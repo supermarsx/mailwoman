@@ -1,0 +1,11 @@
+-- 0021 (26.17 t17): TOTP replay-within-window guard — add `totp_secrets.last_step`
+-- (last-accepted RFC6238 time-step) — POSTGRES variant. Behaviourally identical to
+-- the SQLite `migrations/0021_totp_last_step.sql`; dialect difference: INTEGER →
+-- BIGINT (the i64 step counter stays BIGINT so the bind/read path is UNIFORM,
+-- matching 0011..0016 — NOT native BOOLEAN, and NOT a bool: this is a real
+-- counter). ADDITIVE over 0001..0020 — NEVER edit an earlier migration.
+--
+-- INVARIANTS: identical to the SQLite variant — `last_step` is a real i64 COUNTER
+-- (RFC6238 step index), DEFAULT 0 = "nothing consumed yet"; the login verifier
+-- compare-and-sets it to reject replay within the ±window.
+ALTER TABLE totp_secrets ADD COLUMN last_step BIGINT NOT NULL DEFAULT 0;

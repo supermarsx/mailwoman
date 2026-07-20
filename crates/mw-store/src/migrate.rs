@@ -269,8 +269,9 @@ const TABLES: &[TableSpec] = &[
     },
     TableSpec {
         name: "identities",
-        select: "SELECT id, account_id, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source FROM identities",
-        insert: "INSERT INTO identities (id, account_id, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+        // 0020 (26.17): `signature_name` copied alongside the 0003 columns.
+        select: "SELECT id, account_id, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source, signature_name FROM identities",
+        insert: "INSERT INTO identities (id, account_id, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source, signature_name) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
         map: |r| {
             vec![
                 t(r, "id"),
@@ -282,6 +283,7 @@ const TABLES: &[TableSpec] = &[
                 ot(r, "signature_text"),
                 ot(r, "sent_mailbox_id"),
                 t(r, "source"),
+                ot(r, "signature_name"),
             ]
         },
     },
@@ -389,8 +391,10 @@ const TABLES: &[TableSpec] = &[
     },
     TableSpec {
         name: "notes",
-        select: "SELECT id, account_id, notebook_id, title, tags_json, color, pinned, body_html_sealed, body_text_sealed, links_json, created_at, updated_at FROM notes",
-        insert: "INSERT INTO notes (id, account_id, notebook_id, title, tags_json, color, pinned, body_html_sealed, body_text_sealed, links_json, created_at, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+        // 0019 (26.17): the four `*_sealed` metadata columns are copied verbatim
+        // alongside the frozen plaintext columns (which stay for the backfill window).
+        select: "SELECT id, account_id, notebook_id, title, tags_json, color, pinned, body_html_sealed, body_text_sealed, links_json, created_at, updated_at, title_sealed, tags_json_sealed, color_sealed, pinned_sealed FROM notes",
+        insert: "INSERT INTO notes (id, account_id, notebook_id, title, tags_json, color, pinned, body_html_sealed, body_text_sealed, links_json, created_at, updated_at, title_sealed, tags_json_sealed, color_sealed, pinned_sealed) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
         map: |r| {
             vec![
                 t(r, "id"),
@@ -405,6 +409,10 @@ const TABLES: &[TableSpec] = &[
                 t(r, "links_json"),
                 t(r, "created_at"),
                 t(r, "updated_at"),
+                ob(r, "title_sealed"),
+                ob(r, "tags_json_sealed"),
+                ob(r, "color_sealed"),
+                ob(r, "pinned_sealed"),
             ]
         },
     },

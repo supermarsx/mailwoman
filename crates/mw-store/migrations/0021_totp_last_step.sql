@@ -1,0 +1,15 @@
+-- 0021 (26.17 t17): TOTP replay-within-window guard — 0015's `totp_secrets` kept
+-- no memory of the last consumed time-step, so a code stayed valid for its whole
+-- ±window and could be replayed within it. Adds `last_step`, the last-accepted
+-- RFC6238 time-step counter; the login verifier rejects any code whose step is
+-- <= it via a compare-and-set UPDATE (mirroring recovery-code single-use). ADDITIVE
+-- over 0001..0020 — NEVER edit an earlier migration. This is the SQLite variant
+-- (run by `sqlx::migrate!("./migrations")`); the behaviourally-identical Postgres
+-- variant is `migrations_pg/0021_totp_last_step.sql`.
+--
+-- INVARIANTS: `last_step` is a real i64 COUNTER (an RFC6238 step index =
+-- unix_time / period), NOT a boolean — INTEGER here / BIGINT in Postgres, matching
+-- the uniform i64 bind/read path (0011..0016, NEVER native BOOLEAN). DEFAULT 0
+-- (below any real step) means "nothing consumed yet", so a freshly enrolled
+-- authenticator's first code is accepted.
+ALTER TABLE totp_secrets ADD COLUMN last_step INTEGER NOT NULL DEFAULT 0;

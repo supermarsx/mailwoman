@@ -1,0 +1,12 @@
+-- 0020 (26.17 t17): persist Identity.signatureName — 0003's `identities` had no
+-- column for the per-identity signature *name*, so the client round-tripped the
+-- field but the server dropped it on write (`prefs_routes.rs`). Adds a nullable
+-- TEXT column. ADDITIVE over 0001..0019 — NEVER edit an earlier migration. This is
+-- the SQLite variant (run by `sqlx::migrate!("./migrations")`); the
+-- behaviourally-identical Postgres variant is
+-- `migrations_pg/0020_identity_signature_name.sql`.
+--
+-- INVARIANTS: `signature_name` is a non-secret display label (like `name` /
+-- `signature_text`), plaintext TEXT, NULLABLE — absent (NULL) on rows predating
+-- this column and on identities that carry no named signature.
+ALTER TABLE identities ADD COLUMN signature_name TEXT;
