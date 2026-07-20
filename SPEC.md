@@ -379,7 +379,7 @@ nightly live-interop job against real test tenants.
 | **Malicious email sender** | Hostile MIME/HTML/CSS/attachments, tracking, phishing, MIME smuggling, decompression bombs | Rust parsers (fuzzed), sanitizer (§7.2), no remote content by default, attachment sandbox, parser resource limits (depth/size/time) |
 | **Network attacker** | MitM, downgrade, traffic analysis | rustls + no-cleartext policy, HSTS preload, pinning option, REQUIRETLS |
 | **Compromised/curious host server** | Reads disk, memory, logs | Zero-access mode (§9); in standard mode: encrypted at rest, no plaintext logging of bodies/subjects ever |
-| **Malicious other tenant / XSS** | Script injection via email content | CSP `default-src 'none'`-rooted policy, sandboxed iframe rendering, Trusted Types, no `innerHTML` of unsanitized data (lint-banned) |
+| **Malicious other tenant / XSS** | Script injection via email content | CSP `default-src 'none'`-rooted policy (no inline scripts, `style-src 'self'`), sandboxed iframe rendering, no `innerHTML` of unsanitized data (lint-banned); Trusted Types enforcement is tracked, not yet on (§7.4) |
 | **Stolen device** | Local data access | OS keychain-wrapped keys, optional app lock (biometric/PIN), auto-lock timer, remote cache wipe on next connect |
 | **Credential stuffing / account takeover** | Password attacks on the webmail login | Argon2id, rate limiting + exponential backoff, WebAuthn/passkeys, TOTP, IP allowlists (admin), new-device notification |
 | **Supply chain** | Malicious dependency | `cargo-deny` + `cargo-vet`/`cargo-audit`, lockfiles, pinned CI actions, reproducible builds, signed releases |
@@ -445,7 +445,7 @@ to expand):
 
 ### 7.4 Web application hardening
 
-- CSP: `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; frame-src 'self'` (message iframes get their own stricter policy). No inline scripts anywhere; Trusted Types enforced. Fonts are self-hosted (§17.2) so `font-src 'self'` — never a third-party origin.
+- CSP: `default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self' blob:; frame-src 'self'; worker-src 'self' blob:; base-uri 'none'; form-action 'none'` (message iframes get their own stricter policy). No inline scripts anywhere, and `style-src 'self'` carries no `'unsafe-inline'`. Trusted Types (`require-trusted-types-for 'script'`) is **not yet enforced** — the shell's template engine assigns `innerHTML` with no default Trusted Types policy, so enforcing it would break the SPA at boot; it is a tracked web-side follow-up (register a default policy, then re-add the directive). Fonts are self-hosted (§17.2) so `font-src 'self'` — never a third-party origin.
 - `Cross-Origin-Opener-Policy: same-origin`, `COEP: require-corp`, `CORP`,
   `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`,
   `Permissions-Policy` denying everything unused.
@@ -813,10 +813,13 @@ disabled for zero-access accounts (§15.6).
   indexing (text extracted in the render jail).
 - Query builder UI round-trips with text syntax; saved searches become search
   folders (§10.1).
-- **AI-powered search (opt-in, §14):** semantic re-ranking and
-  natural-language queries ("that invoice from the contractor in spring")
-  via embeddings computed through the user's configured endpoint and stored
-  encrypted alongside the index. Off = classic search only, full-featured.
+- **AI-powered search (opt-in, §14):** the Assist endpoint can compute query
+  embeddings for natural-language queries ("that invoice from the contractor
+  in spring") through the user's configured endpoint. Re-ranking the search
+  index by those embeddings — and persisting them encrypted alongside the
+  index — is **not yet wired**: today the capability produces embeddings but
+  the Tantivy index does the ranking. Tracked follow-up. Off = classic search
+  only, full-featured.
 - Falls back to server search (IMAP SEARCH / JMAP `Email/query`) for
   not-yet-synced ranges, transparently merged and labeled.
 
@@ -1038,7 +1041,9 @@ endpoint is configured, and every capability is individually permission-gated.
   OS/browser speech), optional cleanup pass.
 - **Organization:** auto-tag/auto-file suggestions, focused-inbox scoring
   boost, classification suggestions (§10.1).
-- **Search:** semantic/NL search re-ranking (§10.4).
+- **Search:** natural-language query embeddings for semantic re-ranking
+  (§10.4) — the embedding capability ships; wiring the re-rank into the
+  search index is a tracked follow-up.
 - **Calendar:** meeting recaps + action-item extraction (§11.6), NL quick-add
   enhancement.
 - **Assistant:** a chat panel that can *read* (scoped) mailbox/calendar

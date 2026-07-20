@@ -3,7 +3,8 @@
 Mailwoman's observability is **opt-in and privacy-preserving**: nothing is exported
 unless you configure an endpoint, the metrics surface is never open, and no mail body,
 subject, or address is ever written to a log or a trace. OTLP + Prometheus are the
-committed paths; Sentry is off by default and not linked.
+committed paths; Sentry is off by default and linkable via `MW_SENTRY_DSN`
+(operator opt-in), and never carries mail content.
 
 ## Configuration
 
@@ -14,6 +15,7 @@ committed paths; Sentry is off by default and not linked.
 | `MW_OTEL_SERVICE` | `mailwoman` | Service name reported to the collector. |
 | `MW_METRICS_TOKEN` | *(unset)* | Bearer token guarding `GET /metrics`. **Unset → `/metrics` is unreachable** (metrics are never exposed unauthenticated). |
 | `MW_ERROR_FORWARD_URL` | *(unset)* | Where the server POSTs a **scrubbed** browser-error report. Unset → reports are dropped after scrubbing. |
+| `MW_SENTRY_DSN` | *(unset)* | Sentry/GlitchTip DSN for the scrubbed error relay. Unset → the relay is off. Reports carry no mail content and ship over rustls (no OpenSSL); hand-rolled, no `sentry` crate. |
 
 ## Traces & metrics (OTLP)
 
@@ -51,9 +53,11 @@ Operator actions are recorded in the append-only **audit log** (see
 `mailwoman admin`. It is a security record of *who did what*, separate from application
 tracing.
 
-## Sentry
+## Sentry / GlitchTip
 
-Sentry is **off by default and not linked** into the build. OTLP + Prometheus are the
-committed observability paths; Sentry would only be enabled after its dependency tree is
-vetted for a rustls transport with no OpenSSL (recorded in `deny.toml` as
-vet-before-enable). Do not assume Sentry delivery in 26.7.
+Sentry is **off by default** and enabled only when an operator sets `MW_SENTRY_DSN`
+(a Sentry SaaS or self-hosted GlitchTip DSN). The relay is **hand-rolled** over the
+in-tree `reqwest` (rustls, no OpenSSL) — there is **no `sentry` crate** and no
+native-TLS dependency, so the OpenSSL floor holds without a vet-before-enable gate.
+It carries **no mail content**: only scrubbed, redacted error text ever leaves the
+server. OTLP + Prometheus remain the primary observability paths.

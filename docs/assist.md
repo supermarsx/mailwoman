@@ -37,6 +37,10 @@ Each Assist feature is a capability, granted independently:
 `summarize`, `draft`, `grammar`, `dictation`, `search-semantic`, `auto-tag`, `recap`,
 `assistant`.
 
+> `search-semantic` produces query/text **embeddings** through the configured
+> endpoint. Re-ranking the search index by those embeddings is not yet wired (SPEC
+> §10.4) — the capability computes embeddings; classic search still does the ranking.
+
 Every invocation is enforced by the gateway in this order:
 
 1. **Capability granted?** If not, denied.
