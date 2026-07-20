@@ -4,8 +4,9 @@
 //!
 //! Same seam discipline as [`crate::v2`]: every value crosses as an opaque
 //! primitive; enum-like fields (`access`, `status`, `component`, change
-//! `op`/`type`) are plain strings the engine owns. Note **bodies** are sealed
-//! with the existing [`crate::ServerKey`] (`body_*_sealed` BLOBs) —
+//! `op`/`type`) are plain strings the engine owns. Note **bodies** and their
+//! sort/filter metadata (`title`/`tags`/`color`/`pinned`) are sealed with the
+//! existing [`crate::ServerKey`] (`body_*_sealed` + the 0019 `*_sealed` BLOBs) —
 //! encrypted-at-rest, NOT zero-access (plan §1.6).
 
 use crate::{Row, Store, StoreError, q};
@@ -72,16 +73,18 @@ pub struct TaskRow {
     pub json: Option<Vec<u8>>,
 }
 
-/// A note row with the body **decrypted** (`title`/`tags`/`color`/`pinned`
-/// plaintext columns + the unsealed rich-text body). The store seals/unseals
-/// `body_*` transparently at the repo boundary (plan §1.6).
+/// A note row with every user field **decrypted** for the caller. `title`,
+/// `tags_json`, `color`, `pinned` and the rich-text body are all sealed at rest
+/// (`*_sealed` BLOBs under the store [`crate::ServerKey`]) and unsealed here at
+/// the repo boundary (0019, plan §1.6); the frozen plaintext columns are blanked
+/// once a row is sealed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NoteRow {
     pub id: String,
     pub account_id: String,
     pub notebook_id: Option<String>,
     pub title: String,
-    /// JSON-encoded `[String]` tag array (plaintext).
+    /// JSON-encoded `[String]` tag array (**decrypted**; sealed at rest).
     pub tags_json: String,
     pub color: String,
     pub pinned: bool,
@@ -147,6 +150,12 @@ pub struct PimChangeRow {
     pub object_id: String,
     /// `created` | `updated` | `destroyed` (opaque to the store).
     pub op: String,
+}
+
+/// Canonical sealed form of a note's `pinned` flag (0019): a single ASCII byte
+/// `b"1"`/`b"0"`. [`Store::note_from_row`] unseals it back to a bool.
+fn pinned_canonical(pinned: bool) -> &'static [u8] {
+    if pinned { b"1" } else { b"0" }
 }
 
 fn calendar_from_row(r: &Row) -> CalendarRow {
@@ -574,7 +583,8 @@ impl Store {
     pub async fn get_note(&self, id: &str) -> Result<Option<NoteRow>, StoreError> {
         let row = q(
             "SELECT id, account_id, notebook_id, title, tags_json, color, pinned,
-                    body_html_sealed, body_text_sealed, links_json, created_at, updated_at
+                    body_html_sealed, body_text_sealed, links_json, created_at, updated_at,
+                    title_sealed, tags_json_sealed, color_sealed, pinned_sealed
              FROM notes WHERE id = ?1",
         )
         .bind(id)
@@ -586,31 +596,63 @@ impl Store {
         }
     }
 
-    /// List an account's notes (metadata + unsealed bodies), pinned first.
+    /// List an account's notes (unsealed metadata + bodies), pinned first.
     pub async fn list_notes(&self, account_id: &str) -> Result<Vec<NoteRow>, StoreError> {
         let rows = q(
             "SELECT id, account_id, notebook_id, title, tags_json, color, pinned,
-                    body_html_sealed, body_text_sealed, links_json, created_at, updated_at
-             FROM notes WHERE account_id = ?1 ORDER BY pinned DESC, updated_at DESC, id",
+                    body_html_sealed, body_text_sealed, links_json, created_at, updated_at,
+                    title_sealed, tags_json_sealed, color_sealed, pinned_sealed
+             FROM notes WHERE account_id = ?1 ORDER BY updated_at DESC, id",
         )
         .bind(account_id)
         .fetch_all(&self.backend)
         .await?;
-        rows.iter().map(|r| self.note_from_row(r)).collect()
+        let mut notes = rows
+            .iter()
+            .map(|r| self.note_from_row(r))
+            .collect::<Result<Vec<NoteRow>, StoreError>>()?;
+        // 0019 (26.17): `pinned` is sealed, so ordering can no longer be a SQL
+        // `ORDER BY pinned DESC`. Re-home the pinned-first ordering to a STABLE
+        // sort after decrypt — it preserves the SQL `updated_at DESC, id` order
+        // within each pinned group, reproducing the pre-seal visual order exactly.
+        // Notes are few per account, so decrypt-then-sort is cheap. `sort_by_key`
+        // is a STABLE sort; `Reverse` puts pinned (`true`) first.
+        notes.sort_by_key(|n| std::cmp::Reverse(n.pinned));
+        Ok(notes)
     }
 
-    /// Unseal a note row's body columns into a [`NoteRow`].
+    /// Unseal a note row's sealed columns into a [`NoteRow`]. The body and (0019)
+    /// the `title`/`tags_json`/`color`/`pinned` metadata come from the `*_sealed`
+    /// BLOBs; each falls back to its frozen plaintext column only for a
+    /// not-yet-backfilled row (`*_sealed IS NULL`) — belt-and-braces for the
+    /// store-open backfill window.
     fn note_from_row(&self, r: &Row) -> Result<NoteRow, StoreError> {
         let body_html = self.unseal_opt(r.get_opt_blob("body_html_sealed"))?;
         let body_text = self.unseal_opt(r.get_opt_blob("body_text_sealed"))?;
+        let title = match r.get_opt_blob("title_sealed") {
+            Some(sealed) => self.unseal_opt(Some(sealed))?,
+            None => r.get_string("title"),
+        };
+        let tags_json = match r.get_opt_blob("tags_json_sealed") {
+            Some(sealed) => self.unseal_opt(Some(sealed))?,
+            None => r.get_string("tags_json"),
+        };
+        let color = match r.get_opt_blob("color_sealed") {
+            Some(sealed) => self.unseal_opt(Some(sealed))?,
+            None => r.get_string("color"),
+        };
+        let pinned = match r.get_opt_blob("pinned_sealed") {
+            Some(sealed) => self.unseal_opt(Some(sealed))? == "1",
+            None => r.get_i64("pinned") != 0,
+        };
         Ok(NoteRow {
             id: r.get_string("id"),
             account_id: r.get_string("account_id"),
             notebook_id: r.get_opt_string("notebook_id"),
-            title: r.get_string("title"),
-            tags_json: r.get_string("tags_json"),
-            color: r.get_string("color"),
-            pinned: r.get_i64("pinned") != 0,
+            title,
+            tags_json,
+            color,
+            pinned,
             body_html,
             body_text,
             links_json: r.get_string("links_json"),
@@ -631,34 +673,83 @@ impl Store {
         }
     }
 
-    /// Insert or replace a note, **sealing** the body columns at rest.
+    /// Insert or replace a note, **sealing** the body and (0019) the
+    /// `title`/`tags_json`/`color`/`pinned` metadata into the `*_sealed` BLOBs.
+    /// The frozen plaintext columns are written neutral placeholders
+    /// (`''`/`'[]'`/`''`/`0`) so no plaintext note metadata survives at rest;
+    /// [`Self::note_from_row`] reads back from the sealed columns.
     pub async fn upsert_note(&self, row: &NoteRow) -> Result<(), StoreError> {
         let body_html_sealed = self.key.seal(row.body_html.as_bytes())?;
         let body_text_sealed = self.key.seal(row.body_text.as_bytes())?;
+        let title_sealed = self.key.seal(row.title.as_bytes())?;
+        let tags_json_sealed = self.key.seal(row.tags_json.as_bytes())?;
+        let color_sealed = self.key.seal(row.color.as_bytes())?;
+        let pinned_sealed = self.key.seal(pinned_canonical(row.pinned))?;
         q("INSERT INTO notes
                  (id, account_id, notebook_id, title, tags_json, color, pinned,
-                  body_html_sealed, body_text_sealed, links_json, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                  body_html_sealed, body_text_sealed, links_json, created_at, updated_at,
+                  title_sealed, tags_json_sealed, color_sealed, pinned_sealed)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
              ON CONFLICT(id) DO UPDATE SET
                  notebook_id = excluded.notebook_id, title = excluded.title,
                  tags_json = excluded.tags_json, color = excluded.color, pinned = excluded.pinned,
                  body_html_sealed = excluded.body_html_sealed,
                  body_text_sealed = excluded.body_text_sealed,
-                 links_json = excluded.links_json, updated_at = excluded.updated_at")
+                 links_json = excluded.links_json, updated_at = excluded.updated_at,
+                 title_sealed = excluded.title_sealed, tags_json_sealed = excluded.tags_json_sealed,
+                 color_sealed = excluded.color_sealed, pinned_sealed = excluded.pinned_sealed")
         .bind(&row.id)
         .bind(&row.account_id)
         .bind(row.notebook_id.as_deref())
-        .bind(&row.title)
-        .bind(&row.tags_json)
-        .bind(&row.color)
-        .bind(i64::from(row.pinned))
+        // Plaintext metadata columns blanked to neutral defaults — the sealed
+        // columns are authoritative.
+        .bind("")
+        .bind("[]")
+        .bind("")
+        .bind(0_i64)
         .bind(body_html_sealed)
         .bind(body_text_sealed)
         .bind(&row.links_json)
         .bind(&row.created_at)
         .bind(&row.updated_at)
+        .bind(title_sealed)
+        .bind(tags_json_sealed)
+        .bind(color_sealed)
+        .bind(pinned_sealed)
         .execute(&self.backend)
         .await?;
+        Ok(())
+    }
+
+    /// Idempotent one-shot backfill (JWZ-maintenance pattern) that seals the 0019
+    /// Note metadata for any pre-0019 row: a note carrying the frozen plaintext
+    /// columns but no sealed counterpart (`title_sealed IS NULL`) is sealed under
+    /// the [`crate::ServerKey`] and its plaintext columns blanked, so no plaintext
+    /// note metadata survives at rest. Invoked at [`Store::open`]; re-running is a
+    /// no-op once every row is sealed.
+    pub(crate) async fn seal_note_metadata_backfill(&self) -> Result<(), StoreError> {
+        let rows =
+            q("SELECT id, title, tags_json, color, pinned FROM notes WHERE title_sealed IS NULL")
+                .fetch_all(&self.backend)
+                .await?;
+        for r in &rows {
+            let id = r.get_string("id");
+            let title_sealed = self.key.seal(r.get_string("title").as_bytes())?;
+            let tags_json_sealed = self.key.seal(r.get_string("tags_json").as_bytes())?;
+            let color_sealed = self.key.seal(r.get_string("color").as_bytes())?;
+            let pinned_sealed = self.key.seal(pinned_canonical(r.get_i64("pinned") != 0))?;
+            q("UPDATE notes SET
+                   title_sealed = ?2, tags_json_sealed = ?3, color_sealed = ?4, pinned_sealed = ?5,
+                   title = '', tags_json = '[]', color = '', pinned = 0
+               WHERE id = ?1")
+            .bind(&id)
+            .bind(title_sealed)
+            .bind(tags_json_sealed)
+            .bind(color_sealed)
+            .bind(pinned_sealed)
+            .execute(&self.backend)
+            .await?;
+        }
         Ok(())
     }
 
@@ -1087,8 +1178,8 @@ mod tests {
             id: "n1".into(),
             account_id: a.clone(),
             notebook_id: None,
-            title: "Groceries".into(),
-            tags_json: "[\"home\"]".into(),
+            title: "Groceries CONFIDENTIAL".into(),
+            tags_json: "[\"home SECRETTAG\"]".into(),
             color: "#ffcc00".into(),
             pinned: true,
             body_html: "<p>milk SUPERSECRET eggs</p>".into(),
@@ -1099,30 +1190,147 @@ mod tests {
         };
         s.upsert_note(&note).await.unwrap();
 
-        // Decrypts on read.
+        // Every user field decrypts on read (title/tags/color/pinned + body).
         let got = s.get_note("n1").await.unwrap().unwrap();
+        assert_eq!(got.title, "Groceries CONFIDENTIAL");
+        assert_eq!(got.tags_json, "[\"home SECRETTAG\"]");
+        assert_eq!(got.color, "#ffcc00");
+        assert!(got.pinned);
         assert_eq!(got.body_text, "milk SUPERSECRET eggs");
+
+        // The plaintext metadata columns are BLANKED to neutral defaults — the
+        // sealed columns are authoritative, no plaintext survives at rest.
+        let row = q("SELECT title, tags_json, color, pinned,
+                            title_sealed, tags_json_sealed, color_sealed, pinned_sealed,
+                            body_text_sealed
+                     FROM notes WHERE id = ?1")
+        .bind("n1")
+        .fetch_one(s.backend())
+        .await
+        .unwrap();
+        assert_eq!(row.get_string("title"), "");
+        assert_eq!(row.get_string("tags_json"), "[]");
+        assert_eq!(row.get_string("color"), "");
+        assert_eq!(row.get_i64("pinned"), 0);
+
+        // The sealed BLOBs are ciphertext — no plaintext secret is present.
+        let scan = |col: &str| {
+            let blob = row.get_blob(col);
+            assert!(
+                !blob.windows(11).any(|w| w == b"SUPERSECRET")
+                    && !blob.windows(12).any(|w| w == b"CONFIDENTIAL")
+                    && !blob.windows(9).any(|w| w == b"SECRETTAG"),
+                "{col} must be sealed at rest (no plaintext leak)"
+            );
+        };
+        scan("title_sealed");
+        scan("tags_json_sealed");
+        scan("color_sealed");
+        scan("pinned_sealed");
+        scan("body_text_sealed");
+    }
+
+    #[tokio::test]
+    async fn list_notes_pinned_first_then_updated_at() {
+        let s = store().await;
+        let a = account(&s).await;
+        let mk = |id: &str, pinned: bool, updated_at: &str| NoteRow {
+            id: id.into(),
+            account_id: a.clone(),
+            notebook_id: None,
+            title: id.into(),
+            tags_json: "[]".into(),
+            color: "".into(),
+            pinned,
+            body_html: "".into(),
+            body_text: "".into(),
+            links_json: "[]".into(),
+            created_at: "2026-07-01T00:00:00Z".into(),
+            updated_at: updated_at.into(),
+        };
+        // Insert in shuffled order; the sealed pinned flag means ordering is a
+        // Rust STABLE sort over the SQL `updated_at DESC, id` order.
+        s.upsert_note(&mk("na", false, "2026-07-03T00:00:00Z"))
+            .await
+            .unwrap();
+        s.upsert_note(&mk("nb", true, "2026-07-01T00:00:00Z"))
+            .await
+            .unwrap();
+        s.upsert_note(&mk("nc", false, "2026-07-02T00:00:00Z"))
+            .await
+            .unwrap();
+        s.upsert_note(&mk("nd", true, "2026-07-04T00:00:00Z"))
+            .await
+            .unwrap();
+
+        // Pinned first (updated_at DESC within group), then the rest — the exact
+        // order the pre-seal `ORDER BY pinned DESC, updated_at DESC, id` produced.
+        let ids: Vec<String> = s
+            .list_notes(&a)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|n| n.id)
+            .collect();
+        assert_eq!(ids, vec!["nd", "nb", "na", "nc"]);
+    }
+
+    #[tokio::test]
+    async fn seal_note_metadata_backfill_idempotent() {
+        let s = store().await;
+        let a = account(&s).await;
+        // Simulate a pre-0019 row: plaintext metadata, all `*_sealed` NULL.
+        q(
+            "INSERT INTO notes (id, account_id, title, tags_json, color, pinned,
+                              links_json, created_at, updated_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, '[]', ?7, ?7)",
+        )
+        .bind("legacy1")
+        .bind(&a)
+        .bind("Legacy LEAKME")
+        .bind("[\"old\"]")
+        .bind("#123456")
+        .bind(1_i64)
+        .bind("2026-07-01T00:00:00Z")
+        .execute(s.backend())
+        .await
+        .unwrap();
+
+        s.seal_note_metadata_backfill().await.unwrap();
+
+        // Now sealed + decryptable, plaintext blanked.
+        let got = s.get_note("legacy1").await.unwrap().unwrap();
+        assert_eq!(got.title, "Legacy LEAKME");
+        assert_eq!(got.tags_json, "[\"old\"]");
+        assert_eq!(got.color, "#123456");
         assert!(got.pinned);
 
-        // The stored BLOB is ciphertext — the plaintext body is not present.
-        let sealed = q("SELECT body_text_sealed FROM notes WHERE id = ?1")
-            .bind("n1")
+        let after = q("SELECT title, pinned, title_sealed FROM notes WHERE id = ?1")
+            .bind("legacy1")
             .fetch_one(s.backend())
             .await
-            .unwrap()
-            .get_blob("body_text_sealed");
+            .unwrap();
+        assert_eq!(after.get_string("title"), "");
+        assert_eq!(after.get_i64("pinned"), 0);
+        let sealed_after_first = after.get_blob("title_sealed");
+        assert!(!sealed_after_first.is_empty());
         assert!(
-            !sealed.windows(11).any(|w| w == b"SUPERSECRET"),
-            "note body must be sealed at rest"
+            !sealed_after_first.windows(6).any(|w| w == b"LEAKME"),
+            "backfilled title must be sealed at rest"
         );
-        // Title/tags stay plaintext (searchable).
-        let title = q("SELECT title FROM notes WHERE id = ?1")
-            .bind("n1")
+
+        // Re-running touches nothing (WHERE title_sealed IS NULL matches no rows).
+        s.seal_note_metadata_backfill().await.unwrap();
+        let sealed_after_second = q("SELECT title_sealed FROM notes WHERE id = ?1")
+            .bind("legacy1")
             .fetch_one(s.backend())
             .await
             .unwrap()
-            .get_string("title");
-        assert_eq!(title, "Groceries");
+            .get_blob("title_sealed");
+        assert_eq!(
+            sealed_after_first, sealed_after_second,
+            "backfill must be idempotent — a sealed row is not re-sealed"
+        );
     }
 
     #[tokio::test]

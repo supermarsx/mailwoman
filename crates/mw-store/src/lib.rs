@@ -236,6 +236,8 @@ impl Store {
         sqlx::migrate!("./migrations_pg")
             .run(store.pg_pool())
             .await?;
+        // 0019 (26.17): seal any pre-existing plaintext Note metadata at rest.
+        store.seal_note_metadata_backfill().await?;
         Ok(store)
     }
 
@@ -250,11 +252,14 @@ impl Store {
 
     async fn init_sqlite(pool: SqlitePool, key: ServerKey) -> Result<Self, StoreError> {
         sqlx::migrate!("./migrations").run(&pool).await?;
-        Ok(Self {
+        let store = Self {
             backend: Backend::Sqlite(pool),
             key,
             uploads: upload::fail_closed_backend(),
-        })
+        };
+        // 0019 (26.17): seal any pre-existing plaintext Note metadata at rest.
+        store.seal_note_metadata_backfill().await?;
+        Ok(store)
     }
 
     /// Inject the at-rest upload storage backend (0012). `mw-server` calls this at
