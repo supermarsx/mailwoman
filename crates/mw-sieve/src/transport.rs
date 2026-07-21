@@ -6,6 +6,7 @@
 //! `AsyncRead + AsyncWrite`, so the deterministic transcript tests drive it over
 //! an in-memory pipe; production connections finish over [`SieveStream`].
 
+use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -37,6 +38,25 @@ impl SieveStream {
     /// Open a TCP connection, applying implicit TLS immediately when requested.
     pub async fn connect(host: &str, port: u16, mode: TlsMode) -> crate::Result<Self> {
         let tcp = TcpStream::connect((host, port)).await?;
+        tcp.set_nodelay(true).ok();
+        match mode {
+            TlsMode::Plaintext | TlsMode::StartTls => Ok(SieveStream::Plain(tcp)),
+            TlsMode::Implicit => Self::wrap_tls(tcp, host).await,
+        }
+    }
+
+    /// Open a TCP connection to a PRE-RESOLVED `addr`, applying implicit TLS
+    /// immediately when requested. Unlike [`Self::connect`], the TCP connect never
+    /// performs its own DNS lookup — it dials exactly `addr` — so a name cannot
+    /// re-resolve to a different, rebound target between a caller's egress check and
+    /// this connect (anti-DNS-rebinding). `host` is retained ONLY for TLS SNI and
+    /// certificate validation, so the pinned IP still presents the expected name.
+    pub async fn connect_pinned(
+        host: &str,
+        addr: SocketAddr,
+        mode: TlsMode,
+    ) -> crate::Result<Self> {
+        let tcp = TcpStream::connect(addr).await?;
         tcp.set_nodelay(true).ok();
         match mode {
             TlsMode::Plaintext | TlsMode::StartTls => Ok(SieveStream::Plain(tcp)),
@@ -106,5 +126,30 @@ impl AsyncWrite for SieveStream {
             SieveStream::Plain(s) => Pin::new(s).poll_shutdown(cx),
             SieveStream::Tls(s) => Pin::new(s.as_mut()).poll_shutdown(cx),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The pinned connect must dial the supplied `addr` WITHOUT resolving `host`:
+    /// a host that cannot resolve still connects, because only `addr` is dialed.
+    /// This is the property that closes the Sieve rebinding TOCTOU (t18 R1) — the
+    /// caller resolves+validates once and pins the allowed address here.
+    #[tokio::test]
+    async fn connect_pinned_dials_addr_not_host() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _ = listener.accept().await;
+        });
+        // `host` deliberately does not resolve; if `connect_pinned` re-resolved it
+        // the dial would fail. It succeeds because the pinned `addr` is used.
+        let stream =
+            SieveStream::connect_pinned("does-not-resolve.invalid.", addr, TlsMode::Plaintext)
+                .await
+                .expect("pinned connect must dial addr, not resolve host");
+        assert!(!stream.is_encrypted());
     }
 }

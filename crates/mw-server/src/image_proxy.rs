@@ -222,25 +222,43 @@ pub(crate) fn ipv6_allowed(ip: &Ipv6Addr) -> bool {
     if seg[0] == 0x2001 && seg[1] == 0x0db8 {
         return false;
     }
-    // NAT64 / 6to4 carry a routable IPv4 embedded in the v6 address; decode it and
-    // apply the IPv4 egress policy so a private/metadata v4 cannot be smuggled past
-    // the v6 gate as e.g. `64:ff9b::7f00:1` (127.0.0.1) or `2002:a9fe:a9fe::`
-    // (169.254.169.254). (IPv4-mapped/compat `::ffff:a.b.c.d` / `::a.b.c.d` are
-    // already unwrapped upstream by `ip_allowed` via `Ipv6Addr::to_ipv4`.)
-    if let Some(v4) = nat64_or_6to4_embedded_ipv4(ip) {
-        return ipv4_allowed(&v4);
+    // NAT64 / 6to4 / Teredo / ISATAP carry one (or, for Teredo, two) routable IPv4
+    // address(es) embedded in the v6 address; decode EACH and apply the IPv4 egress
+    // policy, so a private/metadata v4 cannot be smuggled past the v6 gate as e.g.
+    // `64:ff9b::7f00:1` (127.0.0.1) or a Teredo-mapped `169.254.169.254`. Refuse if
+    // ANY embedded v4 is disallowed (fail-safe). (IPv4-mapped/compat `::ffff:a.b.c.d`
+    // / `::a.b.c.d` are already unwrapped upstream by `ip_allowed` via
+    // `Ipv6Addr::to_ipv4`.)
+    for v4 in embedded_ipv4s(ip) {
+        if !ipv4_allowed(&v4) {
+            return false;
+        }
     }
     true
 }
 
-/// Decode the IPv4 address embedded in a NAT64 well-known-prefix (`64:ff9b::/96`) or
-/// 6to4 (`2002::/16`) IPv6 address, or `None` if `ip` is neither transitional form.
-/// Both encodings carry a routable IPv4 inside the v6 address, so returning it lets a
-/// caller re-apply the IPv4 egress policy and refuse a smuggled private/metadata
-/// target. `pub(crate)` so the Sieve caller (t17-e6/L5) can unwrap the same forms.
-pub(crate) fn nat64_or_6to4_embedded_ipv4(ip: &Ipv6Addr) -> Option<Ipv4Addr> {
+/// Decode EVERY routable IPv4 address embedded in a transitional IPv6 address and
+/// return them for a caller to re-apply the IPv4 egress policy to EACH. Covers:
+///   * **NAT64** well-known prefix `64:ff9b::/96` — v4 in the last 32 bits;
+///   * **6to4** `2002::/16` — v4 in bits 16..48;
+///   * **Teredo** `2001:0000::/32` — the Teredo *server* v4 (bits 32..64, plain) AND
+///     the mapped *client* v4 (bits 96..128, obfuscated by XOR with `0xffffffff`);
+///   * **ISATAP** interface-ID `::0:5efe:a.b.c.d` / `::200:5efe:a.b.c.d` — v4 in the
+///     last 32 bits (under any routing prefix; the link-local `fe80::5efe:*` form is
+///     already refused by the `fe80::/10` check before this is reached).
+///
+/// The forms have distinct prefixes, so at most one matches (early return); Teredo
+/// contributes two addresses. Returns an empty `Vec` for a non-transitional address.
+///
+/// **NAT64 network-specific prefixes (RFC 6052 NSP) are deliberately NOT decoded:**
+/// the prefix length (/32…/96) and the v4 byte positions are site configuration, so
+/// without the deployment's NSP an address cannot be known to be NAT64 or where its
+/// embedded v4 sits — genuinely undecidable here. The well-known prefix is covered;
+/// an NSP deployment supplies its own egress ACL. `pub(crate)` so the Sieve caller
+/// (`sieve_sync.rs`, L5/R1) can unwrap the same forms.
+pub(crate) fn embedded_ipv4s(ip: &Ipv6Addr) -> Vec<Ipv4Addr> {
     let seg = ip.segments();
-    // NAT64 well-known prefix 64:ff9b::/96 — the embedded IPv4 is the last 32 bits.
+    // NAT64 well-known prefix 64:ff9b::/96 — v4 is the last 32 bits.
     if seg[0] == 0x0064
         && seg[1] == 0xff9b
         && seg[2] == 0
@@ -248,13 +266,26 @@ pub(crate) fn nat64_or_6to4_embedded_ipv4(ip: &Ipv6Addr) -> Option<Ipv4Addr> {
         && seg[4] == 0
         && seg[5] == 0
     {
-        return Some(v4_from_segments(seg[6], seg[7]));
+        return vec![v4_from_segments(seg[6], seg[7])];
     }
-    // 6to4 2002::/16 — the embedded IPv4 is bits 16..48 (segments 1 and 2).
+    // 6to4 2002::/16 — v4 is bits 16..48 (segments 1 and 2).
     if seg[0] == 0x2002 {
-        return Some(v4_from_segments(seg[1], seg[2]));
+        return vec![v4_from_segments(seg[1], seg[2])];
     }
-    None
+    // Teredo 2001:0000::/32 — segs[2..4] = Teredo server v4 (plain); segs[6..8] =
+    // mapped client v4, obfuscated by XOR with 0xffffffff. Re-check both.
+    if seg[0] == 0x2001 && seg[1] == 0x0000 {
+        return vec![
+            v4_from_segments(seg[2], seg[3]),
+            v4_from_segments(seg[6] ^ 0xffff, seg[7] ^ 0xffff),
+        ];
+    }
+    // ISATAP interface identifier `…:{0000,0200}:5efe:a.b.c.d` — segs[4] ∈
+    // {0x0000,0x0200}, segs[5] == 0x5efe, v4 = the last 32 bits. Any routing prefix.
+    if seg[5] == 0x5efe && (seg[4] == 0x0000 || seg[4] == 0x0200) {
+        return vec![v4_from_segments(seg[6], seg[7])];
+    }
+    Vec::new()
 }
 
 /// Reassemble an IPv4 address from the two 16-bit v6 segments that carry it.
@@ -486,6 +517,67 @@ fn fetch_semaphore() -> &'static tokio::sync::Semaphore {
     SEM.get_or_init(|| tokio::sync::Semaphore::new(MAX_CONCURRENT))
 }
 
+// ── per-account rate limit (R6, t18) ────────────────────────────────────────────
+
+/// Sustained refill rate: tokens added per second per account (≈60 fetches/min).
+const RATE_REFILL_PER_SEC: f64 = 1.0;
+/// Burst ceiling: the most fetches an idle account can spend at once.
+const RATE_BURST: f64 = 120.0;
+
+/// A single account's token bucket.
+struct TokenBucket {
+    tokens: f64,
+    last: std::time::Instant,
+}
+
+/// A coarse in-memory per-account token-bucket limiter for the image-proxy FETCH
+/// path (R6). It caps how fast one account can drive DISTINCT upstream fetches
+/// (cache hits are free — see [`proxy_image`]), a fan-out/abuse limit rather than a
+/// security boundary (the SSRF gate is that).
+///
+/// Caveat (documented, by design): state lives in a process-local `OnceLock` static,
+/// so it resets on restart and is **per-replica** — N replicas each admit the full
+/// rate. A cluster-global limit would need a shared store and a hot-path write, not
+/// warranted for an abuse cap. The account map is bounded by the deployment's account
+/// count (one small bucket per account that has used the proxy); no eviction needed.
+struct AccountRateLimiter {
+    buckets: HashMap<String, TokenBucket>,
+}
+
+impl AccountRateLimiter {
+    /// Charge one token to `account_id`, refilling for elapsed time first. Returns
+    /// `true` if a token was available (request allowed), `false` if the bucket is
+    /// exhausted (→ `429`). A never-seen account starts with a full burst.
+    fn check(&mut self, account_id: &str) -> bool {
+        let now = std::time::Instant::now();
+        let b = self
+            .buckets
+            .entry(account_id.to_string())
+            .or_insert(TokenBucket {
+                tokens: RATE_BURST,
+                last: now,
+            });
+        let elapsed = now.saturating_duration_since(b.last).as_secs_f64();
+        b.tokens = (b.tokens + elapsed * RATE_REFILL_PER_SEC).min(RATE_BURST);
+        b.last = now;
+        if b.tokens >= 1.0 {
+            b.tokens -= 1.0;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+fn rate_limiter() -> &'static Mutex<AccountRateLimiter> {
+    static RL: OnceLock<Mutex<AccountRateLimiter>> = OnceLock::new();
+    RL.get_or_init(|| {
+        Mutex::new(AccountRateLimiter {
+            buckets: HashMap::new(),
+        })
+    })
+}
+
 /// Quoted-hex `ETag` of the re-encoded bytes.
 fn etag_for(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
@@ -512,17 +604,35 @@ async fn proxy_image(
     headers: HeaderMap,
     Query(q): Query<ProxyQuery>,
 ) -> Response {
-    // Require a session — never an open relay.
-    if let Err(r) = crate::authed(&state, &headers).await {
-        return r;
-    }
+    // Require a session — never an open relay. Capture it for the per-account rate
+    // limit below.
+    let session = match crate::authed(&state, &headers).await {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
 
-    // Serve a cache hit before doing any work (and honor If-None-Match).
+    // Serve a cache hit before doing any work (and honor If-None-Match). A cache hit
+    // performs no upstream fetch, so it does NOT consume the per-account rate budget.
     if let Some((etag, png)) = cache().lock().expect("image cache lock").get(&q.url) {
         if if_none_match(&headers, &etag) {
             return not_modified(&etag);
         }
         return image_response(png, etag);
+    }
+
+    // Per-account fan-out rate limit (R6): a cache MISS will fetch upstream, so
+    // charge the account one token here. Exhaustion → 429 (per-replica; see
+    // `AccountRateLimiter`).
+    if !rate_limiter()
+        .lock()
+        .expect("image rate-limit lock")
+        .check(&session.account_id)
+    {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            "image proxy rate limit exceeded",
+        )
+            .into_response();
     }
 
     let url = match reqwest::Url::parse(&q.url) {
@@ -772,6 +882,52 @@ mod tests {
     }
 
     #[test]
+    fn blocks_teredo_and_isatap_embedded_private_ipv4() {
+        // R4 (t18): Teredo (2001:0000::/32) embeds a plain server v4 and an
+        // XOR-obfuscated client v4; ISATAP embeds a v4 in the last 32 bits. A
+        // private/metadata/loopback v4 in ANY embedded position must be refused.
+        for s in [
+            // Teredo, public server, client v4 = 127.0.0.1 (obfuscated 0x80fffffe).
+            "2001:0:4136:e378:8000:ffff:80ff:fffe",
+            // Teredo, public server, client v4 = 169.254.169.254 (0x56015601).
+            "2001:0:4136:e378:8000:ffff:5601:5601",
+            // Teredo, PRIVATE server v4 = 10.0.0.1, public client (8.8.8.8 → 0xf7f7f7f7).
+            "2001:0:a00:1:8000:ffff:f7f7:f7f7",
+            // ISATAP global-prefix IID wrapping 127.0.0.1 (seg[4]=0x0000).
+            "2001:470::5efe:7f00:1",
+            // ISATAP with the 0x0200 flag word wrapping 192.168.1.1.
+            "2001:470:0:0:200:5efe:c0a8:101",
+            // ISATAP wrapping the metadata address.
+            "2001:470::5efe:a9fe:a9fe",
+        ] {
+            let ip: IpAddr = s.parse().unwrap();
+            assert!(
+                !ip_allowed(&ip),
+                "{s} must be blocked (embedded private/metadata v4)"
+            );
+        }
+    }
+
+    #[test]
+    fn allows_teredo_and_isatap_embedded_public_ipv4() {
+        // Both embedded v4s public → allowed; the decode re-checks, it does not
+        // blanket-refuse the transitional prefix.
+        for s in [
+            // Teredo: public server 65.54.227.120 + public client 8.8.8.8.
+            "2001:0:4136:e378:8000:ffff:f7f7:f7f7",
+            // ISATAP global-prefix IID wrapping 8.8.8.8.
+            "2001:470::5efe:808:808",
+            "2001:470:0:0:200:5efe:808:808",
+        ] {
+            let ip: IpAddr = s.parse().unwrap();
+            assert!(
+                ip_allowed(&ip),
+                "{s} must be allowed (both embedded v4s public)"
+            );
+        }
+    }
+
+    #[test]
     fn allows_nat64_and_6to4_embedded_public_ipv4() {
         // A NAT64/6to4 address whose embedded IPv4 is public unicast stays allowed —
         // the decode re-checks the v4, it does not blanket-refuse the prefix.
@@ -952,6 +1108,50 @@ mod tests {
         // The earliest keys were evicted.
         assert!(c.get("k0").is_none());
         assert!(c.get(&format!("k{}", CACHE_CAPACITY + 9)).is_some());
+    }
+
+    // ── R6: per-account token-bucket rate limit ──────────────────────────────────
+
+    #[test]
+    fn rate_limiter_allows_burst_then_429s_and_is_per_account() {
+        let mut rl = AccountRateLimiter {
+            buckets: HashMap::new(),
+        };
+        // A fresh account spends its full burst, then the next request is refused
+        // (no measurable time elapses inside the loop → no refill).
+        for i in 0..RATE_BURST as usize {
+            assert!(rl.check("acct-a"), "burst token {i} should be admitted");
+        }
+        assert!(
+            !rl.check("acct-a"),
+            "exhausted bucket must return false (429)"
+        );
+        // A different account has an independent budget.
+        assert!(
+            rl.check("acct-b"),
+            "a second account is limited independently"
+        );
+    }
+
+    #[test]
+    fn rate_limiter_refills_over_time() {
+        let mut rl = AccountRateLimiter {
+            buckets: HashMap::new(),
+        };
+        for _ in 0..RATE_BURST as usize {
+            assert!(rl.check("a"));
+        }
+        assert!(!rl.check("a"), "bucket drained");
+        // Simulate ~2 seconds elapsed: at 1 token/s that is ~2 refilled tokens.
+        if let Some(b) = rl.buckets.get_mut("a") {
+            b.last = b
+                .last
+                .checked_sub(std::time::Duration::from_secs(2))
+                .unwrap_or(b.last);
+        }
+        assert!(rl.check("a"), "first refilled token available");
+        assert!(rl.check("a"), "second refilled token available");
+        assert!(!rl.check("a"), "only ~2 tokens refilled, third is refused");
     }
 
     #[test]

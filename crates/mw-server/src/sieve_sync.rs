@@ -13,7 +13,7 @@
 //! target speaks the ManageSieve line protocol (not HTTP), so it is not a generic
 //! egress surface.
 
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
@@ -78,32 +78,37 @@ fn sieve_egress_permitted(ip: &IpAddr) -> bool {
             if (v6.segments()[0] & 0xffc0) == 0xfe80 {
                 return false;
             }
-            // Unwrap any embedded IPv4 (mapped/compat, NAT64, 6to4) and apply the
-            // same narrow rule, so a loopback/metadata target cannot be smuggled
-            // through a v6 embedding.
-            if let Some(v4) = v6
-                .to_ipv4()
-                .or_else(|| image_proxy::nat64_or_6to4_embedded_ipv4(v6))
-            {
+            // Unwrap IPv4-mapped/compat and apply the same narrow rule.
+            if let Some(v4) = v6.to_ipv4() {
                 return !(v4.is_loopback() || v4.is_link_local());
+            }
+            // Unwrap every transitional embedding (NAT64, 6to4, Teredo, ISATAP) and
+            // refuse if ANY embedded v4 is loopback/link-local, so a metadata/
+            // loopback target cannot be smuggled through a v6 embedding.
+            for v4 in image_proxy::embedded_ipv4s(v6) {
+                if v4.is_loopback() || v4.is_link_local() {
+                    return false;
+                }
             }
             true
         }
     }
 }
 
-/// Resolve `host:port` and refuse if ANY resolved address is in the blocked set
-/// ([`sieve_egress_permitted`]). `ManageSieveClient::connect` does its own DNS, so
-/// gating here — refusing when even one resolved address is metadata/loopback/
-/// link-local — prevents the connect from being steered onto a blocked target and
-/// closes the reachability oracle. Returns a client-error [`Response`] on refusal.
-async fn gate_sieve_target(host: &str, port: u16) -> Result<(), Response> {
+/// Resolve `host:port` ONCE, refuse if ANY resolved address is in the blocked set
+/// ([`sieve_egress_permitted`]), and return the first allowed address to PIN the
+/// connect to (t18 R1). Resolving here and dialing that exact address via
+/// [`ManageSieveClient::connect_pinned`] closes the DNS-rebinding TOCTOU: a name
+/// cannot re-resolve to a metadata/loopback target between this validation and the
+/// connect. Refusing when even one resolved address is blocked keeps the fail-safe
+/// direction (a `[public, metadata]` rebind answer is rejected outright). Returns a
+/// client-error [`Response`] on refusal.
+async fn gate_sieve_target(host: &str, port: u16) -> Result<SocketAddr, Response> {
     let addrs = tokio::net::lookup_host((host, port))
         .await
         .map_err(|_| upstream(&format!("could not resolve sieve host: {host}")))?;
-    let mut any = false;
+    let mut chosen: Option<SocketAddr> = None;
     for a in addrs {
-        any = true;
         if !sieve_egress_permitted(&a.ip()) {
             return Err((
                 StatusCode::FORBIDDEN,
@@ -111,11 +116,11 @@ async fn gate_sieve_target(host: &str, port: u16) -> Result<(), Response> {
             )
                 .into_response());
         }
+        if chosen.is_none() {
+            chosen = Some(a);
+        }
     }
-    if !any {
-        return Err(upstream(&format!("could not resolve sieve host: {host}")));
-    }
-    Ok(())
+    chosen.ok_or_else(|| upstream(&format!("could not resolve sieve host: {host}")))
 }
 
 /// Parse the requested transport security (default STARTTLS — the common
@@ -179,21 +184,26 @@ async fn sieve_sync(
         .unwrap_or("mailwoman")
         .to_string();
 
-    // Egress gate (L5): resolve the user-supplied host and refuse metadata/loopback/
-    // link-local BEFORE connecting. RFC1918/private stays reachable so an internal
-    // ManageSieve server keeps working — a narrower policy than the image proxy.
+    // Egress gate (L5) + connect-pin (R1): resolve the user-supplied host ONCE and
+    // refuse metadata/loopback/link-local BEFORE connecting, returning the allowed
+    // address. RFC1918/private stays reachable so an internal ManageSieve server
+    // keeps working — a narrower policy than the image proxy.
     let host = req.host.trim().to_string();
-    if let Err(resp) = gate_sieve_target(&host, req.port).await {
-        return resp;
-    }
+    let addr = match gate_sieve_target(&host, req.port).await {
+        Ok(a) => a,
+        Err(resp) => return resp,
+    };
 
-    // Connect, upload, activate, and log out. Any protocol/transport error surfaces
-    // as a 502 with the ManageSieve server's message (never mail content).
+    // Connect, upload, activate, and log out. The connect is PINNED to the gated
+    // address (`connect_pinned`), so it cannot re-resolve `host` to a rebound
+    // metadata/loopback target; `host` is kept for TLS SNI. Any protocol/transport
+    // error surfaces as a 502 with the ManageSieve server's message (never mail
+    // content).
     let creds = Credentials::Plain {
         username: req.username,
         password: req.password,
     };
-    let mut client = match ManageSieveClient::connect(&host, req.port, tls, creds).await {
+    let mut client = match ManageSieveClient::connect_pinned(&host, addr, tls, creds).await {
         Ok(c) => c,
         Err(e) => return upstream(&format!("connect failed: {e}")),
     };
@@ -261,6 +271,43 @@ mod tests {
             "::ffff:169.254.1.1", // IPv4-mapped link-local
             "64:ff9b::a9fe:a9fe", // NAT64-embedded metadata
             "2002:7f00:1::",      // 6to4-embedded loopback
+        ] {
+            let ip: IpAddr = s.parse().unwrap();
+            assert!(!sieve_egress_permitted(&ip), "{s} must be refused");
+        }
+    }
+
+    // ── R1: the gate resolves once and returns the address the connect is pinned to
+    #[tokio::test]
+    async fn gate_returns_pinned_addr_for_allowed_and_refuses_blocked() {
+        // An RFC1918 literal resolves to itself, is permitted, and is returned as the
+        // pinned address the connect must dial (no re-resolution after this point).
+        let addr = gate_sieve_target("10.0.0.1", 4190)
+            .await
+            .expect("RFC1918 target must be allowed");
+        assert_eq!(addr, "10.0.0.1:4190".parse::<SocketAddr>().unwrap());
+        // Metadata / loopback / link-local literals are refused BEFORE any connect,
+        // so a rebind-after-validate can never reach them.
+        for blocked in ["169.254.169.254", "127.0.0.1", "169.254.1.1"] {
+            assert!(
+                gate_sieve_target(blocked, 4190).await.is_err(),
+                "{blocked} must be refused by the gate"
+            );
+        }
+    }
+
+    #[test]
+    fn sieve_refuses_teredo_and_isatap_embedded_loopback() {
+        // The narrower Sieve policy still unwraps Teredo/ISATAP embeddings and
+        // refuses a smuggled loopback/metadata v4 (link-local set), while keeping
+        // RFC1918 reachable (covered separately below).
+        for s in [
+            // Teredo client v4 127.0.0.1 (obfuscated 0x80fffffe), public server.
+            "2001:0:4136:e378:8000:ffff:80ff:fffe",
+            // Teredo client v4 169.254.169.254 (metadata; obfuscated 0x56015601).
+            "2001:0:4136:e378:8000:ffff:5601:5601",
+            // ISATAP global-prefix IID wrapping 127.0.0.1.
+            "2001:470::5efe:7f00:1",
         ] {
             let ip: IpAddr = s.parse().unwrap();
             assert!(!sieve_egress_permitted(&ip), "{s} must be refused");

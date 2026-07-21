@@ -5,6 +5,8 @@
 //! setup and are not exercised by the plaintext transcript tests; the connect →
 //! authenticate → command flow over plaintext is (a mock `TcpListener`).
 
+use std::net::SocketAddr;
+
 use crate::managesieve::{Connection, Credentials, ScriptInfo};
 use crate::transport::{SieveStream, TlsMode};
 use crate::{Result, SieveError};
@@ -20,6 +22,34 @@ impl ManageSieveClient {
     /// successful TLS handshake, so the post-upgrade greeting is re-read.
     pub async fn connect(host: &str, port: u16, mode: TlsMode, creds: Credentials) -> Result<Self> {
         let stream = SieveStream::connect(host, port, mode).await?;
+        Self::handshake(host, stream, mode, creds).await
+    }
+
+    /// Like [`Self::connect`], but the TCP connection is pinned to a caller-supplied,
+    /// PRE-RESOLVED [`SocketAddr`] instead of re-resolving `host`. The caller
+    /// resolves + egress-validates the target once and passes the allowed address
+    /// here, so a name cannot rebind to a different (metadata/loopback) target
+    /// between the check and the connect (anti-DNS-rebinding; t18 R1). `host` is
+    /// still used for TLS SNI and the `STARTTLS` upgrade's certificate validation.
+    pub async fn connect_pinned(
+        host: &str,
+        addr: SocketAddr,
+        mode: TlsMode,
+        creds: Credentials,
+    ) -> Result<Self> {
+        let stream = SieveStream::connect_pinned(host, addr, mode).await?;
+        Self::handshake(host, stream, mode, creds).await
+    }
+
+    /// Shared post-connect flow: open the connection, perform the optional
+    /// `STARTTLS` upgrade (re-reading capabilities per RFC 5804), then authenticate.
+    /// `host` is used for TLS SNI during any upgrade.
+    async fn handshake(
+        host: &str,
+        stream: SieveStream,
+        mode: TlsMode,
+        creds: Credentials,
+    ) -> Result<Self> {
         let mut conn = Connection::open(stream).await?;
 
         if mode == TlsMode::StartTls {
