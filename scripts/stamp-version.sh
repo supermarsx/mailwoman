@@ -76,6 +76,14 @@ stamp packaging/fdroid/metadata/com.mailwoman.mobile.yml \
   -e "s/^\(CurrentVersion: \).*/\1$VER/" \
   -e "s/^\(CurrentVersionCode: \).*/\1$CODE/"
 
+# --- Helm chart (appVersion tracks the app; the chart `version` is independent
+#     and is deliberately NOT stamped) + the README example image tags ---
+stamp packaging/helm/mailwoman/Chart.yaml \
+  -e "s/^appVersion: .*/appVersion: \"$VER\"/"
+stamp packaging/helm/README.md \
+  -e "s#mailwoman:[0-9][^[:space:]]*#mailwoman:$VER#g" \
+  -e "s#--set image.tag=[0-9][^[:space:]]*#--set image.tag=$VER#g"
+
 # --- native shells: both Tauri configs + both package.json ---
 # (tauri.conf.json files are owned outside this task's commit scope, but stamping
 #  them keeps the single-source guarantee whole; they are already at $VER so this
