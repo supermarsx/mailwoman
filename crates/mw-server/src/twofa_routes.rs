@@ -930,11 +930,19 @@ async fn confirm_totp_and_seed_recovery(
     let Some(secret) = state.store.get_totp_secret(account_id).await? else {
         return Ok(None);
     };
-    // Enrolment confirmation only proves possession of the secret; the login-time
-    // replay guard ([`verify_totp_factor`]) is what advances `last_step`.
-    if totp::totp_verify(&secret.secret, code, now_unix(), &TotpParams::default()).is_none() {
+    // Enrolment confirmation proves possession of the secret. Bind the confirming
+    // code to `last_step` exactly as the login path does ([`verify_totp_factor`]),
+    // so the code used to enrol cannot be replayed at the first login within its
+    // ±1 (~90 s) window. `advance_totp_last_step` is a compare-and-swap; we ignore
+    // its bool here (enrolment succeeds regardless — a concurrent login racing the
+    // same step is the single winner and the loser is a replay we want refused).
+    let Some(matched_step) =
+        totp::totp_verify(&secret.secret, code, now_unix(), &TotpParams::default())
+    else {
         return Ok(None);
-    }
+    };
+    let step = i64::try_from(matched_step).unwrap_or(i64::MAX);
+    state.store.advance_totp_last_step(account_id, step).await?;
     state.store.confirm_totp(account_id).await?;
     let codes = seed_recovery_if_empty(state, account_id).await?;
     Ok(Some(codes))

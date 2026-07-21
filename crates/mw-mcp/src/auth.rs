@@ -196,17 +196,33 @@ impl<S: OAuthStore, A: AuditSink + Send + Sync> Authorizer for OAuthAuthorizer<S
         //    MCP endpoint's canonical resource identifier, resolved at the `/mcp`
         //    mount. Audience enforcement is ON BY DEFAULT: `MW_MCP_RESOURCE` overrides,
         //    but when it is unset the resource is derived from the deployment's
-        //    configured public origin, so `cred.resource` is normally `Some`. A token
-        //    bound to a DIFFERENT resource was issued for another audience and must be
-        //    rejected here — a wrong-audience token never reaches a tool. API keys
-        //    carry no resource binding and so are exempt (consistent with
-        //    `mw_oauth::require_scope`). Enforcement is off only when neither an
-        //    override nor a public origin is configured (`cred.resource` is `None`).
-        if let (Some(bound), Some(want)) = (&token_resource, cred.resource)
-            && bound != want
-        {
-            self.emit(&actor, actor_kind, false, Some("audience mismatch".into()));
-            return Err(McpError::ScopeDenied);
+        //    configured public origin, so `cred.resource` is normally `Some`.
+        //    Enforcement is off only when neither an override nor a public origin is
+        //    configured (`cred.resource` is `None`) — then any token passes here.
+        //    When it IS on:
+        //      - A token bound to a DIFFERENT resource was issued for another audience
+        //        and is rejected — a wrong-audience token never reaches a tool.
+        //      - An OAuth token bound to NO resource is rejected as well: issuance
+        //        mandates a resource indicator (see `mw_oauth`'s authorize path), so a
+        //        no-resource OAuth token reaching an enforcing endpoint is anomalous.
+        //        This closes the enforcement side of that invariant (belt-and-suspenders)
+        //        and over-blocks toward availability rather than under-enforcing.
+        //      - API keys carry no resource binding by design (`token_resource` is
+        //        always `None` for them) and stay EXEMPT, consistent with
+        //        `mw_oauth::require_scope`.
+        if let Some(want) = cred.resource {
+            let is_api_key = cred.token.starts_with(KEY_SCHEME);
+            match &token_resource {
+                Some(bound) if bound != want => {
+                    self.emit(&actor, actor_kind, false, Some("audience mismatch".into()));
+                    return Err(McpError::ScopeDenied);
+                }
+                None if !is_api_key => {
+                    self.emit(&actor, actor_kind, false, Some("missing audience".into()));
+                    return Err(McpError::ScopeDenied);
+                }
+                _ => {}
+            }
         }
 
         // 4. Per-tool capability — no scope escalation.

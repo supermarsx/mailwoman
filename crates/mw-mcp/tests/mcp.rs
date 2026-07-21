@@ -15,8 +15,9 @@ use serde_json::{Value, json};
 use mw_mcp::mock::{MockAuthorizer, MockBackend};
 use mw_mcp::{Credential, McpServer, RpcForwarder, mcp_router, run_stdio};
 use mw_oauth::{
-    AuthServer, AuthServerConfig, AuthorizeRequest, CollectingAudit, InMemoryOAuthStore,
-    OAuthClient, OAuthStore, Scope, ScopeSelector, TokenRequest, challenge_s256, mint_api_key,
+    ApiKey, AuthServer, AuthServerConfig, AuthorizeRequest, CollectingAudit, InMemoryOAuthStore,
+    OAuthClient, OAuthError, OAuthStore, OAuthToken, Scope, ScopeSelector, TokenKind, TokenRequest,
+    challenge_s256, mint_api_key,
 };
 
 // ── helpers ──────────────────────────────────────────────────────────────
@@ -555,6 +556,160 @@ async fn wrong_audience_token_is_rejected_at_mcp() {
     assert!(
         ok2["result"].is_object(),
         "no configured audience → not enforced: {ok2}"
+    );
+}
+
+/// An `OAuthStore` that introspects EVERY presented token as one fixed OAuth
+/// access token, regardless of its hash. This is the only way to exercise the
+/// enforcement side of R3: real issuance mandates a resource indicator (the
+/// `authorize` path refuses an empty `resource`), so a no-resource OAuth token
+/// cannot be minted through the normal flow — we fabricate one at the store seam.
+struct FixedTokenStore {
+    token: OAuthToken,
+}
+
+#[async_trait]
+impl OAuthStore for FixedTokenStore {
+    async fn get_token(&self, _hash: &str) -> Result<Option<OAuthToken>, OAuthError> {
+        Ok(Some(self.token.clone()))
+    }
+    async fn get_client(&self, _id: &str) -> Result<Option<OAuthClient>, OAuthError> {
+        Ok(None)
+    }
+    async fn put_client(&self, _c: OAuthClient) -> Result<(), OAuthError> {
+        Ok(())
+    }
+    async fn put_token(&self, _t: OAuthToken) -> Result<(), OAuthError> {
+        Ok(())
+    }
+    async fn revoke_token(&self, _hash: &str) -> Result<(), OAuthError> {
+        Ok(())
+    }
+    async fn put_api_key(&self, _k: ApiKey) -> Result<(), OAuthError> {
+        Ok(())
+    }
+    async fn get_api_key(&self, _prefix: &str) -> Result<Option<ApiKey>, OAuthError> {
+        Ok(None)
+    }
+    async fn touch_api_key(&self, _prefix: &str, _at: &str) -> Result<(), OAuthError> {
+        Ok(())
+    }
+    async fn revoke_api_key(&self, _prefix: &str) -> Result<(), OAuthError> {
+        Ok(())
+    }
+}
+
+/// R3: under an enforcing endpoint (`cred.resource` is `Some`), an OAuth token
+/// bound to NO resource is rejected — while an API key (legitimately no resource)
+/// is still exempt, and enforcement stays off when no endpoint resource is set.
+#[tokio::test]
+async fn no_resource_oauth_token_is_rejected_under_enforcement() {
+    // A scope that WOULD grant mail.search on acct1 — so a rejection can only come
+    // from the audience check, never from a scope shortfall.
+    let mut scope = Scope::read_only("acct1");
+    scope.mail = true;
+    scope.accounts = ScopeSelector::All;
+    scope.mcp_tools = vec!["mail.search".to_string()];
+
+    // A fully valid, active OAuth ACCESS token — except it carries NO resource.
+    let no_resource = OAuthToken {
+        token_hash: "unused-store-ignores-it".into(),
+        client_id: "client-1".into(),
+        account_id: "acct1".into(),
+        scope,
+        resource: None,
+        kind: TokenKind::Access,
+        expires_at: "2099-01-01T00:00:00Z".into(),
+        created_at: "2026-01-01T00:00:00Z".into(),
+        revoked_at: None,
+        pkce_challenge: None,
+    };
+    let auth_server = Arc::new(AuthServer::with_config(
+        FixedTokenStore { token: no_resource },
+        AuthServerConfig::default(),
+    ));
+    let audit = Arc::new(CollectingAudit::new());
+    let authz = Arc::new(mw_mcp::OAuthAuthorizer::without_countersign(
+        auth_server,
+        audit,
+    ));
+    let server = McpServer::new(Arc::new(MockBackend::new()), authz);
+
+    // Enforcement ON (endpoint resource set) → the no-resource OAuth token is denied
+    // BEFORE any tool runs.
+    let enforced = Credential {
+        token: "any-oauth-token",
+        source_ip: None,
+        resource: Some("https://mcp.example/mcp"),
+    };
+    let denied = server
+        .handle_rpc(
+            &enforced,
+            call("mail.search", json!({ "account": "acct1" })),
+        )
+        .await
+        .expect("response");
+    assert_eq!(
+        denied["error"]["code"], -32001,
+        "a no-resource OAuth token must be scope-denied under enforcement: {denied}"
+    );
+
+    // Enforcement OFF (no endpoint resource) → the same token passes (unchanged).
+    let unenforced = Credential {
+        token: "any-oauth-token",
+        source_ip: None,
+        resource: None,
+    };
+    let ok = server
+        .handle_rpc(
+            &unenforced,
+            call("mail.search", json!({ "account": "acct1" })),
+        )
+        .await
+        .expect("response");
+    assert!(
+        ok["result"].is_object(),
+        "no configured audience → not enforced, token passes: {ok}"
+    );
+}
+
+/// R3 corollary: an API key (which is legitimately resource-less) stays EXEMPT from
+/// audience enforcement — the no-resource rejection targets OAuth tokens only.
+#[tokio::test]
+async fn api_key_stays_exempt_under_enforcement() {
+    let mut scope = Scope::read_only("acct1");
+    scope.mail = true;
+    scope.mcp_tools = vec!["mail.search".to_string()];
+    let minted = mint_api_key("acct1", scope);
+    let token = minted.display_token.clone();
+
+    let auth_server = Arc::new(AuthServer::new(InMemoryOAuthStore::new()));
+    auth_server
+        .store()
+        .put_api_key(minted.record)
+        .await
+        .unwrap();
+    let audit = Arc::new(CollectingAudit::new());
+    let authz = Arc::new(mw_mcp::OAuthAuthorizer::without_countersign(
+        auth_server,
+        audit,
+    ));
+    let server = McpServer::new(Arc::new(MockBackend::new()), authz);
+
+    // An enforcing endpoint (resource set): the API key carries no resource binding
+    // and MUST still pass — the exemption is intact.
+    let c = Credential {
+        token: &token,
+        source_ip: None,
+        resource: Some("https://mcp.example/mcp"),
+    };
+    let ok = server
+        .handle_rpc(&c, call("mail.search", json!({ "account": "acct1" })))
+        .await
+        .expect("response");
+    assert!(
+        ok["result"].is_object(),
+        "an API key is exempt from audience enforcement: {ok}"
     );
 }
 
