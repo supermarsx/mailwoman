@@ -6,7 +6,7 @@ type: application
 version: 0.1.0
 # Tracks the Mailwoman release the chart is tested against. Kept in sync with
 # the workspace version by scripts/stamp-version.sh at release time.
-appVersion: "26.17.0"
+appVersion: "26.18.0"
 home: https://github.com/mailwoman/mailwoman
 sources:
   - https://github.com/mailwoman/mailwoman

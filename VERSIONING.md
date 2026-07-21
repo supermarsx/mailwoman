@@ -37,6 +37,55 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
 
 ## History
 
+- **`26.18`** — a defense-in-depth + housekeeping tag that closes the **six LOW hardening notes** the
+  26.17 adversarial review opened, plus a packaging stamp-drift fix, with **net-zero new third-party
+  crates** and **no new migration** (every item lands in existing files on `std`/`reqwest`/`sqlx`; the
+  `0021` `totp_last_step` column from 26.17 already covers the TOTP work). **R1 — Sieve rebind pin**: the
+  ManageSieve sync path resolved and validated the user-supplied host, then re-resolved it at TCP connect
+  — a DNS-rebinding TOCTOU. Connect is now **pinned to the already-validated IP** (mirroring the
+  image-proxy `.resolve` pin) while keeping the host for TLS SNI; the narrowed egress still permits
+  RFC1918 (an internal Sieve server is legitimate) and refuses cloud-metadata / loopback / link-local.
+  **R2 — note-metadata at-rest reclaim**: the 26.17 C8 backfill blanks the legacy plaintext note columns
+  in place, so pre-upgrade rows can leave plaintext in SQLite free/overflow pages + WAL and Postgres dead
+  tuples until a VACUUM. The backfill now returns the sealed-row **count**, and at store-open, **only when
+  it sealed ≥1 row**, runs a best-effort dialect-aware plain `VACUUM` (SQLite `VACUUM`; Postgres `VACUUM
+  <notes>` — never `VACUUM FULL`, which would lock the table; a VACUUM error logs a warning and never
+  fails store-open). Because that backfill already ran on every deployed 26.17 database, the auto-path
+  cannot fire on exactly the databases that hold the residue (upgraded 26.17 → 26.18), so a **`mailwoman
+  maintenance vacuum`** CLI runs the same reclaim unconditionally as the operator remedy — and there is
+  **no** surprise unconditional boot-time VACUUM on every existing database. **R3 — MCP no-resource
+  token**: RFC 8707 audience issuance already mandates a resource, but the enforcement path skipped a
+  token whose `token_resource` was `None`; under enforcement `/mcp` now **rejects a no-resource OAuth
+  token** (belt-and-suspenders), while API-key auth — which legitimately carries no resource — stays
+  exempt. **R4 — exotic v6-embedded IPv4**: the SSRF denylist decoded only well-known NAT64
+  (`64:ff9b::/96`) and 6to4 (`2002::/16`); it now also decodes **Teredo** (`2001:0::/32` — both the
+  embedded server IPv4 and the XOR-obfuscated mapped client IPv4) and **ISATAP** (`::0:5efe:a.b.c.d` /
+  `::200:5efe:a.b.c.d`) global-prefix interface-IDs, re-checking each embedded address through the same
+  IPv4 allow-check. A NAT64 **network-specific prefix** (non-well-known NSP, and 6rd) is **undecidable
+  without the deployment's config** — its prefix length and v4 byte positions are site config — so it is
+  documented out of scope (a covered NSP deployment adds its own ACL). **R5 — TOTP enrol-confirm replay**:
+  26.17 bound the login TOTP path against within-window replay via `last_step`, but the
+  enrolment-confirmation path verified without advancing `last_step`, leaving the enrol code replayable at
+  first login for ~90s. Enrol-confirm now **advances `last_step`** with the matched step, closing the
+  window. **R6 — image-proxy rate-limit**: the session-authed, SSRF-gated proxy fetch had no per-account
+  limit; an **in-memory per-account token-bucket** now returns `429 Too Many Requests` on exhaustion
+  (`OnceLock` static, same pattern as the existing proxy caches) — a coarse per-account fan-out/abuse
+  limit that is **per-replica** (resets on restart; not cluster-global) by design, no migration or
+  hot-path write. **Housekeeping**: `scripts/stamp-version.sh` now also stamps the Helm chart
+  (`Chart.yaml` `appVersion` + the `README.md` example image tags; the chart's own `version: 0.1.0` stays
+  independent and unstamped), closing the prior drift where Helm sat at `26.16.0` while the workspace had
+  moved on. **`cargo deny` clean**; no openssl/`-sys`/C; license floor holds. **Adversarial security
+  review: GO (0 critical / 0 high / 0 medium)** — all six 26.17 LOW notes verified closed segment by
+  segment (Teredo/ISATAP arithmetic, Sieve-pin completeness); 3 new LOW notes, mostly inherent and
+  documented: a SQLite WAL can hold the old plaintext until the next checkpoint after a `VACUUM`
+  (filesystem-access-only), NAT64-NSP/6rd stay undecidable-without-config (matching R4's scope), and the
+  rate-limit is per-replica. **Live-E2E: 6 legs green vs real infrastructure, 0 wiring bugs** — including
+  live Postgres this run: the Sieve gate refuses a metadata/loopback target before connect (RFC1918 still
+  permitted), the image-proxy refuses Teredo/ISATAP-wrapped loopback/metadata and passes a public target,
+  the per-account rate-limit returns `429` past the threshold, a no-resource OAuth token is rejected at
+  `/mcp` while an API key still works, a captured enrol-confirm TOTP code is rejected at first login, and
+  the note backfill → VACUUM reclaim path plus the `maintenance vacuum` CLI run with live cells staying
+  ciphertext.
 - **`26.17`** — a polish + defense-in-depth tag that closes the four feature carryovers and the six
   LOW security-hardening notes deferred from 26.16, with **net-zero new third-party crates** (every
   item lands in existing files on `std`/already-vendored deps). Three additive migrations

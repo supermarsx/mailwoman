@@ -35,7 +35,7 @@
     <binary>mailwoman-desktop</binary>
   </provides>
   <releases>
-    <release version="26.17.0" date="2026-07-14">
+    <release version="26.18.0" date="2026-07-14">
       <description>
         <p>1.0-hardening baseline: accessibility, i18n, performance and packaging.</p>
       </description>

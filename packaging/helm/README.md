@@ -6,8 +6,8 @@ A hardened Kubernetes deployment of the Mailwoman server.
 
 ```sh
 # Build + push the hardened FROM-scratch image first (see the repo Dockerfile):
-docker build --target runtime-static -t <registry>/mailwoman:26.17.0 .
-docker push <registry>/mailwoman:26.17.0
+docker build --target runtime-static -t <registry>/mailwoman:26.18.0 .
+docker push <registry>/mailwoman:26.18.0
 
 # Seal-at-rest key (required for data to survive restarts):
 kubectl create secret generic mailwoman-key \
@@ -15,7 +15,7 @@ kubectl create secret generic mailwoman-key \
 
 helm install mailwoman packaging/helm/mailwoman \
   --set image.repository=<registry>/mailwoman \
-  --set image.tag=26.17.0 \
+  --set image.tag=26.18.0 \
   --set serverKeySecret.name=mailwoman-key
 ```
 
