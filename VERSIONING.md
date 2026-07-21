@@ -79,10 +79,21 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
   grant-gating would thread message-id/sender through the proxy URL and risk breaking already-granted
   loads); a per-account rate-limit is tracked as a follow-up. **`cargo deny` clean**; no
   openssl/`-sys`/C; license floor holds. **Adversarial security review: GO (0 critical / 0 high / 0
-  medium)** — all six 26.16 LOW notes verified closed; 6 new LOW notes open a 26.18 hardening backlog,
-  the prioritized one being that the note-metadata backfill blanks plaintext in place, so pre-upgrade
-  notes can leave plaintext residue in SQLite free-pages/WAL and Postgres dead tuples until a VACUUM
-  (new notes are unaffected). **Live-E2E: 8 legs green vs real infrastructure, 0 wiring bugs** —
+  medium)** — all six 26.16 LOW notes verified closed; 6 new LOW notes open a 26.18 hardening backlog
+  — **all six since closed in 26.18**. The prioritized one: the note-metadata backfill blanks plaintext
+  in place, so pre-upgrade notes can leave plaintext residue in SQLite free-pages/WAL and Postgres dead
+  tuples until a VACUUM (new notes are unaffected) — 26.18 follows the backfill with a count-gated
+  best-effort plain `VACUUM` when it sealed a row, plus a `mailwoman maintenance vacuum` CLI to reclaim
+  pre-existing residue on databases upgraded earlier. The other five, also closed in 26.18: the
+  ManageSieve sync connect re-resolved the host after validation (now pinned to the validated IP,
+  closing the DNS-rebinding TOCTOU); a no-resource OAuth token was not audience-checked at `/mcp` (now
+  rejected under enforcement, API-key auth still exempt); the SSRF denylist decoded only well-known
+  NAT64/6to4 (now also Teredo — server + XOR-obfuscated client IPv4 — and ISATAP, each re-checked; a
+  NAT64 non-well-known prefix is documented undecidable-without-config, out of scope); the TOTP
+  enrolment-confirmation code was replayable at first login (enrol-confirm now advances `last_step`
+  too); and the image-proxy fetch had no per-account rate-limit (now an in-memory per-account
+  token-bucket returning `429`, per-replica).
+  **Live-E2E: 8 legs green vs real infrastructure, 0 wiring bugs** —
   note-metadata sealed at rest (raw-store scan) with pinned-first order preserved and the backfill
   idempotent (verified on both SQLite and live Postgres), `signatureName` round-trip, `ar` negotiation
   winning, the shipped bundle served under enforced Trusted Types, a TOTP code rejected on replay

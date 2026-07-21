@@ -402,10 +402,22 @@ Rendering pipeline, all engine-side in Rust before anything reaches the DOM:
    go through an engine-side anonymizing proxy (strips cookies/referrer,
    normalizes UA, caches, optionally re-encodes images in the WASM jail to
    strip exploit payloads and metadata). The proxy fetch is SSRF-filtered
-   deny-by-default: DNS-pinned against rebinding, private/loopback/link-local/
-   ULA and the cloud-metadata address refused — including the IPv4 those ranges
-   embed in NAT64 (`64:ff9b::/96`) and 6to4 (`2002::/16`) v6 forms — and every
-   redirect hop re-validated. **Partial image loading:** load a
+   deny-by-default: DNS-pinned against rebinding (it connects to the validated
+   IP, not a re-resolved name), private/loopback/link-local/ULA and the
+   cloud-metadata address refused — including the IPv4 those ranges embed in
+   transitional v6 forms: NAT64 (`64:ff9b::/96`), 6to4 (`2002::/16`), Teredo
+   (`2001:0::/32` — both the embedded server IPv4 and the XOR-obfuscated client
+   IPv4) and ISATAP (`…:5efe:v4`), each decoded and re-checked. A NAT64
+   network-specific (non-well-known) prefix cannot be recognized without the
+   deployment's own prefix configuration, so it is out of scope. Every redirect
+   hop is re-validated, and a per-account fetch rate-limit (in-memory, per
+   replica — per-process, not cluster-global) returns `429` when a session
+   exceeds its budget. The server's ManageSieve sync connection is likewise
+   pinned to its validated address, so a name cannot rebind to a
+   metadata/loopback target between validation and connect (its egress policy is
+   narrower: cloud-metadata/loopback/link-local refused, RFC1918 kept reachable,
+   since syncing to an internal Sieve server is legitimate). **Partial image
+   loading:** load a
    single image, load all from this message, always-load per sender, or
    always-load per domain — four distinct grants, each revocable, with the
    remote-content bar showing exactly how many images were blocked and from
@@ -464,7 +476,10 @@ to expand):
   recovery codes as the break-glass path. A TOTP code cannot be replayed within
   its validity window — the last step a login consumed is recorded and any step
   at or below it is refused (a compare-and-swap that also resolves two logins
-  racing the same code to a single winner). Passkey verification uses attestation
+  racing the same code to a single winner). That last-step record is advanced
+  when a code is confirmed at enrolment too, not only at login, so the
+  enrolment-confirmation code cannot be replayed to complete a first sign-in
+  inside its window. Passkey verification uses attestation
   `"none"` — the server verifies the assertion signature and stores the COSE
   public key; it does not validate attestation certificate chains. A factor,
   once enrolled, is required at login (no silent downgrade to password-only);
@@ -977,7 +992,14 @@ numbers optional, configurable work hours/days, mini-calendar navigator.
   ciphertext only; search via the client-side index slice. Sealing covers the
   note's metadata as well as its body: title, tags, color, and the pinned flag
   are sealed columns at rest, with the pinned-first list ordering applied in
-  Rust after decrypt so no plaintext sort key survives on disk.
+  Rust after decrypt so no plaintext sort key survives on disk. The one-shot
+  store-open backfill that seals a pre-upgrade account's previously-plaintext
+  columns blanks them in place, so the old bytes can linger in SQLite free
+  pages / WAL and Postgres dead tuples until reclaimed: when the backfill sealed
+  at least one row it follows with a best-effort plain `VACUUM` (SQLite whole-DB;
+  Postgres `VACUUM notes` — never `VACUUM FULL`, so no exclusive table lock), and
+  `mailwoman maintenance vacuum` reclaims on demand for databases upgraded before
+  that behavior existed.
 - Sync: Mailwoman-native (encrypted blobs through the server) as primary;
   optional export/interop via IMAP Notes folder convention and CalDAV
   VJOURNAL for interoperability (both lose the zero-access property when
@@ -1324,7 +1346,11 @@ verdicts, admin events. Inbound webhook actions available to rules.
   audit. Audience enforcement is **on by default** for any deployment that has
   configured its public origin (`MW_WEBAUTHN_ORIGIN`) or set `MW_MCP_RESOURCE`
   explicitly: a bearer token bound to a different resource is rejected as
-  wrong-audience before it reaches a tool. With neither configured, no canonical
+  wrong-audience before it reaches a tool. Under enforcement an OAuth access
+  token bound to no resource at all is rejected as well — issuance already
+  mandates a resource indicator, so a no-resource token reaching an enforcing
+  endpoint is anomalous; API keys carry no resource binding by design and stay
+  exempt. With neither origin nor `MW_MCP_RESOURCE` configured, no canonical
   resource can be derived and enforcement stays off — so a deployment exposing
   MCP publicly must set one of the two.
   Zero-access accounts: MCP sees only what a logged-in client session could
