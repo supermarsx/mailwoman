@@ -399,10 +399,20 @@ async fn logout_clears_session() {
 // ── t16 (26.16, e3): login second-factor gate ────────────────────────────────
 
 fn totp_now(secret: &[u8]) -> String {
+    totp_at_offset(secret, 0)
+}
+
+/// A TOTP code for `offset_secs` past now — used to obtain a code from a LATER step
+/// than the enrol-confirm one. R5 (26.18) binds the enrol-confirm code's step against
+/// replay, so a subsequent login must present a not-yet-consumed step (exactly what a
+/// real authenticator shows ~30 s later); +30 s lands one step ahead, inside the ±1
+/// verify window.
+fn totp_at_offset(secret: &[u8], offset_secs: u64) -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_secs();
+        .as_secs()
+        + offset_secs;
     mw_mfa::totp::totp_at(secret, now, &mw_mfa::totp::TotpParams::default())
 }
 
@@ -472,10 +482,12 @@ async fn totp_enrolment_gates_subsequent_logins() {
         "totp is an offered factor: {ch}"
     );
 
-    // 4) A valid TOTP completes the login (session cookie issued).
+    // 4) A valid TOTP completes the login (session cookie issued). The enrol-confirm
+    //    above consumed the current step (R5), so present a later-step code — a fresh
+    //    authenticator code, not a replay of the enrol-confirm one.
     let step = c2
         .post(format!("{server}/api/login/2fa"))
-        .json(&json!({ "pendingToken": pending, "method": "totp", "code": totp_now(&secret) }))
+        .json(&json!({ "pendingToken": pending, "method": "totp", "code": totp_at_offset(&secret, 30) }))
         .send()
         .await
         .unwrap();
