@@ -727,7 +727,13 @@ impl Store {
     /// the [`crate::ServerKey`] and its plaintext columns blanked, so no plaintext
     /// note metadata survives at rest. Invoked at [`Store::open`]; re-running is a
     /// no-op once every row is sealed.
-    pub(crate) async fn seal_note_metadata_backfill(&self) -> Result<(), StoreError> {
+    ///
+    /// Returns the number of rows sealed this run. A non-zero count means plaintext
+    /// was just blanked in place, so the prior bytes still sit in SQLite free/overflow
+    /// pages (and WAL) or Postgres dead tuples until a `VACUUM` reclaims them — the
+    /// caller uses this to decide whether to run [`Store::reclaim_note_metadata_residue`]
+    /// (R2).
+    pub(crate) async fn seal_note_metadata_backfill(&self) -> Result<usize, StoreError> {
         let rows =
             q("SELECT id, title, tags_json, color, pinned FROM notes WHERE title_sealed IS NULL")
                 .fetch_all(&self.backend)
@@ -750,7 +756,7 @@ impl Store {
             .execute(&self.backend)
             .await?;
         }
-        Ok(())
+        Ok(rows.len())
     }
 
     /// Delete a note.
@@ -1296,7 +1302,8 @@ mod tests {
         .await
         .unwrap();
 
-        s.seal_note_metadata_backfill().await.unwrap();
+        // The backfill reports the number of rows it sealed this run.
+        assert_eq!(s.seal_note_metadata_backfill().await.unwrap(), 1);
 
         // Now sealed + decryptable, plaintext blanked.
         let got = s.get_note("legacy1").await.unwrap().unwrap();
@@ -1319,8 +1326,9 @@ mod tests {
             "backfilled title must be sealed at rest"
         );
 
-        // Re-running touches nothing (WHERE title_sealed IS NULL matches no rows).
-        s.seal_note_metadata_backfill().await.unwrap();
+        // Re-running touches nothing (WHERE title_sealed IS NULL matches no rows) →
+        // count 0, which is what gates the store-open auto-reclaim off.
+        assert_eq!(s.seal_note_metadata_backfill().await.unwrap(), 0);
         let sealed_after_second = q("SELECT title_sealed FROM notes WHERE id = ?1")
             .bind("legacy1")
             .fetch_one(s.backend())
@@ -1331,6 +1339,43 @@ mod tests {
             sealed_after_first, sealed_after_second,
             "backfill must be idempotent — a sealed row is not re-sealed"
         );
+    }
+
+    #[tokio::test]
+    async fn reclaim_note_metadata_residue_vacuums_and_notes_survive() {
+        // R2: the dialect-aware reclaim (SQLite whole-DB VACUUM here) must run clean
+        // and leave every note fully readable afterward.
+        let s = store().await;
+        let a = account(&s).await;
+        let note = NoteRow {
+            id: "n1".into(),
+            account_id: a.clone(),
+            notebook_id: None,
+            title: "Kept After Vacuum".into(),
+            tags_json: "[\"t\"]".into(),
+            color: "#abcdef".into(),
+            pinned: true,
+            body_html: "<p>body</p>".into(),
+            body_text: "body".into(),
+            links_json: "[]".into(),
+            created_at: "2026-07-11T00:00:00Z".into(),
+            updated_at: "2026-07-11T00:00:00Z".into(),
+        };
+        s.upsert_note(&note).await.unwrap();
+
+        // Runs unconditionally (mirrors the `maintenance vacuum` CLI) and succeeds.
+        s.reclaim_note_metadata_residue().await.unwrap();
+
+        // The note still round-trips after the VACUUM rewrite.
+        let got = s.get_note("n1").await.unwrap().unwrap();
+        assert_eq!(got.title, "Kept After Vacuum");
+        assert_eq!(got.tags_json, "[\"t\"]");
+        assert_eq!(got.color, "#abcdef");
+        assert!(got.pinned);
+        assert_eq!(got.body_text, "body");
+
+        // Re-running is safe (idempotent operator remedy).
+        s.reclaim_note_metadata_residue().await.unwrap();
     }
 
     #[tokio::test]

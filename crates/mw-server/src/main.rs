@@ -100,6 +100,15 @@ enum MaintenanceCommand {
         #[arg(long, default_value_t = 24)]
         older_than_hours: i64,
     },
+    /// Reclaim the at-rest residue left by the 26.17 Note-metadata seal backfill
+    /// (R2): the backfill blanked the plaintext title/tags/color/pinned columns in
+    /// place, so the prior bytes persist in SQLite free pages / WAL (or Postgres dead
+    /// tuples) until a VACUUM. Runs a plain `VACUUM` (SQLite whole-DB; Postgres
+    /// `VACUUM notes` — never `VACUUM FULL`). Unconditional: the store-open auto-path
+    /// only fires when the backfill sealed rows this run, so a deployment already
+    /// running 26.17 (backfill long since done) needs this operator-driven run to
+    /// clear its residue. Explicit one-shot, safe to re-run.
+    Vacuum,
 }
 
 /// `mailwoman plugin <list|approve>` (V7 §22): backed by the 0008 `plugins`
@@ -385,6 +394,13 @@ async fn maintenance_cmd(args: MaintenanceArgs) -> anyhow::Result<()> {
                 .await
                 .map_err(|e| anyhow::anyhow!("gc-uploads failed: {e}"))?;
             println!("gc-uploads: reclaimed {reclaimed} upload(s) older than {older_than_hours}h");
+        }
+        MaintenanceCommand::Vacuum => {
+            store
+                .reclaim_note_metadata_residue()
+                .await
+                .map_err(|e| anyhow::anyhow!("vacuum failed: {e}"))?;
+            println!("vacuum: reclaimed Note-metadata at-rest residue");
         }
     }
     Ok(())

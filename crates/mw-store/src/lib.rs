@@ -237,7 +237,11 @@ impl Store {
             .run(store.pg_pool())
             .await?;
         // 0019 (26.17): seal any pre-existing plaintext Note metadata at rest.
-        store.seal_note_metadata_backfill().await?;
+        let sealed = store.seal_note_metadata_backfill().await?;
+        // 26.18 (R2): if the backfill just blanked plaintext in place, reclaim the
+        // dead tuples it left behind. Best-effort — a VACUUM failure must never brick
+        // store-open (residue stays until `mailwoman maintenance vacuum`).
+        store.reclaim_after_note_backfill(sealed).await;
         Ok(store)
     }
 
@@ -258,8 +262,28 @@ impl Store {
             uploads: upload::fail_closed_backend(),
         };
         // 0019 (26.17): seal any pre-existing plaintext Note metadata at rest.
-        store.seal_note_metadata_backfill().await?;
+        let sealed = store.seal_note_metadata_backfill().await?;
+        // 26.18 (R2): reclaim residue best-effort when the backfill sealed rows (see
+        // `open_postgres`). Covers a direct 26.16→26.18 upgrade where the backfill runs
+        // fresh; deployed 26.17 DBs already backfilled (0 rows here) → operator CLI.
+        store.reclaim_after_note_backfill(sealed).await;
         Ok(store)
+    }
+
+    /// Best-effort reclaim after the Note-metadata backfill (R2). Runs the dialect-aware
+    /// [`Store::reclaim_note_metadata_residue`] only when `sealed > 0` (nothing was
+    /// blanked this run → no new residue → skip the whole-DB rewrite), logging and
+    /// continuing on error so a VACUUM failure can never fail store-open.
+    async fn reclaim_after_note_backfill(&self, sealed: usize) {
+        if sealed == 0 {
+            return;
+        }
+        if let Err(e) = self.reclaim_note_metadata_residue().await {
+            eprintln!(
+                "mw-store: reclaim (VACUUM) after sealing {sealed} note row(s) failed: {e}; \
+                 prior plaintext may persist in free pages until `mailwoman maintenance vacuum`"
+            );
+        }
     }
 
     /// Inject the at-rest upload storage backend (0012). `mw-server` calls this at
@@ -275,6 +299,36 @@ impl Store {
     #[cfg(test)]
     pub(crate) fn backend(&self) -> &Backend {
         &self.backend
+    }
+
+    /// Reclaim the on-disk residue left after [`Store::seal_note_metadata_backfill`]
+    /// blanked the plaintext Note-metadata columns in place (R2): SQLite `VACUUM`
+    /// rewrites the whole database file, dropping the freed pages that still held the
+    /// old plaintext; Postgres `VACUUM notes` reclaims the `notes` table's dead tuples.
+    ///
+    /// Deliberately a **plain** `VACUUM`, never `VACUUM FULL` — a plain Postgres VACUUM
+    /// takes only a `SHARE UPDATE EXCLUSIVE` lock (concurrent reads/writes continue),
+    /// whereas `VACUUM FULL` rewrites the table under an `ACCESS EXCLUSIVE` lock. VACUUM
+    /// cannot run inside a transaction, so this executes on the pool in autocommit via
+    /// the simple-query protocol (no prepared statement, no wrapping `BEGIN`).
+    ///
+    /// Callers at store-open run this best-effort (a VACUUM error is logged, never fatal);
+    /// the `mailwoman maintenance vacuum` CLI runs it unconditionally as the operator
+    /// remedy for residue predating this build.
+    pub async fn reclaim_note_metadata_residue(&self) -> Result<(), StoreError> {
+        use sqlx::Executor as _;
+        match &self.backend {
+            // SQLite VACUUM is whole-database (it cannot target a single table).
+            Backend::Sqlite(pool) => {
+                pool.execute("VACUUM").await?;
+            }
+            // Plain (non-FULL) VACUUM of just the notes table — the only table whose
+            // in-place blanking left dead tuples to reclaim.
+            Backend::Postgres(pool) => {
+                pool.execute("VACUUM notes").await?;
+            }
+        }
+        Ok(())
     }
 
     fn pg_pool(&self) -> &sqlx::PgPool {
