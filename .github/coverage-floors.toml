@@ -1,0 +1,83 @@
+# Coverage floors -- the ratchet. See docs/testing/coverage.md.
+#
+# RULE: a floor may only move UP. CI fails when a unit drops BELOW its recorded
+# floor. CI never fails for being below `target`.
+#
+# `target = 80.0` is SPEC §25's "coverage floor 80% on protocol/crypto crates".
+# It is REPORTED on every run and ENFORCED BY NOTHING. 26.19 ships the
+# measurement and the ratchet, not the 80% destination.
+#
+# Raising a floor is normal work: add tests, re-run, write the new number here.
+# Lowering one is allowed but must be a visible edit with a reason in the same
+# commit. There is no automatic decay.
+
+[meta]
+measured_by = "t19-e3 (tag 26.19) -- the repo had no coverage tooling before this"
+metric = "lines"
+rust_command = "cargo llvm-cov --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile --no-report --no-fail-fast -- --test-threads=1"
+web_command = "pnpm -C apps/web test:coverage"
+# Absorbs sub-point jitter (test reordering, timing-dependent branches).
+tolerance_pp = 0.25
+# Allowance applied when floors are transplanted from a host other than the one
+# CI measures on. 0.0 while floors come straight from an `ubuntu-latest` run.
+baseline_margin_pp = 0.0
+
+# -----------------------------------------------------------------------------
+# Rust
+# -----------------------------------------------------------------------------
+# NOT YET POPULATED -- deliberately, and this is the honest state rather than a
+# gap. Coverage must be recorded from the platform CI measures on: three crates
+# (`mw-sandbox`, `mw-render`, `mw-server`) carry `#[cfg(target_os = ...)]`
+# bodies whose lines do not exist in a non-Linux build at all, so a floor
+# transplanted from another host would redden CI for reasons unrelated to any
+# change under review.
+#
+# Until floors are recorded here, the `ratchet` job REPORTS every measured crate
+# under "measured but not gated" and enforces nothing on the Rust side. The
+# first `coverage.yml` run on `master` is the baseline-generating run.
+#
+# To populate (mechanical, ~10 minutes -- procedure in docs/testing/coverage.md):
+#   1. Read the per-crate table from a green `coverage.yml` run on `master`.
+#   2. Add a `[rust.crate."<name>"]` block per crate with `floor = <measured>`.
+#   3. Add `target = 80.0` + `class = "protocol"|"crypto"` to the SPEC §25 set.
+#   4. Flip `gate` below to `true` in the same commit.
+[rust]
+gate = false
+
+# Shape of a populated entry:
+#
+#   [rust.crate."mw-crypto"]
+#   floor  = 63.2       # measured; may only move up
+#   target = 80.0       # SPEC §25; reported, never enforced
+#   class  = "crypto"
+#
+#   [rust.crate."mw-sandbox"]
+#   floor = 41.0
+#   gate  = false       # per-crate opt-out, e.g. cfg(target_os) bodies
+#
+# SPEC §25's "protocol/crypto crates" is read as:
+#   protocol = mw-imap, mw-pop3, mw-smtp, mw-sieve, mw-jmap, mw-mime,
+#              mw-dav, mw-carddav, mw-ics, mw-autoconfig
+#   crypto   = mw-crypto, mw-sanitize, mw-export, mw-mfa, mw-oauth, mw-sso
+# That reading is recorded here so it is reviewable rather than implicit.
+
+# -----------------------------------------------------------------------------
+# Web
+# -----------------------------------------------------------------------------
+# Gating from day one. vitest under Node is platform-independent, so these were
+# measured with the exact command CI runs -- on a clean `git worktree` at HEAD,
+# so no concurrent work contaminated them. 879 tests, 259 source files measured.
+[web]
+gate = true
+
+[web.metric.lines]
+floor = 83.13  # measured 83.13% (18928/22767)
+
+[web.metric.statements]
+floor = 83.13  # measured 83.13% (18928/22767)
+
+[web.metric.branches]
+floor = 87.08  # measured 87.08% (7939/9116)
+
+[web.metric.functions]
+floor = 74.64  # measured 74.64% (2771/3712)

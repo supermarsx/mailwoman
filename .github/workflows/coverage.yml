@@ -1,0 +1,328 @@
+name: coverage
+
+# Coverage measurement + ratchet (t19 / 26.19).
+#
+# SPEC §25 asks for "Coverage floor 80% on protocol/crypto crates". Until this
+# workflow existed the repo measured nothing at all and reported raw test counts
+# instead. 26.19 ships the MEASUREMENT and the RATCHET; it does not ship the 80%
+# destination. See docs/testing/coverage.md.
+#
+# The gate is a ratchet, not a cliff: `.github/coverage-floors.toml` records the
+# measured baseline per unit and CI fails only when a unit drops BELOW its
+# recorded floor. The SPEC 80% figure is carried in the same file as `target`,
+# which is reported but never enforced.
+#
+# This workflow is deliberately a NEW file: `ci.yml` has a single owner and is
+# not edited here.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch: {}
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # Test/report files that are not production code. Test harness sources would
+  # otherwise report as ~100% covered and inflate every crate that owns a
+  # `tests/` directory.
+  # Both separators are accepted so a developer running the same command on
+  # Windows gets the same denominator CI does.
+  COVERAGE_IGNORE_REGEX: '[\\/](tests|benches|examples|fuzz)[\\/]|[\\/]build\.rs$'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Rust: one instrumented workspace pass via cargo-llvm-cov.
+  #
+  # cargo-llvm-cov is installed as a CI BINARY (taiki-e/install-action) — it is
+  # never a workspace dependency, so `Cargo.lock` is untouched and the shipped
+  # binaries gain nothing.
+  #
+  # `--test-threads=1` is load-bearing, not caution: a whole-workspace pass is
+  # exactly the shape that trips the shared `_sqlx_migrations` cross-binary
+  # flake, and it is also the repo's canonical release gate. Keeping it here
+  # means this workflow does not depend on the separate test-isolation work
+  # landing. It may be relaxed only after a clean 3/3 default-parallel run.
+  # ---------------------------------------------------------------------------
+  rust:
+    runs-on: ubuntu-latest
+    # Generous on purpose: ~1500 tests across ~190 binaries, single-threaded,
+    # with coverage instrumentation on top. On the dev host the uninstrumented
+    # single-threaded workspace run alone is ~20 min. Tune down once a few real
+    # runs have established the actual wall clock.
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # Instrumented artifacts have different rustflags to the `ci.yml`
+          # build; a separate cache key keeps the two from evicting each other.
+          key: llvm-cov
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      - name: instrumented workspace test run
+        run: >-
+          cargo llvm-cov --workspace
+          --exclude mailwoman-desktop --exclude mailwoman-mobile
+          --no-report --no-fail-fast
+          -- --test-threads=1
+      - name: per-file report (json)
+        run: >-
+          cargo llvm-cov report --workspace
+          --exclude mailwoman-desktop --exclude mailwoman-mobile
+          --summary-only --json
+          --ignore-filename-regex "$COVERAGE_IGNORE_REGEX"
+          --output-path rust-coverage.json
+      - name: per-file report (lcov, for external viewers)
+        run: >-
+          cargo llvm-cov report --workspace
+          --exclude mailwoman-desktop --exclude mailwoman-mobile
+          --lcov
+          --ignore-filename-regex "$COVERAGE_IGNORE_REGEX"
+          --output-path rust-coverage.lcov
+      - name: per-file report (text, for the run log)
+        run: >-
+          cargo llvm-cov report --workspace
+          --exclude mailwoman-desktop --exclude mailwoman-mobile
+          --ignore-filename-regex "$COVERAGE_IGNORE_REGEX"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rust-coverage
+          path: |
+            rust-coverage.json
+            rust-coverage.lcov
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Web: vitest + @vitest/coverage-v8 (devDependency only, never bundled).
+  # ---------------------------------------------------------------------------
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: install
+        run: pnpm -C apps/web install --frozen-lockfile
+      - name: test with coverage
+        run: pnpm -C apps/web test:coverage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-coverage
+          path: |
+            apps/web/test-results/coverage/coverage-summary.json
+            apps/web/test-results/coverage/lcov.info
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # The ratchet itself. Reads both reports and compares them against the
+  # recorded floors. Runs as its own job so a measurement failure and a
+  # RATCHET failure are never confused with one another.
+  # ---------------------------------------------------------------------------
+  ratchet:
+    runs-on: ubuntu-latest
+    needs: [rust, web]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: rust-coverage
+          path: reports
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-coverage
+          path: reports
+      - name: check floors
+        run: |
+          cat > "$RUNNER_TEMP/check-floors.py" <<'PYEOF'
+          #!/usr/bin/env python3
+          """Coverage ratchet checker.
+
+          Compares measured coverage against the floors recorded in
+          .github/coverage-floors.toml. Fails ONLY on regression below a
+          recorded floor -- never on distance from the SPEC §25 target.
+
+          Usage: check-floors.py <floors.toml> <llvm-cov.json> <web-summary.json>
+          A report path of "-" (or a missing file) skips that half.
+          """
+          import json
+          import os
+          import re
+          import sys
+          import tomllib
+
+          # crates/<name>/... , plugins/<name>/... , apps/<name>/...
+          UNIT = re.compile(r"(?:^|[\\/])(crates|plugins|apps)[\\/]([A-Za-z0-9_.-]+)[\\/]")
+
+
+          def unit_of(filename):
+              m = UNIT.search(filename)
+              return m.group(2) if m else None
+
+
+          def pct(covered, count):
+              return 100.0 * covered / count if count else 100.0
+
+
+          def load(path):
+              if path == "-" or not os.path.exists(path):
+                  return None
+              with open(path, "rb") as fh:
+                  return json.load(fh)
+
+
+          def aggregate_rust(report):
+              """llvm-cov export JSON -> {crate: (covered, count)} over `lines`."""
+              acc = {}
+              for block in report.get("data", []):
+                  for f in block.get("files", []):
+                      unit = unit_of(f["filename"])
+                      if unit is None:
+                          continue
+                      s = f["summary"]["lines"]
+                      c, n = acc.get(unit, (0, 0))
+                      acc[unit] = (c + s["covered"], n + s["count"])
+              return acc
+
+
+          def main():
+              floors_path, rust_path, web_path = sys.argv[1], sys.argv[2], sys.argv[3]
+              with open(floors_path, "rb") as fh:
+                  cfg = tomllib.load(fh)
+
+              tol = float(cfg.get("meta", {}).get("tolerance_pp", 0.0))
+              rows, failures, advisory, notes = [], [], [], []
+
+              rust_cfg = cfg.get("rust", {})
+              rust_gates = bool(rust_cfg.get("gate", True))
+              rust_report = load(rust_path)
+              if rust_report is None:
+                  print(f"NOTE: no Rust report at {rust_path}; skipping the Rust half.")
+              else:
+                  measured = aggregate_rust(rust_report)
+                  recorded = rust_cfg.get("crate", {})
+                  for name in sorted(recorded):
+                      spec = recorded[name]
+                      # A crate may opt out individually -- used for the crates
+                      # whose bodies are #[cfg(target_os = ...)] gated, whose
+                      # denominator differs per platform until re-baselined.
+                      sink = (failures if rust_gates and bool(spec.get("gate", True))
+                              else advisory)
+                      floor = float(spec["floor"])
+                      target = spec.get("target")
+                      if name not in measured:
+                          sink.append(
+                              f"{name}: recorded in coverage-floors.toml but ABSENT from "
+                              "the measured report -- renamed, removed, or its tests did "
+                              "not run. Losing a measurement is treated as a failure."
+                          )
+                          rows.append((name, "-", floor, target, "MISSING"))
+                          continue
+                      covered, count = measured[name]
+                      got = pct(covered, count)
+                      ok = got >= floor - tol
+                      if not ok:
+                          sink.append(
+                              f"{name}: {got:.2f}% is below the recorded floor "
+                              f"{floor:.2f}% (tolerance {tol}pp)."
+                          )
+                      rows.append((name, f"{got:.2f}", floor, target,
+                                   ("ok" if ok else
+                                    "BELOW FLOOR" if sink is failures else
+                                    "below floor (advisory)")))
+                  for name in sorted(set(measured) - set(recorded)):
+                      covered, count = measured[name]
+                      notes.append(f"`{name}` measured {pct(covered, count):.2f}% "
+                                   "-- no recorded floor, not gated.")
+
+              web_report = load(web_path)
+              if web_report is None:
+                  print(f"NOTE: no web report at {web_path}; skipping the web half.")
+              else:
+                  web_cfg = cfg.get("web", {})
+                  sink = failures if bool(web_cfg.get("gate", True)) else advisory
+                  totals = web_report["total"]
+                  for metric, spec in sorted(web_cfg.get("metric", {}).items()):
+                      floor = float(spec["floor"])
+                      target = spec.get("target")
+                      got = float(totals[metric]["pct"])
+                      ok = got >= floor - tol
+                      if not ok:
+                          sink.append(f"web/{metric}: {got:.2f}% is below the recorded "
+                                      f"floor {floor:.2f}%.")
+                      rows.append((f"web/{metric}", f"{got:.2f}", floor, target,
+                                   "ok" if ok else "BELOW FLOOR"))
+
+              out = ["| unit | measured % | floor % | SPEC target % | status |",
+                     "|---|---:|---:|---:|---|"]
+              for name, got, floor, target, status in rows:
+                  tgt = "" if target is None else f"{float(target):.2f}"
+                  out.append(f"| `{name}` | {got} | {floor:.2f} | {tgt} | {status} |")
+              table = "\n".join(out)
+              print(table)
+              if not rust_gates:
+                  print("\nRust floors are PROVISIONAL (rust.gate = false): reported, "
+                        "not enforced. See docs/testing/coverage.md.")
+              for line in notes:
+                  print("  note: " + line)
+
+              summary = os.environ.get("GITHUB_STEP_SUMMARY")
+              if summary:
+                  with open(summary, "a", encoding="utf-8") as fh:
+                      fh.write("## Coverage ratchet\n\n" + table + "\n")
+                      if not rust_gates:
+                          fh.write("\n> Rust floors are **provisional** "
+                                   "(`rust.gate = false`): reported, not enforced.\n")
+                      if notes:
+                          fh.write("\n<details><summary>Measured but not gated"
+                                   "</summary>\n\n")
+                          for line in notes:
+                              fh.write(f"- {line}\n")
+                          fh.write("\n</details>\n")
+                      for label, items in (("Advisory", advisory),
+                                           ("Regressions", failures)):
+                          if items:
+                              fh.write(f"\n### {label}\n\n")
+                              for item in items:
+                                  fh.write(f"- {item}\n")
+
+              if advisory:
+                  print("\nADVISORY (not gated):", file=sys.stderr)
+                  for item in advisory:
+                      print(f"  - {item}", file=sys.stderr)
+              if failures:
+                  print("\nCOVERAGE RATCHET FAILED:", file=sys.stderr)
+                  for item in failures:
+                      print(f"  - {item}", file=sys.stderr)
+                  return 1
+              print("\nCoverage ratchet: every enforced floor held.")
+              return 0
+
+
+          if __name__ == "__main__":
+              sys.exit(main())
+          PYEOF
+          python3 "$RUNNER_TEMP/check-floors.py" \
+            .github/coverage-floors.toml \
+            reports/rust-coverage.json \
+            reports/coverage-summary.json
