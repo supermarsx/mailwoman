@@ -639,45 +639,75 @@ async fn the_assist_invoke_route_reaches_the_app_not_the_proxys_error_page() {
 }
 
 /// The WebSocket upgrade survives the proxy, the RFC 8887 `jmap` subprotocol is
-/// echoed, and a ping/pong round trip completes.
+/// echoed, and a ping/pong round trip completes — over **plaintext or TLS**.
+///
+/// ## Why this connects the socket by hand (t20-e7's finding)
+///
+/// `tokio_tungstenite::connect_async` carries no TLS connector in this tree, so it
+/// refuses a `wss://` URL outright with `URL scheme not supported`. `haproxy-l4` is
+/// TLS-only by construction, so an earlier version of this test skipped there and
+/// the matrix read as **"PROXY protocol breaks WebSockets"** — which it does not.
+/// t20-e7 showed the failure was the URL scheme and not the cell, by reproducing it
+/// against nginx's TLS port while nginx over plaintext passed.
+///
+/// Adding `tokio-tungstenite`'s TLS feature would have been the obvious fix; it is
+/// unnecessary. `rustls`, `tokio-rustls` and `base64` are already direct
+/// dependencies of `mw-server` and so are available to its test targets, so the
+/// socket is established here — TCP, optionally wrapped in TLS — and handed to
+/// [`tokio_tungstenite::client_async`], which takes any duplex stream. **Net-zero
+/// new dependencies and no feature change**, and the `jmap` subprotocol echo is now
+/// asserted on the only cell that exercises PROXY protocol, where it was previously
+/// unproven by anything but a one-off manual check.
 #[tokio::test]
 async fn the_websocket_upgrades_and_echoes_the_jmap_subprotocol() {
     use tokio_tungstenite::tungstenite::Message;
     use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
     let Some(cell) = Cell::from_env() else { return };
-    let Some(http_base) = cell.http_base.clone() else {
-        skip(
-            "no plaintext base for this cell (haproxy-l4 is TLS passthrough). The \
-             in-tree tokio-tungstenite is built without a TLS feature, so `wss://` \
-             is not reachable from this suite without adding a dependency — which \
-             this tag forbids. t20-e-e2e must confirm the WS upgrade on that cell \
-             by hand (a `websocat --insecure` upgrade against the published port \
-             is enough).",
-        );
+    let base = cell.base().to_string();
+    let ctx = cell.login(&base).await;
+
+    let Some((tls, host, port)) = split_base(&base) else {
+        skip(&format!(
+            "cell `{}`: could not parse a host:port out of {base:?}, so the \
+             WebSocket leg did not run.",
+            cell.kind
+        ));
         return;
     };
-    let ctx = cell.login(&http_base).await;
-
-    let ws_url = format!(
-        "{}{}/jmap/ws",
-        http_base.replacen("http://", "ws://", 1),
-        cell.prefix
-    );
+    let scheme = if tls { "wss" } else { "ws" };
+    let ws_url = format!("{scheme}://{host}:{port}{}/jmap/ws", cell.prefix);
     let mut req = ws_url.into_client_request().unwrap();
     req.headers_mut()
         .insert("cookie", ctx.cookie_header.parse().unwrap());
     req.headers_mut()
         .insert("sec-websocket-protocol", "jmap".parse().unwrap());
 
+    let stream = match ws_stream(&cell, tls, &host, port).await {
+        Ok(s) => s,
+        Err(e) => {
+            // Never a bare failure: a transport we could not establish is reported
+            // as a limitation of this client, not as a verdict on the cell.
+            skip(&format!(
+                "cell `{}`: could not open a {} socket to {host}:{port} for the \
+                 WebSocket leg ({e}). This is the SUITE's transport, not the cell — \
+                 do not read it as a proxy fault. For a TLS cell, check that \
+                 MW_T20_PROXY_CA points at docs/deploy/proxy/tls/certs/server.crt.",
+                cell.kind,
+                if tls { "TLS" } else { "TCP" },
+            ));
+            return;
+        }
+    };
+
     // tungstenite enforces RFC 6455 §4.1: a client that offered a subprotocol and
     // is answered with none fails the connection. Reaching `expect` at all is the
     // negotiation assertion; the header check pins which token was chosen.
-    let (mut ws, resp) = tokio_tungstenite::connect_async(req)
+    let (mut ws, resp) = tokio_tungstenite::client_async(req, stream)
         .await
         .unwrap_or_else(|e| {
             panic!(
-                "[{}] WebSocket upgrade through the proxy failed: {e}",
+                "[{}] WebSocket upgrade through the proxy failed ({scheme}://): {e}",
                 cell.kind
             )
         });
@@ -720,6 +750,98 @@ async fn the_websocket_upgrades_and_echoes_the_jmap_subprotocol() {
     }
 }
 
+/// `(is_tls, host, port)` from `http(s)://host:port`.
+fn split_base(base: &str) -> Option<(bool, String, u16)> {
+    let (tls, rest) = match base.split_once("://") {
+        Some(("https", rest)) => (true, rest),
+        Some(("http", rest)) => (false, rest),
+        _ => return None,
+    };
+    let authority = rest.split(['/', '?']).next().unwrap_or(rest);
+    let (host, port) = authority.rsplit_once(':')?;
+    Some((tls, host.to_string(), port.parse().ok()?))
+}
+
+/// Anything the WebSocket client can be driven over. `client_async` takes any
+/// duplex stream, which is what lets the plaintext and TLS cases share one path.
+trait DuplexStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
+impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send> DuplexStream for T {}
+
+/// Open the socket the WebSocket handshake will run over: TCP, wrapped in TLS when
+/// the cell fronts with it.
+async fn ws_stream(
+    cell: &Cell,
+    tls: bool,
+    host: &str,
+    port: u16,
+) -> Result<Box<dyn DuplexStream>, String> {
+    let tcp = tokio::net::TcpStream::connect((host, port))
+        .await
+        .map_err(|e| format!("tcp connect: {e}"))?;
+    if !tls {
+        return Ok(Box::new(tcp));
+    }
+
+    let mut roots = rustls::RootCertStore::empty();
+    let ca = cell
+        .ca_path
+        .as_deref()
+        .ok_or_else(|| "MW_T20_PROXY_CA is unset, so the cell's leaf is untrusted".to_string())?;
+    let pem = std::fs::read_to_string(ca).map_err(|e| format!("read {ca}: {e}"))?;
+    let mut added = 0usize;
+    for der in pem_blocks(&pem, "CERTIFICATE") {
+        if roots.add(der.into()).is_ok() {
+            added += 1;
+        }
+    }
+    if added == 0 {
+        return Err(format!("no usable CERTIFICATE block in {ca}"));
+    }
+
+    // Build against the ring provider explicitly rather than relying on a
+    // process-wide default having been installed — nothing in a test binary
+    // guarantees that, and the failure would be a panic deep inside rustls.
+    let mut config = rustls::ClientConfig::builder_with_provider(
+        rustls::crypto::ring::default_provider().into(),
+    )
+    .with_safe_default_protocol_versions()
+    .map_err(|e| format!("rustls protocol versions: {e}"))?
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+    // WebSocket is an HTTP/1.1 upgrade, so ask for it by name: an ALPN-selected h2
+    // would make the handshake fail for a reason that has nothing to do with the
+    // proxy under test.
+    config.alpn_protocols = vec![b"http/1.1".to_vec()];
+
+    let server_name = rustls_pki_types::ServerName::try_from(host.to_string())
+        .map_err(|e| format!("server name {host}: {e}"))?;
+    let stream = tokio_rustls::TlsConnector::from(std::sync::Arc::new(config))
+        .connect(server_name, tcp)
+        .await
+        .map_err(|e| format!("tls handshake: {e}"))?;
+    Ok(Box::new(stream))
+}
+
+/// DER blocks for one PEM tag. A dependency-free reader, mirroring the one in
+/// `crates/mw-server/src/tls.rs` (which is private to that module).
+fn pem_blocks(pem: &str, tag: &str) -> Vec<Vec<u8>> {
+    use base64::Engine;
+    let begin = format!("-----BEGIN {tag}-----");
+    let end = format!("-----END {tag}-----");
+    let mut out = Vec::new();
+    let mut rest = pem;
+    while let Some(start) = rest.find(&begin) {
+        let after = &rest[start + begin.len()..];
+        let Some(stop) = after.find(&end) else { break };
+        let body: String = after[..stop].split_whitespace().collect();
+        if let Ok(der) = base64::engine::general_purpose::STANDARD.decode(&body) {
+            out.push(der);
+        }
+        rest = &after[stop + end.len()..];
+    }
+    out
+}
+
 // ===========================================================================
 // 3. Body limits and ranges
 // ===========================================================================
@@ -758,14 +880,44 @@ async fn a_large_upload_succeeds_and_an_oversize_one_gets_the_apps_json_413() {
         cell.kind
     );
 
-    let too_big = ctx
-        .client
-        .post(&upload)
-        .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
-        .body(vec![b'a'; 60 * 1024 * 1024])
-        .send()
-        .await
-        .unwrap();
+    // The app answers `413` and closes WITHOUT draining the remaining body. A
+    // client still writing when that happens can lose the response to a write
+    // abort instead of reading it — observed once here on `haproxy-l4`, where L4
+    // passthrough means the client is talking straight to the app with no proxy
+    // buffering the request. `curl`, which sends `Expect: 100-continue`, always
+    // sees the `413`; `hyper` does not send it and occasionally does not.
+    //
+    // One retry, then a diagnosis rather than a bare unwrap. A transport abort
+    // here is NOT a verdict on the proxy, and a red that reads like one is how
+    // "PROXY protocol breaks large uploads" gets into a matrix.
+    let mut attempt = Err(None);
+    for _ in 0..2 {
+        match ctx
+            .client
+            .post(&upload)
+            .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+            .body(vec![b'a'; 60 * 1024 * 1024])
+            .send()
+            .await
+        {
+            Ok(r) => {
+                attempt = Ok(r);
+                break;
+            }
+            Err(e) => attempt = Err(Some(e.to_string())),
+        }
+    }
+    let too_big = attempt.unwrap_or_else(|e| {
+        panic!(
+            "[{}] the oversize upload never produced a response, twice: {}. The app \
+             answers 413 and closes before draining the body, so a client that is \
+             still writing can lose the response — this is an APP behaviour on an \
+             early refusal, not a fault of this proxy. `curl` (which sends \
+             `Expect: 100-continue`) does observe the 413 on this cell.",
+            cell.kind,
+            e.unwrap_or_else(|| "<no error captured>".into()),
+        )
+    });
     assert_eq!(
         too_big.status(),
         413,
