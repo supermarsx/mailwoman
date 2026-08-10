@@ -194,9 +194,25 @@ auditor does not mistake groundwork for a guarantee:
   resolver isn't wired, so sends land in the Outbox — the safe default).
 - **Scoped-key enforcement** for `/api/v1` is described as the model + intended enforcement;
   verify coverage empirically (honest 26.7 note).
-- **TypeScript UI-plugin tier is unimplemented**; the plugin WIT exports mail only
-  (calendar/tasks/reactions fixture-tested, not seam-wired).
+- **TypeScript UI-plugin tier IS implemented** (`apps/web/src/plugins-ui/`, mounted from
+  `App.tsx`) — corrected 26.19, this line said "unimplemented" and had been wrong since
+  26.2. Audit it. The plugin WIT still exports mail only (calendar/tasks/reactions
+  fixture-tested, not seam-wired).
 - **EWS Kerberos** is a documented BYO gap (reverse-proxy auth); native is post-1.0.
-- **Screen-capture watermark** is a deterrent with stated limits, not a DRM control.
+- **Screen capture is controlled in the shells only.** OS-enforced exclusion is real on
+  Windows/macOS/Android. The **browser watermark does not render** — server config and
+  route exist, the web client has no consumer — so a web deployment has no capture
+  control at all, not a weak one. Corrected 26.19.
 - **DLP** is advisory/best-effort, not a confidentiality control.
-- **No OIDC/SAML SSO** — never built (documented 1.0 gap / deferred decision).
+- **OIDC/SAML SSO IS built** — `crates/mw-sso` ships both (full SAML: AuthnRequest, ACS,
+  assertion validation, c14n, XML-DSig, metadata), mounted via `sso_router` +
+  `admin_sso_router` and reachable from the login screen. Corrected 26.19; this line said
+  "never built" and had been wrong since 26.9. **It is in scope for an audit** — a
+  hand-rolled XML signature-verification path on attacker-reachable input is exactly the
+  kind of surface this section exists to route attention to, and it was excluded by a
+  stale line.
+- **Client-side encrypted search does not exist** (added 26.19). `docs/security/zero-access.md`
+  and the threat model previously asserted that search runs entirely in the browser over a
+  Tantivy slice in OPFS encrypted under the search key. There is no client-side Tantivy in
+  the bundle and the `'search'` subkey has no consumer. **Do not audit it as a control.**
+  The server-side index is in-memory and built over plaintext.

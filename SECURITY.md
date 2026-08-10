@@ -50,8 +50,14 @@ project is developed in the open and moves forward on the rolling line.
 
 | Version line | Supported |
 |---|---|
-| Latest rolling release (currently the `26.x` line, baseline `26.8.0`) | Yes — security fixes land here |
+| The latest tagged rolling release on the current `YY.x` line | Yes — security fixes land here |
 | Any older release | No — upgrade to the latest release |
+
+The supported version is deliberately **not** restated as a number here. This row
+previously named a fixed baseline (`26.8.0`) and had been stale for ten releases —
+which is the same failure mode this file's *Honest scope boundaries* section exists
+to avoid. The authoritative list of tags is `VERSIONING.md`; the newest one is the
+supported one.
 
 Security fixes are applied to the current rolling line; users on older releases should
 upgrade. (Note: SPEC §27 refers to a "1.0" maturity milestone; per `VERSIONING.md` and the
@@ -74,6 +80,12 @@ understand what is and is not protected. They are documented in full in
   mail/PIM against a curious operator or a breached/stolen store. It does **not** defend
   against a fully malicious server that actively proxies your live IMAP/SMTP traffic. See
   [`docs/security/zero-access.md`](docs/security/zero-access.md).
+- **Client-side encrypted search does not exist.** `zero-access.md` and the threat model
+  used to state that search runs entirely in the browser over a Tantivy index slice in
+  OPFS, encrypted under the search key. There is no client-side Tantivy in the bundle and
+  the derived search subkey has no consumer. Corrected in 26.19 — **do not audit it as a
+  control.** The practical effect is that a zero-access account has no working full-text
+  search, not that it has a private one.
 - **Prompt injection is bounded, not solved.** The MCP server and Assist reduce the blast
   radius with provenance labels and least-authority scopes, but a client that ignores
   provenance or an over-granted key can still be steered by hostile mail. See
@@ -81,17 +93,33 @@ understand what is and is not protected. They are documented in full in
 - **PQC is groundwork.** The shipped post-quantum work is a hybrid X25519 + ML-KEM-768
   key-wrap of the at-rest store key; **`ml-kem` is unaudited** and this is not a user-facing
   E2EE claim. TLS hybrid is not enabled. See [`docs/security/crypto.md`](docs/security/crypto.md).
-- **The plugin sandbox covers the engine (WASM) tier.** The TypeScript UI-plugin tier is
-  not implemented; the plugin WIT exports the mail account-backend (calendar/tasks/reactions
-  are fixture-tested but not yet seam-wired).
+- **The plugin sandbox covers both tiers.** The engine tier is WASM (wasmtime), and the
+  TypeScript **UI-plugin tier is implemented and mounted** (`apps/web/src/plugins-ui/`,
+  rendered from `App.tsx`) — this entry previously said it was not built, and had been
+  wrong since 26.2. It is a separate sandbox from the WASM tier and does not open
+  third-party on-disk WASM loading, which stays deny-by-default. The plugin WIT exports
+  the mail account-backend; calendar/tasks/reactions are fixture-tested but not yet
+  seam-wired.
 - **MCP unattended send** is unreachable without an admin-countersigned key; by default
   agent-initiated sends land in the Outbox for human confirmation.
 - **DLP is advisory/best-effort**, not a confidentiality control; a determined insider can
   evade content detectors.
-- **The screen-capture watermark** is a deterrent with stated limits, not a DRM control. See
+- **Screen capture is controlled in the shells only, and not at all in the browser.**
+  OS-enforced exclusion is real on Windows, macOS and Android. The watermark that was
+  meant to be the browser's fallback **does not render**: the server config and route
+  exist, and the web client has no overlay, no CSS and no fetch for it. So a web
+  deployment has **no** screen-capture control, rather than a weak one — this entry
+  previously described the watermark as a shipped deterrent. See
   [`docs/security/screen-capture.md`](docs/security/screen-capture.md).
-- **EWS Kerberos** is a documented bring-your-own gap (reverse-proxy auth); **OIDC/SAML SSO**
-  is not built.
+- **EWS Kerberos** is a documented bring-your-own gap (reverse-proxy auth).
+- **OIDC/SAML SSO is built** — `crates/mw-sso` ships both, including full SAML
+  (AuthnRequest, ACS, assertion validation, XML c14n and signature verification, and
+  metadata). Both are mounted (`sso_router` + `admin_sso_router`) and reachable from the
+  login screen, which lists the configured providers. This entry said SSO was not built
+  and had been wrong since 26.9. It is corrected here rather than left because it was
+  wrong in the *safe* direction: a reader who catches one stale line in this section has
+  no way to tell which of the others are stale too, and the section's whole value is
+  that it can be trusted without checking.
 
 ## External security audit (human-gated)
 

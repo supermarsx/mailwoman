@@ -1,8 +1,11 @@
 # TypeScript UI-plugin tier (SPEC §22.2)
 
-> **Status:** scaffold (t10-e0). The web sandbox host is filled by t10-e10, the
-> server registry + admin approval by t10-e11, and the tier is mounted by t10-e13.
-> This page is a skeleton those executors complete.
+> **Status: shipped.** This header said "scaffold … a skeleton those executors
+> complete" long after they completed it. The host, broker, client and slot
+> renderer are in `apps/web/src/plugins-ui/` with their own tests, and the tier is
+> mounted from `App.tsx`. `SECURITY.md` and the audit-prep surface inventory both
+> carried the matching "not implemented" line until 26.19; an auditor reading
+> either would have skipped a live sandbox.
 
 The UI-plugin tier lets a signed, admin-approved TypeScript bundle add UI into
 enumerated extension-point slots — **without** the ability to reach the host DOM,
