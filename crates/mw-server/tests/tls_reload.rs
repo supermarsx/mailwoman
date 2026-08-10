@@ -16,6 +16,9 @@ use rustls::{DigitallySignedStruct, SignatureScheme};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 
+mod common;
+use common::test_db;
+
 use mw_server::{TlsConfig, TlsListener};
 
 fn fixture(name: &str) -> PathBuf {
@@ -95,8 +98,7 @@ async fn handshake_leaf(addr: std::net::SocketAddr) -> Vec<u8> {
 #[tokio::test]
 async fn external_cert_listener_serves_and_hot_reloads() {
     // Stage cert1 into temp files.
-    let dir = std::env::temp_dir().join(format!("mw-tls-e2e-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_db::unique_dir("mw-tls-e2e");
     let cert = dir.join("cert.pem");
     let key = dir.join("key.pem");
     std::fs::copy(fixture("cert1.pem"), &cert).unwrap();

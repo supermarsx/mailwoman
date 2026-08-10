@@ -48,22 +48,11 @@ fn host() -> String {
     std::env::var("MW_T14_HOST").unwrap_or_else(|_| "127.0.0.1".into())
 }
 
-fn unique() -> String {
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    format!(
-        "{}_{}_{}",
-        std::process::id(),
-        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    )
-}
+mod common;
+use common::test_db;
 
 fn web_dir() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("mw-t14-md-web-{}", unique()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_db::unique_dir("mw-t14-md-web");
     std::fs::write(
         dir.join("index.html"),
         "<!doctype html><title>MW</title><div id=app>MW</div>",
@@ -170,7 +159,7 @@ async fn admin_server_metadata_set_get_remove_roundtrip_live() {
         eprintln!("\n[t14 metadata SKIP] MW_T14_LIVE!=1 — real Dovecot METADATA not driven.\n");
         return;
     }
-    let db = std::env::temp_dir().join(format!("mw-t14-md-{}.db", unique()));
+    let db = test_db::unique_db_path("mw-t14-md");
     let db_path = db.to_string_lossy().into_owned();
     let account_id = seed_account(&db_path).await;
     let base = spawn(db_path).await;
@@ -178,7 +167,7 @@ async fn admin_server_metadata_set_get_remove_roundtrip_live() {
     let cookie = admin_login(&c, &base).await;
 
     // A unique value so a re-run never reads a stale annotation.
-    let value = format!("t14-e2e-{}", unique());
+    let value = format!("t14-e2e-{}", test_db::unique_tag());
 
     // 1. SET the annotation against the SELECTED account's Dovecot backend.
     let set = admin_jmap(

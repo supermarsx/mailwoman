@@ -126,28 +126,17 @@ fn entry(
 
 // ── Harness ─────────────────────────────────────────────────────────────────
 
-/// A process-unique suffix (avoids a `uuid` test dep).
-fn unique() -> String {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static N: AtomicU64 = AtomicU64::new(0);
-    let n = N.fetch_add(1, Ordering::Relaxed);
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    format!("{nanos}-{n}")
-}
+mod common;
+use common::test_db;
 
 fn web_dir() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("mw-t9e3-web-{}", unique()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_db::unique_dir("mw-t9e3-web");
     std::fs::write(dir.join("index.html"), INDEX_HTML).unwrap();
     dir
 }
 
 fn db_path() -> String {
-    std::env::temp_dir()
-        .join(format!("mw-t9e3-{}.sqlite", unique()))
+    test_db::unique_file_path("mw-t9e3", "mw.sqlite")
         .to_string_lossy()
         .to_string()
 }

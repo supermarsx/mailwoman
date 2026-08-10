@@ -25,14 +25,8 @@ use serde_json::{Value, json};
 
 use mw_server::{AppConfig, build_app};
 
-fn unique() -> String {
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    format!(
-        "{}-{}",
-        std::process::id(),
-        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    )
-}
+mod common;
+use common::test_db;
 
 const INDEX_HTML: &str = "<!doctype html><title>Mailwoman</title><div id=app>MW</div>";
 
@@ -46,7 +40,7 @@ async fn spawn_mock() -> String {
 }
 
 async fn spawn_server() -> SocketAddr {
-    let base = std::env::temp_dir().join(format!("mw-t16-imgproxy-{}", unique()));
+    let base = test_db::unique_dir("mw-t16-imgproxy");
     let web = base.join("web");
     std::fs::create_dir_all(&web).unwrap();
     std::fs::write(web.join("index.html"), INDEX_HTML).unwrap();

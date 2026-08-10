@@ -25,21 +25,11 @@ use std::path::PathBuf;
 
 use mw_store::{PluginKvError, PluginKvLimits, ServerKey, Store};
 
-fn unique() -> String {
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    format!(
-        "{}_{}",
-        std::process::id(),
-        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    )
-}
+mod common;
+use common::test_db;
 
 fn temp_db_path(tag: &str) -> PathBuf {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    std::env::temp_dir().join(format!("mw-t15-kv-{tag}-{}-{nanos}.db", unique()))
+    test_db::unique_db_path(&format!("mw-t15-kv-{tag}"))
 }
 
 /// How the two `Store` instances (the "before" and "after" the restart) are opened over
@@ -71,10 +61,10 @@ async fn drive(backing: Backing, dialect: &str) {
     // A stable server key, carried by hex across the "restart".
     let key_hex = ServerKey::generate().to_hex();
     // Unique ids so a shared Postgres never collides across tests/legs.
-    let plugin_a = format!("plugin-a-{}", unique());
-    let plugin_b = format!("plugin-b-{}", unique());
-    let account = format!("acct-{}", unique());
-    let other_account = format!("acct-other-{}", unique());
+    let plugin_a = format!("plugin-a-{}", test_db::unique_tag());
+    let plugin_b = format!("plugin-b-{}", test_db::unique_tag());
+    let account = format!("acct-{}", test_db::unique_tag());
+    let other_account = format!("acct-other-{}", test_db::unique_tag());
     let secret = b"persist-me-across-a-restart-sealed-value";
 
     // ── Host #1: a granted plugin persists a value, then the host goes away. ──────────

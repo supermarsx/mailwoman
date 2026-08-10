@@ -29,22 +29,15 @@ use sqlx::sqlite::SqliteConnectOptions;
 // A FIXED key so a re-opened store unseals what the first open sealed.
 const KEY_HEX: &str = "1122334455667788990011223344556677889900112233445566778899001122";
 
-fn unique() -> String {
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    format!(
-        "{}-{}",
-        std::process::id(),
-        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    )
-}
+mod common;
+use common::test_db;
 
 fn key() -> ServerKey {
     ServerKey::from_hex(KEY_HEX).unwrap()
 }
 
 fn temp_db(tag: &str) -> String {
-    let dir = std::env::temp_dir().join(format!("mw-t17-note-{tag}-{}", unique()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_db::unique_dir(&format!("mw-t17-note-{tag}"));
     dir.join("mw.db").to_string_lossy().into_owned()
 }
 
@@ -55,7 +48,7 @@ struct Markers {
     color: String,
 }
 fn markers() -> Markers {
-    let u = unique();
+    let u = test_db::unique_tag();
     Markers {
         title: format!("CONFIDENTIAL-TITLE-{u}"),
         tag: format!("SECRETTAG-{u}"),
@@ -84,7 +77,7 @@ fn note(id: &str, account: &str, m: &Markers, pinned: bool, updated_at: &str) ->
 /// Create a real account row (notes has a FK to `accounts`; sqlx enables
 /// `foreign_keys` by default) and return its id.
 async fn seed_account(store: &Store) -> String {
-    let username = format!("note-user-{}@example.org", unique());
+    let username = format!("note-user-{}@example.org", test_db::unique_tag());
     store
         .create_account(
             &NewAccount {

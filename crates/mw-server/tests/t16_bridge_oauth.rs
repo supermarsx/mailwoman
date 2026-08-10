@@ -14,14 +14,8 @@
 
 use mw_store::{BridgeOauthTokenRow, ServerKey, Store};
 
-fn unique() -> String {
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    format!(
-        "{}-{}",
-        std::process::id(),
-        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    )
-}
+mod common;
+use common::test_db;
 
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {
     !needle.is_empty() && haystack.windows(needle.len()).any(|w| w == needle)
@@ -39,8 +33,7 @@ fn read_all_db_bytes(db_path: &str) -> Vec<u8> {
 
 #[tokio::test]
 async fn bridge_oauth_tokens_are_sealed_on_the_real_store_sqlite() {
-    let dir = std::env::temp_dir().join(format!("mw-t16-boauth-{}", unique()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_db::unique_dir("mw-t16-boauth");
     let db = dir.join("mw.db").to_string_lossy().into_owned();
     let store = Store::open(&db, ServerKey::generate()).await.unwrap();
 
@@ -97,8 +90,8 @@ async fn bridge_oauth_token_round_trips_on_live_postgres() {
     let store = Store::open(&dsn, ServerKey::generate())
         .await
         .expect("open live Postgres store");
-    let acct = format!("pg-bridge-{}", unique());
-    let access = format!("AT-{}", unique());
+    let acct = format!("pg-bridge-{}", test_db::unique_tag());
+    let access = format!("AT-{}", test_db::unique_tag());
     store
         .put_bridge_oauth_token(&BridgeOauthTokenRow {
             bridge_account_id: acct.clone(),

@@ -26,6 +26,9 @@ use std::path::PathBuf;
 
 use mw_server::{AppConfig, build_app};
 
+mod common;
+use common::test_db;
+
 fn dist_dir() -> PathBuf {
     // crates/mw-server → ../../apps/web/dist
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -37,14 +40,7 @@ fn dist_dir() -> PathBuf {
 }
 
 async fn spawn_server(web: PathBuf) -> String {
-    let db = std::env::temp_dir().join(format!(
-        "mw-t17-tt-{}-{}.db",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
+    let db = test_db::unique_db_path("mw-t17-tt");
     let config = AppConfig {
         db_path: db.to_string_lossy().into_owned(),
         server_key_hex: None,

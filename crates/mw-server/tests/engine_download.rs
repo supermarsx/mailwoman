@@ -15,16 +15,11 @@ use serde_json::{Value, json};
 
 use mw_server::{AppConfig, HardeningConfig, ServerMode, build_app};
 
+mod common;
+use common::test_db;
+
 async fn spawn_engine_server() -> (String, PathBuf) {
-    // Monotonic counter, not a timestamp: coarse Windows clock resolution lets
-    // parallel tests collide on the DB path and race sqlx migrations.
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let unique = format!(
-        "{}-{}",
-        std::process::id(),
-        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    );
-    let base = std::env::temp_dir().join(format!("mw-engine-dl-{unique}"));
+    let base = test_db::unique_dir("mw-engine-dl");
     let web_dir = base.join("web");
     std::fs::create_dir_all(&web_dir).unwrap();
     std::fs::write(

@@ -32,18 +32,8 @@ const INDEX_HTML: &str = "<!doctype html><title>Mailwoman</title><div id=app>MW<
 // Fixed key so the seeding Store and the server share the sealed-column key.
 const SERVER_KEY_HEX: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
 
-fn unique() -> String {
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    format!(
-        "{}_{}_{}",
-        std::process::id(),
-        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    )
-}
+mod common;
+use common::test_db;
 
 /// The db_path under test: the live Postgres DSN when set (the V6 lesson), else a fresh
 /// temp SQLite file (default gate). Returns `(db_path, on_postgres)`.
@@ -60,14 +50,13 @@ fn db_path() -> (String, bool) {
             "[t10-e14 dcr] MW_E14_PG_DSN unset — running on SQLite only. Set it (bring up \
              docker-compose.ci.yml postgres) to also exercise the Postgres path."
         );
-        let p = std::env::temp_dir().join(format!("mw-e14-dcr-{}.db", unique()));
+        let p = test_db::unique_db_path("mw-e14-dcr");
         (p.to_string_lossy().into_owned(), false)
     }
 }
 
 fn web_dir() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("mw-e14-dcr-web-{}", unique()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_db::unique_dir("mw-e14-dcr-web");
     std::fs::write(dir.join("index.html"), INDEX_HTML).unwrap();
     dir
 }

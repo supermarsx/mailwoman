@@ -38,14 +38,8 @@ const CLIENT_ID: &str = "client-t17";
 // A PKCE verifier ≥ 43 chars.
 const VERIFIER: &str = "verifier-abc-123-verifier-abc-123-verifier-xyz";
 
-fn unique() -> String {
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    format!(
-        "{}-{}",
-        std::process::id(),
-        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    )
-}
+mod common;
+use common::test_db;
 
 const INDEX_HTML: &str = "<!doctype html><title>Mailwoman</title><div id=app>MW</div>";
 
@@ -53,7 +47,7 @@ async fn spawn_engine_server(db_path: &str) -> SocketAddr {
     let web = PathBuf::from(db_path)
         .parent()
         .unwrap()
-        .join(format!("web-{}", unique()));
+        .join(format!("web-{}", test_db::unique_tag()));
     std::fs::create_dir_all(&web).unwrap();
     std::fs::write(web.join("index.html"), INDEX_HTML).unwrap();
     let config = AppConfig {
@@ -75,8 +69,7 @@ async fn spawn_engine_server(db_path: &str) -> SocketAddr {
 }
 
 fn temp_db() -> String {
-    let dir = std::env::temp_dir().join(format!("mw-t17-mcp-{}", unique()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_db::unique_dir("mw-t17-mcp");
     dir.join("mw.db").to_string_lossy().into_owned()
 }
 

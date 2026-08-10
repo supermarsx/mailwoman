@@ -33,14 +33,8 @@ use mw_store::{AccountKind, Credentials, NewAccount, ServerKey, Store};
 
 const UIDVALIDITY: u32 = 100;
 
-fn unique() -> String {
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    format!(
-        "{}_{}",
-        std::process::id(),
-        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    )
-}
+mod common;
+use common::test_db;
 
 /// A multipart/mixed invoice: a text part + a base64 `application/pdf` attachment
 /// whose decoded bytes are `%PDF-1.4\n` (base64 `JVBERi0xLjQK`).
@@ -253,7 +247,7 @@ fn forward_and_submit(att_blob: &str) -> Value {
 }
 
 async fn drive(store: Store, dialect: &str) {
-    let uname = format!("me-{}@example.org", unique());
+    let uname = format!("me-{}@example.org", test_db::unique_tag());
     let account_id = store
         .create_account(
             &NewAccount {

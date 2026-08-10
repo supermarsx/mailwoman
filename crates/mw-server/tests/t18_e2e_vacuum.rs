@@ -32,22 +32,15 @@ use sqlx::sqlite::SqliteConnectOptions;
 // A FIXED key so a re-opened store (and the CLI) unseal what the first open sealed.
 const KEY_HEX: &str = "1122334455667788990011223344556677889900112233445566778899001122";
 
-fn unique() -> String {
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    format!(
-        "{}-{}",
-        std::process::id(),
-        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    )
-}
+mod common;
+use common::test_db;
 
 fn key() -> ServerKey {
     ServerKey::from_hex(KEY_HEX).unwrap()
 }
 
 fn temp_db() -> String {
-    let dir = std::env::temp_dir().join(format!("mw-t18-vacuum-{}", unique()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_db::unique_dir("mw-t18-vacuum");
     dir.join("mw.db").to_string_lossy().into_owned()
 }
 
@@ -57,7 +50,7 @@ struct Markers {
     color: String,
 }
 fn markers() -> Markers {
-    let u = unique();
+    let u = test_db::unique_tag();
     Markers {
         title: format!("VACUUM-RESIDUE-TITLE-{u}"),
         tag: format!("VACUUMTAG-{u}"),
@@ -83,7 +76,7 @@ fn note(id: &str, account: &str, m: &Markers, updated_at: &str) -> NoteRow {
 }
 
 async fn seed_account(store: &Store) -> String {
-    let username = format!("vac-user-{}@example.org", unique());
+    let username = format!("vac-user-{}@example.org", test_db::unique_tag());
     store
         .create_account(
             &NewAccount {

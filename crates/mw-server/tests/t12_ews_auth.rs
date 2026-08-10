@@ -52,16 +52,8 @@ const GETITEM: &str = include_str!("../../../plugins/bridge-ews/fixtures/get_ite
 const ENDPOINT: &str = "https://ews.example.com/EWS/Exchange.asmx";
 const ENDPOINT_HOST: &str = "ews.example.com";
 
-fn unique(prefix: &str) -> String {
-    format!(
-        "{prefix}-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    )
-}
+mod common;
+use common::test_db;
 
 /// The db under test: live Postgres when `MW_E14_PG_DSN` is set (the V6 lesson),
 /// else a fresh temp SQLite file. Returns `(db, on_postgres)`.
@@ -78,7 +70,7 @@ fn db_target() -> (String, bool) {
             "[t12 ews_auth] MW_E14_PG_DSN unset — store leg on SQLite only. Set it (bring up \
              docker-compose.ci.yml postgres) to also exercise 0011 on Postgres."
         );
-        let p = std::env::temp_dir().join(format!("{}.db", unique("mw-t12-ews")));
+        let p = test_db::unique_db_path("mw-t12-ews");
         (p.to_string_lossy().into_owned(), false)
     }
 }
@@ -101,7 +93,7 @@ async fn seed_basic_account() -> Option<(Store, String)> {
             panic!("open sqlite store: {e}");
         }
     };
-    let account = unique("acct-ews");
+    let account = format!("acct-ews-{}", test_db::unique_tag());
     let cred = EwsAccountCred {
         account_id: account.clone(),
         endpoint: ENDPOINT.into(),

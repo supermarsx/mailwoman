@@ -14,6 +14,11 @@ use mw_store::{
     StoreKeyMaterialRow, SubmissionRow,
 };
 
+// Test-support helper; not part of the shipped `mw-store` library, so it is
+// reached by path rather than through the crate root. See its module docs.
+#[path = "../src/test_db.rs"]
+mod test_db;
+
 fn key() -> ServerKey {
     ServerKey::from_bytes(&[7u8; 32]).unwrap()
 }
@@ -480,14 +485,7 @@ async fn migrate_store_sqlite_to_postgres() {
     };
 
     // Populate a temp SQLite file store via the public API.
-    let dir = std::env::temp_dir();
-    let path = dir.join(format!(
-        "mw-store-migrate-{}.sqlite",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
+    let path = test_db::unique_file_path("mw-store-migrate", "src.sqlite");
     let path_str = path.to_string_lossy().to_string();
     let src = Store::open(&path_str, key()).await.unwrap();
     let _snapshot = run_ops(&src).await;

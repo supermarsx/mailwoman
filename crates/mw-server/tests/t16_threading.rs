@@ -25,14 +25,8 @@ use mw_store::{AccountKind, Credentials, NewAccount, ServerKey, Store};
 
 const UIDVALIDITY: u32 = 77;
 
-fn unique() -> String {
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    format!(
-        "{}-{}",
-        std::process::id(),
-        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    )
-}
+mod common;
+use common::test_db;
 
 /// One RFC822 message with optional threading headers.
 fn raw_msg(mid: &str, subject: &str, in_reply_to: Option<&str>, refs: &[&str]) -> Vec<u8> {
@@ -190,7 +184,7 @@ impl MailSubmitter for NoSubmit {
 }
 
 async fn make_account(store: &Store) -> String {
-    let uname = format!("me-{}@example.org", unique());
+    let uname = format!("me-{}@example.org", test_db::unique_tag());
     store
         .create_account(
             &NewAccount {

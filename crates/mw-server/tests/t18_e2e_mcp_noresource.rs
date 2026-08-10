@@ -33,14 +33,8 @@ const KEY_HEX: &str = "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c
 const PUBLIC_ORIGIN: &str = "https://mcp.example";
 const ACCOUNT: &str = "acct-mcp-nores";
 
-fn unique() -> String {
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    format!(
-        "{}-{}",
-        std::process::id(),
-        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    )
-}
+mod common;
+use common::test_db;
 
 const INDEX_HTML: &str = "<!doctype html><title>Mailwoman</title><div id=app>MW</div>";
 
@@ -48,7 +42,7 @@ async fn spawn_engine_server(db_path: &str) -> SocketAddr {
     let web = PathBuf::from(db_path)
         .parent()
         .unwrap()
-        .join(format!("web-{}", unique()));
+        .join(format!("web-{}", test_db::unique_tag()));
     std::fs::create_dir_all(&web).unwrap();
     std::fs::write(web.join("index.html"), INDEX_HTML).unwrap();
     let config = AppConfig {
@@ -70,8 +64,7 @@ async fn spawn_engine_server(db_path: &str) -> SocketAddr {
 }
 
 fn temp_db() -> String {
-    let dir = std::env::temp_dir().join(format!("mw-t18-mcpnr-{}", unique()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_db::unique_dir("mw-t18-mcpnr");
     dir.join("mw.db").to_string_lossy().into_owned()
 }
 
@@ -117,7 +110,7 @@ async fn seed(db_path: &str) -> (String, String) {
         .await
         .unwrap();
 
-    let bearer = format!("noresource-access-{}", unique());
+    let bearer = format!("noresource-access-{}", test_db::unique_tag());
     store
         .put_oauth_token(&OAuthTokenRow {
             token_hash: sha256_hex(&bearer),

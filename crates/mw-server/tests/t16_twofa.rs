@@ -51,14 +51,8 @@ fn b64url(bytes: &[u8]) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
 
-fn unique() -> String {
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    format!(
-        "{}-{}",
-        std::process::id(),
-        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    )
-}
+mod common;
+use common::test_db;
 
 const INDEX_HTML: &str = "<!doctype html><title>Mailwoman</title><div id=app>MW_TEST_INDEX</div>";
 
@@ -78,7 +72,7 @@ async fn spawn_server(db_path: &str) -> SocketAddr {
     let base = PathBuf::from(db_path)
         .parent()
         .unwrap()
-        .join(format!("web-{}", unique()));
+        .join(format!("web-{}", test_db::unique_tag()));
     std::fs::create_dir_all(&base).unwrap();
     std::fs::write(base.join("index.html"), INDEX_HTML).unwrap();
 
@@ -101,8 +95,7 @@ async fn spawn_server(db_path: &str) -> SocketAddr {
 }
 
 fn temp_db(tag: &str) -> String {
-    let dir = std::env::temp_dir().join(format!("mw-t16-2fa-{tag}-{}", unique()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_db::unique_dir(&format!("mw-t16-2fa-{tag}"));
     dir.join("mw.db").to_string_lossy().into_owned()
 }
 
@@ -569,7 +562,7 @@ async fn twofa_secrets_round_trip_on_live_postgres() {
     let store = Store::open(&dsn, ServerKey::generate())
         .await
         .expect("open live Postgres store");
-    let acct = format!("pg-2fa-{}", unique());
+    let acct = format!("pg-2fa-{}", test_db::unique_tag());
     let secret = totp::generate_secret();
     store.put_totp_secret(&acct, &secret, true).await.unwrap();
     // seal/unseal + the 0015 totp_secrets SQL round-trips in the Postgres dialect.

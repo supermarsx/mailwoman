@@ -25,6 +25,9 @@ use tokio::sync::mpsc;
 use mw_engine::StateChange;
 use mw_server::{AppConfig, HardeningConfig, PushHandle, build_app_with_push};
 
+mod common;
+use common::test_db;
+
 const INDEX_HTML: &str = "<!doctype html><title>Mailwoman</title><div id=app>MW</div>";
 
 /// A well-formed browser subscription: the base64url of a valid uncompressed P-256
@@ -49,13 +52,7 @@ async fn spawn_mock() -> String {
 }
 
 async fn spawn_server() -> (String, SocketAddr, PushHandle) {
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let unique = format!(
-        "{}-{}",
-        std::process::id(),
-        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    );
-    let base = std::env::temp_dir().join(format!("mw-pushv5-{unique}"));
+    let base = test_db::unique_dir("mw-pushv5");
     let web_dir = base.join("web");
     std::fs::create_dir_all(&web_dir).unwrap();
     std::fs::write(web_dir.join("index.html"), INDEX_HTML).unwrap();

@@ -26,6 +26,9 @@ use base64::Engine as _;
 use mw_server::{AppConfig, HardeningConfig, SecurityConfig, ServerMode, build_app};
 use mw_store::{AccountKind, Credentials, NewAccount, ServerKey, Store};
 
+mod common;
+use common::test_db;
+
 // ── Fixed live-stack coordinates (match scripts/keycloak/realm.json) ──────────
 const KC_BASE: &str = "http://localhost:8080";
 const REALM: &str = "mailwoman";
@@ -88,27 +91,13 @@ async fn fetch_saml_signing_cert() -> String {
 }
 
 fn web_dir() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "mw-t9e6-web-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_db::unique_dir("mw-t9e6-web");
     std::fs::write(dir.join("index.html"), INDEX_HTML).unwrap();
     dir
 }
 
 fn db_path() -> String {
-    std::env::temp_dir()
-        .join(format!(
-            "mw-t9e6-{}.sqlite",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ))
+    test_db::unique_file_path("mw-t9e6", "mw.sqlite")
         .to_string_lossy()
         .to_string()
 }

@@ -12,6 +12,9 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use serde_json::{Value, json};
 
+mod common;
+use common::test_db;
+
 use mw_engine::StateChange;
 use mw_server::{
     AppConfig, HardeningConfig, PushHandle, SecurityConfig, WatermarkConfig, build_app_with_push,
@@ -32,13 +35,7 @@ async fn spawn_mock() -> String {
 /// Spawn mw-server (proxy mode) with an explicit [`SecurityConfig`], returning
 /// (base URL, SocketAddr, push handle, temp dir root for cleanup-free scoping).
 async fn spawn_server(security: SecurityConfig) -> (String, SocketAddr, PushHandle) {
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let unique = format!(
-        "{}-{}",
-        std::process::id(),
-        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    );
-    let base = std::env::temp_dir().join(format!("mw-sec-test-{unique}"));
+    let base = test_db::unique_dir("mw-sec-test");
     let web_dir = base.join("web");
     std::fs::create_dir_all(&web_dir).unwrap();
     std::fs::write(web_dir.join("index.html"), INDEX_HTML).unwrap();
@@ -95,11 +92,7 @@ async fn login(c: &reqwest::Client, server: &str, mock: &str) -> String {
 
 /// A temp directory unique to the caller.
 fn tempdir(tag: &str) -> PathBuf {
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let p = std::env::temp_dir().join(format!("mw-sec-{tag}-{}-{n}", std::process::id()));
-    std::fs::create_dir_all(&p).unwrap();
-    p
+    test_db::unique_dir(&format!("mw-sec-{tag}"))
 }
 
 // ── WKD publishing ────────────────────────────────────────────────────────────

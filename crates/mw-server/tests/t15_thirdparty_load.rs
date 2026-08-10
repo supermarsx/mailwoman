@@ -56,23 +56,11 @@ const FIRST_PARTY_IDS: &[&str] = &[
     "nextcloud-plugin",
 ];
 
-fn unique() -> String {
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    format!(
-        "{}_{}",
-        std::process::id(),
-        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    )
-}
+mod common;
+use common::test_db;
 
 fn temp_dir(tag: &str) -> PathBuf {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let d = std::env::temp_dir().join(format!("mw-t15-tp-{tag}-{}-{nanos}", unique()));
-    std::fs::create_dir_all(&d).unwrap();
-    d
+    test_db::unique_dir(&format!("mw-t15-tp-{tag}"))
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -100,7 +88,7 @@ async fn admits(store: &Store, dir: &Path, id: &str) -> bool {
 /// The full positive + negative trust-store proof against a real store.
 async fn drive(store: Store, dialect: &str) {
     let dir = temp_dir(dialect);
-    let id = format!("acme-thirdparty-{}", unique());
+    let id = format!("acme-thirdparty-{}", test_db::unique_tag());
     let bytes = b"\x00asm-third-party-component-bytes-not-first-party".to_vec();
     std::fs::write(dir.join(format!("{id}.wasm")), &bytes).unwrap();
     let digest = sha256_hex(&bytes);

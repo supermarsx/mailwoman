@@ -36,22 +36,11 @@ const ADMIN_USER: &str = "root";
 const ADMIN_PASS: &str = "hunter2";
 const SERVER_KEY_HEX: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
 
-fn unique() -> String {
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    format!(
-        "{}_{}_{}",
-        std::process::id(),
-        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    )
-}
+mod common;
+use common::test_db;
 
 fn web_dir() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("mw-t14-jwz-web-{}", unique()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_db::unique_dir("mw-t14-jwz-web");
     std::fs::write(
         dir.join("index.html"),
         "<!doctype html><title>MW</title><div id=app>MW</div>",
@@ -114,7 +103,7 @@ async fn seed_corpus(db_path: &str) -> (String, [String; 5]) {
     let key = ServerKey::from_hex(SERVER_KEY_HEX).unwrap();
     let store = Store::open(db_path, key).await.expect("open seed store");
     // Unique username so a persistent Postgres never collides across runs.
-    let uname = format!("me-{}@x", unique());
+    let uname = format!("me-{}@x", test_db::unique_tag());
     let account = store
         .create_account(
             &NewAccount {
@@ -309,7 +298,7 @@ async fn drive(db_path: &str, dialect: &str) {
 
 #[tokio::test]
 async fn jwz_backfill_endpoint_converges_and_idempotent_sqlite() {
-    let db = std::env::temp_dir().join(format!("mw-t14-jwz-{}.db", unique()));
+    let db = test_db::unique_db_path("mw-t14-jwz");
     drive(&db.to_string_lossy(), "sqlite").await;
 }
 

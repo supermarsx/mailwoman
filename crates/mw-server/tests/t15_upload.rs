@@ -62,22 +62,12 @@ const UIDVALIDITY: u32 = 100;
 const PAYLOAD: &[u8] = b"mailwoman-upload-e2e-payload-0123456789";
 const PAYLOAD_B64: &str = "bWFpbHdvbWFuLXVwbG9hZC1lMmUtcGF5bG9hZC0wMTIzNDU2Nzg5";
 
-fn unique() -> String {
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    format!(
-        "{}_{}",
-        std::process::id(),
-        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    )
-}
+mod common;
+use common::test_db;
 
 /// A unique temp directory for one driver's real FS upload backend.
 fn temp_root(tag: &str) -> PathBuf {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    std::env::temp_dir().join(format!("mw-t15-upload-{tag}-{}-{nanos}", unique()))
+    test_db::unique_dir(&format!("mw-t15-upload-{tag}"))
 }
 
 /// A minimal backend: one empty INBOX so `resync` provisions the mailbox structure the
@@ -200,7 +190,7 @@ fn upload_and_submit(blob_id: &str) -> Value {
 }
 
 async fn make_account(store: &Store) -> String {
-    let uname = format!("me-{}@example.org", unique());
+    let uname = format!("me-{}@example.org", test_db::unique_tag());
     store
         .create_account(
             &NewAccount {
