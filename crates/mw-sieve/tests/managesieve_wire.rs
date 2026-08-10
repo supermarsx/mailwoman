@@ -77,8 +77,11 @@ async fn greeting_populates_capabilities() {
     assert!(!caps.supports("editheader"));
 }
 
-/// Escaped quotes and backslashes inside a capability value are unescaped, so a
-/// server whose implementation string contains one is not truncated.
+/// Escaped quotes and backslashes inside a capability *value* are unescaped, so
+/// a server whose implementation string contains one is reported whole rather
+/// than truncated at the escape. (The key side of the same line does not honour
+/// escapes — see `script_names_containing_an_escaped_quote_are_truncated` — but
+/// capability keys are protocol constants, so it is unreachable in practice.)
 #[tokio::test]
 async fn capability_values_are_unescaped() {
     let (client, mut server) = pipe();
@@ -86,12 +89,17 @@ async fn capability_values_are_unescaped() {
         .write_all(
             b"\"IMPLEMENTATION\" \"Ex \\\"quoted\\\" \\\\ v1\"\r\n\
               \"SIEVE\" \"fileinto\"\r\n\
+              \"VERSION\" \"1.0\"\r\n\
               OK\r\n",
         )
         .await
         .unwrap();
     let conn = Connection::open(client).await.expect("greeting");
-    assert!(conn.capabilities().supports("fileinto"));
+    let caps = conn.capabilities();
+    assert_eq!(caps.implementation, r#"Ex "quoted" \ v1"#);
+    assert_eq!(caps.version, "1.0");
+    assert!(caps.supports("fileinto"));
+    assert!(!caps.starttls, "STARTTLS was not advertised here");
 }
 
 /// A greeting that ends `NO` is a refusal, not a connection.
@@ -305,10 +313,13 @@ async fn list_scripts_reports_names_and_the_active_one() {
 /// slice, which is why the asymmetry is easy to miss: the client *writes* names
 /// with `\"` escaping (`quote_arg`) but does not *read* them that way.
 ///
-/// This affects `parse_script_line` (script names) and `split_cap_line`
-/// (capability keys/values) alike. Impact is limited — a truncated name simply
-/// fails to match on a later `SETACTIVE`/`GETSCRIPT`, and a quote in a Sieve
-/// script name is exotic — but the round-trip the code implies does not hold.
+/// This affects `parse_script_line` (script names) and, in the same way,
+/// `split_cap_line`'s extraction of the capability *key* — though not its value,
+/// which is delimited by `strip_prefix`/`strip_suffix` and does unescape
+/// correctly. Impact is limited: a truncated name simply fails to match on a
+/// later `SETACTIVE`/`GETSCRIPT`, capability keys are protocol constants, and a
+/// quote in a Sieve script name is exotic. But the round-trip the code implies
+/// does not hold.
 #[tokio::test]
 async fn script_names_containing_an_escaped_quote_are_truncated() {
     let (mut conn, mut server) = connected("").await;
