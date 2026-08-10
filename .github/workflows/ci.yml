@@ -145,12 +145,25 @@ jobs:
         run: cargo fmt --all --check
       - name: clippy
         run: cargo clippy --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile --all-targets -- -D warnings
-      # `--test-threads=1` is the project's canonical gate: several suites share a
-      # `_sqlx_migrations` table and flake under the default in-binary parallelism.
-      # t19-e2 is fixing that isolation at the source; once its per-test unique
-      # temp DB has proven itself, this flag can be dropped for a faster run.
-      - name: test (canonical gate — --test-threads=1)
-        run: cargo test --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile -- --test-threads=1
+      # The canonical gate is THREE separate invocations, not one combined
+      # `cargo test --workspace`:
+      #   1. `cargo fmt --all --check`            (above)
+      #   2. `--lib --tests -- --test-threads=1`  (below)
+      #   3. `--doc`                              (below)
+      # Combining 2 and 3 exits 1 on a doctest artifact even when every test
+      # passes: `cargo test` activates dev-dependencies, which enable extra
+      # features on shared crates, so the doctest phase can resolve a different
+      # feature set, rebuild `mw_engine` mid-run and hand rustdoc a superseded
+      # rlib path. Run standalone, `--doc` is green.
+      #
+      # `--test-threads=1` is separately required: several suites share a
+      # `_sqlx_migrations` table and flake under the default in-binary
+      # parallelism. t19-e2 is fixing that isolation at the source; once its
+      # per-test unique temp DB has proven itself, that flag can be dropped.
+      - name: test (lib + integration; --test-threads=1)
+        run: cargo test --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile --lib --tests -- --test-threads=1
+      - name: doctests (separate invocation — see above)
+        run: cargo test --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile --doc
       - name: build
         run: cargo build --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile
 
@@ -200,8 +213,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: clippy
         run: cargo clippy --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile --all-targets -- -D warnings
-      - name: test (canonical gate — --test-threads=1)
-        run: cargo test --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile -- --test-threads=1
+      # Same three-invocation canonical gate as the `rust` job — see the comment
+      # there for why `--doc` must not be folded into the `--lib --tests` run.
+      # These legs run the gate they will have to pass once promoted to required.
+      - name: test (lib + integration; --test-threads=1)
+        run: cargo test --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile --lib --tests -- --test-threads=1
+      - name: doctests (separate invocation — see the `rust` job)
+        run: cargo test --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile --doc
       - name: build
         run: cargo build --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile
 
@@ -1253,7 +1271,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-wasip2
+          # wasm32-unknown-unknown is for the media-jail guest (a bare CORE
+          # module, no component tooling) verified in the last three steps.
+          targets: wasm32-wasip2, wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - name: build plugin components via each build.sh (wasm32-wasip2)
         run: |
@@ -1285,6 +1305,170 @@ jobs:
             fi
           done
           exit $fail
+
+      # ----------------------------------------------------------------------
+      # Second-layer media jail (SPEC §7.5) — crates/mw-media-wasm.
+      #
+      # This crate escaped every gate: it carries its OWN `[workspace]` table, so
+      # `cargo build --workspace` skips it, and its build.sh was absent from the
+      # list above. The only artifact under test was the committed `media.wasm`,
+      # which `mw-render/src/media_jail.rs:28` pulls in via `include_bytes!` — so
+      # its source could drift from the shipped binary undetected. This is the
+      # module that parses hostile CFB/MSG/OFT input and re-encodes remote images,
+      # so "the shipped binary provably came from the reviewed source" matters.
+      #
+      # It is a bare CORE module (preamble 0061736d 01000000) built for
+      # wasm32-unknown-unknown, NOT a component — it deliberately cannot be added
+      # to the component loop above, which would reject it.
+      #
+      # NOTE build.sh OVERWRITES crates/mw-media-wasm/media.wasm with its output,
+      # so the committed artifact must be snapshotted before it runs.
+      # ----------------------------------------------------------------------
+      - name: media jail — snapshot the committed guest, then rebuild it from source
+        run: |
+          set -eu
+          cp crates/mw-media-wasm/media.wasm "$RUNNER_TEMP/media.committed.wasm"
+          sh crates/mw-media-wasm/build.sh
+          cp crates/mw-media-wasm/media.wasm "$RUNNER_TEMP/media.fresh.wasm"
+
+      # What this GATES on (each can genuinely fail, and each was negative-tested
+      # against real artifacts before being shipped):
+      #   * both modules have a valid core-module preamble;
+      #   * the committed guest declares ZERO host imports — the jail's central
+      #     claim is that the guest cannot perform I/O at all, and this is exactly
+      #     what a swapped-in module would have to break;
+      #   * the freshly built guest also declares zero imports;
+      #   * committed and fresh export the IDENTICAL symbol set — this is what
+      #     catches source/binary drift that changes the module's interface.
+      #
+      # What it deliberately does NOT gate on: byte-for-byte digest equality. The
+      # toolchain here is floating (`dtolnay/rust-toolchain@stable`) while the
+      # artifact was committed against whatever stable was current at the time, and
+      # rustc codegen differs across releases; dependency paths can also be
+      # embedded in panic metadata. A digest gate would therefore red permanently
+      # for reasons that are not tampering. Digests ARE computed and a mismatch is
+      # surfaced as a warning annotation, so drift is visible without a gate that
+      # cries wolf. HONEST LIMIT: identical exports + zero imports does not prove
+      # identical behaviour — the behavioural leg is the `cargo test -p mw-render`
+      # step below, which runs the real jail suite against the FRESH build.
+      - name: media jail — committed guest matches a fresh build (interface + zero host imports)
+        run: |
+          python3 - "$RUNNER_TEMP/media.committed.wasm" "$RUNNER_TEMP/media.fresh.wasm" <<'PY'
+          import hashlib, sys
+
+          CORE = bytes([0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00])
+          KIND = {0: "func", 1: "table", 2: "memory", 3: "global"}
+
+          def uleb(b, i):
+              val = shift = 0
+              while True:
+                  if i >= len(b):
+                      raise ValueError("truncated LEB128")
+                  c = b[i]; i += 1
+                  val |= (c & 0x7F) << shift
+                  if not c & 0x80:
+                      return val, i
+                  shift += 7
+                  if shift > 63:
+                      raise ValueError("LEB128 too long")
+
+          def name(b, i):
+              n, i = uleb(b, i)
+              if i + n > len(b):
+                  raise ValueError("truncated name")
+              return b[i:i + n].decode("utf-8", "replace"), i + n
+
+          def interface(path):
+              b = open(path, "rb").read()
+              if b[:8] != CORE:
+                  raise ValueError(f"not a wasm core module (preamble {b[:8].hex()})")
+              imports, exports, i = [], [], 8
+              while i < len(b):
+                  sec = b[i]; i += 1
+                  size, i = uleb(b, i)
+                  end = i + size
+                  if end > len(b):
+                      raise ValueError(f"section {sec} overruns the file")
+                  j = i
+                  if sec == 2:
+                      count, j = uleb(b, j)
+                      for _ in range(count):
+                          mod, j = name(b, j)
+                          fld, j = name(b, j)
+                          k = b[j]; j += 1
+                          if k == 0:
+                              _, j = uleb(b, j)
+                          elif k in (1, 2):
+                              if k == 1:
+                                  j += 1
+                              lim = b[j]; j += 1
+                              _, j = uleb(b, j)
+                              if lim & 0x01:
+                                  _, j = uleb(b, j)
+                          elif k == 3:
+                              j += 2
+                          imports.append(f"{mod}.{fld} ({KIND.get(k, k)})")
+                  elif sec == 7:
+                      count, j = uleb(b, j)
+                      for _ in range(count):
+                          nm, j = name(b, j)
+                          k = b[j]; j += 1
+                          _, j = uleb(b, j)
+                          exports.append(f"{nm} ({KIND.get(k, k)})")
+                  i = end
+              return sorted(imports), sorted(exports), hashlib.sha256(b).hexdigest()
+
+          committed, fresh = sys.argv[1], sys.argv[2]
+          errs = []
+          try:
+              ci, ce, cd = interface(committed)
+              fi, fe, fd = interface(fresh)
+          except Exception as e:
+              sys.exit(f"FAIL: could not read a media-jail guest as a core module: {e}")
+
+          print(f"committed  sha256={cd}\n  imports({len(ci)}): {ci}\n  exports({len(ce)}): {ce}")
+          print(f"fresh      sha256={fd}\n  imports({len(fi)}): {fi}\n  exports({len(fe)}): {fe}")
+
+          if ci:
+              errs.append(f"committed media.wasm declares {len(ci)} host import(s) — the "
+                          f"media jail must have NONE (it must not be able to do I/O): {ci}")
+          if fi:
+              errs.append(f"freshly built media.wasm declares {len(fi)} host import(s) — "
+                          f"the source no longer produces a zero-import guest: {fi}")
+          if ce != fe:
+              only_c = sorted(set(ce) - set(fe))
+              only_f = sorted(set(fe) - set(ce))
+              errs.append("committed media.wasm and a fresh build of its source export "
+                          "DIFFERENT symbols — the committed artifact has drifted from "
+                          f"crates/mw-media-wasm/src. only in committed: {only_c}; "
+                          f"only in fresh: {only_f}. Re-run crates/mw-media-wasm/build.sh "
+                          "and commit the result.")
+
+          if cd != fd:
+              print(f"::warning file=crates/mw-media-wasm/media.wasm::media.wasm is not "
+                    f"byte-identical to a fresh build (committed {cd[:16]}..., fresh "
+                    f"{fd[:16]}...). Expected under a floating rustc — NOT a tamper signal "
+                    f"on its own. Interface and behaviour are gated separately.")
+          else:
+              print("digests match byte-for-byte (stronger than this job requires)")
+
+          if errs:
+              print("\nFAIL:")
+              for e in errs:
+                  print("  -", e)
+              sys.exit(1)
+          print("\nmedia jail verified: zero host imports, interface matches a fresh build.")
+          PY
+
+      # The behavioural half. `media_jail.rs` pulls the guest in with
+      # `include_bytes!`, and the step above left the FRESH build in place, so this
+      # compiles the real jail against the just-rebuilt module and runs the real
+      # suite (CFB/MSG/OFT parse + image re-encode). The `rust` job runs the same
+      # tests against the COMMITTED module, so together they show both modules
+      # satisfy the same behavioural contract — which is the part an interface
+      # comparison alone cannot establish.
+      - name: media jail — the freshly built guest passes the real jail suite
+        run: cargo test -p mw-render
 
   # jail (e15) — load the REAL LanguageTool WASM component in the wasmtime host and
   # assert the SECURITY CORE (plan §22 / §7.5): loads only when its capability is
