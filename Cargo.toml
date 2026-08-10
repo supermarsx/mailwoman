@@ -105,7 +105,13 @@ data-encoding = "2"
 # `tokio-rustls-acme` is the ACME/TLS listener, compatible with the tree's
 # rustls 0.23 / tokio-rustls 0.26. `vanilla-extract`/`pdfjs-dist`/`idb` are web-only.
 tantivy = "0.26"
-tokio-tungstenite = "0.30"
+# 26.19 (t19-e1) dedupe: pinned to the version `axum`'s `ws` feature already
+# resolves, so the tree compiles ONE tokio-tungstenite/tungstenite pair instead of
+# two. This is not a downgrade of anything that faces the network: the production
+# `/jmap/ws` upgrade is served by axum's own copy (0.29), and the only in-tree use
+# of this crate is the WebSocket *test client* in `crates/mw-server/tests/`
+# (pim.rs, push_hardening.rs, security.rs). Re-check this pin whenever axum moves.
+tokio-tungstenite = "0.29"
 tokio-rustls-acme = "0.9"
 futures-util = "0.3"
 
@@ -341,6 +347,143 @@ mw-assist = { path = "crates/mw-assist" }
 # ── t16 (26.16) kernel jail (plan §Wave-C e4). ──
 mw-sandbox = { path = "crates/mw-sandbox" }
 
+# ── Build profiles ──────────────────────────────────────────────────────────
+# 26.19 (t19-e1). Every claim below was measured on the dev host, cold tree; the
+# method, the full before/after table and the rejected options are recorded in
+# docs/perf/build-profile.md. Nothing here changes what the release binary does.
+
+[profile.dev]
+# Debug info for the whole graph was the dominant dev/test cost in this workspace:
+# ~850 compiled units, and `mw-server` alone links 60+ test binaries, each of which
+# pays the full debug-info write. `line-tables-only` keeps panic and test backtraces
+# resolving to file:line — which is what the gate actually reads — without the
+# type/variable payload nothing in the loop consumes.
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+# Third-party dependencies are compiled once and cached; nothing steps into them,
+# so their debug info is pure link-time and disk cost with no debugging value.
+debug = false
+
+[profile.dev.build-override]
+# Build scripts and proc-macro crates run at build time only — their debug info is
+# never read by anything.
+debug = false
+
+# The canonical gate runs `--test-threads=1`, so test wall-clock is serial and is
+# dominated by crypto and compression primitives executing unoptimized. Optimizing
+# those *dependencies* (never workspace crates — the edit/rebuild loop must stay at
+# opt-level 0) buys that back, and the artifacts are cached across rebuilds so the
+# cost is paid once. Scope is deliberately narrow: hashing/AEAD/bignum/curve/PQC
+# primitives and the compressors, not "*".
+[profile.dev.package.argon2]      # password + API-key hashing (mw-oauth/mw-admin/mw-passwd)
+opt-level = 3
+[profile.dev.package.pbkdf2]
+opt-level = 3
+[profile.dev.package.scrypt]
+opt-level = 3
+[profile.dev.package.password-hash]
+opt-level = 3
+[profile.dev.package.sha2]
+opt-level = 3
+[profile.dev.package.sha1]
+opt-level = 3
+[profile.dev.package.sha3]
+opt-level = 3
+[profile.dev.package.ripemd]
+opt-level = 3
+[profile.dev.package.md-5]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3
+[profile.dev.package.digest]
+opt-level = 3
+[profile.dev.package.hmac]
+opt-level = 3
+[profile.dev.package.cmac]
+opt-level = 3
+[profile.dev.package.chacha20]
+opt-level = 3
+[profile.dev.package.chacha20poly1305]
+opt-level = 3
+[profile.dev.package.poly1305]
+opt-level = 3
+[profile.dev.package.aes]
+opt-level = 3
+[profile.dev.package.aes-gcm]
+opt-level = 3
+[profile.dev.package.ghash]
+opt-level = 3
+[profile.dev.package.cipher]
+opt-level = 3
+[profile.dev.package.ctr]
+opt-level = 3
+[profile.dev.package.cbc]
+opt-level = 3
+[profile.dev.package.universal-hash]
+opt-level = 3
+[profile.dev.package.subtle]
+opt-level = 3
+[profile.dev.package.rsa]
+opt-level = 3
+[profile.dev.package.dsa]
+opt-level = 3
+[profile.dev.package.num-bigint-dig]
+opt-level = 3
+[profile.dev.package.crypto-bigint]
+opt-level = 3
+[profile.dev.package.crypto-primes]
+opt-level = 3
+[profile.dev.package.elliptic-curve]
+opt-level = 3
+[profile.dev.package.primeorder]
+opt-level = 3
+[profile.dev.package.primefield]
+opt-level = 3
+[profile.dev.package.ecdsa]
+opt-level = 3
+[profile.dev.package.signature]
+opt-level = 3
+[profile.dev.package.p256]
+opt-level = 3
+[profile.dev.package.p384]
+opt-level = 3
+[profile.dev.package.p521]
+opt-level = 3
+[profile.dev.package.k256]
+opt-level = 3
+[profile.dev.package.curve25519-dalek]
+opt-level = 3
+[profile.dev.package.ed25519-dalek]
+opt-level = 3
+[profile.dev.package.x25519-dalek]
+opt-level = 3
+[profile.dev.package.cx448]
+opt-level = 3
+[profile.dev.package.ml-kem]
+opt-level = 3
+[profile.dev.package.ml-dsa]
+opt-level = 3
+[profile.dev.package.ring]
+opt-level = 3
+[profile.dev.package.pgp]
+opt-level = 3
+[profile.dev.package.flate2]
+opt-level = 3
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+[profile.dev.package.zlib-rs]
+opt-level = 3
+[profile.dev.package.brotli]
+opt-level = 3
+[profile.dev.package.brotli-decompressor]
+opt-level = 3
+[profile.dev.package.zstd]
+opt-level = 3
+
+# `test` and `bench` inherit `dev` and `release` respectively, including the
+# package overrides above — they are deliberately not restated.
+
 [profile.release]
 overflow-checks = true
 # 1.0 hardening (§23 size budget): strip debug symbols from the release binary
@@ -350,6 +493,18 @@ overflow-checks = true
 # statically linked + the embedded SPA) — and closing it needs a deeper decision
 # (a feature-gated "core server" build dropping bundled bridges/plugins, LTO+opt-z
 # at a build-time/runtime cost, or a §23 budget revision to full-feature-realistic
-# numbers). That decision is HUMAN-GATED, paired with the 1.0 tag; the perf.yml
-# binary-size/image-size gates stay honest (red against the SPEC number) until then.
+# numbers). The §23 budget revision is the path that was taken, in 26.9 —
+# docs/perf/size-budget-revision.md — and the perf.yml gates are green against the
+# revised, measured numbers rather than red against the original ones.
 strip = true
+#
+# LTO: MEASURED IN 26.19 AND DECLINED (t19-e1, DQ-8 — this line closes the
+# deferral this block used to carry). Three variants, back-to-back on one host:
+#   no LTO (shipped)          386 s   94 804 992 B
+#   lto="thin"                627 s   96 760 320 B   slower AND 2% LARGER
+#   lto="thin" + cg-units=1  1163 s   79 227 392 B   −16% size for +201% build
+# thin LTO on its own is a straight loss here. The size lever is codegen-units=1,
+# and it buys headroom on a budget that is already green (91 MB vs ~79 MB on the
+# gated Linux artifact) while tripling every release build across three OS legs in
+# packaging.yml. Do NOT set panic="abort": it breaks the test harness and
+# catch_unwind. Full table + caveats: docs/perf/build-profile.md.

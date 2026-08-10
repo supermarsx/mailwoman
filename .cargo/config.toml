@@ -1,0 +1,38 @@
+# Cargo configuration for the mailwoman workspace.
+#
+# Added in 26.19 (t19-e1, build leanness). Deliberately conservative about build
+# flags: `ci.yml` gains windows + macOS legs in this same tag, so nothing here may
+# assume a tool that is not part of a stock rustup toolchain.
+#
+# NOT set here, and why (measurements in docs/perf/build-profile.md):
+#   * `[build] rustflags` / a linker override (mold, lld, sold, sccache) — every
+#     one of them has to exist on all three CI runners, and none is guaranteed.
+#     Setting rustflags also invalidates the whole fingerprint graph for anyone
+#     whose environment differs, which is exactly the cache thrash this lane is
+#     meant to remove.
+#   * `-C target-cpu=native` — the release binary is a shipped artifact; it must
+#     run on hosts other than the one that built it.
+#   * `[profile.*]` — config-file profiles silently override the manifest, which
+#     makes the real settings hard to find. Profile tuning lives in the root
+#     `Cargo.toml` where it is reviewable.
+
+[alias]
+# The canonical 26.19 release gate. The default-parallel workspace run shares one
+# `_sqlx_migrations` table across test binaries and flakes; `--test-threads=1` is
+# the gate of record. Kept as an alias so the flag cannot be forgotten.
+gate = "test --workspace -- --test-threads=1"
+# The lean core gate `ci.yml`'s `rust` job runs. The desktop/mobile shell crates
+# are excluded there because their WebView backend needs platform libraries on
+# Linux; on Windows they build directly.
+gate-core = "test --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile -- --test-threads=1"
+lint = "clippy --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile --all-targets -- -D warnings"
+# Duplicate-version report — the leanness metric tracked in
+# docs/perf/build-profile.md. Run after any dependency change.
+dupes = "tree --workspace --duplicates --edges normal"
+
+[net]
+# Registry/git fetches are the one genuinely flaky step in a cold CI build.
+retry = 3
+
+[future-incompat-report]
+frequency = "always"
