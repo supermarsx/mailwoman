@@ -83,6 +83,11 @@ struct Posture {
     header_auth: &'static str,
     /// `MW_HEADER_AUTH_TRUSTED_IPS`.
     header_auth_ips: &'static str,
+    /// `MW_TLS_CERT` **and** `MW_TLS_KEY`, both set to this path. Non-empty ⇒ the
+    /// process presents as its own TLS endpoint, the shape an L4 balancer doing
+    /// passthrough produces (t20-e-e2e D4). `MW_ACME`, the other spelling of the
+    /// same fact, is always cleared.
+    self_tls: &'static str,
 }
 
 /// Serialises env mutation across the binary, so the suite is correct under any
@@ -106,9 +111,12 @@ async fn posture(p: Posture) -> MutexGuard<'static, ()> {
         set_or_clear("MW_PROXY_PROTOCOL", p.proxy_protocol);
         set_or_clear("MW_HEADER_AUTH", p.header_auth);
         set_or_clear("MW_HEADER_AUTH_TRUSTED_IPS", p.header_auth_ips);
+        set_or_clear("MW_TLS_CERT", p.self_tls);
+        set_or_clear("MW_TLS_KEY", p.self_tls);
         // Never inherited from the ambient environment: these would silently change
         // what the scheme/cookie assertions below mean.
         for k in [
+            "MW_ACME",
             "MW_PUBLIC_URL",
             "MW_COOKIE_SECURE",
             "MW_HSTS",
@@ -1116,6 +1124,91 @@ fn forwarded_host_has_no_response_visible_consumer_yet() {
          If the marker was merely reworded and nothing consumes it yet, update \
          this string — but say so, do not just widen the match."
     );
+}
+
+/// **t20-e-e2e D4, measured on the `haproxy-l4` cell.** When this process is
+/// itself the TLS endpoint there is no `X-Forwarded-Proto` to read — an L4
+/// balancer doing passthrough cannot add one — so the scheme has to come from the
+/// listener. It did not, and the consequences were an absent HSTS header and,
+/// worse, session cookies without `Secure` on any deployment that had not also
+/// set `MW_COOKIE_SECURE`.
+///
+/// This drives the real `ExternalBase::from_env` path rather than a constructed
+/// value, so it covers the environment plumbing the unit test cannot: the compose
+/// file for that cell configures TLS through `MW_TLS_CERT`/`MW_TLS_KEY`, which is
+/// exactly what is set here. The listener itself stays plaintext — a real
+/// handshake is out of reach in-process — so what this pins is the boot-time
+/// derivation, and the header/cookie consequences that follow from it.
+///
+/// Paired with a control built under the same posture minus the TLS settings, so
+/// a green run cannot mean "HSTS is always on".
+#[tokio::test]
+async fn the_apps_own_tls_listener_raises_the_scheme() {
+    let _env = posture(Posture {
+        self_tls: "/certs/server.crt",
+        ..Default::default()
+    })
+    .await;
+    let mock = spawn_mock().await;
+    let addr = serve_with_connect_info(build().await).await;
+
+    assert!(
+        hsts(addr, &[])
+            .await
+            .is_some_and(|v| v.contains("max-age=")),
+        "a process terminating TLS itself is on a real https hop, with no header \
+         to tell it so"
+    );
+
+    // The half that matters more than the header. `posture` clears
+    // MW_COOKIE_SECURE and `build()` sets cookie_secure: false, so a `Secure`
+    // attribute here can only come from the app noticing it serves https.
+    let set_cookie = login_set_cookie(addr, &mock).await;
+    assert!(
+        set_cookie.iter().any(|c| c.contains("; Secure")),
+        "session cookies must carry Secure on an ACME/passthrough deployment \
+         without the operator setting MW_COOKIE_SECURE; got: {set_cookie:?}"
+    );
+
+    // The control. Same posture, no TLS settings: no HSTS, no Secure. Without
+    // this pair a broken implementation that always claimed https would pass.
+    drop(_env);
+    let _env = posture(Posture::default()).await;
+    let plain = serve_with_connect_info(build().await).await;
+    assert!(
+        hsts(plain, &[]).await.is_none(),
+        "a plaintext listener must not claim https"
+    );
+    let set_cookie = login_set_cookie(plain, &mock).await;
+    assert!(
+        !set_cookie.iter().any(|c| c.contains("; Secure")),
+        "plain http must keep today's behaviour; got: {set_cookie:?}"
+    );
+}
+
+/// Every `Set-Cookie` a successful login emits.
+async fn login_set_cookie(addr: SocketAddr, mock: &str) -> Vec<String> {
+    let resp = reqwest::Client::new()
+        .post(format!("http://{addr}/api/login"))
+        .json(&json!({
+            "jmapUrl": mock,
+            "username": mw_mock_jmap::USER,
+            "password": mw_mock_jmap::PASS,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "login must succeed for this to mean anything"
+    );
+    resp.headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .map(str::to_string)
+        .collect()
 }
 
 /// The `Strict-Transport-Security` value from a raw HTTP/1.1 reply. Used by the

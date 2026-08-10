@@ -295,6 +295,10 @@ pub(crate) struct ExternalBase {
     public_host: Option<String>,
     /// `MW_TRUSTED_PROXIES`, parsed. Empty ⇒ no forwarded header is ever trusted.
     trusted_proxies: CidrSet,
+    /// Whether this process is itself the TLS endpoint (ACME or an external
+    /// cert). Header-independent, like [`ExternalBase::public_https`], and the
+    /// floor under the forwarded answer rather than a competing opinion.
+    self_terminated_tls: bool,
     /// Explicit `MW_COOKIE_SECURE`; `None` ⇒ derive from the effective scheme.
     cookie_secure_override: Option<bool>,
     /// Prebuilt `Strict-Transport-Security` value; `None` ⇒ never emitted.
@@ -325,6 +329,11 @@ impl ExternalBase {
             public_https,
             public_host,
             trusted_proxies: CidrSet::parse(&var("MW_TRUSTED_PROXIES").unwrap_or_default()),
+            self_terminated_tls: tls_terminated_here(
+                var("MW_ACME").as_deref(),
+                var("MW_TLS_CERT").as_deref(),
+                var("MW_TLS_KEY").as_deref(),
+            ),
             cookie_secure_override: var("MW_COOKIE_SECURE").and_then(|v| parse_env_bool(&v)),
             hsts: build_hsts(),
         }
@@ -357,6 +366,18 @@ impl ExternalBase {
     }
 
     /// The scheme the *client* used to reach us.
+    ///
+    /// Three sources, in decreasing authority, composed rather than competing:
+    ///
+    /// 1. `MW_PUBLIC_URL` — stated by the operator, so nothing can move it.
+    /// 2. A trusted proxy's `X-Forwarded-Proto`. When a proxy is in front, only
+    ///    the proxy knows what the *browser* used, so its answer outranks our own
+    ///    transport in both directions: a trusted `http` means the client hop was
+    ///    plaintext even if the proxy re-encrypted to us.
+    /// 3. **Our own listener**, when this process terminates TLS itself. No
+    ///    header is involved and none can suppress it — an L4 balancer doing TLS
+    ///    passthrough cannot add one, which is exactly the deployment the
+    ///    built-in ACME client exists for and the one this used to get wrong.
     pub(crate) fn is_https(&self, headers: &HeaderMap, ext: &axum::http::Extensions) -> bool {
         if let Some(https) = self.public_https {
             return https;
@@ -366,7 +387,7 @@ impl ExternalBase {
         {
             return proto.eq_ignore_ascii_case("https");
         }
-        false
+        self.self_terminated_tls
     }
 
     /// The host the client addressed us by, for building absolute external URLs.
@@ -459,6 +480,29 @@ fn split_public_url(raw: &str) -> Option<(bool, String)> {
         return None;
     }
     Some((https, authority.to_ascii_lowercase()))
+}
+
+/// Does this process terminate TLS itself?
+///
+/// Mirrors `main.rs`'s transport decision (`serve`: ACME > external cert >
+/// plaintext) from the environment, because `build_app` — and so
+/// [`ExternalBase::from_env`] — runs *before* that decision is made and has no
+/// other way to see it. Split from the environment read so the precedence is
+/// directly testable without racing every other test in the binary.
+///
+/// **Known limit, and the reason this is not the whole fix.** `main.rs` accepts
+/// the same three settings as command-line flags (`--acme`, `--tls-cert`,
+/// `--tls-key`); clap reads the environment only as their fallback. A deployment
+/// that passes them as flags therefore still looks plaintext here. Every
+/// documented deployment shape is env-driven (compose, helm, systemd
+/// `EnvironmentFile`), so this covers them — but the complete fix is for
+/// `main.rs` to hand the decision it already makes to `build_app` instead of it
+/// being re-derived here, and `main.rs` is outside this lane's locks.
+fn tls_terminated_here(acme: Option<&str>, cert: Option<&str>, key: Option<&str>) -> bool {
+    let present = |v: Option<&str>| v.is_some_and(|s| !s.trim().is_empty());
+    // A cert without its key (or the reverse) is not a TLS listener: `serve`
+    // falls through to plaintext on a half-configured pair, and so must this.
+    present(acme) || (present(cert) && present(key))
 }
 
 /// `Strict-Transport-Security` from the environment. Defaults to one year, no
@@ -3737,24 +3781,63 @@ fn etag_matches(req: &HeaderMap, etag: &str) -> bool {
     })
 }
 
+/// The shortest suffix that can be a bundler hash. Vite's default is eight
+/// base64url characters; a shorter trailing segment is a word, not a digest.
+const MIN_CONTENT_HASH_LEN: usize = 8;
+
 /// Whether a filename carries a bundler-generated content hash, which is what
 /// makes a one-year immutable lifetime safe. Matches the Vite/Rollup default
-/// `name-<hash>.ext` shape: a trailing `-`-separated segment of at least eight
-/// alphanumerics containing at least one digit (so `index-a1b2c3d4.js` qualifies
-/// while a hand-written `mail-settings.css` does not).
+/// `name-<hash>.ext` shape.
+///
+/// Two things about a real Vite hash drive this, and the rule that shipped
+/// before 26.19 got both wrong — measured against a real `apps/web/dist`,
+/// **96 of 242 built assets (39.7%) were served `no-cache`**, including the main
+/// bundle:
+///
+///   * **The alphabet is base64url**, so the hash itself may contain `-` and
+///     `_`. Splitting at the *last* `-` therefore does not reliably isolate it:
+///     `admin-Bvbu-L2g.js` yields `L2g`, three characters, rejected. Every `-`
+///     boundary is tried instead, so one of them lands on the true separator.
+///   * **A hash need not contain a digit.** For an eight-character base64url
+///     hash the chance of none is ≈ (54/64)^8 ≈ 25%, and `index-BgsGROWZ.js` is
+///     that case on a shipped bundle.
+///
+/// What the old digit test was really doing was separating a digest from a
+/// hand-written name, and that is kept — but expressed directly: a candidate
+/// made of nothing but lowercase letters and hyphens reads as a name
+/// (`mail-settings.css`, `dark-mode-toggle.css`), anything else reads as a
+/// digest. Uppercase counts as digest evidence because bundler output is
+/// mixed-case while hand-written asset names in this tree are kebab-case; that
+/// asymmetry is what admits `nextcloud-CUQHNHRA.js`, a real shipped file with
+/// neither a digit nor a lowercase letter in its hash.
+///
+/// **Residual, stated rather than hidden**: an all-lowercase digit-free hash
+/// (≈ (26/64)^8 ≈ 1 in 2 300 assets) is still read as a name. That direction is
+/// the safe one — `no-cache` revalidates against the strong `ETag` and answers
+/// `304`, so it costs a round trip and never serves stale bytes. The reverse
+/// error would pin a hand-written file for a year, which is why the lowercase
+/// test is not relaxed further. Against the current `dist`, 242 of 242 assets
+/// classify correctly and no non-asset file does.
 fn is_content_hashed(path: &str) -> bool {
     let name = path.rsplit('/').next().unwrap_or(path);
     let Some((stem, _ext)) = name.rsplit_once('.') else {
         return false;
     };
-    let Some((_, suffix)) = stem.rsplit_once('-') else {
-        return false;
-    };
-    suffix.len() >= 8
-        && suffix
+    stem.match_indices('-')
+        .any(|(at, _)| looks_like_content_hash(&stem[at + 1..]))
+}
+
+/// Is this trailing segment a bundler digest rather than part of a written name?
+fn looks_like_content_hash(candidate: &str) -> bool {
+    candidate.len() >= MIN_CONTENT_HASH_LEN
+        && candidate
             .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
-        && suffix.bytes().any(|b| b.is_ascii_digit())
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        // Nothing but lowercase letters and hyphens is a written name. A digit,
+        // an underscore or any uppercase letter is evidence of a digest.
+        && !candidate
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b == b'-')
 }
 
 // ---------------------------------------------------------------------------
@@ -3928,8 +4011,18 @@ mod external_base_tests {
             public_https,
             public_host,
             trusted_proxies: CidrSet::parse(trusted),
+            self_terminated_tls: false,
             cookie_secure_override: None,
             hsts: HeaderValue::from_static("max-age=31536000").into(),
+        }
+    }
+
+    /// The same, for a process that terminates TLS itself (`MW_ACME`, or
+    /// `MW_TLS_CERT` + `MW_TLS_KEY`).
+    fn base_serving_tls(public: Option<&str>, trusted: &str) -> ExternalBase {
+        ExternalBase {
+            self_terminated_tls: true,
+            ..base(public, trusted)
         }
     }
 
@@ -4496,6 +4589,115 @@ mod external_base_tests {
         // A hyphenated human name is not a hash (no digits, or too short).
         assert!(!is_content_hashed("assets/mail-settings.css"));
         assert!(!is_content_hashed("assets/index-ab12.js"));
+    }
+
+    /// **t20-e-e2e D3, measured against a real `apps/web/dist`.** Every fixture
+    /// above happens to contain a digit, which is why a rule requiring one
+    /// passed its own test while serving 96 of 242 built assets `no-cache`.
+    ///
+    /// These are **real filenames** from that build, not invented shapes. That
+    /// is the point: fixtures drawn from the producer's actual output are what
+    /// the digit rule was never made to face.
+    #[test]
+    fn real_vite_hashes_earn_an_immutable_lifetime() {
+        // Digit-free, mixed case. The shipped main bundle, served `no-cache`.
+        assert!(is_content_hashed("assets/index-BgsGROWZ.js"));
+        assert!(is_content_hashed("assets/assist-CEdGpMgw.js"));
+        // The hash's own alphabet is base64url, so it may contain `-` or `_` —
+        // splitting at the LAST `-` gave `L2g`, three characters, rejected.
+        assert!(is_content_hashed("assets/admin-Bvbu-L2g.js"));
+        assert!(is_content_hashed("assets/auth-Bbng-azm.js"));
+        assert!(is_content_hashed("assets/contacts-0b-hpZac.js"));
+        assert!(is_content_hashed("assets/admin-_JQUlavb.js"));
+        assert!(is_content_hashed("assets/admin-CEjRn_ee.js"));
+        // Neither a digit nor a lowercase letter. Admitted because hand-written
+        // names in this tree are kebab-case, so uppercase is digest evidence.
+        assert!(is_content_hashed("assets/nextcloud-CUQHNHRA.js"));
+
+        // The other direction, which the digit rule was really enforcing and
+        // which must not be lost: a written name stays revalidated. Multi-word
+        // names are included because trying every `-` boundary gives them more
+        // chances to be mistaken for a hash than the old single split did.
+        assert!(!is_content_hashed("assets/mail-settings.css"));
+        assert!(!is_content_hashed("assets/dark-mode-toggle.css"));
+        assert!(!is_content_hashed("assets/user-guide-print.css"));
+        assert!(!is_content_hashed("assets/pdf-worker-entry.mjs"));
+        // Real non-asset files from the same build.
+        assert!(!is_content_hashed("pdf.worker.mjs"));
+        assert!(!is_content_hashed("themes/grove-grain.svg"));
+        assert!(!is_content_hashed("themes/grove-paper.svg"));
+        // No extension, or no separator at all.
+        assert!(!is_content_hashed("assets/BgsGROWZ"));
+        assert!(!is_content_hashed("assets/indexBgsGROWZ.js"));
+    }
+
+    /// **t20-e-e2e D4.** With TLS terminated by this process there is no
+    /// `X-Forwarded-Proto` to read — an L4 balancer doing passthrough cannot add
+    /// one — so the scheme has to come from the listener. Before this, `is_https`
+    /// was `false` on an ACME or passthrough deployment: no HSTS, and session
+    /// cookies without `Secure` unless the operator also set `MW_COOKIE_SECURE`.
+    #[test]
+    fn the_apps_own_tls_listener_is_https_without_any_header() {
+        let b = base_serving_tls(None, "");
+        let (h, e) = (headers(&[]), no_peer());
+
+        assert!(b.is_https(&h, &e), "the process is the TLS endpoint");
+        assert!(b.hsts(&h, &e).is_some(), "HSTS belongs on a real https hop");
+        // The half that is worse than the missing header: `Secure` must follow
+        // from noticing we serve https, not from MW_COOKIE_SECURE being set.
+        assert!(
+            b.cookie_secure(false, &h, &e),
+            "an ACME/passthrough deployment must not need MW_COOKIE_SECURE to \
+             get Secure session cookies"
+        );
+        assert_eq!(
+            b.base_url(&headers(&[("host", "mail.example.org")]), &e)
+                .as_deref(),
+            Some("https://mail.example.org"),
+            "a process serving https must not describe itself as http"
+        );
+
+        // A half-configured pair is not a TLS listener; `serve` falls through to
+        // plaintext on it and so must this.
+        assert!(!tls_terminated_here(None, Some("/certs/s.crt"), None));
+        assert!(!tls_terminated_here(None, Some("/certs/s.crt"), Some(" ")));
+        assert!(!tls_terminated_here(None, None, Some("/certs/s.key")));
+        assert!(tls_terminated_here(None, Some("/c"), Some("/k")));
+        assert!(tls_terminated_here(Some("mail.example.org"), None, None));
+        assert!(!tls_terminated_here(Some("  "), None, None));
+        assert!(!tls_terminated_here(None, None, None));
+
+        // Precedence. A trusted proxy in front knows what the BROWSER used, so
+        // its answer outranks our own transport in both directions.
+        let proxied = base_serving_tls(None, "10.0.0.0/8");
+        let p = peer("10.1.2.3:5555");
+        assert!(
+            !proxied.is_https(&headers(&[("x-forwarded-proto", "http")]), &p),
+            "a trusted proxy reporting a plaintext client hop is believed"
+        );
+        assert!(proxied.is_https(&headers(&[("x-forwarded-proto", "https")]), &p));
+        // An UNTRUSTED peer's header is inert, so it cannot suppress the fact
+        // that we ourselves are the TLS endpoint.
+        assert!(
+            proxied.is_https(
+                &headers(&[("x-forwarded-proto", "http")]),
+                &peer("203.0.113.9:5555")
+            ),
+            "an untrusted claim of http must not downgrade our own TLS listener"
+        );
+        // And M1's walk direction still decides which element is read.
+        assert!(
+            !proxied.is_https(&headers(&[("x-forwarded-proto", "https, http")]), &p),
+            "the nearest hop still wins over the client's leftmost value"
+        );
+
+        // MW_PUBLIC_URL stays absolute in both directions.
+        assert!(
+            !base_serving_tls(Some("http://mail.example.org"), "").is_https(&h, &e),
+            "an operator who declares an http public URL is believed"
+        );
+        // And a plaintext listener is unchanged — no accidental blanket https.
+        assert!(!base(None, "").is_https(&h, &e));
     }
 
     #[test]
