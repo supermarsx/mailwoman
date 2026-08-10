@@ -985,6 +985,155 @@ async fn the_effective_scheme_comes_from_x_forwarded_proto_only() {
     );
 }
 
+/// **t20-e-sec M1.** `X-Forwarded-Proto` is a list, and a proxy that *appends*
+/// to it rather than replacing it leaves whatever the client sent on the LEFT.
+/// The scheme must therefore come from the element the nearest hop wrote — the
+/// last — exactly as `proxy.rs` takes the rightmost untrusted hop for the client
+/// IP. Reading leftmost let a client behind an appending tier choose the scheme
+/// even though the peer gate had already passed: the gate decides whether the
+/// header may be read at all, not which element inside it the proxy wrote.
+///
+/// Every leg is a pair. The forged direction must not raise the scheme, and the
+/// honest direction must — otherwise "multi-valued headers are ignored outright"
+/// would pass the security half while silently breaking every Envoy deployment,
+/// and a green run would say nothing about which end is read.
+///
+/// Observed through HSTS, which `ExternalBase::hsts` emits only on an effective
+/// https request. The cookie `Secure` attribute is the other consumer and is
+/// driven by the same `is_https`.
+#[tokio::test]
+async fn a_multi_valued_forwarded_proto_is_read_from_the_nearest_hop() {
+    let _env = posture(Posture {
+        trusted: "127.0.0.0/8, ::1/128",
+        mode: "xff",
+        ..Default::default()
+    })
+    .await;
+    let addr = serve_with_connect_info(build().await).await;
+
+    // THE ATTACK: the client asserts https, the trusted proxy appends the
+    // plaintext it actually saw. Leftmost would believe the client and pin HSTS
+    // onto a host with no TLS.
+    assert!(
+        hsts(addr, &[("x-forwarded-proto", "https, http")])
+            .await
+            .is_none(),
+        "the client's leftmost `https` must not survive an appending proxy that \
+         reports the plaintext it actually received"
+    );
+    // The pairing that gives that teeth: the same list the other way round IS
+    // honoured, so the header is being read, not discarded.
+    assert!(
+        hsts(addr, &[("x-forwarded-proto", "http, https")])
+            .await
+            .is_some_and(|v| v.contains("max-age=")),
+        "the nearest hop's `https` is the effective scheme"
+    );
+
+    // Repeated header lines are the same list by another spelling (RFC 9110), so
+    // the nearest value is the last element of the LAST line. Driven over a raw
+    // socket because that is the only way to guarantee two literal header lines
+    // reach the server rather than one collapsed value.
+    let two_lines = |first: &'static str, second: &'static str| async move {
+        let req = http_get(
+            addr,
+            "/healthz",
+            &[("x-forwarded-proto", first), ("x-forwarded-proto", second)],
+        );
+        let reply = raw_exchange(addr, b"", &req)
+            .await
+            .expect("the request is served either way; only the header differs");
+        assert_eq!(status_of(&reply), 200, "reply was: {reply}");
+        hsts_of(&reply)
+    };
+    assert!(
+        two_lines("https", "http").await.is_none(),
+        "a second header line is a nearer hop, and it says http"
+    );
+    assert!(
+        two_lines("http", "https").await.is_some(),
+        "a second header line is a nearer hop, and it says https"
+    );
+
+    // An unusable nearest element is not a licence to reach further left: a
+    // trailing comma leaves an empty token, and empty is not https.
+    assert!(
+        hsts(addr, &[("x-forwarded-proto", "https,")])
+            .await
+            .is_none(),
+        "an empty nearest element must not fall back to the client's value"
+    );
+
+    // Neither end is honoured from an UNTRUSTED peer. Fresh server: `ExternalBase`
+    // reads `MW_TRUSTED_PROXIES` once at build time (see the note in
+    // `the_effective_scheme_comes_from_x_forwarded_proto_only`), so reusing the
+    // one above would assert nothing.
+    drop(_env);
+    let _env = posture(Posture {
+        trusted: "10.0.0.0/8",
+        mode: "xff",
+        ..Default::default()
+    })
+    .await;
+    let untrusting = serve_with_connect_info(build().await).await;
+    for value in ["http, https", "https, http", "https"] {
+        assert!(
+            hsts(untrusting, &[("x-forwarded-proto", value)])
+                .await
+                .is_none(),
+            "an untrusted peer cannot assert the scheme at either end of the list \
+             (sent: {value})"
+        );
+    }
+}
+
+/// `X-Forwarded-Host` has no end-to-end leg here, and that is a statement about
+/// the code rather than an omission: `ExternalBase::host` is `#[allow(dead_code)]`
+/// in this tag — nothing it returns reaches a response, so no HTTP observation can
+/// distinguish a correct reader from a broken one. Its walk direction is asserted
+/// in-crate instead (`an_appending_proxy_cannot_have_the_client_choose_the_host`
+/// in `crates/mw-server/src/lib.rs`), where the function is reachable.
+///
+/// **When the DCR issuer or the WebAuthn RP origin adopts it, that value starts
+/// leaving the request and this file owes the corresponding end-to-end leg.** So
+/// this is a tripwire on the `#[allow(dead_code)]` marker that is the reason the
+/// leg is absent: the gap is allowed to persist only while the premise holds.
+#[test]
+fn forwarded_host_has_no_response_visible_consumer_yet() {
+    let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+        .expect("the crate source is readable from its own test");
+    let at = src
+        .find("pub(crate) fn host(&self, headers: &HeaderMap")
+        .expect("ExternalBase::host was renamed or removed — re-derive this gap");
+    assert!(
+        src[..at].trim_end().ends_with("#[allow(dead_code)]"),
+        "`ExternalBase::host` no longer carries `#[allow(dead_code)]`.\n\
+         If it gained a live consumer, a forwarded value now leaves the request, \
+         and `X-Forwarded-Host` needs the same end-to-end nearest-hop coverage \
+         this file gives `X-Forwarded-Proto` \
+         (`a_multi_valued_forwarded_proto_is_read_from_the_nearest_hop`). Add that \
+         leg, then delete this test.\n\
+         If the marker was merely reworded and nothing consumes it yet, update \
+         this string — but say so, do not just widen the match."
+    );
+}
+
+/// The `Strict-Transport-Security` value from a raw HTTP/1.1 reply. Used by the
+/// repeated-header-line legs, where the request has to be written to the socket
+/// verbatim.
+fn hsts_of(response: &str) -> Option<String> {
+    response
+        .split("\r\n")
+        // Headers only: the blank line ends them, and a body must not be scanned.
+        .take_while(|line| !line.is_empty())
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.trim()
+                .eq_ignore_ascii_case("strict-transport-security")
+                .then(|| value.trim().to_string())
+        })
+}
+
 /// The `Strict-Transport-Security` value on `GET /healthz`, if any.
 async fn hsts(addr: SocketAddr, headers: &[(&str, &str)]) -> Option<String> {
     let mut req = reqwest::Client::new().get(format!("http://{addr}/healthz"));

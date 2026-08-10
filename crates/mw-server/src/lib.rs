@@ -281,6 +281,8 @@ impl SecurityConfig {
 ///    peer is inside `MW_TRUSTED_PROXIES`.** An untrusted peer's forwarded
 ///    headers are ignored outright — otherwise any client could assert
 ///    `X-Forwarded-Proto: https` and change the server's idea of its own origin.
+///    Which *element* of a multi-valued header is read matters as much as which
+///    peer may send one: see [`nearest_forwarded_token`].
 /// 3. **The `Host` header, scheme `http`** — the pre-existing behaviour, kept so
 ///    a deployment that sets none of these behaves exactly as it did before.
 #[derive(Debug, Clone, Default)]
@@ -360,7 +362,7 @@ impl ExternalBase {
             return https;
         }
         if self.forwarded_trusted(ext)
-            && let Some(proto) = first_forwarded_token(headers, "x-forwarded-proto")
+            && let Some(proto) = nearest_forwarded_token(headers, "x-forwarded-proto")
         {
             return proto.eq_ignore_ascii_case("https");
         }
@@ -381,7 +383,7 @@ impl ExternalBase {
             return Some(h.clone());
         }
         if self.forwarded_trusted(ext)
-            && let Some(h) = first_forwarded_token(headers, "x-forwarded-host")
+            && let Some(h) = nearest_forwarded_token(headers, "x-forwarded-host")
         {
             return Some(h);
         }
@@ -501,13 +503,41 @@ fn parse_env_bool(raw: &str) -> Option<bool> {
     }
 }
 
-/// First comma-separated token of a forwarded header, trimmed and non-empty. For
-/// `X-Forwarded-Proto`/`-Host` the leftmost entry is the one the original client
-/// saw, which is the one describing the public origin.
-fn first_forwarded_token(headers: &HeaderMap, name: &str) -> Option<String> {
-    let raw = headers.get(name)?.to_str().ok()?;
-    let first = raw.split(',').next()?.trim();
-    (!first.is_empty()).then(|| first.to_ascii_lowercase())
+/// The forwarded-header token written by the **nearest** hop: the last
+/// comma-separated element of the last header line, trimmed, lowercased and
+/// non-empty.
+///
+/// Same walk direction as the client-IP model in [`crate::scope_mw::proxy`], and
+/// for the same reason. A proxy that *appends* to `X-Forwarded-Proto` /
+/// `X-Forwarded-Host` instead of replacing it (Envoy's shape, and any chained
+/// tier where an outer proxy passes the client's value through) leaves the
+/// client's own value on the **left**. Reading leftmost would therefore use a
+/// value the client chose, even though [`ExternalBase::forwarded_trusted`] has
+/// already confirmed the peer is a declared proxy: the peer gate decides whether
+/// to look at the header at all, and says nothing about which element inside it
+/// the proxy wrote.
+///
+/// Two things `proxy::resolve` does have no analogue here, both forced by the
+/// header's shape rather than chosen:
+///
+///   * these values are not addresses, so an element cannot be tested for
+///     membership of `MW_TRUSTED_PROXIES` and the "skip hops that are themselves
+///     trusted proxies" step cannot be reproduced. Through several trusted tiers
+///     the last element is the scheme/host of the *innermost* hop, which
+///     under-reports https rather than over-reporting it — no `Secure`, no HSTS,
+///     the same safe direction as the RFC 7239 `proto=` gap (F1);
+///   * an unusable element (empty, or a header line that is not text) yields
+///     `None` rather than reaching further left, mirroring how `resolve` stops at
+///     the last verified address on an `unknown` hop instead of stepping over it.
+fn nearest_forwarded_token(headers: &HeaderMap, name: &str) -> Option<String> {
+    let mut nearest = None;
+    for value in headers.get_all(name) {
+        // Unreadable as text ⇒ we cannot see what this hop wrote, and falling back
+        // to an earlier line would reach past it to something further left.
+        nearest = Some(value.to_str().ok()?);
+    }
+    let token = nearest?.rsplit(',').next()?.trim();
+    (!token.is_empty()).then(|| token.to_ascii_lowercase())
 }
 
 // ---------------------------------------------------------------------------
@@ -1894,6 +1924,19 @@ async fn header_auth_login(
 /// report a client's IP is not thereby trusted to declare who the client *is*.
 /// The check is on the connected peer, not on any forwarded header — an
 /// identity assertion is only as good as the hop that made it.
+///
+/// **That separation is real only while `MW_PROXY_PROTOCOL=off`.** With `accept`
+/// or `require` the peer address is itself a declared value:
+/// `proxy_protocol::negotiate` returns the address named in the PROXY header, and
+/// that address becomes the `ConnectInfo` this gate reads. A member of
+/// `MW_TRUSTED_PROXIES` can therefore name any peer address it likes — including
+/// one inside `MW_HEADER_AUTH_TRUSTED_IPS` — and then assert an identity for a
+/// password-less session. That grants nothing new to a proxy list naming the
+/// balancer's own addresses, since such membership is already total authority
+/// over the client-IP model; it matters when the list is written as a subnet (a
+/// pod or VPC range) covering hosts other than the balancer, because every host
+/// in that range can then assert an identity. With both features on, list
+/// addresses rather than ranges.
 fn header_auth_peer_allowed(ext: &axum::http::Extensions) -> bool {
     let raw = std::env::var("MW_HEADER_AUTH_TRUSTED_IPS").unwrap_or_default();
     header_auth_peer_allowed_with(&raw, peer_ip(ext))
@@ -3848,10 +3891,14 @@ mod external_base_tests {
     use axum::http::Extensions;
     use std::net::SocketAddr;
 
+    /// Build a `HeaderMap` from `(name, value)` pairs. **Appends**, matching the
+    /// `hdrs` helper in `proxy.rs`, so a repeated name produces the two separate
+    /// header lines a chained proxy actually emits rather than collapsing to the
+    /// last one.
     fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
         let mut m = HeaderMap::new();
         for (k, v) in pairs {
-            m.insert(
+            m.append(
                 axum::http::HeaderName::from_bytes(k.as_bytes()).unwrap(),
                 HeaderValue::from_str(v).unwrap(),
             );
@@ -3940,9 +3987,10 @@ mod external_base_tests {
             &headers(&[("x-forwarded-proto", "http")]),
             &peer("10.1.2.3:5555")
         ));
-        // The leftmost hop is the client-facing one.
+        // Multi-valued headers have their own test below; the nearest hop's value
+        // is the one read, so this list resolves to its LAST element.
         assert!(b.is_https(
-            &headers(&[("x-forwarded-proto", "https, http")]),
+            &headers(&[("x-forwarded-proto", "http, https")]),
             &peer("10.1.2.3:5555")
         ));
         // IPv6, and a v4 peer seen through a dual-stack listener as v4-mapped.
@@ -3986,6 +4034,138 @@ mod external_base_tests {
                 .base_url(&headers(&[]), &no_peer())
                 .as_deref(),
             Some("https://canonical.example.org")
+        );
+    }
+
+    /// A proxy that **appends** to `X-Forwarded-Proto` rather than replacing it
+    /// (Envoy's shape, and any chained tier that passes the client's value
+    /// through) leaves whatever the client sent on the LEFT. The peer gate says
+    /// the header may be looked at; it says nothing about which element inside it
+    /// the proxy wrote, so the element read must be the nearest hop's — the last.
+    ///
+    /// Each direction is asserted, so "the last element is read" is distinguished
+    /// from "a multi-valued header is refused outright": a reader that simply
+    /// dropped lists would pass the first half of every pair and fail the second.
+    #[test]
+    fn an_appending_proxy_cannot_have_the_client_choose_the_scheme() {
+        let b = base(None, "10.0.0.0/8");
+        let p = peer("10.1.2.3:5555");
+
+        // THE ATTACK: the client asserts https, the trusted proxy appends the
+        // plaintext it actually saw. Reading leftmost would believe the client.
+        assert!(!b.is_https(&headers(&[("x-forwarded-proto", "https, http")]), &p));
+        // ... and the mirror, so this is not just "lists are ignored".
+        assert!(b.is_https(&headers(&[("x-forwarded-proto", "http, https")]), &p));
+
+        // Repeated header lines are the same list by another spelling: RFC 9110
+        // makes them equivalent to one comma-joined value, in order, so the
+        // nearest hop's value is the last element of the last line.
+        assert!(!b.is_https(
+            &headers(&[
+                ("x-forwarded-proto", "https"),
+                ("x-forwarded-proto", "http"),
+            ]),
+            &p
+        ));
+        assert!(b.is_https(
+            &headers(&[
+                ("x-forwarded-proto", "http"),
+                ("x-forwarded-proto", "https"),
+            ]),
+            &p
+        ));
+        // Mixed: a list on one line, a further hop on the next.
+        assert!(!b.is_https(
+            &headers(&[
+                ("x-forwarded-proto", "https, https"),
+                ("x-forwarded-proto", "http"),
+            ]),
+            &p
+        ));
+
+        // An unusable nearest element is not a licence to reach further left: a
+        // trailing comma leaves an empty token, and empty is not `https`.
+        assert!(!b.is_https(&headers(&[("x-forwarded-proto", "https,")]), &p));
+        assert!(!b.is_https(&headers(&[("x-forwarded-proto", "https, ")]), &p));
+
+        // An untrusted peer is refused the header whichever end it writes.
+        let untrusted = peer("203.0.113.9:5555");
+        assert!(!b.is_https(
+            &headers(&[("x-forwarded-proto", "http, https")]),
+            &untrusted
+        ));
+        assert!(!b.is_https(
+            &headers(&[("x-forwarded-proto", "https, http")]),
+            &untrusted
+        ));
+        assert!(!b.is_https(
+            &headers(&[
+                ("x-forwarded-proto", "http"),
+                ("x-forwarded-proto", "https"),
+            ]),
+            &untrusted
+        ));
+    }
+
+    /// The same walk direction for `X-Forwarded-Host`, which had no test at all.
+    /// Nothing consumes [`ExternalBase::host`] yet, which is exactly why this is
+    /// worth pinning now: the value a future DCR issuer or WebAuthn RP origin
+    /// would adopt must not be one the client chose.
+    #[test]
+    fn an_appending_proxy_cannot_have_the_client_choose_the_host() {
+        let b = base(None, "10.0.0.0/8");
+        let p = peer("10.1.2.3:5555");
+        let host = |h: &HeaderMap| b.host(h, &p);
+
+        let appended = headers(&[
+            ("host", "backend.internal"),
+            ("x-forwarded-host", "evil.example.net, mail.example.org"),
+        ]);
+        assert_eq!(host(&appended).as_deref(), Some("mail.example.org"));
+
+        // Mirror, so the assertion above is not satisfied by ignoring lists.
+        let appended = headers(&[
+            ("host", "backend.internal"),
+            ("x-forwarded-host", "mail.example.org, evil.example.net"),
+        ]);
+        assert_eq!(host(&appended).as_deref(), Some("evil.example.net"));
+
+        // Repeated lines, the other spelling of the same chain.
+        let lines = headers(&[
+            ("host", "backend.internal"),
+            ("x-forwarded-host", "evil.example.net"),
+            ("x-forwarded-host", "mail.example.org"),
+        ]);
+        assert_eq!(host(&lines).as_deref(), Some("mail.example.org"));
+
+        // Unusable nearest element ⇒ fall through to `Host`, never leftwards.
+        let trailing = headers(&[
+            ("host", "backend.internal"),
+            ("x-forwarded-host", "mail.example.org,"),
+        ]);
+        assert_eq!(host(&trailing).as_deref(), Some("backend.internal"));
+
+        // A value that is not text is unreadable, not a reason to read an earlier
+        // line: the header contributes nothing and `Host` stands.
+        let mut opaque = headers(&[("host", "backend.internal")]);
+        opaque.append(
+            axum::http::HeaderName::from_static("x-forwarded-host"),
+            HeaderValue::from_str("mail.example.org").unwrap(),
+        );
+        opaque.append(
+            axum::http::HeaderName::from_static("x-forwarded-host"),
+            HeaderValue::from_bytes(&[0xC3, 0xA9]).unwrap(),
+        );
+        assert_eq!(host(&opaque).as_deref(), Some("backend.internal"));
+
+        // Untrusted peer: neither element is honoured, `Host` stands.
+        let untrusted = headers(&[
+            ("host", "backend.internal"),
+            ("x-forwarded-host", "evil.example.net, mail.example.org"),
+        ]);
+        assert_eq!(
+            b.host(&untrusted, &peer("203.0.113.9:5555")).as_deref(),
+            Some("backend.internal")
         );
     }
 
