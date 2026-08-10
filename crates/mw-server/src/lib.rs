@@ -2124,7 +2124,12 @@ fn upstream_error() -> Response {
 /// is resolved locally by [`mw_engine::Engine::fetch_blob`] (whole message
 /// `<stableId>` → `message/rfc822`; a part `<stableId>.<partId>` → its decoded
 /// bytes). In proxy mode the request is forwarded to the upstream downloadUrl
-/// with injected Basic auth and streamed back verbatim.
+/// with injected Basic auth and relayed back verbatim.
+///
+/// Both modes advertise `Accept-Ranges: bytes` and answer a single `Range` with
+/// `206` (t20 B9). Neither mode streams: the whole blob is read into memory
+/// first and the range is sliced out of it, so peak memory per concurrent
+/// download is the blob size regardless of the range asked for.
 async fn jmap_download(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2150,7 +2155,7 @@ async fn jmap_download(
                 } else {
                     &name
                 };
-                blob_response(&blob.content_type, filename, blob.bytes)
+                blob_response(&blob.content_type, filename, blob.bytes, &headers)
             }
             Ok(None) => (
                 StatusCode::NOT_FOUND,
@@ -2163,18 +2168,26 @@ async fn jmap_download(
             }
         }
     } else {
-        proxy_download(&session, &account_id, &blob_id, &name).await
+        proxy_download(&session, &account_id, &blob_id, &name, &headers).await
     }
 }
 
 /// Proxy a download to the upstream JMAP server: fetch its Session for the real
 /// downloadUrl template, substitute the coordinates, GET it with injected auth,
-/// and stream status + content headers + body straight back to the browser.
+/// and relay status + content headers + body straight back to the browser.
+///
+/// The body is **buffered, not streamed** — `JmapClient::get_bytes` reads the
+/// whole upstream response into memory before this function sees it, so peak
+/// memory per concurrent proxied download equals the blob size. (An earlier
+/// comment here claimed streaming; it never did.) Because the bytes are already
+/// in hand, a client `Range` is served by slicing that buffer, matching the
+/// engine path's behaviour; the request itself is always sent upstream whole.
 async fn proxy_download(
     session: &mw_store::Session,
     account_id: &str,
     blob_id: &str,
     name: &str,
+    req: &HeaderMap,
 ) -> Response {
     let client = match JmapClient::new(&session.credentials.username, &session.credentials.password)
     {
@@ -2198,14 +2211,33 @@ async fn proxy_download(
     match client.get_bytes(&abs).await {
         Ok((status, content_type, content_disposition, bytes)) => {
             let code = StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+            // Only a full upstream 200 is a representation we may slice; anything
+            // else (redirect, error, or an upstream 206 we did not ask for) is
+            // relayed exactly as received.
+            let (code, bytes, content_range) = if code == StatusCode::OK {
+                apply_range(bytes, req)
+            } else {
+                (code, bytes, None)
+            };
+            let unsatisfiable = code == StatusCode::RANGE_NOT_SATISFIABLE;
+            let len = bytes.len();
             let mut resp = Response::new(Body::from(bytes));
             *resp.status_mut() = code;
             let h = resp.headers_mut();
-            if let Some(ct) = content_type.and_then(|v| HeaderValue::from_str(&v).ok()) {
-                h.insert(header::CONTENT_TYPE, ct);
+            if code.is_success() || unsatisfiable {
+                h.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
             }
-            if let Some(cd) = content_disposition.and_then(|v| HeaderValue::from_str(&v).ok()) {
-                h.insert(header::CONTENT_DISPOSITION, cd);
+            if !unsatisfiable {
+                if let Some(ct) = content_type.and_then(|v| HeaderValue::from_str(&v).ok()) {
+                    h.insert(header::CONTENT_TYPE, ct);
+                }
+                if let Some(cd) = content_disposition.and_then(|v| HeaderValue::from_str(&v).ok()) {
+                    h.insert(header::CONTENT_DISPOSITION, cd);
+                }
+            }
+            if let Some(cr) = content_range.and_then(|v| HeaderValue::from_str(&v).ok()) {
+                h.insert(header::CONTENT_RANGE, cr);
+                h.insert(header::CONTENT_LENGTH, HeaderValue::from(len));
             }
             resp
         }
@@ -2298,15 +2330,35 @@ async fn jmap_upload(
     }
 }
 
-/// `413` for an upload body over `maxSizeUpload`. Factual, concrete size in the body.
-fn upload_too_large() -> Response {
+/// The stable JSON `413` body, shared by every size-capped route (t20 B7/B9).
+///
+/// Shape — treat as frozen; the proxy-conformance suite and any client that
+/// wants to report the real limit match on these keys:
+///
+/// ```json
+/// { "error": "payload too large", "limit": "maxSizeUpload", "maxBytes": 50000000 }
+/// ```
+///
+/// `limit` names the constant that was hit (`maxSizeUpload` for `/jmap/upload`,
+/// `maxMessageBytes` for the import routes) and `maxBytes` is its value in bytes.
+/// Pinning the shape is what makes a refusal by the *app* distinguishable from
+/// one by a fronting proxy, which answers with an HTML error page and no JSON —
+/// nginx's default `client_max_body_size 1m` being the case operators hit first.
+pub(crate) fn payload_too_large(limit: &str, max_bytes: usize) -> Response {
     (
         StatusCode::PAYLOAD_TOO_LARGE,
         Json(json!({
-            "error": format!("upload exceeds maxSizeUpload ({MAX_UPLOAD_BYTES} bytes)"),
+            "error": "payload too large",
+            "limit": limit,
+            "maxBytes": max_bytes,
         })),
     )
         .into_response()
+}
+
+/// `413` for an upload body over `maxSizeUpload`.
+fn upload_too_large() -> Response {
+    payload_too_large("maxSizeUpload", MAX_UPLOAD_BYTES)
 }
 
 /// Forward an upload to the upstream JMAP server (proxy mode): fetch its Session for
@@ -2480,7 +2532,7 @@ async fn export_message(
         }
     };
     match mw_export::export_one(&mw_export::RawEmail::new(raw), format) {
-        Ok(out) => blob_response(content_type, &format!("{stable_id}.{ext}"), out),
+        Ok(out) => blob_response(content_type, &format!("{stable_id}.{ext}"), out, &headers),
         Err(e) => {
             tracing::warn!("export failed: {e}");
             (StatusCode::INTERNAL_SERVER_ERROR, "export error").into_response()
@@ -2517,18 +2569,139 @@ fn export_format(name: &str) -> Option<(mw_export::Format, &'static str, &'stati
     }
 }
 
-/// Build a download response with `Content-Type`, `Content-Disposition`
-/// (attachment) and `Content-Length` set.
-fn blob_response(content_type: &str, filename: &str, bytes: Vec<u8>) -> Response {
-    let len = bytes.len();
-    let mut resp = Response::new(Body::from(bytes));
-    let h = resp.headers_mut();
-    if let Ok(v) = HeaderValue::from_str(content_type) {
-        h.insert(header::CONTENT_TYPE, v);
+/// What a `Range` request header asks for, resolved against the real length.
+#[derive(Debug, PartialEq, Eq)]
+enum RangeDecision {
+    /// Send the whole representation with `200`.
+    Full,
+    /// Send `bytes[start..=end]` with `206`.
+    Partial { start: u64, end: u64 },
+    /// Every named range lies outside the representation: `416`.
+    Unsatisfiable,
+}
+
+/// Resolve a `Range` header against a representation of `total` bytes
+/// (RFC 9110 §14.1.2, §14.2, §15.4.17).
+///
+/// Deliberate, stated limits — each is a permitted behaviour, not an oversight:
+/// * only the `bytes` unit is understood; any other unit is ignored (`Full`);
+/// * a **malformed or invalid** spec (`last < first`, non-numeric, a bare `-`)
+///   is ignored rather than rejected, which is what §14.2 requires of an origin
+///   server;
+/// * a **multi-range** request is answered with the whole representation. A
+///   server MAY ignore `Range`, and `multipart/byteranges` buys nothing for the
+///   two uses we have (resume, and a media element seeking), so it is not built.
+///
+/// A zero-length blob is `Unsatisfiable` for any byte range, since no range can
+/// overlap an empty extent.
+fn parse_range(req: &HeaderMap, total: u64) -> RangeDecision {
+    let Some(raw) = req.get(header::RANGE).and_then(|v| v.to_str().ok()) else {
+        return RangeDecision::Full;
+    };
+    let Some((unit, spec)) = raw.trim().split_once('=') else {
+        return RangeDecision::Full;
+    };
+    if !unit.trim().eq_ignore_ascii_case("bytes") || spec.contains(',') {
+        return RangeDecision::Full;
     }
-    let disposition = format!("attachment; filename=\"{}\"", sanitize_filename(filename));
-    if let Ok(v) = HeaderValue::from_str(&disposition) {
-        h.insert(header::CONTENT_DISPOSITION, v);
+    let Some((first, last)) = spec.trim().split_once('-') else {
+        return RangeDecision::Full;
+    };
+    let last_byte = total.saturating_sub(1);
+    let (start, end) = match (first.trim(), last.trim()) {
+        // A bare `-` names nothing.
+        ("", "") => return RangeDecision::Full,
+        // Suffix range: the final N bytes. A representation shorter than the
+        // suffix yields the whole of it (§14.1.2); a zero-length suffix names
+        // nothing that exists.
+        ("", suffix) => {
+            let Ok(n) = suffix.parse::<u64>() else {
+                return RangeDecision::Full;
+            };
+            if n == 0 {
+                return RangeDecision::Unsatisfiable;
+            }
+            (total.saturating_sub(n), last_byte)
+        }
+        // Open-ended: from `start` to the end.
+        (first, "") => {
+            let Ok(start) = first.parse::<u64>() else {
+                return RangeDecision::Full;
+            };
+            (start, last_byte)
+        }
+        (first, last) => {
+            let (Ok(start), Ok(last)) = (first.parse::<u64>(), last.parse::<u64>()) else {
+                return RangeDecision::Full;
+            };
+            if last < start {
+                return RangeDecision::Full;
+            }
+            (start, last.min(last_byte))
+        }
+    };
+    if total == 0 || start >= total {
+        return RangeDecision::Unsatisfiable;
+    }
+    RangeDecision::Partial { start, end }
+}
+
+/// Apply [`parse_range`] to an already-materialised body, returning the status,
+/// the slice to send and the `Content-Range` value the status requires.
+///
+/// The slice is a refcounted view of the same allocation, so answering a range
+/// costs no extra copy — but note what this does **not** do: the caller has
+/// already read the entire blob into memory, so peak resident memory per
+/// concurrent download stays equal to the full blob size no matter how small the
+/// requested range is. Range support here buys resumability and seeking, not
+/// streaming. Real streaming needs a chunked reader through the store and the
+/// upstream client, which is a larger change than this.
+fn apply_range(bytes: Bytes, req: &HeaderMap) -> (StatusCode, Bytes, Option<String>) {
+    let total = bytes.len() as u64;
+    match parse_range(req, total) {
+        RangeDecision::Full => (StatusCode::OK, bytes, None),
+        RangeDecision::Partial { start, end } => (
+            StatusCode::PARTIAL_CONTENT,
+            bytes.slice(start as usize..=end as usize),
+            Some(format!("bytes {start}-{end}/{total}")),
+        ),
+        // §15.4.17: an empty body plus the unsatisfied-range form, so the client
+        // learns the current length and can re-ask.
+        RangeDecision::Unsatisfiable => (
+            StatusCode::RANGE_NOT_SATISFIABLE,
+            Bytes::new(),
+            Some(format!("bytes */{total}")),
+        ),
+    }
+}
+
+/// Build a download response with `Content-Type`, `Content-Disposition`
+/// (attachment), `Content-Length` and `Accept-Ranges: bytes` set, honouring a
+/// single `Range` request with `206` (t20 B9).
+///
+/// `Accept-Ranges` is advertised unconditionally on this path because every
+/// caller holds the complete bytes. See [`apply_range`] for what range support
+/// does and does not fix — the read is still buffered.
+fn blob_response(content_type: &str, filename: &str, bytes: Vec<u8>, req: &HeaderMap) -> Response {
+    let (status, body, content_range) = apply_range(Bytes::from(bytes), req);
+    let len = body.len();
+    let mut resp = Response::new(Body::from(body));
+    *resp.status_mut() = status;
+    let h = resp.headers_mut();
+    h.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+    // A 416 describes the mismatch; it carries no representation, so the blob's
+    // own type and filename would be misleading on it.
+    if status != StatusCode::RANGE_NOT_SATISFIABLE {
+        if let Ok(v) = HeaderValue::from_str(content_type) {
+            h.insert(header::CONTENT_TYPE, v);
+        }
+        let disposition = format!("attachment; filename=\"{}\"", sanitize_filename(filename));
+        if let Ok(v) = HeaderValue::from_str(&disposition) {
+            h.insert(header::CONTENT_DISPOSITION, v);
+        }
+    }
+    if let Some(cr) = content_range.and_then(|v| HeaderValue::from_str(&v).ok()) {
+        h.insert(header::CONTENT_RANGE, cr);
     }
     h.insert(header::CONTENT_LENGTH, HeaderValue::from(len));
     resp
@@ -3649,6 +3822,169 @@ mod tests {
         assert!(export_format("docx").is_some());
         assert!(export_format("eml").is_some());
         assert!(export_format("nope").is_none());
+    }
+
+    /// One `Range` header → a [`HeaderMap`] carrying it.
+    fn range_req(value: &str) -> HeaderMap {
+        let mut m = HeaderMap::new();
+        m.insert(header::RANGE, HeaderValue::from_str(value).unwrap());
+        m
+    }
+
+    #[test]
+    fn range_parsing_resolves_the_three_byte_range_forms() {
+        // start-end, clamped to the last byte.
+        assert_eq!(
+            parse_range(&range_req("bytes=2-5"), 10),
+            RangeDecision::Partial { start: 2, end: 5 }
+        );
+        assert_eq!(
+            parse_range(&range_req("bytes=2-99"), 10),
+            RangeDecision::Partial { start: 2, end: 9 }
+        );
+        // Open-ended.
+        assert_eq!(
+            parse_range(&range_req("bytes=4-"), 10),
+            RangeDecision::Partial { start: 4, end: 9 }
+        );
+        // Suffix; a suffix longer than the blob yields the whole blob.
+        assert_eq!(
+            parse_range(&range_req("bytes=-3"), 10),
+            RangeDecision::Partial { start: 7, end: 9 }
+        );
+        assert_eq!(
+            parse_range(&range_req("bytes=-50"), 10),
+            RangeDecision::Partial { start: 0, end: 9 }
+        );
+        // The unit is case-insensitive; whitespace is tolerated.
+        assert_eq!(
+            parse_range(&range_req("BYTES= 0-0 "), 10),
+            RangeDecision::Partial { start: 0, end: 0 }
+        );
+        // No header at all.
+        assert_eq!(parse_range(&HeaderMap::new(), 10), RangeDecision::Full);
+    }
+
+    #[test]
+    fn malformed_and_multi_ranges_fall_back_to_the_whole_representation() {
+        for raw in [
+            "bytes=",                      // no spec
+            "bytes=-",                     // bare dash
+            "bytes=abc-def",               // non-numeric
+            "bytes=5-2",                   // last < first: invalid, so ignored
+            "items=0-1",                   // unit we do not understand
+            "0-1",                         // no unit at all
+            "bytes=0-1,5-6",               // multi-range: answered whole, by choice
+            "bytes=-1,-2",                 // multi-range suffix form
+            "bytes=99999999999999999999-", // overflows u64
+        ] {
+            assert_eq!(
+                parse_range(&range_req(raw), 10),
+                RangeDecision::Full,
+                "{raw} must be ignored, not rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn ranges_outside_the_blob_are_unsatisfiable() {
+        assert_eq!(
+            parse_range(&range_req("bytes=10-20"), 10),
+            RangeDecision::Unsatisfiable
+        );
+        assert_eq!(
+            parse_range(&range_req("bytes=-0"), 10),
+            RangeDecision::Unsatisfiable
+        );
+        // Nothing overlaps an empty extent.
+        assert_eq!(
+            parse_range(&range_req("bytes=0-0"), 0),
+            RangeDecision::Unsatisfiable
+        );
+        // …but an empty blob with no Range is still a plain 200.
+        assert_eq!(parse_range(&HeaderMap::new(), 0), RangeDecision::Full);
+    }
+
+    /// Status, headers and body bytes of a [`blob_response`].
+    async fn blob_parts(req: &HeaderMap) -> (StatusCode, HeaderMap, Vec<u8>) {
+        let resp = blob_response("text/plain", "note.txt", b"0123456789".to_vec(), req);
+        let status = resp.status();
+        let headers = resp.headers().clone();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .to_vec();
+        (status, headers, body)
+    }
+
+    #[tokio::test]
+    async fn download_advertises_ranges_and_serves_a_single_one() {
+        // No Range: full body, but the capability is advertised.
+        let (status, h, body) = blob_parts(&HeaderMap::new()).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(h.get(header::ACCEPT_RANGES).unwrap(), "bytes");
+        assert!(h.get(header::CONTENT_RANGE).is_none());
+        assert_eq!(h.get(header::CONTENT_LENGTH).unwrap(), "10");
+        assert_eq!(body, b"0123456789");
+
+        // A single range: 206 with the exact slice, length and Content-Range.
+        let (status, h, body) = blob_parts(&range_req("bytes=2-5")).await;
+        assert_eq!(status, StatusCode::PARTIAL_CONTENT);
+        assert_eq!(body, b"2345");
+        assert_eq!(h.get(header::CONTENT_RANGE).unwrap(), "bytes 2-5/10");
+        assert_eq!(h.get(header::CONTENT_LENGTH).unwrap(), "4");
+        assert_eq!(h.get(header::ACCEPT_RANGES).unwrap(), "bytes");
+        // A partial response still describes what it is part of.
+        assert_eq!(h.get(header::CONTENT_TYPE).unwrap(), "text/plain");
+        assert!(
+            h.get(header::CONTENT_DISPOSITION)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .contains("note.txt")
+        );
+
+        // Resume shape: the tail of a partly-fetched download.
+        let (status, h, body) = blob_parts(&range_req("bytes=8-")).await;
+        assert_eq!(status, StatusCode::PARTIAL_CONTENT);
+        assert_eq!(body, b"89");
+        assert_eq!(h.get(header::CONTENT_RANGE).unwrap(), "bytes 8-9/10");
+
+        // Multi-range is answered whole, with a 200 — never a broken 206.
+        let (status, h, body) = blob_parts(&range_req("bytes=0-1,4-5")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, b"0123456789");
+        assert!(h.get(header::CONTENT_RANGE).is_none());
+    }
+
+    #[tokio::test]
+    async fn a_range_past_the_end_is_416_with_the_real_length() {
+        let (status, h, body) = blob_parts(&range_req("bytes=64-128")).await;
+        assert_eq!(status, StatusCode::RANGE_NOT_SATISFIABLE);
+        assert_eq!(h.get(header::CONTENT_RANGE).unwrap(), "bytes */10");
+        assert_eq!(h.get(header::ACCEPT_RANGES).unwrap(), "bytes");
+        assert!(body.is_empty());
+        // No representation is being sent, so it is not described as one.
+        assert!(h.get(header::CONTENT_DISPOSITION).is_none());
+    }
+
+    #[tokio::test]
+    async fn the_413_body_is_stable_json_naming_the_limit() {
+        let resp = upload_too_large();
+        assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(
+            resp.headers().get(header::CONTENT_TYPE).unwrap(),
+            "application/json"
+        );
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["error"], "payload too large");
+        assert_eq!(v["limit"], "maxSizeUpload");
+        assert_eq!(v["maxBytes"], MAX_UPLOAD_BYTES);
+        // The advertised session limit and the enforced one are the same number.
+        assert_eq!(MAX_UPLOAD_BYTES, 50_000_000);
     }
 
     #[test]
