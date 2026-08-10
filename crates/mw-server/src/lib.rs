@@ -4063,10 +4063,7 @@ mod external_base_tests {
     #[test]
     fn base_match_only_strips_on_a_segment_boundary() {
         assert_eq!(match_base_path("/mail", "/mail"), BaseMatch::Exact);
-        assert_eq!(
-            match_base_path("/mail/", "/mail"),
-            BaseMatch::Under("/")
-        );
+        assert_eq!(match_base_path("/mail/", "/mail"), BaseMatch::Under("/"));
         assert_eq!(
             match_base_path("/mail/api/login", "/mail"),
             BaseMatch::Under("/api/login")
