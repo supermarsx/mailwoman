@@ -139,3 +139,106 @@ test.describe('axe WCAG 2.2 AA gate', () => {
     await scanAxe(page, 'security-panel', { exclude: ['iframe[title="Message body"]'] });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// t19-e12 — theming a11y. `src/theme/contrast.test.ts` proves the token TABLE is
+// contrast-viable; these scans prove the RENDERED result is, which is a
+// different claim. axe's `color-contrast` rule reads computed styles off the
+// real DOM, so it catches what a numeric table over `tokens.ts` cannot: a
+// component that hard-codes a colour instead of reading a token, a pack that was
+// never bound to a CSS selector, or a surface painted by a token pair the
+// requirement table does not describe.
+
+/** Seed `mw.theme.prefs` before boot so the app starts on a given pack. */
+async function seedTheme(page: Page, theme: string): Promise<void> {
+  await page.addInitScript((t) => {
+    localStorage.setItem('mw.theme.prefs', JSON.stringify({ mode: 'fixed', theme: t }));
+  }, theme);
+}
+
+test.describe('theme contrast in a real browser', () => {
+  // One pack per family rather than all 13: the families are what differ in
+  // palette, the light/dark variants of a family share their structure, and a
+  // full-shell axe scan is not cheap. The numeric matrix covers all 13.
+  for (const theme of ['light', 'dark', 'slate-dark', 'ocean-light', 'plum-dark', 'grove-light', 'amoled']) {
+    test(`mailbox chrome on ${theme}`, async ({ page }) => {
+      await seedTheme(page, theme);
+      await engineLogin(page);
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+      await expect(page.getByRole('tablist')).toBeVisible();
+      await scanAxe(page, `mailbox/${theme}`);
+    });
+  }
+
+  test('Settings dialog on the high-contrast light pack', async ({ page }) => {
+    await seedTheme(page, 'hc-light');
+    await engineLogin(page);
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+    await scanAxe(page, 'settings/hc-light');
+  });
+
+  test('Settings dialog on the high-contrast dark pack', async ({ page }) => {
+    await seedTheme(page, 'hc-dark');
+    await engineLogin(page);
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+    await scanAxe(page, 'settings/hc-dark');
+  });
+});
+
+test.describe('forced colours and reduced motion', () => {
+  // Windows High Contrast / `forced-colors: active` replaces the author palette
+  // with the user's system colours. The failure mode it exposes is not low
+  // contrast but INVISIBILITY: anything conveyed by a background image, a
+  // box-shadow, or a `background-color` alone disappears, because forced-colors
+  // does not repaint those. axe's rules for it are limited, so these tests pair
+  // the scan with a direct check that the shell still renders its structure.
+
+  test('mailbox chrome under forced-colors: active', async ({ page }) => {
+    await page.emulateMedia({ forcedColors: 'active' });
+    await engineLogin(page);
+    await expect(page.getByRole('tablist')).toBeVisible();
+    // The ribbon tabs must remain distinguishable as controls, not just as text:
+    // under forced colours a tab styled only by background colour reads as plain
+    // text to a user who cannot see the (now discarded) fill.
+    const tabs = page.getByRole('tab');
+    expect(await tabs.count()).toBeGreaterThan(0);
+    await expect(tabs.first()).toBeVisible();
+    await scanAxe(page, 'mailbox/forced-colors');
+  });
+
+  test('Settings dialog under forced-colors: active', async ({ page }) => {
+    await page.emulateMedia({ forcedColors: 'active' });
+    await engineLogin(page);
+    await page.getByRole('button', { name: 'Settings' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Settings' });
+    await expect(dialog).toBeVisible();
+    // The theme picker marks the active pack with `aria-pressed`, not colour
+    // alone — which is exactly what keeps it usable when the fill is discarded.
+    await expect(dialog.locator('button[aria-pressed="true"]').first()).toBeVisible();
+    await scanAxe(page, 'settings/forced-colors');
+  });
+
+  test('login screen under forced-colors: active', async ({ page }) => {
+    await page.emulateMedia({ forcedColors: 'active' });
+    await page.goto('/');
+    await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+    await scanAxe(page, 'login/forced-colors');
+  });
+
+  test('prefers-reduced-motion reaches the root and survives a theme change', async ({ page }) => {
+    // `themes.css.ts` gates its transitions on `:root[data-reduced-motion]`, and
+    // the flag is set by the same `matchMedia` helper the colour-scheme watcher
+    // uses — a refactor that broke one would plausibly break the other.
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await engineLogin(page);
+    await expect(page.locator('html')).toHaveAttribute('data-reduced-motion', '');
+
+    await page.getByRole('button', { name: 'Settings' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Settings' });
+    await dialog.getByRole('button', { name: 'AMOLED' }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'amoled');
+    await expect(page.locator('html')).toHaveAttribute('data-reduced-motion', '');
+  });
+});

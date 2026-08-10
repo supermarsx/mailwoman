@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createRoot } from 'solid-js';
-import { createMailSlice, type MailSlice } from './mail.ts';
+import { createMailSlice, extractHtmlBody, type MailSlice } from './mail.ts';
 import type { SliceContext } from './context.ts';
 import type { Client, Me } from '../../api/client.ts';
 import {
@@ -10,6 +10,7 @@ import {
   type JmapResponse,
   type JmapSession,
   type Mailbox,
+  type EmailBodyPart,
 } from '../../api/jmap-types.ts';
 
 // ── fixtures ────────────────────────────────────────────────────────────────
@@ -19,6 +20,11 @@ const MAILBOXES: Mailbox[] = [
   { id: 'trash', name: 'Trash', parentId: null, role: 'trash', sortOrder: 2, totalEmails: 0, unreadEmails: 0 },
   { id: 'junk', name: 'Spam', parentId: null, role: 'junk', sortOrder: 3, totalEmails: 0, unreadEmails: 0 },
 ];
+
+/** A complete `EmailBodyPart` — the JMAP shape requires blobId + size. */
+function part(partId: string, type: string): EmailBodyPart {
+  return { partId, blobId: `b-${partId}`, size: 1, type };
+}
 
 function email(id: string, over: Partial<Email> = {}): Email {
   return {
@@ -47,11 +53,14 @@ const SESSION: JmapSession = {
 };
 
 /** A fake JMAP client whose inbox listing returns `seed()`. */
-function makeClient(seed: () => Email[]): { client: Client; jmap: ReturnType<typeof vi.fn> } {
+function makeClient(
+  seed: () => Email[],
+  boxes: Mailbox[] = MAILBOXES,
+): { client: Client; jmap: ReturnType<typeof vi.fn> } {
   const jmap = vi.fn(async (body: JmapRequest): Promise<JmapResponse> => {
     const names = body.methodCalls.map((c) => c[0]);
     if (names.includes('Mailbox/get')) {
-      return { methodResponses: [['Mailbox/get', { accountId: 'acct1', state: 's', list: MAILBOXES, notFound: [] }, 'c0']], sessionState: 's' };
+      return { methodResponses: [['Mailbox/get', { accountId: 'acct1', state: 's', list: boxes, notFound: [] }, 'c0']], sessionState: 's' };
     }
     if (names.includes('EmailSubmission/set')) {
       return {
@@ -88,7 +97,7 @@ function makeClient(seed: () => Email[]): { client: Client; jmap: ReturnType<typ
 
 async function withInbox(
   seed: Email[],
-  run: (mail: MailSlice, ctx: { toast: ReturnType<typeof vi.fn>; jmap: ReturnType<typeof vi.fn>; setSeed: (e: Email[]) => void }) => Promise<void>,
+  run: (mail: MailSlice, ctx: { toast: ReturnType<typeof vi.fn>; jmap: ReturnType<typeof vi.fn>; client: Client; setSeed: (e: Email[]) => void }) => Promise<void>,
 ): Promise<void> {
   let current = seed;
   const { client, jmap } = makeClient(() => current);
@@ -97,9 +106,62 @@ async function withInbox(
   await createRoot(async (dispose) => {
     const mail = createMailSlice(ctx);
     await mail.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
-    await run(mail, { toast, jmap, setSeed: (e) => (current = e) });
+    await run(mail, { toast, jmap, client, setSeed: (e) => (current = e) });
     dispose();
   });
+}
+
+/**
+ * As `withInbox`, but with the OPTIONAL `SliceContext` seams populated — the
+ * offline queue, the offline search, and the peer-tab broadcast. A slice built
+ * without them takes the direct/online path, which is what every test above
+ * exercises; these are the branches that only exist once `store.ts` wires the
+ * offline slice in. (t19-e12)
+ */
+async function withDeps(
+  seed: Email[],
+  deps: Omit<SliceContext, 'client' | 'showToast'>,
+  run: (
+    mail: MailSlice,
+    ctx: {
+      toast: ReturnType<typeof vi.fn>;
+      jmap: ReturnType<typeof vi.fn>;
+      client: Client;
+      setSeed: (e: Email[]) => void;
+    },
+  ) => Promise<void>,
+): Promise<void> {
+  let current = seed;
+  const { client, jmap } = makeClient(() => current);
+  const toast = vi.fn();
+  const ctx: SliceContext = { client, showToast: toast, ...deps };
+  await createRoot(async (dispose) => {
+    const mail = createMailSlice(ctx);
+    await mail.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await run(mail, { toast, jmap, client, setSeed: (e) => (current = e) });
+    dispose();
+  });
+}
+
+/** Boot a slice against an account whose mailbox list is missing some roles. */
+async function withBoxes(
+  seed: Email[],
+  boxes: Mailbox[],
+  run: (mail: MailSlice, ctx: { toast: ReturnType<typeof vi.fn> }) => Promise<void>,
+): Promise<void> {
+  const { client } = makeClient(() => seed, boxes);
+  const toast = vi.fn();
+  await createRoot(async (dispose) => {
+    const mail = createMailSlice({ client, showToast: toast });
+    await mail.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await run(mail, { toast });
+    dispose();
+  });
+}
+
+/** Mailboxes minus the named roles, to drive the refusal paths. */
+function withoutRoles(...roles: string[]): Mailbox[] {
+  return MAILBOXES.filter((m) => !roles.includes(m.role ?? ''));
 }
 
 // ── tests ───────────────────────────────────────────────────────────────────
@@ -273,5 +335,448 @@ describe('mail slice — undo-send', () => {
       expect(mail.pendingUndo()).toBeNull();
       expect(toast).toHaveBeenCalledWith('success', 'Scheduled to send');
     });
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// t19-e12 (tag 26.19). Everything below covers branches the suite above did not
+// reach: relocation and its refusals, the sweep edges, reading a message, the
+// search round trip, session lifecycle, the offline seams, and the pure body
+// extractor that feeds the sandboxed reader iframe.
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe('mail slice — archive / trash / spam / move', () => {
+  const cases = [
+    ['archiveMessage', 'archive', 'Archived'],
+    ['trashMessage', 'trash', 'Moved to Trash'],
+    ['markSpam', 'junk', 'Marked as spam'],
+  ] as const;
+
+  for (const [method, role, label] of cases) {
+    it(`${method} removes the row and offers an undo that puts it back where it was`, async () => {
+      await withInbox([email('a'), email('b'), email('c')], async (mail, { jmap }) => {
+        jmap.mockClear();
+        await mail[method]('b');
+        // Removed from the list optimistically, before any server confirmation.
+        expect(mail.messages().map((m) => m.id)).toEqual(['a', 'c']);
+
+        // The move names the destination mailbox, not just "somewhere else".
+        const move = jmap.mock.calls
+          .map((call) => call[0] as JmapRequest)
+          .flatMap((body) => body.methodCalls)
+          .find((c) => c[0] === 'Email/set');
+        expect(JSON.stringify(move)).toContain(role);
+
+        expect(mail.pendingUndo()?.label).toBe(label);
+        await mail.undoNow();
+        // Restored at its ORIGINAL index — an undo that appends would silently
+        // reorder the list the user is looking at.
+        expect(mail.messages().map((m) => m.id)).toEqual(['a', 'b', 'c']);
+      });
+    });
+  }
+
+  it('refuses and explains when the destination folder does not exist', async () => {
+    for (const [method, missing, message] of [
+      ['archiveMessage', 'archive', 'No Archive folder'],
+      ['trashMessage', 'trash', 'No Trash folder'],
+      ['markSpam', 'junk', 'No Spam folder'],
+    ] as const) {
+      await withBoxes([email('a')], withoutRoles(missing), async (mail, { toast }) => {
+        await mail[method]('a');
+        expect(toast).toHaveBeenCalledWith('error', message);
+        // The message must still be there — a refusal that also loses the row
+        // would be worse than the missing folder.
+        expect(mail.messages().map((m) => m.id)).toEqual(['a']);
+        expect(mail.pendingUndo()).toBeNull();
+      });
+    }
+  });
+
+  it('moveMessage names the target folder in its undo label', async () => {
+    await withInbox([email('a')], async (mail) => {
+      await mail.moveMessage('a', 'archive');
+      expect(mail.messages()).toEqual([]);
+      expect(mail.pendingUndo()?.label).toContain('Archive');
+    });
+  });
+
+  it('moveMessage falls back to a generic label for an id it cannot name', async () => {
+    // The destination id always comes from the rendered mailbox list, so an
+    // unknown id is a programming error rather than a user path. What matters
+    // is that it degrades to a generic label instead of rendering "undefined"
+    // in the undo toast — and that the move is still undoable.
+    await withInbox([email('a')], async (mail) => {
+      await mail.moveMessage('a', 'no-such-box');
+      expect(mail.pendingUndo()?.label).toBe('Moved to folder');
+      await mail.undoNow();
+      expect(mail.messages().map((m) => m.id)).toEqual(['a']);
+    });
+  });
+
+  it('relocating an id that is not in the list is a no-op, not a crash', async () => {
+    await withInbox([email('a')], async (mail) => {
+      await mail.archiveMessage('ghost');
+      expect(mail.messages().map((m) => m.id)).toEqual(['a']);
+      expect(mail.pendingUndo()).toBeNull();
+    });
+  });
+});
+
+describe('mail slice — follow-ups', () => {
+  it('setFollowUp lists the message under follow-ups and undo clears it', async () => {
+    await withInbox([email('a'), email('b')], async (mail) => {
+      await mail.setFollowUp('a', '2026-09-01T09:00:00Z');
+      expect(mail.followUps().map((m) => m.id)).toEqual(['a']);
+      expect(mail.pendingUndo()?.label).toBe('Follow-up set');
+      await mail.undoNow();
+      expect(mail.followUps()).toEqual([]);
+    });
+  });
+
+  it('clearing a follow-up uses its own label, and undo restores the time', async () => {
+    await withInbox([email('a', { followUpAt: '2026-09-01T09:00:00Z' })], async (mail) => {
+      expect(mail.followUps().map((m) => m.id)).toEqual(['a']);
+      await mail.setFollowUp('a', null);
+      expect(mail.followUps()).toEqual([]);
+      expect(mail.pendingUndo()?.label).toBe('Follow-up cleared');
+      await mail.undoNow();
+      expect(mail.followUps().map((m) => m.id)).toEqual(['a']);
+    });
+  });
+});
+
+describe('mail slice — sweep edges', () => {
+  const day = 86_400_000;
+  const at = (msAgo: number): string => new Date(Date.now() - msAgo).toISOString();
+  const aged = [
+    email('new', { from: [{ name: null, email: 'news@shop.example' }], receivedAt: at(1 * day) }),
+    email('old', { from: [{ name: null, email: 'news@shop.example' }], receivedAt: at(60 * day) }),
+  ];
+
+  it('older-than keeps anything inside the window', async () => {
+    await withInbox(aged, async (mail) => {
+      expect(mail.sweepPreview('news@shop.example', 'older-than', 30).map((m) => m.id)).toEqual([
+        'old',
+      ]);
+      // A window wider than the oldest message matches nothing.
+      expect(mail.sweepPreview('news@shop.example', 'older-than', 365)).toEqual([]);
+    });
+  });
+
+  it('older-than defaults to 30 days when no window is given', async () => {
+    await withInbox(aged, async (mail) => {
+      expect(mail.sweepPreview('news@shop.example', 'older-than').map((m) => m.id)).toEqual(['old']);
+    });
+  });
+
+  it('matches the sender case-insensitively and ignores surrounding space', async () => {
+    await withInbox(aged, async (mail) => {
+      expect(mail.sweepPreview('  NEWS@Shop.Example  ', 'all')).toHaveLength(2);
+    });
+  });
+
+  it('says so instead of silently doing nothing when nothing matches', async () => {
+    await withInbox(aged, async (mail, { toast }) => {
+      await mail.executeSweep('nobody@example.org', 'all');
+      expect(toast).toHaveBeenCalledWith('info', 'Nothing to sweep');
+      expect(mail.messages()).toHaveLength(2);
+      expect(mail.pendingUndo()).toBeNull();
+    });
+  });
+
+  it('refuses a sweep with no Trash folder rather than deleting outright', async () => {
+    await withBoxes(aged, withoutRoles('trash'), async (mail, { toast }) => {
+      await mail.executeSweep('news@shop.example', 'all');
+      expect(toast).toHaveBeenCalledWith('error', 'No Trash folder');
+      expect(mail.messages()).toHaveLength(2);
+    });
+  });
+
+  it('undo restores swept messages at their original positions', async () => {
+    const mixed = [
+      email('keep1'),
+      email('s1', { from: [{ name: null, email: 'news@shop.example' }] }),
+      email('keep2'),
+      email('s2', { from: [{ name: null, email: 'news@shop.example' }] }),
+    ];
+    await withInbox(mixed, async (mail) => {
+      await mail.executeSweep('news@shop.example', 'all');
+      expect(mail.messages().map((m) => m.id)).toEqual(['keep1', 'keep2']);
+      await mail.undoNow();
+      expect(mail.messages().map((m) => m.id)).toEqual(['keep1', 's1', 'keep2', 's2']);
+    });
+  });
+
+  it('does not record the same blocked sender twice', async () => {
+    await withInbox(aged, async (mail) => {
+      await mail.executeSweep('news@shop.example', 'block');
+      await mail.executeSweep('news@shop.example', 'block');
+      expect(mail.blockedSenders().filter((s) => s === 'news@shop.example')).toHaveLength(1);
+    });
+  });
+});
+
+describe('mail slice — reading a message', () => {
+  const withBody = email('a', {
+    htmlBody: [part('1', 'text/html')],
+    bodyValues: { '1': { value: '<p>hello</p>', isEncodingProblem: false, isTruncated: false } },
+  } as Partial<Email>);
+
+  it('opens a message and sanitizes its body before exposing it', async () => {
+    await withInbox([withBody], async (mail, { client }) => {
+      await mail.openMessage('a');
+      expect(mail.openEmail()?.id).toBe('a');
+      // The reader NEVER renders raw remote HTML: everything it shows has been
+      // through the sanitizer seam.
+      expect(client.sanitize).toHaveBeenCalledWith('<p>hello</p>');
+      expect(mail.sanitizedHtml()).toBe('<p>hello</p>');
+      expect(mail.readLoading()).toBe(false);
+    });
+  });
+
+  it('closeMessage drops the open message and its sanitized body together', async () => {
+    await withInbox([withBody], async (mail) => {
+      await mail.openMessage('a');
+      mail.closeMessage();
+      expect(mail.openEmail()).toBeNull();
+      // Leaving the sanitized HTML behind would flash the previous message into
+      // the reader the next time it mounts.
+      expect(mail.sanitizedHtml()).toBeNull();
+    });
+  });
+
+  it('reads from the cached list without a fetch when offline', async () => {
+    await withDeps([withBody], { online: () => false }, async (mail, { jmap, client }) => {
+      jmap.mockClear();
+      await mail.openMessage('a');
+      expect(mail.openEmail()?.id).toBe('a');
+      expect(jmap).not.toHaveBeenCalled();
+      // The cached path skips the sanitizer seam too — it renders the local
+      // extraction directly, which is worth knowing.
+      expect(client.sanitize).not.toHaveBeenCalled();
+      expect(mail.sanitizedHtml()).toContain('hello');
+    });
+  });
+
+  it('offline read of an id that is not cached yields nothing, not a stale body', async () => {
+    await withDeps([withBody], { online: () => false }, async (mail) => {
+      await mail.openMessage('missing');
+      expect(mail.openEmail()).toBeNull();
+      expect(mail.sanitizedHtml()).toBeNull();
+    });
+  });
+
+  it('selectMailbox clears the open message, the search and its results', async () => {
+    await withInbox([withBody], async (mail) => {
+      await mail.openMessage('a');
+      await mail.searchMessages('hello');
+      expect(mail.searchActive()).toBe(true);
+
+      await mail.selectMailbox('archive');
+      expect(mail.selectedMailboxId()).toBe('archive');
+      expect(mail.openEmail()).toBeNull();
+      expect(mail.sanitizedHtml()).toBeNull();
+      expect(mail.searchActive()).toBe(false);
+      expect(mail.search()).toBe('');
+    });
+  });
+});
+
+describe('mail slice — search', () => {
+  it('runs a query, marks search active, and clearing restores the mailbox', async () => {
+    await withInbox([email('a')], async (mail) => {
+      await mail.searchMessages('subject:hi');
+      expect(mail.search()).toBe('subject:hi');
+      expect(mail.searchActive()).toBe(true);
+      await mail.clearSearch();
+      expect(mail.search()).toBe('');
+      expect(mail.searchActive()).toBe(false);
+    });
+  });
+
+  it('an empty query clears instead of searching for nothing', async () => {
+    await withInbox([email('a')], async (mail) => {
+      await mail.searchMessages('   ');
+      expect(mail.searchActive()).toBe(false);
+      expect(mail.search()).toBe('');
+    });
+  });
+
+  it('adds the semantic flag only when the caller asks for it', async () => {
+    await withInbox([email('a')], async (mail, { jmap }) => {
+      jmap.mockClear();
+      await mail.searchMessages('hi');
+      expect(JSON.stringify(jmap.mock.calls)).not.toContain('semantic');
+
+      jmap.mockClear();
+      await mail.searchMessages('hi', { semantic: true });
+      expect(JSON.stringify(jmap.mock.calls)).toContain('semantic');
+    });
+  });
+
+  it('uses the cached offline index instead of the server when offline', async () => {
+    const offlineHit = [email('cached')];
+    const searchOffline = vi.fn(() => offlineHit);
+    await withDeps([email('a')], { online: () => false, searchOffline }, async (mail, { jmap }) => {
+      jmap.mockClear();
+      await mail.searchMessages('anything');
+      expect(searchOffline).toHaveBeenCalledWith({ text: 'anything' });
+      expect(mail.messages().map((m) => m.id)).toEqual(['cached']);
+      expect(jmap).not.toHaveBeenCalled();
+      expect(mail.searchActive()).toBe(true);
+    });
+  });
+
+  it('refreshCurrentMailbox reloads in place, keeping the open message', async () => {
+    await withInbox([email('a')], async (mail, { setSeed }) => {
+      await mail.openMessage('a');
+      setSeed([email('a'), email('b')]);
+      await mail.refreshCurrentMailbox();
+      expect(mail.messages().map((m) => m.id)).toEqual(['a', 'b']);
+      // Unlike selectMailbox, a background refetch must not close the reader.
+      expect(mail.openEmail()?.id).toBe('a');
+    });
+  });
+});
+
+describe('mail slice — offline mutation queue', () => {
+  it('queues a relocation instead of calling JMAP, and still updates the list', async () => {
+    const enqueueOffline = vi.fn(async () => undefined);
+    await withDeps(
+      [email('a'), email('b')],
+      { online: () => false, enqueueOffline },
+      async (mail, { jmap }) => {
+        jmap.mockClear();
+        await mail.archiveMessage('a');
+        expect(jmap).not.toHaveBeenCalled();
+        expect(enqueueOffline).toHaveBeenCalledWith('move', {
+          accountId: 'acct1',
+          emailId: 'a',
+          mailboxIds: { archive: true },
+        });
+        // The row leaves the list immediately — the queue is a transport detail,
+        // not something the user should have to wait on.
+        expect(mail.messages().map((m) => m.id)).toEqual(['b']);
+      },
+    );
+  });
+
+  it('queues a send and says so rather than reporting it sent', async () => {
+    const enqueueOffline = vi.fn(async () => undefined);
+    await withDeps([email('a')], { online: () => false, enqueueOffline }, async (mail, { toast }) => {
+      await mail.sendMessage({ to: 'you@example.org', subject: 'Hi', htmlBody: '<p>x</p>' });
+      expect(enqueueOffline).toHaveBeenCalledWith(
+        'send',
+        expect.objectContaining({ accountId: 'acct1' }),
+      );
+      expect(toast).toHaveBeenCalledWith('info', 'Queued — will send when back online');
+      // No undo window: there is nothing to cancel yet.
+      expect(mail.pendingUndo()).toBeNull();
+    });
+  });
+
+  it('tells peer tabs to refetch after a send', async () => {
+    const broadcastChange = vi.fn();
+    await withDeps([email('a')], { broadcastChange }, async (mail) => {
+      await mail.sendMessage({ to: 'you@example.org', subject: 'Hi', htmlBody: '<p>x</p>' });
+      expect(broadcastChange).toHaveBeenCalled();
+    });
+  });
+});
+
+describe('mail slice — session lifecycle', () => {
+  it('logout clears every piece of account state', async () => {
+    await withInbox([email('a')], async (mail, { client }) => {
+      await mail.openMessage('a');
+      await mail.pinMessage('a', true);
+      await mail.logout();
+
+      expect(client.logout).toHaveBeenCalled();
+      expect(mail.me()).toBeNull();
+      expect(mail.mailboxes()).toEqual([]);
+      expect(mail.messages()).toEqual([]);
+      expect(mail.selectedMailboxId()).toBeNull();
+      expect(mail.openEmail()).toBeNull();
+      expect(mail.sanitizedHtml()).toBeNull();
+      // A pending undo would otherwise fire a mutation against the account the
+      // user just left.
+      expect(mail.pendingUndo()).toBeNull();
+    });
+  });
+
+  it('dismissUndo drops the action without running it', async () => {
+    await withInbox([email('a'), email('b')], async (mail) => {
+      await mail.archiveMessage('a');
+      mail.dismissUndo();
+      expect(mail.pendingUndo()).toBeNull();
+      await mail.undoNow(); // no-op — nothing pending
+      expect(mail.messages().map((m) => m.id)).toEqual(['b']);
+    });
+  });
+});
+
+describe('extractHtmlBody', () => {
+  // Pure, and load-bearing: its return value becomes the reader iframe's
+  // srcdoc. The escaping branch is the one that must not regress.
+  const base = email('x');
+
+  it('prefers the HTML part when the message has one', () => {
+    expect(
+      extractHtmlBody({
+        ...base,
+        htmlBody: [part('1', 'text/html')],
+        bodyValues: { '1': { value: '<p>hi</p>', isEncodingProblem: false, isTruncated: false } },
+      } as Email),
+    ).toBe('<p>hi</p>');
+  });
+
+  it('falls back to the text part, escaped inside a pre block', () => {
+    expect(
+      extractHtmlBody({
+        ...base,
+        textBody: [part('1', 'text/plain')],
+        bodyValues: {
+          '1': { value: 'plain & simple', isEncodingProblem: false, isTruncated: false },
+        },
+      } as Email),
+    ).toBe('<pre>plain &amp; simple</pre>');
+  });
+
+  it('escapes markup in the text part so it cannot become live HTML', () => {
+    // A text/plain body containing markup must render as VISIBLE text. Without
+    // the escape this string reaches the iframe srcdoc as a real element.
+    const out = extractHtmlBody({
+      ...base,
+      textBody: [part('1', 'text/plain')],
+      bodyValues: {
+        '1': {
+          value: '<img src=x onerror=alert(1)>',
+          isEncodingProblem: false,
+          isTruncated: false,
+        },
+      },
+    } as Email);
+    expect(out).toBe('<pre>&lt;img src=x onerror=alert(1)&gt;</pre>');
+    expect(out).not.toContain('<img');
+  });
+
+  it('escapes the preview fallback too, when there is no body at all', () => {
+    expect(extractHtmlBody({ ...base, preview: 'a < b & c' } as Email)).toBe(
+      '<pre>a &lt; b &amp; c</pre>',
+    );
+  });
+
+  it('skips an HTML part whose body value was not fetched', () => {
+    // `Email/get` can return the part list without the value (truncation, a
+    // partial fetch). Returning `undefined` here would render "undefined".
+    expect(
+      extractHtmlBody({
+        ...base,
+        htmlBody: [part('1', 'text/html')],
+        bodyValues: {},
+        preview: 'fallback',
+      } as Email),
+    ).toBe('<pre>fallback</pre>');
   });
 });
