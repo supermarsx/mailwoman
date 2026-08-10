@@ -160,6 +160,27 @@ incremental loop at all, and nobody iterates on release builds.
   is red — it is a different build path on a different OS. It is flagged for whoever
   owns that gate; it is pre-existing and outside this lane's locks.
 
+## Alternating `cargo build` and `cargo test` costs 18 crates
+
+Worth knowing before someone blames the profiles for it. On a fully warm tree:
+
+| Sequence | Recompiled | Time |
+|---|---|---|
+| `cargo build --workspace` twice in a row | 0 | 34 s |
+| `cargo test --workspace --no-run` twice in a row | 0 | 5 s |
+| alternating the two | **18 workspace crates, every time** | 160–190 s |
+
+The 18 are `mw-crypto`, `mw-sanitize`, `mw-render`, `mw-engine`, `mw-plugin`,
+`mw-imap`, `mw-pop3`, `mw-server`, the two Tauri shells and the eight plugins.
+`cargo test` activates dev-dependencies, which enable additional features on shared
+dependencies, so the two commands resolve different feature sets and each
+invalidates the other's artifacts. This is cargo's feature unification, not a
+profile setting — it predates this pass and no `[profile.*]` change affects it.
+
+Practical consequence: pick one command and stay on it. `cargo test --workspace
+--no-run` warms everything `cargo build --workspace` would have, plus the test
+binaries, so there is rarely a reason to run both.
+
 ## Dependency dedupe
 
 `Cargo.lock` went 1109 → 1107 packages and 119 → 117 duplicate crate names by
