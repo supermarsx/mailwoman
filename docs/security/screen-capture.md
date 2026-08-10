@@ -8,8 +8,21 @@ back to the visible watermark where it does not.
 
 **A web browser still cannot prevent, block, or detect screenshots or screen
 recordings.** There is no web API for it. Any product that claims its *web app*
-stops screen capture is wrong or lying. Mailwoman does not make that claim; in the
-browser you get the watermark deterrent and nothing more.
+stops screen capture is wrong or lying. Mailwoman does not make that claim.
+
+> ⚠️ **Correction (26.19) — the browser watermark does not render.** This
+> document said that in the browser you get the watermark deterrent. You do not.
+> The server side is real: `watermark.rs` and its route exist and the admin
+> setting is honoured server-side. **The web client has no consumer for it** —
+> no overlay component, no CSS, no fetch. So a web deployment today has *no*
+> screen-capture control of any kind, not a weak one. Two source comments
+> elsewhere also refer to "the V4 watermark" as though it shipped.
+>
+> This is the file that exists to be the honest edition, which makes it the
+> worst place in the tree to have been wrong. Where the matrix below says
+> "Watermark-only", read **"nothing, until the overlay is built"**. The
+> `{ supported: false }` return value and the OS-enforced rows are unaffected
+> and remain accurate.
 
 ## The honest matrix
 

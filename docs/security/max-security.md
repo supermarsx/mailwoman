@@ -18,9 +18,17 @@ given and the sanitize mode; it never grants the message more capability.
 
 ## Attachments
 
-In any of the reduced modes, attachments open **only via the re-encode preview
-jail** (the V2 viewer sandbox that renders a re-encoded preview), never the
-original bytes. There is no "open original" path from the reader in these modes.
+The intent is that in any of the reduced modes, attachments open **only via the
+re-encode preview jail** (the V2 viewer sandbox that renders a re-encoded
+preview), never the original bytes.
+
+> ⚠️ **Not enforced yet (recorded 26.19).** The reader still has a download path
+> that fetches the original bytes over `/jmap/download/…` regardless of the
+> opening mode, so "there is no open-original path in these modes" is a
+> requirement, not a description. Nothing here is bypassing a check — the check
+> does not exist. Do not rely on the reduced modes to keep original attachment
+> bytes away from the client until this is closed; the rendering restrictions
+> above (`sandbox=""`, no scripts, tightened CSP, sanitize mode) do hold.
 
 ## Policy precedence
 

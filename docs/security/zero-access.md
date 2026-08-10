@@ -45,10 +45,22 @@ against an operator who actively subverts the live mail path.
 
 ## No searchable-encryption claim
 
-There is **no server-side searchable encryption** here, and we make no such claim. Search
-runs entirely on the client: the browser builds a Tantivy index slice over content it has
-decrypted locally, stored in OPFS and encrypted at rest under the search-index key. The
-server never holds a searchable form of your plaintext.
+There is **no server-side searchable encryption** here, and we make no such claim. That
+half is true and is the part worth keeping.
+
+**The other half of this section was wrong and is corrected here.** It said search runs
+entirely on the client over a browser-built Tantivy index slice in OPFS, encrypted under
+the search-index key. **That is not built.** `apps/web/src/wasm/` contains `mw-crypto`
+and `mw-sanitize` only — there is no client-side Tantivy — the derived `'search'` subkey
+has no consumer anywhere, and the only search that runs in the browser is a
+case-insensitive substring scan over the header window the client already has in memory.
+
+What that means for a zero-access account today, stated plainly: **there is no working
+full-text search over your mail.** The server-side index (SPEC §4.2) is built over
+plaintext, so it holds nothing for an account whose rows are ciphertext to the server;
+the client-side index that was meant to replace it does not exist yet. You get substring
+matching over what is currently loaded, and nothing more. The design in SPEC §9.3 is the
+plan; do not read it, or the sentence that used to be here, as a shipped property.
 
 ## Key hierarchy (SPEC §9.1)
 

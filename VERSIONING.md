@@ -37,6 +37,22 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
 
 ## History
 
+> **How to read these entries.** Each one records what a release was believed to
+> deliver at the time it was tagged. Later work has found that a few of them
+> describe code that exists and is tested but is **never reached in
+> production** — a stronger claim than "incomplete", and the kind an audit is
+> right to treat as a credibility problem. Where that has been established, the
+> entry now carries a **`Correction (26.19)`** line. Entries are not rewritten,
+> so the original claim stays visible next to the correction.
+>
+> One correction applies to *many* entries and is recorded once here rather
+> than repeated: several say the build has **"no openssl / no `-sys` / no C"**.
+> `cargo deny` was clean each time and no OpenSSL is linked, but the resolved
+> graph does compile C in two places — `ring` (via rustls) and `zstd-sys` (via
+> tantivy), neither of them a direct dependency. The floor that is real is a
+> rule about what the project *adds*: no OpenSSL, no non-permissive licence,
+> and no new `-sys`/C crate without an explicit human decision. See SPEC §8.3.
+
 - **`26.18`** — a defense-in-depth + housekeeping tag that closes the **six LOW hardening notes** the
   26.17 adversarial review opened, plus a packaging stamp-drift fix, with **net-zero new third-party
   crates** and **no new migration** (every item lands in existing files on `std`/`reqwest`/`sqlx`; the
@@ -618,7 +634,13 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
   sanitized in-worker (mw-sanitize wasm) before the sandboxed iframe. A
   Security panel with DKIM/SPF/DMARC/ARC verdicts, Received-chain, signature
   and attachment-risk analysis, and sender controls that emit **real Sieve
-  rules**. Engine-side DLP on the outbound path (PAN/IBAN/national-id
+  rules**. *(Correction (26.19): the Sieve **codegen** is real and does emit
+  correct scripts — but **upload is a stub**. `upload_sieve_if_supported`
+  always returns `Ok(false)`, so `MailRule/set` never uploads anything and no
+  sender control has ever reached a real Sieve server. The only upload path is
+  `POST /api/account/sieve/sync`, which has no UI caller. Finishing the upload
+  makes the original claim true; until then it is not.)* Engine-side DLP on the
+  outbound path (PAN/IBAN/national-id
   detectors → warn/block, redacted audit). The three-position max-security
   opening switch. Hybrid X25519+ML-KEM-768 store-key wrapping. Server: WKD
   publishing, ARF abuse reports, an honest watermark overlay. New crate:
@@ -640,6 +662,16 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
   tests; Radicale CalDAV/CardDAV conformance (engine<->real-CalDAV round-trip);
   live Playwright E2E across all four modules through the real UI. Four
   end-to-end contract gaps caught + fixed at the E2E gate before release.
+  **Correction (26.19): "synced over CalDAV/CardDAV" did not ship and has never
+  run.** `mw-dav` and `mw-carddav` are complete and the Radicale conformance
+  round-trip above is genuine — but the account runtime's `dav` handle is
+  `None` in every production construction path, its only setter is called from
+  tests, and `Engine::sync_pim` has exactly one caller in the repository, also a
+  test. No deployment has ever synced a calendar or an address book over DAV.
+  The crates work; nothing calls them. Wiring the handle also needs DAV
+  credentials, which `DavConfig` does not persist and which are basic-auth only,
+  so Google's OAuth-only CalDAV/CardDAV stays out of reach until both land.
+  See SPEC §11.2.
 - **`26.3`** — V2: modern mail layer + theming. Engine-side Tantivy search
   (operators + saved searches), offline (Service Worker + encrypted OPFS +
   replay queue), WebSocket/SSE realtime push, multi-window (BroadcastChannel),
@@ -654,6 +686,18 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
   web tests; live-stack Playwright E2E across all V2 features (offline, push,
   multi-window, viewers, search operators, theming, export). Six real
   end-to-end gaps caught and fixed at the E2E gate before release.
+  **Correction (26.19), same shape as 26.4's:** the **encrypted OPFS offline
+  cache has zero production callers.** `EncryptedCache` is implemented and
+  fully tested, and OPFS does hold secrets — but no message or PIM data is ever
+  written to it, the cached header window is an in-memory signal that does not
+  survive a reload, and the service worker caches GET only while JMAP is POST.
+  Reloading the app while offline lands on the login screen. The replay queue
+  and the Outbox are real; "offline" as a reading experience is not. Also in
+  that entry: **multi-window is the BroadcastChannel fallback**, not the
+  SharedWorker session the design calls for (`worker/proxy.ts` is written and
+  nothing imports it), and the **Tantivy index is in-memory** — it is rebuilt
+  from the store on every start and never persisted. See SPEC §15.4, §15.5,
+  §4.2.
 - **`26.2`** — V1: real mail backends. IMAP4rev2 + POP3 + SMTP submission +
   MIME parse/build behind a frozen `AccountBackend` seam, driven by
   `mw-engine` which presents the same JMAP surface the web UI already speaks

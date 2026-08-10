@@ -29,8 +29,16 @@ plugin never holds the user's Nextcloud secret.
 
 ### Share links
 
-When composing, choosing "share via link" for a large attachment creates a Nextcloud
-share and inserts the link. You can set an optional password and expiry on the share.
+**Not reachable from the composer yet (recorded 26.19).** The intended behaviour:
+choosing "share via link" for a large attachment creates a Nextcloud share and inserts
+the link, with an optional password and expiry.
+
+The component that does all of this is written, complete and exported
+(`modules/nextcloud/ShareLinkComposer.tsx` — password, expiry, `onCreated`). The
+composer imports only `NextcloudAttach` from the same barrel, so the share-link
+component's **only** mount is its own unit test. This is a missing import, not a
+missing feature: it is the smallest gap in the tree with a documentation claim
+attached to it.
 
 ## CI
 

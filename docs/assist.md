@@ -37,9 +37,31 @@ Each Assist feature is a capability, granted independently:
 `summarize`, `draft`, `grammar`, `dictation`, `search-semantic`, `auto-tag`, `recap`,
 `assistant`.
 
-> `search-semantic` produces query/text **embeddings** through the configured
-> endpoint. Re-ranking the search index by those embeddings is not yet wired (SPEC
-> §10.4) — the capability computes embeddings; classic search still does the ranking.
+> **`search-semantic` now re-ranks (new in 26.19).** This note previously said the
+> re-rank was not wired; it is. A query marked `semantic` has its top lexical hits
+> re-ordered by embedding similarity, and every degradation — no capability, no
+> endpoint, a dimension mismatch — lands back on lexical ranking rather than on an
+> error.
+>
+> **This makes `search-semantic` a second egress path, and it is the one users are
+> least likely to expect.** Running a semantic search sends the text of the messages
+> being re-ranked (up to 32 per cold query) to the configured endpoint, not just the
+> query. It is opt-in per query — with one qualification: **a saved-search folder
+> whose stored filter carries `semantic: true` re-runs the re-rank every time the
+> folder is opened.** Still user-initiated, so the egress bound holds, but the opt-in
+> becomes persistent rather than per-query, and an operator sizing a rate limit
+> should assume repeat traffic from saved searches.
+>
+> Bound it with `MW_ASSIST_RATE_LIMIT_PER_MIN` (per account, counted in **outbound
+> endpoint requests**): a cold-cache semantic search costs up to 33 — one for the
+> query plus one per document embedded on demand — converging toward 1 as the
+> embedding cache fills. A chat turn costs 1. `0` refuses every Assist request, which
+> is a usable kill switch.
+>
+> Embeddings are produced **only** for messages a user's own opt-in search surfaced.
+> Mail is deliberately **not** embedded at ingest: that would send every message a
+> deployment receives to the configured endpoint as a side effect of enabling a
+> search feature, which is an egress posture nobody opted into.
 
 Every invocation is enforced by the gateway in this order:
 
@@ -56,10 +78,17 @@ Every invocation is enforced by the gateway in this order:
 
 **No Assist capability transmits, deletes, or accepts anything.** This is structural:
 the capability enum has no send/delete/accept variant, so there is no code path for
-Assist to send mail or act irreversibly. The assistant chat is a client of the **same
-tool surface as MCP** (§14.3) and inherits its scoping and its send-gating — a drafted
-message goes to the Outbox for a human to send, exactly as an MCP-gated send does.
-Assist adds no privileged path.
+Assist to send mail or act irreversibly. A drafted message goes to the Outbox for a
+human to send. Assist adds no privileged path.
+
+**One correction to how this used to be described.** The assistant chat is *not* yet
+driven by the MCP tool surface. What ships is proposal **reporting**: the tool name in
+a proposed action comes from the model and is **not validated against the `mw-mcp`
+registry**. Because nothing is ever executed and every action is human-confirmed, the
+consequence is that a proposal could display a tool name that does not correspond to
+any real tool — a display-accuracy limit, not a privilege one. The send-gating above
+is structural and unaffected. Do not describe the assistant as MCP-backed tool calling
+until it is wired.
 
 ## What left the device (disclosure)
 
@@ -67,6 +96,21 @@ Assist shows a per-message **"what left the device"** disclosure so the user can
 for each Assist action, what was sent and to which endpoint host. This is a
 transparency surface, not a legal disclaimer — it reflects the actual gateway
 behavior.
+
+**Corrected in 26.19.** The standing disclosure copy described the `invoke` path only
+and did not mention semantic search, so a user reading a sentence about "the selected
+message" would not have expected a search to send message text to the same endpoint.
+It now names both paths. In the same release the data-class ceiling became **enforced**
+on the embed path rather than merely recorded on the audit row — before that, an
+attachment-exclusion the audit reported as honoured was not applied to the text being
+embedded, and an account outside the ceiling's allowlist was dispatched anyway. The
+copy and the behaviour now agree; they did not.
+
+One gap is named rather than left implied: `transcribe` still clamps its scope, uses
+the result only to label the audit row, and does not refuse on an empty account set.
+The payload there is user-supplied audio rather than mailbox content, so the allowlist
+means something different and the fix needs a deliberate decision — but it is the same
+shape as the defect fixed on the embed path.
 
 ## Audit is content-free
 

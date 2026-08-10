@@ -19,10 +19,24 @@ custom Kotlin plugins:
   **native notifications** (`mw_notify`), **biometric app-lock** (`mw_biometric_*`),
 - **Screen-capture protection** via `FLAG_SECURE` (`mw_set_capture_protection`) — a
   real OS control on Android; see [`../security/screen-capture.md`](../security/screen-capture.md),
-- **`mailto:` / deep links** — declared statically in the manifest.
+- **`mailto:` / deep links** — declared statically in the manifest. ⚠️ **Inert
+  today**: the shared web composer takes no prefill props, so a `mailto:` URL has
+  nowhere to deliver its recipient/subject/body and opens an empty composer. Shell
+  side is fine; see the note in [`desktop.md`](./desktop.md).
 
 The command names are the **frozen bare `mw_*` names** the SPA invokes (identical to
 the desktop shell), so the one SPA drives both shells with no forked UI.
+
+> ⚠️ **Known limitation — the app cannot display a message body (recorded 26.19).**
+> Because the shell points at the same web bundle (`"frontendDist": "../../web/dist"`),
+> it inherits the web client's narrow layout, and that layout removes the reader pane
+> outright: `@media (max-width: 760px) { .reader { display: none } }`, with every
+> reading-pane rule guarded to `min-width: 761px`. On a phone you can list, triage and
+> compose, but not read.
+>
+> This is stated here rather than left to be discovered because this shell is meant to
+> be store-listed. Building a narrow reading layout is the prerequisite for taking the
+> mobile shells seriously, and it lands in the web client, not in the shell.
 
 ## Building the APK
 

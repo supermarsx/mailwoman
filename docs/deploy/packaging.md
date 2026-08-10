@@ -5,10 +5,12 @@ Two distinct distribution stories:
 1. **Client shells** — the Tauri desktop/mobile apps (winget / notarized-macOS /
    AppImage / deb / rpm / Flatpak / F-Droid / Play / App Store). Recipes live in
    [`../../packaging/`](../../packaging/).
-2. **Server** — the single Rust binary (`mailwoman serve` / `mailwoman fcgi` /
-   container / systemd), deployable behind a reverse proxy or via a **hosting panel**.
-   Reverse-proxy snippets are in this directory (`nginx.conf`, `caldav-carddav.md`,
-   `websocket.md`, …); **hosting-panel recipes** are below.
+2. **Server** — the single Rust binary (`mailwoman serve`, container, or systemd),
+   deployable behind a reverse proxy or via a **hosting panel**. The
+   operator-facing reverse-proxy document is
+   [`reverse-proxy.md`](reverse-proxy.md); per-proxy configuration trees are in
+   [`proxy/`](proxy/); topic notes are in this directory
+   (`caldav-carddav.md`, `websocket.md`, …). **Hosting-panel recipes** are below.
 
 Nothing here submits to a store or signs an artifact — every account/cert/submission
 step is a `# HUMAN:` gate. CI (`.github/workflows/packaging.yml`) only proves the
@@ -31,10 +33,11 @@ artifacts **build** and meet the §16 size budgets.
 
 ### Version
 
-Both `tauri.conf.json` files are synced to the current shipped workspace version
-**26.8.0** (was stale at 26.6.0). The `1.0`/`26.9` release tag + any manifest bump is
-a human-gated release decision (see `.orchestration/plans/t8-onedotzero.md` §3) — the
-manifests here pin 26.8.0 so they build against today's tree.
+Both `tauri.conf.json` files carry the workspace version and are stamped
+automatically by `scripts/stamp-version.sh` at release, alongside `Cargo.toml`,
+`apps/web/package.json` and the Helm chart's `appVersion`. Do not hand-edit them;
+they should never need a "was stale at …" note again. (They did once — this
+paragraph used to pin a fixed `26.8.0` by hand.)
 
 ### Mobile has no self-updater — by design
 
@@ -70,15 +73,25 @@ CI provides none of these secrets; all builds it runs are unsigned/unsubmitted.
 
 ## 2. Server hosting-panel recipes (§18.1)
 
-The server is one binary with embedded assets + embedded ACME. Panels either run it
-as a **long-lived service** (reverse-proxied) or, on shared PHP hosts, via
-**FastCGI** (`mailwoman fcgi`). All recipes below are community-maintainable and
-CI-smoke-testable; none needs a proprietary account.
+The server is one binary with embedded assets + embedded ACME. Panels run it as a
+**long-lived service** behind the panel's reverse proxy. All recipes below are
+community-maintainable and CI-smoke-testable; none needs a proprietary account.
+
+> **There is no FastCGI mode.** Earlier revisions of this page told operators to
+> run `mailwoman fcgi` on shared PHP hosts. **That command does not exist** — the
+> CLI has no `fcgi` subcommand and there is no FastCGI code in the tree, so the
+> instruction could only ever have failed. **Mailwoman needs a persistent
+> process**; a shared host that cannot run one cannot run Mailwoman, and that is
+> the honest answer rather than a workaround. (SPEC §18.1 has been corrected to
+> match.)
 
 Common prerequisites: a `mailwoman` binary (from a release, the container image, or
-`cargo build --release --bin mailwoman`), a data dir, and either a public port behind
-the panel's reverse proxy or a Unix socket. See [`hardening.md`](hardening.md) and
-[`mailwoman.service`](mailwoman.service) for the base systemd unit these adapt.
+`cargo build --release --bin mailwoman`), a data dir, and a loopback TCP port behind
+the panel's reverse proxy. **Unix-socket binding is not supported** — `serve` binds
+a TCP address; there is no `UnixListener` in the tree, and systemd socket activation
+(`LISTEN_FDS`) is not implemented either. See [`hardening.md`](hardening.md) and
+[`mailwoman.service`](mailwoman.service) for the base systemd unit these adapt — a
+plain hardened `ExecStart` unit, not a socket-activated one.
 
 ### cPanel (with WHM / "Application Manager")
 
@@ -102,9 +115,9 @@ reverse-proxy path:
 4. TLS is terminated by cPanel/AutoSSL; disable Mailwoman's embedded ACME
    (`--acme off`).
 
-> **Shared-hosting fallback (no persistent process):** use FastCGI —
-> `mailwoman fcgi` behind cPanel's FastCGI handler, the closest analog to
-> SnappyMail's PHP deployability (§18.1).
+> **No shared-hosting fallback.** A cPanel account that cannot run a persistent
+> process cannot run Mailwoman — see the note at the top of this section. The
+> per-user systemd unit above is the supported shape.
 
 ### Plesk
 
@@ -114,8 +127,23 @@ reverse-proxy path:
    **Additional nginx directive** reverse-proxying `/` to `http://127.0.0.1:8801`
    with the WebSocket `Upgrade`/`Connection` headers and `X-Forwarded-*`.
 3. Let Plesk's Let's Encrypt extension own TLS; run Mailwoman with `--acme off`.
-4. Optional subpath hosting (`/mail`) — Mailwoman supports it; set the proxy location
-   and `MW_BASE_PATH=/mail`.
+4. Optional sub-path hosting (`/mail`) — set the proxy location and
+   `MW_BASE_PATH=/mail`. **New in 26.19: this variable is now read.** It was
+   documented here before any code consumed it; setting it had no effect. It now
+   mounts the whole application under the prefix, and the client resolves its own
+   API and asset URLs against it.
+
+   Two things to know before using it. First, **the application also stays
+   mounted at the origin root** — the prefix is *routing*, not an isolation
+   boundary, and that is deliberate: a container health check needs `/healthz`
+   and WKD/JMAP autodiscovery needs `/.well-known/*` at the origin root whatever
+   prefix the UI lives under. Do not treat `MW_BASE_PATH` as a way to hide the
+   app. Second, **no shipped proxy configuration includes a sub-path recipe**
+   yet, and the shipped nginx configuration's `location` blocks are
+   prefix-blind, so **WebSocket push breaks under a prefix** with that file as
+   written. Sub-path hosting works and is proven through a real nginx for
+   `/mail/api/*`; the push path under a prefix is not. See
+   [`reverse-proxy.md`](reverse-proxy.md).
 
 ### CloudPanel
 

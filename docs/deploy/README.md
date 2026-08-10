@@ -99,6 +99,13 @@ pluggable Postgres, layered Valkey/Redis cache, observability) adds:
 | `MW_OTLP_ENDPOINT` | *(unset)* | V6. OTLP collector (e.g. `http://otel:4317`); rustls transport. Unset → OTLP export off. See [`../security/observability.md`](../security/observability.md). |
 | `MW_METRICS_TOKEN` | *(unset)* | V6. Bearer token guarding `GET /metrics`. Unset → `/metrics` is unreachable (never open). |
 | `MW_LOG` | `info` | V6. Per-subsystem tracing directives; hot-reloaded on `SIGHUP`. |
+| `MW_TRUSTED_PROXIES` | *(empty)* | 26.19. CIDRs/addresses whose peers may assert a forwarded header. Empty ⇒ no forwarded header is ever trusted. See [`reverse-proxy.md`](./reverse-proxy.md). |
+| `MW_FORWARDED_MODE` | `off` | 26.19. Which forwarded header to read: `off` / `xff` / `forwarded`. Inert without `MW_TRUSTED_PROXIES`, and vice versa. An unrecognised value is `off`. |
+| `MW_PROXY_PROTOCOL` | `off` | 26.19. PROXY protocol on the HTTP/HTTPS listener: `off` / `accept` / `require`. Use `require` behind an L4 balancer. |
+| `MW_PUBLIC_URL` | *(unset)* | 26.19. Canonical external base (`https://mail.example.com`). Highest-precedence source of public scheme + host. **Setting an https base changes the WebAuthn origin and can invalidate existing passkeys** — see [`reverse-proxy.md`](./reverse-proxy.md) §3. |
+| `MW_BASE_PATH` | *(unset)* | 26.19. Serve under a path prefix (`/mail`). The app **also** stays mounted at the origin root by design; the prefix is routing, not isolation. |
+| `MW_HEADER_AUTH_TRUSTED_IPS` | *(empty)* | Peers allowed to assert `X-Remote-User` when `MW_HEADER_AUTH=1`. Fails closed — empty authenticates nobody. Not independent of `MW_TRUSTED_PROXIES` once `MW_PROXY_PROTOCOL != off`. |
+| `MW_ASSIST_RATE_LIMIT_PER_MIN` | *(unset)* | 26.19. Per-account Assist budget in **outbound endpoint requests**/minute. `0` = hard stop. A cold-cache semantic search costs up to 33; a chat turn costs 1. |
 
 ## Docker
 
@@ -137,6 +144,20 @@ Keep `MW_SERVER_KEY` out of the unit file itself — use a drop-in or
 Terminate TLS at nginx (or Caddy/Traefik) and proxy to `127.0.0.1:8080`. See
 `nginx.conf`. Set `MW_COOKIE_SECURE=true` so the session cookie is only sent
 over HTTPS. The proxy must forward the `Cookie`/`Set-Cookie` headers verbatim.
+
+> ⚠️ **Changed in 26.19 — read [`reverse-proxy.md`](./reverse-proxy.md) before
+> upgrading.** Mailwoman no longer trusts `X-Forwarded-For` from whoever
+> connects. Until you set **both** `MW_TRUSTED_PROXIES` and
+> `MW_FORWARDED_MODE`, every client address the app records — audit log, per-key
+> IP allowlists, rate-limit buckets, ban list — is your proxy's address, not the
+> client's. Nothing fails loudly.
+
+[`reverse-proxy.md`](./reverse-proxy.md) is the operator-facing page: the full
+environment reference, the migration note for `MW_PUBLIC_URL` (it can invalidate
+existing passkeys), sub-path hosting with `MW_BASE_PATH`, the interaction
+between header auth and the proxy trust list, and **which proxies have actually
+been tested versus merely shipped**. Per-proxy configuration trees are under
+[`proxy/`](./proxy/).
 
 V7 (release 26.8.0) — bridges, directory, Assist, plugins — adds:
 

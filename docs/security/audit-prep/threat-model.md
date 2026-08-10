@@ -120,8 +120,15 @@ DB, on-disk files, or a stolen backup). Explicitly **out of model:** a fully mal
   row is relocated, re-labelled, or read under a different schema version (anti-replay /
   anti-relocation).
 - Caching of plaintext-derived data is **disabled** for zero-access accounts (SPEC §15.6).
-- **Search runs entirely client-side** (browser-built Tantivy slice in OPFS, encrypted at
-  rest under the search-index key); **no server-side searchable-encryption claim**.
+- **No server-side searchable-encryption claim.** ⚠️ **Corrected in 26.19:** this bullet
+  previously asserted that search runs entirely client-side over a browser-built Tantivy
+  slice in OPFS, encrypted under the search-index key. **No such index exists** — there is
+  no client-side Tantivy in the bundle, the `'search'` subkey has no consumer, and the
+  only in-browser search is a substring scan over the cached header window. An auditor
+  should treat client-side encrypted search as **not implemented**, not as a control to
+  test. The consequence for a zero-access account is that full-text search over stored
+  mail does not work at all, rather than that it works privately. See
+  `docs/security/zero-access.md`.
 - Multi-device pairing relays only an **opaque sealed envelope** (P-256 ECDH) through the
   server, authenticated by a 6-word SAS the user compares on both screens (defeats a MITM
   relay).

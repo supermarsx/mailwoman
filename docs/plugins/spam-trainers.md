@@ -15,9 +15,22 @@ services, not linked libraries — so the permissive license floor is unchanged.
 ## Hook
 
 Both export `spam-action::classify(raw) -> verdict`. The verdict maps to the engine's
-spam action (no action / add header / reject). Training feeds the ham/spam learn
-endpoints. The rest of the `plugin` world is stubbed; the @0.2.0 PIM/parity
-interfaces advertise `false`.
+spam action (no action / add header / reject). The rest of the `plugin` world is
+stubbed; the @0.2.0 PIM/parity interfaces advertise `false`.
+
+> ⚠️ **Correction (26.19) — training does not exist.** This document said
+> "training feeds the ham/spam learn endpoints" and the table above lists
+> `/learnham` and `/learnspam` as if they were wired. **`SpamHook` has no
+> train or learn method**, and grepping `learnham`/`learnspam`/`train` across
+> `plugins/**/*.rs` returns zero hits, so nothing in the tree can call either
+> endpoint. The trailing TODO in this file still asks for exactly that work,
+> which is the tell.
+>
+> Read the endpoint column as *the protocol these plugins would speak once
+> training is built*, not as a description of what they do. Classification is
+> real; training is not. The user-visible consequence is described in SPEC
+> §10.8: the Junk button relocates a message and teaches nothing, and there is
+> no Not-junk button to undo a false positive.
 
 ## Jail posture
 

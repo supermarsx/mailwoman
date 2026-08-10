@@ -77,13 +77,27 @@ browser-only deployments are unaffected.
 All native capabilities are reached through the SPA's feature-detected capability
 layer (`apps/web/src/platform`), which degrades gracefully in a plain browser:
 
-- **Native notifications** with action buttons (archive / delete / reply),
+- **Native notifications** with action buttons (archive / delete — **not reply**;
+  see the note below),
 - **OS keychain** wrapping the session token + the client key-vault passphrase,
-- **Default-`mailto:` handler** + `mailwoman:` deep links,
+- **Default-`mailto:` handler** + `mailwoman:` deep links (**registered but inert**;
+  see below),
 - **Share targets**, **badge counts**, **biometric app-lock** (Windows Hello),
   **drag-out attachments**,
 - **Screen-capture protection** — real OS exclusion on Windows/macOS; see the honest
   matrix in [`../security/screen-capture.md`](../security/screen-capture.md).
+
+> ⚠️ **Two of these are blocked in the web client, not in the shell (recorded 26.19).**
+> The shell side works; the SPA has nowhere to deliver the result.
+>
+> - **`mailto:` and deep links.** The composer takes **no prefill props**, so a
+>   `mailto:` URL has no way to hand over its recipient, subject or body. Registering
+>   the handler succeeds and opening a `mailto:` link opens an empty composer.
+> - **Notification "reply".** There is no reply action in the client for a
+>   notification button to dispatch to, so only archive and delete can be wired.
+>
+> Both close when the composer gains a prefill/reply entry point. The same limit
+> applies to the mobile shell, which points at the same bundle.
 
 ## Auto-update
 

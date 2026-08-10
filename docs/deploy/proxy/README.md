@@ -14,24 +14,35 @@ is a claim, not a test — and this repository has a history of audits catching
 exactly that pattern. The proof is a CI cell that boots the proxy and runs the
 conformance suite through it.
 
-| Cell | Image | Tier | Booted by CI | Conformance suite run against it |
+| Cell | Image | Tier | In the CI matrix | Booted + suite run |
 |---|---|---|---|---|
-| `nginx` | `nginx:1.27-alpine` | 1 | intended | intended |
-| `apache` | `httpd:2.4-alpine` | 1 | intended | intended |
-| `caddy` | `caddy:2-alpine` | 1 | intended | intended |
-| `haproxy-l7` | `haproxy:3.0-alpine` | 1 | intended | intended |
-| `haproxy-l4` | `haproxy:3.0-alpine` | 1 | intended | intended, **blocked** until PROXY-protocol parsing lands |
-| `traefik` | `traefik:v3.3` | 1 | intended | intended |
-| `envoy` | `envoyproxy/envoy:v1.32` | 2 | no — on-demand profile only | on demand |
-| `iis` | — | 2 | **cannot be** | no; see `iis/README.md` |
+| `nginx` | `nginx:1.27-alpine` | 1 | yes | ✅ developer host — 11/12 |
+| `apache` | `httpd:2.4-alpine` | 1 | yes | ✅ developer host — 10/12 |
+| `caddy` | `caddy:2-alpine` | 1 | yes | ✅ developer host — 11/12 |
+| `haproxy-l7` | `haproxy:3.0-alpine` | 1 | yes | ✅ developer host — 11/12 |
+| `haproxy-l4` | `haproxy:3.0-alpine` | 1 | yes | ✅ developer host — 9/12 |
+| `traefik` | `traefik:v3.3` | 1 | yes | ✅ developer host — 11/12 |
+| `envoy` | `envoyproxy/envoy:v1.32` | 2 | no — on-demand profile only | once, off-matrix, for the appending-XFF walk only |
+| `iis` | — | 2 | **cannot be** | ❌ never; see `iis/README.md` |
 
-"Intended" is the honest word at the time this directory was written. The CI
-workflow (`.github/workflows/proxy-conformance.yml`) and the conformance suite
-(`crates/mw-server/tests/t20_proxy_conformance.rs`) are separate pieces of work
-that land after this one. Until they run and report, **no cell here has passed
-anything**, and no prose anywhere should say a proxy is supported on the
-strength of these files alone. `docs/deploy/reverse-proxy.md` carries the earned
-status once the end-to-end lane reports which cells actually went green.
+**Updated in 26.19.** This table used to say "intended" in both columns, which
+was the honest word when the directory was written and had stopped being honest
+once the cells were actually booted. Every tier-1 cell has now been started and
+had the conformance suite run through it — on a **developer host with Docker,
+not on a CI runner.** `.github/workflows/proxy-conformance.yml` is committed and
+correctly shaped, and at the time of writing has not been observed to complete a
+run, so **"passes in CI" is still not a thing anyone may say.**
+
+Booting them found six real defects, two of which meant a cell could not start
+at all (`apache` was missing a `LoadModule`; `haproxy-l4` inherited the image's
+baked-in `HEALTHCHECK`, which spoke plain HTTP to a TLS-only listener). Both are
+fixed here. Three more were application defects, not proxy ones, and are fixed in
+the application. The remaining `apache` failure — the JSON `413` contract on
+oversize uploads — was also fixed application-side, **after** the last cell run,
+so it is closed in cause but not yet observed through httpd.
+
+`docs/deploy/reverse-proxy.md` is the operator-facing page and carries the full
+per-cell status, the caveats, and the list of claims that are still not earned.
 
 ## Fixed host ports
 
@@ -120,8 +131,8 @@ overwriting, which means it is the one configuration that depends on the
 application's right-to-left walk being correct. See the comments in
 `envoy/envoy.yaml`.
 
-**iis** cannot be tested in CI at all. See `iis/README.md`, which is explicit
-about what has and has not been verified.
+**iis** cannot be tested in CI at all, and has never been booted by anyone. See
+`iis/README.md`, which is explicit about what has and has not been verified.
 
 ## The trust model these configs feed
 

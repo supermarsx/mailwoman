@@ -62,10 +62,19 @@ S/MIME sign/verify/encrypt/decrypt uses RSA-2048+ / ECDSA-P256 with AES content
 encryption. A user imports their certificate + private key as a **PKCS#12 (`.p12`)
 bundle** — this is private-key material, so, like PGP keygen, `importPkcs12` runs
 **client-side in the worker**; only the resulting cert (public) and an opaque
-wrapped bundle are stored. Certificates are also **harvested** from received signed
-mail and validated best-effort against a bundled common-CA trust store plus pinned
-/ harvested certs. Live OCSP/CRL fetching and LDAP/GAL directory lookup are later
-milestones (V6); V4 shows revocation status only when it is present in the cert.
+wrapped bundle are stored. Validation is best-effort against a bundled common-CA
+trust store plus pinned / imported certs. Live OCSP/CRL fetching and LDAP/GAL
+directory lookup are later milestones (V6); V4 shows revocation status only when it
+is present in the cert.
+
+> ⚠️ **Correction (26.19): harvesting from received signed mail does not run.**
+> This paragraph said certificates are "harvested" from received signed mail, and
+> SPEC §8.2 said the same. `harvest_keys`/`harvest_certs` exist in `mw-crypto` and
+> have no callers outside it — `upsert_crypto_key` is never reached from
+> `Engine::ingest`, so nothing scans arriving mail for keys or certificates. The
+> consequence is visible in the UI: the **"harvested" key source can only ever
+> return manually imported keys**, which makes it a label with no distinct
+> meaning. Import is the only path that works today.
 
 ## The 3-state verdict
 
