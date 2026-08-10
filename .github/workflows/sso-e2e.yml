@@ -38,7 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Start Keycloak (one realm: OIDC client + SAML SP + test user)
+      - name: "Start Keycloak (one realm: OIDC client + SAML SP + test user)"
         run: docker compose -f docker-compose.ci.yml up -d keycloak
 
       - name: Wait for the Keycloak realm to be ready
@@ -64,7 +64,14 @@ jobs:
       - name: Build the server binary
         run: cargo build -p mw-server --bin mailwoman
 
+      # Pin pnpm explicitly, as every other workflow in the repo does. Without the
+      # `version` input, pnpm/action-setup reads `packageManager` from the
+      # repo-ROOT package.json — and this repo has no root package.json (the field
+      # lives in apps/web/package.json), so the unpinned form fails outright. This
+      # never surfaced because the file did not parse and so never ran.
       - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
       - uses: actions/setup-node@v4
         with:
           node-version: 20

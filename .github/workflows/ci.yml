@@ -54,6 +54,74 @@ env:
 # =============================================================================
 jobs:
   # -------------------------------------------------------------------------
+  # workflow-lint — YAML-parse EVERY file in .github/workflows/.
+  #
+  # A workflow file that does not parse never runs, and GitHub reports it as a
+  # workflow-file problem rather than a failing job — so it is silent. Two files
+  # were in exactly that state and went unnoticed for two tags:
+  # `t17-conformance.yml` (the whole 26.17 conformance suite, 7 test targets,
+  # never executed) and `sso-e2e.yml:41` (an unquoted step name containing
+  # ": " — a plain scalar may not contain a colon-space). Both are fixed; this
+  # job is what stops the class from recurring silently.
+  #
+  # Deliberately a parse check, not a schema validator and not actionlint: it is
+  # cheap, has no false positives, and covers the failure mode that actually bit
+  # us. It also asserts each file is a mapping that HAS a `jobs:` block and a
+  # trigger, because a file that parses but defines no jobs is silently inert in
+  # the same way. Note the YAML 1.1 gotcha handled below: the bare key `on` loads
+  # as the boolean True, not the string "on".
+  #
+  # Runs on every file, including workflows owned by other lanes. It is Linux-only
+  # because it reads files and touches nothing platform-specific.
+  # -------------------------------------------------------------------------
+  workflow-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: install parser
+        run: pip install --quiet pyyaml
+      - name: every .github/workflows/* parses and defines jobs
+        run: |
+          python3 - <<'PY'
+          import glob, sys, yaml
+
+          files = sorted(glob.glob(".github/workflows/*.yml") +
+                         glob.glob(".github/workflows/*.yaml"))
+          # A glob that silently matches nothing is the same class of bug this job
+          # exists to catch, so treat it as a failure rather than a pass.
+          if not files:
+              sys.exit("no workflow files found under .github/workflows/ — "
+                       "the glob matched nothing, which is itself the bug")
+
+          errs = []
+          for f in files:
+              try:
+                  doc = yaml.safe_load(open(f, encoding="utf-8"))
+              except Exception as e:
+                  errs.append(f"{f}: does not parse — {e}")
+                  continue
+              if not isinstance(doc, dict):
+                  errs.append(f"{f}: top level is {type(doc).__name__}, expected a mapping")
+                  continue
+              if not doc.get("jobs"):
+                  errs.append(f"{f}: no `jobs:` — the file would never run anything")
+              # `on:` is YAML 1.1 boolean true; `"on"` only if it was quoted.
+              if "on" not in doc and True not in doc:
+                  errs.append(f"{f}: no trigger (`on:`) — the file would never run")
+              print(f"  ok  {f}")
+
+          if errs:
+              print("\nFAIL:")
+              for e in errs:
+                  print("  -", e)
+              sys.exit(1)
+          print(f"\nAll {len(files)} workflow files parse and define jobs.")
+          PY
+
+  # -------------------------------------------------------------------------
   # Rust: format, lint, test, build. rust-embed compiles against the committed
   # apps/web/dist/.gitkeep placeholder, so no web build is needed here.
   # This is the LINUX leg; `rust-crossplatform` below runs the same gate on
