@@ -1,0 +1,249 @@
+# Envoy configuration for Mailwoman — TIER 2.
+#
+# ---------------------------------------------------------------------------
+# Status: documented, NOT CI-tested
+# ---------------------------------------------------------------------------
+#
+# This configuration is shipped and runnable, but it is NOT part of the
+# proxy-conformance CI matrix. Its behaviour overlaps haproxy-l7 and Traefik
+# closely enough that it was not worth the wall-clock, and it is the most
+# verbose config here per unit of new coverage. Nothing in the documentation
+# claims Envoy is "supported" in the sense the tier-1 cells are — the honest
+# statement is that this file exists, is reviewable, and can be booted on
+# demand:
+#
+#     docker compose -f docker-compose.proxy.yml --profile envoy up -d
+#
+#     MW_T20_PROXY=1 MW_T20_PROXY_BASE=http://127.0.0.1:8606 \
+#     MW_T20_PROXY_KIND=envoy \
+#       cargo test -p mw-server --test t20_proxy_conformance -- --nocapture
+#
+# ---------------------------------------------------------------------------
+# The one place Envoy behaves differently from every other cell here
+# ---------------------------------------------------------------------------
+#
+# With `use_remote_address: true` and `xff_num_trusted_hops: 0`, Envoy treats
+# the immediate downstream connection as the client and APPENDS that address to
+# X-Forwarded-For. It does not delete what the client sent. So where nginx,
+# Apache, Caddy, HAProxy and Traefik all hand the application a single-hop
+# header, Envoy hands it:
+#
+#     X-Forwarded-For: <whatever the client made up>, <the real client address>
+#
+# That is not a hole. It is exactly the case the application's right-to-left
+# walk exists for: the peer (Envoy) is a trusted proxy, so the walk moves left
+# one hop to the rightmost entry — the real address Envoy appended — finds that
+# it is not itself a trusted proxy, and stops there. The invented entries sit to
+# the left of an untrusted hop and are never reached.
+#
+# It does mean this cell depends on the application-side walk being right, where
+# the others would survive a bug in it. Worth knowing when reading a report that
+# says "five cells green, Envoy red".
+#
+# ---------------------------------------------------------------------------
+# Body size and streaming
+# ---------------------------------------------------------------------------
+#
+# Envoy applies no request body size limit unless the buffer filter is added.
+# None is added, so 50 MB attachment uploads pass through and it is the
+# application that rejects an oversized one.
+#
+# `stream_idle_timeout: 0s` and per-route `timeout: 0s` are what keep server-sent
+# event streams and WebSocket tunnels alive. Envoy's default 15 minute stream
+# idle timeout and 15 second route timeout would both cut them.
+
+static_resources:
+  listeners:
+    # -----------------------------------------------------------------------
+    # Plain HTTP
+    # -----------------------------------------------------------------------
+    - name: listener_http
+      address:
+        socket_address:
+          address: 0.0.0.0
+          port_value: 8080
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: mailwoman_http
+                codec_type: AUTO
+                # Derive the client address from the connection rather than from
+                # anything the client asserted, and set x-forwarded-proto.
+                use_remote_address: true
+                xff_num_trusted_hops: 0
+                skip_xff_append: false
+                # Off, not merely long: an event stream is idle by design.
+                stream_idle_timeout: 0s
+                request_timeout: 0s
+                common_http_protocol_options:
+                  idle_timeout: 3600s
+                upgrade_configs:
+                  - upgrade_type: websocket
+                route_config:
+                  name: mailwoman_route
+                  virtual_hosts:
+                    - name: mailwoman
+                      domains: ["*"]
+                      # Envoy would otherwise rewrite Host to the cluster's
+                      # name. The application derives the OAuth DCR issuer and
+                      # the WebAuthn RP ID from Host, so it must arrive intact.
+                      # (auto_host_rewrite defaults off; not setting it is the
+                      # correct configuration, stated here so an edit has to
+                      # argue with it.)
+                      routes:
+                        - match:
+                            prefix: "/jmap/eventsource"
+                          route:
+                            cluster: mailwoman
+                            timeout: 0s
+                            idle_timeout: 0s
+                        - match:
+                            prefix: "/api/assist/invoke"
+                          route:
+                            cluster: mailwoman
+                            timeout: 0s
+                            idle_timeout: 0s
+                        - match:
+                            prefix: "/jmap/ws"
+                          route:
+                            cluster: mailwoman
+                            timeout: 0s
+                            idle_timeout: 0s
+                            upgrade_configs:
+                              - upgrade_type: websocket
+                                enabled: true
+                        - match:
+                            prefix: "/jmap/upload"
+                          route:
+                            cluster: mailwoman
+                            timeout: 600s
+                        - match:
+                            prefix: "/api/import"
+                          route:
+                            cluster: mailwoman
+                            timeout: 600s
+                        - match:
+                            prefix: "/"
+                          route:
+                            cluster: mailwoman
+                            timeout: 300s
+                http_filters:
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+    # -----------------------------------------------------------------------
+    # TLS. Identical routing; the only difference is the transport socket, and
+    # the fact that Envoy then reports x-forwarded-proto: https — which is what
+    # drives the Secure cookie flag and HSTS on the application side.
+    # -----------------------------------------------------------------------
+    - name: listener_https
+      address:
+        socket_address:
+          address: 0.0.0.0
+          port_value: 8443
+      filter_chains:
+        - transport_socket:
+            name: envoy.transport_sockets.tls
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+              common_tls_context:
+                tls_params:
+                  tls_minimum_protocol_version: TLSv1_2
+                alpn_protocols: ["h2", "http/1.1"]
+                tls_certificates:
+                  - certificate_chain:
+                      filename: /certs/server.crt
+                    private_key:
+                      filename: /certs/server.key
+          filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: mailwoman_https
+                codec_type: AUTO
+                use_remote_address: true
+                xff_num_trusted_hops: 0
+                skip_xff_append: false
+                stream_idle_timeout: 0s
+                request_timeout: 0s
+                common_http_protocol_options:
+                  idle_timeout: 3600s
+                upgrade_configs:
+                  - upgrade_type: websocket
+                route_config:
+                  name: mailwoman_route_tls
+                  virtual_hosts:
+                    - name: mailwoman
+                      domains: ["*"]
+                      routes:
+                        - match:
+                            prefix: "/jmap/eventsource"
+                          route:
+                            cluster: mailwoman
+                            timeout: 0s
+                            idle_timeout: 0s
+                        - match:
+                            prefix: "/api/assist/invoke"
+                          route:
+                            cluster: mailwoman
+                            timeout: 0s
+                            idle_timeout: 0s
+                        - match:
+                            prefix: "/jmap/ws"
+                          route:
+                            cluster: mailwoman
+                            timeout: 0s
+                            idle_timeout: 0s
+                            upgrade_configs:
+                              - upgrade_type: websocket
+                                enabled: true
+                        - match:
+                            prefix: "/jmap/upload"
+                          route:
+                            cluster: mailwoman
+                            timeout: 600s
+                        - match:
+                            prefix: "/api/import"
+                          route:
+                            cluster: mailwoman
+                            timeout: 600s
+                        - match:
+                            prefix: "/"
+                          route:
+                            cluster: mailwoman
+                            timeout: 300s
+                http_filters:
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+  clusters:
+    - name: mailwoman
+      type: STRICT_DNS
+      connect_timeout: 5s
+      lb_policy: ROUND_ROBIN
+      load_assignment:
+        cluster_name: mailwoman
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: app
+                      port_value: 8080
+      health_checks:
+        - timeout: 5s
+          interval: 5s
+          unhealthy_threshold: 3
+          healthy_threshold: 2
+          http_health_check:
+            path: /healthz
+
+admin:
+  address:
+    socket_address:
+      address: 127.0.0.1
+      port_value: 9901

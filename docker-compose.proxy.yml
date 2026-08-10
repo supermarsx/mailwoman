@@ -1,0 +1,396 @@
+# Mailwoman reverse-proxy conformance stack (t20, tag 26.19).
+#
+# One profile per proxy cell. Each profile boots the Mailwoman server plus
+# EXACTLY ONE proxy in front of it, and publishes that cell on a FIXED host port
+# so the conformance suite (crates/mw-server/tests/t20_proxy_conformance.rs) and
+# the CI workflow (.github/workflows/proxy-conformance.yml) can address it
+# without discovery.
+#
+# This file is SEPARATE from docker-compose.ci.yml on purpose — that stack is the
+# live-E2E backend fleet (Postgres/Valkey/Dovecot/Keycloak/...) and is untouched
+# by this tag.
+#
+# ---------------------------------------------------------------------------
+# Quick start
+# ---------------------------------------------------------------------------
+#
+#   # 1. Generate the self-signed TLS material the HTTPS listeners need.
+#   #    (Host openssl; certs are gitignored and never committed.)
+#   sh docs/deploy/proxy/tls/gen-certs.sh
+#
+#   # 2. Boot one cell.
+#   docker compose -f docker-compose.proxy.yml --profile nginx up -d --wait
+#
+#   # 3. Drive it.
+#   MW_T20_PROXY=1 \
+#   MW_T20_PROXY_BASE=http://127.0.0.1:8601 \
+#   MW_T20_PROXY_KIND=nginx \
+#     cargo test -p mw-server --test t20_proxy_conformance -- --nocapture --test-threads=1
+#
+#   # 4. Tear down (ALWAYS -v: the app volume holds a seeded SQLite DB).
+#   docker compose -f docker-compose.proxy.yml --profile nginx down -v
+#
+# ---------------------------------------------------------------------------
+# Fixed host ports — these are a CONTRACT. Do not renumber.
+# ---------------------------------------------------------------------------
+#
+#   profile        HTTP    HTTPS   tier   notes
+#   -----------    ----    -----   ----   ---------------------------------
+#   nginx          8601    8641    1
+#   apache         8602    8642    1      httpd + mod_proxy/mod_proxy_wstunnel
+#   caddy          8603    8643    1
+#   haproxy-l7     8604    8644    1      mode http
+#   haproxy-l4      --     8645    1      mode tcp + send-proxy-v2, TLS PASSTHROUGH
+#   traefik        8605    8646    1
+#   envoy          8606    8647    2      config shipped, NOT in the CI matrix
+#   (direct)       8607     --     --     the app itself, no proxy — baseline
+#
+# The `app` service publishes 8607 in every profile so a test can compare the
+# through-proxy result against the no-proxy baseline in the same run.
+#
+# ---------------------------------------------------------------------------
+# Trust model (must stay in step with crates/mw-server/src/proxy.rs, t20-e1)
+# ---------------------------------------------------------------------------
+#
+# The network uses a PINNED subnet with STATIC addresses so the trusted-proxy
+# allowlist is deterministic and, critically, NARROWER than the whole network:
+#
+#   172.28.10.0/24   proxy containers   <- the ONLY trusted range
+#   172.28.20.0/24   app containers
+#   172.28.0.1       bridge gateway     <- where host-originated test traffic
+#                                          appears from; deliberately UNTRUSTED
+#
+# So a request from the host arrives at the proxy with source 172.28.0.1, the
+# proxy forwards it with `X-Forwarded-For: 172.28.0.1`, and the app — whose peer
+# is a trusted 172.28.10.x — resolves the client as 172.28.0.1. A client that
+# forges its own `X-Forwarded-For` gets that header OVERWRITTEN by every tier-1
+# config, and even if it were not, the gateway is outside MW_TRUSTED_PROXIES so
+# the right-to-left walk would stop there and ignore the forged hops.
+#
+# NOTE for the conformance suite: the "true client IP" a test should expect is
+# the bridge GATEWAY address (172.28.0.1), not the host's LAN address. Docker
+# NATs host-originated traffic; there is no way to see the host's real address
+# from inside the network, and this does not weaken what is being proven — the
+# gateway address is distinguishable from every proxy address.
+#
+# ---------------------------------------------------------------------------
+# Images
+# ---------------------------------------------------------------------------
+#
+# Two images come out of the repo Dockerfile. CI builds them once, `docker save`s
+# them, and each matrix cell `docker load`s them instead of rebuilding:
+#
+#   target `runtime` -> ${MW_PROXY_APP_IMAGE:-mailwoman:proxy-test}
+#   target `mock`    -> ${MW_PROXY_MOCK_IMAGE:-mailwoman-mock:proxy-test}
+#
+# The `mock` stage reuses the `build` stage, so the second image is nearly free
+# once the first is cached.
+
+name: mailwoman-proxy
+
+# ---------------------------------------------------------------------------
+# Shared server environment.
+# ---------------------------------------------------------------------------
+x-app-env: &app-env
+  MW_DB_PATH: "/data/mailwoman.db"
+  MW_RENDER_BIN: "/usr/local/bin/mw-render"
+  # Fixed key so sessions survive a container restart mid-suite. TEST ONLY.
+  MW_SERVER_KEY: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+  MW_MODE: "proxy"
+  # --- forwarded-header trust (t20-e1) ---
+  # Deliberately narrower than the network: the bridge gateway (172.28.0.1),
+  # which is where host-originated test traffic appears from, is NOT in here.
+  MW_TRUSTED_PROXIES: "172.28.10.0/24"
+  MW_FORWARDED_MODE: "xff"
+  # Left UNSET by default so the cells exercise the riskier fallback path
+  # (effective scheme/host derived from trusted X-Forwarded-Proto + Host).
+  # Set it in the environment to drive the explicit-public-URL path instead.
+  MW_PUBLIC_URL: "${MW_PUBLIC_URL:-}"
+  RUST_LOG: "info,mw_server=debug"
+
+networks:
+  proxynet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+          gateway: 172.28.0.1
+
+volumes:
+  app-data:
+  app-tls-data:
+
+services:
+  # =========================================================================
+  # Backend fixtures
+  # =========================================================================
+
+  # In-repo deterministic JMAP mock — the upstream the server proxies to.
+  # Log in from the SPA / suite with:
+  #   jmapUrl  = http://mock:8181/.well-known/jmap
+  #   username = testuser@example.org
+  #   password = testpass
+  mock:
+    image: ${MW_PROXY_MOCK_IMAGE:-mailwoman-mock:proxy-test}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: mock
+    environment:
+      MW_MOCK_PORT: "8181"
+    networks:
+      proxynet:
+        ipv4_address: 172.28.20.5
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/mailwoman", "healthcheck", "--url", "http://127.0.0.1:8181/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  # The Mailwoman server, PLAIN HTTP. Every tier-1 cell except haproxy-l4 sits
+  # in front of this one. Also published directly on 8607 as the no-proxy
+  # baseline (a client hitting it directly is untrusted, so its X-Forwarded-For
+  # must be ignored — that is the control case).
+  app:
+    image: ${MW_PROXY_APP_IMAGE:-mailwoman:proxy-test}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    environment:
+      <<: *app-env
+      MW_BIND: "0.0.0.0:8080"
+    ports:
+      - "8607:8080"
+    volumes:
+      - app-data:/data
+    networks:
+      proxynet:
+        ipv4_address: 172.28.20.10
+    depends_on:
+      mock:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/mailwoman", "healthcheck"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 10s
+
+  # The Mailwoman server with its OWN TLS listener, behind an L4 balancer.
+  # This is the haproxy-l4 cell's backend: haproxy does NOT terminate TLS, it
+  # forwards the raw TCP stream and prefixes it with a PROXY protocol v2 header,
+  # so the client address arrives out-of-band rather than in an HTTP header.
+  #
+  # MW_PROXY_PROTOCOL is consumed by crates/mw-server/src/proxy_protocol.rs
+  # (t20-e2, WAVE 2). Until that lands the app will not parse the v2 header and
+  # this cell cannot be green — the wiring here is deliberately complete so the
+  # cell starts working the moment e2 commits, with no compose change.
+  app-tls:
+    image: ${MW_PROXY_APP_IMAGE:-mailwoman:proxy-test}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    profiles: ["haproxy-l4"]
+    environment:
+      <<: *app-env
+      MW_BIND: "0.0.0.0:8443"
+      MW_TLS_CERT: "/certs/server.crt"
+      MW_TLS_KEY: "/certs/server.key"
+      MW_COOKIE_SECURE: "true"
+      # `require`: refuse any connection that does not carry a PROXY header, and
+      # refuse a PROXY header from a peer outside MW_TRUSTED_PROXIES.
+      MW_PROXY_PROTOCOL: "require"
+    volumes:
+      - app-tls-data:/data
+      - ./docs/deploy/proxy/tls/certs:/certs:ro
+    networks:
+      proxynet:
+        ipv4_address: 172.28.20.11
+    depends_on:
+      mock:
+        condition: service_healthy
+    # NO healthcheck, deliberately. `mailwoman healthcheck` speaks plain HTTP to
+    # MW_BIND, and this listener is TLS-only AND demands a PROXY protocol header
+    # before the TLS ClientHello — so every probe shape available inside this
+    # image would report a false red and hang `up --wait` forever. Readiness for
+    # this cell is asserted at the haproxy-l4 listener and then end to end by the
+    # conformance suite.
+
+  # =========================================================================
+  # Tier 1 — booted in CI
+  # =========================================================================
+
+  nginx:
+    image: nginx:1.27-alpine
+    profiles: ["nginx"]
+    ports:
+      - "8601:8080"
+      - "8641:8443"
+    volumes:
+      - ./docs/deploy/proxy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # nginx.conf includes /etc/nginx/mailwoman/mailwoman.conf from here.
+      - ./docs/deploy/proxy/nginx:/etc/nginx/mailwoman:ro
+      - ./docs/deploy/proxy/tls/certs:/certs:ro
+    networks:
+      proxynet:
+        ipv4_address: 172.28.10.11
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      # Probes the FULL chain (proxy -> app), not just the listener.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 3s
+
+  apache:
+    image: httpd:2.4-alpine
+    profiles: ["apache"]
+    ports:
+      - "8602:8080"
+      - "8642:8443"
+    volumes:
+      - ./docs/deploy/proxy/apache/httpd.conf:/usr/local/apache2/conf/httpd.conf:ro
+      - ./docs/deploy/proxy/apache/mailwoman.conf:/usr/local/apache2/conf/extra/mailwoman.conf:ro
+      - ./docs/deploy/proxy/tls/certs:/certs:ro
+    networks:
+      proxynet:
+        ipv4_address: 172.28.10.12
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 3s
+
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["caddy"]
+    ports:
+      - "8603:8080"
+      - "8643:8443"
+    volumes:
+      - ./docs/deploy/proxy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./docs/deploy/proxy/tls/certs:/certs:ro
+    networks:
+      proxynet:
+        ipv4_address: 172.28.10.13
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 3s
+
+  haproxy-l7:
+    image: haproxy:3.0-alpine
+    profiles: ["haproxy-l7"]
+    ports:
+      - "8604:8080"
+      - "8644:8443"
+    volumes:
+      - ./docs/deploy/proxy/haproxy-l7/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ./docs/deploy/proxy/tls/certs:/certs:ro
+    networks:
+      proxynet:
+        ipv4_address: 172.28.10.14
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 3s
+
+  # TCP mode + TLS PASSTHROUGH. No HTTP headers are set or read here at all —
+  # the client address is carried by the PROXY protocol v2 header instead.
+  haproxy-l4:
+    image: haproxy:3.0-alpine
+    profiles: ["haproxy-l4"]
+    ports:
+      - "8645:8443"
+    volumes:
+      - ./docs/deploy/proxy/haproxy-l4/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    networks:
+      proxynet:
+        ipv4_address: 172.28.10.15
+    depends_on:
+      app-tls:
+        condition: service_started
+    healthcheck:
+      # TCP-level only: an HTTP probe would have to speak TLS, and busybox wget's
+      # TLS support in this image is not dependable enough to gate CI on.
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 8443 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 3s
+
+  traefik:
+    image: traefik:v3.3
+    profiles: ["traefik"]
+    command: ["--configFile=/etc/traefik/traefik.yml"]
+    ports:
+      - "8605:8080"
+      - "8646:8443"
+    volumes:
+      - ./docs/deploy/proxy/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./docs/deploy/proxy/traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+      - ./docs/deploy/proxy/tls/certs:/certs:ro
+    networks:
+      proxynet:
+        ipv4_address: 172.28.10.16
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 3s
+
+  # =========================================================================
+  # Tier 2 — config shipped and runnable on demand, NOT in the CI matrix
+  # =========================================================================
+
+  # Envoy. Cut from the default matrix because its behaviour overlaps
+  # haproxy-l7 + traefik. Boot it by hand with:
+  #   docker compose -f docker-compose.proxy.yml --profile envoy up -d
+  # No healthcheck: the envoyproxy image is Ubuntu-based and ships neither wget
+  # nor curl, so any healthcheck here would be theatre.
+  envoy:
+    image: envoyproxy/envoy:v1.32-latest
+    profiles: ["envoy"]
+    command: ["-c", "/etc/envoy/envoy.yaml", "--service-cluster", "mailwoman-proxy"]
+    ports:
+      - "8606:8080"
+      - "8647:8443"
+    volumes:
+      - ./docs/deploy/proxy/envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
+      - ./docs/deploy/proxy/tls/certs:/certs:ro
+    networks:
+      proxynet:
+        ipv4_address: 172.28.10.17
+    depends_on:
+      app:
+        condition: service_healthy
+
+  # IIS has no cell. Windows Server Core containers are multi-GB and Windows
+  # container jobs on hosted runners are slow and flaky, so IIS is verified by
+  # hand against a real IIS 10 + ARR 3.0 install. See
+  # docs/deploy/proxy/iis/README.md for the runbook and what was actually
+  # checked. Nothing in this file boots IIS and no claim here covers it.

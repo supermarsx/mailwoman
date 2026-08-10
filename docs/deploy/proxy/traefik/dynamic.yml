@@ -1,0 +1,84 @@
+# Traefik v3 DYNAMIC configuration for the Mailwoman conformance cell.
+#
+# Routers, the backend service and TLS material. Entry points and their timeouts
+# live in traefik.yml (static) — see the note at the top of that file.
+#
+# ---------------------------------------------------------------------------
+# What Traefik already does correctly, and is therefore absent here
+# ---------------------------------------------------------------------------
+#
+# * X-Forwarded-For / -Proto / -Host / -Port are written by Traefik itself from
+#   the connection and the entry point. Because no trustedIPs are configured,
+#   anything the client sent under those names is discarded first. There is no
+#   middleware for them below because adding one would only be a chance to get
+#   it wrong.
+#
+# * WebSocket upgrades pass through with no configuration.
+#
+# * There is no response buffering and no request body size limit unless a
+#   `buffering` middleware is added. None is added, so 50 MB attachment uploads
+#   pass through and it is the application, not Traefik, that rejects an
+#   oversized one — which is what puts the app's JSON error in front of the user
+#   instead of a proxy error page.
+#
+# * Server-sent events stream: Traefik flushes a text/event-stream response
+#   immediately, and otherwise flushes on a 100 ms interval. Neither needs a
+#   directive, and the 100 ms default is already well inside any sane bound.
+#
+# The one thing Traefik does NOT manage is the RFC 7239 `Forwarded` header, so
+# that is stripped explicitly below.
+
+http:
+  middlewares:
+    # Traefik has no opinion about RFC 7239 `Forwarded`, so a client-supplied one
+    # would pass straight through to the application. In Traefik, setting a
+    # custom request header to the empty string REMOVES it.
+    mailwoman-strip-forwarded:
+      headers:
+        customRequestHeaders:
+          Forwarded: ""
+          X-Real-IP: ""
+
+  routers:
+    mailwoman-web:
+      rule: "PathPrefix(`/`)"
+      entryPoints:
+        - web
+      middlewares:
+        - mailwoman-strip-forwarded
+      service: mailwoman
+
+    mailwoman-websecure:
+      rule: "PathPrefix(`/`)"
+      entryPoints:
+        - websecure
+      middlewares:
+        - mailwoman-strip-forwarded
+      service: mailwoman
+      tls: {}
+
+  services:
+    mailwoman:
+      loadBalancer:
+        # Host must reach the application unchanged: it derives the OAuth DCR
+        # issuer URL and the WebAuthn RP ID from it, and compares Origin against
+        # it for CSRF. This is Traefik's default; it is stated so a future edit
+        # has to argue with it.
+        passHostHeader: true
+        servers:
+          - url: "http://app:8080"
+
+# TLS for the websecure entry point. The throwaway self-signed pair from
+# docs/deploy/proxy/tls/gen-certs.sh. A real deployment uses a certResolver
+# (Traefik's own ACME) or a CA-issued pair here — or skips Traefik TLS entirely
+# and lets the application hold the certificate behind an L4 balancer, which is
+# the haproxy-l4 shape.
+tls:
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /certs/server.crt
+        keyFile: /certs/server.key
+  certificates:
+    - certFile: /certs/server.crt
+      keyFile: /certs/server.key

@@ -1,0 +1,111 @@
+# Caddy configuration for the Mailwoman conformance cell.
+#
+# Caddy is the "zero-config" path most people try first, and it gets more right
+# out of the box than any other proxy here: it speaks HTTP/2, it passes
+# WebSocket upgrades with no directive at all, it does not buffer responses by
+# default, and it has no request body size limit until you set one. The things
+# it still needs told are the forwarded-header shape and the streaming
+# timeouts.
+#
+# Ports here are the conformance-cell ports (8080 plain / 8443 TLS) and TLS uses
+# the throwaway self-signed pair from docs/deploy/proxy/tls/gen-certs.sh. A real
+# deployment replaces both site blocks with a single one named after the site:
+#
+#     mail.example.org {
+#         import mailwoman https
+#     }
+#
+# and drops `auto_https off`, at which point Caddy provisions and renews the
+# certificate itself. (If you would rather the application hold the certificate,
+# use its built-in ACME via MW_ACME and put an L4 balancer in front instead —
+# see the haproxy-l4 cell.)
+
+{
+	admin off
+
+	# The cell serves on bare ports with a self-signed pair, so Caddy's automatic
+	# certificate management has nothing to do and would only try to reach an ACME
+	# directory from CI. Remove this line for a real deployment.
+	auto_https off
+
+	servers {
+		timeouts {
+			# Long enough to accept a 50 MB attachment over a slow link.
+			read_body 10m
+			read_header 30s
+			# Must outlast the 30 s server heartbeat on an idle WebSocket by a
+			# wide margin, or Caddy closes tunnels that are working fine.
+			idle 1h
+		}
+	}
+}
+
+# The whole Mailwoman handling, parameterised by the scheme to report upstream.
+#   import mailwoman http
+#   import mailwoman https
+(mailwoman) {
+	# Well above the app's own 50 MB upload cap ON PURPOSE. If Caddy's limit sat
+	# at or below the app's, an oversized upload would be rejected here and the
+	# client would get Caddy's error instead of the application's JSON one.
+	request_body {
+		max_size 100MB
+	}
+
+	# ---- Server-sent events --------------------------------------------------
+	# Two endpoints stream: the JMAP EventSource fallback, and the assistant,
+	# which is a POST that returns text/event-stream and so matches no rule keyed
+	# on method or on an /eventsource path.
+	#
+	# Caddy already sets flush_interval to -1 automatically when it sees a
+	# text/event-stream response, but that is a reaction to the response — it is
+	# set explicitly here so the behaviour does not depend on the application
+	# getting its Content-Type exactly right, and so the intent is visible.
+	@stream path /jmap/eventsource /api/assist/invoke
+	reverse_proxy @stream app:8080 {
+		flush_interval -1
+
+		# Overwrite, do not append: whatever the client claimed about its own
+		# address is discarded and the app receives exactly one hop.
+		#
+		# For a CHAIN (CDN -> Caddy -> app) you want Caddy's default appending
+		# behaviour instead — delete this line — but that is only safe if every
+		# upstream hop is listed in MW_TRUSTED_PROXIES.
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {args[0]}
+		header_up -Forwarded
+
+		transport http {
+			# 0 = no timeout. A streaming response is idle by design.
+			read_timeout 0s
+			write_timeout 0s
+		}
+	}
+
+	# ---- Everything else -----------------------------------------------------
+	# Including /jmap/ws: Caddy detects the Upgrade and switches to a raw tunnel
+	# with no directive required, which is why there is no WebSocket block here.
+	# The `idle 1h` above is what keeps that tunnel alive.
+	reverse_proxy app:8080 {
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {args[0]}
+		header_up -Forwarded
+
+		transport http {
+			read_timeout 1h
+			write_timeout 1h
+		}
+	}
+}
+
+:8080 {
+	import mailwoman http
+}
+
+:8443 {
+	tls /certs/server.crt /certs/server.key
+
+	# HSTS is emitted by the application when the effective scheme is https, so
+	# there is no `header Strict-Transport-Security` here. Two sources for one
+	# header is how you get a duplicate with two different max-age values.
+	import mailwoman https
+}

@@ -1,0 +1,64 @@
+# Traefik v3 STATIC configuration for the Mailwoman conformance cell.
+#
+# Traefik splits its configuration in two, and the split matters here: entry
+# points and their timeouts are STATIC (this file, read once at startup), while
+# routers, services and middlewares are DYNAMIC (dynamic.yml, hot-reloaded).
+# Putting a timeout in the wrong file is the most common way to end up with a
+# Traefik that silently ignores it.
+#
+# This cell uses the file provider so the configuration is reviewable as a file.
+# A Kubernetes or Docker-label deployment expresses the same thing as
+# annotations or labels; the sibling Helm chart (packaging/helm/mailwoman)
+# carries the ingress form.
+
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+log:
+  level: INFO
+
+accessLog: {}
+
+api:
+  dashboard: false
+  insecure: false
+
+entryPoints:
+  web:
+    address: ":8080"
+    # forwardedHeaders.trustedIPs is deliberately left UNSET.
+    #
+    # Traefik's rule is: if the connection comes from a trusted IP, incoming
+    # X-Forwarded-* headers are preserved; if it does not, they are DISCARDED
+    # and Traefik writes its own from the connection. With nothing trusted, a
+    # client cannot inject an X-Forwarded-For at all — which is the behaviour we
+    # want at the edge, and it is the default, so it is expressed by omission.
+    #
+    # In a chain (CDN -> Traefik -> app) you would list the CDN ranges here. Do
+    # that only for hops you actually control.
+    transport:
+      respondingTimeouts:
+        # 0 = no timeout. Both of these have to be off, not merely long: a
+        # WebSocket tunnel and a server-sent event stream are idle by design and
+        # any finite write timeout eventually cuts them.
+        readTimeout: 0s
+        writeTimeout: 0s
+        idleTimeout: 1h
+      lifeCycle:
+        graceTimeOut: 10s
+
+  websecure:
+    address: ":8443"
+    transport:
+      respondingTimeouts:
+        readTimeout: 0s
+        writeTimeout: 0s
+        idleTimeout: 1h
+      lifeCycle:
+        graceTimeOut: 10s
+
+providers:
+  file:
+    filename: /etc/traefik/dynamic.yml
+    watch: true
