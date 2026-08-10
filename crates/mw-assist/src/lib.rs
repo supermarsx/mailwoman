@@ -13,6 +13,15 @@
 //! adapter dispatch (streaming chat; also [`embed`](AssistGateway::embed) and
 //! [`transcribe`](AssistGateway::transcribe)).
 //!
+//! [`embed`](AssistGateway::embed) runs the same pipeline and **refuses** rather than
+//! dispatching when no account survives the ceiling clamp. That path carries mail
+//! content (a semantic re-rank embeds the documents a search surfaced, not just the
+//! query), and before 26.19 it clamped the scope only to name it in the audit row —
+//! so the row could record `accounts=0` for a request that had already gone out. An
+//! unenforced control is a bug; a control that reports itself enforced is worse,
+//! because the audit trail is the compliance artifact. The rate limit is likewise a
+//! **per-account** window, not a gateway-wide one.
+//!
 //! **Safety invariant (§14, plan §6 R4):** no capability transmits/deletes/accepts.
 //! The [`AssistCapability`] enum has **no send/delete/accept variant** — a
 //! compile-time guarantee. The `Assistant` capability delegates to the existing
@@ -23,6 +32,7 @@ mod adapters;
 mod assistant;
 pub mod redact;
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -340,11 +350,24 @@ impl AssistAuditSink for InMemoryAudit {
     }
 }
 
-/// Fixed-window rate-limit state.
+/// Fixed-window rate-limit state for one budget key.
 #[derive(Default)]
 struct RateWindow {
     start: Option<Instant>,
     count: u32,
+}
+
+/// The length of one rate-limit window.
+const RATE_WINDOW: Duration = Duration::from_secs(60);
+
+/// The rate-limit budget key for one call: the effective account set, order-normalised
+/// so the same accounts always charge the same bucket whatever order the caller listed
+/// them in. `\u{1f}` (unit separator) joins them because it cannot occur in an account
+/// id, so two different account sets can never collide onto one budget.
+fn rate_key(eff: &DataScope) -> String {
+    let mut accounts = eff.accounts.clone();
+    accounts.sort();
+    accounts.join("\u{1f}")
 }
 
 /// The Assist gateway (plan §2.4). Enforces capability + data-class scope,
@@ -353,7 +376,8 @@ pub struct AssistGateway {
     config: AssistConfig,
     adapter: Option<Arc<dyn EndpointAdapter>>,
     audit: Arc<dyn AssistAuditSink>,
-    rate: Mutex<RateWindow>,
+    /// One fixed window per account set — see [`AssistGateway::check_rate`].
+    rate: Mutex<HashMap<String, RateWindow>>,
 }
 
 impl AssistGateway {
@@ -366,7 +390,7 @@ impl AssistGateway {
             config,
             adapter,
             audit: Arc::new(NoopAudit),
-            rate: Mutex::new(RateWindow::default()),
+            rate: Mutex::new(HashMap::new()),
         }
     }
 
@@ -407,6 +431,16 @@ impl AssistGateway {
         &self.config.data_ceiling
     }
 
+    /// The configured per-account request budget (requests/min; `None` ⇒ unlimited).
+    ///
+    /// Exposed so the mount site can assert that an operator's configured value
+    /// actually reached the gateway. It was hardcoded `None` there until 26.19, which
+    /// is the kind of thing only an observable value catches.
+    #[must_use]
+    pub fn rate_limit_per_min(&self) -> Option<u32> {
+        self.config.rate_limit_per_min
+    }
+
     /// The endpoint host content would be proxied to, for the disclosure. `None` when
     /// the gateway is disabled (nothing can leave).
     #[must_use]
@@ -433,17 +467,32 @@ impl AssistGateway {
         }
     }
 
-    /// Fixed-window rate limit (per gateway). Trips on the request that would
-    /// exceed `rate_limit_per_min` within the current 60-second window.
-    fn check_rate(&self) -> Result<()> {
+    /// Fixed-window rate limit, **per effective account set**. Trips on the request
+    /// that would exceed `rate_limit_per_min` within the current 60-second window.
+    ///
+    /// Keyed per account rather than being one gateway-wide window because a single
+    /// user's semantic search is up to `1 + LAZY_FILL_MAX` = 33 outbound requests on a
+    /// cold embedding cache. Under one shared bucket that user could exhaust the
+    /// deployment's whole minute and lock every other account out of Assist — a
+    /// self-inflicted denial of service created by the control meant to prevent one.
+    /// Per-account, the account that spends the budget is the account it bounds.
+    ///
+    /// The unit is one outbound request, deliberately: the harms this bounds are
+    /// third-party API cost and bulk egress volume, and charging a 33-request pass as
+    /// a single unit would leave both unbounded.
+    fn check_rate(&self, eff: &DataScope) -> Result<()> {
         let Some(limit) = self.config.rate_limit_per_min else {
             return Ok(());
         };
-        let mut w = self.rate.lock().expect("rate lock");
+        let key = rate_key(eff);
         let now = Instant::now();
-        let fresh =
-            !matches!(w.start, Some(start) if now.duration_since(start) < Duration::from_secs(60));
-        if fresh {
+        let mut windows = self.rate.lock().expect("rate lock");
+        // Expired windows carry no budget, so dropping them is free and keeps the map
+        // bounded by the accounts active in the last minute rather than by every
+        // account the process has ever served.
+        windows.retain(|_, w| matches!(w.start, Some(s) if now.duration_since(s) < RATE_WINDOW));
+        let w = windows.entry(key).or_default();
+        if w.start.is_none() {
             w.start = Some(now);
             w.count = 0;
         }
@@ -496,7 +545,7 @@ impl AssistGateway {
         self.check_capability(cap)?; // 1. capability granted
         let eff = scope.clamp(&self.config.data_ceiling); // 2. data-class ceiling
         let (payload, report) = redact::redact_chat_reported(input, &eff, cap); // 3. redaction
-        self.check_rate()?; // 4. rate-limit
+        self.check_rate(&eff)?; // 4. rate-limit
         let host = adapter.host();
         self.audit(cap, &eff, host.clone()); // 5. content-free audit
         let stream = adapter.chat(&payload).await?; // 6. dispatch (streaming)
@@ -504,14 +553,33 @@ impl AssistGateway {
     }
 
     /// Embeddings for the SearchSemantic re-rank slot (§14). Same enforcement
-    /// pipeline; the query is the search text (not mailbox content).
-    pub async fn embed(&self, scope: DataScope, query: &str) -> Result<Vec<f32>> {
-        let adapter = self.require_adapter()?;
-        self.check_capability(AssistCapability::SearchSemantic)?;
-        let eff = scope.clamp(&self.config.data_ceiling);
-        self.check_rate()?;
-        self.audit(AssistCapability::SearchSemantic, &eff, adapter.host());
-        adapter.embed(query).await
+    /// pipeline; `text` is either the user's search string or a document the search
+    /// surfaced, so this path carries mail content and the ceiling is enforced on it.
+    ///
+    /// # Errors
+    /// [`AssistError::Disabled`] when unconfigured, [`AssistError::CapabilityDenied`]
+    /// when `search-semantic` is not granted, [`AssistError::ScopeExceeded`] when no
+    /// account in `scope` survives the deployment ceiling,
+    /// [`AssistError::RateLimited`], or an [`AssistError::Endpoint`] transport error.
+    pub async fn embed(&self, scope: DataScope, text: &str) -> Result<Vec<f32>> {
+        let adapter = self.require_adapter()?; // enabled + adapter present
+        self.check_capability(AssistCapability::SearchSemantic)?; // 1. capability granted
+        let eff = scope.clamp(&self.config.data_ceiling); // 2. data-class ceiling
+        // ...and the ceiling is ENFORCED here, not merely recorded. `accounts` is a
+        // strict allowlist (`intersect_ids`), so an empty effective set means every
+        // account this call names is outside the deployment ceiling. Dispatching
+        // anyway — as this path did before 26.19 — sends mail content the ceiling
+        // excludes and writes an audit row saying `accounts=0`, which reads as
+        // "nothing was in scope" rather than "the request went anyway". Refusing
+        // before the audit keeps the audit trail a record of what actually left.
+        if eff.accounts.is_empty() {
+            return Err(AssistError::ScopeExceeded(
+                "no account in this call is within the deployment data-class ceiling".to_string(),
+            ));
+        }
+        self.check_rate(&eff)?; // 3. rate-limit
+        self.audit(AssistCapability::SearchSemantic, &eff, adapter.host()); // 4. audit
+        adapter.embed(text).await // 5. dispatch
     }
 
     /// Speech-to-text for the Dictation slot (§14, Whisper-compatible). Audio is
@@ -520,7 +588,7 @@ impl AssistGateway {
         let adapter = self.require_adapter()?;
         self.check_capability(AssistCapability::Dictation)?;
         let eff = scope.clamp(&self.config.data_ceiling);
-        self.check_rate()?;
+        self.check_rate(&eff)?;
         self.audit(AssistCapability::Dictation, &eff, adapter.host());
         adapter.transcribe(audio, mime).await
     }
@@ -528,3 +596,174 @@ impl AssistGateway {
 
 #[cfg(test)]
 mod tests;
+
+/// 26.19 (t19-e16): the ceiling-enforcement and per-account rate-limit fixes.
+///
+/// Inline rather than appended to `tests.rs` because that file is outside this lane's
+/// file locks. The coverage belongs with the code it pins either way.
+#[cfg(test)]
+mod enforcement_tests {
+    use super::*;
+    use async_trait::async_trait;
+    use futures_util::StreamExt;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// Counts dispatches. "Was it refused?" and "did it go out anyway?" are different
+    /// questions, and only the second one is about egress.
+    #[derive(Default)]
+    struct CountingAdapter {
+        embeds: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl EndpointAdapter for CountingAdapter {
+        async fn chat(&self, _payload: &ChatPayload) -> Result<ChatStream> {
+            Ok(futures_util::stream::empty::<Result<StreamChunk>>().boxed())
+        }
+        async fn embed(&self, _input: &str) -> Result<Vec<f32>> {
+            self.embeds.fetch_add(1, Ordering::SeqCst);
+            Ok(vec![0.25, 0.5])
+        }
+        async fn transcribe(&self, _audio: &[u8], _mime: &str) -> Result<String> {
+            Ok(String::new())
+        }
+        fn host(&self) -> String {
+            "endpoint.test".into()
+        }
+    }
+
+    /// A gateway whose ceiling admits exactly `accounts`.
+    fn gateway(
+        accounts: &[&str],
+        rate_limit_per_min: Option<u32>,
+    ) -> (AssistGateway, Arc<CountingAdapter>, Arc<InMemoryAudit>) {
+        let adapter = Arc::new(CountingAdapter::default());
+        let audit = Arc::new(InMemoryAudit::default());
+        let gw = AssistGateway::new(AssistConfig {
+            enabled: true,
+            capability_grants: vec![AssistCapability::SearchSemantic],
+            data_ceiling: DataScope {
+                accounts: accounts.iter().map(|s| (*s).to_string()).collect(),
+                ..DataScope::default()
+            },
+            adapter: None,
+            rate_limit_per_min,
+        })
+        .with_adapter(adapter.clone())
+        .with_audit(audit.clone());
+        (gw, adapter, audit)
+    }
+
+    fn for_account(id: &str) -> DataScope {
+        DataScope {
+            accounts: vec![id.to_string()],
+            ..DataScope::default()
+        }
+    }
+
+    /// **Fails against the pre-fix code**, on the first assertion: `embed` clamped the
+    /// scope and then used it only to label the audit row, so an account outside the
+    /// ceiling returned `Ok` with the text already dispatched, leaving an audit row
+    /// reading `accounts=0` — which reads as "nothing was in scope", not as "it went".
+    ///
+    /// The second half is the paired positive control, in the same test on purpose: a
+    /// gateway that refused everything (or was never wired to an adapter) would satisfy
+    /// the refusal assertions while proving nothing.
+    #[tokio::test]
+    async fn embed_refuses_an_account_outside_the_ceiling_and_serves_one_inside_it() {
+        let (gw, adapter, audit) = gateway(&["allowed"], None);
+
+        let denied = gw.embed(for_account("intruder"), "quarterly report").await;
+        assert!(
+            matches!(denied, Err(AssistError::ScopeExceeded(_))),
+            "an account outside the ceiling must be refused, got {denied:?}"
+        );
+        assert_eq!(
+            adapter.embeds.load(Ordering::SeqCst),
+            0,
+            "a refused call must never reach the endpoint"
+        );
+        assert!(
+            audit.rows().is_empty(),
+            "nothing left, so nothing is recorded as having left: {:?}",
+            audit.rows()
+        );
+
+        // Positive control: the permitted account is served, so the assertions above
+        // are about enforcement rather than about a gateway that does nothing.
+        let allowed = gw.embed(for_account("allowed"), "quarterly report").await;
+        assert_eq!(
+            allowed.expect("in-ceiling embed dispatches"),
+            vec![0.25, 0.5]
+        );
+        assert_eq!(adapter.embeds.load(Ordering::SeqCst), 1);
+        let rows = audit.rows();
+        assert_eq!(rows.len(), 1, "exactly one dispatch, exactly one audit row");
+        assert!(
+            rows[0].scope_summary.contains("accounts=1"),
+            "the row describes the call that actually went: {:?}",
+            rows[0].scope_summary
+        );
+    }
+
+    /// An empty per-call scope is refused too — the "forgot to populate the scope"
+    /// shape, which the strict-allowlist intersection turns into an empty effective
+    /// set exactly like an out-of-ceiling account.
+    ///
+    /// **Fails against the pre-fix code**: this dispatched.
+    #[tokio::test]
+    async fn embed_refuses_an_empty_scope() {
+        let (gw, adapter, _audit) = gateway(&["allowed"], None);
+        assert!(matches!(
+            gw.embed(DataScope::default(), "text").await,
+            Err(AssistError::ScopeExceeded(_))
+        ));
+        assert_eq!(adapter.embeds.load(Ordering::SeqCst), 0);
+    }
+
+    /// **Fails against the pre-fix code** on the final assertion: the window was a
+    /// single gateway-wide bucket, so account `b` inherited account `a`'s spend and was
+    /// refused a request it had every right to make. With a cold-cache semantic search
+    /// costing up to 33 outbound requests, that is one user locking the whole
+    /// deployment out of Assist for the rest of the minute.
+    #[tokio::test]
+    async fn the_rate_limit_is_per_account_not_gateway_wide() {
+        let (gw, adapter, _audit) = gateway(&["a", "b"], Some(1));
+
+        assert!(gw.embed(for_account("a"), "one").await.is_ok());
+        assert!(
+            matches!(
+                gw.embed(for_account("a"), "two").await,
+                Err(AssistError::RateLimited)
+            ),
+            "the account that spent its budget is the account that is bounded"
+        );
+        assert_eq!(
+            adapter.embeds.load(Ordering::SeqCst),
+            1,
+            "a rate-limited call must never reach the endpoint"
+        );
+
+        assert!(
+            gw.embed(for_account("b"), "one").await.is_ok(),
+            "a second account has its own budget: one user's search must not deny \
+             Assist to everyone else"
+        );
+        assert_eq!(adapter.embeds.load(Ordering::SeqCst), 2);
+
+        // The budget key must not depend on the order the caller listed the accounts
+        // in, or the same account set could be charged to two buckets and quietly get
+        // double the budget — which would make the per-account window a way to evade
+        // the limit rather than to scope it.
+        let ba = DataScope {
+            accounts: vec!["b".into(), "a".into()],
+            ..DataScope::default()
+        };
+        let ab = DataScope {
+            accounts: vec!["a".into(), "b".into()],
+            ..DataScope::default()
+        };
+        assert_eq!(rate_key(&ba), rate_key(&ab));
+        assert_ne!(rate_key(&ba), rate_key(&for_account("a")));
+    }
+}

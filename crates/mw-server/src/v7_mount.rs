@@ -535,6 +535,51 @@ fn embed_model_of(adapter: Option<&AdapterConfig>) -> String {
     }
 }
 
+/// The environment variable an operator sets to bound Assist egress.
+const ASSIST_RATE_LIMIT_ENV: &str = "MW_ASSIST_RATE_LIMIT_PER_MIN";
+
+/// The per-account Assist request budget, in outbound endpoint requests per minute.
+///
+/// The 0008 `assist_config` table has no column for this, so until a migration adds
+/// one the setting is an environment variable — the same shape as every other
+/// deployment-level Assist/egress control (`MW_MCP_RESOURCE`, `MW_RENDER_JAIL`). It
+/// was previously hardcoded `None` with no operator-reachable setting anywhere, which
+/// made it a dead control end to end rather than a default someone had not changed.
+///
+/// **Sizing.** The unit is one outbound request, because bounding third-party API cost
+/// and bulk egress volume is the whole point; a scheme that charged a multi-request
+/// pass as a single unit would stop bounding either. So a *cold-cache* semantic search
+/// costs up to `1 + mw_engine::search_semantic::LAZY_FILL_MAX` = 33 requests (one for
+/// the query, one per document embedded on demand), and converges toward 1 as the
+/// embedding cache fills. A chat invocation costs 1. Size the limit accordingly: 60
+/// permits roughly two cold semantic searches a minute, per account.
+///
+/// - unset or empty ⇒ `None`, unlimited — the pre-26.19 behaviour, unchanged.
+/// - `0` ⇒ an explicit hard stop: every Assist request is refused. A kill switch that
+///   leaves the rest of the deployment running.
+/// - unparseable ⇒ `None` with a warning, because failing a server boot over a typo in
+///   an optional knob is worse than running without the knob.
+fn assist_rate_limit() -> Option<u32> {
+    parse_rate_limit(env(ASSIST_RATE_LIMIT_ENV).as_deref())
+}
+
+/// The parsing half of [`assist_rate_limit`], split out so it is testable without
+/// mutating process environment (`set_var` is `unsafe` in edition 2024, and an env
+/// mutation is visible to every other test in the binary).
+fn parse_rate_limit(raw: Option<&str>) -> Option<u32> {
+    let raw = raw?;
+    match raw.trim().parse::<u32>() {
+        Ok(n) => Some(n),
+        Err(_) => {
+            tracing::warn!(
+                "{ASSIST_RATE_LIMIT_ENV}={raw:?} is not a non-negative integer; \
+                 Assist runs without a rate limit"
+            );
+            None
+        }
+    }
+}
+
 /// Build the Assist gateway from the 0008 `assist_config` deployment row. Absent /
 /// disabled ⇒ `AssistConfig::default()` (the gateway reports `Disabled` and the web
 /// hides all Assist UI).
@@ -545,7 +590,7 @@ pub(crate) async fn build_assist(store: &Store) -> (AssistHandle, Vec<AssistCapa
             capability_grants: serde_json::from_str(&r.capability_grants_json).unwrap_or_default(),
             data_ceiling: serde_json::from_str(&r.data_ceilings_json).unwrap_or_default(),
             adapter: parse_adapter(&r.adapters_json),
-            rate_limit_per_min: None,
+            rate_limit_per_min: assist_rate_limit(),
         },
         None => AssistConfig::default(),
     };
@@ -617,26 +662,47 @@ pub(crate) struct GatewayEmbeddings {
     model: String,
 }
 
-#[async_trait::async_trait]
-impl mw_engine::EmbeddingProvider for GatewayEmbeddings {
-    async fn embed(&self, account_id: &str, text: &str) -> Result<Vec<f32>, String> {
-        // The narrowest scope that still names the account for the audit row:
-        // attachments and E2EE-decrypted content stay excluded regardless of the
-        // deployment ceiling, because a search re-rank has no business reading them.
-        let scope = DataScope {
+/// Attachments and E2EE-decrypted content stay excluded from a re-rank embedding
+/// regardless of what the deployment ceiling allows, because a search re-rank has no
+/// business reading them.
+///
+/// This constant is the single source for both halves of that claim: the [`DataScope`]
+/// the request is dispatched under (which is what the audit row describes) and the
+/// [`mw_engine::search_semantic::EmbedScope`] the engine builds the payload from. They
+/// were previously independent, and only the first one existed — so the exclusion was
+/// recorded in the audit trail and not applied to the request. Keeping them derived
+/// from one value is what makes the audit row a description of what actually left.
+const RERANK_INCLUDE_ATTACHMENTS: bool = false;
+
+impl GatewayEmbeddings {
+    /// The narrowest scope that still names the account for the audit row.
+    fn scope(&self, account_id: &str) -> DataScope {
+        DataScope {
             accounts: vec![account_id.to_string()],
             folders: Vec::new(),
             include_e2ee: false,
-            include_attachments: false,
-        };
+            include_attachments: RERANK_INCLUDE_ATTACHMENTS,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl mw_engine::EmbeddingProvider for GatewayEmbeddings {
+    async fn embed(&self, account_id: &str, text: &str) -> Result<Vec<f32>, String> {
         self.gateway
-            .embed(scope, text)
+            .embed(self.scope(account_id), text)
             .await
             .map_err(|e| e.to_string())
     }
 
     fn model_id(&self) -> String {
         self.model.clone()
+    }
+
+    fn content_scope(&self) -> mw_engine::search_semantic::EmbedScope {
+        mw_engine::search_semantic::EmbedScope {
+            include_attachments: RERANK_INCLUDE_ATTACHMENTS,
+        }
     }
 }
 
@@ -2393,5 +2459,110 @@ mod tests {
         );
         assert!(is_high_power(AccountBackend));
         assert!(!is_high_power(SpamAction));
+    }
+
+    // ── 26.19 (t19-e16): S1(a) payload clamp + S2 operator-reachable rate limit ──
+
+    /// **Fails against the pre-fix code**: `parse_rate_limit` did not exist, because
+    /// there was no operator-reachable setting to parse — the limit was hardcoded
+    /// `None` at the mount site and the 0008 table has no column for it.
+    #[test]
+    fn the_rate_limit_setting_parses_every_operator_input() {
+        // Unset ⇒ unlimited, which is the pre-26.19 behaviour, unchanged.
+        assert_eq!(parse_rate_limit(None), None);
+        // A plain value, and one an operator pasted with whitespace.
+        assert_eq!(parse_rate_limit(Some("60")), Some(60));
+        assert_eq!(parse_rate_limit(Some(" 60 ")), Some(60));
+        // Zero is a deliberate hard stop, not "unset" — `check_rate` refuses every
+        // request at a limit of 0, which is a kill switch that leaves the rest of the
+        // deployment running.
+        assert_eq!(parse_rate_limit(Some("0")), Some(0));
+        // Junk degrades to unlimited with a warning rather than failing the boot: a
+        // typo in an optional knob must not take a mail server down.
+        assert_eq!(parse_rate_limit(Some("banana")), None);
+        assert_eq!(parse_rate_limit(Some("-5")), None);
+        assert_eq!(parse_rate_limit(Some("1.5")), None);
+    }
+
+    /// The wiring itself: an operator's configured value has to arrive at the object
+    /// that enforces it. **Fails against the pre-fix code**, where `build_assist`
+    /// hardcoded `rate_limit_per_min: None` and no configured value could reach the
+    /// gateway from anywhere.
+    #[tokio::test]
+    async fn the_configured_rate_limit_reaches_the_gateway() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        store
+            .put_assist_config(&mw_store::AssistConfigRow {
+                scope: "deployment".into(),
+                adapters_json: serde_json::json!({
+                    "kind": "open-ai-compatible",
+                    "base_url": "https://endpoint.invalid",
+                    "api_key": "k",
+                    "chat_model": "c",
+                    "embed_model": "e",
+                })
+                .to_string(),
+                capability_grants_json: serde_json::json!(["search-semantic"]).to_string(),
+                data_ceilings_json: serde_json::json!({ "accounts": ["acct"] }).to_string(),
+                enabled: true,
+            })
+            .await
+            .unwrap();
+
+        // `set_var` is `unsafe` in edition 2024 and process-global; the gate runs with
+        // `--test-threads=1`, and the previous value is restored either way.
+        let previous = std::env::var(ASSIST_RATE_LIMIT_ENV).ok();
+        unsafe { std::env::set_var(ASSIST_RATE_LIMIT_ENV, "7") };
+        let (gateway, granted) = build_assist(&store).await;
+        match previous {
+            Some(v) => unsafe { std::env::set_var(ASSIST_RATE_LIMIT_ENV, v) },
+            None => unsafe { std::env::remove_var(ASSIST_RATE_LIMIT_ENV) },
+        }
+
+        assert_eq!(
+            gateway.rate_limit_per_min(),
+            Some(7),
+            "the operator's configured limit must reach the gateway that enforces it"
+        );
+        // Positive control: the rest of the row was read too, so this is a wired
+        // gateway rather than a default one that happens to agree.
+        assert!(gateway.is_enabled());
+        assert_eq!(granted, vec![AssistCapability::SearchSemantic]);
+    }
+
+    /// The `GatewayEmbeddings` comment claims attachments stay excluded from a re-rank
+    /// "regardless of the deployment ceiling". This pins both halves of that claim to
+    /// one value: the [`DataScope`] the request is dispatched under (what the audit row
+    /// describes) and the [`mw_engine::search_semantic::EmbedScope`] the engine builds
+    /// the payload from.
+    ///
+    /// **Fails against the pre-fix code**: `content_scope` did not exist, so only the
+    /// audit-row half was ever set and the payload carried attachment text anyway.
+    #[test]
+    fn the_rerank_excludes_attachments_from_the_payload_and_the_audit_row_alike() {
+        use mw_engine::EmbeddingProvider;
+
+        let provider = GatewayEmbeddings {
+            gateway: Arc::new(mw_assist::AssistGateway::new(AssistConfig::default())),
+            model: String::new(),
+        };
+
+        let dispatched = provider.scope("acct");
+        assert_eq!(dispatched.accounts, vec!["acct".to_string()]);
+        assert!(!dispatched.include_e2ee);
+        assert!(
+            !dispatched.include_attachments,
+            "the audit row says attachments were excluded..."
+        );
+        assert!(
+            !provider.content_scope().include_attachments,
+            "...and the payload the engine builds must agree with it"
+        );
+        assert_eq!(
+            dispatched.include_attachments,
+            provider.content_scope().include_attachments,
+            "both halves derive from RERANK_INCLUDE_ATTACHMENTS, so the audit row \
+             cannot drift from what actually left"
+        );
     }
 }

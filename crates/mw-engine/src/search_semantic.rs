@@ -21,6 +21,14 @@
 //! capability grant, the data-class ceiling, the rate limit and the content-free
 //! audit row.
 //!
+//! The ceiling also bounds the *content* of what leaves, not just the audit row
+//! that describes it: [`EmbeddingProvider::content_scope`] reports the classes the
+//! gateway's effective clamp permits, and [`embed_input`] builds the payload from
+//! that. A provider that says nothing forwards the least — decoded attachment text
+//! is dropped unless it is explicitly permitted. An unenforced control that reports
+//! itself enforced is worse than no control, because the audit row is the
+//! compliance artifact.
+//!
 //! ## Degradation
 //! Every failure mode degrades to the lexical ordering rather than to an error: a
 //! provider timeout, a dimension change under a populated cache, a corrupt cache
@@ -49,6 +57,24 @@ pub const LAZY_FILL_MAX: usize = 32;
 /// a pathological message from dominating the request.
 pub const MAX_EMBED_CHARS: usize = 6000;
 
+/// The content classes an embedding provider is permitted to receive.
+///
+/// The engine has no `DataScope` — that type lives in `mw-assist`, which the engine
+/// must not depend on — so a provider projects its *effective* clamp down to this
+/// and the engine applies it to the payload before anything leaves. Every field
+/// defaults to the excluding value, so a provider that implements nothing forwards
+/// the least.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct EmbedScope {
+    /// Whether decoded `text/*` attachment content may form part of a document's
+    /// embed payload. **Default `false`.**
+    ///
+    /// `IndexDoc::attachment_text` is populated unconditionally at ingest because
+    /// the lexical index needs it (W19), so this flag is the only thing standing
+    /// between an attachment's decoded body and the configured endpoint.
+    pub include_attachments: bool,
+}
+
 /// The seam between the engine and whatever produces embeddings.
 ///
 /// `mw-engine` must not depend on `mw-assist` (and `mw-assist` is free to depend
@@ -70,6 +96,17 @@ pub trait EmbeddingProvider: Send + Sync + 'static {
     /// model check and leaves dimensionality as the only guard.
     fn model_id(&self) -> String {
         String::new()
+    }
+
+    /// The content classes this provider's clamp actually permits, applied to the
+    /// payload by [`embed_input`].
+    ///
+    /// This is what makes the deployment's data-class ceiling a control rather than
+    /// a label: without it the clamp is computed, named in the audit row, and never
+    /// consulted again. The default excludes everything optional, so failing to
+    /// implement it can only forward less.
+    fn content_scope(&self) -> EmbedScope {
+        EmbedScope::default()
     }
 }
 
@@ -107,16 +144,23 @@ impl RerankReport {
 }
 
 /// The text a message is embedded from: subject first (it carries the most signal
-/// per token), then body, then any indexed attachment text, truncated on a `char`
-/// boundary to [`MAX_EMBED_CHARS`].
+/// per token), then body, then — **only when `scope.include_attachments`** — the
+/// indexed attachment text, truncated on a `char` boundary to [`MAX_EMBED_CHARS`].
+///
+/// The attachment branch is the enforcement point for the data-class ceiling on this
+/// path. `doc.attachment_text` is the decoded body of every `text/*` attachment,
+/// populated at ingest whether or not Assist is configured, so appending it
+/// unconditionally would put attachment content in the payload of any message whose
+/// subject and body fit under the cap — while the audit row recorded `attach=false`.
 #[must_use]
-pub fn embed_input(doc: &IndexDoc) -> String {
+pub fn embed_input(doc: &IndexDoc, scope: EmbedScope) -> String {
+    let attachments = if scope.include_attachments {
+        doc.attachment_text.as_str()
+    } else {
+        ""
+    };
     let mut out = String::new();
-    for part in [
-        doc.subject.as_str(),
-        doc.body.as_str(),
-        doc.attachment_text.as_str(),
-    ] {
+    for part in [doc.subject.as_str(), doc.body.as_str(), attachments] {
         let part = part.trim();
         if part.is_empty() {
             continue;
@@ -202,12 +246,17 @@ pub async fn rerank_hits(
     //    round-trips would put seconds of endpoint latency on an interactive
     //    search. Documents are read from the search index (which already holds the
     //    indexed text) rather than re-parsed out of the store.
+    //
+    //    The payload is built against the provider's own effective content scope, so
+    //    a class the deployment ceiling excludes is absent from the request rather
+    //    than merely absent from the audit row.
+    let content_scope = provider.content_scope();
     let mut pending = Vec::new();
     for id in missing.into_iter().take(LAZY_FILL_MAX) {
         let Ok(Some(doc)) = index.fetch_doc(&id) else {
             continue; // nothing indexed under this id — leave it lexical
         };
-        let text = embed_input(&doc);
+        let text = embed_input(&doc, content_scope);
         if text.is_empty() {
             continue;
         }
@@ -258,11 +307,17 @@ mod tests {
     /// bucket of a fixed-width vector. Two texts sharing vocabulary land near each
     /// other, so a test can assert an ordering that is genuinely justified by the
     /// embeddings rather than by a hardcoded permutation.
+    ///
+    /// It also RECORDS every text it was handed. An egress test has to assert on the
+    /// payload that actually reached the provider; asserting on what `embed_input`
+    /// returns in isolation would only prove the helper, not the call path.
     struct HashEmbedder {
         dim: usize,
         model: String,
         calls: AtomicUsize,
         fail: bool,
+        scope: EmbedScope,
+        seen: std::sync::Mutex<Vec<String>>,
     }
 
     impl HashEmbedder {
@@ -272,6 +327,22 @@ mod tests {
                 model: "test-hash-embed".to_string(),
                 calls: AtomicUsize::new(0),
                 fail: false,
+                scope: EmbedScope::default(),
+                seen: std::sync::Mutex::new(Vec::new()),
+            })
+        }
+        /// An embedder whose clamp permits attachment content — the deliberate
+        /// opt-in, used to prove the flag is read rather than that the branch is dead.
+        fn permitting_attachments(dim: usize) -> Arc<Self> {
+            Arc::new(Self {
+                dim,
+                model: "test-hash-embed".to_string(),
+                calls: AtomicUsize::new(0),
+                fail: false,
+                scope: EmbedScope {
+                    include_attachments: true,
+                },
+                seen: std::sync::Mutex::new(Vec::new()),
             })
         }
         fn failing() -> Arc<Self> {
@@ -280,7 +351,13 @@ mod tests {
                 model: "test-hash-embed".to_string(),
                 calls: AtomicUsize::new(0),
                 fail: true,
+                scope: EmbedScope::default(),
+                seen: std::sync::Mutex::new(Vec::new()),
             })
+        }
+        /// Everything this provider was asked to embed, in call order.
+        fn payloads(&self) -> Vec<String> {
+            self.seen.lock().expect("seen lock").clone()
         }
     }
 
@@ -292,6 +369,7 @@ mod tests {
             text: &str,
         ) -> std::result::Result<Vec<f32>, String> {
             self.calls.fetch_add(1, Ordering::SeqCst);
+            self.seen.lock().expect("seen lock").push(text.to_string());
             if self.fail {
                 return Err("endpoint unavailable".to_string());
             }
@@ -314,6 +392,9 @@ mod tests {
         }
         fn model_id(&self) -> String {
             self.model.clone()
+        }
+        fn content_scope(&self) -> EmbedScope {
+            self.scope
         }
     }
 
@@ -506,7 +587,10 @@ mod tests {
         // Pre-cache the whole set so the LAZY_FILL_MAX bound isn't what limits us.
         let provider: Arc<dyn EmbeddingProvider> = HashEmbedder::new(8);
         for (i, d) in docs.iter().enumerate() {
-            let v = provider.embed("acct", &embed_input(d)).await.unwrap();
+            let v = provider
+                .embed("acct", &embed_input(d, provider.content_scope()))
+                .await
+                .unwrap();
             store
                 .put_message_embedding(&format!("m{i}"), "acct", "test-hash-embed", &v)
                 .await
@@ -779,19 +863,110 @@ mod tests {
 
     #[test]
     fn embed_input_concatenates_and_truncates() {
+        let permitted = EmbedScope {
+            include_attachments: true,
+        };
         let mut d = doc("m1", "Subject line", "Body text");
         d.attachment_text = "attachment words".to_string();
-        assert_eq!(embed_input(&d), "Subject line\nBody text\nattachment words");
+        assert_eq!(
+            embed_input(&d, permitted),
+            "Subject line\nBody text\nattachment words"
+        );
 
         // Empty parts are skipped rather than leaving blank lines.
         let d = doc("m2", "", "only body");
-        assert_eq!(embed_input(&d), "only body");
-        assert!(embed_input(&doc("m3", "", "")).is_empty());
+        assert_eq!(embed_input(&d, permitted), "only body");
+        assert!(embed_input(&doc("m3", "", ""), permitted).is_empty());
 
         // Truncation is char-boundary safe on multi-byte text.
         let mut d = doc("m4", "", "");
         d.body = "é".repeat(MAX_EMBED_CHARS + 100);
-        let out = embed_input(&d);
+        let out = embed_input(&d, permitted);
         assert_eq!(out.chars().count(), MAX_EMBED_CHARS);
+    }
+
+    // ── S1(a): the data-class ceiling bounds the PAYLOAD, not just the audit row ──
+
+    /// Attachment marker chosen to be absent from every other fixture string, so a
+    /// substring assertion cannot pass or fail by accident.
+    const ATTACH_MARKER: &str = "ZZATTACHSECRETZZ";
+
+    /// A store + index holding one message whose subject and body are short enough
+    /// that `MAX_EMBED_CHARS` truncation can never be what excludes the attachment —
+    /// the exclusion has to come from the scope or not at all.
+    async fn attachment_fixture() -> (Store, Arc<mw_search::Index>) {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let index = Arc::new(mw_search::Index::open_in_ram().unwrap());
+        let mut with_attachment = doc("m1", "Invoice 4471", "payment terms billing amount due");
+        with_attachment.attachment_text = format!("{ATTACH_MARKER} decoded attachment body text");
+        index
+            .upsert_batch(&[
+                with_attachment,
+                doc("m2", "Lunch", "sandwiches and coffee on friday"),
+            ])
+            .unwrap();
+        (store, index)
+    }
+
+    /// `embed_input` alone proves the helper; this drives `rerank_hits` and asserts on
+    /// what the PROVIDER was handed, which is the thing that leaves the deployment.
+    ///
+    /// Fails against the pre-fix code: `embed_input` appended `doc.attachment_text`
+    /// unconditionally, so the marker was in the payload of the lazy-fill request
+    /// while the audit row for that same call read `attach=false`.
+    #[tokio::test]
+    async fn attachment_text_never_reaches_the_provider_by_default() {
+        let (store, index) = attachment_fixture().await;
+        let p = HashEmbedder::new(32);
+        let provider: Arc<dyn EmbeddingProvider> = p.clone();
+
+        let mut hits = ids(&["m1", "m2"]);
+        let report = rerank_hits(&provider, &store, &index, "acct", "invoice", &mut hits).await;
+        assert_eq!(report.filled, 2, "both documents were embedded on demand");
+
+        let payloads = p.payloads();
+        assert!(
+            !payloads.iter().any(|t| t.contains(ATTACH_MARKER)),
+            "decoded attachment content must not leave when the effective scope \
+             excludes it; payloads were {payloads:?}"
+        );
+        // Positive control: the non-attachment content DID leave. Without this, a
+        // provider that was never called would satisfy the assertion above and the
+        // test would pass for the wrong reason.
+        assert!(
+            payloads.iter().any(|t| t.contains("payment terms")),
+            "the message body is still embedded — this is a content clamp, not an \
+             unwired provider; payloads were {payloads:?}"
+        );
+
+        // Second control, opposite direction: a provider whose clamp DOES permit
+        // attachments still gets them. Without this the assertion above would also be
+        // satisfied by an attachment branch that is simply dead.
+        //
+        // A FRESH fixture, because the pass above cached both vectors — against a warm
+        // cache nothing is embedded, the payload list is empty, and the assertion below
+        // would fail for a reason that has nothing to do with the scope.
+        let (store, index) = attachment_fixture().await;
+        let p = HashEmbedder::permitting_attachments(32);
+        let provider: Arc<dyn EmbeddingProvider> = p.clone();
+        let mut hits = ids(&["m1", "m2"]);
+        rerank_hits(&provider, &store, &index, "acct", "invoice", &mut hits).await;
+        assert!(
+            p.payloads().iter().any(|t| t.contains(ATTACH_MARKER)),
+            "an explicit opt-in still forwards attachment text"
+        );
+    }
+
+    /// The default is the excluding one, so a provider that implements nothing
+    /// forwards the least. Fails against the pre-fix code: `EmbedScope` did not exist.
+    #[test]
+    fn the_default_content_scope_excludes_attachments() {
+        assert!(!EmbedScope::default().include_attachments);
+
+        let mut d = doc("m1", "Subject line", "Body text");
+        d.attachment_text = ATTACH_MARKER.to_string();
+        let out = embed_input(&d, EmbedScope::default());
+        assert_eq!(out, "Subject line\nBody text");
+        assert!(!out.contains(ATTACH_MARKER));
     }
 }
