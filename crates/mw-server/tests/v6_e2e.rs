@@ -154,7 +154,23 @@ fn admin_v6(redis: Option<String>) -> V6Config {
     }
 }
 
+/// Configure the process as if it sat behind a reverse proxy on loopback, which is
+/// where the test client connects from. Set once for the whole binary — every test
+/// here wants the same posture, so the value never changes after the first call.
+///
+/// This is the only way a test can drive the trusted-proxy model: it is read from the
+/// environment (`crates/mw-server/src/proxy.rs`), like the crate's other deployment
+/// settings.
+fn trust_loopback_proxy() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| unsafe {
+        std::env::set_var("MW_TRUSTED_PROXIES", "127.0.0.0/8, ::1/128");
+        std::env::set_var("MW_FORWARDED_MODE", "xff");
+    });
+}
+
 async fn spawn_server(db_path: String, mode: ServerMode, v6: V6Config) -> String {
+    trust_loopback_proxy();
     let config = AppConfig {
         db_path,
         server_key_hex: None,
@@ -168,7 +184,14 @@ async fn spawn_server(db_path: String, mode: ServerMode, v6: V6Config) -> String
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr: SocketAddr = listener.local_addr().unwrap();
     tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
+        // Matches `main.rs`: without connect info the server has no peer address and
+        // every source-IP check degrades to "unknown".
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
     });
     format!("http://{addr}")
 }
@@ -575,7 +598,9 @@ async fn apikey_enforcement_matrix_live() {
         "expired key → 401"
     );
 
-    // DENY (IP-allowlist) → 403; inside the allowlist → 200.
+    // IP-allowlist under the trusted-proxy model (t20 B1): `trust_loopback_proxy()`
+    // made this process trust a proxy on loopback, where the test client connects
+    // from, so `X-Forwarded-For` is read — right to left, as a proxy writes it.
     let mut ips = scope(&account, true, true);
     ips["ip_allowlist"] = json!(["10.0.0.0/8"]);
     let ik = mint(&c, &server, &account, ips).await;
@@ -588,7 +613,7 @@ async fn apikey_enforcement_matrix_live() {
             .unwrap()
             .status(),
         403,
-        "source IP outside allowlist → 403"
+        "proxy-reported IP outside allowlist → 403"
     );
     assert_eq!(
         c.get(format!("{server}/api/v1/messages"))
@@ -599,7 +624,21 @@ async fn apikey_enforcement_matrix_live() {
             .unwrap()
             .status(),
         200,
-        "source IP inside allowlist → 200"
+        "proxy-reported IP inside allowlist → 200"
+    );
+    // The spoof this assertion used to encode as expected: a forged left-hand hop
+    // naming an allowlisted address, with the address the proxy really saw appended
+    // to its right. The walk stops at the rightmost untrusted hop → still denied.
+    assert_eq!(
+        c.get(format!("{server}/api/v1/messages"))
+            .header("x-api-key", &ik)
+            .header("x-forwarded-for", "10.1.2.3, 8.8.8.8")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403,
+        "forged left-hand X-Forwarded-For hop does not defeat the allowlist"
     );
 
     // DENY (over rate limit) → 429.

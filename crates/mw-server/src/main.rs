@@ -2,10 +2,12 @@
 //! pull` self-hosts Google Fonts; `mailwoman healthcheck` probes a running
 //! instance (used by the Docker HEALTHCHECK).
 
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::serve::ListenerExt;
 use clap::{Parser, Subcommand};
 
 use mw_server::fonts::{self, GoogleFonts, PullOptions};
@@ -557,9 +559,16 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         None => {
             let listener = tokio::net::TcpListener::bind(&args.bind).await?;
             tracing::info!("mailwoman listening on http://{}", listener.local_addr()?);
-            axum::serve(listener, app)
-                .with_graceful_shutdown(shutdown_signal())
-                .await?;
+            // `into_make_service_with_connect_info` is what puts the peer address in
+            // request extensions. Without it `ConnectInfo` is absent and the
+            // trusted-proxy model in `proxy.rs` has no floor to work from, so every
+            // source-IP check silently degrades to "unknown" (t20 B1).
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .with_graceful_shutdown(shutdown_signal())
+            .await?;
         }
         Some(tls_config) => {
             let (listener, resolver) = TlsListener::bind(&args.bind, &tls_config).await?;
@@ -567,9 +576,18 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
                 spawn_reload_on_sighup(resolver);
             }
             tracing::info!("mailwoman listening on https://{} (TLS)", args.bind);
-            axum::serve(listener, app)
-                .with_graceful_shutdown(shutdown_signal())
-                .await?;
+            // `TlsListener::Addr` is already the peer `SocketAddr`, but axum only
+            // implements `Connected<IncomingStream<_>>` for the concrete `TcpListener`
+            // and for `TapIo`; the orphan rule forbids writing the impl for our own
+            // listener here. `tap_io` with a no-op is axum's documented adapter for a
+            // custom listener, and picks up the generic `Connected` impl.
+            let listener = listener.tap_io(|_| {});
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .with_graceful_shutdown(shutdown_signal())
+            .await?;
         }
     }
     Ok(())

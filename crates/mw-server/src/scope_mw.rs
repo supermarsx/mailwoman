@@ -20,14 +20,17 @@
 //! per-tool `Scope::allows` + countersign check e11 wired stays in place. An
 //! unauthenticated MCP call (`initialize`/`tools/list`) passes through.
 //!
-//! Source IP is taken from the trusted reverse-proxy header (`X-Forwarded-For`
-//! first hop, or `Forwarded: for=`), falling back to `ConnectInfo<SocketAddr>` when
-//! the serve path wired it — the standard "TLS terminates at a front proxy" model.
+//! Source IP comes from [`proxy::client_ip`]: the peer address that
+//! `into_make_service_with_connect_info` installs, refined by a forwarded header only
+//! when `MW_FORWARDED_MODE` selects one **and** the peer is inside
+//! `MW_TRUSTED_PROXIES`. Before t20 this middleware honoured `X-Forwarded-For` from
+//! any peer and took its leftmost hop, which made the per-key IP allowlist and rate
+//! limit below bypassable by the caller (t20 B1).
 
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 
 use axum::Json;
-use axum::extract::{ConnectInfo, Request, State};
+use axum::extract::{Request, State};
 use axum::http::{HeaderMap, Method, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
@@ -37,6 +40,13 @@ use mw_oauth::{OAuthError, RequestContext, Scope, ScopeSelector};
 
 use crate::AppState;
 use crate::stores_v6::AdminOAuthAudit;
+
+/// The trusted reverse-proxy model. Declared here rather than in `lib.rs` so the file
+/// sits at `crates/mw-server/src/proxy.rs`; it is reachable crate-wide as
+/// `crate::scope_mw::proxy` and can be promoted to a top-level `pub mod proxy;`
+/// unchanged.
+#[path = "proxy.rs"]
+pub(crate) mod proxy;
 
 /// The `x-api-key` header carrying a scoped key for clients that keep
 /// `Authorization` for something else.
@@ -233,37 +243,13 @@ fn extract_api_key(headers: &HeaderMap) -> Option<PresentedKey> {
     None
 }
 
-/// Derive the client source IP: the trusted reverse-proxy header first
-/// (`X-Forwarded-For` first hop, then `Forwarded: for=`), falling back to the
-/// direct-connection `ConnectInfo<SocketAddr>` when the serve path supplied it.
+/// Derive the client source IP under the trusted-proxy model. The peer address is
+/// the floor; a forwarded header refines it only for a configured proxy, and only by
+/// the right-to-left walk in [`proxy::resolve`]. `None` when the serve path installed
+/// no `ConnectInfo` — the enforcement below then has no address to work from, which
+/// is the correct answer rather than believing a header.
 fn client_ip(headers: &HeaderMap, ext: &axum::http::Extensions) -> Option<IpAddr> {
-    if let Some(xff) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok())
-        && let Some(first) = xff.split(',').next()
-        && let Ok(ip) = first.trim().parse::<IpAddr>()
-    {
-        return Some(ip);
-    }
-    if let Some(fwd) = headers.get("forwarded").and_then(|v| v.to_str().ok()) {
-        for part in fwd.split(&[';', ','][..]) {
-            let part = part.trim();
-            if let Some(v) = part
-                .strip_prefix("for=")
-                .or_else(|| part.strip_prefix("For="))
-            {
-                let v = v.trim_matches('"');
-                // `for="[2001:db8::1]:443"` (bracketed IPv6) or `for=1.2.3.4:5678`.
-                let candidate = if let Some(inner) = v.strip_prefix('[') {
-                    inner.split(']').next().unwrap_or(inner)
-                } else {
-                    v.rsplit_once(':').map(|(h, _)| h).unwrap_or(v)
-                };
-                if let Ok(ip) = candidate.parse::<IpAddr>() {
-                    return Some(ip);
-                }
-            }
-        }
-    }
-    ext.get::<ConnectInfo<SocketAddr>>().map(|ci| ci.0.ip())
+    proxy::client_ip(headers, ext)
 }
 
 /// The [`Scope`] a `/api/v1` route requires: verb from the method (GET→read,
@@ -362,27 +348,26 @@ mod tests {
     }
 
     #[test]
-    fn client_ip_prefers_forwarded_headers() {
-        let ext = axum::http::Extensions::new();
+    fn client_ip_ignores_forwarded_headers_from_an_untrusted_peer() {
+        // No ConnectInfo → no source IP at all; a header alone never produces one.
+        let empty = axum::http::Extensions::new();
         let h = hdrs(&[("x-forwarded-for", "8.8.8.8, 10.0.0.1")]);
-        assert_eq!(
-            client_ip(&h, &ext).unwrap(),
-            "8.8.8.8".parse::<IpAddr>().unwrap()
-        );
+        assert!(client_ip(&h, &empty).is_none());
+
+        // With a peer address and the default posture, the header is ignored.
+        let mut ext = axum::http::Extensions::new();
+        ext.insert(axum::extract::ConnectInfo(
+            "198.51.100.7:52000"
+                .parse::<std::net::SocketAddr>()
+                .unwrap(),
+        ));
+        let expect = "198.51.100.7".parse::<IpAddr>().unwrap();
+        assert_eq!(client_ip(&h, &ext).unwrap(), expect);
 
         let h = hdrs(&[("forwarded", "for=1.2.3.4:5678;proto=https")]);
-        assert_eq!(
-            client_ip(&h, &ext).unwrap(),
-            "1.2.3.4".parse::<IpAddr>().unwrap()
-        );
+        assert_eq!(client_ip(&h, &ext).unwrap(), expect);
 
-        let h = hdrs(&[("forwarded", "for=\"[2001:db8::1]:443\"")]);
-        assert_eq!(
-            client_ip(&h, &ext).unwrap(),
-            "2001:db8::1".parse::<IpAddr>().unwrap()
-        );
-
-        assert!(client_ip(&HeaderMap::new(), &ext).is_none());
+        assert_eq!(client_ip(&HeaderMap::new(), &ext).unwrap(), expect);
     }
 
     #[test]

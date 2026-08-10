@@ -33,6 +33,7 @@ async fn spawn_mock() -> String {
 }
 
 async fn spawn_server(mode: ServerMode, v6: V6Config) -> String {
+    trust_loopback_proxy();
     let base = unique_base();
     let web_dir = base.join("web");
     std::fs::create_dir_all(&web_dir).unwrap();
@@ -50,9 +51,31 @@ async fn spawn_server(mode: ServerMode, v6: V6Config) -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr: SocketAddr = listener.local_addr().unwrap();
     tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
+        // Matches `main.rs`: without connect info the server has no peer address and
+        // every source-IP check degrades to "unknown".
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
     });
     format!("http://{addr}")
+}
+
+/// Configure the process as if it sat behind a reverse proxy on loopback, which is
+/// what the test client connects from. Set once for the whole binary — every test
+/// here wants the same posture, so the value never changes after the first call.
+///
+/// This is the only way a test can drive the trusted-proxy model: it is read from the
+/// environment (`crates/mw-server/src/proxy.rs`), like the crate's other deployment
+/// settings.
+fn trust_loopback_proxy() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| unsafe {
+        std::env::set_var("MW_TRUSTED_PROXIES", "127.0.0.0/8, ::1/128");
+        std::env::set_var("MW_FORWARDED_MODE", "xff");
+    });
 }
 
 fn client() -> reqwest::Client {
@@ -544,10 +567,15 @@ async fn scoped_key_enforced_on_rest() {
         .unwrap();
     assert_eq!(resp.status(), 401, "expired key is rejected");
 
-    // ── DENY: a source IP outside the allowlist → 403 ──────────────────────────
+    // ── The per-key IP allowlist, under the trusted-proxy model (t20 B1) ───────
+    // `trust_loopback_proxy()` made this process trust a proxy on loopback, which is
+    // where the test client connects from, so `X-Forwarded-For` is read here — and
+    // read the way a proxy writes it, not the way a caller would like it read.
     let mut ip_scoped = scope(&account_id, true, true);
     ip_scoped["ip_allowlist"] = json!(["10.0.0.0/8"]);
     let ip_key = mint(&c, &server, &account_id, ip_scoped).await;
+
+    // DENY: the proxy reports a client outside the allowlist → 403.
     let resp = c
         .get(format!("{server}/api/v1/messages"))
         .header("x-api-key", &ip_key)
@@ -560,7 +588,8 @@ async fn scoped_key_enforced_on_rest() {
         403,
         "source IP outside the allowlist is denied"
     );
-    // …and an IP inside the allowlist is authorized (200).
+
+    // GRANT: the proxy reports a client inside the allowlist → 200.
     let resp = c
         .get(format!("{server}/api/v1/messages"))
         .header("x-api-key", &ip_key)
@@ -572,6 +601,23 @@ async fn scoped_key_enforced_on_rest() {
         resp.status(),
         200,
         "source IP inside the allowlist is allowed"
+    );
+
+    // DENY (the spoof this test used to encode as expected): the client prepends a
+    // hop naming an allowlisted address, and the proxy appends the address it really
+    // saw. The right-to-left walk stops at that rightmost untrusted hop, so the
+    // forged one is never reached and the key is refused.
+    let resp = c
+        .get(format!("{server}/api/v1/messages"))
+        .header("x-api-key", &ip_key)
+        .header("x-forwarded-for", "10.1.2.3, 8.8.8.8")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        403,
+        "a forged left-hand X-Forwarded-For hop does not defeat the allowlist"
     );
 
     // ── DENY: over the per-key rate limit → 429 ────────────────────────────────
