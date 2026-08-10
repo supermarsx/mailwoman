@@ -16,6 +16,7 @@ import {
   type ZaSubkeyLabel,
   type ZeroAccessCrypto,
 } from './crypto.ts';
+import { withBase } from '../../api/basePath.ts';
 
 /** A device paired to a zero-access account (opaque to the server; §9.1). */
 export interface PairedDevice {
@@ -81,7 +82,7 @@ export class ZeroAccessService {
 
   /** Current server-side zero-access state for this account. */
   async status(): Promise<ZeroAccessAccount> {
-    const res = await this.fetcher('/api/zeroaccess');
+    const res = await this.fetcher(withBase('/api/zeroaccess'));
     return jsonOrThrow<ZeroAccessAccount>(res);
   }
 
@@ -113,7 +114,7 @@ export class ZeroAccessService {
     const { keyRef: dataKeyRef } = await this.za.generateDataKey();
     const { blobB64: wrappedDataKeyB64 } = await this.za.wrapKey({ kekRef, dataKeyRef });
     const payload: ZeroAccessEnablePayload = { saltB64, kdfParams: kdf, wrappedDataKeyB64 };
-    await this.fetcher('/api/zeroaccess/enable', {
+    await this.fetcher(withBase('/api/zeroaccess/enable'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
@@ -175,7 +176,7 @@ export class ZeroAccessService {
 
   /** DISABLE zero-access for this account (server drops the wrapped material). */
   async disable(): Promise<void> {
-    await this.fetcher('/api/zeroaccess/disable', { method: 'POST' });
+    await this.fetcher(withBase('/api/zeroaccess/disable'), { method: 'POST' });
     await this.za.lockAll();
   }
 

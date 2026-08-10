@@ -11,6 +11,7 @@
 // guard. The browser passes neither, so nothing about the cookie path changes.
 
 import type { JmapRequest, JmapResponse, JmapSession } from './jmap-types.ts';
+import { basePath } from './basePath.ts';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -114,7 +115,13 @@ export interface Client {
   onNetwork(listener: NetworkListener): () => void;
 }
 
-export function createClient(base = '', auth?: ClientAuth): Client {
+/**
+ * Build an API client. `base` defaults to the sub-path prefix (t20 B4) — `''` at
+ * the origin root, so a bare `createClient()` is unchanged there, and `/mail`
+ * under `MW_BASE_PATH=/mail`, so callers that construct a client directly rather
+ * than through `createConfiguredClient()` are prefixed too.
+ */
+export function createClient(base = basePath(), auth?: ClientAuth): Client {
   const listeners = new Set<NetworkListener>();
 
   /**

@@ -9,6 +9,7 @@
 
 import type { Fetcher } from './service.ts';
 import type { ZeroAccessCrypto, ZaKeyRef } from './crypto.ts';
+import { withBase } from '../../api/basePath.ts';
 
 const defaultFetcher: Fetcher = (input, init) => fetch(input, { credentials: 'same-origin', ...init });
 
@@ -45,7 +46,7 @@ export class PairingService {
   /** NEW DEVICE step 1: generate the ephemeral key + register the offer for relay. */
   async createOffer(): Promise<PairingOffer> {
     const { publicB64, secretRef } = await this.za.pairGenerate();
-    const res = await this.fetcher('/api/zeroaccess/pair/offer', {
+    const res = await this.fetcher(withBase('/api/zeroaccess/pair/offer'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ publicB64 }),
@@ -62,7 +63,7 @@ export class PairingService {
 
   /** EXISTING DEVICE: relay the sealed envelope back to the new device. */
   async relayEnvelope(pairingId: string, envelopeB64: string): Promise<void> {
-    await this.fetcher('/api/zeroaccess/pair/envelope', {
+    await this.fetcher(withBase('/api/zeroaccess/pair/envelope'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ pairingId, envelopeB64 }),
@@ -71,7 +72,7 @@ export class PairingService {
 
   /** NEW DEVICE: fetch the relayed envelope (poll until present). */
   async fetchEnvelope(pairingId: string): Promise<string | null> {
-    const res = await this.fetcher(`/api/zeroaccess/pair/envelope/${encodeURIComponent(pairingId)}`);
+    const res = await this.fetcher(withBase(`/api/zeroaccess/pair/envelope/${encodeURIComponent(pairingId)}`));
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`pairing relay failed: ${res.status}`);
     const { envelopeB64 } = (await res.json()) as { envelopeB64: string | null };

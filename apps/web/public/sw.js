@@ -11,8 +11,30 @@
 
 // Must equal shellCacheName(SHELL_CACHE_VERSION) from src/contracts/offline.ts.
 const CACHE_NAME = 'mw-shell-v1';
-const SHELL_URL = '/';
+
+// ── Sub-path hosting (t20 B4) ──────────────────────────────────────────────
+// The deploy prefix is DERIVED, not templated. This file ships copied verbatim
+// into dist/ and is served from wherever the app's base is — `/sw.js` at the
+// origin root, `/mail/sw.js` under `MW_BASE_PATH=/mail` — so its own location IS
+// the prefix. `new URL('./', self.location).pathname` is `/` or `/mail/` exactly.
+//
+// Deriving beats server-side templating here: the SW cannot read the
+// `__MW_BASE__` injected into index.html (different global scope), and a derived
+// value can never disagree with the scope the worker was actually registered
+// under. It also means the server serves this file byte-for-byte.
+const SHELL_URL = new URL('./', self.location).pathname;
 const SHELL_URLS = [SHELL_URL];
+// `SHELL_URL` always ends in '/', so BASE is '' at the root and '/mail' under a
+// prefix — matching stripBase() in src/api/basePath.ts.
+const BASE = SHELL_URL.slice(0, -1);
+
+/** Drop the deploy prefix so the matchers below stay prefix-blind. */
+function stripBase(pathname) {
+  if (BASE === '' || !pathname.startsWith(BASE)) return pathname;
+  const rest = pathname.slice(BASE.length);
+  if (rest === '') return '/';
+  return rest.startsWith('/') ? rest : pathname;
+}
 
 function isApiPath(pathname) {
   return pathname.startsWith('/jmap/') || pathname.startsWith('/api/');
@@ -28,7 +50,7 @@ function isHashedAsset(pathname) {
 
 function chooseStrategy(request) {
   if (request.method !== 'GET') return 'passthrough';
-  const pathname = new URL(request.url).pathname;
+  const pathname = stripBase(new URL(request.url).pathname);
   if (isApiPath(pathname)) return 'network-first';
   if (request.mode === 'navigate') return 'shell-fallback';
   if (isHashedAsset(pathname) || isFont(pathname)) return 'cache-first';
@@ -161,7 +183,7 @@ self.addEventListener('notificationclick', (event) => {
       if (existing) {
         await existing.focus();
       } else if (self.clients.openWindow) {
-        await self.clients.openWindow('/');
+        await self.clients.openWindow(SHELL_URL);
       }
     })(),
   );

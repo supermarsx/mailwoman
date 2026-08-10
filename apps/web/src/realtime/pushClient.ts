@@ -18,6 +18,7 @@ import {
   type PushTransport,
   type StateChange,
 } from '../contracts/push.ts';
+import { withBase } from '../api/basePath.ts';
 
 /** Lifecycle signal the connection model maps to a `ConnectionState`. */
 export type PushStatus = 'connecting' | 'reconnecting' | 'open' | 'degraded' | 'closed';
@@ -96,7 +97,7 @@ type Current =
 
 export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
   const wsUrl = withBearer(opts.wsUrl ?? defaultWsUrl(), opts.bearer);
-  const sseUrl = withBearer(opts.sseUrl ?? '/jmap/eventsource', opts.bearer);
+  const sseUrl = withBearer(opts.sseUrl ?? defaultSseUrl(), opts.bearer);
   const WS = opts.WebSocketImpl ?? (globalThis.WebSocket as unknown as WebSocketCtor | undefined);
   const ES =
     opts.EventSourceImpl ?? (globalThis.EventSource as unknown as EventSourceCtor | undefined);
@@ -335,10 +336,21 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
   };
 }
 
+// Sub-path hosting (t20 B4): both realtime endpoints carry the deploy prefix.
+// `withBase` is the identity function at the origin root, so the URLs these two
+// produce there are byte-identical to the pre-sub-path ones.
+
+/** Default WS endpoint — absolute, because `WebSocket` has no relative form. */
 function defaultWsUrl(): string {
-  if (typeof location === 'undefined') return '/jmap/ws';
+  const path = withBase('/jmap/ws');
+  if (typeof location === 'undefined') return path;
   const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${scheme}//${location.host}/jmap/ws`;
+  return `${scheme}//${location.host}${path}`;
+}
+
+/** Default SSE endpoint — same-origin, so a path suffices. */
+function defaultSseUrl(): string {
+  return withBase('/jmap/eventsource');
 }
 
 /** Append the native `access_token` query param when a bearer is supplied. */

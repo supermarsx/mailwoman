@@ -30,6 +30,8 @@
 // those markers are absent (a body with nothing blocked, or a pre-e6 sanitizer)
 // the report is empty and the bar stays hidden — honest by construction.
 
+import { withBase } from './basePath.ts';
+
 /** The 4 grant scopes (0016 `scope_kind`). */
 export type GrantScopeKind = 'single' | 'all' | 'per-sender' | 'per-domain';
 
@@ -78,6 +80,10 @@ export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
 const defaultFetcher: Fetcher = (input, init) => fetch(input, { credentials: 'same-origin', ...init });
 
+// Sub-path hosting (t20 B4): the REST paths below are root-absolute in source and
+// acquire the deploy prefix at call time. `withBase` is the identity function at
+// the origin root, so these URLs are unchanged there.
+
 /** The account-wide grants list the server returns. */
 interface GrantsResponse {
   accountId: string;
@@ -92,7 +98,7 @@ interface GrantsResponse {
  */
 export function createRemoteImageApi(fetcher: Fetcher = defaultFetcher): RemoteImageApi {
   async function mutate(action: 'grant' | 'revoke', scope: GrantScope): Promise<void> {
-    const res = await fetcher(`/api/remote-images/${action}`, {
+    const res = await fetcher(withBase(`/api/remote-images/${action}`), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ scopeKind: scope.kind, scopeValue: scope.value }),
@@ -103,7 +109,7 @@ export function createRemoteImageApi(fetcher: Fetcher = defaultFetcher): RemoteI
     grant: (_accountId, scope) => mutate('grant', scope),
     revoke: (_accountId, scope) => mutate('revoke', scope),
     async listGrants(_accountId) {
-      const res = await fetcher('/api/remote-images/grants');
+      const res = await fetcher(withBase('/api/remote-images/grants'));
       if (!res.ok) throw new Error(`remote-image grants failed with ${res.status}`);
       const body = (await res.json()) as GrantsResponse;
       return body.list ?? [];
@@ -118,7 +124,7 @@ export function createRemoteImageApi(fetcher: Fetcher = defaultFetcher): RemoteI
  * remote host stays disallowed; the proxy — not the browser — fetches the bytes.
  */
 export function imageProxyUrl(originalUrl: string): string {
-  return `/api/image-proxy?url=${encodeURIComponent(originalUrl)}`;
+  return withBase(`/api/image-proxy?url=${encodeURIComponent(originalUrl)}`);
 }
 
 /** An absolute `http`/`https` URL (trimmed), else `null` — the proxy only fetches

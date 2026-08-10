@@ -5,7 +5,8 @@ import {
   isFont,
   isHashedAsset,
   respondTo,
-  SHELL_URL,
+  shellUrl,
+  shellUrls,
   type FetchDeps,
   type ReqLike,
 } from './strategy.ts';
@@ -62,6 +63,43 @@ describe('chooseStrategy', () => {
   });
 });
 
+// Sub-path hosting (t20 B4). The prefix is stripped before the (prefix-blind)
+// matchers run, so every classification under `/mail` must equal the one at the
+// root — and, critically, a root-absolute path must NOT be misclassified when a
+// prefix is configured.
+describe('chooseStrategy under a sub-path', () => {
+  const BASE = '/mail';
+
+  it('classifies prefixed paths exactly as their root equivalents', () => {
+    expect(chooseStrategy(get('/mail/jmap/api'), BASE)).toBe('network-first');
+    expect(chooseStrategy(get('/mail/api/sanitize'), BASE)).toBe('network-first');
+    expect(chooseStrategy(get('/mail/assets/index-a1b2c3d4.js'), BASE)).toBe('cache-first');
+    expect(chooseStrategy(get('/mail/fonts/inter.woff2'), BASE)).toBe('cache-first');
+    expect(chooseStrategy(get('/mail/inbox', 'navigate'), BASE)).toBe('shell-fallback');
+    expect(chooseStrategy(get('/mail/favicon.ico'), BASE)).toBe('passthrough');
+  });
+
+  it('only strips on a segment boundary — /mailbox is not /mail + box', () => {
+    // Were the prefix stripped as a bare string, this would become `/box/api/x`
+    // and still classify as an API path for the wrong reason.
+    expect(chooseStrategy(get('/mailbox/api/x'), BASE)).toBe('passthrough');
+  });
+
+  it('leaves an unprefixed path unstripped, and still classifies it', () => {
+    // A path outside the prefix is passed through the matchers untouched rather
+    // than rejected. Deliberate, and safe: the real worker is registered with
+    // `scope: '/mail/'`, so its fetch handler never sees an out-of-scope request
+    // at all. Leniency here only matters while a deployment is changing its base
+    // path, where classifying by shape beats failing closed on a stale prefix.
+    expect(chooseStrategy(get('/api/sanitize'), BASE)).toBe('network-first');
+  });
+
+  it('shell entries carry the prefix', () => {
+    expect(shellUrl()).toBe('/');
+    expect(shellUrls()).toEqual(['/']);
+  });
+});
+
 function res(body = 'ok', ok = true): Response {
   return { ok, clone: () => res(body, ok), body } as unknown as Response;
 }
@@ -77,7 +115,7 @@ function deps(
       cachePut: vi.fn(async (url: string) => {
         puts.push(url);
       }),
-      shellUrl: SHELL_URL,
+      shellUrl: shellUrl(),
       ...over,
     },
   };
@@ -133,7 +171,7 @@ describe('respondTo', () => {
       fetch: vi.fn(async () => {
         throw new Error('offline');
       }),
-      cacheMatch: vi.fn(async (url: string) => (url === SHELL_URL ? shell : undefined)),
+      cacheMatch: vi.fn(async (url: string) => (url === shellUrl() ? shell : undefined)),
     });
     expect(await respondTo(get('/inbox', 'navigate'), d)).toBe(shell);
   });

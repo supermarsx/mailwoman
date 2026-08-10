@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
   analyzeBlockedContent,
   coveringGrant,
@@ -211,5 +211,38 @@ describe('rewriteGrantedImages', () => {
     expect(rewriteGrantedImages(null, raw, true)).toBeNull();
     expect(rewriteGrantedImages(sanitized, null, true)).toBe(sanitized);
     expect(rewriteGrantedImages(sanitized, '', true)).toBe(sanitized);
+  });
+});
+
+// ── Sub-path hosting (t20 B4) ───────────────────────────────────────────────
+// Every URL this module produces is root-absolute in source and acquires the
+// server-injected deploy prefix at call time. The cases above pin the no-prefix
+// behaviour (unchanged); these pin it under `/mail`.
+
+describe('remote-image URLs under a sub-path', () => {
+  const g = globalThis as unknown as { __MW_BASE__?: unknown };
+  afterEach(() => {
+    delete g.__MW_BASE__;
+  });
+
+  it('prefixes the grant REST endpoints', async () => {
+    g.__MW_BASE__ = '/mail';
+    const { fetcher, calls } = fakeFetcher(200, { accountId: 'a', list: [] });
+    const api = createRemoteImageApi(fetcher);
+    await api.grant('a', { kind: 'all', value: '' });
+    await api.revoke('a', { kind: 'all', value: '' });
+    await api.listGrants('a');
+    expect(calls.map((c) => c.input)).toEqual([
+      '/mail/api/remote-images/grant',
+      '/mail/api/remote-images/revoke',
+      '/mail/api/remote-images/grants',
+    ]);
+  });
+
+  it('prefixes the image-proxy URL without disturbing the encoded query', () => {
+    g.__MW_BASE__ = '/mail';
+    expect(imageProxyUrl('https://cdn.example/a b.png?x=1&y=2')).toBe(
+      '/mail/api/image-proxy?url=https%3A%2F%2Fcdn.example%2Fa%20b.png%3Fx%3D1%26y%3D2',
+    );
   });
 });

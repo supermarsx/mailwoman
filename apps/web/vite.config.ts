@@ -7,6 +7,17 @@ import topLevelAwait from 'vite-plugin-top-level-await';
 const UPSTREAM = 'http://localhost:8080';
 
 export default defineConfig({
+  // Sub-path hosting (t20 B4): a RELATIVE base so every emitted asset URL in
+  // `dist/index.html` and every dynamic-import chunk resolves against the document
+  // / importing chunk rather than the origin root. This is what lets the SAME built
+  // bundle be served from `/` or from `/mail/` — the prefix is chosen at RUNTIME by
+  // the server (`MW_BASE_PATH`), never baked in at build time.
+  //
+  // Consequence for code: `import.meta.env.BASE_URL` is now the literal './' and is
+  // NOT the deploy prefix. Anything that needs the deploy prefix must go through
+  // `basePath()` (`src/api/basePath.ts`), which reads the server-injected
+  // `__MW_BASE__`.
+  base: './',
   // vanilla-extract compiles `*.css.ts` token/theme files to static CSS at build
   // (plan §2.3, e4). The hand-rolled Service Worker (e5) ships as `public/sw.js`,
   // copied verbatim into `dist/` — no bundling step needed for it.

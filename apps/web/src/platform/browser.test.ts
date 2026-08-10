@@ -164,3 +164,53 @@ describe('getPushTransport() + capture protection', () => {
     expect(await createBrowserPlatform().setCaptureProtection(true)).toEqual({ supported: false });
   });
 });
+
+// ── Sub-path hosting (t20 B4) ───────────────────────────────────────────────
+// The browser platform builds two absolute URLs of its own: the VAPID fetch and
+// the `mailto:` protocol-handler target. Both must land where the app is served.
+
+describe('browser platform under a sub-path', () => {
+  const gb = globalThis as unknown as { __MW_BASE__?: unknown };
+  afterEach(() => {
+    delete gb.__MW_BASE__;
+  });
+
+  it('prefixes the VAPID fetch', async () => {
+    gb.__MW_BASE__ = '/mail';
+    g.PushManager = class {};
+    Object.defineProperty(navigator, 'serviceWorker', {
+      value: {
+        getRegistration: async () => ({
+          pushManager: {
+            subscribe: async () => ({
+              endpoint: 'https://push.example/abc',
+              toJSON: () => ({ keys: { p256dh: 'P', auth: 'A' } }),
+              getKey: () => null,
+            }),
+          },
+        }),
+      },
+      configurable: true,
+    });
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ publicKey: 'dGVzdA' }) }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await createBrowserPlatform().pushSubscribe();
+    expect(fetchMock).toHaveBeenCalledWith('/mail/api/push/vapid');
+  });
+
+  it('registers the mailto handler against the prefixed shell URL', async () => {
+    gb.__MW_BASE__ = '/mail';
+    const register = vi.fn();
+    Object.defineProperty(navigator, 'registerProtocolHandler', {
+      value: register,
+      configurable: true,
+    });
+    try {
+      await createBrowserPlatform().registerMailtoHandler();
+      expect(register).toHaveBeenCalledWith('mailto', `${location.origin}/mail/?mailto=%s`);
+    } finally {
+      delete (navigator as unknown as { registerProtocolHandler?: unknown }).registerProtocolHandler;
+    }
+  });
+});

@@ -89,8 +89,21 @@ function accent(base: string): string {
 // Grove textures are served same-origin from /themes/*.svg (img-src 'self');
 // `none` everywhere else. Gated off under reduced-transparency / HC / data-saver
 // by media queries in themes.css.ts. These two constants are the ONLY texture
-// URLs in the theme layer — the single point of change if the app is ever
-// served from a sub-path and the leading `/` needs a base prefix.
+// URLs in the theme layer.
+//
+// SUB-PATH HOSTING (t20 B4) — leave the leading `/` ALONE. It was expected that
+// these would need a runtime base prefix; they do not, and adding one would break
+// them. `public/themes/` is a public-dir asset and `vite.config.ts` now sets
+// `base: './'`, so Vite resolves these root-absolute references at build time and
+// emits them RELATIVE to the stylesheet that carries them —
+// `url(../themes/grove-grain.svg)` in `dist/assets/index-*.css`. Served from
+// `/mail/assets/index-*.css` that resolves to `/mail/themes/grove-grain.svg`;
+// served from the root it resolves to `/themes/grove-grain.svg`, exactly as
+// before. Verified against real build output, not assumed.
+//
+// The rewrite is keyed on the root-absolute form: writing `./themes/…` or
+// interpolating a runtime prefix here would defeat it and hard-code one deploy
+// path into the bundle.
 const GROVE_GRAIN = "url('/themes/grove-grain.svg')";
 const GROVE_PAPER = "url('/themes/grove-paper.svg')";
 const NO_TEXTURE = { grain: 'none', paper: 'none' } as const;

@@ -33,6 +33,7 @@ import {
   opfsBackend,
   type BlobBackend,
 } from '../offline/index.ts';
+import { basePath, shellBase } from '../api/basePath.ts';
 
 /** Prefix for the localStorage-backed secure-store fallback (below OPFS). */
 const SECURE_PREFIX = 'mw.secure.';
@@ -53,11 +54,14 @@ function localStore(): Storage | undefined {
   }
 }
 
-/** The transport base for the VAPID fetch (browser: '' same-origin). Kept local
- *  to avoid a cycle with `api/transport.ts` (which imports this module). */
+/** The transport base for the VAPID fetch. Browser: the sub-path prefix (`''` at
+ *  the origin root, `/mail` under `MW_BASE_PATH=/mail` — t20 B4). Native shell:
+ *  the injected `serverUrl`, which already carries any prefix. Kept local, and
+ *  reading only the import-free `basePath()`, to avoid a cycle with
+ *  `api/transport.ts` (which imports this module). */
 function serverBase(): string {
   const url = (globalThis as { __MW_CONFIG__?: { serverUrl?: unknown } }).__MW_CONFIG__?.serverUrl;
-  if (typeof url !== 'string' || url.length === 0) return '';
+  if (typeof url !== 'string' || url.length === 0) return basePath();
   return url.endsWith('/') ? url.slice(0, -1) : url;
 }
 
@@ -237,7 +241,9 @@ export function createBrowserPlatform(): Platform {
           })
         | undefined;
       try {
-        navigator_?.registerProtocolHandler?.('mailto', `${location.origin}/?mailto=%s`);
+        // Sub-path hosting (t20 B4): the handler must open the app where it is
+        // actually served — `/?mailto=` at the root, `/mail/?mailto=` under a prefix.
+        navigator_?.registerProtocolHandler?.('mailto', `${location.origin}${shellBase()}?mailto=%s`);
       } catch {
         /* Not permitted in this context: no-op. */
       }

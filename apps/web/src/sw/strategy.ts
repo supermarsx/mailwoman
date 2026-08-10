@@ -5,16 +5,30 @@
 // same decisions inline. Keep the two in sync; these functions are the spec.
 
 import { shellCacheName } from '../contracts/offline.ts';
+import { basePath, shellBase, stripBase } from '../api/basePath.ts';
 
 export type Strategy = 'network-first' | 'cache-first' | 'shell-fallback' | 'passthrough';
 
 /** The runtime cache name (`mw-shell-v{N}`) the SW precaches + serves from. */
 export const CACHE_NAME = shellCacheName();
 
-/** The app-shell entry precached for offline navigation. `/` serves index.html;
- *  its (hashed) asset references are then filled in cache-first on first load. */
-export const SHELL_URL = '/';
-export const SHELL_URLS: readonly string[] = [SHELL_URL];
+/**
+ * The app-shell entry precached for offline navigation — `/` at the origin root,
+ * `/mail/` under a sub-path (t20 B4). It serves `index.html`; its (hashed) asset
+ * references are then filled in cache-first on first load.
+ *
+ * A function rather than a const because the prefix is a RUNTIME value: the same
+ * bundle serves from either place and only the server-injected `__MW_BASE__`
+ * differs.
+ */
+export function shellUrl(): string {
+  return shellBase();
+}
+
+/** The shell entries precached on install. */
+export function shellUrls(): readonly string[] {
+  return [shellUrl()];
+}
 
 export interface ReqLike {
   url: string;
@@ -39,10 +53,17 @@ export function isHashedAsset(pathname: string): boolean {
   return /-[A-Za-z0-9_]{8,}\.[a-z0-9]+$/i.test(pathname) || pathname.startsWith('/assets/');
 }
 
-/** Classify a request into a fetch strategy (§2.5). */
-export function chooseStrategy(req: ReqLike): Strategy {
+/**
+ * Classify a request into a fetch strategy (§2.5).
+ *
+ * Sub-path hosting (t20 B4): the deploy prefix is stripped BEFORE matching, so the
+ * matchers above stay prefix-blind and `/mail/api/x` classifies exactly as
+ * `/api/x` does. `base` is injectable so the pure functions remain testable
+ * without a global; it defaults to the runtime prefix.
+ */
+export function chooseStrategy(req: ReqLike, base: string = basePath()): Strategy {
   if (req.method !== 'GET') return 'passthrough';
-  const pathname = new URL(req.url).pathname;
+  const pathname = stripBase(new URL(req.url).pathname, base);
   if (isApiPath(pathname)) return 'network-first';
   if (req.mode === 'navigate') return 'shell-fallback';
   if (isHashedAsset(pathname) || isFont(pathname)) return 'cache-first';
@@ -89,8 +110,8 @@ async function shellFallback(req: ReqLike, deps: FetchDeps): Promise<Response> {
 }
 
 /** Run the chosen strategy for a request. Mirrors the runtime SW `fetch` handler. */
-export function respondTo(req: ReqLike, deps: FetchDeps): Promise<Response> {
-  switch (chooseStrategy(req)) {
+export function respondTo(req: ReqLike, deps: FetchDeps, base: string = basePath()): Promise<Response> {
+  switch (chooseStrategy(req, base)) {
     case 'network-first':
       return networkFirst(req, deps);
     case 'cache-first':
