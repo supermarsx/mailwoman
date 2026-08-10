@@ -42,7 +42,7 @@ jobs:
           node-version: 20
       - name: Build the web SPA (for the Trusted-Types served-artifact leg)
         run: pnpm -C apps/web install --frozen-lockfile && pnpm -C apps/web build
-      - name: 'ar' app-wide locale negotiation + RTL + en-fallback (vitest)
+      - name: "'ar' app-wide locale negotiation + RTL + en-fallback (vitest)"
         run: pnpm -C apps/web exec vitest run src/i18n/i18n.test.ts
       - name: Bring up Postgres
         run: docker compose -f docker-compose.ci.yml up -d --wait postgres

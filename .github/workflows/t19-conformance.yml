@@ -1,0 +1,78 @@
+# t19 (26.19) live-E2E conformance — the "unit-green != wired" gate for the 26.19
+# workstreams that only a live run can prove:
+#
+#   * A8 semantic re-rank — a `semantic: true` search returns a DIFFERENT,
+#     embedding-justified ordering than the same query without the flag, driven against
+#     the in-repo mock Assist endpoint (scripts/mock-assist), while a `semantic: false`
+#     / absent search stays BYTE-IDENTICAL to the 26.18 default path. Migration 0022
+#     (embeddings) applies from a FRESH DB on BOTH SQLite and live Postgres.
+#   * Assist contract — /api/assist/invoke returns the shape the web client actually
+#     parses, and the `actions` path proposes without ever auto-executing (SPEC §14.2
+#     human-gated send).
+#   * Server-side appearance sync (§17.3) — the theme choice round-trips through the
+#     prefs route and survives a fresh session, i.e. it is server state and not
+#     localStorage.
+#
+# Owned by t19-e-e2e, which owns the single test target this workflow drives:
+# `crates/mw-server/tests/t19_e2e.rs`. THAT TARGET LANDS IN WAVE 3 — until it does, a
+# dispatch of this workflow fails loudly with "no test target named t19_e2e". That is
+# deliberate rather than papered over: this workflow is dispatch- and branch-scoped and
+# is NOT part of the required `ci.yml` gate, so it cannot wedge master; the coordinator
+# promotes it to a required check at the 26.19 release boundary, exactly as
+# t12..t18-conformance.yml were promoted at theirs.
+#
+# Deliberately NOT duplicated here — each is already gated elsewhere, and a second
+# runner buys no coverage while doubling the ways it can rot:
+#   * theme gallery / system + schedule mode / cross-browser persistence →
+#     `apps/web/e2e/theming.spec.ts`, already in the `engine` project of
+#     apps/web/playwright.config.ts and therefore already run by ci.yml `e2e-engine`.
+#   * WCAG 2.2 AA contrast over every theme token pair
+#     (`apps/web/src/theme/contrast.test.ts`) → ci.yml's web job (`pnpm -C apps/web test`).
+#   * mw-search p95 < 50 ms default-path gate → ci.yml `search-bench`.
+#   * coverage floors → coverage.yml. Mutation baseline → mutants.yml. axe → a11y.yml.
+#
+# The store-touching legs run on SQLite unconditionally AND on live Postgres when the
+# DSN is present, so 0022 is exercised in BOTH dialects over real infrastructure. A leg
+# whose infra/env is absent LOUD-SKIPS (prints its reason); it never silently passes.
+#
+# Adding the next tag's suite: copy this file to `t<N>-conformance.yml`, change `name:`
+# and the two `push:` branch patterns, and point the cargo step at that tag's E2E test
+# target. The eight predecessors (t10-tail.yml, t12..t18-conformance.yml) were NOT
+# folded into a shared parameterized workflow — see .orchestration/logs/t19-e15.md for
+# the enumeration diff that ruled it out (a job-id collision plus a check-name
+# migration that would silently un-report existing required checks).
+
+name: t19-conformance
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: ["t19-**", "release/26.19**"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── The 26.19 live-E2E legs, on SQLite AND live Postgres, vs the mock Assist endpoint. ─
+  semantic-assist-postgres:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Bring up Postgres + the in-repo mock Assist endpoint
+        run: docker compose -f docker-compose.ci.yml up -d --build --wait postgres mock-assist
+      - name: 26.19 live E2E — A8 re-rank (0022, both dialects) + assist contract + appearance sync
+        env:
+          MW_E14_PG_DSN: "postgres://mailwoman:mailwoman@localhost:5432/mailwoman"
+          MW_TEST_ASSIST_URL: "http://127.0.0.1:8199"
+        run: cargo test -p mw-server --test t19_e2e -- --nocapture --test-threads=1
+      - name: mock-assist logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.ci.yml logs --no-color mock-assist
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v
