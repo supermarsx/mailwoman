@@ -5,7 +5,6 @@
 //! Streamable-HTTP transport all respond through `build_app_full`.
 
 use std::net::SocketAddr;
-use std::path::PathBuf;
 
 use serde_json::{Value, json};
 
@@ -13,15 +12,8 @@ use mw_server::{AppConfig, HardeningConfig, SecurityConfig, ServerMode, V6Config
 
 const INDEX_HTML: &str = "<!doctype html><title>Mailwoman</title><div id=app>MW_TEST_INDEX</div>";
 
-fn unique_base() -> PathBuf {
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let unique = format!(
-        "{}-{}",
-        std::process::id(),
-        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    );
-    std::env::temp_dir().join(format!("mw-v6-mount-{unique}"))
-}
+mod common;
+use common::test_db;
 
 async fn spawn_mock() -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -34,7 +26,7 @@ async fn spawn_mock() -> String {
 
 async fn spawn_server(mode: ServerMode, v6: V6Config) -> String {
     trust_loopback_proxy();
-    let base = unique_base();
+    let base = test_db::unique_dir("mw-v6-mount");
     let web_dir = base.join("web");
     std::fs::create_dir_all(&web_dir).unwrap();
     std::fs::write(web_dir.join("index.html"), INDEX_HTML).unwrap();

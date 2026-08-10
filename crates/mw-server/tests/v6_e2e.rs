@@ -125,22 +125,11 @@ fn valkey_cli(args: &[&str]) -> String {
 
 // ── Server + client harness (mirrors crates/mw-server/tests/v6_mount.rs) ─────────
 
-fn unique() -> String {
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    format!(
-        "{}_{}_{}",
-        std::process::id(),
-        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    )
-}
+mod common;
+use common::test_db;
 
 fn web_dir() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("mw-e13-web-{}", unique()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_db::unique_dir("mw-e13-web");
     std::fs::write(dir.join("index.html"), INDEX_HTML).unwrap();
     dir
 }
@@ -256,7 +245,7 @@ async fn admin_provisioning_audit_export_live() {
     admin_login(&a, &server).await;
 
     // A unique account so re-runs against the persistent PG never collide.
-    let u = unique();
+    let u = test_db::unique_tag();
     let domain = format!("d{}.example", &u[..8.min(u.len())]);
     let username = format!("alice{}", &u[..6.min(u.len())]);
     let account = format!("{username}@{domain}");
@@ -361,7 +350,7 @@ async fn oauth_code_pkce_to_token_live() {
 
     // Seed an admin-approved client DIRECTLY into the live 0007 `oauth_clients`
     // table (no client-registration endpoint exists — plan e11 gap (c)).
-    let client_id = format!("e13-client-{}", &unique()[..8]);
+    let client_id = format!("e13-client-{}", &test_db::unique_tag()[..8]);
     let redirect = "https://app.example/cb";
     psql(&format!(
         "INSERT INTO oauth_clients (client_id,name,redirect_uris,approved_by,created_at) \
@@ -985,7 +974,7 @@ async fn backend_parity_sqlite_and_postgres_live() {
 
         // (1) admin login + provision.
         admin_login(&c, &server).await;
-        let u = unique();
+        let u = test_db::unique_tag();
         let domain = format!("p{}.example", &u[..8.min(u.len())]);
         let username = format!("bob{}", &u[..6.min(u.len())]);
         let prov = c
@@ -1060,8 +1049,7 @@ async fn backend_parity_sqlite_and_postgres_live() {
         (prov, rest, wire_ok, bad)
     }
 
-    let sqlite_path = std::env::temp_dir()
-        .join(format!("mw-e13-parity-{}.db", unique()))
+    let sqlite_path = test_db::unique_db_path("mw-e13-parity")
         .to_string_lossy()
         .into_owned();
     let sqlite = happy_path(sqlite_path).await;
