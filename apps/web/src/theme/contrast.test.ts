@@ -12,9 +12,16 @@
 // This file is the exhaustive matrix — per tier, per theme, with every ratio
 // named — plus the properties the smoke check cannot see: that every pair is
 // actually MEASURABLE, that the advisory tier stays confined to `border`, that
-// a pack's declared appearance matches its palette, and that the second
-// painting surface (`themeCssVars`, the sandboxed message iframe and the print
-// stylesheet) is held to the same standard as the chrome.
+// a pack's declared appearance matches its palette, and that `themeCssVars`
+// emits what it claims to.
+//
+// A CORRECTION TO AN EARLIER READING OF THIS FILE: `themeCssVars` was described
+// here as "the second painting surface". It is not — it is UNWIRED. It has zero
+// runtime callers (see the `themeCssVars is not wired up` block at the bottom),
+// so its output currently paints nothing and its contrast shortfalls are
+// latent, not shipped. The tests over it are still worth having: they pin a
+// function the app intends to use and describe the state it must be in when
+// somebody wires it. They are not evidence about rendered output.
 
 import { describe, it, expect } from 'vitest';
 import { THEME_LIST, type ThemeEntry } from './registry.ts';
@@ -30,6 +37,7 @@ import {
 } from './contrast.ts';
 import { ACCENT_PRESETS, THEMES } from './tokens.ts';
 import { themeCssVars } from './themeCssVars.ts';
+import { bodyFrameDoc } from '../viewers/sandbox.ts';
 
 /** `fg on bg = 4.83 (min 4.5)` — the shape every failure message uses. */
 function name(r: ContrastResult): string {
@@ -284,8 +292,9 @@ describe('accent overrides', () => {
 describe('themeCssVars — the sandboxed message iframe', () => {
   // The reader iframe is a separate opaque-origin document that cannot inherit
   // the parent's CSS custom properties, so `themeCssVars()` re-emits concrete
-  // values under stable `--mw-color-*` names. It is a SECOND painting surface
-  // for the same palette, and until this suite it had no test at all.
+  // values under stable `--mw-color-*` names. That is what it is FOR; whether
+  // anything calls it is a separate question, answered at the bottom of this
+  // file. Until this suite it had no test at all.
 
   /** Pull `--mw-color-x: value` out of the emitted CSS. */
   function cssVar(css: string, key: string): string | undefined {
@@ -394,5 +403,62 @@ describe('themeCssVars — the print stylesheet', () => {
         .sort(),
     );
     expect(shortfalls).toHaveLength(affected.length * 2);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('themeCssVars is not wired up — KNOWN GAP', () => {
+  // Found while checking which file owns the print-contrast defect above. The
+  // answer turned out to be "none of them, yet".
+  //
+  // `bodyFrameDoc(mode, content, { themeVars })` in `viewers/sandbox.ts` is the
+  // designed injection point, and `styles/print.css.ts:7` states as fact that
+  // the message body's print theming comes from
+  // `themeCssVars(theme, { forPrint: true })`, "injected into the srcdoc by e7".
+  // It is not: no call site anywhere passes `themeVars`, and `themeCssVars` has
+  // no runtime caller at all. Its 0% line coverage before this suite was a
+  // SYMPTOM, not an oversight.
+  //
+  // Consequence: the message body is never themed. `BODY_STYLE` falls back to
+  // `var(--mw-text, #1c1e21)` over a transparent (⇒ white) iframe, so a dark
+  // theme shows a dark reader pane wrapped around a white message block. The
+  // print shortfalls recorded above are therefore LATENT — real properties of
+  // the function, not currently rendered by anything.
+  //
+  // Nothing here is fixed: `themeCssVars.ts`, `sandbox.ts`, `Reader.tsx` and
+  // `print.css.ts` are all outside this lane's locks, and wiring it is a
+  // product decision (mail authored for white backgrounds is a defensible
+  // default) rather than a mechanical repair.
+
+  it('emits a variable name that the consumer does not read', () => {
+    // The sharper half of the defect, and the reason it would survive being
+    // wired: producer and consumer disagree on the name. `themeCssVars` emits
+    // `--mw-color-text`; `BODY_STYLE` reads `var(--mw-text, …)`. Passing the
+    // output through today would still leave the fallback in force.
+    const css = themeCssVars('dark');
+    expect(css).toContain('--mw-color-text:');
+    expect(css).not.toContain('--mw-text:');
+
+    const framed = bodyFrameDoc('full-sanitized', { html: '<p>x</p>' }, { themeVars: css });
+    expect(framed).toContain('var(--mw-text,#1c1e21)');
+    // Both names present, neither resolving to the other: the emitted block
+    // defines `--mw-color-text`, the stylesheet reads `--mw-text`.
+    expect(framed).toContain('--mw-color-text:');
+  });
+
+  it('renders identically with and without the theme block, for the text colour', () => {
+    // The behavioural consequence of the name mismatch, stated as behaviour
+    // rather than as string matching.
+    const withTheme = bodyFrameDoc('full-sanitized', { html: '<p>x</p>' }, {
+      themeVars: themeCssVars('dark'),
+    });
+    const without = bodyFrameDoc('full-sanitized', { html: '<p>x</p>' });
+    for (const doc of [withTheme, without]) {
+      expect(doc).toContain('color:var(--mw-text,#1c1e21)');
+    }
+    // The dark palette's text colour never reaches the document as the value
+    // the body actually resolves.
+    expect(without).not.toContain(THEMES.dark.color.text);
   });
 });
