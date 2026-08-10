@@ -221,12 +221,19 @@ services:
     depends_on:
       mock:
         condition: service_healthy
-    # NO healthcheck, deliberately. `mailwoman healthcheck` speaks plain HTTP to
-    # MW_BIND, and this listener is TLS-only AND demands a PROXY protocol header
-    # before the TLS ClientHello — so every probe shape available inside this
-    # image would report a false red and hang `up --wait` forever. Readiness for
-    # this cell is asserted at the haproxy-l4 listener and then end to end by the
-    # conformance suite.
+    # `mailwoman healthcheck` speaks plain HTTP to MW_BIND, and this listener is
+    # TLS-only AND demands a PROXY protocol header before the TLS ClientHello, so
+    # every probe shape available inside this image reports a false red.
+    #
+    # `disable: true` is required and OMITTING the key is not enough: the
+    # Dockerfile bakes a HEALTHCHECK into the image, so a service that declares
+    # none INHERITS it. That inherited probe can never pass here, the container
+    # never becomes healthy, and `up -d --wait` fails with "container ... is
+    # unhealthy" — which reads exactly like "PROXY protocol is broken" and is
+    # not. Readiness for this cell is asserted at the haproxy-l4 listener, and
+    # then end to end by the conformance suite.
+    healthcheck:
+      disable: true
 
   # =========================================================================
   # Tier 1 — booted in CI
