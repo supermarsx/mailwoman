@@ -24,9 +24,17 @@
 //! - **prefix / wildcard** — a `*` glob (`proj*`, `*ject`, `p*ct`) matches any
 //!   run of characters within a single indexed term. `?` is not special.
 //!
-//! The parser is **panic-free** (fuzzed, plan §1.12): it only ever returns
+//! The parser is **panic-free by construction**: it only ever returns
 //! [`SearchError::Parse`] on malformed input and never indexes into byte slices
 //! at non-char-boundaries.
+//!
+//! It is **not fuzzed.** `fuzz/fuzz_targets/` holds `imap_parse_response`,
+//! `mime_parse`, `pop3_parse`, `sanitize_html` and `sieve_parse` — there has
+//! never been a search-query target. This comment previously said "fuzzed",
+//! which is the kind of claim a reader would reasonably act on when deciding
+//! how much to trust this parser against hostile input. Adding the target is
+//! one file; until someone does, the guarantee above rests on review, not on a
+//! fuzzer.
 
 /// System keyword for a read message (JMAP `$seen`); `is:unread` = its absence.
 const KW_SEEN: &str = "$seen";

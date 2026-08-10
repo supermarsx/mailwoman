@@ -88,9 +88,19 @@ fn config_body(gateway: &AssistGateway) -> serde_json::Value {
         "include_e2ee": enabled && ceiling.include_e2ee,
         "include_attachments": enabled && ceiling.include_attachments,
         // The "what left the device" disclosure copy (the web renders it verbatim).
-        "disclosure": "Assist sends the selected message text (never E2EE-decrypted \
-                       content or attachments by default) to the configured endpoint. \
-                       Sending mail is always confirmed by you.",
+        //
+        // It names BOTH egress paths deliberately. This copy used to describe
+        // `invoke` only, which under-described the surface: opting into a semantic
+        // search sends the text of the messages being re-ranked to the same
+        // endpoint, and a user reading a disclosure about "the selected message"
+        // would not expect that. The E2EE/attachment exclusions are now enforced on
+        // the embed path as well as on invoke, so the sentence is true of both --
+        // it was not before, which is why the wording is worth being exact about.
+        "disclosure": "Assist sends text you select to the configured endpoint, and — \
+                       when you run a semantic search — the text of the messages it \
+                       re-ranks. E2EE-decrypted content and attachment text are \
+                       excluded on both paths unless an administrator has opted this \
+                       deployment in. Sending mail is always confirmed by you.",
     })
 }
 

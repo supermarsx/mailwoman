@@ -207,7 +207,7 @@ browser, desktop shell, mobile shell — is the same TypeScript UI speaking
 | **PostgreSQL** (≥14) | **Primary backend** for real deployments: accounts, settings, sync state, message cache, contacts DB, calendar/tasks/notes cache, tags, rules, audit log | Via `sqlx` (compile-time-checked queries); migrations embedded; per-user rows encrypted where zero-access applies (§9.3) |
 | **SQLite** (bundled) | Zero-config backend for single-user/eval/self-contained mode | Same schema via `sqlx`; a `mailwoman migrate-store` command moves SQLite → Postgres |
 | **Redis / Valkey** (optional) | Accelerator only — never the source of truth: sessions, hot header windows, search hot-set, presence/push fan-out, rate-limit counters | Fully scope-configurable (§15.6); losing Redis loses performance, never data |
-| **Tantivy** | Full-text + attachment index | Per-user index dirs, encrypted at rest |
+| **Tantivy** | Full-text + attachment index | **In-memory today** (`Index::open_in_ram`), rebuilt from the store, one index per process — the per-user on-disk index dirs are not built yet, and because nothing is written to disk there is nothing encrypted at rest. Persistence + a startup backfill are tracked; the "encrypted at rest" wording described that future shape and has been removed until it exists |
 | **Blob store** | Raw messages/attachments cache | Filesystem (default) or S3-compatible; content-addressed, encrypted |
 
 ### 4.3 Crate topology
@@ -226,7 +226,7 @@ mailwoman/
 │  │                   #   (also compiled to WASM for client-side E2EE ops)
 │  ├─ mw-store         # sqlx data layer (Postgres/SQLite) + blob store + crypto-at-rest
 │  ├─ mw-cache         # layered cache: memory → Redis (optional) → store
-│  ├─ mw-search        # Tantivy full-text index (encrypted at rest)
+│  ├─ mw-search        # Tantivy full-text index (in-memory today — see §4.2)
 │  ├─ mw-dav           # CalDAV/CardDAV client (calendar, tasks, contacts)
 │  ├─ mw-ics           # iCalendar/vCard/ICS/.hol parse+emit, RRULE engine
 │  ├─ mw-sanitize      # HTML email sanitizer (ammonia-based, CSS rewriter)
@@ -247,7 +247,11 @@ mailwoman/
 
 Every crate that touches network bytes (`mw-imap`, `mw-pop3`, `mw-mime`,
 `mw-jmap`, `mw-ics`, `mw-sanitize`, `mw-crypto`, `mw-export`) has
-`#![forbid(unsafe_code)]` and a fuzz target.
+`#![forbid(unsafe_code)]`. Fuzz targets exist for five parsers —
+`imap_parse_response`, `mime_parse`, `pop3_parse`, `sanitize_html`,
+`sieve_parse` (`fuzz/fuzz_targets/`). The remaining crates in that list, and
+the `mw-search` query parser, are **not** fuzzed; extending the set is tracked.
+Read "has a fuzz target" as the goal, not as a description of the tree.
 
 ---
 
@@ -284,11 +288,11 @@ Every crate that touches network bytes (`mw-imap`, `mw-pop3`, `mw-mime`,
 | Concern | Choice | Why |
 |---|---|---|
 | Framework | **SolidJS** | Fine-grained reactivity; renders 100k-row virtual lists without VDOM diff cost; ~7 KB runtime honors the SnappyMail lightness ethos |
-| Build | Vite + Rolldown | Fast, code-splitting per route/module |
-| State/sync | Custom JMAP client store (typed from `mw-jmap` via codegen) in a **SharedWorker** | One live session shared by all windows/tabs (§15.5) |
-| Heavy work | Dedicated Web Workers: search, crypto (WASM), indexing, export rendering | Main thread stays at 60 fps; Service Worker handles cache/offline/push |
+| Build | Vite 6 (esbuild minifier) | Fast, code-splitting per route/module. Rolldown was specced and is **not** in use |
+| State/sync | Custom JMAP client store (typed from `mw-jmap` via codegen) | One live session shared by all windows/tabs (§15.5). The SharedWorker that owns that single session is **written but not wired** — production is a per-tab store plus a BroadcastChannel refetch ping (§15.5) |
+| Heavy work | The SharedWorker JMAP proxy is the only worker in `apps/web/src/worker/`. Dedicated search / crypto / indexing / export-rendering workers are **specced, not built** | Main thread stays at 60 fps; Service Worker handles cache/push |
 | Styling | Vanilla-extract (zero-runtime CSS) + design tokens | Themeable (§17) without runtime CSS-in-JS cost |
-| Editor | ProseMirror | Sane HTML output, plain-text mode, tables |
+| Editor | ProseMirror | Sane HTML output on a deliberately narrow, email-safe schema. **Tables are not in the schema and are not planned** — the narrow schema is the design, not a gap |
 | Offline | Service Worker + OPFS (encrypted) + IndexedDB for queue | Full offline PWA (§15.4) |
 | Tests | Vitest + Playwright | Unit + E2E |
 
@@ -380,8 +384,8 @@ nightly live-interop job against real test tenants.
 | **Network attacker** | MitM, downgrade, traffic analysis | rustls + no-cleartext policy, HSTS preload, pinning option, REQUIRETLS |
 | **Compromised/curious host server** | Reads disk, memory, logs | Zero-access mode (§9); in standard mode: encrypted at rest, no plaintext logging of bodies/subjects ever |
 | **Malicious other tenant / XSS** | Script injection via email content | CSP `default-src 'none'`-rooted policy (no inline scripts, `style-src 'self'`), sandboxed iframe rendering, no `innerHTML` of unsanitized data (lint-banned); Trusted Types enforced (`require-trusted-types-for 'script'` in the shipped CSP, §7.4) |
-| **Stolen device** | Local data access | OS keychain-wrapped keys, optional app lock (biometric/PIN), auto-lock timer, remote cache wipe on next connect |
-| **Credential stuffing / account takeover** | Password attacks on the webmail login | Argon2id, rate limiting + exponential backoff, WebAuthn/passkeys, TOTP, IP allowlists (admin), new-device notification |
+| **Stolen device** | Local data access | OS keychain-wrapped keys, optional app lock (biometric/PIN in the shells). *Auto-lock timer and remote cache wipe are **not built** — see §19* |
+| **Credential stuffing / account takeover** | Password attacks on the webmail login | Argon2id, rate limiting + exponential backoff, WebAuthn/passkeys, TOTP, IP allowlists (admin). *New-device login notification is **not built***|
 | **Supply chain** | Malicious dependency | `cargo-deny` + `cargo-vet`/`cargo-audit`, lockfiles, pinned CI actions, reproducible builds, signed releases |
 | **Exploited parser / compromised worker** | RCE in a parsing path (e.g., `unsafe` in a transitive dep, image codec bug) | Privilege-separated disposable render workers: no network, no filesystem, no keys, seccomp/Landlock/namespace-jailed, WASM second layer (§7.5) — exploit lands in an empty room |
 | **Data exfiltration by insiders/users** | Sensitive content leaving via mail | DLP pipeline (§7.6), audit trail, admin policies |
@@ -424,10 +428,18 @@ Rendering pipeline, all engine-side in Rust before anything reaches the DOM:
    which hosts.
 5. **Tracker stripping:** known tracking-pixel patterns (1×1, known ESP hosts)
    removed and *reported* ("This message contained 3 trackers").
-6. **Render inside a sandboxed `<iframe sandbox>`** with a per-message CSP,
-   `credentialless`, no same-origin, height negotiated via postMessage.
-7. **Link protection:** on click, show real destination; flag homograph/
-   punycode lookalikes, mismatched text-vs-href, known-bad patterns.
+6. **Render inside a sandboxed `<iframe sandbox>`** with a per-message CSP and
+   no same-origin. The frame ships with a fully empty `sandbox` attribute — no
+   `allow-scripts` — so message content cannot run code at all. That also means
+   **postMessage height negotiation is impossible by construction**, and
+   `credentialless` is not set; both were specced before the no-scripts choice
+   and neither is coming back. The empty sandbox is the stronger position and
+   the height is handled without script.
+7. **Link protection:** on click, show the real destination and flag homograph/
+   punycode lookalikes and mismatched text-vs-href. **Not shipped yet** — links
+   currently open without an interstitial. A "known-bad patterns" blocklist was
+   specced and is **cut**: it would need a maintained feed the project does not
+   have, and it is the weakest of the three signals.
 8. **Maximum-security opening mode** (per-message action and per-sender/global
    policy): render plain-text-only, or sanitized-HTML-without-any-media, or
    full sanitized HTML — a three-position switch in the message toolbar;
@@ -470,8 +482,13 @@ to expand):
   + idle timeouts; concurrent-session listing and revocation in settings.
 - CSRF: double-submit + Origin checks. All state-changing endpoints require
   the JMAP session state token.
-- Login: constant-time compares, uniform error messages/timing, Argon2id
-  (m=64 MiB, t=3, p=4 baseline; admin-tunable upward).
+- Login: constant-time compares, uniform error messages/timing, Argon2id.
+  **The shipped default is m=19 MiB, t=2, p=1** — the `argon2` crate's
+  OWASP-recommended baseline, and below the m=64 MiB / t=3 / p=4 figure this
+  document carried. The higher figure is the target, admin-tunable upward
+  today; raising the *default* is tracked separately because it changes login
+  cost for every existing deployment. The two are recorded here as different
+  numbers on purpose rather than left silently disagreeing.
 - 2FA: WebAuthn/passkeys and TOTP (RFC 6238) as a **second factor**, with
   recovery codes as the break-glass path. A TOTP code cannot be replayed within
   its validity window — the last step a login consumed is recorded and any step
@@ -593,9 +610,12 @@ allowlists and worker recycling; the external audit at V6 validates the posture.
   `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` on Windows,
   `FLAG_SECURE` on Android, screen-capture detection + content hiding on iOS,
   and screenshot-obscuring on macOS where the API allows. **The browser cannot
-  prevent screenshots** — web deployments can enable a visible per-user
-  watermark overlay (name/time tiled faintly) as a deterrent, and the docs and
-  admin UI say exactly this instead of pretending.
+  prevent screenshots**, and the docs and admin UI say exactly this instead of
+  pretending. The watermark half of that answer is **server-side only**: the
+  configuration and the route (`watermark.rs`) exist, and **nothing in the web
+  client renders an overlay** — no component, no CSS, no fetch. A deterrent
+  that does not render deters nobody, so the browser watermark is not a
+  shipped control and must not be described as one.
 - **Retention awareness:** the UI surfaces server-side retention/litigation
   hold status where bridges expose it (Graph/EWS); Mailwoman never silently
   deletes anything under hold.
@@ -611,7 +631,11 @@ allowlists and worker recycling; the external audit at V6 validates the posture.
 - **Key management UX** (where PGP clients die; we invest here):
   - Generate per-account keys on first use (opt-in, one click, plain-language).
   - **Autocrypt Level 1**: opportunistic encryption "just happens".
-  - **WKD** lookup + publishing guide; keys.openpgp.org (VKS) lookup with consent.
+  - **WKD** lookup + publishing guide. keys.openpgp.org (VKS) lookup is
+    **not wired**: `vks_fetch_by_email` has no caller and the engine falls
+    through to the stored key set. The consent checkbox in the UI therefore
+    asks the user to affirm consent for a network lookup that never happens —
+    it must be removed or the lookup built; it must not stay as it is.
   - Key backup: encrypted export + Autocrypt Setup Message.
   - Trust model: TOFU with explicit verification (QR/fingerprint words).
     Verified badge per correspondent.
@@ -637,9 +661,19 @@ allowlists and worker recycling; the external audit at V6 validates the posture.
 
 - **TLS:** hybrid X25519MLKEM768 is **not enabled**. The shipped rustls `ring`
   provider does not offer the group, and the only provider that does
-  (`aws-lc-rs`) is a C/`-sys` dependency the project's pure-Rust, no-`-sys`
-  dependency posture excludes — so it cannot ship today. Tracked for when a
-  pure-Rust rustls provider offers the group. (See `docs/security/crypto.md`.)
+  (`aws-lc-rs`) is a heavyweight C/`-sys` dependency the project's dependency
+  floor excludes — so it cannot ship today. Tracked for when a pure-Rust rustls
+  provider offers the group. (See `docs/security/crypto.md`.)
+- **What the "no C / no `-sys`" floor actually means.** It is a rule about what
+  the project *adds*, not a description of the resolved graph. The graph as
+  built today **does** compile C in two places: `ring`, pulled in by rustls as
+  its default crypto provider, and `zstd-sys`, pulled in by tantivy. Neither is
+  a direct dependency and neither is avoidable without replacing rustls or the
+  search engine. The floor that is real, and that `cargo deny` enforces, is:
+  **no OpenSSL, no non-permissive licence, and no new `-sys` or C-building
+  crate accepted into the tree without an explicit human decision.** Statements
+  elsewhere in this repository that read as "the build contains no C" are
+  over-broad; this paragraph is the accurate version.
 - **At rest:** store master keys wrapped with hybrid X25519 + ML-KEM-768.
 - **OpenPGP PQC:** track `draft-ietf-openpgp-pqc`; behind a feature flag as
   rPGP lands support; interop-test with GnuPG 2.5+ and Thunderbird.
@@ -685,9 +719,16 @@ disabled for zero-access accounts (§15.6).
 
 - Postgres/SQLite rows for zero-access accounts hold only
   XChaCha20-Poly1305 ciphertext (AAD = table‖row‖schema-version).
-- **Search:** the client builds a Tantivy index slice over decrypted content
-  in OPFS, encrypted at rest with the search key. No server-side
-  searchable-encryption snake oil.
+- **Search — the intended design, not the shipped one.** The plan is that the
+  client builds a Tantivy index slice over decrypted content in OPFS,
+  encrypted at rest with the search key, with no server-side
+  searchable-encryption snake oil. **None of that is built.** `apps/web/src/wasm/`
+  contains `mw-crypto` and `mw-sanitize` only — there is no client-side Tantivy
+  — the derived `'search'` subkey has no consumer, and the only search that
+  runs in the browser is a case-insensitive substring scan over the cached
+  header window. Everything else is served by the server-side index (§4.2),
+  which is built over plaintext. Treat this section as roadmap until the client
+  index exists; it must not be cited as a shipped security property.
 
 ---
 
@@ -698,43 +739,67 @@ disabled for zero-access accounts (§15.6).
 - Unified inbox across accounts; per-account and per-folder views; SPECIAL-USE
   auto-mapping; **account reordering** (drag accounts into any order,
   persisted per user).
-- **Full folder management:** create/rename/move/delete, nested folders,
-  per-folder sync policy, IMAP ACL (RFC 4314) visualization and editing for
-  shared folders, subscription management.
+- **Folder management:** create/rename/move/delete and nested folders. **None
+  of it is built yet** — there is no `Mailbox/set` in the engine or the client,
+  and the sidebar is a flat list. Three sub-claims this section used to carry
+  are **cut** rather than deferred: per-folder sync policy, IMAP ACL (RFC 4314)
+  visualization/editing for shared folders, and subscription management. They
+  are not 1.0 items and nothing depends on them.
 - **Favorites, colors, tags, pins:** favorite folders (pinned section at top),
-  per-folder colors, tags (labels) on folders *and* messages with color +
-  icon, **pin messages** (stay at top of folder/thread), pin folders, pin tags
-  — all sync via IMAP keywords/METADATA or JMAP where possible, engine-side
-  otherwise (sync convention documented publicly).
+  per-folder colors, tags (labels) on **messages** with color + icon, **pin
+  messages** (stay at top of folder/thread) — synced via IMAP keywords/METADATA
+  or JMAP where possible, engine-side otherwise (sync convention documented
+  publicly). Tags on *folders*, pinned folders and pinned tags are **cut**.
+  Note the gap in what does ship: `addTag`/`updateTag`/`deleteTag` exist with
+  no callers, so labels cannot yet be created, renamed, recoloured or deleted
+  from the UI, and are not clickable as a filter.
 - **Search folders:** saved searches materialized as virtual folders (like
-  Outlook's) — live-updating, nestable under a "Search Folders" tree, usable
-  as notification sources.
-- Virtualized list: smooth at 100k+ messages; sender avatars/BIMI (DMARC-gated);
-  snippet previews; density options (compact/cozy/relaxed).
+  Outlook's). The backend CRUD is complete and **unused** — the engine emits
+  them with `parentId: null` and zero counts, the client never reads the saved
+  query, and there is no "save this search" affordance on the search box. Live
+  counts and the "Search Folders" tree are tracked; **use as notification
+  sources is cut** until notifications themselves exist.
+- Virtualized list with snippet previews and density options
+  (compact/cozy/relaxed). The windowing function is genuinely O(viewport) and
+  is measured against a synthetic 100k array — but **the fetch layer caps every
+  mailbox at 50 rows**, so the list has never been handed more than 50 in the
+  product. Read "smooth at 100k" as a property of the virtualizer, not of the
+  shipped mailbox. Sender avatars/initials are tracked; **BIMI is cut** — VMC
+  validation is not a 1.0 item and nothing in the tree implements it.
 - **Conversation threading:** JMAP threads natively; engine-side JWZ threading
-  for IMAP/POP3. Per-folder thread on/off.
+  for IMAP/POP3. Threading is an unconditional global client-side fold today —
+  **per-folder thread on/off is not built.**
 - **Focused Inbox:** two-tab inbox (Focused/Other) driven by a local
   classifier (sender history, interaction frequency, rules) — optionally
   Assist-enhanced (§14); syncs bidirectionally with Outlook's Focused state
   via the Graph bridge; per-account toggle, trainable via "Move to
   Focused/Other" with "always do this for sender".
-- Swipe actions (mobile, fully configurable per direction/length), hover
-  quick-actions, drag-and-drop everywhere (§10.7), multi-select with
-  Outlook muscle-memory semantics.
+- Hover quick-actions. Swipe actions (mobile), drag-and-drop (§10.7) and
+  multi-select with Outlook muscle-memory semantics are **specced, not built**
+  — there is no selection state anywhere and every mutation is single-message.
+  "Swipe actions **fully configurable per direction and length**" is **cut**:
+  two fixed directions is the shape worth building.
 - **Sweep** (Outlook-style): from any sender — delete all, delete all + block,
   keep latest only, auto-delete older than N days — implemented as engine
   rules with preview-before-apply and an undo window.
 - **Pinning, snooze, follow-up:** snooze (hide + resurface, cross-device);
-  **follow-up flags** with due dates that surface in Tasks/My Day (§12.1) and
-  as reminder notifications; "has the recipient not replied in N days?"
-  follow-up nudges (local heuristic, opt-in).
-- **Message classification:** user-defined classification labels (e.g.,
-  Public/Internal/Confidential) attachable to messages and enforced by DLP
-  rules on reply/forward (§7.6); Assist can suggest classifications (§14).
+  **follow-up flags** with due dates, stored client- and server-side and
+  surfaced as a sorted list in Tasks/My Day (§12.1). **Nothing fires when a due
+  date arrives** — there is no alarm scheduler anywhere in the product (the
+  same gap as calendar reminders, §11.3), so "surface as reminder
+  notifications" is a goal, not a description. The "has the recipient not
+  replied in N days?" nudge is **cut** — no heuristic exists and it is not a
+  1.0 item.
+- **Message classification** (Public/Internal/Confidential labels enforced by
+  DLP on reply/forward) is **cut**. The tag registry is generic user labels
+  only; nothing distinguishes a classification from a label, and no deployment
+  has asked for one.
 - **Ignore conversation / Block sender / Silence sender** (§7.3).
-- Batch operations stream progress and are cancelable; optimistic UI with
-  rollback; **undo everything** — archive, delete, move, spam, sweep, rules —
-  10 s undo toast backed by real inverse operations.
+- Optimistic UI with rollback; **undo everything** — archive, delete, move,
+  spam, sweep, rules — 10 s undo toast backed by real inverse operations.
+  "Batch operations stream progress and are cancelable" is **cut for 1.0**: it
+  needs a query-scoped server-side mutation that does not exist, and batch
+  itself is blocked on multi-select above.
 
 ### 10.2 Reading
 
@@ -743,14 +808,10 @@ disabled for zero-access accounts (§15.6).
   session), with tear-off into a real browser window (§15.5).
 - Security panel with metadata/signature analysis (§7.3); remote-content bar
   with partial image loading (§7.2); maximum-security opening mode (§7.2).
-- **Reactions:** react to messages with emoji — native via Graph bridge
-  (Outlook reactions), Mailwoman-to-Mailwoman via a documented header
-  convention; aggregated display on the thread. Degrades to nothing (never
-  broken text) for other clients.
-- **Voting buttons:** render and answer Outlook voting buttons (Graph/EWS
-  native); compose votes on standards accounts as one-click reply buttons
-  (`X-Mailwoman-Vote` header + plain-text fallback so any client can answer);
-  tally view for the sender.
+- **Emoji reactions** and **Outlook voting buttons** (render/answer/tally) are
+  **cut**. Both are differentiators rather than daily-driver features, and
+  neither exists in the reader. They are not worth building while the client
+  still has larger gaps in the reading surface.
 - Attachments: inline preview (images, PDF via sandboxed PDF.js, text,
   audio/video, office docs via re-encoded preview), thumbnail strip, save-all,
   save-to-Nextcloud (§18.4), drag-out to OS (shells).
@@ -761,17 +822,22 @@ disabled for zero-access accounts (§15.6).
 - ICS invites: accept/tentative/decline inline with conflict awareness (§11.4).
 - `.eml` open/save natively; **MSG and OFT** open/import (CFB parsing in the
   WASM jail); print with dedicated print CSS and **print-to-PDF** (§10.6).
-- Quick entity actions (addresses, tracking numbers, flight codes) — all local
-  heuristics, no cloud extraction.
+- Quick entity actions (addresses, tracking numbers, flight codes) are **cut**
+  — no such heuristics exist in the reader and they are not a 1.0 item.
 
 ### 10.3 Composing
 
 - ProseMirror rich text with sane HTML output (tested against Outlook/Gmail
-  quirks); markdown-shortcut input; plain-text mode with format=flowed;
-  per-identity default. Font family/size defaults per user (§17.2).
-- **Identities & profiles, fully configurable:**
-  - Multiple **profiles** (e.g., Work/Personal) grouping accounts, identities,
-    signatures, and theme — switchable in two clicks.
+  quirks); per-identity default. Font family/size defaults per user (§17.2).
+  Two corrections here: **markdown-shortcut input is cut** (no input rules, no
+  markdown dependency, and it is not a 1.0 item), and there is today **no
+  genuine `text/plain` send path at all** — "plain-text mode" escapes the text
+  and wraps it in HTML, so a real `text/plain` alternative with format=flowed
+  is still to build.
+- **Identities, fully configurable:**
+  - **Profiles** (Work/Personal grouping accounts, identities, signatures and
+    theme, switchable in two clicks) are **cut**. Nothing implements them and
+    per-identity settings cover the need.
   - Multiple **from addresses** per account: manually added aliases *and*
     **server-provided allowed-froms pulled automatically** (JMAP `Identity/get`,
     Sieve capabilities, Dovecot METADATA, Graph `proxyAddresses`, admin-
@@ -779,54 +845,67 @@ disabled for zero-access accounts (§15.6).
     to show; reply-identity auto-selection by recipient/folder.
   - Per-identity: signature, reply-to, sent-folder mapping, S/MIME cert,
     PGP key, default encryption posture.
-- **Signature facilities, extensive:** rich-text/plain/image signatures with
-  template variables ({{name}}, {{title}}, {{date}}, per-locale), multiple
-  signatures per identity with rules (new vs reply/forward, internal vs
-  external recipients), signature preview in composer, admin-managed
-  org-wide signature templates with locked regions, vCard/business-card
-  attachment option, per-profile defaults.
+- **Signature facilities:** rich-text/plain signatures with template variables
+  ({{name}}, {{title}}, {{date}}, per-locale), multiple signatures per identity
+  with a new-vs-reply/forward rule, and signature preview in the composer.
+  **Admin-managed org-wide templates with locked regions, and the
+  vCard/business-card attachment option, are cut.** Known defect, recorded here
+  because it is the kind that reads as working: **two unrelated signature
+  systems ship.** Compose derives its signature from JMAP
+  `Identity.signatureText/Html`; Settings has a full `Signature` CRUD with a
+  `rule` field that is never read. Editing a signature in Settings does not
+  change what the composer inserts. Linking the two is the first thing to
+  build here.
 - **Undo send:** true delayed submission (engine holds N seconds, 0–120,
   survives tab close). **Send later:** engine queue, survives restarts, uses
   JMAP `sendAt` when available. **Outbox:** a real, visible outbox — queued,
   scheduled, failed-retrying, and offline-queued messages with per-item
   cancel/edit/send-now; failures surface as actionable toasts, never silence.
-- **Drafts, everywhere, for everything:** autosave (encrypted always);
-  server-synced mail drafts; and a universal **Drafts drawer** that also holds
-  unfinished events, meetings, contacts, tasks, and notes (§11.3, §12) — any
-  half-created item is resumable on any device.
+- **Drafts:** autosave, plus a **Drafts drawer**. Scope corrected to **mail
+  drafts only** — the drawer never held events, meetings, contacts, tasks or
+  notes, and that claim is cut. Two things this section asserted that are not
+  true today and must be fixed in code, not prose: autosave writes **plain JSON
+  to `localStorage`**, including the plaintext body of a message being composed
+  under PGP, so "encrypted always" is a requirement that is currently unmet;
+  and there is **no server-synced draft** — a draft reaches the JMAP Drafts
+  mailbox only at send time, so nothing is resumable on another device.
 - **Message recall (honest matrix):** native recall via Graph/EWS on Exchange
   targets; Mailwoman→same-server-Mailwoman recall deletes-if-unread (admin
   policy); plain SMTP to foreign servers — **impossible**, and the UI says so,
   offering a "send correction" flow instead of pretending.
-- Attachments: chunked/background uploads, pause/resume, size warnings with
-  server-limit awareness, inline images, "forgot the attachment" nudge; large
-  attachments via **Nextcloud share links** (§18.4).
+- Attachments: size warnings with server-limit awareness (shipped), plus
+  upload progress, cancel, concurrency, inline images (`cid:`) and the "forgot
+  the attachment" nudge, all still to build. **Chunked uploads and
+  pause/resume are cut** — the upload is a single-shot POST and a resumable
+  protocol is not worth the surface for the file sizes mail carries. Large
+  attachments via **Nextcloud share links** (§18.4): the composer component is
+  written and is simply not mounted.
 - Recipient chips show encryption capability; live banner: "this message will
   be: E2EE / TLS / mixed". DLP evaluation pre-send with inline explanations (§7.6).
-- **Read-receipt / open-tracking (sender side, disclosed):** two mechanisms,
-  both **off by default**, both admin-lockable:
-  1. Standards: MDN read receipts (RFC 8098) — request + respond, default "ask me".
-  2. **Pixel tracking (self-hosted):** embeds a pixel served by *your*
-     Mailwoman server — never a third party; open events (time, open count,
-     coarse client hint — no IP retention by default, admin-configurable)
-     show on the sent message and in a per-message open timeline.
-     **Activation modes** (per identity and per account): off · per-message
-     opt-in (compose toolbar toggle) · **default-on with per-message
-     opt-out** (toggle inverts). **Disclosure modes:** footer disclosure
-     line (localized, links to a served notice page) · **silent** (no
-     recipient-visible marker). Both axes are user-configurable where the
-     admin allows; admin policy can pin either axis tenant-wide (e.g.,
-     force-disclosure or force-off) and defaults ship as off + disclosure.
-     The spec acknowledges the tension frankly: Mailwoman *blocks* others'
-     trackers by default while offering its own — and recipient-side,
-     Mailwoman's own remote-content proxy defeats pixels like these anyway,
-     so open data is best-effort by nature (cached loads, proxies, and
-     preview fetchers can all mask or fake opens; the UI labels results as
-     approximate).
-- Templates ("quick parts"), canned responses; **OFT template import/export**;
-  keyboard-driven emoji/mention pickers; spellcheck via OS/browser; grammar
-  and text review via Assist (§14) — local LanguageTool integration remains
-  the no-AI path.
+- **Read-receipt / open-tracking (sender side): both mechanisms are cut.**
+  - **MDN read receipts (RFC 8098).** The `requestReceipt` toggle is defined,
+    rendered and toggled — and never read by the send path. No
+    `Disposition-Notification-To` header is ever produced and there is no
+    server-side MDN handling. A toggle that silently no-ops is worse than no
+    toggle, so the line and the control both go.
+  - **Self-hosted tracking pixel.** This was never functional: the composer
+    embeds `/api/track/open/{draftId}.gif`, **no `track` route exists on the
+    server**, the URL is site-relative so it could never resolve from a
+    delivered message, and it is keyed on the local draft id so an event could
+    not be correlated to a sent message anyway. None of the storage, timeline,
+    activation or disclosure modes exists. Today the toggle ships recipients a
+    permanently broken image. Beyond being unbuilt, it is the wrong feature for
+    this client: a product whose sanitizer blocks exactly this pattern in
+    received mail should not ship its own, and Mailwoman's own remote-content
+    proxy would defeat it Mailwoman-to-Mailwoman regardless. **Removing the
+    composer toggle and the pixel is a code follow-up.**
+- Templates ("quick parts") and canned responses; keyboard-driven
+  emoji/mention pickers; spellcheck via OS/browser; grammar and text review via
+  Assist (§14). None of the template library ships yet. **OFT template
+  import/export is cut.** The "local LanguageTool integration remains the no-AI
+  path" claim is **not met** — only the Assist path exists, and LanguageTool
+  cannot currently be pointed at a self-hosted server, which was the whole
+  point of that sentence.
 - **Dictation:** browser SpeechRecognition / OS dictation where available, or
   Assist speech-to-text against a configured endpoint (local Whisper server
   first-class) — push-to-talk in the composer, with AI cleanup pass optional (§14).
@@ -836,10 +915,16 @@ disabled for zero-access accounts (§15.6).
 - Local/server hybrid: engine-side Tantivy index — **< 50 ms** p95 over 100k
   messages; prefix, phrase, fuzzy, field queries (`from:`, `to:`, `subject:`,
   `has:attachment`, `filename:`, `before:/after:`, `in:`, `is:unread`,
-  `larger:`, `tag:`, `pinned:`), boolean operators; attachment content
-  indexing (text extracted in the render jail).
-- Query builder UI round-trips with text syntax; saved searches become search
-  folders (§10.1).
+  `larger:`, `tag:`, `pinned:`), boolean operators; **attachment content
+  indexing over `text/*` parts only**, capped at 2 MiB. PDF and DOCX yield
+  nothing and no extraction routes through the render jail — the "text
+  extracted in the render jail" wording described format parsers that were
+  never in scope for 1.0.
+- Saved searches become search folders (§10.1). A **query builder UI** is not
+  built — search is one plain text input — so "round-trips with text syntax"
+  is a goal, not a description. (The *rules* builder does round-trip; that is a
+  different screen.) Operator chips over the existing operator whitelist are
+  the cheap version and are what is tracked.
 - **AI-powered search (opt-in, §14):** the Assist endpoint can compute query
   embeddings for natural-language queries ("that invoice from the contractor
   in spring") through the user's configured endpoint. Re-ranking the search
@@ -853,13 +938,21 @@ disabled for zero-access accounts (§15.6).
 ### 10.5 Rules & automation
 
 - **Mail rules like Outlook:** condition/action builder (sender, recipients,
-  subject/body matches, has-attachment, size, importance, tags, classification)
-  with actions (move, copy, tag, forward, reply-with-template, mark, play
-  sound, notify, run-webhook §20) — executed server-side via **Sieve
-  round-trip** when the server supports it, engine-side otherwise, with a
-  clear indicator of where each rule runs.
-- **Folder rules:** per-folder auto-tagging, retention (auto-archive/delete
-  after N days), notification policies.
+  subject/body matches, has-attachment, size, importance, tags) with actions
+  (move, copy, tag, forward, reply-with-template, mark, notify) — executed
+  server-side via **Sieve round-trip** when the server supports it, engine-side
+  otherwise, with a clear indicator of where each rule runs. **Play sound and
+  run-webhook actions are cut.** Two corrections to what ships: the builder
+  currently offers only `from/to/subject/thread` × `contains/is` and
+  `move/tag/archive/suppressNotify/stop`, even though `mw_sieve` already
+  supports Body / HasAttachment / Size / Keyword conditions and Copy / Forward
+  / ReplyTemplate / Notify actions — **the DTO conversion silently discards
+  them**, so a rule authored out of band is corrupted by a round-trip through
+  the UI. And `Action::Notify` is emitted as a Sieve *comment*, so it does
+  nothing server-side.
+- **Folder rules** (per-folder auto-tagging, retention after N days,
+  notification policies) are **cut for 1.0** — nothing implements any of the
+  three.
 - Raw Sieve editor (syntax highlighting, linting) for power users; client
   rules for POP3/no-Sieve servers; "filter messages like this" one-click;
   rules testable against existing mail (dry-run preview).
@@ -883,11 +976,16 @@ disabled for zero-access accounts (§15.6).
 
 ### 10.7 Drag & drop (configurable)
 
-Drag in from anywhere (OS files → attachments or folder import; ICS → event;
-vCard → contact), drag out (attachments, messages as .eml, events as .ics),
-drag between (messages → folders/tags, attachments → composer). Every DnD
-surface individually toggleable in settings (and by admin policy — DLP can
-disable drag-out of classified content).
+**Nothing in this section is built** — there is no `dragstart`, `dragover`,
+`onDrop`, `dataTransfer` or `draggable` anywhere in `apps/web/src`, and
+`moveMessage` exists with zero UI call sites.
+
+Scope corrected to what is worth building: **drag in** from anywhere (OS files
+→ attachments or folder import; ICS → event; vCard → contact) and **drag
+between** (messages → folders/tags, attachments → composer). **Drag out**
+(attachments, messages as `.eml`, events as `.ics`) and the **per-direction
+toggles** are cut — nobody has asked for either, and a settings matrix over a
+feature that does not exist is the wrong place to start.
 
 ### 10.8–10.10 (Junk, honesty matrices)
 
@@ -897,6 +995,15 @@ disable drag-out of classified content).
   headers into plain language; block/allow lists sync to Sieve. **Report
   phishing** and **Report junk** buttons appear contextually (§7.3), feeding
   trainers + admin abuse address (ARF). No client-side Bayes in core.
+  What actually ships is narrower and the difference matters: **the junk button
+  only relocates the message** — `$junk`/`$notjunk` are reserved and never
+  written — **there is no Not-junk button**, so a false positive cannot be
+  undone; **no trainer plugin has a train/learn method** (`SpamHook` has none,
+  and `plugins/**` contains no `learnham`/`learnspam` handler); and **Sieve
+  upload is a stub** (`upload_sieve_if_supported` always returns `Ok(false)`),
+  so block/allow lists never reach the server and neither does any other rule.
+  See `docs/plugins/spam-trainers.md`, which documents the training endpoints
+  as if they existed.
 - Message recall honesty matrix lives in §10.3; screen-capture honesty in §7.6.
 
 ---
@@ -908,8 +1015,15 @@ disable drag-out of classified content).
 Day · **3-day** · work week · week · month · **tri-month (quarter)** ·
 **schedule view** (Outlook-style horizontal timeline for comparing calendars)
 · **list/agenda** · year heat-map. All views: keyboard navigable, printable
-(with print-to-PDF), time-zone aware (secondary TZ column optional), week
-numbers optional, configurable work hours/days, mini-calendar navigator.
+(with print-to-PDF), time-zone aware, week numbers optional, configurable work
+hours/days, mini-calendar navigator.
+
+**Status.** The views exist; the surrounding affordances in that sentence do
+not. There is no time-zone awareness in the UI at all — no picker, no per-event
+TZ display, and an event's timezone is taken silently from the browser at save
+— no mini-calendar, no date jump, no week numbers, no working-hours shading and
+no "now" line. Calendar printing is absent. The **optional secondary TZ column
+is cut**; the rest is tracked.
 
 ### 11.2 Calendars & sync
 
@@ -917,24 +1031,59 @@ numbers optional, configurable work hours/days, mini-calendar navigator.
   CalDAV, JMAP Calendars, Graph/EWS (incl. shared & room calendars), ICS/
   webcal subscriptions (read-only overlays), Nextcloud calendars (CalDAV).
 - Offline-capable: full event cache in the client store; changes queue and
-  replay (§15.4).
+  replay (§15.4 — see the offline status note there).
 - Holidays: bundled per-locale holiday calendars + **.hol import/export**.
+- **Status — CalDAV/CardDAV sync is written and never runs.** `mw-dav` and
+  `mw-carddav` are complete and tested against Radicale, but the account
+  runtime's `dav` handle is `None` in every production construction path; its
+  only setter is called from tests, and `Engine::sync_pim` has exactly one
+  caller in the repository, also a test. So no deployment has ever synced a
+  calendar or an address book over DAV. Two things must land together for that
+  to change: wiring the handle, and DAV credentials — `DavConfig` is basic-auth
+  only with no OAuth and no credential persistence, which leaves Google's
+  CalDAV/CardDAV (OAuth-only since 2021) unreachable even once the handle is
+  wired. ICS/webcal subscriptions refresh **on demand only**; nothing polls,
+  with or without ETags.
 
 ### 11.3 Events (full Outlook parity)
 
-- Create/edit with: title, location(s), online-meeting URL field, all-day,
-  multi-day, RRULE recurrence (editor covering Outlook's cases + raw RRULE),
-  reminders (multiple, per-event), categories/tags, color, busy status
-  (free/tentative/busy/OOO), private flag, attachments, rich-text body.
-- **Quick create:** click-drag on any view or natural-language quick-add
-  ("lunch with Ana tomorrow 1pm") parsed locally; Assist can enhance parsing
-  (§14) but the local parser is the default.
-- **Attendees, full support:** required/optional/resource; availability
-  lookup (free/busy) with suggested times; invite send/receive (iTIP/iMIP);
-  attendee responses incl. **counter-proposals** (accept/decline/tentative/
-  propose-new-time); forward-invite handling; **send updates to participants**
-  on any change, with "only added/changed attendees" option; organizer view
-  of response status.
+- Create/edit with: title, location, all-day, multi-day, RRULE recurrence,
+  reminders, categories/tags, color, busy status (free/tentative/busy/OOO),
+  private flag, attachments. **Rich-text event bodies are cut** — plain text is
+  the right shape for an event description.
+  What the editor actually offers today is materially less: **no end-time
+  picker** (duration in minutes only), no online-meeting URL, no per-event
+  colour, no private flag, a single location, and attachments as URI+title with
+  no upload. Recurrence covers freq/interval/byDay only — no `BYMONTHDAY`, no
+  `BYSETPOS`, no raw-RRULE escape hatch, and **no "this occurrence / this and
+  following / the whole series" prompt** on edit or delete
+  (`RANGE=THISANDFUTURE` does not exist in the engine, so such an edit is
+  silently downgraded to a single-instance override).
+  **Reminders are write-only metadata**: VALARMs are stored and nothing ever
+  fires. There is no alarm scheduler anywhere in the product and no
+  `Notification` call in the web client, so the editor currently lets a user
+  set a reminder that cannot fire. Building the scheduler closes this and the
+  follow-up-flag reminders in §10.1 together.
+- **Quick create:** natural-language quick-add ("lunch with Ana tomorrow 1pm")
+  parsed locally; Assist can enhance parsing (§14) but the local parser is the
+  default. **Click-drag creation is not built** — and neither is empty-slot
+  click on any timed view, so an event cannot be created at a specific hour
+  from day or week view at all. This is the most-used interaction in every
+  competing calendar and is the first thing to fix here.
+- **Attendees:** required/optional/resource; invite send/receive (iTIP/iMIP);
+  attendee responses incl. **counter-proposals**; forward-invite handling;
+  **send updates to participants** on any change, with "only added/changed
+  attendees" option; organizer view of response status.
+  Status, and it is worse than partial: **updates and cancellations are never
+  sent** — `event_update` never calls the iTIP send path and `event_destroy`
+  never emits a `CANCEL`, so rescheduling or deleting a meeting notifies
+  nobody. **Availability lookup does not consult anyone else's calendar**:
+  `calendar_free_busy` ignores the account runtime and aggregates only the
+  caller's own stored events, the CalDAV `free-busy-query` client has no engine
+  caller, and there is no `FREEBUSY`/`FBTYPE` writer, so an inbound
+  availability request cannot be answered in any standard form. **"Suggested
+  times" and rules-based slot-finding are cut** until free/busy over DAV
+  exists; room and resource availability are cut with them.
 - **Event drafts:** any half-filled event saves to the Drafts drawer (§10.3).
 - ICS import/export at event and calendar granularity (§6.2).
 
@@ -949,22 +1098,30 @@ numbers optional, configurable work hours/days, mini-calendar navigator.
 
 ### 11.5 Sharing
 
-- **Share calendars with other users:** on-server sharing (instant, permission
-  levels: availability-only / read / read+write / delegate) and cross-server
-  via CalDAV sharing/WebDAV ACL where supported; share by email invitation.
-- **Receive & visualize shared calendars:** accept into your list, overlay
-  with distinct styling, per-shared-calendar notification settings, delegate
-  mode (act-on-behalf where the backend supports it — Graph/EWS).
-- All sharing state visible and revocable in one settings page ("who can see
-  what, and what have I accepted").
+- **Share calendars with other users:** on-server sharing with permission
+  levels (availability-only / read / read+write) and cross-server via CalDAV
+  sharing/WebDAV ACL where supported; share by email invitation.
+- **Receive & visualize shared calendars:** accept into your list, overlay with
+  distinct styling, per-shared-calendar notification settings.
+- **Cut for 1.0:** **delegate mode** (act-on-behalf), and the central
+  "who can see what, and what have I accepted" settings page. Both are
+  enterprise-shaped features on top of a sharing model that is not finished.
+
+**Status.** What ships is an owner-only read URL. There are no permission
+levels, no CalDAV sharing or WebDAV ACL, and no way to accept a shared
+calendar. Address books have **no share ACL at all** (recorded as a deliberate
+follow-up in `sharing.rs`). The `calendar_shares` table also has no primary key
+or unique constraint. Permission levels are the piece to build first.
 
 ### 11.6 Meeting intelligence (Assist-gated, §14)
 
 - **Meeting recaps:** post-meeting, generate a recap from the invite thread,
   attached agenda/notes, and (if the user pastes/uploads one) a transcript —
   action items extracted into Tasks (§12.1). Strictly on-demand, endpoint-BYO.
-- Scheduling assistance: "find a slot for these 4 people next week" — works
-  rules-based from free/busy without AI; Assist adds natural-language polish.
+- Scheduling assistance ("find a slot for these 4 people next week", rules-based
+  from free/busy with Assist adding natural-language polish) is **cut for now**
+  — it cannot be built before free/busy actually reads other people's
+  calendars (§11.3), and it is not worth planning before that lands.
 
 ---
 
@@ -972,9 +1129,15 @@ numbers optional, configurable work hours/days, mini-calendar navigator.
 
 ### 12.1 Tasks
 
-- Full tasks module: lists, due/start dates, reminders, recurrence, priority,
-  progress, subtasks (checklist), tags, notes field, attachments (by
-  reference).
+- Tasks module: lists, due/start dates, reminders, recurrence, priority,
+  progress, tags, notes field. **Subtasks (checklists) and attachments are
+  cut** for 1.0.
+- **Status — the gap here is larger than the feature list suggests.** Tasks has
+  **no edit form at all**: title, description, due date and priority cannot be
+  changed after creation, there is no delete, no list management, no due-date
+  picker and no recurrence UI. "Convert anywhere" is a paste-an-id textbox, not
+  an action on a message or an event. Reminders share the missing scheduler
+  described in §11.3.
 - Sync: **VTODO over CalDAV** (Nextcloud/Radicale-compatible), JMAP Tasks
   where available, Microsoft To Do via Graph bridge.
 - **My Day / "today" view:** a daily working set — tasks due today, follow-up
@@ -988,8 +1151,12 @@ numbers optional, configurable work hours/days, mini-calendar navigator.
 - Outlook-style notes module: quick notes with rich text, tags, colors, search,
   pinning; linkable to messages/events/contacts.
 - **Encryption at rest is not optional for notes:** stored via the notes key
-  (§9.1) even for accounts not otherwise in zero-access mode — server sees
-  ciphertext only; search via the client-side index slice. Sealing covers the
+  (§9.1) even for accounts not otherwise in zero-access mode. Precisely: notes
+  are **encrypted at rest under the server-held `ServerKey`**, and the server
+  decrypts them on every read. That is real protection against a stolen disk or
+  a database reader; it is **not** "the server sees ciphertext only", and this
+  section previously said so. A note is only opaque to the server for an
+  account that is itself in zero-access mode (§9). Sealing covers the
   note's metadata as well as its body: title, tags, color, and the pinned flag
   are sealed columns at rest, with the pinned-first list ordering applied in
   Rust after decrypt so no plaintext sort key survives on disk. The one-shot
@@ -1027,6 +1194,17 @@ numbers optional, configurable work hours/days, mini-calendar navigator.
 - Merge-duplicates assistant; import/export vCard + CSV with mapping UI;
   per-contact security tab (PGP keys, S/MIME certs, verified status, key
   history); per-contact policies (always load images, always plain-text, …).
+- **Status of the contacts surface.** CardDAV sync does not run (§11.2). Within
+  the local store: vCard **photos are absent end to end** (never parsed, never
+  emitted, never served, no upload route, no `<img>`); **postal addresses are
+  never parsed or emitted** by either vCard implementation; `KIND:group` is
+  coerced to `org` and `MEMBER` is never read or written, so a group vCard
+  loses its identity on import and personal distribution lists never leave the
+  local table; birthdays never reach the calendar. The **merge-duplicates
+  assistant fails on every invocation in the shipped client** — the client
+  sends `{keepId, mergeIds}` and the server reads `ids`, so it always answers
+  "requires at least two ids". That last one is a contract mismatch, not a
+  missing feature, and is the cheapest fix in this section.
 - **LDAP, full support:** authentication bind (§18.5), GAL, distribution
   groups, S/MIME certificate lookup, photo attributes, paged search, StartTLS/
   LDAPS, multiple directories with priority order. Read-only at 1.0
@@ -1078,15 +1256,23 @@ endpoint is configured, and every capability is individually permission-gated.
   OS/browser speech), optional cleanup pass.
 - **Organization:** auto-tag/auto-file suggestions, focused-inbox scoring
   boost, classification suggestions (§10.1).
-- **Search:** natural-language query embeddings for semantic re-ranking
-  (§10.4) — the embedding capability ships; wiring the re-rank into the
-  search index is a tracked follow-up.
+- **Search:** natural-language query embeddings for semantic re-ranking of the
+  top lexical hits (§10.4). Opt-in per query — with one qualification: a
+  **saved-search folder whose stored filter carries `semantic:true` re-runs the
+  re-rank every time the folder is opened**, so for saved searches the opt-in is
+  persistent rather than per-query. It is still user-initiated, so the egress
+  bound holds, but "opt-in per query" is not the whole description.
 - **Calendar:** meeting recaps + action-item extraction (§11.6), NL quick-add
   enhancement.
 - **Assistant:** a chat panel that can *read* (scoped) mailbox/calendar
-  context and *propose* actions rendered as one-click confirmations — powered
-  by the same tool surface as MCP (§20.3), inheriting its scoping. The
+  context and *propose* actions rendered as one-click confirmations. The
   assistant is a client of the API like any other; it has no privileged path.
+  **It is not yet backed by the MCP tool surface (§20.3).** What ships is
+  proposal *reporting*: the tool name in a proposal is supplied by the model
+  and is **not validated against the `mw-mcp` registry**. Nothing is ever
+  executed and every action is human-confirmed, so this is a display-accuracy
+  limit rather than a privilege one — but the panel must not be described as
+  MCP-backed tool calling until a lane wires it.
 
 ---
 
@@ -1106,9 +1292,18 @@ endpoint is configured, and every capability is individually permission-gated.
   CONDSTORE → UID-window polling. POP3: UIDL diff pull. Bridges: native delta
   APIs (Graph delta queries, EWS sync folders).
 - Per-account sync policy: headers window (30/90/365 days/all), bodies
-  on-demand or prefetch, attachment policy separate, per-folder overrides.
+  on-demand or prefetch, attachment policy separate. **Per-folder overrides are
+  cut for 1.0.**
 - Conflict rules: server wins on flags, client wins on drafts, moves
   idempotent by stable ID.
+- **Status — none of the three bullets above is implemented client-side.** The
+  web client never issues `Email/changes`, `Mailbox/changes`, `Thread/changes`
+  or `Email/queryChanges`; every pushed change triggers a full re-query of the
+  50-row window, and `cannotCalculateChanges` is handled nowhere, so there is
+  no resync fallback because there is nothing to fall back from. None of the
+  four sync-policy knobs exists — one hardcoded 50-row window, bodies always
+  fetched on open. No client code implements the conflict rules: a queued move
+  or flag is replayed with no `ifInState` and no concurrency token.
 
 ### 15.3 Connection status UX
 
@@ -1127,22 +1322,46 @@ endpoint is configured, and every capability is individually permission-gated.
   replayable. Read, search, compose, file, flag, manage calendar/tasks/notes
   offline; the Outbox (§10.3) shows queued state honestly.
 - Background Sync API where available; the thin shells get the same behavior
-  via the same code plus OS background-fetch privileges.
+  via the same code plus OS background-fetch privileges. **Not implemented** —
+  there is no `sync` event handler in the service worker and no
+  `registration.sync.register` in the tree, so a queued send only replays while
+  a tab is open.
+- **Status — offline is not built, and the gap is bigger than it reads.**
+  `EncryptedCache` is fully implemented and fully tested with **zero production
+  callers**; the cached header slice is an in-memory signal that does not
+  survive a reload; the service worker caches GET only while JMAP is POST, so
+  no mail data is ever cached; and reloading while offline calls `client.me()`,
+  which throws, so **you land on the login screen**. OPFS holds secrets, not
+  messages. Whether to build real offline or narrow this section to
+  session-scoped offline is an open product decision — but nothing in it
+  describes today's behaviour, and the cold-start path is the part users hit
+  first.
 - Storage budgets configurable (per device: "keep 90 days + pinned + flagged
-  offline"), with an explicit eviction policy screen.
+  offline"), with an explicit eviction policy screen. **The screen exists and
+  nothing reads what it writes** — `offlineBudgetMb`, `offlineRetentionDays`
+  and `eviction` are persisted to `localStorage` and have no consumer anywhere.
+  It is a settings panel that does nothing, and it should either gain a
+  consumer or be removed; leaving it as-is is the worst of the three options.
 
 ### 15.5 Multi-window & sub-tabs
 
 - **One session, many windows:** a SharedWorker owns the JMAP client store per
   browser profile; all windows/tabs subscribe — state (reads, selections,
   drafts, toasts) is consistent across windows in real time; BroadcastChannel
-  fallback where SharedWorker is unavailable.
+  fallback where SharedWorker is unavailable. **`worker/proxy.ts` implements
+  exactly this ladder and nothing imports it.** Production is a per-tab store
+  plus a BroadcastChannel "refetch" ping, so N tabs mean N push connections and
+  N independent full refetches per change. The code says so in a comment; this
+  document did not. Anything built on top of per-tab state — paging, focus
+  refresh — should be sequenced against the decision on whether the
+  SharedWorker gets wired.
 - **Sub-tabs:** an in-app tab strip (messages, composers, events, contacts,
   notes, settings pages) with pinnable tabs, restorable sessions, and
   keyboard cycling; any sub-tab tears off into a real OS window (`window.open`
   → same SharedWorker session; in shells, a real second window).
-- Compose windows survive: crash/close recovery from the autosaved encrypted
-  draft, always.
+- Compose windows survive: crash/close recovery from the autosaved draft.
+  The autosave is **not encrypted** today (§10.3) — the recovery works, the
+  "encrypted, always" part is a requirement that is not met.
 
 ### 15.6 Caching (layered, fully scope-configurable)
 
@@ -1173,8 +1392,18 @@ the effective cache posture.
 ## 16. Clients: Web-First, Thin Desktop & Mobile
 
 - **The web client is the product.** Every feature ships web-first; shells add
-  OS integration only. PWA installable (manifest, share target, file handlers
-  for .eml/.ics/.vcf/.msg).
+  OS integration only. PWA installable with a manifest and file handlers for
+  `.eml`/`.ics`/`.vcf`/`.msg`. **Neither is built** — `apps/web/public/` has no
+  manifest and `index.html` carries no `<link rel="manifest">`. **The share
+  target is cut** unless someone asks for it.
+- **Known limitation — the narrow layout has no reader.**
+  `@media (max-width: 760px)` removes the reader pane outright and every
+  reading-pane rule is guarded to `min-width: 761px`. Both Tauri shells point
+  at the same bundle, so **the Android and iOS apps cannot display a message
+  body either.** This is a real constraint on a shell that is meant to be
+  store-listed, and it is recorded here rather than left implied by
+  "web-first". Fixing the narrow layout is the prerequisite for taking the
+  mobile shells seriously.
 - **Thin shells (Tauri v2):** Windows (msi/winget), macOS (universal,
   notarized), Linux (AppImage/deb/rpm/Flatpak), iOS, Android (Play +
   F-Droid-friendly). Shells contain: pinned UI bundle + integrity verification
@@ -1240,12 +1469,36 @@ server-side per user, all exportable as a settings JSON.
 
 | Shape | How |
 |---|---|
-| **Single binary** | `mailwoman serve` — embedded assets, embedded ACME/Let's Encrypt (§6.4), TCP or Unix socket |
-| Behind **nginx / Apache / Caddy / Traefik / HAProxy** | `X-Forwarded-*`/PROXY protocol, WebSocket pass-through, subpath hosting (`/mail`), tested config snippets in `docs/deploy/` |
-| **FastCGI** | `mailwoman fcgi` for shared-hosting environments (closest analog to SnappyMail's PHP deployability) |
+| **Single binary** | `mailwoman serve` — embedded assets, embedded ACME/Let's Encrypt (§6.4), TCP listener |
+| Behind **nginx / Apache / Caddy / Traefik / HAProxy** | `X-Forwarded-*` and PROXY protocol on the HTTP listener, WebSocket pass-through, sub-path hosting (`MW_BASE_PATH`), config trees in `docs/deploy/proxy/` — see `docs/deploy/reverse-proxy.md` for which of them are actually tested |
 | **Container** | `FROM scratch` hardened image (§7.5); compose + Helm chart with secure defaults |
-| **Systemd** | Socket activation + hardened unit (§7.5) |
+| **Systemd** | Hardened unit (§7.5) |
 | Hosting panels | Recipes for cPanel, Plesk, CloudPanel, ISPConfig; Cloudron/YunoHost/runtipi packages (community-maintained, CI-smoke-tested) |
+
+Three shapes this table used to list have been removed rather than quietly
+narrowed, because each named a command or a mechanism that does not exist:
+
+- **FastCGI (`mailwoman fcgi`)** — there is no `Fcgi` variant in the CLI's
+  command enum and no FastCGI code anywhere in the tree. The shared-hosting
+  story is the reverse-proxy one; `docs/deploy/packaging.md` used to instruct
+  operators to run this command.
+- **systemd socket activation** — zero references to `LISTEN_FDS` or any
+  socket-activation protocol in the repository. The shipped unit is a plain
+  hardened `ExecStart` unit.
+- **Unix-socket serve** — zero `UnixListener` in the tree. `mailwoman serve`
+  binds a TCP address; the admin panel's "optional separate port/Unix socket"
+  (§19) is subject to the same limit.
+
+**PROXY protocol is HTTP-listener only, and that is the whole story.**
+Mailwoman runs exactly two production listeners: the `mw-server` HTTP listener
+and its HTTPS listener. It has **no mail listeners at all** — `mw-imap`,
+`mw-pop3`, `mw-smtp` and `mw-sieve` are outbound *client* crates, and every
+`TcpListener` in them is inside a `#[cfg(test)]` block serving a mock server for
+their own tests. So there is no IMAP/SMTP/POP3/ManageSieve port for an L4
+balancer to front and no client-IP preservation problem to solve on one. PROXY
+protocol still matters for a real reason: the built-in ACME client means the
+application can be the TLS endpoint, so an L4 balancer doing TLS passthrough is
+a supported shape and is where the PROXY header carries the client address.
 
 ### 18.2 Mail-server pairings (tested first-class)
 
@@ -1260,7 +1513,20 @@ containers on every merge.
 - Login backends: local (Argon2id), **upstream-IMAP passthrough** (SnappyMail
   model), **OIDC/OAuth2 SSO** (Keycloak, Authentik, Authelia, Entra ID),
   **LDAP bind**, header auth behind trusted proxies (explicitly enabled +
-  IP-restricted).
+  IP-restricted — `MW_HEADER_AUTH=1` plus `MW_HEADER_AUTH_TRUSTED_IPS`, which
+  fails closed: no allowlist authenticates nobody).
+  **`MW_HEADER_AUTH_TRUSTED_IPS` is a separate list from `MW_TRUSTED_PROXIES`
+  on purpose — but the separation only holds while `MW_PROXY_PROTOCOL=off`.**
+  With `accept` or `require`, the peer address is itself a value the connecting
+  proxy declares in the PROXY header, and that declared address is what the
+  header-auth gate checks. Any member of `MW_TRUSTED_PROXIES` can therefore
+  name a peer address inside `MW_HEADER_AUTH_TRUSTED_IPS` and then assert an
+  identity for a password-less session. This grants nothing new when the proxy
+  list names the balancer's own addresses — such membership is already total
+  authority over the client-IP model — but it matters when the list is written
+  as a **subnet** (a pod or VPC range) covering hosts other than the balancer.
+  **With both features enabled, list individual addresses, not ranges.** See
+  `docs/deploy/reverse-proxy.md`.
 - **Password change, first-class:** in-app password change with pluggable
   backends — local store, **LDAP password modify (RFC 3062)**, Dovecot HTTP
   admin API, poppassd, **custom webhook** (HMAC-signed, for any panel/PAM
@@ -1283,16 +1549,21 @@ containers on every merge.
 
 ## 19. Admin Panel
 
-Separate route (`/admin`), separate session domain, optional separate
-port/Unix socket; a required second factor (passkey/TOTP) can be enforced for
-admin access (§7.4). **Full management surface:**
+Separate route (`/admin`), separate session domain; a required second factor
+(passkey/TOTP) can be enforced for admin access (§7.4). (A separate admin
+port was specced; a **Unix socket is not available** — see §18.1.)
+**Full management surface:**
 
 - **Domains:** per-domain upstream settings, autoconfig test button, login
   domain allow/blocklists, per-domain identity/alias provisioning (feeds
   §10.3 allowed-froms).
 - **Users:** provisioning (local mode), quotas, session listing + revocation,
   per-user feature flags (zero-access, Assist, tracking pixel, DnD scopes),
-  password reset/force-change, remote cache wipe.
+  password reset/force-change. (**Remote cache wipe is cut**: the
+  `remote_cache_wipe` flag is settable and read by nobody — no engine handler,
+  no client consumer, no OPFS/IndexedDB purge. The same row's auto-lock timer
+  does not exist either, and the shells' biometric app-lock command has no
+  caller in the web client.)
 - **Security policy:** min TLS, 2FA required, session lifetimes, Argon2
   params, remote-content proxy policy, max-security floors (§7.2), DLP rules
   (§7.6), watermarking, screen-capture policy for shells.
@@ -1375,7 +1646,9 @@ verdicts, admin events. Inbound webhook actions available to rules.
   debugging, time-boxed with auto-off.
 - **Audit log** (separate, append-only, exportable): logins, session events,
   settings changes, admin actions, API/MCP key usage, Assist calls, DLP
-  verdicts, recalls, rule executions.
+  verdicts, recalls, rule executions. (Rule-execution rows currently record the
+  resulting action and message id but **not the rule id or name**, so they do
+  not answer "which rule fired"; there are no non-match records and no viewer.)
 - Optional **OpenTelemetry** (OTLP) traces + metrics + Prometheus `/metrics`
   endpoint (auth-gated) — self-hosted observability first-class.
 
@@ -1383,8 +1656,10 @@ verdicts, admin events. Inbound webhook actions available to rules.
 
 - Built-in `sentry`-SDK integration: point a DSN at **self-hosted Sentry,
   GlitchTip, or Bugsink** (all DSN-compatible) — or any future compatible
-  sink. **Off by default**; enabling is an admin action with an in-UI
-  disclosure to users of that deployment.
+  sink. **Off by default**; enabling is an admin action. The **in-UI disclosure
+  to users of that deployment does not exist yet** — and the DSN is settable
+  through the admin API with no corresponding input in the admin UI, so a
+  deployment can be reporting errors with nothing anywhere saying so.
 - Event scrubbing before send: no mail content, no addresses, no
   identifiers beyond an install-random ID; breadcrumbs allowlisted.
   Client-side (browser) errors are tunneled through the Mailwoman server
@@ -1452,22 +1727,45 @@ trend tracking).
 
 ## 24. Accessibility & Internationalization
 
-- **WCAG 2.2 AA** as a release gate: full keyboard operability, visible focus,
-  screen-reader tested flows, reduced-motion (textures/toasts respect it),
-  high-contrast themes, touch target minimums. Calendar views get dedicated
-  SR interaction patterns (grid navigation, event announcements).
+- **WCAG 2.2 AA is the target, not a gate that is currently met.** Visible
+  focus, reduced motion (textures/toasts respect it), high-contrast themes and
+  the 2.5.8 touch-target floor hold today, and an axe scan runs in CI. The other
+  two named items do not: **full keyboard operability does not exist** — the
+  app has no application-level keyboard shortcuts at all, only three
+  element-scoped `keydown` handlers — and there is **no record of any
+  screen-reader run** in the repository or CI. Eight success criteria are
+  currently assessed as failing (1.3.1, 1.4.4, 1.4.10, 2.4.1, 2.4.2, 2.4.3,
+  3.1.2, 4.1.3), and the axe gate covers 7 of roughly 20 screens with landmark,
+  heading and keyboard rules structurally out of its scope (they are axe
+  `best-practice` rules, not `wcag*` ones). Calendar views do not yet have
+  dedicated SR interaction patterns. **This sentence claimed a release gate
+  that is not met; restoring the claim requires the work, not the wording.**
+  Note also that the keyboard-preset picker in Settings (Gmail/Outlook/custom/
+  vim) is a display-only mock over the same missing keymap.
 - i18n via **Fluent**; RTL first-class (mirrored layouts incl. calendar,
   bidi-isolation for mixed-direction subjects — a spoofing vector);
-  locale-aware dates/collation/week-starts; translation via Weblate; ship
-  en/de/fr/es/pt-BR/nl/it/pl/ru/uk/zh/ja at 1.0.
+  locale-aware dates/collation/week-starts; translation via Weblate.
+  **What ships at 1.0 is the i18n infrastructure, not twelve translations.**
+  Only `en` is populated (plus a partial `ar` covering Settings). The 204
+  `.ftl` files under de/fr/es/pt-BR/nl/it/pl/ru/uk/zh/ja contain **zero message
+  lines** — they are comment headers self-marked `MT-SEED — NOT REVIEWED, 0%`.
+  The files are honest about themselves; this line was the over-claim.
+  Similarly: bidi-isolation is applied to the sender but not to the subject or
+  preview (the actual spoofing surface); the RTL *preference* persists and is
+  read by nothing, so choosing "Right to left" leaves the app LTR; and no date,
+  collation or week-start call site is locale-aware — every one passes
+  `undefined` and gets the browser locale, and the calendar's formatters are
+  module-scope constants that cannot react to a locale switch at all.
 
 ---
 
 ## 25. Testing & Quality
 
-- **Fuzzing:** cargo-fuzz targets for MIME, IMAP/POP3 wire, HTML sanitizer,
-  vCard/iCal/.hol, MSG/OFT (CFB), PGP/CMS; corpus from real-world weird mail;
-  OSS-Fuzz application once public.
+- **Fuzzing:** cargo-fuzz targets exist today for **five** parsers — MIME,
+  IMAP wire, POP3 wire, HTML sanitizer and Sieve. Targets for vCard/iCal/`.hol`,
+  MSG/OFT (CFB), PGP/CMS and the search-query parser are **planned, not
+  written**; see §4.3. Corpus from real-world weird mail; OSS-Fuzz application
+  once public.
 - **Protocol conformance:** CI matrix vs Dovecot, Stalwart, Cyrus, Greenmail
   containers; recorded-quirk fixtures (Gmail `\All`, UIDPLUS absence, …).
 - **Interop gates:** S/MIME ↔ Outlook; PGP ↔ Thunderbird/GnuPG/Proton Bridge;
@@ -1478,12 +1776,31 @@ trend tracking).
   WebDriver on all desktop OSes.
 - **Security:** cargo-audit/deny per PR; ZAP baseline in CI; annual
   third-party audit funded before 1.0 (crypto + web app), published.
-- Coverage floor 80% on protocol/crypto crates; mutation testing on
-  `mw-crypto`, `mw-sanitize`, `mw-export`.
+- **Coverage floor 80% on protocol/crypto crates — the target, and here is
+  exactly where it stands.** Coverage is now *measured* in CI for both Rust and
+  the web, and a ratchet is installed. **The web side gates** at the floors
+  recorded in `.github/coverage-floors.toml`. **The Rust side does not**: it
+  ships with `[rust] gate = false` and no per-crate floors, deliberately, so
+  that the first baseline is derived from a Linux CI run rather than
+  transplanted from a developer's Windows measurement. Until those floors are
+  populated (procedure in `docs/testing/coverage.md`), **the Rust ratchet
+  enforces nothing.** The four §25 crates *measure* above 80% — that is a
+  reading taken once, not a floor anything defends, and the two must not be
+  described interchangeably.
+- **Mutation testing** on `mw-crypto`, `mw-sanitize`, `mw-export` is configured
+  and scheduled nightly (`.github/workflows/mutants.yml`), non-blocking. It has
+  not completed a full run, and sampling during setup found **surviving mutants
+  in two of the three crates**, so no mutation score may be quoted and none of
+  the three may be called mutation-clean.
+- **ZAP baseline** runs in `ci.yml`; **Playwright** E2E runs in `ci.yml`,
+  `a11y.yml`, `perf.yml`, `sso-e2e.yml` and `t19-conformance.yml`. Tauri E2E via
+  WebDriver is **not set up**.
 
 ---
 
 ## 26. Repository Layout
+
+The tree as it actually is, not as it was planned:
 
 ```
 mailwoman/
@@ -1491,18 +1808,30 @@ mailwoman/
 ├─ crates/               # §4.3
 ├─ apps/web|desktop|mobile
 ├─ plugins/              # first-party WASM + UI plugins
+├─ packaging/            # store/installer recipes (§16, docs/deploy/packaging.md)
 ├─ fonts/                # bundled font packs + puller manifests (§17.2)
 ├─ themes/               # built-in token packs incl. Grove textures (§17.1)
+├─ fuzz/                 # cargo-fuzz targets (§25)
+├─ scripts/              # bench, mock endpoints, version stamping
 ├─ docs/
-│  ├─ deploy/            # nginx, apache, caddy, systemd, docker, k8s, panels
-│  ├─ spec/              # this document, split per subsystem as it grows
-│  └─ security/          # threat model, disclosure policy, audit reports
+│  ├─ deploy/            # packaging, hardening, ACME, Postgres, …
+│  │  └─ proxy/          # one config tree per reverse proxy + the harness
+│  ├─ security/          # threat model, disclosure policy, audit prep
+│  ├─ testing/           # coverage + mutation procedures
+│  ├─ bridges/ integrations/ plugins/ perf/ export/
 ├─ fixtures/             # email torture corpus, protocol recordings, ICS/MSG suites
-├─ xtask/                # cargo xtask: codegen (TS types), release, bench
+├─ SPEC.md               # this document
+├─ VERSIONING.md         # release history
 ├─ license.md            # MIT
 ├─ SECURITY.md
-└─ CONTRIBUTING.md       # DCO, style, fuzzing guide
+└─ readme.md
 ```
+
+Corrections against the previous listing: there is **no `xtask/`** (codegen,
+release and bench live in `scripts/` and in CI), **no `docs/spec/`** (this
+document is a single file at the repository root and has not been split), and
+**no `CONTRIBUTING.md`**. `packaging/`, `fuzz/` and `scripts/` were present and
+unlisted.
 
 ---
 
@@ -1520,7 +1849,7 @@ partly so implementation can be delegated to agents and verified mechanically.
 | **V0 — Walking skeleton** | Workspace + CI, `mw-jmap`, `mw-server` (Postgres+SQLite via sqlx), `mw-sanitize`, sandbox process split, minimal UI: login, list, read, compose, send — JMAP upstream (Stalwart) only; Let's Encrypt; hardened container/systemd files | Daily-drivable vs Stalwart; sanitizer passes torture corpus; perf budgets in CI from day one |
 | **V1 — IMAP + POP3 adapters** | `mw-imap`, `mw-pop3`, `mw-mime`, `mw-store` full schema, sync engine, threading, autoconfig, seccomp/Landlock depth | Daily-drivable vs Dovecot, Gmail (IMAP+XOAUTH2), and a POP3-only host; fallback chains proven against fixtures |
 | **V2 — Modern mail layer** | Search (Tantivy), offline (SW+OPFS), WebSocket push, connection toasts, outbox, undo send, send later, snooze, sweep, follow-ups, pins/tags/colors/search folders, Sieve GUI + rules, unified inbox, focused inbox (rules-based), multi-window + sub-tabs, import/export (EML/mbox/PDF-print/TXT/MD), signatures & identities incl. server-pulled froms, Grove themes + font puller | Feature-parity checkpoint vs Gmail-web for daily mail; ZAP baseline green; offline + multi-window E2E green |
-| **V3 — PIM** | Calendar (all views, events, attendees, invites, conflicts, sharing, ICS/.hol), Tasks (VTODO/My Day), Notes (encrypted), Contacts (CardDAV, lists/groups/favorites/business cards), `mw-dav`, `mw-ics` | Invite + counter-proposal round-trips vs Google/Fastmail/Stalwart/Nextcloud; conflict resolver E2E; .hol/.ics fixture suites green |
+| **V3 — PIM** | Calendar (all views, events, attendees, invites, conflicts, sharing, ICS/.hol), Tasks (VTODO/My Day), Notes (encrypted), Contacts (CardDAV, lists/groups/favorites/business cards), `mw-dav`, `mw-ics` | Invite + counter-proposal round-trips vs Google/Fastmail/Stalwart/Nextcloud; conflict resolver E2E; .hol/.ics fixture suites green. **This gate was recorded as met and was not run against any third-party organizer** — the only iTIP tests in-tree are self-round-trips through the model that produces the bug, so they cannot detect an interop defect. Treat it as outstanding until organizer-produced fixtures are checked in. |
 | **V4 — Crypto & security depth** | OpenPGP (client-side WASM), Autocrypt, WKD, S/MIME, verdict UI, Security panel (metadata/signature analysis), DLP, max-security opening, message classification | Thunderbird/GnuPG/Outlook interop suites green; DLP rule engine audited |
 | **V5 — Thin shells** | Tauri desktop + mobile thin clients, self-contained desktop mode, UnifiedPush/APNs, capture protection, keychain, mailto/share/file handlers | Signed installers < 10 MB; store-ready builds; shell integrity verification E2E |
 | **V6 — Zero-access + Admin + API/MCP + Plugins** | Zero-access mode + device pairing, PQC store wrapping, WASM plugin runtime, full admin panel, scoped API keys, webhooks, **MCP server**, LDAP/GAL, password-change backends, Redis cache layer, observability (OTLP/Sentry-compat) | External security audit (incl. MCP surface) passed; cache scope matrix enforced in tests |
