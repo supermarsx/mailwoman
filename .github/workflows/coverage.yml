@@ -35,9 +35,18 @@ env:
   # Test/report files that are not production code. Test harness sources would
   # otherwise report as ~100% covered and inflate every crate that owns a
   # `tests/` directory.
+  #
+  # The `build.rs` arm is anchored to a PACKAGE ROOT (`crates/<pkg>/build.rs`,
+  # `plugins/<pkg>/build.rs`) rather than matching any `build.rs` anywhere. A
+  # Cargo build script always sits directly at the package root and never under
+  # `src/`; an unanchored `[\\/]build\.rs$` also swallowed
+  # `crates/mw-mime/src/build.rs`, which is 204 lines of production MIME
+  # compose-builder, not a build script. llvm-cov's regex flavour has no
+  # lookaround, so the path shape is spelled out explicitly.
+  #
   # Both separators are accepted so a developer running the same command on
   # Windows gets the same denominator CI does.
-  COVERAGE_IGNORE_REGEX: '[\\/](tests|benches|examples|fuzz)[\\/]|[\\/]build\.rs$'
+  COVERAGE_IGNORE_REGEX: '[\\/](tests|benches|examples|fuzz)[\\/]|(crates|plugins)[\\/][^\\/]+[\\/]build\.rs$'
 
 jobs:
   # ---------------------------------------------------------------------------

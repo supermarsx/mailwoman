@@ -66,7 +66,7 @@ cargo llvm-cov --workspace \
 
 cargo llvm-cov report --workspace \
   --exclude mailwoman-desktop --exclude mailwoman-mobile \
-  --ignore-filename-regex '[\\/](tests|benches|examples|fuzz)[\\/]|[\\/]build\.rs$'
+  --ignore-filename-regex '[\\/](tests|benches|examples|fuzz)[\\/]|(crates|plugins)[\\/][^\\/]+[\\/]build\.rs$'
 ```
 
 The ignore regex accepts both path separators so the same command gives the same
@@ -115,7 +115,19 @@ Excluded from the report via `--ignore-filename-regex`:
 - `tests/`, `benches/`, `examples/`, `fuzz/` directories — test harness sources
   are ~100% covered by definition and would inflate every crate that owns a
   `tests/` directory.
-- `build.rs`.
+- Cargo build scripts, matched as `crates/<pkg>/build.rs` and
+  `plugins/<pkg>/build.rs`. **This arm is anchored to the package root on
+  purpose.** A build script always sits directly at the package root, never
+  under `src/`, so an unanchored `[\\/]build\.rs$` is wrong: it also swallowed
+  `crates/mw-mime/src/build.rs`, 204 lines of production MIME compose-builder
+  that merely shares the name. That silently halved `mw-mime`'s denominator and
+  would have made a regression there untrippable by the ratchet. llvm-cov's
+  regex flavour has no lookaround, so the path shape is written out explicitly.
+
+  The general lesson for anyone editing this regex: it is a filter, and a filter
+  tested only in the direction you intended is how that bug shipped. Check both
+  that the things you mean to drop are dropped **and** that nothing else went
+  with them.
 - `mailwoman-desktop` / `mailwoman-mobile`, which are excluded from the build
   (they need platform WebView libraries; `ci.yml` tests them separately).
 
