@@ -251,12 +251,30 @@ export class AssistService {
   }
 }
 
-/** Base64-encode a blob without pulling in a dependency. */
+/**
+ * Base64-encode a blob without pulling in a dependency.
+ *
+ * `Blob.arrayBuffer()` is not universal — it is missing on Safari below 14 and on
+ * some WebViews (and on jsdom, which is how this was caught) — so fall back to
+ * `FileReader`, which every target has. `readAsDataURL` hands back base64 already,
+ * so the fallback needs no byte loop of its own.
+ */
 async function blobToBase64(blob: Blob): Promise<string> {
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i] ?? 0);
-  return btoa(binary);
+  if (typeof blob.arrayBuffer === 'function') {
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i] ?? 0);
+    return btoa(binary);
+  }
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new AssistError(0, 'could not read the recording'));
+    reader.onload = () => {
+      const url = String(reader.result);
+      resolve(url.slice(url.indexOf(',') + 1));
+    };
+    reader.readAsDataURL(blob);
+  });
 }
 
 /** Raised when an `/api/assist/*` request fails. */
