@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use axum::body::{Body, Bytes};
-use axum::extract::{Extension, Path as UrlPath, Query, Request, State};
+use axum::extract::{Extension, OriginalUri, Path as UrlPath, Query, Request, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, Uri, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -510,6 +510,125 @@ fn first_forwarded_token(headers: &HeaderMap, name: &str) -> Option<String> {
     (!first.is_empty()).then(|| first.to_ascii_lowercase())
 }
 
+// ---------------------------------------------------------------------------
+// Sub-path hosting (t20 B4) — `MW_BASE_PATH`
+// ---------------------------------------------------------------------------
+
+/// The deploy prefix this process serves under, read from `MW_BASE_PATH` at boot.
+///
+/// mailwoman may be hosted at the origin root (`/`) or under a prefix (`/mail`).
+/// That is a **runtime** decision, never a build-time one: the same single binary
+/// and the same container image must serve either. The SPA is therefore built
+/// with a relative asset base (`apps/web/vite.config.ts`, `base: './'`) so every
+/// chunk, worker and wasm module resolves against the URL of the chunk importing
+/// it, and the prefix reaches the app at serve time instead of at build time.
+///
+/// Everything else follows from this one value:
+///   * [`mount_under_base_path`] nests the whole router under the prefix, so
+///     every route in this file matches under `/mail/…` unchanged (and a proxy
+///     that strips the prefix itself still works — see there);
+///   * `index.html` gains a `<script src="{base}/__mw_base.js">` publishing
+///     `window.__MW_BASE__`, the value `apps/web/src/api/basePath.ts` reads to
+///     prefix its `fetch`/`WebSocket`/`EventSource` targets and the SW scope;
+///   * the JMAP session object's URLs and every `Set-Cookie` `Path` are prefixed.
+///
+/// Unset (the default) ⇒ `""` ⇒ every path below is byte-identical to before.
+fn base_path_from_env() -> String {
+    normalize_base_path(&std::env::var("MW_BASE_PATH").unwrap_or_default())
+}
+
+/// Canonicalize an operator-supplied prefix to `""` (origin root) or a
+/// leading-slash, no-trailing-slash prefix such as `/mail`.
+///
+/// Accepts the same spellings as the SPA's `normalizeBase()` — `mail`, `/mail`,
+/// `/mail/`, `/`, `` — and is deliberately **stricter** about everything else:
+/// this side is the authority that injects the value into the page and into
+/// `Set-Cookie`, so anything that is not a plain path prefix (a query, a
+/// fragment, `..`, an empty segment, a scheme, whitespace) is refused outright
+/// rather than normalized into something surprising. A refused value logs and
+/// falls back to the origin root, which is the pre-sub-path behaviour.
+fn normalize_base_path(raw: &str) -> String {
+    let trimmed = raw.trim().trim_end_matches('/');
+    let body = trimmed.strip_prefix('/').unwrap_or(trimmed);
+    if body.is_empty() {
+        return String::new();
+    }
+    let plain = body.split('/').all(|seg| {
+        !seg.is_empty()
+            && seg != "."
+            && seg != ".."
+            && seg
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~'))
+    });
+    if !plain {
+        tracing::warn!("MW_BASE_PATH is not a plain path prefix, ignoring it: {raw}");
+        return String::new();
+    }
+    format!("/{body}")
+}
+
+/// How a request path relates to the configured deploy prefix.
+#[derive(Debug, PartialEq, Eq)]
+enum BaseMatch<'a> {
+    /// Exactly the prefix with no trailing slash (`/mail`). The shell must be
+    /// reached at `/mail/`, or its relative asset URLs resolve against `/`.
+    Exact,
+    /// Under the prefix; the remainder always starts with `/`.
+    Under(&'a str),
+    /// Not under the prefix — passed through untouched.
+    Outside,
+}
+
+/// Match a request path against `base`, on a segment boundary only: with
+/// `base = /mail`, `/mailbox` is [`BaseMatch::Outside`], not a prefix hit.
+fn match_base_path<'a>(path: &'a str, base: &str) -> BaseMatch<'a> {
+    if base.is_empty() {
+        return BaseMatch::Outside;
+    }
+    let Some(rest) = path.strip_prefix(base) else {
+        return BaseMatch::Outside;
+    };
+    if rest.is_empty() {
+        BaseMatch::Exact
+    } else if rest.starts_with('/') {
+        BaseMatch::Under(rest)
+    } else {
+        BaseMatch::Outside
+    }
+}
+
+/// Serve the whole application under the deploy prefix as well as at the root
+/// (t20 B4).
+///
+/// **Why nesting and not a URI-rewriting middleware.** The obvious shape — a
+/// `Router::layer` that strips the prefix from `req.uri()` — silently does not
+/// work: `Router::layer` wraps each *matched route's* service, so routing has
+/// already happened by the time it runs. Only the fallback ever sees the
+/// rewritten URI, which means static assets appear to work while every `/api/*`
+/// and `/jmap/*` request falls through to the SPA fallback and is answered with
+/// `index.html` under a `200`. (Observed against a running server under
+/// `MW_BASE_PATH=/mail`, not deduced.) axum's own answer is to wrap the router in
+/// a `tower::Layer` before serving, but that changes the type this crate returns
+/// from [`build_app`]. Nesting does the strip at routing time, which is where it
+/// belongs, and needs nothing new.
+///
+/// The router is ALSO merged at the root, so both reverse-proxy idioms work:
+/// nginx `proxy_pass http://app;` (prefix preserved — stripped by the nest) and
+/// `proxy_pass http://app/;` (prefix already stripped upstream — served by the
+/// root copy). That is also what keeps `/healthz` reachable for a container
+/// health check and `/.well-known/*` reachable at the origin root, where WKD and
+/// JMAP autodiscovery have to live whatever the prefix is.
+///
+/// The bare prefix (`/mail`, no trailing slash) is 308-redirected to `/mail/` in
+/// [`static_handler`] — see there for why the trailing slash is load-bearing.
+fn mount_under_base_path(app: Router, base: &str) -> Router {
+    if base.is_empty() {
+        return app;
+    }
+    Router::new().nest(base, app.clone()).merge(app)
+}
+
 #[derive(Clone)]
 pub(crate) struct AppState {
     store: Store,
@@ -529,6 +648,9 @@ pub(crate) struct AppState {
     /// then trusted `X-Forwarded-*`, then `Host`), plus the HSTS posture that
     /// follows from it.
     pub(crate) external: Arc<ExternalBase>,
+    /// t20 (26.19, e13): the deploy prefix (`MW_BASE_PATH`), resolved once at
+    /// boot. `""` = origin root. See [`base_path_from_env`].
+    base_path: Arc<str>,
     /// Present only in engine mode; drives IMAP/POP3 behind the JMAP surface.
     engine: Option<Arc<Engine>>,
     /// Realtime push fan-out feeding `/jmap/ws` + `/jmap/eventsource`.
@@ -922,6 +1044,12 @@ async fn build_app_inner(
     // under the old origin stop validating. `MW_PUBLIC_URL` is new, so this can only
     // fire when an operator opts in; `MW_WEBAUTHN_ORIGIN` still overrides both.
     let cookie_secure = config.cookie_secure || external.declares_https();
+    // t20 (26.19, e13): the sub-path prefix, resolved once here so nothing on the
+    // request path re-reads the environment.
+    let base_path = base_path_from_env();
+    if !base_path.is_empty() {
+        tracing::info!("serving under sub-path {base_path} (MW_BASE_PATH)");
+    }
     let state = AppState {
         store,
         render_bin,
@@ -929,6 +1057,7 @@ async fn build_app_inner(
         web_dir: config.web_dir,
         cookie_secure,
         external,
+        base_path: Arc::from(base_path.as_str()),
         engine,
         push: push.clone(),
         sessions: Arc::new(SessionGuard::new()),
@@ -1039,7 +1168,7 @@ fn router(
         v6 = v6.nest_service("/mcp", mcp);
     }
 
-    Router::new()
+    let app = Router::new()
         .merge(v6)
         // t16 (26.16, e3): 2FA login-step / enrolment / recovery + session management.
         // `/api/login/2fa*` are pre-auth (pending-token) and CSRF-exempt like
@@ -1121,7 +1250,9 @@ fn router(
             state.clone(),
             security_headers,
         ))
-        .with_state(state)
+        .with_state(state.clone());
+    // t20 B4: also serve the whole thing under `MW_BASE_PATH`. No-op when unset.
+    mount_under_base_path(app, &state.base_path)
 }
 
 // ---------------------------------------------------------------------------
@@ -1326,7 +1457,75 @@ async fn security_headers(State(state): State<AppState>, req: Request, next: Nex
     if cookie_secure {
         mark_cookies_secure(h);
     }
+    // t20 B4: re-scope cookies to the deploy prefix. Same reasoning as
+    // `mark_cookies_secure` — doing it once, outermost, covers the cookies minted
+    // in modules that never see this decision (`admin`, `sso`, `twofa_routes`).
+    scope_cookies_to_base(h, &state.base_path);
     resp
+}
+
+/// Re-scope every `Set-Cookie` on the response from `Path=/` to the deploy prefix
+/// (t20 B4). No-op at the origin root.
+///
+/// Under `/mail`, a `Path=/` cookie still *works* — it is simply sent to every
+/// path on the origin, including a co-hosted app at `/other`. Narrowing it to
+/// `Path=/mail` is the scoping the sub-path deployment shape implies. RFC 6265
+/// path-matching means `Path=/mail` covers `/mail` and `/mail/…` but not
+/// `/mailbox`, so no separate trailing-slash variant is needed.
+///
+/// Only an explicit `Path=/` is rewritten. Every cookie this server mints sets
+/// one; a hypothetical future cookie that omits `Path` would fall back to the
+/// browser's default (the request's directory) and is deliberately left alone
+/// rather than guessed at here.
+fn scope_cookies_to_base(h: &mut HeaderMap, base: &str) {
+    if base.is_empty() {
+        return;
+    }
+    let cookies: Vec<HeaderValue> = h.get_all(header::SET_COOKIE).iter().cloned().collect();
+    if cookies.is_empty() {
+        return;
+    }
+    let mut changed = false;
+    let rescoped: Vec<HeaderValue> = cookies
+        .into_iter()
+        .map(|v| {
+            let Ok(s) = v.to_str() else { return v };
+            let mut hit = false;
+            let rewritten = s
+                .split(';')
+                .map(|attr| {
+                    let t = attr.trim();
+                    match t.split_once('=') {
+                        Some((name, value))
+                            if name.trim().eq_ignore_ascii_case("path") && value.trim() == "/" =>
+                        {
+                            hit = true;
+                            format!("Path={base}")
+                        }
+                        _ => t.to_string(),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
+            if !hit {
+                return v;
+            }
+            match HeaderValue::from_str(&rewritten) {
+                Ok(new) => {
+                    changed = true;
+                    new
+                }
+                Err(_) => v,
+            }
+        })
+        .collect();
+    if !changed {
+        return;
+    }
+    h.remove(header::SET_COOKIE);
+    for v in rescoped {
+        h.append(header::SET_COOKIE, v);
+    }
 }
 
 /// Add `Secure` to every `Set-Cookie` on the response that lacks it.
@@ -2024,9 +2223,9 @@ async fn jmap_session(State(state): State<AppState>, headers: HeaderMap) -> Resp
             tracing::warn!("engine account not available: {e}");
             return upstream_error();
         }
-        return Json(mw_engine::session_json(
-            &session.account_id,
-            &session.username,
+        return Json(prefix_session_urls(
+            mw_engine::session_json(&session.account_id, &session.username),
+            &state.base_path,
         ))
         .into_response();
     }
@@ -2043,11 +2242,39 @@ async fn jmap_session(State(state): State<AppState>, headers: HeaderMap) -> Resp
         }
     };
     // Rewrite every URL so the browser only ever talks to us, never upstream.
-    upstream.api_url = "/jmap/api".to_string();
-    upstream.download_url = "/jmap/download/{accountId}/{blobId}/{name}".to_string();
-    upstream.upload_url = "/jmap/upload/{accountId}".to_string();
-    upstream.event_source_url = "/jmap/eventsource".to_string();
+    // t20 B4: and under the deploy prefix, so the browser addresses `/mail/jmap/*`.
+    let base = &*state.base_path;
+    upstream.api_url = format!("{base}/jmap/api");
+    upstream.download_url = format!("{base}/jmap/download/{{accountId}}/{{blobId}}/{{name}}");
+    upstream.upload_url = format!("{base}/jmap/upload/{{accountId}}");
+    upstream.event_source_url = format!("{base}/jmap/eventsource");
     Json(upstream).into_response()
+}
+
+/// Prefix the origin-relative URLs a JMAP session object hands the browser with
+/// the deploy base (t20 B4).
+///
+/// Engine mode builds the session in `mw_engine::session_json`, which knows
+/// nothing about how this server is hosted; the four RFC 8620 URL fields are the
+/// only place the browser learns where to send JMAP traffic, so they are prefixed
+/// here rather than there. Absolute URLs (a future upstream-provided value) are
+/// left alone.
+///
+/// The `/dav/*` sharing endpoints need no equivalent: nothing serialises an
+/// absolute DAV base to a client — the routes are reached by path, and the
+/// prefix is stripped by [`mount_under_base_path`]'s nest before routing.
+fn prefix_session_urls(mut session: Value, base: &str) -> Value {
+    if base.is_empty() {
+        return session;
+    }
+    for key in ["apiUrl", "downloadUrl", "uploadUrl", "eventSourceUrl"] {
+        if let Some(Value::String(url)) = session.get_mut(key)
+            && url.starts_with('/')
+        {
+            *url = format!("{base}{url}");
+        }
+    }
+    session
 }
 
 async fn jmap_api(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
@@ -3207,16 +3434,80 @@ fn locate_render_bin() -> Option<PathBuf> {
 // Static assets / SPA fallback
 // ---------------------------------------------------------------------------
 
-async fn static_handler(State(state): State<AppState>, uri: Uri, headers: HeaderMap) -> Response {
+/// The generated one-line script that publishes the deploy prefix to the SPA
+/// (t20 B4). Served as a file rather than inlined into `index.html` because the
+/// shell [`CSP`] carries `script-src 'self'` with no `'unsafe-inline'` — an
+/// inline `<script>` would be blocked and the SPA would silently fall back to
+/// root-absolute paths under a prefix, which is the exact failure this closes.
+const BASE_SHIM_PATH: &str = "__mw_base.js";
+
+async fn static_handler(
+    State(state): State<AppState>,
+    OriginalUri(original): OriginalUri,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
+    // t20 B4: the bare prefix must redirect to the trailing-slash form. The SPA is
+    // built with a relative asset base, so `./assets/index-*.js` in a document
+    // served at `/mail` resolves to `/assets/…` — outside the prefix, and outside
+    // what a proxy forwarding only `/mail/*` will even route. `OriginalUri` is the
+    // pre-nesting path, so this sees `/mail` where `uri` already reads `/`.
+    if let Some(resp) = redirect_to_base_slash(&original, &state.base_path) {
+        return resp;
+    }
     let raw = uri.path().trim_start_matches('/');
     let path = if raw.is_empty() { "index.html" } else { raw };
 
+    // The base shim is generated, not bundled: served at every prefix (including
+    // none) so an `index.html` cached from a previously-prefixed deployment never
+    // hits a 404 here.
+    if path == BASE_SHIM_PATH {
+        return base_shim_response(&state.base_path, &headers);
+    }
     if let Some(resp) = serve_asset(&state, path, &headers) {
         return resp;
     }
     // SPA fallback: unknown non-asset routes get index.html.
     serve_asset(&state, "index.html", &headers)
         .unwrap_or_else(|| (StatusCode::NOT_FOUND, "not found").into_response())
+}
+
+/// `308 {base}` → `{base}/` (t20 B4). `None` for every other request.
+///
+/// 308 rather than 301/302 so the method and body survive the redirect, and
+/// because serving the shell only at the trailing-slash form is a permanent
+/// property of the deployment rather than a routing accident.
+fn redirect_to_base_slash(original: &Uri, base: &str) -> Option<Response> {
+    if !matches!(match_base_path(original.path(), base), BaseMatch::Exact) {
+        return None;
+    }
+    let target = match original.query() {
+        Some(q) => format!("{base}/?{q}"),
+        None => format!("{base}/"),
+    };
+    let loc = HeaderValue::from_str(&target).ok()?;
+    let mut resp = StatusCode::PERMANENT_REDIRECT.into_response();
+    resp.headers_mut().insert(header::LOCATION, loc);
+    Some(resp)
+}
+
+/// `GET {base}/__mw_base.js` — publish the prefix as `window.__MW_BASE__`, which
+/// `apps/web/src/api/basePath.ts` reads (and canonicalizes) to build every
+/// `fetch`/`WebSocket`/`EventSource` target and the service-worker scope.
+fn base_shim_response(base: &str, req: &HeaderMap) -> Response {
+    asset_response(
+        BASE_SHIM_PATH,
+        "text/javascript; charset=utf-8",
+        base_shim_body(base).into_bytes(),
+        req,
+    )
+}
+
+/// The shim's body. `base` is `""` or a `normalize_base_path`-validated prefix,
+/// so it cannot contain a quote, a backslash or `<` — there is nothing to escape
+/// and no way to break out of the string literal.
+fn base_shim_body(base: &str) -> String {
+    format!("window.__MW_BASE__=\"{base}/\";\n")
 }
 
 fn serve_asset(state: &AppState, path: &str, req: &HeaderMap) -> Option<Response> {
@@ -3228,15 +3519,106 @@ fn serve_asset(state: &AppState, path: &str, req: &HeaderMap) -> Option<Response
             return None;
         }
         let bytes = std::fs::read(&full).ok()?;
-        return Some(asset_response(path, mime.as_ref(), bytes, req));
+        let bytes = adapt_asset_to_base(path, bytes, &state.base_path);
+        let mut resp = asset_response(path, mime.as_ref(), bytes, req);
+        allow_worker_scope(&mut resp, path, &state.base_path);
+        return Some(resp);
     }
     let file = WebAssets::get(path)?;
-    Some(asset_response(
-        path,
-        mime.as_ref(),
-        file.data.into_owned(),
-        req,
-    ))
+    let bytes = adapt_asset_to_base(path, file.data.into_owned(), &state.base_path);
+    let mut resp = asset_response(path, mime.as_ref(), bytes, req);
+    allow_worker_scope(&mut resp, path, &state.base_path);
+    Some(resp)
+}
+
+/// Send `Service-Worker-Allowed` with the service worker (t20 B4).
+///
+/// The SPA registers `{base}/sw.js` with `scope: {base}/`, which is that script's
+/// own default maximum scope, so strictly the header is not required. It is sent
+/// anyway so the registration keeps working if the script ever moves (e.g. into
+/// the hashed `assets/` directory), where the default scope would no longer cover
+/// the shell and the registration would be rejected.
+fn allow_worker_scope(resp: &mut Response, path: &str, base: &str) {
+    // Root deployments emit exactly the headers they did before B4: `/` is already
+    // the default scope there, so the header would say nothing.
+    if base.is_empty() || (path != "sw.js" && !path.ends_with("/sw.js")) {
+        return;
+    }
+    if let Ok(v) = HeaderValue::from_str(&format!("{base}/")) {
+        resp.headers_mut().insert("service-worker-allowed", v);
+    }
+}
+
+/// Adapt a bundled asset to the deploy prefix at serve time (t20 B4). Byte-for-byte
+/// identity at the origin root, so a root deployment serves exactly what was built.
+///
+/// Two assets need it; nothing else in `dist/` carries a root-absolute URL (the
+/// relative Vite base already handles chunks, workers, wasm and the `public/`
+/// `url()` references):
+///
+///   * **`index.html`** gains the [`BASE_SHIM_PATH`] script tag.
+///   * **The bundled CSS** carries eight `url(/fonts/*.woff2)` references. Those
+///     stay root-absolute through the build because `/fonts/` is *not* a `public/`
+///     directory — the files are produced by `mailwoman fonts pull` and land in
+///     the served tree afterwards, so Vite cannot see them and cannot rewrite them
+///     the way it rewrote `/themes/`. Rewriting the eight `url()`s here is the
+///     fix that does not require the operator's font directory to be knowable at
+///     build time. (`@font-face` carries `local()` fallbacks, so the pre-fix
+///     failure mode was a silent downgrade to system fonts, not a broken page.)
+fn adapt_asset_to_base(path: &str, bytes: Vec<u8>, base: &str) -> Vec<u8> {
+    if base.is_empty() {
+        return bytes;
+    }
+    if path == "index.html" || path.ends_with("/index.html") {
+        return inject_base_shim(bytes, base);
+    }
+    if path.ends_with(".css") {
+        return prefix_font_urls(bytes, base);
+    }
+    bytes
+}
+
+/// Insert the base-shim script into `<head>`, before the module entry.
+///
+/// The entry is `<script type="module">`, which is deferred by definition, so a
+/// classic script anywhere in the document runs first — but placing it at the top
+/// of `<head>` keeps that independent of where the bundler put the entry tag.
+/// The `src` is written prefix-absolute (not `./`) because the server knows the
+/// prefix and a deep-linked SPA fallback would otherwise resolve `./` against the
+/// wrong directory.
+fn inject_base_shim(bytes: Vec<u8>, base: &str) -> Vec<u8> {
+    let mut html = match String::from_utf8(bytes) {
+        Ok(s) => s,
+        // Not UTF-8 ⇒ not the shell we shipped; serve it untouched.
+        Err(e) => return e.into_bytes(),
+    };
+    let tag = format!("<script src=\"{base}/{BASE_SHIM_PATH}\"></script>");
+    match html.find("<head>") {
+        Some(i) => html.insert_str(i + "<head>".len(), &tag),
+        None => html.insert_str(0, &tag),
+    }
+    html.into_bytes()
+}
+
+/// Prefix the `url(/fonts/…)` references in bundled CSS with the deploy base.
+/// Handles the three quoting forms a CSS `url()` can take; the production build
+/// minifies to the unquoted one.
+fn prefix_font_urls(bytes: Vec<u8>, base: &str) -> Vec<u8> {
+    let Ok(css) = std::str::from_utf8(&bytes) else {
+        return bytes;
+    };
+    if !css.contains("/fonts/") {
+        return bytes;
+    }
+    let mut out = css.to_string();
+    for (open, quote) in [
+        ("url(/fonts/", ""),
+        ("url('/fonts/", "'"),
+        ("url(\"/fonts/", "\""),
+    ] {
+        out = out.replace(open, &format!("url({quote}{base}/fonts/"));
+    }
+    out.into_bytes()
 }
 
 /// Serve one static asset with the caching posture its name earns (t20 B9).
@@ -3644,6 +4026,179 @@ mod external_base_tests {
         // Configured off entirely.
         let off = ExternalBase { hsts: None, ..b };
         assert!(off.hsts(&headers(&[]), &no_peer()).is_none());
+    }
+
+    // ── t20 B4: sub-path hosting (`MW_BASE_PATH`) ────────────────────────────
+
+    #[test]
+    fn base_path_normalizes_the_spellings_an_operator_writes() {
+        // Every accepted spelling lands on the one canonical form, which is also
+        // what the SPA's `normalizeBase()` produces from the injected value.
+        for raw in ["/mail", "mail", "/mail/", " /mail/ ", "/mail//"] {
+            assert_eq!(normalize_base_path(raw), "/mail", "input {raw:?}");
+        }
+        assert_eq!(normalize_base_path("/a/b"), "/a/b");
+        // Root spellings ⇒ "" ⇒ every path stays byte-identical to the pre-B4 code.
+        for raw in ["", "   ", "/", "//"] {
+            assert_eq!(normalize_base_path(raw), "", "input {raw:?}");
+        }
+        // Not a plain path prefix ⇒ refused, not normalized into something else.
+        // `..` matters most: it would otherwise reach the asset lookup as a
+        // traversal component.
+        for raw in [
+            "/mail/..",
+            "/../etc",
+            "/mail/./x",
+            "/mail?x=1",
+            "/mail#frag",
+            "https://evil.example/mail",
+            "/mail x",
+            "//host/mail",
+            "/mail\"',",
+        ] {
+            assert_eq!(normalize_base_path(raw), "", "input {raw:?}");
+        }
+    }
+
+    #[test]
+    fn base_match_only_strips_on_a_segment_boundary() {
+        assert_eq!(match_base_path("/mail", "/mail"), BaseMatch::Exact);
+        assert_eq!(
+            match_base_path("/mail/", "/mail"),
+            BaseMatch::Under("/")
+        );
+        assert_eq!(
+            match_base_path("/mail/api/login", "/mail"),
+            BaseMatch::Under("/api/login")
+        );
+        // The trap: a sibling path sharing the prefix's leading characters must
+        // NOT be rewritten to `box/…`.
+        assert_eq!(match_base_path("/mailbox", "/mail"), BaseMatch::Outside);
+        // Already-stripped by the proxy, and the root-only endpoints: forwarded
+        // untouched so both proxy idioms and `/healthz` keep working.
+        assert_eq!(match_base_path("/api/login", "/mail"), BaseMatch::Outside);
+        assert_eq!(match_base_path("/healthz", "/mail"), BaseMatch::Outside);
+        // No prefix configured ⇒ nothing ever matches ⇒ the middleware is inert.
+        assert_eq!(match_base_path("/mail/api", ""), BaseMatch::Outside);
+    }
+
+    #[test]
+    fn index_html_gains_the_base_shim_only_under_a_prefix() {
+        let shell =
+            br#"<!doctype html><html><head><title>Mailwoman</title></head><body></body></html>"#;
+
+        // Root: byte-identical to what was built.
+        assert_eq!(
+            adapt_asset_to_base("index.html", shell.to_vec(), ""),
+            shell.to_vec()
+        );
+
+        let out = String::from_utf8(adapt_asset_to_base("index.html", shell.to_vec(), "/mail"))
+            .expect("utf-8");
+        // Prefix-absolute src, so a deep-linked SPA fallback cannot resolve it
+        // against the wrong directory.
+        assert!(out.contains(r#"<script src="/mail/__mw_base.js"></script>"#));
+        // Injected at the top of <head>, ahead of the deferred module entry.
+        assert!(out.starts_with(r#"<!doctype html><html><head><script src="/mail/"#));
+        // The shim publishes exactly what `basePath.ts` reads.
+        assert_eq!(base_shim_body("/mail"), "window.__MW_BASE__=\"/mail/\";\n");
+        assert_eq!(base_shim_body(""), "window.__MW_BASE__=\"/\";\n");
+    }
+
+    #[test]
+    fn bundled_css_font_urls_are_prefixed() {
+        // The production build minifies to the unquoted form; the other two are
+        // covered so an unminified build does not regress silently.
+        let css = b"@font-face{src:url(/fonts/inter-400.woff2) format('woff2')}\
+                    a{background:url('/fonts/x.woff2')}b{background:url(\"/fonts/y.woff2\")}";
+        let out = String::from_utf8(adapt_asset_to_base(
+            "assets/index-a1b2c3d4.css",
+            css.to_vec(),
+            "/mail",
+        ))
+        .expect("utf-8");
+        assert!(out.contains("url(/mail/fonts/inter-400.woff2)"));
+        assert!(out.contains("url('/mail/fonts/x.woff2')"));
+        assert!(out.contains("url(\"/mail/fonts/y.woff2\")"));
+        assert!(!out.contains("url(/fonts/"));
+        // Root: untouched, so a root deployment serves the built bytes exactly.
+        assert_eq!(
+            adapt_asset_to_base("assets/index-a1b2c3d4.css", css.to_vec(), ""),
+            css.to_vec()
+        );
+        // A JS chunk is never rewritten — the relative Vite base already handles it.
+        let js = b"import('./settings-a1b2c3d4.js');/fonts/nope".to_vec();
+        assert_eq!(
+            adapt_asset_to_base("assets/index-a1b2c3d4.js", js.clone(), "/mail"),
+            js
+        );
+    }
+
+    #[test]
+    fn jmap_session_urls_carry_the_prefix() {
+        let session = mw_engine::session_json("acct", "user@example.org");
+        let prefixed = prefix_session_urls(session.clone(), "/mail");
+        assert_eq!(prefixed["apiUrl"], "/mail/jmap/api");
+        assert_eq!(prefixed["eventSourceUrl"], "/mail/jmap/eventsource");
+        assert_eq!(
+            prefixed["downloadUrl"],
+            "/mail/jmap/download/{accountId}/{blobId}/{name}"
+        );
+        assert_eq!(prefixed["uploadUrl"], "/mail/jmap/upload/{accountId}");
+        // Untouched at the root, and non-URL fields are never rewritten.
+        assert_eq!(prefix_session_urls(session.clone(), ""), session);
+        assert_eq!(prefixed["username"], "user@example.org");
+        // An absolute URL (a value that did not originate here) is left alone.
+        let abs = prefix_session_urls(json!({ "apiUrl": "https://up.example/jmap" }), "/mail");
+        assert_eq!(abs["apiUrl"], "https://up.example/jmap");
+    }
+
+    #[test]
+    fn cookies_are_rescoped_to_the_deploy_prefix() {
+        let mut h = HeaderMap::new();
+        h.append(
+            header::SET_COOKIE,
+            HeaderValue::from_static("mw_session=a; HttpOnly; SameSite=Strict; Path=/"),
+        );
+        h.append(
+            header::SET_COOKIE,
+            HeaderValue::from_static("mw_csrf=b; SameSite=Strict; Path=/; Secure"),
+        );
+        scope_cookies_to_base(&mut h, "/mail");
+        let out: Vec<String> = h
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .map(|v| v.to_str().unwrap().to_string())
+            .collect();
+        assert_eq!(
+            out,
+            vec![
+                "mw_session=a; HttpOnly; SameSite=Strict; Path=/mail",
+                "mw_csrf=b; SameSite=Strict; Path=/mail; Secure",
+            ]
+        );
+        // Every other attribute survives, including the clearing cookie's Max-Age.
+        let mut clearing = HeaderMap::new();
+        clearing.append(
+            header::SET_COOKIE,
+            HeaderValue::from_static("mw_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"),
+        );
+        scope_cookies_to_base(&mut clearing, "/mail");
+        assert_eq!(
+            clearing.get(header::SET_COOKIE).unwrap(),
+            "mw_session=; HttpOnly; SameSite=Strict; Path=/mail; Max-Age=0"
+        );
+        // Root deployment: untouched.
+        let mut root = HeaderMap::new();
+        root.append(
+            header::SET_COOKIE,
+            HeaderValue::from_static("mw_session=a; Path=/"),
+        );
+        scope_cookies_to_base(&mut root, "");
+        assert_eq!(
+            root.get(header::SET_COOKIE).unwrap(),
+            "mw_session=a; Path=/"
+        );
     }
 
     #[test]
