@@ -1,0 +1,393 @@
+name: mutants
+
+# Mutation testing (SPEC §25), added in 26.19 (t19-e14).
+#
+# SPEC.md:1481-1482 asks for mutation testing on `mw-crypto`, `mw-sanitize` and
+# `mw-export`. Coverage says a line ran; mutation testing says the line's
+# behaviour was actually pinned by an assertion. The two are complementary and
+# the coverage half lives in `coverage.yml` / docs/testing/coverage.md.
+#
+# NIGHTLY AND NON-BLOCKING, on purpose. A full pass over the three crates is
+# measured at roughly five machine-hours (see docs/testing/mutation.md), and the
+# first baseline is expected to surface a substantial number of surviving
+# mutants. A gate that is red on day one for reasons unrelated to the change
+# under review is a gate everyone learns to ignore — the same reasoning that
+# makes the coverage gate a ratchet rather than a cliff.
+#
+# What DOES fail this workflow is a broken harness: a failing baseline suite, a
+# usage error, or an internal error. A surviving mutant is a finding and is
+# reported; a harness that cannot answer the question at all is a failure.
+#
+# Scope, timeouts and the `--test-threads=1` interaction live in
+# `.cargo/mutants.toml`, which is the scope of record. This workflow only
+# schedules it and publishes the results.
+#
+# `ci.yml` is not modified — it has a single owner, and mutation testing lands as
+# its own workflow file.
+
+on:
+  schedule:
+    # 04:23 UTC — deliberately offset from ci.yml's 03:17 nightly so the two do
+    # not contend for runners, and late enough that ci.yml has usually finished.
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: >-
+          Comma-separated crates to mutate (default: all three SPEC §25 crates).
+          Shards still apply per crate.
+        required: false
+        default: ""
+
+concurrency:
+  # A full pass is hours long; two overlapping passes would starve the runner
+  # pool for no extra information. A manual dispatch supersedes a running one.
+  group: mutants-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # cargo-mutants is PINNED. `.cargo/mutants.toml` was verified against this
+  # exact version — in particular the leading `"--"` in
+  # `additional_cargo_test_args`, whose handling is not guaranteed stable across
+  # releases. Bump deliberately, and re-run one shard by hand afterwards.
+  MUTANTS_VERSION: 27.1.0
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # One job per (crate, shard). Sharding is not an optimisation here, it is what
+  # keeps `mw-crypto` inside GitHub's 6-hour job ceiling: its suite takes ~37 s
+  # per run single-threaded and it has ~338 mutants, so an unsharded pass is
+  # ~4.5 h before any timeout surcharge. `mw-export` and `mw-sanitize` have
+  # second-scale suites and run whole.
+  #
+  # `--in-place` is used because copying the tree per job is pure overhead on a
+  # throwaway runner. It is NOT the right default on a developer machine — see
+  # docs/testing/mutation.md. It also implies serial execution: cargo-mutants
+  # refuses `--jobs` together with `--in-place`, which is why parallelism comes
+  # from the matrix instead.
+  # ---------------------------------------------------------------------------
+  mutants:
+    name: ${{ matrix.package }} ${{ matrix.shard_id }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      # Never cancel siblings: a shard that fails still leaves the other shards'
+      # findings worth having, and this workflow reports rather than gates.
+      fail-fast: false
+      matrix:
+        include:
+          # Measured mutant counts at the time of writing (`cargo mutants
+          # --list`): mw-crypto 338, mw-export 354, mw-sanitize 125 = 817 total.
+          # The counts drift with the source; the shard split does not need to
+          # track them precisely, only to keep each job well inside its ceiling.
+          - package: mw-crypto
+            shard: 0/6
+            shard_id: "1-of-6"
+            timeout: 150
+          - package: mw-crypto
+            shard: 1/6
+            shard_id: "2-of-6"
+            timeout: 150
+          - package: mw-crypto
+            shard: 2/6
+            shard_id: "3-of-6"
+            timeout: 150
+          - package: mw-crypto
+            shard: 3/6
+            shard_id: "4-of-6"
+            timeout: 150
+          - package: mw-crypto
+            shard: 4/6
+            shard_id: "5-of-6"
+            timeout: 150
+          - package: mw-crypto
+            shard: 5/6
+            shard_id: "6-of-6"
+            timeout: 150
+          - package: mw-export
+            shard: 0/1
+            shard_id: "1-of-1"
+            timeout: 90
+          - package: mw-sanitize
+            shard: 0/1
+            shard_id: "1-of-1"
+            timeout: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: skip crates not selected by a manual dispatch
+        id: select
+        env:
+          SELECTED: ${{ github.event.inputs.packages }}
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          if [ -z "$SELECTED" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif printf '%s' ",$SELECTED," | tr -d ' ' | grep -q ",$PACKAGE,"; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "$PACKAGE not in dispatch selection '$SELECTED' — skipping."
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.select.outputs.run == 'true'
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.select.outputs.run == 'true'
+        with:
+          # Per-crate cache: each job only ever builds one crate's dependency
+          # tree, and a shared key would have the three evicting one another.
+          key: mutants-${{ matrix.package }}
+
+      - uses: taiki-e/install-action@v2
+        if: steps.select.outputs.run == 'true'
+        with:
+          tool: cargo-mutants@${{ env.MUTANTS_VERSION }}
+
+      - name: run mutants
+        if: steps.select.outputs.run == 'true'
+        id: run
+        run: |
+          set +e
+          cargo mutants --in-place \
+            --package "${{ matrix.package }}" \
+            --shard "${{ matrix.shard }}"
+          rc=$?
+          set -e
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          # Exit codes are documented at <https://mutants.rs/>; 0 and 2 were
+          # confirmed by hand against 27.1.0 before this workflow was written.
+          #
+          #   0  every viable mutant was caught          -> pass
+          #   2  some mutants survived                   -> FINDING, not a failure
+          #   3  some mutants timed out                  -> FINDING, not a failure
+          #   1  usage error (bad flags / bad config)    -> harness broken, FAIL
+          #   4  the unmutated baseline suite FAILED     -> the suite is broken, FAIL
+          #   5,6 --in-diff problems                     -> harness broken, FAIL
+          #   70 internal error                          -> harness broken, FAIL
+          #
+          # Splitting these two classes is the whole point: "this code is not
+          # pinned by a test" is information to act on, "the tool could not run"
+          # is something to fix before the information means anything.
+          case "$rc" in
+            0|2|3) echo "::notice::cargo-mutants exit $rc — results published, not gating." ;;
+            4)     echo "::error::The unmutated baseline suite FAILED for ${{ matrix.package }}. No mutant result from this shard is meaningful until that is fixed."; exit 4 ;;
+            *)     echo "::error::cargo-mutants could not complete (exit $rc). This is a harness failure, not a mutation finding."; exit "$rc" ;;
+          esac
+
+      - name: upload mutants.out
+        if: always() && steps.select.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          # `output = "target"` in .cargo/mutants.toml puts the run directory
+          # under the already-gitignored target/, so a local run never leaves
+          # untracked files behind. The artifact carries diff/ and log/ too, so a
+          # surviving mutant can be read without reproducing the run.
+          name: mutants-${{ matrix.package }}-${{ matrix.shard_id }}
+          path: target/mutants.out
+          if-no-files-found: warn
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # Aggregate every shard into one readable, actionable report.
+  #
+  # `if: always()` so a shard that died still leaves the rest reported, and the
+  # missing shard is named explicitly rather than silently dropped.
+  #
+  # The report job never fails on findings. It fails only when there is nothing
+  # to report at all, which means the matrix did not produce output.
+  # ---------------------------------------------------------------------------
+  report:
+    name: report
+    runs-on: ubuntu-latest
+    needs: [mutants]
+    if: always()
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mutants-*
+          path: shards
+
+      - name: aggregate
+        run: |
+          # Inlined rather than a scripts/ file: this lane's locks cover the
+          # three files it ships and nothing else. Lifting it into scripts/ is a
+          # reasonable follow-up, exactly as coverage.yml's floor checker is.
+          cat > "$RUNNER_TEMP/report.py" <<'PYEOF'
+          #!/usr/bin/env python3
+          """Aggregate cargo-mutants shard outputs into one report.
+
+          Reads every shards/*/outcomes.json and writes a summary table plus the
+          full list of surviving mutants, grouped by file, with a copy-pasteable
+          command to reproduce each one.
+
+          Usage: report.py <shards-dir> <output.md>
+          """
+          import json
+          import os
+          import sys
+          from collections import defaultdict
+
+          # Outcome summary strings, confirmed against real cargo-mutants 27.1.0
+          # output. Per-shard counts come from the top-level fields instead, so
+          # only the two "the mutant lived" values are needed here.
+          MISSED = "MissedMutant"
+          TIMEOUT = "Timeout"
+
+
+          def read_shards(root):
+              shards = []
+              if not os.path.isdir(root):
+                  return shards
+              for name in sorted(os.listdir(root)):
+                  path = os.path.join(root, name, "outcomes.json")
+                  if not os.path.exists(path):
+                      shards.append((name, None))
+                      continue
+                  with open(path, encoding="utf-8") as fh:
+                      shards.append((name, json.load(fh)))
+              return shards
+
+
+          def survivors(report):
+              """Mutants that lived: missed outright, or hung until the timeout."""
+              for outcome in report.get("outcomes", []):
+                  # The baseline run is recorded as the bare string "Baseline";
+                  # only mutant scenarios are objects.
+                  scenario = outcome.get("scenario")
+                  if not isinstance(scenario, dict):
+                      continue
+                  mutant = scenario.get("Mutant")
+                  if not mutant:
+                      continue
+                  summary = outcome.get("summary")
+                  if summary in (MISSED, TIMEOUT):
+                      yield summary, mutant
+
+
+          def main():
+              root, out_path = sys.argv[1], sys.argv[2]
+              shards = read_shards(root)
+              if not shards:
+                  print("No shard artifacts found at all — nothing to report.",
+                        file=sys.stderr)
+                  return 1
+
+              lines = ["## Mutation testing (SPEC §25)", ""]
+              rows = [
+                  "| shard | mutants | caught | survived | timed out | unviable |",
+                  "|---|---:|---:|---:|---:|---:|",
+              ]
+              totals = defaultdict(int)
+              incomplete = []
+              by_file = defaultdict(list)
+
+              for name, report in shards:
+                  if report is None:
+                      incomplete.append(name)
+                      rows.append(f"| `{name}` | - | - | - | - | **no outcomes.json** |")
+                      continue
+                  n = report.get("total_mutants", 0)
+                  caught = report.get("caught", 0)
+                  missed = report.get("missed", 0)
+                  timeout = report.get("timeout", 0)
+                  unviable = report.get("unviable", 0)
+                  for key, val in (("total", n), ("caught", caught),
+                                   ("missed", missed), ("timeout", timeout),
+                                   ("unviable", unviable)):
+                      totals[key] += val
+                  rows.append(f"| `{name}` | {n} | {caught} | {missed} | "
+                              f"{timeout} | {unviable} |")
+                  for summary, mutant in survivors(report):
+                      by_file[mutant["file"]].append((summary, mutant))
+
+              tested = totals["caught"] + totals["missed"] + totals["timeout"]
+              score = (100.0 * totals["caught"] / tested) if tested else 0.0
+              rows.append(f"| **total** | **{totals['total']}** | "
+                          f"**{totals['caught']}** | **{totals['missed']}** | "
+                          f"**{totals['timeout']}** | **{totals['unviable']}** |")
+              lines += rows
+              lines += [
+                  "",
+                  f"**Mutation score: {score:.1f}%** "
+                  f"({totals['caught']} caught / {tested} viable mutants tested).",
+                  "",
+                  "A surviving mutant is a *finding*, not a build failure: the code "
+                  "was changed and no test noticed. Unviable mutants did not "
+                  "compile and are neither good nor bad news. See "
+                  "`docs/testing/mutation.md` for what to do with the list below.",
+                  "",
+              ]
+
+              if incomplete:
+                  lines += [
+                      "> **Incomplete run.** These shards produced no "
+                      "`outcomes.json`, so their mutants are unaccounted for and "
+                      "the totals above are a floor, not the whole picture: "
+                      + ", ".join(f"`{n}`" for n in incomplete),
+                      "",
+                  ]
+
+              if by_file:
+                  lines += ["### Surviving mutants", ""]
+                  for path in sorted(by_file):
+                      items = by_file[path]
+                      lines += [
+                          f"<details><summary><code>{path}</code> "
+                          f"— {len(items)} survived</summary>",
+                          "",
+                          f"Reproduce just this file: "
+                          f"`cargo mutants -f {path}`",
+                          "",
+                      ]
+                      for summary, mutant in sorted(
+                              items, key=lambda p: p[1]["span"]["start"]["line"]):
+                          line = mutant["span"]["start"]["line"]
+                          tag = "timed out" if summary == TIMEOUT else "survived"
+                          # cargo-mutants' own `name` is "<file>:<line>:<col>:
+                          # <description>". Reusing the description keeps the
+                          # wording identical to the run log, and is correct for
+                          # deletion mutants, whose `replacement` is empty.
+                          # Kept in a code span: descriptions contain generic
+                          # types like `Result<u32, Infallible>`, which GitHub
+                          # would otherwise swallow as HTML tags.
+                          desc = mutant["name"].split(": ", 1)[-1]
+                          lines.append(f"- `{path}:{line}` **{tag}** — `{desc}`")
+                      lines += ["", "</details>", ""]
+              else:
+                  lines += ["No mutant survived in the shards that reported.", ""]
+
+              text = "\n".join(lines)
+              with open(out_path, "w", encoding="utf-8") as fh:
+                  fh.write(text + "\n")
+              summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+              if summary_path:
+                  with open(summary_path, "a", encoding="utf-8") as fh:
+                      fh.write(text + "\n")
+              print(text)
+              return 0
+
+
+          if __name__ == "__main__":
+              sys.exit(main())
+          PYEOF
+          python3 "$RUNNER_TEMP/report.py" shards mutation-report.md
+
+      - name: upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          # A single markdown file, so a finding can be pasted straight into an
+          # issue or a follow-up tag's backlog without opening eight artifacts.
+          name: mutation-report
+          path: mutation-report.md
+          if-no-files-found: warn
+          retention-days: 90

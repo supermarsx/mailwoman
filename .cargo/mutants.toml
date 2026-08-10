@@ -1,0 +1,121 @@
+# cargo-mutants configuration — mutation testing (SPEC §25), added in 26.19 (t19-e14).
+#
+# SPEC.md:1481-1482 asks for mutation testing on `mw-crypto`, `mw-sanitize` and
+# `mw-export`. This file is the scope of record; `.github/workflows/mutants.yml`
+# runs it nightly and non-blocking. Rationale, cost, and what to do with a
+# surviving mutant: docs/testing/mutation.md.
+#
+# cargo-mutants is a CI/dev BINARY, never a workspace dependency — `Cargo.lock`
+# is untouched by this file and the shipped binaries gain nothing from it.
+#
+# This is a SEPARATE file from `.cargo/config.toml`; cargo reads that one, and
+# only cargo-mutants reads this one. Neither affects the other.
+
+# ── Scope ────────────────────────────────────────────────────────────────────
+# The three crates SPEC §25 names, and nothing else. Widening this is a
+# deliberate decision with a wall-clock cost — see the estimates in
+# docs/testing/mutation.md before adding a crate.
+#
+# Only `src/` is examined: `tests/` sources are the oracle, and mutating the
+# oracle tells you nothing. Inline `#[cfg(test)] mod tests` blocks are skipped by
+# cargo-mutants itself, so no glob is needed for those.
+examine_globs = [
+    "crates/mw-crypto/src/**",
+    "crates/mw-sanitize/src/**",
+    "crates/mw-export/src/**",
+]
+
+# `wasm.rs` in both crates is the `#[cfg(target_arch = "wasm32")]` browser
+# boundary. It does not compile into the native build the nightly runs, so every
+# mutant there would be reported "unviable" — noise, not a finding. Mutating the
+# wasm boundary would need a wasm32 test runner, which the repo does not have.
+exclude_globs = [
+    "crates/mw-crypto/src/wasm.rs",
+    "crates/mw-sanitize/src/wasm.rs",
+]
+
+# ── Test invocation ──────────────────────────────────────────────────────────
+# `--test-threads=1` is the repo's canonical gate (see `.cargo/config.toml`'s
+# `gate` alias and VERSIONING.md). Mutation testing re-runs a suite hundreds of
+# times, so a flake rate that is tolerable once becomes a stream of
+# unattributable "caught" results here. Kept single-threaded for the same reason
+# the release gate is.
+#
+# Note for anyone widening the scope: none of these three crates links `sqlx`, so
+# the shared `_sqlx_migrations` collision cannot occur here — and since
+# `test_workspace` is left at its default (false), only the mutated package's own
+# tests run. This flag is therefore belt-and-braces at the current scope and
+# load-bearing the moment a store-touching crate is added.
+#
+# The leading `"--"` is required and is not decoration: cargo-mutants appends
+# these tokens to the `cargo test` command line verbatim, so without it cargo
+# itself tries to parse `--test-threads` and the baseline run fails with
+# "unexpected argument '--test-threads' found". Verified against
+# cargo-mutants 27.1.0.
+additional_cargo_test_args = ["--", "--test-threads=1"]
+
+# ── Tree copying (local runs) ────────────────────────────────────────────────
+# Without `--in-place`, cargo-mutants copies the workspace to a temporary
+# directory. Leaving this unset does NOT honour `.gitignore`, so the copy tries
+# to reproduce `apps/desktop/e2e/node_modules` — a pnpm store that is mostly
+# symlinks — and on Windows the run dies before testing anything:
+#
+#     Error: create symlink "...\\node_modules\\.pnpm\\..."
+#     Caused by: A required privilege is not held by the client. (os error 1314)
+#
+# Setting it true fixes that and skips a few hundred MB of pointless copying on
+# every platform. Verified both ways against cargo-mutants 27.1.0. CI passes
+# `--in-place` and never copies at all, so this only affects local runs.
+gitignore = true
+
+# ── Timeouts ─────────────────────────────────────────────────────────────────
+# A mutant that removes a loop bound hangs rather than fails; cargo-mutants
+# auto-derives a timeout from the baseline run and reports those separately as
+# "timeout". Both knobs below only widen the auto-derived value.
+#
+# `mw-crypto`'s suite includes Argon2id derivation and PGP/RSA key material, which
+# are deliberately slow. A floor of 120 s keeps a slow-but-honest test from being
+# scored as a timeout; the multiplier covers a mutant that makes a slow path
+# slower without hanging outright.
+minimum_test_timeout = 120.0
+timeout_multiplier   = 4.0
+
+# ── Output ───────────────────────────────────────────────────────────────────
+# `mutants.out/` is written under `target/`, which `.gitignore` already covers.
+# A local run therefore never leaves untracked files in the working tree — which
+# matters in this repo, where a stray untracked directory is easy to sweep into
+# someone else's commit.
+output = "target"
+
+# ── Deliberately NOT set ─────────────────────────────────────────────────────
+#
+# `error_values` — cargo-mutants can additionally mutate a `Result`-returning
+#   function into one that always returns `Err`, but only if given a
+#   constructible error value. The key is global while our error types are
+#   per-crate (`CryptoError`, `ExportError`; `mw-sanitize` is infallible), so a
+#   single value would be unviable in two crates out of three. The
+#   always-succeeds direction — by far the more dangerous one for a verifier — IS
+#   generated by default. To close the gap for one crate, pass it on the command
+#   line for that crate alone, e.g.
+#       cargo mutants -p mw-crypto --error 'crate::CryptoError::Parse("m".to_owned())'
+#   and expect extra "unviable" results from functions returning a different
+#   error type. See docs/testing/mutation.md.
+#
+# `skip_calls` — the example config skips `println!`/`tracing::info!` and friends.
+#   These three crates contain no logging or printing calls at all, so the only
+#   entry that would apply is the built-in `with_capacity` default, which is
+#   already on.
+#
+# `all_features` / `features` — `mw-crypto`'s non-default features are `wasm`
+#   (the excluded browser boundary) and `pqc` (an off-by-default draft that is
+#   not a release gate). The default feature set is what ships, so it is what is
+#   mutated.
+#
+# `test_workspace` / `test_package` — left at the default, so each mutant is
+#   judged only by the tests of the crate it lives in. That is the honest
+#   question for these three: "do THIS crate's tests pin THIS crate's
+#   behaviour?". Running the whole workspace per mutant would also multiply the
+#   wall clock by more than an order of magnitude.
+#
+# `profile` — the workspace `test` profile from the root `Cargo.toml` is what the
+#   real gate uses; overriding it here would measure a build nobody else runs.
