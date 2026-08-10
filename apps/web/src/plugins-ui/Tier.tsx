@@ -12,6 +12,7 @@
 import { For, Show, createResource, onCleanup, onMount, type JSX } from 'solid-js';
 import { t, loadCatalog } from '../i18n';
 import { listUiPlugins } from './client';
+import { basePath } from '../api/basePath.ts';
 import { attachBroker } from './broker';
 import {
   PLUGIN_IFRAME_SANDBOX,
@@ -108,7 +109,12 @@ export function UiPluginTier(props: UiPluginTierProps): JSX.Element {
   // Pull this surface's copy catalog (unsigned-plugin banner); fail-soft — `t()`
   // shows the message id until it settles, then repaints reactively.
   onMount(() => void loadCatalog('plugins'));
-  const base = (): string => props.base ?? '';
+  // Falls back to the deploy prefix, not `''` — this value is passed EXPLICITLY to
+  // `listUiPlugins` below, so an empty default here would override that function's
+  // own `basePath()` default and the registry fetch would 404 under a sub-path.
+  // Fail-soft means that 404 renders as "no plugins configured" rather than an
+  // error, so nothing would have surfaced it.
+  const base = (): string => props.base ?? basePath();
   const [fetched] = createResource(
     () => (props.registry === undefined ? base() : null),
     (b) => (b === null ? EMPTY_REGISTRY : listUiPlugins(b)),
