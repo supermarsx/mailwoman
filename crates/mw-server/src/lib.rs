@@ -2611,10 +2611,12 @@ async fn jmap_upload(
         .unwrap_or_else(|| "application/octet-stream".to_string());
     // Read the body with a hard cap at `maxSizeUpload`; a larger body → 413 (before
     // any storage write or upstream forwarding). `Body` is extracted directly so the
-    // read is bounded here rather than by the default (smaller) extractor limit.
-    let bytes = match axum::body::to_bytes(body, MAX_UPLOAD_BYTES).await {
+    // read is bounded here rather than by the default (smaller) extractor limit, and
+    // read through [`read_body_capped`] rather than `axum::body::to_bytes` so an
+    // over-limit body is drained instead of closed on — see [`DRAIN_BUDGET_BYTES`].
+    let bytes = match read_body_capped(body, MAX_UPLOAD_BYTES).await {
         Ok(b) => b,
-        Err(_) => return upload_too_large(),
+        Err(()) => return upload_too_large(),
     };
     let Some(engine) = &state.engine else {
         return proxy_upload(&session, &account_id, &content_type, bytes).await;
@@ -2640,6 +2642,106 @@ async fn jmap_upload(
                 Json(json!({ "error": "upload storage failed" })),
             )
                 .into_response()
+        }
+    }
+}
+
+/// How many further bytes of an over-limit request body we will read and discard
+/// before answering `413`.
+///
+/// The response is written to a socket the client is **still writing to**. Close
+/// on it and the reverse proxy in front sees its own write fail; Apache's
+/// `mod_proxy` then abandons the exchange without reading the response already
+/// waiting on the socket, and the client gets httpd's `502 text/html` instead of
+/// this crate's JSON `413` (t20-e-e2e D6). `t20-e7` measured five `mod_proxy`
+/// configurations against exactly this — `proxy-nokeepalive` alone, then with
+/// `proxy-sendcl`, with `proxy-sendchunked`, with `ping=5` (100-continue), and
+/// with `LimitRequestBody` lowered to this crate's cap — and **all five still
+/// produced `502`**. There is no directive meaning "on write failure, read the
+/// response anyway", so the only place this is fixable is here. Five of the six
+/// proxy cells tolerate the close, which is why this reads as an Apache fault
+/// and is not: the JSON-error contract should not depend on how forgiving the
+/// proxy is.
+///
+/// Draining is best-effort and **bounded twice**, because the body is
+/// attacker-controlled and this request is already known to be doomed:
+///
+///   * **Bytes** — one further `MAX_UPLOAD_BYTES`. A client that ignored the
+///     advertised `maxSizeUpload` and sent up to twice it is making a mistake
+///     worth answering properly; past that it is not. Total read per request
+///     stays bounded at twice the cap, which is the same order as the buffer the
+///     request was always allowed to allocate.
+///   * **Time** — [`DRAIN_DEADLINE`]. Bytes alone are not enough: a body
+///     trickled out a byte at a time would hold the connection indefinitely
+///     while staying under the byte budget. A genuine overshoot of a few
+///     megabytes drains in well under a second, so the deadline only bites on a
+///     client that is not really trying to finish.
+///
+/// Past either bound we stop reading and answer anyway — a `413` that Apache
+/// drops is no worse than the `413` it dropped before, and every other proxy
+/// relays it.
+///
+/// **Note for anyone adding another size-capped route**: `import_routes.rs` takes
+/// its cap through `DefaultBodyLimit` + the `Bytes` extractor's rejection, which
+/// has this same non-draining shape. It was outside this lane's locks and is
+/// unfixed.
+const DRAIN_BUDGET_BYTES: usize = MAX_UPLOAD_BYTES;
+
+/// Wall-clock bound on the drain described at [`DRAIN_BUDGET_BYTES`].
+const DRAIN_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Read a request body, capping it at `cap` bytes.
+///
+/// `Err(())` means "this body cannot be accepted" — over the cap, or a transport
+/// failure — which is the same thing `axum::body::to_bytes` reported and what the
+/// caller turns into a `413`. The difference is that exceeding the cap does not
+/// end the read here: the remainder is drained (see [`DRAIN_BUDGET_BYTES`]) so
+/// that by the time the response is written, the client has finished writing.
+async fn read_body_capped(body: Body, cap: usize) -> Result<Bytes, ()> {
+    use futures_util::StreamExt;
+
+    let mut stream = body.into_data_stream();
+    let mut buf: Vec<u8> = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        // A transport error leaves nothing to drain: the client is already gone,
+        // and that is the one case where closing immediately is right.
+        let Ok(chunk) = chunk else { return Err(()) };
+        if buf.len() + chunk.len() > cap {
+            drain_refused_body(stream, chunk.len()).await;
+            return Err(());
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    Ok(Bytes::from(buf))
+}
+
+/// Read and discard what is left of a body already refused, within both bounds.
+/// `already` is the size of the chunk that broke the cap, which was discarded
+/// too and so counts against the budget.
+async fn drain_refused_body(mut stream: axum::body::BodyDataStream, already: usize) {
+    use futures_util::StreamExt;
+
+    let drained = tokio::time::timeout(DRAIN_DEADLINE, async {
+        let mut seen = already;
+        while seen < DRAIN_BUDGET_BYTES {
+            match stream.next().await {
+                Some(Ok(chunk)) => seen += chunk.len(),
+                // Finished, or hung up: either way there is nothing left to read.
+                Some(Err(_)) | None => break,
+            }
+        }
+        seen
+    })
+    .await;
+    match drained {
+        Ok(seen) => {
+            tracing::debug!("drained {seen} bytes of a refused upload before answering 413");
+        }
+        Err(_) => {
+            tracing::debug!(
+                "gave up draining a refused upload after {DRAIN_DEADLINE:?}; a proxy that \
+                 abandons an exchange on write failure may turn this 413 into its own error"
+            );
         }
     }
 }
@@ -4629,6 +4731,68 @@ mod external_base_tests {
         // No extension, or no separator at all.
         assert!(!is_content_hashed("assets/BgsGROWZ"));
         assert!(!is_content_hashed("assets/indexBgsGROWZ.js"));
+    }
+
+    /// **t20-e-e2e D6(b).** An over-limit body must be **read to the end** before
+    /// the `413` is written, not closed on. Apache's `mod_proxy` abandons the
+    /// exchange when its write fails and never reads the response already waiting
+    /// on the socket, so the client gets httpd's `502 text/html` instead of the
+    /// JSON `413`; `t20-e7` measured five `mod_proxy` configurations and all five
+    /// still produced `502`, which is what makes this app-side.
+    ///
+    /// Observed by counting how many chunks the body was polled for. The old
+    /// `axum::body::to_bytes` path stopped at the chunk that broke the cap, so a
+    /// counter proves drain-versus-close directly rather than by proxy.
+    #[tokio::test]
+    async fn an_over_limit_body_is_drained_before_the_413() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        /// A body of `chunks` chunks of `size` bytes that counts what it yields.
+        fn counted(chunks: usize, size: usize, seen: Arc<AtomicUsize>) -> Body {
+            let stream = futures_util::stream::iter((0..chunks).map(move |_| {
+                seen.fetch_add(size, Ordering::SeqCst);
+                Ok::<_, std::io::Error>(Bytes::from(vec![b'a'; size]))
+            }));
+            Body::from_stream(stream)
+        }
+
+        // Under the cap: accepted whole, nothing to drain.
+        let seen = Arc::new(AtomicUsize::new(0));
+        let body = counted(4, 4, Arc::clone(&seen));
+        assert_eq!(read_body_capped(body, 16).await.unwrap().len(), 16);
+        assert_eq!(seen.load(Ordering::SeqCst), 16, "a body at the cap is read");
+
+        // Over the cap: refused, and the WHOLE body is still consumed. Pre-fix
+        // this stopped at 20 — the cap plus the chunk that broke it.
+        let seen = Arc::new(AtomicUsize::new(0));
+        let body = counted(25, 4, Arc::clone(&seen));
+        assert!(read_body_capped(body, 16).await.is_err());
+        assert_eq!(
+            seen.load(Ordering::SeqCst),
+            100,
+            "the client must be able to finish writing before the 413 is sent, or a \
+             proxy that abandons on write failure replaces it with its own error"
+        );
+
+        // The drain is bounded. `DRAIN_BUDGET_BYTES` is one further cap, so a body
+        // past twice the cap is cut off rather than followed indefinitely.
+        const CHUNK: usize = 64 * 1024;
+        let seen = Arc::new(AtomicUsize::new(0));
+        let offered = (MAX_UPLOAD_BYTES + DRAIN_BUDGET_BYTES) / CHUNK + 64;
+        let body = counted(offered, CHUNK, Arc::clone(&seen));
+        assert!(read_body_capped(body, MAX_UPLOAD_BYTES).await.is_err());
+        let read = seen.load(Ordering::SeqCst);
+        assert!(
+            read < offered * CHUNK,
+            "an attacker-controlled body must not be followed to its end: read \
+             {read} of {} offered",
+            offered * CHUNK
+        );
+        assert!(
+            read <= MAX_UPLOAD_BYTES + DRAIN_BUDGET_BYTES + CHUNK,
+            "the total read stays within the cap plus one drain budget, got {read}"
+        );
     }
 
     /// **t20-e-e2e D4.** With TLS terminated by this process there is no

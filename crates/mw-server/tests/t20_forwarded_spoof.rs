@@ -1211,6 +1211,92 @@ async fn login_set_cookie(addr: SocketAddr, mock: &str) -> Vec<String> {
         .collect()
 }
 
+/// `maxSizeUpload`, mirrored from `lib.rs`'s private `MAX_UPLOAD_BYTES`. The
+/// assertion on the `413` body's `maxBytes` below ties the two together, so a
+/// change to the constant fails here rather than silently weakening the test.
+const MAX_UPLOAD_BYTES: usize = 50_000_000;
+
+/// How far past the cap this test writes. Deliberately far larger than any
+/// plausible socket buffer: the property under test is that the **client can
+/// finish writing**, and with a small overshoot the remaining bytes would fit in
+/// the local send buffer and `write_all` would return `Ok` even against a server
+/// that had already closed — a test that passes either way.
+const OVERSHOOT_BYTES: usize = 24 * 1024 * 1024;
+
+/// **t20-e-e2e D6(b).** An oversize upload must be read to the end before the
+/// `413` is written.
+///
+/// The app used to answer and close with the rest of the body still in flight.
+/// Apache's `mod_proxy` sees its write fail, abandons the exchange without
+/// reading the response already sitting on the socket, and the client gets
+/// httpd's `502 text/html` instead of the JSON `413`. `t20-e7` measured five
+/// `mod_proxy` configurations — `proxy-nokeepalive`, `+proxy-sendcl`,
+/// `+proxy-sendchunked`, `ping=5`, and a lowered `LimitRequestBody` — and all
+/// five still produced `502`. No directive means "on write failure, read the
+/// response anyway", so this is fixed in the app or nowhere.
+///
+/// **What is asserted, and why it is not the status code.** The server wrote the
+/// `413` before closing even before the fix, so a client that just reads the
+/// socket gets it either way — which is exactly why five of the six proxy cells
+/// pass and Apache does not. The distinguishing observable is therefore the
+/// *write* side: whether the client can send its whole declared body without the
+/// server closing under it. The status and JSON body are asserted too, as the
+/// positive half — a green write with a `502`-shaped answer would be no good.
+#[tokio::test]
+async fn an_oversize_upload_lets_the_client_finish_writing() {
+    let _env = posture(Posture::default()).await;
+    let mock = spawn_mock().await;
+    let addr = serve_with_connect_info(build().await).await;
+    let s = Session::open(addr, &mock).await;
+
+    let total = MAX_UPLOAD_BYTES + OVERSHOOT_BYTES;
+    let mut sock = TcpStream::connect(addr).await.unwrap();
+    let head = format!(
+        "POST /jmap/upload/{} HTTP/1.1\r\nHost: {addr}\r\nCookie: {}\r\n\
+         Content-Type: application/octet-stream\r\nContent-Length: {total}\r\n\
+         Connection: close\r\n\r\n",
+        s.account_id, s.cookie_header,
+    );
+    sock.write_all(head.as_bytes()).await.unwrap();
+
+    // Write the declared body. Any error here is the defect: the server closed
+    // while we were still sending.
+    let chunk = vec![b'a'; 1024 * 1024];
+    let mut written = 0usize;
+    while written < total {
+        let n = chunk.len().min(total - written);
+        if let Err(e) = sock.write_all(&chunk[..n]).await {
+            panic!(
+                "the server closed the connection after {written} of {total} bytes ({e}). \
+                 An oversize body must be drained, not closed on: a proxy that abandons \
+                 the exchange on write failure replaces the JSON 413 with its own error."
+            );
+        }
+        written += n;
+    }
+
+    // The positive half: the answer is this crate's JSON 413, not a bare status.
+    let mut raw = Vec::new();
+    tokio::time::timeout(Duration::from_secs(30), sock.read_to_end(&mut raw))
+        .await
+        .expect("the server answers rather than hanging")
+        .expect("the response is readable");
+    let reply = String::from_utf8_lossy(&raw).into_owned();
+    assert_eq!(status_of(&reply), 413, "reply was: {reply}");
+    let body = reply
+        .split_once("\r\n\r\n")
+        .map(|(_, b)| b)
+        .unwrap_or_default();
+    let json: Value = serde_json::from_str(body.trim())
+        .unwrap_or_else(|e| panic!("the 413 body must be JSON ({e}); body was: {body}"));
+    assert_eq!(json["error"], "payload too large");
+    assert_eq!(json["limit"], "maxSizeUpload");
+    assert_eq!(
+        json["maxBytes"], MAX_UPLOAD_BYTES,
+        "this test's mirrored cap has drifted from lib.rs's MAX_UPLOAD_BYTES"
+    );
+}
+
 /// The `Strict-Transport-Security` value from a raw HTTP/1.1 reply. Used by the
 /// repeated-header-line legs, where the request has to be written to the socket
 /// verbatim.
