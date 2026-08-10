@@ -88,7 +88,9 @@ function accent(base: string): string {
 
 // Grove textures are served same-origin from /themes/*.svg (img-src 'self');
 // `none` everywhere else. Gated off under reduced-transparency / HC / data-saver
-// by media queries in themes.css.ts.
+// by media queries in themes.css.ts. These two constants are the ONLY texture
+// URLs in the theme layer — the single point of change if the app is ever
+// served from a sub-path and the leading `/` needs a base prefix.
 const GROVE_GRAIN = "url('/themes/grove-grain.svg')";
 const GROVE_PAPER = "url('/themes/grove-paper.svg')";
 const NO_TEXTURE = { grain: 'none', paper: 'none' } as const;
@@ -108,9 +110,12 @@ const light: Palette = {
   accent: accent('#2563eb'),
   accentText: '#ffffff',
   danger: '#b91c1c',
-  success: '#15803d',
-  warning: '#b45309',
-  link: '#2563eb',
+  // Status/link colours are held to 4.5:1 on the DARKEST light surface
+  // (bgSink #eceef1), not just on white — #15803d/#b45309/#2563eb sat at
+  // 4.31-4.45:1 there. See contrast.ts CONTRAST_PAIRS.
+  success: '#146c33',
+  warning: '#9a4708',
+  link: '#1d4ed8',
   selection: '#cfe0ff',
 };
 
@@ -123,7 +128,12 @@ const dark: Palette = {
   text: '#e6e8eb',
   textDim: '#9aa1ab',
   accent: accent('#3b82f6'),
-  accentText: '#ffffff',
+  // Dark packs put DARK ink on their filled controls: the accent has to stay
+  // bright enough to read as a state indicator against a near-black page
+  // (≥3:1), which leaves it too bright to carry white text (#ffffff on #3b82f6
+  // is 3.68:1). The same token labels the success/danger badges, where white
+  // was far worse (1.9:1 on #4ade80).
+  accentText: '#0b1220',
   danger: '#f87171',
   success: '#4ade80',
   warning: '#fbbf24',
@@ -175,7 +185,8 @@ const amoled: Palette = {
   text: '#e6e8eb',
   textDim: '#8b929c',
   accent: accent('#3b82f6'),
-  accentText: '#ffffff',
+  // Same reasoning as the Dark pack: dark ink on filled controls.
+  accentText: '#0b1220',
   danger: '#f87171',
   success: '#4ade80',
   warning: '#fbbf24',
@@ -191,12 +202,14 @@ const groveLight: Palette = {
   surface: '#fbf6ec',
   border: '#cbb894',
   text: '#3a2f24',
-  textDim: '#7a6a53',
-  accent: accent('#6d8a4e'),
+  // Grove's light surfaces are tinted cream, so muted/status colours need to be
+  // darker than they would on white to clear 4.5:1 on bgSink #e7dcc8.
+  textDim: '#63563f',
+  accent: accent('#55703a'),
   accentText: '#ffffff',
-  danger: '#a3402c',
-  success: '#4f7a3a',
-  warning: '#9a6a1f',
+  danger: '#953823',
+  success: '#3c5c2c',
+  warning: '#75500f',
   link: '#6b4f2a',
   selection: '#dcd0af',
 };
@@ -216,6 +229,112 @@ const groveDark: Palette = {
   warning: '#e0b25f',
   link: '#cdae7e',
   selection: '#4a3d26',
+};
+
+// Slate: cool blue-grey neutrals, softer than the default white/near-black
+// frame. Light side sits on a tinted grey page rather than pure white.
+const slateLight: Palette = {
+  bg: '#eef1f5',
+  bgAlt: '#e4e8ee',
+  bgSink: '#d9dee6',
+  surface: '#f8fafc',
+  border: '#9aa5b4',
+  text: '#1b2230',
+  textDim: '#4d5666',
+  accent: accent('#33547c'),
+  accentText: '#ffffff',
+  danger: '#9e1c1c',
+  success: '#1a6135',
+  warning: '#7d500c',
+  link: '#284a76',
+  selection: '#c3d4ea',
+};
+
+const slateDark: Palette = {
+  bg: '#151a21',
+  bgAlt: '#1c222b',
+  bgSink: '#10141a',
+  surface: '#1f2630',
+  border: '#414c5b',
+  text: '#e3e8ef',
+  textDim: '#9aa5b5',
+  accent: accent('#7aa2d6'),
+  accentText: '#0e1218',
+  danger: '#f08a8a',
+  success: '#6fd08c',
+  warning: '#e9b45c',
+  link: '#8ab4e8',
+  selection: '#2b3d55',
+};
+
+// Ocean: blue-green ground, teal accent. Cooler and more saturated than Slate.
+const oceanLight: Palette = {
+  bg: '#f2f8f9',
+  bgAlt: '#e6f0f2',
+  bgSink: '#d8e7ea',
+  surface: '#fbfdfd',
+  border: '#8fabb1',
+  text: '#0f2b30',
+  textDim: '#3f585f',
+  accent: accent('#0c5a66'),
+  accentText: '#ffffff',
+  danger: '#9c2323',
+  success: '#15603c',
+  warning: '#7a4a0c',
+  link: '#0a5177',
+  selection: '#bfe0e6',
+};
+
+const oceanDark: Palette = {
+  bg: '#0d171b',
+  bgAlt: '#122127',
+  bgSink: '#0a1215',
+  surface: '#15252c',
+  border: '#37525c',
+  text: '#dceaee',
+  textDim: '#93aab2',
+  accent: accent('#4fc3d4'),
+  accentText: '#04191d',
+  danger: '#f38b8b',
+  success: '#68d3a0',
+  warning: '#e8b45f',
+  link: '#6fc9e0',
+  selection: '#1e3d49',
+};
+
+// Plum: muted purple ground, violet accent.
+const plumLight: Palette = {
+  bg: '#f7f4fa',
+  bgAlt: '#efe9f4',
+  bgSink: '#e5dcee',
+  surface: '#fdfbfe',
+  border: '#a698b6',
+  text: '#241a2e',
+  textDim: '#554764',
+  accent: accent('#5d3690'),
+  accentText: '#ffffff',
+  danger: '#9d2033',
+  success: '#1e6042',
+  warning: '#7b4a0c',
+  link: '#5d3690',
+  selection: '#dccdec',
+};
+
+const plumDark: Palette = {
+  bg: '#17131d',
+  bgAlt: '#1e1826',
+  bgSink: '#110e16',
+  surface: '#231c2c',
+  border: '#4b3f5c',
+  text: '#e9e3f0',
+  textDim: '#a89ab9',
+  accent: accent('#b28ce0'),
+  accentText: '#180f22',
+  danger: '#f08a9b',
+  success: '#72d3a3',
+  warning: '#e6b45f',
+  link: '#c0a2e8',
+  selection: '#3a2c4d',
 };
 
 // Shared a11y token values. Structural constants (touch target, motion
@@ -259,18 +378,140 @@ export const THEMES: Record<ThemeName, ThemeTokens> = {
   amoled: themeOf(amoled, NO_TEXTURE),
   'grove-light': themeOf(groveLight, { grain: GROVE_GRAIN, paper: GROVE_PAPER }),
   'grove-dark': themeOf(groveDark, { grain: GROVE_GRAIN, paper: GROVE_PAPER }),
+  'slate-light': themeOf(slateLight, NO_TEXTURE),
+  'slate-dark': themeOf(slateDark, NO_TEXTURE),
+  'ocean-light': themeOf(oceanLight, NO_TEXTURE),
+  'ocean-dark': themeOf(oceanDark, NO_TEXTURE),
+  'plum-light': themeOf(plumLight, NO_TEXTURE),
+  'plum-dark': themeOf(plumDark, NO_TEXTURE),
 };
 
-/** Ordered theme list with human labels, for the Settings picker. */
-export const THEME_OPTIONS: ReadonlyArray<{ value: ThemeName; label: string }> = [
-  { value: 'light', label: 'Light' },
-  { value: 'dark', label: 'Dark' },
-  { value: 'hc-light', label: 'High contrast (light)' },
-  { value: 'hc-dark', label: 'High contrast (dark)' },
-  { value: 'amoled', label: 'AMOLED' },
-  { value: 'grove-light', label: 'Grove Light' },
-  { value: 'grove-dark', label: 'Grove Dark' },
+// ── Theme metadata (presentation layer) ──────────────────────────────────────
+// Lives here rather than in `registry.ts` so `tokens.ts` stays dependency-free
+// and `registry.ts` can compose metadata × palettes without an import cycle.
+// `registry.ts` is what UI code should consume; this array is the raw ordering.
+
+/** A theme family — a pack that ships a light and/or dark variant. */
+export type ThemeFamily = 'core' | 'slate' | 'ocean' | 'plum' | 'grove' | 'amoled' | 'contrast';
+
+/** Whether a pack paints a light or a dark page. */
+export type Appearance = 'light' | 'dark';
+
+export interface ThemeMeta {
+  readonly id: ThemeName;
+  /** User-visible name. Descriptive, not promotional. */
+  readonly label: string;
+  /** One honest line describing what the pack looks like. */
+  readonly description: string;
+  readonly family: ThemeFamily;
+  readonly appearance: Appearance;
+}
+
+/**
+ * Every built-in theme in gallery order: the neutral pair first, then the
+ * coloured packs, then the special-purpose ones (AMOLED, high contrast).
+ */
+export const THEME_META: readonly ThemeMeta[] = [
+  {
+    id: 'light',
+    label: 'Light',
+    description: 'Neutral light theme on white with a blue accent.',
+    family: 'core',
+    appearance: 'light',
+  },
+  {
+    id: 'dark',
+    label: 'Dark',
+    description: 'Neutral dark theme on charcoal with a blue accent.',
+    family: 'core',
+    appearance: 'dark',
+  },
+  {
+    id: 'slate-light',
+    label: 'Slate Light',
+    description: 'Cool blue-grey surfaces on a tinted page, muted navy accent.',
+    family: 'slate',
+    appearance: 'light',
+  },
+  {
+    id: 'slate-dark',
+    label: 'Slate Dark',
+    description: 'Cool blue-grey dark theme with a muted blue accent.',
+    family: 'slate',
+    appearance: 'dark',
+  },
+  {
+    id: 'ocean-light',
+    label: 'Ocean Light',
+    description: 'Blue-green light theme with a deep teal accent.',
+    family: 'ocean',
+    appearance: 'light',
+  },
+  {
+    id: 'ocean-dark',
+    label: 'Ocean Dark',
+    description: 'Blue-green dark theme with a cyan accent.',
+    family: 'ocean',
+    appearance: 'dark',
+  },
+  {
+    id: 'plum-light',
+    label: 'Plum Light',
+    description: 'Muted purple light theme with a violet accent.',
+    family: 'plum',
+    appearance: 'light',
+  },
+  {
+    id: 'plum-dark',
+    label: 'Plum Dark',
+    description: 'Muted purple dark theme with a violet accent.',
+    family: 'plum',
+    appearance: 'dark',
+  },
+  {
+    id: 'grove-light',
+    label: 'Grove Light',
+    description: 'Warm paper tones with wood-grain texture and a moss accent.',
+    family: 'grove',
+    appearance: 'light',
+  },
+  {
+    id: 'grove-dark',
+    label: 'Grove Dark',
+    description: 'Warm walnut tones with wood-grain texture and a moss accent.',
+    family: 'grove',
+    appearance: 'dark',
+  },
+  {
+    id: 'amoled',
+    label: 'AMOLED',
+    description: 'Pure-black dark theme; unlit pixels on OLED screens.',
+    family: 'amoled',
+    appearance: 'dark',
+  },
+  {
+    id: 'hc-light',
+    label: 'High contrast (light)',
+    description: 'Black on white with heavy borders and a thicker focus ring.',
+    family: 'contrast',
+    appearance: 'light',
+  },
+  {
+    id: 'hc-dark',
+    label: 'High contrast (dark)',
+    description: 'White on black with heavy borders and a thicker focus ring.',
+    family: 'contrast',
+    appearance: 'dark',
+  },
 ];
+
+/**
+ * Ordered theme list with human labels, for the Settings/ribbon picker.
+ * Derived from `THEME_META` so ordering and labels have one source.
+ */
+export const THEME_OPTIONS: ReadonlyArray<{ value: ThemeName; label: string }> = THEME_META.map(
+  (m) => ({ value: m.id, label: m.label }),
+);
 
 /** Accent presets offered in Settings (empty string = the theme default). */
 export const ACCENT_PRESETS: ReadonlyArray<{ value: string; label: string }> = [

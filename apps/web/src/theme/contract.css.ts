@@ -93,7 +93,18 @@ export const vars = createThemeContract({
   },
 });
 
-/** The frozen `data-theme` values (plan §2.3). */
+/**
+ * The frozen `data-theme` values (plan §2.3).
+ *
+ * Adding a name here is a deliberate broadcast: every entry MUST have a full
+ * token pack in `tokens.ts` and a registry entry in `registry.ts` (both are
+ * exhaustive `Record<ThemeName, …>`, so the compiler enforces it), and it must
+ * satisfy `CONTRAST_PAIRS` in `contrast.ts`.
+ *
+ * `system` and `schedule` are deliberately NOT members: they are *modes* that
+ * resolve to one of these concrete packs, and live in `appearance.ts` as
+ * `ThemeMode`. Every `data-theme` value resolves to real token values.
+ */
 export type ThemeName =
   | 'light'
   | 'dark'
@@ -101,7 +112,13 @@ export type ThemeName =
   | 'hc-dark'
   | 'amoled'
   | 'grove-light'
-  | 'grove-dark';
+  | 'grove-dark'
+  | 'slate-light'
+  | 'slate-dark'
+  | 'ocean-light'
+  | 'ocean-dark'
+  | 'plum-light'
+  | 'plum-dark';
 
 /** The frozen `data-density` values (plan §2.3). */
 export type Density = 'compact' | 'cozy' | 'relaxed';
