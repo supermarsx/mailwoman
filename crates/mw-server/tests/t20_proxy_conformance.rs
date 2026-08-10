@@ -425,14 +425,38 @@ async fn the_direct_baseline_ignores_a_forwarded_header() {
 
 /// `/jmap/eventsource` reaches the client as a stream, not as a buffered blob.
 ///
-/// Two separate things are asserted, because they fail separately:
-///   * the response **head** arrives promptly and still carries the two headers a
-///     stock proxy needs (`X-Accel-Buffering: no`, `Cache-Control: … no-transform`)
-///     — several proxies strip unknown hop-by-hop-looking headers;
-///   * a **body frame** arrives well inside a typical 60 s `proxy_read_timeout`.
-///     The stream is otherwise idle, so the frame that proves this is the 30 s
-///     keepalive — which is exactly the thing a buffering proxy holds back and the
-///     thing an idle-timeout reaps.
+/// **The load-bearing assertion is the body frame, not any header.** The stream is
+/// otherwise idle, so the frame that arrives is the 30 s keepalive
+/// (`push::HEARTBEAT`) — precisely what a buffering proxy holds back and what an
+/// idle read timeout reaps. If that byte reaches the client, the stream was not
+/// buffered, whatever the headers say.
+///
+/// ## Why the header is no longer asserted to be present (t20-e-e2e, D5)
+///
+/// The first version of this test required `X-Accel-Buffering: no` on the response
+/// **through the proxy**, and it failed on `nginx` alone, with
+/// `"X-Accel-Buffering was stripped by the proxy"`. That was backwards: `X-Accel-*`
+/// are *upstream control* headers, and nginx **consumes** them rather than
+/// forwarding them. Their absence through nginx is proof the mechanism worked. The
+/// other cells passed only because they ignore the header and pass it through
+/// verbatim — so the assertion went green on every proxy that disregards it and red
+/// on the one that respects it, and its message named the wrong component. That is
+/// a false *failure* pointed at an innocent cell, the mirror image of the
+/// false-pass problem this suite exists to avoid.
+///
+/// What is asserted now:
+///   * through the proxy — a body frame inside a plausible read timeout (the real
+///     question), and that `X-Accel-Buffering` is either `no` (a proxy that ignores
+///     it, forwarding verbatim) or **absent** (a proxy that honoured and consumed
+///     it). Any other value would mean an intermediary rewrote it;
+///   * against `MW_T20_DIRECT_BASE` — the same app process with nothing in front —
+///     that the app **does** emit `X-Accel-Buffering: no`. That is where the
+///     question "does the app send the header" has an unambiguous answer, and
+///     asking it there is what keeps the relaxed through-proxy check honest.
+///
+/// The header checks also run **after** the body-frame assertion. In the original
+/// ordering the header panic fired first, so on `nginx` the timing leg — the one
+/// that matters — never ran at all.
 #[tokio::test]
 async fn the_event_source_stream_is_not_buffered() {
     let Some(cell) = Cell::from_env() else { return };
@@ -452,43 +476,24 @@ async fn the_event_source_stream_is_not_buffered() {
         "[{}] the SSE response head took {head_took:?} — a proxy is buffering it",
         cell.kind
     );
-    let content_type = resp
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or_default()
-        .to_string();
+
+    // Capture the headers before the body is consumed, so a header complaint can
+    // never short-circuit the assertion that actually answers the question.
+    let content_type = header_of(&resp, "content-type");
+    let accel = header_of(&resp, "x-accel-buffering");
+    let cache = header_of(&resp, "cache-control");
+
     assert!(
         content_type.starts_with("text/event-stream"),
         "[{}] content-type was {content_type}",
         cell.kind
     );
-    let accel = resp
-        .headers()
-        .get("x-accel-buffering")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or_default()
-        .to_string();
-    assert_eq!(
-        accel, "no",
-        "[{}] X-Accel-Buffering was stripped by the proxy",
-        cell.kind
-    );
-    let cache = resp
-        .headers()
-        .get(reqwest::header::CACHE_CONTROL)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or_default()
-        .to_string();
-    assert!(
-        cache.contains("no-transform"),
-        "[{}] cache-control was {cache} — a compressing intermediary may hold frames",
-        cell.kind
-    );
 
-    // The server's keepalive is 30 s (`push::HEARTBEAT`). Budget generously: the
-    // claim is "well inside a 60 s read timeout", not "at exactly 30 s".
+    // ── The property under test: a body byte reaches the client ───────────────
+    // The server's keepalive is 30 s. Budget generously: the claim is "well inside
+    // a 60 s read timeout", not "at exactly 30 s".
     let budget = Duration::from_secs(50);
+    let waited = Instant::now();
     let mut stream = resp.bytes_stream();
     let frame = tokio::time::timeout(budget, stream.next())
         .await
@@ -508,6 +513,73 @@ async fn the_event_source_stream_is_not_buffered() {
         "[{}] first SSE frame was not a data frame: {text:?}",
         cell.kind
     );
+    eprintln!(
+        "[t20-e11] {}: SSE head in {head_took:?}, first body frame in {:?}",
+        cell.kind,
+        waited.elapsed()
+    );
+
+    // ── Header hygiene, now that the stream itself has been proven ────────────
+    assert!(
+        accel.is_empty() || accel == "no",
+        "[{}] X-Accel-Buffering came back as {accel:?}. The app sends `no`; a proxy \
+         may forward that verbatim or consume it (nginx does, which is what \
+         honouring it means) — but rewriting it to anything else means an \
+         intermediary is asking for the stream to be buffered.",
+        cell.kind
+    );
+    assert!(
+        cache.contains("no-transform"),
+        "[{}] cache-control was {cache} — a compressing intermediary may hold frames",
+        cell.kind
+    );
+
+    // ── Does the APP emit the header at all? Asked where the answer is plain ──
+    let Some(direct) = cell.direct_base.clone() else {
+        skip(&format!(
+            "cell `{}`: MW_T20_DIRECT_BASE unset, so `X-Accel-Buffering: no` was not \
+             confirmed at the app itself. Through a proxy its absence is legitimate \
+             (nginx consumes it), so without the direct leg nothing here would catch \
+             the app dropping the header entirely.",
+            cell.kind
+        ));
+        return;
+    };
+    let direct_ctx = cell.login(&direct).await;
+    let resp = direct_ctx
+        .client
+        .get(format!("{direct}{}/jmap/eventsource", cell.prefix))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "[{}] eventsource on the direct baseline",
+        cell.kind
+    );
+    assert_eq!(
+        header_of(&resp, "x-accel-buffering"),
+        "no",
+        "[{}] the app itself must emit X-Accel-Buffering: no — with no proxy in \
+         front there is nothing that could have consumed it, so this is the app's \
+         own behaviour and not a cell's",
+        cell.kind
+    );
+    assert!(
+        header_of(&resp, "cache-control").contains("no-transform"),
+        "[{}] the app itself must emit Cache-Control: … no-transform",
+        cell.kind
+    );
+}
+
+/// One response header as a string, empty when absent or non-ASCII.
+fn header_of(resp: &reqwest::Response, name: &str) -> String {
+    resp.headers()
+        .get(name)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string()
 }
 
 /// `POST /api/assist/invoke` is reachable through the proxy and answers with the
@@ -837,16 +909,45 @@ async fn the_shell_and_hashed_assets_carry_the_right_cache_headers() {
         "[{}] hashed asset {asset_url} is served",
         cell.kind
     );
-    let cache = first
-        .headers()
-        .get(reqwest::header::CACHE_CONTROL)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or_default()
-        .to_string();
+    let cache = header_of(&first, "cache-control");
+
+    // Attribute the answer before complaining about it. The same asset fetched
+    // from the app with nothing in front settles whether a proxy rewrote the
+    // header or the app never sent the right one — the D5 lesson applied here:
+    // a failure message that names the wrong component costs a diagnosis cycle.
+    let attribution = match cell.direct_base.as_deref() {
+        Some(direct) => {
+            let d = client
+                .get(format!(
+                    "{direct}{}/{}",
+                    cell.prefix,
+                    asset.trim_matches('/')
+                ))
+                .send()
+                .await
+                .unwrap();
+            let direct_cache = header_of(&d, "cache-control");
+            if direct_cache == cache {
+                format!(
+                    "the app itself serves the same value with NO proxy in front \
+                     ({direct} → {direct_cache:?}), so this is an APP defect, not \
+                     this cell's — see t20-e-e2e D3: `is_content_hashed` requires \
+                     the hash suffix to contain an ASCII digit, and a digit-free \
+                     Vite hash (~1 build in 4) therefore falls through to `no-cache`"
+                )
+            } else {
+                format!(
+                    "the app serves {direct_cache:?} directly ({direct}) but this \
+                     cell delivers {cache:?} — the PROXY rewrote it"
+                )
+            }
+        }
+        None => "MW_T20_DIRECT_BASE unset, so app-vs-proxy cannot be attributed here".to_string(),
+    };
     assert!(
         cache.contains("immutable") && cache.contains("max-age="),
-        "[{}] a content-hashed asset must be cacheable forever; cache-control was \
-         {cache:?} (a proxy that rewrites Cache-Control also shows up here)",
+        "[{}] a content-hashed asset ({asset}) must be cacheable forever; \
+         cache-control was {cache:?}. {attribution}",
         cell.kind
     );
     let etag = first
