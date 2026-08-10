@@ -8,6 +8,27 @@ use serde::{Deserialize, Serialize};
 use crate::{AdminError, ObservabilityConfig, SecurityPolicy};
 
 /// Appearance/branding config (§19 appearance section).
+///
+/// This is the DEPLOYMENT DEFAULT, not a policy. A user with no stored
+/// appearance sees these values; the moment they pick a theme, density or accent
+/// of their own, their per-account preferences (SPEC §17.3, stored by
+/// `crates/mw-server/src/prefs_routes.rs` and served at
+/// `GET /api/account/appearance` alongside these defaults) win, and changing the
+/// deployment default afterwards does not move them back. Nothing here can force
+/// a user's appearance.
+///
+/// That is deliberate. §17.1 makes the theme a per-user choice, and the theme set
+/// includes the high-contrast packs — an operator-enforced theme would be an
+/// operator-enforced accessibility regression. An operator who needs the whole
+/// deployment on one theme sets the default and leaves it; they do not get a
+/// lock, and the admin panel says so rather than implying one.
+///
+/// `theme` is stored as a free string and is NOT validated against the theme
+/// registry, which lives in TypeScript (`apps/web/src/theme/registry.ts`) and
+/// grows a pack per release. A Rust mirror of that union would drift and start
+/// refusing themes the SPA can render; instead the client resolves an unknown id
+/// back to its own default (`parseAppearancePrefs`). The cost is that a typo here
+/// shows up as "the default did not apply" rather than as a rejected save.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Appearance {
@@ -74,7 +95,7 @@ impl AdminConfig {
     /// `MW_ADMIN_ENABLED`, `MW_ADMIN_SESSION_COOKIE`, `MW_ADMIN_PORT`,
     /// `MW_ADMIN_LOG_LEVEL`, `MW_ADMIN_OTLP_DSN`, `MW_ADMIN_METRICS`,
     /// `MW_ADMIN_REQUIRE_2FA`, `MW_ADMIN_MIN_TLS`, `MW_ADMIN_THEME`,
-    /// `MW_ADMIN_BRAND`.
+    /// `MW_ADMIN_BRAND`, `MW_ADMIN_ACCENT`.
     pub fn apply_env(&mut self) {
         apply_env_with(self, |k| std::env::var(k).ok());
     }
@@ -125,6 +146,14 @@ fn apply_env_with(cfg: &mut AdminConfig, get: impl Fn(&str) -> Option<String>) {
     }
     if let Some(v) = get("MW_ADMIN_BRAND") {
         cfg.appearance.brand_name = v;
+    }
+    // The third appearance field had no env overlay, so a GitOps deployment that
+    // set theme + brand from the environment still had to ship a TOML file for
+    // the accent alone. An EMPTY value clears the accent (back to the theme's
+    // own), matching how `MW_ADMIN_OTLP_DSN` treats "" above — an env var that
+    // exists but is blank is an instruction, not an absence.
+    if let Some(v) = get("MW_ADMIN_ACCENT") {
+        cfg.appearance.accent = if v.is_empty() { None } else { Some(v) };
     }
 }
 
@@ -191,5 +220,42 @@ mod tests {
         assert_eq!(cfg.observability.otlp_dsn.as_deref(), Some("http://c:4317"));
         assert!(cfg.security.require_2fa);
         assert_eq!(cfg.separate_port, Some(9443));
+    }
+
+    #[test]
+    fn env_overlays_the_whole_appearance_section() {
+        let mut cfg = AdminConfig::default();
+        let env: HashMap<&str, &str> = [
+            ("MW_ADMIN_THEME", "ocean-dark"),
+            ("MW_ADMIN_BRAND", "Acme Mail"),
+            ("MW_ADMIN_ACCENT", "#3355ff"),
+        ]
+        .into_iter()
+        .collect();
+        apply_env_with(&mut cfg, |k| env.get(k).map(|s| s.to_string()));
+        assert_eq!(cfg.appearance.theme, "ocean-dark");
+        assert_eq!(cfg.appearance.brand_name, "Acme Mail");
+        assert_eq!(cfg.appearance.accent.as_deref(), Some("#3355ff"));
+    }
+
+    #[test]
+    fn blank_accent_env_clears_the_accent() {
+        let mut cfg = AdminConfig::default();
+        cfg.appearance.accent = Some("#3355ff".to_string());
+        apply_env_with(&mut cfg, |k| (k == "MW_ADMIN_ACCENT").then(String::new));
+        assert_eq!(cfg.appearance.accent, None);
+    }
+
+    #[test]
+    fn an_unknown_theme_id_is_accepted_verbatim() {
+        // The theme union lives in the web theme registry, not here (see the
+        // `Appearance` doc comment). Storing it verbatim is what keeps this crate
+        // from drifting behind a released pack; the client resolves an id it does
+        // not know back to its own default.
+        let mut cfg = AdminConfig::default();
+        apply_env_with(&mut cfg, |k| {
+            (k == "MW_ADMIN_THEME").then(|| "pack-shipped-next-release".to_string())
+        });
+        assert_eq!(cfg.appearance.theme, "pack-shipped-next-release");
     }
 }

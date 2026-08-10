@@ -23,6 +23,10 @@
 //!   `signature_name` column added by migration 0020; the JMAP-shaped
 //!   `signature_html`/`signature_text` columns are left untouched so `Identity/get`
 //!   semantics are not corrupted.
+//! * Appearance preferences (t19 e13, SPEC §17.3) are one opaque JSON object per
+//!   account on the EXISTING `settings` key/value store — no table, no migration
+//!   (t19 DQ-4). See the appearance section below for why the server keeps the
+//!   payload opaque.
 
 use axum::Json;
 use axum::Router;
@@ -304,8 +308,200 @@ async fn identities_delete(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Appearance preferences (t19 e13, SPEC §17.3 — "synced server-side per user")
+//
+// Theme pack, light/dark pair, mode (fixed/system/schedule), schedule window,
+// density, accent, UI font and layout are ONE object. The client
+// (`apps/web/src/theme/appearance.ts`) owns its shape and its validation; this
+// module stores it as an opaque JSON object and is deliberately blind to the
+// field names.
+//
+// That is a decision, not an omission. The set of valid theme ids lives in the
+// TypeScript theme registry, which gains packs every time a pack ships; a Rust
+// mirror of that union would silently drift and start rejecting themes the SPA
+// can render. Instead the server enforces the properties it CAN own and the
+// client re-validates on read (`parseAppearancePrefs` degrades a bad field to
+// its default rather than adopting it):
+//
+//   * account scope — the key is derived from the SESSION's account id, never
+//     from the body, so one account cannot read or write another's appearance;
+//   * shape — the payload must be a JSON OBJECT (an array/number/string could
+//     never round-trip into the client's preference set);
+//   * size — [`MAX_APPEARANCE_BYTES`], so the KV cannot be used as free storage;
+//   * `updatedAt` — stamped from the SERVER clock on every write. A client clock
+//     never decides which value is newer.
+//
+// Storage is the existing `settings` key/value table (`mw-store` `get_setting`/
+// `set_setting`), keyed `appearance:<account-id>` — no new table and no
+// migration (t19 DQ-4). `set_setting` has no delete, so a reset writes an
+// envelope with `prefs: null`; that keeps `updatedAt` moving forward, which is
+// what lets a reset win over a device still holding the older value.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Cap on one account's serialized appearance object. The real payload is a few
+/// hundred bytes; this is the abuse ceiling, not a target.
+const MAX_APPEARANCE_BYTES: usize = 8 * 1024;
+
+/// `settings` key holding one account's appearance object.
+fn appearance_key(account: &str) -> String {
+    format!("appearance:{account}")
+}
+
+/// The stored envelope, as READ back. `prefs` is the client's opaque object, or
+/// `null` after a reset. `v` lets a future shape change be recognized instead of
+/// guessed at. Writes build the same shape with `json!` (see
+/// [`do_put_appearance`]) because `Value`'s `Display` cannot fail, which keeps
+/// an unreachable serialization error path out of the write path.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+struct AppearanceEnvelope {
+    #[allow(
+        dead_code,
+        reason = "read for shape recognition; only v = 1 exists today"
+    )]
+    v: u32,
+    /// Server-stamped milliseconds since the Unix epoch.
+    updated_at: i64,
+    prefs: Option<serde_json::Value>,
+}
+
+/// `GET /api/account/appearance` — the account's stored appearance, plus the
+/// deployment default so a client with nothing stored can paint the operator's
+/// branding instead of the built-in one.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct AppearanceResponse {
+    /// The stored object, or `null` when this account has never saved one.
+    appearance: Option<serde_json::Value>,
+    /// When it was stored (server clock, ms), or `null`.
+    updated_at: Option<i64>,
+    /// The admin `[appearance]` section. A DEFAULT, never an enforcement — see
+    /// `crates/mw-admin/src/config.rs`.
+    deployment_default: DeploymentAppearanceDto,
+}
+
+/// The deployment-wide appearance default (`mw_admin::Appearance`), in the same
+/// camelCase shape the admin panel already receives from `admin.rs`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+struct DeploymentAppearanceDto {
+    theme: String,
+    brand_name: String,
+    #[serde(default)]
+    accent: Option<String>,
+}
+
+/// `PUT /api/account/appearance` body.
+#[derive(Debug, Clone, Deserialize)]
+struct AppearanceRequest {
+    appearance: serde_json::Value,
+}
+
+async fn appearance_get(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let account = match account_id(&state, &headers).await {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    let cfg = state.v6.admin.config().appearance;
+    match do_get_appearance(&state.store, &account).await {
+        Ok(stored) => Json(AppearanceResponse {
+            appearance: stored.as_ref().and_then(|e| e.prefs.clone()),
+            updated_at: stored.as_ref().map(|e| e.updated_at),
+            deployment_default: DeploymentAppearanceDto {
+                theme: cfg.theme,
+                brand_name: cfg.brand_name,
+                accent: cfg.accent,
+            },
+        })
+        .into_response(),
+        Err(e) => server_error("get appearance", e),
+    }
+}
+
+async fn appearance_put(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<AppearanceRequest>,
+) -> Response {
+    let account = match account_id(&state, &headers).await {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    if !body.appearance.is_object() {
+        return bad_request("appearance preferences must be a JSON object");
+    }
+    if serialized_len(&body.appearance) > MAX_APPEARANCE_BYTES {
+        return payload_too_large("appearance preferences are too large");
+    }
+    match do_put_appearance(&state.store, &account, Some(body.appearance), now_ms()).await {
+        Ok(updated_at) => Json(json!({ "ok": true, "updatedAt": updated_at })).into_response(),
+        Err(e) => server_error("put appearance", e),
+    }
+}
+
+/// `DELETE /api/account/appearance` — forget this account's appearance, so the
+/// client falls back to the deployment default. Stores a `prefs: null` envelope
+/// rather than removing the key (see the section note on `updatedAt`).
+async fn appearance_delete(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let account = match account_id(&state, &headers).await {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    match do_put_appearance(&state.store, &account, None, now_ms()).await {
+        Ok(updated_at) => Json(json!({ "ok": true, "updatedAt": updated_at })).into_response(),
+        Err(e) => server_error("delete appearance", e),
+    }
+}
+
+/// Milliseconds since the Unix epoch, from the SERVER clock. A pre-epoch clock
+/// (only reachable on a badly misconfigured host) saturates at 0 rather than
+/// wrapping negative.
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+        .unwrap_or(0)
+}
+
+/// Serialized byte length of a JSON value, for the size cap. A value that cannot
+/// be serialized is reported as over the cap so it is refused, never accepted.
+fn serialized_len(v: &serde_json::Value) -> usize {
+    serde_json::to_string(v)
+        .map(|s| s.len())
+        .unwrap_or(usize::MAX)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Store-scoped operations (account id is authoritative; unit-tested directly)
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// This account's stored appearance envelope, or `None` when nothing is stored.
+/// A corrupt/legacy value reads as `None` rather than failing the request — the
+/// next write replaces it.
+async fn do_get_appearance(
+    store: &Store,
+    account: &str,
+) -> Result<Option<AppearanceEnvelope>, StoreError> {
+    Ok(store
+        .get_setting(&appearance_key(account))
+        .await?
+        .and_then(|raw| serde_json::from_str::<AppearanceEnvelope>(&raw).ok()))
+}
+
+/// Replace this account's appearance wholesale (`None` = reset). Returns the
+/// stamped `updated_at`. There is no merge: the client sends its complete
+/// preference set, so last write wins per account.
+async fn do_put_appearance(
+    store: &Store,
+    account: &str,
+    prefs: Option<serde_json::Value>,
+    updated_at: i64,
+) -> Result<i64, StoreError> {
+    let envelope = json!({ "v": 1, "updated_at": updated_at, "prefs": prefs });
+    store
+        .set_setting(&appearance_key(account), &envelope.to_string())
+        .await?;
+    Ok(updated_at)
+}
 
 async fn do_list_signatures(store: &Store, account: &str) -> Result<Vec<SignatureDto>, StoreError> {
     Ok(store
@@ -560,6 +756,14 @@ pub(crate) fn prefs_router() -> Router<AppState> {
             get(identities_list).post(identities_upsert),
         )
         .route("/api/account/identities/{id}", delete(identities_delete))
+        // t19 e13 (SPEC §17.3): per-user appearance, one opaque object on the
+        // existing settings KV. DELETE resets to the deployment default.
+        .route(
+            "/api/account/appearance",
+            get(appearance_get)
+                .put(appearance_put)
+                .delete(appearance_delete),
+        )
 }
 
 /// The authenticated caller's account id, or an early auth `Response` to return.
@@ -582,6 +786,10 @@ fn bad_request(msg: &str) -> Response {
 
 fn not_found(msg: &str) -> Response {
     (StatusCode::NOT_FOUND, Json(json!({ "error": msg }))).into_response()
+}
+
+fn payload_too_large(msg: &str) -> Response {
+    (StatusCode::PAYLOAD_TOO_LARGE, Json(json!({ "error": msg }))).into_response()
 }
 
 /// Log a store error and return an opaque 500 (never leaks the internal error).
@@ -891,5 +1099,114 @@ mod tests {
             do_list_identities(&s, &a1).await.unwrap()[0].email,
             "sales@example.com"
         );
+    }
+
+    // ── appearance (t19 e13, SPEC §17.3) ──────────────────────────────────────
+
+    fn prefs_value() -> serde_json::Value {
+        json!({
+            "mode": "system",
+            "theme": "ocean-dark",
+            "lightTheme": "ocean-light",
+            "darkTheme": "ocean-dark",
+            "schedule": { "darkStart": "20:00", "darkEnd": "07:00" },
+            "density": "compact",
+            "accent": "",
+            "font": "default",
+            "layout": "default",
+            "ribbonCollapsed": false
+        })
+    }
+
+    #[tokio::test]
+    async fn appearance_round_trips_verbatim() {
+        let s = store().await;
+        assert_eq!(do_get_appearance(&s, "a1").await.unwrap(), None);
+
+        do_put_appearance(&s, "a1", Some(prefs_value()), 1_700_000_000_000)
+            .await
+            .unwrap();
+
+        let got = do_get_appearance(&s, "a1").await.unwrap().unwrap();
+        assert_eq!(got.updated_at, 1_700_000_000_000);
+        // The server is blind to the shape: what went in comes back byte-for-byte,
+        // including fields it has no Rust type for.
+        assert_eq!(got.prefs.as_ref(), Some(&prefs_value()));
+    }
+
+    #[tokio::test]
+    async fn appearance_is_account_scoped() {
+        let s = store().await;
+        do_put_appearance(&s, "a1", Some(prefs_value()), 1)
+            .await
+            .unwrap();
+        // a2 has stored nothing and cannot see a1's object — the key is derived
+        // from the session account, so there is no id to present.
+        assert_eq!(do_get_appearance(&s, "a2").await.unwrap(), None);
+        assert_ne!(appearance_key("a1"), appearance_key("a2"));
+    }
+
+    #[tokio::test]
+    async fn appearance_write_replaces_rather_than_merges() {
+        let s = store().await;
+        do_put_appearance(&s, "a1", Some(prefs_value()), 10)
+            .await
+            .unwrap();
+        do_put_appearance(&s, "a1", Some(json!({ "mode": "fixed" })), 20)
+            .await
+            .unwrap();
+
+        let got = do_get_appearance(&s, "a1").await.unwrap().unwrap();
+        assert_eq!(got.updated_at, 20);
+        // No merge: the client always sends its COMPLETE set, so the old fields
+        // are gone rather than lingering under a new mode.
+        assert_eq!(got.prefs, Some(json!({ "mode": "fixed" })));
+    }
+
+    #[tokio::test]
+    async fn appearance_reset_stores_a_newer_null() {
+        let s = store().await;
+        do_put_appearance(&s, "a1", Some(prefs_value()), 10)
+            .await
+            .unwrap();
+        do_put_appearance(&s, "a1", None, 20).await.unwrap();
+
+        let got = do_get_appearance(&s, "a1").await.unwrap().unwrap();
+        assert_eq!(got.prefs, None);
+        // The reset must be NEWER than the value it clears, or a device still
+        // holding the old object would win the next reconcile.
+        assert_eq!(got.updated_at, 20);
+    }
+
+    #[tokio::test]
+    async fn appearance_corrupt_value_reads_as_absent() {
+        let s = store().await;
+        s.set_setting(&appearance_key("a1"), "not json at all")
+            .await
+            .unwrap();
+        // A junk value degrades to "nothing stored" instead of failing the GET;
+        // the next write replaces it.
+        assert_eq!(do_get_appearance(&s, "a1").await.unwrap(), None);
+
+        do_put_appearance(&s, "a1", Some(prefs_value()), 5)
+            .await
+            .unwrap();
+        assert!(do_get_appearance(&s, "a1").await.unwrap().is_some());
+    }
+
+    #[test]
+    fn appearance_size_cap_measures_the_serialized_object() {
+        let small = json!({ "mode": "fixed" });
+        assert!(serialized_len(&small) <= MAX_APPEARANCE_BYTES);
+
+        let fat = json!({ "junk": "x".repeat(MAX_APPEARANCE_BYTES) });
+        assert!(serialized_len(&fat) > MAX_APPEARANCE_BYTES);
+    }
+
+    #[test]
+    fn appearance_now_ms_is_a_plausible_wall_clock() {
+        // Guards the saturating conversion: a negative or zero stamp would make
+        // every stored value look older than every client's cached copy.
+        assert!(now_ms() > 1_700_000_000_000);
     }
 }
