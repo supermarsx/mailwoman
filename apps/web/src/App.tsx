@@ -2,6 +2,7 @@ import { onMount, onCleanup, createEffect, lazy, Suspense, Show, Switch, Match, 
 import { AppContext } from './state/context.ts';
 import { createAppState } from './state/store.ts';
 import { createConfiguredClient } from './api/transport.ts';
+import { stripBase } from './api/basePath.ts';
 import { getPlatform, initPlatform } from './platform/index.ts';
 import { capabilityEnabled } from './platform/capabilities.ts';
 import { Login } from './screens/Login.tsx';
@@ -29,17 +30,24 @@ const ConsentScreen = lazy(() => import('./screens/Consent/index.tsx'));
 // byte-unchanged. Mounted only inside the authenticated branch below.
 const UiPluginTier = lazy(() => import('./plugins-ui/Tier.tsx'));
 
+// Both route tests run on the pathname with the deploy prefix REMOVED. Under
+// `MW_BASE_PATH=/mail` the browser is at `/mail/admin`, which matches neither
+// literal — and because these are early returns rather than lookups, the failure
+// is silent: the admin console and the OAuth consent screen would render the
+// MAILBOX instead of erroring. `stripBase` is a no-op at the origin root, so the
+// unprefixed deployment is byte-unchanged.
+
 /** Is the app being served under the separate `/admin` route? */
 function isAdminRoute(): boolean {
   if (typeof location === 'undefined') return false;
-  const path = location.pathname.replace(/\/+$/, '');
+  const path = stripBase(location.pathname).replace(/\/+$/, '');
   return path === '/admin' || path.startsWith('/admin/');
 }
 
 /** Is the app being served under the `/oauth/authorize` consent route? */
 function isOAuthAuthorizeRoute(): boolean {
   if (typeof location === 'undefined') return false;
-  return location.pathname.replace(/\/+$/, '') === '/oauth/authorize';
+  return stripBase(location.pathname).replace(/\/+$/, '') === '/oauth/authorize';
 }
 
 export function App(): JSX.Element {

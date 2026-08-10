@@ -12,17 +12,18 @@
 // e3 mounts these exact paths. See `.orchestration/logs/t9-e4.md` for the
 // consumed-endpoint list.
 
+import { basePath } from '../../api/basePath.ts';
 import type { SsoBackendInput, SsoBackendRow, SsoProviderSummary } from './types.ts';
 
 // ── Public login surface ───────────────────────────────────────────────────────
 
 /** The path a "Sign in with <IdP>" control navigates to (full redirect). */
-export function ssoBeginPath(id: string, base = ''): string {
+export function ssoBeginPath(id: string, base = basePath()): string {
   return `${base}/api/sso/${encodeURIComponent(id)}/begin`;
 }
 
 /** The SAML SP-metadata path for a backend (`GET /api/sso/{id}/metadata`). */
-export function ssoMetadataPath(id: string, base = ''): string {
+export function ssoMetadataPath(id: string, base = basePath()): string {
   return `${base}/api/sso/${encodeURIComponent(id)}/metadata`;
 }
 
@@ -34,7 +35,7 @@ export function ssoMetadataPath(id: string, base = ''): string {
  * configured shows the login exactly as today — the additive path never breaks
  * password sign-in.
  */
-export async function listSsoProviders(base = ''): Promise<SsoProviderSummary[]> {
+export async function listSsoProviders(base = basePath()): Promise<SsoProviderSummary[]> {
   if (typeof fetch === 'undefined') return [];
   try {
     const res = await fetch(`${base}/api/sso/providers`, { credentials: 'same-origin' });
@@ -78,7 +79,7 @@ export interface SsoAdminApi {
 }
 
 /** The production HTTP client (same-origin, admin-session cookie-authed). */
-export function createHttpSsoAdminApi(base = ''): SsoAdminApi {
+export function createHttpSsoAdminApi(base = basePath()): SsoAdminApi {
   return {
     async list() {
       const res = await fetch(`${base}/admin/sso`, { credentials: 'same-origin' });

@@ -4,6 +4,7 @@
 // the friendly display metadata. The resource OWNER's identity comes from the session,
 // never from the client (matching `mw-oauth::AuthorizeRequest`).
 
+import { withBase } from '../../api/basePath.ts';
 import type { WireScope } from '../../modules/apikeys/index.ts';
 
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
@@ -74,7 +75,7 @@ export class ConsentService {
 
   /** Validate the request server-side and fetch the client display + requested scope. */
   async context(params: AuthorizeParams): Promise<ConsentContext> {
-    const res = await this.fetcher('/oauth/consent', {
+    const res = await this.fetcher(withBase('/oauth/consent'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(params),
@@ -85,7 +86,7 @@ export class ConsentService {
 
   /** Record grant/deny. On grant the server mints the code and returns the redirect. */
   async decide(params: AuthorizeParams, approve: boolean): Promise<ConsentResult> {
-    const res = await this.fetcher('/oauth/decision', {
+    const res = await this.fetcher(withBase('/oauth/decision'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ approve, params }),

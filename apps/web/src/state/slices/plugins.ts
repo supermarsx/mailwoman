@@ -6,6 +6,7 @@
 // is byte-unchanged. Disjoint file — no `store.ts` collision.
 
 import { createSignal, type Accessor } from 'solid-js';
+import { basePath } from '../../api/basePath.ts';
 
 // ── Wire DTOs (the frozen `/admin/plugins/*` JSON contract e9 satisfies) ──────────
 
@@ -148,8 +149,9 @@ export interface PluginsApi {
   uninstall(id: string): Promise<void>;
 }
 
-/** The production HTTP client. Same-origin, cookie-authed against the admin domain. */
-export function createHttpPluginsApi(base = ''): PluginsApi {
+/** The production HTTP client. Same-origin, cookie-authed against the admin domain.
+ *  `base` defaults to the deploy prefix (`''` at the origin root). */
+export function createHttpPluginsApi(base = basePath()): PluginsApi {
   async function raw(path: string, init?: RequestInit): Promise<Response> {
     return fetch(`${base}/admin/plugins${path}`, { credentials: 'same-origin', ...init });
   }

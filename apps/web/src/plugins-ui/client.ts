@@ -26,10 +26,11 @@ import {
   type UiPluginRegistry,
 } from './types';
 import { rpcError, rpcErrorResponse } from './host';
+import { basePath } from '../api/basePath.ts';
 
 /// Fetch the approved+enabled UI-plugin tier (`GET /api/ui-plugins`). Fail-soft: resolves
 /// to `EMPTY_REGISTRY` on ANY error, so no-plugins-configured renders the baseline.
-export async function listUiPlugins(base = ''): Promise<UiPluginRegistry> {
+export async function listUiPlugins(base = basePath()): Promise<UiPluginRegistry> {
   if (typeof fetch === 'undefined') return EMPTY_REGISTRY;
   try {
     const res = await fetch(`${base}/api/ui-plugins`, { credentials: 'same-origin' });
@@ -48,7 +49,7 @@ export async function listUiPlugins(base = ''): Promise<UiPluginRegistry> {
 export async function callUiPluginRpc(
   pluginId: string,
   request: RpcRequest,
-  base = '',
+  base = basePath(),
 ): Promise<RpcResponse> {
   if (typeof fetch === 'undefined') {
     return rpcErrorResponse(request.id, rpcError('internal', 'fetch unavailable'));

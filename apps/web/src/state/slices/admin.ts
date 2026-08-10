@@ -11,6 +11,7 @@
 // client, so the normal mailbox path is untouched (regression gate).
 
 import { createSignal, type Accessor } from 'solid-js';
+import { basePath } from '../../api/basePath.ts';
 
 // ── Wire DTOs (the frozen `/admin/*` JSON contract e11 satisfies) ──────────────
 
@@ -235,9 +236,11 @@ export class AdminApiError extends Error {
  * The production HTTP client. Same-origin, cookie-authed against the admin
  * session domain — it shares nothing with the JMAP client, so the mailbox path
  * is byte-unchanged. `base` lets a native shell point at a remote server (as the
- * JMAP client does), defaulting to same-origin in the browser.
+ * JMAP client does); it defaults to the deploy prefix, which is `''` at the
+ * origin root and `/mail` under sub-path hosting, so every `/admin/*` call
+ * follows the app without each call site having to know.
  */
-export function createHttpAdminApi(base = ''): AdminApi {
+export function createHttpAdminApi(base = basePath()): AdminApi {
   async function raw(path: string, init?: RequestInit): Promise<Response> {
     return fetch(`${base}/admin${path}`, { credentials: 'same-origin', ...init });
   }

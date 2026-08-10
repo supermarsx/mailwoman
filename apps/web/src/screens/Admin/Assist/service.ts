@@ -6,6 +6,7 @@
 // `/admin/*`); it shares nothing with the JMAP client, so the mailbox path is
 // unchanged. The transport is injectable so the screen unit-tests without a server.
 
+import { withBase } from '../../../api/basePath.ts';
 import type { AssistCapability } from '../../../modules/assist/types.ts';
 
 /** A capability is either usable ('allowed') or disabled tenant-wide ('locked'). */
@@ -102,13 +103,13 @@ export class AdminAssistApi {
   constructor(private readonly fetcher: Fetcher = defaultFetcher) {}
 
   async get(): Promise<AdminAssistConfig> {
-    const res = await this.fetcher('/admin/assist');
+    const res = await this.fetcher(withBase('/admin/assist'));
     if (!res.ok) throw new Error(`admin assist config failed (${res.status})`);
     return configFromWire((await res.json()) as WireAdminAssistConfig);
   }
 
   async save(config: AdminAssistConfig): Promise<void> {
-    const res = await this.fetcher('/admin/assist', {
+    const res = await this.fetcher(withBase('/admin/assist'), {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(configToWire(config)),
@@ -117,7 +118,7 @@ export class AdminAssistApi {
   }
 
   async setKillSwitch(on: boolean): Promise<void> {
-    const res = await this.fetcher('/admin/assist/kill', {
+    const res = await this.fetcher(withBase('/admin/assist/kill'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ on }),

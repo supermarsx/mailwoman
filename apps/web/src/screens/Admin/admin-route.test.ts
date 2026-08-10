@@ -26,4 +26,19 @@ describe('the /admin route is lazily loaded (code-split off the mailbox bundle)'
   it('App gates the admin route on the /admin path', () => {
     expect(app).toMatch(/isAdminRoute/);
   });
+
+  // t20-e12b: under `MW_BASE_PATH=/mail` the browser is at `/mail/admin`. Matching the
+  // RAW pathname against `/admin` fails there, and because these are early returns the
+  // failure is SILENT — the admin console and the OAuth consent screen would render the
+  // mailbox instead of erroring. Both matchers must therefore strip the deploy prefix
+  // first. Source-level guard, in this file's existing idiom (the matchers are module-
+  // private, so there is nothing to call).
+  it('both route matchers strip the deploy prefix before comparing', () => {
+    const matchers = app.match(/function is(?:Admin|OAuthAuthorize)Route\(\)[^}]*}/g);
+    expect(matchers).toHaveLength(2);
+    for (const fn of matchers ?? []) {
+      expect(fn).toMatch(/stripBase\(\s*location\.pathname\s*\)/);
+      expect(fn).not.toMatch(/(?<!stripBase\()\blocation\.pathname\.replace/);
+    }
+  });
 });
