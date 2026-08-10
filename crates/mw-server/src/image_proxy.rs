@@ -15,7 +15,10 @@
 //!   * scheme ∈ {`http`,`https`} only; URLs carrying credentials are refused;
 //!   * DNS is resolved **once, by us**, and the fetch is PINNED to the resolved IP
 //!     (reqwest `resolve`) so a name cannot rebind to a new address between our check
-//!     and the connect (anti-DNS-rebinding);
+//!     and the connect (anti-DNS-rebinding). The client also sets `no_proxy` — an
+//!     ambient `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` would otherwise hand the
+//!     HOSTNAME to a proxy that resolves it itself, bypassing the pin
+//!     ([`harden_client`]);
 //!   * every resolved address is checked against [`ip_allowed`] — loopback, private,
 //!     link-local (incl. the `169.254.169.254` cloud-metadata address), CGNAT,
 //!     unique-local/link-local IPv6, multicast, unspecified and reserved ranges are
@@ -357,16 +360,44 @@ enum Hop {
     Redirect(String),
 }
 
+/// Apply the pinned-fetch hardening to a client builder: no auto-redirects, the
+/// per-hop timeout, the `host → addr` pin, and **no proxy**.
+///
+/// `.no_proxy()` is what keeps the pin real. `reqwest::Client::builder()` reads
+/// `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` from the process environment by default,
+/// and a proxied request is sent to the proxy **by name** (a plain `GET
+/// http://host/…` line, or `CONNECT host:443`) — so the proxy performs its own DNS
+/// resolution and the `.resolve()` pin above is never consulted. A name that
+/// answers with an allowed address at gate time could then be re-resolved by the
+/// third party to an internal one, which is precisely the rebinding case the pin
+/// exists to close. Refusing every proxy restores it.
+///
+/// The trade is deliberate and fail-safe: a deployment behind a mandatory egress
+/// proxy loses remote images and webcal/ICS import — a visible failure — rather
+/// than silently losing the pin. A configured, gate-aware egress proxy is a
+/// separate design question and is not answered here.
+///
+/// Split out of [`fetch_hop`] so a test can hand in a builder that already carries
+/// a proxy and assert the hardening still wins (`no_proxy` clears explicitly-set
+/// proxies as well as the environment reader).
+fn harden_client(
+    base: reqwest::ClientBuilder,
+    host: &str,
+    addr: SocketAddr,
+) -> reqwest::ClientBuilder {
+    base.redirect(reqwest::redirect::Policy::none())
+        .timeout(FETCH_TIMEOUT)
+        .resolve(host, addr)
+        .no_proxy()
+}
+
 /// Fetch ONE hop from a pinned target with redirects disabled + size/timeout caps.
 /// The reqwest client pins `host → addr`, so even though the URL still names `host`
 /// (for TLS/SNI/Host correctness) the connection goes only to the address we
 /// validated. No cookie store; no forwarded headers. `accept` is the `Accept`
 /// header (the image proxy asks for `image/*`; other reusers pass their own).
 async fn fetch_hop(target: &Target, accept: &str) -> Result<Hop, Refusal> {
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(FETCH_TIMEOUT)
-        .resolve(&target.host, target.addr)
+    let client = harden_client(reqwest::Client::builder(), &target.host, target.addr)
         .build()
         .map_err(|_| Refusal::Upstream)?;
 
@@ -1070,6 +1101,79 @@ mod tests {
             .unwrap();
         let err = validate_and_resolve(joined).await.unwrap_err();
         assert_eq!(err, Refusal::Blocked);
+    }
+
+    // ── the connect pin survives proxy configuration ──────────────────────────
+
+    #[tokio::test]
+    async fn hardened_client_ignores_a_configured_proxy_and_honours_the_pin() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        // The pin's whole point is that the connection lands on the address WE
+        // resolved. A proxy defeats it: the request is sent to the proxy carrying
+        // the HOSTNAME, so the proxy resolves the name again and can be steered
+        // somewhere we never validated. `harden_client` sets `no_proxy`, so no
+        // proxy configuration — ambient or explicit — can take the request.
+        //
+        // The host is `pinned.invalid`: RFC 6761 reserves `.invalid` and it cannot
+        // resolve in DNS anywhere. So this asserts more than "the fetch worked" —
+        // only the pin can produce a connection to the origin at all.
+        //
+        // Driven through the BUILDER, not `HTTP_PROXY`: env vars are process-global
+        // (and `set_var` is `unsafe` in this edition), so setting one here would
+        // leak into every other client this binary builds, and the workspace's
+        // `--test-threads=1` is the only thing that would stand between that and a
+        // cross-test flake. `ClientBuilder::no_proxy` clears explicitly-set proxies
+        // AND the environment reader (`auto_sys_proxy`), so an explicit proxy
+        // exercises the same one call that closes the env-var path.
+        let origin = spawn_origin(
+            b"from-the-pinned-origin".to_vec(),
+            None,
+            StatusCode::OK,
+            None,
+        )
+        .await;
+
+        // A stand-in proxy that only counts connections and hangs up. If the
+        // request goes here instead of to the pin, `hits` is non-zero.
+        let observer = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_addr = observer.local_addr().unwrap();
+        let hits = Arc::new(AtomicUsize::new(0));
+        {
+            let hits = Arc::clone(&hits);
+            tokio::spawn(async move {
+                while let Ok((stream, _)) = observer.accept().await {
+                    hits.fetch_add(1, Ordering::SeqCst);
+                    drop(stream);
+                }
+            });
+        }
+
+        let client = harden_client(
+            reqwest::Client::builder()
+                .proxy(reqwest::Proxy::all(format!("http://{proxy_addr}")).unwrap()),
+            "pinned.invalid",
+            origin,
+        )
+        .build()
+        .unwrap();
+
+        let resp = client
+            .get("http://pinned.invalid/img")
+            .send()
+            .await
+            .expect("the pinned address must be contacted, not the proxy");
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.bytes().await.unwrap().as_ref(),
+            b"from-the-pinned-origin"
+        );
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            0,
+            "the proxy must never receive the request — it would resolve the name itself"
+        );
     }
 
     // ── re-encode integration: fetched bytes → wasm jail → PNG ────────────────
