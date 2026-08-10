@@ -170,8 +170,15 @@ gate  = false                # per-crate opt-out (cfg(target_os) bodies)
 gate = true
 
 [web.metric.lines]
-floor = 83.13                # measured 83.13% (18928/22767)
+floor = 85.79                # min of 3 runs; best 85.81% (20500/23888)
 ```
+
+Note the "min of 3 runs". The web measurement is very slightly
+non-deterministic — three consecutive runs on an identical tree spread by at
+most 0.06pp — so each floor is recorded as the **lowest** of several runs rather
+than the best one seen. That keeps `tolerance_pp` as genuine headroom instead of
+being spent absorbing jitter that is already known about. Do the same when
+raising a floor: measure more than once, record the minimum.
 
 Crates measured but **not** listed are reported under "measured but not gated"
 in the job summary. Adding a crate to the file is what puts it under the

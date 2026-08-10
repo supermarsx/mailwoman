@@ -64,20 +64,30 @@ gate = false
 # -----------------------------------------------------------------------------
 # Web
 # -----------------------------------------------------------------------------
-# Gating from day one. vitest under Node is platform-independent, so these were
-# measured with the exact command CI runs -- on a clean `git worktree` at HEAD,
-# so no concurrent work contaminated them. 879 tests, 259 source files measured.
+# Gating. vitest under Node is platform-independent, so these were measured with
+# the exact command CI runs -- `pnpm -C apps/web test:coverage` -- on a CLEAN
+# tree at 6113673, everything through wave 4 committed. 1246 tests, 116 files.
+#
+# The measurement is very slightly non-deterministic: three consecutive runs on
+# the identical tree gave lines 85.81 / 85.79 / 85.80, branches 87.96 / 87.95 /
+# 87.92, functions 76.46 / 76.44 / 76.50. Spread is at most 0.06pp, comfortably
+# inside `tolerance_pp`. Each floor below is the MINIMUM of the three, so it is
+# a value every observed run actually achieved and the tolerance stays headroom
+# rather than being spent absorbing known jitter.
+#
+# Superseded the first baseline (83.13 / 83.13 / 87.08 / 74.64, 879 tests),
+# which was measured mid-wave. All four moved UP, per the ratchet rule.
 [web]
 gate = true
 
 [web.metric.lines]
-floor = 83.13  # measured 83.13% (18928/22767)
+floor = 85.79  # min of 3 runs; best 85.81% (20500/23888)
 
 [web.metric.statements]
-floor = 83.13  # measured 83.13% (18928/22767)
+floor = 85.79  # min of 3 runs; best 85.81% (20500/23888)
 
 [web.metric.branches]
-floor = 87.08  # measured 87.08% (7939/9116)
+floor = 87.92  # min of 3 runs; best 87.96% (8599/9776)
 
 [web.metric.functions]
-floor = 74.64  # measured 74.64% (2771/3712)
+floor = 76.44  # min of 3 runs; best 76.50% (2944/3848)
