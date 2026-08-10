@@ -40,24 +40,35 @@ export function AssistPanel(props: AssistPanelProps): JSX.Element {
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
+  /** Replace one message in place (used to grow the reply as tokens arrive). */
+  function patch(id: string, next: (m: ChatMessage) => ChatMessage): void {
+    setMessages((prev) => prev.map((m) => (m.id === id ? next(m) : m)));
+  }
+
   async function ask(): Promise<void> {
     const prompt = draft().trim();
     if (prompt.length === 0 || busy()) return;
     setError(null);
-    setMessages((prev) => [...prev, { id: nextId(), role: 'user', text: prompt }]);
+    // The reply bubble is created empty and grows with the stream, so a long model
+    // turn shows progress instead of an unexplained pause.
+    const replyId = nextId();
+    setMessages((prev) => [
+      ...prev,
+      { id: nextId(), role: 'user', text: prompt },
+      { id: replyId, role: 'assistant', text: '' },
+    ]);
     setDraft('');
     setBusy(true);
     try {
-      const result = await props.service.invoke({
-        capability: 'assistant',
-        prompt,
-        context: props.context ?? [],
-      });
-      setMessages((prev) => [
-        ...prev,
-        { id: nextId(), role: 'assistant', text: result.text, actions: result.actions },
-      ]);
+      const result = await props.service.invoke(
+        { capability: 'assistant', prompt, context: props.context ?? [] },
+        (delta) => patch(replyId, (m) => ({ ...m, text: m.text + delta })),
+      );
+      // The accumulated text is authoritative (a non-streaming endpoint sends no
+      // deltas at all); proposals only ever arrive with the terminal frame.
+      patch(replyId, (m) => ({ ...m, text: result.text, actions: result.actions }));
     } catch {
+      setMessages((prev) => prev.filter((m) => m.id !== replyId));
       setError(t('assist-error'));
     } finally {
       setBusy(false);

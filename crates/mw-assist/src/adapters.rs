@@ -101,13 +101,17 @@ fn default_anthropic_base() -> String {
 }
 // Current Claude model id (per the claude-api guidance). BYO-endpoint: overridable.
 fn default_anthropic_model() -> String {
-    "claude-opus-4-8".to_string()
+    "claude-opus-5".to_string()
 }
 fn default_anthropic_version() -> String {
     "2023-06-01".to_string()
 }
+/// `max_tokens` is a hard ceiling on the WHOLE response, and on current Claude models
+/// thinking is on by default and draws from the same budget — a 1K ceiling could be
+/// spent before any visible text arrived. This is a cap, not a target: an assist reply
+/// still costs only what it generates. Overridable per deployment.
 fn default_max_tokens() -> u32 {
-    1024
+    16_000
 }
 
 impl AdapterConfig {
@@ -529,25 +533,49 @@ impl SseDecoder {
         while let Some(idx) = self.buf.find('\n') {
             let line: String = self.buf.drain(..=idx).collect();
             let line = line.trim_end_matches(['\n', '\r']);
-            if let Some(chunk) = self.decode_line(line) {
-                out.push(Ok(chunk));
+            if let Some(item) = self.decode_line(line) {
+                out.push(item);
             }
         }
         out
     }
 
-    fn decode_line(&self, line: &str) -> Option<StreamChunk> {
+    fn decode_line(&self, line: &str) -> Option<Result<StreamChunk>> {
         let data = line.strip_prefix("data:")?.trim();
         if data.is_empty() {
             return None;
         }
         if data == "[DONE]" {
-            return Some(StreamChunk {
+            return Some(Ok(StreamChunk {
                 delta: String::new(),
                 done: true,
-            });
+            }));
         }
         let v: Value = serde_json::from_str(data).ok()?;
+        // A mid-stream `error` frame (both dialects emit one) would otherwise end the
+        // reply silently, leaving the user with a truncated answer and no signal.
+        if v.get("error").is_some_and(|e| !e.is_null()) {
+            return Some(Err(AssistError::Endpoint(
+                "endpoint reported a stream error".into(),
+            )));
+        }
+        // Likewise a safety refusal, which arrives as a stop reason rather than text:
+        // report it instead of returning an empty reply.
+        if v.pointer("/delta/stop_reason").and_then(Value::as_str) == Some("refusal")
+            || v.pointer("/choices/0/finish_reason")
+                .and_then(Value::as_str)
+                == Some("content_filter")
+        {
+            return Some(Err(AssistError::Endpoint(
+                "endpoint declined the request".into(),
+            )));
+        }
+        Some(Ok(self.decode_frame(&v)?))
+    }
+
+    /// Decode one already-parsed provider frame into a visible chunk (`None` for the
+    /// frames that carry no user-visible text).
+    fn decode_frame(&self, v: &Value) -> Option<StreamChunk> {
         match self.provider {
             Provider::OpenAi => {
                 let delta = v

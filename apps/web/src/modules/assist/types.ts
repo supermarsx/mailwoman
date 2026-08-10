@@ -137,6 +137,11 @@ export interface ProposedAction {
  * The result of an invocation: the model text + the honest disclosure, plus any
  * tool actions the assistant PROPOSED (assistant capability only). Proposed
  * actions are shown for human review — the UI never executes them.
+ *
+ * `POST /api/assist/invoke` answers as Server-Sent Events, and `AssistService.invoke`
+ * assembles this from them: a leading `disclosure` frame ⇒ {@link Disclosure}, the
+ * default `{delta}` frames ⇒ `text` (also surfaced live via its `onDelta` callback),
+ * and the terminal `done` frame ⇒ `actions`.
  */
 export interface InvokeResult {
   readonly text: string;

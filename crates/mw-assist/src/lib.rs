@@ -33,7 +33,7 @@ pub use adapters::{
     OpenAiCompatible, Provider, SseDecoder, parse_anthropic_message, parse_openai_chat,
     parse_openai_embeddings, parse_openai_transcription,
 };
-pub use assistant::AssistantTools;
+pub use assistant::{ACTION_MARKER, AssistantTools, ProposalFilter, ProposedAction, parse_actions};
 
 /// The Assist capabilities (plan §2.4). **Note the absence of any send/delete/
 /// accept variant** — Assist can never transmit; that is a structural guarantee.
@@ -74,7 +74,17 @@ impl AssistCapability {
             AssistCapability::Grammar => "Improve grammar and clarity; preserve meaning.",
             AssistCapability::Recap => "Recap the thread's key points and decisions.",
             AssistCapability::AutoTag => "Suggest labels/tags for the message(s).",
-            AssistCapability::Assistant => "You are a mail assistant. Any send is human-gated.",
+            // The assistant may PROPOSE tool actions; it can never take one. The
+            // proposal block is parsed out of the reply by `ProposalFilter` and shown
+            // for human review, so the format is part of the contract (§14.3).
+            AssistCapability::Assistant => concat!(
+                "You are a mail assistant. You cannot send, delete, or accept anything: ",
+                "every action you name is a proposal the user reviews and confirms.\n",
+                "To propose actions, end your reply with a line containing exactly ",
+                "<<<MW_ACTIONS followed by a JSON array of objects with \"tool\" and ",
+                "\"summary\" string fields, and write nothing after that array. ",
+                "Omit the line entirely when you are not proposing anything.",
+            ),
             AssistCapability::Dictation => "Transcribe speech to text.",
             AssistCapability::SearchSemantic => "Produce a semantic representation for re-ranking.",
         }
@@ -227,6 +237,52 @@ pub struct StreamChunk {
     pub done: bool,
 }
 
+/// What actually left the device on one invocation — the honest, per-call companion
+/// to the static "what left the device" copy (§14). Built from the
+/// [`redact::RedactionReport`], so it states what redaction really did rather than
+/// what the ceiling nominally allows. Counts only; **never content**.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InvokeDisclosure {
+    /// The host the server-side request reached (the browser never contacts it).
+    pub endpoint_host: String,
+    /// Content classes that were forwarded.
+    pub sent: Vec<String>,
+    /// Content classes that were withheld, with the count that was dropped.
+    pub withheld: Vec<String>,
+}
+
+impl InvokeDisclosure {
+    /// Summarize one redaction pass for the user.
+    #[must_use]
+    pub fn from_report(report: &redact::RedactionReport, endpoint_host: String) -> Self {
+        let mut sent = vec!["your prompt".to_string()];
+        if report.kept > 0 {
+            sent.push(format!("{} message excerpt(s)", report.kept));
+        }
+        let mut withheld = Vec::new();
+        if report.dropped_e2ee > 0 {
+            withheld.push(format!(
+                "{} end-to-end-encrypted item(s)",
+                report.dropped_e2ee
+            ));
+        }
+        if report.dropped_attachment > 0 {
+            withheld.push(format!("{} attachment(s)", report.dropped_attachment));
+        }
+        if report.dropped_scope > 0 {
+            withheld.push(format!(
+                "{} item(s) outside the permitted accounts or folders",
+                report.dropped_scope
+            ));
+        }
+        Self {
+            endpoint_host,
+            sent,
+            withheld,
+        }
+    }
+}
+
 /// Per-deployment + per-user Assist config (plan §2.4). Admin-lockable; unconfigured
 /// (or `enabled=false`, or no `adapter`) ⇒ the gateway returns
 /// [`AssistError::Disabled`] and the web hides all Assist UI.
@@ -334,6 +390,34 @@ impl AssistGateway {
         self.config.enabled && self.adapter.is_some()
     }
 
+    /// The capabilities granted at this scope. A disabled gateway grants **none**, so
+    /// a caller can render the surface straight from this list.
+    #[must_use]
+    pub fn granted_capabilities(&self) -> Vec<AssistCapability> {
+        if self.is_enabled() {
+            self.config.capability_grants.clone()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// The admin data-class ceiling every per-call scope is clamped to.
+    #[must_use]
+    pub fn data_ceiling(&self) -> &DataScope {
+        &self.config.data_ceiling
+    }
+
+    /// The endpoint host content would be proxied to, for the disclosure. `None` when
+    /// the gateway is disabled (nothing can leave).
+    #[must_use]
+    pub fn endpoint_host(&self) -> Option<String> {
+        if self.is_enabled() {
+            self.adapter.as_ref().map(|a| a.host())
+        } else {
+            None
+        }
+    }
+
     fn require_adapter(&self) -> Result<&Arc<dyn EndpointAdapter>> {
         if !self.config.enabled {
             return Err(AssistError::Disabled);
@@ -391,13 +475,32 @@ impl AssistGateway {
         scope: DataScope,
         input: &AssistInput,
     ) -> Result<ChatStream> {
+        self.invoke_disclosed(cap, scope, input)
+            .await
+            .map(|(stream, _)| stream)
+    }
+
+    /// [`invoke`](Self::invoke) plus the per-call [`InvokeDisclosure`] — the same
+    /// single pipeline, with the redaction outcome reported so the caller can tell the
+    /// user what actually left the device (§14).
+    ///
+    /// # Errors
+    /// Identical to [`invoke`](Self::invoke).
+    pub async fn invoke_disclosed(
+        &self,
+        cap: AssistCapability,
+        scope: DataScope,
+        input: &AssistInput,
+    ) -> Result<(ChatStream, InvokeDisclosure)> {
         let adapter = self.require_adapter()?; // enabled + adapter present
         self.check_capability(cap)?; // 1. capability granted
         let eff = scope.clamp(&self.config.data_ceiling); // 2. data-class ceiling
-        let payload = redact::redact_chat(input, &eff, cap); // 3. redaction
+        let (payload, report) = redact::redact_chat_reported(input, &eff, cap); // 3. redaction
         self.check_rate()?; // 4. rate-limit
-        self.audit(cap, &eff, adapter.host()); // 5. content-free audit
-        adapter.chat(&payload).await // 6. dispatch (streaming)
+        let host = adapter.host();
+        self.audit(cap, &eff, host.clone()); // 5. content-free audit
+        let stream = adapter.chat(&payload).await?; // 6. dispatch (streaming)
+        Ok((stream, InvokeDisclosure::from_report(&report, host)))
     }
 
     /// Embeddings for the SearchSemantic re-rank slot (§14). Same enforcement
