@@ -53,6 +53,249 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
 > rule about what the project *adds*: no OpenSSL, no non-permissive licence,
 > and no new `-sys`/C crate without an explicit human decision. See SPEC §8.3.
 
+- **`26.19`** — a joint tag: the **testing / build / CI** workstream and the **reverse-proxy
+  compatibility** workstream, planned separately and merged into one schedule of 38 executor lanes
+  across 8 waves, 64 commits. **Net-zero new third-party Rust crates** — the resolved graph in fact
+  *loses* a duplicate (`tokio-tungstenite`/`tungstenite` deduped onto the version `axum`'s `ws`
+  feature already pulls); the only dependency added anywhere is the web **dev**-only
+  `@vitest/coverage-v8`. One additive migration (**`0022`** `message_embeddings`), both dialects in
+  lockstep, verified applying on a fresh live Postgres. `cargo deny` clean; the licence floor holds
+  (the "no C / no `-sys`" wording is corrected in the note at the top of this History — the resolved
+  graph does build C in `ring` and `zstd-sys`, neither a direct dependency).
+
+  **⚠️ BREAKING — `X-Forwarded-For` is no longer trusted implicitly.** Before this tag the app read
+  `X-Forwarded-For` from any peer, so the client IP behind every security decision that uses one was
+  attacker-supplied: the OAuth scoped-key IP allowlist could be bypassed, per-key rate limits evaded,
+  and audit-log addresses chosen by the caller. Worse, `into_make_service_with_connect_info` was never
+  installed, so the peer address was not even available as a fallback. A deployment that relied on the
+  old behaviour now sees **the peer address** — i.e. its own proxy — until it sets **both**
+  `MW_TRUSTED_PROXIES` (the CIDR set of proxies allowed to speak for a client) **and**
+  `MW_FORWARDED_MODE` (`xff` or `forwarded`; default `off`). Either alone is deliberately inert. The
+  hop list is walked **right to left**, skipping hops that are themselves trusted proxies and stopping
+  at the first that is not; an unparseable or obfuscated hop stops the walk rather than being skipped
+  over. Note that `MW_TRUSTED_PROXIES` is now load-bearing on its own for the *scheme/host* readers
+  even with `MW_FORWARDED_MODE=off` — a false assertion there costs availability (a `Secure` cookie
+  over plaintext, HSTS for a host with no TLS), never confidentiality or authentication, and only from
+  a peer the operator explicitly trusted.
+
+  **⚠️ MIGRATION NOTE — `MW_PUBLIC_URL`.** Declaring `MW_PUBLIC_URL=https://…` raises the cookie
+  `Secure` floor **and** changes the WebAuthn expected **origin scheme**. On a deployment that really
+  is served over https this is a *fix* — the expected origin was `http://host` while the browser sent
+  `https://host`, so passkey login was already failing. On a plain-http deployment that declares an
+  https public URL, passkey **login stops working until the config is corrected**; the stored
+  credentials are not destroyed and the RP ID itself does not change.
+
+  **Client-IP and public-origin trust model.** A shared CIDR matcher and a single resolved-peer
+  accessor now back every consumer (`proxy.rs`); config is read per request rather than captured, and
+  the connect-info wrapper is installed so the peer address genuinely exists. On top of that:
+  header-auth (`MW_HEADER_AUTH`) gains the IP restriction SPEC §18.3 already promised
+  (`MW_HEADER_AUTH_TRUSTED_IPS`, fail-closed); the fail2ban-style login monitor is keyed on the
+  resolved client IP instead of the literal string `"admin-panel"`, which made the per-IP ban a no-op;
+  HSTS and the `Secure` cookie flag derive from the **effective** scheme, including when the app is
+  itself the TLS endpoint (the built-in ACME / L4-passthrough shape previously got neither); and the
+  scheme/host readers take the **nearest hop**, not the leftmost value — the same walk-direction
+  mistake the client-IP model was written to fix, which had survived in that one reader. **`PROXY`
+  protocol v1 and v2** are parsed on the HTTP listener under `MW_PROXY_PROTOCOL` (`off` default /
+  `accept` / `require`), gated on the same trusted-proxy set, and **proven against a real
+  `send-proxy-v2` sender** through a booted HAProxy in L4 passthrough. It is **not** claimed
+  conformant: `PP2_TYPE_CRC32C` is consumed but its checksum is **not verified**.
+
+  **Reverse-proxy compatibility.** Config trees ship for eight servers plus a
+  `docker-compose.proxy.yml` harness, an in-process forwarded-spoof suite (12 tests, each refusal
+  paired with a positive control so "correctly refused" can be told from "never wired"), a 12-test
+  conformance suite, and a `proxy-conformance.yml` CI matrix. **Tier-1 — nginx, Apache, Caddy,
+  HAProxy L7, HAProxy L4, Traefik — were booted for real** on a developer host (two of them only once
+  the harness overlaid a fix for a shipped config that could not start) and driven end to end:
+  forwarded client IP, forged-header refusal, SSE unbuffered with a real body frame, WebSocket upgrade
+  with the `jmap` subprotocol over `wss://`, oversize-upload behaviour, `Accept-Ranges`/206 slices,
+  `Secure` cookie and HSTS behind TLS termination. That run **found six defects, four of them in the
+  application, and all are fixed here**: content-hash detection required an ASCII digit in the suffix
+  while Vite's hashes are base64-ish, so roughly a quarter of builds served the main bundle
+  `no-cache`; no HSTS when the app terminates TLS itself; an over-limit upload got its `413` written
+  to a socket the client was still writing to, so Apache's `mod_proxy` replaced the app's JSON error
+  with its own `502` (the body is now drained before the refusal, bounded to one further
+  `MAX_UPLOAD_BYTES` and 30 s); and an SSE assertion that failed on the one proxy which *honours*
+  `X-Accel-Buffering`. **`nginx` and `haproxy-l4` reach 12/12** against an image rebuilt with those
+  fixes. The **Apache and haproxy-l4 cells could not start as shipped** — Apache was missing
+  `LoadModule` lines, and the L4 cell inherited a health check speaking plain HTTP to a TLS listener —
+  and both configs are repaired; Apache's own last recorded run was **10/12** with both remaining
+  failures now fixed application-side, but **the cell has not been re-booted since**, so it is
+  repaired-and-not-re-measured rather than green. **Envoy and IIS ship configuration only and are not
+  supported**: Envoy is out of CI and was booted once by hand (that single run is what proved the
+  right-to-left walk against a genuinely *appending* proxy); IIS has never been booted by anyone.
+  **The conformance matrix has never run in CI** — all of the above is a developer-host result.
+
+  **Sub-path hosting works** (`MW_BASE_PATH`), web half and server half. The router `nest`s the app
+  under the prefix and `merge`s it at the root, so both reverse-proxy idioms (prefix preserved and
+  prefix already stripped) work and `/healthz` plus `/.well-known/*` stay reachable at the origin
+  root. The obvious implementation — strip the prefix in a middleware — was tried and rejected because
+  it *looks* like it works: assets resolve, the shell loads, and every `/mail/api/*` call silently
+  returns `index.html` under a `200`. On the client, all 226 dynamic imports emit relative specifiers,
+  ~30 residual root-absolute `/api/…` literals were swept, and the admin console and OAuth consent
+  routes — which compared `location.pathname` against bare `/admin` and `/oauth/authorize` and so
+  silently rendered the mailbox under a prefix — were fixed. **`MW_BASE_PATH` is routing, not an
+  isolation boundary**: the root mount is deliberate, and the app remains reachable un-prefixed. No CI
+  cell ships a sub-path configuration, and the shipped nginx config's `location` blocks are
+  prefix-blind for WebSocket push.
+
+  **Coverage measurement, and the discipline about what it means.** SPEC §25's total absence of
+  coverage measurement is closed: `cargo-llvm-cov` for Rust and v8 for the web, a ratchet with
+  per-target floors, and `docs/testing/coverage.md`. **The web side gates**, at lines/statements
+  **85.79**, branches **87.92**, functions **76.44** (1246 tests, 116 files), floors set from the
+  minimum of repeated runs on a clean tree because the collector's own denominators move between
+  identical runs. **The Rust ratchet enforces nothing yet** — it ships with `[rust] gate = false` and
+  no per-crate floors, deliberately, because floors measured on Windows and transplanted to an Ubuntu
+  runner would bake in a permanent margin and undeserved exemptions; they are to be populated from the
+  first green `coverage.yml` run on master, by the procedure in that doc. So: the four SPEC §25 crates
+  now **measure** `mw-mime` **96.81%**, `mw-sanitize` **98.63%**, `mw-crypto` **86.83%**, `mw-export`
+  **94.56%** — a reading, not a guarantee. **26.19 does not meet, enforce or hold the §25 80% floor**,
+  and nothing in it should be read that way. A defect in the harness itself was caught by one of the
+  fill lanes before floors were set: the ignore regex was unanchored and excluded
+  `crates/mw-mime/src/build.rs` — 204 lines of production compose builder, not a build script — which
+  would have covered half the crate. The coverage fills added their tests **without changing a single
+  source file** (`mw-cache` 69.62→84.81, `mw-mcp` 73.02→92.96, `mw-sandbox` 85.12→97.02,
+  `bridge-graph` 89.74→95.83), and accounted for what they left uncovered rather than padding it.
+  **Mutation testing is set up and scheduled** (nightly, non-blocking) on the three SPEC §25 crates;
+  it will not have run by tag time and **no score is claimed** — sampling during development found
+  surviving mutants in two of the three.
+
+  **Test isolation and CI.** Test databases are now isolated **by construction** rather than by
+  `--test-threads=1`, and a live-Postgres leg proves concurrent stores no longer share a
+  `_sqlx_migrations` table — the flake that has shaped this repo's release gate for several tags, on
+  the platform where it mattered. The build/test matrix runs on **Linux, Windows and macOS**; the
+  **Windows leg is promoted out of advisory status in-repo and now reports failure honestly**, having
+  been shown to compile and pass all of the new socket/listener/PROXY-protocol code that had never
+  built off Linux. It is **not** described as required or gating: `continue-on-error` controls whether
+  a job reports failure, while whether it blocks a merge is **branch-protection configuration that
+  does not live in this repository** and must be updated separately. **macOS stays advisory** — it has
+  never had a green run here, and the named unknowns (C-building crates under the Xcode CLT,
+  `cfg(unix)` signal handlers, the default 256 file-descriptor limit against socket-heavy tests,
+  wasmtime's Pulley interpreter on `aarch64-apple-darwin`) are recorded in the workflow itself. The
+  second-layer media jail (`mw-media-wasm`) was compiled by **no CI job at all** — it carries its own
+  `[workspace]` table, so `cargo build --workspace` skipped it and the only artifact under test was
+  the committed `media.wasm`; CI now builds the guest and gates on an interface comparison (either
+  module invalid, the committed guest declaring **any** host import, or the symbol sets diverging) plus
+  a behavioural run of `mw-render` against the freshly built guest. **Byte-reproducibility is not
+  claimed and would fail for non-tampering reasons** (the CI toolchain floats while the artifact was
+  built against one release).
+
+  **Correction to the record: 26.17's conformance suite never ran in CI.** `t17-conformance.yml` had
+  **never parsed** — a YAML flow-scalar error on one line — and a workflow that does not parse never
+  runs and is not reported as a failing job, so all seven of its targets had been silently absent.
+  `sso-e2e.yml` carried the same class of defect (a plain scalar containing a colon) plus an unpinned
+  action that would have failed the job outright once it did parse. Both are repaired, and a
+  **workflow parse gate** now YAML-parses every file under `.github/workflows/` in CI so this cannot
+  recur silently — an empty glob counts as a failure. The tests themselves were never wrong; but any
+  statement that 26.17's conformance suite *passed in CI* is unsupported.
+
+  **Build.** Lean dev/test profiles, a `.cargo/config.toml`, and a dependency dedupe; thin LTO was
+  measured and **rejected** (it moved the shell further from its size budget, not closer). **The build
+  did not get slower, and no speedup is claimed**: a cold `cargo build --workspace` was 373 s measured
+  solo at the start of the tag and 291 s at the end, but the second figure is a **ceiling taken under
+  a foreign project's load on the same host** and had page-cache warmth the first did not, so the
+  asymmetry runs both ways and the wall clocks are not comparable in either direction. The
+  load-independent number is the one that carries it: **854 compilation units against ~850** for
+  roughly 21k new lines of Rust. Release binary size is quoted with its build command, because the
+  command changes it: `mailwoman.exe` is **95,471,616 B** built alone and **95,499,264 B** built
+  alongside the desktop shell; against the like-for-like baseline that is **+0.70%** (shell +2.11%,
+  entry chunk 151.2 KB of a 250 KB budget). Recorded while measuring: switching a warm target
+  directory between two package selections recompiles hundreds of units through cargo feature
+  unification — "the shells are not expensive; changing your mind about them is" — which is also the
+  mechanism behind the doctest artifact failures that have dogged recent gates. The canonical gate is
+  therefore `cargo fmt --all --check`, then `cargo test --workspace --exclude mailwoman-desktop
+  --exclude mailwoman-mobile --lib --tests -- --test-threads=1`, then the same selection `--doc`;
+  **the `--exclude` flags are what make the doctest phase pass**, not the split.
+
+  **Multi-theme selection** (SPEC §17). A theme registry composes a frozen CSS-custom-property
+  contract, per-theme tokens and WCAG contrast math into one entry per pack; **13 built-in themes**
+  ship (light/dark plus slate, ocean, plum and grove in both appearances, an AMOLED dark and a
+  high-contrast pair), with a **tri-state mode** (`fixed` / `system` / `schedule`), live OS-follow, a
+  gallery with real palette swatches, and **per-account appearance sync** started at boot rather than
+  when the settings dialog opens — otherwise a second device would not pick up the account's theme
+  until the user happened to open Settings. A per-theme contrast matrix runs in the web suite and
+  **found real palette faults in themes that already shipped**. The deployment-level appearance is a
+  **default, not an enforcement**, and the copy now says so. One honest gap, deliberately left: the
+  **message body is not themed** — `themeCssVars` has no runtime caller, and wiring it needs four
+  changes together (the call site, a producer/consumer variable-name mismatch, the injection order,
+  and a hardcoded white frame background). Only the source comment that asserted the wiring exists was
+  corrected; whether mail authored for white backgrounds *should* follow the chrome theme is a product
+  decision, not a repair.
+
+  **The assistant.** Reading the wire contract from both ends found four live mismatches, the worst of
+  which was that the server never sent `availability`, so the capability check was permanently false
+  and **the entire Assist UI was dead on a correctly configured gateway**. The contract is now real
+  end to end over SSE (`disclosure` frame → `{delta}` frames → a terminal `done` frame carrying
+  proposed actions), the invoke request body carries the scope that redaction needs, and dictation
+  falls back to `FileReader` where `Blob.arrayBuffer()` is absent. Three security findings are fixed:
+  the Assist **data-class ceiling is now enforced on the embed path** rather than computed and used
+  only to label the audit row (attachment text was leaving while the audit row said `attach=false`,
+  and an account outside the allowlist was dispatched anyway); the Assist **rate limit is reachable
+  by an operator at all** — it was hardcoded `None` — and is now **per account**, with the arithmetic
+  documented at the config seam (a cold-cache semantic query costs up to 33 units, and collapsing that
+  to 1 would have been a limit on searches wearing the name of a limit on requests); and a deleted
+  message now **drops its embedding**, wired at the single store-level choke point. **What ships is
+  proposal reporting, not MCP-backed tool calling**: the tool name in a proposal is model-supplied and
+  is **not validated against the `mw-mcp` registry**. Nothing is executed and every action is
+  human-confirmed, so this is a display-accuracy caveat rather than a privilege one — but SPEC §14.3's
+  "same tool surface as MCP" is not what runs. `AssistGateway::transcribe` still has the shape that
+  was fixed on the embed path and is recorded, not fixed.
+
+  **Semantic search re-rank (A8)** — previously filed as floor-blocked, which was **a misfiling**: it
+  was half-built, not blocked. `semantic` was not a field on the frozen `EmailFilter`, so
+  `serde_json` silently dropped it, which is exactly why nothing server-side read it. Migration
+  `0022` stores a vector beside its dimension; an opt-in search re-orders the top BM25 hits by cosine;
+  a dimension mismatch **skips** the re-rank and degrades to lexical rather than corrupting results.
+  Embeddings are **not** populated at ingest — that would send every message a deployment receives to
+  the configured AI endpoint as a side effect of enabling a search feature — but only for messages a
+  user's own opt-in search surfaced, bounded at 32 per query, through the gateway so the capability
+  check, ceiling clamp, rate limit and content-free audit all still apply. The default search path is
+  untouched and measured no slower. **The proof is against the in-repo mock endpoint only**: it has
+  never been run against a real embedding model, and it says **nothing about ranking quality** — the
+  suite asserts that the flag reaches the provider and that the order changes in a way the vectors
+  justify. (The mock had to be fixed first: it returned a fixed vector for every input, so every
+  cosine was equal and the correct tie-stable answer *was* the lexical order — a live test against it
+  would have gone green while proving only that the plumbing runs.) **The opt-in is not purely
+  per-query**: a saved-search folder whose stored filter carries `semantic:true` re-runs the re-rank
+  every time it is opened. And **disconnecting an account does not clear its embeddings** —
+  `delete_account_message_embeddings` remains an operator escape hatch with no caller, because there
+  is no account-disconnect path in the tree to hang it on.
+
+  **Docs and claims.** SPEC, the deployment docs and `SECURITY.md` were reconciled against the code
+  rather than against the lane reports, a new operator reverse-proxy page was written, and three
+  source comments that asserted behaviour the code does not have were corrected. `SECURITY.md`'s
+  honest-boundaries section still said OIDC/SAML SSO was "not built" while `crates/mw-sso` ships both
+  — wrong in the safe direction, but a boundaries section that is wrong at all devalues every line in
+  it. Seven ledger rows were judged to need **implementing rather than correcting** and are carried
+  forward rather than papered over; the sharpest is draft autosave, where amending the spec to admit
+  plaintext bodies in `localStorage` would be honest and would leave the exposure standing.
+
+  **Known and not closed** — stated here so no reader has to infer it. **RFC 7239 is not supported for
+  scheme**: only `X-Forwarded-Proto` is read, so a strict-7239 proxy emitting `Forwarded: …;proto=`
+  and no `X-Forwarded-Proto` leaves the effective scheme at the listener's, which degrades to the
+  pre-tag posture and never grants trust; it has a characterisation test so a future fix turns it red.
+  **The public-origin work is half-closed**: `oauth.rs`'s DCR issuer and `twofa_routes::derive_rp`
+  still build Host-derived URLs. **Header auth is not independent of the proxy trust list** whenever
+  `MW_PROXY_PROTOCOL` is not `off`, because a trusted peer can then name the address the header-auth
+  IP gate checks — an operator note, not a code change, and it only matters when the trusted list is a
+  subnet wider than the balancer itself. The image-proxy rate limit remains **per replica**. Recorded
+  during coverage work and left as product calls: the `masked-email` **plugin crate** is unreachable
+  end to end (the masked-email *feature* ships and works server-side), and the `message-in` plugin
+  hook has no host caller for any plugin.
+
+  **Adversarial security review: GO** from both reviewers, read against source rather than lane
+  reports — "did 26.19 widen trust anywhere? No, in the direction that matters": every new trust edge
+  is gated on the connected peer being inside an operator-declared CIDR set. Every MEDIUM finding from
+  both reviews was closed before tag — the Assist data-class ceiling, the unreachable Assist rate
+  limit, the orphaned embedding, the uncompiled media-jail guest, and the leftmost scheme read —
+  except the one that is a deployment note rather than a code change (header auth under
+  `MW_PROXY_PROTOCOL`, above). The rest are carried as LOW. **Live E2E: 12 legs, 12 green,
+  zero skips**, against real Postgres 16.14 and a real mock-assist container — including `0022`
+  applying on a fresh live Postgres, the A8 re-order, appearance sync, the Assist SSE seam, and the
+  concurrent-store migration-table isolation. The tag's testing lessons are recorded because they cost
+  real time and all have the same shape — **an assertion too weak to distinguish working from
+  broken**: a status-only check would have called the sub-path middleware green; a test that hand-rolls
+  its input in the producer's shape tests the test, not the seam; a fixed embedding makes every cosine
+  equal; and a fixture whose meaning depends on the host's timer resolution is not a fixture.
 - **`26.18`** — a defense-in-depth + housekeeping tag that closes the **six LOW hardening notes** the
   26.17 adversarial review opened, plus a packaging stamp-drift fix, with **net-zero new third-party
   crates** and **no new migration** (every item lands in existing files on `std`/`reqwest`/`sqlx`; the
