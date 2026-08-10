@@ -195,3 +195,291 @@ fn reencode_image(bytes: &[u8]) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("re-encode failed: {e}"))?;
     Ok(out.into_inner())
 }
+
+// ── tests ──────────────────────────────────────────────────────────────────────
+//
+// ⚠️ These do NOT run in `cargo test --workspace`. This crate carries its own
+// `[workspace]` table (see `Cargo.toml`), so it is excluded from the parent
+// workspace on purpose — the parent must never try to build a
+// `wasm32-unknown-unknown` cdylib. Run them explicitly:
+//
+//     cargo test --manifest-path crates/mw-media-wasm/Cargo.toml
+//
+// `parse_cfb` and `reencode_image` are the whole jail payload and are pure over
+// `cfb` + `image`, both of which build for the host, so they can be exercised
+// natively. The ABI plumbing (`mw_alloc` / `input` / `emit`) is wasm32-only —
+// it packs pointers into `u32`/`u64` — and is covered by `mw-render`'s
+// `media_jail` tests driving the committed `media.wasm` through wasmtime.
+//
+// What these pin is the property the jail exists for: **arbitrary bytes must
+// produce an error, never a panic and never an unbounded read.** A panic here is
+// a wasm trap rather than a native crash, but a trap on well-formed-but-hostile
+// input is still a denial of service on the render child.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    /// A UTF-16LE encoding of `s` with the trailing NUL MS-OXMSG writes.
+    fn utf16le_nul(s: &str) -> Vec<u8> {
+        let mut out: Vec<u8> = s.encode_utf16().flat_map(u16::to_le_bytes).collect();
+        out.extend_from_slice(&[0, 0]);
+        out
+    }
+
+    /// Build a CFB container holding the given `(stream path, bytes)` entries.
+    fn cfb_with(streams: &[(&str, Vec<u8>)]) -> Vec<u8> {
+        let mut comp = cfb::CompoundFile::create(Cursor::new(Vec::new())).unwrap();
+        for (path, bytes) in streams {
+            let mut s = comp.create_stream(path).unwrap();
+            s.write_all(bytes).unwrap();
+            s.flush().unwrap();
+        }
+        comp.flush().unwrap();
+        comp.into_inner().into_inner()
+    }
+
+    /// Read back the `[u32 len LE][bytes]` fields `parse_cfb` emits.
+    fn fields(payload: &[u8]) -> Vec<Vec<u8>> {
+        let mut out = Vec::new();
+        let mut i = 0usize;
+        while i + 4 <= payload.len() {
+            let len = u32::from_le_bytes(payload[i..i + 4].try_into().unwrap()) as usize;
+            i += 4;
+            out.push(payload[i..i + len].to_vec());
+            i += len;
+        }
+        out
+    }
+
+    fn png_bytes(w: u32, h: u32) -> Vec<u8> {
+        let img = image::DynamicImage::ImageRgb8(image::RgbImage::new(w, h));
+        let mut buf = Cursor::new(Vec::new());
+        img.write_to(&mut buf, image::ImageFormat::Png).unwrap();
+        buf.into_inner()
+    }
+
+    // ── framing ────────────────────────────────────────────────────────────────
+
+    /// The status byte is what the host branches on, so `1` and `0` must never be
+    /// confusable: an ok frame with an EMPTY payload is still one byte long.
+    #[test]
+    fn frames_carry_their_status_byte_even_when_empty() {
+        assert_eq!(ok_frame(vec![]), vec![1]);
+        assert_eq!(err_frame(""), vec![0]);
+        assert_eq!(ok_frame(vec![9, 8]), vec![1, 9, 8]);
+        assert_eq!(err_frame("no"), vec![0, b'n', b'o']);
+    }
+
+    #[test]
+    fn put_field_prefixes_a_little_endian_length() {
+        let mut out = Vec::new();
+        put_field(&mut out, b"abc");
+        put_field(&mut out, b"");
+        assert_eq!(out, vec![3, 0, 0, 0, b'a', b'b', b'c', 0, 0, 0, 0]);
+        assert_eq!(fields(&out), vec![b"abc".to_vec(), Vec::new()]);
+    }
+
+    // ── CFB parse ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn parses_subject_and_body_from_an_oxmsg_container() {
+        let bytes = cfb_with(&[
+            ("/__substg1.0_0037001F", utf16le_nul("Quarterly report")),
+            (
+                "/__substg1.0_1000001F",
+                utf16le_nul("Body — with an em dash"),
+            ),
+        ]);
+        let got = fields(&parse_cfb(&bytes).unwrap());
+
+        assert_eq!(got.len(), 2);
+        assert_eq!(
+            String::from_utf8(got[0].clone()).unwrap(),
+            "Quarterly report"
+        );
+        assert_eq!(
+            String::from_utf8(got[1].clone()).unwrap(),
+            "Body — with an em dash",
+            "the trailing NUL is trimmed and non-BMP-safe UTF-16 survives"
+        );
+    }
+
+    /// A CFB that is a valid container but carries none of the MS-OXMSG property
+    /// streams yields two EMPTY fields, not an error. A `.msg` with an unexpected
+    /// layout should render blank, not fail the whole import.
+    #[test]
+    fn a_container_without_the_expected_streams_yields_empty_fields() {
+        let bytes = cfb_with(&[("/Unrelated", b"hello".to_vec())]);
+        assert_eq!(
+            fields(&parse_cfb(&bytes).unwrap()),
+            vec![Vec::new(), Vec::new()]
+        );
+    }
+
+    /// Only the ROOT-level property streams are read. A stream with the right base
+    /// name nested inside a storage is not the top-level property and is ignored.
+    #[test]
+    fn nested_streams_are_not_mistaken_for_top_level_properties() {
+        let mut comp = cfb::CompoundFile::create(Cursor::new(Vec::new())).unwrap();
+        comp.create_storage("/attach").unwrap();
+        let mut s = comp.create_stream("/attach/__substg1.0_0037001F").unwrap();
+        s.write_all(&utf16le_nul("nested subject")).unwrap();
+        s.flush().unwrap();
+        comp.flush().unwrap();
+        let bytes = comp.into_inner().into_inner();
+
+        assert_eq!(
+            fields(&parse_cfb(&bytes).unwrap()),
+            vec![Vec::new(), Vec::new()]
+        );
+    }
+
+    /// An odd-length property stream cannot be whole UTF-16 units. The trailing
+    /// byte is dropped rather than read past the end of the buffer.
+    #[test]
+    fn an_odd_length_property_stream_drops_its_trailing_byte() {
+        let mut subject = utf16le_nul("hi");
+        subject.push(0x41); // a stray byte, no pair
+        let bytes = cfb_with(&[("/__substg1.0_0037001F", subject)]);
+        assert_eq!(
+            String::from_utf8(fields(&parse_cfb(&bytes).unwrap())[0].clone()).unwrap(),
+            "hi"
+        );
+    }
+
+    /// Unpaired surrogates decode lossily to U+FFFD instead of panicking — the
+    /// property streams are attacker-controlled and are not validated UTF-16.
+    #[test]
+    fn unpaired_surrogates_decode_lossily() {
+        // A lone high surrogate (0xD800) followed by 'A', then the NUL terminator.
+        let subject = vec![0x00, 0xD8, b'A', 0x00, 0x00, 0x00];
+        let bytes = cfb_with(&[("/__substg1.0_0037001F", subject)]);
+        let got = String::from_utf8(fields(&parse_cfb(&bytes).unwrap())[0].clone()).unwrap();
+        assert!(got.contains('\u{FFFD}'), "got {got:?}");
+        assert!(got.ends_with('A'), "got {got:?}");
+    }
+
+    /// Arbitrary bytes are an error, never a panic. These are the shapes a hostile
+    /// `.msg` attachment actually arrives as.
+    #[test]
+    fn arbitrary_bytes_are_rejected_without_panicking() {
+        let magic = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+        let mut truncated = magic.to_vec();
+        truncated.extend_from_slice(&[0u8; 32]);
+
+        let cases: Vec<(&str, Vec<u8>)> = vec![
+            ("empty", Vec::new()),
+            ("plain text", b"not a compound file at all".to_vec()),
+            ("CFB magic then nothing", magic.to_vec()),
+            ("CFB magic then garbage", truncated),
+            ("all zeroes", vec![0u8; 4096]),
+            ("all 0xff", vec![0xffu8; 4096]),
+        ];
+        for (why, bytes) in cases {
+            let err = parse_cfb(&bytes).unwrap_err();
+            assert!(
+                err.contains("not a CFB container"),
+                "{why}: unexpected error {err}"
+            );
+        }
+    }
+
+    /// A container over the read ceiling is refused BEFORE it is parsed, so a
+    /// declared-huge attachment cannot drive an unbounded allocation in the guest.
+    #[test]
+    fn oversized_input_is_refused_before_parsing() {
+        let too_big = vec![0u8; MAX_READ_BYTES + 1];
+        assert_eq!(
+            parse_cfb(&too_big).unwrap_err(),
+            "cfb exceeds size limit",
+            "the ceiling is checked before any parse work"
+        );
+        // Exactly at the ceiling it is parsed (and then rejected as not a CFB),
+        // so the boundary is inclusive rather than off by one.
+        assert!(parse_cfb(&vec![0u8; MAX_READ_BYTES])
+            .unwrap_err()
+            .contains("not a CFB container"));
+    }
+
+    // ── image re-encode ────────────────────────────────────────────────────────
+
+    /// Re-encoding normalises the format: whatever went in, a PNG comes out, with
+    /// the pixel dimensions preserved.
+    #[test]
+    fn reencode_normalises_to_png_and_preserves_dimensions() {
+        let out = reencode_image(&png_bytes(8, 5)).unwrap();
+        assert_eq!(
+            &out[..8],
+            &[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a],
+            "output must carry the PNG signature"
+        );
+
+        let decoded = image::load_from_memory(&out).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (8, 5));
+    }
+
+    /// Ancillary chunks are dropped. A PNG carrying a text comment goes in; the
+    /// re-encoded output does not contain it. This is the whole point of the
+    /// re-encode — EXIF/GPS/ICC/comment metadata must not reach the reader.
+    #[test]
+    fn reencode_strips_ancillary_metadata() {
+        let mut with_comment = png_bytes(4, 4);
+        // Splice a `tEXt` chunk (length, type, data, CRC) before the IEND chunk.
+        let iend = with_comment.len() - 12;
+        let data = b"CommentSECRET-GPS-TAG";
+        let mut chunk = Vec::new();
+        chunk.extend_from_slice(&(data.len() as u32).to_be_bytes());
+        chunk.extend_from_slice(b"tEXt");
+        chunk.extend_from_slice(data);
+        chunk.extend_from_slice(&[0, 0, 0, 0]); // CRC — decoders tolerate ancillary
+        with_comment.splice(iend..iend, chunk);
+
+        assert!(
+            with_comment
+                .windows(data.len())
+                .any(|w| w == data.as_slice()),
+            "fixture must actually carry the comment"
+        );
+        let out = reencode_image(&with_comment).unwrap();
+        assert!(
+            !out.windows(data.len()).any(|w| w == data.as_slice()),
+            "the re-encode must not carry metadata through"
+        );
+    }
+
+    /// A decompression bomb — a tiny file declaring a huge canvas — is refused by
+    /// the dimension limit rather than allocating the bitmap.
+    #[test]
+    fn oversized_dimensions_are_refused() {
+        let bomb = png_bytes(MAX_IMAGE_DIM + 1, 1);
+        assert!(
+            bomb.len() < 100_000,
+            "a {}px-wide blank PNG should stay small, got {} bytes",
+            MAX_IMAGE_DIM + 1,
+            bomb.len()
+        );
+        let err = reencode_image(&bomb).unwrap_err();
+        assert!(err.starts_with("decode failed"), "got {err}");
+
+        // A hair under the limit still decodes, so the guard is a ceiling and not
+        // a blanket refusal of large images.
+        assert!(reencode_image(&png_bytes(MAX_IMAGE_DIM, 1)).is_ok());
+    }
+
+    /// Bytes that are not an image at all are an error, never a panic.
+    #[test]
+    fn non_images_are_rejected_without_panicking() {
+        for (why, bytes) in [
+            ("empty", Vec::new()),
+            ("plain text", b"<svg><script/></svg>".to_vec()),
+            ("truncated PNG", png_bytes(4, 4)[..20].to_vec()),
+            (
+                "PNG signature only",
+                vec![0x89, b'P', b'N', b'G', 13, 10, 26, 10],
+            ),
+        ] {
+            assert!(reencode_image(&bytes).is_err(), "{why} must be refused");
+        }
+    }
+}
