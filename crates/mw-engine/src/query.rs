@@ -29,6 +29,16 @@ pub struct EmailFilter {
     pub max_size: Option<u64>,
     /// Attachment filename substring (routed to `mw-search`).
     pub filename: Option<String>,
+    /// A8 (26.19, SPEC §10.4/§14.3): opt in to embedding re-ranking of this
+    /// query's results. The web has sent this since V7; before 26.19 nothing
+    /// server-side read it, so it deserialized into nothing.
+    ///
+    /// It is deliberately NOT part of [`EmailFilter::needs_search`]: on its own it
+    /// adds no *retrieval* constraint, so a filter carrying only `inMailbox` +
+    /// `semantic` still takes the SQL fast path and is unaffected — re-rank only
+    /// ever re-orders a hit list the lexical index already produced. Absent or
+    /// `false` means the query is byte-identical to 26.18.
+    pub semantic: Option<bool>,
 }
 
 impl EmailFilter {
@@ -90,6 +100,31 @@ mod tests {
             ..Default::default()
         };
         assert!(!f.needs_search());
+    }
+
+    #[test]
+    fn semantic_flag_alone_does_not_change_routing() {
+        // A8: the flag re-orders results, it never adds a retrieval constraint —
+        // so a pure `inMailbox` filter carrying it stays on the SQL fast path.
+        let f = EmailFilter {
+            in_mailbox: Some("mbox1".into()),
+            semantic: Some(true),
+            ..Default::default()
+        };
+        assert!(!f.needs_search());
+    }
+
+    #[test]
+    fn semantic_flag_deserializes_from_the_wire_filter() {
+        // The exact JSON `apps/web` has been sending since V7 (`jmap-types.ts`).
+        let f: EmailFilter =
+            serde_json::from_str(r#"{"inMailbox":"mb1","text":"invoice","semantic":true}"#)
+                .expect("filter parses");
+        assert_eq!(f.semantic, Some(true));
+        // ...and an ordinary search still reads as "not semantic", not as `false`.
+        let plain: EmailFilter =
+            serde_json::from_str(r#"{"inMailbox":"mb1","text":"invoice"}"#).expect("parses");
+        assert_eq!(plain.semantic, None);
     }
 
     #[test]

@@ -514,6 +514,27 @@ fn parse_adapter(json: &str) -> Option<AdapterConfig> {
         .and_then(|v| v.into_iter().next())
 }
 
+/// The configured embedding model's id, recorded at [`build_assist`] so
+/// [`AssistHookAdapter::from_gateway`] can report it to the engine (A8).
+///
+/// A module static rather than a return value or constructor argument because both
+/// would change the `build_assist` / `from_gateway` call sites, and those live in
+/// `crates/mw-server/src/lib.rs`, which another executor holds this wave. `mw-server`
+/// builds Assist exactly once at mount, before the adapter is constructed, so the
+/// ordering is not a race — and reading a stale/empty id is harmless: it only
+/// disables the model check, leaving dimensionality as the guard.
+static EMBED_MODEL: std::sync::RwLock<String> = std::sync::RwLock::new(String::new());
+
+/// The embedding model id an [`AdapterConfig`] will use, or `""` for an adapter
+/// whose model is not nameable (the local-process adapter runs whatever the
+/// configured binary runs).
+fn embed_model_of(adapter: Option<&AdapterConfig>) -> String {
+    match adapter {
+        Some(AdapterConfig::OpenAiCompatible { embed_model, .. }) => embed_model.clone(),
+        _ => String::new(),
+    }
+}
+
 /// Build the Assist gateway from the 0008 `assist_config` deployment row. Absent /
 /// disabled ⇒ `AssistConfig::default()` (the gateway reports `Disabled` and the web
 /// hides all Assist UI).
@@ -528,6 +549,9 @@ pub(crate) async fn build_assist(store: &Store) -> (AssistHandle, Vec<AssistCapa
         },
         None => AssistConfig::default(),
     };
+    if let Ok(mut w) = EMBED_MODEL.write() {
+        *w = embed_model_of(config.adapter.as_ref());
+    }
     let granted = config.capability_grants.clone();
     let gateway = AssistGateway::new(config).with_audit(Arc::new(StoreAssistAudit {
         store: store.clone(),
@@ -541,13 +565,28 @@ pub(crate) async fn build_assist(store: &Store) -> (AssistHandle, Vec<AssistCapa
 pub(crate) struct AssistHookAdapter {
     enabled: bool,
     granted: Vec<String>,
+    /// A8 (26.19): the gateway itself, kept so the hook can hand the engine an
+    /// embedding provider. `None` unless Assist is enabled AND `search-semantic` is
+    /// granted, which is what keeps semantic re-rank off by default.
+    embeddings: Option<Arc<GatewayEmbeddings>>,
 }
 
 impl AssistHookAdapter {
-    pub(crate) fn from_gateway(gateway: &AssistGateway, granted: &[AssistCapability]) -> Self {
+    /// Takes the `Arc` (not `&AssistGateway`) so the embedding provider can share
+    /// the same gateway — its enforcement pipeline is the point. The `mw-server`
+    /// mount site passes `&assist`, which is already an `&AssistHandle`, so this is
+    /// signature-compatible with the existing call.
+    pub(crate) fn from_gateway(gateway: &AssistHandle, granted: &[AssistCapability]) -> Self {
+        let semantic = gateway.is_enabled() && granted.contains(&AssistCapability::SearchSemantic);
         Self {
             enabled: gateway.is_enabled(),
             granted: granted.iter().map(|c| capability_wire(*c)).collect(),
+            embeddings: semantic.then(|| {
+                Arc::new(GatewayEmbeddings {
+                    gateway: Arc::clone(gateway),
+                    model: EMBED_MODEL.read().map(|m| m.clone()).unwrap_or_default(),
+                })
+            }),
         }
     }
 }
@@ -558,6 +597,46 @@ impl mw_engine::AssistHook for AssistHookAdapter {
     }
     fn granted_capabilities(&self) -> Vec<String> {
         self.granted.clone()
+    }
+    fn embedding_provider(&self) -> Option<Arc<dyn mw_engine::EmbeddingProvider>> {
+        self.embeddings
+            .as_ref()
+            .map(|e| Arc::clone(e) as Arc<dyn mw_engine::EmbeddingProvider>)
+    }
+}
+
+/// A8 (26.19): the engine's [`mw_engine::EmbeddingProvider`] over the Assist gateway.
+///
+/// Deliberately a thin pass-through: every embedding request goes through
+/// `AssistGateway::embed`, so it inherits the full §14 pipeline — capability check,
+/// data-class ceiling clamp, rate limit, and the content-free audit row naming the
+/// capability, the scope and the endpoint host. The engine gets no way to reach an
+/// endpoint that the gateway would not have allowed.
+pub(crate) struct GatewayEmbeddings {
+    gateway: AssistHandle,
+    model: String,
+}
+
+#[async_trait::async_trait]
+impl mw_engine::EmbeddingProvider for GatewayEmbeddings {
+    async fn embed(&self, account_id: &str, text: &str) -> Result<Vec<f32>, String> {
+        // The narrowest scope that still names the account for the audit row:
+        // attachments and E2EE-decrypted content stay excluded regardless of the
+        // deployment ceiling, because a search re-rank has no business reading them.
+        let scope = DataScope {
+            accounts: vec![account_id.to_string()],
+            folders: Vec::new(),
+            include_e2ee: false,
+            include_attachments: false,
+        };
+        self.gateway
+            .embed(scope, text)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    fn model_id(&self) -> String {
+        self.model.clone()
     }
 }
 

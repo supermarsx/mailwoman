@@ -59,6 +59,12 @@ pub struct Engine {
     /// [`Engine::attach_v7`] / [`Engine::register_plugin_backend`], so the
     /// non-plugin/non-directory path is byte-unchanged.
     pub(crate) v7: std::sync::RwLock<crate::v7::V7Hooks>,
+    /// A8 (26.19): the optional embedding provider backing opt-in semantic
+    /// re-rank. `None` — the default, and what every deployment without a
+    /// configured Assist embedding endpoint keeps — means `Email/query` never
+    /// enters the re-rank path at all, so the search path is byte-identical to
+    /// 26.18. `mw-server` injects one at mount via [`Engine::attach_embeddings`].
+    embeddings: std::sync::RwLock<Option<Arc<dyn crate::search_semantic::EmbeddingProvider>>>,
 }
 
 impl Engine {
@@ -90,6 +96,7 @@ impl Engine {
             dispatcher_started: AtomicBool::new(false),
             v6: std::sync::RwLock::new(crate::v6::V6Hooks::default()),
             v7: std::sync::RwLock::new(crate::v7::V7Hooks::default()),
+            embeddings: std::sync::RwLock::new(None),
         }
     }
 
@@ -101,6 +108,33 @@ impl Engine {
     /// The engine-side full-text index (plan §1.1).
     pub fn search(&self) -> &mw_search::Index {
         &self.search
+    }
+
+    /// The search index as a shared handle (A8: the re-rank pass reads indexed
+    /// document text from it inside spawned tasks).
+    pub fn search_handle(&self) -> &Arc<mw_search::Index> {
+        &self.search
+    }
+
+    /// Attach (or clear, with `None`) the embedding provider that backs opt-in
+    /// semantic re-rank (A8). Additive and idempotent: `mw-server` calls this at
+    /// mount when — and only when — Assist is enabled with the `search-semantic`
+    /// capability granted. Until it does, `Email/query` never reaches the re-rank
+    /// path and the search behaviour is exactly the previous release's.
+    pub fn attach_embeddings(
+        &self,
+        provider: Option<Arc<dyn crate::search_semantic::EmbeddingProvider>>,
+    ) {
+        *self.embeddings.write().expect("embeddings lock") = provider;
+    }
+
+    /// The attached embedding provider, if any (A8).
+    pub fn embedding_provider(&self) -> Option<Arc<dyn crate::search_semantic::EmbeddingProvider>> {
+        self.embeddings
+            .read()
+            .expect("embeddings lock")
+            .as_ref()
+            .map(Arc::clone)
     }
 
     /// The broadcast sender (used by [`crate::state`] to fan out `StateChange`).

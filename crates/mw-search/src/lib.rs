@@ -17,8 +17,13 @@
 //! returns `stableId`s in sort order.
 
 mod query;
+/// A8 (26.19): cosine re-rank of an already-retrieved lexical hit list, behind the
+/// opt-in `semantic` flag. Pure vector math over `std` — retrieval is untouched, so
+/// the default search path is byte-identical to 26.18.
+pub mod rerank;
 
 pub use query::{Clause, Expr, Sort, SortField, TextField};
+pub use rerank::{cosine, rerank_by_cosine};
 
 use std::ops::Bound;
 use std::path::Path;
@@ -358,7 +363,12 @@ impl Index {
     }
 
     /// Reconstruct the [`IndexDoc`] stored under `stable_id`, if present.
-    fn fetch_doc(&self, stable_id: &str) -> Result<Option<IndexDoc>> {
+    ///
+    /// Public since 26.19 (A8): the semantic re-rank derives a message's embedding
+    /// input from the text this index already holds, rather than re-reading and
+    /// re-parsing the message from the store. `None` means nothing is indexed
+    /// under that id.
+    pub fn fetch_doc(&self, stable_id: &str) -> Result<Option<IndexDoc>> {
         let searcher = self.reader.searcher();
         let q = TermQuery::new(
             Term::from_field_text(self.fields.stable_id, stable_id),

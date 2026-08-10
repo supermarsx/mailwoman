@@ -269,6 +269,16 @@ pub trait AssistHook: Send + Sync {
     /// (content-free; used only to gate which Assist affordances the UI shows). None
     /// of these is a send/delete/accept capability — Assist can never transmit.
     fn granted_capabilities(&self) -> Vec<String>;
+    /// A8 (26.19): the embedding provider backing opt-in semantic search re-rank,
+    /// when the gateway is enabled AND the `search-semantic` capability is granted.
+    ///
+    /// Defaulted to `None` so this is purely additive: an implementation that does
+    /// not override it leaves `Email/query` on the unchanged lexical path.
+    /// [`Engine::attach_v7`] reads it once at mount, which is why the mount site in
+    /// `mw-server` needs no change to pick the provider up.
+    fn embedding_provider(&self) -> Option<Arc<dyn crate::search_semantic::EmbeddingProvider>> {
+        None
+    }
 }
 
 // ─── Spam-classification seam (plan §10.8, t10-e13) ──────────────────────────────
@@ -356,6 +366,12 @@ impl Engine {
     /// seams; the plugin-backing registry (populated by
     /// [`Engine::register_plugin_backend`]) is **preserved** across calls.
     pub fn attach_v7(&self, hooks: V7Hooks) {
+        // A8 (26.19): the Assist hook carries the embedding provider, so attaching
+        // the hook bundle is also what turns opt-in semantic re-rank on. A hook that
+        // reports `None` (the default, and what a disabled gateway or one without the
+        // `search-semantic` grant reports) clears it, leaving search purely lexical.
+        self.attach_embeddings(hooks.assist.as_ref().and_then(|a| a.embedding_provider()));
+
         let mut w = self.v7.write().expect("v7 hooks lock");
         w.directory = hooks.directory;
         w.bridge_caps = hooks.bridge_caps;

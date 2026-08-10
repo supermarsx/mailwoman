@@ -76,10 +76,17 @@ mod user_prefs;
 // `bridge_oauth_tokens` table; both tokens sealed at rest. e7 fills the OAuth-client
 // callers.
 mod bridge_tokens;
+// 0022 (26.19 t19): per-message embedding vectors backing the OPT-IN semantic search
+// re-rank (SPEC gap A8). New `Store` methods over the 0022 `message_embeddings` table;
+// vectors sealed at rest, `dim`/`model` stored alongside so a reader can skip a row
+// written under a different embedding model instead of corrupting the ordering. Unused
+// (and unpopulated) unless a deployment configures an Assist embedding provider.
+mod embeddings;
 
 pub(crate) use backend::{Backend, Row, q};
 
 pub use bridge_tokens::BridgeOauthTokenRow;
+pub use embeddings::{MAX_EMBEDDING_DIM, MessageEmbedding};
 pub use ews_cred::EwsAccountCred;
 pub use image_grants::RemoteImageGrantRow;
 pub use plugin_allowlist::{PluginAllowlistError, PluginAllowlistRow, new_allowlist_pin};

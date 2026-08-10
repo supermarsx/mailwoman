@@ -22,6 +22,10 @@ pub mod pim;
 pub mod query;
 pub mod rules;
 pub mod search_index;
+/// A8 (26.19): opt-in cosine re-rank of `Email/query` hits. Inert unless a
+/// deployment attaches an [`search_semantic::EmbeddingProvider`] AND the request
+/// carries `filter.semantic == true`.
+pub mod search_semantic;
 pub mod security;
 pub mod state;
 pub mod submission;
@@ -43,6 +47,8 @@ pub use change::{ChangeOp, ChangeRecord, ChangeType, Changes, StateChange, State
 pub use identity::Identity;
 pub use meta::{EmailMeta, Tag};
 pub use query::{Comparator, EmailFilter, SavedSearch, SortProperty};
+// ── A8 (26.19): the embedding seam `mw-server` injects at mount. ──
+pub use search_semantic::{EmbeddingProvider, RerankReport};
 pub use submission::{EmailSubmission, UndoStatus};
 
 // ── V3 frozen PIM types (§2.1) authored by e0; logic filled by e8. ──

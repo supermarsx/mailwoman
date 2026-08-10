@@ -335,9 +335,17 @@ impl Engine {
     /// routing to `mw-search` for any full-text/attachment/custom-sort condition
     /// and to the SQL fast path for a pure `inMailbox` newest-first listing
     /// (frozen routing rule §2.1). Saved-search folders run their stored filter.
-    async fn query_ids(&self, account_id: &str, args: &Value) -> Result<Vec<String>> {
+    ///
+    /// `pub(crate)` so the A8 re-rank tests can drive the real filter → search →
+    /// re-rank path without standing up a mock account backend; the JSON envelope
+    /// around it is already covered by the V2 integration suite.
+    pub(crate) async fn query_ids(&self, account_id: &str, args: &Value) -> Result<Vec<String>> {
         let raw_filter = args.get("filter").cloned().unwrap_or(Value::Null);
         let mut filter: EmailFilter = serde_json::from_value(raw_filter).unwrap_or_default();
+        // A8: captured before the saved-search expansion below can replace
+        // `filter` wholesale, so opting a saved-search folder into semantic
+        // re-ranking works too. The stored filter's own flag wins if it sets one.
+        let semantic = filter.semantic;
         let comparator = first_comparator(args);
         let sort = search_index::sort_from_comparator(comparator.as_ref());
         let custom_sort = sort != mw_search::Sort::received_desc();
@@ -373,9 +381,52 @@ impl Engine {
             .as_deref()
             .filter(|mb| mailbox_ids.iter().any(|m| m == mb));
         let sq = search_index::build_search_query(&filter, sort, &mailbox_ids, scope);
-        self.search()
+        let mut ids = self
+            .search()
             .search(&sq, 0)
-            .map_err(|e| EngineError::Protocol(format!("search: {e}")))
+            .map_err(|e| EngineError::Protocol(format!("search: {e}")))?;
+
+        // A8 (26.19, SPEC §10.4/§14.3): opt-in semantic re-rank. Reached ONLY when
+        // the request asked for it AND the deployment attached an embedding
+        // provider; otherwise `ids` is returned exactly as the lexical index
+        // produced it, unchanged from 26.18. The pass cannot fail the query — every
+        // degradation path leaves the order untouched (see `search_semantic`).
+        //
+        // Note this DOES override the requested `sort` for the re-ranked window,
+        // and that is the point: the web always sends `receivedAt desc`, so asking
+        // for `semantic` is asking for relevance order instead. Paging is applied
+        // by the caller AFTER this, so page 1 shows the most similar hits.
+        if filter.semantic.or(semantic) == Some(true)
+            && let Some(provider) = self.embedding_provider()
+        {
+            // The web pairs `semantic` with `text`; `subject`/`body` are accepted
+            // as the query source too so an operator-style filter opts in usefully
+            // instead of silently degrading for want of a `text` key.
+            let query_text = filter
+                .text
+                .as_deref()
+                .or(filter.subject.as_deref())
+                .or(filter.body.as_deref())
+                .unwrap_or_default();
+            let report = crate::search_semantic::rerank_hits(
+                &provider,
+                self.store(),
+                self.search_handle(),
+                account_id,
+                query_text,
+                &mut ids,
+            )
+            .await;
+            tracing::debug!(
+                considered = report.considered,
+                scored = report.scored,
+                filled = report.filled,
+                skipped_mismatch = report.skipped_mismatch,
+                degraded = report.degraded,
+                "semantic re-rank"
+            );
+        }
+        Ok(ids)
     }
 
     /// `Email/queryChanges` (frozen §2.1): a best-effort delta. Recomputes the
