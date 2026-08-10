@@ -1,0 +1,60 @@
+{{- if .Values.ingress.enabled }}
+{{- /*
+  One Ingress covers the whole app. Ingress annotations are per-resource, not
+  per-path, so the realtime requirements (no response buffering, long read and
+  send timeouts) are applied to every path rather than only to /jmap/ws and
+  /jmap/eventsource. That is the safe direction: Mailwoman streams its own
+  responses and gains nothing from an edge buffer, while a buffered SSE stream
+  or a 60 s read timeout breaks push outright.
+
+  Chart.yaml pins kubeVersion >=1.25, so networking.k8s.io/v1 is always
+  available and no apiVersion capability fallback is needed.
+*/}}
+{{- $c := .Values.ingress.controller | default "none" }}
+{{- $preset := dict }}
+{{- if ne $c "none" }}
+  {{- $preset = index (.Values.ingress.presets | default dict) $c }}
+  {{- if not $preset }}
+    {{- fail (printf "ingress.controller=%q has no matching entry under ingress.presets (available: %s, or \"none\")" $c (keys (.Values.ingress.presets | default dict) | sortAlpha | join ", ")) }}
+  {{- end }}
+{{- end }}
+{{- /* User annotations win over the preset. */}}
+{{- $annotations := merge (deepCopy (.Values.ingress.annotations | default dict)) $preset }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "mailwoman.fullname" . }}
+  labels:
+    {{- include "mailwoman.labels" . | nindent 4 }}
+  {{- with $annotations }}
+  annotations:
+    {{- range $k, $v := . }}
+    {{ $k }}: {{ $v | quote }}
+    {{- end }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range .Values.ingress.hosts }}
+    - http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType | default "Prefix" }}
+            backend:
+              service:
+                name: {{ include "mailwoman.fullname" $ }}
+                port:
+                  name: http
+          {{- end }}
+      {{- with .host }}
+      host: {{ . | quote }}
+      {{- end }}
+    {{- end }}
+{{- end }}

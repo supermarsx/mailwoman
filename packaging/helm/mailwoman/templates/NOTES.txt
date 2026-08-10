@@ -12,6 +12,61 @@ seal data at rest across restarts. Create a Secret and set serverKeySecret.name:
     --from-literal=MW_SERVER_KEY=$(openssl rand -hex 32)
 {{- end }}
 
+{{- if .Values.ingress.enabled }}
+{{- $tlsHosts := list }}
+{{- range .Values.ingress.tls }}
+{{- $tlsHosts = concat $tlsHosts (.hosts | default list) }}
+{{- end }}
+
+Reach Mailwoman through the ingress at:
+{{- range .Values.ingress.hosts }}
+{{- $host := .host | default "<ingress address>" }}
+{{- $scheme := ternary "https" "http" (has .host $tlsHosts) }}
+{{- range .paths }}
+
+  {{ $scheme }}://{{ $host }}{{ .path }}
+{{- end }}
+{{- end }}
+
+The ingress may take a moment to get an address:
+
+  kubectl get ingress {{ include "mailwoman.fullname" . }}
+{{ if eq (.Values.ingress.controller | default "none") "nginx" }}
+The nginx preset is applied: request bodies to 50m, response buffering off so
+SSE (/jmap/eventsource, /api/assist/invoke) streams, and 3600 s read/send
+timeouts so the WebSocket at /jmap/ws survives the 30 s heartbeat.
+{{- else if eq .Values.ingress.controller "traefik" }}
+The traefik preset is applied: websecure entrypoint with TLS. Traefik already
+streams responses and does not cap request bodies, so SSE and 50 MB uploads
+work without annotations — but its timeouts are entryPoint static config, not
+annotations. Set respondingTimeouts (readTimeout 0s, idleTimeout 3600s) on the
+entrypoint, or long-lived /jmap/ws and /jmap/eventsource connections get cut.
+{{- else }}
+No annotation preset is applied (ingress.controller={{ .Values.ingress.controller | default "none" | quote }}), so this
+Ingress carries only what you put in ingress.annotations. Mailwoman needs three
+things from whatever fronts it: request bodies to 50 MB, no response buffering
+(SSE), and long read/send timeouts (WebSocket). See the `ingress:` block in
+values.yaml.
+{{- end }}
+
+If push never arrives but the mailbox loads, the proxy is buffering or reaping
+those connections — see docs/deploy/websocket.md.
+
+{{- if not .Values.ingress.tls }}
+
+WARNING: ingress.tls is empty, so this ingress serves plain HTTP. Passwords and
+session cookies would cross the network in the clear. Add a TLS secret (or a
+cert-manager issuer annotation) before exposing this outside a test cluster.
+{{- end }}
+{{- if and .Values.ingress.tls (ne (toString (index (.Values.env | default dict) "MW_COOKIE_SECURE" | default "")) "true") }}
+
+NOTE: TLS terminates at the ingress, so the pod itself sees plain HTTP and
+leaves the session cookie without the Secure flag. Set it explicitly:
+
+  --set env.MW_COOKIE_SECURE=true
+{{- end }}
+{{- else }}
+
 Reach the service inside the cluster at:
 
   http://{{ include "mailwoman.fullname" . }}:{{ .Values.service.port }}
@@ -19,3 +74,9 @@ Reach the service inside the cluster at:
 Port-forward to try it locally:
 
   kubectl port-forward svc/{{ include "mailwoman.fullname" . }} 8080:{{ .Values.service.port }}
+
+To publish it instead, enable the ingress (see the `ingress:` block in
+values.yaml for the annotations Mailwoman needs from a proxy):
+
+  --set ingress.enabled=true --set ingress.hosts[0].host=mail.example.org
+{{- end }}

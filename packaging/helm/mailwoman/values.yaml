@@ -21,6 +21,109 @@ service:
   type: ClusterIP
   port: 8080
 
+# Ingress. Disabled by default: the chart cannot guess your hostname, TLS secret
+# or ingress class, and a cluster may have no ingress controller at all. Enable
+# it, set a real host, and pick the preset matching your controller.
+#
+# Mailwoman puts three requirements on whatever fronts it. They are the reason
+# the presets below exist — an Ingress with default annotations reaches the app
+# but breaks push and attachment upload:
+#   1. Request bodies up to 50 MB (POST /jmap/upload/{accountId}, mailbox import).
+#   2. No response buffering, for SSE: GET /jmap/eventsource and
+#      POST /api/assist/invoke stream events as they happen.
+#   3. Long read/send timeouts, for the WebSocket at GET /jmap/ws and for SSE;
+#      the server heartbeat is 30 s, so anything reaping at 60 s kills push.
+# See docs/deploy/websocket.md and docs/deploy/nginx.conf for the non-Kubernetes
+# equivalents of the same settings.
+#
+# TLS note: the ingress terminates TLS and talks plain HTTP to the pod, so the
+# app does not know the browser used https. Set MW_COOKIE_SECURE=true under
+# `env:` above when you serve over https — it defaults to false.
+ingress:
+  enabled: false
+
+  # Selects which block under `presets:` is merged into the annotations:
+  # "nginx", "traefik", or "none" to apply nothing but `annotations:` below.
+  controller: nginx
+
+  # Ingress class. Typically "nginx" or "traefik". Empty uses the cluster's
+  # default IngressClass.
+  className: "nginx"
+
+  hosts:
+    - host: mail.example.org
+      paths:
+        - path: /
+          pathType: Prefix
+
+  # TLS. Create the Secret out-of-band, or let cert-manager fill it by adding
+  # its issuer annotation under `annotations:`.
+  tls: []
+  #  - secretName: mailwoman-tls
+  #    hosts:
+  #      - mail.example.org
+
+  # Extra annotations, merged over the selected preset (these win on conflict).
+  # Example — cert-manager:
+  #   cert-manager.io/cluster-issuer: letsencrypt-prod
+  annotations: {}
+
+  # Worked annotation sets, one per controller. Values MUST stay quoted: YAML
+  # would otherwise read `off` as a boolean and `3600` as an int, and Kubernetes
+  # annotations must be strings.
+  presets:
+    # ingress-nginx (kubernetes/ingress-nginx).
+    nginx:
+      # Default is 1m; attachment uploads and mailbox imports are rejected with
+      # 413 well under Mailwoman's own limit without this.
+      nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+      # SSE must reach the browser event by event. With buffering on, the
+      # controller holds events until its buffer fills or the stream ends, and
+      # push looks dead while polling still works. Set explicitly rather than
+      # relying on the controller default, which differs between distributions.
+      nginx.ingress.kubernetes.io/proxy-buffering: "off"
+      # Stream request bodies to the pod instead of spooling a 50 MB upload to
+      # the controller's disk first.
+      nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+      # Default is 60 s, which reaps the WebSocket and the SSE stream between
+      # 30 s heartbeats. ingress-nginx forwards the Upgrade/Connection headers
+      # itself, so this timeout is the only WebSocket setting you have to make.
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+      nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+
+    # Traefik, via the Kubernetes Ingress provider. Traefik's defaults already
+    # satisfy two of the three requirements, so its preset is short and the
+    # substance is in what you must NOT do:
+    #   * Body size — Traefik does not limit request bodies unless a `buffering`
+    #     middleware is attached. If you attach one, set
+    #     maxRequestBodyBytes: 52428800 (50 MB) and memRequestBodyBytes to
+    #     something small so it spools instead of holding it in memory.
+    #   * Buffering — Traefik streams responses by default, so SSE works. Do not
+    #     attach a `buffering` middleware to this router. If you attach
+    #     `compress`, confirm your version excludes text/event-stream.
+    #   * WebSocket — proxied natively, no middleware needed.
+    #   * Timeouts — these are entryPoint static config, NOT Ingress
+    #     annotations; Traefik has no per-Ingress equivalent. In the Traefik
+    #     chart's own values (check your version's defaults first — recent
+    #     Traefik reads a request with a 60 s readTimeout and idles out at
+    #     180 s, both fatal to a long-lived stream):
+    #       ports:
+    #         websecure:
+    #           transport:
+    #             respondingTimeouts:
+    #               readTimeout: "0s"      # 0 = no limit; WS/SSE are long-lived
+    #               writeTimeout: "0s"
+    #               idleTimeout: "3600s"
+    traefik:
+      # Rename if your Traefik install uses different entrypoint names.
+      traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
+      traefik.ingress.kubernetes.io/router.tls: "true"
+
+    # Any other controller: set `controller: none` and put its equivalents in
+    # `annotations:` above. The three requirements at the top of this block are
+    # what you need to translate. (`none` is handled by the template; it is not
+    # a preset key.)
+
 # Persistent volume for the SQLite DB and sealed data at /data.
 persistence:
   enabled: true
