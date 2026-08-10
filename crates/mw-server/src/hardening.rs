@@ -82,12 +82,27 @@ pub fn is_state_changing(method: &Method) -> bool {
 
 /// Origin/Referer same-site check. Returns `true` when the request is safe to
 /// process: either it carries no `Origin`/`Referer` (non-browser client) or the
-/// header's authority matches the target `Host`.
-pub fn origin_ok(headers: &HeaderMap) -> bool {
-    let host = headers.get(header::HOST).and_then(|v| v.to_str().ok());
+/// header's authority matches the request's own target authority.
+///
+/// `authority` is the URI authority (`req.uri().authority()`), which is where
+/// HTTP/2 carries `:authority` — hyper does not synthesise a `Host` header for
+/// h2, so a proxy that speaks h2 to the backend (Caddy and Traefik both can)
+/// produces requests with no `Host` header at all. The `Host` header wins when
+/// present; the URI authority is the h2 fallback.
+///
+/// **Fails closed with no authority at all** (t20 B8). The previous behaviour
+/// returned `true` here, which let a request that simply omitted `Host` skip the
+/// same-site check entirely — the check has nothing to compare an `Origin`
+/// against, so it cannot attest anything, and allowing it turned a malformed
+/// request into a CSRF bypass. HTTP/1.1 makes `Host` mandatory and h2 supplies
+/// `:authority`, so a well-formed request from any real client still passes.
+pub fn origin_ok(headers: &HeaderMap, authority: Option<&str>) -> bool {
+    let host = headers
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .or(authority);
     let Some(host) = host else {
-        // No Host to compare against; fall back to allowing (dev/loopback).
-        return true;
+        return false;
     };
     if let Some(origin) = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) {
         return authority_of(origin).is_some_and(|a| a.eq_ignore_ascii_case(host));
@@ -254,31 +269,79 @@ mod tests {
 
     #[test]
     fn origin_absent_is_allowed() {
-        assert!(origin_ok(&h(&[("host", "mail.example.org")])));
+        assert!(origin_ok(&h(&[("host", "mail.example.org")]), None));
     }
 
     #[test]
     fn matching_origin_is_allowed_mismatch_is_blocked() {
-        assert!(origin_ok(&h(&[
-            ("host", "mail.example.org"),
-            ("origin", "https://mail.example.org"),
-        ])));
-        assert!(!origin_ok(&h(&[
-            ("host", "mail.example.org"),
-            ("origin", "https://evil.example"),
-        ])));
+        assert!(origin_ok(
+            &h(&[
+                ("host", "mail.example.org"),
+                ("origin", "https://mail.example.org"),
+            ]),
+            None
+        ));
+        assert!(!origin_ok(
+            &h(&[
+                ("host", "mail.example.org"),
+                ("origin", "https://evil.example"),
+            ]),
+            None
+        ));
     }
 
     #[test]
     fn referer_is_the_fallback() {
-        assert!(origin_ok(&h(&[
-            ("host", "mail.example.org"),
-            ("referer", "https://mail.example.org/inbox"),
-        ])));
-        assert!(!origin_ok(&h(&[
-            ("host", "mail.example.org"),
-            ("referer", "https://evil.example/x"),
-        ])));
+        assert!(origin_ok(
+            &h(&[
+                ("host", "mail.example.org"),
+                ("referer", "https://mail.example.org/inbox"),
+            ]),
+            None
+        ));
+        assert!(!origin_ok(
+            &h(&[
+                ("host", "mail.example.org"),
+                ("referer", "https://evil.example/x"),
+            ]),
+            None
+        ));
+    }
+
+    // t20 B8: with nothing to compare an Origin against, the same-site check can
+    // attest nothing — so it must refuse rather than wave the request through.
+    #[test]
+    fn missing_host_fails_closed() {
+        assert!(!origin_ok(&h(&[]), None));
+        assert!(!origin_ok(&h(&[("origin", "https://evil.example")]), None));
+        // Even a request whose Origin would have matched is refused: without a
+        // Host there is no target authority to have matched *against*.
+        assert!(!origin_ok(
+            &h(&[("origin", "https://mail.example.org")]),
+            None
+        ));
+    }
+
+    // HTTP/2 carries the target authority in `:authority`, not a `Host` header;
+    // hyper leaves it on the URI. Those requests must still be checkable.
+    #[test]
+    fn uri_authority_substitutes_for_host_on_h2() {
+        assert!(origin_ok(
+            &h(&[("origin", "https://mail.example.org")]),
+            Some("mail.example.org")
+        ));
+        assert!(!origin_ok(
+            &h(&[("origin", "https://evil.example")]),
+            Some("mail.example.org")
+        ));
+        // A present Host still wins over the URI authority.
+        assert!(origin_ok(
+            &h(&[
+                ("host", "mail.example.org"),
+                ("origin", "https://mail.example.org"),
+            ]),
+            Some("internal.svc")
+        ));
     }
 
     #[test]

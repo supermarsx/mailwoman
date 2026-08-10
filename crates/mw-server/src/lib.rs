@@ -104,6 +104,10 @@ pub use tls::{ReloadableResolver, TlsConfig, TlsListener};
 pub use watermark::WatermarkConfig;
 
 use hardening::SessionGuard;
+// t20-e1's CIDR allowlist + raw-peer helpers. Reused rather than reimplemented so
+// there is exactly one prefix matcher in the crate (trusted proxies here,
+// `MW_HEADER_AUTH_TRUSTED_IPS` below).
+use scope_mw::proxy::{CidrSet, peer_ip};
 
 /// Cookie carrying the opaque session token.
 const COOKIE_NAME: &str = "mw_session";
@@ -193,6 +197,11 @@ pub struct AppConfig {
     /// Serve static assets from this directory instead of the embedded set.
     pub web_dir: Option<PathBuf>,
     /// Add `Secure` to the session cookie (enable behind TLS).
+    ///
+    /// t20 (26.19, e3): a **floor**, not the final answer. `Secure` is now also
+    /// derived from the request's effective scheme, so a TLS deployment that
+    /// leaves this `false` still gets it (see [`ExternalBase`]). Setting it here
+    /// can only raise the result; `MW_COOKIE_SECURE` overrides both ways.
     pub cookie_secure: bool,
     /// Proxy a JMAP upstream (V0 default) or drive IMAP/POP3 via `mw-engine`.
     pub mode: ServerMode,
@@ -251,6 +260,256 @@ impl SecurityConfig {
     }
 }
 
+// ---------------------------------------------------------------------------
+// External identity — the canonical public origin (t20 B6/B8)
+// ---------------------------------------------------------------------------
+
+/// Where this deployment's **public** scheme and host come from.
+///
+/// mailwoman is normally fronted by a reverse proxy that terminates TLS, so the
+/// scheme the browser used is not the scheme of the connection the server sees.
+/// Getting that wrong is what let a TLS deployment that forgot `MW_COOKIE_SECURE`
+/// ship session cookies without `Secure`, over a connection the server believed
+/// was plaintext.
+///
+/// Resolution order, most authoritative first:
+///
+/// 1. **`MW_PUBLIC_URL`** — the canonical external base, e.g.
+///    `https://mail.example.org`. This is the recommended setting: it is read
+///    from the environment, so no request header can move it.
+/// 2. **`X-Forwarded-Proto` / `X-Forwarded-Host`, but only when the connecting
+///    peer is inside `MW_TRUSTED_PROXIES`.** An untrusted peer's forwarded
+///    headers are ignored outright — otherwise any client could assert
+///    `X-Forwarded-Proto: https` and change the server's idea of its own origin.
+/// 3. **The `Host` header, scheme `http`** — the pre-existing behaviour, kept so
+///    a deployment that sets none of these behaves exactly as it did before.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ExternalBase {
+    /// Scheme from `MW_PUBLIC_URL` (`true` = https).
+    public_https: Option<bool>,
+    /// Authority (`host[:port]`) from `MW_PUBLIC_URL`. Read by
+    /// [`ExternalBase::host`], whose consumers land in a later wave.
+    #[allow(dead_code)]
+    public_host: Option<String>,
+    /// `MW_TRUSTED_PROXIES`, parsed. Empty ⇒ no forwarded header is ever trusted.
+    trusted_proxies: CidrSet,
+    /// Explicit `MW_COOKIE_SECURE`; `None` ⇒ derive from the effective scheme.
+    cookie_secure_override: Option<bool>,
+    /// Prebuilt `Strict-Transport-Security` value; `None` ⇒ never emitted.
+    hsts: Option<HeaderValue>,
+}
+
+impl ExternalBase {
+    pub(crate) fn from_env() -> Self {
+        let var = |k: &str| {
+            std::env::var(k)
+                .ok()
+                .map(|v| v.trim().to_string())
+                .filter(|s| !s.is_empty())
+        };
+        let (public_https, public_host) = match var("MW_PUBLIC_URL") {
+            Some(raw) => match split_public_url(&raw) {
+                Some((https, host)) => (Some(https), Some(host)),
+                None => {
+                    tracing::warn!(
+                        "MW_PUBLIC_URL is not an absolute http(s) URL, ignoring it: {raw}"
+                    );
+                    (None, None)
+                }
+            },
+            None => (None, None),
+        };
+        Self {
+            public_https,
+            public_host,
+            trusted_proxies: CidrSet::parse(&var("MW_TRUSTED_PROXIES").unwrap_or_default()),
+            cookie_secure_override: var("MW_COOKIE_SECURE").and_then(|v| parse_env_bool(&v)),
+            hsts: build_hsts(),
+        }
+    }
+
+    /// Whether an `X-Forwarded-*` header on this request may be believed: only
+    /// when the operator has declared trusted proxies AND the peer we are
+    /// actually talking to is one of them.
+    ///
+    /// Deliberately keyed on `MW_TRUSTED_PROXIES` alone, not on
+    /// `MW_FORWARDED_MODE`: that setting selects which *client-IP* header is
+    /// read (`X-Forwarded-For` vs `Forwarded`), which is a different question
+    /// from whether this peer is a proxy at all.
+    fn forwarded_trusted(&self, ext: &axum::http::Extensions) -> bool {
+        if self.trusted_proxies.is_empty() {
+            return false;
+        }
+        match peer_ip(ext) {
+            // No peer address available (in-process test transport, or a serve
+            // path that installed no `ConnectInfo`) ⇒ nothing to match ⇒ no trust.
+            None => false,
+            Some(ip) => self.trusted_proxies.contains(ip),
+        }
+    }
+
+    /// Whether `MW_PUBLIC_URL` states an https base. Header-independent, so it is
+    /// the one scheme fact available outside a request.
+    pub(crate) fn declares_https(&self) -> bool {
+        self.public_https.unwrap_or(false)
+    }
+
+    /// The scheme the *client* used to reach us.
+    pub(crate) fn is_https(&self, headers: &HeaderMap, ext: &axum::http::Extensions) -> bool {
+        if let Some(https) = self.public_https {
+            return https;
+        }
+        if self.forwarded_trusted(ext)
+            && let Some(proto) = first_forwarded_token(headers, "x-forwarded-proto")
+        {
+            return proto.eq_ignore_ascii_case("https");
+        }
+        false
+    }
+
+    /// The host the client addressed us by, for building absolute external URLs.
+    ///
+    /// NOT YET CONSUMED IN THIS TAG. The two places that build host-derived
+    /// absolute URLs — the OAuth DCR issuer (`oauth.rs`, `header::HOST` with a
+    /// hostname-guessed scheme) and the WebAuthn RP origin
+    /// (`twofa_routes::derive_rp`) — live in files owned by other lanes this
+    /// wave, so adopting this there is a follow-up. Unit-tested below so the
+    /// resolution order is pinned before anyone depends on it.
+    #[allow(dead_code)]
+    pub(crate) fn host(&self, headers: &HeaderMap, ext: &axum::http::Extensions) -> Option<String> {
+        if let Some(h) = &self.public_host {
+            return Some(h.clone());
+        }
+        if self.forwarded_trusted(ext)
+            && let Some(h) = first_forwarded_token(headers, "x-forwarded-host")
+        {
+            return Some(h);
+        }
+        headers
+            .get(header::HOST)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string)
+    }
+
+    /// The canonical external base URL (`scheme://host`), when a host is known.
+    /// See [`ExternalBase::host`] for why nothing consumes this yet.
+    #[allow(dead_code)]
+    pub(crate) fn base_url(
+        &self,
+        headers: &HeaderMap,
+        ext: &axum::http::Extensions,
+    ) -> Option<String> {
+        let scheme = if self.is_https(headers, ext) {
+            "https"
+        } else {
+            "http"
+        };
+        self.host(headers, ext).map(|h| format!("{scheme}://{h}"))
+    }
+
+    /// Whether cookies set on this response must carry `Secure`.
+    ///
+    /// `configured` is the deployment's explicit [`AppConfig::cookie_secure`]; it
+    /// can only ever raise the answer, never lower it. `MW_COOKIE_SECURE` remains
+    /// an absolute override in both directions so an operator can pin the old
+    /// behaviour (and so the dev/test harnesses stay on plain http).
+    pub(crate) fn cookie_secure(
+        &self,
+        configured: bool,
+        headers: &HeaderMap,
+        ext: &axum::http::Extensions,
+    ) -> bool {
+        match self.cookie_secure_override {
+            Some(forced) => forced,
+            None => configured || self.is_https(headers, ext),
+        }
+    }
+
+    /// The `Strict-Transport-Security` value to emit, if any. Only ever sent over
+    /// an effective-https request: sending it over plaintext is meaningless (an
+    /// attacker who can rewrite the response can strip it) and pinning a host to
+    /// https from an http response would lock out a deployment that has no TLS.
+    pub(crate) fn hsts(
+        &self,
+        headers: &HeaderMap,
+        ext: &axum::http::Extensions,
+    ) -> Option<&HeaderValue> {
+        if self.is_https(headers, ext) {
+            self.hsts.as_ref()
+        } else {
+            None
+        }
+    }
+}
+
+/// Split `MW_PUBLIC_URL` into `(is_https, authority)`, rejecting anything that is
+/// not an absolute http(s) URL. Any path (`https://host/mail`) is dropped — the
+/// sub-path is `MW_BASE_PATH`'s job, not this one's.
+fn split_public_url(raw: &str) -> Option<(bool, String)> {
+    let (scheme, rest) = raw.split_once("://")?;
+    let https = match scheme.to_ascii_lowercase().as_str() {
+        "https" => true,
+        "http" => false,
+        _ => return None,
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest).trim();
+    if authority.is_empty() {
+        return None;
+    }
+    Some((https, authority.to_ascii_lowercase()))
+}
+
+/// `Strict-Transport-Security` from the environment. Defaults to one year, no
+/// `includeSubDomains`, no `preload`.
+///
+/// `includeSubDomains` is **opt-in** on purpose: it applies to every host under
+/// the domain, including ones this deployment does not serve, so switching it on
+/// by default could take unrelated sibling hosts offline. `preload` is likewise
+/// opt-in — it is effectively irreversible once a domain is on the browser list.
+/// `MW_HSTS=off` disables the header entirely.
+fn build_hsts() -> Option<HeaderValue> {
+    let disabled = std::env::var("MW_HSTS")
+        .map(|v| {
+            let v = v.trim().to_ascii_lowercase();
+            v == "off" || v == "0" || v == "false"
+        })
+        .unwrap_or(false);
+    if disabled {
+        return None;
+    }
+    let max_age: u64 = std::env::var("MW_HSTS_MAX_AGE")
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(31_536_000);
+    let mut value = format!("max-age={max_age}");
+    if env_flag("MW_HSTS_INCLUDE_SUBDOMAINS") {
+        value.push_str("; includeSubDomains");
+    }
+    if env_flag("MW_HSTS_PRELOAD") {
+        value.push_str("; preload");
+    }
+    HeaderValue::from_str(&value).ok()
+}
+
+/// Parse an explicit boolean env var. Unrecognised values yield `None` (treated
+/// as "not set") rather than silently meaning `false`.
+fn parse_env_bool(raw: &str) -> Option<bool> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
+}
+
+/// First comma-separated token of a forwarded header, trimmed and non-empty. For
+/// `X-Forwarded-Proto`/`-Host` the leftmost entry is the one the original client
+/// saw, which is the one describing the public origin.
+fn first_forwarded_token(headers: &HeaderMap, name: &str) -> Option<String> {
+    let raw = headers.get(name)?.to_str().ok()?;
+    let first = raw.split(',').next()?.trim();
+    (!first.is_empty()).then(|| first.to_ascii_lowercase())
+}
+
 #[derive(Clone)]
 pub(crate) struct AppState {
     store: Store,
@@ -261,7 +520,15 @@ pub(crate) struct AppState {
     /// this trusted process without the jail.
     render_jail_required: bool,
     web_dir: Option<PathBuf>,
+    /// The deployment's explicit cookie-`Secure` setting. A floor only — the
+    /// effective value per response comes from
+    /// [`ExternalBase::cookie_secure`], which raises it when the request
+    /// actually arrived over https.
     cookie_secure: bool,
+    /// t20 (26.19, e3): how the public scheme/host is resolved (`MW_PUBLIC_URL`,
+    /// then trusted `X-Forwarded-*`, then `Host`), plus the HSTS posture that
+    /// follows from it.
+    pub(crate) external: Arc<ExternalBase>,
     /// Present only in engine mode; drives IMAP/POP3 behind the JMAP surface.
     engine: Option<Arc<Engine>>,
     /// Realtime push fan-out feeding `/jmap/ws` + `/jmap/eventsource`.
@@ -641,12 +908,27 @@ async fn build_app_inner(
         pairing: std::sync::Mutex::new(std::collections::HashMap::new()),
     });
 
+    // t20 (26.19, e3): resolve the public-origin posture once at boot.
+    let external = Arc::new(ExternalBase::from_env());
+    // A deployment that declares `MW_PUBLIC_URL=https://…` has stated its public
+    // scheme, so the static flag is raised to match. This is what reaches the
+    // consumers that only see the flag and not the request — notably the WebAuthn
+    // RP origin (`twofa_routes::derive_rp`), which previously took its scheme from
+    // the cookie setting and therefore claimed `http://` on every TLS deployment
+    // that had not set `MW_COOKIE_SECURE`. Only ever raises, never lowers.
+    //
+    // MIGRATION NOTE (t20 R7): setting `MW_PUBLIC_URL` to an https base changes the
+    // WebAuthn RP origin from `http://host` to `https://host`. Passkeys registered
+    // under the old origin stop validating. `MW_PUBLIC_URL` is new, so this can only
+    // fire when an operator opts in; `MW_WEBAUTHN_ORIGIN` still overrides both.
+    let cookie_secure = config.cookie_secure || external.declares_https();
     let state = AppState {
         store,
         render_bin,
         render_jail_required,
         web_dir: config.web_dir,
-        cookie_secure: config.cookie_secure,
+        cookie_secure,
+        external,
         engine,
         push: push.clone(),
         sessions: Arc::new(SessionGuard::new()),
@@ -1009,6 +1291,17 @@ fn jmap_first_error(resp: &Value) -> Option<String> {
 // ---------------------------------------------------------------------------
 
 async fn security_headers(State(state): State<AppState>, req: Request, next: Next) -> Response {
+    // t20 (26.19, e3): decide the transport-security posture from the REQUEST,
+    // before it is consumed, then apply it to the response below.
+    let hsts = state
+        .external
+        .hsts(req.headers(), req.extensions())
+        .cloned();
+    let cookie_secure =
+        state
+            .external
+            .cookie_secure(state.cookie_secure, req.headers(), req.extensions());
+
     let mut resp = next.run(req).await;
     let h = resp.headers_mut();
     h.insert("content-security-policy", HeaderValue::from_static(CSP));
@@ -1024,7 +1317,60 @@ async fn security_headers(State(state): State<AppState>, req: Request, next: Nex
     );
     // Additive §7.4 deltas: COEP/CORP/Permissions-Policy.
     hardening::apply_extra_headers(h, state.hardening.coep);
+    // t20 B6: tell the browser never to speak plaintext to this host again, so a
+    // later http navigation cannot be intercepted before the redirect. Emitted
+    // only when this request itself was https (see `ExternalBase::hsts`).
+    if let Some(v) = hsts {
+        h.insert("strict-transport-security", v);
+    }
+    if cookie_secure {
+        mark_cookies_secure(h);
+    }
     resp
+}
+
+/// Add `Secure` to every `Set-Cookie` on the response that lacks it.
+///
+/// t20 B6: `Secure` used to be decided at each cookie-minting call site from a
+/// static flag that defaulted to `false`, so a deployment terminating TLS at a
+/// proxy and not setting `MW_COOKIE_SECURE` handed out session cookies the
+/// browser would happily replay over plaintext. Doing it once here, outermost,
+/// covers every cookie the server sets — including the ones minted in modules
+/// that never see this decision (`sso`, `twofa_routes`, `admin`) — and cannot be
+/// forgotten by a future call site.
+///
+/// Only ever adds the attribute; a cookie that already carries it is untouched.
+fn mark_cookies_secure(h: &mut HeaderMap) {
+    let cookies: Vec<HeaderValue> = h.get_all(header::SET_COOKIE).iter().cloned().collect();
+    if cookies.is_empty() {
+        return;
+    }
+    let mut changed = false;
+    let upgraded: Vec<HeaderValue> = cookies
+        .into_iter()
+        .map(|v| {
+            let Ok(s) = v.to_str() else { return v };
+            if s.split(';')
+                .any(|a| a.trim().eq_ignore_ascii_case("Secure"))
+            {
+                return v;
+            }
+            match HeaderValue::from_str(&format!("{s}; Secure")) {
+                Ok(new) => {
+                    changed = true;
+                    new
+                }
+                Err(_) => v,
+            }
+        })
+        .collect();
+    if !changed {
+        return;
+    }
+    h.remove(header::SET_COOKIE);
+    for v in upgraded {
+        h.append(header::SET_COOKIE, v);
+    }
 }
 
 /// Reject state-changing requests that fail the Origin/Referer same-site check
@@ -1047,7 +1393,15 @@ async fn state_change_guard(State(state): State<AppState>, req: Request, next: N
         // cookie-only Origin/double-submit guard is skipped for it. Cookie/browser
         // requests are handled byte-identically below.
         if push_relay::bearer_token(req.headers()).is_none() {
-            if !hardening::origin_ok(req.headers()) {
+            // The URI authority is where HTTP/2 puts `:authority`; hyper does not
+            // synthesise a `Host` header for it, and `origin_ok` now refuses a
+            // request with neither rather than waving it through (t20 B8).
+            let authority = req
+                .uri()
+                .authority()
+                .map(|a| a.as_str())
+                .map(str::to_string);
+            if !hardening::origin_ok(req.headers(), authority.as_deref()) {
                 return (
                     StatusCode::FORBIDDEN,
                     Json(json!({ "error": "cross-origin request rejected" })),
@@ -1172,12 +1526,16 @@ fn unauthorized() -> Response {
 async fn login(
     State(state): State<AppState>,
     headers: HeaderMap,
+    // t20 B2: the header-auth path needs the connected peer's address, which
+    // lives in the request extensions as `ConnectInfo`.
+    ext: axum::http::Extensions,
     Json(body): Json<LoginReq>,
 ) -> Response {
     // A2 (header-auth trusted proxy): if the deployment trusts an upstream that has
     // already authenticated the user and asserts it via `X-Remote-User`, mint the
-    // session from that header without a password. OFF unless configured.
-    if let Some(resp) = header_auth_login(&state, &headers, &body).await {
+    // session from that header without a password. OFF unless configured, and
+    // restricted to `MW_HEADER_AUTH_TRUSTED_IPS` peers.
+    if let Some(resp) = header_auth_login(&state, &headers, &ext, &body).await {
         return resp;
     }
     // A1 (LDAP-bind login backend, §18.3): an env-gated pre-check against the
@@ -1250,9 +1608,17 @@ fn env_flag(key: &str) -> bool {
 /// proxy that STRIPS any client-supplied copy of the header. It is OFF by default.
 /// In this mode the account identity IS the asserted remote user, so 2FA enrolment
 /// keys off that same identity.
+///
+/// t20 B2 — the header is now additionally restricted to peers listed in
+/// `MW_HEADER_AUTH_TRUSTED_IPS`, which SPEC §18.3 has always promised ("explicitly
+/// enabled + IP-restricted") and the code did not enforce. Without it, anyone able
+/// to reach the app port directly could send `X-Remote-User: <anyone>` and be issued
+/// that user's session; "the port is firewalled to the proxy" was the only thing
+/// standing in the way, and that is a deployment assumption, not a control.
 async fn header_auth_login(
     state: &AppState,
     headers: &HeaderMap,
+    ext: &axum::http::Extensions,
     body: &LoginReq,
 ) -> Option<Response> {
     if !env_flag("MW_HEADER_AUTH") {
@@ -1268,6 +1634,20 @@ async fn header_auth_login(
         .map(str::trim)
         .filter(|s| !s.is_empty())?
         .to_string();
+    // An identity IS being asserted. Only a peer the operator listed may do that.
+    // Refuse rather than falling through to the password path: falling through
+    // would answer an identity assertion with a credential prompt, which is a
+    // confusing (and probe-friendly) response to what is an attack when it
+    // reaches here. A deployment fronted as documented never takes this branch.
+    if !header_auth_peer_allowed(ext) {
+        tracing::warn!(
+            "header auth refused: peer {} is not in MW_HEADER_AUTH_TRUSTED_IPS",
+            peer_ip(ext)
+                .map(|ip| ip.to_string())
+                .unwrap_or_else(|| "<unknown>".into())
+        );
+        return Some(unauthorized());
+    }
     // Downstream mail access uses a configured service password (empty if unset — the
     // proxy/network is expected to authorize the upstream in this deployment shape).
     let password = std::env::var("MW_HEADER_AUTH_PASSWORD").unwrap_or_default();
@@ -1300,6 +1680,40 @@ async fn header_auth_login(
         )
         .await,
     )
+}
+
+/// May this peer assert an identity via the header-auth header (t20 B2)?
+///
+/// Fails closed on every uncertainty:
+///   * `MW_HEADER_AUTH_TRUSTED_IPS` unset or listing nothing parseable ⇒ no,
+///     so enabling `MW_HEADER_AUTH` without an allowlist authenticates nobody
+///     rather than everybody;
+///   * no peer address available (the serve path installed no `ConnectInfo`) ⇒
+///     no, because there is then nothing to check the assertion against.
+///
+/// Deliberately a **separate** list from `MW_TRUSTED_PROXIES`: a proxy trusted to
+/// report a client's IP is not thereby trusted to declare who the client *is*.
+/// The check is on the connected peer, not on any forwarded header — an
+/// identity assertion is only as good as the hop that made it.
+fn header_auth_peer_allowed(ext: &axum::http::Extensions) -> bool {
+    let raw = std::env::var("MW_HEADER_AUTH_TRUSTED_IPS").unwrap_or_default();
+    let allowed = CidrSet::parse(&raw);
+    if allowed.is_empty() {
+        // Once per process: a misconfigured deployment behind a proxy that always
+        // sets the header would otherwise log this on every single request.
+        static WARNED: std::sync::Once = std::sync::Once::new();
+        WARNED.call_once(|| {
+            tracing::warn!(
+                "MW_HEADER_AUTH is on but MW_HEADER_AUTH_TRUSTED_IPS lists no usable \
+                 address; header auth is refusing every request"
+            );
+        });
+        return false;
+    }
+    match peer_ip(ext) {
+        Some(ip) => allowed.contains(ip),
+        None => false,
+    }
 }
 
 /// A1 (LDAP-bind login backend, §18.3). When `MW_LDAP_BIND_AUTH` is set, authenticate
@@ -2613,19 +3027,19 @@ fn locate_render_bin() -> Option<PathBuf> {
 // Static assets / SPA fallback
 // ---------------------------------------------------------------------------
 
-async fn static_handler(State(state): State<AppState>, uri: Uri) -> Response {
+async fn static_handler(State(state): State<AppState>, uri: Uri, headers: HeaderMap) -> Response {
     let raw = uri.path().trim_start_matches('/');
     let path = if raw.is_empty() { "index.html" } else { raw };
 
-    if let Some(resp) = serve_asset(&state, path) {
+    if let Some(resp) = serve_asset(&state, path, &headers) {
         return resp;
     }
     // SPA fallback: unknown non-asset routes get index.html.
-    serve_asset(&state, "index.html")
+    serve_asset(&state, "index.html", &headers)
         .unwrap_or_else(|| (StatusCode::NOT_FOUND, "not found").into_response())
 }
 
-fn serve_asset(state: &AppState, path: &str) -> Option<Response> {
+fn serve_asset(state: &AppState, path: &str, req: &HeaderMap) -> Option<Response> {
     let mime = mime_guess::from_path(path).first_or_octet_stream();
     if let Some(dir) = &state.web_dir {
         let full = dir.join(path);
@@ -2634,18 +3048,108 @@ fn serve_asset(state: &AppState, path: &str) -> Option<Response> {
             return None;
         }
         let bytes = std::fs::read(&full).ok()?;
-        return Some(asset_response(mime.as_ref(), bytes));
+        return Some(asset_response(path, mime.as_ref(), bytes, req));
     }
     let file = WebAssets::get(path)?;
-    Some(asset_response(mime.as_ref(), file.data.into_owned()))
+    Some(asset_response(
+        path,
+        mime.as_ref(),
+        file.data.into_owned(),
+        req,
+    ))
 }
 
-fn asset_response(mime: &str, bytes: Vec<u8>) -> Response {
+/// Serve one static asset with the caching posture its name earns (t20 B9).
+///
+/// This previously set `Content-Type` and nothing else, so every asset was
+/// re-fetched on every load and no browser, reverse proxy or CDN could cache any
+/// of it. The build emits content-hashed filenames (`index-a1b2c3d4.js`), which
+/// are immutable by construction — a change produces a different name — so those
+/// get a one-year `immutable` lifetime. Everything else, `index.html` above all,
+/// gets `no-cache`: it names the hashed assets, so caching it would pin clients
+/// to the previous deploy.
+///
+/// Both kinds carry a strong `ETag`, so a revalidated `no-cache` document answers
+/// 304 rather than resending the body.
+fn asset_response(path: &str, mime: &str, bytes: Vec<u8>, req: &HeaderMap) -> Response {
+    let etag = asset_etag(&bytes);
+    let cache_control = if is_content_hashed(path) {
+        "public, max-age=31536000, immutable"
+    } else {
+        "no-cache"
+    };
+
+    // A conditional request whose validator still matches: 304, no body.
+    if etag_matches(req, &etag) {
+        let mut resp = StatusCode::NOT_MODIFIED.into_response();
+        let h = resp.headers_mut();
+        h.insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static(cache_control),
+        );
+        if let Ok(v) = HeaderValue::from_str(&etag) {
+            h.insert(header::ETAG, v);
+        }
+        return resp;
+    }
+
     let mut resp = Response::new(Body::from(bytes));
+    let h = resp.headers_mut();
     if let Ok(v) = HeaderValue::from_str(mime) {
-        resp.headers_mut().insert(header::CONTENT_TYPE, v);
+        h.insert(header::CONTENT_TYPE, v);
+    }
+    h.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static(cache_control),
+    );
+    if let Ok(v) = HeaderValue::from_str(&etag) {
+        h.insert(header::ETAG, v);
     }
     resp
+}
+
+/// A strong `ETag` over the exact bytes served. Content-derived, so it is right
+/// for both the embedded bundle (which has no mtime) and a `MW_WEB_DIR` tree.
+fn asset_etag(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(bytes);
+    format!(
+        "\"{}\"",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&digest[..16])
+    )
+}
+
+/// Does `If-None-Match` list this entity tag? `*` matches any existing entity.
+fn etag_matches(req: &HeaderMap, etag: &str) -> bool {
+    let Some(raw) = req.get(header::IF_NONE_MATCH).and_then(|v| v.to_str().ok()) else {
+        return false;
+    };
+    raw.split(',').any(|candidate| {
+        let candidate = candidate.trim();
+        // A cache may revalidate a strong tag using the weak form.
+        let candidate = candidate.strip_prefix("W/").unwrap_or(candidate);
+        candidate == "*" || candidate == etag
+    })
+}
+
+/// Whether a filename carries a bundler-generated content hash, which is what
+/// makes a one-year immutable lifetime safe. Matches the Vite/Rollup default
+/// `name-<hash>.ext` shape: a trailing `-`-separated segment of at least eight
+/// alphanumerics containing at least one digit (so `index-a1b2c3d4.js` qualifies
+/// while a hand-written `mail-settings.css` does not).
+fn is_content_hashed(path: &str) -> bool {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    let Some((stem, _ext)) = name.rsplit_once('.') else {
+        return false;
+    };
+    let Some((_, suffix)) = stem.rsplit_once('-') else {
+        return false;
+    };
+    suffix.len() >= 8
+        && suffix
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        && suffix.bytes().any(|b| b.is_ascii_digit())
 }
 
 // ---------------------------------------------------------------------------
@@ -2773,6 +3277,294 @@ fn origin_of(url: &str) -> Option<String> {
     let rest = &url[scheme_end..];
     let end = rest.find('/').map(|i| scheme_end + i).unwrap_or(url.len());
     Some(url[..end].to_string())
+}
+
+#[cfg(test)]
+mod external_base_tests {
+    use super::*;
+    use axum::extract::ConnectInfo;
+    use axum::http::Extensions;
+    use std::net::SocketAddr;
+
+    fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
+        let mut m = HeaderMap::new();
+        for (k, v) in pairs {
+            m.insert(
+                axum::http::HeaderName::from_bytes(k.as_bytes()).unwrap(),
+                HeaderValue::from_str(v).unwrap(),
+            );
+        }
+        m
+    }
+
+    /// Request extensions as the serve path builds them, with a peer address.
+    fn peer(addr: &str) -> Extensions {
+        let mut e = Extensions::new();
+        e.insert(ConnectInfo(addr.parse::<SocketAddr>().unwrap()));
+        e
+    }
+
+    /// Extensions with no `ConnectInfo` — what an in-process test transport, or a
+    /// serve path that never installed it, produces.
+    fn no_peer() -> Extensions {
+        Extensions::new()
+    }
+
+    fn base(public: Option<&str>, trusted: &str) -> ExternalBase {
+        let (public_https, public_host) = match public.and_then(split_public_url) {
+            Some((s, h)) => (Some(s), Some(h)),
+            None => (None, None),
+        };
+        ExternalBase {
+            public_https,
+            public_host,
+            trusted_proxies: CidrSet::parse(trusted),
+            cookie_secure_override: None,
+            hsts: HeaderValue::from_static("max-age=31536000").into(),
+        }
+    }
+
+    #[test]
+    fn public_url_parses_scheme_and_authority() {
+        assert_eq!(
+            split_public_url("https://mail.example.org"),
+            Some((true, "mail.example.org".into()))
+        );
+        // A path is dropped — sub-path hosting is MW_BASE_PATH's job.
+        assert_eq!(
+            split_public_url("https://mail.example.org/mail/"),
+            Some((true, "mail.example.org".into()))
+        );
+        assert_eq!(
+            split_public_url("http://LOCALHOST:8080"),
+            Some((false, "localhost:8080".into()))
+        );
+        // Anything that is not an absolute http(s) URL is refused, not guessed at.
+        assert_eq!(split_public_url("mail.example.org"), None);
+        assert_eq!(split_public_url("ftp://mail.example.org"), None);
+        assert_eq!(split_public_url("https://"), None);
+    }
+
+    #[test]
+    fn public_url_is_the_authority_on_scheme() {
+        let b = base(Some("https://mail.example.org"), "");
+        // Believed with no peer, no headers, and against a contradicting header.
+        assert!(b.is_https(&headers(&[]), &no_peer()));
+        assert!(b.is_https(&headers(&[("x-forwarded-proto", "http")]), &no_peer()));
+        assert!(b.declares_https());
+    }
+
+    #[test]
+    fn forwarded_proto_is_ignored_from_an_untrusted_peer() {
+        // The B6/B1 core: a client that simply asserts https must not be believed.
+        let b = base(None, "10.0.0.0/8");
+        let h = headers(&[("x-forwarded-proto", "https")]);
+        assert!(!b.is_https(&h, &peer("203.0.113.9:5555")));
+        // Trusted list configured but no peer address to check against ⇒ no trust.
+        assert!(!b.is_https(&h, &no_peer()));
+        // No trusted list at all ⇒ the header is inert however it arrived.
+        assert!(!base(None, "").is_https(&h, &peer("10.1.2.3:5555")));
+    }
+
+    #[test]
+    fn forwarded_proto_is_honoured_from_a_trusted_peer() {
+        let b = base(None, "10.0.0.0/8, 2001:db8::/32");
+        assert!(b.is_https(
+            &headers(&[("x-forwarded-proto", "https")]),
+            &peer("10.1.2.3:5555")
+        ));
+        // A trusted proxy reporting plaintext is believed too.
+        assert!(!b.is_https(
+            &headers(&[("x-forwarded-proto", "http")]),
+            &peer("10.1.2.3:5555")
+        ));
+        // The leftmost hop is the client-facing one.
+        assert!(b.is_https(
+            &headers(&[("x-forwarded-proto", "https, http")]),
+            &peer("10.1.2.3:5555")
+        ));
+        // IPv6, and a v4 peer seen through a dual-stack listener as v4-mapped.
+        assert!(b.is_https(
+            &headers(&[("x-forwarded-proto", "https")]),
+            &peer("[2001:db8::1]:5555")
+        ));
+        assert!(b.is_https(
+            &headers(&[("x-forwarded-proto", "https")]),
+            &peer("[::ffff:10.1.2.3]:5555")
+        ));
+    }
+
+    #[test]
+    fn host_resolution_prefers_public_url_then_trusted_forwarded_then_host() {
+        let h = headers(&[
+            ("host", "backend.internal"),
+            ("x-forwarded-host", "mail.example.org"),
+        ]);
+        assert_eq!(
+            base(Some("https://canonical.example.org"), "10.0.0.0/8")
+                .host(&h, &peer("10.1.2.3:5555"))
+                .as_deref(),
+            Some("canonical.example.org")
+        );
+        assert_eq!(
+            base(None, "10.0.0.0/8")
+                .host(&h, &peer("10.1.2.3:5555"))
+                .as_deref(),
+            Some("mail.example.org")
+        );
+        // Untrusted peer: X-Forwarded-Host is ignored, Host stands (today's shape).
+        assert_eq!(
+            base(None, "10.0.0.0/8")
+                .host(&h, &peer("203.0.113.9:5555"))
+                .as_deref(),
+            Some("backend.internal")
+        );
+        assert_eq!(
+            base(Some("https://canonical.example.org"), "")
+                .base_url(&headers(&[]), &no_peer())
+                .as_deref(),
+            Some("https://canonical.example.org")
+        );
+    }
+
+    #[test]
+    fn cookie_secure_derives_from_scheme_and_the_env_override_wins() {
+        let b = base(Some("https://mail.example.org"), "");
+        let (h, e) = (headers(&[]), no_peer());
+        // Derived: https base ⇒ Secure even though the flag is false. This is the
+        // t20 B6 fix — the TLS deployment that forgot MW_COOKIE_SECURE.
+        assert!(b.cookie_secure(false, &h, &e));
+
+        // Explicit override pins the answer in both directions.
+        let forced_off = ExternalBase {
+            cookie_secure_override: Some(false),
+            ..b.clone()
+        };
+        assert!(!forced_off.cookie_secure(true, &h, &e));
+        let forced_on = ExternalBase {
+            cookie_secure_override: Some(true),
+            ..base(None, "")
+        };
+        assert!(forced_on.cookie_secure(false, &h, &e));
+
+        // Plain http with nothing configured keeps today's behaviour, which is what
+        // the ~30 existing test harnesses (cookie_secure: false) depend on.
+        assert!(!base(None, "").cookie_secure(false, &h, &e));
+        // An explicitly-configured deployment still gets Secure over http.
+        assert!(base(None, "").cookie_secure(true, &h, &e));
+    }
+
+    #[test]
+    fn hsts_is_emitted_only_over_https() {
+        let b = base(Some("https://mail.example.org"), "");
+        assert!(b.hsts(&headers(&[]), &no_peer()).is_some());
+        // Plaintext: no header. It would be unenforceable, and it would pin a host
+        // that may have no TLS at all.
+        assert!(base(None, "").hsts(&headers(&[]), &no_peer()).is_none());
+        // Configured off entirely.
+        let off = ExternalBase { hsts: None, ..b };
+        assert!(off.hsts(&headers(&[]), &no_peer()).is_none());
+    }
+
+    #[test]
+    fn env_bool_accepts_both_spellings_and_rejects_junk() {
+        assert_eq!(parse_env_bool("1"), Some(true));
+        assert_eq!(parse_env_bool(" TRUE "), Some(true));
+        assert_eq!(parse_env_bool("off"), Some(false));
+        assert_eq!(parse_env_bool("0"), Some(false));
+        // Unrecognised ⇒ "not set", not a silent false.
+        assert_eq!(parse_env_bool("maybe"), None);
+        assert_eq!(parse_env_bool(""), None);
+    }
+
+    /// The header-auth allowlist reads as fail-closed: an unset or all-junk list is
+    /// indistinguishable from "unconfigured", and `header_auth_peer_allowed` refuses
+    /// on that rather than admitting everyone.
+    #[test]
+    fn cidr_list_drops_malformed_entries_without_widening() {
+        assert!(CidrSet::parse("").is_empty());
+        assert!(CidrSet::parse("not-an-ip, 10.0.0.0/99").is_empty());
+        let list = CidrSet::parse("10.0.0.0/8, junk, 192.168.1.5");
+        assert!(!list.is_empty());
+        assert!(list.contains("10.9.9.9".parse().unwrap()));
+        // A bare address is a host route, not a network.
+        assert!(list.contains("192.168.1.5".parse().unwrap()));
+        assert!(!list.contains("192.168.1.6".parse().unwrap()));
+        // The dropped junk entry did not widen anything.
+        assert!(!list.contains("203.0.113.1".parse().unwrap()));
+    }
+
+    #[test]
+    fn set_cookie_is_upgraded_once_and_only_when_missing() {
+        let mut h = HeaderMap::new();
+        h.append(
+            header::SET_COOKIE,
+            HeaderValue::from_static("mw_session=a; HttpOnly; SameSite=Strict; Path=/"),
+        );
+        h.append(
+            header::SET_COOKIE,
+            HeaderValue::from_static("mw_csrf=b; SameSite=Strict; Path=/; Secure"),
+        );
+        mark_cookies_secure(&mut h);
+
+        let out: Vec<&str> = h
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .map(|v| v.to_str().unwrap())
+            .collect();
+        assert_eq!(out.len(), 2, "cookie count must not change");
+        assert!(out[0].ends_with("; Secure"), "missing Secure was added");
+        // The one that already had it is untouched — no duplicate attribute.
+        assert_eq!(out[1].matches("Secure").count(), 1);
+
+        // Idempotent: a second pass changes nothing.
+        let before = out.join("\n");
+        mark_cookies_secure(&mut h);
+        let after: Vec<&str> = h
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .map(|v| v.to_str().unwrap())
+            .collect();
+        assert_eq!(before, after.join("\n"));
+    }
+
+    #[test]
+    fn only_content_hashed_names_earn_an_immutable_lifetime() {
+        assert!(is_content_hashed("assets/index-a1b2c3d4.js"));
+        assert!(is_content_hashed("assets/Compose-9f8e7d6c5b.css"));
+        // index.html names the hashed assets — caching it would pin the deploy.
+        assert!(!is_content_hashed("index.html"));
+        assert!(!is_content_hashed("sw.js"));
+        assert!(!is_content_hashed("themes/dark.svg"));
+        // A hyphenated human name is not a hash (no digits, or too short).
+        assert!(!is_content_hashed("assets/mail-settings.css"));
+        assert!(!is_content_hashed("assets/index-ab12.js"));
+    }
+
+    #[test]
+    fn if_none_match_honours_star_and_the_weak_form() {
+        let etag = asset_etag(b"hello");
+        assert!(etag_matches(
+            &headers(&[("if-none-match", etag.as_str())]),
+            &etag
+        ));
+        assert!(etag_matches(
+            &headers(&[("if-none-match", &format!("W/{etag}"))]),
+            &etag
+        ));
+        assert!(etag_matches(&headers(&[("if-none-match", "*")]), &etag));
+        assert!(etag_matches(
+            &headers(&[("if-none-match", &format!("\"other\", {etag}"))]),
+            &etag
+        ));
+        assert!(!etag_matches(
+            &headers(&[("if-none-match", "\"nope\"")]),
+            &etag
+        ));
+        assert!(!etag_matches(&headers(&[]), &etag));
+        // Different bytes ⇒ different tag, so a stale validator does not match.
+        assert_ne!(etag, asset_etag(b"hello!"));
+    }
 }
 
 #[cfg(test)]
