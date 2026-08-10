@@ -84,8 +84,12 @@ describe('appearance prefs API', () => {
   });
 
   it('GETs the account endpoint and narrows the response', async () => {
+    // The parameters are declared even where they are unused: `vi.fn` infers the
+    // recorded call tuple from the implementation's signature, so a zero-arg
+    // implementation records `[]` and every `mock.calls` index below stops
+    // type-checking.
     const fetcher = vi.fn(
-      async () =>
+      async (_url: string, _init?: RequestInit) =>
         new Response(
           JSON.stringify({
             appearance: { mode: 'fixed', theme: 'ocean-dark' },
@@ -106,18 +110,19 @@ describe('appearance prefs API', () => {
 
   it('PUTs the whole preference object and DELETEs on reset', async () => {
     const fetcher = vi.fn(
-      async () => new Response(JSON.stringify({ ok: true, updatedAt: 9 }), { status: 200 }),
+      async (_url: string, _init?: RequestInit) =>
+        new Response(JSON.stringify({ ok: true, updatedAt: 9 }), { status: 200 }),
     );
     const api = createAppearancePrefsApi(fetcher);
     const s = slice();
 
     expect(await api.save(s.appearancePrefs())).toBe(9);
-    const [, init] = fetcher.mock.calls[0] as [string, RequestInit];
-    expect(init.method).toBe('PUT');
-    expect(JSON.parse(String(init.body))).toEqual({ appearance: s.appearancePrefs() });
+    const put = fetcher.mock.calls[0]?.[1];
+    expect(put?.method).toBe('PUT');
+    expect(JSON.parse(String(put?.body))).toEqual({ appearance: s.appearancePrefs() });
 
     await api.reset();
-    expect((fetcher.mock.calls[1]?.[1] as RequestInit).method).toBe('DELETE');
+    expect(fetcher.mock.calls[1]?.[1]?.method).toBe('DELETE');
   });
 
   it('treats a non-object appearance as nothing stored', async () => {

@@ -16,6 +16,7 @@ import { createOutboxSlice, type OutboxSlice } from './slices/outbox.ts';
 import { createRealtimeSlice, type RealtimeSlice } from './slices/realtime.ts';
 import { createOfflineSlice, type OfflineSlice } from './slices/offline.ts';
 import { createThemeSlice, type ThemeSlice } from './slices/theme.ts';
+import { startAppearanceSync } from '../api/prefs.ts';
 import { createCalendarSlice, type CalendarSlice } from './slices/calendar.ts';
 import { createTasksSlice, type TasksSlice } from './slices/tasks.ts';
 import { createNotesSlice, type NotesSlice } from './slices/notes.ts';
@@ -132,6 +133,12 @@ export function createAppState(client: Client, deps: AppStateDeps = {}): AppStat
   // Independent slices first (no cross-slice deps).
   const tags = createTagsSlice(ctx);
   const theme = createThemeSlice(ctx);
+  // Per-account appearance sync (t19 e13, SPEC §17.3). At BOOT rather than when
+  // the Settings dialog opens: a second device has to adopt the account's theme
+  // on arrival, not on demand. Idempotent, needs no session (a signed-out 401
+  // leaves the device-local preferences alone), so it has no ordering constraint
+  // against auth and nothing here has to wait for it.
+  startAppearanceSync(theme);
   const offline = createOfflineSlice(ctx);
   const outbox = createOutboxSlice(ctx);
 
