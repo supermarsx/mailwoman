@@ -60,18 +60,27 @@
 #   172.28.0.1       bridge gateway     <- where host-originated test traffic
 #                                          appears from; deliberately UNTRUSTED
 #
-# So a request from the host arrives at the proxy with source 172.28.0.1, the
-# proxy forwards it with `X-Forwarded-For: 172.28.0.1`, and the app — whose peer
-# is a trusted 172.28.10.x — resolves the client as 172.28.0.1. A client that
-# forges its own `X-Forwarded-For` gets that header OVERWRITTEN by every tier-1
-# config, and even if it were not, the gateway is outside MW_TRUSTED_PROXIES so
-# the right-to-left walk would stop there and ignore the forged hops.
+# The INTENDED path, which no run has yet confirmed (see the note below): a
+# request from the host arrives at the proxy with source 172.28.0.1, the proxy
+# forwards it with `X-Forwarded-For: 172.28.0.1`, and the app — whose peer is a
+# trusted 172.28.10.x — resolves the client as 172.28.0.1. A client that forges
+# its own `X-Forwarded-For` gets that header OVERWRITTEN by every tier-1 config,
+# and even if it were not, the gateway is outside MW_TRUSTED_PROXIES so the
+# right-to-left walk would stop there and ignore the forged hops.
 #
 # NOTE for the conformance suite: the "true client IP" a test should expect is
 # the bridge GATEWAY address (172.28.0.1), not the host's LAN address. Docker
-# NATs host-originated traffic; there is no way to see the host's real address
-# from inside the network, and this does not weaken what is being proven — the
-# gateway address is distinguishable from every proxy address.
+# NATs host-originated traffic, so the host's real address is not observable
+# from inside the network. That does not weaken what the cell sets out to prove
+# — the gateway address is distinguishable from every proxy address, which is
+# the actual question.
+#
+# TREAT THE PARAGRAPH ABOVE AS A PREDICTION, NOT A MEASUREMENT. No cell in this
+# file has been booted: it was authored on a host with no Docker daemon, so the
+# addressing described here is derived from the pinned IPAM config rather than
+# observed on the wire. If the first CI run attributes a request to something
+# other than 172.28.0.1, this comment is what is wrong, not the trust model —
+# check the runner's NAT behaviour before changing any config.
 #
 # ---------------------------------------------------------------------------
 # Images
@@ -370,8 +379,11 @@ services:
   # Envoy. Cut from the default matrix because its behaviour overlaps
   # haproxy-l7 + traefik. Boot it by hand with:
   #   docker compose -f docker-compose.proxy.yml --profile envoy up -d
-  # No healthcheck: the envoyproxy image is Ubuntu-based and ships neither wget
-  # nor curl, so any healthcheck here would be theatre.
+  # No healthcheck. The other cells probe the full proxy->app chain with busybox
+  # wget, which their Alpine base provides; the envoyproxy image is not
+  # Alpine-based and I did not confirm what HTTP client it ships, so rather than
+  # guess at a probe that would report a false red, this cell has none. Envoy is
+  # tier 2 and outside the CI matrix, so nothing gates on it.
   envoy:
     image: envoyproxy/envoy:v1.32-latest
     profiles: ["envoy"]
@@ -389,8 +401,12 @@ services:
       app:
         condition: service_healthy
 
-  # IIS has no cell. Windows Server Core containers are multi-GB and Windows
-  # container jobs on hosted runners are slow and flaky, so IIS is verified by
-  # hand against a real IIS 10 + ARR 3.0 install. See
-  # docs/deploy/proxy/iis/README.md for the runbook and what was actually
-  # checked. Nothing in this file boots IIS and no claim here covers it.
+  # IIS has no cell, and is not covered by CI: Windows Server Core containers are
+  # multi-GB and Windows container jobs on hosted runners are slow and flaky
+  # enough that a red cell would carry no information.
+  #
+  # Its config is SHIPPED ONLY — `docs/deploy/proxy/iis/web.config` has not been
+  # run against a live IIS 10 + ARR 3.0 install either, so it is neither
+  # CI-tested nor hand-verified. `docs/deploy/proxy/iis/README.md` says so
+  # plainly and carries a checklist for whoever does run it. Nothing in this file
+  # boots IIS and nothing here should be read as a claim that it works.
