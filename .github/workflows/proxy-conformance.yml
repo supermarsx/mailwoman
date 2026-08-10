@@ -1,0 +1,314 @@
+# Reverse-proxy conformance (t20, tag 26.19).
+#
+# This workflow is what makes "mailwoman works behind nginx" a checkable claim
+# instead of a shipped config file. It boots the real server behind one real
+# proxy per matrix cell and drives it end to end through that proxy's published
+# port.
+#
+# Shape:
+#   1. `build-images` builds the two images from the repo Dockerfile ONCE
+#      (`runtime` + `mock`), `docker save`s them into a single artifact.
+#   2. `cell` fans out over the six TIER-1 proxies, each loading that artifact
+#      rather than rebuilding, booting exactly one profile from
+#      `docker-compose.proxy.yml`, and running the conformance suite against it.
+#
+# Ubuntu only, deliberately. Every cell is docker-compose-bound, so there is
+# nothing for the Windows/macOS build matrix (`ci.yml`, t19) to add here.
+#
+# ---------------------------------------------------------------------------
+# Coverage claims — read before writing any doc prose from this file
+# ---------------------------------------------------------------------------
+#
+# CI-tested (tier 1): nginx, apache, caddy, haproxy-l7, haproxy-l4, traefik.
+#
+# NOT CI-tested: Envoy and IIS. Configs for both are shipped under
+# `docs/deploy/proxy/`, and that is all. Envoy can be booted on demand with
+#
+#   sh docs/deploy/proxy/tls/gen-certs.sh
+#   docker compose -f docker-compose.proxy.yml --profile envoy up -d
+#
+# but no job here does so and no result here covers it. IIS has no cell at all.
+# Anything outside the six-cell matrix is "documented, not CI-tested" — that is
+# the exact wording `docs/deploy/reverse-proxy.md` must use, and no prose
+# anywhere may say "supports" Envoy or IIS on the strength of this workflow.
+#
+# ---------------------------------------------------------------------------
+# The suite this drives
+# ---------------------------------------------------------------------------
+#
+# `crates/mw-server/tests/t20_proxy_conformance.rs` (t20-e11, WAVE 3). It does
+# not exist yet; this workflow is written against the agreed target name and env
+# contract so the two land pre-agreed rather than negotiated after the fact.
+# Until e11 commits, every cell fails at the `--no-run` compile step — which is
+# the honest signal, not a green run that proved nothing.
+#
+# Env contract handed to t20-e11 (all `MW_T20_*`; the suite LOUD-SKIPS a leg
+# whose variable is absent, and never silently passes):
+#
+#   MW_T20_PROXY            "1" — master gate. Unset ⇒ whole suite skips, so the
+#                           same binary is harmless in the normal `ci.yml` run.
+#   MW_T20_PROXY_KIND       profile name verbatim: nginx | apache | caddy |
+#                           haproxy-l7 | haproxy-l4 | traefik
+#   MW_T20_PROXY_BASE       http://127.0.0.1:<http port>. Set but EMPTY for
+#                           haproxy-l4, which is TLS-passthrough and has no HTTP
+#                           listener — so the suite must treat an EMPTY value the
+#                           same as an absent one and skip the plaintext legs.
+#                           Same rule for every variable below.
+#   MW_T20_PROXY_TLS_BASE   https://127.0.0.1:<https port>
+#   MW_T20_PROXY_CA         absolute path to the self-signed leaf the cells use;
+#                           pin it or skip verification, it is not a public CA
+#   MW_T20_DIRECT_BASE      http://127.0.0.1:8607 — the SAME app process with no
+#                           proxy in front and an UNTRUSTED peer. The control
+#                           case: diff a through-proxy result against it.
+#   MW_T20_EXPECT_CLIENT_IP 172.28.0.1 — the docker bridge gateway. Host traffic
+#                           is NATed, so this (not the runner's LAN address) is
+#                           the true client address observable inside the
+#                           network. It is deliberately OUTSIDE
+#                           MW_TRUSTED_PROXIES (172.28.10.0/24), which is what
+#                           makes the trusted-hop walk a real test.
+#   MW_T20_JMAP_URL         upstream for login — resolved by the APP inside the
+#   MW_T20_USER             compose network, not by the runner. The mock is not
+#   MW_T20_PASS             published on the host.
+#   MW_T20_PROXY_PREFIX     sub-path base. Left UNSET here on purpose: no cell
+#                           ships a sub-path config yet (blocked on t20-e12 +
+#                           t20-e13). Those legs must loud-skip, not pass.
+#
+# ---------------------------------------------------------------------------
+# Cost note
+# ---------------------------------------------------------------------------
+#
+# Each cell compiles the test binary itself, sharing one `Swatinem/rust-cache`
+# key across all six legs (first run is six cold compiles in parallel; every run
+# after is warm). Building the binary once and shipping it as an artifact would
+# be cheaper still and is the obvious upgrade if this ever gets slow.
+
+name: proxy-conformance
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: ["master", "t20-**", "release/26.19**"]
+    paths:
+      - "Dockerfile"
+      - "docker-compose.proxy.yml"
+      - "docs/deploy/proxy/**"
+      - "crates/mw-server/**"
+      - "crates/mw-oauth/**"
+      - ".github/workflows/proxy-conformance.yml"
+  pull_request:
+    paths:
+      - "Dockerfile"
+      - "docker-compose.proxy.yml"
+      - "docs/deploy/proxy/**"
+      - "crates/mw-server/**"
+      - "crates/mw-oauth/**"
+      - ".github/workflows/proxy-conformance.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proxy-conformance-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  MW_PROXY_APP_IMAGE: mailwoman:proxy-test
+  MW_PROXY_MOCK_IMAGE: mailwoman-mock:proxy-test
+
+jobs:
+  # ===========================================================================
+  # Build the two images ONCE. Six cells booting the same commit have no reason
+  # to build it six times, and a per-cell build would also let two cells run
+  # against subtly different layers.
+  #
+  # `mock` reuses the `build` stage of `runtime`, so with the shared gha cache
+  # the second image costs almost nothing.
+  # ===========================================================================
+  build-images:
+    name: build images (once)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: build runtime image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime
+          push: false
+          load: true
+          tags: mailwoman:proxy-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: build mock image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: mock
+          push: false
+          load: true
+          tags: mailwoman-mock:proxy-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # gzip -1: these are stripped release binaries in a distroless base, so the
+      # marginal ratio past -1 is not worth the CPU. upload-artifact then stores
+      # it uncompressed (compression-level 0) rather than re-zipping a gzip.
+      - name: save images
+        run: |
+          set -eu
+          docker save mailwoman:proxy-test mailwoman-mock:proxy-test \
+            | gzip -1 > proxy-images.tar.gz
+          ls -lh proxy-images.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: proxy-images
+          path: proxy-images.tar.gz
+          retention-days: 1
+          compression-level: 0
+
+  # ===========================================================================
+  # One job per tier-1 proxy.
+  # ===========================================================================
+  cell:
+    name: ${{ matrix.profile }}
+    needs: build-images
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # TEMPORARY — WAVE 2 ONLY. `haproxy-l4` is the PROXY-protocol cell, and the
+    # parser it needs (`MW_PROXY_PROTOCOL`, crates/mw-server/src/proxy_protocol.rs)
+    # is being written by t20-e2 in this same wave. A known-pending dependency
+    # must not read as a failure, so that ONE cell carries nonblocking: true.
+    # WAVE 3 PROMOTES IT: flip `nonblocking: true` to `false` on the haproxy-l4
+    # matrix entry below. That single line is the whole change.
+    continue-on-error: ${{ matrix.nonblocking }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: nginx
+            http_port: 8601
+            https_port: 8641
+            nonblocking: false
+          - profile: apache
+            http_port: 8602
+            https_port: 8642
+            nonblocking: false
+          - profile: caddy
+            http_port: 8603
+            https_port: 8643
+            nonblocking: false
+          - profile: haproxy-l7
+            http_port: 8604
+            https_port: 8644
+            nonblocking: false
+          # TLS passthrough: no HTTP listener at all, hence the empty http_port.
+          # See the continue-on-error note above for why this one is nonblocking.
+          - profile: haproxy-l4
+            http_port: ""
+            https_port: 8645
+            nonblocking: true
+          - profile: traefik
+            http_port: 8605
+            https_port: 8646
+            nonblocking: false
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # One cache for all six legs — they compile identical artifacts.
+          # Only one leg writes it, so the other five do not race to save.
+          shared-key: t20-proxy-conformance
+          save-if: ${{ matrix.profile == 'nginx' }}
+
+      # Compile BEFORE anything is booted. A compile error is then reported as a
+      # compile error instead of burning the cell's container budget first, and
+      # it is unambiguously distinguishable from a conformance failure.
+      - name: build the conformance suite
+        run: cargo test -p mw-server --test t20_proxy_conformance --no-run
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: proxy-images
+
+      - name: load images
+        run: |
+          set -eu
+          gzip -dc proxy-images.tar.gz | docker load
+          docker image ls mailwoman:proxy-test mailwoman-mock:proxy-test
+
+      # MUST run before `compose up`. The compose file mounts this directory
+      # read-only into every HTTPS listener and into app-tls; if it is empty,
+      # those containers fail to start and `--wait` reports a confusing red.
+      - name: generate self-signed TLS material
+        run: sh docs/deploy/proxy/tls/gen-certs.sh
+
+      - name: boot the ${{ matrix.profile }} cell
+        run: |
+          docker compose -f docker-compose.proxy.yml \
+            --profile "${{ matrix.profile }}" up -d --wait --wait-timeout 300
+
+      - name: conformance suite — ${{ matrix.profile }}
+        env:
+          MW_T20_PROXY: "1"
+          MW_T20_PROXY_KIND: ${{ matrix.profile }}
+          MW_T20_PROXY_BASE: ${{ matrix.http_port && format('http://127.0.0.1:{0}', matrix.http_port) || '' }}
+          MW_T20_PROXY_TLS_BASE: https://127.0.0.1:${{ matrix.https_port }}
+          MW_T20_PROXY_CA: ${{ github.workspace }}/docs/deploy/proxy/tls/certs/server.crt
+          MW_T20_DIRECT_BASE: http://127.0.0.1:8607
+          MW_T20_EXPECT_CLIENT_IP: 172.28.0.1
+          MW_T20_JMAP_URL: http://mock:8181/.well-known/jmap
+          MW_T20_USER: testuser@example.org
+          MW_T20_PASS: testpass
+          # MW_T20_PROXY_PREFIX intentionally unset — see the header. Sub-path
+          # legs must loud-skip until t20-e12 + t20-e13 land.
+        run: |
+          cargo test -p mw-server --test t20_proxy_conformance -- --nocapture --test-threads=1
+
+      # Always, and before teardown — a cell that failed to come up leaves its
+      # only explanation in the container logs.
+      - name: container state + logs
+        if: always()
+        run: |
+          docker compose -f docker-compose.proxy.yml \
+            --profile "${{ matrix.profile }}" ps -a || true
+          docker compose -f docker-compose.proxy.yml \
+            --profile "${{ matrix.profile }}" logs --no-color --timestamps --tail 400 || true
+
+      # `-v`, not a bare `down`: the app volume holds a seeded SQLite DB, and
+      # leaking it would let one cell start from another cell's state.
+      - name: tear down
+        if: always()
+        run: |
+          docker compose -f docker-compose.proxy.yml \
+            --profile "${{ matrix.profile }}" down -v --remove-orphans
+
+  # ===========================================================================
+  # Single check to require as a branch protection rule. Because the nonblocking
+  # cell reports success via continue-on-error, this gate goes red exactly when a
+  # BLOCKING cell fails.
+  # ===========================================================================
+  gate:
+    name: tier-1 proxy gate
+    needs: [build-images, cell]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: verdict
+        run: |
+          set -eu
+          echo "build-images: ${{ needs.build-images.result }}"
+          echo "cell:         ${{ needs.cell.result }}"
+          if [ "${{ needs.build-images.result }}" != "success" ] \
+            || [ "${{ needs.cell.result }}" != "success" ]; then
+            echo "tier-1 proxy conformance FAILED" >&2
+            exit 1
+          fi
+          echo "tier-1 proxy conformance passed (haproxy-l4 non-blocking this wave)"
