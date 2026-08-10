@@ -11,6 +11,7 @@ use axum::serve::ListenerExt;
 use clap::{Parser, Subcommand};
 
 use mw_server::fonts::{self, GoogleFonts, PullOptions};
+use mw_server::tls::proxy_protocol::{self, ProxyAcceptor};
 use mw_server::{
     AppConfig, HardeningConfig, ReloadableResolver, SecurityConfig, ServerMode, TlsConfig,
     TlsListener, build_app,
@@ -557,12 +558,21 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
 
     match tls {
         None => {
-            let listener = tokio::net::TcpListener::bind(&args.bind).await?;
-            tracing::info!("mailwoman listening on http://{}", listener.local_addr()?);
+            let tcp = tokio::net::TcpListener::bind(&args.bind).await?;
+            tracing::info!("mailwoman listening on http://{}", tcp.local_addr()?);
+            // The PROXY header, when one is expected, precedes everything else on
+            // the connection, so `ProxyAcceptor` reads it at accept time and hands
+            // axum the client address in place of the peer address. With
+            // `MW_PROXY_PROTOCOL` unset it does nothing but forward.
+            let listener = ProxyAcceptor::new(tcp, proxy_protocol::Config::from_env())?;
             // `into_make_service_with_connect_info` is what puts the peer address in
             // request extensions. Without it `ConnectInfo` is absent and the
             // trusted-proxy model in `proxy.rs` has no floor to work from, so every
-            // source-IP check silently degrades to "unknown" (t20 B1).
+            // source-IP check silently degrades to "unknown" (t20 B1). `tap_io` is
+            // axum's adapter for a listener that is not the concrete `TcpListener`:
+            // the orphan rule forbids implementing `Connected` for our own type here
+            // (see the TLS arm below).
+            let listener = listener.tap_io(|_| {});
             axum::serve(
                 listener,
                 app.into_make_service_with_connect_info::<SocketAddr>(),
@@ -576,11 +586,13 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
                 spawn_reload_on_sighup(resolver);
             }
             tracing::info!("mailwoman listening on https://{} (TLS)", args.bind);
-            // `TlsListener::Addr` is already the peer `SocketAddr`, but axum only
-            // implements `Connected<IncomingStream<_>>` for the concrete `TcpListener`
-            // and for `TapIo`; the orphan rule forbids writing the impl for our own
-            // listener here. `tap_io` with a no-op is axum's documented adapter for a
-            // custom listener, and picks up the generic `Connected` impl.
+            // `TlsListener::Addr` is already the resolved client `SocketAddr` (its
+            // TCP side is a `ProxyAcceptor`, so a PROXY header is consumed before the
+            // handshake), but axum only implements `Connected<IncomingStream<_>>` for
+            // the concrete `TcpListener` and for `TapIo`; the orphan rule forbids
+            // writing the impl for our own listener here. `tap_io` with a no-op is
+            // axum's documented adapter for a custom listener, and picks up the
+            // generic `Connected` impl.
             let listener = listener.tap_io(|_| {});
             axum::serve(
                 listener,

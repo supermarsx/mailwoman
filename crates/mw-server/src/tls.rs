@@ -29,6 +29,15 @@ use tokio_rustls::server::TlsStream;
 use tokio_rustls_acme::caches::DirCache;
 use tokio_rustls_acme::{AcmeAcceptor, AcmeConfig};
 
+/// PROXY protocol v1/v2 on the HTTP listener. Declared as a `#[path]` child here
+/// rather than in `lib.rs` (whose owner is a different lane this wave); the file
+/// itself lives at `crates/mw-server/src/proxy_protocol.rs` and a later `lib.rs`
+/// change can promote it to a top-level `pub mod proxy_protocol;` unchanged.
+#[path = "proxy_protocol.rs"]
+pub mod proxy_protocol;
+
+use proxy_protocol::ProxyAcceptor;
+
 /// How the server should obtain its certificate.
 #[derive(Debug, Clone)]
 pub enum TlsConfig {
@@ -167,8 +176,14 @@ enum Acceptor {
 }
 
 /// A TCP listener that terminates TLS before handing streams to axum.
+///
+/// The TCP side is a [`ProxyAcceptor`], so when `MW_PROXY_PROTOCOL` is enabled the
+/// PROXY header is consumed **before** the TLS handshake — which is the only place
+/// it can be, since it precedes the ClientHello on the wire. This is the shape that
+/// matters for TLS passthrough behind an L4 balancer, where the app terminates TLS
+/// itself (built-in ACME) and would otherwise see the balancer as every client.
 pub struct TlsListener {
-    tcp: TcpListener,
+    tcp: ProxyAcceptor,
     acceptor: Acceptor,
 }
 
@@ -187,6 +202,8 @@ impl TlsListener {
         let tcp = TcpListener::bind(addr)
             .await
             .with_context(|| format!("binding {addr}"))?;
+        let tcp = ProxyAcceptor::new(tcp, proxy_protocol::Config::from_env())
+            .with_context(|| format!("reading the bound address of {addr}"))?;
         match tls {
             TlsConfig::External { cert, key } => {
                 let resolver = ReloadableResolver::load(cert.clone(), key.clone())?;
@@ -256,16 +273,10 @@ impl axum::serve::Listener for TlsListener {
 
     async fn accept(&mut self) -> (Self::Io, Self::Addr) {
         loop {
-            let (tcp, addr) = match self.tcp.accept().await {
-                Ok(pair) => pair,
-                Err(e) => {
-                    // Transient accept errors: back off briefly and retry
-                    // (contract: this method must not return an error).
-                    tracing::debug!("tcp accept error: {e}");
-                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                    continue;
-                }
-            };
+            // `addr` is the client address the PROXY header named when one was read
+            // and believed, and the socket peer otherwise. Transient accept errors
+            // are handled inside the acceptor (contract: this method cannot fail).
+            let (tcp, addr) = self.tcp.next_conn().await;
             match &self.acceptor {
                 Acceptor::External(acc) => match acc.accept(tcp).await {
                     Ok(tls) => return (tls, addr),
@@ -285,7 +296,7 @@ impl axum::serve::Listener for TlsListener {
     }
 
     fn local_addr(&self) -> io::Result<Self::Addr> {
-        self.tcp.local_addr()
+        ProxyAcceptor::local_addr(&self.tcp)
     }
 }
 
