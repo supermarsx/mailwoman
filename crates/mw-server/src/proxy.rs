@@ -143,11 +143,42 @@ fn prefix_eq(a: &[u8], b: &[u8], bits: u8) -> bool {
     a[whole] & mask == b[whole] & mask
 }
 
+/// A parsed allowlist of networks. Shared by every "is this address permitted"
+/// question in the crate so there is exactly one CIDR implementation: the
+/// trusted-proxy list here, and `MW_HEADER_AUTH_TRUSTED_IPS` in `lib.rs`.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct CidrSet(Vec<Cidr>);
+
+impl CidrSet {
+    /// Parse a comma- (or whitespace-) separated list. Empty and malformed entries
+    /// are skipped: a typo drops one network, it never widens the set.
+    pub(crate) fn parse(list: &str) -> Self {
+        Self(
+            list.split([',', ' ', '\t', '\n', '\r'])
+                .filter_map(Cidr::parse)
+                .collect(),
+        )
+    }
+
+    /// No usable entry. Callers gating on an allowlist should treat this as
+    /// "unconfigured" and decide fail-open or fail-closed explicitly.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Is `ip` inside any network in the set? IPv4-mapped IPv6 is canonicalised, so a
+    /// v4 allowlist still matches a peer a dual-stack listener reports as
+    /// `::ffff:a.b.c.d`.
+    pub(crate) fn contains(&self, ip: IpAddr) -> bool {
+        self.0.iter().any(|c| c.contains(ip))
+    }
+}
+
 /// The deployment's forwarded-header posture.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ProxyConfig {
     pub(crate) mode: ForwardedMode,
-    pub(crate) trusted: Vec<Cidr>,
+    pub(crate) trusted: CidrSet,
 }
 
 impl ProxyConfig {
@@ -164,10 +195,7 @@ impl ProxyConfig {
     /// Build from an already-read mode and trusted list (the env-free seam the unit
     /// tests drive).
     pub(crate) fn new(mode: ForwardedMode, trusted: &str) -> Self {
-        let trusted: Vec<Cidr> = trusted
-            .split([',', ' ', '\t', '\n', '\r'])
-            .filter_map(Cidr::parse)
-            .collect();
+        let trusted = CidrSet::parse(trusted);
         if mode != ForwardedMode::Off && trusted.is_empty() {
             warn_once(concat!(
                 "MW_FORWARDED_MODE is set but MW_TRUSTED_PROXIES lists no usable network; ",
@@ -179,7 +207,7 @@ impl ProxyConfig {
 
     /// Is `ip` one of the configured reverse proxies?
     pub(crate) fn is_trusted(&self, ip: IpAddr) -> bool {
-        self.trusted.iter().any(|c| c.contains(ip))
+        self.trusted.contains(ip)
     }
 }
 
@@ -197,8 +225,22 @@ fn warn_once(msg: &'static str) {
 /// address any check may rely on, and callers treat that as "no source IP" rather
 /// than falling back to a header.
 pub(crate) fn client_ip(headers: &HeaderMap, ext: &Extensions) -> Option<IpAddr> {
-    let peer = ext.get::<ConnectInfo<SocketAddr>>()?.0.ip().to_canonical();
+    let peer = peer_ip(ext)?;
     Some(resolve(&ProxyConfig::from_env(), peer, headers))
+}
+
+/// The address actually on the other end of the socket, canonicalised — no header is
+/// consulted, and no proxy configuration can change it.
+///
+/// Use this, not [`client_ip`], for any check about **who is connecting** rather than
+/// who the connection is on behalf of. Header authentication is the case in point: a
+/// proxy trusted to report a client address is not thereby trusted to assert an
+/// identity, so `MW_HEADER_AUTH_TRUSTED_IPS` must gate on the peer.
+///
+/// `None` means the serve path installed no `ConnectInfo`; a gate that requires an
+/// address must refuse rather than proceed.
+pub(crate) fn peer_ip(ext: &Extensions) -> Option<IpAddr> {
+    Some(ext.get::<ConnectInfo<SocketAddr>>()?.0.ip().to_canonical())
 }
 
 /// The right-to-left walk. `peer` is the floor and is returned unchanged whenever the
@@ -372,8 +414,49 @@ mod tests {
         assert!(Cidr::parse("10.0.0.0/x").is_none());
         // A malformed entry is dropped, the rest of the list survives.
         let cfg = ProxyConfig::new(ForwardedMode::Xff, "nonsense, 10.0.0.0/8");
-        assert_eq!(cfg.trusted.len(), 1);
         assert!(cfg.is_trusted(ip("10.1.1.1")));
+        assert!(!cfg.is_trusted(ip("8.8.8.8")));
+        // An all-malformed list leaves nothing trusted — it never becomes match-all.
+        let cfg = ProxyConfig::new(ForwardedMode::Xff, "nonsense, 10.0.0.0/33");
+        assert!(!cfg.is_trusted(ip("10.1.1.1")));
+    }
+
+    #[test]
+    fn cidr_set_parses_lists_and_matches() {
+        let set = CidrSet::parse("10.0.0.0/8, 192.168.1.7 , 2001:db8::/32");
+        assert!(!set.is_empty());
+        assert!(set.contains(ip("10.9.9.9")));
+        assert!(set.contains(ip("192.168.1.7")));
+        assert!(!set.contains(ip("192.168.1.8")), "bare IP is a host route");
+        assert!(set.contains(ip("2001:db8::5")));
+        assert!(!set.contains(ip("8.8.8.8")));
+        // A dual-stack listener's mapped v4 peer still matches a v4 network.
+        assert!(set.contains(ip("::ffff:10.9.9.9")));
+
+        // Empty and all-malformed lists are empty sets, never match-alls.
+        assert!(CidrSet::parse("").is_empty());
+        assert!(CidrSet::default().is_empty());
+        let junk = CidrSet::parse("nonsense, 10.0.0.0/33");
+        assert!(junk.is_empty());
+        assert!(!junk.contains(ip("10.0.0.1")));
+    }
+
+    #[test]
+    fn peer_ip_reads_only_connect_info() {
+        assert!(peer_ip(&Extensions::new()).is_none());
+
+        let mut ext = Extensions::new();
+        ext.insert(ConnectInfo(
+            "198.51.100.7:52000".parse::<SocketAddr>().unwrap(),
+        ));
+        assert_eq!(peer_ip(&ext).unwrap(), ip("198.51.100.7"));
+
+        // A mapped v4 peer is canonicalised, so a v4 allowlist matches it.
+        let mut ext = Extensions::new();
+        ext.insert(ConnectInfo(
+            "[::ffff:10.1.2.3]:52000".parse::<SocketAddr>().unwrap(),
+        ));
+        assert_eq!(peer_ip(&ext).unwrap(), ip("10.1.2.3"));
     }
 
     #[test]
