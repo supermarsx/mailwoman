@@ -560,8 +560,25 @@ impl Store {
         Ok(())
     }
 
-    /// Delete a cached message (EXPUNGE/VANISHED/dropped UIDL).
+    /// Delete a cached message (EXPUNGE/VANISHED/dropped UIDL), along with any
+    /// content-derived data keyed on its stable id.
+    ///
+    /// The A8 embedding (0022) is dropped here rather than at the three call sites
+    /// that destroy messages today (the IMAP removal sweep, `Email/set` destroy, and
+    /// the source drop after a cross-account move). Wiring those individually is the
+    /// version that silently misses the fourth one somebody adds later; this is the
+    /// single choke point they all pass through, so the guarantee does not depend on
+    /// that list staying complete.
+    ///
+    /// **Embedding first, deliberately.** An embedding is a lossy but partially
+    /// invertible projection of the message's text, so "the user deleted it" has to
+    /// mean the vector is gone too. Dropping the `messages` row first would leave an
+    /// orphan vector behind on a transient failure of the second statement — the exact
+    /// retention defect this call exists to close. In this order a failure leaves the
+    /// message intact and the caller retries; there is no state where the vector
+    /// outlives the message.
     pub async fn delete_message(&self, stable_id: &str) -> Result<(), StoreError> {
+        self.delete_message_embedding(stable_id).await?;
         q("DELETE FROM messages WHERE stable_id = ?1")
             .bind(stable_id)
             .execute(&self.backend)
@@ -1186,6 +1203,70 @@ mod tests {
             s.get_message(&id).await,
             Err(StoreError::NotFound)
         ));
+    }
+
+    /// S3 (26.19): an expunged message must not leave its content-derived embedding
+    /// behind. **Fails against the pre-fix code**, on the first assertion:
+    /// `delete_message_embedding` had no production caller at all, so the vector
+    /// survived the message indefinitely — until an operator happened to run the
+    /// account-wide escape hatch.
+    #[tokio::test]
+    async fn deleting_a_message_drops_its_embedding() {
+        let s = store().await;
+        let account_id = seed_account(&s).await;
+        let mailbox_id = seed_mailbox(&s, &account_id, "INBOX", 100).await;
+
+        let doomed = s
+            .upsert_message(&msg(
+                &account_id,
+                &mailbox_id,
+                1,
+                100,
+                "<a@x>",
+                "2026-07-01T10:00:00Z",
+            ))
+            .await
+            .unwrap();
+        let kept = s
+            .upsert_message(&msg(
+                &account_id,
+                &mailbox_id,
+                2,
+                100,
+                "<b@x>",
+                "2026-07-01T11:00:00Z",
+            ))
+            .await
+            .unwrap();
+
+        s.put_message_embedding(&doomed, &account_id, "m", &[0.5, 0.25])
+            .await
+            .unwrap();
+        s.put_message_embedding(&kept, &account_id, "m", &[0.25, 0.5])
+            .await
+            .unwrap();
+        assert_eq!(s.count_message_embeddings(&account_id).await.unwrap(), 2);
+
+        s.delete_message(&doomed).await.unwrap();
+
+        assert!(
+            s.get_message_embedding(&doomed).await.unwrap().is_none(),
+            "an expunged message's embedding must not outlive it — a vector is a \
+             partially invertible projection of the message text"
+        );
+        // Control: ONLY the expunged message's vector went. A blanket wipe would
+        // satisfy the assertion above while silently destroying the rest of the
+        // account's cache.
+        assert!(
+            s.get_message_embedding(&kept).await.unwrap().is_some(),
+            "another message's embedding is untouched"
+        );
+        assert_eq!(s.count_message_embeddings(&account_id).await.unwrap(), 1);
+
+        // Deleting a message that never had an embedding is still a no-op, not an
+        // error: most deployments never configure Assist at all.
+        s.delete_message(&kept).await.unwrap();
+        assert_eq!(s.count_message_embeddings(&account_id).await.unwrap(), 0);
     }
 
     #[tokio::test]
