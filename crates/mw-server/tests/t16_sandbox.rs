@@ -16,6 +16,13 @@ use mw_sandbox::{
     JailPolicy, SandboxError, confine_current_process, jail_expected, probe, render_posture,
 };
 
+/// `MW_RENDER_JAIL` is process-global and this binary's tests run in parallel by
+/// default, so every test that writes it takes this lock first. (The release gate
+/// pins `--test-threads=1`, but the workflow legs do not have to, and a
+/// cross-platform hygiene lane should not leave a latent env race behind.)
+/// Poisoning is tolerated: a panic in one holder must not wedge the others.
+static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn fail_closed_when_a_jail_is_required_but_unavailable() {
     // The security contract (DQ4/S6): a REQUIRED jail that cannot be installed is an
@@ -42,6 +49,7 @@ fn fail_closed_when_a_jail_is_required_but_unavailable() {
 fn jail_expected_matches_platform_default() {
     // Unset MW_RENDER_JAIL → expected on Linux, not expected elsewhere. This is the
     // single policy the render child + server share to decide the fail-closed boundary.
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let restore = std::env::var("MW_RENDER_JAIL").ok();
     // SAFETY: single-threaded test; restored before returning.
     unsafe { std::env::remove_var("MW_RENDER_JAIL") };
@@ -50,6 +58,49 @@ fn jail_expected_matches_platform_default() {
     // the fail-closed path on a non-Linux host).
     unsafe { std::env::set_var("MW_RENDER_JAIL", "require") };
     assert!(jail_expected());
+    match restore {
+        Some(v) => unsafe { std::env::set_var("MW_RENDER_JAIL", v) },
+        None => unsafe { std::env::remove_var("MW_RENDER_JAIL") },
+    }
+}
+
+/// The same fail-closed contract as above, but driven through the seam the render
+/// **binary** actually calls (`mw-render`'s `main` → [`mw_render::enter_render_jail`])
+/// rather than the `mw-sandbox` API underneath it. That wrapper had no test on any
+/// platform; it cannot own this one itself because `mw-render` is
+/// `#![forbid(unsafe_code)]` and edition-2024 `set_var` is `unsafe`, so the
+/// env-driven half lives here where env mutation is already the established pattern.
+///
+/// Off Linux only: on Linux a *successful* confine would install seccomp on this
+/// harness and SIGSYS-kill it. The Linux side stays the CI conformance job's job.
+#[cfg(not(target_os = "linux"))]
+#[test]
+fn render_binary_seam_fails_closed_when_a_jail_is_required() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let restore = std::env::var("MW_RENDER_JAIL").ok();
+    // SAFETY: single-threaded test binary; restored before returning.
+    for value in ["require", "required", "on", "1", "strict"] {
+        unsafe { std::env::set_var("MW_RENDER_JAIL", value) };
+        let Err(err) = mw_render::enter_render_jail() else {
+            panic!("MW_RENDER_JAIL={value}: the render child must refuse, not degrade");
+        };
+        assert!(
+            err.contains("unavailable"),
+            "MW_RENDER_JAIL={value}: refusal names the cause: {err}"
+        );
+    }
+    // …and the documented degraded mode still returns a usable, honestly-labelled
+    // report, so the fail-closed path did not simply disable the non-Linux child.
+    for value in ["off", "degraded", "0"] {
+        unsafe { std::env::set_var("MW_RENDER_JAIL", value) };
+        let report = mw_render::enter_render_jail()
+            .unwrap_or_else(|e| panic!("MW_RENDER_JAIL={value}: degraded mode must run: {e}"));
+        assert!(!report.platform_supported);
+        assert!(
+            report.degraded.is_some(),
+            "MW_RENDER_JAIL={value}: degradation is stated, never silent"
+        );
+    }
     match restore {
         Some(v) => unsafe { std::env::set_var("MW_RENDER_JAIL", v) },
         None => unsafe { std::env::remove_var("MW_RENDER_JAIL") },

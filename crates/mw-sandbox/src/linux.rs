@@ -11,9 +11,11 @@
 
 use std::collections::BTreeMap;
 
+// NOTE: `RulesetCreatedAttr` is deliberately NOT imported. It carries `add_rule`,
+// and this jail adds no rules — an empty ruleset is what denies every path. Keeping
+// the unused import failed `clippy -D warnings` on the Linux target (t19-e5).
 use landlock::{
-    ABI, Access, AccessFs, CompatLevel, Compatible, Ruleset, RulesetAttr, RulesetCreatedAttr,
-    RulesetStatus,
+    ABI, Access, AccessFs, CompatLevel, Compatible, Ruleset, RulesetAttr, RulesetStatus,
 };
 use seccompiler::{BpfProgram, SeccompAction, SeccompFilter, TargetArch};
 

@@ -369,6 +369,44 @@ mod tests {
         assert!(rendered.contains("SPEC §7.5"));
     }
 
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn no_layer_claims_enforcement_off_linux() {
+        // A posture that reported a layer as `Enforced` on a platform with no kernel
+        // jail would be a false security claim in `mailwoman doctor` — the exact
+        // over-statement the degraded mode exists to avoid. Every layer must read
+        // `n/a`, and the same must hold for a non-required confine (which returns the
+        // report the render child logs).
+        for report in [
+            probe(),
+            confine_current_process(&JailPolicy { required: false }).unwrap(),
+        ] {
+            assert!(!report.platform_supported);
+            assert!(!report.fully_enforced());
+            for layer in &report.layers {
+                assert_eq!(
+                    layer.state,
+                    LayerState::NotApplicable,
+                    "{} must not claim enforcement off Linux",
+                    layer.name
+                );
+            }
+            // The layer set is the same one the Linux jail reports, so `doctor` shows
+            // the operator which protections are missing rather than an empty table.
+            let names: Vec<&str> = report.layers.iter().map(|l| l.name).collect();
+            assert_eq!(
+                names,
+                [
+                    "no_new_privs",
+                    "rlimits",
+                    "net-namespace",
+                    "landlock",
+                    "seccomp"
+                ]
+            );
+        }
+    }
+
     #[test]
     fn render_posture_lists_layers() {
         let report = probe();

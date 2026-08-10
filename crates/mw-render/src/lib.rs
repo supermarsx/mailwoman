@@ -98,6 +98,69 @@ pub fn process_line(line: &str) -> Result<String, String> {
 mod tests {
     use super::*;
 
+    /// The seam the render *binary* actually calls (`main` → [`enter_render_jail`])
+    /// had no test on any platform. It can only be driven off Linux: on Linux a
+    /// successful call installs seccomp on the test harness itself and SIGSYS-kills
+    /// it, so the Linux side stays proven by the Linux-CI conformance job (jailed
+    /// child + blocked syscall) instead.
+    ///
+    /// This crate is `#![forbid(unsafe_code)]`, so these tests deliberately do NOT
+    /// mutate `MW_RENDER_JAIL` (`set_var` is `unsafe` in edition 2024, and relaxing
+    /// the forbid on the hostile-input parser crate to get a test fixture is not a
+    /// trade worth making). They read the ambient policy via
+    /// [`mw_sandbox::jail_expected`] and assert the branch that policy selects. The
+    /// env-driven refusal path is covered where env mutation is already sanctioned:
+    /// `mw-sandbox`'s own tests and `crates/mw-server/tests/t16_sandbox.rs`.
+    #[cfg(not(target_os = "linux"))]
+    mod jail_seam {
+        use crate::{enter_render_jail, process_line};
+
+        /// Off Linux the kernel jail never exists, so the seam has exactly two
+        /// outcomes and the policy picks between them: a required jail is REFUSED
+        /// (never a silent degrade — `main` turns this into a non-zero exit before
+        /// reading a byte of hostile input), and otherwise the child runs with a
+        /// report that plainly says it is degraded rather than claiming a jail it
+        /// does not have.
+        #[test]
+        fn seam_refuses_a_required_jail_and_otherwise_reports_degraded() {
+            match enter_render_jail() {
+                Err(e) => {
+                    assert!(
+                        mw_sandbox::jail_expected(),
+                        "the seam may only refuse when a jail is expected: {e}"
+                    );
+                    assert!(e.contains("unavailable"), "refusal names the cause: {e}");
+                }
+                Ok(report) => {
+                    assert!(
+                        !mw_sandbox::jail_expected(),
+                        "a jail was expected but the seam returned Ok off Linux"
+                    );
+                    assert!(!report.platform_supported, "no kernel jail off Linux");
+                    assert!(
+                        report.degraded.is_some(),
+                        "the degraded reason is reported, never silent"
+                    );
+                    assert!(!report.fully_enforced());
+                }
+            }
+        }
+
+        /// Degraded mode must still be a working render child — the fail-closed
+        /// contract must not have turned the non-Linux path into a no-op. Uses the
+        /// no-op policy directly so it holds regardless of the ambient env.
+        #[test]
+        fn degraded_child_still_processes_jobs() {
+            let report =
+                mw_sandbox::confine_current_process(&mw_sandbox::JailPolicy { required: false })
+                    .expect("a non-required jail never refuses");
+            assert!(report.degraded.is_some());
+            let out = process_line(r#"{"html":"<p>ok</p><script>bad()</script>"}"#).unwrap();
+            assert!(out.contains("<p>ok</p>"));
+            assert!(!out.contains("script"));
+        }
+    }
+
     #[test]
     fn round_trip_sanitizes() {
         // The existing HTML frame is byte-identical (`{"html": …}`).
