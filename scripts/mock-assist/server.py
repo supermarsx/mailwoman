@@ -8,7 +8,7 @@ dependency. Every response is canned and stable, so the E2E is reproducible.
 Routes:
   GET  /healthz                    -> 200 "ok" (compose healthcheck)
   POST /v1/chat/completions        -> OpenAI chat completion (SSE if stream=true)
-  POST /v1/embeddings              -> OpenAI embeddings (fixed 8-dim vector)
+  POST /v1/embeddings              -> OpenAI embeddings (content-dependent, see below)
   POST /v1/audio/transcriptions    -> OpenAI Whisper-style transcription
   POST /v1/messages                -> Anthropic Messages API (SSE if stream=true)
 
@@ -22,8 +22,64 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 PORT = 8199
 
 CHAT_TEXT = "This is a deterministic mock Assist reply for CI."
-EMBEDDING = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875]
 TRANSCRIPT = "deterministic mock transcription for ci"
+
+# ── Embeddings (A8 semantic re-rank) ────────────────────────────────────────
+#
+# These MUST stay content-DEPENDENT. Until 26.19 this file returned one fixed
+# 8-element vector for every input, which is a trap: every document then embeds
+# identically, every cosine is equal, and the re-rank's (correct, tie-stable)
+# result is the lexical order. An end-to-end test against such a mock passes
+# while proving only that the plumbing runs — it asserts the wiring and reads as
+# asserting the feature. If you are tempted to simplify this back to a constant,
+# that is the bug you are re-introducing.
+#
+# The model is a hashed bag of words: each token lands in one bucket of a
+# fixed-width vector, so texts sharing vocabulary sit near each other under
+# cosine and texts that do not, do not. It mirrors `HashEmbedder` in
+# `crates/mw-engine/src/search_semantic.rs`, which the Rust unit tests use.
+#
+# Determinism is load-bearing, in two directions:
+#   * across processes — hence FNV-1a rather than Python's `hash()`, which is
+#     randomised per interpreter for `str` unless PYTHONHASHSEED is pinned;
+#   * across runs — the same text must always give the same vector, because
+#     vectors are CACHED in the 0022 `message_embeddings` table and a second
+#     query must reproduce the first query's ordering.
+#
+# EMBED_DIM must not change casually either: stored vectors of a different width
+# are skipped (degrading to lexical), so changing it invalidates any cache a
+# previous run left behind. That is safe by design, just wasteful.
+EMBED_DIM = 64
+
+
+def _embed(text):
+    """A deterministic, content-dependent unit-ish vector for `text`."""
+    vec = [0.0] * EMBED_DIM
+    token = []
+    for ch in str(text).lower():
+        if ch.isalnum():
+            token.append(ch)
+            continue
+        if token:
+            _accumulate(vec, "".join(token))
+            token = []
+    if token:
+        _accumulate(vec, "".join(token))
+    # Never return a zero vector: it has no direction, so the consumer would
+    # correctly refuse to rank it and the caller would see an unexplained
+    # degradation instead of a mock that simply had nothing to say.
+    if not any(vec):
+        vec[0] = 1.0
+    return vec
+
+
+def _accumulate(vec, token):
+    """FNV-1a 64-bit → one bucket. Stable across interpreters and platforms."""
+    h = 0xCBF29CE484222325
+    for b in token.encode("utf-8"):
+        h ^= b
+        h = (h * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
+    vec[h % EMBED_DIM] += 1.0
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -86,10 +142,19 @@ class Handler(BaseHTTPRequestHandler):
                     "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
                 }))
         elif path == "/v1/embeddings":
+            # `input` is a string or a list of strings (OpenAI accepts both). The
+            # in-tree adapter sends a string and reads `data[0].embedding`; the
+            # list form is honoured so the mock stays faithful to the real API.
+            inputs = body.get("input", "")
+            if not isinstance(inputs, list):
+                inputs = [inputs]
             self._send(200, json.dumps({
                 "object": "list",
                 "model": body.get("model", "mock-embed"),
-                "data": [{"object": "embedding", "index": 0, "embedding": EMBEDDING}],
+                "data": [
+                    {"object": "embedding", "index": i, "embedding": _embed(t)}
+                    for i, t in enumerate(inputs)
+                ],
                 "usage": {"prompt_tokens": 1, "total_tokens": 1},
             }))
         elif path == "/v1/audio/transcriptions":
