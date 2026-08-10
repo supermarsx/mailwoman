@@ -8,6 +8,7 @@
 // dictation audio. Proposed tool actions are returned to the caller for HUMAN
 // confirmation via the Outbox — never executed here. Do not add a send method.
 
+import { withBase } from '../../api/basePath.ts';
 import {
   configFromWire,
   DISABLED_CONFIG,
@@ -138,7 +139,7 @@ export class AssistService {
   /** Read the gateway config. A gateway that is off / unreachable ⇒ DISABLED_CONFIG (hide all UI). */
   async getConfig(): Promise<AssistConfig> {
     try {
-      const res = await this.fetcher('/api/assist/config');
+      const res = await this.fetcher(withBase('/api/assist/config'));
       if (!res.ok) return DISABLED_CONFIG;
       const wire = (await res.json()) as WireAssistConfig;
       return configFromWire(wire);
@@ -157,7 +158,7 @@ export class AssistService {
    * Proposed actions are returned for human review — this method never executes one.
    */
   async invoke(req: InvokeRequest, onDelta?: (delta: string) => void): Promise<InvokeResult> {
-    const res = await this.fetcher('/api/assist/invoke', {
+    const res = await this.fetcher(withBase('/api/assist/invoke'), {
       method: 'POST',
       headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
       body: JSON.stringify(requestToWire(req)),
@@ -240,7 +241,7 @@ export class AssistService {
    * the AI host.
    */
   async transcribe(audio: Blob): Promise<string> {
-    const res = await this.fetcher('/api/assist/transcribe', {
+    const res = await this.fetcher(withBase('/api/assist/transcribe'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ audioBase64: await blobToBase64(audio), mime: audio.type || 'audio/webm' }),

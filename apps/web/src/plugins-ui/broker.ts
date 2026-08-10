@@ -16,6 +16,7 @@
 // to the guest — the only thing that crosses back is the structured RPC response the
 // guest itself asked for.
 
+import { basePath } from '../api/basePath.ts';
 import { callUiPluginRpc } from './client';
 import {
   brokerReject,
@@ -42,7 +43,8 @@ export interface BrokerWiring {
   /// Forward an allow-listed call to the server broker. Injectable for tests; defaults to
   /// the same-origin `callUiPluginRpc` HTTP client.
   readonly rpc?: (pluginId: string, request: RpcRequest) => Promise<RpcResponse>;
-  /// Base URL for the server broker (passed through to the default `rpc`).
+  /// Base URL for the server broker (passed through to the default `rpc`). Omitted ⇒ the
+  /// deploy prefix (`basePath()`), so the broker follows the app under sub-path hosting.
   readonly base?: string;
 }
 
@@ -93,7 +95,7 @@ export async function handleGuestMessage(
     return;
   }
 
-  const rpc = wiring.rpc ?? ((id, req) => callUiPluginRpc(id, req, wiring.base ?? ''));
+  const rpc = wiring.rpc ?? ((id, req) => callUiPluginRpc(id, req, wiring.base ?? basePath()));
   try {
     post(await rpc(wiring.pluginId, decision.request));
   } catch {

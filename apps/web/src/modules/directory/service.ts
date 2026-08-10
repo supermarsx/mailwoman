@@ -3,6 +3,7 @@
 // (`Fetcher`) so components + slices unit-test without a live server; the default uses
 // same-origin cookie auth like the other slices. Directory is READ-ONLY at 1.0 (§13).
 
+import { withBase } from '../../api/basePath.ts';
 import type { GalEntry } from './index.ts';
 
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
@@ -47,7 +48,9 @@ export class DirectoryService {
   async searchGal(query: string, page = 0): Promise<GalSearchPage> {
     const q = query.trim();
     if (q === '') return { entries: [], page, hasMore: false };
-    const res = await this.fetcher(`/api/directory/search?q=${encodeURIComponent(q)}&page=${page}`);
+    const res = await this.fetcher(
+      withBase(`/api/directory/search?q=${encodeURIComponent(q)}&page=${page}`),
+    );
     return jsonOrThrow<GalSearchPage>(res);
   }
 
@@ -57,21 +60,21 @@ export class DirectoryService {
    * (`mw-directory::expand_group`); groups are excluded from the returned leaves.
    */
   async expandGroup(dn: string): Promise<GalEntry[]> {
-    const res = await this.fetcher(`/api/directory/group/${encodeURIComponent(dn)}`);
+    const res = await this.fetcher(withBase(`/api/directory/group/${encodeURIComponent(dn)}`));
     const out = await jsonOrThrow<{ members: GalEntry[] }>(res);
     return out.members;
   }
 
   /** S/MIME certificates published for an address (security tab). */
   async lookupCert(email: string): Promise<DirectoryCert[]> {
-    const res = await this.fetcher(`/api/directory/cert?email=${encodeURIComponent(email)}`);
+    const res = await this.fetcher(withBase(`/api/directory/cert?email=${encodeURIComponent(email)}`));
     const out = await jsonOrThrow<{ certs: DirectoryCert[] }>(res);
     return out.certs;
   }
 
   /** The directory photo for an address, base64 PNG/JPEG, or `null` (security tab). */
   async lookupPhoto(email: string): Promise<string | null> {
-    const res = await this.fetcher(`/api/directory/photo?email=${encodeURIComponent(email)}`);
+    const res = await this.fetcher(withBase(`/api/directory/photo?email=${encodeURIComponent(email)}`));
     const out = await jsonOrThrow<{ photoB64: string | null }>(res);
     return out.photoB64;
   }

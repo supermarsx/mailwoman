@@ -5,6 +5,7 @@
 // phrase was acknowledged first (`rewrap` present ⇒ the caller went through the
 // pre-prompt). No plaintext key ever leaves the client — only wrapped material.
 
+import { withBase } from '../../api/basePath.ts';
 import type { ZaKdfParams } from '../zeroaccess/crypto.ts';
 import { t } from '../../i18n';
 
@@ -57,13 +58,13 @@ export class PasswordService {
 
   /** Fetch the backend's password policy + forced-change state. */
   async policy(): Promise<PasswordPolicy> {
-    const res = await this.fetcher('/api/password/policy');
+    const res = await this.fetcher(withBase('/api/password/policy'));
     return jsonOrThrow<PasswordPolicy>(res);
   }
 
   /** Apply a password change. For zero-access accounts pass the `rewrap` material. */
   async change(req: PasswordChangeRequest): Promise<PasswordChangeOutcome> {
-    const res = await this.fetcher('/api/password', {
+    const res = await this.fetcher(withBase('/api/password'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(req),

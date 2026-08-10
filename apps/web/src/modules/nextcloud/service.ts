@@ -3,6 +3,8 @@
 // Transport injectable so the pickers unit-test without a live server / Nextcloud.
 // CalDAV/CardDAV/tasks are core (`mw-dav`) — this module is only files + share links.
 
+import { withBase } from '../../api/basePath.ts';
+
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
 const defaultFetcher: Fetcher = (input, init) => fetch(input, { credentials: 'same-origin', ...init });
@@ -61,14 +63,14 @@ export class NextcloudService {
 
   /** Browse a WebDAV directory (default the account root). */
   async list(path = '/'): Promise<WebDavEntry[]> {
-    const res = await this.fetcher(`/api/nextcloud/list?path=${encodeURIComponent(path)}`);
+    const res = await this.fetcher(withBase(`/api/nextcloud/list?path=${encodeURIComponent(path)}`));
     const out = await jsonOrThrow<{ entries: WebDavEntry[] }>(res);
     return out.entries;
   }
 
   /** Attach one or more Nextcloud files to the current draft. */
   async attach(paths: string[]): Promise<AttachedFile[]> {
-    const res = await this.fetcher('/api/nextcloud/attach', {
+    const res = await this.fetcher(withBase('/api/nextcloud/attach'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ paths }),
@@ -79,7 +81,7 @@ export class NextcloudService {
 
   /** Save an existing message attachment (by blob id) to a Nextcloud folder. */
   async saveTo(blobId: string, dir: string, name: string): Promise<WebDavEntry> {
-    const res = await this.fetcher('/api/nextcloud/save', {
+    const res = await this.fetcher(withBase('/api/nextcloud/save'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ blobId, path: dir, name }),
@@ -90,7 +92,7 @@ export class NextcloudService {
 
   /** Create a public share link for a Nextcloud file (optional password/expiry). */
   async createShareLink(options: ShareLinkOptions): Promise<ShareLink> {
-    const res = await this.fetcher('/api/nextcloud/share-link', {
+    const res = await this.fetcher(withBase('/api/nextcloud/share-link'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(options),

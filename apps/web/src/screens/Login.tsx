@@ -1,5 +1,6 @@
 import { createSignal, onMount, For, Show, type JSX } from 'solid-js';
 import { ApiError, TwoFactorRequired, type LoginChallenge } from '../api/client.ts';
+import { basePath } from '../api/basePath.ts';
 import { useApp } from '../state/context.ts';
 import { t, loadCatalog } from '../i18n';
 import { listSsoProviders, ssoBeginPath, type SsoProviderSummary } from '../modules/sso';
@@ -43,7 +44,7 @@ export function Login(): JSX.Element {
   // Advertise configured IdPs (pre-auth). Fail-soft to `[]` — a deployment with
   // no SSO renders the login exactly as today (the `<Show>` blocks collapse).
   const [providers, setProviders] = createSignal<SsoProviderSummary[]>([]);
-  onMount(() => void listSsoProviders().then(setProviders).catch(() => setProviders([])));
+  onMount(() => void listSsoProviders(basePath()).then(setProviders).catch(() => setProviders([])));
 
   async function onSubmit(e: Event): Promise<void> {
     e.preventDefault();
@@ -142,7 +143,7 @@ export function Login(): JSX.Element {
               {(p) => (
                 <a
                   class="btn btn--ghost login__sso-btn"
-                  href={ssoBeginPath(p.id)}
+                  href={ssoBeginPath(p.id, basePath())}
                   data-sso-id={p.id}
                   rel="nofollow"
                 >

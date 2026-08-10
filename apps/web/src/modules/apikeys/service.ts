@@ -2,6 +2,7 @@
 // the transport is injectable so components unit-test without a live server. The mint
 // response carries the shown-ONCE display token — it is never re-fetchable.
 
+import { withBase } from '../../api/basePath.ts';
 import { scopeToWire, type ApiKeyRecord, type ApiKeyScope, type MintedKey } from './types.ts';
 
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
@@ -31,13 +32,13 @@ export class ApiKeyService {
   constructor(private readonly fetcher: Fetcher = defaultFetcher) {}
 
   async list(): Promise<ApiKeyRecord[]> {
-    const res = await this.fetcher('/api/keys');
+    const res = await this.fetcher(withBase('/api/keys'));
     return jsonOrThrow<ApiKeyRecord[]>(res);
   }
 
   async create(req: CreateKeyRequest): Promise<MintedKey> {
     const body = { label: req.label, accountId: req.accountId, scope: scopeToWire(req.scope) };
-    const res = await this.fetcher('/api/keys', {
+    const res = await this.fetcher(withBase('/api/keys'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
@@ -46,7 +47,9 @@ export class ApiKeyService {
   }
 
   async revoke(prefix: string): Promise<void> {
-    const res = await this.fetcher(`/api/keys/${encodeURIComponent(prefix)}/revoke`, { method: 'POST' });
+    const res = await this.fetcher(withBase(`/api/keys/${encodeURIComponent(prefix)}/revoke`), {
+      method: 'POST',
+    });
     if (!res.ok) throw new Error(`revoke failed: ${res.status}`);
   }
 }

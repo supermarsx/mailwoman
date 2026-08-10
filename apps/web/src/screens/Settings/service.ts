@@ -8,6 +8,7 @@
 //     0017 + frozen-0003 rows. Those persist server-side; the HTTP surface here is
 //     the account-prefs contract the web drives (see the DONE report's backend note).
 
+import { withBase } from '../../api/basePath.ts';
 import type {
   Identity,
   NotificationConfig,
@@ -69,26 +70,26 @@ export class SettingsService {
   // ── 2FA management (S1) ──────────────────────────────────────────────────
 
   async twofaStatus(): Promise<TwofaStatus> {
-    return jsonOrThrow<TwofaStatus>(await this.fetcher('/api/account/2fa'));
+    return jsonOrThrow<TwofaStatus>(await this.fetcher(withBase('/api/account/2fa')));
   }
 
   async totpBegin(): Promise<TotpBegin> {
-    return jsonOrThrow<TotpBegin>(await postJson(this.fetcher, '/api/account/2fa/totp/begin'));
+    return jsonOrThrow<TotpBegin>(await postJson(this.fetcher, withBase('/api/account/2fa/totp/begin')));
   }
 
   /** Confirm TOTP enrolment; returns recovery codes to show ONCE (empty if the
    *  account already had a set). Throws on a wrong code (400). */
   async totpConfirm(code: string): Promise<RecoveryCodes> {
-    return jsonOrThrow<RecoveryCodes>(await postJson(this.fetcher, '/api/account/2fa/totp/confirm', { code }));
+    return jsonOrThrow<RecoveryCodes>(await postJson(this.fetcher, withBase('/api/account/2fa/totp/confirm'), { code }));
   }
 
   async totpDisable(): Promise<void> {
-    await okOrThrow(await postJson(this.fetcher, '/api/account/2fa/totp/disable'));
+    await okOrThrow(await postJson(this.fetcher, withBase('/api/account/2fa/totp/disable')));
   }
 
   async passkeyBegin(): Promise<PasskeyRegistrationChallenge> {
     return jsonOrThrow<PasskeyRegistrationChallenge>(
-      await postJson(this.fetcher, '/api/account/2fa/passkey/begin'),
+      await postJson(this.fetcher, withBase('/api/account/2fa/passkey/begin')),
     );
   }
 
@@ -100,15 +101,15 @@ export class SettingsService {
     transports: string;
     label: string;
   }): Promise<RecoveryCodes> {
-    return jsonOrThrow<RecoveryCodes>(await postJson(this.fetcher, '/api/account/2fa/passkey/finish', body));
+    return jsonOrThrow<RecoveryCodes>(await postJson(this.fetcher, withBase('/api/account/2fa/passkey/finish'), body));
   }
 
   async passkeyRemove(handle: string): Promise<void> {
-    await okOrThrow(await postJson(this.fetcher, '/api/account/2fa/passkey/remove', { handle }));
+    await okOrThrow(await postJson(this.fetcher, withBase('/api/account/2fa/passkey/remove'), { handle }));
   }
 
   async recoveryRegenerate(): Promise<RecoveryCodes> {
-    return jsonOrThrow<RecoveryCodes>(await postJson(this.fetcher, '/api/account/2fa/recovery/regenerate'));
+    return jsonOrThrow<RecoveryCodes>(await postJson(this.fetcher, withBase('/api/account/2fa/recovery/regenerate')));
   }
 
   // ── Login-time second factor (S1 web half; pre-auth pending token) ────────
@@ -124,69 +125,69 @@ export class SettingsService {
     authenticatorData?: string;
     signature?: string;
   }): Promise<void> {
-    await okOrThrow(await postJson(this.fetcher, '/api/login/2fa', body));
+    await okOrThrow(await postJson(this.fetcher, withBase('/api/login/2fa'), body));
   }
 
   // ── Sessions (S11) ───────────────────────────────────────────────────────
 
   async sessions(): Promise<SessionMeta[]> {
-    const out = await jsonOrThrow<{ sessions: SessionMeta[] }>(await this.fetcher('/api/account/sessions'));
+    const out = await jsonOrThrow<{ sessions: SessionMeta[] }>(await this.fetcher(withBase('/api/account/sessions')));
     return out.sessions;
   }
 
   /** Revoke one session by handle. */
   async revokeSession(handle: string): Promise<void> {
-    await okOrThrow(await postJson(this.fetcher, '/api/account/sessions/revoke', { handle }));
+    await okOrThrow(await postJson(this.fetcher, withBase('/api/account/sessions/revoke'), { handle }));
   }
 
   /** Sign out everywhere else (revoke every session but the current one). */
   async revokeOtherSessions(): Promise<void> {
-    await okOrThrow(await postJson(this.fetcher, '/api/account/sessions/revoke', { all: true }));
+    await okOrThrow(await postJson(this.fetcher, withBase('/api/account/sessions/revoke'), { all: true }));
   }
 
   // ── Signatures (W12) ─────────────────────────────────────────────────────
 
   async listSignatures(): Promise<Signature[]> {
-    const out = await jsonOrThrow<{ signatures: Signature[] }>(await this.fetcher('/api/account/signatures'));
+    const out = await jsonOrThrow<{ signatures: Signature[] }>(await this.fetcher(withBase('/api/account/signatures')));
     return out.signatures;
   }
 
   async upsertSignature(sig: Signature): Promise<void> {
-    await okOrThrow(await postJson(this.fetcher, '/api/account/signatures', sig));
+    await okOrThrow(await postJson(this.fetcher, withBase('/api/account/signatures'), sig));
   }
 
   async deleteSignature(name: string): Promise<void> {
     await okOrThrow(
-      await this.fetcher(`/api/account/signatures/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+      await this.fetcher(withBase(`/api/account/signatures/${encodeURIComponent(name)}`), { method: 'DELETE' }),
     );
   }
 
   // ── Identities ───────────────────────────────────────────────────────────
 
   async listIdentities(): Promise<Identity[]> {
-    const out = await jsonOrThrow<{ identities: Identity[] }>(await this.fetcher('/api/account/identities'));
+    const out = await jsonOrThrow<{ identities: Identity[] }>(await this.fetcher(withBase('/api/account/identities')));
     return out.identities;
   }
 
   async upsertIdentity(identity: Identity): Promise<void> {
-    await okOrThrow(await postJson(this.fetcher, '/api/account/identities', identity));
+    await okOrThrow(await postJson(this.fetcher, withBase('/api/account/identities'), identity));
   }
 
   async deleteIdentity(id: string): Promise<void> {
     await okOrThrow(
-      await this.fetcher(`/api/account/identities/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+      await this.fetcher(withBase(`/api/account/identities/${encodeURIComponent(id)}`), { method: 'DELETE' }),
     );
   }
 
   // ── Notification rules + quiet hours (W15) ───────────────────────────────
 
   async notifications(): Promise<NotificationConfig> {
-    return jsonOrThrow<NotificationConfig>(await this.fetcher('/api/account/notifications'));
+    return jsonOrThrow<NotificationConfig>(await this.fetcher(withBase('/api/account/notifications')));
   }
 
   async saveNotifications(config: NotificationConfig): Promise<void> {
     await okOrThrow(
-      await this.fetcher('/api/account/notifications', {
+      await this.fetcher(withBase('/api/account/notifications'), {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(config),
@@ -198,14 +199,14 @@ export class SettingsService {
 
   async listSavedSearches(): Promise<SavedSearch[]> {
     const out = await jsonOrThrow<{ savedSearches: SavedSearch[] }>(
-      await this.fetcher('/api/account/saved-searches'),
+      await this.fetcher(withBase('/api/account/saved-searches')),
     );
     return out.savedSearches;
   }
 
   async upsertSavedSearch(search: SavedSearch): Promise<void> {
     await okOrThrow(
-      await this.fetcher('/api/account/saved-searches', {
+      await this.fetcher(withBase('/api/account/saved-searches'), {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(search),
@@ -215,7 +216,7 @@ export class SettingsService {
 
   async deleteSavedSearch(id: string): Promise<void> {
     await okOrThrow(
-      await this.fetcher(`/api/account/saved-searches/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+      await this.fetcher(withBase(`/api/account/saved-searches/${encodeURIComponent(id)}`), { method: 'DELETE' }),
     );
   }
 }

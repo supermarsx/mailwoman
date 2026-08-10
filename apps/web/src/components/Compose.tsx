@@ -53,6 +53,7 @@ import {
 } from './compose/crypto-jmap.ts';
 import { getCryptoWorker } from '../crypto/index.ts';
 import { createConfiguredClient } from '../api/transport.ts';
+import { withBase } from '../api/basePath.ts';
 import { uploadBlob } from '../api/jmap.ts';
 import { CAP_CORE } from '../api/jmap-types.ts';
 // V7 last-mile mailbox integration (plan §2.7/§14, e14b). All ADDITIVE: each block
@@ -513,7 +514,7 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
       // not clear-signed) send. Off by default; the toggle copy is explicit
       // that it embeds a remote image.
       if (enc === null && !signOnly && sendOptions().trackingPixel) {
-        htmlBody += `<img src="/api/track/open/${encodeURIComponent(draftId)}.gif" width="1" height="1" alt="">`;
+        htmlBody += `<img src="${withBase(`/api/track/open/${encodeURIComponent(draftId)}.gif`)}" width="1" height="1" alt="">`;
       }
       const subjectToSend =
         enc !== null && cs !== null && cs.protectSubject && enc.encryptedSubjectApplied
