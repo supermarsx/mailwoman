@@ -155,6 +155,15 @@ jobs:
   #   PROMOTION MARKER (t19-e4, 26.19): replace the expression with
   #   `continue-on-error: false` or delete the line. Signing / notarization /
   #   store submission stay human-gated and out of CI either way.
+  #
+  # Wave 6 of 26.19 promoted the Windows leg of ci.yml's `rust-crossplatform` on
+  # native-Windows evidence and left every macOS leg advisory. This job's macOS
+  # leg is the WEAKEST of them: on top of the four unknowns listed in
+  # `rust-crossplatform`'s comment (Xcode CLT vs full Xcode for `zstd-sys` /
+  # `ring`, `cfg(unix)` SIGHUP, `ulimit -n` 256, wasmtime Pulley), it is the only
+  # place Tauri + WKWebView is built at all — never once done in this repo. It
+  # also needs `scripts/build-shells.sh` and `scripts/check-bundle-size.mjs` to
+  # behave on Darwin. Promote only after reading a green macOS run of this job.
   # ---------------------------------------------------------------------------
   desktop-bundles:
     name: build shells + §16 size gate

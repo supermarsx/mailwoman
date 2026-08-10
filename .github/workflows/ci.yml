@@ -171,16 +171,61 @@ jobs:
   # rust-crossplatform — the SAME core Rust gate as `rust` above, on macOS and
   # Windows. Together the two jobs are the mac/win/linux build+test matrix.
   #
-  # NON-BLOCKING FOR NOW (`continue-on-error: true`). This repository has never
-  # compiled on macOS in a gating context: the non-Linux arms of `mw-sandbox`
-  # and `mw-render` are cfg-gated but were never compile-verified by CI, and the
-  # reverse-proxy / PROXY-protocol listener code landing in this same tag is the
-  # most platform-sensitive code in the tree. Promotion to required is a
-  # deliberate second step once a run has actually gone green — a red required
-  # check on mainline is a worse outcome than an advisory leg promoted later.
+  # WINDOWS IS REQUIRED. macOS IS ADVISORY. The `continue-on-error` expression
+  # below is a per-leg condition rather than a blanket `true`, and that one line
+  # is the whole of the split — no step, matrix or `needs` change came with it.
   #
-  #   PROMOTION MARKER: delete the `continue-on-error: true` line below. That one
-  #   line is the entire promotion; nothing else about this job changes.
+  # Both legs landed non-blocking in wave 1 of 26.19 under DQ-7's two-step rule:
+  # land advisory, promote only on evidence that a run actually goes green. A red
+  # required check on mainline is a worse outcome than an advisory leg promoted
+  # later. Windows now has that evidence and macOS does not.
+  #
+  # WHY WINDOWS WAS PROMOTED (t19-e4R, wave 6). t19-e-ci ran this job's three
+  # Rust steps on a native windows host (x86_64-pc-windows-msvc, rustc 1.95):
+  #   - clippy   — 0 warnings at `-D warnings`, run WITHOUT the two `--exclude`
+  #                flags, so a strict superset of the step below;
+  #   - test     — 162 binaries, 1875 passed, 0 failed, 12 ignored;
+  #   - doctests — exit 0.
+  # It verified specifically that Windows compiles and tests the reverse-proxy /
+  # PROXY-protocol code added in this same tag, none of which had ever been built
+  # off Linux: `mw-server/src/proxy.rs` (13/13 unit tests),
+  # `mw-server/src/proxy_protocol.rs` (19/19), the
+  # `into_make_service_with_connect_info` listener wrapping in `main.rs`, the
+  # `tls.rs` PROXY-protocol acceptor path, the base-path routing in `lib.rs`, and
+  # the raw-socket spoof suite (14/14, real `TcpListener` binds and hand-built v1
+  # + v2 headers). None of those files carry a single `cfg(unix)`/`cfg(windows)`,
+  # `std::os::*`, raw-fd or `socket2` reference — they are plain `tokio::net` +
+  # `std::net`, which is why they port cleanly. The one `cfg(unix)` on that path
+  # (`main.rs` `spawn_reload_on_sighup`) has a real `#[cfg(not(unix))]`
+  # counterpart, and the TLS-reload integration test passes on Windows.
+  #
+  # WHAT macOS PROMOTION WOULD REQUIRE — read this before deleting the
+  # expression. A Windows pass is NOT transitive evidence: the two share only
+  # "not Linux". Nothing in the repo has ever built, linked or run on Darwin.
+  # `cargo clippy --target aarch64-apple-darwin` from another host compile-checks
+  # the `cfg` arms but never links and never runs a test, so it cannot answer any
+  # of these (t19-e5 + t19-e-ci, independently):
+  #   1. `zstd-sys` and `ring` building under the Xcode COMMAND LINE TOOLS that
+  #      hosted runners ship, rather than a full Xcode install;
+  #   2. the `cfg(unix)` SIGHUP reload handler actually arming on Darwin —
+  #      satisfied by the cfg, never executed there;
+  #   3. the default `ulimit -n` of 256 on macOS runners against the socket-heavy
+  #      suites — `t20_forwarded_spoof` opens listeners and raw connections per
+  #      test and is the newest code of that shape in the tree. This is the most
+  #      likely macOS-only failure and it would look like a flake, not a bug;
+  #   4. `wasmtime`'s Pulley interpreter on `aarch64-apple-darwin`.
+  # The promotion evidence is cheap to get and nobody has yet: this leg already
+  # runs on every push while advisory, so READ ITS MOST RECENT macOS RUN. One
+  # green run over the four items above is the whole bar. Promote by changing the
+  # expression to `continue-on-error: false`, or deleting the line.
+  #
+  # NOTE: the two `--exclude` flags are load-bearing on EVERY leg, not cosmetic.
+  # `cargo test --workspace --doc` without them exits 1 on Windows,
+  # deterministically; with them it exits 0. The Tauri shells drag `tauri`, `wry`
+  # and `webview2-com` feature edges into the unified graph, so rustdoc resolves
+  # a different feature set and is handed a superseded `mw_engine` rlib. Four
+  # runs pinned that (t19-e-ci): splitting the gate does NOT fix it — the
+  # exclusions do. Do not drop them from any leg, here or in a local gate.
   #
   # Deliberately a SEPARATE job rather than two more legs on `rust`'s matrix:
   # ~19 downstream jobs declare `needs: [rust]`, and `needs` waits for EVERY leg
@@ -198,7 +243,8 @@ jobs:
   # added signal. The Linux `rust` job stays the single fmt gate.
   # -------------------------------------------------------------------------
   rust-crossplatform:
-    continue-on-error: true
+    # Windows: required. macOS: advisory until a green macOS run exists.
+    continue-on-error: ${{ matrix.os == 'macos-latest' }}
     strategy:
       fail-fast: false
       matrix:
@@ -353,9 +399,18 @@ jobs:
   # and test fixtures, case-insensitive filesystem import mismatches (macOS +
   # Windows), and CRLF-sensitive snapshot assertions.
   #
-  # NON-BLOCKING FOR NOW, same posture and same reason as `rust-crossplatform`.
+  # BOTH LEGS STILL NON-BLOCKING — deliberately NOT promoted alongside
+  # `rust-crossplatform`'s Windows leg in wave 6 of 26.19. The evidence that
+  # promoted that leg is a native Windows run of `cargo clippy` / `cargo test`
+  # and says nothing about this job: nobody has run `pnpm typecheck`, `pnpm test`
+  # or `pnpm build` on a Windows or macOS host here. Same two-step rule, and this
+  # job has not reached step two.
   #
-  #   PROMOTION MARKER: delete the `continue-on-error: true` line below.
+  #   PROMOTION MARKER: this leg's evidence is one green run of THIS job, which
+  #   it already produces on every push while advisory — read the most recent
+  #   one. Promote Windows alone with
+  #   `continue-on-error: ${{ matrix.os == 'macos-latest' }}` (the shape
+  #   `rust-crossplatform` uses), or both legs by deleting the line.
   #
   # Separate job (not extra legs on `web`) because `e2e`, `e2e-engine`,
   # `e2e-pim`, `e2e-crypto`, `e2e-v6` and `e2e-v7` all declare `needs: [rust,
