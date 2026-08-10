@@ -133,6 +133,67 @@ fn err500(e: impl std::fmt::Display) -> Response {
         .into_response()
 }
 
+// ─── login monitor ────────────────────────────────────────────────────────────
+
+/// Feed one admin-login failure to the login monitor and **emit its fail2ban
+/// line**.
+///
+/// Emitting is the point. `mw_admin::banlist` exists to hand an operator's
+/// fail2ban jail a line it can match, and the auto-ban this records is a bookkeeping
+/// entry — nothing in the request path consults [`mw_admin::Admin::is_banned`], so
+/// the jail is the enforcement. Until 26.19 the caller built that line and dropped
+/// it on the floor (`let _ = …`), so a jail pointed at Mailwoman's log matched
+/// nothing at all.
+///
+/// The line carries its own RFC 3339 timestamp in addition to the subscriber's.
+/// That is harmless: [`mw_admin::FAIL2BAN_FAILREGEX`] anchors on the
+/// `mailwoman[auth]:` token rather than on position, and fail2ban strips the
+/// leading date before applying the filter.
+async fn record_admin_login_failure(
+    state: &AppState,
+    username: &str,
+    source: Option<std::net::IpAddr>,
+) {
+    if source.is_none() {
+        warn_no_source_once();
+    }
+    match state.v6.admin.record_login_failure(username, source).await {
+        Ok(outcome) => {
+            if let Some(line) = outcome.log_line {
+                // Deliberately the raw line, unstructured: a jail reads it verbatim.
+                tracing::warn!("{line}");
+            }
+            // `banned` implies a resolved source — nothing is banned without one.
+            if outcome.banned
+                && let Some(ip) = source
+            {
+                tracing::warn!(
+                    "admin login: {ip} crossed the failure threshold and was added to the ban list"
+                );
+            }
+        }
+        Err(e) => tracing::warn!("admin login-failure not recorded: {e}"),
+    }
+}
+
+/// Say once that the monitor has nothing to work with.
+///
+/// No source address means the serve path installed no `ConnectInfo` — an
+/// operator condition, not something a client can cause. The failure is still
+/// audited, but it is not counted and no jail line is emitted, so an operator who
+/// believed brute-force protection was running needs to hear that it is not.
+/// Once per process: this fires on a login path an attacker can drive, and a
+/// per-request warning would be a log-flood lever.
+fn warn_no_source_once() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        tracing::warn!(
+            "admin login failure has no client address (no ConnectInfo on the request): \
+             the login monitor cannot count it and no fail2ban line is emitted"
+        );
+    });
+}
+
 // ─── session / login / logout ─────────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -141,21 +202,31 @@ struct LoginReq {
     password: String,
 }
 
-async fn login(State(state): State<AppState>, Json(body): Json<LoginReq>) -> Response {
+async fn login(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    // t20 B3: the login monitor needs the address the attempt came from. It lives
+    // in the request extensions as `ConnectInfo`, installed by the serve path.
+    ext: axum::http::Extensions,
+    Json(body): Json<LoginReq>,
+) -> Response {
     if !state.v6.admin_enabled {
         return unauthorized();
     }
+    // The one seam for "who is this". `proxy::client_ip` is the peer address,
+    // refined by a forwarded header only when `MW_FORWARDED_MODE` selects one AND
+    // the peer is a configured proxy. Reading `X-Forwarded-For` here instead would
+    // reintroduce t20 B1 in a place where it is worse than the bug it replaces: a
+    // ban key anyone can choose lets an attacker put a colleague's address — or a
+    // shared corporate egress IP — in the ban list on demand.
+    let source = crate::scope_mw::proxy::client_ip(&headers, &ext);
     let (Some(user), Some(pass)) = (&state.v6.admin_username, &state.v6.admin_password) else {
         return unauthorized();
     };
     if !ct_eq(body.username.as_bytes(), user.as_bytes())
         || !ct_eq(body.password.as_bytes(), pass.as_bytes())
     {
-        let _ = state
-            .v6
-            .admin
-            .record_login_failure(&body.username, "admin-panel")
-            .await;
+        record_admin_login_failure(&state, &body.username, source).await;
         return unauthorized();
     }
     let token = crate::push_relay::hash_token(&format!(
@@ -171,11 +242,14 @@ async fn login(State(state): State<AppState>, Json(body): Json<LoginReq>) -> Res
     {
         return err500(e);
     }
-    let _ = state
+    if let Err(e) = state
         .v6
         .admin
-        .record_login_success(&body.username, "admin-panel")
-        .await;
+        .record_login_success(&body.username, source)
+        .await
+    {
+        tracing::warn!("admin login-success not recorded: {e}");
+    }
     let mut resp = Json(AdminSessionDto {
         username: body.username,
     })
@@ -856,4 +930,293 @@ fn audit_dto(e: mw_admin::AuditLogEntry) -> Value {
         "detailJson": e.detail_json,
         "ip": e.ip,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    //! The B3 wiring, over a real spawned server.
+    //!
+    //! What the login monitor is keyed on is only observable end-to-end: the
+    //! domain logic in `mw-admin` has always been correct in isolation, and its
+    //! unit tests passed throughout the period in which per-IP banning did not
+    //! work at all. What was wrong was the value *this* module handed it. So these
+    //! drive the real `/admin/login` route and read the real ban list back.
+    //!
+    //! **The harness installs `into_make_service_with_connect_info`.** Without it
+    //! every request arrives with no peer address, the unattributed branch runs,
+    //! and a test asserting "a ban was recorded" would fail — or worse, one
+    //! asserting a negative would pass for entirely the wrong reason. One case
+    //! below deliberately spawns *without* it to pin the `None` behaviour; it uses
+    //! a separate spawner so the two can never be confused.
+
+    use std::net::SocketAddr;
+    use std::path::PathBuf;
+
+    use serde_json::json;
+
+    use crate::{AppConfig, HardeningConfig, SecurityConfig, ServerMode, V6Config, build_app_full};
+
+    const SERVER_KEY_HEX: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+    const ADMIN_USER: &str = "root";
+    const ADMIN_PASS: &str = "hunter2";
+
+    fn unique() -> String {
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        format!(
+            "{}_{}_{}",
+            std::process::id(),
+            SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        )
+    }
+
+    fn web_dir() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("mw-t20e6-web-{}", unique()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("index.html"),
+            "<!doctype html><title>MW</title><div id=app>MW</div>",
+        )
+        .unwrap();
+        dir
+    }
+
+    async fn build() -> axum::Router {
+        let db = std::env::temp_dir().join(format!("mw-t20e6-{}.db", unique()));
+        let config = AppConfig {
+            db_path: db.to_string_lossy().into_owned(),
+            server_key_hex: Some(SERVER_KEY_HEX.into()),
+            web_dir: Some(web_dir()),
+            cookie_secure: false,
+            mode: ServerMode::Proxy,
+            hardening: HardeningConfig::default(),
+            security: SecurityConfig::default(),
+        };
+        let v6 = V6Config {
+            admin_enabled: true,
+            admin_username: Some(ADMIN_USER.into()),
+            admin_password: Some(ADMIN_PASS.into()),
+            redis_url: None,
+        };
+        build_app_full(config, v6).await.expect("server boots").0
+    }
+
+    /// A server whose requests carry a peer address — what `main.rs` serves in
+    /// production. Anything asserting on monitor behaviour must use this.
+    async fn spawn_with_peer() -> String {
+        let app = build().await;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .await
+            .unwrap();
+        });
+        format!("http://{addr}")
+    }
+
+    /// A server with **no** `ConnectInfo`, for the unattributed case only.
+    async fn spawn_without_peer() -> String {
+        let app = build().await;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        format!("http://{addr}")
+    }
+
+    async fn bad_login(c: &reqwest::Client, base: &str, extra: Option<(&str, &str)>) {
+        let mut req = c
+            .post(format!("{base}/admin/login"))
+            .json(&json!({ "username": ADMIN_USER, "password": "wrong" }));
+        if let Some((k, v)) = extra {
+            req = req.header(k, v);
+        }
+        let resp = req.send().await.unwrap();
+        assert_eq!(resp.status(), 401, "a wrong password is rejected");
+    }
+
+    /// Log in for real and return the `Cookie` header value.
+    async fn good_login(c: &reqwest::Client, base: &str) -> String {
+        let resp = c
+            .post(format!("{base}/admin/login"))
+            .json(&json!({ "username": ADMIN_USER, "password": ADMIN_PASS }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200, "the right password still works");
+        let set_cookie = resp
+            .headers()
+            .get(reqwest::header::SET_COOKIE)
+            .expect("login sets a cookie")
+            .to_str()
+            .unwrap();
+        set_cookie.split(';').next().unwrap().to_string()
+    }
+
+    async fn bans(c: &reqwest::Client, base: &str, cookie: &str) -> Vec<serde_json::Value> {
+        let resp = c
+            .get(format!("{base}/admin/bans"))
+            .header(reqwest::header::COOKIE, cookie)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+        resp.json().await.unwrap()
+    }
+
+    async fn audit(c: &reqwest::Client, base: &str, cookie: &str) -> Vec<serde_json::Value> {
+        let resp = c
+            .get(format!("{base}/admin/audit?limit=50"))
+            .header(reqwest::header::COOKIE, cookie)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+        resp.json().await.unwrap()
+    }
+
+    /// The headline: the ban is recorded against the address the request actually
+    /// came from. Before this lane the ban list held one row reading `admin-panel`
+    /// — a subject that is not an address, matches no source, and could never be
+    /// unbanned through the by-IP route.
+    #[tokio::test]
+    async fn failed_admin_logins_ban_the_real_client_address() {
+        let base = spawn_with_peer().await;
+        let c = reqwest::Client::new();
+        for _ in 0..5 {
+            bad_login(&c, &base, None).await;
+        }
+        let cookie = good_login(&c, &base).await;
+        let list = bans(&c, &base, &cookie).await;
+
+        assert_eq!(list.len(), 1, "one source, one ban: {list:?}");
+        let ip = list[0]["ip"].as_str().unwrap();
+        assert_eq!(
+            ip, "127.0.0.1",
+            "the ban must name the peer address, got {ip:?}"
+        );
+        // It parses as an address — the property both fail2ban and the
+        // unban-by-IP route depend on, and the one `admin-panel` never had.
+        assert!(ip.parse::<std::net::IpAddr>().is_ok());
+        assert!(
+            list[0]["reason"].as_str().unwrap().contains("brute-force"),
+            "{list:?}"
+        );
+    }
+
+    /// The default posture ignores forwarded headers, so a client cannot choose
+    /// the ban key. If it could, this fix would be a downgrade rather than a fix:
+    /// an attacker could name a colleague's address, or a shared egress IP, and
+    /// have it banned on demand.
+    #[tokio::test]
+    async fn a_forged_forwarded_header_does_not_become_the_ban_key() {
+        let base = spawn_with_peer().await;
+        let c = reqwest::Client::new();
+        for _ in 0..5 {
+            bad_login(&c, &base, Some(("x-forwarded-for", "203.0.113.99"))).await;
+        }
+        let cookie = good_login(&c, &base).await;
+        let list = bans(&c, &base, &cookie).await;
+
+        assert_eq!(list.len(), 1, "{list:?}");
+        assert_eq!(
+            list[0]["ip"].as_str().unwrap(),
+            "127.0.0.1",
+            "the peer address, not the header's claim: {list:?}"
+        );
+        assert!(
+            !serde_json::to_string(&list)
+                .unwrap()
+                .contains("203.0.113.99"),
+            "the forged address must appear nowhere: {list:?}"
+        );
+    }
+
+    /// A successful login clears that source's counter, so an operator who
+    /// mistypes four times and then gets it right is not left one typo from a ban
+    /// for the rest of the window.
+    #[tokio::test]
+    async fn a_successful_login_clears_the_counter_for_that_source() {
+        let base = spawn_with_peer().await;
+        let c = reqwest::Client::new();
+        for _ in 0..4 {
+            bad_login(&c, &base, None).await;
+        }
+        let cookie = good_login(&c, &base).await;
+        assert!(bans(&c, &base, &cookie).await.is_empty(), "four is under 5");
+
+        // Four more failures after the success must not trip the threshold either.
+        for _ in 0..4 {
+            bad_login(&c, &base, None).await;
+        }
+        let list = bans(&c, &base, &cookie).await;
+        assert!(list.is_empty(), "the success reset the window: {list:?}");
+    }
+
+    /// No `ConnectInfo` ⇒ no source ⇒ nothing counted and nothing banned. The
+    /// decision under test is that this does **not** fall back to a shared bucket:
+    /// a bucket every unattributed request shares is precisely the defect B3
+    /// named, and it would let anyone reaching this path write a ban row naming no
+    /// real host. Authentication itself is unaffected — it does not depend on the
+    /// monitor.
+    #[tokio::test]
+    async fn without_a_peer_address_nothing_is_counted_or_banned() {
+        let base = spawn_without_peer().await;
+        let c = reqwest::Client::new();
+        for _ in 0..12 {
+            bad_login(&c, &base, None).await;
+        }
+        let cookie = good_login(&c, &base).await;
+        let list = bans(&c, &base, &cookie).await;
+        assert!(
+            list.is_empty(),
+            "no address ⇒ no ban row, not a placeholder one: {list:?}"
+        );
+    }
+
+    /// The failure is still on the audit record even when it could not be counted
+    /// — dropping the security event would be a worse trade than dropping the
+    /// count.
+    #[tokio::test]
+    async fn unattributable_failures_are_still_audited() {
+        let base = spawn_without_peer().await;
+        let c = reqwest::Client::new();
+        bad_login(&c, &base, None).await;
+        let cookie = good_login(&c, &base).await;
+
+        let entries = audit(&c, &base, &cookie).await;
+        let failed: Vec<_> = entries
+            .iter()
+            .filter(|e| e["action"] == "login-failed")
+            .collect();
+        assert_eq!(failed.len(), 1, "{entries:?}");
+        assert!(failed[0]["ip"].is_null(), "honest empty source: {failed:?}");
+    }
+
+    /// With a peer address the audit record carries it — what an incident review
+    /// reads to answer "where from", and unconditionally absent before this lane.
+    #[tokio::test]
+    async fn audited_logins_carry_the_source_address() {
+        let base = spawn_with_peer().await;
+        let c = reqwest::Client::new();
+        bad_login(&c, &base, None).await;
+        let cookie = good_login(&c, &base).await;
+
+        let entries = audit(&c, &base, &cookie).await;
+        for action in ["login-failed", "login-succeeded"] {
+            let e = entries
+                .iter()
+                .find(|e| e["action"] == action)
+                .unwrap_or_else(|| panic!("{action} audited: {entries:?}"));
+            assert_eq!(e["ip"].as_str(), Some("127.0.0.1"), "{action}: {e:?}");
+        }
+    }
 }

@@ -21,6 +21,7 @@
 //! append + read — there is no update/delete path (see [`store`] + the
 //! `audit::tests::audit_backend_has_no_mutation_path` test).
 
+use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -176,12 +177,19 @@ pub enum AdminError {
 }
 
 /// The result of recording a login failure through [`Admin::record_login_failure`].
+///
+/// Both the verdict and the log line are optional, and both are `None` for the
+/// same reason: the request had no resolvable source address. There is then
+/// nothing to count and nothing a jail could ban, and the caller is expected to
+/// say so rather than paper over it — see [`Admin::record_login_failure`].
 #[derive(Debug, Clone)]
 pub struct LoginFailureOutcome {
-    /// The monitor's verdict (watched vs ban).
-    pub verdict: LoginVerdict,
-    /// The fail2ban-compatible log line an operator's jail can parse.
-    pub log_line: String,
+    /// The monitor's verdict (watched vs ban), or `None` when the attempt had no
+    /// source address and so was not counted against any bucket.
+    pub verdict: Option<LoginVerdict>,
+    /// The fail2ban-compatible log line an operator's jail can parse, or `None`
+    /// when there is no address to put in `rhost=`.
+    pub log_line: Option<String>,
     /// Whether this failure crossed the threshold and auto-added a ban.
     pub banned: bool,
 }
@@ -265,10 +273,27 @@ impl Admin {
         target: Option<String>,
         detail: serde_json::Value,
     ) -> Result<(), AdminError> {
+        self.emit_from(actor, actor_kind, kind, target, detail, None)
+            .await
+    }
+
+    /// [`Self::emit`] with a source address attached. `AuditLogEntry::ip` already
+    /// models the address as optional, and `None` is honest for the actions driven
+    /// from the CLI (there is no request behind them). The login events, which are
+    /// the ones an incident review reads for *where from*, pass a real address.
+    async fn emit_from(
+        &self,
+        actor: &str,
+        actor_kind: ActorKind,
+        kind: AuditKind,
+        target: Option<String>,
+        detail: serde_json::Value,
+        ip: Option<IpAddr>,
+    ) -> Result<(), AdminError> {
         self.record(
             AuditEvent::new(actor, actor_kind, kind)
                 .detail(detail)
-                .ip(None)
+                .ip(ip.map(|a| a.to_string()))
                 .target_opt(target),
         )
         .await
@@ -612,14 +637,26 @@ impl Admin {
     // ── Login monitor / ban list ─────────────────────────────────────────────
 
     /// Record a successful login (clears the failure counter + audits).
-    pub async fn record_login_success(&self, account: &str, ip: &str) -> Result<(), AdminError> {
-        self.monitor.record_success(ip);
-        self.emit(
+    ///
+    /// `ip` is the caller's *resolved* client address (see
+    /// [`Self::record_login_failure`] for what `None` means). With no address
+    /// there is no bucket to clear, and the audit record simply carries no source.
+    pub async fn record_login_success(
+        &self,
+        account: &str,
+        ip: Option<IpAddr>,
+    ) -> Result<(), AdminError> {
+        let ip = ip.map(|a| a.to_canonical());
+        if let Some(ip) = ip {
+            self.monitor.record_success(ip);
+        }
+        self.emit_from(
             account,
             ActorKind::User,
             AuditKind::LoginSucceeded,
             Some(account.to_string()),
             serde_json::json!({}),
+            ip,
         )
         .await?;
         Ok(())
@@ -627,32 +664,61 @@ impl Admin {
 
     /// Record a failed login. Emits a fail2ban-compatible line, audits the
     /// failure, and auto-bans the source when the threshold is crossed.
+    ///
+    /// `ip` must be the client address the server *resolved* under its
+    /// trusted-proxy model — never one read straight from a request header. A
+    /// forgeable ban key is worse than a broken one: it lets an attacker put
+    /// somebody else's address in the ban list.
+    ///
+    /// **`ip == None` — no source address available.** The attempt is audited
+    /// (with no source), and that is all: nothing is counted, nothing is banned,
+    /// and no fail2ban line is produced. The two alternatives are both worse.
+    ///
+    /// * *Pooling unattributed failures into one shared bucket* is exactly the
+    ///   defect this signature exists to prevent. The bucket would hold unrelated
+    ///   sources, so a threshold crossing would say nothing about any of them, and
+    ///   the resulting ban row would name a subject that does not exist. Anyone
+    ///   who could reach that path would hold a lever on every other user of it.
+    /// * *Emitting a line with a placeholder `rhost=`* is worse still. The token
+    ///   is what a fail2ban jail acts on; a jail with `usedns` would resolve the
+    ///   placeholder and ban whatever it resolved to. Silence is the only honest
+    ///   output when there is no address.
+    ///
+    /// Refusing to count is safe here because `None` is not attacker-reachable:
+    /// the address comes from `ConnectInfo`, installed by the serve path, so
+    /// nothing on the wire can suppress it. `None` means the deployment is
+    /// misconfigured or the caller is an in-process test transport — an operator
+    /// condition. Callers are expected to surface it (the outcome's `verdict` and
+    /// `log_line` are both `None`) rather than let the monitor look alive.
     pub async fn record_login_failure(
         &self,
         account: &str,
-        ip: &str,
+        ip: Option<IpAddr>,
     ) -> Result<LoginFailureOutcome, AdminError> {
+        // Canonicalise once, here, so the bucket key, the `rhost=` token and the
+        // ban row all name the same host. A dual-stack listener reports a v4 peer
+        // as `::ffff:a.b.c.d`; letting the three disagree would give one source two
+        // allowances and leave an operator unable to unban what the limiter banned.
+        let ip = ip.map(|a| a.to_canonical());
         let now = chrono::Utc::now();
-        let verdict = self.monitor.record_failure(ip, now);
-        let log_line = fail2ban_line(now, account, ip);
-        self.emit(
+        let verdict = ip.map(|ip| self.monitor.record_failure(ip, now));
+        let log_line = ip.map(|ip| fail2ban_line(now, account, ip));
+        self.emit_from(
             account,
             ActorKind::User,
             AuditKind::LoginFailed,
             Some(account.to_string()),
             serde_json::json!({}),
+            ip,
         )
         .await?;
 
-        let banned = matches!(verdict, LoginVerdict::Ban { .. });
-        if banned {
-            let failures = match verdict {
-                LoginVerdict::Ban { failures } => failures,
-                LoginVerdict::Watched { failures } => failures,
-            };
+        let mut banned = false;
+        if let (Some(ip), Some(LoginVerdict::Ban { failures })) = (ip, verdict) {
+            banned = true;
             self.ban_ip(
                 "system",
-                ip,
+                &ip.to_string(),
                 &format!("brute-force: {failures} failures"),
                 None,
             )
@@ -803,6 +869,10 @@ mod tests {
         assert_eq!(audit[0].action, "zero-access-toggled");
     }
 
+    fn ip(s: &str) -> IpAddr {
+        s.parse().expect("test address")
+    }
+
     #[tokio::test]
     async fn failed_logins_auto_ban_and_log_fail2ban() {
         let admin = Admin::in_memory();
@@ -810,18 +880,155 @@ mod tests {
         for _ in 0..5 {
             last = Some(
                 admin
-                    .record_login_failure("dave", "198.51.100.9")
+                    .record_login_failure("dave", Some(ip("198.51.100.9")))
                     .await
                     .unwrap(),
             );
         }
         let outcome = last.unwrap();
         assert!(outcome.banned, "5th failure should ban");
-        assert_eq!(
-            banlist::parse_host(&outcome.log_line).as_deref(),
-            Some("198.51.100.9")
-        );
+        let line = outcome.log_line.expect("a resolved source yields a line");
+        assert_eq!(banlist::parse_host(&line).as_deref(), Some("198.51.100.9"));
         assert!(admin.is_banned("198.51.100.9").await.unwrap());
+    }
+
+    /// B3, at the façade: one source's failures must not ban a different source.
+    /// Before 26.19 every attempt shared one key, so this could not hold.
+    #[tokio::test]
+    async fn one_source_hitting_the_threshold_does_not_ban_another() {
+        let admin = Admin::in_memory();
+        for _ in 0..5 {
+            admin
+                .record_login_failure("dave", Some(ip("198.51.100.9")))
+                .await
+                .unwrap();
+        }
+        // Four failures from a second source — one short of its own threshold.
+        for _ in 0..4 {
+            let out = admin
+                .record_login_failure("dave", Some(ip("203.0.113.4")))
+                .await
+                .unwrap();
+            assert!(
+                !out.banned,
+                "a peer's failures must not count against this one"
+            );
+        }
+        assert!(admin.is_banned("198.51.100.9").await.unwrap());
+        assert!(!admin.is_banned("203.0.113.4").await.unwrap());
+        let bans = admin.list_bans().await.unwrap();
+        assert_eq!(bans.len(), 1);
+        assert_eq!(bans[0].ip, "198.51.100.9");
+    }
+
+    /// No resolvable source: audit the attempt, count nothing, ban nothing, and
+    /// produce no fail2ban line. In particular there must be no ban row at all —
+    /// a placeholder subject is what made the old behaviour a no-op.
+    #[tokio::test]
+    async fn unattributed_failures_are_audited_but_never_counted_or_banned() {
+        let admin = Admin::in_memory();
+        for _ in 0..20 {
+            let out = admin.record_login_failure("dave", None).await.unwrap();
+            assert!(out.verdict.is_none(), "nothing to count without a source");
+            assert!(out.log_line.is_none(), "no address ⇒ no rhost= to emit");
+            assert!(!out.banned);
+        }
+        assert!(admin.list_bans().await.unwrap().is_empty());
+
+        // The security event is still on the record, with an honest empty source.
+        let audit = admin.list_audit(50).await.unwrap();
+        assert_eq!(audit.len(), 20);
+        assert!(audit.iter().all(|e| e.action == "login-failed"));
+        assert!(audit.iter().all(|e| e.ip.is_none()));
+
+        // And it did not poison a real source's bucket: that one still needs its
+        // own five failures.
+        let out = admin
+            .record_login_failure("dave", Some(ip("203.0.113.4")))
+            .await
+            .unwrap();
+        assert_eq!(out.verdict, Some(LoginVerdict::Watched { failures: 1 }));
+    }
+
+    /// A dual-stack listener reports a v4 peer as `::ffff:a.b.c.d`. The bucket, the
+    /// `rhost=` token and the ban row must all name the same canonical host —
+    /// otherwise one source gets two allowances, and an operator cannot unban by
+    /// the address the log showed them.
+    #[tokio::test]
+    async fn a_mapped_v4_source_is_counted_logged_and_banned_canonically() {
+        let admin = Admin::in_memory();
+        let mut last = None;
+        for _ in 0..5 {
+            last = Some(
+                admin
+                    .record_login_failure("dave", Some(ip("::ffff:203.0.113.4")))
+                    .await
+                    .unwrap(),
+            );
+        }
+        let outcome = last.unwrap();
+        assert!(outcome.banned, "five from one host, however spelled");
+        let line = outcome.log_line.unwrap();
+        assert_eq!(banlist::parse_host(&line).as_deref(), Some("203.0.113.4"));
+        let bans = admin.list_bans().await.unwrap();
+        assert_eq!(bans.len(), 1);
+        assert_eq!(bans[0].ip, "203.0.113.4", "canonical in the ban row too");
+        assert!(admin.is_banned("203.0.113.4").await.unwrap());
+    }
+
+    /// The audit trail is where an incident review looks for *where from*. Both
+    /// login outcomes carry the resolved address.
+    #[tokio::test]
+    async fn login_audit_records_carry_the_source_address() {
+        let admin = Admin::in_memory();
+        admin
+            .record_login_failure("dave", Some(ip("198.51.100.9")))
+            .await
+            .unwrap();
+        admin
+            .record_login_success("dave", Some(ip("198.51.100.9")))
+            .await
+            .unwrap();
+        let audit = admin.list_audit(10).await.unwrap();
+        assert_eq!(audit.len(), 2);
+        assert!(
+            audit
+                .iter()
+                .all(|e| e.ip.as_deref() == Some("198.51.100.9")),
+            "both login events record the source, got {audit:?}"
+        );
+    }
+
+    /// A success clears only the source that succeeded.
+    #[tokio::test]
+    async fn success_clears_only_its_own_source() {
+        let admin = Admin::in_memory();
+        for _ in 0..4 {
+            admin
+                .record_login_failure("dave", Some(ip("198.51.100.9")))
+                .await
+                .unwrap();
+            admin
+                .record_login_failure("dave", Some(ip("203.0.113.4")))
+                .await
+                .unwrap();
+        }
+        admin
+            .record_login_success("dave", Some(ip("198.51.100.9")))
+            .await
+            .unwrap();
+        // The cleared source restarts from one...
+        let out = admin
+            .record_login_failure("dave", Some(ip("198.51.100.9")))
+            .await
+            .unwrap();
+        assert_eq!(out.verdict, Some(LoginVerdict::Watched { failures: 1 }));
+        // ...while the other still crosses on its own fifth.
+        let out = admin
+            .record_login_failure("dave", Some(ip("203.0.113.4")))
+            .await
+            .unwrap();
+        assert!(out.banned, "unrelated source keeps its own count");
     }
 
     #[tokio::test]
