@@ -1697,7 +1697,14 @@ async fn header_auth_login(
 /// identity assertion is only as good as the hop that made it.
 fn header_auth_peer_allowed(ext: &axum::http::Extensions) -> bool {
     let raw = std::env::var("MW_HEADER_AUTH_TRUSTED_IPS").unwrap_or_default();
-    let allowed = CidrSet::parse(&raw);
+    header_auth_peer_allowed_with(&raw, peer_ip(ext))
+}
+
+/// The decision itself, split from the environment read so it is directly
+/// testable — this is a fail-closed security gate and the process-global env
+/// makes the wrapper untestable without racing every other test in the binary.
+fn header_auth_peer_allowed_with(raw_list: &str, peer: Option<std::net::IpAddr>) -> bool {
+    let allowed = CidrSet::parse(raw_list);
     if allowed.is_empty() {
         // Once per process: a misconfigured deployment behind a proxy that always
         // sets the header would otherwise log this on every single request.
@@ -1710,7 +1717,7 @@ fn header_auth_peer_allowed(ext: &axum::http::Extensions) -> bool {
         });
         return false;
     }
-    match peer_ip(ext) {
+    match peer {
         Some(ip) => allowed.contains(ip),
         None => false,
     }
@@ -3475,6 +3482,51 @@ mod external_base_tests {
         // Unrecognised ⇒ "not set", not a silent false.
         assert_eq!(parse_env_bool("maybe"), None);
         assert_eq!(parse_env_bool(""), None);
+    }
+
+    /// B2, the whole gate. Every uncertainty must refuse: with `MW_HEADER_AUTH=1`
+    /// a `true` here mints a session for whoever the header names, with no
+    /// password. There is no in-process coverage of this path other than these
+    /// assertions — t20-e11's spoof suite drives it through a real listener.
+    #[test]
+    fn header_auth_peer_gate_fails_closed() {
+        let allowed = "10.0.0.0/8, 192.168.1.5";
+        let inside = Some("10.1.2.3".parse().unwrap());
+        let outside = Some("203.0.113.9".parse().unwrap());
+
+        // The only combination that admits: configured list AND a peer in it.
+        assert!(header_auth_peer_allowed_with(allowed, inside));
+
+        // Peer outside the list.
+        assert!(!header_auth_peer_allowed_with(allowed, outside));
+        // Allowlist unset ⇒ nobody, not everybody. This is the posture that makes
+        // enabling MW_HEADER_AUTH without an allowlist safe rather than catastrophic.
+        assert!(!header_auth_peer_allowed_with("", inside));
+        // Allowlist present but entirely unparseable ⇒ same as unset, not match-all.
+        assert!(!header_auth_peer_allowed_with(
+            "nonsense, 10.0.0.0/99",
+            inside
+        ));
+        // No peer address at all (serve path installed no ConnectInfo) ⇒ refuse,
+        // because there is nothing to check the assertion against.
+        assert!(!header_auth_peer_allowed_with(allowed, None));
+        assert!(!header_auth_peer_allowed_with("", None));
+
+        // A bare address is a host route: the neighbour is not admitted.
+        assert!(header_auth_peer_allowed_with(
+            allowed,
+            Some("192.168.1.5".parse().unwrap())
+        ));
+        assert!(!header_auth_peer_allowed_with(
+            allowed,
+            Some("192.168.1.6".parse().unwrap())
+        ));
+        // A v4 peer reported as v4-mapped by a dual-stack listener still matches,
+        // so the gate cannot be sidestepped by which socket family accepted it.
+        assert!(header_auth_peer_allowed_with(
+            allowed,
+            Some("::ffff:10.1.2.3".parse().unwrap())
+        ));
     }
 
     /// The header-auth allowlist reads as fail-closed: an unset or all-junk list is
