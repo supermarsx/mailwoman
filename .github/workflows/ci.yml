@@ -24,10 +24,40 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
+# =============================================================================
+# OS COVERAGE POLICY (t19-e4, tag 26.19)
+#
+# Three OSes carry a build/test gate:
+#   Linux   — `rust`, `web` (blocking, unchanged) + every docker-compose job.
+#   Windows — `rust-crossplatform`, `web-crossplatform`, `desktop-mobile-tests`,
+#             `wasm-build`, `desktop-shell`, `desktop-e2e`.
+#   macOS   — `rust-crossplatform`, `web-crossplatform`, `wasm-build`,
+#             `desktop-shell` (+ `desktop-bundles` in packaging.yml).
+#
+# LINUX-ONLY BY DESIGN — do not fan these across the matrix. Every job below
+# boots services from docker-compose.{dev,ci,crypto}.yml (Linux containers) or
+# depends on a Linux-only toolchain, so a Windows/macOS leg could not run them
+# at all; hosted macOS runners have no Docker daemon and hosted Windows runners
+# only run Windows containers:
+#   imap-conformance, managesieve-conformance, caldav-carddav-conformance,
+#   e2e, e2e-engine, e2e-pim, e2e-crypto, e2e-v6, e2e-v7, zap-baseline,
+#   store-dual-backend, migrate-store-smoke, cache-valkey,
+#   directory-vs-openldap, assist-mock, android-apk, deny, js-licenses,
+#   bundle-size, search-bench (a perf baseline is only comparable on one
+#   runner class), crypto-interop, mail-auth-verdicts, bridge-fixtures,
+#   wasm-plugin-build, jail, live-interop.
+# The POSIX helper scripts those jobs invoke (wait-for-health.sh,
+# search-bench.sh, radicale/seed.sh, managesieve/conformance.sh,
+# greenmail/wait-for-greenmail.sh) are therefore never reached off Linux. The
+# only scripts the non-Linux legs run are build-wasm.* and build-shells.*, both
+# of which already ship .ps1 twins.
+# =============================================================================
 jobs:
   # -------------------------------------------------------------------------
   # Rust: format, lint, test, build. rust-embed compiles against the committed
   # apps/web/dist/.gitkeep placeholder, so no web build is needed here.
+  # This is the LINUX leg; `rust-crossplatform` below runs the same gate on
+  # Windows + macOS.
   # -------------------------------------------------------------------------
   rust:
     runs-on: ubuntu-latest
@@ -47,8 +77,63 @@ jobs:
         run: cargo fmt --all --check
       - name: clippy
         run: cargo clippy --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile --all-targets -- -D warnings
-      - name: test
-        run: cargo test --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile
+      # `--test-threads=1` is the project's canonical gate: several suites share a
+      # `_sqlx_migrations` table and flake under the default in-binary parallelism.
+      # t19-e2 is fixing that isolation at the source; once its per-test unique
+      # temp DB has proven itself, this flag can be dropped for a faster run.
+      - name: test (canonical gate — --test-threads=1)
+        run: cargo test --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile -- --test-threads=1
+      - name: build
+        run: cargo build --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile
+
+  # -------------------------------------------------------------------------
+  # rust-crossplatform — the SAME core Rust gate as `rust` above, on macOS and
+  # Windows. Together the two jobs are the mac/win/linux build+test matrix.
+  #
+  # NON-BLOCKING FOR NOW (`continue-on-error: true`). This repository has never
+  # compiled on macOS in a gating context: the non-Linux arms of `mw-sandbox`
+  # and `mw-render` are cfg-gated but were never compile-verified by CI, and the
+  # reverse-proxy / PROXY-protocol listener code landing in this same tag is the
+  # most platform-sensitive code in the tree. Promotion to required is a
+  # deliberate second step once a run has actually gone green — a red required
+  # check on mainline is a worse outcome than an advisory leg promoted later.
+  #
+  #   PROMOTION MARKER: delete the `continue-on-error: true` line below. That one
+  #   line is the entire promotion; nothing else about this job changes.
+  #
+  # Deliberately a SEPARATE job rather than two more legs on `rust`'s matrix:
+  # ~19 downstream jobs declare `needs: [rust]`, and `needs` waits for EVERY leg
+  # of a matrix. Folding Windows/macOS into `rust` would put a full macOS
+  # workspace build in front of every docker-compose job in the pipeline. With no
+  # dependents this job runs fully in parallel, and promoting it to required
+  # blocks the merge without serialising anything behind it.
+  #
+  # mailwoman-desktop / mailwoman-mobile stay excluded for parity with `rust`:
+  # they have their own Windows lint+test home in `desktop-mobile-tests` and
+  # their 3-OS build gate in `desktop-shell`.
+  #
+  # `cargo fmt --all --check` is NOT repeated here. rustfmt is host-independent,
+  # and the Windows runner checks out with CRLF — a false-failure source for no
+  # added signal. The Linux `rust` job stays the single fmt gate.
+  # -------------------------------------------------------------------------
+  rust-crossplatform:
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: clippy
+        run: cargo clippy --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile --all-targets -- -D warnings
+      - name: test (canonical gate — --test-threads=1)
+        run: cargo test --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile -- --test-threads=1
       - name: build
         run: cargo build --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile
 
@@ -170,6 +255,51 @@ jobs:
         run: pnpm -C apps/web typecheck
       - name: lint
         run: pnpm -C apps/web lint
+      - name: test
+        run: pnpm -C apps/web test
+      - name: build
+        run: pnpm -C apps/web build
+
+  # -------------------------------------------------------------------------
+  # web-crossplatform — the same typecheck / test / build as `web` above, on
+  # macOS and Windows. Node itself is portable, but the things that break off
+  # Linux are real and cheap to catch: path-separator assumptions in vite config
+  # and test fixtures, case-insensitive filesystem import mismatches (macOS +
+  # Windows), and CRLF-sensitive snapshot assertions.
+  #
+  # NON-BLOCKING FOR NOW, same posture and same reason as `rust-crossplatform`.
+  #
+  #   PROMOTION MARKER: delete the `continue-on-error: true` line below.
+  #
+  # Separate job (not extra legs on `web`) because `e2e`, `e2e-engine`,
+  # `e2e-pim`, `e2e-crypto`, `e2e-v6` and `e2e-v7` all declare `needs: [rust,
+  # web]` — see the `rust-crossplatform` rationale.
+  #
+  # `pnpm lint` is not repeated here: ESLint is host-independent, so the `web`
+  # job stays the single lint gate.
+  # -------------------------------------------------------------------------
+  web-crossplatform:
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: install
+        run: pnpm -C apps/web install --frozen-lockfile
+      - name: typecheck
+        run: pnpm -C apps/web typecheck
       - name: test
         run: pnpm -C apps/web test
       - name: build
@@ -508,19 +638,26 @@ jobs:
   # ===========================================================================
 
   # wasm-build — the TOP V4 risk (§6#2 / §1.13): build mw-crypto AND mw-sanitize to
-  # wasm32 via wasm-pack on BOTH Windows AND Linux (scripts/build-wasm.{sh,ps1},
+  # wasm32 via wasm-pack on Linux, Windows AND macOS (scripts/build-wasm.{sh,ps1},
   # which build both crates), then run a Node smoke that drives the freshly-built
   # bundle through generateKey → encrypt → decrypt and asserts the plaintext
   # round-trips. rPGP/RustCrypto are pure-Rust + wasm-tested; getrandom uses its JS
   # backend on wasm32 (selected by the build scripts). The smoke imports the
   # wasm-pack `--target web` glue directly (initSync + the frozen §2.3 exports) — no
   # pnpm/web build needed, so it stays a pure toolchain-portability gate.
+  #
+  # t19-e4 (26.19): the macOS leg is NEW and non-blocking — the wasm toolchain has
+  # never been exercised on macOS here. Linux + Windows keep their existing
+  # required posture, so this adds signal without adding risk.
+  #   PROMOTION MARKER: replace the `continue-on-error:` expression below with
+  #   `continue-on-error: false`, or delete the line outright.
   wasm-build:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.os == 'macos-latest' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -535,7 +672,7 @@ jobs:
       - name: build wasm bundles (mw-crypto + mw-sanitize)
         shell: bash
         run: |
-          if [ "$RUNNER_OS" = "Windows" ]; then pwsh scripts/build-wasm.ps1; else scripts/build-wasm.sh; fi
+          if [ "$RUNNER_OS" = "Windows" ]; then pwsh scripts/build-wasm.ps1; else bash scripts/build-wasm.sh; fi
       - name: node wasm smoke (generateKey -> encrypt -> decrypt round-trip)
         shell: bash
         run: |
@@ -649,6 +786,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     # Windows + Linux are required; macOS is best-effort (Windows is the hard live
     # gate, plan §1.9/§7) so a macOS-only failure never reds the pipeline.
+    #   PROMOTION MARKER (t19-e4, 26.19): once the macOS leg has actually gone
+    #   green, replace the expression with `continue-on-error: false` or delete
+    #   the line. Bundling/notarization stays best-effort regardless — no signing
+    #   certificates exist, and this job builds with `--no-bundle`.
     continue-on-error: ${{ matrix.os == 'macos-latest' }}
     steps:
       - uses: actions/checkout@v4

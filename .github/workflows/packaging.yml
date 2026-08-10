@@ -147,6 +147,14 @@ jobs:
   # desktop-bundles — build the thin + self-contained shell and assert the §16 size
   # budgets. Uses scripts/build-shells.* which runs scripts/check-bundle-size.mjs.
   # Does NOT sign or bundle installers with certs. macOS is best-effort.
+  #
+  # This job is already the 3-OS build matrix the 26.19 OS-coverage work asks for;
+  # the rest of that work lands in ci.yml (`rust-crossplatform`,
+  # `web-crossplatform`, the new `wasm-build` macOS leg). The only change 26.19
+  # plans here is the macOS promotion below, held until a macOS run is green.
+  #   PROMOTION MARKER (t19-e4, 26.19): replace the expression with
+  #   `continue-on-error: false` or delete the line. Signing / notarization /
+  #   store submission stay human-gated and out of CI either way.
   # ---------------------------------------------------------------------------
   desktop-bundles:
     name: build shells + §16 size gate
