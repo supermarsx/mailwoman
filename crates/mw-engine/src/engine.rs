@@ -30,6 +30,32 @@ use crate::mapping::{
 use crate::search_index;
 use crate::thread::{self, Message as ThreadMessage};
 
+/// What one `Email/set` update changed about a message, as far as the search
+/// index is concerned (26.20 `t22-e3s`).
+///
+/// `None` means "this update did not touch that field", which is what lets
+/// [`Engine::reindex_messages`] patch the indexed document instead of re-reading
+/// the message: a keywords-only patch must not have to load `message_meta` to
+/// discover a `pinned` value it did not change.
+pub(crate) struct IndexPatch {
+    pub(crate) stable_id: String,
+    /// The full flag set now stored for the message, if the update wrote flags.
+    pub(crate) flags: Option<Vec<crate::backend::Flag>>,
+    /// The pinned state now stored, if the update wrote engine-local metadata.
+    pub(crate) pinned: Option<bool>,
+}
+
+impl IndexPatch {
+    fn apply(&self, doc: &mut mw_search::IndexDoc) {
+        if let Some(flags) = &self.flags {
+            doc.keywords = flags_to_keywords(flags).into_keys().collect();
+        }
+        if let Some(pinned) = self.pinned {
+            doc.pinned = pinned;
+        }
+    }
+}
+
 /// The engine: one local store plus a registry of live account backends.
 ///
 /// Cloneable-by-`Arc` at the call sites that need `'static` tasks (change
@@ -503,13 +529,79 @@ impl Engine {
     /// Rebuild a message's search-index document from the store (after a flag,
     /// meta, or move change). Best-effort — a failure only degrades search, not
     /// correctness. Loads the sealed body to recover attachment filenames.
+    ///
+    /// **One index commit per call.** For more than one message use
+    /// [`Engine::reindex_messages`], which commits once for the whole set — a
+    /// segment commit is the expensive part of the write path, not the document
+    /// write, so a loop over this method is what made `Email/set` over 500 ids
+    /// cost 9.5 s on SQLite and 26.5 s on Postgres before 26.20.
     pub(crate) async fn reindex_message(&self, stable_id: &str) {
         if let Err(e) = self.try_reindex_message(stable_id).await {
             tracing::warn!("re-index of {stable_id} failed: {e}");
         }
     }
 
+    /// Batched re-index: **one** `upsert_batch`, therefore exactly one Tantivy
+    /// commit and one reader reload, however many messages are passed.
+    ///
+    /// Each [`IndexPatch`] names the fields an `Email/set` update actually
+    /// changed. The document is patched onto the one the index already holds
+    /// rather than rebuilt from the store, because the only fields a non-move
+    /// `Email/set` can change are the keyword set and the pinned flag — every
+    /// other field (`from`/`subject`/`body`/attachment text) is derived from
+    /// bytes the update did not touch. The stored `doc_json` round-trips the
+    /// whole [`mw_search::IndexDoc`], which is the same property
+    /// [`mw_search::Index::relocate`] already relies on.
+    ///
+    /// An id the index does not know (never indexed, or indexed before the data
+    /// dir was rebuilt) falls back to the full store-backed rebuild for that id
+    /// alone, so a cold index still converges — it just costs its store reads.
+    ///
+    /// Best-effort in the same sense as [`Engine::reindex_message`]: the store
+    /// write has already committed by the time this runs (see t22 OQ-11 — a
+    /// stale index is recoverable by the next sync, a store write lost to a
+    /// committed index is not), so a failure here is logged and does not fail
+    /// the caller.
+    pub(crate) async fn reindex_messages(&self, patches: &[IndexPatch]) {
+        if patches.is_empty() {
+            return;
+        }
+        let mut docs: Vec<mw_search::IndexDoc> = Vec::with_capacity(patches.len());
+        for patch in patches {
+            match self.search.fetch_doc(&patch.stable_id) {
+                Ok(Some(mut doc)) => {
+                    patch.apply(&mut doc);
+                    docs.push(doc);
+                }
+                // Not indexed under that id — rebuild it from the store.
+                Ok(None) => match self.build_index_doc(&patch.stable_id).await {
+                    Ok(doc) => docs.push(doc),
+                    Err(e) => tracing::warn!("re-index of {} failed: {e}", patch.stable_id),
+                },
+                Err(e) => tracing::warn!("index read for {} failed: {e}", patch.stable_id),
+            }
+        }
+        if docs.is_empty() {
+            return;
+        }
+        let n = docs.len();
+        if let Err(e) = self.search.upsert_batch(&docs) {
+            tracing::warn!("batched re-index of {n} document(s) failed: {e}");
+        }
+    }
+
     async fn try_reindex_message(&self, stable_id: &str) -> Result<()> {
+        let doc = self.build_index_doc(stable_id).await?;
+        self.search
+            .upsert(&doc)
+            .map_err(|e| EngineError::Protocol(format!("index upsert: {e}")))?;
+        Ok(())
+    }
+
+    /// Rebuild a message's [`mw_search::IndexDoc`] from the store. Costs four
+    /// statements per message (row, envelope, body, meta), which is why the
+    /// batched path above avoids it when the index can supply the document.
+    async fn build_index_doc(&self, stable_id: &str) -> Result<mw_search::IndexDoc> {
         let msg = self
             .store
             .get_message(stable_id)
@@ -547,7 +639,7 @@ impl Engine {
             .await?
             .map(|m| m.pinned)
             .unwrap_or(false);
-        let doc = search_index::build_index_doc(
+        Ok(search_index::build_index_doc(
             stable_id,
             &msg.account_id,
             &msg.mailbox_id,
@@ -556,11 +648,7 @@ impl Engine {
             filenames,
             attachment_text,
             pinned,
-        );
-        self.search
-            .upsert(&doc)
-            .map_err(|e| EngineError::Protocol(format!("index upsert: {e}")))?;
-        Ok(())
+        ))
     }
 
     /// Resolve a backend message ref to its stable id, if the store knows it.

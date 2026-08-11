@@ -19,7 +19,7 @@ use serde_json::{Map, Value, json};
 use crate::account::AccountRuntime;
 use crate::backend::{EngineError, Flag, MessageRef, RawMailboxRef, RawMessage, Result};
 use crate::change::{ChangeOp, ChangeType};
-use crate::engine::Engine;
+use crate::engine::{Engine, IndexPatch};
 use crate::mapping::{
     display_name, flag_delta, flags_from_json, flags_to_json, flags_to_keywords, keywords_to_flags,
     role_sort_order,
@@ -580,16 +580,55 @@ impl Engine {
             }
         }
 
+        // The multi-id `update` is a BATCH (26.20 t22-e3s): every id's store
+        // write happens in the loop, then the whole set costs exactly **one**
+        // search-index commit, one change-log row and one state increment.
+        //
+        // Before 26.20 each id paid its own Tantivy `commit()` + `reader
+        // .reload()` inside `reindex_message`, which is where essentially the
+        // entire cost of "mark this folder read" lived: 9.5 s on SQLite and
+        // 26.5 s on Postgres for 500 ids, ~6 minutes for 20 000. The commit is
+        // the expensive part, not the document write, so batching the documents
+        // and committing once turns that into one commit's worth of work.
+        //
+        // Per-id failures still go to `notUpdated` and do not stop the rest
+        // (RFC 8620 §5.3), and a failed id contributes no patch — so the index
+        // can never publish an update the store rejected.
+        let mut patches: Vec<IndexPatch> = Vec::new();
+        // Mailbox rows resolved once per batch rather than once per id: 500 ids
+        // in one folder used to mean 500 identical `get_mailbox` reads.
+        let mut mailbox_names: HashMap<String, String> = HashMap::new();
         if let Some(updates) = args.get("update").and_then(Value::as_object) {
             for (id, patch) in updates {
-                match self.update_email(account_id, rt, id, patch).await {
-                    Ok(()) => {
+                match self.update_email(rt, id, patch, &mut mailbox_names).await {
+                    Ok(indexed) => {
                         updated.insert(id.clone(), Value::Null);
+                        patches.extend(indexed);
                     }
                     Err(e) => {
                         not_updated.insert(id.clone(), set_error(&e));
                     }
                 }
+            }
+        }
+
+        if !patches.is_empty() {
+            self.reindex_messages(&patches).await;
+            // One change row and one state increment for the batch. NOTE: the
+            // row names the first id in the batch, so `Email/changes` reports
+            // one id where 500 changed — see the 26.20 t22-e3s lane log; the
+            // fix (N rows sharing one state, one INSERT) needs a store method
+            // this lane does not own.
+            if let Err(e) = self
+                .record_change(
+                    account_id,
+                    ChangeType::Email,
+                    &patches[0].stable_id,
+                    ChangeOp::Updated,
+                )
+                .await
+            {
+                tracing::warn!("recording the batched Email/set change failed: {e}");
             }
         }
 
@@ -712,21 +751,31 @@ impl Engine {
     }
 
     /// Apply an Email/set update: keyword changes, engine-local meta
-    /// (pin/snooze/follow-up), and/or a mailbox move. Records the `Email` change
-    /// and re-indexes so state + search stay consistent (plan §1.2, §1.5).
+    /// (pin/snooze/follow-up), and/or a mailbox move (plan §1.2, §1.5).
+    ///
+    /// Returns the [`IndexPatch`] the caller must fold into the batch, or `None`
+    /// when there is nothing for the batch to do — either the patch changed
+    /// nothing, or it was a move, which records its own change and re-index.
+    ///
+    /// **This method no longer commits the index or records a change itself**
+    /// (26.20 t22-e3s): both are the batch's job in [`Engine::email_set`], which
+    /// is what makes a 500-id update cost one commit instead of 500.
+    /// `mailbox_names` memoizes mailbox-row reads across the batch.
     async fn update_email(
         &self,
-        account_id: &str,
         rt: &AccountRuntime,
         id: &str,
         patch: &Value,
-    ) -> Result<()> {
+        mailbox_names: &mut HashMap<String, String>,
+    ) -> Result<Option<IndexPatch>> {
         let msg = self
             .store()
             .get_message(id)
             .await
             .map_err(EngineError::Store)?;
         let mut touched = false;
+        let mut new_flags: Option<Vec<Flag>> = None;
+        let mut new_pinned: Option<bool> = None;
 
         if let Some(kw) = patch.get("keywords").and_then(Value::as_object) {
             let kw_map: HashMap<String, bool> = kw
@@ -737,7 +786,11 @@ impl Engine {
             let current = flags_from_json(&msg.flags_json);
             let (add, remove) = flag_delta(&current, &desired);
 
-            if let Some(mref) = self.imap_ref_for(id).await? {
+            // The message row is already in hand, and it carries the same
+            // `mailbox_id`/`uidvalidity`/`uid` that `imap_ref_for` would re-read
+            // — so resolve the ref from it and only pay for the mailbox name,
+            // memoized across the batch.
+            if let Some(mref) = self.imap_ref_from(&msg, mailbox_names).await? {
                 // POP3 keeps flags engine-local, so an Unsupported here is fine.
                 tolerant(rt.backend.store_flags(&[mref], &add, &remove).await)?;
             }
@@ -749,6 +802,7 @@ impl Engine {
                 .collect();
             stored.extend(desired);
             self.store().set_flags(id, &flags_to_json(&stored)).await?;
+            new_flags = Some(stored);
             touched = true;
         }
 
@@ -778,6 +832,7 @@ impl Engine {
                     },
                 )
                 .await?;
+            new_pinned = Some(meta.pinned);
             touched = true;
         }
 
@@ -793,14 +848,53 @@ impl Engine {
             moved = true;
         }
 
-        // `move_email` already records its own change + re-index; only record a
-        // plain update when a non-move field changed.
-        if touched && !moved {
-            self.reindex_message(id).await;
-            self.record_change(account_id, ChangeType::Email, id, ChangeOp::Updated)
-                .await?;
+        // `move_email` already records its own change + re-index; only join the
+        // batch when a non-move field changed.
+        Ok((touched && !moved).then(|| IndexPatch {
+            stable_id: id.to_string(),
+            flags: new_flags,
+            pinned: new_pinned,
+        }))
+    }
+
+    /// The IMAP [`MessageRef`] for a message row already in hand, or `None` for
+    /// a POP3/local message the backend cannot address.
+    ///
+    /// Same result as [`Engine::imap_ref_for`] without its `message_location`
+    /// read — the caller's [`mw_store::Message`] already carries those columns.
+    /// `names` memoizes the mailbox-name lookup, which for a batch confined to
+    /// one folder turns N reads into one.
+    async fn imap_ref_from(
+        &self,
+        msg: &mw_store::Message,
+        names: &mut HashMap<String, String>,
+    ) -> Result<Option<MessageRef>> {
+        // uidvalidity 0 marks an engine-local message (draft/sent) with no server
+        // coordinates; there is nothing upstream to address.
+        if msg.uidvalidity == 0 {
+            return Ok(None);
         }
-        Ok(())
+        let name = match names.get(&msg.mailbox_id) {
+            Some(cached) => cached.clone(),
+            None => {
+                let name = self
+                    .store()
+                    .get_mailbox(&msg.mailbox_id)
+                    .await
+                    .map_err(EngineError::Store)?
+                    .name;
+                names.insert(msg.mailbox_id.clone(), name.clone());
+                name
+            }
+        };
+        Ok(Some(MessageRef::Imap {
+            mailbox: RawMailboxRef {
+                name,
+                uidvalidity: msg.uidvalidity,
+            },
+            uidvalidity: msg.uidvalidity,
+            uid: msg.uid,
+        }))
     }
 
     /// Move one message to `target_mailbox_id`: `MOVE` it upstream (idempotent by

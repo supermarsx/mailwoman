@@ -28,6 +28,7 @@ pub use rerank::{cosine, rerank_by_cosine};
 use std::ops::Bound;
 use std::path::Path;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 use tantivy::collector::TopDocs;
@@ -222,6 +223,25 @@ fn build_schema() -> (Schema, Fields) {
     (schema, fields)
 }
 
+/// Process-wide count of Tantivy index commits, incremented on the one line
+/// that calls `IndexWriter::commit` (the private `Index::commit_writer`).
+///
+/// Read it with [`commit_count`]. It exists so a caller's batching claim can be
+/// checked against what the index did rather than against how the caller was
+/// written — see `Index::commit_writer` for why the placement matters.
+static INDEX_COMMITS: AtomicU64 = AtomicU64::new(0);
+
+/// Index commits performed by this process so far, across every [`Index`].
+///
+/// Intended for assertions of the form "this operation commits once regardless
+/// of how many documents it touches": snapshot before, snapshot after, compare
+/// the difference. The counter is global and monotonic, so a test that reads it
+/// must run without a concurrent indexing thread — the workspace gate is
+/// `--test-threads=1`, which satisfies that.
+pub fn commit_count() -> u64 {
+    INDEX_COMMITS.load(Ordering::Relaxed)
+}
+
 /// The search index handle: open once per store data dir, mutate at ingest /
 /// relocate / delete, query on `Email/query`.
 pub struct Index {
@@ -269,6 +289,25 @@ impl Index {
         self.writer
             .lock()
             .map_err(|_| SearchError::Io("index writer poisoned".to_string()))
+    }
+
+    /// **The single `IndexWriter::commit` call site in this crate.** Every
+    /// mutating method routes its commit through here so [`commit_count`] is a
+    /// true count of index commits rather than a count of calls to a public
+    /// batch method (26.20 `t22-e3s`).
+    ///
+    /// The distinction is load-bearing and is why the counter lives on this line
+    /// and not on [`Index::upsert_batch`]: a caller that hands 500 documents to
+    /// `upsert_batch` while the implementation commits per document would read
+    /// `1` from a method-level counter and `500` from this one. Only the second
+    /// number describes what the index actually did.
+    ///
+    /// A commit here is a Tantivy segment commit — the expensive part of the
+    /// write path. `Email/set` over a large id set must produce exactly one.
+    fn commit_writer(&self, writer: &mut IndexWriter) -> Result<()> {
+        INDEX_COMMITS.fetch_add(1, Ordering::Relaxed);
+        writer.commit()?;
+        Ok(())
     }
 
     fn to_document(&self, doc: &IndexDoc) -> Result<TantivyDocument> {
@@ -320,21 +359,28 @@ impl Index {
         {
             let mut w = self.lock_writer()?;
             self.write_one(&w, doc)?;
-            w.commit()?;
+            self.commit_writer(&mut w)?;
         }
         self.reader.reload()?;
         Ok(())
     }
 
-    /// Bulk add/replace with a single commit — used by the store's initial
-    /// re-index and the 100k timing harness.
+    /// Bulk add/replace with a **single** commit and a single reader reload,
+    /// however many documents are passed — used by the store's initial
+    /// re-index, by `Email/set` over a multi-id update (26.20), and by the 100k
+    /// timing harness.
+    ///
+    /// Prefer this to a loop over [`Index::upsert`]: the per-document cost is
+    /// the segment commit, not the document write, so N calls to `upsert` are
+    /// roughly N times the cost of one `upsert_batch` of N documents.
+    /// [`commit_count`] distinguishes the two.
     pub fn upsert_batch(&self, docs: &[IndexDoc]) -> Result<()> {
         {
             let mut w = self.lock_writer()?;
             for doc in docs {
                 self.write_one(&w, doc)?;
             }
-            w.commit()?;
+            self.commit_writer(&mut w)?;
         }
         self.reader.reload()?;
         Ok(())
@@ -345,7 +391,7 @@ impl Index {
         {
             let mut w = self.lock_writer()?;
             w.delete_term(Term::from_field_text(self.fields.stable_id, stable_id));
-            w.commit()?;
+            self.commit_writer(&mut w)?;
         }
         self.reader.reload()?;
         Ok(())
