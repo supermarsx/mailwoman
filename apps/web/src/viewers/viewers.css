@@ -40,7 +40,19 @@
   gap: 12px;
   padding: 12px;
 }
+/* One fixed-height slot per page, sized from page 1 before anything renders, so
+   the scroll height and every page offset are correct while only the pages in
+   the scroll window hold a canvas (PdfViewer.tsx, pdfWindow.ts). */
+.mw-viewer__pdf-slot {
+  flex: 0 0 auto;
+  max-width: 100%;
+  background: var(--bg-alt);
+  border-radius: 2px;
+}
 .mw-viewer__pdf-page {
+  display: block;
+  width: 100%;
+  height: 100%;
   max-width: 100%;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
   background: #fff;

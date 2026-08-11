@@ -3,6 +3,7 @@ import {
   createMemo,
   createResource,
   createSignal,
+  on,
   onMount,
   Show,
   type JSX,
@@ -25,7 +26,8 @@ import type { SenderControlRequest, SenderControlResult } from './security/model
 import { defaultSenderControl } from './security/model.ts';
 import { MaxSecuritySwitch } from '../viewers/MaxSecuritySwitch.tsx';
 import { createMaxSecurityStore } from '../viewers/max-security.ts';
-import { bodyFrameDoc } from '../viewers/sandbox.ts';
+import { bodyFrameDoc, withImageLoadingHints } from '../viewers/sandbox.ts';
+import { createObjectUrlOwner } from '../viewers/objectUrl.ts';
 import { getCryptoWorker } from '../crypto/index.ts';
 import { createConfiguredClient } from '../api/transport.ts';
 import { responseFor } from '../api/jmap.ts';
@@ -177,7 +179,7 @@ function ReaderToolbar(props: { email: Email }): JSX.Element {
  *  the sandboxed message iframe. Each viewer keeps its own sandbox (§2.4). In a
  *  locked-down max-security mode attachments open ONLY through this re-encode
  *  preview jail (the AttachmentViewer sandbox), never as original bytes (§7.2). */
-function AttachmentsPane(props: { email: Email }): JSX.Element {
+export function AttachmentsPane(props: { email: Email }): JSX.Element {
   const app = useApp();
   const [openItem, setOpenItem] = createSignal<StripItem | null>(null);
 
@@ -202,7 +204,39 @@ function AttachmentsPane(props: { email: Email }): JSX.Element {
     );
   }
 
-  const [blobUrl] = createResource(openItem, (item) => blobUrlFor(item));
+  // Every object URL this pane mints is owned (t22 L6). Without this the opened
+  // attachment's Blob stayed pinned for the tab's lifetime: the modal's URL is
+  // revoked when the open item changes and when the pane unmounts, and each
+  // thumbnail's URL is owned by its own <Thumb> (ThumbnailStrip.tsx).
+  const urls = createObjectUrlOwner();
+  /** The URL the viewer is currently showing, so it can be released the moment
+   *  it is superseded rather than banked until the pane unmounts. */
+  let shownUrl: string | null = null;
+
+  const [blobUrl] = createResource(openItem, async (item) => {
+    if (shownUrl !== null) {
+      urls.release(shownUrl);
+      shownUrl = null;
+    }
+    shownUrl = urls.adopt(await blobUrlFor(item));
+    return shownUrl;
+  });
+
+  // Closing the viewer sets `openItem` to null, which does NOT run the fetcher —
+  // and Solid keeps a resource's last value when its source goes falsy, so the
+  // close path cannot be driven off the resource value. Release here instead.
+  createEffect(
+    on(
+      openItem,
+      (item) => {
+        if (item === null && shownUrl !== null) {
+          urls.release(shownUrl);
+          shownUrl = null;
+        }
+      },
+      { defer: true },
+    ),
+  );
 
   return (
     <Show when={items().length > 0}>
@@ -541,7 +575,13 @@ export function Reader(): JSX.Element {
     // open message's remote images repointed at the proxy when a grant covers it
     // (no covering grant → the fragment is returned unchanged).
     if (mode === 'sanitized-no-media') return bodyFrameDoc('sanitized-no-media', { html });
-    return rewriteGrantedImages(html, extractHtmlBody(email), activeGrant() !== null) ?? html;
+    // This branch returns the sanitized fragment directly (no `bodyFrameDoc`),
+    // so the `loading`/`decoding` hints are applied here too — otherwise the
+    // DEFAULT cleartext body, the one that actually carries images, is the only
+    // render path without them. A body with no `<img>` is returned unchanged.
+    return withImageLoadingHints(
+      rewriteGrantedImages(html, extractHtmlBody(email), activeGrant() !== null) ?? html,
+    );
   });
 
   async function onSenderControl(req: SenderControlRequest): Promise<SenderControlResult> {

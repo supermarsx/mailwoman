@@ -109,9 +109,56 @@ const BODY_STYLE =
   'html,body{margin:0;background:transparent}' +
   'body{padding:12px;font:14px/1.6 ui-sans-serif,system-ui,sans-serif;word-break:break-word;' +
   'color:var(--mw-text,#1c1e21)}' +
+  // `max-width:100%;height:auto` is deliberately kept: it is the pairing that
+  // makes an intrinsic `width`/`height` USABLE. The UA maps the two attributes
+  // to `aspect-ratio`, and `height:auto` lets the box shrink along that ratio
+  // rather than being pinned to the attribute — so a sized image reserves its
+  // space before it decodes. The attributes themselves come from
+  // `withImageLoadingHints` below (`loading`/`decoding`) and from the sender's
+  // own `width`/`height`, which the sanitizer's img allow-list keeps.
   'img,video{max-width:100%;height:auto}' +
   'pre{white-space:pre-wrap;word-break:break-word;margin:0;' +
   'font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}';
+
+/**
+ * Add `loading="lazy"` + `decoding="async"` to every `<img>` in an ALREADY
+ * SANITIZED body fragment (t22 L6).
+ *
+ * The sanitizer's allow-list is untouched by design: `mw-sanitize` keeps
+ * ammonia's default `img` attribute set (`align`/`alt`/`height`/`src`/`width`),
+ * so a sender's intrinsic `width`/`height` survives sanitization but `loading`
+ * and `decoding` do not. Rather than widen the allow-list — a `mw-sanitize`
+ * change, and a wider strip surface for one layout hint — the hints are applied
+ * here, on the client, AFTER sanitization. Nothing that reaches the frame gains
+ * an attribute the sanitizer rejected; two inert layout hints are added to
+ * output the sanitizer already approved.
+ *
+ * The rewrite goes through `DOMParser`, never a regex. A regex inserting after a
+ * literal `<img` is only safe while the producer escapes `<` inside attribute
+ * values — ammonia does today (`imageHints.test.ts` pins it), the DOM serializer
+ * does not — and that is a property of a producer this code does not own, checked
+ * nowhere, and silently load-bearing if assumed. Parsing already-sanitized markup
+ * and re-serializing it is invariant to it, and cannot introduce script. Bodies
+ * with no `<img>` at all are returned byte-identical (the common case, and it
+ * keeps the default cleartext body's `srcdoc` contract unchanged for them).
+ */
+export function withImageLoadingHints(html: string): string {
+  if (!/<img\b/i.test(html)) return html;
+  if (typeof DOMParser === 'undefined') return html;
+  let doc: Document;
+  try {
+    doc = new DOMParser().parseFromString(html, 'text/html');
+  } catch {
+    return html;
+  }
+  const imgs = doc.body.querySelectorAll('img');
+  if (imgs.length === 0) return html;
+  for (const img of Array.from(imgs)) {
+    if (!img.hasAttribute('loading')) img.setAttribute('loading', 'lazy');
+    if (!img.hasAttribute('decoding')) img.setAttribute('decoding', 'async');
+  }
+  return doc.body.innerHTML;
+}
 
 /** Build the message-body `srcdoc` for a mode. In `plain-text` the content is
  *  rendered as escaped text (no HTML); otherwise the (already-sanitized) HTML is
@@ -125,7 +172,7 @@ export function bodyFrameDoc(
   const inner =
     mode === 'plain-text'
       ? `<pre>${escapeHtml(content.text ?? '')}</pre>`
-      : (content.html ?? '');
+      : withImageLoadingHints(content.html ?? '');
   return (
     '<!doctype html><html><head><meta charset="utf-8">' +
     `<meta http-equiv="Content-Security-Policy" content="${bodyCsp(mode)}">` +
