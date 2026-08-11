@@ -5288,6 +5288,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mw-egress"
+version = "26.19.0"
+dependencies = [
+ "axum",
+ "reqwest 0.12.28",
+ "tokio",
+]
+
+[[package]]
 name = "mw-engine"
 version = "26.19.0"
 dependencies = [
@@ -5572,6 +5581,7 @@ dependencies = [
  "mw-autoconfig",
  "mw-cache",
  "mw-directory",
+ "mw-egress",
  "mw-engine",
  "mw-export",
  "mw-imap",

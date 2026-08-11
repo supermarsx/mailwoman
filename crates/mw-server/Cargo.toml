@@ -27,6 +27,12 @@ mw-mfa = { path = "../mw-mfa" }
 # refusal, and the sandbox posture for `mailwoman doctor`.
 mw-sandbox = { workspace = true }
 mw-sanitize = { workspace = true }
+# t22 (26.20, e6) — the deny-by-default egress policy the image proxy, the webcal
+# importer and the ManageSieve caller all run on. It used to be `pub(crate)` inside
+# `image_proxy.rs`; it now lives in its own crate so the surfaces that cannot depend
+# on mw-server can reuse it. `image_proxy.rs` re-exports the three items in-tree
+# callers already reach for, so no other module changed.
+mw-egress = { workspace = true }
 # t16 (26.16) S7 — the anonymizing image proxy re-encodes fetched bytes through the
 # wasm media jail (`mw_render::media_jail::reencode_image`, owned by t16-e5) before
 # serving them. Declared as a direct path dep (not `workspace = true`) so wiring it

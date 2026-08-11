@@ -40,6 +40,12 @@ members = [
     # Landlock + namespaces + rlimits for the render child; a degraded no-op on
     # non-Linux. Net-new deps (Linux-only, target-gated): seccompiler + landlock. ──
     "crates/mw-sandbox",
+    # ── t22 (26.20) egress crate (plan §2.2 e6): the deny-by-default SSRF address
+    # policy + one-shot resolve + pinned connect + hardened fetch, LIFTED verbatim
+    # out of `mw-server::image_proxy` so the workspace's other egress surfaces can
+    # reuse it (they cannot depend on mw-server). NET-ZERO new third-party deps —
+    # it links only the `reqwest`/`tokio` the moved code already used. ──
+    "crates/mw-egress",
     "plugins/bridge-graph",
     "plugins/bridge-ews",
     "plugins/bridge-gmail",
@@ -346,6 +352,8 @@ mw-passwd = { path = "crates/mw-passwd" }
 mw-assist = { path = "crates/mw-assist" }
 # ── t16 (26.16) kernel jail (plan §Wave-C e4). ──
 mw-sandbox = { path = "crates/mw-sandbox" }
+# ── t22 (26.20) shared outbound-egress policy (plan §2.2 e6). ──
+mw-egress = { path = "crates/mw-egress" }
 
 # ── Build profiles ──────────────────────────────────────────────────────────
 # 26.19 (t19-e1). Every claim below was measured on the dev host, cold tree; the

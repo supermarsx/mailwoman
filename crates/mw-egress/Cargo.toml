@@ -1,0 +1,28 @@
+[package]
+name = "mw-egress"
+description = "Deny-by-default outbound egress policy: the SSRF address gate, one-shot DNS resolution with a pinned connect, and the hardened per-hop fetch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "mw_egress"
+path = "src/lib.rs"
+
+# NET-ZERO third-party dependencies (t22-e6). This crate is a MOVE of code that
+# already lived in `mw-server::image_proxy`, and it links exactly what that code
+# already linked: `reqwest` for the client/URL types and `tokio` for
+# `lookup_host`. It deliberately depends on NOTHING else in this workspace — in
+# particular not on `mw-server`, which is the whole reason the policy is being
+# lifted out (the ungated egress surfaces cannot depend on the server crate).
+[dependencies]
+reqwest = { workspace = true }
+tokio = { workspace = true }
+
+# `axum` backs the loopback test origin the fetch-mechanics tests spawn; it is the
+# same helper those tests used before the move, and it is dev-only so no consumer
+# of this crate pulls it.
+[dev-dependencies]
+axum = { workspace = true }
+tokio = { workspace = true }
