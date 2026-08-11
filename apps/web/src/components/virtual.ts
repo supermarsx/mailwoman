@@ -38,3 +38,21 @@ export function computeWindow(
   const endIndex = Math.min(count, first + visibleCount + overscan);
   return { startIndex, endIndex, offsetY: startIndex * rowHeight, totalHeight };
 }
+
+/**
+ * Value equality for two windows.
+ *
+ * `computeWindow` returns a fresh object on every call, so a memo over it
+ * notifies on every scroll *event* — including the many events that leave the
+ * mounted slice exactly where it was (a 5px scroll inside one row, or the tail
+ * of a momentum flick). Used as the memo's `equals` comparator, this confines
+ * downstream work to the events that actually move the window.
+ */
+export function sameWindow(a: Window, b: Window): boolean {
+  return (
+    a.startIndex === b.startIndex &&
+    a.endIndex === b.endIndex &&
+    a.offsetY === b.offsetY &&
+    a.totalHeight === b.totalHeight
+  );
+}

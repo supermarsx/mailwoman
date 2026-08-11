@@ -1,7 +1,7 @@
-import { createMemo, createSignal, For, Show, type JSX } from 'solid-js';
+import { createMemo, createSignal, For, onCleanup, Show, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
 import { t, isolate } from '../i18n/index.ts';
-import { computeWindow } from './virtual.ts';
+import { computeWindow, sameWindow } from './virtual.ts';
 import { TagChips } from './TagChips.tsx';
 import { MessageActions } from './MessageActions.tsx';
 import * as a11y from './mailA11y.css.ts';
@@ -210,6 +210,17 @@ function ListToolbar(): JSX.Element {
   );
 }
 
+// Test seam: a weak handle on the most recently mounted list's row-ref map, so
+// a spec can assert the map stays bounded by the mounted window instead of
+// growing to one entry per row ever scrolled past. Weak so the seam itself
+// retains nothing once the list unmounts. Not read by application code.
+let liveRowEls: WeakRef<Map<ThreadVisualRow, HTMLButtonElement>> | undefined;
+
+/** Test-only: how many row refs the mounted list holds (-1 when none is up). */
+export function rowRefCount(): number {
+  return liveRowEls?.deref()?.size ?? -1;
+}
+
 export function MessageList(): JSX.Element {
   const app = useApp();
   const [scrollTop, setScrollTop] = createSignal(0);
@@ -225,10 +236,25 @@ export function MessageList(): JSX.Element {
   const rowHeight = (): number => ROW_HEIGHTS[app.density()];
   // The FLAT list folded into visual rows (singletons + conversation heads/members).
   const rows = createMemo<ThreadVisualRow[]>(() => groupThreads(app.listMessages(), expanded()));
-  const win = createMemo(() => computeWindow(scrollTop(), viewportH(), rowHeight(), rows().length));
+  // `computeWindow` returns a fresh object every call, so without a comparator
+  // this memo notifies on every scroll EVENT — including the many that leave
+  // the mounted slice unchanged — and rebuilt the whole window each time.
+  const win = createMemo(
+    () => computeWindow(scrollTop(), viewportH(), rowHeight(), rows().length),
+    undefined,
+    { equals: sameWindow },
+  );
 
   let scroller: HTMLDivElement | undefined;
-  const rowEls = new Map<number, HTMLButtonElement>();
+  // Keyed by ROW IDENTITY, not index. Two reasons: `<For>` is reference-keyed,
+  // so a reused row object keeps its DOM node and its entry; and once paging
+  // prepends rows every index shifts under an index-keyed map, resolving focus
+  // to the wrong row or a detached node. The row `key` is the *thread* key —
+  // shared by a head and its children — so it is not a usable identity here.
+  // Entries are dropped in each row's `onCleanup`: Solid does not invoke a
+  // `ref` callback on dispose, so nothing else would ever remove them.
+  const rowEls = new Map<ThreadVisualRow, HTMLButtonElement>();
+  liveRowEls = new WeakRef(rowEls);
 
   function toggleThread(key: string): void {
     setExpanded((prev) => {
@@ -262,8 +288,12 @@ export function MessageList(): JSX.Element {
       }
       onScroll();
     }
-    // Focus after the window re-renders the target row.
-    queueMicrotask(() => rowEls.get(next)?.focus());
+    // Focus after the window re-renders the target row. Resolve the row object
+    // inside the microtask so the lookup uses the post-render list.
+    queueMicrotask(() => {
+      const row = rows()[next];
+      if (row !== undefined) rowEls.get(row)?.focus();
+    });
   }
 
   function onKeyDown(e: KeyboardEvent): void {
@@ -277,9 +307,14 @@ export function MessageList(): JSX.Element {
     e.preventDefault();
   }
 
+  // No wrapper objects: `<For>` keys on reference, and a fresh `{row, index}`
+  // wrapper per render made every mounted row unmount and remount on each
+  // window change. The visual rows themselves are stable while `rows()` holds,
+  // so the slice alone lets `<For>` reuse them; the absolute position comes
+  // from `<For>`'s index accessor plus the window start.
   const slice = createMemo(() => {
     const w = win();
-    return rows().slice(w.startIndex, w.endIndex).map((row, i) => ({ row, index: w.startIndex + i }));
+    return rows().slice(w.startIndex, w.endIndex);
   });
 
   return (
@@ -301,40 +336,44 @@ export function MessageList(): JSX.Element {
               style={{ position: 'relative', height: `${win().totalHeight}px` }}
             >
               <For each={slice()}>
-                {(entry) => (
-                  <Show
-                    when={entry.row.kind === 'head'}
-                    fallback={
-                      <MessageRow
-                        email={entry.row.email}
-                        top={entry.index * rowHeight()}
+                {(row, i) => {
+                  const index = (): number => win().startIndex + i();
+                  const setRef = (el: HTMLButtonElement | undefined): void => {
+                    if (el) rowEls.set(row, el);
+                    else rowEls.delete(row);
+                  };
+                  // The only path that removes the ref: Solid never calls a
+                  // `ref` callback back on dispose.
+                  onCleanup(() => rowEls.delete(row));
+                  return (
+                    <Show
+                      when={row.kind === 'head'}
+                      fallback={
+                        <MessageRow
+                          email={row.email}
+                          top={index() * rowHeight()}
+                          height={rowHeight()}
+                          index={index()}
+                          total={rows().length}
+                          focused={index() === cursor()}
+                          threadChild={row.kind === 'child'}
+                          setRef={setRef}
+                        />
+                      }
+                    >
+                      <ThreadHeadRow
+                        row={row}
+                        top={index() * rowHeight()}
                         height={rowHeight()}
-                        index={entry.index}
+                        index={index()}
                         total={rows().length}
-                        focused={entry.index === cursor()}
-                        threadChild={entry.row.kind === 'child'}
-                        setRef={(el) => {
-                          if (el) rowEls.set(entry.index, el);
-                          else rowEls.delete(entry.index);
-                        }}
+                        focused={index() === cursor()}
+                        onToggle={() => toggleThread(row.key)}
+                        setRef={setRef}
                       />
-                    }
-                  >
-                    <ThreadHeadRow
-                      row={entry.row}
-                      top={entry.index * rowHeight()}
-                      height={rowHeight()}
-                      index={entry.index}
-                      total={rows().length}
-                      focused={entry.index === cursor()}
-                      onToggle={() => toggleThread(entry.row.key)}
-                      setRef={(el) => {
-                        if (el) rowEls.set(entry.index, el);
-                        else rowEls.delete(entry.index);
-                      }}
-                    />
-                  </Show>
-                )}
+                    </Show>
+                  );
+                }}
               </For>
             </ul>
           </div>
