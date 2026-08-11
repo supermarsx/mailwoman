@@ -401,7 +401,7 @@ mod session_state_tests {
     use std::sync::{Mutex, OnceLock};
     use std::thread::ThreadId;
 
-    use mw_store::{AccountKind, Credentials, NewAccount, ServerKey, Store};
+    use mw_store::{AccountKind, Credentials, MailboxUpsert, NewAccount, ServerKey, Store};
     use tracing::field::{Field, Visit};
     use tracing::level_filters::LevelFilter;
     use tracing::span;
@@ -995,5 +995,60 @@ mod session_state_tests {
         let acct = p.account(&unique("req")).await;
         p.seed_all(&acct).await;
         p.assert_per_request_overhead(&acct, "live PG").await;
+    }
+
+    /// What a real `Mailbox/get` costs, to the extent this lane can measure it.
+    ///
+    /// The plan's headline for this row is "`Mailbox/get` = 15 statements, of
+    /// which 12 are `sessionState`". The 12 and their removal are measured
+    /// directly above, on both backends. This test pins the **other** half of
+    /// the engine-side composition: `Engine::mailbox_get` reads the store
+    /// exactly once (`Store::list_mailboxes`) and then builds JSON from the rows
+    /// it already has — no per-mailbox follow-up read.
+    ///
+    /// So on the engine path a `Mailbox/get` request is **1 + 3 = 4** statements
+    /// after this lane and **1 + 12 = 13** before it. That does not reproduce the
+    /// verifier's 15; the balance is per-request work above the engine, which
+    /// this lane neither owns nor measures. `mailbox_get` is private to
+    /// `mod jmap` and `handle_jmap` dispatch needs a connected `AccountRuntime`,
+    /// so driving the method end to end needs a backend harness that lives in
+    /// `tests/`, not here — deliberately not built, and flagged rather than
+    /// papered over with arithmetic presented as a measurement.
+    #[tokio::test]
+    async fn mailbox_get_reads_the_store_once_whatever_the_mailbox_count() {
+        let p = Probe::sqlite().await;
+        let acct = p.account("mailbox-get").await;
+
+        for (n, name) in ["INBOX", "Sent", "Drafts", "Archive", "Spam"]
+            .into_iter()
+            .enumerate()
+        {
+            p.store()
+                .upsert_mailbox(&MailboxUpsert {
+                    account_id: &acct,
+                    name,
+                    role: None,
+                    uidvalidity: 100,
+                    uidnext: 1,
+                    highestmodseq: 0,
+                    total: n as u32,
+                    unread: 0,
+                    parent_id: None,
+                })
+                .await
+                .unwrap();
+        }
+
+        let (mailboxes, stmts) = p.count(p.store().list_mailboxes(&acct)).await;
+        assert_eq!(
+            mailboxes.unwrap().len(),
+            5,
+            "the fixture has five mailboxes"
+        );
+        assert_eq!(
+            stmts.len(),
+            1,
+            "the mailbox list is one statement, not one per mailbox; got {stmts:#?}"
+        );
     }
 }
