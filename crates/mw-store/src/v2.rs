@@ -484,6 +484,91 @@ impl Store {
         Ok(next as u64)
     }
 
+    /// Append **N change rows sharing ONE state**, returning that state (26.20
+    /// t22-e1, for `t22-e3s`'s batched `Email/set`).
+    ///
+    /// This is the shape a batched write needs, and neither of the two obvious
+    /// alternatives is correct:
+    ///
+    /// * **N calls to [`Store::record_change`]** give N rows at N states. The
+    ///   state token then advances by the id count rather than by one, which is
+    ///   what the batching was trying to stop.
+    /// * **One row for the whole batch** gives one state bump but tells
+    ///   `Email/changes` that **1** id changed when 500 did. Every other id stays
+    ///   stale on an incrementally-syncing device or push subscriber until
+    ///   something unrelated touches it — a silent, per-device correctness loss
+    ///   that no server-side assertion would notice.
+    ///
+    /// N rows at one state has both properties, because `*/changes` selects rows
+    /// with `state > since`: the diff reports all N ids, and the state advanced
+    /// once. It also keeps [`Store::changes_since_limited`]'s cap meaningful —
+    /// a batch is a bounded block of rows at a single state, not an unbounded
+    /// run of states.
+    ///
+    /// Duplicate ids are collapsed (first occurrence wins): the same id twice at
+    /// one state is noise to every consumer of the log.
+    ///
+    /// An empty slice records nothing and returns the **current** state — a batch
+    /// that changed no message must not advance the token.
+    ///
+    /// Concurrency posture is [`Store::record_change`]'s, unchanged: one
+    /// statement that takes the write lock directly, computing `MAX(state) + 1`
+    /// against the latest committed row, so concurrent appends serialize rather
+    /// than collide. The `MAX` is an aggregate in a `FROM` subquery, so it is
+    /// evaluated **once** for the whole insert rather than per row — the test
+    /// asserts that directly, since a per-row re-evaluation would silently
+    /// restore the N-states behaviour this method exists to remove.
+    pub async fn record_changes(
+        &self,
+        account_id: &str,
+        kind: &str,
+        stable_ids: &[String],
+        op: &str,
+    ) -> Result<u64, StoreError> {
+        let mut seen = std::collections::HashSet::with_capacity(stable_ids.len());
+        let ids: Vec<String> = stable_ids
+            .iter()
+            .filter(|id| seen.insert(id.as_str()))
+            .cloned()
+            .collect();
+        if ids.is_empty() {
+            return self.current_state(account_id, kind).await;
+        }
+        let now = chrono::Utc::now().to_rfc3339();
+        let sql = match self.backend.dialect() {
+            Dialect::Sqlite => {
+                "INSERT INTO changes (account_id, type, state, stable_id, op, at)
+                 SELECT ?1, ?2, s.next, j.value, ?4, ?5
+                 FROM (SELECT COALESCE(MAX(state), 0) + 1 AS next FROM changes
+                       WHERE account_id = ?1 AND type = ?2) s,
+                      json_each(?3) j
+                 RETURNING state"
+            }
+            Dialect::Postgres => {
+                "INSERT INTO changes (account_id, type, state, stable_id, op, at)
+                 SELECT ?1, ?2, s.next, j.value, ?4, ?5
+                 FROM (SELECT COALESCE(MAX(state), 0) + 1 AS next FROM changes
+                       WHERE account_id = ?1 AND type = ?2) s,
+                      json_array_elements_text(?3::json) j
+                 RETURNING state"
+            }
+        };
+        let rows = q(sql)
+            .bind(account_id)
+            .bind(kind)
+            .bind(id_list_json(&ids))
+            .bind(op)
+            .bind(&now)
+            .fetch_all(&self.backend)
+            .await?;
+        // Every row carries the same state by construction; read it off the
+        // first rather than trusting the caller's arithmetic.
+        Ok(rows
+            .first()
+            .map(|r| r.get_i64_idx(0) as u64)
+            .unwrap_or_default())
+    }
+
     /// The current (max) state for an `(account, type)`, `0` if none yet.
     pub async fn current_state(&self, account_id: &str, kind: &str) -> Result<u64, StoreError> {
         let n =
@@ -782,6 +867,118 @@ mod tests {
     /// pins the store half of that — the page is capped, `has_more` is truthful
     /// on both sides of the boundary, and the lookahead row never leaks into the
     /// result.
+    /// 26.20 t22-e1. The property `record_changes` exists for: **N rows, ONE
+    /// state**. Both halves are load-bearing and each has an obvious wrong
+    /// implementation that the other half catches — N calls to `record_change`
+    /// pass the row count and fail the state count; a single summary row passes
+    /// the state count and fails the row count.
+    #[tokio::test]
+    async fn record_changes_writes_n_rows_at_one_state() {
+        assert_batched_change_log(&store().await).await;
+    }
+
+    /// The Postgres half. The statement is an `INSERT … SELECT` whose state comes
+    /// from an aggregate over the table being inserted into, and whether that
+    /// aggregate is evaluated once or per row is an engine decision, not a
+    /// portable guarantee — so "one state" has to be asserted on the backend that
+    /// will actually run it. Env-gated exactly like the `cache.rs` legs.
+    #[tokio::test]
+    async fn postgres_record_changes_writes_n_rows_at_one_state() {
+        let Some(dsn) = std::env::var("DATABASE_URL_PG")
+            .ok()
+            .or_else(|| std::env::var("MW_TEST_PG").ok())
+            .filter(|s| !s.trim().is_empty())
+        else {
+            eprintln!(
+                "[mw-store] t22-e1 record_changes: Postgres path SKIPPED (set \
+                 DATABASE_URL_PG or MW_TEST_PG to a live postgres:16 to run it). The \
+                 SQLite path still asserted."
+            );
+            return;
+        };
+        let s = crate::Store::open_postgres(&dsn, crate::ServerKey::generate())
+            .await
+            .expect("DATABASE_URL_PG is set but Postgres is not reachable");
+        assert_batched_change_log(&s).await;
+    }
+
+    async fn assert_batched_change_log(s: &Store) {
+        let (account_id, _m, _sid) = seed_msg(s).await;
+
+        // A prior single change, so "one more state" is a real increment rather
+        // than the first one.
+        assert_eq!(
+            s.record_change(&account_id, "Email", "e0", "created")
+                .await
+                .unwrap(),
+            1
+        );
+
+        let ids: Vec<String> = (0..500).map(|i| format!("e{i}")).collect();
+        let state = s
+            .record_changes(&account_id, "Email", &ids, "updated")
+            .await
+            .unwrap();
+        assert_eq!(state, 2, "the whole batch advances the token exactly once");
+        assert_eq!(s.current_state(&account_id, "Email").await.unwrap(), 2);
+
+        // …and the diff reports every id, not one summary row. This is the half
+        // that an incrementally-syncing device depends on.
+        let diff = s.changes_since(&account_id, "Email", 1).await.unwrap();
+        assert_eq!(diff.len(), 500);
+        assert!(
+            diff.iter().all(|c| c.state == 2),
+            "the aggregate that computes the state must be evaluated ONCE for the \
+             insert, not per row — per row would restore the N-states behaviour"
+        );
+        assert!(diff.iter().all(|c| c.op == "updated"));
+        let mut seen: Vec<&str> = diff.iter().map(|c| c.stable_id.as_str()).collect();
+        seen.sort();
+        seen.dedup();
+        assert_eq!(seen.len(), 500, "every id appears, exactly once");
+
+        // The cap still applies across a block of rows sharing one state.
+        let (page, more) = s
+            .changes_since_limited(&account_id, "Email", 1, 50)
+            .await
+            .unwrap();
+        assert_eq!(page.len(), 50);
+        assert!(more);
+
+        // Duplicates collapse; the state still advances once.
+        let dupes = vec!["dup".to_string(), "dup".to_string(), "other".to_string()];
+        assert_eq!(
+            s.record_changes(&account_id, "Email", &dupes, "created")
+                .await
+                .unwrap(),
+            3
+        );
+        assert_eq!(
+            s.changes_since(&account_id, "Email", 2)
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
+
+        // An empty batch changed nothing, so it must not move the token.
+        assert_eq!(
+            s.record_changes(&account_id, "Email", &[], "updated")
+                .await
+                .unwrap(),
+            3
+        );
+        assert_eq!(s.current_state(&account_id, "Email").await.unwrap(), 3);
+
+        // A different type keeps its own counter, as with `record_change`.
+        assert_eq!(
+            s.record_changes(&account_id, "Mailbox", &ids, "updated")
+                .await
+                .unwrap(),
+            1
+        );
+    }
+
     #[tokio::test]
     async fn changes_since_limited_caps_the_page_and_reports_more() {
         let s = store().await;

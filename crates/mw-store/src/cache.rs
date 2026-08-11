@@ -718,6 +718,29 @@ impl Store {
     /// cost nothing, not a round trip that can only return nothing. A negative
     /// `offset` is clamped to 0 (SQLite treats a negative OFFSET as 0, Postgres
     /// rejects it — the clamp makes the two agree).
+    ///
+    /// # Known divergence: `internaldate IS NULL` (predates 26.20, NOT fixed here)
+    ///
+    /// The two backends disagree about where undated messages sort. Under
+    /// `ORDER BY … DESC`, SQLite puts NULLs **last** and Postgres puts them
+    /// **first**, so the same mailbox pages differently — measured with two
+    /// undated rows among 20 000: SQLite's page 1 starts at the newest dated
+    /// message, Postgres' page 1 starts with the two undated ones, above
+    /// everything, permanently.
+    ///
+    /// This is reachable, not theoretical: `mw-pop3` supplies `internaldate:
+    /// None` for **every** message it ingests, and `mw-imap`'s is an `Option`
+    /// too, so any mailbox mixing POP3-ingested and dated messages hits it.
+    ///
+    /// It matters beyond the ordering itself, because an `anchor`/`anchorOffset`
+    /// primitive ("the position of this id in this mailbox's order") is only
+    /// definable once the order is. The fix is `ORDER BY internaldate DESC NULLS
+    /// LAST, uid DESC, stable_id` **plus** a migration redefining the Postgres
+    /// index with a matching `DESC NULLS LAST` — measured, the `ORDER BY` change
+    /// alone keeps the index but adds a Sort node on Postgres, and costs SQLite
+    /// nothing at all (same covering-index plan, same output, since its `DESC`
+    /// index is already NULLS-last). That is a cross-backend ordering change with
+    /// its own migration, so it is deliberately not made under a paging lane.
     pub async fn list_message_ids(
         &self,
         mailbox_id: &str,
