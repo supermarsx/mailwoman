@@ -8,6 +8,10 @@
 //! an opaque primitive. Enum-like fields (`undo_status`, change `op`/`type`) are
 //! plain strings the engine owns; the store never interprets them.
 
+use std::collections::HashMap;
+
+use crate::backend::Dialect;
+use crate::cache::{id_list_json, project_in_order};
 use crate::{Row, Store, StoreError, q};
 
 // ---- message_meta ----------------------------------------------------------
@@ -136,6 +140,58 @@ impl Store {
             snoozed_until: r.get_opt_string("snoozed_until"),
             follow_up_at: r.get_opt_string("follow_up_at"),
         }))
+    }
+
+    /// Fetch a whole page of message metadata in **one** statement (26.20
+    /// t22-e1).
+    ///
+    /// The batch form of [`Store::get_message_meta`]: the returned vector is the
+    /// same length as `stable_ids` and positionally aligned with it, `None`
+    /// exactly where the single getter returns `None` (no metadata was ever set
+    /// for that id — the common case, since a row exists only once a message has
+    /// been pinned, snoozed or flagged for follow-up). Ordering, duplicates and
+    /// holes are preserved, so it is interchangeable with
+    /// `ids.map(get_message_meta)` as a sequence.
+    ///
+    /// This is the third of the three per-message reads `Email/get` used to make
+    /// in a loop; see [`Store::get_messages`] for the id-list encoding and for
+    /// the measurement that motivates the batch form. An empty slice issues
+    /// **no** statement.
+    pub async fn get_message_metas(
+        &self,
+        stable_ids: &[String],
+    ) -> Result<Vec<Option<StoredMeta>>, StoreError> {
+        if stable_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let sql = match self.backend.dialect() {
+            Dialect::Sqlite => {
+                "SELECT stable_id, pinned, snoozed_until, follow_up_at FROM message_meta
+                 WHERE stable_id IN (SELECT value FROM json_each(?1))"
+            }
+            Dialect::Postgres => {
+                "SELECT stable_id, pinned, snoozed_until, follow_up_at FROM message_meta
+                 WHERE stable_id IN (SELECT value FROM json_array_elements_text(?1::json))"
+            }
+        };
+        let rows = q(sql)
+            .bind(id_list_json(stable_ids))
+            .fetch_all(&self.backend)
+            .await?;
+        let found: HashMap<String, StoredMeta> = rows
+            .iter()
+            .map(|r| {
+                (
+                    r.get_string("stable_id"),
+                    StoredMeta {
+                        pinned: r.get_i64("pinned") != 0,
+                        snoozed_until: r.get_opt_string("snoozed_until"),
+                        follow_up_at: r.get_opt_string("follow_up_at"),
+                    },
+                )
+            })
+            .collect();
+        Ok(project_in_order(stable_ids, found))
     }
 
     /// Snoozed messages whose resurface time is at/behind `now` (RFC3339),
@@ -439,28 +495,71 @@ impl Store {
         Ok(n as u64)
     }
 
-    /// Change rows strictly newer than `since`, oldest-first.
+    /// Change rows strictly newer than `since`, oldest-first — **unbounded**.
+    ///
+    /// Retained for the callers that genuinely want the whole tail. Anything
+    /// answering a client (`*/changes`, `*/queryChanges`) should use
+    /// [`Store::changes_since_limited`] instead: the `changes` table is
+    /// append-only — nothing in `crates/` deletes from it — so "the whole tail"
+    /// grows for the life of a deployment and this method's result set with it.
     pub async fn changes_since(
         &self,
         account_id: &str,
         kind: &str,
         since: u64,
     ) -> Result<Vec<ChangeRow>, StoreError> {
+        Ok(self
+            .changes_since_limited(account_id, kind, since, i64::MAX - 1)
+            .await?
+            .0)
+    }
+
+    /// Change rows strictly newer than `since`, oldest-first, capped at `limit`,
+    /// plus whether more exist beyond the cap (26.20 t22-e1).
+    ///
+    /// This is what a JMAP `maxChanges` needs to be honest: the cap has to reach
+    /// **SQL**, or the server materialises the entire tail and then throws most
+    /// of it away — which is what `Email/queryChanges` does today, at a measured
+    /// 1 749 125 bytes of response against a 3 580-byte page. Capping the array
+    /// after the fact bounds the *response* while leaving the *work* unbounded.
+    ///
+    /// The `bool` is computed by asking for one row more than `limit` and
+    /// reporting whether it arrived, so a caller gets JMAP's `hasMoreChanges` (or
+    /// the trigger for `cannotCalculateChanges`) without a second statement and
+    /// without a `COUNT(*)` over the tail. The extra row is never returned.
+    ///
+    /// `limit` is clamped to at least 1 row of lookahead, so `limit: 0` — legal
+    /// in JMAP — answers with an empty page and a truthful `has_more`, rather
+    /// than claiming there is nothing left.
+    pub async fn changes_since_limited(
+        &self,
+        account_id: &str,
+        kind: &str,
+        since: u64,
+        limit: i64,
+    ) -> Result<(Vec<ChangeRow>, bool), StoreError> {
+        let want = limit.max(0);
         let rows = q("SELECT state, stable_id, op FROM changes
-             WHERE account_id = ?1 AND type = ?2 AND state > ?3 ORDER BY state ASC")
+             WHERE account_id = ?1 AND type = ?2 AND state > ?3 ORDER BY state ASC
+             LIMIT ?4")
         .bind(account_id)
         .bind(kind)
         .bind(since as i64)
+        .bind(want.saturating_add(1))
         .fetch_all(&self.backend)
         .await?;
-        Ok(rows
-            .iter()
-            .map(|r| ChangeRow {
-                state: r.get_i64("state") as u64,
-                stable_id: r.get_string("stable_id"),
-                op: r.get_string("op"),
-            })
-            .collect())
+        let has_more = rows.len() as i64 > want;
+        Ok((
+            rows.iter()
+                .take(want as usize)
+                .map(|r| ChangeRow {
+                    state: r.get_i64("state") as u64,
+                    stable_id: r.get_string("stable_id"),
+                    op: r.get_string("op"),
+                })
+                .collect(),
+            has_more,
+        ))
     }
 }
 
@@ -599,6 +698,158 @@ mod tests {
         assert_eq!(
             s.due_snoozed("2026-07-11T00:00:00Z").await.unwrap().len(),
             0
+        );
+    }
+
+    /// 26.20 t22-e1. Same contract as [`Store::get_messages`]: the batch form is
+    /// the loop **as a sequence**. Metadata is the getter where the hole is the
+    /// normal case — most messages are never pinned or snoozed — so a batch
+    /// method that returned only the rows it found would misalign every result
+    /// after the first unpinned message.
+    #[tokio::test]
+    async fn get_message_metas_equals_the_loop_as_a_sequence() {
+        let s = store().await;
+        let (account_id, mailbox_id, first) = seed_msg(&s).await;
+
+        let mut ids = vec![first.clone()];
+        for uid in 6..=8u32 {
+            ids.push(
+                s.upsert_message(&MessageUpsert {
+                    account_id: &account_id,
+                    mailbox_id: &mailbox_id,
+                    uid,
+                    uidvalidity: 100,
+                    message_id: Some("<m@x>"),
+                    thread_id: None,
+                    internaldate: Some(&format!("2026-07-0{uid}T10:00:00Z")),
+                    size: 10,
+                    flags_json: "[]",
+                    envelope: None,
+                    blob_ref: None,
+                })
+                .await
+                .unwrap(),
+            );
+        }
+        // Only two of the four carry metadata.
+        s.upsert_message_meta(
+            &ids[1],
+            &StoredMeta {
+                pinned: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        s.upsert_message_meta(
+            &ids[3],
+            &StoredMeta {
+                pinned: false,
+                snoozed_until: Some("2027-01-01T00:00:00Z".into()),
+                follow_up_at: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let asked: Vec<String> = vec![
+            ids[3].clone(),
+            ids[0].clone(),
+            "no-such-message".into(),
+            ids[1].clone(),
+            ids[3].clone(),
+        ];
+        let mut one_by_one = Vec::new();
+        for id in &asked {
+            one_by_one.push(s.get_message_meta(id).await.unwrap());
+        }
+        assert_eq!(s.get_message_metas(&asked).await.unwrap(), one_by_one);
+
+        let batch = s.get_message_metas(&asked).await.unwrap();
+        assert_eq!(
+            batch[0].as_ref().unwrap().snoozed_until.as_deref(),
+            Some("2027-01-01T00:00:00Z")
+        );
+        assert_eq!(batch[1], None, "a message with no metadata row is a hole");
+        assert_eq!(batch[2], None, "so is an id that names no message");
+        assert!(batch[3].as_ref().unwrap().pinned);
+        assert_eq!(batch[4], batch[0], "a repeated id repeats its answer");
+
+        assert!(s.get_message_metas(&[]).await.unwrap().is_empty());
+    }
+
+    /// 26.20 t22-e1. `maxChanges` is only honest if the cap reaches SQL; this
+    /// pins the store half of that — the page is capped, `has_more` is truthful
+    /// on both sides of the boundary, and the lookahead row never leaks into the
+    /// result.
+    #[tokio::test]
+    async fn changes_since_limited_caps_the_page_and_reports_more() {
+        let s = store().await;
+        let (account_id, _m, _sid) = seed_msg(&s).await;
+        for i in 0..10 {
+            s.record_change(&account_id, "Email", &format!("e{i}"), "created")
+                .await
+                .unwrap();
+        }
+
+        let (page, more) = s
+            .changes_since_limited(&account_id, "Email", 0, 4)
+            .await
+            .unwrap();
+        assert_eq!(
+            page.len(),
+            4,
+            "the cap is the page size, lookahead excluded"
+        );
+        assert_eq!(page[0].state, 1);
+        assert_eq!(page[3].state, 4);
+        assert!(more);
+
+        // Exactly at the boundary there is nothing more, and one row short of it
+        // there is — the off-by-one `hasMoreChanges` gets wrong.
+        let (page, more) = s
+            .changes_since_limited(&account_id, "Email", 0, 10)
+            .await
+            .unwrap();
+        assert_eq!(page.len(), 10);
+        assert!(!more);
+        let (page, more) = s
+            .changes_since_limited(&account_id, "Email", 0, 9)
+            .await
+            .unwrap();
+        assert_eq!(page.len(), 9);
+        assert!(more);
+
+        // `since` still means "strictly newer than", and the cap applies to what
+        // is left.
+        let (page, more) = s
+            .changes_since_limited(&account_id, "Email", 8, 4)
+            .await
+            .unwrap();
+        assert_eq!(
+            page.iter().map(|c| c.state).collect::<Vec<_>>(),
+            vec![9, 10]
+        );
+        assert!(!more);
+
+        // A zero cap is legal and must not claim the tail is empty.
+        let (page, more) = s
+            .changes_since_limited(&account_id, "Email", 0, 0)
+            .await
+            .unwrap();
+        assert!(page.is_empty());
+        assert!(
+            more,
+            "there are ten rows waiting — saying otherwise loses them"
+        );
+
+        // And the unbounded method still returns everything, unchanged.
+        assert_eq!(
+            s.changes_since(&account_id, "Email", 0)
+                .await
+                .unwrap()
+                .len(),
+            10
         );
     }
 

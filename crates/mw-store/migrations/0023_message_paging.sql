@@ -1,0 +1,58 @@
+-- 0023 (26.20 t22-e1): the paging index behind `Email/query`'s
+-- `position`/`limit` and `Mailbox.totalEmails`. ADDITIVE over 0001..0022 — it
+-- creates ONE index and touches no table. NEVER edit an earlier migration.
+-- This is the SQLite variant (run by `sqlx::migrate!("./migrations")`); the
+-- behaviourally-identical Postgres variant is
+-- `migrations_pg/0023_message_paging.sql`.
+--
+-- WHAT IT BUYS, per backend, from measured query plans rather than from
+-- reasoning about B-trees. Both sets are reproduced by the tests in
+-- `src/cache.rs` (`sqlite_page_query_uses_the_covering_index_and_sorts_nothing`,
+-- `postgres_deep_offset_page_uses_the_covering_index`), each with the index
+-- dropped as a negative control.
+--
+-- SQLite, 0023 present, at every offset:
+--     SEARCH messages USING COVERING INDEX idx_messages_mailbox_page (mailbox_id=?)
+-- SQLite, 0023 dropped:
+--     SEARCH messages USING INDEX idx_messages_mailbox_date (mailbox_id=?)
+--     USE TEMP B-TREE FOR LAST 2 TERMS OF ORDER BY
+-- So on SQLite this index removes a per-page sort that the 0002 index cannot
+-- avoid: `uid` is not in it, so the tie-break has to be sorted at run time.
+--
+-- Live Postgres 16, 20 000-message folder inside a 100 000-row table, vacuumed:
+--     page 1        Index Only Scan, 0.24 ms  (dropped: Index Scan on
+--                   idx_messages_mailbox_date + Incremental Sort, 0.34 ms)
+--     OFFSET 19950  Index Only Scan, 6.9 ms   (dropped: Seq Scan + Sort, 104.9 ms)
+--
+-- WHAT IT DOES NOT BUY, so that no later claim overreaches:
+--   * It is NOT what makes page 1 fast. Passing a real `LIMIT`/`OFFSET` to SQL
+--     is (0.405 ms measured against 162.9 ms for the unbounded statement, with
+--     only the 0002 index) — `.orchestration/logs/t22-verify-scale.md` V10.
+--   * It does NOT win `COUNT(*)`, on either backend: `idx_messages_mailbox_date`
+--     is two columns narrower and a count needs no ordering, so both engines
+--     keep choosing it (SQLite `USING COVERING INDEX`, Postgres `Index Only
+--     Scan`). Measured on both, with and without this index present.
+--   * Its Postgres benefit depends on SELECTIVITY and on the VISIBILITY MAP.
+--     Measured on a table where the target mailbox was 100 % of the rows,
+--     Postgres picks Seq Scan + Sort at a deep offset with OR without this index
+--     — an index cannot help a predicate that selects everything — and it makes
+--     the same choice on an un-vacuumed table, where an index-only scan would
+--     mean one heap fetch per row. Neither caveat applies to SQLite. See the
+--     Postgres variant for the full accounting.
+--
+-- COVERING, and why `stable_id` is the last column. `Email/query` selects
+-- exactly `stable_id` and orders by `(internaldate DESC, uid DESC)`. With
+-- `stable_id` trailing the sort terms the whole statement is answered from the
+-- index without touching the table. It is last because it is payload, not an
+-- ordering term; putting it earlier would break the sort-order match. It also
+-- makes the sort TOTAL, so `OFFSET` paging cannot show one row twice and skip
+-- another when two messages share an `(internaldate, uid)`.
+--
+-- DIALECT LOCKSTEP. The DDL below is byte-identical to the Postgres variant's:
+-- `CREATE INDEX IF NOT EXISTS` with per-column `DESC` is accepted verbatim by
+-- both engines and needs no divergence (unlike 0022's INTEGER→BIGINT /
+-- BLOB→BYTEA). That the two engines disagree about where `internaldate IS NULL`
+-- rows sort under DESC predates this migration, is a property of `ORDER BY`
+-- rather than of this index, and is NOT changed here.
+CREATE INDEX IF NOT EXISTS idx_messages_mailbox_page
+    ON messages (mailbox_id, internaldate DESC, uid DESC, stable_id);

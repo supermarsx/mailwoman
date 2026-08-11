@@ -1,0 +1,61 @@
+-- 0023 (26.20 t22-e1): the paging index behind `Email/query`'s
+-- `position`/`limit` and `Mailbox.totalEmails` — POSTGRES variant. The DDL is
+-- byte-identical to the SQLite `migrations/0023_message_paging.sql`, because
+-- `CREATE INDEX IF NOT EXISTS` with per-column `DESC` needs no dialect
+-- divergence at all (unlike 0022's INTEGER→BIGINT / BLOB→BYTEA). ADDITIVE over
+-- 0001..0022 — it creates ONE index and touches no table. NEVER edit an earlier
+-- migration.
+--
+-- WHAT IT BUYS ON THIS BACKEND, from measured plans on live Postgres 16: a
+-- 20 000-message folder inside a 100 000-row `messages` table, 64-character
+-- `stable_id`s (the width the store actually mints), vacuumed. That is the shape
+-- `postgres_deep_offset_page_uses_the_covering_index` in `src/cache.rs`
+-- reproduces, negative control included.
+--
+--     page 1        Index Only Scan using idx_messages_mailbox_page · 0.24 ms
+--                   0023 dropped → Index Scan on idx_messages_mailbox_date
+--                                  + Incremental Sort · 0.34 ms
+--     OFFSET 19950  Index Only Scan using idx_messages_mailbox_page · 6.9 ms
+--                   0023 dropped → Seq Scan + full Sort · 104.9 ms  (15×)
+--
+-- WHAT IT DOES NOT BUY. Each of these was measured too, and each was believed
+-- before it was measured:
+--   * It is NOT what makes page 1 fast. Passing a real `LIMIT`/`OFFSET` to SQL
+--     is: 0.405 ms with only the pre-existing `idx_messages_mailbox_date`,
+--     against 162.9 ms for the unbounded statement's Seq Scan + full Sort
+--     (`.orchestration/logs/t22-verify-scale.md`, V10). What 0023 adds at page 1
+--     is dropping the Incremental Sort the `uid` tie-break otherwise needs.
+--   * It does NOT win `COUNT(*)`. Postgres answers a per-mailbox count with an
+--     Index Only Scan on the two-column `idx_messages_mailbox_date` (4.2 ms at
+--     20 000) whether or not this index exists — narrower index, no ordering
+--     needed. Same conclusion as SQLite, reached independently.
+--   * Its value DEPENDS ON SELECTIVITY, and not subtly. Measured on a table
+--     where the target mailbox was 100 % of all rows, Postgres chooses Seq Scan
+--     + Sort at a deep offset **with or without** this index — a predicate that
+--     selects every row cannot be helped by one, and the seq scan wins on cost
+--     honestly. A single-folder benchmark corpus therefore shows this index
+--     doing nothing at all. Real deployments hold every folder of every account
+--     in one table, which is the shape above and the shape the test seeds.
+--   * It also depends on the VISIBILITY MAP: an Index Only Scan of 20 000
+--     entries against a table with no map means 20 000 heap fetches, and the
+--     planner correctly prefers a Seq Scan + Sort instead. Measured — the same
+--     corpus, `ANALYZE` only, plans as Seq Scan + Sort; after `VACUUM ANALYZE`
+--     it plans as the Index Only Scan above. Autovacuum is what makes a live
+--     deployment the second case, and it is why the test vacuums rather than
+--     asserting against a table bulk-loaded a millisecond earlier.
+--
+-- COVERING, and why `stable_id` is last: `Email/query` selects exactly
+-- `stable_id` and orders by `(internaldate DESC, uid DESC)`, so with `stable_id`
+-- trailing the two ordering terms the statement is answered without visiting the
+-- heap. It is payload rather than an ordering term, so it goes last — earlier
+-- would break the ordering match. It also makes the sort TOTAL, so `OFFSET`
+-- paging cannot show one row twice and skip another when two messages share an
+-- `(internaldate, uid)`.
+--
+-- Null ordering: a `DESC` index here is `NULLS FIRST` (Postgres' default for
+-- DESC), which matches a plain `ORDER BY … DESC` scan in this dialect — i.e. the
+-- index is chosen. That Postgres and SQLite disagree about where
+-- `internaldate IS NULL` rows land predates this migration and belongs to
+-- `ORDER BY`, not to this index; it is NOT changed here.
+CREATE INDEX IF NOT EXISTS idx_messages_mailbox_page
+    ON messages (mailbox_id, internaldate DESC, uid DESC, stable_id);
