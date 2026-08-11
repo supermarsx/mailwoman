@@ -82,6 +82,11 @@ mod bridge_tokens;
 // written under a different embedding model instead of corrupting the ordering. Unused
 // (and unpopulated) unless a deployment configures an Assist embedding provider.
 mod embeddings;
+// 26.20 (t22-e0): batched `(account, type)` state-counter reads. `sessionState`
+// folds 12 counters on every JMAP request; read one at a time that is 12
+// sequential statements — ~2 ms on SQLite but 12 Postgres round trips, paid
+// before any method runs. One statement per change log instead.
+mod state_counters;
 
 pub(crate) use backend::{Backend, Row, q};
 
