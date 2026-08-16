@@ -87,6 +87,20 @@ pub enum Refusal {
     /// Upstream too slow (per-hop timeout).
     Timeout,
     /// Upstream transport failure / non-success status / too many redirects.
+    ///
+    /// **Known gap, deliberately not closed in this commit (t22-e9, plan OQ-none).**
+    /// This collapses a non-2xx *status* together with a transport failure, and one
+    /// caller needs them apart: `mw-crypto`'s VKS/WKD lookup renders **404 as "no
+    /// key published for that lookup"** and anything else as "the keyserver
+    /// failed" — so routing it through this gate as-is turns "this person has no
+    /// published key" into "something is broken", a regression in text a user
+    /// reads, caused by a security improvement.
+    ///
+    /// The fix is a `Refusal::Status(u16)` variant, which is written and tested but
+    /// **held**: adding a variant to a `pub enum` breaks the one exhaustive match on
+    /// this type (`mw-server::image_proxy::refusal_response`), which belongs to
+    /// another lane. Sequencing that break is a coordination decision, not a
+    /// unilateral one — see `.orchestration/logs/t22-e11.md`.
     Upstream,
     /// Upstream body exceeded [`MAX_IMAGE_BYTES`].
     TooLarge,
@@ -241,6 +255,71 @@ pub fn embedded_ipv4s(ip: &Ipv6Addr) -> Vec<Ipv4Addr> {
     Vec::new()
 }
 
+// ── the on-premises profile (t22-e11 for t22-e9) ───────────────────────────────
+
+/// The **permissive** egress profile: private ranges are reachable, but loopback,
+/// link-local (including the cloud-metadata address) and every transitional
+/// embedding of those remain refused.
+///
+/// # Why this lives here rather than at each call site
+/// A self-hosted deployment legitimately has `autoconfig.corp.internal` or its own
+/// ManageSieve server on RFC1918, so those callers need an opt-in that
+/// [`ip_allowed`] cannot express. The tempting shape is for each caller to author
+/// its own predicate — and that is exactly the failure mode 26.18 spent a tag
+/// closing. `mw-server::sieve_sync::sieve_egress_permitted` is already a hand-rolled
+/// instance of this policy; an autoconfig copy would be the **third** place someone
+/// has to remember when a new transitional embedding is added to [`embedded_ipv4s`].
+///
+/// Owning it in the crate that owns the decode makes the carve-out an **invariant**
+/// rather than a promise repeated at every call site: `169.254.0.0/16`, `fe80::/10` and
+/// the NAT64/6to4/Teredo/ISATAP decode paths stay denied **under the opt-in too**,
+/// and they stay denied by construction because there is one implementation.
+///
+/// Callers pass the *name*: `validate_and_resolve_with(url, on_prem_allowed)`.
+/// (Collapsing `sieve_egress_permitted` onto this is a 26.21 item, not t22's.)
+pub fn on_prem_allowed(ip: &IpAddr) -> bool {
+    // Fast path: anything the strict policy already permits is public unicast, which
+    // is a subset of what this profile permits.
+    if ip_allowed(ip) {
+        return true;
+    }
+    // Otherwise the address is in some range the strict policy blocks (private,
+    // loopback, link-local, CGNAT, …). Refuse ONLY loopback and link-local —
+    // including `169.254.169.254` — and let the rest through.
+    match ip {
+        IpAddr::V4(v4) => on_prem_v4_allowed(v4),
+        IpAddr::V6(v6) => {
+            if v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() {
+                return false;
+            }
+            // Link-local fe80::/10 stays denied under the opt-in.
+            if (v6.segments()[0] & 0xffc0) == 0xfe80 {
+                return false;
+            }
+            // Unwrap IPv4-mapped/compat and apply the same narrow rule, so
+            // `::ffff:169.254.169.254` cannot smuggle metadata past the opt-in.
+            if let Some(v4) = v6.to_ipv4() {
+                return on_prem_v4_allowed(&v4);
+            }
+            // Every transitional embedding is decoded by the SAME function the
+            // strict policy uses, and ANY embedded loopback/link-local v4 refuses.
+            // This is the clause that must not be re-authored per caller.
+            for v4 in embedded_ipv4s(v6) {
+                if !on_prem_v4_allowed(&v4) {
+                    return false;
+                }
+            }
+            true
+        }
+    }
+}
+
+/// The IPv4 rule shared by every arm of [`on_prem_allowed`], including the decoded
+/// embeddings — one place, so the carve-out cannot drift between them.
+fn on_prem_v4_allowed(v4: &Ipv4Addr) -> bool {
+    !(v4.is_loopback() || v4.is_link_local() || v4.is_unspecified() || v4.is_multicast())
+}
+
 /// Reassemble an IPv4 address from the two 16-bit v6 segments that carry it.
 fn v4_from_segments(hi: u16, lo: u16) -> Ipv4Addr {
     Ipv4Addr::new(
@@ -275,6 +354,24 @@ pub struct Target {
 /// target that resolves only to blocked ranges. DNS is resolved here exactly once;
 /// the returned [`Target::addr`] is what the fetch connects to (anti-rebinding).
 pub async fn validate_and_resolve(url: reqwest::Url) -> Result<Target, Refusal> {
+    validate_and_resolve_with(url, ip_allowed).await
+}
+
+/// [`validate_and_resolve`] under a caller-chosen address policy.
+///
+/// The scheme, credential, host and port checks are **identical and not
+/// parameterised** — only the address predicate varies, so an opt-in cannot
+/// accidentally widen anything but the address range. Pass [`ip_allowed`] for the
+/// strict profile or [`on_prem_allowed`] for the deployment opt-in; authoring a
+/// predicate inline is possible but is the thing [`on_prem_allowed`]'s doc comment
+/// argues against.
+///
+/// The fail-safe direction is preserved verbatim: DNS is resolved exactly once here
+/// and the returned [`Target::addr`] is what the fetch connects to.
+pub async fn validate_and_resolve_with(
+    url: reqwest::Url,
+    policy: fn(&IpAddr) -> bool,
+) -> Result<Target, Refusal> {
     match url.scheme() {
         "http" | "https" => {}
         _ => return Err(Refusal::BadRequest("only http/https URLs are proxied")),
@@ -301,7 +398,7 @@ pub async fn validate_and_resolve(url: reqwest::Url) -> Result<Target, Refusal> 
         .map_err(|_| Refusal::Blocked)?;
     let addr = resolved
         .into_iter()
-        .find(|a| ip_allowed(&a.ip()))
+        .find(|a| policy(&a.ip()))
         .ok_or(Refusal::Blocked)?;
 
     Ok(Target { url, host, addr })
@@ -355,13 +452,24 @@ pub fn harden_client(
 /// validated. No cookie store; no forwarded headers. `accept` is the `Accept`
 /// header (the image proxy asks for `image/*`; other reusers pass their own).
 pub async fn fetch_hop(target: &Target, accept: &str) -> Result<Hop, Refusal> {
+    fetch_hop_as(target, accept, PROXY_UA).await
+}
+
+/// [`fetch_hop`] with a caller-chosen `User-Agent`.
+///
+/// The UA is per call because it is not cosmetic: mail providers key off it on their
+/// autodiscovery endpoints, so announcing `Mailwoman-Image-Proxy` to an autoconfig
+/// endpoint is wrong in a way that produces support reports nobody can reproduce
+/// (t22-e9). It is still a **normalized, caller-declared constant** — the reader's
+/// real UA is never forwarded, and no request data reaches this value.
+pub async fn fetch_hop_as(target: &Target, accept: &str, user_agent: &str) -> Result<Hop, Refusal> {
     let client = harden_client(reqwest::Client::builder(), &target.host, target.addr)
         .build()
         .map_err(|_| Refusal::Upstream)?;
 
     let resp = client
         .get(target.url.clone())
-        .header(header::USER_AGENT, PROXY_UA)
+        .header(header::USER_AGENT, user_agent)
         .header(header::ACCEPT, accept)
         // Ask for no transfer compression — one less decompression-bomb surface.
         .header(header::ACCEPT_ENCODING, "identity")
@@ -421,10 +529,26 @@ pub async fn fetch_remote(start: reqwest::Url) -> Result<Vec<u8>, Refusal> {
 /// ([`validate_and_resolve`] per hop + redirect re-validation + the size/timeout
 /// caps) is identical; only the advertised content preference differs.
 pub async fn fetch_remote_accepting(start: reqwest::Url, accept: &str) -> Result<Vec<u8>, Refusal> {
+    fetch_remote_with(start, accept, PROXY_UA, ip_allowed).await
+}
+
+/// [`fetch_remote_accepting`] under a caller-chosen `User-Agent` and address policy.
+///
+/// **The policy applies to every hop**, including each redirect target — an opt-in
+/// does not become a one-hop exemption that a `Location` can escape, and a strict
+/// caller cannot be redirected into a permissive resolution. Everything else (single
+/// resolution, pinned connect, redirects disabled and re-validated, size and timeout
+/// caps) is the same code as the strict path, because it *is* the strict path.
+pub async fn fetch_remote_with(
+    start: reqwest::Url,
+    accept: &str,
+    user_agent: &str,
+    policy: fn(&IpAddr) -> bool,
+) -> Result<Vec<u8>, Refusal> {
     let mut url = start;
     for _ in 0..=MAX_REDIRECTS {
-        let target = validate_and_resolve(url.clone()).await?;
-        match fetch_hop(&target, accept).await? {
+        let target = validate_and_resolve_with(url.clone(), policy).await?;
+        match fetch_hop_as(&target, accept, user_agent).await? {
             Hop::Body(bytes) => return Ok(bytes),
             Hop::Redirect(loc) => {
                 // Resolve the Location against the current URL (handles relative
@@ -443,8 +567,7 @@ pub async fn fetch_remote_accepting(start: reqwest::Url, accept: &str) -> Result
 /// hand-roll its own, weaker fetcher. There is no concurrency limiter here; a
 /// caller bounds its own call rate.
 pub async fn fetch_url_hardened(url_str: &str, accept: &str) -> Result<Vec<u8>, String> {
-    let url = reqwest::Url::parse(url_str).map_err(|_| "malformed URL".to_string())?;
-    fetch_remote_accepting(url, accept)
+    fetch_url_hardened_with(url_str, accept, PROXY_UA, ip_allowed)
         .await
         .map_err(|r| match r {
             Refusal::BadRequest(m) => m.to_string(),
@@ -453,6 +576,23 @@ pub async fn fetch_url_hardened(url_str: &str, accept: &str) -> Result<Vec<u8>, 
             Refusal::Upstream => "upstream fetch failed".to_string(),
             Refusal::TooLarge => "upstream response too large".to_string(),
         })
+}
+
+/// [`fetch_url_hardened`] with a caller-chosen `User-Agent` and address policy,
+/// returning the structured [`Refusal`] rather than a flattened string.
+///
+/// A caller that renders a *different* message per status — `mw-crypto`'s VKS/WKD
+/// lookup turning `404` into "no key published for that lookup" — needs the
+/// discriminant, not prose. The string-returning [`fetch_url_hardened`] stays for
+/// callers that do not.
+pub async fn fetch_url_hardened_with(
+    url_str: &str,
+    accept: &str,
+    user_agent: &str,
+    policy: fn(&IpAddr) -> bool,
+) -> Result<Vec<u8>, Refusal> {
+    let url = reqwest::Url::parse(url_str).map_err(|_| Refusal::BadRequest("malformed URL"))?;
+    fetch_remote_with(url, accept, user_agent, policy).await
 }
 
 #[cfg(test)]
@@ -596,6 +736,170 @@ mod tests {
         }
     }
 
+    // ── the on-premises opt-in profile (t22-e11 for t22-e9) ───────────────────
+
+    #[test]
+    fn on_prem_reaches_private_ranges_that_strict_refuses() {
+        // The whole point of the opt-in: a self-hosted `autoconfig.corp.internal`
+        // or ManageSieve server on RFC1918 must be reachable. This is also the
+        // NEGATIVE CONTROL for the refusal tests below — without it, a profile that
+        // simply refused everything would pass them all.
+        for s in [
+            "10.0.0.1",
+            "172.16.0.1",
+            "192.168.1.1",
+            "100.64.0.1",   // CGNAT
+            "198.18.0.1",   // benchmarking
+            "fc00::1",      // ULA
+            "fd12:3456::1", // ULA
+        ] {
+            let ip: IpAddr = s.parse().unwrap();
+            assert!(!ip_allowed(&ip), "{s} must be refused by the STRICT policy");
+            assert!(
+                on_prem_allowed(&ip),
+                "{s} must be reachable under the opt-in"
+            );
+        }
+    }
+
+    #[test]
+    fn on_prem_still_refuses_loopback_and_link_local() {
+        // The carve-out that must survive the opt-in.
+        for s in [
+            "127.0.0.1",
+            "127.5.6.7",
+            "0.0.0.0",
+            "169.254.1.1",
+            "169.254.169.254", // cloud metadata
+            "224.0.0.1",       // multicast
+            "::1",
+            "::",
+            "fe80::1", // link-local
+            "ff02::1", // multicast
+            "::ffff:127.0.0.1",
+            "::ffff:169.254.169.254", // IPv4-mapped metadata
+        ] {
+            let ip: IpAddr = s.parse().unwrap();
+            assert!(
+                !on_prem_allowed(&ip),
+                "{s} must stay refused even under the on-prem opt-in"
+            );
+        }
+    }
+
+    #[test]
+    fn on_prem_refuses_metadata_smuggled_through_every_transitional_embedding() {
+        // This is the clause that would rot if each caller authored its own profile:
+        // the opt-in widens the PRIVATE ranges, and a loopback/metadata address
+        // smuggled inside NAT64/6to4/Teredo/ISATAP must still be refused. It holds
+        // here because `on_prem_allowed` decodes with the same `embedded_ipv4s` the
+        // strict policy uses and applies one shared IPv4 rule to every arm.
+        for s in [
+            "64:ff9b::7f00:1",                      // NAT64  → 127.0.0.1
+            "64:ff9b::a9fe:a9fe",                   // NAT64  → 169.254.169.254
+            "2002:7f00:1::",                        // 6to4   → 127.0.0.1
+            "2002:a9fe:a9fe::",                     // 6to4   → 169.254.169.254
+            "2001:0:4136:e378:8000:ffff:80ff:fffe", // Teredo → client 127.0.0.1
+            "2001:0:4136:e378:8000:ffff:5601:5601", // Teredo → client 169.254.169.254
+            "2001:470::5efe:7f00:1",                // ISATAP → 127.0.0.1
+            "2001:470::5efe:a9fe:a9fe",             // ISATAP → 169.254.169.254
+        ] {
+            let ip: IpAddr = s.parse().unwrap();
+            assert!(
+                !on_prem_allowed(&ip),
+                "{s} smuggles loopback/metadata past the opt-in"
+            );
+        }
+        // Negative control: the SAME embeddings carrying a PRIVATE (not
+        // loopback/link-local) v4 are permitted under the opt-in — so the test above
+        // is measuring the loopback/link-local rule, not a blanket refusal of the
+        // transitional prefixes.
+        for s in [
+            "64:ff9b::a00:1",  // NAT64 → 10.0.0.1
+            "2002:c0a8:101::", // 6to4  → 192.168.1.1
+        ] {
+            let ip: IpAddr = s.parse().unwrap();
+            assert!(!ip_allowed(&ip), "{s} must be refused by the STRICT policy");
+            assert!(
+                on_prem_allowed(&ip),
+                "{s} carries a private, non-loopback v4 and must be reachable"
+            );
+        }
+    }
+
+    #[test]
+    fn on_prem_permits_everything_strict_permits() {
+        // The opt-in is a strict SUPERSET, so it can never refuse something the
+        // strict profile allows — otherwise opting in would silently break a
+        // public fetch.
+        for s in [
+            "1.1.1.1",
+            "8.8.8.8",
+            "93.184.216.34",
+            "2606:2800:220:1::1",
+            "64:ff9b::808:808",
+            "2001:470::5efe:808:808",
+        ] {
+            let ip: IpAddr = s.parse().unwrap();
+            assert!(ip_allowed(&ip));
+            assert!(
+                on_prem_allowed(&ip),
+                "{s} must remain allowed under the opt-in"
+            );
+        }
+    }
+
+    // ── the policy-parameterised gate ─────────────────────────────────────────
+
+    #[tokio::test]
+    async fn the_policy_parameter_changes_the_answer_for_a_private_literal() {
+        // Same URL, two profiles, two answers — which is what proves the parameter
+        // is actually consulted rather than decorative.
+        let url = reqwest::Url::parse("http://10.0.0.5/mail/config-v1.1.xml").unwrap();
+        assert_eq!(
+            validate_and_resolve_with(url.clone(), ip_allowed)
+                .await
+                .unwrap_err(),
+            Refusal::Blocked
+        );
+        let target = validate_and_resolve_with(url, on_prem_allowed)
+            .await
+            .expect("the on-prem profile must reach RFC1918");
+        assert_eq!(target.addr.ip().to_string(), "10.0.0.5");
+    }
+
+    #[tokio::test]
+    async fn the_policy_parameter_cannot_widen_anything_but_the_address_range() {
+        // Scheme, credentials and host are checked in the shared body and are NOT
+        // parameterised, so the permissive profile refuses them exactly as the
+        // strict one does. An opt-in that also relaxed these would be a much bigger
+        // grant than the one that was asked for.
+        for u in [
+            "file:///etc/passwd",
+            "ftp://10.0.0.5/x",
+            "gopher://10.0.0.5/1",
+        ] {
+            let url = reqwest::Url::parse(u).unwrap();
+            let err = validate_and_resolve_with(url, on_prem_allowed)
+                .await
+                .unwrap_err();
+            assert!(matches!(err, Refusal::BadRequest(_)), "{u} → {err:?}");
+        }
+        let creds = reqwest::Url::parse("http://user:pw@10.0.0.5/x").unwrap();
+        let err = validate_and_resolve_with(creds, on_prem_allowed)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, Refusal::BadRequest(_)), "{err:?}");
+        // And metadata stays refused under the opt-in, end to end through the gate.
+        let meta = reqwest::Url::parse("http://169.254.169.254/latest/meta-data/").unwrap();
+        assert_eq!(
+            validate_and_resolve_with(meta, on_prem_allowed)
+                .await
+                .unwrap_err(),
+            Refusal::Blocked
+        );
+    }
+
     // ── URL/scheme gate ───────────────────────────────────────────────────────
 
     #[tokio::test]
@@ -703,6 +1007,51 @@ mod tests {
             Hop::Redirect(loc) => assert_eq!(loc, "http://127.0.0.1/next"),
             Hop::Body(_) => panic!("expected redirect"),
         }
+    }
+
+    #[tokio::test]
+    async fn the_user_agent_is_per_call_and_the_readers_own_is_never_forwarded() {
+        use axum::routing::get as aget;
+        use std::sync::Arc;
+        use std::sync::Mutex;
+
+        // An origin that reports back exactly what it received, so this asserts on
+        // the header a server SAW rather than on the value we passed in.
+        let seen: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&seen);
+        let handler = move |headers: axum::http::HeaderMap| {
+            let sink = Arc::clone(&sink);
+            async move {
+                let ua = headers
+                    .get(axum::http::header::USER_AGENT)
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("<none>")
+                    .to_string();
+                sink.lock().unwrap().push(ua);
+                "ok"
+            }
+        };
+        let app: Router = Router::new().route("/img", aget(handler));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+
+        // The default path is unchanged: still the normalized image-proxy UA.
+        fetch_hop(&target_for(addr), "image/*").await.unwrap();
+        // A caller that needs its own identity gets it (mail providers key off the
+        // UA on autodiscovery endpoints, so announcing an image proxy there is
+        // wrong).
+        fetch_hop_as(&target_for(addr), "application/xml", "mailwoman-autoconfig")
+            .await
+            .unwrap();
+
+        let seen = seen.lock().unwrap().clone();
+        assert_eq!(
+            seen,
+            vec![PROXY_UA.to_string(), "mailwoman-autoconfig".to_string()]
+        );
     }
 
     #[tokio::test]

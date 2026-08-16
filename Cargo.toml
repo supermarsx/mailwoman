@@ -79,6 +79,17 @@ rand = "0.8"
 hex = "0.4"
 base64 = "0.22"
 bytes = "1"
+# ── t22 (26.20) e11: the upstream-proxy transport in `mw-egress` speaks HTTP/1.1
+# over a tunnel it opened itself, so it needs hyper directly rather than through
+# reqwest. These three were ALREADY in the resolved graph as transitive
+# dependencies of reqwest/axum, and are pinned at exactly the versions Cargo.lock
+# already carried, so promoting them to direct entries adds NO new crate and NO
+# new lock row. (Plan §7 asserts they were already workspace dependencies; they
+# were not — grep the file before this commit. The plan's conclusion holds, its
+# wording did not.) ──
+hyper = "1.10.1"
+hyper-util = "0.1.20"
+http-body-util = "0.1.3"
 thiserror = "2"
 anyhow = "1"
 tracing = "0.1"

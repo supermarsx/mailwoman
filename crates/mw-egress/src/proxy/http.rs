@@ -98,6 +98,8 @@ async fn exchange_inner(
         return Ok(Hop::Redirect(location));
     }
     if !status.is_success() {
+        // The same discriminant the direct path returns, so a caller reads one
+        // taxonomy whether or not a route was configured.
         return Err(ProxyRefusal::Origin(Refusal::Upstream));
     }
 

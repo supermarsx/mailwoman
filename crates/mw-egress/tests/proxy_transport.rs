@@ -388,6 +388,59 @@ fn a_route_never_renders_its_password() {
     );
 }
 
+// ── the t22-e9 surface, reached from OUTSIDE the crate ─────────────────────────
+
+#[tokio::test]
+async fn the_policy_parameterised_surface_is_usable_by_another_crate() {
+    // `mw-autoconfig` and `mw-crypto` are the callers this exists for, and neither
+    // can depend on `mw-server`. Asserting from an integration test proves the
+    // items are genuinely `pub` and the types line up — a unit test inside the
+    // crate would compile against private-visible paths and prove less.
+    use mw_egress::{
+        Refusal, fetch_url_hardened_with, ip_allowed, on_prem_allowed, validate_and_resolve_with,
+    };
+
+    // The predicate is a plain `fn` pointer, so a caller can pass either profile by
+    // name and store one in a config-derived variable.
+    let policy: fn(&std::net::IpAddr) -> bool = on_prem_allowed;
+    let strict: fn(&std::net::IpAddr) -> bool = ip_allowed;
+
+    // Same URL, two profiles, two answers — from outside the crate.
+    let private = reqwest::Url::parse("http://10.0.0.5/mail/config-v1.1.xml").unwrap();
+    assert_eq!(
+        validate_and_resolve_with(private.clone(), strict)
+            .await
+            .unwrap_err(),
+        Refusal::Blocked
+    );
+    assert!(
+        validate_and_resolve_with(private, policy).await.is_ok(),
+        "the on-prem opt-in must reach an internal autoconfig host"
+    );
+
+    // The carve-out holds through the public entry point too.
+    let metadata = reqwest::Url::parse("http://169.254.169.254/latest/meta-data/").unwrap();
+    assert_eq!(
+        validate_and_resolve_with(metadata, policy)
+            .await
+            .unwrap_err(),
+        Refusal::Blocked,
+        "metadata stays refused under the opt-in"
+    );
+
+    // `fetch_url_hardened_with` returns the structured refusal, which is what lets
+    // `mw-crypto` tell 404 from a broken keyserver.
+    let err = fetch_url_hardened_with(
+        "http://127.0.0.1/key",
+        "application/pgp-keys",
+        "mw-test",
+        strict,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(err, Refusal::Blocked);
+}
+
 // ── route selection cannot be reached from request data ────────────────────────
 
 #[test]

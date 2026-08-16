@@ -22,13 +22,14 @@ tokio = { workspace = true }
 
 # ── t22-e11: the upstream-proxy transport (`src/proxy/`) ──────────────────────
 # NET-ZERO NEW CRATES IN THE RESOLVED GRAPH. Every entry below already appears in
-# `Cargo.lock` at the version pinned here; none is new to the build. Three of them
-# (`hyper`, `hyper-util`, `http-body-util`) were previously TRANSITIVE only, pulled
-# in by `reqwest`/`axum`, and are promoted to direct entries here — plan §7 asserts
-# they were already `[workspace.dependencies]`, which is not the case, so the
-# accurate claim is "no new crate enters the graph", not "no manifest changed".
-# They are declared locally rather than in the workspace table because this crate
-# is their only direct consumer.
+# `Cargo.lock` at the version pinned in `[workspace.dependencies]`; none is new to
+# the build. Three of them (`hyper`, `hyper-util`, `http-body-util`) were previously
+# TRANSITIVE only, pulled in by `reqwest`/`axum`, and are promoted to direct entries
+# — plan §7 asserts they were already workspace dependencies, which was not the
+# case, so the accurate claim is **"no new crate enters the resolved graph"**, not
+# "no manifest changed". They go in the workspace table like every other dependency
+# in this tree: a single manifest carrying literal versions is the kind of quiet
+# inconsistency someone later "fixes" by aligning it to a version nobody chose.
 #
 # Why each is needed, given the design must not delegate the security property:
 #   * tokio-rustls/rustls/rustls-pki-types/webpki-roots — origin TLS is terminated
@@ -54,9 +55,9 @@ rustls = { workspace = true }
 rustls-pki-types = { workspace = true }
 webpki-roots = { workspace = true }
 bytes = { workspace = true }
-hyper = { version = "1", features = ["client", "http1"] }
-hyper-util = { version = "0.1", features = ["tokio"] }
-http-body-util = "0.1"
+hyper = { workspace = true, features = ["client", "http1"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+http-body-util = { workspace = true }
 
 # `axum` backs the loopback test origin the fetch-mechanics tests spawn; it is the
 # same helper those tests used before the move, and it is dev-only so no consumer
