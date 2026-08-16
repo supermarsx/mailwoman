@@ -78,6 +78,13 @@
 //! depth. The guard does not depend on where the true ceiling sits, so a later
 //! measurement that moves the number is not a reason to relax it.
 //!
+//! **A second, independent bound: [`MAX_QUERY_BYTES`].** Depth is not the only
+//! way a query can kill the process. `lex` materialises a `Vec<char>` and a
+//! `Vec<Tok>` *before* the parser consults depth, so a flat, un-nested query
+//! peaked at **84× its own size** — 176 MB for a 2 MiB body. That is a process
+//! kill by *allocation*, and [`MAX_DEPTH`] does nothing about it. Neither bound
+//! subsumes the other; both notes say why.
+//!
 //! Fuzzed by `fuzz/fuzz_targets/search_query.rs` (26.20), which runs the same
 //! bounded CI smoke pass as the other targets. Note what that does and does not
 //! buy: the fuzzer explores this parser's own behaviour, and it is the depth
@@ -101,7 +108,51 @@ const KW_FLAGGED: &str = "$flagged";
 /// it trades headroom against that overflow, so raise it only with a stack
 /// measurement in hand. `deeply_nested_input_is_refused_not_fatal` fails if the
 /// cap stops working.
+///
+/// **[`MAX_QUERY_BYTES`] does not make this redundant**, and neither bound
+/// subsumes the other. That cap allows 4 096 bytes, hence up to 4 096 nesting
+/// levels — still well above the measured 2 187 that overflows a 2 MiB tokio
+/// worker. A 4 KiB query of nothing but `(` would abort the process if this
+/// guard were removed.
 const MAX_DEPTH: usize = 64;
+
+/// Maximum length, in bytes, of the query text this parser will accept.
+///
+/// **This bound exists for allocation, not for parsing**, and [`MAX_DEPTH`]
+/// does not cover it: the tokens are produced *before* depth is ever consulted,
+/// so a query can exhaust memory without ever nesting.
+///
+/// [`lex`] first collects the whole input into a `Vec<char>` (**4 bytes per
+/// ASCII byte**) and then a `Vec<Tok>` (**`size_of::<Tok>()` is 40 bytes**,
+/// measured), with word tokens each carrying their own `String`. Measured with
+/// a counting allocator against the 2 MiB axum default body limit that
+/// `/jmap/api` runs under, one request peaked at:
+///
+/// | input shape | peak | ratio |
+/// |---|---|---|
+/// | `((((…` balanced | **176 MB** | **84×** |
+/// | `aaaa…` single-char words | 93 MB | 44× |
+/// | `from:a from:a …` | 43 MB | 20× |
+///
+/// Those are **per-request, single-threaded** measurements, which is all that
+/// was taken. Nothing on the path bounds how many such requests run at once —
+/// verifiable by inspection, since no concurrency limit exists between the route
+/// and this parser — so the per-request figure multiplies. **No concurrent
+/// exhaustion was actually observed**, and it should not be reported as though
+/// it were; the single-request number is the measured fact, and it is a process
+/// kill by allocation rather than by stack.
+///
+/// 4 KiB is far above anything a person types: it is ~600 average words, ~40×
+/// the longest query text in this crate's own tests, and enough for well over a
+/// hundred `from:someone@example.com OR …` terms. Measured at exactly the cap,
+/// the worst shape now peaks at **182 312 B (~178 KB)** per request — the
+/// bound, measured rather than extrapolated from the ratio.
+///
+/// Checked **before** [`lex`] runs, so an oversized query allocates nothing at
+/// all rather than being measured after the fact.
+/// `oversized_input_is_refused_before_it_is_lexed` fails if the cap stops
+/// working.
+const MAX_QUERY_BYTES: usize = 4096;
 
 /// Default max edit distance for a bare fuzzy marker (`term~`).
 const FUZZY_DEFAULT_DISTANCE: u8 = 1;
@@ -602,6 +653,18 @@ impl Parser {
 
 /// Parse operator text into an [`Expr`]. Empty/whitespace input → [`Expr::All`].
 pub(crate) fn parse_expr(text: &str) -> Result<Expr, String> {
+    // Before `lex`, deliberately: it collects the whole input into a `Vec<char>`
+    // and then a `Vec<Tok>`, so checking afterwards would mean doing the
+    // allocation this bound exists to prevent. Every branch of `lex` advances at
+    // least one char and pushes at most one token, so bounding the bytes bounds
+    // the token count too — one check covers both allocations. See
+    // [`MAX_QUERY_BYTES`].
+    if text.len() > MAX_QUERY_BYTES {
+        return Err(format!(
+            "query longer than {MAX_QUERY_BYTES} bytes ({} given)",
+            text.len()
+        ));
+    }
     let toks = lex(text);
     if toks.is_empty() {
         return Ok(Expr::All);
@@ -834,23 +897,94 @@ mod tests {
     /// ~2 187 nested `(` exhausted a tokio worker's 2 MiB stack — aborting the
     /// **process**, not the request.
     ///
-    /// **The depth is deliberately enormous (200 000, ~85× the measured
-    /// overflow point and ~3 000× the cap) and that is the point.** A test at
-    /// `MAX_DEPTH + 1` would keep passing if someone raised the cap to a value
-    /// that reopens the hole; this one only passes while the parser refuses
-    /// unbounded nesting outright. A stack overflow cannot be caught in-process,
-    /// so what is asserted is that the call **returns at all** — reaching the
-    /// assertion is itself the result.
+    /// **The depth is `MAX_QUERY_BYTES` levels — the deepest input that can now
+    /// reach the parser at all, and 64× [`MAX_DEPTH`].** It is written as the
+    /// constant rather than a literal so that raising the length cap
+    /// automatically re-points this test at the new worst case instead of
+    /// silently leaving it testing a depth nobody can reach any more.
+    ///
+    /// It used to be a flat 200 000, which stopped testing depth the moment
+    /// `MAX_QUERY_BYTES` landed: the length cap refused it first, and the
+    /// assertion on *which* guard fired caught that rather than passing on the
+    /// wrong one. The 200 000 case now lives in
+    /// `oversized_input_is_refused_before_it_is_lexed`, where it belongs.
+    ///
+    /// **The length cap does not subsume this guard**, which is the reason both
+    /// exist: 4 096 bytes of `(` is 4 096 levels, still well above the measured
+    /// 2 187 that overflows a 2 MiB tokio worker. Remove [`MAX_DEPTH`] and this
+    /// input alone would abort the process.
+    ///
+    /// A stack overflow cannot be caught in-process, so what is asserted is that
+    /// the call **returns at all** — reaching the assertion is itself the result.
     #[test]
     fn deeply_nested_input_is_refused_not_fatal() {
         // Both recursive paths: `(` grouping, and `NOT` chains via `-`.
-        for text in ["(".repeat(200_000), "-".repeat(200_000)] {
+        for text in ["(".repeat(MAX_QUERY_BYTES), "-".repeat(MAX_QUERY_BYTES)] {
             let err = parse_expr(&text).expect_err("must be refused, not accepted");
             assert!(
                 err.contains("nested deeper"),
-                "expected the depth guard to be what refused it, got: {err}"
+                "expected the DEPTH guard to be what refused it, not the length \
+                 cap — if this reads 'longer than', the two bounds have drifted \
+                 and nothing is testing depth any more. Got: {err}"
             );
         }
+    }
+
+    /// Regression for the 26.20 allocation DoS, which [`MAX_DEPTH`] does not
+    /// cover: `lex` materialises a `Vec<char>` (4 B per ASCII byte) and a
+    /// `Vec<Tok>` (40 B per token) **before** the parser ever consults depth, so
+    /// a flat, un-nested query could peak at 84× its own size — 176 MB for the
+    /// 2 MiB axum default body limit, with nothing bounding concurrency.
+    ///
+    /// **The input is deliberately 2 MiB — 512× the 4 KiB cap — and that is the
+    /// point.** A test just past `MAX_QUERY_BYTES + 1` would keep passing if
+    /// someone raised the cap to a value that reopens the hole; this one only
+    /// passes while the parser refuses absurd input outright. 2 MiB is chosen
+    /// because it is exactly what a client can deliver today.
+    #[test]
+    fn oversized_input_is_refused_before_it_is_lexed() {
+        for text in [
+            "(".repeat(2 * 1024 * 1024),
+            "a ".repeat(1024 * 1024),
+            "x".repeat(2 * 1024 * 1024),
+        ] {
+            let err = parse_expr(&text).expect_err("must be refused, not lexed");
+            assert!(
+                err.contains("longer than"),
+                "expected the length cap to be what refused it, got: {err}"
+            );
+        }
+    }
+
+    /// Control for the length cap: it must refuse *only* absurd input, not the
+    /// long-but-real queries people actually type. Without this, "oversized
+    /// input returns Err" is satisfied by a parser that rejects everything.
+    #[test]
+    fn realistic_long_queries_still_parse() {
+        // ~120 addresses OR'd together — a plausible paste, well under the cap.
+        let addresses = (0..120)
+            .map(|i| format!("from:person{i}@example.com"))
+            .collect::<Vec<_>>()
+            .join(" OR ");
+        assert!(addresses.len() < MAX_QUERY_BYTES);
+        assert!(
+            parse_expr(&addresses).is_ok(),
+            "a {}-byte real-world query must still parse",
+            addresses.len()
+        );
+
+        // Exactly at the cap is accepted; one byte over is not. Pinning both
+        // sides means an off-by-one in the comparison cannot pass unnoticed.
+        let at_cap = "a".repeat(MAX_QUERY_BYTES);
+        assert!(
+            parse_expr(&at_cap).is_ok(),
+            "the cap itself must be allowed"
+        );
+        let over_cap = "a".repeat(MAX_QUERY_BYTES + 1);
+        assert!(
+            parse_expr(&over_cap).is_err(),
+            "one byte over must be refused"
+        );
     }
 
     /// Control for the test above: the guard must refuse *only* absurd input.
