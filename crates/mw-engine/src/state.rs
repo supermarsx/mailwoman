@@ -493,6 +493,7 @@ pub(crate) mod session_state_tests {
     use std::sync::{Mutex, OnceLock};
     use std::thread::ThreadId;
 
+    use crate::backend::AccountBackend;
     use mw_store::{AccountKind, Credentials, MailboxUpsert, NewAccount, ServerKey, Store};
     use tracing::field::{Field, Visit};
     use tracing::level_filters::LevelFilter;
@@ -1065,6 +1066,224 @@ pub(crate) mod session_state_tests {
         p.assert_per_request_overhead(&acct, "SQLite").await;
     }
 
+    // ── the connected-account harness (t22-e-perf item 1) ──────────────────
+    //
+    // `handle_jmap` refuses every method with `accountNotFound` unless the
+    // account has a registered `AccountRuntime`, so measuring a whole request
+    // needs a backend. `tests/`'s `FakeBackend` is duplicated across five files
+    // and cannot be reached from a unit test anyway (the statement counter is
+    // `#[cfg(test)]` inside this crate; an integration test links only the public
+    // API). So this is a sixth copy by deliberate choice — a copy costs ~60 lines
+    // once, refactoring five files mid-wave costs five lanes a rebase.
+    //
+    // **Every method panics**, which is the point rather than laziness:
+    // `Mailbox/get` is served entirely from the store, so a fake that cannot be
+    // called turns "this request touches no backend" into an assertion instead of
+    // a claim. If a future `Mailbox/get` grows a backend read, this test fails
+    // loudly with the method name.
+
+    struct NeverCalledBackend;
+
+    #[async_trait::async_trait]
+    impl AccountBackend for NeverCalledBackend {
+        async fn capabilities(&self) -> crate::backend::Result<crate::backend::BackendCaps> {
+            unreachable!("Mailbox/get must not ask the backend for capabilities")
+        }
+        async fn list_mailboxes(&self) -> crate::backend::Result<Vec<crate::backend::RawMailbox>> {
+            unreachable!("Mailbox/get must be served from the store, not the backend")
+        }
+        async fn sync_mailbox(
+            &self,
+            _mbox: &crate::backend::RawMailboxRef,
+            _cursor: &crate::backend::SyncCursor,
+        ) -> crate::backend::Result<crate::backend::MailboxDelta> {
+            unreachable!("Mailbox/get must not sync")
+        }
+        async fn fetch_raw(
+            &self,
+            _refs: &[crate::backend::MessageRef],
+        ) -> crate::backend::Result<Vec<crate::backend::RawMessage>> {
+            unreachable!("Mailbox/get must not fetch bodies")
+        }
+        async fn store_flags(
+            &self,
+            _refs: &[crate::backend::MessageRef],
+            _add: &[crate::backend::Flag],
+            _remove: &[crate::backend::Flag],
+        ) -> crate::backend::Result<()> {
+            unreachable!("Mailbox/get must not write flags")
+        }
+        async fn move_messages(
+            &self,
+            _refs: &[crate::backend::MessageRef],
+            _to: &crate::backend::RawMailboxRef,
+        ) -> crate::backend::Result<crate::backend::MoveOutcome> {
+            unreachable!("Mailbox/get must not move messages")
+        }
+        async fn append(
+            &self,
+            _mbox: &crate::backend::RawMailboxRef,
+            _raw: &[u8],
+            _flags: &[crate::backend::Flag],
+        ) -> crate::backend::Result<crate::backend::MessageRef> {
+            unreachable!("Mailbox/get must not append")
+        }
+        async fn watch(
+            &self,
+            _sink: crate::backend::ChangeSink,
+        ) -> crate::backend::Result<crate::backend::WatchHandle> {
+            unreachable!("Mailbox/get must not open a watch")
+        }
+    }
+
+    struct NeverCalledSubmitter;
+
+    #[async_trait::async_trait]
+    impl crate::MailSubmitter for NeverCalledSubmitter {
+        async fn submit(
+            &self,
+            _msg: mw_smtp::Outgoing,
+        ) -> crate::backend::Result<mw_smtp::SubmissionResult> {
+            unreachable!("Mailbox/get must not submit mail")
+        }
+    }
+
+    impl Probe {
+        /// Register a runtime so `handle_jmap` will dispatch, without giving it a
+        /// backend that can answer anything.
+        fn connect(&self, account_id: &str) {
+            self.engine.register_backend(
+                account_id.to_string(),
+                crate::account::AccountRuntime::new(
+                    std::sync::Arc::new(NeverCalledBackend) as std::sync::Arc<dyn AccountBackend>,
+                    std::sync::Arc::new(NeverCalledSubmitter)
+                        as std::sync::Arc<dyn crate::MailSubmitter>,
+                    "me@example.org",
+                ),
+            );
+        }
+    }
+
+    /// **t22-e-perf item 1: what a whole `Mailbox/get` REQUEST costs**, driven
+    /// through `handle_jmap` rather than through one store method.
+    ///
+    /// This settles the residual `t22-e0` left open, and it settles it in a
+    /// direction that lane could not see from where it was standing.
+    ///
+    /// e0 published *"engine path 1 + 3 = 4 after, 1 + 12 = 13 before; the
+    /// balance to the verifier's 15 is per-request work above the engine"*, and
+    /// was right to refuse to invent the balance. But the `1` in that sum came
+    /// from `mailbox_get_reads_the_store_once_whatever_the_mailbox_count`, which
+    /// measures **`Store::list_mailboxes` directly** — a true claim about the
+    /// mailbox list, and not a measurement of `Engine::mailbox_get` at all. That
+    /// the method reads the store exactly once was read off the code, not
+    /// counted.
+    ///
+    /// Counted, `mailbox_get` reads the store **three** times: `list_mailboxes`,
+    /// `list_saved_searches` (saved searches surface as virtual folders, §2.1),
+    /// and `type_state` for the `Mailbox` counter. So the request is
+    /// **3 + 3 = 6** now and **3 + 12 = 15** before e0 — which reproduces the
+    /// verifier's 15 exactly, with **nothing above the engine at all**.
+    ///
+    /// The residual was never per-request work in `mw-server`. It was two engine
+    /// statements that a store-level measurement could not attribute, which is
+    /// why this had to be driven end to end to be answered.
+    #[tokio::test]
+    async fn a_whole_mailbox_get_request_is_six_statements() {
+        let p = Probe::sqlite().await;
+        let acct = p.account("mbox-get-request").await;
+        for name in ["INBOX", "Sent", "Drafts"] {
+            p.store()
+                .upsert_mailbox(&MailboxUpsert {
+                    account_id: &acct,
+                    name,
+                    role: None,
+                    uidvalidity: 100,
+                    uidnext: 1,
+                    highestmodseq: 0,
+                    total: 0,
+                    unread: 0,
+                    parent_id: None,
+                })
+                .await
+                .unwrap();
+        }
+
+        p.connect(&acct);
+        let req = serde_json::json!({
+            "methodCalls": [["Mailbox/get", { "accountId": acct }, "c0"]]
+        });
+        let (resp, stmts) = p.count(p.engine.handle_jmap(&acct, &req)).await;
+
+        // The request actually did its work — without this the count below is a
+        // count of a failure.
+        let list = resp["methodResponses"][0][1]["list"]
+            .as_array()
+            .expect("Mailbox/get returned a list");
+        assert_eq!(list.len(), 3, "three mailboxes: {resp}");
+
+        // The three that are `sessionState`, folded by t22-e0.
+        let session_state = stmts.against("changes") - stmts.against("mailboxes");
+        assert_eq!(
+            stmts.len(),
+            6,
+            "a whole Mailbox/get request: 3 sessionState + 3 method statements. \
+             e0 published 4 for this, from a store-level measurement that could \
+             not see `list_saved_searches` or `type_state`. Got {stmts:#?}"
+        );
+        assert!(
+            session_state >= 3,
+            "three change-log statements are sessionState's; got {stmts:#?}"
+        );
+
+        // Named individually, so a regression says WHICH read came back rather
+        // than only that the total moved.
+        assert_eq!(
+            stmts.against("FROM mailboxes"),
+            1,
+            "one mailbox list; got {stmts:#?}"
+        );
+        assert_eq!(
+            stmts.against("saved_searches"),
+            1,
+            "saved searches surface as virtual folders, so the method reads them \
+             unconditionally — this is one of the two statements e0's 4 omits; \
+             got {stmts:#?}"
+        );
+
+        // And the property e0 DID establish, which stands: none of this scales
+        // with the mailbox count.
+        for name in ["Archive", "Spam", "Trash", "Junk"] {
+            p.store()
+                .upsert_mailbox(&MailboxUpsert {
+                    account_id: &acct,
+                    name,
+                    role: None,
+                    uidvalidity: 100,
+                    uidnext: 1,
+                    highestmodseq: 0,
+                    total: 0,
+                    unread: 0,
+                    parent_id: None,
+                })
+                .await
+                .unwrap();
+        }
+        let (resp7, stmts7) = p.count(p.engine.handle_jmap(&acct, &req)).await;
+        assert_eq!(
+            resp7["methodResponses"][0][1]["list"]
+                .as_array()
+                .unwrap()
+                .len(),
+            7
+        );
+        assert_eq!(
+            stmts7.len(),
+            stmts.len(),
+            "seven mailboxes must cost what three did; got {stmts7:#?}"
+        );
+    }
+
     // ── broadcast_state (t22-e-perf item 2) ────────────────────────────────
 
     impl Probe {
@@ -1295,14 +1514,21 @@ pub(crate) mod session_state_tests {
     /// exactly once (`Store::list_mailboxes`) and then builds JSON from the rows
     /// it already has — no per-mailbox follow-up read.
     ///
-    /// So on the engine path a `Mailbox/get` request is **1 + 3 = 4** statements
-    /// after this lane and **1 + 12 = 13** before it. That does not reproduce the
-    /// verifier's 15; the balance is per-request work above the engine, which
-    /// this lane neither owns nor measures. `mailbox_get` is private to
-    /// `mod jmap` and `handle_jmap` dispatch needs a connected `AccountRuntime`,
-    /// so driving the method end to end needs a backend harness that lives in
-    /// `tests/`, not here — deliberately not built, and flagged rather than
-    /// papered over with arithmetic presented as a measurement.
+    /// **SUPERSEDED, and correctly refused rather than guessed** (26.20
+    /// t22-e-perf). This lane inferred from the code that `mailbox_get` reads the
+    /// store once and published **1 + 3 = 4** after / **1 + 12 = 13** before,
+    /// noting it did not reproduce the verifier's 15 and that the balance must be
+    /// per-request work above the engine — refusing to invent it, which was the
+    /// right call.
+    ///
+    /// Driven end to end through `handle_jmap` with a connected runtime, the real
+    /// figure is **3 + 3 = 6** after and **3 + 12 = 15** before, which reproduces
+    /// the verifier's 15 exactly and leaves **nothing above the engine**.
+    /// `mailbox_get` makes three store reads, not one: `list_mailboxes`,
+    /// `list_saved_searches` and `type_state`. The test below is a true claim
+    /// about `Store::list_mailboxes`, and its scaling property stands — it simply
+    /// never measured `Engine::mailbox_get`. See
+    /// [`a_whole_mailbox_get_request_is_six_statements`].
     #[tokio::test]
     async fn mailbox_get_reads_the_store_once_whatever_the_mailbox_count() {
         let p = Probe::sqlite().await;
