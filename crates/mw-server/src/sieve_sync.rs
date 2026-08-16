@@ -12,6 +12,35 @@
 //! credentials, presented over their session; the server does not persist them. The
 //! target speaks the ManageSieve line protocol (not HTTP), so it is not a generic
 //! egress surface.
+//!
+//! # This route does NOT honour the configured egress proxy (26.20 t22-e14)
+//! An operator who configures an egress route in `/admin/egress` gets it applied to
+//! the HTTP fetch surfaces — the image proxy and `webcal://` import. **ManageSieve
+//! sync is not one of them, and this connection still leaves the host directly.**
+//! Stated here rather than left to be discovered, because the reason an operator
+//! configures a route at all — network policy, a controlled egress IP, reader
+//! anonymity — is defeated silently by the one path that ignores it, and a gap
+//! nobody wrote down is indistinguishable from one nobody has.
+//!
+//! It is a transport mismatch, not an oversight:
+//!
+//!   * `mw_egress::proxy` tunnels **HTTP**. Both of its public entry points
+//!     (`tunnel_fetch_hop`, `fetch_via_proxy`) terminate in `proxy::http::exchange`,
+//!     and `proxy::open_tunnel` — the only thing that yields a raw tunnelled byte
+//!     pipe — is private, deliberately, so there is no ungated door into it.
+//!   * [`ManageSieveClient::connect_pinned`] resolves and dials for itself:
+//!     `mw_sieve::transport::Transport::connect{,_pinned}` both call
+//!     `TcpStream::connect`, and neither can adopt a stream that is already open.
+//!
+//! Closing it needs **both** halves — a public tunnel accessor in `mw-egress` and a
+//! `Transport::from_stream(stream, host, mode)` in `mw-sieve` — which is a transport
+//! feature rather than a wiring hook, and neither crate was this lane's to change.
+//! Deferred to 26.21 with that shape recorded so the next lane does not re-derive it.
+//!
+//! What still holds meanwhile: the address gate below ([`sieve_egress_permitted`])
+//! and the connect-pin are unaffected, so the *SSRF* posture of this route is exactly
+//! what it was. The gap is about **which way the packets leave**, not about which
+//! targets are reachable.
 
 use std::net::{IpAddr, SocketAddr};
 
