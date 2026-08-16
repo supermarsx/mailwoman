@@ -1779,7 +1779,7 @@ mod tests {
 
     async fn assert_batch_getters_match_the_loop(s: &Store) {
         let account_id = seed_account(s).await;
-        let mailbox_id = seed_mailbox(&s, &account_id, "INBOX", 100).await;
+        let mailbox_id = seed_mailbox(s, &account_id, "INBOX", 100).await;
 
         let mut ids = Vec::new();
         for (uid, date) in [
@@ -1896,33 +1896,33 @@ mod tests {
         }
         // The counter starts where a sync left it: three unread messages.
         s.update_mailbox_counts(&inbox, 4, 0, 3, 3).await.unwrap();
-        assert_eq!(unread(&s, &inbox).await, 3);
+        assert_eq!(unread(s, &inbox).await, 3);
 
         // ---- flag write -----------------------------------------------------
         s.set_flags(&ids[0], r#"["Seen"]"#).await.unwrap();
-        assert_eq!(unread(&s, &inbox).await, 2, "reading a message decrements");
+        assert_eq!(unread(s, &inbox).await, 2, "reading a message decrements");
         // Re-setting the same state must not decrement twice — the delta is on
         // the transition, not on the write.
         s.set_flags(&ids[0], r#"["Seen","Flagged"]"#).await.unwrap();
-        assert_eq!(unread(&s, &inbox).await, 2);
+        assert_eq!(unread(s, &inbox).await, 2);
         // An unrelated keyword on a still-unread message moves nothing.
         s.set_flags(&ids[1], r#"["Flagged"]"#).await.unwrap();
-        assert_eq!(unread(&s, &inbox).await, 2);
+        assert_eq!(unread(s, &inbox).await, 2);
         // Marking it unread again puts it back.
         s.set_flags(&ids[0], r#"["Flagged"]"#).await.unwrap();
-        assert_eq!(unread(&s, &inbox).await, 3);
+        assert_eq!(unread(s, &inbox).await, 3);
         // A custom keyword is `{"Keyword":"…"}`, never the bare string `"Seen"`,
         // so nothing here can be mistaken for the seen flag.
         s.set_flags(&ids[0], r#"[{"Keyword":"$SeenByAssistant"}]"#)
             .await
             .unwrap();
-        assert_eq!(unread(&s, &inbox).await, 3);
+        assert_eq!(unread(s, &inbox).await, 3);
         // A flags value the engine could never write must not fail the write or
         // move the counter off its own arithmetic: unparseable counts as unread.
         s.set_flags(&ids[0], "not json").await.unwrap();
-        assert_eq!(unread(&s, &inbox).await, 3);
+        assert_eq!(unread(s, &inbox).await, 3);
         s.set_flags(&ids[0], "[]").await.unwrap();
-        assert_eq!(unread(&s, &inbox).await, 3);
+        assert_eq!(unread(s, &inbox).await, 3);
 
         // A write to a message that does not exist is still an error, and still
         // moves no counter.
@@ -1930,42 +1930,39 @@ mod tests {
             s.set_flags("nope", r#"["Seen"]"#).await,
             Err(StoreError::NotFound)
         ));
-        assert_eq!(unread(&s, &inbox).await, 3);
+        assert_eq!(unread(s, &inbox).await, 3);
 
         // ---- move -----------------------------------------------------------
         s.relocate_message(&ids[1], &archive, 7, 100).await.unwrap();
-        assert_eq!(unread(&s, &inbox).await, 2, "the source loses it");
-        assert_eq!(unread(&s, &archive).await, 1, "the destination gains it");
+        assert_eq!(unread(s, &inbox).await, 2, "the source loses it");
+        assert_eq!(unread(s, &archive).await, 1, "the destination gains it");
         // A read message carries nothing across a move.
         s.set_flags(&ids[2], r#"["Seen"]"#).await.unwrap();
-        assert_eq!(unread(&s, &inbox).await, 1);
+        assert_eq!(unread(s, &inbox).await, 1);
         s.relocate_message(&ids[2], &archive, 8, 100).await.unwrap();
-        assert_eq!(unread(&s, &inbox).await, 1);
-        assert_eq!(unread(&s, &archive).await, 1);
+        assert_eq!(unread(s, &inbox).await, 1);
+        assert_eq!(unread(s, &archive).await, 1);
         // A "move" that does not change mailbox is not a move.
         s.relocate_message(&ids[1], &archive, 9, 100).await.unwrap();
-        assert_eq!(unread(&s, &archive).await, 1);
+        assert_eq!(unread(s, &archive).await, 1);
         // A move of a message that is not there changes neither counter.
         assert!(matches!(
             s.relocate_message("nope", &archive, 10, 100).await,
             Err(StoreError::NotFound)
         ));
-        assert_eq!(
-            (unread(&s, &inbox).await, unread(&s, &archive).await),
-            (1, 1)
-        );
+        assert_eq!((unread(s, &inbox).await, unread(s, &archive).await), (1, 1));
 
         // ---- delete ---------------------------------------------------------
         // ids[2] is read and lives in Archive: deleting it leaves the counter.
         s.delete_message(&ids[2]).await.unwrap();
-        assert_eq!(unread(&s, &archive).await, 1);
+        assert_eq!(unread(s, &archive).await, 1);
         // ids[1] is unread and lives in Archive: deleting it takes the counter
         // down with it.
         s.delete_message(&ids[1]).await.unwrap();
-        assert_eq!(unread(&s, &archive).await, 0);
+        assert_eq!(unread(s, &archive).await, 0);
         // Deleting something that is already gone is a no-op, counter included.
         s.delete_message(&ids[1]).await.unwrap();
-        assert_eq!(unread(&s, &archive).await, 0);
+        assert_eq!(unread(s, &archive).await, 0);
 
         // ---- the floor ------------------------------------------------------
         // `unread` is read back as u32, so a counter driven below zero would not
@@ -1973,7 +1970,7 @@ mod tests {
         // stored counter to 0 first and confirm the delete cannot underflow it.
         s.update_mailbox_counts(&inbox, 4, 0, 1, 0).await.unwrap();
         s.delete_message(&ids[0]).await.unwrap();
-        assert_eq!(unread(&s, &inbox).await, 0);
+        assert_eq!(unread(s, &inbox).await, 0);
     }
 
     /// 26.20 t22-e1. `set_flags_batch` must be the loop it replaces — same rows

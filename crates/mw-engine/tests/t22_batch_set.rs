@@ -147,7 +147,10 @@ fn take_sql_text() -> Vec<(String, usize)> {
         *seen.entry(key).or_default() += 1;
     }
     let mut v: Vec<(String, usize)> = seen.into_iter().collect();
-    v.sort_by(|a, b| b.1.cmp(&a.1));
+    // Descending by count. Presentational only: every consumer is `count_of`,
+    // which filters by SQL prefix and sums, so no assertion can depend on this
+    // order — it decides what a failure message shows first.
+    v.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
     v
 }
 
