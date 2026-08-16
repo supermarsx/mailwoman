@@ -39,7 +39,7 @@
 //! machine with no Docker must not fail the suite. A skip is never reported as a
 //! verification; read the printed line, not the green tick.
 
-use mw_egress::proxy::{fetch_via_proxy, ProxyRefusal, ProxyRoute, ProxyScheme};
+use mw_egress::proxy::{ProxyRefusal, ProxyRoute, ProxyScheme, fetch_via_proxy};
 
 /// `host:port` of a live forward proxy, or `None` to skip.
 fn squid() -> Option<(String, u16)> {
@@ -115,7 +115,8 @@ async fn plaintext_origin_is_refused_by_squid_and_lands_in_proxy_rejected() {
     // ours and the test would prove nothing about Squid.
     let r = route(h, p, true);
 
-    let fetched = fetch_via_proxy("http://example.com/".parse().expect("url"), &r, "text/html").await;
+    let fetched =
+        fetch_via_proxy("http://example.com/".parse().expect("url"), &r, "text/html").await;
 
     match fetched.outcome {
         Err(ProxyRefusal::ProxyRejected(detail)) => {
