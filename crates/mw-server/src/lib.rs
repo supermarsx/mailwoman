@@ -1276,7 +1276,14 @@ fn router(
         .route("/api/logout", post(logout))
         .route("/api/me", get(me))
         .route("/api/session/rotate", post(rotate_session))
-        .route("/api/discover", post(discover))
+        // Unauthenticated + CSRF-exempt + attacker-chosen domain: the SSRF gate
+        // bounds where discovery may fetch, this bounds how often (t22-e9).
+        .route(
+            "/api/discover",
+            post(discover).layer(axum::middleware::from_fn(
+                scope_mw::discover_ratelimit::guard,
+            )),
+        )
         .route("/api/sanitize", post(sanitize))
         .route("/api/import/oft", post(import_oft))
         .route("/jmap/session", get(jmap_session))

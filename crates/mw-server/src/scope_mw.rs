@@ -48,6 +48,19 @@ use crate::stores_v6::AdminOAuthAudit;
 #[path = "proxy.rs"]
 pub(crate) mod proxy;
 
+/// The shared keyed rate limiter, and the `/api/discover` limit built on it.
+/// Declared here for the same reason as [`proxy`]: the files sit at
+/// `crates/mw-server/src/{rate_limit,discover_ratelimit}.rs` without `mod` lines in
+/// `lib.rs`, so this wave's owner of that file is not disturbed. `rate_limit` is
+/// general rather than scope-specific and a later change can promote it to a
+/// top-level `pub mod rate_limit;` unchanged — which is where `image_proxy` will
+/// import it from when it adopts it.
+#[path = "rate_limit.rs"]
+pub(crate) mod rate_limit;
+
+#[path = "discover_ratelimit.rs"]
+pub(crate) mod discover_ratelimit;
+
 /// The `x-api-key` header carrying a scoped key for clients that keep
 /// `Authorization` for something else.
 const KEY_HEADER: &str = "x-api-key";
