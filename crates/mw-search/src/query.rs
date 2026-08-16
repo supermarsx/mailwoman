@@ -47,6 +47,31 @@
 //! default rather than a value anyone read off a running server. **No
 //! measurement was taken through a live server.**
 //!
+//! **Confirmed live on Linux (26.20), and this is the leg the guard rests on.**
+//! In a throwaway `rustlang/rust:nightly` container (rustc 1.100.0-nightly,
+//! `x86_64-unknown-linux-gnu`), with [`MAX_DEPTH`] removed and 50 000 nested `(`
+//! parsed on a thread created with `stack_size(2 * 1024 * 1024)` — the tokio
+//! worker size — the runtime printed `fatal runtime error: stack overflow` and
+//! the **process aborted with SIGABRT**. Not a catchable panic, not a failing
+//! test: an abort no caller can intercept. With the cap in place the same probe
+//! is refused and all 14 `query::` tests pass on Linux, `malformed_never_panics`
+//! among them.
+//!
+//! Three things that run deliberately did **not** establish, so that nobody
+//! reports them as more than they were. It was **not** ASan-instrumented —
+//! Rust's own stack guard page detects the overflow and aborts, which is the
+//! property under test, so ASan would have bought a nicer backtrace and nothing
+//! else. It was **not** driven through a real server — an in-process thread
+//! sized to match a tokio worker is closer to production than the Windows probe
+//! and still not a live JMAP request. And it used 50 000 levels, far above any
+//! plausible threshold, so it confirms the **failure class**, not the
+//! **boundary**: the ~975 B/level and ~2 187 figures above stay Windows-derived,
+//! and per-level stack cost varies with platform, ABI and opt-level.
+//!
+//! So: the numbers are Windows and isolated; the abort behaviour on a 2 MiB
+//! thread is Linux-confirmed; and the cap is justified by the second regardless
+//! of the first.
+//!
 //! Read the hedging as being about the ceiling's exact location, not about
 //! whether the cap is needed: [`MAX_DEPTH`] is correct regardless, because
 //! nothing on the path from `filter.text` to here bounds input length or nesting
