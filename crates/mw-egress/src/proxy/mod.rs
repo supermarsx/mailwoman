@@ -186,9 +186,30 @@ pub enum ProxyRefusal {
     /// The proxy could not be reached, or died mid-negotiation. **The fetch did not
     /// traverse the proxy.**
     ProxyUnreachable(&'static str),
-    /// The proxy answered and refused the tunnel (`CONNECT` non-2xx, SOCKS5
-    /// non-zero `REP`, auth failure).
+    /// The proxy answered and refused the tunnel: a `CONNECT` non-2xx other than
+    /// `407`, or a SOCKS5 non-zero `REP`. **Authentication failure is
+    /// [`ProxyRefusal::ProxyAuthRejected`], not this** — see there for why.
     ProxyRejected(String),
+    /// The proxy rejected **our credentials** (HTTP `407 Proxy Authentication
+    /// Required`, or an RFC 1929 sub-negotiation failure), or demanded
+    /// authentication this route cannot supply.
+    ///
+    /// Split out of [`ProxyRefusal::ProxyRejected`] because "your proxy password is
+    /// wrong" is the single most actionable thing an operator's *test this route*
+    /// button can report, and it is the one failure they can fix themselves. Bundled
+    /// with every other refusal it is recoverable only by parsing a message string —
+    /// which means re-deriving, in `mw-server` and away from the protocol it
+    /// describes, a distinction this code already had and threw away (t22-e12).
+    ///
+    /// Deliberately **not** included: SOCKS5 `REP=0x02` ("connection not allowed by
+    /// ruleset") and HTTP `403`. Those are the proxy refusing the *destination*,
+    /// which is authorization of the target rather than authentication of us — an
+    /// operator who is told "check your password" when the real answer is "your
+    /// proxy will not reach that host" has been sent to the wrong place.
+    ///
+    /// The payload is `&'static str`: it never carries the credential, and never
+    /// carries third-party text from the proxy.
+    ProxyAuthRejected(&'static str),
     /// TLS to the **origin** failed inside the tunnel. A MITM proxy lands here.
     OriginTls(String),
     /// The HTTP exchange inside the tunnel failed.
@@ -210,6 +231,7 @@ impl From<ProxyRefusal> for Refusal {
             }
             ProxyRefusal::ProxyUnreachable(_)
             | ProxyRefusal::ProxyRejected(_)
+            | ProxyRefusal::ProxyAuthRejected(_)
             | ProxyRefusal::OriginTls(_)
             | ProxyRefusal::OriginHttp(_) => Refusal::Upstream,
         }
@@ -223,6 +245,9 @@ impl fmt::Display for ProxyRefusal {
             ProxyRefusal::RouteInvalid(m) => write!(f, "egress route invalid: {m}"),
             ProxyRefusal::ProxyUnreachable(m) => write!(f, "egress proxy unreachable: {m}"),
             ProxyRefusal::ProxyRejected(m) => write!(f, "egress proxy refused the tunnel: {m}"),
+            ProxyRefusal::ProxyAuthRejected(m) => {
+                write!(f, "egress proxy rejected the route credentials: {m}")
+            }
             ProxyRefusal::OriginTls(m) => write!(f, "origin TLS failed through the tunnel: {m}"),
             ProxyRefusal::OriginHttp(m) => write!(f, "origin HTTP failed through the tunnel: {m}"),
             ProxyRefusal::PlaintextRefused => {

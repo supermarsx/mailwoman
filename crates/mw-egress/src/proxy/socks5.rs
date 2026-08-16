@@ -232,8 +232,10 @@ where
     match sel[1] {
         AUTH_NONE => {}
         AUTH_USERPASS => {
-            let (u, p) = credentials.ok_or(ProxyRefusal::ProxyRejected(
-                "SOCKS5 proxy demanded username/password but the route has none".into(),
+            // An authentication problem the operator can act on: the route needs
+            // credentials it does not have.
+            let (u, p) = credentials.ok_or(ProxyRefusal::ProxyAuthRejected(
+                "the proxy requires a username and password but the route has none",
             ))?;
             stream
                 .write_all(&encode_userpass(u, p)?)
@@ -249,15 +251,18 @@ where
                 .await
                 .map_err(|_| ProxyRefusal::ProxyRejected("no SOCKS5 auth reply".into()))?;
             if ack[1] != 0x00 {
-                // The status byte is reported; the credential never is.
-                return Err(ProxyRefusal::ProxyRejected(
-                    "SOCKS5 proxy rejected the route credentials".into(),
+                // The failure is reported; the credential never is.
+                return Err(ProxyRefusal::ProxyAuthRejected(
+                    "the proxy rejected the route's username and password",
                 ));
             }
         }
         AUTH_UNACCEPTABLE => {
-            return Err(ProxyRefusal::ProxyRejected(
-                "SOCKS5 proxy accepted none of the offered auth methods".into(),
+            // The server accepted none of the methods we offered — an authentication
+            // negotiation failure, and actionable: it means the route's credentials
+            // (or lack of them) do not match what the proxy demands.
+            return Err(ProxyRefusal::ProxyAuthRejected(
+                "the proxy accepted none of the authentication methods offered",
             ));
         }
         _ => {
@@ -395,6 +400,83 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(rest, b"TRAILER", "the reply tail must be consumed exactly");
+    }
+
+    #[tokio::test]
+    async fn socks5_auth_failures_are_their_own_discriminant() {
+        use tokio::io::duplex;
+
+        // (a) the proxy selects username/password but the route carries none.
+        let (mut ours, mut theirs) = duplex(1024);
+        tokio::spawn(async move {
+            let mut greeting = [0u8; 3];
+            let _ = theirs.read_exact(&mut greeting).await;
+            let _ = theirs.write_all(&[VER, AUTH_USERPASS]).await;
+        });
+        let err = handshake(&mut ours, "203.0.113.7:443".parse().unwrap(), None)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, ProxyRefusal::ProxyAuthRejected(_)),
+            "route without credentials → {err:?}"
+        );
+
+        // (b) the sub-negotiation itself fails.
+        let (mut ours, mut theirs) = duplex(1024);
+        tokio::spawn(async move {
+            let mut greeting = [0u8; 4];
+            let _ = theirs.read_exact(&mut greeting).await;
+            let _ = theirs.write_all(&[VER, AUTH_USERPASS]).await;
+            let mut auth = vec![0u8; 3 + 2 + 6];
+            let _ = theirs.read_exact(&mut auth).await;
+            let _ = theirs.write_all(&[0x01, 0x01]).await; // non-zero = failure
+        });
+        let err = handshake(
+            &mut ours,
+            "203.0.113.7:443".parse().unwrap(),
+            Some(("op", "sekrit")),
+        )
+        .await
+        .unwrap_err();
+        match err {
+            ProxyRefusal::ProxyAuthRejected(m) => {
+                assert!(
+                    !m.contains("sekrit"),
+                    "the credential must never appear: {m}"
+                )
+            }
+            other => panic!("sub-negotiation failure → {other:?}"),
+        }
+
+        // (c) the proxy accepts none of the methods we offered.
+        let (mut ours, mut theirs) = duplex(1024);
+        tokio::spawn(async move {
+            let mut greeting = [0u8; 3];
+            let _ = theirs.read_exact(&mut greeting).await;
+            let _ = theirs.write_all(&[VER, AUTH_UNACCEPTABLE]).await;
+        });
+        let err = handshake(&mut ours, "203.0.113.7:443".parse().unwrap(), None)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, ProxyRefusal::ProxyAuthRejected(_)),
+            "no acceptable method → {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_destination_refusal_is_not_an_auth_failure() {
+        // NEGATIVE CONTROL for the split. `REP=0x02` is the proxy refusing the
+        // TARGET under its own ruleset — authorization of the destination, not
+        // authentication of us. Reporting it as an auth failure would send an
+        // operator to check a password that is correct.
+        let reply = vec![VER, 0x02, 0x00, ATYP_IPV4, 0, 0, 0, 0, 0, 0];
+        let mut cursor = std::io::Cursor::new(reply);
+        let err = read_connect_reply(&mut cursor).await.unwrap_err();
+        assert!(
+            matches!(err, ProxyRefusal::ProxyRejected(_)),
+            "REP=0x02 must stay a destination refusal, got {err:?}"
+        );
     }
 
     #[tokio::test]

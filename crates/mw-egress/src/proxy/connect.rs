@@ -154,12 +154,20 @@ fn check_status(head: &[u8]) -> Result<(), ProxyRefusal> {
         .next()
         .and_then(|s| s.parse().ok())
         .ok_or_else(|| ProxyRefusal::ProxyRejected("CONNECT response had no status".into()))?;
-    if (200..300).contains(&status) {
-        Ok(())
-    } else {
-        Err(ProxyRefusal::ProxyRejected(format!(
+    match status {
+        200..=299 => Ok(()),
+        // 407 is the one refusal an operator can fix themselves, so it gets its own
+        // discriminant rather than being recoverable only by parsing this string.
+        // 403 deliberately does NOT come here: that is the proxy refusing the
+        // DESTINATION, and telling an operator to check their password when the real
+        // answer is "your proxy will not reach that host" sends them to the wrong
+        // place.
+        407 => Err(ProxyRefusal::ProxyAuthRejected(
+            "the proxy requires authentication (HTTP 407)",
+        )),
+        _ => Err(ProxyRefusal::ProxyRejected(format!(
             "proxy refused CONNECT with status {status}"
-        )))
+        ))),
     }
 }
 
@@ -235,6 +243,34 @@ mod tests {
                 check_status(bad).is_err(),
                 "{}",
                 String::from_utf8_lossy(bad)
+            );
+        }
+    }
+
+    #[test]
+    fn only_407_is_an_authentication_failure() {
+        // t22-e12: an operator's "test this route" button must be able to say "your
+        // proxy password is wrong" without parsing a message string.
+        assert_eq!(
+            check_status(b"HTTP/1.1 407 Proxy Authentication Required\r\n\r\n").unwrap_err(),
+            ProxyRefusal::ProxyAuthRejected("the proxy requires authentication (HTTP 407)")
+        );
+        // NEGATIVE CONTROL, and the distinction that makes the split worth having:
+        // 403 is the proxy refusing the DESTINATION, not our credentials. If this
+        // ever became `ProxyAuthRejected` the operator would be told to check a
+        // password that is perfectly correct.
+        for destination_refusal in [
+            &b"HTTP/1.1 403 Forbidden\r\n\r\n"[..],
+            &b"HTTP/1.1 502 Bad Gateway\r\n\r\n"[..],
+            &b"HTTP/1.1 503 Service Unavailable\r\n\r\n"[..],
+        ] {
+            assert!(
+                matches!(
+                    check_status(destination_refusal).unwrap_err(),
+                    ProxyRefusal::ProxyRejected(_)
+                ),
+                "{} must not read as an auth failure",
+                String::from_utf8_lossy(destination_refusal)
             );
         }
     }
