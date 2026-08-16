@@ -1,7 +1,8 @@
 //! `AddressBook/*`, `ContactCard/*`, `ContactGroup/*` (frozen §2.2): CardDAV /
 //! vCard-backed contacts. `vcard_raw` is the round-trip source of truth (plan
 //! risk #13); the projection is `mw_ics::parse_vcard`. Includes merge-duplicates
-//! (new card + tombstones, reversible), vCard/CSV import/export, and the
+//! (fold into a kept card, or the original new-card form — either way the
+//! sources are tombstoned, reversibly), vCard/CSV import/export, and the
 //! Compose recipient `autocomplete`.
 
 use mw_store::{AddressBookRow, ContactGroupRow, ContactRow};
@@ -597,10 +598,119 @@ impl Engine {
         json!({ "accountId": account_id, "blob": blob, "format": format })
     }
 
-    /// Merge duplicate contacts into one card (§2.2, plan risk #9): produce a new
-    /// merged card, then tombstone the sources (record `destroyed`) — reversible,
-    /// never in-place-destructive.
+    /// Merge duplicate contacts into one card (§2.2, plan risk #9).
+    ///
+    /// Two request shapes, because the shipped web client and this method have
+    /// never agreed on one:
+    ///
+    /// * **`{keepId, mergeIds}`** — what the client has always sent
+    ///   (`apps/web/src/modules/contacts/api.ts`). The card named by `keepId`
+    ///   **survives, keeping its own id**; the union is written over it and only
+    ///   `mergeIds` are tombstoned. The response carries that survivor as a full
+    ///   card object under `merged` — which is what the client's
+    ///   `ContactMergeResponse` is typed for and what it patches into its store.
+    /// * **`{ids}`** — the original shape. Produces a *new* card and tombstones
+    ///   every source, exactly as before. Unchanged, because it is what the
+    ///   engine's own tests and any direct JMAP caller speak.
+    ///
+    /// `destroyed` is reported by both shapes (the JMAP-conventional name the
+    /// client reads); `tombstoned` is kept alongside it. Either way the sources
+    /// are tombstoned with a `destroyed` op in the change log — reversible,
+    /// never an in-place overwrite of a card the caller did not name.
     pub(crate) async fn contact_merge(&self, account_id: &str, args: &Value) -> Value {
+        match args.get("keepId").and_then(Value::as_str) {
+            Some(keep) if !keep.is_empty() => self.contact_merge_into(account_id, keep, args).await,
+            _ => self.contact_merge_new_card(account_id, args).await,
+        }
+    }
+
+    /// `{keepId, mergeIds}`: fold the duplicates into the kept card, in place.
+    async fn contact_merge_into(&self, account_id: &str, keep_id: &str, args: &Value) -> Value {
+        let requested: Vec<String> = args
+            .get("mergeIds")
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .map(String::from)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut merge_ids: Vec<String> = Vec::new();
+        for id in requested {
+            // A caller that lists the kept card among the merged ones must not
+            // end up tombstoning the survivor.
+            if id != keep_id && !merge_ids.contains(&id) {
+                merge_ids.push(id);
+            }
+        }
+        if merge_ids.is_empty() {
+            return server_fail("ContactCard/merge requires keepId and at least one other id");
+        }
+        let keep_row = match self.store().get_contact(keep_id).await {
+            Ok(Some(r)) => r,
+            Ok(None) => return server_fail(format!("unknown contact {keep_id}")),
+            Err(e) => return server_fail(e),
+        };
+        // The survivor keeps its id, its uid and its etag, so a CardDAV-backed
+        // book sees an update to the existing resource rather than a new one.
+        let book_id = keep_row.address_book_id.clone();
+        let uid = keep_row.uid.clone();
+        let prior_etag = keep_row.etag.clone();
+        // The kept card leads: `merge_cards` folds every later card onto the first.
+        let mut sources = vec![keep_row];
+        for id in &merge_ids {
+            match self.store().get_contact(id).await {
+                Ok(Some(r)) => sources.push(r),
+                Ok(None) => return server_fail(format!("unknown contact {id}")),
+                Err(e) => return server_fail(e),
+            }
+        }
+        let merged = merge_cards(&sources.iter().map(contact_row_to_json).collect::<Vec<_>>());
+        // No push here (a Mailwoman-native merge); an explicit re-sync propagates.
+        if let Err(e) = self
+            .persist_contact(
+                account_id, &book_id, keep_id, &uid, merged, prior_etag, None,
+            )
+            .await
+        {
+            return server_fail(e);
+        }
+        let _ = self
+            .record_pim_change(
+                account_id,
+                ChangeType::ContactCard,
+                keep_id,
+                ChangeOp::Updated,
+            )
+            .await;
+        // Tombstone only the merged-away sources.
+        for id in &merge_ids {
+            let _ = self.store().delete_contact(id).await;
+            let _ = self
+                .record_pim_change(account_id, ChangeType::ContactCard, id, ChangeOp::Destroyed)
+                .await;
+        }
+        self.broadcast_state(account_id).await;
+        // Read the survivor back rather than echoing what we meant to write, so
+        // the card returned is the one that is actually stored — vCard round-trip
+        // and all.
+        let card = match self.store().get_contact(keep_id).await {
+            Ok(Some(r)) => contact_row_to_json(&r),
+            Ok(None) => return server_fail(format!("merged contact {keep_id} is missing")),
+            Err(e) => return server_fail(e),
+        };
+        json!({
+            "accountId": account_id,
+            "merged": card,
+            "keptId": keep_id,
+            "destroyed": merge_ids.clone(),
+            "tombstoned": merge_ids,
+        })
+    }
+
+    /// `{ids}`: the original shape — a new card, every source tombstoned.
+    async fn contact_merge_new_card(&self, account_id: &str, args: &Value) -> Value {
         let ids: Vec<String> = args
             .get("ids")
             .and_then(Value::as_array)
@@ -649,7 +759,12 @@ impl Engine {
                 .await;
         }
         self.broadcast_state(account_id).await;
-        json!({ "accountId": account_id, "merged": new_id, "tombstoned": ids })
+        json!({
+            "accountId": account_id,
+            "merged": new_id,
+            "destroyed": ids.clone(),
+            "tombstoned": ids,
+        })
     }
 
     /// Prefix/substring autocomplete for Compose recipient completion (§2.2),

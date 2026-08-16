@@ -61,10 +61,19 @@ export interface ContactGroupSetResponse {
   notCreated: Record<string, { type: string; description?: string | null }> | null;
 }
 
-/** `ContactCard/merge` result: the surviving card + the tombstoned source ids. */
+/**
+ * `ContactCard/merge` result: the surviving card + the tombstoned source ids.
+ *
+ * `merged` is the survivor as the engine stored it (read back after the write,
+ * so it reflects the vCard round-trip), and `keptId` is its id — which for the
+ * `{keepId, mergeIds}` request below is the `keepId` that was asked for, not a
+ * newly minted one. Mock/echo backends answer without `merged`; the slice keeps
+ * its client-side survivor in that case, so it stays optional here.
+ */
 export interface ContactMergeResponse {
   accountId: Id;
-  merged: ContactCard;
+  merged?: ContactCard;
+  keptId?: Id;
   destroyed: Id[];
 }
 
