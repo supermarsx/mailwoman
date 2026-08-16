@@ -11,6 +11,8 @@
 //! Authored in the SQLite `?n` style so it runs identically on SQLite or Postgres
 //! through [`crate::backend`].
 
+use std::fmt;
+
 use chrono::Utc;
 
 use crate::backend::q;
@@ -18,7 +20,15 @@ use crate::{Store, StoreError};
 
 /// A cached bridge OAuth token pair (0018). Tokens are held decrypted only in memory;
 /// at rest they live sealed. A `None` refresh token means the grant carried none.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// [`fmt::Debug`] is **hand-written to redact both tokens** (t22-e12). A derived one
+/// would put a live OAuth access token — and the refresh token, which is worth more —
+/// into every `tracing` event, panic message and error body that ever formats this
+/// row. Sealing the columns closes the at-rest exit; it does nothing about the three
+/// exits a `{:?}` opens, and this type exists precisely to hold the tokens unsealed.
+/// `mw_egress::proxy::ProxyAuth` and `mw_store::egress_config::EgressProxyRow` redact
+/// for the same reason.
+#[derive(Clone, PartialEq, Eq)]
 pub struct BridgeOauthTokenRow {
     pub bridge_account_id: String,
     pub access_token: String,
@@ -27,6 +37,30 @@ pub struct BridgeOauthTokenRow {
     pub expires_at: String,
     pub scope: String,
     pub updated_at: String,
+}
+
+/// Hand-written so neither token can reach a log line, a panic message or an error
+/// body. See the type's docs — a derived `Debug` is the leak.
+impl fmt::Debug for BridgeOauthTokenRow {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BridgeOauthTokenRow")
+            .field("bridge_account_id", &self.bridge_account_id)
+            .field("access_token", &"<redacted>")
+            // Shown as present-or-absent: whether a grant carried a refresh token is
+            // useful for debugging and is not itself a secret.
+            .field(
+                "refresh_token",
+                &self
+                    .refresh_token
+                    .as_ref()
+                    .map(|_| "<redacted>")
+                    .unwrap_or("None"),
+            )
+            .field("expires_at", &self.expires_at)
+            .field("scope", &self.scope)
+            .field("updated_at", &self.updated_at)
+            .finish()
+    }
 }
 
 impl Store {
@@ -168,5 +202,66 @@ mod tests {
 
         s.delete_bridge_oauth_token("b2").await.unwrap();
         assert!(s.get_bridge_oauth_token("b2").await.unwrap().is_none());
+    }
+
+    #[test]
+    fn debug_renders_neither_token() {
+        // Sealing the columns closes the at-rest exit. It does nothing about the
+        // three a `{:?}` opens — `tracing` events, panic messages and error bodies —
+        // and this type exists precisely to hold the tokens UNSEALED in memory.
+        const ACCESS: &str = "ya29-access-token-do-not-log";
+        const REFRESH: &str = "1ARf-refresh-token-worth-more";
+        let row = BridgeOauthTokenRow {
+            bridge_account_id: "b1".into(),
+            access_token: ACCESS.into(),
+            refresh_token: Some(REFRESH.into()),
+            expires_at: "2026-07-19T00:00:00Z".into(),
+            scope: "mail.read".into(),
+            updated_at: "2026-07-18T00:00:00Z".into(),
+        };
+
+        // NEGATIVE CONTROL, asserted first: the struct really does carry both tokens.
+        // Without this, a type that had simply stopped storing them would pass the
+        // redaction assertions below — "absent" and "redacted" are indistinguishable
+        // in the rendered output, and only one of them is the property we want.
+        assert_eq!(row.access_token, ACCESS);
+        assert_eq!(row.refresh_token.as_deref(), Some(REFRESH));
+
+        let rendered = format!("{row:?}");
+        assert!(
+            !rendered.contains(ACCESS),
+            "Debug leaked the access token: {rendered}"
+        );
+        assert!(
+            !rendered.contains(REFRESH),
+            "Debug leaked the refresh token: {rendered}"
+        );
+        assert!(
+            rendered.matches("<redacted>").count() == 2,
+            "both tokens must render as redacted rather than be omitted — an absent \
+             field reads as 'this type holds no secret': {rendered}"
+        );
+        // The non-secret fields stay legible, or the redaction has cost the type its
+        // usefulness in a debug line and someone will reach for the raw fields instead.
+        assert!(rendered.contains("b1") && rendered.contains("mail.read"));
+    }
+
+    #[test]
+    fn debug_distinguishes_an_absent_refresh_token_from_a_redacted_one() {
+        let row = BridgeOauthTokenRow {
+            bridge_account_id: "b2".into(),
+            access_token: "A".into(),
+            refresh_token: None,
+            expires_at: String::new(),
+            scope: String::new(),
+            updated_at: String::new(),
+        };
+        let rendered = format!("{row:?}");
+        assert!(
+            rendered.contains("refresh_token: \"None\""),
+            "whether a grant carried a refresh token is useful for debugging and is \
+             not itself a secret: {rendered}"
+        );
+        assert_eq!(rendered.matches("<redacted>").count(), 1);
     }
 }
