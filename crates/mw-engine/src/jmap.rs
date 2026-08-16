@@ -430,7 +430,16 @@ impl Engine {
         let sort = search_index::sort_from_comparator(comparator.as_ref());
         let custom_sort = sort != mw_search::Sort::received_desc();
 
-        if let Some(mb) = sql_fast_path_mailbox(&filter, custom_sort) {
+        let route = query_route(&filter, custom_sort);
+        if matches!(route, QueryRoute::Empty) {
+            // No `inMailbox`, nothing for the search index to do: empty, as it
+            // has always been. `total` is a real zero when asked for.
+            return Ok(QueryPage {
+                total: want_total.then_some(0),
+                ..QueryPage::default()
+            });
+        }
+        if let QueryRoute::Sql(mb) = route {
             // Where the window starts. `None` means an anchor was requested and
             // this mailbox does not contain it — which is either `anchorNotFound`
             // or a saved-search folder, decided after the probe below.
@@ -797,7 +806,7 @@ impl Engine {
             let comparator = first_comparator(args);
             let sort = search_index::sort_from_comparator(comparator.as_ref());
             let custom_sort = sort != mw_search::Sort::received_desc();
-            if let Some(mb) = sql_fast_path_mailbox(&filter, custom_sort)
+            if let QueryRoute::Sql(mb) = query_route(&filter, custom_sort)
                 && let Some(p) = self.store().message_position_in_mailbox(&mb, id).await?
             {
                 return Ok(self
@@ -834,12 +843,13 @@ impl Engine {
         let sort = search_index::sort_from_comparator(comparator.as_ref());
         let custom_sort = sort != mw_search::Sort::received_desc();
 
-        let (total, truncated) = match sql_fast_path_mailbox(&filter, custom_sort) {
-            Some(mb) => (
+        let (total, truncated) = match query_route(&filter, custom_sort) {
+            QueryRoute::Sql(mb) => (
                 Some(self.store().count_messages_in_mailbox(&mb).await?),
                 false,
             ),
-            None => {
+            QueryRoute::Empty => (Some(0), false),
+            QueryRoute::Search => {
                 let hits = self.search_ids(account_id, &filter, sort, semantic).await?;
                 if hits.truncated {
                     (None, true)
@@ -2168,18 +2178,38 @@ impl From<mw_store::StoreError> for QueryFail {
     }
 }
 
-/// The mailbox id an `Email/query` can answer straight from SQL, or `None` when
-/// the filter needs the search index (frozen routing rule §2.1).
-///
-/// Shared by the pager, the `upToId` prefix read and the `calculateTotal`
-/// counter so the three cannot disagree about which path a given query takes —
-/// a disagreement would show up as a `total` counted over one order and a page
-/// read from another.
-fn sql_fast_path_mailbox(filter: &EmailFilter, custom_sort: bool) -> Option<String> {
+/// Which of the three ways an `Email/query` gets answered (frozen routing rule
+/// §2.1).
+enum QueryRoute {
+    /// Straight from SQL, newest-first, in this mailbox.
+    Sql(String),
+    /// Fast-path shape but **no `inMailbox`**: there is no listing to run, and
+    /// the answer is empty rather than "every message in the account".
+    ///
+    /// This case is a deliberate carry-over, not an oversight. `master`'s
+    /// `query_ids` returned `Vec::new()` here (`let Some(mb) = … else { return
+    /// Ok(Vec::new()) }`), and two `mw-server` suites say so in prose —
+    /// `t13_jwz.rs` and `t13_geoip.rs` both note "an unfiltered `Email/query`
+    /// returns nothing". Routing it to the search index instead would quietly
+    /// turn a request that matched nothing into one that matches the account's
+    /// entire mailbox set, which is not a paging change.
+    Empty,
+    /// Needs the search index.
+    Search,
+}
+
+/// Decide the route once, so the pager, the `upToId` prefix read and the
+/// `calculateTotal` counter cannot disagree about which path a given query
+/// takes. A disagreement would surface as a `total` counted over one order
+/// beside a page read from another.
+fn query_route(filter: &EmailFilter, custom_sort: bool) -> QueryRoute {
     if custom_sort || filter.needs_search() {
-        return None;
+        return QueryRoute::Search;
     }
-    filter.in_mailbox.clone()
+    match filter.in_mailbox.clone() {
+        Some(mb) => QueryRoute::Sql(mb),
+        None => QueryRoute::Empty,
+    }
 }
 
 /// RFC 8620 §5.5 `anchorNotFound`: the `anchor` id is not in the query result.
@@ -3235,6 +3265,68 @@ mod query_paging_tests {
         // An unknown state refuses rather than reporting an empty diff.
         let bogus = f.changes(json!({ "sinceState": "99999" })).await;
         assert_eq!(bogus["type"], json!("cannotCalculateChanges"), "{bogus}");
+    }
+
+    /// A filter with neither an `inMailbox` nor a search condition stays
+    /// **empty** — it does not become "every message in the account".
+    ///
+    /// `master` returned `Vec::new()` for this, and two `mw-server` suites say
+    /// so in prose (`t13_jwz.rs`, `t13_geoip.rs`: "an unfiltered `Email/query`
+    /// returns nothing") without asserting it. Restructuring the router around
+    /// the fast path made it fall through to the search index instead, which
+    /// turned a request matching nothing into one matching the whole account —
+    /// caught by reading the prose, not by a red test, which is why it gets one
+    /// now.
+    #[tokio::test]
+    async fn an_unfiltered_query_stays_empty() {
+        let f = Fixture::with(30).await;
+        for (i, id) in f.ordered.iter().enumerate() {
+            f.engine
+                .search()
+                .upsert(&mw_search::IndexDoc {
+                    stable_id: id.clone(),
+                    account_id: f.account.clone(),
+                    mailbox_id: f.mailbox.clone(),
+                    subject: format!("indexed {i}"),
+                    ..mw_search::IndexDoc::default()
+                })
+                .unwrap();
+        }
+
+        for args in [
+            json!({}),
+            json!({ "filter": Value::Null }),
+            json!({ "filter": {} }),
+            json!({ "limit": 10, "calculateTotal": true }),
+        ] {
+            let resp = f.query(args.clone()).await;
+            assert!(
+                ids_of(&resp).is_empty(),
+                "an unfiltered query must match nothing, not everything                  indexed: {args} -> {resp}"
+            );
+        }
+        // And when a total is asked for it is a real zero, not an absent field.
+        let counted = f
+            .query(json!({ "limit": 10, "calculateTotal": true }))
+            .await;
+        assert_eq!(counted["total"], json!(0), "{counted}");
+
+        // The contrast that makes the above meaningful: the same corpus DOES
+        // answer a query that names a mailbox, and one that names a text term.
+        assert_eq!(
+            f.query(json!({ "filter": f.in_mailbox() })).await["ids"]
+                .as_array()
+                .unwrap()
+                .len(),
+            30
+        );
+        assert_eq!(
+            f.query(json!({ "filter": { "text": "indexed" } })).await["ids"]
+                .as_array()
+                .unwrap()
+                .len(),
+            30
+        );
     }
 
     /// The cap must land on a **state boundary**, because change rows do not
