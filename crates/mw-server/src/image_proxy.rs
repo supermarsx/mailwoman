@@ -96,7 +96,9 @@ use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
-use mw_egress::{Refusal, fetch_remote};
+use mw_egress::proxy::{ProxyAuth, ProxyRoute, ProxyScheme};
+use mw_egress::{Refusal, fetch_remote_routed};
+use mw_store::EgressProxyRow;
 
 use crate::AppState;
 
@@ -167,16 +169,170 @@ const MAX_ENTRY_BYTES: usize = 4 * 1024 * 1024;
 /// more; the `Cache-Control` we hand the browser is separate and unaffected.
 const CACHE_TTL: Duration = Duration::from_secs(3600);
 
-/// The egress route the bytes were fetched over — the first half of the cache key.
+/// The cache-key route token for a **direct** fetch — no egress route configured.
 ///
-/// Today exactly one route exists (a direct, pinned connection), so this constant is
-/// the only value in play and the key behaves like the URL-only key it replaces. It
-/// is in the key because the cache is GLOBAL across accounts: the moment fetches can
-/// take different egress paths, a URL-only key lets bytes fetched over one path be
-/// served to a request that was supposed to take another. That is a property to
-/// build in while the route is constant, not after it stops being one. `t22-e14`
-/// (wave 4) selects the route per fetch and substitutes its id here.
+/// The route is the first half of the cache key because the cache is GLOBAL across
+/// accounts: with a URL-only key, bytes fetched over one egress path could be served
+/// to a request that was supposed to take another. t22-e7 built that in while the
+/// route was still constant; as of t22-e14 it stops being constant, and
+/// [`active_route`] supplies a real route id here whenever one is live.
+///
+/// It is a reserved token rather than an empty string so a direct entry and a
+/// configured route are always distinguishable in the key space. An operator route
+/// literally named `direct` would collide — the consequence is that images cached
+/// before that route was activated could be served after, which is the same
+/// staleness [`CACHE_TTL`] already bounds, so it is not defended against further.
 const DIRECT_ROUTE: &str = "direct";
+
+// ── the configured egress route (t22-e14) ─────────────────────────────────────
+//
+// Everything below exists so that a route saved in `/admin/egress` actually routes
+// something. Until 26.20 the transport, the config store, the admin API and the
+// admin UI had all landed and NOTHING consumed a configured route: saving one routed
+// nothing at all.
+
+/// Map a stored route onto the transport's [`ProxyRoute`].
+///
+/// Returns `None` for a `scheme` this build cannot speak. The admin boundary
+/// validates `scheme` against its own allow-list, so that should be unreachable —
+/// but "should be unreachable" is not a reason to guess, and the caller turns it
+/// into a refusal rather than into a direct fetch. See [`active_route`].
+///
+/// The password travels from the sealed column into [`ProxyAuth`], which redacts it
+/// in `Debug`; `EgressProxyRow` redacts it too, so there is no point on this path
+/// where a formatted value carries the credential.
+fn proxy_route(row: &EgressProxyRow) -> Option<ProxyRoute> {
+    let scheme = match row.scheme.as_str() {
+        "http" => ProxyScheme::HttpConnect,
+        "socks5" => ProxyScheme::Socks5,
+        _ => return None,
+    };
+    Some(ProxyRoute {
+        id: row.id.clone(),
+        scheme,
+        host: row.host.clone(),
+        port: row.port,
+        // A username with no password is still a credential pair the proxy may
+        // accept; a row with neither is an unauthenticated route.
+        auth: (!row.username.is_empty() || row.password.is_some()).then(|| ProxyAuth {
+            username: row.username.clone(),
+            password: row.password.clone().unwrap_or_default(),
+        }),
+        allow_plaintext: row.allow_plaintext,
+    })
+}
+
+/// **The** live egress route, or `None` when egress is direct.
+///
+/// # This function takes no request-shaped argument, and that is the security property
+/// It reads `Store::active_egress_proxy(&self)`, which takes `&self` and nothing
+/// else. [`ProxyRoute::host`] is deliberately **exempt** from the SSRF address policy
+/// — an egress proxy on loopback or RFC1918 (a Squid, a Tor SOCKS port) is the normal
+/// operator deployment — and that carve-out is safe **only** while a route cannot be
+/// chosen by anything about a request. Give route selection a destination host, an
+/// account or a header to key on and choosing a route becomes choosing a destination
+/// whose address bypasses the gate.
+///
+/// So: no parameter here, no parameter in the store method, and no route field in any
+/// user-facing DTO. **A function with no request-shaped parameter cannot be steered**,
+/// which is checkable by reading one signature and holds under every future edit to
+/// the body. If a caller ever needs to select by something about the request, that is
+/// the moment to escalate rather than to add an argument.
+///
+/// # `Err` means "do not fetch", never "fetch directly"
+/// A store failure and an unusable `scheme` both return `Err(())`, and the caller
+/// turns that into a `500`. Falling back to a direct fetch would mean a transient
+/// database error silently disables the operator's egress control — the same
+/// fail-open shape as a silent fallback on tunnel failure, arriving by a different
+/// door.
+async fn active_route(store: &mw_store::Store) -> Result<Option<ProxyRoute>, ()> {
+    match store.active_egress_proxy().await {
+        Ok(None) => Ok(None),
+        Ok(Some(row)) => match proxy_route(&row) {
+            Some(route) => Ok(Some(route)),
+            None => {
+                // Never render the row: it holds the credential, and this is an
+                // error path, which is the exit people forget.
+                tracing::warn!(
+                    "egress route {} has scheme {:?}, which this build cannot speak — \
+                     refusing rather than egressing directly",
+                    row.id,
+                    row.scheme
+                );
+                Err(())
+            }
+        },
+        Err(e) => {
+            tracing::warn!("egress route lookup failed: {e}");
+            Err(())
+        }
+    }
+}
+
+/// The last `(configured route, actually traversed)` pair this replica observed, so
+/// an audit row is written when egress **changes** rather than once per image.
+static LAST_EGRESS: OnceLock<Mutex<Option<(String, bool)>>> = OnceLock::new();
+
+fn last_egress() -> &'static Mutex<Option<(String, bool)>> {
+    LAST_EGRESS.get_or_init(|| Mutex::new(None))
+}
+
+/// Record what egress actually did, when it changes.
+///
+/// # Why on transition and not per fetch
+/// `audit_log` is append-only **by design** — `mw-store`'s `v6.rs` has no update or
+/// delete method — so a row written per proxied fetch is a row per remote image,
+/// kept for the life of the deployment. Opening one rich mailbox would write dozens.
+/// The operationally useful facts are the transitions (*egress began traversing
+/// `corp`*; *`corp` stopped being traversed*), and those are what this emits.
+///
+/// De-duplication is **per replica**, exactly as the image proxy's rate limiter
+/// already is: a second replica writes its own first row. That is stated rather than
+/// implied because a reader counting rows across a cluster would otherwise
+/// mis-interpret the gaps.
+///
+/// # `traversed_proxy` is a measurement, `configured_route` is an intention
+/// The two are separate fields on purpose. `traversed` comes from
+/// [`mw_egress::RoutedFetch::traversed_proxy`], which the transport sets from its own
+/// progress and carries on the error paths too — so a row written after a **failed**
+/// fetch still truthfully says the bytes did not go through the proxy. A row that
+/// claimed traversal because a route was configured would be intent recorded as
+/// fact, and it would be wrong in precisely the situation audit rows exist for.
+async fn audit_egress_transition(state: &AppState, configured_route: &str, traversed: bool) {
+    let observed = (configured_route.to_string(), traversed);
+    {
+        // Scoped so the lock is never held across an await.
+        let mut last = last_egress().lock().expect("egress transition lock");
+        if last.as_ref() == Some(&observed) {
+            return;
+        }
+        *last = Some(observed.clone());
+    }
+    let entry = mw_admin::AuditEvent::new(
+        "egress",
+        mw_admin::ActorKind::System,
+        mw_admin::AuditKind::SecurityPolicyChanged,
+    )
+    .target(configured_route)
+    .detail(json!({
+        "configuredRoute": configured_route,
+        "traversedProxy": traversed,
+    }))
+    .into_entry();
+    let row = mw_store::AuditRow {
+        id: entry.id,
+        ts: entry.ts,
+        actor: entry.actor,
+        actor_kind: "system".to_string(),
+        action: entry.action,
+        target: entry.target,
+        detail_json: entry.detail_json,
+        ip: entry.ip,
+    };
+    if let Err(e) = state.store.append_audit(&row).await {
+        tracing::warn!("egress transition audit append failed: {e}");
+    }
+}
 
 // ── router ───────────────────────────────────────────────────────────────────
 
@@ -550,9 +706,20 @@ async fn proxy_image(
         Err(()) => return internal("remote-image grant check"),
     }
 
+    // Which egress path this fetch takes. Read BEFORE the cache lookup because the
+    // route is half the cache key — bytes fetched over one egress path must never be
+    // served to a request that was supposed to take another, and that decision
+    // cannot be made after the lookup. Costs one indexed read (and one AEAD open, on
+    // a configured route) per request, cache hits included.
+    let route = match active_route(&state.store).await {
+        Ok(r) => r,
+        Err(()) => return internal("egress route lookup"),
+    };
+    let route_id = route.as_ref().map_or(DIRECT_ROUTE, |r| r.id.as_str());
+
     // Serve a cache hit before doing any work (and honor If-None-Match). A cache hit
     // performs no upstream fetch, so it does NOT consume the per-account rate budget.
-    let key = CacheKey::new(DIRECT_ROUTE, &q.url);
+    let key = CacheKey::new(route_id, &q.url);
     if let Some((etag, png)) = cache().lock().expect("image cache lock").get(&key) {
         if if_none_match(&headers, &etag) {
             return not_modified(&etag);
@@ -588,7 +755,16 @@ async fn proxy_image(
         }
     };
 
-    let raw = match fetch_remote(url).await {
+    // The fetch. With a route configured this is FAIL-CLOSED: `fetch_remote_routed`
+    // has no arm that reaches the direct path once a route is in play, so a proxy
+    // that is down produces a `502` rather than a quiet direct fetch that defeats
+    // the egress control the operator configured.
+    let routed = fetch_remote_routed(url, "image/*", mw_egress::ip_allowed, route.as_ref()).await;
+    // Audited BEFORE the refusal is returned, and from the transport's own signal —
+    // a failed fetch is exactly when an operator needs the row, and `traversed_proxy`
+    // is still true or false as a matter of fact rather than of configuration.
+    audit_egress_transition(&state, route_id, routed.traversed_proxy).await;
+    let raw = match routed.outcome {
         Ok(b) => b,
         Err(r) => return refusal_response(r),
     };
@@ -628,13 +804,19 @@ async fn proxy_image(
 /// whether or not the caller holds a grant, so the grant gate never becomes a way to
 /// tell a granted session's refusals apart from an ungranted one's. Neither step
 /// fetches anything, and the policy runs exactly once on this path — a granted
-/// request runs it inside `fetch_remote` instead, never twice.
+/// request runs it inside [`fetch_remote_routed`] instead, never twice.
 ///
 /// Known residual, stated rather than implied: an authenticated session with no grant
 /// can still cause a DNS resolution of an arbitrary host here, and can still learn
 /// from the status code whether that host resolves to a blocked address. That is not
 /// new — before the gate the same session could resolve AND fetch it — but the gate
 /// does not close it.
+///
+/// The egress route is deliberately **not** consulted on this path (t22-e14). Nothing
+/// here fetches, so there is nothing to route; the resolution is the strict address
+/// policy, which is the same predicate on both egress paths. Reading the route to
+/// answer a request that will be refused anyway would add a store read and an AEAD
+/// open to the cheapest way for an ungranted session to make the server do work.
 async fn ungranted_response(account_id: &str, raw_url: &str) -> Response {
     if !rate_limiter()
         .lock()

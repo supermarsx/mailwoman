@@ -622,6 +622,122 @@ pub async fn fetch_url_hardened_with(
     fetch_remote_with(url, accept, user_agent, policy).await
 }
 
+// ── the egress route: the ONE place a configured route is consumed ─────────────
+
+/// The outcome of a fetch that either took the deployment's egress route or
+/// deliberately did not.
+///
+/// # `traversed_proxy` is a fact, not an intention
+/// It comes from [`proxy::ProxyFetch::traversed_proxy`], which the transport sets
+/// from its own progress the moment a proxy accepts a tunnel — never from "a route
+/// was configured". The transport carries it on the **error** paths too, so an
+/// audit row written after a *failed* fetch is still true: it says the bytes did or
+/// did not go through the proxy, which is the case an implementation would most
+/// easily get wrong and the one an operator most needs to be right.
+///
+/// A caller writing an audit row must take the value from here. Deriving it from
+/// `route.is_some()` would produce a row that is wrong in exactly the situation
+/// audit rows exist for.
+#[derive(Debug)]
+pub struct RoutedFetch {
+    /// Whether any hop's connection actually went through the proxy.
+    pub traversed_proxy: bool,
+    /// The fetched, size-capped body, or why the fetch was refused.
+    pub outcome: Result<Vec<u8>, Refusal>,
+}
+
+/// Fetch `start` over the deployment's egress route, or directly when there is
+/// none. **This is the only function in the workspace that consumes a configured
+/// route.**
+///
+/// # Fail-closed, and why there is no fallback arm
+/// When `route` is `Some`, this function **never** reaches the direct path. Not on
+/// a tunnel failure, not on a refused `CONNECT`, not on a rejected credential. The
+/// tempting arm —
+///
+/// ```ignore
+/// Err(_) => fetch_remote(start).await,   // "graceful degradation"
+/// ```
+///
+/// — is a gate bypass twice over. An operator configures an egress route for
+/// network policy, egress-IP control or reader anonymity, and a silent direct
+/// fallback defeats all three at the moment they are least likely to notice. Worse,
+/// [`proxy::fetch_via_proxy`] returns [`proxy::ProxyRefusal::Origin`] when the
+/// **address policy** refused the target, so a single `Err(_)` arm collapses "the
+/// SSRF gate said no" with "the proxy was down" and silently retries, directly, a
+/// target the gate has already refused.
+///
+/// The property is structural rather than promised: the `Some` branch below has one
+/// exit, and it is the transport's own result. `routed_fetch.rs` asserts it by
+/// demonstration — a counting origin listener that a fallback would reach, and does
+/// not.
+///
+/// # `policy` applies to the direct path; the routed path is STRICTER
+/// Stated because a caller must not have to discover it. On the direct arm `policy`
+/// is honoured exactly as [`fetch_remote_with`] honours it. On the routed arm it is
+/// **not consulted**: [`proxy::fetch_via_proxy`] resolves through
+/// [`validate_and_resolve`] and [`proxy::tunnel_fetch_hop`] re-applies
+/// [`ip_allowed`] unconditionally on the target it is handed — deliberately, since
+/// that check is what a hand-built [`Target`] would otherwise skip.
+///
+/// So a caller passing the permissive [`on_prem_allowed`] profile reaches **less**
+/// through a configured route than without one: an internal `10.x` origin that the
+/// opt-in permits directly is refused through the tunnel. That is a real behaviour
+/// difference and it is in the fail-safe direction — narrower, never wider, and it
+/// refuses visibly rather than fetching something else. Widening the routed path to
+/// honour a policy means threading one through `proxy::fetch_via_proxy` and
+/// deciding what `tunnel_fetch_hop`'s unconditional check becomes; that is a
+/// transport change, not a wiring one. `the_routed_path_is_stricter_than_the_policy_asks`
+/// pins the current answer so it cannot drift without a test going red.
+///
+/// # There is no `user_agent` parameter, and that is deliberate
+/// [`fetch_remote_with`] takes one; this does not. The tunnelled exchange
+/// (`proxy::http::exchange`) hardcodes [`PROXY_UA`], so a `user_agent` argument here
+/// would be honoured on one arm and **silently ignored** on the other — a parameter
+/// that does nothing is worse than an absent one, because a caller reads it as a
+/// guarantee. Both live callers want [`PROXY_UA`] today. A caller that genuinely
+/// needs a chosen UA through a route needs it threaded into the tunnelled request
+/// builder first; until then this signature does not pretend to offer it.
+///
+/// Contrast the `policy` decision above: an ignored policy makes the routed path
+/// **narrower** and it refuses loudly, while an ignored `User-Agent` would send the
+/// wrong bytes and report success. Narrowing is safe to document; substitution is
+/// not, so one is a documented asymmetry and the other is a missing parameter.
+///
+/// # Route selection is NOT a parameter of this function
+/// `route` is chosen by the caller from deployment-wide operator configuration
+/// (`mw_store::Store::active_egress_proxy`, which takes `&self` and nothing else).
+/// Nothing request-derived may reach it: [`proxy::ProxyRoute`]'s host is exempt from
+/// [`ip_allowed`] because an egress proxy on loopback or RFC1918 is the normal
+/// deployment, and that carve-out is safe **only** while a route cannot be selected
+/// by a destination, an account or a header. If a caller ever needs to choose a
+/// route by something about the request, that is the moment to escalate rather than
+/// to add an argument.
+pub async fn fetch_remote_routed(
+    start: reqwest::Url,
+    accept: &str,
+    policy: fn(&IpAddr) -> bool,
+    route: Option<&proxy::ProxyRoute>,
+) -> RoutedFetch {
+    let Some(route) = route else {
+        // No route configured: egress is direct, and nothing traversed a proxy.
+        // `false` here is as much a measurement as the `Some` arm's value — it is
+        // what makes an audit row saying "direct" trustworthy.
+        return RoutedFetch {
+            traversed_proxy: false,
+            outcome: fetch_remote_with(start, accept, PROXY_UA, policy).await,
+        };
+    };
+    // A route is configured. The result of the transport IS the result of the
+    // fetch — success and failure alike. Adding a second exit here is the whole
+    // bug this function exists to prevent.
+    let fetched = proxy::fetch_via_proxy(start, route, accept).await;
+    RoutedFetch {
+        traversed_proxy: fetched.traversed_proxy,
+        outcome: fetched.outcome.map_err(Refusal::from),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
