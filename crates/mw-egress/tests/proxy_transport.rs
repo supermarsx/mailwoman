@@ -439,6 +439,11 @@ async fn the_policy_parameterised_surface_is_usable_by_another_crate() {
     .await
     .unwrap_err();
     assert_eq!(err, Refusal::Blocked);
+    // The status accessors are reachable from outside the crate, and a policy
+    // refusal carries no status — which is what lets `mw-crypto` match on
+    // `Refusal::Status(404)` without accidentally catching the SSRF gate.
+    assert_eq!(err.status(), None);
+    assert!(!err.is_upstream_failure());
 }
 
 // ── route selection cannot be reached from request data ────────────────────────

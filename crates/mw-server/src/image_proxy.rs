@@ -206,6 +206,16 @@ fn refusal_response(refusal: Refusal) -> Response {
         Refusal::BadRequest(m) => (StatusCode::BAD_REQUEST, m),
         Refusal::Blocked => (StatusCode::FORBIDDEN, "target address is not permitted"),
         Refusal::Timeout => (StatusCode::GATEWAY_TIMEOUT, "upstream timed out"),
+        // The upstream status is DISCARDED here, deliberately, and this arm must
+        // stay `_`. `mw_egress::Refusal::Status` carries the code because
+        // `mw-crypto` renders a 404 keyserver lookup as "no key published for that
+        // lookup"; forwarding it *here* would make an image request a reachability
+        // oracle for internal URLs — the caller could distinguish 404 from 403 from
+        // 500 on a host it cannot otherwise see — through the one endpoint whose
+        // design goal is to reveal nothing, quietly undoing `Refusal::Blocked`'s
+        // deliberate coarseness. Every status therefore collapses to the same 502
+        // this module returned before the variant existed.
+        Refusal::Status(_) => (StatusCode::BAD_GATEWAY, "upstream fetch failed"),
         Refusal::Upstream => (StatusCode::BAD_GATEWAY, "upstream fetch failed"),
         Refusal::TooLarge => (StatusCode::BAD_GATEWAY, "upstream image too large"),
     };

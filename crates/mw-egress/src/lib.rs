@@ -86,24 +86,48 @@ pub enum Refusal {
     Blocked,
     /// Upstream too slow (per-hop timeout).
     Timeout,
-    /// Upstream transport failure / non-success status / too many redirects.
+    /// Upstream answered with a non-success status. Carries the code, because the
+    /// distinction is user-visible for some callers and cannot be invented back
+    /// later: `mw-crypto`'s VKS/WKD lookup renders **404 as "no key published for
+    /// that lookup"** and anything else as "the keyserver failed". Collapsing both
+    /// into [`Refusal::Upstream`] turned "this person has no published key" into
+    /// "something is broken" — a regression in text a user reads, caused by a
+    /// security improvement (t22-e9).
     ///
-    /// **Known gap, deliberately not closed in this commit (t22-e9, plan OQ-none).**
-    /// This collapses a non-2xx *status* together with a transport failure, and one
-    /// caller needs them apart: `mw-crypto`'s VKS/WKD lookup renders **404 as "no
-    /// key published for that lookup"** and anything else as "the keyserver
-    /// failed" — so routing it through this gate as-is turns "this person has no
-    /// published key" into "something is broken", a regression in text a user
-    /// reads, caused by a security improvement.
+    /// **Who may see the code is deliberately asymmetric.** `mw-crypto` needs it;
+    /// `mw-server::image_proxy` must **not** forward it, and its arm discards it, or
+    /// an image request becomes a reachability oracle for internal URLs through the
+    /// one endpoint designed to reveal nothing — quietly undoing
+    /// [`Refusal::Blocked`]'s deliberate coarseness. That asymmetry is why the
+    /// status rides on the variant instead of being decided in this crate.
     ///
-    /// The fix is a `Refusal::Status(u16)` variant, which is written and tested but
-    /// **held**: adding a variant to a `pub enum` breaks the one exhaustive match on
-    /// this type (`mw-server::image_proxy::refusal_response`), which belongs to
-    /// another lane. Sequencing that break is a coordination decision, not a
-    /// unilateral one — see `.orchestration/logs/t22-e11.md`.
+    /// A caller that does not care can treat this exactly like
+    /// [`Refusal::Upstream`]; [`Refusal::is_upstream_failure`] covers both.
+    Status(u16),
+    /// Upstream transport failure / too many redirects. **Not** a non-success
+    /// status — that is [`Refusal::Status`].
     Upstream,
     /// Upstream body exceeded [`MAX_IMAGE_BYTES`].
     TooLarge,
+}
+
+impl Refusal {
+    /// Whether this is "the far end did not give us the bytes" — a transport failure
+    /// or a non-success status — as opposed to a refusal by our own policy.
+    ///
+    /// Exists so the [`Refusal::Status`] split does not force every caller that only
+    /// wanted "upstream broke" to grow a second arm and get the split subtly wrong.
+    pub fn is_upstream_failure(&self) -> bool {
+        matches!(self, Refusal::Upstream | Refusal::Status(_))
+    }
+
+    /// The upstream HTTP status, when there was one.
+    pub fn status(&self) -> Option<u16> {
+        match self {
+            Refusal::Status(code) => Some(*code),
+            _ => None,
+        }
+    }
 }
 
 // ── IP egress policy (DQ3) ─────────────────────────────────────────────────────
@@ -494,7 +518,9 @@ pub async fn fetch_hop_as(target: &Target, accept: &str, user_agent: &str) -> Re
         return Ok(Hop::Redirect(loc));
     }
     if !status.is_success() {
-        return Err(Refusal::Upstream);
+        // The CODE is carried, not collapsed — see `Refusal::Status`. A caller that
+        // does not care can use `Refusal::is_upstream_failure`.
+        return Err(Refusal::Status(status.as_u16()));
     }
     // Early size refusal from Content-Length when present.
     if let Some(len) = resp.content_length()
@@ -573,6 +599,7 @@ pub async fn fetch_url_hardened(url_str: &str, accept: &str) -> Result<Vec<u8>, 
             Refusal::BadRequest(m) => m.to_string(),
             Refusal::Blocked => "target address is not permitted".to_string(),
             Refusal::Timeout => "upstream timed out".to_string(),
+            Refusal::Status(code) => format!("upstream fetch failed: HTTP {code}"),
             Refusal::Upstream => "upstream fetch failed".to_string(),
             Refusal::TooLarge => "upstream response too large".to_string(),
         })
@@ -1007,6 +1034,44 @@ mod tests {
             Hop::Redirect(loc) => assert_eq!(loc, "http://127.0.0.1/next"),
             Hop::Body(_) => panic!("expected redirect"),
         }
+    }
+
+    #[tokio::test]
+    async fn a_non_success_status_is_carried_not_collapsed() {
+        // t22-e9: `mw-crypto` renders 404 as "no key published for that lookup" and
+        // anything else as "the keyserver failed". That distinction only survives if
+        // the CODE reaches the caller.
+        for code in [
+            StatusCode::NOT_FOUND,
+            StatusCode::FORBIDDEN,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            StatusCode::SERVICE_UNAVAILABLE,
+        ] {
+            let addr = spawn_origin(Vec::new(), None, code, None).await;
+            let err = fetch_hop(&target_for(addr), "*/*").await.unwrap_err();
+            assert_eq!(
+                err,
+                Refusal::Status(code.as_u16()),
+                "the upstream status must reach the caller"
+            );
+            assert_eq!(err.status(), Some(code.as_u16()));
+            // A caller that does not care still gets one predicate for both shapes.
+            assert!(err.is_upstream_failure());
+        }
+        // The distinction is real: 404 and 500 are no longer the same value. Without
+        // this the loop above would pass against a `Status(_)` that always carried
+        // the same code.
+        assert_ne!(Refusal::Status(404), Refusal::Status(500));
+        // A transport failure is still `Upstream`, NOT a status — nothing invents a
+        // code the origin never sent.
+        assert!(Refusal::Upstream.is_upstream_failure());
+        assert_eq!(Refusal::Upstream.status(), None);
+        // And a POLICY refusal is neither: `is_upstream_failure` must not quietly
+        // swallow the SSRF gate's own answer.
+        assert_eq!(Refusal::Blocked.status(), None);
+        assert!(!Refusal::Blocked.is_upstream_failure());
+        assert!(!Refusal::BadRequest("x").is_upstream_failure());
+        assert!(!Refusal::TooLarge.is_upstream_failure());
     }
 
     #[tokio::test]

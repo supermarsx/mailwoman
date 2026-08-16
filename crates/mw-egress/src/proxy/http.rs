@@ -100,7 +100,7 @@ async fn exchange_inner(
     if !status.is_success() {
         // The same discriminant the direct path returns, so a caller reads one
         // taxonomy whether or not a route was configured.
-        return Err(ProxyRefusal::Origin(Refusal::Upstream));
+        return Err(ProxyRefusal::Origin(Refusal::Status(status.as_u16())));
     }
 
     // Early refusal from Content-Length when the origin declares one, then the
