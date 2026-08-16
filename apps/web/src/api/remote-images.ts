@@ -122,9 +122,25 @@ export function createRemoteImageApi(fetcher: Fetcher = defaultFetcher): RemoteI
  * anonymizing proxy (`GET /api/image-proxy?url=…`). Same-origin so the shell CSP's
  * `img-src 'self'` admits it inside the sandboxed body frame while the original
  * remote host stays disallowed; the proxy — not the browser — fetches the bytes.
+ *
+ * `emailId` names the message the image is being loaded FOR, and is what makes
+ * the request scope-checkable server-side (t22-e7's P3 enforcement). Every one of
+ * the four grant scopes is derived from message context — `single` is the message
+ * id, `per-sender` and `per-domain` come from that message's SENDER — and the
+ * image host has no relation to the sender domain, so a request carrying only
+ * `url` gives the server nothing it can check beyond "this account holds some
+ * grant", which does not close the hole: the actor IS the account holder, and an
+ * unscoped proxy is an anonymising fetch relay for arbitrary public URLs.
+ *
+ * It is OPTIONAL only so this parameter could land ahead of the server half
+ * without breaking the tree. **A call that omits it produces a URL the server
+ * cannot scope-check.** The one production caller is `rewriteGrantedImages`, and
+ * see its note for the call site that must supply it before e7's enforcement can
+ * ship.
  */
-export function imageProxyUrl(originalUrl: string): string {
-  return withBase(`/api/image-proxy?url=${encodeURIComponent(originalUrl)}`);
+export function imageProxyUrl(originalUrl: string, emailId?: string): string {
+  const scoped = emailId === undefined || emailId === '' ? '' : `&emailId=${encodeURIComponent(emailId)}`;
+  return withBase(`/api/image-proxy?url=${encodeURIComponent(originalUrl)}${scoped}`);
 }
 
 /** An absolute `http`/`https` URL (trimmed), else `null` — the proxy only fetches
@@ -155,11 +171,26 @@ function absoluteRemoteSrc(src: string | null): string | null {
  *     made — a granted image simply stays blocked, never an ungranted one loaded.
  *   • only images the sanitizer actually stripped are touched, and only to a
  *     same-origin proxy URL; a surviving `cid:` image is left alone.
+ *
+ * `emailId` is the open message's id, forwarded to {@link imageProxyUrl} so the
+ * proxy request is scope-checkable. It is optional because THIS FUNCTION HAS NO
+ * OTHER SOURCE FOR IT — the rewrite path receives two HTML strings and a boolean,
+ * and nothing about the message. `scopeFor`/`coveringGrant` below do take a
+ * message context, but they serve the grant BAR (`RemoteContentBar.tsx`), not
+ * this path.
+ *
+ * ⚠ The single production call site is `components/Reader.tsx:583`, which has the
+ * id in scope (`emailId()`) but does not yet pass it. Until that argument is
+ * threaded, every proxied image URL is unscoped, and **t22-e7's grant enforcement
+ * must not land first or it will 403 every granted image**. Omitting it here is
+ * deliberately a no-op rather than a refusal to rewrite: refusing would block
+ * granted images today, before the server can check anything.
  */
 export function rewriteGrantedImages(
   sanitizedHtml: string | null,
   rawHtml: string | null,
   granted: boolean,
+  emailId?: string,
 ): string | null {
   if (sanitizedHtml === null) return null;
   if (!granted || rawHtml === null || rawHtml === '') return sanitizedHtml;
@@ -185,7 +216,7 @@ export function rewriteGrantedImages(
     // Only repoint an image the sanitizer stripped; a surviving src (e.g. cid:) is
     // left untouched.
     if (img.getAttribute('src') !== null) continue;
-    img.setAttribute('src', imageProxyUrl(original));
+    img.setAttribute('src', imageProxyUrl(original, emailId));
     rewrote = true;
   }
   return rewrote ? cleanDoc.body.innerHTML : sanitizedHtml;
