@@ -256,6 +256,42 @@ describe('paging — reaching past the first page', () => {
       expect(mail.messages()).toBe(before);
     });
   });
+
+  it('a page that adds nothing ENDS the query, however full it was', async () => {
+    // The page is PAGE_SIZE long, so "short page means done" does not catch it —
+    // every id in it is simply already loaded, because the query's window shifted
+    // under the reader. The loaded extent therefore does not move, and the next
+    // request would be byte-identical to the one that just returned.
+    //
+    // Left un-ended this is an unbounded request loop: an append-on-scroll caller
+    // re-issues that identical request on every scroll event, and the only symptom
+    // a user reports is that the list feels slow. Measured at 8 extra seconds in
+    // one component spec before the query was ended here.
+    const server = makeServer({ inbox: corpus('inbox', 120) }, { repeatFirstPage: true });
+    await withServer(server, async (mail) => {
+      expect(mail.hasMore()).toBe(true);
+      await mail.loadMore();
+
+      expect(mail.hasMore()).toBe(false);
+      // And the guard holds: a further call issues no request at all.
+      const settled = server.listCalls('inbox').length;
+      await mail.loadMore();
+      expect(server.listCalls('inbox')).toHaveLength(settled);
+    });
+  });
+
+  it('a short page still ends the query, and a full one that DOES add rows does not', async () => {
+    // The control for the pair above: ending on "added nothing" must not end a
+    // query that is merely mid-way through.
+    const server = makeServer({ inbox: corpus('inbox', 120) });
+    await withServer(server, async (mail) => {
+      await mail.loadMore(); // full page, 50 new rows
+      expect(mail.hasMore()).toBe(true);
+      await mail.loadMore(); // 20 rows — short, so done
+      expect(mail.messages()).toHaveLength(120);
+      expect(mail.hasMore()).toBe(false);
+    });
+  });
 });
 
 // ── total ───────────────────────────────────────────────────────────────────

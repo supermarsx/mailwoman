@@ -746,11 +746,23 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       const res = await jmapCall(pageRequest(acct, src, position, PAGE_SIZE, false), { signal: req.signal });
       if (!isCurrent(req)) return;
       const page = responseFor<EmailGetResponse>(res, 'g').list;
-      setMessages((prev) => appendPage(prev, page));
+      const before = messages();
+      const next = appendPage(before, page);
+      setMessages(next);
       // Continuations do not ask for a total; keep the one the query reported.
       const t = pageTotal(res);
       if (t !== null) setTotal(t);
-      setExhausted(page.length < PAGE_SIZE);
+      // A page that ADDS NOTHING ends the query, not just a short one.
+      //
+      // A continuation can come back full-size and yet hold only ids already
+      // loaded — the query's window shifted under the reader between requests.
+      // Nothing is appended, so `loadedRange().end` does not move, so the next
+      // request is byte-identical to the one that just returned. Asking again
+      // cannot make a page that added nothing add something, and with `hasMore`
+      // left true an append-on-scroll caller re-issues that request on every
+      // scroll event for as long as the user keeps scrolling — an unbounded
+      // request loop whose only symptom is "the list feels slow".
+      setExhausted(page.length < PAGE_SIZE || next === before);
     } catch {
       // A failed page leaves the query un-exhausted, so the next scroll retries.
       // It must not throw: this runs from a scroll handler.

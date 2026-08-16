@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from 'solid-js';
+import { createMemo, createSignal, For, onCleanup, Show, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
 import { t, isolate } from '../i18n/index.ts';
 import { computeWindow, projectedRowCount, sameWindow, splitWindow } from './virtual.ts';
@@ -314,36 +314,16 @@ export function MessageList(): JSX.Element {
    * without it issues a request per scroll event, dozens per gesture — and on
    * `listLoading()` because a whole-list replace is already in flight and an
    * append onto a list about to be discarded is wasted.
+   *
+   * Nothing here guards against re-requesting a page that came back holding only
+   * ids already loaded. It does not need to: `mail.ts` ends the query when a page
+   * adds nothing, so `hasMore()` is already false by the next scroll event. That
+   * guard lived here briefly and was moved once the state layer could express it —
+   * two copies of the same rule is how they drift apart.
    */
-  // The loaded extent the last page was requested at. A page that comes back
-  // holding only ids already loaded leaves the extent where it was, and `hasMore`
-  // stays true — so without this, every further scroll event re-issues the same
-  // request forever. Measured, not theorised: it took a peer's 2000-row spec from
-  // 2.4 s to 10.4 s against a fixture whose server ignores `limit`.
-  //
-  // Compared in MESSAGE space (`loadedRange().end`), never in visual rows: a page
-  // that folds entirely into existing conversations grows the extent while leaving
-  // `rows().length` unchanged, and a rows-based guard would stop paging a folder
-  // that is one large thread.
-  //
-  // This belongs in `mail.ts` — a page that adds nothing cannot be made to add
-  // something by asking again, so `exhausted` is the right home — but that file is
-  // not this lane's lock. Reported; harmless once it lands.
-  let requestedAtEnd = -1;
-  createEffect(() => {
-    // A whole-list replace (mailbox switch, search, clear) restarts the query, so
-    // the previous query's extent must not suppress the new one's first page.
-    if (app.listLoading()) requestedAtEnd = -1;
-  });
-
   function maybeLoadMore(): void {
     if (!app.hasMore() || app.loadingMore() || app.listLoading()) return;
-    const end = app.loadedRange().end;
-    if (end === requestedAtEnd) return;
-    if (win().endIndex >= rows().length - LOAD_MORE_SLACK) {
-      requestedAtEnd = end;
-      void app.loadMore();
-    }
+    if (win().endIndex >= rows().length - LOAD_MORE_SLACK) void app.loadMore();
   }
 
   function onScroll(): void {

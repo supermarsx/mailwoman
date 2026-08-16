@@ -362,28 +362,28 @@ describe('MessageList paging trigger (t22-e5b)', () => {
   it('does not re-request a page that came back holding nothing new', async () => {
     // A query whose window shifted under the reader answers a continuation with
     // rows that are all already loaded. Nothing is appended, so the loaded extent
-    // does not move — and `hasMore()` stays true, because the server said there is
-    // more. An unguarded trigger therefore re-issues the identical request on
-    // every subsequent scroll event, forever.
+    // does not move, so the next request would be byte-identical to the one that
+    // just returned — once per scroll event, for as long as the user scrolls.
+    //
+    // The end-to-end half of the fix that lives in `mail.ts`: what is asserted
+    // here is that no further REQUEST leaves the component.
     const { app, scroller, queries } = await mountPaged(20_000, true);
 
     scrollTo(scroller, 45 * ROW);
     await waitFor(() => expect(pageRequests(queries)).toHaveLength(1));
     expect(app.messages()).toHaveLength(50); // deduplicated away, as designed
-    expect(app.hasMore()).toBe(true); // and the query still claims more exists
+    expect(app.hasMore()).toBe(false); // the query ended: asking again cannot help
 
     for (let i = 0; i < 10; i += 1) scrollTo(scroller, 46 * ROW + i * ROW);
     await new Promise((resolve) => setTimeout(resolve, 20));
 
-    // Asking again cannot make a page that added nothing add something.
     expect(pageRequests(queries)).toHaveLength(1);
   }, 20_000);
 
-  it('a mailbox switch clears the no-progress guard', async () => {
-    // The guard remembers the extent it last requested at. Two folders whose
-    // first pages happen to be the same size would otherwise let one folder's
-    // extent suppress the other's second page — permanently, since nothing else
-    // moves it.
+  it('pages again after a mailbox switch', async () => {
+    // One query ending must not end the next one: `exhausted` is per query, and a
+    // folder whose first page happens to match another's would otherwise inherit
+    // its terminal state.
     const { app, container, scroller, queries } = await mountPaged(20_000);
     scrollTo(scroller, 45 * ROW);
     await waitFor(() => expect(app.messages().length).toBe(100));
