@@ -517,6 +517,23 @@ async fn proxy_image(
 
     // P3: the grant gate comes BEFORE the cache, or a session with no grant could
     // read images another session fetched.
+    //
+    // MOVING THIS CHANGES BEHAVIOUR TWO SUITES DEPEND ON — the constraint is not
+    // obvious from the code, so it is written here rather than left to be
+    // rediscovered:
+    //   * it must stay AFTER the session check (`authed`, above), or the refusal
+    //     bodies below become readable without a session — an unauthenticated
+    //     reachability oracle. `t17_ssrf_nat64` and `t18_e2e_ssrf_teredo_isatap`
+    //     assert an anonymous caller sees neither body;
+    //   * the EGRESS POLICY must run before this gate reports "not granted", which
+    //     is why the refusal path calls it (see `ungranted_response`) rather than
+    //     answering here. Refuse earlier and `t16_image_proxy`'s expected 400s for
+    //     `file://`/`ftp://`/credential URLs become 403s;
+    //   * the RATE LIMITER must still be charged on the refusal path, or
+    //     `t18_e2e_ratelimit`'s 403 → 429 progression starves — requests would be
+    //     refused here and never reach the counter.
+    // All three suites stay green on the happy path either way, so they will not
+    // catch a reordering for you; they catch it only through those specific legs.
     match grant_covers(&state.store, &session.account_id, q.email_id.as_deref()).await {
         Ok(true) => {}
         Ok(false) => return ungranted_response(&session.account_id, &q.url).await,
