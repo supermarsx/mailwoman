@@ -245,13 +245,19 @@ impl Engine {
             .build_changes_limited(account_id, kind, since, Some(max_changes))
             .await
         {
-            Ok(changes) => {
+            Ok(Some(changes)) => {
                 let mut v = serde_json::to_value(&changes).unwrap_or_else(|_| json!({}));
                 if let Some(obj) = v.as_object_mut() {
                     obj.insert("accountId".into(), json!(account_id));
                 }
                 v
             }
+            // A single state holds more rows than `maxChanges` — a batched
+            // `Email/set` over a large selection writes N rows at one state —
+            // so there is no page that is both within the cap and lossless.
+            Ok(None) => cannot_calculate_changes(
+                "one state holds more changes than maxChanges; raise it or refetch",
+            ),
             Err(e) => server_fail(&e),
         }
     }
@@ -683,7 +689,15 @@ impl Engine {
             .build_changes_limited(account_id, ChangeType::Email, since, Some(max_changes))
             .await
         {
-            Ok(c) => c,
+            Ok(Some(c)) => c,
+            // The cap cannot be honoured without losing changes — a single
+            // state holds more rows than `maxChanges`, which is what a batched
+            // `Email/set` over a large selection produces.
+            Ok(None) => {
+                return cannot_calculate_changes(
+                    "one state holds more changes than maxChanges; refetch the query instead",
+                );
+            }
             Err(e) => return server_fail(&e),
         };
         if changes.has_more_changes {
@@ -3175,7 +3189,13 @@ mod query_paging_tests {
             .changes(json!({ "sinceState": since, "maxChanges": 20 }))
             .await;
         let updated = capped["updated"].as_array().unwrap().clone();
-        assert_eq!(updated.len(), 20, "the cap must bind: {capped}");
+        // 19, not 20: the page ends at the last COMPLETE state, and the store
+        // cannot say whether the row after the cap shares the 20th state, so the
+        // safe answer drops it. Under-delivering by one state is legal (a server
+        // may always return fewer) and costs one re-read; over-delivering by one
+        // state would strand the rest of a batch forever. See
+        // `a_capped_page_never_stops_inside_one_state`.
+        assert_eq!(updated.len(), 19, "the cap must bind: {capped}");
         assert_eq!(
             capped["hasMoreChanges"],
             json!(true),
@@ -3192,7 +3212,7 @@ mod query_paging_tests {
             .await;
         assert_eq!(
             resumed["updated"].as_array().unwrap().len(),
-            40,
+            41,
             "{resumed}"
         );
         assert_eq!(resumed["hasMoreChanges"], json!(false));
@@ -3215,5 +3235,92 @@ mod query_paging_tests {
         // An unknown state refuses rather than reporting an empty diff.
         let bogus = f.changes(json!({ "sinceState": "99999" })).await;
         assert_eq!(bogus["type"], json!("cannotCalculateChanges"), "{bogus}");
+    }
+
+    /// The cap must land on a **state boundary**, because change rows do not
+    /// carry distinct states.
+    ///
+    /// `Store::record_changes` writes **N rows at ONE state** — that is what a
+    /// batched `Email/set` over a large selection produces (26.20 `t22-e1`
+    /// `6f35e49`, consumed by `t22-e3s`). So a cap that lands mid-batch and then
+    /// reports "you are up to date through this row" makes the client resume at
+    /// `state > it` and **silently lose the rest of the batch**.
+    ///
+    /// This test exists because the first version of this lane had that bug: the
+    /// other `maxChanges` test above passes with it, because `touch()` records
+    /// one change at a time and every row there has its own state. A cap
+    /// assertion built only on singly-recorded changes cannot see this at all.
+    #[tokio::test]
+    async fn a_capped_page_never_stops_inside_one_state() {
+        let f = Fixture::with(60).await;
+        let since = f.email_state().await;
+
+        // Three batches at three states: 10, then 30, then 10.
+        for batch in [&f.ordered[0..10], &f.ordered[10..40], &f.ordered[40..50]] {
+            f.store()
+                .record_changes(&f.account, ChangeType::Email.as_str(), batch, "updated")
+                .await
+                .unwrap();
+        }
+
+        // A cap of 20 can only be honoured by stopping after the FIRST batch —
+        // 10 rows, one whole state. Stopping at row 20 would sit inside the
+        // 30-row batch and strand its other 20 ids forever.
+        let page = f
+            .changes(json!({ "sinceState": since, "maxChanges": 20 }))
+            .await;
+        assert_eq!(
+            page["updated"].as_array().unwrap().len(),
+            10,
+            "the page must end at the state boundary, not at the cap: {page}"
+        );
+        assert_eq!(page["hasMoreChanges"], json!(true));
+
+        // Resuming from the reported state yields the other two batches whole.
+        let rest = f
+            .changes(json!({
+                "sinceState": page["newState"].as_str().unwrap(), "maxChanges": 100
+            }))
+            .await;
+        assert_eq!(rest["updated"].as_array().unwrap().len(), 40, "{rest}");
+        let mut all: Vec<&str> = page["updated"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .chain(rest["updated"].as_array().unwrap())
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        all.sort();
+        all.dedup();
+        assert_eq!(
+            all.len(),
+            50,
+            "every id in every batch must survive the paging, exactly once"
+        );
+
+        // A cap smaller than a single batch has no lossless answer at all, and
+        // says so rather than returning a page that drops 20 of 30 ids.
+        let impossible = f
+            .changes(json!({
+                "sinceState": page["newState"].as_str().unwrap(), "maxChanges": 5
+            }))
+            .await;
+        assert_eq!(
+            impossible["type"],
+            json!("cannotCalculateChanges"),
+            "a 30-row state under a 5-row cap has no page that is both within \
+             the cap and lossless: {impossible}"
+        );
+
+        // `Email/queryChanges` refuses on the same condition, for the same
+        // reason — it has no `hasMoreChanges` to fall back on either.
+        let qc = f
+            .query_changes(json!({
+                "filter": f.in_mailbox(),
+                "sinceQueryState": page["newState"].as_str().unwrap(),
+                "maxChanges": 5
+            }))
+            .await;
+        assert_eq!(qc["type"], json!("cannotCalculateChanges"), "{qc}");
     }
 }

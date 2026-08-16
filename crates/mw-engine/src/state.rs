@@ -253,8 +253,10 @@ impl Engine {
         kind: ChangeType,
         since_state: &str,
     ) -> Result<Changes> {
-        self.build_changes_limited(account_id, kind, since_state, None)
-            .await
+        Ok(self
+            .build_changes_limited(account_id, kind, since_state, None)
+            .await?
+            .expect("the unbounded form never refuses: it has no cap to fail"))
     }
 
     /// [`Engine::build_changes`] with JMAP's `maxChanges` reaching **SQL**
@@ -262,17 +264,44 @@ impl Engine {
     ///
     /// `max: None` is the unbounded form. `max: Some(n)` returns at most `n`
     /// change rows and sets `has_more_changes` when the tail continued past
-    /// them.
+    /// them. `Ok(None)` means the cap **cannot** be honoured without losing
+    /// changes — see the state-boundary rule below — and is the caller's cue to
+    /// answer `cannotCalculateChanges`.
     ///
-    /// **`new_state` is the state of the last row actually returned**, not the
-    /// current state, whenever the page was truncated. This is the half that is
-    /// easy to get wrong and impossible to notice: reporting the current state
-    /// alongside a partial list tells the client "you are now up to date" about
-    /// changes it was never sent, and it will not ask again. The rows are read
-    /// `ORDER BY state ASC`, so the last one is the highest state the client has
-    /// genuinely seen. When the cap is so small that no row comes back at all
-    /// (`maxChanges: 0`, which JMAP permits), `new_state` stays at `old_state`
-    /// for the same reason.
+    /// # `new_state` is a resume point, and it must land on a state BOUNDARY
+    ///
+    /// Two things have to be right here, and only the first is obvious.
+    ///
+    /// **It is the last row returned, not the current state.** Reporting the
+    /// current state alongside a partial list tells the client "you are now up
+    /// to date" about changes it was never sent, and it will not ask again.
+    ///
+    /// **Rows do not carry distinct states.** `Store::record_changes` writes
+    /// **N rows at ONE state** — that is the whole point of it, and it is what a
+    /// batched `Email/set` over 500 ids produces. So "the last row returned" can
+    /// sit in the *middle* of a batch, and a client resuming at `state > that`
+    /// would silently skip the rest of it. The cap is therefore pulled back to
+    /// the last **complete** state: every row sharing the highest returned state
+    /// is dropped, and `new_state` becomes the state below it, so the next call
+    /// re-reads that batch whole.
+    ///
+    /// **When there is no such boundary** — the entire capped page is one state
+    /// and there is more of it — pulling back would return nothing and advance
+    /// nothing, so the client would loop forever. There is no partial answer
+    /// that is both within the cap and lossless, which is exactly the condition
+    /// RFC 8620 §5.2 defines `cannotCalculateChanges` for. Hence `Ok(None)`,
+    /// rather than a page that quietly drops 450 of 500 ids.
+    ///
+    /// **This is conservative by exactly one state, deliberately.**
+    /// [`Store::changes_since_limited`] reports *that* the tail continued, not
+    /// the state it continued at, so a page whose last state happens to be
+    /// complete is indistinguishable from one cut in half — and the highest
+    /// state is dropped either way. A client asking for 20 singly-recorded
+    /// changes therefore gets 19. That is legal (a server may always return
+    /// fewer) and costs one re-read; the opposite error, keeping a state that
+    /// turns out to be incomplete, strands the rest of that batch permanently.
+    /// Distinguishing the two would mean returning the lookahead row's state
+    /// from the store, which is a change to a method this lane does not own.
     ///
     /// The fold below can still collapse the returned rows to fewer entries — a
     /// created-then-destroyed pair inside the window cancels — so
@@ -285,13 +314,13 @@ impl Engine {
         kind: ChangeType,
         since_state: &str,
         max: Option<i64>,
-    ) -> Result<Changes> {
+    ) -> Result<Option<Changes>> {
         let since: u64 = since_state.parse().unwrap_or(0);
         let current = self
             .store()
             .current_state(account_id, kind.as_str())
             .await?;
-        let (rows, has_more) = match max {
+        let (mut rows, has_more) = match max {
             Some(n) => {
                 self.store()
                     .changes_since_limited(account_id, kind.as_str(), since, n)
@@ -304,9 +333,24 @@ impl Engine {
                 false,
             ),
         };
-        // Read before the fold consumes `rows`: the resume point is a property of
-        // the rows read, not of the ids they folded into.
-        let truncated_state = rows.last().map(|r| r.state).unwrap_or(since);
+
+        // The resume point, computed before the fold consumes `rows`: it is a
+        // property of the rows read, not of the ids they folded into.
+        let mut resume_state = since;
+        if has_more {
+            // Pull back to the last COMPLETE state. `record_changes` writes N
+            // rows at one state, so the row the cap landed on is very likely
+            // mid-batch, and `state > it` would skip the batch's remainder.
+            let highest = rows.last().map(|r| r.state).unwrap_or(since);
+            let complete = rows.iter().filter(|r| r.state < highest).count();
+            if complete == 0 {
+                // The whole capped page is one state with more of it beyond:
+                // no answer exists that is both within the cap and lossless.
+                return Ok(None);
+            }
+            rows.truncate(complete);
+            resume_state = rows.last().map(|r| r.state).unwrap_or(since);
+        }
 
         // Fold to the latest op per id; "created then destroyed in-window" cancels.
         let mut order: Vec<String> = Vec::new();
@@ -340,10 +384,10 @@ impl Engine {
             }
         }
 
-        Ok(Changes {
+        Ok(Some(Changes {
             old_state: since.to_string(),
             new_state: if has_more {
-                truncated_state.to_string()
+                resume_state.to_string()
             } else {
                 current.to_string()
             },
@@ -351,7 +395,7 @@ impl Engine {
             updated,
             destroyed,
             has_more_changes: has_more,
-        })
+        }))
     }
 
     /// Fan a [`StateChange`] out to every subscribed WS/SSE session (plan §1.2,
