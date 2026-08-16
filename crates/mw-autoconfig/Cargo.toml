@@ -9,7 +9,10 @@ repository.workspace = true
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
-reqwest = { workspace = true }
+# t22-e9: the HTTP rungs route through the workspace egress gate rather than
+# holding their own client. NET-NEGATIVE on dependencies: reqwest leaves this crate,
+# because a fully-delegating call site has no client left to configure.
+mw-egress = { path = "../mw-egress" }
 thiserror = { workspace = true }
 async-trait = { workspace = true }
 # Live RFC 6186 SRV resolution (pure-Rust DNS over UDP/TCP + rustls; no -sys/C/

@@ -439,38 +439,80 @@ fn parse_autodiscover(body: &str) -> Option<AccountCandidate> {
 /// default). If the system resolver cannot be built, SRV degrades to a no-op
 /// and the ladder relies on the HTTP rungs.
 pub struct ReqwestFetcher {
-    client: reqwest::Client,
     resolver: Box<dyn resolver::SrvResolver>,
 }
 
+/// The `User-Agent` autodiscovery announces.
+///
+/// # Known limit: a ROUTED fetch cannot honour this
+/// `mw_egress::proxy::http::exchange` hardcodes `PROXY_UA`, so if a deployment ever
+/// routes autodiscovery through a configured egress proxy it will announce
+/// `Mailwoman-Image-Proxy` to provider autodiscovery endpoints instead of this.
+/// Written down rather than discovered: `t22-e11`'s own comment notes that this is
+/// the kind of thing that produces support reports nobody can reproduce. The direct
+/// path — which is every deployment today — sends this correctly.
+const AUTOCONFIG_UA: &str = "mailwoman-autoconfig";
+
+/// Whether an operator has opted this deployment into reaching PRIVATE addresses
+/// during autodiscovery (`MW_AUTOCONFIG_ALLOW_PRIVATE`, **default off**).
+///
+/// # Why this needs an opt-in when the keyserver lookups do not
+/// `POST /api/discover` is **unauthenticated** and CSRF-exempt, and the domain it
+/// probes comes straight from an email address in the request body. So an anonymous
+/// caller chooses where the server fetches, which is why the strict policy is the
+/// default and the widened one has to be a deliberate operator act.
+///
+/// But a self-hosted deployment legitimately has `autoconfig.corp.internal` on
+/// RFC1918, and refusing it would turn an SSRF fix into a functional regression for
+/// exactly this project's audience. Hence: opt-in, off by default, release-noted.
+///
+/// # Why the ManageSieve precedent does NOT apply here, though it looks like it does
+/// `mw-server::sieve_sync::sieve_egress_permitted` permits RFC1918 unconditionally,
+/// and the temptation is to copy it and drop this flag. **Do not.** That policy is
+/// safe because a ManageSieve host is configured by an authenticated user *with
+/// credentials* — a deliberate act by someone who already has an account. This
+/// domain arrives in an unauthenticated request body. "Your own internal server" and
+/// "an anonymous caller's chosen domain" are not the same trust, and the two look
+/// identical in the code. The next person to notice the inconsistency between the
+/// two policies is meant to read this rather than "fix" it.
+fn allow_private_targets() -> bool {
+    std::env::var("MW_AUTOCONFIG_ALLOW_PRIVATE")
+        .map(|v| matches!(v.trim(), "1" | "true" | "TRUE" | "yes"))
+        .unwrap_or(false)
+}
+
+/// The address policy this deployment applies to autodiscovery fetches.
+///
+/// Even under the opt-in, `mw_egress::on_prem_allowed` still refuses loopback,
+/// `169.254.0.0/16` (cloud metadata), `fe80::/10`, and every NAT64/6to4/Teredo/ISATAP
+/// embedding of those — because it is one implementation in the crate that owns the
+/// decode, not a predicate re-authored per caller. The flag widens the address range
+/// and **nothing else**: scheme, credential-in-URL, host and port checks live in the
+/// shared body and are not parameterised.
+fn address_policy() -> fn(&std::net::IpAddr) -> bool {
+    if allow_private_targets() {
+        mw_egress::on_prem_allowed
+    } else {
+        mw_egress::ip_allowed
+    }
+}
+
 impl ReqwestFetcher {
-    /// Build the HTTPS client and live SRV resolver.
+    /// Build the live SRV resolver. HTTP rungs go through [`mw_egress`], so there is
+    /// no client here to configure.
     pub fn new() -> Result<Self, DiscoverError> {
-        // `.no_proxy()`: autodiscovery probes host-derived URLs, so an ambient
-        // `HTTP_PROXY` would hand a third party the domain being configured and
-        // resolve it on our behalf. See `mw_egress::harden_client`.
-        let client = reqwest::Client::builder()
-            .user_agent("mailwoman-autoconfig")
-            .no_proxy()
-            .build()
-            .map_err(|e| DiscoverError::Lookup(e.to_string()))?;
         let resolver: Box<dyn resolver::SrvResolver> = match HickoryResolver::new() {
             Ok(r) => Box::new(r),
             Err(_) => Box::new(resolver::NoopResolver),
         };
-        Ok(Self { client, resolver })
+        Ok(Self { resolver })
     }
 
     /// Build a fetcher with an injected SRV resolver — the seam the SRV tests
     /// use to exercise the ladder against a stub with no live network.
     #[cfg(test)]
     fn with_resolver(resolver: Box<dyn resolver::SrvResolver>) -> Self {
-        let client = reqwest::Client::builder()
-            .user_agent("mailwoman-autoconfig")
-            .no_proxy()
-            .build()
-            .expect("reqwest client builds");
-        Self { client, resolver }
+        Self { resolver }
     }
 }
 
@@ -481,15 +523,26 @@ impl Fetcher for ReqwestFetcher {
     }
 
     async fn get(&self, url: &str) -> Result<Option<String>, DiscoverError> {
-        let resp = match self.client.get(url).send().await {
-            Ok(r) => r,
-            Err(_) => return Ok(None), // treat transport failure as "rung missed"
-        };
-        if !resp.status().is_success() {
-            return Ok(None);
-        }
-        match resp.text().await {
-            Ok(body) => Ok(Some(body)),
+        // Routed through `mw-egress` (t22-e9): the full SSRF gate — scheme and
+        // credential checks, one-shot DNS with a pinned connect, every resolved
+        // address through the policy, per-hop redirect re-validation, size and
+        // timeout caps. This used to be a bare client carrying only an ambient-proxy
+        // refusal, on an UNAUTHENTICATED endpoint whose target domain comes from the
+        // request body.
+        //
+        // Collapsing every refusal to `Ok(None)` is not lossy here: this trait's
+        // contract is already "body on 200, `None` on any non-success or recoverable
+        // transport failure, so the ladder simply moves on". A blocked address and a
+        // missing page are the same thing to the ladder — try the next rung.
+        match mw_egress::fetch_url_hardened_with(
+            url,
+            "application/xml, application/json;q=0.9, */*;q=0.8",
+            AUTOCONFIG_UA,
+            address_policy(),
+        )
+        .await
+        {
+            Ok(bytes) => Ok(String::from_utf8(bytes).ok()),
             Err(_) => Ok(None),
         }
     }
@@ -784,5 +837,91 @@ mod tests {
             discover_with("not-an-email", &f).await,
             Err(DiscoverError::InvalidEmail(_))
         ));
+    }
+
+    // ── the opt-in's address policy ───────────────────────────────────────────
+
+    fn ip(s: &str) -> std::net::IpAddr {
+        s.parse().unwrap()
+    }
+
+    /// The strict default. Asserted so "the opt-in permits RFC1918" below is a
+    /// CHANGE rather than a property the strict policy already had — without this,
+    /// a bug that always returned `on_prem_allowed` would pass the opt-in test.
+    #[test]
+    fn the_default_policy_refuses_private_targets() {
+        let strict = mw_egress::ip_allowed;
+        assert!(!strict(&ip("10.0.0.1")));
+        assert!(!strict(&ip("192.168.1.1")));
+        assert!(strict(&ip("1.1.1.1")), "public unicast stays reachable");
+    }
+
+    /// The ruling this lane was given: the opt-in widens the address range to
+    /// RFC1918 for on-premises autodiscovery, and **still refuses link-local**,
+    /// including `169.254.169.254` and every transitional embedding of it.
+    ///
+    /// This CONFIRMS a property rather than creating it — `t22-e11` factored the rule
+    /// into one private `on_prem_v4_allowed` shared by the IPv4 arm, the IPv4-mapped
+    /// unwrap and the `embedded_ipv4s` loop, so link-local stays denied because there
+    /// is one implementation rather than because three arms each remembered. Asserted
+    /// here anyway, at the call site that actually selects the policy: a future edit
+    /// that swapped this deployment onto a hand-rolled predicate would pass every test
+    /// in `mw-egress` and fail this one.
+    #[test]
+    fn the_opt_in_permits_rfc1918_and_still_refuses_link_local() {
+        let permissive = mw_egress::on_prem_allowed;
+
+        // The point of the opt-in: an on-premises autoconfig host is reachable.
+        for reachable in ["10.0.0.1", "192.168.1.1", "172.16.0.1", "fd12:3456::1"] {
+            assert!(
+                permissive(&ip(reachable)),
+                "{reachable} must be reachable under MW_AUTOCONFIG_ALLOW_PRIVATE, or \
+                 the opt-in does not do the one thing it exists for"
+            );
+        }
+
+        // …and the carve-out that must survive it. An "allow private for on-prem"
+        // flag that also opened the cloud metadata endpoint would convert a
+        // self-hoster convenience into instance-credential theft, on an endpoint
+        // anyone on the internet can reach.
+        for denied in [
+            "169.254.169.254",                      // cloud metadata
+            "169.254.1.1",                          // link-local generally
+            "127.0.0.1",                            // loopback
+            "::1",                                  // v6 loopback
+            "fe80::1",                              // v6 link-local
+            "::ffff:169.254.169.254",               // IPv4-mapped metadata
+            "64:ff9b::a9fe:a9fe",                   // NAT64-embedded metadata
+            "2002:a9fe:a9fe::",                     // 6to4-embedded metadata
+            "2001:0:4136:e378:8000:ffff:5601:5601", // Teredo-embedded metadata
+            "2001:470::5efe:7f00:1",                // ISATAP-embedded loopback
+        ] {
+            assert!(
+                !permissive(&ip(denied)),
+                "{denied} must stay refused EVEN WITH the opt-in on"
+            );
+        }
+    }
+
+    /// The selector honours the flag. Read through the same function production uses,
+    /// so a change to the variable's name or its accepted spellings fails here.
+    ///
+    /// Uses the real environment, and therefore asserts only the DEFAULT — setting
+    /// the variable would leak into every other test in this binary, and
+    /// `std::env::set_var` is `unsafe` in this edition. The two policies themselves
+    /// are asserted above; what is checked here is which one an unconfigured
+    /// deployment gets.
+    #[test]
+    fn an_unconfigured_deployment_gets_the_strict_policy() {
+        assert!(
+            !allow_private_targets(),
+            "MW_AUTOCONFIG_ALLOW_PRIVATE must default OFF — the safe deployment is \
+             the one you get without configuring anything"
+        );
+        let selected = address_policy();
+        assert!(
+            !selected(&ip("10.0.0.1")),
+            "the default selection must be the strict policy"
+        );
     }
 }
