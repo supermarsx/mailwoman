@@ -25,7 +25,9 @@ plugin never holds the user's Nextcloud secret.
 
 1. Link a Nextcloud account (base URL + credentials / app password).
 2. The plugin auto-configures CalDAV/CardDAV/tasks against that account.
-3. Attach-from / save-to / share-link actions appear in the compose and read UI.
+3. Attach-from and save-to actions appear in the compose and read UI. **Share-link
+   actions do not** — see "Share links" below; the component exists but nothing
+   mounts it.
 
 ### Share links
 
