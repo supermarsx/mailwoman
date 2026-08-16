@@ -762,6 +762,14 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       // left true an append-on-scroll caller re-issues that request on every
       // scroll event for as long as the user keeps scrolling — an unbounded
       // request loop whose only symptom is "the list feels slow".
+      //
+      // The test is `next === before` — did the MESSAGE array move — and it must
+      // stay that. The tempting rewrite is to compare a rendered row count, and
+      // that version is wrong on a shape most fixtures do not contain: a page
+      // that folds entirely into conversations already on screen adds messages
+      // while leaving the visible row count unchanged, so a rows-based test ends
+      // the query on a folder that is one large thread. That is a worse bug than
+      // the loop this guards, and it is the version written first.
       setExhausted(page.length < PAGE_SIZE || next === before);
     } catch {
       // A failed page leaves the query un-exhausted, so the next scroll retries.
