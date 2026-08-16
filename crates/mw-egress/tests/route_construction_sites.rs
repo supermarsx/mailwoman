@@ -440,37 +440,118 @@ fn exactly_one_production_site_builds_a_proxy_route() {
     //     ability to turn a value it invented into a route whose `host` is
     //     exempt from the address policy.
     //
-    // So: a factory may be `pub`/`pub(crate)` only if its parameters are a store
-    // handle. Anything else stays private to the module that knows where its
-    // input came from.
+    // So: a factory may be `pub`/`pub(crate)` only if **every** parameter is a
+    // store handle — or if it is on [`SHARED_FACTORY_EXCEPTIONS`], each entry of
+    // which carries its own reason.
+    //
+    // "Contains a store handle" is not enough, and the difference is the whole
+    // point: `f(store: &Store, host: &str)` contains one and can still introduce
+    // a host. The invariant is not "no request-derived parameter anywhere" — it
+    // is **nothing request-derived reaches `ProxyRoute::host`**.
     for f in scan.production_of(Kind::Factory) {
         if !f.line.starts_with("pub ") {
             continue; // private: its module owns the provenance of its input.
         }
+        if SHARED_FACTORY_EXCEPTIONS
+            .iter()
+            .any(|(name, _)| f.line.contains(name))
+        {
+            continue;
+        }
         assert!(
-            store_fed(&f.line),
-            "a factory visible outside its module must take only a store handle, \
-             so no caller can choose what it builds. `ProxyRoute::host` is exempt \
-             from the SSRF address policy, so a row-fed constructor shared across \
-             the crate hands every module a way past it: {f:#?}"
+            store_only(&f.line),
+            "a factory visible outside its module must take ONLY a store handle, \
+             so no caller can choose what it builds — or be listed in \
+             SHARED_FACTORY_EXCEPTIONS with a reason. `ProxyRoute::host` is exempt \
+             from the SSRF address policy, so a shared factory that accepts \
+             anything a caller can author hands every module a way past it. \
+             Parameters read as {:?}: {f:#?}",
+            params_of(&f.line)
         );
     }
 }
 
 /// The parameter list of a factory signature, or `""`.
+///
+/// **The first `(` on the line is not the parameter list.** This was
+/// `split_once('(')`, and on `pub(crate) async fn active_route(store: &Store)`
+/// it split inside `pub(crate)` and returned
+/// `"crate) async fn active_route(store: &Store) -> Result<Option<ProxyRoute>, ("`
+/// — which contains `&Store`, so the safety rule read garbage and happened to
+/// pass. Every `pub(crate)` factory would have been judged on nonsense, and
+/// `pub(crate)` is exactly the visibility this rule exists to police.
+///
+/// So: find the `(` that follows `fn <name>`, and walk to its matching `)`
+/// rather than to the last one on the line.
 fn params_of(line: &str) -> String {
-    line.split_once('(')
-        .and_then(|(_, rest)| rest.rsplit_once(')'))
-        .map(|(p, _)| p.trim().to_string())
-        .unwrap_or_default()
+    let after_fn = match line.find("fn ") {
+        Some(i) => &line[i + 3..],
+        None => return String::new(),
+    };
+    let Some(open) = after_fn.find('(') else {
+        return String::new();
+    };
+    let mut depth = 0usize;
+    for (i, c) in after_fn[open..].char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return after_fn[open + 1..open + i].trim().to_string();
+                }
+            }
+            _ => {}
+        }
+    }
+    String::new()
 }
 
-/// Whether a factory's inputs are only a store handle — i.e. whether a caller
-/// can influence what it builds.
-fn store_fed(line: &str) -> bool {
+/// Whether **every** parameter is a store handle.
+///
+/// Deliberately not "contains a store handle": `f(store: &Store, host: &str)`
+/// contains one and can still introduce a host, which is the exact thing being
+/// prevented.
+fn store_only(line: &str) -> bool {
     let p = params_of(line);
-    p.contains("&Store") || p.contains("&mw_store::Store") || p.contains("&self")
+    if p.is_empty() {
+        return true;
+    }
+    p.split(',').all(|arg| {
+        let a = arg.trim();
+        a.is_empty()
+            || a.contains("&Store")
+            || a.contains("&mw_store::Store")
+            || a == "&self"
+            || a == "&mut self"
+    })
 }
+
+/// Shared factories permitted despite taking more than a store handle, each
+/// with the argument for why it cannot reach `ProxyRoute::host`.
+///
+/// **A named exception rather than a loosened rule**: relaxing the rule
+/// generally would let the next factory through silently; an entry here makes
+/// the next one an explicit decision with a name attached.
+const SHARED_FACTORY_EXCEPTIONS: &[(&str, &str)] = &[(
+    "fn route_by_id",
+    // t22-e12's admin "test this route" button tests a SPECIFIC route by id —
+    // usually NOT the active one, because staging a replacement and testing it
+    // before switching is the whole workflow, and `active_route` returns only
+    // the active row.
+    //
+    // The `id` is request-shaped, and that is permitted here because it only
+    // SELECTS AMONG ROWS THE OPERATOR CREATED. It cannot introduce a host: every
+    // candidate `host` already came from operator configuration through the
+    // admin API, so the value that ends up in `ProxyRoute::host` is operator's
+    // either way. A selector over operator-supplied rows preserves the
+    // invariant; a constructor over caller-supplied rows does not.
+    //
+    // This is the distinction the rule above cannot see from a signature — `id:
+    // &str` and `host: &str` are the same shape — which is why it is written
+    // down here instead of inferred.
+    "selects among operator-created rows; cannot introduce a host",
+)];
 
 /// The rule above, **both ways round**, so it is not merely satisfied by
 /// today's visibility.
@@ -485,18 +566,63 @@ fn a_shared_factory_may_take_a_store_but_not_a_row() {
     const SAFE: &str = "pub(crate) async fn active_route(store: &mw_store::Store) -> Result<Option<ProxyRoute>, ()> {";
     const UNSAFE: &str = "pub(crate) fn proxy_route(row: &EgressProxyRow) -> Option<ProxyRoute> {";
 
+    // The shape the exception must NOT be wide enough to admit: a store handle,
+    // exactly like `route_by_id`, AND a host, which `route_by_id` does not. If
+    // the rule were "contains a store handle", this would pass.
+    const SMUGGLER: &str =
+        "pub(crate) async fn route_for(store: &Store, host: &str) -> Option<ProxyRoute> {";
+
     assert!(
-        store_fed(SAFE),
+        store_only(SAFE),
         "sharing the store-fed accessor is what lets another module use the \
          CONFIGURED route, and must be permitted; params read as {:?}",
         params_of(SAFE)
     );
     assert!(
-        !store_fed(UNSAFE),
+        !store_only(UNSAFE),
         "sharing the row-fed constructor hands every module the ability to build \
          a route from a value it invented, and must be refused; params read as {:?}",
         params_of(UNSAFE)
     );
+    assert!(
+        !store_only(SMUGGLER),
+        "a factory taking a store handle AND a host must not be waved through by \
+         the presence of the store handle — that is why the rule is EVERY \
+         parameter, not ANY: params read as {:?}",
+        params_of(SMUGGLER)
+    );
+
+    // The exception is by NAME and is narrow: it admits `route_by_id` and not
+    // the same-shaped smuggler.
+    let covered = |line: &str| {
+        SHARED_FACTORY_EXCEPTIONS
+            .iter()
+            .any(|(n, _)| line.contains(n))
+    };
+    assert!(
+        covered("pub(crate) async fn route_by_id(store: &Store, id: &str) -> Option<ProxyRoute> {"),
+        "route_by_id must be the named exception"
+    );
+    assert!(
+        !covered(SMUGGLER),
+        "a same-shaped function must not be covered by the exception: {SMUGGLER}"
+    );
+    for (name, why) in SHARED_FACTORY_EXCEPTIONS {
+        assert!(
+            why.len() > 20,
+            "exception `{name}` must state why it cannot reach ProxyRoute::host"
+        );
+    }
+
+    // `params_of` must find the parameter list, not the first `(` on the line.
+    // `pub(crate)` puts a paren before the one that matters, and this rule
+    // exists precisely to police `pub(crate)` factories.
+    assert_eq!(
+        params_of(SAFE),
+        "store: &mw_store::Store",
+        "the parameter list must be read from `fn name(`, not from `pub(`"
+    );
+    assert_eq!(params_of(SMUGGLER), "store: &Store, host: &str");
 
     // Both are classified as factories in the first place — otherwise the rule
     // above never runs on them and this control proves nothing.
