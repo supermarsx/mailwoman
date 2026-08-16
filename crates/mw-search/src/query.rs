@@ -29,14 +29,29 @@
 //!
 //! It is **recursive**, and that is bounded deliberately rather than by luck.
 //! `atom := '(' or ')'` and `unary := NOT unary` both descend, and until 26.20
-//! nothing capped how far. Measured then: ~975 bytes of stack per level, so
-//! **2 187 nested `(` overflowed a 2 MiB stack** — the default size of a tokio
-//! worker thread, which is what serves a JMAP request. A stack overflow is not
-//! a panic and cannot be caught: it takes the **process** down, every connected
-//! user with it. Since `filter.text` on an `Email/query` reaches this parser
-//! unbounded, that was a remote denial of service reachable with a ~2.2 KB
-//! request. [`MAX_DEPTH`] is what closes it, and it is load-bearing — see the
-//! note there before changing or removing it.
+//! nothing capped how far. A stack overflow is not a panic and cannot be caught:
+//! it takes the **process** down, every connected user with it. Since
+//! `filter.text` on an `Email/query` reaches this parser unbounded, that was a
+//! remote denial of service reachable with a small request. [`MAX_DEPTH`] is
+//! what closes it, and it is load-bearing — see the note there before changing
+//! or removing it.
+//!
+//! **What was measured, and what was inferred.** The numbers come from a
+//! *faithful copy* of this parser — no `use` statements, no external deps —
+//! built in a scratch crate on **Windows**, **uninstrumented**, under a release
+//! profile matching `fuzz/`: **~975 bytes of stack per nesting level**, linear
+//! across 1, 2 and 8 MiB stacks, so roughly **2 187 levels exhaust 2 MiB**. What
+//! is *inferred* rather than observed is that a JMAP request is served on a
+//! thread with that stack: `mw-server`'s `main.rs` is a plain `#[tokio::main]`
+//! and nothing in `crates/` sets a stack size, so 2 MiB is tokio's documented
+//! default rather than a value anyone read off a running server. **No
+//! measurement was taken through a live server.**
+//!
+//! Read the hedging as being about the ceiling's exact location, not about
+//! whether the cap is needed: [`MAX_DEPTH`] is correct regardless, because
+//! nothing on the path from `filter.text` to here bounds input length or nesting
+//! depth. The guard does not depend on where the true ceiling sits, so a later
+//! measurement that moves the number is not a reason to relax it.
 //!
 //! Fuzzed by `fuzz/fuzz_targets/search_query.rs` (26.20), which runs the same
 //! bounded CI smoke pass as the other targets. Note what that does and does not
