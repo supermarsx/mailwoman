@@ -761,10 +761,17 @@ disabled for zero-access accounts (§15.6).
   sources is cut** until notifications themselves exist.
 - Virtualized list with snippet previews and density options
   (compact/cozy/relaxed). The windowing function is genuinely O(viewport) and
-  is measured against a synthetic 100k array — but **the fetch layer caps every
-  mailbox at 50 rows**, so the list has never been handed more than 50 in the
-  product. Read "smooth at 100k" as a property of the virtualizer, not of the
-  shipped mailbox. Sender avatars/initials are tracked; **BIMI is cut** — VMC
+  is measured against a synthetic 100k array. **The 50-row fetch cap is gone as
+  of 26.20**: `Email/query` takes `position`/`anchor`, the client pages on scroll,
+  and the scrollbar and `aria-setsize` derive from the query's `total` rather than
+  from the loaded page, with same-height `aria-busy` slots for rows not yet
+  fetched. Two honest limits remain. Paging is **sequential**: dragging the
+  scrollbar far ahead of what is loaded shows pending slots and advances one page
+  per scroll event, because serving that means fetching the page the viewport is
+  over rather than the next one, and that flow is deliberately unbuilt. And
+  "smooth at 100k" is still a property of the **virtualizer** measured in jsdom,
+  which performs no layout and no paint — no browser frame number has been
+  produced at that size. Sender avatars/initials are tracked; **BIMI is cut** — VMC
   validation is not a 1.0 item and nothing in the tree implements it.
 - **Conversation threading:** JMAP threads natively; engine-side JWZ threading
   for IMAP/POP3. Threading is an unconditional global client-side fold today —
@@ -1698,7 +1705,6 @@ theme/texture packs (§17).
 | Cold load to interactive inbox (warm server, 4× CPU throttle) | < 1.5 s |
 | Warm navigation between folders/modules | < 100 ms |
 | Local search over 100k messages | p95 < 50 ms |
-| Message list scroll | 60 fps at 100k messages |
 | Open a 5 MB HTML monster email (sanitized) | < 300 ms |
 | Calendar month view with 500 events | < 150 ms render |
 | Server RSS (idle, 1 account) / (100 active sessions) | < 40 MB / < 512 MB |
@@ -1708,6 +1714,16 @@ theme/texture packs (§17).
 
 Budget regressions fail CI (Lighthouse CI + bench harness + `cargo bench`
 trend tracking).
+
+> **Removed in 26.20: "Message list scroll — 60 fps at 100k messages."** It was
+> deleted rather than restated because nothing in the harness can produce a
+> browser frame number at that size: the render measurements are jsdom, which
+> performs no layout and no paint, and the scale work was verified at 20 000 on
+> SQLite and live Postgres. A target that cannot be measured is not a budget, and
+> restating an unmeasurable claim in corrected clothing is the over-claim this
+> table is meant to prevent. What *is* measured about scrolling is in §Client
+> above: the windowing function is O(viewport), and a scroll that does not change
+> the mounted window rebuilds no rows.
 
 [^size-budget]: **Revised in 26.9 (measured, full-feature).** The original
     `< 45 MB` binary / `< 30 MB` image targets assumed a *core-only* build. The

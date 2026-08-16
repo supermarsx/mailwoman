@@ -25,6 +25,11 @@ V2 (realtime, TLS, fonts, hardening) adds:
   hot-reload on `SIGHUP`.
 - [`fonts.md`](./fonts.md) — `mailwoman fonts pull` to self-host web fonts under
   `font-src 'self'`.
+- [`egress-proxy.md`](./egress-proxy.md) — routing outbound fetches through your
+  own HTTP `CONNECT` or SOCKS5 proxy: configuring a route, the **write-only**
+  credential (leave the field blank to keep the stored password), the live route
+  test and what its outcome/stage mean, and why tunnel failure is **fail-closed**
+  rather than falling back to a direct connection.
 - [`hardening.md`](./hardening.md) — COEP/CORP/Permissions-Policy, CSRF, Origin
   checks, and session-timeout flags.
 

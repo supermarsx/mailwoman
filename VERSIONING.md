@@ -53,6 +53,120 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
 > rule about what the project *adds*: no OpenSSL, no non-permissive licence,
 > and no new `-sys`/C crate without an explicit human decision. See SPEC §8.3.
 
+- **`26.20`** — *(entry written while the tag is still in progress; the release lane
+  must re-verify every claim below against the shipped tree before tagging, and cut
+  anything a lane did not land.)* Outbound **egress proxying**, mailbox **paging**
+  at scale, the client's **first error boundary**, and four security fixes. **Net-zero
+  new third-party crates in the resolved graph**: `hyper`, `hyper-util` and
+  `http-body-util` become direct manifest entries pinned at the versions already in
+  `Cargo.lock`, so no new lock rows appear — they were **never workspace dependencies
+  before, only transitive**, and any statement that they already were is wrong.
+  Migrations `0023`, `0025`, `0026`, both dialects in lockstep. **`0024` does not
+  exist and must never be created** — see `docs/engineering-practices.md` section 6;
+  a tombstone test enforces it.
+
+  **SECURITY — a ~2.2 KB authenticated search query could kill the server process.**
+  `mw_search::parse_query` recursed on every open paren with no depth guard, and a
+  stack overflow is **not a catchable panic** (`STATUS_STACK_OVERFLOW`/`SIGSEGV`) —
+  it took down the whole process and every connection on it. Reachable from
+  `Email/query` `filter.text`, which had no length or nesting bound anywhere on the
+  path. Measured at **~975 bytes of stack per nesting level**, linear across three
+  stack sizes; JMAP is served on default 2 MiB tokio worker threads, so **about 2 200
+  parens** was enough. Fixed by a depth limit of 64 (real queries nest single digits)
+  returning `Err`, with a regression test at 200 000 so raising the limit later fails
+  loudly. **Measurement caveat, stated because it matters:** the ceilings were
+  measured on **Windows, uninstrumented, against a faithful copy of the parser**
+  rather than through a live server. The guard is correct regardless — nothing on the
+  path bounds input — but do not read those numbers as a live-server result.
+
+  **SECURITY — an ambient proxy environment could redirect server-side fetches.** A
+  `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` in the server's environment was honoured by
+  every `reqwest` client that had not opted out, which both defeats the DNS pin (the
+  proxy resolves the name itself) and exposes credentials on the paths that carry
+  them. **38 client constructions across 24 files** now set `.no_proxy()`, enforced
+  by a structural test that scans every crate source and fails with `file:line` for
+  any new client built without it. The sharpest cases were two bare `reqwest::get`
+  calls fetching a PGP key server with an attacker-influenced key id. Test-only
+  constructions are deliberately untouched, and the check says so rather than
+  claiming blanket coverage.
+
+  **SECURITY — `/api/discover` is now rate-limited**, on a key space that cannot be
+  grown without bound. An IP-keyed limiter on that endpoint would itself have been a
+  memory-exhaustion vector.
+
+  **SECURITY — three `Debug` redactions.** `ProxyAuth`, `EgressProxyRow` and
+  `BridgeOauthTokenRow` held unsealed secrets behind a derived `Debug`, which leaks
+  into every `tracing` event, panic payload and error body that formats the value.
+  Now hand-written. The general rule is in `docs/engineering-practices.md` section 3.
+
+  **BEHAVIOUR CHANGE for on-prem — `MW_AUTOCONFIG_ALLOW_PRIVATE`.** Autoconfig
+  resolves a domain taken from **the address the user typed**, so on a hosted
+  deployment it lets anyone who can enter an address steer a server-side fetch, while
+  on a self-hosted one `autoconfig.corp.example` on RFC 1918 is entirely legitimate.
+  It is now an operator decision and **defaults to off** — the unconfigured
+  deployment is the safe one. A single-tenant on-prem install that relies on a
+  private-address autoconfig host must set it. **Even with it on**, `169.254.0.0/16`,
+  `fe80::/10` and the Teredo/ISATAP decode paths stay refused: an "allow private"
+  switch that also opened the cloud metadata endpoint would convert a convenience
+  into instance-credential theft.
+
+  **Egress proxying —⚠️ NOT YET REACHABLE, verify before tagging.** As of `439ebb6`
+  the transport, the config store (migration `0026`, sealed password), the admin API
+  and the admin UI have landed, but **no fetch path consumes a configured route**:
+  `list_egress_proxies`/`get_egress_proxy` have no callers outside the store and the
+  admin API, and the route-test endpoint is not implemented. **Until the wiring
+  lands, this tag must not claim an operator can route outbound traffic** — that is
+  the "exists and is tested but is never reached in production" shape this History's
+  preamble calls a credibility problem. What the design provides, once wired:
+  outbound fetches routed through an operator's own HTTP `CONNECT` or SOCKS5 proxy,
+  with Mailwoman still enforcing its own address policy: the proxy is handed an **IP literal**, never a hostname — the
+  SOCKS5 encoder has no domain branch, so `ATYP` is only ever `0x01`/`0x04`. TLS
+  terminates at the origin with the origin's SNI; a proxy presenting its own valid
+  certificate is refused with a certificate error. `http` origins are refused by
+  default per route, and tunnel failure is **fail-closed** with no direct fallback.
+  Credentials are sealed at rest and never returned by the API — the admin form
+  cannot display them and does not send them back, so an edit that leaves the field
+  blank preserves the stored password. Setup: `docs/deploy/egress-proxy.md`. **The
+  residual, stated plainly**: we can guarantee the proxy is never asked to resolve a
+  name and never sees plaintext for an `https` origin; we **cannot** guarantee it
+  dials the address we asked for. See `docs/security/egress.md`.
+
+  **Mailbox paging — message 51 is reachable.** Every mailbox query was capped at 50
+  rows with no `position`, so the virtualized list — correct to 100 000 rows — was
+  never handed more than 50, and `calculateTotal` was already requested and the
+  answer discarded. `Email/query` now takes `position`/`anchor` with the total
+  calculated once per query rather than per page; the client pages on scroll; and the
+  scrollbar and `aria-setsize` describe the **folder** rather than the loaded page,
+  with same-height `aria-busy` slots for rows not yet fetched. **Not supported:**
+  dragging the scrollbar far ahead of what is loaded shows pending slots and advances
+  one page per scroll event — serving that means fetching the page the viewport is
+  over, and that flow is deliberately unbuilt.
+
+  **Scale.** `Email/set` over a large selection went from a full search-index commit
+  **per message** to one commit for the batch (500 to 1), with the store's batch
+  getters cutting statement counts by orders of magnitude; `sessionState` folded 12
+  sequential counter SELECTs into 3; and the stored `unread` counter is now
+  maintained by the flag, move and delete paths instead of drifting.
+
+  **Client loading.** The app had **no error boundary of any kind**: four
+  dynamic-import surfaces sat in a bare `Suspense` fallback, so a chunk that failed
+  to arrive — a 404 against a tab left open across a redeploy — left "Loading..." on
+  screen for the life of the tab. Every loading state is now bounded and every async
+  surface has real empty/error/retry states, with a retry that genuinely re-imports
+  rather than replaying a memoised rejection. Boot failure is distinguished from
+  being logged out, instead of answering an unreachable server with a login form. The
+  mailbox is code-split: the entry chunk drops from **676 KB to 336 KB** (gzip 157 to
+  80), measured by building both ways rather than quoting the new number alone.
+
+  **Contract fixes.** `ContactCard/merge` now accepts the request the client actually
+  sends — every invocation had been failing — and keeps the card the caller names.
+
+  **Known documentation hazard:** `mw-mock-jmap` emits `total` on every
+  `Email/query`, while the engine emits it only when `calculateTotal` was requested.
+  The asymmetry is one-directional and worth knowing when writing client code against
+  the mock: a client that reads `total` without asking for it works against the mock
+  and gets nothing from the engine.
+
 - **`26.19`** — a joint tag: the **testing / build / CI** workstream and the **reverse-proxy
   compatibility** workstream, planned separately and merged into one schedule of 38 executor lanes
   across 8 waves, 64 commits. **Net-zero new third-party Rust crates** — the resolved graph in fact

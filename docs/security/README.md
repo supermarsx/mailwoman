@@ -54,6 +54,12 @@ surfaces are documented here:
   default-off human-in-the-loop **send gating**, and the **prompt-injection posture**
   (provenance labels, no raw protocol composition, least authority) with its honest
   boundary.
+- [`egress.md`](./egress.md) — **outbound egress**: the SSRF policy behind every
+  server-side fetch (scheme allowlist, DNS pinning, address refusal, redirect
+  re-validation, no ambient proxy), the two deliberately different profiles for
+  autoconfig vs key-server lookups, and — stated plainly — the one thing routing
+  through an operator's proxy **cannot** guarantee. Also what the remote-image
+  grant does and does not gate.
 - [`observability.md`](./observability.md) — OTLP traces/metrics, the auth-gated
   Prometheus `/metrics`, the `/errors` scrubber, and the no-mail-content-in-telemetry
   rule.
