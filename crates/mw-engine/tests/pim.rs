@@ -557,6 +557,340 @@ async fn contact_groups_round_trip() {
     assert_eq!(got["list"][0]["memberIds"].as_array().unwrap().len(), 2);
 }
 
+// ── ContactCard/merge — the two request shapes (26.20, t22-e13) ───────────────
+//
+// The web client emits `{accountId, keepId, mergeIds}`
+// (`apps/web/src/modules/contacts/api.ts`); the engine read `args["ids"]`,
+// defaulted it to empty and rejected anything shorter than two, so **every merge
+// the product could issue failed** with a `serverFail` the UI swallowed. Two
+// divergences sat behind that one, and a fix that only renamed the argument
+// would have shipped both:
+//
+// * **Survivor.** The engine minted a *new* card and tombstoned every source,
+//   `keepId` included — so neither `keepId` nor `ids[0]` survived.
+// * **Response.** The engine answered `{merged: <id string>}`; the client is
+//   typed for a card object and spreads it into its store. A request-parsing-only
+//   fix passes a server-side test and still leaves a string where a card belongs.
+//
+// Assertions below are on the **server's response and the store afterwards**.
+// Asserting the client's request shape proves nothing — the client was already
+// correct and was already sending exactly this.
+//
+// `contact_round_trip_import_merge_autocomplete` above is deliberately left
+// untouched: it drives the legacy `ids` form and is the control that the old
+// shape still works.
+
+/// Helpers for the merge tests. A separate `impl` block so nothing above is
+/// disturbed; the harness itself is reused rather than copied.
+impl Harness {
+    /// Create a card and return its server-assigned id.
+    async fn card(&self, full: &str, email: &str) -> String {
+        let set = self
+            .call(
+                "ContactCard/set",
+                json!({ "create": { "c": {
+                    "name": { "full": full },
+                    "emails": [{ "context": "work", "value": email, "pref": 1 }],
+                }}}),
+            )
+            .await;
+        set["created"]["c"]["id"]
+            .as_str()
+            .unwrap_or_else(|| panic!("create rejected: {set}"))
+            .to_string()
+    }
+
+    /// Ids the account currently holds, via `ContactCard/get` with no `ids`.
+    async fn all_contact_ids(&self) -> Vec<String> {
+        let got = self
+            .call("ContactCard/get", json!({ "ids": Value::Null }))
+            .await;
+        got["list"]
+            .as_array()
+            .expect("list")
+            .iter()
+            .filter_map(|c| c["id"].as_str().map(String::from))
+            .collect()
+    }
+
+    /// Whether `id` still resolves to a stored card.
+    async fn card_exists(&self, id: &str) -> bool {
+        let got = self.call("ContactCard/get", json!({ "ids": [id] })).await;
+        got["list"].as_array().is_some_and(|l| !l.is_empty())
+    }
+
+    /// Every email value on a stored card, sorted.
+    async fn card_emails(&self, id: &str) -> Vec<String> {
+        let got = self.call("ContactCard/get", json!({ "ids": [id] })).await;
+        let mut v: Vec<String> = got["list"][0]["emails"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no emails on {id}: {got}"))
+            .iter()
+            .filter_map(|e| e["value"].as_str().map(String::from))
+            .collect();
+        v.sort();
+        v
+    }
+}
+
+/// Fail loudly on a `serverFail`, so a broken merge cannot be read as an empty
+/// success by a later `.get(..)` that quietly returns `None`.
+fn merge_ok(resp: &Value, what: &str) -> Value {
+    assert_ne!(
+        resp["type"].as_str(),
+        Some("serverFail"),
+        "{what} returned an error: {resp}"
+    );
+    resp.clone()
+}
+
+/// The id of the card that survived a merge, whichever response shape carried
+/// it: the `keepId` form answers with the survivor as a full card object, the
+/// legacy form with a bare id string. Panics rather than defaulting — a helper
+/// that answered `""` for a missing field would make every caller vacuously true.
+fn survivor_id(resp: &Value) -> String {
+    match &resp["merged"] {
+        Value::String(s) => s.clone(),
+        Value::Object(o) => o
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_else(|| panic!("merged card carries no id: {resp}"))
+            .to_string(),
+        other => panic!("merge response has no usable `merged`: {other} in {resp}"),
+    }
+}
+
+fn id_list(resp: &Value, field: &str) -> Vec<String> {
+    resp[field]
+        .as_array()
+        .unwrap_or_else(|| panic!("`{field}` missing from {resp}"))
+        .iter()
+        .filter_map(|v| v.as_str().map(String::from))
+        .collect()
+}
+
+#[tokio::test]
+async fn merge_with_keep_id_keeps_that_card_and_destroys_only_the_others() {
+    let h = setup().await;
+    let keep = h.card("Ada Lovelace", "ada@example.org").await;
+    let dup1 = h.card("Ada Lovelace", "ada@home.test").await;
+    let dup2 = h.card("A. Lovelace", "ada@work.test").await;
+
+    // Exactly the request `contactMerge()` in the web client builds.
+    let resp = merge_ok(
+        &h.call(
+            "ContactCard/merge",
+            json!({ "keepId": keep, "mergeIds": [dup1, dup2] }),
+        )
+        .await,
+        "merge",
+    );
+
+    // The survivor is the card the caller named — not a freshly minted id, and
+    // not `mergeIds[0]`.
+    assert_eq!(
+        survivor_id(&resp),
+        keep,
+        "the survivor must be keepId: {resp}"
+    );
+    assert_eq!(resp["keptId"].as_str(), Some(keep.as_str()));
+
+    // The server's own account of what it destroyed.
+    let mut destroyed = id_list(&resp, "destroyed");
+    destroyed.sort();
+    let mut expected = vec![dup1.clone(), dup2.clone()];
+    expected.sort();
+    assert_eq!(destroyed, expected, "destroyed must be exactly mergeIds");
+    assert!(
+        !destroyed.contains(&keep),
+        "the kept card must never appear in `destroyed`"
+    );
+
+    // And what the store actually holds: the survivor and nothing else. This is
+    // what separates "kept keepId" from "kept keepId *and* also minted a new
+    // card" — a response-only assertion cannot see the difference.
+    assert!(
+        h.card_exists(&keep).await,
+        "the kept card must still be stored"
+    );
+    assert!(!h.card_exists(&dup1).await, "dup1 must be tombstoned");
+    assert!(!h.card_exists(&dup2).await, "dup2 must be tombstoned");
+    assert_eq!(
+        h.all_contact_ids().await,
+        vec![keep.clone()],
+        "exactly one card must remain, and it must be the kept one"
+    );
+
+    // The merge did its actual job: the survivor carries every source's email.
+    assert_eq!(
+        h.card_emails(&keep).await,
+        vec![
+            "ada@example.org".to_string(),
+            "ada@home.test".to_string(),
+            "ada@work.test".to_string()
+        ],
+        "the survivor must union all three addresses"
+    );
+
+    // The response carries the survivor as a card, not an id — the client
+    // patches this object straight into its store.
+    assert!(
+        resp["merged"].is_object(),
+        "`merged` must be the card itself: {resp}"
+    );
+    assert_eq!(
+        resp["merged"]["name"]["full"].as_str(),
+        Some("Ada Lovelace")
+    );
+    assert_eq!(
+        resp["merged"]["emails"].as_array().map(Vec::len),
+        Some(3),
+        "the returned card must be the merged one, not the pre-merge card"
+    );
+}
+
+/// The legacy `{ids}` form, and the assertion that pins **how it differs**.
+///
+/// Its survivor is a new card, and `ids[0]` is destroyed like every other
+/// source. That divergence from the `keepId` form is deliberate back-compat, so
+/// it is asserted rather than left implicit: if someone "unifies" the two paths
+/// on the reasonable assumption that they are aliases, this test fails.
+#[tokio::test]
+async fn legacy_ids_form_mints_a_new_card_and_does_not_preserve_ids_first() {
+    let h = setup().await;
+    let a = h.card("Grace Hopper", "grace@example.org").await;
+    let b = h.card("Grace Hopper", "grace@navy.test").await;
+
+    let resp = merge_ok(
+        &h.call("ContactCard/merge", json!({ "ids": [a, b] })).await,
+        "legacy merge",
+    );
+
+    let new_id = survivor_id(&resp);
+    assert!(resp["merged"].is_string(), "legacy `merged` stays an id");
+    assert_ne!(
+        new_id, a,
+        "the legacy form must NOT preserve ids[0] — that is what makes it \
+         different from the keepId form, and unifying the two must fail here"
+    );
+    assert_ne!(new_id, b);
+    assert!(
+        !h.card_exists(&a).await,
+        "ids[0] is tombstoned like any other source"
+    );
+    assert!(!h.card_exists(&b).await);
+    assert_eq!(h.all_contact_ids().await, vec![new_id.clone()]);
+
+    // Both pre-existing response fields still populated as they were, plus the
+    // additively-added `destroyed`.
+    assert_eq!(id_list(&resp, "tombstoned"), vec![a.clone(), b.clone()]);
+    assert_eq!(
+        id_list(&resp, "destroyed"),
+        vec![a.clone(), b.clone()],
+        "`destroyed` is reported by both shapes"
+    );
+    assert_eq!(
+        h.card_emails(&new_id).await,
+        vec![
+            "grace@example.org".to_string(),
+            "grace@navy.test".to_string()
+        ],
+    );
+}
+
+/// NEGATIVE CONTROL for `survivor_id`. Every assertion above rests on this
+/// helper reporting the id the engine really kept. Run it over the two shapes in
+/// one test and require the answers to differ in exactly the way the two designs
+/// differ: the `keepId` form's survivor **is** an input id, the legacy form's
+/// **is not** any input id. A helper that echoed its input, or that read a
+/// missing field as a match, cannot satisfy both halves.
+#[tokio::test]
+async fn the_survivor_helper_can_tell_two_survivors_apart() {
+    let h = setup().await;
+
+    let keep = h.card("Kept", "kept@example.org").await;
+    let gone = h.card("Gone", "gone@example.org").await;
+    let kept_resp = h
+        .call(
+            "ContactCard/merge",
+            json!({ "keepId": keep, "mergeIds": [gone] }),
+        )
+        .await;
+    let kept_survivor = survivor_id(&merge_ok(&kept_resp, "keepId merge"));
+
+    let x = h.card("X", "x@example.org").await;
+    let y = h.card("Y", "y@example.org").await;
+    let legacy_resp = h.call("ContactCard/merge", json!({ "ids": [x, y] })).await;
+    let legacy_survivor = survivor_id(&merge_ok(&legacy_resp, "legacy merge"));
+
+    assert_eq!(
+        kept_survivor, keep,
+        "keepId form: survivor is the named input"
+    );
+    assert!(
+        legacy_survivor != x && legacy_survivor != y,
+        "legacy form: survivor is a new card, not an input — if this reads as a \
+         match, `survivor_id` is not reading a real value"
+    );
+    assert_ne!(
+        kept_survivor, legacy_survivor,
+        "the helper must distinguish the two survivors"
+    );
+}
+
+#[tokio::test]
+async fn merge_refuses_without_a_second_card_and_keeps_the_first() {
+    let h = setup().await;
+    let only = h.card("Solo", "solo@example.org").await;
+
+    for args in [
+        json!({ "keepId": only, "mergeIds": [] }),
+        // `keepId` listed among the ids to merge away is not a licence to
+        // tombstone the survivor.
+        json!({ "keepId": only, "mergeIds": [only] }),
+        json!({ "keepId": only }),
+    ] {
+        let resp = h.call("ContactCard/merge", args.clone()).await;
+        assert_eq!(
+            resp["type"].as_str(),
+            Some("serverFail"),
+            "{args} should have been refused, got {resp}"
+        );
+        assert!(
+            h.card_exists(&only).await,
+            "a refused merge must leave the card alone ({args})"
+        );
+    }
+    assert_eq!(h.all_contact_ids().await, vec![only]);
+}
+
+#[tokio::test]
+async fn merge_with_an_unknown_id_destroys_nothing() {
+    let h = setup().await;
+    let keep = h.card("Ada", "ada@example.org").await;
+    let dup = h.card("Ada", "ada@home.test").await;
+
+    let resp = h
+        .call(
+            "ContactCard/merge",
+            json!({ "keepId": keep, "mergeIds": [dup, "contact_does_not_exist"] }),
+        )
+        .await;
+    assert_eq!(resp["type"].as_str(), Some("serverFail"), "{resp}");
+
+    // Every source is resolved before anything is written, so a bad id in the
+    // list cannot leave a half-applied merge behind.
+    assert!(h.card_exists(&keep).await, "keep survived the refusal");
+    assert!(
+        h.card_exists(&dup).await,
+        "dup was not tombstoned by a failed merge"
+    );
+    assert_eq!(
+        h.card_emails(&keep).await,
+        vec!["ada@example.org".to_string()]
+    );
+}
+
 // ── state / changes ───────────────────────────────────────────────────────────
 
 #[tokio::test]

@@ -600,23 +600,38 @@ impl Engine {
 
     /// Merge duplicate contacts into one card (§2.2, plan risk #9).
     ///
-    /// Two request shapes, because the shipped web client and this method have
-    /// never agreed on one:
+    /// # Two request shapes, and they are NOT aliases
     ///
-    /// * **`{keepId, mergeIds}`** — what the client has always sent
-    ///   (`apps/web/src/modules/contacts/api.ts`). The card named by `keepId`
-    ///   **survives, keeping its own id**; the union is written over it and only
-    ///   `mergeIds` are tombstoned. The response carries that survivor as a full
-    ///   card object under `merged` — which is what the client's
-    ///   `ContactMergeResponse` is typed for and what it patches into its store.
-    /// * **`{ids}`** — the original shape. Produces a *new* card and tombstones
-    ///   every source, exactly as before. Unchanged, because it is what the
-    ///   engine's own tests and any direct JMAP caller speak.
+    /// They differ in **which card survives** and in **what the response looks
+    /// like**. Both divergences are deliberate back-compat, not oversights, and
+    /// `crates/mw-engine/tests/pim.rs` asserts each of them — a "tidy-up" that
+    /// unifies the two paths will fail those tests rather than silently change
+    /// behaviour for existing callers.
     ///
-    /// `destroyed` is reported by both shapes (the JMAP-conventional name the
-    /// client reads); `tombstoned` is kept alongside it. Either way the sources
-    /// are tombstoned with a `destroyed` op in the change log — reversible,
-    /// never an in-place overwrite of a card the caller did not name.
+    /// | | `{keepId, mergeIds}` | `{ids}` *(deprecated)* |
+    /// |---|---|---|
+    /// | survivor | **the card named by `keepId`**, keeping its id, uid and etag | a **new** card |
+    /// | tombstoned | only `mergeIds` | **every** source, `ids[0]` included |
+    /// | `merged` | the survivor as a full **card object** | the new card's **id string** |
+    /// | also returns | `keptId`, `destroyed`, `tombstoned` | `destroyed`, `tombstoned` |
+    ///
+    /// **`{keepId, mergeIds}` is the shape to use.** It is what the shipped web
+    /// client sends (`apps/web/src/modules/contacts/api.ts`) and what its
+    /// `ContactMergeResponse` is typed for — it patches `merged` straight into
+    /// the `keepId` slot in its store, so a bare id string there would put a
+    /// string where a card belongs.
+    ///
+    /// **`{ids}` is deprecated** and kept only because direct JMAP callers and
+    /// the engine's own older tests speak it. Prefer `{keepId, mergeIds}`; new
+    /// callers should not use `{ids}`. It is not scheduled for removal, and if
+    /// it ever is, that is a contract change rather than a cleanup.
+    ///
+    /// `keepId` wins if a request carries both.
+    ///
+    /// Either way the sources are tombstoned with a `destroyed` op in the change
+    /// log — reversible, never an in-place overwrite of a card the caller did
+    /// not name. `destroyed` is the JMAP-conventional name and is reported by
+    /// both shapes; `tombstoned` is the original name, kept alongside it.
     pub(crate) async fn contact_merge(&self, account_id: &str, args: &Value) -> Value {
         match args.get("keepId").and_then(Value::as_str) {
             Some(keep) if !keep.is_empty() => self.contact_merge_into(account_id, keep, args).await,
@@ -709,7 +724,9 @@ impl Engine {
         })
     }
 
-    /// `{ids}`: the original shape — a new card, every source tombstoned.
+    /// `{ids}`: the **deprecated** original shape — a new card, and every source
+    /// tombstoned including `ids[0]`. Behaviour deliberately unchanged; see
+    /// [`Engine::contact_merge`] for why the two shapes differ.
     async fn contact_merge_new_card(&self, account_id: &str, args: &Value) -> Value {
         let ids: Vec<String> = args
             .get("ids")
