@@ -49,6 +49,10 @@ pub struct EgressProxyRow {
     pub password: Option<String>,
     /// Permit plaintext `http` origins through this route.
     pub allow_plaintext: bool,
+    /// Whether this is **the** live route. At most one row may have this set, by a
+    /// partial unique index in 0027 — see [`Store::active_egress_proxy`] for why that
+    /// is a security property rather than a simplification.
+    pub active: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -72,6 +76,7 @@ impl fmt::Debug for EgressProxyRow {
                     .unwrap_or("None"),
             )
             .field("allow_plaintext", &self.allow_plaintext)
+            .field("active", &self.active)
             .finish()
     }
 }
@@ -98,6 +103,12 @@ impl Store {
     /// reads back as `None`, which writes back as keep-nothing; a route with one reads
     /// back as `Some(pw)`, which writes back the same value. A read never yields
     /// `Some("")`, so the clear arm is only ever reached deliberately.
+    ///
+    /// **`row.active` is ignored.** Activation is [`Store::set_active_egress_proxy`]
+    /// and nothing else, so editing a route's host or credentials can never make it
+    /// live as a side effect — switching which proxy all egress flows through is a
+    /// decision an operator takes deliberately, not one an edit form can make for
+    /// them.
     pub async fn put_egress_proxy(&self, row: &EgressProxyRow) -> Result<(), StoreError> {
         // `write_password = 0` leaves the stored value untouched on conflict. On a
         // fresh insert there is nothing to carry forward, so the sealed empty string
@@ -135,7 +146,7 @@ impl Store {
 
     /// Every configured route, password unsealed into memory.
     pub async fn list_egress_proxies(&self) -> Result<Vec<EgressProxyRow>, StoreError> {
-        let rows = q("SELECT id, scheme, host, port, username, sealed_password, allow_plaintext, created_at, updated_at
+        let rows = q("SELECT id, scheme, host, port, username, sealed_password, allow_plaintext, active, created_at, updated_at
                       FROM egress_proxy ORDER BY id")
             .fetch_all(&self.backend)
             .await?;
@@ -144,12 +155,59 @@ impl Store {
 
     /// One route by id, password unsealed into memory.
     pub async fn get_egress_proxy(&self, id: &str) -> Result<Option<EgressProxyRow>, StoreError> {
-        let row = q("SELECT id, scheme, host, port, username, sealed_password, allow_plaintext, created_at, updated_at
+        let row = q("SELECT id, scheme, host, port, username, sealed_password, allow_plaintext, active, created_at, updated_at
                      FROM egress_proxy WHERE id = ?1")
             .bind(id)
             .fetch_optional(&self.backend)
             .await?;
         row.as_ref().map(|r| self.decode_egress_row(r)).transpose()
+    }
+
+    /// **The** live egress route, or `None` when egress is direct.
+    ///
+    /// # This signature is the security boundary
+    /// It takes **`&self` and nothing else**, and that is deliberate: `ProxyRoute`'s
+    /// host is exempt from the SSRF address policy (an egress proxy on RFC1918 is the
+    /// normal deployment), and that carve-out is safe only while a route is
+    /// deployment-wide operator configuration **that nothing request-derived can
+    /// select**. Give this function a destination, an account or a header to choose
+    /// by, and choosing a route becomes choosing a destination whose host bypasses
+    /// the gate.
+    ///
+    /// **A function with no request-shaped parameter cannot be steered** — which is
+    /// checkable by reading one line, holds under every future edit to the body, and
+    /// does not depend on the next maintainer having heard of this reasoning. If a
+    /// caller ever needs a parameter here, that is the moment to escalate rather than
+    /// to add one.
+    ///
+    /// 0027's partial unique index is what makes the answer well-defined; without it
+    /// "no arguments" would have to pick arbitrarily, which is a latent surprise.
+    pub async fn active_egress_proxy(&self) -> Result<Option<EgressProxyRow>, StoreError> {
+        let row = q("SELECT id, scheme, host, port, username, sealed_password, allow_plaintext, active, created_at, updated_at
+                     FROM egress_proxy WHERE active = 1")
+            .fetch_optional(&self.backend)
+            .await?;
+        row.as_ref().map(|r| self.decode_egress_row(r)).transpose()
+    }
+
+    /// Make `id` the live route, or deactivate every route when `id` is `None`.
+    ///
+    /// Deactivating first is not tidiness: 0027's partial unique index REFUSES a
+    /// second active row, so activating without clearing the previous one fails
+    /// rather than silently switching. Both statements run so the pair is atomic from
+    /// the caller's view; a partial failure leaves no route active, which is the
+    /// fail-safe direction — egress falls back to direct rather than to a route the
+    /// operator did not choose.
+    pub async fn set_active_egress_proxy(&self, id: Option<&str>) -> Result<bool, StoreError> {
+        q("UPDATE egress_proxy SET active = 0 WHERE active = 1")
+            .execute(&self.backend)
+            .await?;
+        let Some(id) = id else { return Ok(true) };
+        let affected = q("UPDATE egress_proxy SET active = 1 WHERE id = ?1")
+            .bind(id)
+            .execute(&self.backend)
+            .await?;
+        Ok(affected > 0)
     }
 
     /// Remove a route. Returns `true` when a row was actually deleted, so the caller
@@ -178,6 +236,7 @@ impl Store {
             // Empty ⇒ absent, mirroring how it was written.
             password: (!plain.is_empty()).then_some(plain),
             allow_plaintext: r.get_i64("allow_plaintext") != 0,
+            active: r.get_i64("active") != 0,
             created_at: r.get_string("created_at"),
             updated_at: r.get_string("updated_at"),
         })
@@ -200,6 +259,7 @@ mod tests {
             username: "svc-mail".into(),
             password: Some(PASSWORD.into()),
             allow_plaintext: false,
+            active: false,
             created_at: String::new(),
             updated_at: String::new(),
         }
@@ -253,6 +313,104 @@ mod tests {
             .unwrap()
             .expect("row")
             .get_blob("sealed_password")
+    }
+
+    /// A second route, so "exactly one active" has something to be exactly one of.
+    fn other_row() -> EgressProxyRow {
+        EgressProxyRow {
+            id: "backup".into(),
+            host: "proxy-backup.corp.example".into(),
+            ..row()
+        }
+    }
+
+    #[tokio::test]
+    async fn no_route_is_active_until_one_is_made_active() {
+        let s = store().await;
+        s.put_egress_proxy(&row()).await.unwrap();
+        s.put_egress_proxy(&other_row()).await.unwrap();
+        assert!(
+            s.active_egress_proxy().await.unwrap().is_none(),
+            "configuring a route must not make it live — egress stays direct until an \
+             operator chooses, or adding a route silently reroutes all traffic"
+        );
+    }
+
+    #[tokio::test]
+    async fn activating_a_second_route_leaves_exactly_one_live() {
+        let s = store().await;
+        s.put_egress_proxy(&row()).await.unwrap();
+        s.put_egress_proxy(&other_row()).await.unwrap();
+
+        assert!(s.set_active_egress_proxy(Some("corp")).await.unwrap());
+        assert_eq!(s.active_egress_proxy().await.unwrap().unwrap().id, "corp");
+
+        // The switch. Without the deactivate-first step 0027's partial unique index
+        // refuses this outright, which is the constraint doing its job.
+        assert!(s.set_active_egress_proxy(Some("backup")).await.unwrap());
+        assert_eq!(s.active_egress_proxy().await.unwrap().unwrap().id, "backup");
+
+        let live: Vec<_> = s
+            .list_egress_proxies()
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|r| r.active)
+            .map(|r| r.id)
+            .collect();
+        assert_eq!(
+            live,
+            vec!["backup".to_string()],
+            "exactly one route may be live — two would mean selection has to choose, \
+             and a selection key is the SSRF primitive 0027 exists to prevent"
+        );
+    }
+
+    #[tokio::test]
+    async fn deactivating_everything_returns_egress_to_direct() {
+        let s = store().await;
+        s.put_egress_proxy(&row()).await.unwrap();
+        s.set_active_egress_proxy(Some("corp")).await.unwrap();
+        s.set_active_egress_proxy(None).await.unwrap();
+        assert!(s.active_egress_proxy().await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn activating_an_unknown_id_reports_that_nothing_was_activated() {
+        let s = store().await;
+        s.put_egress_proxy(&row()).await.unwrap();
+        s.set_active_egress_proxy(Some("corp")).await.unwrap();
+        assert!(
+            !s.set_active_egress_proxy(Some("nope")).await.unwrap(),
+            "an unknown id activated nothing and must say so, or the audit row \
+             records a switch that did not happen"
+        );
+        assert!(
+            s.active_egress_proxy().await.unwrap().is_none(),
+            "and it must leave NOTHING live rather than the previous route — falling \
+             back to direct egress is the fail-safe direction; silently keeping the \
+             old route would mean the operator believes they switched and did not"
+        );
+    }
+
+    #[tokio::test]
+    async fn editing_a_route_cannot_make_it_live() {
+        let s = store().await;
+        s.put_egress_proxy(&row()).await.unwrap();
+        let mut edit = row();
+        edit.active = true; // ignored by design
+        edit.host = "proxy2.corp.example".into();
+        s.put_egress_proxy(&edit).await.unwrap();
+        assert!(
+            s.active_egress_proxy().await.unwrap().is_none(),
+            "an edit must not activate a route as a side effect — switching the proxy \
+             all egress flows through is a deliberate act, not a form field"
+        );
+        assert_eq!(
+            s.get_egress_proxy("corp").await.unwrap().unwrap().host,
+            "proxy2.corp.example",
+            "…while the edit itself still applied"
+        );
     }
 
     #[tokio::test]

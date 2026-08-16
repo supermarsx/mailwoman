@@ -56,6 +56,8 @@ pub(crate) fn egress_admin_router() -> Router<AppState> {
     Router::new()
         .route("/admin/egress/proxies", get(list_proxies).post(put_proxy))
         .route("/admin/egress/proxies/{id}/delete", post(delete_proxy))
+        .route("/admin/egress/proxies/{id}/activate", post(activate_proxy))
+        .route("/admin/egress/proxies/deactivate", post(deactivate_proxies))
 }
 
 /// A create/replace request.
@@ -116,6 +118,10 @@ struct ProxyView {
     username: String,
     has_credentials: bool,
     allow_plaintext: bool,
+    /// Whether this is the live route. At most one row may be, by 0027's partial
+    /// unique index — see `Store::active_egress_proxy` for why that is a security
+    /// property. Not a secret, so the UI may show it.
+    active: bool,
     created_at: String,
     updated_at: String,
 }
@@ -130,6 +136,7 @@ impl From<&EgressProxyRow> for ProxyView {
             username: r.username.clone(),
             has_credentials: r.password.is_some(),
             allow_plaintext: r.allow_plaintext,
+            active: r.active,
             created_at: r.created_at.clone(),
             updated_at: r.updated_at.clone(),
         }
@@ -227,6 +234,10 @@ async fn put_proxy(
         username: body.username.clone(),
         password: body.password.clone(),
         allow_plaintext: body.allow_plaintext,
+        // Ignored by `put_egress_proxy` — activation is a deliberate, separate act
+        // (0027), never a side effect of an edit. Set explicitly rather than by a
+        // `..Default::default()` so this stays visible at the call site.
+        active: false,
         created_at: String::new(),
         updated_at: String::new(),
     };
@@ -256,6 +267,83 @@ async fn delete_proxy(
         }
         Err(e) => store_failed("delete", &e),
     }
+}
+
+/// `POST /admin/egress/proxies/{id}/activate` — make this the one live route.
+///
+/// Existence is checked FIRST, and a missing id is a `404` that changes nothing.
+/// `Store::set_active_egress_proxy` deliberately deactivates before it activates, so
+/// calling it with a typo'd id would leave egress direct — the fail-safe direction,
+/// but still a change the operator did not ask for and might not notice. Guarding at
+/// the boundary means a typo costs them nothing; the store's behaviour stays as
+/// defence in depth for any other caller.
+async fn activate_proxy(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    UrlPath(id): UrlPath<String>,
+) -> Response {
+    let admin = match super::require_admin(&state, &headers).await {
+        Ok(a) => a,
+        Err(resp) => return resp,
+    };
+    let row = match state.store.get_egress_proxy(&id).await {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "no such egress route" })),
+            )
+                .into_response();
+        }
+        Err(e) => return store_failed("activate lookup", &e),
+    };
+    match state.store.set_active_egress_proxy(Some(&id)).await {
+        Ok(activated) => {
+            append_egress_audit(
+                &state,
+                &admin,
+                &id,
+                json!({ "activated": activated, "endpoint": endpoint(&row) }),
+            )
+            .await;
+            Json(json!({ "ok": true, "activated": activated })).into_response()
+        }
+        Err(e) => store_failed("activate", &e),
+    }
+}
+
+/// `POST /admin/egress/proxies/deactivate` — return egress to direct.
+///
+/// Deliberately not `{id}/deactivate`: there is at most one live route, so "stop
+/// using a proxy" is one deployment-wide state rather than an operation on a
+/// particular row, and naming an id would imply a per-route toggle that 0027 does
+/// not permit.
+async fn deactivate_proxies(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let admin = match super::require_admin(&state, &headers).await {
+        Ok(a) => a,
+        Err(resp) => return resp,
+    };
+    // What was live BEFORE, so the audit row names what actually changed rather than
+    // recording an anonymous "egress deactivated" that a reader cannot act on.
+    let previous = match state.store.active_egress_proxy().await {
+        Ok(p) => p,
+        Err(e) => return store_failed("deactivate lookup", &e),
+    };
+    if let Err(e) = state.store.set_active_egress_proxy(None).await {
+        return store_failed("deactivate", &e);
+    }
+    let target = previous.as_ref().map_or("", |r| r.id.as_str());
+    append_egress_audit(
+        &state,
+        &admin,
+        target,
+        json!({
+            "deactivated": previous.is_some(),
+            "endpoint": previous.as_ref().map(endpoint),
+        }),
+    )
+    .await;
+    Json(json!({ "ok": true, "deactivated": previous.is_some() })).into_response()
 }
 
 /// Append an egress-configuration audit row.
@@ -305,6 +393,7 @@ mod tests {
             username: "svc-mail".into(),
             password: Some(PASSWORD.into()),
             allow_plaintext: false,
+            active: false,
             created_at: "t0".into(),
             updated_at: "t0".into(),
         }
