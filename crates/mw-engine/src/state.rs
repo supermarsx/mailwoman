@@ -103,20 +103,6 @@ impl Engine {
         format!("e{e}m{m}s{s}p{p}c{c}")
     }
 
-    async fn crypto_type_num(&self, account_id: &str, kind: ChangeType) -> u64 {
-        self.store()
-            .current_crypto_state(account_id, kind.as_str())
-            .await
-            .unwrap_or(0)
-    }
-
-    async fn type_num(&self, account_id: &str, kind: ChangeType) -> u64 {
-        self.store()
-            .current_state(account_id, kind.as_str())
-            .await
-            .unwrap_or(0)
-    }
-
     // ── PIM state tokens + `*/changes` (plan §1.8/§2.2) ─────────────────────
     // Sourced from the separate `pim_changes` log so PIM counters are disjoint
     // from the mail `changes` counters — a Calendar and an Email can share the
@@ -401,28 +387,36 @@ impl Engine {
     /// Fan a [`StateChange`] out to every subscribed WS/SSE session (plan §1.2,
     /// §2.2). A no-op when no session is listening.
     pub(crate) async fn broadcast_state(&self, account_id: &str) {
-        let email = self
-            .type_num(account_id, ChangeType::Email)
-            .await
-            .to_string();
-        let mailbox = self
-            .type_num(account_id, ChangeType::Mailbox)
-            .await
-            .to_string();
-        let submission = self
-            .type_num(account_id, ChangeType::EmailSubmission)
-            .await
-            .to_string();
+        // **One statement per change log, not one per counter** (26.20 t22-e-perf).
+        // Measured: five sequential counter SELECTs, now two.
+        //
+        // This is `sessionState`'s 12 → 3 one layer over, and the cost lands
+        // somewhere different: `session_state` runs per *request*, this runs on
+        // every **broadcasting mutation** — so a client that writes pays it, and a
+        // bulk operation pays it once per resync rather than once per read.
+        //
+        // The two groups are read concurrently: independent statements against two
+        // tables, so on Postgres the fixed cost is one round trip's latency rather
+        // than two. The PIM log is deliberately not read — no PIM counter appears
+        // in a `StateChange`, and a fan-out must not pay for a value it does not
+        // send.
+        //
+        // A failed read degrades that group to zeros, exactly as the per-counter
+        // `unwrap_or(0)` it replaces did.
+        let store = self.store();
+        let (mail, crypto) = tokio::join!(
+            store.current_states(account_id),
+            store.current_crypto_states(account_id),
+        );
+        let (mail, crypto) = (mail.unwrap_or_default(), crypto.unwrap_or_default());
+
+        let email = counter(&mail, ChangeType::Email).to_string();
+        let mailbox = counter(&mail, ChangeType::Mailbox).to_string();
+        let submission = counter(&mail, ChangeType::EmailSubmission).to_string();
         // V4 crypto/security counters, sourced from the `crypto_changes` log so a
         // CryptoKey/MailRule change reaches connected sessions (plan §2.2).
-        let crypto_key = self
-            .crypto_type_num(account_id, ChangeType::CryptoKey)
-            .await
-            .to_string();
-        let mail_rule = self
-            .crypto_type_num(account_id, ChangeType::MailRule)
-            .await
-            .to_string();
+        let crypto_key = counter(&crypto, ChangeType::CryptoKey).to_string();
+        let mail_rule = counter(&crypto, ChangeType::MailRule).to_string();
         let sc = StateChange {
             account_id: account_id.to_string(),
             thread: email.clone(),
@@ -1071,6 +1065,142 @@ pub(crate) mod session_state_tests {
         p.assert_per_request_overhead(&acct, "SQLite").await;
     }
 
+    // ── broadcast_state (t22-e-perf item 2) ────────────────────────────────
+
+    impl Probe {
+        /// **The pre-fix `broadcast_state` reads, reproduced verbatim** as five
+        /// single-counter round trips — `session_state_unfolded`'s pattern, and
+        /// for the same reason: the equality below compares the folded result to
+        /// *this*, measured in the same run, rather than to a hand-written
+        /// expectation that would encode my assumption about the fold.
+        ///
+        /// `thread` is `email` in both, and is not a sixth read.
+        ///
+        /// It reads the store directly because the `Engine::type_num` /
+        /// `crypto_type_num` helpers it used to call had no caller left once
+        /// `broadcast_state` was folded, and dead production code that reads like
+        /// a live second path is worse than an oracle that states what it is
+        /// (same move as `t22-e3g`'s `build_email_per_id`).
+        async fn broadcast_unfolded(&self, account_id: &str) -> StateChange {
+            let one = async |kind: ChangeType| {
+                self.store()
+                    .current_state(account_id, kind.as_str())
+                    .await
+                    .unwrap_or(0)
+                    .to_string()
+            };
+            let one_crypto = async |kind: ChangeType| {
+                self.store()
+                    .current_crypto_state(account_id, kind.as_str())
+                    .await
+                    .unwrap_or(0)
+                    .to_string()
+            };
+            let email = one(ChangeType::Email).await;
+            let mailbox = one(ChangeType::Mailbox).await;
+            let submission = one(ChangeType::EmailSubmission).await;
+            let crypto_key = one_crypto(ChangeType::CryptoKey).await;
+            let mail_rule = one_crypto(ChangeType::MailRule).await;
+            StateChange {
+                account_id: account_id.to_string(),
+                thread: email.clone(),
+                email,
+                mailbox,
+                submission,
+                crypto_key,
+                mail_rule,
+            }
+        }
+
+        /// Assert the fold on one prepared account: identical `StateChange`,
+        /// 5 statements before, 2 after, and one against each change log.
+        async fn assert_broadcast_folded(&self, account_id: &str, what: &str) {
+            let (unfolded, before) = self.count(self.broadcast_unfolded(account_id)).await;
+            assert_eq!(
+                before.len(),
+                5,
+                "{what}: the pre-fix fan-out is 5 sequential counter SELECTs; got {before:#?}"
+            );
+
+            let mut rx = self.engine.subscribe();
+            let (_, after) = self.count(self.engine.broadcast_state(account_id)).await;
+            let sent = rx
+                .try_recv()
+                .expect("broadcast_state must publish a StateChange");
+
+            assert_eq!(
+                sent, unfolded,
+                "{what}: the folded fan-out must be identical to the 5-read value"
+            );
+            assert_eq!(
+                after.len(),
+                2,
+                "{what}: one statement per change log (mail/crypto); got {after:#?}"
+            );
+            assert_eq!(
+                after.against("crypto_changes"),
+                1,
+                "{what}: one crypto statement; got {after:#?}"
+            );
+            let mail_stmts = after
+                .0
+                .iter()
+                .filter(|s| !s.sql.contains("pim_changes") && !s.sql.contains("crypto_changes"))
+                .count();
+            assert_eq!(mail_stmts, 1, "{what}: one mail statement; got {after:#?}");
+            assert_eq!(
+                after.against("pim_changes"),
+                0,
+                "{what}: the fan-out carries no PIM counter, so it must not read \
+                 that log at all; got {after:#?}"
+            );
+        }
+    }
+
+    /// t22-e-perf item 2. `broadcast_state` runs on **every broadcasting
+    /// mutation**, so its cost is paid per write rather than per request — the
+    /// same shape as `sessionState`'s 12 → 3, one layer over.
+    ///
+    /// The instrument is the statement count, calibrated by
+    /// [`stmt_counter_negative_control`] and re-calibrated here by the
+    /// `before.len() == 5` leg: a counter that could not tell 5 sequential reads
+    /// from 2 batched ones would make the `after` number meaningless.
+    ///
+    /// Every group is asserted **populated and empty**, because a fold that
+    /// mixed two groups up produces the same answer when both are zero.
+    #[tokio::test]
+    async fn broadcast_state_is_one_statement_per_change_log() {
+        let p = Probe::sqlite().await;
+
+        let full = p.account("bcast-full").await;
+        p.seed_all(&full).await;
+        p.assert_broadcast_folded(&full, "all counters populated")
+            .await;
+
+        p.assert_broadcast_folded("bcast-never-seen", "every group empty")
+            .await;
+
+        // Only the crypto group populated: the mail counters must still read 0
+        // rather than inheriting a crypto value.
+        let crypto_only = p.account("bcast-crypto").await;
+        p.engine
+            .record_crypto_change(&crypto_only, ChangeType::CryptoKey, "k1", ChangeOp::Created)
+            .await
+            .unwrap();
+        p.assert_broadcast_folded(&crypto_only, "only the crypto group populated")
+            .await;
+
+        // Only the mail group populated, and specifically ONE of its three
+        // counters — the case that catches a fold reading the wrong key.
+        let mail_only = p.account("bcast-mail").await;
+        p.engine
+            .record_change(&mail_only, ChangeType::Mailbox, "mb1", ChangeOp::Created)
+            .await
+            .unwrap();
+        p.assert_broadcast_folded(&mail_only, "only Mailbox populated")
+            .await;
+    }
+
     // ── live Postgres ───────────────────────────────────────────────────────
     // The divergence this lane exists for only appears on PG: the 12 sequential
     // round trips are ~2 ms on SQLite and ~45 ms on PG. Skipped LOUDLY (the test
@@ -1115,6 +1245,30 @@ pub(crate) mod session_state_tests {
             .unwrap();
         assert_eq!(p.engine.session_state(&partial).await, "e0m0s0p1c0");
         p.assert_folded(&partial, "live PG, only the PIM group populated")
+            .await;
+    }
+
+    /// t22-e-perf item 2, on the backend the fold exists for.
+    ///
+    /// The statement *count* is dialect-independent — both backends issue the
+    /// same five, then the same two. What is not dialect-independent is what
+    /// they cost: five sequential counter SELECTs are ~1 ms on SQLite and five
+    /// network round trips on Postgres, on **every broadcasting mutation**. This
+    /// leg also exercises the `GROUP BY` batched readers against real Postgres,
+    /// which the SQLite leg cannot.
+    #[tokio::test]
+    async fn live_pg_broadcast_state_is_one_statement_per_change_log() {
+        let Some(p) = Probe::pg().await else {
+            eprintln!(
+                "SKIP live_pg_broadcast_state_is_one_statement_per_change_log: no MW_E14_PG_DSN"
+            );
+            return;
+        };
+        let full = p.account(&unique("bcast")).await;
+        p.seed_all(&full).await;
+        p.assert_broadcast_folded(&full, "live PG, all counters populated")
+            .await;
+        p.assert_broadcast_folded(&unique("bcast-empty"), "live PG, every group empty")
             .await;
     }
 
