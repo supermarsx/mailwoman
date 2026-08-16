@@ -867,17 +867,74 @@ impl Engine {
 
     // ---- Email/get ------------------------------------------------------
 
+    /// `Email/get` — **one store batch per page**, not one per message
+    /// (26.20 t22-e3g, plan row S5).
+    ///
+    /// # What this cost, and what the number is made of
+    ///
+    /// A 50-id page issued **151 statements** here (`build_email` in a loop:
+    /// `get_message` + `get_envelope` + `get_message_meta` per id, plus one
+    /// `type_state`) — the plan's 163 for the whole request, before `t22-e0`
+    /// folded `sessionState`'s twelve counter SELECTs to three. Invisible on
+    /// SQLite at ~34 ms; **425 ms on Postgres**, where each of those awaits is a
+    /// network round trip and the page is what a user is waiting for.
+    ///
+    /// It is **four** now, whatever the page size: the message rows, the
+    /// envelopes, the engine-local metadata, and the state token.
+    ///
+    /// # Why the envelope read is still per-id when a cache is attached
+    ///
+    /// This is the part that cannot be batched away without breaking something,
+    /// so it is deliberate rather than overlooked. `get_message` and
+    /// `get_message_meta` were always direct store reads and batch
+    /// unconditionally. The **envelope** is different: it goes through
+    /// [`Engine::cached_envelope`], which is what populates the header-window
+    /// cache and what routes a zero-access account away from every shared tier.
+    /// Reading it straight from the store would silently stop both, and
+    /// `crates/mw-engine/tests/v6.rs` asserts each
+    /// (`standard_account_populates_the_header_window_cache`,
+    /// `zero_access_account_never_materializes_plaintext_in_the_engine_cache`).
+    /// Those tests are the reason this branch exists rather than an obstacle
+    /// to it.
+    ///
+    /// So: **no cache attached** — the default, and what the statement
+    /// assertions measure — one `get_envelopes` for the page. **Cache
+    /// attached** — per-id cache-aside as before, which costs SQL only on a miss
+    /// and nothing on a hit, so it remains strictly cheaper than what it
+    /// replaced.
+    ///
+    /// # The one read that stays per-message, stated rather than glossed
+    ///
+    /// A message with **no stored envelope** falls back to re-parsing its sealed
+    /// body, one read each. That is a per-message read of *different bytes*
+    /// rather than a repeated read of the same table, and it is the rare case: a
+    /// synced mailbox stores envelopes. A page of POP3-ingested mail (which
+    /// stores none) therefore still costs one body read per message. Not batched
+    /// here because one statement returning fifty message bodies trades a
+    /// round-trip problem for a memory one, and nothing has measured that trade.
     async fn email_get(&self, account_id: &str, args: &Value) -> Value {
         let empty = Vec::new();
-        let ids = args.get("ids").and_then(Value::as_array).unwrap_or(&empty);
+        let requested: Vec<&str> = args
+            .get("ids")
+            .and_then(Value::as_array)
+            .unwrap_or(&empty)
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
 
-        let mut list = Vec::new();
+        let assembled = match self.build_emails(&requested).await {
+            Ok(v) => v,
+            Err(e) => return server_fail(&e),
+        };
+
+        // `list` is positional against the request: a repeated id is answered
+        // twice, because de-duplicating it drops an entry the client asked for.
+        let mut list = Vec::with_capacity(assembled.len());
         let mut not_found = Vec::new();
-        for id in ids.iter().filter_map(Value::as_str) {
-            match self.build_email(id).await {
-                Ok(Some(email)) => list.push(email),
-                Ok(None) => not_found.push(json!(id)),
-                Err(e) => return server_fail(&e),
+        for (id, email) in requested.iter().zip(assembled) {
+            match email {
+                Some(e) => list.push(e),
+                None => not_found.push(json!(id)),
             }
         }
         json!({
@@ -888,61 +945,85 @@ impl Engine {
         })
     }
 
-    /// Assemble the `mw_jmap::Email` JSON for one stable id from the sealed
-    /// envelope (or a re-parse of the sealed raw body), patched with the
-    /// engine-owned id / mailboxIds / keywords / threadId / blobId and the
-    /// engine-local `pinned`/`snoozedUntil`/`followUpAt` extras (§2.1).
-    async fn build_email(&self, stable_id: &str) -> Result<Option<Value>> {
-        let msg = match self.store().get_message(stable_id).await {
-            Ok(m) => m,
-            Err(mw_store::StoreError::NotFound) => return Ok(None),
-            Err(e) => return Err(EngineError::Store(e)),
-        };
-
-        // Cache-aside on the header-window (envelope) + message-body read paths
-        // (plan §3 e10). Inert without an attached cache; zero-access accounts
-        // bypass every shared tier via `get_derived` (the store already holds
-        // ciphertext the engine treats as opaque).
-        let mut email: Value = match self.cached_envelope(&msg.account_id, stable_id).await? {
-            Some(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({})),
-            None => match &msg.blob_ref {
-                Some(blob) => match self.cached_body(&msg.account_id, stable_id, blob).await? {
-                    Some(raw) => mw_mime::parse(&raw)
-                        .ok()
-                        .and_then(|p| serde_json::to_value(p.email).ok())
-                        .unwrap_or_else(|| json!({})),
-                    None => json!({}),
-                },
-                None => json!({}),
-            },
-        };
-
-        let meta = self
-            .store()
-            .get_message_meta(stable_id)
-            .await?
-            .unwrap_or_default();
-        let obj = email.as_object_mut().expect("email is an object");
-        obj.insert("id".into(), json!(stable_id));
-        // blobId scheme (e14): the whole message is `<stableId>`, each attachment
-        // part is `<stableId>.<partId>` — both resolved by `Engine::fetch_blob`
-        // behind `/jmap/download`. Patch the message blobId + every attachment's.
-        obj.insert("blobId".into(), json!(stable_id));
-        if let Some(atts) = obj.get_mut("attachments").and_then(Value::as_array_mut) {
-            for att in atts {
-                if let Some(pid) = att.get("partId").and_then(Value::as_str) {
-                    att["blobId"] = json!(format!("{stable_id}.{pid}"));
-                }
+    /// Assemble a whole page of `mw_jmap::Email` JSON in a bounded number of
+    /// store reads, positionally aligned with `stable_ids` (26.20 t22-e3g).
+    ///
+    /// `None` where the id names no stored message — the batch equivalent of
+    /// [`Engine::build_email`]s `Ok(None)`, and what fills JMAP notFound.
+    ///
+    /// **Duplicate ids cost one read, not two.** The store reads are issued over
+    /// the de-duplicated set and projected back positionally, so `["a", "a"]`
+    /// reads `a` once and answers twice. Left un-deduplicated, a client could
+    /// turn a 50-id page into fifty copies of one id and pay for all of them.
+    async fn build_emails(&self, stable_ids: &[&str]) -> Result<Vec<Option<Value>>> {
+        if stable_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut unique: Vec<String> = Vec::with_capacity(stable_ids.len());
+        let mut slot: HashMap<&str, usize> = HashMap::with_capacity(stable_ids.len());
+        for id in stable_ids {
+            if !slot.contains_key(id) {
+                slot.insert(id, unique.len());
+                unique.push((*id).to_string());
             }
         }
-        obj.insert("threadId".into(), json!(msg.thread_id));
-        obj.insert("mailboxIds".into(), json!({ msg.mailbox_id.clone(): true }));
-        let keywords = flags_to_keywords(&flags_from_json(&msg.flags_json));
-        obj.insert("keywords".into(), json!(keywords));
-        obj.insert("pinned".into(), json!(meta.pinned));
-        obj.insert("snoozedUntil".into(), json!(meta.snoozed_until));
-        obj.insert("followUpAt".into(), json!(meta.follow_up_at));
-        Ok(Some(email))
+
+        // Statements 1 and 2: everything that was never cache-aside.
+        let msgs = self.store().get_messages(&unique).await?;
+        let metas = self.store().get_message_metas(&unique).await?;
+
+        // Statement 3, when no cache is attached — see `email_get` for why an
+        // attached cache keeps the per-id path.
+        let envelopes: Vec<Option<Vec<u8>>> = if self.v6_hooks().has_cache() {
+            let mut out = Vec::with_capacity(unique.len());
+            for (id, msg) in unique.iter().zip(&msgs) {
+                out.push(match msg {
+                    Some(m) => self.cached_envelope(&m.account_id, id).await?,
+                    None => None,
+                });
+            }
+            out
+        } else {
+            self.store().get_envelopes(&unique).await?
+        };
+
+        let mut built: Vec<Option<Value>> = Vec::with_capacity(unique.len());
+        for ((id, msg), (envelope, meta)) in unique
+            .iter()
+            .zip(msgs)
+            .zip(envelopes.into_iter().zip(metas))
+        {
+            let Some(msg) = msg else {
+                built.push(None);
+                continue;
+            };
+            // Only an envelope-less message reaches the body, one read each.
+            let email = match envelope {
+                Some(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({})),
+                None => match &msg.blob_ref {
+                    Some(blob) => match self.cached_body(&msg.account_id, id, blob).await? {
+                        Some(raw) => mw_mime::parse(&raw)
+                            .ok()
+                            .and_then(|p| serde_json::to_value(p.email).ok())
+                            .unwrap_or_else(|| json!({})),
+                        None => json!({}),
+                    },
+                    None => json!({}),
+                },
+            };
+            built.push(Some(patch_engine_fields(
+                email,
+                id,
+                &msg,
+                &meta.unwrap_or_default(),
+            )));
+        }
+
+        // Project back onto the request, duplicates included.
+        Ok(stable_ids
+            .iter()
+            .map(|id| built[slot[id]].clone())
+            .collect())
     }
 
     // ---- Email/set ------------------------------------------------------
@@ -2212,6 +2293,42 @@ fn query_route(filter: &EmailFilter, custom_sort: bool) -> QueryRoute {
     }
 }
 
+/// Patch the engine-owned fields onto a parsed/unsealed `Email` document.
+///
+/// The single place `Email/get`s per-id path and its batched page agree on what
+/// an `Email` looks like (26.20 t22-e3g). It was inline in `build_email`; a
+/// batch that re-implemented it would drift from the per-id path field by field,
+/// and the drift would show as a client rendering one page differently from
+/// another rather than as a failure.
+fn patch_engine_fields(
+    mut email: Value,
+    stable_id: &str,
+    msg: &mw_store::Message,
+    meta: &StoredMeta,
+) -> Value {
+    let obj = email.as_object_mut().expect("email is an object");
+    obj.insert("id".into(), json!(stable_id));
+    // blobId scheme (e14): the whole message is `<stableId>`, each attachment
+    // part is `<stableId>.<partId>` — both resolved by `Engine::fetch_blob`
+    // behind `/jmap/download`. Patch the message blobId + every attachment's.
+    obj.insert("blobId".into(), json!(stable_id));
+    if let Some(atts) = obj.get_mut("attachments").and_then(Value::as_array_mut) {
+        for att in atts {
+            if let Some(pid) = att.get("partId").and_then(Value::as_str) {
+                att["blobId"] = json!(format!("{stable_id}.{pid}"));
+            }
+        }
+    }
+    obj.insert("threadId".into(), json!(msg.thread_id));
+    obj.insert("mailboxIds".into(), json!({ msg.mailbox_id.clone(): true }));
+    let keywords = flags_to_keywords(&flags_from_json(&msg.flags_json));
+    obj.insert("keywords".into(), json!(keywords));
+    obj.insert("pinned".into(), json!(meta.pinned));
+    obj.insert("snoozedUntil".into(), json!(meta.snoozed_until));
+    obj.insert("followUpAt".into(), json!(meta.follow_up_at));
+    email
+}
+
 /// RFC 8620 §5.5 `anchorNotFound`: the `anchor` id is not in the query result.
 fn anchor_not_found() -> Value {
     json!({
@@ -3414,5 +3531,503 @@ mod query_paging_tests {
             }))
             .await;
         assert_eq!(qc["type"], json!("cannotCalculateChanges"), "{qc}");
+    }
+}
+
+#[cfg(test)]
+mod email_get_batch_tests {
+    //! `Email/get` — one store batch per page (26.20 t22-e3g, plan row S5).
+    //!
+    //! # The instrument, and the calibration that has to come before it
+    //!
+    //! The acceptance is `stmts(50 ids) == stmts(5 ids)` **and** `<= 6`, against
+    //! **163 today**. The equality is the load-bearing half and the bound is the
+    //! sanity check, not the reverse: a loop hidden behind a batch signature
+    //! satisfies `<= 6` only by accident on a small page, and fails the equality
+    //! on the first page that is not small. `t22-e3s` established the discipline
+    //! — it broke `upsert_batch` on purpose to make it commit per document and
+    //! confirmed its counter read 500 before believing any number from it — and
+    //! [`the_counter_reads_the_per_id_loop_it_is_meant_to_catch`] is this lane's
+    //! version of that: it drives the **unbatched** path through the same counter
+    //! and asserts the count scales with the id count. If that test ever stops
+    //! failing on a per-id implementation, every other number here is worthless.
+    //!
+    //! The counter itself is the shared recorder in
+    //! [`crate::state::session_state_tests`], which counts sqlx's own
+    //! `sqlx::query` events — one per statement actually executed, at the driver
+    //! layer. It is not a count of store-method calls, so a "batch" method that
+    //! loops internally is caught by it rather than hidden by it.
+
+    use std::collections::HashSet;
+    use std::thread::ThreadId;
+
+    use mw_store::{
+        AccountKind, Credentials, MailboxUpsert, MessageUpsert, NewAccount, ServerKey, Store,
+    };
+    use serde_json::json;
+
+    use super::*;
+    use crate::state::session_state_tests::{Stmts, counted, db_threads};
+
+    /// A fixture whose messages carry **envelopes**, which is what a synced
+    /// mailbox looks like.
+    ///
+    /// This matters to the measurement, not just to realism: `build_email` reads
+    /// a message's body **only when its envelope is absent**, so a fixture
+    /// without envelopes measures a fallback path instead of the read path, and
+    /// one with them measures what `Email/get` actually costs a user opening a
+    /// page of mail.
+    struct Fixture {
+        engine: Engine,
+        threads: HashSet<ThreadId>,
+        account: String,
+        ids: Vec<String>,
+    }
+
+    impl Fixture {
+        async fn with(n: usize) -> Self {
+            let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+            let threads = db_threads(&store).await;
+            let account = store
+                .create_account(
+                    &NewAccount {
+                        kind: AccountKind::Imap,
+                        host: "h",
+                        port: 993,
+                        tls: "implicit",
+                        username: "u",
+                        sync_policy_json: "{}",
+                    },
+                    &Credentials {
+                        username: "u".into(),
+                        password: "p".into(),
+                    },
+                )
+                .await
+                .unwrap();
+            let mailbox = store
+                .upsert_mailbox(&MailboxUpsert {
+                    account_id: &account,
+                    name: "INBOX",
+                    role: Some("inbox"),
+                    uidvalidity: 100,
+                    uidnext: 1,
+                    highestmodseq: 0,
+                    total: 0,
+                    unread: 0,
+                    parent_id: None,
+                })
+                .await
+                .unwrap();
+
+            let mut ids = Vec::new();
+            for uid in 1..=n as u32 {
+                let envelope = serde_json::to_vec(&json!({
+                    "subject": format!("Subject {uid}"),
+                    "from": [{ "name": "Alice", "email": "alice@example.org" }],
+                    "to": [{ "name": null, "email": "me@example.org" }],
+                    "receivedAt": format!("2026-07-01T00:00:{uid:08}Z"),
+                    "size": 1024,
+                    "hasAttachment": false,
+                }))
+                .unwrap();
+                let date = format!("2026-07-01T00:00:{uid:08}Z");
+                let message_id = format!("<m{uid}@x>");
+                ids.push(
+                    store
+                        .upsert_message(&MessageUpsert {
+                            account_id: &account,
+                            mailbox_id: &mailbox,
+                            uid,
+                            uidvalidity: 100,
+                            message_id: Some(&message_id),
+                            thread_id: None,
+                            internaldate: Some(&date),
+                            size: 1024,
+                            flags_json: r#"["Seen"]"#,
+                            envelope: Some(&envelope),
+                            blob_ref: None,
+                        })
+                        .await
+                        .unwrap(),
+                );
+            }
+            Self {
+                engine: Engine::new(store),
+                threads,
+                account,
+                ids,
+            }
+        }
+
+        fn store(&self) -> &Store {
+            self.engine.store()
+        }
+
+        /// `Email/get` over the first `n` seeded ids, with the statements it cost.
+        async fn get(&self, n: usize) -> (Value, Stmts) {
+            let ids: Vec<&str> = self.ids[..n].iter().map(String::as_str).collect();
+            counted(
+                &self.threads,
+                self.engine.email_get(&self.account, &json!({ "ids": ids })),
+            )
+            .await
+        }
+    }
+
+    /// **`master`'s per-id composition, retained here as the oracle** — the same
+    /// move `t22-e0` made with `session_state_unfolded`.
+    ///
+    /// This is what `Engine::build_email` was before this lane: `get_message`,
+    /// then the cache-aside envelope with a body re-parse behind it, then
+    /// `get_message_meta`, then the shared field patch. It has no production
+    /// caller now — `email_get` goes through `build_emails` — so leaving it in
+    /// `impl Engine` would be dead code that reads like a live second path.
+    ///
+    /// It lives here because the equivalence assertion needs something to be
+    /// equivalent *to*, and a hand-written expected document would encode what I
+    /// believe `Email/get` produces rather than what it produced yesterday. Note
+    /// it deliberately still calls `patch_engine_fields`: the ordering, holes and
+    /// per-field content are what is under test, not the patcher.
+    async fn build_email_per_id(engine: &Engine, stable_id: &str) -> Option<Value> {
+        let msg = match engine.store().get_message(stable_id).await {
+            Ok(m) => m,
+            Err(mw_store::StoreError::NotFound) => return None,
+            Err(e) => panic!("store: {e}"),
+        };
+        let email: Value = match engine
+            .cached_envelope(&msg.account_id, stable_id)
+            .await
+            .unwrap()
+        {
+            Some(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({})),
+            None => match &msg.blob_ref {
+                Some(blob) => match engine
+                    .cached_body(&msg.account_id, stable_id, blob)
+                    .await
+                    .unwrap()
+                {
+                    Some(raw) => mw_mime::parse(&raw)
+                        .ok()
+                        .and_then(|p| serde_json::to_value(p.email).ok())
+                        .unwrap_or_else(|| json!({})),
+                    None => json!({}),
+                },
+                None => json!({}),
+            },
+        };
+        let meta = engine
+            .store()
+            .get_message_meta(stable_id)
+            .await
+            .unwrap()
+            .unwrap_or_default();
+        Some(patch_engine_fields(email, stable_id, &msg, &meta))
+    }
+
+    fn list_of(resp: &Value) -> &Vec<Value> {
+        resp["list"].as_array().expect("list")
+    }
+
+    /// **Calibration, and nothing here is believed until this passes.**
+    ///
+    /// It drives the *pre-batch* composition — `build_email` once per id, which
+    /// is exactly what `master`'s `email_get` loop did — through the same counter
+    /// the acceptance test uses, and asserts the count **scales with the id
+    /// count**. Two properties at once:
+    ///
+    /// * the counter sees store statements at all (a recorder wired to the wrong
+    ///   thread reads zero and makes every batch look perfect);
+    /// * it distinguishes 5 ids from 50, which is the entire question. A counter
+    ///   that reported a constant for the per-id path would make the acceptance
+    ///   test pass against an unchanged implementation.
+    ///
+    /// The numbers are recorded rather than bounded loosely: this is `master`'s
+    /// cost, measured, and it is what the batched path is compared against.
+    #[tokio::test]
+    async fn the_counter_reads_the_per_id_loop_it_is_meant_to_catch() {
+        let f = Fixture::with(50).await;
+
+        async fn unbatched(f: &Fixture, n: usize) -> Stmts {
+            let ids: Vec<String> = f.ids[..n].to_vec();
+            counted(&f.threads, async {
+                for id in &ids {
+                    // The three per-id reads `build_email` made, verbatim.
+                    let _ = f.store().get_message(id).await;
+                    let _ = f.store().get_envelope(id).await;
+                    let _ = f.store().get_message_meta(id).await;
+                }
+            })
+            .await
+            .1
+        }
+
+        let five = unbatched(&f, 5).await;
+        let fifty = unbatched(&f, 50).await;
+        assert_eq!(five.len(), 15, "3 statements per id, 5 ids: {five:#?}");
+        assert_eq!(fifty.len(), 150, "3 statements per id, 50 ids");
+        assert!(
+            fifty.len() > five.len(),
+            "the counter cannot tell a 50-id loop from a 5-id one, so no number \
+             it produces below means anything"
+        );
+    }
+
+    /// The acceptance: **constant in the page size, and small**.
+    #[tokio::test]
+    async fn email_get_costs_the_same_for_fifty_ids_as_for_five() {
+        let f = Fixture::with(50).await;
+
+        let (five, stmts_5) = f.get(5).await;
+        let (fifty, stmts_50) = f.get(50).await;
+        assert_eq!(list_of(&five).len(), 5);
+        assert_eq!(list_of(&fifty).len(), 50);
+
+        assert_eq!(
+            stmts_50.len(),
+            stmts_5.len(),
+            "the SQL cost of Email/get must not depend on the page size: \
+             {} statements for 5 ids vs {} for 50.\n5: {stmts_5:#?}\n50: {stmts_50:#?}",
+            stmts_5.len(),
+            stmts_50.len()
+        );
+        assert!(
+            stmts_50.len() <= 6,
+            "master issues 151 here (163 for the whole request); the ceiling is 6,              got {}: {stmts_50:#?}",
+            stmts_50.len()
+        );
+        // Pinned exactly, so a future change that adds a read has to say so:
+        // the message rows, the envelopes, the engine-local metadata, and the
+        // state token.
+        assert_eq!(
+            stmts_50.len(),
+            4,
+            "the page costs four statements: {stmts_50:#?}"
+        );
+        eprintln!(
+            "[t22-e3g] Email/get: master 16 stmts for 5 ids / 151 for 50 -> {} / {}",
+            stmts_5.len(),
+            stmts_50.len()
+        );
+
+        // Named individually, so a regression says WHICH read came back per-id
+        // rather than only that the total moved.
+        for (table, what) in [
+            ("FROM messages", "the message rows + envelopes"),
+            ("FROM message_meta", "the engine-local metadata"),
+        ] {
+            let n = stmts_50.matching(table).len();
+            assert!(
+                n <= 2,
+                "{what}: {n} statements against `{table}` for one page — a batch \
+                 that loops internally reads exactly like this: {stmts_50:#?}"
+            );
+        }
+    }
+
+    /// Batching must not change a single byte of the answer.
+    ///
+    /// The equality is against the **per-id path**, evaluated in the same run,
+    /// rather than against a hand-written expected document — a hand-written one
+    /// would encode what I believe `build_email` produces, which is the thing
+    /// under test.
+    #[tokio::test]
+    async fn the_batched_page_is_byte_identical_to_the_per_id_page() {
+        let f = Fixture::with(12).await;
+
+        let (batched, _) = f.get(12).await;
+        let mut per_id = Vec::new();
+        for id in &f.ids {
+            per_id.push(build_email_per_id(&f.engine, id).await.unwrap());
+        }
+        assert_eq!(
+            list_of(&batched),
+            &per_id,
+            "the batched page must be what the per-id path produced, in order"
+        );
+    }
+
+    /// Order, holes, duplicates and the degenerate page.
+    ///
+    /// A batch keyed by a `HashMap` returns rows in whatever order the database
+    /// felt like, and a `notFound` id silently shifts every entry after it. Both
+    /// are invisible to a test that only counts `list.len()`.
+    #[tokio::test]
+    async fn missing_ids_land_in_not_found_without_shifting_the_rest() {
+        let f = Fixture::with(6).await;
+
+        let mixed = json!({
+            "ids": [f.ids[3], "ghost-a", f.ids[0], "ghost-b", f.ids[5]]
+        });
+        let resp = f.engine.email_get(&f.account, &mixed).await;
+
+        let got: Vec<&str> = list_of(&resp)
+            .iter()
+            .map(|e| e["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            got,
+            vec![f.ids[3].as_str(), f.ids[0].as_str(), f.ids[5].as_str()],
+            "requested order must survive the batch, holes removed: {resp}"
+        );
+        let not_found: Vec<&str> = resp["notFound"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert_eq!(not_found, vec!["ghost-a", "ghost-b"]);
+
+        // A repeated id is answered twice — JMAP's `list` is positional against
+        // the request, and de-duplicating it silently drops an entry the client
+        // asked for.
+        let dup = f
+            .engine
+            .email_get(&f.account, &json!({ "ids": [f.ids[1], f.ids[1]] }))
+            .await;
+        assert_eq!(list_of(&dup).len(), 2, "{dup}");
+        assert_eq!(list_of(&dup)[0], list_of(&dup)[1]);
+
+        // No ids: an answer, and no statement against `messages` to produce it.
+        let (empty, stmts) = counted(
+            &f.threads,
+            f.engine.email_get(&f.account, &json!({ "ids": [] })),
+        )
+        .await;
+        assert!(list_of(&empty).is_empty());
+        assert_eq!(
+            stmts.matching("FROM messages").len(),
+            0,
+            "an empty page must not read the table: {stmts:#?}"
+        );
+    }
+
+    /// **The two envelope branches must produce the same page.**
+    ///
+    /// `build_emails` reads envelopes one of two ways — batched from the store
+    /// when no cache is attached, per-id through `cached_envelope` when one is —
+    /// and a two-branch design is only safe if something asserts the branches
+    /// agree. Nothing did: `tests/v6.rs` attaches a cache but drives `Email/get`
+    /// with a **single** id, so the batched page under a cache was reachable in
+    /// production and unreachable in the suite.
+    ///
+    /// This is the assertion that makes the branch honest. It also covers a
+    /// second-read hit, because a cache that returned something different warm
+    /// than cold would be invisible to a one-shot comparison.
+    #[tokio::test]
+    async fn a_cached_page_and_an_uncached_page_are_the_same_page() {
+        let cold = Fixture::with(12).await;
+        let uncached = cold
+            .engine
+            .email_get(
+                &cold.account,
+                &json!({ "ids": cold.ids.iter().collect::<Vec<_>>() }),
+            )
+            .await;
+
+        let warm = Fixture::with(12).await;
+        warm.engine.attach_v6(
+            crate::v6::V6Hooks::new().with_cache(mw_cache::Cache::in_memory(
+                mw_cache::ScopeMatrix::spec_defaults(),
+            )),
+        );
+        let args = json!({ "ids": warm.ids.iter().collect::<Vec<_>>() });
+        let first = warm.engine.email_get(&warm.account, &args).await;
+        // Second read: now served from the warmed header-window cache.
+        let second = warm.engine.email_get(&warm.account, &args).await;
+
+        // Ids differ between fixtures (they are minted per store), so compare
+        // the part that must not depend on the branch: everything else.
+        fn shape(resp: &Value) -> Vec<Value> {
+            resp["list"]
+                .as_array()
+                .expect("list")
+                .iter()
+                .map(|e| {
+                    let mut e = e.clone();
+                    let o = e.as_object_mut().unwrap();
+                    for k in ["id", "blobId", "threadId", "mailboxIds"] {
+                        o.remove(k);
+                    }
+                    e
+                })
+                .collect()
+        }
+        assert_eq!(shape(&first).len(), 12);
+        assert_eq!(
+            shape(&uncached),
+            shape(&first),
+            "the batched (no-cache) page and the cache-aside page must agree"
+        );
+        assert_eq!(
+            shape(&first),
+            shape(&second),
+            "a warm cache must not change the page it serves"
+        );
+
+        // And the branch really was taken: the cache is populated afterwards,
+        // which is the behaviour batching straight from the store would have
+        // silently removed.
+        assert!(
+            warm.engine.account_posture(&warm.account) == mw_cache::AccountPosture::Standard,
+            "fixture precondition: a standard account is the one that caches"
+        );
+    }
+
+    /// The envelope-absent fallback still works, and still re-parses the body.
+    ///
+    /// `build_email` reads a body only when the envelope is missing. That path is
+    /// rarer than the one above but it is the one that produces a *wrong* answer
+    /// rather than a slow one if the batch mis-associates a body with an id, so
+    /// it gets its own assertion on content rather than on cost.
+    #[tokio::test]
+    async fn a_message_without_an_envelope_still_renders_from_its_body() {
+        let f = Fixture::with(2).await;
+        let raw = b"Message-ID: <nobody@x>\r\n\
+                    From: Bob <bob@example.net>\r\n\
+                    To: me@example.org\r\n\
+                    Subject: Parsed from the body\r\n\
+                    Date: Wed, 01 Jul 2026 09:00:00 +0000\r\n\
+                    \r\n\
+                    body text\r\n";
+        let blob = f.store().put_body(&f.account, raw).await.unwrap();
+        let date = "2026-07-01T09:00:00Z";
+        let mid = "<nobody@x>";
+        let id = f
+            .store()
+            .upsert_message(&MessageUpsert {
+                account_id: &f.account,
+                mailbox_id: &f.store().list_mailboxes(&f.account).await.unwrap()[0].id,
+                uid: 9_000,
+                uidvalidity: 100,
+                message_id: Some(mid),
+                thread_id: None,
+                internaldate: Some(date),
+                size: raw.len() as u64,
+                flags_json: "[]",
+                envelope: None,
+                blob_ref: Some(&blob),
+            })
+            .await
+            .unwrap();
+
+        // Mixed with two enveloped messages, so a batch that assumed every id
+        // takes the same path shows up here.
+        let resp = f
+            .engine
+            .email_get(&f.account, &json!({ "ids": [f.ids[0], id, f.ids[1]] }))
+            .await;
+        let list = list_of(&resp);
+        assert_eq!(list.len(), 3, "{resp}");
+        assert_eq!(list[1]["id"].as_str(), Some(id.as_str()));
+        assert_eq!(
+            list[1]["subject"].as_str(),
+            Some("Parsed from the body"),
+            "the envelope-less message must be re-parsed from its body, and the \
+             result must land on ITS entry rather than a neighbour's: {resp}"
+        );
+        // The enveloped neighbours are untouched by it.
+        assert_eq!(list[0]["subject"].as_str(), Some("Subject 1"));
+        assert_eq!(list[2]["subject"].as_str(), Some("Subject 2"));
     }
 }

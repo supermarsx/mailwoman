@@ -92,6 +92,19 @@ pub struct V6Hooks {
     feed: Option<Arc<dyn AuditFeed>>,
 }
 
+impl V6Hooks {
+    /// Whether a cache is attached (26.20 t22-e3g).
+    ///
+    /// `Email/get` batches its envelope read straight from the store when no
+    /// cache is attached, and keeps the per-id [`Engine::cached_envelope`] path
+    /// when one is — because that call is what populates the header-window cache
+    /// and what routes a zero-access account away from every shared tier. The
+    /// batch cannot do either, so the branch has to be able to ask.
+    pub(crate) fn has_cache(&self) -> bool {
+        self.cache.is_some()
+    }
+}
+
 impl Default for V6Hooks {
     fn default() -> Self {
         Self {
