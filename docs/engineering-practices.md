@@ -237,5 +237,10 @@ Collected from the reviews that caught each of these:
   check passes for at least one of them.
 * **Write characterization tests before the refactor, not after.** Written
   after, they characterise the new behaviour — which is the whole failure mode.
+* **Make a test double that cannot be called, when "this path does not call it"
+  is the property.** A stub that returns `Ok(vec![])` lets a future change start
+  using the collaborator silently; a double whose every method panics turns
+  "serving this request touches no backend" from a claim into an **assertion**,
+  and the failure names the method that broke it.
 * **Run the assertion against the unfixed code first and record that it fails.**
   An assertion that passes before the fix is not evidence of the fix.
