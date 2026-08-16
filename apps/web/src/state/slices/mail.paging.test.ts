@@ -150,11 +150,9 @@ function makeServer(folders: Record<string, Email[]>, opts: ServerOptions = {}) 
     logout: vi.fn(async () => undefined),
     me: vi.fn(async (): Promise<Me> => ({ username: 'me@example.org', accountId: 'acct1' })),
     session: vi.fn(async () => SESSION),
-    // `Client.jmap` is declared with one parameter, so a two-parameter double is
-    // not assignable to it. The cast is what lets the double OBSERVE the signal
-    // the slice attaches; see `JmapCall` in mail.ts for why the slice may send an
-    // option the current client ignores.
-    jmap: jmap as unknown as Client['jmap'],
+    // Takes the real two-parameter shape, so the double observes the abort
+    // signal the slice attaches without any cast.
+    jmap,
     sanitize: vi.fn(async (h: string) => h),
     onNetwork: vi.fn(() => () => undefined),
   };
@@ -410,9 +408,9 @@ describe('paging — superseded responses cannot write', () => {
       const q = body.methodCalls.find((c) => c[0] === 'Email/query');
       const key = (q?.[1] as { filter?: { inMailbox?: string } } | undefined)?.filter?.inMailbox;
       if (key === 'archive') return Promise.reject(new Error('archive fetch failed'));
-      return (server.client.jmap as unknown as (b: JmapRequest, x?: typeof o) => Promise<JmapResponse>)(body, o);
+      return server.client.jmap(body, o);
     });
-    const client: Client = { ...server.client, jmap: failing as unknown as Client['jmap'] };
+    const client: Client = { ...server.client, jmap: failing };
     const toast = vi.fn();
     await createRoot(async (dispose) => {
       const mail = createMailSlice({ client, showToast: toast });
@@ -489,9 +487,9 @@ describe('paging — appending is not loading', () => {
     const wrapped = vi.fn((body: JmapRequest, o?: { signal?: AbortSignal }) => {
       const q = body.methodCalls.find((c) => c[0] === 'Email/query');
       if (fail && q !== undefined) return Promise.reject(new Error('page failed'));
-      return (server.client.jmap as unknown as (b: JmapRequest, x?: typeof o) => Promise<JmapResponse>)(body, o);
+      return server.client.jmap(body, o);
     });
-    const client: Client = { ...server.client, jmap: wrapped as unknown as Client['jmap'] };
+    const client: Client = { ...server.client, jmap: wrapped };
     const toast = vi.fn();
     await createRoot(async (dispose) => {
       const mail = createMailSlice({ client, showToast: toast });

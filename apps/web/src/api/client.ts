@@ -110,7 +110,16 @@ export interface Client {
   logout(): Promise<void>;
   me(): Promise<Me>;
   session(): Promise<JmapSession>;
-  jmap(body: JmapRequest): Promise<JmapResponse>;
+  /**
+   * Post a JMAP request. `opts.signal` cancels it: the list layer supersedes its
+   * own in-flight queries (`state/slices/mail.ts`), and with append-on-scroll
+   * every scroll issues one, so without this a superseded page keeps its socket
+   * and has its body parsed only to be discarded.
+   *
+   * An aborted call rejects with the abort reason — NOT a {@link NetworkError} —
+   * so it does not register as an offline transition. See `req`.
+   */
+  jmap(body: JmapRequest, opts?: { signal?: AbortSignal }): Promise<JmapResponse>;
   sanitize(html: string): Promise<string>;
   onNetwork(listener: NetworkListener): () => void;
 }
@@ -143,6 +152,14 @@ export function createClient(base = basePath(), auth?: ClientAuth): Client {
     try {
       res = await fetch(input, finalInit);
     } catch (cause) {
+      // A DELIBERATE cancellation is not a network failure, and must not be
+      // reported as one: `guarded` turns a NetworkError into `notify(false)`,
+      // which is what `offline.ts` replays its queue on and what flips the app
+      // into offline mode. Since the list layer aborts a superseded query on
+      // every scroll, mapping an abort to NetworkError would announce "offline"
+      // during ordinary scrolling. Rethrow the abort reason unchanged; the
+      // caller's own generation guard is what decides it no longer matters.
+      if (finalInit.signal?.aborted === true) throw cause;
       throw new NetworkError(cause instanceof Error ? cause.message : 'network request failed');
     }
     return res;
@@ -205,12 +222,13 @@ export function createClient(base = basePath(), auth?: ClientAuth): Client {
         return jsonOrThrow<JmapSession>(res);
       });
     },
-    jmap(body) {
+    jmap(body, opts) {
       return guarded(async () => {
         const res = await req(`${base}/jmap/api`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(body),
+          ...(opts?.signal !== undefined ? { signal: opts.signal } : {}),
         });
         if (res.status === 401) throw new ApiError(401, 'not authenticated');
         return jsonOrThrow<JmapResponse>(res);

@@ -69,23 +69,6 @@ type PageSource =
   | { readonly kind: 'mailbox'; readonly mailboxId: Id }
   | { readonly kind: 'search'; readonly filter: FilterCondition };
 
-/**
- * The transport call, widened with an optional `{ signal }`.
- *
- * `Client.jmap` is declared `(body) => Promise<JmapResponse>`, and a function of
- * that type is assignable to this one (TypeScript lets an implementation ignore
- * trailing parameters), so this compiles against today's client and starts
- * cancelling for real the moment `api/client.ts` threads the signal into its
- * `fetch`. That one-line change is outside this lane's locks — see the lane log.
- *
- * Until it lands the signal is not wasted: it is what makes "this request has
- * been superseded" an observable fact rather than an internal counter, and it is
- * what the interleaving test asserts on. The property that actually closes the
- * stale-response race is the generation guard below, which does not depend on
- * the transport honouring anything.
- */
-type JmapCall = (body: JmapRequest, opts?: { signal?: AbortSignal }) => Promise<JmapResponse>;
-
 /** A dismissable, time-boxed reversible action (the 10-second undo, §1.5). */
 export interface PendingUndo {
   label: string;
@@ -364,9 +347,10 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     if (isCurrent(req)) inFlight = undefined;
   }
 
-  // `Client.jmap` takes no options today; see `JmapCall` for why passing one is
-  // both type-safe and forward-compatible.
-  const jmapCall: JmapCall = client.jmap.bind(client);
+  // `client.jmap(body, { signal })` cancels for real: the transport threads the
+  // signal into `fetch` and rethrows the abort reason rather than a
+  // `NetworkError`, so a superseded query does not register as going offline.
+  const jmapCall = client.jmap.bind(client);
 
   const [inboxTab, setInboxTab] = createSignal<InboxTab>('focused');
   const [unifiedInbox, setUnifiedInbox] = createSignal(false);
