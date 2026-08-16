@@ -16,10 +16,17 @@ use libfuzzer_sys::fuzz_target;
 // stack per nesting level — it died at 1 077 nested `(` on a 1 MiB stack, 2 187
 // on 2 MiB (a tokio worker's default, i.e. what serves a JMAP request) and
 // 8 852 on 8 MiB. A stack overflow is not a catchable panic; it takes the
-// process down. libFuzzer's default `-max_len` is 4096, so this target reaches
-// that depth. `mw_search::query::MAX_DEPTH` is what makes it safe to run, and
-// the ordering was deliberate: the guard landed first, so this target goes
-// green because the bug is fixed rather than red on a bug already known.
+// process down. `mw_search::query::MAX_DEPTH` is what closes that, and the
+// ordering was deliberate: the guard landed before this target was wired in.
+//
+// Measured afterwards, because the ordering argument was worth checking rather
+// than asserting: with the guard disabled, an ASan build of this very target
+// survives 4096 nested `(` — libFuzzer's default `-max_len` — and 6000, and
+// dies between 6000 and 8000 on the fuzz binary's 8 MiB main thread. **So this
+// target would have passed CI even unguarded**, and it is not what would have
+// caught the overflow. The bug was reachable on the server's 2 MiB tokio
+// workers, not at the depths a default fuzz run explores; the guard is what
+// makes it safe, and the fuzzer is not a substitute for it.
 //
 // Capping the input length here to keep the pass green would have been a fuzz
 // target written so it cannot see the class of bug it exists to find, so the
