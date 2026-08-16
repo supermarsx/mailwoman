@@ -54,6 +54,13 @@ use crate::plugins::PluginRegistry;
 #[path = "admin_plugins.rs"]
 mod admin_plugins;
 
+// The egress-proxy admin API (26.20 t22-e12), a `#[path]` child for the same reason
+// as `admin_plugins` above: it needs `require_admin` and the already-mounted
+// `extra_v7_router()`, so it costs no `lib.rs` edit and no second copy of the admin
+// gate. File lives at `crates/mw-server/src/egress_admin.rs`.
+#[path = "egress_admin.rs"]
+mod egress_admin;
+
 // The host-side bridge OAuth client (26.16 B1): device-code / auth-code / refresh flows
 // backing the `oauth-token` import. Declared as a CHILD module of `v7_mount` (via
 // `#[path]`) for the same reason as `admin_plugins` above — `lib.rs` is owned by another
@@ -1769,6 +1776,9 @@ pub(crate) fn extra_v7_router() -> Router<AppState> {
         // admin-session-gated + audited. Registered on this already-mounted router so no
         // `lib.rs` mount edit is needed this wave.
         .merge(admin_plugins::allowlist_router())
+        // The egress-proxy admin API (list/put/delete), admin-session-gated + audited.
+        // Registered here for the same reason as the allowlist router above.
+        .merge(egress_admin::egress_admin_router())
 }
 
 // ── Assist: dictation transcription ──────────────────────────────────────────
