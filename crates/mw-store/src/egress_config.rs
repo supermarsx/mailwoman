@@ -77,10 +77,33 @@ impl fmt::Debug for EgressProxyRow {
 }
 
 impl Store {
-    /// Insert or replace an egress route, sealing the password.
+    /// Insert or replace an egress route.
+    ///
+    /// # `password` means three different things, and that is the point
+    /// This is the **write-only secret** contract, and it exists because **a UI that
+    /// cannot read the secret cannot preserve it — only the server can.** The admin
+    /// API never returns the password, so an edit form loads with the field blank and
+    /// sends it only if the operator typed one. Writing whatever arrived would then
+    /// mean *renaming a route wipes its credentials*, surfacing much later as an auth
+    /// failure at fetch time with nothing connecting cause to effect.
+    ///
+    ///   * `None` ⇒ **keep** whatever is stored (the field was not submitted);
+    ///   * `Some("")` ⇒ **clear** the credential (the operator emptied it deliberately);
+    ///   * `Some(s)` ⇒ **set** it to `s`.
+    ///
+    /// `admin_sso.rs` states the same hazard in its own words — *"renaming/enabling a
+    /// backend must not silently wipe its secret"*.
+    ///
+    /// Reading is total and round-trip safe against this: a route with no credential
+    /// reads back as `None`, which writes back as keep-nothing; a route with one reads
+    /// back as `Some(pw)`, which writes back the same value. A read never yields
+    /// `Some("")`, so the clear arm is only ever reached deliberately.
     pub async fn put_egress_proxy(&self, row: &EgressProxyRow) -> Result<(), StoreError> {
-        // Empty sealed value ⇒ no credentials, decoded back to `None`. Same
-        // empty-means-absent convention as 0018's `sealed_refresh_token`.
+        // `write_password = 0` leaves the stored value untouched on conflict. On a
+        // fresh insert there is nothing to carry forward, so the sealed empty string
+        // is what lands — no credentials, the same empty-means-absent convention as
+        // 0018's `sealed_refresh_token`.
+        let write_password = i64::from(row.password.is_some());
         let sealed = self
             .key
             .seal(row.password.as_deref().unwrap_or("").as_bytes())?;
@@ -90,7 +113,10 @@ impl Store {
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
              ON CONFLICT(id) DO UPDATE SET
                  scheme = excluded.scheme, host = excluded.host, port = excluded.port,
-                 username = excluded.username, sealed_password = excluded.sealed_password,
+                 username = excluded.username,
+                 sealed_password = CASE WHEN ?10 = 1
+                     THEN excluded.sealed_password
+                     ELSE egress_proxy.sealed_password END,
                  allow_plaintext = excluded.allow_plaintext, updated_at = excluded.updated_at")
             .bind(&row.id)
             .bind(&row.scheme)
@@ -101,6 +127,7 @@ impl Store {
             .bind(i64::from(row.allow_plaintext))
             .bind(&now)
             .bind(&now)
+            .bind(write_password)
             .execute(&self.backend)
             .await?;
         Ok(())
@@ -212,6 +239,91 @@ mod tests {
                 .any(|w| w == PASSWORD.as_bytes()),
             "the plaintext password is present in the stored column"
         );
+    }
+
+    /// Read the raw stored bytes, so a test can tell a carried-forward value from a
+    /// re-sealed one. Sealing is nonce-randomised, so re-sealing the SAME password
+    /// produces DIFFERENT bytes — which is exactly what makes this able to prove
+    /// carry-forward rather than merely "the column is still populated".
+    async fn raw_sealed(s: &Store, id: &str) -> Vec<u8> {
+        q("SELECT sealed_password FROM egress_proxy WHERE id = ?1")
+            .bind(id)
+            .fetch_optional(&s.backend)
+            .await
+            .unwrap()
+            .expect("row")
+            .get_blob("sealed_password")
+    }
+
+    #[tokio::test]
+    async fn omitting_the_password_on_an_edit_preserves_the_stored_one() {
+        // The write-only-secret contract. The admin API never returns the password,
+        // so an edit form submits it only if the operator typed one. If an omitted
+        // password overwrote the stored value, renaming a route would silently wipe
+        // its credentials — an auth failure at fetch time, long after the edit, with
+        // nothing connecting the two.
+        let s = store().await;
+        s.put_egress_proxy(&row()).await.unwrap();
+        let before = raw_sealed(&s, "corp").await;
+
+        // An unrelated edit: new host and username, password field absent.
+        let mut edit = row();
+        edit.password = None;
+        edit.host = "proxy2.corp.example".into();
+        edit.username = "svc-mail-2".into();
+        s.put_egress_proxy(&edit).await.unwrap();
+
+        let got = s.get_egress_proxy("corp").await.unwrap().expect("present");
+        assert_eq!(
+            got.host, "proxy2.corp.example",
+            "the edit must have applied"
+        );
+        assert_eq!(got.username, "svc-mail-2");
+        assert_eq!(
+            got.password.as_deref(),
+            Some(PASSWORD),
+            "the credential was wiped by an edit that never mentioned it"
+        );
+        assert_eq!(
+            raw_sealed(&s, "corp").await,
+            before,
+            "the stored bytes changed — the value was re-sealed rather than carried \
+             forward, so this path is writing the password when it should not touch it"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_explicitly_empty_password_clears_the_credential() {
+        let s = store().await;
+        s.put_egress_proxy(&row()).await.unwrap();
+        let before = raw_sealed(&s, "corp").await;
+
+        let mut edit = row();
+        edit.password = Some(String::new());
+        s.put_egress_proxy(&edit).await.unwrap();
+
+        let got = s.get_egress_proxy("corp").await.unwrap().expect("present");
+        assert_eq!(
+            got.password, None,
+            "an explicitly emptied password must clear the credential, not keep it — \
+             otherwise a credential can be set but never removed"
+        );
+        assert_ne!(
+            raw_sealed(&s, "corp").await,
+            before,
+            "the column must actually have been rewritten"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_new_password_replaces_the_stored_one() {
+        let s = store().await;
+        s.put_egress_proxy(&row()).await.unwrap();
+        let mut edit = row();
+        edit.password = Some("a-different-secret".into());
+        s.put_egress_proxy(&edit).await.unwrap();
+        let got = s.get_egress_proxy("corp").await.unwrap().expect("present");
+        assert_eq!(got.password.as_deref(), Some("a-different-secret"));
     }
 
     #[tokio::test]
