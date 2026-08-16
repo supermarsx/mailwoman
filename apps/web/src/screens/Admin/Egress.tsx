@@ -17,15 +17,18 @@
 // is blank on load, its placeholder says the stored value is kept, and the key is
 // **omitted entirely** from the request unless the admin typed a new one.
 //
-// ⚠ ORDERING HAZARD, live as of `2eede09`. `Store::put_egress_proxy` seals
-// `password.unwrap_or("")` and writes `sealed_password = excluded.sealed_password`
-// unconditionally, so an OMITTED password overwrites the stored one with empty —
-// editing a route's host or port would silently destroy its credentials, and the
-// failure would surface much later as an auth error at fetch time. The fix is
-// server-side (`None` ⇒ carry the sealed value forward, as `admin_sso.rs:176`
-// already does, with the comment "renaming/enabling a backend must not silently
-// wipe its secret"). This screen is written for the CORRECTED server and must not
-// ship ahead of it.
+// The server honours that: `35214a3` made an omitted password carry the sealed
+// value forward (`None` keep / `Some("") ` clear / `Some(s)` set), so editing a
+// host or port no longer destroys the credential. Before it, an omitted password
+// was written as empty and every edit silently wiped the route's auth.
+//
+// ── "Test this route" reports what happened, not whether a request succeeded ──
+// `POST /admin/egress/proxies/{id}/test` puts the VERDICT in the body and uses the
+// status only for whether the test RAN. So `200` covers every outcome including
+// the failures, and a UI keying off the status would call a broken route healthy.
+// Success here is an allowlist of exactly `connected`; `outcome` and `stage` are
+// both rendered, because "refused by policy at the tunnel" and "auth rejected at
+// connect" are different problems with different fixes.
 
 import { createSignal, For, onMount, Show, type JSX } from 'solid-js';
 import { basePath } from '../../api/basePath.ts';
@@ -65,6 +68,52 @@ export interface PutProxyInput {
   allowPlaintext: boolean;
 }
 
+/**
+ * What a route test concluded. Every value is a verdict the server reached; none
+ * of them is an error in reaching it.
+ */
+export type EgressOutcome =
+  | 'connected'
+  | 'authRejected'
+  | 'refusedByPolicy'
+  | 'dnsFailed'
+  | 'unreachable'
+  | 'originTlsFailed'
+  | 'routeInvalid';
+
+/** How far the attempt got before it stopped — the part an operator acts on. */
+export type EgressStage = 'dns' | 'connect' | 'tunnel' | 'origin';
+
+/**
+ * The body of `POST /admin/egress/proxies/{id}/test`.
+ *
+ * **The HTTP status says only whether the test RAN.** `200` means a verdict was
+ * reached, *including a negative one*; `404` no such route, `401` not admin, `5xx`
+ * the test itself could not run. So a client that keys off the status learns
+ * nothing about the route — which is the whole reason the endpoint is shaped this
+ * way, and the failure mode this screen must not reintroduce at the render layer.
+ */
+export interface EgressTestResult {
+  /**
+   * One of {@link EgressOutcome} — but typed as `string` deliberately.
+   *
+   * The enum may gain a variant (proxy auth rejection is being split out of a
+   * bundled one upstream). A value this build does not recognise must render as
+   * unrecognised; it must not fail to compile, and above all it must not fall
+   * through to "success". Success is therefore an allowlist of exactly
+   * `'connected'`, never the absence of a known failure.
+   */
+  outcome: string;
+  /** One of {@link EgressStage}; `string` for the same reason as `outcome`. */
+  stage: string;
+  endpoint: string;
+  /** Set from the transport's own progress, not from a route being configured —
+   *  so it is displayable as fact rather than as intent. */
+  traversedProxy: boolean;
+  /** Human-readable, and never a credential. */
+  detail: string;
+}
+
 /** Raised when an `/admin/egress/*` request fails. */
 export class EgressApiError extends Error {
   readonly status: number;
@@ -78,26 +127,19 @@ export class EgressApiError extends Error {
 /**
  * The admin surface this screen depends on. Tests pass a fake;
  * {@link createHttpEgressAdminApi} is the production `fetch` implementation.
- *
- * ── The "test this route" seam ───────────────────────────────────────────────
- * There is deliberately **no `test` method here yet, and no Test control renders**.
- *
- * `t22-e12` ships list/put/delete and nothing else, so a Test button today could
- * only report success without having asked anything — the same shape as a retry
- * that cannot recover, and precisely the defect this screen is meant to avoid.
- *
- * When the endpoint is designed, it attaches HERE as one method, and the outcome
- * type is defined by that endpoint rather than invented at this end. It has to
- * distinguish at least **connected**, **authenticated**, **refused by policy**,
- * and **name did not resolve**. Note that the refusal alone cannot carry that:
- * `t22-e11`'s `ProxyRefusal` has seven variants, but `Refusal::Blocked` is
- * documented as deliberately coarse and does not separate "private address" from
- * "does not resolve" — so the endpoint must say, and the UI must not guess.
  */
 export interface EgressAdminApi {
   list(): Promise<EgressProxyView[]>;
   put(input: PutProxyInput): Promise<void>;
   remove(id: string): Promise<void>;
+  /**
+   * Run a live test of one route and return the verdict it reached.
+   *
+   * Throws only when the test could not be RUN (no such route, not admin, the
+   * probe itself failed). A route that is broken is a resolved `EgressTestResult`
+   * with a non-`connected` outcome — not an exception, and not an HTTP error.
+   */
+  test(id: string): Promise<EgressTestResult>;
 }
 
 /** The production client. Same-origin, cookie-authed against the admin domain. */
@@ -126,7 +168,53 @@ export function createHttpEgressAdminApi(base = basePath()): EgressAdminApi {
       const res = await send(`${root}/${encodeURIComponent(id)}/delete`);
       if (!res.ok) throw new EgressApiError(res.status, `delete egress proxy failed (${res.status})`);
     },
+    async test(id) {
+      const res = await send(`${root}/${encodeURIComponent(id)}/test`);
+      // `!res.ok` means the test could not run. It never means the ROUTE failed —
+      // a failing route is a 200 carrying a negative outcome, and collapsing the
+      // two here would throw away the distinction the endpoint exists to make.
+      if (!res.ok) throw new EgressApiError(res.status, `test egress proxy failed (${res.status})`);
+      return (await res.json()) as EgressTestResult;
+    },
   };
+}
+
+/** Localised label per outcome. Unrecognised values fall to `unknown` — see
+ *  `EgressTestResult.outcome` for why that path has to exist. */
+const OUTCOME_LABEL: Record<string, () => string> = {
+  connected: () => t('admin-egress-outcome-connected'),
+  authRejected: () => t('admin-egress-outcome-auth-rejected'),
+  refusedByPolicy: () => t('admin-egress-outcome-refused-by-policy'),
+  dnsFailed: () => t('admin-egress-outcome-dns-failed'),
+  unreachable: () => t('admin-egress-outcome-unreachable'),
+  originTlsFailed: () => t('admin-egress-outcome-origin-tls-failed'),
+  routeInvalid: () => t('admin-egress-outcome-route-invalid'),
+};
+
+const STAGE_LABEL: Record<string, () => string> = {
+  dns: () => t('admin-egress-stage-dns'),
+  connect: () => t('admin-egress-stage-connect'),
+  tunnel: () => t('admin-egress-stage-tunnel'),
+  origin: () => t('admin-egress-stage-origin'),
+};
+
+/**
+ * Whether a verdict is a success.
+ *
+ * An ALLOWLIST of exactly one value, never `!isFailure`. The outcome set is
+ * expected to grow, and with a denylist every future variant would arrive
+ * pre-approved as healthy — the same defect as reading the HTTP status, moved
+ * one layer in.
+ */
+export function isConnected(result: EgressTestResult): boolean {
+  return result.outcome === 'connected';
+}
+
+function outcomeLabel(outcome: string): string {
+  return (OUTCOME_LABEL[outcome] ?? (() => t('admin-egress-outcome-unknown')))();
+}
+function stageLabel(stage: string): string {
+  return (STAGE_LABEL[stage] ?? (() => t('admin-egress-stage-unknown')))();
 }
 
 const SCHEMES = ['http', 'socks5'] as const;
@@ -154,6 +242,36 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
   // Always blank — on first render and on every load-for-edit. There is no value
   // to seed it from, by design, and seeding it with a mask is what this must not do.
   const [password, setPassword] = createSignal('');
+
+  // Per-route test verdicts, and separately the routes whose test could not be RUN
+  // at all. Conflating them is the defect the endpoint's shape exists to prevent:
+  // "this route is refused by policy" and "we could not ask" are different facts.
+  const [verdicts, setVerdicts] = createSignal<Record<string, EgressTestResult>>({});
+  const [testFailures, setTestFailures] = createSignal<Record<string, true>>({});
+  const [testing, setTesting] = createSignal<string | null>(null);
+
+  async function runTest(id: string): Promise<void> {
+    setTesting(id);
+    setTestFailures((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    try {
+      const result = await api.test(id);
+      setVerdicts((prev) => ({ ...prev, [id]: result }));
+    } catch {
+      // The test did not run. No verdict is recorded, because none was reached.
+      setVerdicts((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      setTestFailures((prev) => ({ ...prev, [id]: true }));
+    } finally {
+      setTesting(null);
+    }
+  }
 
   // Whether the last load actually SUCCEEDED, tracked separately from `routes()`
   // being empty. They are different facts: "this deployment configures no routes,
@@ -289,6 +407,7 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
               <tbody>
                 <For each={routes()}>
                   {(row) => (
+                    <>
                     <tr data-testid={`egress-row-${row.id}`}>
                       <td class={css.mono}>{row.id}</td>
                       <td class={css.mono}>{`${row.scheme}://${row.host}:${row.port}`}</td>
@@ -311,6 +430,15 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
                         <button
                           type="button"
                           class={`btn btn--ghost ${a11y.focusable}`}
+                          data-testid={`egress-test-${row.id}`}
+                          disabled={testing() === row.id}
+                          onClick={() => void runTest(row.id)}
+                        >
+                          {testing() === row.id ? t('admin-egress-testing') : t('admin-egress-test')}
+                        </button>
+                        <button
+                          type="button"
+                          class={`btn btn--ghost ${a11y.focusable}`}
                           data-testid={`egress-delete-${row.id}`}
                           onClick={() => void remove(row)}
                         >
@@ -318,6 +446,59 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
                         </button>
                       </td>
                     </tr>
+                    <Show when={verdicts()[row.id] !== undefined}>
+                      {(_present) => {
+                        const r = (): EgressTestResult => verdicts()[row.id]!;
+                        return (
+                          <tr
+                            data-testid={`egress-result-${row.id}`}
+                            data-outcome={r().outcome}
+                            // The single machine-readable success bit, derived from
+                            // the allowlist — never from the HTTP status, which is
+                            // 200 for failures too.
+                            data-ok={String(isConnected(r()))}
+                          >
+                            <td colSpan={6}>
+                              <p
+                                class={isConnected(r()) ? css.note : css.error}
+                                role="status"
+                                data-testid={`egress-verdict-${row.id}`}
+                              >
+                                <strong>{outcomeLabel(r().outcome)}</strong>
+                                {' — '}
+                                {/* The stage is half the diagnosis: the same failure
+                                    at `connect` and at `origin` are different faults. */}
+                                <span data-testid={`egress-stage-${row.id}`}>{stageLabel(r().stage)}</span>
+                              </p>
+                              <p class={css.note}>
+                                <span class={css.mono}>{r().endpoint}</span>
+                                {' · '}
+                                <span data-testid={`egress-proxied-${row.id}`}>
+                                  {r().traversedProxy
+                                    ? t('admin-egress-proxied-yes')
+                                    : t('admin-egress-proxied-no')}
+                                </span>
+                              </p>
+                              <Show when={r().detail !== ''}>
+                                <p class={css.note}>{r().detail}</p>
+                              </Show>
+                            </td>
+                          </tr>
+                        );
+                      }}
+                    </Show>
+                    <Show when={testFailures()[row.id] === true}>
+                      <tr data-testid={`egress-test-failed-${row.id}`}>
+                        <td colSpan={6}>
+                          {/* Distinct from every verdict: we did not learn anything
+                              about the route, so nothing is claimed about it. */}
+                          <p class={css.error} role="alert">
+                            {t('admin-egress-test-failed')}
+                          </p>
+                        </td>
+                      </tr>
+                    </Show>
+                  </>
                   )}
                 </For>
               </tbody>

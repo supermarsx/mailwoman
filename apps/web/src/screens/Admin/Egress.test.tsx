@@ -12,10 +12,34 @@ import { render, screen, fireEvent, waitFor } from '@solidjs/testing-library';
 import {
   AdminEgress,
   createHttpEgressAdminApi,
+  isConnected,
   type EgressAdminApi,
   type EgressProxyView,
+  type EgressTestResult,
   type PutProxyInput,
 } from './Egress.tsx';
+
+/** Every outcome the endpoint may return. Exactly one of them is a success. */
+const ALL_OUTCOMES = [
+  'connected',
+  'authRejected',
+  'refusedByPolicy',
+  'dnsFailed',
+  'unreachable',
+  'originTlsFailed',
+  'routeInvalid',
+] as const;
+
+function result(over: Partial<EgressTestResult> = {}): EgressTestResult {
+  return {
+    outcome: 'connected',
+    stage: 'origin',
+    endpoint: 'http://proxy.corp.example:3128',
+    traversedProxy: true,
+    detail: 'reached the origin',
+    ...over,
+  };
+}
 
 function view(over: Partial<EgressProxyView> = {}): EgressProxyView {
   return {
@@ -33,7 +57,7 @@ function view(over: Partial<EgressProxyView> = {}): EgressProxyView {
 }
 
 /** A fake admin API that records every request body it is handed. */
-function fakeApi(rows: EgressProxyView[] = [view()]) {
+function fakeApi(rows: EgressProxyView[] = [view()], testResult?: EgressTestResult | Error) {
   const puts: PutProxyInput[] = [];
   const removed: string[] = [];
   const api: EgressAdminApi = {
@@ -43,6 +67,10 @@ function fakeApi(rows: EgressProxyView[] = [view()]) {
     }),
     remove: vi.fn(async (id: string) => {
       removed.push(id);
+    }),
+    test: vi.fn(async () => {
+      if (testResult instanceof Error) throw testResult;
+      return testResult ?? result();
     }),
   };
   return { api, puts, removed };
@@ -86,6 +114,7 @@ describe('egress routes — listing', () => {
       }),
       put: vi.fn(),
       remove: vi.fn(),
+      test: vi.fn(async () => result()),
     };
     await mounted(api);
     expect(await screen.findByRole('alert')).toBeInTheDocument();
@@ -258,14 +287,122 @@ describe('egress routes — the HTTP client', () => {
     expect(calls.every((c) => c.init?.credentials === 'same-origin' || c.init === undefined)).toBe(true);
   });
 
-  it('does not offer a test control, because there is no endpoint behind one', async () => {
-    // t22-e12 ships list/put/delete only. A Test button today could report only
-    // that it had asked nothing — the same shape as a retry that cannot recover.
-    // When the endpoint is designed it attaches at the documented seam in
-    // Egress.tsx; until then this asserts the absence is deliberate.
-    const { api } = fakeApi();
+});
+
+describe('egress routes — a test reports what happened, not whether a request succeeded', () => {
+  it('shows a connected route as connected, with the stage it reached', async () => {
+    const { api } = fakeApi([view()], result({ outcome: 'connected', stage: 'origin' }));
     await mounted(api);
-    expect(screen.queryByTestId('egress-test-corp')).toBeNull();
-    expect((api as unknown as Record<string, unknown>)['test']).toBeUndefined();
+    fireEvent.click(await screen.findByTestId('egress-test-corp'));
+
+    const row = await screen.findByTestId('egress-result-corp');
+    expect(row.getAttribute('data-ok')).toBe('true');
+    expect(screen.getByTestId('egress-verdict-corp').textContent).toContain('Connected');
+    expect(screen.getByTestId('egress-stage-corp').textContent).toContain('origin');
+  });
+
+  it('CANNOT show success for any non-connected outcome, over the whole enum', async () => {
+    // The assertion the endpoint was shaped for. Every one of these arrives as
+    // HTTP 200 — a UI keying off the status calls all seven healthy, and a UI
+    // using a denylist calls every future variant healthy too.
+    for (const outcome of ALL_OUTCOMES) {
+      const { api } = fakeApi([view()], result({ outcome }));
+      const { unmount } = render(() => <AdminEgress api={api} />);
+      await screen.findByTestId('admin-egress');
+      fireEvent.click(await screen.findByTestId('egress-test-corp'));
+
+      const row = await screen.findByTestId('egress-result-corp');
+      expect(`${outcome}:${row.getAttribute('data-ok')}`).toBe(
+        `${outcome}:${outcome === 'connected' ? 'true' : 'false'}`,
+      );
+      unmount();
+    }
+  });
+
+  it('treats an unrecognised outcome as NOT success', async () => {
+    // The enum is expected to grow — proxy auth rejection is being split out of a
+    // bundled variant upstream. A value this build has never seen must not arrive
+    // pre-approved as healthy.
+    const { api } = fakeApi([view()], result({ outcome: 'proxyAuthRejected', stage: 'tunnel' }));
+    await mounted(api);
+    fireEvent.click(await screen.findByTestId('egress-test-corp'));
+
+    const row = await screen.findByTestId('egress-result-corp');
+    expect(row.getAttribute('data-ok')).toBe('false');
+    // And it is surfaced rather than swallowed, so the gap is visible.
+    expect(screen.getByTestId('egress-verdict-corp').textContent).toContain('Unrecognised');
+    expect(row.getAttribute('data-outcome')).toBe('proxyAuthRejected');
+  });
+
+  it('distinguishes two failures that differ only by stage', async () => {
+    // "Refused by policy at the tunnel" and "refused by policy at the origin" are
+    // different faults with different fixes; collapsing both to a red cross throws
+    // away the reason the endpoint carries a stage at all.
+    const a = fakeApi([view()], result({ outcome: 'refusedByPolicy', stage: 'tunnel' }));
+    const first = render(() => <AdminEgress api={a.api} />);
+    await screen.findByTestId('admin-egress');
+    fireEvent.click(await screen.findByTestId('egress-test-corp'));
+    const tunnelText = (await screen.findByTestId('egress-verdict-corp')).textContent ?? '';
+    first.unmount();
+
+    const b = fakeApi([view()], result({ outcome: 'refusedByPolicy', stage: 'origin' }));
+    render(() => <AdminEgress api={b.api} />);
+    await screen.findByTestId('admin-egress');
+    fireEvent.click(await screen.findByTestId('egress-test-corp'));
+    const originText = (await screen.findByTestId('egress-verdict-corp')).textContent ?? '';
+
+    expect(tunnelText).not.toBe(originText);
+    expect(tunnelText).toContain('Refused by policy');
+    expect(originText).toContain('Refused by policy');
+  });
+
+  it('states whether the proxy was actually traversed', async () => {
+    // From the transport's own progress, so it is a fact about this attempt rather
+    // than a restatement of the configuration.
+    const { api } = fakeApi([view()], result({ outcome: 'dnsFailed', stage: 'dns', traversedProxy: false }));
+    await mounted(api);
+    fireEvent.click(await screen.findByTestId('egress-test-corp'));
+    expect((await screen.findByTestId('egress-proxied-corp')).textContent).toContain('Did not traverse');
+  });
+
+  it('a test that could not RUN is not a verdict about the route', async () => {
+    // 404/401/5xx mean we did not learn anything. Rendering that as a failed route
+    // would be the mirror of rendering a failed route as success.
+    const { api } = fakeApi([view()], new Error('could not run'));
+    await mounted(api);
+    fireEvent.click(await screen.findByTestId('egress-test-corp'));
+
+    expect(await screen.findByTestId('egress-test-failed-corp')).toBeInTheDocument();
+    expect(screen.queryByTestId('egress-result-corp')).toBeNull();
+  });
+
+  it('isConnected is an allowlist, not the absence of a known failure', async () => {
+    expect(isConnected(result({ outcome: 'connected' }))).toBe(true);
+    for (const outcome of ALL_OUTCOMES.filter((o) => o !== 'connected')) {
+      expect(isConnected(result({ outcome }))).toBe(false);
+    }
+    expect(isConnected(result({ outcome: 'somethingAddedLater' }))).toBe(false);
+    expect(isConnected(result({ outcome: '' }))).toBe(false);
+  });
+
+  it('the client posts to the test route and does NOT throw on a negative verdict', async () => {
+    // The status carries only whether the test ran, so a 200 with a failing
+    // outcome must resolve. Throwing here would collapse the distinction before
+    // the UI ever sees it.
+    const calls: string[] = [];
+    globalThis.fetch = vi.fn(async (url: string) => {
+      calls.push(url);
+      return new Response(JSON.stringify(result({ outcome: 'authRejected', stage: 'connect' })), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const got = await createHttpEgressAdminApi('').test('corp');
+    expect(calls).toEqual(['/admin/egress/proxies/corp/test']);
+    expect(got.outcome).toBe('authRejected');
+    expect(isConnected(got)).toBe(false);
+  });
+
+  it('the client DOES throw when the test itself could not run', async () => {
+    globalThis.fetch = vi.fn(async () => new Response('{}', { status: 503 })) as unknown as typeof fetch;
+    await expect(createHttpEgressAdminApi('').test('corp')).rejects.toThrow(/503/);
   });
 });
