@@ -31,7 +31,8 @@
 //! The engine holds no general HTTP client, so `Calendar/subscribe` /
 //! `Calendar/refreshSubscription` take the fetched `.ics` as a `blob`. This driver
 //! performs that GET **through e6's SSRF-hardened fetcher**
-//! ([`crate::image_proxy::fetch_url_hardened`]) — a `webcal://` URL is
+//! ([`crate::image_proxy::fetch_url_hardened_routed`], which adds the configured
+//! egress route and its fail-closed behaviour) — a `webcal://` URL is
 //! attacker-influenceable exactly like a remote-image URL, so it must not get a
 //! second, weaker fetcher — then forwards the body to the engine.
 //!
@@ -441,7 +442,7 @@ async fn calendar_subscribe(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    let ics = match fetch_ics(&req.url).await {
+    let ics = match fetch_ics(&state, &req.url).await {
         Ok(b) => b,
         Err(e) => return upstream(&e),
     };
@@ -463,7 +464,7 @@ async fn calendar_refresh(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    let ics = match fetch_ics(&req.url).await {
+    let ics = match fetch_ics(&state, &req.url).await {
         Ok(b) => b,
         Err(e) => return upstream(&e),
     };
@@ -477,12 +478,34 @@ async fn calendar_refresh(
     .await
 }
 
-/// Fetch a `.ics` feed through e6's SSRF-hardened fetcher. `webcal://`/`webcals://`
-/// are normalized to `https://` first (reqwest only speaks http/https); the fetched
-/// bytes are returned as a UTF-8 (lossy) string for the engine's parser.
-async fn fetch_ics(url: &str) -> Result<String, String> {
+/// Fetch a `.ics` feed through e6's SSRF-hardened fetcher, **over the deployment's
+/// configured egress route** (26.20 t22-e14). `webcal://`/`webcals://` are normalized
+/// to `https://` first (reqwest only speaks http/https); the fetched bytes are
+/// returned as a UTF-8 (lossy) string for the engine's parser.
+///
+/// # Why this takes `state`
+/// The route is deployment-wide operator configuration read from the store, so this
+/// needs a store handle — and **nothing else**. `state` supplies the store; no part
+/// of the request reaches route selection, which is the invariant the egress design
+/// rests on (see `image_proxy::active_route`). The subscription URL is passed to the
+/// fetcher as a fetch target, exactly as before, and never as a route selector.
+///
+/// # Why this surface had to be wired, not just the image proxy
+/// A subscription URL is attacker-influenceable in the same way a remote-image URL
+/// is — which is why this module already refused to hand-roll a second, weaker
+/// fetcher. Honouring the egress route for images and not here would give an
+/// operator a control that is silently bypassed for calendar subscriptions, which is
+/// worse than not shipping it: they would believe their egress is controlled. The
+/// previous author's care in sharing the fetcher would have been quietly undone by
+/// wiring only the sibling.
+///
+/// Fail-closed comes with it: if a route is configured and its tunnel cannot be
+/// established, this **fails** rather than fetching directly. Every error string is
+/// `fetch_url_hardened`'s unchanged, so the `502` bodies below are what they were.
+async fn fetch_ics(state: &AppState, url: &str) -> Result<String, String> {
     let fetch_url = normalize_webcal(url);
-    let bytes = crate::image_proxy::fetch_url_hardened(&fetch_url, ICS_ACCEPT).await?;
+    let bytes =
+        crate::image_proxy::fetch_url_hardened_routed(state, &fetch_url, ICS_ACCEPT).await?;
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 

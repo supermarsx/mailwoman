@@ -77,10 +77,17 @@
 //! # Ownership
 //! This module exposes [`image_proxy_router`]; `crate::lib` (t16-e10, chain link 3)
 //! MOUNTS it and applies [`SHELL_CSP_TIGHTENED`] at the shell-CSP site — this module
-//! does not edit `lib.rs`. It also re-exports the three `mw-egress` items in-tree
-//! callers already reach for through this path ([`ip_allowed`], [`embedded_ipv4s`],
-//! [`fetch_url_hardened`]), so `sieve_sync.rs` and `import_routes.rs` are unchanged
-//! by the extraction.
+//! does not edit `lib.rs`. It also re-exports the `mw-egress` items in-tree callers
+//! reach for through this path ([`ip_allowed`], [`embedded_ipv4s`]), so
+//! `sieve_sync.rs` was unchanged by the extraction.
+//!
+//! As of 26.20 t22-e14 it additionally owns the **egress route** for the whole
+//! crate: [`proxy_route`] is the only production construction site of a
+//! `mw_egress::proxy::ProxyRoute` in the workspace, [`active_route`] is the only way
+//! to obtain one, and [`fetch_url_hardened_routed`] is how `import_routes.rs`'s
+//! `webcal://`/ICS fetch takes that route. Both hardened-fetch surfaces in this
+//! crate therefore share one route lookup, one fail-closed dispatch and one audit
+//! emission, rather than two implementations that can drift apart.
 
 use std::collections::HashMap;
 use std::collections::VecDeque;
@@ -104,10 +111,18 @@ use crate::AppState;
 
 /// The egress policy, re-exported at the path in-tree callers already use:
 /// `sieve_sync.rs` builds its deliberately NARROWER ManageSieve policy on
-/// [`ip_allowed`] + [`embedded_ipv4s`], and `import_routes.rs` fetches `webcal://`
-/// subscriptions through [`fetch_url_hardened`]. Re-exporting rather than editing
-/// those call sites keeps the 26.20 extraction a move.
-pub(crate) use mw_egress::{embedded_ipv4s, fetch_url_hardened, ip_allowed};
+/// [`ip_allowed`] + [`embedded_ipv4s`]. Re-exporting rather than editing those call
+/// sites kept the 26.20 extraction a move.
+///
+/// **`fetch_url_hardened` was re-exported here too and no longer is** — not tidying:
+/// it had exactly one in-tree consumer, `import_routes.rs`'s `webcal://`/ICS fetch,
+/// and that now goes through [`fetch_url_hardened_routed`] so it takes the configured
+/// egress route. **There is no remaining in-tree caller of the un-routed hardened
+/// fetch**, which is the property that makes "a configured route is honoured" true of
+/// the deployment rather than of one endpoint. `mw_egress::fetch_url_hardened` is
+/// still public for out-of-tree callers; re-adding it *here* would be re-adding a
+/// path that bypasses the route, and should be argued for rather than done.
+pub(crate) use mw_egress::{embedded_ipv4s, ip_allowed};
 
 // ── S10: tightened shell CSP (delivered here; applied at lib.rs:102 by e10) ──────
 
@@ -193,6 +208,46 @@ const DIRECT_ROUTE: &str = "direct";
 
 /// Map a stored route onto the transport's [`ProxyRoute`].
 ///
+/// # 🔒 THIS IS THE ONLY PRODUCTION CONSTRUCTION SITE OF A `ProxyRoute` IN THE
+/// # WORKSPACE. A SECOND ONE IS A SECURITY DECISION, NOT A REFACTOR.
+///
+/// [`ProxyRoute`]'s fields are all `pub` and its `host` is deliberately **exempt**
+/// from the SSRF address policy, because an egress proxy on loopback or RFC1918 (a
+/// Squid, a Tor SOCKS port) is the normal operator deployment. Compare
+/// [`mw_egress::Target`], whose `pub` fields carry the same hazard and whose risk is
+/// **discharged** by `tunnel_fetch_hop` re-applying `ip_allowed` unconditionally to
+/// whatever it is handed.
+///
+/// **`ProxyRoute` has no equivalent discharge, and cannot have one** — the whole
+/// point of the carve-out is that its host is *not* address-checked. So the only
+/// thing standing between a request-derived host and an unchecked dial is that
+/// nothing request-derived ever builds one. That is a property of **how many
+/// constructors exist and what they take**, not of any check inside this function,
+/// and it is one commit away from being false at any time (t22-e-sec).
+///
+/// Hence the shape, which is the enforcement:
+///   * the only input is an [`EgressProxyRow`], which comes only from
+///     [`active_route`] → `Store::active_egress_proxy(&self)`;
+///   * this function is **private**, and [`active_route`] is `pub(crate)` and takes
+///     only a store handle, so no caller anywhere can supply the fields;
+///   * `ProxyRoute` derives no `Deserialize`, `FromStr` or `TryFrom`, so there is no
+///     deserialisation path into one either.
+///
+/// `crates/mw-egress/tests/route_construction_sites.rs` **enforces this by scanning
+/// the tree**: it fails if a second production construction site appears, or if any
+/// fully-public function returns a `ProxyRoute`. A comment saying "there is one
+/// constructor today" would not notice the second one; that test does.
+///
+/// # Why this function asserts nothing about its input
+/// Stated rather than left as an omission. There is no check available here that
+/// would mean anything: a `host` is a string, and "came from the operator" is not a
+/// property of the value — an attacker-chosen host and an operator-chosen one are
+/// the same bytes. Validating the string would produce a check that always passes
+/// and reads as though it protects something. The provenance is carried by the type
+/// of the argument and by the absence of other constructors, which is checkable; a
+/// runtime assertion here would not be.
+///
+/// # Behaviour
 /// Returns `None` for a `scheme` this build cannot speak. The admin boundary
 /// validates `scheme` against its own allow-list, so that should be unreachable —
 /// but "should be unreachable" is not a reason to guess, and the caller turns it
@@ -245,7 +300,15 @@ fn proxy_route(row: &EgressProxyRow) -> Option<ProxyRoute> {
 /// database error silently disables the operator's egress control — the same
 /// fail-open shape as a silent fallback on tunnel failure, arriving by a different
 /// door.
-async fn active_route(store: &mw_store::Store) -> Result<Option<ProxyRoute>, ()> {
+///
+/// `pub(crate)` rather than private because `import_routes.rs`'s `webcal://`/ICS
+/// fetcher is the workspace's **second** hardened-fetch surface and must take the
+/// same route — see [`fetch_url_hardened_routed`]. It is deliberately **not** `pub`:
+/// a fully-public function returning a `ProxyRoute` would re-open construction to
+/// any caller, which is the thing [`proxy_route`]'s doc comment and
+/// `route_construction_sites.rs` exist to prevent. Widening this to `pub` should
+/// fail that test; if it ever does not, the test is wrong.
+pub(crate) async fn active_route(store: &mw_store::Store) -> Result<Option<ProxyRoute>, ()> {
     match store.active_egress_proxy().await {
         Ok(None) => Ok(None),
         Ok(Some(row)) => match proxy_route(&row) {
@@ -298,6 +361,34 @@ fn last_egress() -> &'static Mutex<Option<(String, bool)>> {
 /// fetch still truthfully says the bytes did not go through the proxy. A row that
 /// claimed traversal because a route was configured would be intent recorded as
 /// fact, and it would be wrong in precisely the situation audit rows exist for.
+///
+/// # `traversedProxy: false` does NOT mean "went direct" — read both fields
+/// A `CONNECT` the proxy **refuses** sends our bytes to that proxy and still reports
+/// `traversed: false`, because no origin traffic traversed it. That is the right
+/// value, and it is also the one an operator is most likely to misread — a refused
+/// tunnel is exactly when they are trying to work out whether their proxy is in the
+/// path at all, and "false" invites the conclusion that the fetch went around it
+/// (t22-e-sec).
+///
+/// The row is readable only because **both** fields are on it, and they separate the
+/// three states unambiguously:
+///
+/// | `configuredRoute` | `traversedProxy` | what happened |
+/// |---|---|---|
+/// | `"direct"` | `false` | no route configured; the fetch went direct |
+/// | `"corp"` | `true`  | the fetch went through `corp` |
+/// | `"corp"` | `false` | `corp` was live and was **not** traversed — the fetch was **refused**, not re-routed |
+///
+/// The third row can never mean "went direct", because `fetch_remote_routed` is
+/// fail-closed: once a route is configured there is no path to the direct fetcher.
+/// `DIRECT_ROUTE` is a reserved token precisely so the first and third rows are
+/// distinguishable by value rather than by inference.
+///
+/// The stop transition therefore fires on **failure** as well as success: this is
+/// called before the refusal is returned, and the de-duplication key includes
+/// `traversed`, so a route going `true` → `false` because its tunnel broke writes a
+/// row. That is the single most useful row in the file and the easiest to lose to a
+/// de-dup that only updates on success.
 async fn audit_egress_transition(state: &AppState, configured_route: &str, traversed: bool) {
     let observed = (configured_route.to_string(), traversed);
     {
@@ -332,6 +423,55 @@ async fn audit_egress_transition(state: &AppState, configured_route: &str, trave
     if let Err(e) = state.store.append_audit(&row).await {
         tracing::warn!("egress transition audit append failed: {e}");
     }
+}
+
+/// [`fetch_url_hardened`] over the deployment's egress route, with the same
+/// fail-closed behaviour and the same audit row as the image proxy's own fetch.
+///
+/// This exists so `import_routes.rs`'s `webcal://`/ICS subscription fetcher — the
+/// workspace's **second** hardened-fetch surface, and the *more*
+/// attacker-influenceable of the two, since the user supplies the URL — takes the
+/// configured route too. Wiring the image proxy and not this one would give an
+/// operator an egress control that is honoured for remote images and **silently
+/// bypassed for calendar subscriptions**, which is worse than not shipping the
+/// feature: they would believe their egress is controlled.
+///
+/// It is a function here rather than a second copy over there for the same reason
+/// `import_routes.rs` reaches for [`fetch_url_hardened`] instead of hand-rolling a
+/// fetcher: the route lookup, the fail-closed dispatch and the audit emission are
+/// one implementation, so the two surfaces cannot drift into behaving differently.
+///
+/// The `String` error shape and every message are [`fetch_url_hardened`]'s
+/// unchanged, so the ICS caller's existing `502` bodies are byte-identical for every
+/// refusal it could already produce. A proxy failure arrives as `Refusal::Upstream`
+/// → *"upstream fetch failed"*, which is the fail-closed refusal: visible, and
+/// carrying nothing about internal reachability.
+pub(crate) async fn fetch_url_hardened_routed(
+    state: &AppState,
+    url_str: &str,
+    accept: &str,
+) -> Result<Vec<u8>, String> {
+    let route = active_route(&state.store)
+        .await
+        .map_err(|()| "egress route is not usable".to_string())?;
+    let route_id = route.as_ref().map_or(DIRECT_ROUTE, |r| r.id.as_str());
+    let url = reqwest::Url::parse(url_str).map_err(|_| "malformed URL".to_string())?;
+    let routed = fetch_remote_routed(url, accept, mw_egress::ip_allowed, route.as_ref()).await;
+    audit_egress_transition(state, route_id, routed.traversed_proxy).await;
+    routed.outcome.map_err(|r| match r {
+        Refusal::BadRequest(m) => m.to_string(),
+        Refusal::Blocked => "target address is not permitted".to_string(),
+        Refusal::Timeout => "upstream timed out".to_string(),
+        // Matched to `fetch_url_hardened`'s arm CHARACTER FOR CHARACTER, including
+        // t22-e11's `HTTP {code}` suffix. This is a transport swap, not a change of
+        // what the ICS caller reports, and a message that drifted here would be a
+        // behaviour change smuggled in under a wiring commit. `is_upstream_failure`
+        // is not used: it would collapse the two arms and lose the code that the
+        // existing text carries.
+        Refusal::Status(code) => format!("upstream fetch failed: HTTP {code}"),
+        Refusal::Upstream => "upstream fetch failed".to_string(),
+        Refusal::TooLarge => "upstream response too large".to_string(),
+    })
 }
 
 // ── router ───────────────────────────────────────────────────────────────────
