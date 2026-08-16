@@ -580,7 +580,10 @@ export function Reader(): JSX.Element {
     // DEFAULT cleartext body, the one that actually carries images, is the only
     // render path without them. A body with no `<img>` is returned unchanged.
     return withImageLoadingHints(
-      rewriteGrantedImages(html, extractHtmlBody(email), activeGrant() !== null) ?? html,
+      // `email.id`, not `emailId()`: both read `app.openEmail()`, but this binds
+      // the proxy URL's scope to the very body being rewritten rather than to a
+      // second read of the signal, and it is already narrowed non-null here.
+      rewriteGrantedImages(html, extractHtmlBody(email), activeGrant() !== null, email.id) ?? html,
     );
   });
 
