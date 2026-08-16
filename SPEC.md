@@ -247,11 +247,19 @@ mailwoman/
 
 Every crate that touches network bytes (`mw-imap`, `mw-pop3`, `mw-mime`,
 `mw-jmap`, `mw-ics`, `mw-sanitize`, `mw-crypto`, `mw-export`) has
-`#![forbid(unsafe_code)]`. Fuzz targets exist for five parsers —
+`#![forbid(unsafe_code)]`. Fuzz targets exist for six parsers —
 `imap_parse_response`, `mime_parse`, `pop3_parse`, `sanitize_html`,
-`sieve_parse` (`fuzz/fuzz_targets/`). The remaining crates in that list, and
-the `mw-search` query parser, are **not** fuzzed; extending the set is tracked.
-Read "has a fuzz target" as the goal, not as a description of the tree.
+`sieve_parse` and, from 26.20, `search_query` (`fuzz/fuzz_targets/`), each run
+as a bounded smoke pass in CI. The remaining crates in that list are **not**
+fuzzed; extending the set is tracked. Read "has a fuzz target" as the goal, not
+as a description of the tree.
+
+The search-query target earned its place before it ever ran: writing it is what
+surfaced a **stack overflow that aborted the whole server process** on deeply
+nested input, which a depth guard now refuses. A stack overflow is not a
+catchable panic, so "the parser returns `Err` on malformed input" and "the parser
+cannot take the process down" are different guarantees — worth stating separately
+wherever either is claimed.
 
 ---
 
@@ -420,7 +428,15 @@ Rendering pipeline, all engine-side in Rust before anything reaches the DOM:
    pinned to its validated address, so a name cannot rebind to a
    metadata/loopback target between validation and connect (its egress policy is
    narrower: cloud-metadata/loopback/link-local refused, RFC1918 kept reachable,
-   since syncing to an internal Sieve server is legitimate). **Partial image
+   since syncing to an internal Sieve server is legitimate).
+   **What a grant does not bound:** the scopes are per **account** and per
+   **message context**, not per URL, and the image host has no relationship to
+   the sender domain — so a session holding a covering grant can have the proxy
+   fetch any *public* URL it names under that message's id. The address policy
+   above still applies. The grant stops a sender from tracking a reader who has
+   not opted in; it is not a per-URL allowlist and is not a defence against the
+   account holder, who is the party granting. See `docs/security/egress.md`.
+   **Partial image
    loading:** load a
    single image, load all from this message, always-load per sender, or
    always-load per domain — four distinct grants, each revocable, with the
@@ -1777,10 +1793,10 @@ trend tracking).
 
 ## 25. Testing & Quality
 
-- **Fuzzing:** cargo-fuzz targets exist today for **five** parsers — MIME,
-  IMAP wire, POP3 wire, HTML sanitizer and Sieve. Targets for vCard/iCal/`.hol`,
-  MSG/OFT (CFB), PGP/CMS and the search-query parser are **planned, not
-  written**; see §4.3. Corpus from real-world weird mail; OSS-Fuzz application
+- **Fuzzing:** cargo-fuzz targets exist today for **six** parsers — MIME,
+  IMAP wire, POP3 wire, HTML sanitizer, Sieve, and the search-query parser
+  (added 26.20). Targets for vCard/iCal/`.hol`, MSG/OFT (CFB) and PGP/CMS are
+  **planned, not written**; see §4.3. Corpus from real-world weird mail; OSS-Fuzz application
   once public.
 - **Protocol conformance:** CI matrix vs Dovecot, Stalwart, Cyrus, Greenmail
   containers; recorded-quirk fixtures (Gmail `\All`, UIDPLUS absence, …).
