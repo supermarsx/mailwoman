@@ -24,21 +24,44 @@
 //! - **prefix / wildcard** — a `*` glob (`proj*`, `*ject`, `p*ct`) matches any
 //!   run of characters within a single indexed term. `?` is not special.
 //!
-//! The parser is **panic-free by construction**: it only ever returns
-//! [`SearchError::Parse`] on malformed input and never indexes into byte slices
-//! at non-char-boundaries.
+//! The parser returns [`SearchError::Parse`] on malformed input and never
+//! indexes into byte slices at non-char-boundaries.
 //!
-//! It is **not fuzzed.** `fuzz/fuzz_targets/` holds `imap_parse_response`,
-//! `mime_parse`, `pop3_parse`, `sanitize_html` and `sieve_parse` — there has
-//! never been a search-query target. This comment previously said "fuzzed",
-//! which is the kind of claim a reader would reasonably act on when deciding
-//! how much to trust this parser against hostile input. Adding the target is
-//! one file; until someone does, the guarantee above rests on review, not on a
-//! fuzzer.
+//! It is **recursive**, and that is bounded deliberately rather than by luck.
+//! `atom := '(' or ')'` and `unary := NOT unary` both descend, and until 26.20
+//! nothing capped how far. Measured then: ~975 bytes of stack per level, so
+//! **2 187 nested `(` overflowed a 2 MiB stack** — the default size of a tokio
+//! worker thread, which is what serves a JMAP request. A stack overflow is not
+//! a panic and cannot be caught: it takes the **process** down, every connected
+//! user with it. Since `filter.text` on an `Email/query` reaches this parser
+//! unbounded, that was a remote denial of service reachable with a ~2.2 KB
+//! request. [`MAX_DEPTH`] is what closes it, and it is load-bearing — see the
+//! note there before changing or removing it.
+//!
+//! Fuzzed by `fuzz/fuzz_targets/search_query.rs` (26.20), which runs the same
+//! bounded CI smoke pass as the other targets. Note what that does and does not
+//! buy: the fuzzer explores this parser's own behaviour, and it is the depth
+//! cap — not the fuzzer — that makes deeply nested input safe.
 
 /// System keyword for a read message (JMAP `$seen`); `is:unread` = its absence.
 const KW_SEEN: &str = "$seen";
 const KW_FLAGGED: &str = "$flagged";
+
+/// Maximum nesting depth for `(` grouping and `NOT` chains.
+///
+/// **This bound is the only thing standing between a user-supplied query and a
+/// process-killing stack overflow.** The parser is recursive descent; each level
+/// costs ~975 bytes of stack, so without a cap 2 187 nested `(` exhausts the
+/// 2 MiB stack of the tokio worker serving the request, and a stack overflow
+/// cannot be caught — it aborts the process rather than raising a panic. Query
+/// text arrives on `Email/query`'s `filter.text` with no length or shape limit.
+///
+/// 64 is far above anything a person types: the operator grammar nests in
+/// single digits, and the deepest query in this crate's own tests is 2. Raising
+/// it trades headroom against that overflow, so raise it only with a stack
+/// measurement in hand. `deeply_nested_input_is_refused_not_fatal` fails if the
+/// cap stops working.
+const MAX_DEPTH: usize = 64;
 
 /// Default max edit distance for a bare fuzzy marker (`term~`).
 const FUZZY_DEFAULT_DISTANCE: u8 = 1;
@@ -439,6 +462,8 @@ fn classify_word(chars: &[char], word: String, i: &mut usize) -> Tok {
 struct Parser {
     toks: Vec<Tok>,
     pos: usize,
+    /// Current recursion depth, capped at [`MAX_DEPTH`].
+    depth: usize,
 }
 
 impl Parser {
@@ -492,7 +517,22 @@ impl Parser {
     }
 
     /// `unary := NOT unary | atom`
+    ///
+    /// Every recursive path in this parser passes through here — `NOT` chains
+    /// directly, and `(` grouping via `parse_atom` → `parse_or` → `parse_and` →
+    /// here — so counting depth at this one point bounds both. See [`MAX_DEPTH`].
     fn parse_unary(&mut self) -> Result<Expr, String> {
+        self.depth += 1;
+        if self.depth > MAX_DEPTH {
+            self.depth -= 1;
+            return Err(format!("query nested deeper than {MAX_DEPTH} levels"));
+        }
+        let out = self.parse_unary_inner();
+        self.depth -= 1;
+        out
+    }
+
+    fn parse_unary_inner(&mut self) -> Result<Expr, String> {
         if matches!(self.peek(), Some(Tok::Not)) {
             self.bump();
             let inner = self.parse_unary()?;
@@ -526,7 +566,11 @@ pub(crate) fn parse_expr(text: &str) -> Result<Expr, String> {
     if toks.is_empty() {
         return Ok(Expr::All);
     }
-    let mut p = Parser { toks, pos: 0 };
+    let mut p = Parser {
+        toks,
+        pos: 0,
+        depth: 0,
+    };
     let expr = p.parse_or()?;
     if p.pos != p.toks.len() {
         return Err("trailing tokens after query".to_string());
@@ -743,5 +787,48 @@ mod tests {
         for q in ["(", ")", "a OR", "AND b", "((()", "\"unterminated", "from:"] {
             let _ = parse_expr(q);
         }
+    }
+
+    /// Regression for the 26.20 stack-overflow DoS: `filter.text` reaches this
+    /// parser unbounded from an `Email/query`, and before [`MAX_DEPTH`] existed
+    /// ~2 187 nested `(` exhausted a tokio worker's 2 MiB stack — aborting the
+    /// **process**, not the request.
+    ///
+    /// **The depth is deliberately enormous (200 000, ~85× the measured
+    /// overflow point and ~3 000× the cap) and that is the point.** A test at
+    /// `MAX_DEPTH + 1` would keep passing if someone raised the cap to a value
+    /// that reopens the hole; this one only passes while the parser refuses
+    /// unbounded nesting outright. A stack overflow cannot be caught in-process,
+    /// so what is asserted is that the call **returns at all** — reaching the
+    /// assertion is itself the result.
+    #[test]
+    fn deeply_nested_input_is_refused_not_fatal() {
+        // Both recursive paths: `(` grouping, and `NOT` chains via `-`.
+        for text in ["(".repeat(200_000), "-".repeat(200_000)] {
+            let err = parse_expr(&text).expect_err("must be refused, not accepted");
+            assert!(
+                err.contains("nested deeper"),
+                "expected the depth guard to be what refused it, got: {err}"
+            );
+        }
+    }
+
+    /// Control for the test above: the guard must refuse *only* absurd input.
+    /// Without this, "deeply nested input returns Err" is satisfied by a parser
+    /// that rejects every grouped query, and the fix would have broken search
+    /// while passing its own regression test.
+    #[test]
+    fn ordinary_nesting_still_parses() {
+        assert!(parse_expr("(a OR b) AND (c OR (d AND -e))").is_ok());
+        // Right up to the cap, a well-formed query is still accepted.
+        let deep = format!(
+            "{}a{}",
+            "(".repeat(MAX_DEPTH - 1),
+            ")".repeat(MAX_DEPTH - 1)
+        );
+        assert!(
+            parse_expr(&deep).is_ok(),
+            "nesting just inside MAX_DEPTH must still parse"
+        );
     }
 }

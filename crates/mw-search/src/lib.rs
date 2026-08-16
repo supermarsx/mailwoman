@@ -116,7 +116,21 @@ impl SearchQuery {
 }
 
 /// Parse operator text into a [`SearchQuery`] (plan §0.1). Empty text matches
-/// everything. Never panics (the parser is fuzzed, plan §1.12).
+/// everything.
+///
+/// Two separate guarantees, and they are worth keeping apart because this
+/// function once claimed the first and was relied on for the second:
+///
+/// * **Malformed input returns [`SearchError::Parse`]** rather than panicking.
+///   Exercised by `fuzz/fuzz_targets/search_query.rs`.
+/// * **Hostile input cannot take the process down.** That is not a property of
+///   returning `Err` — the parser is recursive descent, and until 26.20 deeply
+///   nested input exhausted the thread's stack, which aborts the process and
+///   cannot be caught by any caller. What holds this is `query::MAX_DEPTH`, not
+///   the fuzzer and not the error type.
+///
+/// Text handed here is caller-supplied and unbounded (`Email/query`'s
+/// `filter.text` arrives straight off the wire), so both matter.
 pub fn parse_query(text: &str) -> Result<SearchQuery> {
     let expr = query::parse_expr(text).map_err(SearchError::Parse)?;
     Ok(SearchQuery {
