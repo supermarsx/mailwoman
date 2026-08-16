@@ -29,16 +29,46 @@
 //!     re-validated through the same gate (a redirect to a private target is refused);
 //!   * hard caps bound response size and the per-request timeout.
 //!
+//! One consequence of the move worth knowing before optimizing: this module no longer
+//! builds an HTTP client at all — [`mw_egress::fetch_hop`] builds one per hop, because
+//! the pin is `.resolve(host, addr)` baked into the builder and each redirect hop is a
+//! different `(host, addr)` discovered only after the previous hop answers. A client
+//! cannot be shared across hops without either dropping the pin for hops 2..n or
+//! replacing the pinning mechanism with a custom resolver. Any such change belongs in
+//! `mw-egress` and must keep the per-hop pin (t22-e7 P4, escalated there).
+//!
 //! What stays HERE is what is specific to serving remote images to a browser:
 //!   * the global concurrency ceiling and the per-account token bucket;
 //!   * fetched bytes are re-encoded through the wasm media jail
 //!     ([`mw_render::media_jail::reencode_image`], t16-e5) to a metadata-stripped PNG
 //!     before serving — a hostile codec never runs natively in this process;
-//!   * results are cached by content hash (served with an `ETag`);
+//!   * re-encoded bytes are cached in memory under `(egress route, URL)`, bounded by
+//!     **bytes** and by a TTL, and served with a content-hash `ETag` ([`ProxyCache`]);
 //!   * the request originates upstream with a normalized `User-Agent` and no forwarded
 //!     `Cookie`/`Referer`/`Authorization` (nothing from the browser is proxied).
 //!
 //! The proxy REQUIRES a session ([`crate::authed`]) so it is never an open relay.
+//!
+//! # What the grants do and do not gate (known gap, t22-e7 P3)
+//! The four grant scopes below gate what the CLIENT rewrites. The fetch handler
+//! checks the session and the per-account rate limit, but **not** the grants, so an
+//! authenticated session can drive a fetch of any URL the SSRF gate permits — scoped
+//! to public targets and rate-limited, but not scoped to a message the reader
+//! actually consented to load images for.
+//!
+//! This is not an oversight that a check here would close. Every scope in
+//! [`mw_store::Store::remote_image_allowed`] is keyed on MESSAGE context — `single` on
+//! the message id, `per-sender` on the sender address, `per-domain` on the SENDER's
+//! domain — and the request carries only `?url=`. An image URL's host
+//! (`cdn.example`) has no relation to the sender's domain, so nothing in the request
+//! can be resolved into any of the four scopes. Enforcing them requires the message
+//! id on the wire (`apps/web/src/api/remote-images.ts::imageProxyUrl`, which already
+//! has it at rewrite time), after which the handler can read the sender from the
+//! sealed envelope and call `remote_image_allowed`. The store reads for that already
+//! exist (`get_message` for ownership, `get_envelope` for the sender); only the wire
+//! parameter is missing. Escalated by `t22-e7` rather than replaced with an
+//! "any active grant" check, which would admit any URL for any message and so would
+//! read as enforcement without being it.
 //!
 //! # Ownership
 //! This module exposes [`image_proxy_router`]; `crate::lib` (t16-e10, chain link 3)
@@ -51,6 +81,7 @@
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
@@ -106,8 +137,42 @@ pub(crate) const SHELL_CSP_TIGHTENED: &str = "default-src 'none'; \
 
 /// Global concurrent-fetch ceiling — bounds proxy load + upstream fan-out.
 const MAX_CONCURRENT: usize = 16;
+
+// ── re-encoded-image cache bounds (t22-e7 P2) ─────────────────────────────────
+//
+// An entry count alone does not bound memory. `MAX_IMAGE_BYTES` caps the bytes we
+// FETCH; the cached value is the re-encoded PNG, whose size is a function of the
+// decoded image, not of the source — a small, heavily-compressed JPEG can re-encode
+// into a far larger lossless PNG. 256 entries with no byte ceiling is therefore an
+// unbounded resident set in practice. The bounds below are all enforced together in
+// [`ProxyCache::put`]; the byte budget is the one that binds first on realistic
+// images, and the entry count survives as a cheap secondary cap.
+
 /// In-memory re-encoded-image cache capacity (entries) before FIFO eviction.
 const CACHE_CAPACITY: usize = 256;
+/// Total re-encoded bytes the cache may hold. FIFO eviction runs until an insert
+/// fits — this is the ceiling on the proxy's resident image memory.
+const MAX_CACHE_BYTES: usize = 32 * 1024 * 1024;
+/// The largest single re-encode worth a cache slot. A bigger one is still SERVED,
+/// just not retained: admitting it would evict a large share of the cache for one
+/// rarely-repeated image, and an entry above [`MAX_CACHE_BYTES`] could never fit at
+/// all.
+const MAX_ENTRY_BYTES: usize = 4 * 1024 * 1024;
+/// How long a cached re-encode stays servable. Bounds both staleness (the upstream
+/// bytes behind a URL can change) and retention of an image no one is reading any
+/// more; the `Cache-Control` we hand the browser is separate and unaffected.
+const CACHE_TTL: Duration = Duration::from_secs(3600);
+
+/// The egress route the bytes were fetched over — the first half of the cache key.
+///
+/// Today exactly one route exists (a direct, pinned connection), so this constant is
+/// the only value in play and the key behaves like the URL-only key it replaces. It
+/// is in the key because the cache is GLOBAL across accounts: the moment fetches can
+/// take different egress paths, a URL-only key lets bytes fetched over one path be
+/// served to a request that was supposed to take another. That is a property to
+/// build in while the route is constant, not after it stops being one. `t22-e14`
+/// (wave 4) selects the route per fetch and substitutes its id here.
+const DIRECT_ROUTE: &str = "direct";
 
 // ── router ───────────────────────────────────────────────────────────────────
 
@@ -148,33 +213,117 @@ fn refusal_response(refusal: Refusal) -> Response {
 struct CacheEntry {
     etag: String,
     png: Vec<u8>,
+    /// When the entry was written, for the [`CACHE_TTL`] check.
+    inserted: Instant,
 }
 
-/// A tiny bounded FIFO cache of re-encoded images, keyed by the requested URL. The
-/// `ETag` is the content hash of the re-encoded PNG, so a repeat load is served from
-/// memory and the browser can revalidate cheaply.
+/// What a cached re-encode is filed under: the egress route that produced the bytes
+/// ([`DIRECT_ROUTE`] today) and the requested URL. Never the account — the cache is
+/// deliberately shared, since the bytes are a public resource fetched with nothing of
+/// the reader's attached, and a per-account cache would multiply the resident set by
+/// the account count for identical images.
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+struct CacheKey {
+    route: String,
+    url: String,
+}
+
+impl CacheKey {
+    fn new(route: &str, url: &str) -> Self {
+        Self {
+            route: route.to_string(),
+            url: url.to_string(),
+        }
+    }
+}
+
+/// A bounded FIFO cache of re-encoded images. The `ETag` is the content hash of the
+/// re-encoded PNG, so a repeat load is served from memory and the browser can
+/// revalidate cheaply.
+///
+/// Three bounds, all enforced on insert: [`CACHE_TTL`] (age), [`MAX_CACHE_BYTES`]
+/// (total retained bytes, the one that binds first) and [`CACHE_CAPACITY`] (entries).
+/// `bytes` is maintained as the exact sum of the retained `png` lengths so the byte
+/// budget costs no traversal.
 struct ProxyCache {
-    map: HashMap<String, CacheEntry>,
-    order: VecDeque<String>,
+    map: HashMap<CacheKey, CacheEntry>,
+    order: VecDeque<CacheKey>,
+    bytes: usize,
 }
 
 impl ProxyCache {
-    fn get(&self, key: &str) -> Option<(String, Vec<u8>)> {
+    /// A FRESH entry's `(etag, png)`, or `None`. An entry past its TTL is dropped
+    /// here rather than returned, so a stale hit never shortcuts the re-fetch.
+    fn get(&mut self, key: &CacheKey) -> Option<(String, Vec<u8>)> {
+        match self.map.get(key) {
+            Some(e) if e.inserted.elapsed() < CACHE_TTL => {}
+            Some(_) => {
+                self.remove(key);
+                return None;
+            }
+            None => return None,
+        }
         self.map.get(key).map(|e| (e.etag.clone(), e.png.clone()))
     }
-    fn put(&mut self, key: String, etag: String, png: Vec<u8>) {
-        if self.map.contains_key(&key) {
-            return;
-        }
-        while self.order.len() >= CACHE_CAPACITY {
-            if let Some(old) = self.order.pop_front() {
-                self.map.remove(&old);
-            } else {
-                break;
+
+    /// Drop one entry, keeping `bytes` and `order` consistent with `map`.
+    fn remove(&mut self, key: &CacheKey) {
+        if let Some(e) = self.map.remove(key) {
+            self.bytes = self.bytes.saturating_sub(e.png.len());
+            if let Some(pos) = self.order.iter().position(|k| k == key) {
+                self.order.remove(pos);
             }
         }
+    }
+
+    /// Drop every entry past [`CACHE_TTL`]. Called on insert so an idle-then-busy
+    /// proxy does not carry an hour-old resident set into its next burst.
+    fn evict_expired(&mut self) {
+        let stale: Vec<CacheKey> = self
+            .map
+            .iter()
+            .filter(|(_, e)| e.inserted.elapsed() >= CACHE_TTL)
+            .map(|(k, _)| k.clone())
+            .collect();
+        for k in stale {
+            self.remove(&k);
+        }
+    }
+
+    /// Insert (or refresh) an entry, then evict until every bound holds.
+    fn put(&mut self, key: CacheKey, etag: String, png: Vec<u8>) {
+        // Too large to retain — serve it, forget it. Also what guarantees the
+        // eviction loop below terminates with the entry admitted.
+        if png.len() > MAX_ENTRY_BYTES {
+            self.remove(&key);
+            return;
+        }
+        // NOT first-writer-wins: the previous value for this key is dropped and
+        // replaced. A URL whose entry has just expired, or whose upstream bytes
+        // changed, must be able to take its slot back — under the old early-return an
+        // entry could never be refreshed, only evicted by unrelated traffic.
+        self.remove(&key);
+        self.evict_expired();
+        while !self.order.is_empty()
+            && (self.map.len() >= CACHE_CAPACITY || self.bytes + png.len() > MAX_CACHE_BYTES)
+        {
+            let Some(old) = self.order.pop_front() else {
+                break;
+            };
+            if let Some(e) = self.map.remove(&old) {
+                self.bytes = self.bytes.saturating_sub(e.png.len());
+            }
+        }
+        self.bytes += png.len();
         self.order.push_back(key.clone());
-        self.map.insert(key, CacheEntry { etag, png });
+        self.map.insert(
+            key,
+            CacheEntry {
+                etag,
+                png,
+                inserted: Instant::now(),
+            },
+        );
     }
 }
 
@@ -184,6 +333,7 @@ fn cache() -> &'static Mutex<ProxyCache> {
         Mutex::new(ProxyCache {
             map: HashMap::new(),
             order: VecDeque::new(),
+            bytes: 0,
         })
     })
 }
@@ -290,7 +440,8 @@ async fn proxy_image(
 
     // Serve a cache hit before doing any work (and honor If-None-Match). A cache hit
     // performs no upstream fetch, so it does NOT consume the per-account rate budget.
-    if let Some((etag, png)) = cache().lock().expect("image cache lock").get(&q.url) {
+    let key = CacheKey::new(DIRECT_ROUTE, &q.url);
+    if let Some((etag, png)) = cache().lock().expect("image cache lock").get(&key) {
         if if_none_match(&headers, &etag) {
             return not_modified(&etag);
         }
@@ -348,7 +499,7 @@ async fn proxy_image(
     cache()
         .lock()
         .expect("image cache lock")
-        .put(q.url, etag.clone(), png.clone());
+        .put(key, etag.clone(), png.clone());
     image_response(png, etag)
 }
 
@@ -567,19 +718,173 @@ mod tests {
 
     // ── cache + etag ───────────────────────────────────────────────────────────
 
-    #[test]
-    fn cache_is_bounded_fifo() {
-        let mut c = ProxyCache {
+    fn empty_cache() -> ProxyCache {
+        ProxyCache {
             map: HashMap::new(),
             order: VecDeque::new(),
-        };
+            bytes: 0,
+        }
+    }
+
+    /// A key on the one route that exists today, for the tests that are not about
+    /// routing.
+    fn k(url: &str) -> CacheKey {
+        CacheKey::new(DIRECT_ROUTE, url)
+    }
+
+    #[test]
+    fn cache_is_bounded_fifo() {
+        let mut c = empty_cache();
         for i in 0..(CACHE_CAPACITY + 10) {
-            c.put(format!("k{i}"), format!("\"{i}\""), vec![i as u8]);
+            c.put(k(&format!("k{i}")), format!("\"{i}\""), vec![i as u8]);
         }
         assert!(c.map.len() <= CACHE_CAPACITY);
         // The earliest keys were evicted.
-        assert!(c.get("k0").is_none());
-        assert!(c.get(&format!("k{}", CACHE_CAPACITY + 9)).is_some());
+        assert!(c.get(&k("k0")).is_none());
+        assert!(c.get(&k(&format!("k{}", CACHE_CAPACITY + 9))).is_some());
+    }
+
+    // ── P2: the cache is bounded by BYTES, not only by entry count ──────────────
+
+    #[test]
+    fn cache_byte_budget_evicts_while_far_under_the_entry_cap() {
+        // The corpus is chosen so ONLY the byte bound can fire: entries of the
+        // largest cacheable size, enough of them to exceed MAX_CACHE_BYTES, and few
+        // enough that CACHE_CAPACITY is never approached. If eviction happens here it
+        // happened on bytes.
+        let n = MAX_CACHE_BYTES / MAX_ENTRY_BYTES + 2; // 10 entries at 4 MiB = 40 MiB
+        assert!(
+            n < CACHE_CAPACITY,
+            "the corpus must stay under the entry cap ({n} vs {CACHE_CAPACITY}) or this \
+             test cannot tell which bound fired"
+        );
+        assert!(
+            n * MAX_ENTRY_BYTES > MAX_CACHE_BYTES,
+            "the corpus must exceed the byte budget"
+        );
+
+        let mut c = empty_cache();
+        for i in 0..n {
+            c.put(
+                k(&format!("big{i}")),
+                format!("\"{i}\""),
+                vec![7u8; MAX_ENTRY_BYTES],
+            );
+        }
+
+        // The entry cap was never in play, yet entries were dropped.
+        assert!(
+            c.map.len() < n,
+            "the byte budget must have evicted (kept all {n})"
+        );
+        assert!(c.map.len() < CACHE_CAPACITY);
+        assert!(
+            c.bytes <= MAX_CACHE_BYTES,
+            "retained {} bytes over a {MAX_CACHE_BYTES}-byte budget",
+            c.bytes
+        );
+        // The accounting is exact, not approximate — `bytes` equals what is held.
+        let held: usize = c.map.values().map(|e| e.png.len()).sum();
+        assert_eq!(
+            c.bytes, held,
+            "byte counter drifted from the retained entries"
+        );
+        // FIFO: the oldest went, the newest stayed.
+        assert!(c.get(&k("big0")).is_none());
+        assert!(c.get(&k(&format!("big{}", n - 1))).is_some());
+    }
+
+    #[test]
+    fn an_oversized_reencode_is_not_cached_and_evicts_nothing() {
+        let mut c = empty_cache();
+        c.put(k("small"), "\"s\"".into(), vec![1u8; 1024]);
+        // One byte over the per-entry cap: refused a slot, and the existing entry
+        // survives (an oversized image must not be able to flush the cache).
+        c.put(k("huge"), "\"h\"".into(), vec![2u8; MAX_ENTRY_BYTES + 1]);
+        assert!(
+            c.get(&k("huge")).is_none(),
+            "oversized entry must not be retained"
+        );
+        assert!(
+            c.get(&k("small")).is_some(),
+            "oversized insert must not evict"
+        );
+        assert_eq!(c.bytes, 1024);
+    }
+
+    // ── P2: TTL ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn a_cache_entry_expires_after_the_ttl() {
+        let mut c = empty_cache();
+        c.put(k("u"), "\"e\"".into(), vec![9u8; 32]);
+        assert!(c.get(&k("u")).is_some(), "fresh entry serves");
+
+        // Age it past the TTL by moving its insert time backwards.
+        let entry = c.map.get_mut(&k("u")).unwrap();
+        entry.inserted = entry
+            .inserted
+            .checked_sub(CACHE_TTL + Duration::from_secs(1))
+            .expect("shift insert time back");
+
+        assert!(
+            c.get(&k("u")).is_none(),
+            "an entry past its TTL must not serve"
+        );
+        // ...and the expired bytes are released, not merely hidden.
+        assert_eq!(
+            c.bytes, 0,
+            "expired entry must be dropped, not just skipped"
+        );
+        assert!(c.order.is_empty());
+    }
+
+    #[test]
+    fn put_refreshes_an_existing_key_rather_than_first_writer_wins() {
+        let mut c = empty_cache();
+        c.put(k("u"), "\"v1\"".into(), vec![1u8; 10]);
+        c.put(k("u"), "\"v2\"".into(), vec![2u8; 20]);
+        let (etag, png) = c.get(&k("u")).expect("entry present");
+        assert_eq!(etag, "\"v2\"", "the later write must win");
+        assert_eq!(png, vec![2u8; 20]);
+        // Exactly one entry, and the byte count reflects the replacement only.
+        assert_eq!(c.map.len(), 1);
+        assert_eq!(
+            c.order.len(),
+            1,
+            "replacing must not leave a stale order slot"
+        );
+        assert_eq!(c.bytes, 20, "the replaced entry's bytes must be released");
+    }
+
+    // ── P2: the key is (route, url), not url ───────────────────────────────────
+
+    #[test]
+    fn cache_is_keyed_by_route_and_url_not_url_alone() {
+        let mut c = empty_cache();
+        let same_url = "https://cdn.example/logo.png";
+        c.put(
+            CacheKey::new(DIRECT_ROUTE, same_url),
+            "\"d\"".into(),
+            vec![1u8; 8],
+        );
+        c.put(
+            CacheKey::new("via-proxy-1", same_url),
+            "\"p\"".into(),
+            vec![2u8; 8],
+        );
+
+        // One URL, two routes, two entries — bytes fetched over one egress path are
+        // never served to a request that took another.
+        assert_eq!(c.map.len(), 2);
+        assert_eq!(
+            c.get(&CacheKey::new(DIRECT_ROUTE, same_url)).unwrap().0,
+            "\"d\""
+        );
+        assert_eq!(
+            c.get(&CacheKey::new("via-proxy-1", same_url)).unwrap().0,
+            "\"p\""
+        );
     }
 
     // ── R6: per-account token-bucket rate limit ──────────────────────────────────
