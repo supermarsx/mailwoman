@@ -1,4 +1,4 @@
-import { onMount, onCleanup, createEffect, lazy, Suspense, Show, Switch, Match, type JSX } from 'solid-js';
+import { onMount, onCleanup, createEffect, createSignal, Show, Switch, Match, type JSX } from 'solid-js';
 import { AppContext } from './state/context.ts';
 import { createAppState } from './state/store.ts';
 import { createConfiguredClient } from './api/transport.ts';
@@ -6,29 +6,38 @@ import { stripBase } from './api/basePath.ts';
 import { getPlatform, initPlatform } from './platform/index.ts';
 import { capabilityEnabled } from './platform/capabilities.ts';
 import { Login } from './screens/Login.tsx';
-import { MailboxScreen } from './screens/Mailbox.tsx';
 import { Toast } from './components/Toast.tsx';
 import { ConnectionToast } from './realtime/ConnectionToast.tsx';
+import { AsyncBoundary, LazyRoute } from './components/ErrorBoundary.tsx';
+import { AsyncError, AsyncPending } from './components/AsyncState.tsx';
 
-// V6 admin panel (plan §2.6, §3 e7): a LAZY, admin-session-gated route reached
-// ONLY via dynamic import, so the whole `screens/Admin/**` tree code-splits into
-// its own chunk and is ABSENT from the login→inbox mailbox bundle (bundle gate).
-// The panel runs under a separate admin session domain; the normal SPA path below
-// is byte-unchanged (the early return only fires on the `/admin` path).
-const AdminScreen = lazy(() => import('./screens/Admin/index.tsx'));
+// Every route below is a DYNAMIC IMPORT, and each now loads through `LazyRoute`
+// rather than a bare `<Suspense fallback="Loading…">`. A chunk that fails to
+// arrive — a 404 against a tab left open across a redeploy, or one dropped
+// request — used to leave that fallback on screen for the life of the tab, with
+// nothing to recover it and nothing to report it. `LazyRoute` bounds the pending
+// state and its retry constructs a new `import()`, which is what makes the retry
+// capable of succeeding (see ErrorBoundary.tsx).
 
-// V6 OAuth 2.1 consent (plan §3 e8/e11): the resource-owner grant/deny screen,
-// reached ONLY via the `/oauth/authorize` redirect. Lazily imported so it
-// code-splits out of the mailbox bundle; it reads the authorize params from
-// `window.location.search` and posts to `/oauth/{consent,decision}`.
-const ConsentScreen = lazy(() => import('./screens/Consent/index.tsx'));
+/** V6 admin panel (plan §2.6, §3 e7): admin-session-gated, its own chunk, ABSENT
+ *  from the login→inbox bundle (bundle gate). The normal SPA path is unchanged;
+ *  the early return only fires on the `/admin` path. */
+const loadAdminScreen = () => import('./screens/Admin/index.tsx');
 
-// t10 UI-plugin tier (plan §3 e13, SPEC §22.2): a LAZY, fail-soft surface rendering
-// the approved+enabled sandboxed UI plugins. Code-splits into its own chunk so it is
-// ABSENT from the login→inbox mailbox bundle; the tier renders NOTHING when no plugin
-// is approved (or the registry endpoint is absent/offline), so the mailbox layout is
-// byte-unchanged. Mounted only inside the authenticated branch below.
-const UiPluginTier = lazy(() => import('./plugins-ui/Tier.tsx'));
+/** V6 OAuth 2.1 consent (plan §3 e8/e11): the resource-owner grant/deny screen,
+ *  reached ONLY via the `/oauth/authorize` redirect. */
+const loadConsentScreen = () => import('./screens/Consent/index.tsx');
+
+/** t10 UI-plugin tier (plan §3 e13, SPEC §22.2): a fail-soft surface rendering the
+ *  approved+enabled sandboxed UI plugins. Renders NOTHING when no plugin is
+ *  approved (or the registry is absent/offline), so the mailbox layout is
+ *  unchanged. Mounted only inside the authenticated branch below. */
+const loadUiPluginTier = () => import('./plugins-ui/Tier.tsx');
+
+/** The mailbox itself, now code-split out of the entry chunk: the shell renders
+ *  Login without it, so a logged-out visitor never downloads the whole mail UI. */
+const loadMailboxScreen = () =>
+  import('./screens/Mailbox.tsx').then((m) => ({ default: m.MailboxScreen }));
 
 // Both route tests run on the pathname with the deploy prefix REMOVED. Under
 // `MW_BASE_PATH=/mail` the browser is at `/mail/admin`, which matches neither
@@ -52,26 +61,33 @@ function isOAuthAuthorizeRoute(): boolean {
 
 export function App(): JSX.Element {
   if (isAdminRoute()) {
-    return (
-      <Suspense fallback={<div class="boot">Loading…</div>}>
-        <AdminScreen />
-      </Suspense>
-    );
+    return <LazyRoute load={loadAdminScreen} />;
   }
 
   if (isOAuthAuthorizeRoute()) {
-    return (
-      <Suspense fallback={<div class="boot">Loading…</div>}>
-        <ConsentScreen />
-      </Suspense>
-    );
+    return <LazyRoute load={loadConsentScreen} />;
   }
 
   const client = createConfiguredClient();
   const app = createAppState(client);
 
+  // `init()` resolves the session. A 401 is not a failure — it is the logged-out
+  // answer and `init` handles it — so anything that lands here is a real boot
+  // failure: the server is unreachable, or it answered something unusable.
+  //
+  // It used to be fired as `void app.init()`, so such a failure became an
+  // unhandled rejection and the shell fell through to the LOGIN FORM, because
+  // `me()` is null either way. The user was invited to authenticate against a
+  // server that had just failed to answer, and their credentials would fail for
+  // a reason the screen could not explain.
+  const [bootError, setBootError] = createSignal<unknown>(null);
+  function boot(): void {
+    setBootError(null);
+    void app.init().catch(setBootError);
+  }
+
   onMount(() => {
-    void app.init();
+    boot();
     // V7 Assist (plan §14): read the gateway config once at boot. A gateway that is
     // off/unreachable resolves to DISABLED_CONFIG, so every Assist surface stays
     // hidden and the mailbox UX is unchanged (no Assist affordances render).
@@ -142,17 +158,32 @@ export function App(): JSX.Element {
 
   return (
     <AppContext.Provider value={app}>
-      <Show when={app.authChecked()} fallback={<div class="boot">Loading…</div>}>
+      <Show
+        when={app.authChecked()}
+        fallback={<AsyncPending onRetry={boot} />}
+      >
         <Switch>
+          {/* Ordered before the logged-out branch: a boot FAILURE and a
+              logged-out session are indistinguishable by `me()` alone, and
+              offering a login form for an unreachable server is the wrong
+              answer to the wrong question. */}
+          <Match when={bootError() !== null}>
+            <AsyncError error={bootError()} onRetry={boot} />
+          </Match>
           <Match when={app.me() === null}>
             <Login />
           </Match>
           <Match when={app.me() !== null}>
             <>
-              <MailboxScreen />
-              <Suspense>
-                <UiPluginTier />
-              </Suspense>
+              {/* The mailbox is the app; if it throws, a blank shell with a
+                  working Toast is not a usable fallback. */}
+              <AsyncBoundary>
+                <LazyRoute load={loadMailboxScreen} />
+              </AsyncBoundary>
+              {/* The plugin tier is fail-soft by design — it renders nothing
+                  when no plugin is approved — so its failure must stay contained
+                  and must not take the mailbox down with it. */}
+              <LazyRoute load={loadUiPluginTier} failSoft />
             </>
           </Match>
         </Switch>

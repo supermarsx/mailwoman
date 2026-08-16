@@ -15,8 +15,18 @@ function read(rel: string): string {
 describe('the /admin route is lazily loaded (code-split off the mailbox bundle)', () => {
   const app = read('../../App.tsx');
 
-  it('App reaches the Admin screen via lazy(() => import(...))', () => {
-    expect(app).toMatch(/lazy\(\s*\(\)\s*=>\s*import\(['"]\.\/screens\/Admin\/index\.tsx['"]\)\s*\)/);
+  // t22-e10: this asserted the literal `lazy(() => import('...'))`. The property
+  // it exists to protect is that the Admin tree is reached through a DYNAMIC
+  // import, which is what makes the bundler split it out — and that is unchanged.
+  // What changed is the shape: App now names the loader (`() => import(...)`) and
+  // hands it to `LazyRoute`, which rebuilds a fresh `lazy()` per attempt so a
+  // failed chunk load can actually be retried. Solid memoises a lazy's rejection,
+  // so a module-level `lazy()` cannot be retried at all.
+  //
+  // Asserting on the dynamic import rather than on the wrapper keeps the guard
+  // pointed at the property instead of at one spelling of it.
+  it('App reaches the Admin screen via a dynamic import', () => {
+    expect(app).toMatch(/\(\)\s*=>\s*import\(['"]\.\/screens\/Admin\/index\.tsx['"]\)/);
   });
 
   it('App does NOT statically import the Admin screen', () => {

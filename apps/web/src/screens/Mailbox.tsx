@@ -15,6 +15,8 @@ import { Ribbon } from '../components/Ribbon.tsx';
 import { Settings } from './Settings.tsx';
 import { SharingDialog } from './SharingDialog.tsx';
 import { Attachments } from './Attachments.tsx';
+import { AsyncBoundary } from '../components/ErrorBoundary.tsx';
+import { AsyncPending } from '../components/AsyncState.tsx';
 import { APP_MODULES, KEYS_MODULE } from '../shell/modules.ts';
 import { createShellRouter, isPimSurface, type ShellSurface } from '../shell/router.ts';
 import { shouldRefetchPim } from '../realtime/pimRefetch.ts';
@@ -281,9 +283,23 @@ export function MailboxScreen(): JSX.Element {
         {(m) => (
           <Show when={surface() === m.id}>
             <main class="module-pane" data-surface={m.id}>
-              <Suspense fallback={<div class="module-loading">{t('mail-module-loading', { module: m.label })}</div>}>
-                <Dynamic component={m.mount()} />
-              </Suspense>
+              {/* Each module is a dynamic import. Its `Suspense` had no boundary
+                  and no ceiling, so a chunk that failed to arrive left this
+                  fallback on screen for the life of the tab — the nav rail said
+                  Calendar, and Calendar never came. The boundary also contains a
+                  module that loads and then throws, which previously took the
+                  whole mailbox down with it. Retry re-renders the module; the
+                  registry holds one `lazy()` per module, so a chunk failure is
+                  recovered by reloading rather than by this button — which is
+                  why the pending state times out into an error instead of
+                  promising a retry that would replay the memoised rejection. */}
+              <AsyncBoundary>
+                <Suspense
+                  fallback={<AsyncPending message={t('mail-module-loading', { module: m.label })} />}
+                >
+                  <Dynamic component={m.mount()} />
+                </Suspense>
+              </AsyncBoundary>
             </main>
           </Show>
         )}
