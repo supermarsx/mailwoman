@@ -176,9 +176,39 @@ fn scan_literal(bytes: &[u8], start: usize) -> Option<(String, usize)> {
         i += 1;
     }
     // Take up to `len` payload bytes (clamped so we never index past the end).
-    let end = i.saturating_add(len).min(n);
+    let mut end = i.saturating_add(len).min(n);
+
+    // `len` counts OCTETS — that is what a ManageSieve `{n}` literal declares —
+    // but the caller tokenizes a `&str` and uses this index to slice it. A literal
+    // whose declared length lands INSIDE a multi-byte character therefore returned
+    // a cursor mid-character, and the next `input[start..i]` in `tokenize_impl`
+    // panicked on a non-boundary index. Found by the `sieve_parse` fuzz target
+    // (t22-e13): `{7}` followed by text containing `Ŕ` (two bytes), reachable from
+    // a user-uploaded script over ManageSieve. The input is VALID UTF-8 — the
+    // declared length simply disagrees with the character structure — so this is
+    // not a malformed-bytes edge case that the `from_utf8` gate would have caught.
+    //
+    // Round the end DOWN to the nearest character boundary. Down rather than up
+    // because `len` is the sender's statement of how many octets belong to the
+    // literal, and rounding up would take a byte it said was outside. Nothing is
+    // dropped either way: the partial character stays in the stream and is
+    // tokenized as part of the next token, which now starts at its boundary.
+    while end > i && !is_char_boundary(bytes, end) {
+        end -= 1;
+    }
+
     let payload = String::from_utf8_lossy(&bytes[i..end]).into_owned();
     Some((payload, end))
+}
+
+/// Whether `idx` is a UTF-8 character boundary in `bytes`.
+///
+/// `bytes` are always the bytes of a `&str` here, so index `0` and `bytes.len()`
+/// are boundaries by construction; every other boundary is a byte that is not a
+/// continuation byte (`10xxxxxx`). This is `str::is_char_boundary`'s rule, spelled
+/// out on the byte slice the scanners already carry.
+fn is_char_boundary(bytes: &[u8], idx: usize) -> bool {
+    idx >= bytes.len() || (bytes[idx] & 0xC0) != 0x80
 }
 
 /// Sieve commands whose use requires a capability string in `require`.
@@ -369,6 +399,91 @@ fn has_unterminated_string(input: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── `{n}` literals that end inside a multi-byte character ──────────────────
+    //
+    // The `sieve_parse` fuzz target found `tokenize` panicking at
+    // `input[start..i]` on a non-boundary index (t22-e13). The reproducer lives at
+    // `.orchestration/logs/t22-e13-sieve-crash-repro.bin`, which is GITIGNORED and
+    // so cannot be a test fixture — these encode its shape instead: `{n}` markers
+    // whose payload length lands mid-character.
+
+    #[test]
+    fn literal_length_ending_mid_character_does_not_panic() {
+        // `Ŕ` is two bytes, so a 7-byte payload over "abcdef\u{154}" ends between
+        // them — the exact shape of the crash input.
+        let sieve = "{7}\r\nabcdef\u{154}rest";
+        let tokens = tokenize(sieve);
+
+        // The literal stops at the last WHOLE character: six bytes, not seven.
+        assert_eq!(
+            tokens[0],
+            Token::Literal("abcdef".to_string()),
+            "a literal ending mid-character must round down to the last boundary"
+        );
+        // Nothing is dropped — the partial character resumes the next token.
+        assert!(
+            tokens
+                .iter()
+                .any(|t| matches!(t, Token::Word(w) if w.starts_with('\u{154}'))),
+            "the character the literal could not contain must stay in the stream, got {tokens:?}"
+        );
+    }
+
+    #[test]
+    fn the_fuzz_reproducers_shape_tokenizes_without_panicking() {
+        // Dense `{6}`/`{7}`/`{8}` markers interleaved with multi-byte characters,
+        // which is the fingerprint of the 249-byte reproducer. Every offset of the
+        // multi-byte character relative to the declared length is exercised, so
+        // this does not depend on one lucky alignment.
+        for pad in 0..12 {
+            for decl in [6usize, 7, 8] {
+                let body = format!("{}\u{154}';\u{3}-C le:", "a".repeat(pad));
+                let sieve = format!("9ule: {{{decl}}}\r\n{body} rule: )e:\r\n");
+                let tokens = tokenize(&sieve);
+                assert!(
+                    !tokens.is_empty(),
+                    "pad={pad} decl={decl} must tokenize, not panic"
+                );
+                // `lint` walks the same tokens; it must survive the input too.
+                assert!(lint(&sieve).is_ok(), "pad={pad} decl={decl}");
+            }
+        }
+    }
+
+    #[test]
+    fn scan_literal_always_returns_a_character_boundary() {
+        // The invariant the fix establishes, asserted directly rather than only
+        // through its symptom: whatever the declared length, the cursor handed
+        // back to the tokenizer can be used to slice the `&str`.
+        for decl in 1..=10usize {
+            let sieve = format!("{{{decl}}}\r\nab\u{154}\u{4E00}cd");
+            let bytes = sieve.as_bytes();
+            let start = sieve.find('{').unwrap();
+            let (_, next) = scan_literal(bytes, start).expect("a well-formed marker");
+            assert!(
+                sieve.is_char_boundary(next),
+                "declared {decl} returned non-boundary cursor {next} for {sieve:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn ordinary_literals_are_unchanged_by_the_boundary_fix() {
+        // The control. Without it, "literals no longer panic" would be satisfied
+        // by a scanner that truncated every literal to nothing — the fix must be
+        // invisible to input whose length already lands on a boundary.
+        assert_eq!(
+            tokenize("{5}\r\nhello"),
+            vec![Token::Literal("hello".to_string())]
+        );
+        // A multi-byte payload whose declared length covers it EXACTLY is kept
+        // whole: `Ŕ` is 2 bytes, `一` is 3, so 5 bytes is both characters.
+        assert_eq!(
+            tokenize("{5}\r\n\u{154}\u{4E00}"),
+            vec![Token::Literal("\u{154}\u{4E00}".to_string())]
+        );
+    }
 
     #[test]
     fn clean_script_has_no_diagnostics() {
