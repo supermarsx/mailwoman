@@ -40,6 +40,64 @@ export function computeWindow(
 }
 
 /**
+ * How many row slots the list spans, given what is loaded and how big the query
+ * actually is.
+ *
+ * ⚠ The two inputs are in DIFFERENT UNITS and that is the whole subtlety.
+ * `loadedRows` counts VISUAL rows — a collapsed conversation of nine messages is
+ * one row. `queryTotal` counts MESSAGES, because that is what the server counted;
+ * it cannot know how the client will group them. So the loaded region is measured
+ * in visual rows and the unloaded tail in messages, and `loadedThrough` (the query
+ * index the loaded page reaches) is what joins them.
+ *
+ * The tail is therefore an UPPER BOUND: every unloaded message gets a slot, and
+ * some of those messages will fold into an existing conversation when they arrive,
+ * so the count can shrink as pages load. That is honest — the alternative is
+ * describing a 20 000-message folder as 50 rows, which is what made `aria-setsize`
+ * announce "1 of 50" and gave a 20 000-message folder a 3 600px scrollbar.
+ *
+ * `queryTotal === null` means the server did not (or could not) count. Then the
+ * only defensible answer is what is loaded, which is exactly the pre-paging
+ * behaviour — never a guess.
+ */
+export function projectedRowCount(
+  loadedRows: number,
+  queryTotal: number | null,
+  loadedThrough: number,
+): number {
+  if (queryTotal === null) return loadedRows;
+  return loadedRows + Math.max(0, queryTotal - loadedThrough);
+}
+
+/** A window split into the slots that have rows and the slots that do not yet. */
+export interface WindowSplit {
+  /** `[loadedStart, loadedEnd)` — indices backed by a real row. */
+  loadedStart: number;
+  loadedEnd: number;
+  /** `[pendingStart, pendingEnd)` — indices inside the query but not yet fetched. */
+  pendingStart: number;
+  pendingEnd: number;
+}
+
+/**
+ * Divide a window at `loadedCount`, the number of slots that actually have rows.
+ *
+ * Both halves are returned rather than just the boundary so the caller cannot get
+ * the arithmetic subtly wrong in one of them — an off-by-one in the pending half
+ * renders a placeholder ON TOP of a real row at the same offset, which looks like
+ * a flicker rather than like a bug.
+ */
+export function splitWindow(win: Window, loadedCount: number): WindowSplit {
+  const bound = Math.max(0, loadedCount);
+  return {
+    loadedStart: Math.min(win.startIndex, bound),
+    loadedEnd: Math.min(win.endIndex, bound),
+    pendingStart: Math.max(win.startIndex, bound),
+    pendingEnd: Math.max(win.endIndex, bound),
+  };
+}
+
+/**
  * Value equality for two windows.
  *
  * `computeWindow` returns a fresh object on every call, so a memo over it

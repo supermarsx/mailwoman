@@ -173,7 +173,14 @@ describe('MessageList lifecycle (t22-e5a)', () => {
     // Solid never calls a `ref` callback back on dispose.
     expect(rowRefCount()).toBeGreaterThan(0);
     expect(rowRefCount()).toBeLessThanOrEqual(40);
-  });
+    // The 2000 rows are load-bearing: the bound is only meaningful against a list
+    // far larger than the window, and a leaking implementation would also pass a
+    // small one. So the row count stays and the TIMEOUT moves instead — this
+    // mounts and scrolls 2000 rows through jsdom, takes ~2.4 s idle, and exceeds
+    // vitest's 5 s default whenever the host is busy (it is: four Rust lanes
+    // share this machine). Verified not a regression — reverting t22-e4's three
+    // source files and removing its tests reproduces the identical failure.
+  }, 20_000);
 
   it('keeps Home/End focus on the right row after rows are prepended', async () => {
     const { app, scroller, box } = await mountList(100);
@@ -204,4 +211,258 @@ describe('MessageList lifecycle (t22-e5a)', () => {
       expect(el.textContent).toContain('Message 99');
     });
   });
+});
+
+// ── t22-e5b: the scroll trigger, and the query total reaching the virtualizer ──
+//
+// `appHarness`'s `makeClient` ignores `position`/`limit` and sends no `total`, so
+// every test above sees `app.total() === null` and one un-paged page. That is the
+// right control for "nothing changed when the server does not page", but it
+// cannot exercise paging at all — hence the local client below.
+//
+// The acceptance here is deliberately BEHAVIOURAL. A test that calls
+// `app.loadMore()` and asserts rows appear passes against `3a8fefb` alone and
+// says nothing about whether any DOM event reaches it; the whole failure mode
+// this lane exists to close is a complete, tested paging API that no gesture
+// invokes.
+
+interface PagedQuery {
+  position: number;
+  limit: number;
+  calculateTotal: boolean;
+}
+
+interface PagedMount {
+  app: AppState;
+  container: HTMLElement;
+  scroller: HTMLElement;
+  /** Every `Email/query` this mount issued, in order. */
+  queries: PagedQuery[];
+}
+
+/** A client that really pages: honours `position`/`limit` and answers
+ *  `calculateTotal` with the whole corpus size. */
+function pagingClient(corpus: Email[], queries: PagedQuery[], alwaysFirstPage = false): Client {
+  const base = makeClient({ emails: corpus });
+  return {
+    ...base,
+    jmap: async (body): Promise<JmapResponse> => {
+      const q = body.methodCalls.find((c) => c[0] === 'Email/query');
+      if (q === undefined) return base.jmap(body);
+      const args = q[1] as { position?: number; limit?: number; calculateTotal?: boolean };
+      const position = args.position ?? 0;
+      const limit = args.limit ?? 50;
+      const calculateTotal = args.calculateTotal === true;
+      queries.push({ position, limit, calculateTotal });
+      const page = alwaysFirstPage ? corpus.slice(0, limit) : corpus.slice(position, position + limit);
+      return {
+        methodResponses: [
+          [
+            'Email/query',
+            {
+              accountId: 'acct1',
+              queryState: 'q0',
+              ids: page.map((e) => e.id),
+              position,
+              ...(calculateTotal ? { total: corpus.length } : {}),
+            },
+            'q',
+          ],
+          ['Email/get', { accountId: 'acct1', state: 's', list: [...page], notFound: [] }, 'g'],
+        ],
+        sessionState: 's',
+      };
+    },
+  };
+}
+
+/** Mount over a folder of `size` messages named `Message 1 … Message size`. */
+async function mountPaged(size: number, alwaysFirstPage = false): Promise<PagedMount> {
+  const corpus = Array.from({ length: size }, (_, i) => mkEmail(`m${i + 1}`, { subject: `Message ${i + 1}` }));
+  const queries: PagedQuery[] = [];
+  const app = createAppState(pagingClient(corpus, queries, alwaysFirstPage));
+  const result = render(() => <AppContext.Provider value={app}>{<MessageList />}</AppContext.Provider>);
+  await app.login(CREDS);
+  await waitFor(() => expect(app.messages().length).toBe(Math.min(50, size)));
+  const scroller = result.container.querySelector('.list__scroll') as HTMLElement;
+  makeScrollable(scroller);
+  return { app, container: result.container, scroller, queries };
+}
+
+/** The subjects currently rendered as real rows. */
+function renderedSubjects(root: ParentNode): string[] {
+  return Array.from(root.querySelectorAll('.list__subject')).map((el) => el.textContent ?? '');
+}
+
+/** `Email/query` calls that asked for anything past the first page. */
+function pageRequests(queries: PagedQuery[]): PagedQuery[] {
+  return queries.filter((q) => q.position > 0);
+}
+
+describe('MessageList paging trigger (t22-e5b)', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('a SCROLL EVENT reaches message 51 in a 20 000-message mailbox', async () => {
+    const { app, container, scroller } = await mountPaged(20_000);
+
+    // The state layer could reach message 51 from `3a8fefb`; the UI could not.
+    expect(app.messages()).toHaveLength(50);
+    expect(renderedSubjects(container)).not.toContain('Message 51');
+
+    // The same event the browser fires. Nothing test-only is called.
+    scrollTo(scroller, 45 * ROW);
+
+    await waitFor(() => expect(app.messages().length).toBe(100));
+    await waitFor(() => expect(renderedSubjects(container)).toContain('Message 51'));
+  }, 20_000);
+
+  it('does not page until something scrolls — the trigger is the gesture', async () => {
+    // Control for the test above: without it, "scrolling loaded page 2" would
+    // also hold for an implementation that pages on mount, on a timer, or from
+    // an effect, none of which is a scroll trigger.
+    const { app, queries } = await mountPaged(20_000);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(app.messages()).toHaveLength(50);
+    expect(pageRequests(queries)).toHaveLength(0);
+  }, 20_000);
+
+  it('issues ONE request per gesture, not one per scroll event', async () => {
+    const { queries, scroller } = await mountPaged(20_000);
+
+    // A real gesture delivers a burst. Ungated, each event calls loadMore.
+    for (let i = 0; i < 12; i += 1) scrollTo(scroller, 45 * ROW + i);
+
+    expect(pageRequests(queries)).toHaveLength(1);
+  }, 20_000);
+
+  it('asks for the total once and then stops asking', async () => {
+    const { app, scroller, queries } = await mountPaged(20_000);
+    scrollTo(scroller, 45 * ROW);
+    await waitFor(() => expect(app.messages().length).toBe(100));
+    scrollTo(scroller, 95 * ROW);
+    await waitFor(() => expect(app.messages().length).toBe(150));
+
+    expect(queries.map((q) => q.calculateTotal)).toEqual([true, false, false]);
+    expect(queries.map((q) => q.position)).toEqual([0, 50, 100]);
+  }, 20_000);
+
+  it('stops requesting once the folder is exhausted', async () => {
+    const { app, scroller, queries } = await mountPaged(120);
+    scrollTo(scroller, 45 * ROW);
+    await waitFor(() => expect(app.messages().length).toBe(100));
+    scrollTo(scroller, 95 * ROW);
+    await waitFor(() => expect(app.messages().length).toBe(120));
+    expect(app.hasMore()).toBe(false);
+
+    const settled = queries.length;
+    for (let i = 0; i < 5; i += 1) scrollTo(scroller, 110 * ROW + i);
+    expect(queries).toHaveLength(settled);
+  }, 20_000);
+
+  it('does not re-request a page that came back holding nothing new', async () => {
+    // A query whose window shifted under the reader answers a continuation with
+    // rows that are all already loaded. Nothing is appended, so the loaded extent
+    // does not move — and `hasMore()` stays true, because the server said there is
+    // more. An unguarded trigger therefore re-issues the identical request on
+    // every subsequent scroll event, forever.
+    const { app, scroller, queries } = await mountPaged(20_000, true);
+
+    scrollTo(scroller, 45 * ROW);
+    await waitFor(() => expect(pageRequests(queries)).toHaveLength(1));
+    expect(app.messages()).toHaveLength(50); // deduplicated away, as designed
+    expect(app.hasMore()).toBe(true); // and the query still claims more exists
+
+    for (let i = 0; i < 10; i += 1) scrollTo(scroller, 46 * ROW + i * ROW);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // Asking again cannot make a page that added nothing add something.
+    expect(pageRequests(queries)).toHaveLength(1);
+  }, 20_000);
+
+  it('a mailbox switch clears the no-progress guard', async () => {
+    // The guard remembers the extent it last requested at. Two folders whose
+    // first pages happen to be the same size would otherwise let one folder's
+    // extent suppress the other's second page — permanently, since nothing else
+    // moves it.
+    const { app, container, scroller, queries } = await mountPaged(20_000);
+    scrollTo(scroller, 45 * ROW);
+    await waitFor(() => expect(app.messages().length).toBe(100));
+
+    await app.selectMailbox('archive');
+    await waitFor(() => expect(app.messages().length).toBe(50));
+    const before = pageRequests(queries).length;
+
+    // `listLoading` swaps the whole scroller for the loading fallback, so the
+    // node captured at mount is detached by now — events on it reach nothing.
+    // Re-acquiring it is also what a real user gets: a replaced list starts at
+    // scrollTop 0, which is why nothing pages until they scroll again.
+    const live = container.querySelector('.list__scroll') as HTMLElement;
+    expect(live).not.toBe(scroller);
+    makeScrollable(live);
+
+    scrollTo(live, 45 * ROW);
+    await waitFor(() => expect(pageRequests(queries).length).toBe(before + 1));
+  }, 20_000);
+});
+
+describe('MessageList describes the folder, not the page (t22-e5b, L4)', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('sizes the scrollbar and aria-setsize from the QUERY total', async () => {
+    const { app, container } = await mountPaged(20_000);
+
+    expect(app.total()).toBe(20_000);
+    expect(app.loadedRange()).toEqual({ start: 0, end: 50 });
+
+    const items = container.querySelector('.list__items') as HTMLElement;
+    // Was 50 * 72 = 3600px — a 20 000-message folder with a 3 600px scrollbar.
+    expect(items.style.height).toBe(`${20_000 * ROW}px`);
+
+    const first = container.querySelector('.list__slot') as HTMLElement;
+    expect(first.getAttribute('aria-setsize')).toBe('20000'); // was "50"
+    expect(first.getAttribute('aria-posinset')).toBe('1');
+  }, 20_000);
+
+  it('marks slots past the loaded page as pending, not as empty messages', async () => {
+    const { container, scroller } = await mountPaged(20_000);
+
+    // Drag far past anything loaded — the scrollbar now permits this.
+    scrollTo(scroller, 5_000 * ROW);
+
+    const pending = container.querySelectorAll('.list__slot[aria-busy="true"]');
+    expect(pending.length).toBeGreaterThan(0);
+    // Nothing is loaded out here, so no row may claim to be a message.
+    expect(container.querySelectorAll('.list__row')).toHaveLength(0);
+    expect(pending[0]!.getAttribute('aria-setsize')).toBe('20000');
+    // Same height as a real row, so an arriving page does not shift the scrollbar.
+    expect((pending[0] as HTMLElement).style.height).toBe(`${ROW}px`);
+  }, 20_000);
+
+  it('never renders a loaded row and a pending slot at the same position', async () => {
+    // An off-by-one in the split puts a placeholder ON TOP of a real row at the
+    // same offset, which reads as a flicker rather than as a bug.
+    const { container, scroller } = await mountPaged(20_000);
+    scrollTo(scroller, 40 * ROW);
+
+    const seen = new Map<string, number>();
+    for (const el of container.querySelectorAll('.list__slot')) {
+      const pos = el.getAttribute('aria-posinset') ?? '?';
+      seen.set(pos, (seen.get(pos) ?? 0) + 1);
+    }
+    expect(seen.size).toBeGreaterThan(0);
+    for (const [pos, count] of seen) expect(`${pos}:${count}`).toBe(`${pos}:1`);
+  }, 20_000);
+
+  it('falls back to the loaded count when the server reports no total', async () => {
+    // The un-paged path every other spec in this file uses: `makeClient` sends no
+    // `total`, and an unknown total must never be guessed at.
+    const { app, container } = await mountList(200);
+
+    expect(app.total()).toBeNull();
+    const items = container.querySelector('.list__items') as HTMLElement;
+    expect(items.style.height).toBe(`${200 * ROW}px`);
+    expect(container.querySelectorAll('[aria-busy="true"]')).toHaveLength(0);
+    const first = container.querySelector('.list__slot') as HTMLElement;
+    expect(first.getAttribute('aria-setsize')).toBe('200');
+  }, 20_000);
 });

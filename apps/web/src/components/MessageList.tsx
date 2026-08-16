@@ -1,7 +1,7 @@
-import { createMemo, createSignal, For, onCleanup, Show, type JSX } from 'solid-js';
+import { createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
 import { t, isolate } from '../i18n/index.ts';
-import { computeWindow, sameWindow } from './virtual.ts';
+import { computeWindow, projectedRowCount, sameWindow, splitWindow } from './virtual.ts';
 import { TagChips } from './TagChips.tsx';
 import { MessageActions } from './MessageActions.tsx';
 import * as a11y from './mailA11y.css.ts';
@@ -40,6 +40,13 @@ import type { Email, EmailAddress } from '../api/jmap-types.ts';
  *  the message row is three lines, so these sit above the single-line density
  *  tokens in the theme contract. */
 const ROW_HEIGHTS: Record<Density, number> = { compact: 56, cozy: 72, relaxed: 88 };
+
+/**
+ * How close the mounted window must come to the last LOADED row before the next
+ * page is requested. Measured against loaded rows, not against the spacer's end:
+ * the spacer now spans the whole folder, most of which is placeholders.
+ */
+const LOAD_MORE_SLACK = 10;
 
 function senderLabel(from: EmailAddress[] | null): string {
   const first = from?.[0];
@@ -110,6 +117,30 @@ function MessageRow(props: {
         <TagChips email={email()} />
       </button>
       <MessageActions email={email()} />
+    </li>
+  );
+}
+
+/**
+ * A slot for a row inside the query but not yet fetched (L4).
+ *
+ * It is the same height as a real row, so the scrollbar does not jump when the
+ * page arrives, and it carries `aria-busy` so a screen reader announces the slot
+ * as pending rather than as an empty message. It is NOT focusable: the roving
+ * cursor stays inside loaded rows, because focusing a slot with no message would
+ * announce nothing and strand the cursor.
+ */
+function PlaceholderRow(props: { top: number; height: number; index: number; total: number }): JSX.Element {
+  return (
+    <li
+      class="list__slot list__slot--pending"
+      role="listitem"
+      aria-busy="true"
+      aria-posinset={props.index + 1}
+      aria-setsize={props.total}
+      style={{ transform: `translateY(${props.top}px)`, height: `${props.height}px` }}
+    >
+      <span class={a11y.srOnly}>{t('mail-loading')}</span>
     </li>
   );
 }
@@ -236,14 +267,21 @@ export function MessageList(): JSX.Element {
   const rowHeight = (): number => ROW_HEIGHTS[app.density()];
   // The FLAT list folded into visual rows (singletons + conversation heads/members).
   const rows = createMemo<ThreadVisualRow[]>(() => groupThreads(app.listMessages(), expanded()));
+  // How many slots the list spans: the loaded rows plus the query's unfetched
+  // tail. This is what makes the scrollbar and `aria-setsize` describe the FOLDER
+  // rather than the page — before paging they described `rows().length`, so a
+  // 20 000-message folder announced "1 of 50" behind a 3 600px scrollbar.
+  const spanRows = createMemo(() => projectedRowCount(rows().length, app.total(), app.loadedRange().end));
   // `computeWindow` returns a fresh object every call, so without a comparator
   // this memo notifies on every scroll EVENT — including the many that leave
   // the mounted slice unchanged — and rebuilt the whole window each time.
   const win = createMemo(
-    () => computeWindow(scrollTop(), viewportH(), rowHeight(), rows().length),
+    () => computeWindow(scrollTop(), viewportH(), rowHeight(), spanRows()),
     undefined,
     { equals: sameWindow },
   );
+  // Which of the mounted slots have rows and which are still pending.
+  const split = createMemo(() => splitWindow(win(), rows().length));
 
   let scroller: HTMLDivElement | undefined;
   // Keyed by ROW IDENTITY, not index. Two reasons: `<For>` is reference-keyed,
@@ -265,11 +303,55 @@ export function MessageList(): JSX.Element {
     });
   }
 
+  /**
+   * Request the next page once the mounted window nears the end of what is
+   * loaded. This is the ONLY thing that turns paging into a user-reachable
+   * feature: every server- and state-side piece landed in `3a8fefb`, but until
+   * a DOM event calls `loadMore()` the list stops at the first page and the app
+   * looks exactly as it did before paging existed.
+   *
+   * Gated on `loadingMore()` because scroll fires continuously — a handler
+   * without it issues a request per scroll event, dozens per gesture — and on
+   * `listLoading()` because a whole-list replace is already in flight and an
+   * append onto a list about to be discarded is wasted.
+   */
+  // The loaded extent the last page was requested at. A page that comes back
+  // holding only ids already loaded leaves the extent where it was, and `hasMore`
+  // stays true — so without this, every further scroll event re-issues the same
+  // request forever. Measured, not theorised: it took a peer's 2000-row spec from
+  // 2.4 s to 10.4 s against a fixture whose server ignores `limit`.
+  //
+  // Compared in MESSAGE space (`loadedRange().end`), never in visual rows: a page
+  // that folds entirely into existing conversations grows the extent while leaving
+  // `rows().length` unchanged, and a rows-based guard would stop paging a folder
+  // that is one large thread.
+  //
+  // This belongs in `mail.ts` — a page that adds nothing cannot be made to add
+  // something by asking again, so `exhausted` is the right home — but that file is
+  // not this lane's lock. Reported; harmless once it lands.
+  let requestedAtEnd = -1;
+  createEffect(() => {
+    // A whole-list replace (mailbox switch, search, clear) restarts the query, so
+    // the previous query's extent must not suppress the new one's first page.
+    if (app.listLoading()) requestedAtEnd = -1;
+  });
+
+  function maybeLoadMore(): void {
+    if (!app.hasMore() || app.loadingMore() || app.listLoading()) return;
+    const end = app.loadedRange().end;
+    if (end === requestedAtEnd) return;
+    if (win().endIndex >= rows().length - LOAD_MORE_SLACK) {
+      requestedAtEnd = end;
+      void app.loadMore();
+    }
+  }
+
   function onScroll(): void {
     if (scroller !== undefined) {
       setScrollTop(scroller.scrollTop);
       if (scroller.clientHeight > 0) setViewportH(scroller.clientHeight);
     }
+    maybeLoadMore();
   }
 
   /** Move the roving cursor, scroll the target into the window, then focus it. */
@@ -313,8 +395,16 @@ export function MessageList(): JSX.Element {
   // so the slice alone lets `<For>` reuse them; the absolute position comes
   // from `<For>`'s index accessor plus the window start.
   const slice = createMemo(() => {
-    const w = win();
-    return rows().slice(w.startIndex, w.endIndex);
+    const s = split();
+    return rows().slice(s.loadedStart, s.loadedEnd);
+  });
+  // The mounted slots with no row yet, as absolute indices. Plain numbers so
+  // `<For>` reconciles them by value and reuses the slot elements a scroll keeps.
+  const pendingSlots = createMemo(() => {
+    const s = split();
+    const out: number[] = [];
+    for (let i = s.pendingStart; i < s.pendingEnd; i += 1) out.push(i);
+    return out;
   });
 
   return (
@@ -335,9 +425,19 @@ export function MessageList(): JSX.Element {
               aria-label={t('mail-list-label')}
               style={{ position: 'relative', height: `${win().totalHeight}px` }}
             >
+              <For each={pendingSlots()}>
+                {(index) => (
+                  <PlaceholderRow
+                    top={index * rowHeight()}
+                    height={rowHeight()}
+                    index={index}
+                    total={spanRows()}
+                  />
+                )}
+              </For>
               <For each={slice()}>
                 {(row, i) => {
-                  const index = (): number => win().startIndex + i();
+                  const index = (): number => split().loadedStart + i();
                   const setRef = (el: HTMLButtonElement | undefined): void => {
                     if (el) rowEls.set(row, el);
                     else rowEls.delete(row);
@@ -354,7 +454,7 @@ export function MessageList(): JSX.Element {
                           top={index() * rowHeight()}
                           height={rowHeight()}
                           index={index()}
-                          total={rows().length}
+                          total={spanRows()}
                           focused={index() === cursor()}
                           threadChild={row.kind === 'child'}
                           setRef={setRef}
@@ -366,7 +466,7 @@ export function MessageList(): JSX.Element {
                         top={index() * rowHeight()}
                         height={rowHeight()}
                         index={index()}
-                        total={rows().length}
+                        total={spanRows()}
                         focused={index() === cursor()}
                         onToggle={() => toggleThread(row.key)}
                         setRef={setRef}
