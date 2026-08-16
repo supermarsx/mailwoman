@@ -65,11 +65,58 @@ export function mailboxGet(accountId: Id, callId = 'c0'): JmapRequest {
 }
 
 /**
+ * Which slice of a query to fetch (t22-e4). Omitted entirely, these builders
+ * emit exactly what they emitted before paging existed: the first `limit` ids
+ * with the total calculated.
+ *
+ * `position` and `anchor` are the two ways RFC 8620 §5.5 lets a client name a
+ * window. They are mutually exclusive; sending both is a client bug, so the
+ * builders emit `anchor` and drop `position` when both are supplied rather than
+ * letting the server arbitrate.
+ */
+export interface PageWindow {
+  /** Absolute zero-based offset into the query result. */
+  position?: number;
+  /** Page relative to the position of this id instead (stable under inserts). */
+  anchor?: Id;
+  /** Offset applied to `anchor`; negative walks backwards. Ignored without one. */
+  anchorOffset?: number;
+  /**
+   * Whether to ask for the query's total. Defaults to `true`, which is what the
+   * un-paged builders always did. Pass `false` for the CONTINUATIONS of a query:
+   * the total cannot change while you page through a fixed query state, and it
+   * costs the server a `COUNT(*)` over the whole folder every time it is asked.
+   */
+  calculateTotal?: boolean;
+}
+
+/** The `Email/query` args for one page window, minus filter/sort/accountId. */
+function windowArgs(limit: number, page: PageWindow): Record<string, unknown> {
+  const args: Record<string, unknown> = {
+    limit,
+    calculateTotal: page.calculateTotal ?? true,
+  };
+  if (page.anchor !== undefined) {
+    args['anchor'] = page.anchor;
+    if (page.anchorOffset !== undefined) args['anchorOffset'] = page.anchorOffset;
+  } else if (page.position !== undefined && page.position !== 0) {
+    // Omit the default so an unpaged request is byte-identical to the pre-paging one.
+    args['position'] = page.position;
+  }
+  return args;
+}
+
+/**
  * List a mailbox: Email/query for the newest ids, then Email/get header
  * properties for exactly those ids via a JMAP result reference (#ids from the
  * query), so the whole page is one round-trip.
+ *
+ * `limit` is the PAGE size, not the folder size: before t22 it was the only
+ * bound and the app never sent anything but the default, so message 51 of a
+ * folder was unreachable however far the list was scrolled. `page` names which
+ * slice of the query this call wants.
  */
-export function listMailbox(accountId: Id, mailboxId: Id, limit = 50): JmapRequest {
+export function listMailbox(accountId: Id, mailboxId: Id, limit = 50, page: PageWindow = {}): JmapRequest {
   return request(MAIL_USING, [
     [
       'Email/query',
@@ -77,8 +124,7 @@ export function listMailbox(accountId: Id, mailboxId: Id, limit = 50): JmapReque
         accountId,
         filter: { inMailbox: mailboxId },
         sort: [{ property: 'receivedAt', isAscending: false }],
-        limit,
-        calculateTotal: true,
+        ...windowArgs(limit, page),
       },
       'q',
     ],
@@ -99,12 +145,18 @@ export function listMailbox(accountId: Id, mailboxId: Id, limit = 50): JmapReque
  * attachment field routes engine-side to `mw-search`; the whole operator string
  * is carried in `filter.text` so the engine parses `from:`/`subject:`/… itself.
  * One round-trip: query for ids, then fetch header props for exactly those ids.
+ * Pages exactly like `listMailbox`.
  */
-export function searchEmails(accountId: Id, filter: FilterCondition, limit = 50): JmapRequest {
+export function searchEmails(
+  accountId: Id,
+  filter: FilterCondition,
+  limit = 50,
+  page: PageWindow = {},
+): JmapRequest {
   return request(MAIL_USING, [
     [
       'Email/query',
-      { accountId, filter, sort: [{ property: 'receivedAt', isAscending: false }], limit, calculateTotal: true },
+      { accountId, filter, sort: [{ property: 'receivedAt', isAscending: false }], ...windowArgs(limit, page) },
       'q',
     ],
     [

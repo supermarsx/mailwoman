@@ -30,14 +30,61 @@ import {
   CAP_MAIL,
   type Email,
   type EmailGetResponse,
+  type EmailQueryResponse,
   type EmailSetResponse,
   type EmailSubmissionSetResponse,
+  type FilterCondition,
   type Id,
   type Identity,
+  type JmapRequest,
+  type JmapResponse,
   type Mailbox,
   type MailboxGetResponse,
 } from '../../api/jmap-types.ts';
 import type { SliceContext } from './context.ts';
+
+/**
+ * Rows fetched per page. The list used to request exactly this many ids and
+ * nothing else, ever — so a folder's 51st message could not be reached from the
+ * UI at all, however far the virtualized list was scrolled. It is now the page
+ * size of an append-on-scroll cursor.
+ */
+export const PAGE_SIZE = 50;
+
+/**
+ * Ceiling on how much of the loaded extent an in-place refresh will refetch.
+ *
+ * `refreshCurrentMailbox` runs on every push tick and every peer-tab mutation.
+ * Refetching only the first page would collapse a reader who has scrolled to row
+ * 400 back to row 50; refetching everything loaded would put a 20 000-row
+ * `Email/get` on the push path, which is the cost this tag exists to remove. So
+ * a refresh renews the loaded extent up to this many rows and, past it, declines
+ * — leaving the list exactly as it was rather than shrinking it. Refresh is
+ * already best-effort here (it swallows transient failures for the same reason).
+ */
+const REFRESH_MAX_ROWS = 500;
+
+/** Which query the list is currently showing, so a page N can repeat it. */
+type PageSource =
+  | { readonly kind: 'mailbox'; readonly mailboxId: Id }
+  | { readonly kind: 'search'; readonly filter: FilterCondition };
+
+/**
+ * The transport call, widened with an optional `{ signal }`.
+ *
+ * `Client.jmap` is declared `(body) => Promise<JmapResponse>`, and a function of
+ * that type is assignable to this one (TypeScript lets an implementation ignore
+ * trailing parameters), so this compiles against today's client and starts
+ * cancelling for real the moment `api/client.ts` threads the signal into its
+ * `fetch`. That one-line change is outside this lane's locks — see the lane log.
+ *
+ * Until it lands the signal is not wasted: it is what makes "this request has
+ * been superseded" an observable fact rather than an internal counter, and it is
+ * what the interleaving test asserts on. The property that actually closes the
+ * stale-response race is the generation guard below, which does not depend on
+ * the transport honouring anything.
+ */
+type JmapCall = (body: JmapRequest, opts?: { signal?: AbortSignal }) => Promise<JmapResponse>;
 
 /** A dismissable, time-boxed reversible action (the 10-second undo, §1.5). */
 export interface PendingUndo {
@@ -103,6 +150,43 @@ export interface MailSlice {
   /** Refetch the current mailbox list in place (push/peer-sync), preserving the
    *  open message + selection (unlike `selectMailbox`). No-op during search. */
   refreshCurrentMailbox(): Promise<void>;
+  // ── Paging (t22-e4) ─────────────────────────────────────────────────────
+  /**
+   * How many messages the CURRENT query matches, or `null` when the server did
+   * not or could not calculate one (see `EmailQueryResponse.total`). It is the
+   * size of the query, NOT of `messages()` — with one page loaded out of a
+   * 20 000-message folder this reads 20000 while `messages()` holds 50.
+   *
+   * `null` means unknown and must be carried through as unknown; substituting
+   * the loaded row count is what made `aria-setsize` announce "1 of 50" in a
+   * 20 000-message folder.
+   */
+  total: Accessor<number | null>;
+  /**
+   * Which slice of the query `messages()` currently holds, as half-open query
+   * indices `[start, end)`. Value-compared, so a refresh that lands the same
+   * window does not notify.
+   *
+   * Rows removed locally (archive, sweep, trash) shrink `end` without a refetch,
+   * and `total` is not adjusted for them — both reflect the last thing the
+   * server actually said.
+   */
+  loadedRange: Accessor<{ start: number; end: number }>;
+  /** Whether any of the current query remains unfetched. */
+  hasMore: Accessor<boolean>;
+  /**
+   * True while an APPEND page is in flight. Distinct from `listLoading`, which
+   * means the list is being replaced and blanks it: a scroll must never blank
+   * the rows the reader is looking at.
+   */
+  loadingMore: Accessor<boolean>;
+  /**
+   * Fetch the next page of the current query and APPEND it. Safe to call from a
+   * scroll handler: it is a no-op — with no signal written, so no row rebuild —
+   * when a fetch is already in flight or the query is exhausted.
+   */
+  loadMore(): Promise<void>;
+
   /** Load every attachment across the account for the Attachments module. */
   listAttachments(): Promise<AttachmentItem[]>;
   /** Export the open message as an `.eml` and trigger a browser download. */
@@ -214,6 +298,75 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   const [searchActive, setSearchActive] = createSignal(false);
 
   const isOffline = (): boolean => ctx.online?.() === false;
+
+  // ── paging state (t22-e4) ────────────────────────────────────────────────
+  const [total, setTotal] = createSignal<number | null>(null);
+  const [loadedStart, setLoadedStart] = createSignal(0);
+  const [loadingMore, setLoadingMore] = createSignal(false);
+  /** Set once a page comes back short: the query has no more rows to give. */
+  const [exhausted, setExhausted] = createSignal(true);
+  /** The query `loadMore` repeats. `null` before the first list load. */
+  const [pageSource, setPageSource] = createSignal<PageSource | null>(null);
+
+  // Value-compared for the same reason `virtual.ts`'s `sameWindow` exists: this
+  // is read by the virtualizer, and an equal-but-fresh object every tick would
+  // re-notify it. `createMemo`'s default `equals` is reference identity, which a
+  // freshly built object never satisfies.
+  const loadedRange = createMemo(
+    () => ({ start: loadedStart(), end: loadedStart() + messages().length }),
+    undefined,
+    { equals: (a, b) => a.start === b.start && a.end === b.end },
+  );
+
+  const hasMore = (): boolean => {
+    if (pageSource() === null || exhausted()) return false;
+    const t = total();
+    // Unknown total: keep going until a short page proves otherwise.
+    return t === null || loadedRange().end < t;
+  };
+
+  // ── fetch generation guard + abort (t22-e4, L5) ──────────────────────────
+  // Every list fetch takes a monotonically increasing generation, and ONLY the
+  // newest generation may write `messages` / `total` / `listLoading`. A response
+  // from an older generation is dropped, including its `finally` and including
+  // its failure.
+  //
+  // Without this, two list fetches resolving out of order leave the previous
+  // folder's rows under the newly selected one with `listLoading` already false
+  // — no spinner, no error, wrong mail on screen. It needed two mailbox switches
+  // in flight to reproduce before paging; with append-on-scroll every scroll is
+  // another racing fetch, so the guard is a precondition of the feature and not
+  // a hardening pass over it.
+  let listGeneration = 0;
+  let inFlight: AbortController | undefined;
+
+  interface ListRequest {
+    readonly gen: number;
+    readonly signal: AbortSignal;
+  }
+
+  function beginListRequest(): ListRequest {
+    // Supersede whatever was running: its signal aborts, so a transport that
+    // honours it drops the socket, and its generation can no longer win.
+    inFlight?.abort();
+    const controller = new AbortController();
+    inFlight = controller;
+    listGeneration += 1;
+    // The superseded request's `finally` will not run its own cleanup (it is no
+    // longer current), so clear the append flag here or a replace that lands
+    // during an append leaves it stuck true. `listLoading` needs no equivalent:
+    // only `loadFirstPage` supersedes a `loadFirstPage`, and it re-sets it.
+    setLoadingMore(false);
+    return { gen: listGeneration, signal: controller.signal };
+  }
+  const isCurrent = (req: ListRequest): boolean => req.gen === listGeneration;
+  function endListRequest(req: ListRequest): void {
+    if (isCurrent(req)) inFlight = undefined;
+  }
+
+  // `Client.jmap` takes no options today; see `JmapCall` for why passing one is
+  // both type-safe and forward-compatible.
+  const jmapCall: JmapCall = client.jmap.bind(client);
 
   const [inboxTab, setInboxTab] = createSignal<InboxTab>('focused');
   const [unifiedInbox, setUnifiedInbox] = createSignal(false);
@@ -520,6 +673,110 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     }
   }
 
+  // ── list fetching + paging (t22-e4) ──────────────────────────────────────
+  // Every entry point below has the same shape: a SYNCHRONOUS prelude that
+  // records intent (which mailbox, search or not) in call order, then an async
+  // payload behind the generation guard. Intent must not be guarded — the user's
+  // last click is the current selection regardless of which fetch resolves — and
+  // the payload must be, because the network does not preserve call order.
+
+  /** The one-round-trip request for a window of `src`. */
+  function pageRequest(
+    acct: string,
+    src: PageSource,
+    position: number,
+    limit: number,
+    calculateTotal: boolean,
+  ): JmapRequest {
+    const page = { position, calculateTotal };
+    return src.kind === 'mailbox'
+      ? listMailbox(acct, src.mailboxId, limit, page)
+      : searchEmails(acct, src.filter, limit, page);
+  }
+
+  /** The query total a list response reported, or `null` when it reported none. */
+  function pageTotal(res: JmapResponse): number | null {
+    const q = responseFor<EmailQueryResponse>(res, 'q');
+    return typeof q.total === 'number' ? q.total : null;
+  }
+
+  /**
+   * Append `page` to `prev`, skipping ids already held — a page can overlap what
+   * is loaded when a message arrives above the window between requests.
+   *
+   * Returns `prev` ITSELF, not a copy, when nothing is new. A fresh array here
+   * would notify every downstream memo and rebuild every mounted row for a page
+   * that added nothing, which is precisely the churn `57046c7` removed from the
+   * scroll path.
+   */
+  function appendPage(prev: Email[], page: Email[]): Email[] {
+    if (page.length === 0) return prev;
+    const held = new Set(prev.map((m) => m.id));
+    const fresh = page.filter((m) => !held.has(m.id));
+    if (fresh.length === 0) return prev;
+    return [...prev, ...fresh];
+  }
+
+  /**
+   * Replace the list with the first page of `src`.
+   *
+   * If this request is superseded before it resolves, its response is dropped
+   * whole: no rows written, no spinner cleared, no error raised. That is the
+   * whole of the stale-response fix — the newer selection's fetch is the only
+   * one that can write, whichever order the two come back in.
+   */
+  async function loadFirstPage(acct: string, src: PageSource): Promise<void> {
+    setPageSource(src);
+    const req = beginListRequest();
+    setListLoading(true);
+    try {
+      const res = await jmapCall(pageRequest(acct, src, 0, PAGE_SIZE, true), { signal: req.signal });
+      if (!isCurrent(req)) return;
+      const page = responseFor<EmailGetResponse>(res, 'g').list;
+      setMessages(page);
+      setLoadedStart(0);
+      setTotal(pageTotal(res));
+      setExhausted(page.length < PAGE_SIZE);
+    } catch (err) {
+      // A superseded request's failure is not the user's problem: the request
+      // that replaced it owns the outcome, including the error surface.
+      if (!isCurrent(req)) return;
+      throw err;
+    } finally {
+      if (isCurrent(req)) setListLoading(false);
+      endListRequest(req);
+    }
+  }
+
+  async function loadMore(): Promise<void> {
+    const acct = accountId();
+    const src = pageSource();
+    // Every refusal below returns WITHOUT writing a signal, so a scroll that
+    // cannot page costs nothing and rebuilds nothing.
+    if (acct === null || src === null) return;
+    if (listLoading() || loadingMore() || !hasMore()) return;
+    const position = loadedRange().end;
+    const req = beginListRequest();
+    setLoadingMore(true);
+    try {
+      const res = await jmapCall(pageRequest(acct, src, position, PAGE_SIZE, false), { signal: req.signal });
+      if (!isCurrent(req)) return;
+      const page = responseFor<EmailGetResponse>(res, 'g').list;
+      setMessages((prev) => appendPage(prev, page));
+      // Continuations do not ask for a total; keep the one the query reported.
+      const t = pageTotal(res);
+      if (t !== null) setTotal(t);
+      setExhausted(page.length < PAGE_SIZE);
+    } catch {
+      // A failed page leaves the query un-exhausted, so the next scroll retries.
+      // It must not throw: this runs from a scroll handler.
+      if (isCurrent(req)) showToast('error', 'Could not load more messages');
+    } finally {
+      if (isCurrent(req)) setLoadingMore(false);
+      endListRequest(req);
+    }
+  }
+
   async function selectMailbox(id: Id): Promise<void> {
     setSelectedMailboxId(id);
     setSearchActive(false);
@@ -528,14 +785,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     setSanitizedHtml(null);
     const acct = accountId();
     if (acct === null) return;
-    setListLoading(true);
-    try {
-      const res = await client.jmap(listMailbox(acct, id));
-      const got = responseFor<EmailGetResponse>(res, 'g');
-      setMessages(got.list);
-    } finally {
-      setListLoading(false);
-    }
+    await loadFirstPage(acct, { kind: 'mailbox', mailboxId: id });
   }
 
   function readFromCache(id: Id): void {
@@ -580,13 +830,28 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   // ── V2 integration: push/peer refetch, search, attachments, export ────────
   async function refreshCurrentMailbox(): Promise<void> {
     const acct = accountId();
-    const cur = selectedMailboxId();
-    if (acct === null || cur === null || searchActive()) return;
+    const src = pageSource();
+    if (acct === null || searchActive()) return;
+    if (src === null || src.kind !== 'mailbox') return;
+    // A replace or an append already in flight is strictly better than this
+    // refresh; superseding it would abandon a spinner nothing else clears.
+    if (listLoading() || loadingMore()) return;
+    const range = loadedRange();
+    const loaded = Math.max(PAGE_SIZE, range.end - range.start);
+    if (loaded > REFRESH_MAX_ROWS) return; // see REFRESH_MAX_ROWS
+    const req = beginListRequest();
     try {
-      const res = await client.jmap(listMailbox(acct, cur));
-      setMessages(responseFor<EmailGetResponse>(res, 'g').list);
+      const res = await jmapCall(pageRequest(acct, src, range.start, loaded, true), { signal: req.signal });
+      if (!isCurrent(req)) return;
+      const page = responseFor<EmailGetResponse>(res, 'g').list;
+      setMessages(page);
+      setLoadedStart(range.start);
+      setTotal(pageTotal(res));
+      setExhausted(page.length < loaded);
     } catch {
       // Transient/offline refetch — keep the current list.
+    } finally {
+      endListRequest(req);
     }
   }
 
@@ -605,25 +870,31 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       await clearSearch();
       return;
     }
-    // Offline: the reduced substring search over the cached header slice.
+    // Offline: the reduced substring search over the cached header slice. It is
+    // not a server query, so there is nothing to page: the cached slice IS the
+    // whole result, which is why `total` may honestly be the row count here and
+    // nowhere else.
     if (isOffline() && ctx.searchOffline) {
-      setMessages(ctx.searchOffline({ text: query }));
+      const hits = ctx.searchOffline({ text: query });
+      setPageSource(null);
+      setMessages(hits);
+      setLoadedStart(0);
+      setTotal(hits.length);
+      setExhausted(true);
       setSearchActive(true);
       return;
     }
-    setListLoading(true);
-    try {
-      // The whole operator string rides `filter.text`; the engine routes it to
-      // mw-search, which parses `from:`/`subject:`/`larger:`/… itself (§2.1). The
-      // semantic flag (V7 §14.3) is added only when the Assist toggle is on.
-      const res = await client.jmap(
-        searchEmails(acct, { text: query, ...(opts?.semantic === true ? { semantic: true } : {}) }),
-      );
-      setMessages(responseFor<EmailGetResponse>(res, 'g').list);
-      setSearchActive(true);
-    } finally {
-      setListLoading(false);
-    }
+    // Intent before payload: the list is showing search results from the moment
+    // the user asks, not from the moment the network agrees.
+    setSearchActive(true);
+    // The whole operator string rides `filter.text`; the engine routes it to
+    // mw-search, which parses `from:`/`subject:`/`larger:`/… itself (§2.1). The
+    // semantic flag (V7 §14.3) is added only when the Assist toggle is on.
+    const filter: FilterCondition = {
+      text: query,
+      ...(opts?.semantic === true ? { semantic: true } : {}),
+    };
+    await loadFirstPage(acct, { kind: 'search', filter });
   }
 
   async function listAttachments(): Promise<AttachmentItem[]> {
@@ -774,6 +1045,14 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       setSelectedMailboxId(null);
       setOpenEmail(null);
       setSanitizedHtml(null);
+      // Drop the paging cursor too, and supersede anything in flight so a fetch
+      // issued as the previous user cannot land rows after the session ended.
+      beginListRequest();
+      setPageSource(null);
+      setTotal(null);
+      setLoadedStart(0);
+      setExhausted(true);
+      setListLoading(false);
       dismissUndo();
     }
   }
@@ -797,6 +1076,13 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     searchMessages,
     clearSearch,
     refreshCurrentMailbox,
+
+    total,
+    loadedRange,
+    hasMore,
+    loadingMore,
+    loadMore,
+
     listAttachments,
     exportMessage,
 

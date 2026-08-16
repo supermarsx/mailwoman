@@ -137,8 +137,20 @@ export interface EmailQueryArgs {
   accountId: Id;
   filter?: FilterCondition;
   sort?: Comparator[];
+  /** Zero-based offset of the first id to return (RFC 8620 §5.5). Ignored by the
+   *  server when `anchor` is given. */
   position?: number;
+  /** Page from the position of this id in the query result rather than from an
+   *  absolute offset, so a concurrent insert above the window does not shift the
+   *  page under the reader. `anchorOffset` is applied relative to it (default 0).
+   *  Mutually exclusive with `position`; when both are sent the server honours
+   *  `anchor`. */
+  anchor?: Id;
+  anchorOffset?: number;
   limit?: number;
+  /** Ask the server to count the whole query. Costs a `COUNT(*)` server-side, so
+   *  request it for the FIRST page of a query and not for its continuations —
+   *  the total does not change as you page through it. */
   calculateTotal?: boolean;
 }
 export interface EmailQueryResponse {
@@ -146,6 +158,17 @@ export interface EmailQueryResponse {
   queryState: string;
   ids: Id[];
   position: number;
+  /**
+   * The size of the WHOLE query, present only when the server both was asked for
+   * it (`calculateTotal`) and could produce an honest one. It is legitimately
+   * ABSENT when the query ran through the search index and the index truncated
+   * the hit set, because a truncated count is a wrong count (t22 V9).
+   *
+   * Absent therefore means "unknown", never "zero" and never "the page you got".
+   * Clients must carry the unknown through rather than substituting the loaded
+   * page length — an `aria-setsize` or scrollbar derived from the page is the
+   * exact defect paging exists to remove.
+   */
   total?: number;
 }
 
