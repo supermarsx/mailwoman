@@ -34,6 +34,20 @@ the proxy dialled the address it was given.
 
 ---
 
+## A filename that means the opposite of what you want
+
+**`docker-compose.proxy.yml` is not this feature's rig.** It is the *reverse*-proxy
+conformance stack — nginx/haproxy sitting **in front of** Mailwoman, from the
+reverse-proxy compatibility work. What egress needs is a **forward** proxy, which
+Mailwoman dials *outbound*.
+
+Two separate lanes reached for that file on the strength of its name before
+checking what was inside it, which is enough evidence to assume a third will. If
+you are standing up a rig to exercise egress, you want a forward proxy container
+(Squid, or a SOCKS5 server) — not that stack.
+
+---
+
 ## Configuring a route
 
 Admin console → **Egress**. A route is:
