@@ -592,7 +592,16 @@ pub fn wkd_url(email: &str, advanced: bool) -> Result<String> {
 #[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
 pub async fn wkd_fetch(email: &str) -> Result<CryptoKey> {
     let url = wkd_url(email, true)?;
-    let resp = reqwest::get(&url)
+    // `.no_proxy()`: `reqwest::get` uses a default client, which reads
+    // `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` from the environment — that would hand
+    // the WKD hash (and so the correspondent's address) to a third party and let it
+    // resolve the domain itself. See `mw_egress::harden_client`.
+    let resp = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .map_err(|e| CryptoError::Io(e.to_string()))?
+        .get(&url)
+        .send()
         .await
         .map_err(|e| CryptoError::Io(e.to_string()))?;
     let bytes = resp

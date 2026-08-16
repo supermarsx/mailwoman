@@ -152,7 +152,11 @@ pub struct DavClient {
 impl DavClient {
     /// Construct a DAV client for an account (rustls `reqwest`).
     pub fn new(config: DavConfig) -> Result<Self> {
+        // `.no_proxy()`: this client carries account credentials to a
+        // user-supplied base URL; an ambient `HTTP_PROXY` would route them
+        // through an unrelated third party. See `mw_egress::harden_client`.
         let http = reqwest::Client::builder()
+            .no_proxy()
             .build()
             .map_err(|e| DavError::Transport(e.to_string()))?;
         Ok(Self { config, http })

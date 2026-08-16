@@ -406,7 +406,10 @@ mod tests {
     #[tokio::test]
     async fn rethread_endpoint_admin_gated_and_returns_summary() {
         let base = spawn(ServerMode::Engine).await;
-        let c = reqwest::Client::new();
+        let c = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("reqwest client builds");
 
         // Unauth → 401 (fail-closed; never runs the backfill).
         let no_cookie = c
@@ -452,7 +455,10 @@ mod tests {
     #[tokio::test]
     async fn rethread_requires_engine_mode() {
         let base = spawn(ServerMode::Proxy).await;
-        let c = reqwest::Client::new();
+        let c = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("reqwest client builds");
         let cookie = admin_login(&c, &base).await;
         let resp = c
             .post(format!("{base}/admin/maintenance/rethread"))
@@ -467,7 +473,10 @@ mod tests {
     #[tokio::test]
     async fn metadata_passthrough_is_admin_gated_and_method_scoped() {
         let base = spawn(ServerMode::Engine).await;
-        let c = reqwest::Client::new();
+        let c = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("reqwest client builds");
         let cookie = admin_login(&c, &base).await;
 
         let metadata_req = json!({

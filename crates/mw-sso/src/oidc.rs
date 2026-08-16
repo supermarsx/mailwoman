@@ -117,6 +117,10 @@ impl OidcProvider {
     fn http_client() -> Result<openidconnect::reqwest::Client, SsoError> {
         openidconnect::reqwest::ClientBuilder::new()
             .redirect(openidconnect::reqwest::redirect::Policy::none())
+            // `.no_proxy()`: the token exchange sends the client secret and the
+            // authorization code; an ambient `HTTP_PROXY` would route both through a
+            // third party and resolve the issuer for us. See `mw_egress::harden_client`.
+            .no_proxy()
             .build()
             .map_err(|e| SsoError::Upstream(format!("http client build: {e}")))
     }

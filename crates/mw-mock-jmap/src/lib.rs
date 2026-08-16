@@ -633,7 +633,10 @@ mod tests {
     #[tokio::test]
     async fn requires_auth() {
         let addr = spawn().await;
-        let c = reqwest::Client::new();
+        let c = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("reqwest client builds");
         let resp = c
             .get(format!("http://{addr}/jmap/session"))
             .send()
@@ -648,7 +651,10 @@ mod tests {
         // as the web client issues it. Without reference resolution Email/get
         // sees no `ids` and returns an empty list (regression guard).
         let addr = spawn().await;
-        let c = reqwest::Client::new();
+        let c = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("reqwest client builds");
         let res = c
             .post(format!("http://{addr}/jmap"))
             .header("authorization", auth())
@@ -676,7 +682,10 @@ mod tests {
     #[tokio::test]
     async fn query_get_and_send_flow() {
         let addr = spawn().await;
-        let c = reqwest::Client::new();
+        let c = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("reqwest client builds");
 
         // Query inbox
         let q = c

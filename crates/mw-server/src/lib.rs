@@ -968,7 +968,13 @@ async fn build_app_inner(
     tokio::spawn(push_relay::run_dispatcher(
         store.clone(),
         push.subscribe_relay(),
-        reqwest::Client::new(),
+        // `.no_proxy()`: push wakes go to operator-configured relay URLs; an
+        // ambient `HTTP_PROXY` would route them through a third party.
+        // See `mw_egress::harden_client`.
+        reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("reqwest client builds"),
     ));
 
     // ── V6 MOUNT (plan §3 e11) ───────────────────────────────────────────────
@@ -993,7 +999,13 @@ async fn build_app_inner(
     tokio::spawn(webhooks::run_webhook_dispatcher(
         webhook_registry,
         push.subscribe_relay(),
-        reqwest::Client::new(),
+        // `.no_proxy()`: outbound webhooks carry the HMAC-signed payload to a
+        // subscriber's URL; an ambient `HTTP_PROXY` would route it through a third
+        // party. See `mw_egress::harden_client`.
+        reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("reqwest client builds"),
     ));
 
     // Observability (OTLP/metrics/errors/inbound-webhook secret) — all off unless

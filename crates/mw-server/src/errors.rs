@@ -191,7 +191,13 @@ pub async fn report_error(Json(mut report): Json<Value>) -> Response {
     scrub(&mut report);
     match forward_url() {
         Some(url) => {
-            let http = reqwest::Client::new();
+            // `.no_proxy()`: the report is scrubbed but still describes internals,
+            // and the forward URL is operator-chosen — an ambient `HTTP_PROXY`
+            // would redirect it elsewhere. See `mw_egress::harden_client`.
+            let Ok(http) = reqwest::Client::builder().no_proxy().build() else {
+                tracing::warn!("error-report forward skipped: http client build failed");
+                return StatusCode::ACCEPTED.into_response();
+            };
             match http.post(&url).json(&report).send().await {
                 Ok(resp) => tracing::debug!("scrubbed error report forwarded: {}", resp.status()),
                 Err(e) => tracing::warn!("error-report forward failed: {e}"),

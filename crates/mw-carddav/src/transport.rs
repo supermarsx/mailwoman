@@ -28,7 +28,11 @@ pub(crate) struct Http {
 
 impl Http {
     pub(crate) fn new(config: DavConfig) -> Result<Self> {
+        // `.no_proxy()`: this client carries account credentials to a
+        // user-supplied base URL; an ambient `HTTP_PROXY` would route them
+        // through an unrelated third party. See `mw_egress::harden_client`.
         let client = reqwest::Client::builder()
+            .no_proxy()
             .build()
             .map_err(|e| Error::Transport(e.to_string()))?;
         Ok(Self { client, config })

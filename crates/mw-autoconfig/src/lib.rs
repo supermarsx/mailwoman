@@ -446,8 +446,12 @@ pub struct ReqwestFetcher {
 impl ReqwestFetcher {
     /// Build the HTTPS client and live SRV resolver.
     pub fn new() -> Result<Self, DiscoverError> {
+        // `.no_proxy()`: autodiscovery probes host-derived URLs, so an ambient
+        // `HTTP_PROXY` would hand a third party the domain being configured and
+        // resolve it on our behalf. See `mw_egress::harden_client`.
         let client = reqwest::Client::builder()
             .user_agent("mailwoman-autoconfig")
+            .no_proxy()
             .build()
             .map_err(|e| DiscoverError::Lookup(e.to_string()))?;
         let resolver: Box<dyn resolver::SrvResolver> = match HickoryResolver::new() {
@@ -463,6 +467,7 @@ impl ReqwestFetcher {
     fn with_resolver(resolver: Box<dyn resolver::SrvResolver>) -> Self {
         let client = reqwest::Client::builder()
             .user_agent("mailwoman-autoconfig")
+            .no_proxy()
             .build()
             .expect("reqwest client builds");
         Self { client, resolver }

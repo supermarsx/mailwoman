@@ -167,7 +167,15 @@ pub struct HttpForwarder {
 impl HttpForwarder {
     pub fn new(url: impl Into<String>, token: Option<String>) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            // `.no_proxy()`: the bearer token below rides every forwarded call,
+            // so an ambient `HTTP_PROXY` would hand it to a third party. Built
+            // through the builder for that one call — `Client::new()` panics on
+            // a build failure exactly as this `expect` does.
+            // See `mw_egress::harden_client`.
+            client: reqwest::Client::builder()
+                .no_proxy()
+                .build()
+                .expect("reqwest client builds"),
             url: url.into(),
             token,
         }

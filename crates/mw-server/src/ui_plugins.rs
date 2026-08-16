@@ -677,7 +677,15 @@ async fn broker_fetch(req: &RpcRequest, grants: &[UiPluginGrantRow]) -> Response
             format!("host not in the granted allowlist: {host}"),
         );
     }
-    match reqwest::Client::new().get(url).send().await {
+    // `.no_proxy()`: the host allowlist checked just above is the whole gate on this
+    // fetch. An ambient `HTTP_PROXY` would resolve the allowlisted host itself, so
+    // the allowlist would name one thing and reach another.
+    // See `mw_egress::harden_client`.
+    let client = match reqwest::Client::builder().no_proxy().build() {
+        Ok(c) => c,
+        Err(_) => return rpc_err(&req.id, "internal", "egress request failed"),
+    };
+    match client.get(url).send().await {
         Ok(resp) => {
             let status = resp.status().as_u16();
             let body = resp.text().await.unwrap_or_default();

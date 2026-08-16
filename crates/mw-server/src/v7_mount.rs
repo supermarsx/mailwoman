@@ -308,11 +308,21 @@ impl Rng for HostRng {
 /// cached-or-refreshed 0018 tokens over the host reqwest/rustls client), the
 /// store-backed EWS per-account basic-credential provider, and scoped KV/clock/rng.
 pub(crate) fn host_services(store: &Store) -> HostServices {
+    // `.no_proxy()`: plugin egress is gated by the `mw-plugin` host allowlist and the
+    // OAuth poster carries bridge refresh tokens. An ambient `HTTP_PROXY` would
+    // resolve the allowlisted host itself and see the token exchange.
+    // See `mw_egress::harden_client`.
+    let http_client = || {
+        reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("reqwest client builds")
+    };
     HostServices {
-        http: Arc::new(ReqwestFetcher::from_env(reqwest::Client::new())),
+        http: Arc::new(ReqwestFetcher::from_env(http_client())),
         oauth: Arc::new(StoreOAuthProvider {
             store: store.clone(),
-            poster: Arc::new(oauth_client::ReqwestPoster::new(reqwest::Client::new())),
+            poster: Arc::new(oauth_client::ReqwestPoster::new(http_client())),
             client_secret: env("MW_BRIDGE_OAUTH_CLIENT_SECRET"),
         }),
         basic_creds: Arc::new(StoreEwsCredProvider {
@@ -1703,7 +1713,12 @@ pub(crate) fn build_nextcloud() -> Option<Arc<dyn NextcloudGateway>> {
         env("MW_NEXTCLOUD_APP_PASSWORD")?,
     );
     Some(Arc::new(OcsNextcloud::new(
-        reqwest::Client::new(),
+        // `.no_proxy()`: this client sends the Nextcloud app password on every OCS
+        // call. See `mw_egress::harden_client`.
+        reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("reqwest client builds"),
         url,
         user,
         pw,

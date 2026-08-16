@@ -1090,7 +1090,10 @@ mod tests {
     #[tokio::test]
     async fn failed_admin_logins_ban_the_real_client_address() {
         let base = spawn_with_peer().await;
-        let c = reqwest::Client::new();
+        let c = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("reqwest client builds");
         for _ in 0..5 {
             bad_login(&c, &base, None).await;
         }
@@ -1119,7 +1122,10 @@ mod tests {
     #[tokio::test]
     async fn a_forged_forwarded_header_does_not_become_the_ban_key() {
         let base = spawn_with_peer().await;
-        let c = reqwest::Client::new();
+        let c = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("reqwest client builds");
         for _ in 0..5 {
             bad_login(&c, &base, Some(("x-forwarded-for", "203.0.113.99"))).await;
         }
@@ -1146,7 +1152,10 @@ mod tests {
     #[tokio::test]
     async fn a_successful_login_clears_the_counter_for_that_source() {
         let base = spawn_with_peer().await;
-        let c = reqwest::Client::new();
+        let c = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("reqwest client builds");
         for _ in 0..4 {
             bad_login(&c, &base, None).await;
         }
@@ -1170,7 +1179,10 @@ mod tests {
     #[tokio::test]
     async fn without_a_peer_address_nothing_is_counted_or_banned() {
         let base = spawn_without_peer().await;
-        let c = reqwest::Client::new();
+        let c = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("reqwest client builds");
         for _ in 0..12 {
             bad_login(&c, &base, None).await;
         }
@@ -1188,7 +1200,10 @@ mod tests {
     #[tokio::test]
     async fn unattributable_failures_are_still_audited() {
         let base = spawn_without_peer().await;
-        let c = reqwest::Client::new();
+        let c = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("reqwest client builds");
         bad_login(&c, &base, None).await;
         let cookie = good_login(&c, &base).await;
 
@@ -1206,7 +1221,10 @@ mod tests {
     #[tokio::test]
     async fn audited_logins_carry_the_source_address() {
         let base = spawn_with_peer().await;
-        let c = reqwest::Client::new();
+        let c = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("reqwest client builds");
         bad_login(&c, &base, None).await;
         let cookie = good_login(&c, &base).await;
 

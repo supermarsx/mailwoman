@@ -61,7 +61,14 @@ impl DovecotHttp {
     pub fn new(config: DovecotConfig) -> Self {
         Self {
             config,
-            client: reqwest::Client::new(),
+            // `.no_proxy()`: this client posts a plaintext new password to the
+            // doveadm endpoint; an ambient `HTTP_PROXY` would route it through a
+            // third party. `Client::new()` panics on a build failure exactly as
+            // this `expect` does. See `mw_egress::harden_client`.
+            client: reqwest::Client::builder()
+                .no_proxy()
+                .build()
+                .expect("reqwest client builds"),
         }
     }
 

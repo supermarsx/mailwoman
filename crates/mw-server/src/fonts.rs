@@ -170,7 +170,14 @@ pub struct GoogleFonts {
 impl GoogleFonts {
     pub fn new() -> Self {
         Self {
-            client: reqwest::Client::new(),
+            // `.no_proxy()`: an ambient `HTTP_PROXY` would resolve
+            // `fonts.googleapis.com` itself and serve whatever it liked as a
+            // font. `Client::new()` panics on a build failure exactly as this
+            // `expect` does. See `mw_egress::harden_client`.
+            client: reqwest::Client::builder()
+                .no_proxy()
+                .build()
+                .expect("reqwest client builds"),
         }
     }
 

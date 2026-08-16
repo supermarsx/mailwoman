@@ -77,7 +77,15 @@ pub async fn vks_lookup_by_fingerprint(fingerprint: &str) -> Result<CryptoKey> {
 /// HTTPS GET a VKS URL, returning the armored key body. `404` → a clear "not found".
 #[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
 async fn vks_get(url: &str) -> Result<String> {
-    let resp = reqwest::get(url)
+    // `.no_proxy()`: `reqwest::get` uses a default client, which reads the
+    // environment's proxy variables — that would disclose which key is being looked
+    // up and let a third party resolve the keyserver. See `mw_egress::harden_client`.
+    let resp = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .map_err(|e| CryptoError::Io(e.to_string()))?
+        .get(url)
+        .send()
         .await
         .map_err(|e| CryptoError::Io(e.to_string()))?;
     if resp.status().as_u16() == 404 {

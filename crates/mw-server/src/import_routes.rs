@@ -697,7 +697,10 @@ mod tests {
     }
 
     async fn post_bytes(base: &str, path: &str, body: Vec<u8>) -> reqwest::Response {
-        reqwest::Client::new()
+        reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("reqwest client builds")
             .post(format!("{base}{path}"))
             .header("content-type", "application/octet-stream")
             .body(body)

@@ -36,8 +36,12 @@ pub fn session_url(input: &str) -> Result<String, JmapError> {
 
 impl JmapClient {
     pub fn new(username: &str, password: &str) -> Result<Self, JmapError> {
+        // `.no_proxy()`: the Basic credential below rides every request, so an
+        // ambient `HTTP_PROXY` would put it in front of a third party.
+        // See `mw_egress::harden_client`.
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::limited(3))
+            .no_proxy()
             .build()?;
         let authorization = format!("Basic {}", B64.encode(format!("{username}:{password}")));
         Ok(Self {

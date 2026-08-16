@@ -1242,7 +1242,10 @@ mod dcr {
         #[tokio::test]
         async fn admin_route_is_fail_closed_without_admin_session() {
             let (base, _store) = spawn_with_admin().await;
-            let c = reqwest::Client::new();
+            let c = reqwest::Client::builder()
+                .no_proxy()
+                .build()
+                .expect("reqwest client builds");
 
             // GET without any admin cookie → 401.
             let r = c
@@ -1286,7 +1289,10 @@ mod dcr {
         #[tokio::test]
         async fn admin_put_enables_then_disables_dcr_registration() {
             let (base, _store) = spawn_with_admin().await;
-            let c = reqwest::Client::new();
+            let c = reqwest::Client::builder()
+                .no_proxy()
+                .build()
+                .expect("reqwest client builds");
             let redirect = "https://apps.vogue-homes.com/cb";
 
             // ── Default-disabled: register is 403 before any admin action. ──────────

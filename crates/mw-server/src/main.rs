@@ -667,7 +667,13 @@ async fn healthcheck(args: HealthArgs) -> std::process::ExitCode {
         let host = bind.replace("0.0.0.0", "127.0.0.1");
         format!("http://{host}/healthz")
     });
-    let client = reqwest::Client::new();
+    // `.no_proxy()`: the healthcheck targets our own bind address. An ambient
+    // `HTTP_PROXY` in the container environment would send the probe to the proxy
+    // instead, so a dead server could report healthy. See `mw_egress::harden_client`.
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("reqwest client builds");
     match client.get(&url).send().await {
         Ok(resp) if resp.status().is_success() => std::process::ExitCode::SUCCESS,
         Ok(resp) => {

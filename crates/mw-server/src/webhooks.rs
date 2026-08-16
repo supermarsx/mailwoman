@@ -587,7 +587,10 @@ mod tests {
             }]));
 
         let (tx, rx) = broadcast::channel(8);
-        let http = reqwest::Client::new();
+        let http = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("reqwest client builds");
         let handle = tokio::spawn(run_webhook_dispatcher(registry, rx, http));
 
         tx.send(change("acct1")).unwrap();

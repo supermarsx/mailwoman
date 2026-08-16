@@ -458,7 +458,13 @@ pub fn set_sentry_dsn(dsn: Option<String>) {
         .and_then(parse_sentry_dsn)
         .map(|dsn| {
             Arc::new(SentryRelay {
-                client: reqwest::Client::new(),
+                // `.no_proxy()`: the relay posts scrubbed error events plus the DSN's
+                // public key to the operator's ingest host; an ambient `HTTP_PROXY`
+                // would route them elsewhere. See `mw_egress::harden_client`.
+                client: reqwest::Client::builder()
+                    .no_proxy()
+                    .build()
+                    .expect("reqwest client builds"),
                 dsn,
             })
         });

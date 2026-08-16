@@ -127,7 +127,10 @@ impl AdapterConfig {
                 embed_model,
                 stt_model,
             } => {
-                let client = reqwest::Client::builder().build().ok()?;
+                // `.no_proxy()`: an ambient `HTTP_PROXY` must never silently
+                // intercept an assistant request — the prompt body and the API
+                // key ride this client. See `mw_egress::harden_client`.
+                let client = reqwest::Client::builder().no_proxy().build().ok()?;
                 Some(std::sync::Arc::new(OpenAiCompatible {
                     client,
                     base_url: base_url.trim_end_matches('/').to_string(),
@@ -144,7 +147,7 @@ impl AdapterConfig {
                 anthropic_version,
                 max_tokens,
             } => {
-                let client = reqwest::Client::builder().build().ok()?;
+                let client = reqwest::Client::builder().no_proxy().build().ok()?;
                 Some(std::sync::Arc::new(Anthropic {
                     client,
                     base_url: base_url.trim_end_matches('/').to_string(),
