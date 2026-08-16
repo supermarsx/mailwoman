@@ -38,6 +38,28 @@ fn body_text(email: &Email) -> String {
 }
 
 /// RFC3339 → Unix seconds (0 on absent/unparseable), for the `date` fast field.
+///
+/// # This `unwrap_or(0)` is load-bearing for the SQL path's null ordering
+///
+/// An absent or unparseable date indexes as **epoch 0**, so under the default
+/// `receivedAt desc` sort an undated message sorts **last**. That is not an
+/// accident of a default; it is one of the three orders `Email/query` has to
+/// agree on, and in 26.20 it is the one the other two were moved to match.
+///
+/// Undated mail is reachable, not hypothetical: `mw-pop3` supplies
+/// `internaldate: None` for every message it ingests. Before 26.20 the SQL path
+/// on Postgres sorted those messages **first** (Postgres' `NULLS FIRST` default
+/// for `DESC`) while SQLite and this path sorted them last — so one deployment
+/// showed a user's undated mail at the bottom of a folder when they typed in the
+/// search box and at the top when they did not. `Store::list_message_ids` now
+/// orders `internaldate DESC NULLS LAST` and migration
+/// `0025_message_paging_nulls_last.sql` redefines the Postgres index to match.
+///
+/// **So changing this line changes the SQL path's contract too.** Mapping an
+/// absent date to `i64::MAX`, or skipping the field, would move undated mail to
+/// the front here and re-open the divergence from the other side. The full
+/// argument, including the measured cost of shipping the `ORDER BY` without the
+/// migration, is in the `Store::list_message_ids` doc comment.
 fn unix_secs(rfc3339: Option<&str>) -> i64 {
     rfc3339
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())

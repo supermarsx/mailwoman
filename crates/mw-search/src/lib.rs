@@ -180,6 +180,21 @@ const F_SUBJECT_SORT: &str = "subject_sort";
 /// Cap for an unbounded (`limit == 0`) search, bounding the collector heap.
 const MAX_HITS: usize = 100_000;
 
+/// What [`Index::search_hits`] returns: the ids, and whether the cap cut them
+/// short (26.20 t22-e2, finding V9).
+///
+/// The flag exists so that a *count* derived from `ids` can be published only
+/// when it is a real count. `ids.len()` is always truthful about how many ids
+/// are in hand; it is truthful about how many **matched** only when `truncated`
+/// is false.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SearchHits {
+    /// Matching stable ids, in the query's sort order, at most the cap.
+    pub ids: Vec<String>,
+    /// `true` when at least one further document matched and was not returned.
+    pub truncated: bool,
+}
+
 fn build_schema() -> (Schema, Fields) {
     let mut sb = Schema::builder();
     let stable_id = sb.add_text_field("stable_id", STRING | STORED);
@@ -433,10 +448,43 @@ impl Index {
 
     /// Run a parsed query, returning matching stable ids in sort order. `limit`
     /// of `0` means "all matches" (capped at [`MAX_HITS`]).
+    ///
+    /// **This signature cannot tell you whether the cap was reached.** Callers
+    /// that publish a count derived from the result — a JMAP `total`, a
+    /// "N results" line — must use [`Index::search_hits`] instead and honour its
+    /// [`SearchHits::truncated`] flag. See that method for what goes wrong
+    /// otherwise (26.20 t22-e2, finding V9).
     pub fn search(&self, query: &SearchQuery, limit: usize) -> Result<Vec<String>> {
+        Ok(self.search_hits(query, limit)?.ids)
+    }
+
+    /// Run a parsed query and report **whether the cap cut the result short**
+    /// (26.20 t22-e2, finding V9).
+    ///
+    /// [`Index::search`] silently returns at most [`MAX_HITS`] ids for
+    /// `limit == 0`, and a caller that publishes `ids.len()` as a total then
+    /// tells the client `100000` for a 200 000-document index — the number is
+    /// wrong, is indistinguishable from a correct one, and is the number a
+    /// client pages against. Measured at 200 000 docs: `total: 100000`, no
+    /// error, no flag. A truncated count is worse than an absent one, because
+    /// an absent one is visibly absent.
+    ///
+    /// Truncation is detected by collecting **one document past the cap** and
+    /// reporting whether it arrived — the same lookahead trick
+    /// `Store::changes_since_limited` uses, for the same reason: it costs one
+    /// extra heap entry rather than a second full pass, and it cannot disagree
+    /// with the result it describes. The extra id is never returned.
+    ///
+    /// `truncated` is about **the cap**, whichever cap applied: with an explicit
+    /// `limit` it means "more matched than you asked for" (ordinary paging), and
+    /// with `limit == 0` it means "more matched than this index will ever
+    /// return", which is the one that must never become a published total.
+    pub fn search_hits(&self, query: &SearchQuery, limit: usize) -> Result<SearchHits> {
         let searcher = self.reader.searcher();
         let compiled = compile(&query.expr, &self.fields);
         let cap = if limit == 0 { MAX_HITS } else { limit };
+        // One past the cap: if it comes back, the cap was binding.
+        let probe = cap.saturating_add(1);
         let order = if query.sort.ascending {
             Order::Asc
         } else {
@@ -447,7 +495,7 @@ impl Index {
             SortField::ReceivedAt => searcher
                 .search(
                     &compiled,
-                    &TopDocs::with_limit(cap).order_by_fast_field::<i64>(F_DATE, order),
+                    &TopDocs::with_limit(probe).order_by_fast_field::<i64>(F_DATE, order),
                 )?
                 .into_iter()
                 .map(|(_, a)| a)
@@ -455,7 +503,7 @@ impl Index {
             SortField::Size => searcher
                 .search(
                     &compiled,
-                    &TopDocs::with_limit(cap).order_by_fast_field::<u64>(F_SIZE, order),
+                    &TopDocs::with_limit(probe).order_by_fast_field::<u64>(F_SIZE, order),
                 )?
                 .into_iter()
                 .map(|(_, a)| a)
@@ -463,7 +511,7 @@ impl Index {
             SortField::From => searcher
                 .search(
                     &compiled,
-                    &TopDocs::with_limit(cap).order_by_string_fast_field(F_FROM_SORT, order),
+                    &TopDocs::with_limit(probe).order_by_string_fast_field(F_FROM_SORT, order),
                 )?
                 .into_iter()
                 .map(|(_, a)| a)
@@ -471,21 +519,22 @@ impl Index {
             SortField::Subject => searcher
                 .search(
                     &compiled,
-                    &TopDocs::with_limit(cap).order_by_string_fast_field(F_SUBJECT_SORT, order),
+                    &TopDocs::with_limit(probe).order_by_string_fast_field(F_SUBJECT_SORT, order),
                 )?
                 .into_iter()
                 .map(|(_, a)| a)
                 .collect(),
         };
 
-        let mut ids = Vec::with_capacity(addrs.len());
-        for addr in addrs {
+        let truncated = addrs.len() > cap;
+        let mut ids = Vec::with_capacity(addrs.len().min(cap));
+        for addr in addrs.into_iter().take(cap) {
             let td: TantivyDocument = searcher.doc(addr)?;
             if let Some(id) = td.get_first(self.fields.stable_id).and_then(|v| v.as_str()) {
                 ids.push(id.to_string());
             }
         }
-        Ok(ids)
+        Ok(SearchHits { ids, truncated })
     }
 
     /// Force any pending writes to be visible to subsequent searches.
@@ -821,5 +870,53 @@ mod tests {
         assert_eq!(find(&idx, "body:netsuite"), vec!["a1".to_string()]);
         // A term in neither body nor attachment does not match.
         assert!(find(&idx, "unrelatedterm").is_empty());
+    }
+
+    /// 26.20 t22-e2 (V9). The cap is reported, not hidden.
+    ///
+    /// [`MAX_HITS`] is 100 000, so proving the *production* cap here would mean
+    /// indexing 100 001 documents in a unit test. The mechanism under test is
+    /// not the constant — it is "collect one past the cap and report whether it
+    /// arrived" — and that mechanism is identical for any cap, so this drives it
+    /// through the explicit `limit`, which takes the same code path with a
+    /// smaller number. The `limit == 0` leg then pins that an *uncapped* search
+    /// over a corpus far below `MAX_HITS` reports `truncated: false`, which is
+    /// the half a caller depends on to publish a total at all.
+    #[test]
+    fn a_capped_search_says_it_was_capped() {
+        let idx = seeded(); // 3 documents
+
+        // Cap binding: 2 of 3 asked for, one more matched.
+        let all = SearchQuery {
+            raw: String::new(),
+            expr: Expr::All,
+            sort: Sort::received_desc(),
+        };
+        let two = idx.search_hits(&all, 2).expect("search");
+        assert_eq!(two.ids.len(), 2, "the cap is honoured");
+        assert!(
+            two.truncated,
+            "a third document matched and was not returned — a caller publishing \
+             ids.len() as a total would be publishing 2 for a corpus of 3"
+        );
+
+        // Cap exactly reached but NOT binding: 3 of 3. This is the boundary the
+        // lookahead exists to get right — `ids.len() == cap` alone cannot tell
+        // these two cases apart, which is why the probe asks for cap + 1.
+        let three = idx.search_hits(&all, 3).expect("search");
+        assert_eq!(three.ids.len(), 3);
+        assert!(
+            !three.truncated,
+            "exactly `cap` matches is a complete result, not a truncated one"
+        );
+
+        // Uncapped over a small corpus: complete, and safe to count.
+        let unbounded = idx.search_hits(&all, 0).expect("search");
+        assert_eq!(unbounded.ids.len(), 3);
+        assert!(!unbounded.truncated);
+
+        // The legacy signature returns exactly the capped ids and nothing about
+        // the cap — which is precisely why V9 was invisible.
+        assert_eq!(idx.search(&all, 2).expect("search"), two.ids);
     }
 }

@@ -240,23 +240,73 @@ impl Engine {
     }
 
     /// Build the `{oldState,newState,created,updated,destroyed}` diff for a
-    /// datatype since `since_state` (frozen §2.1). `has_more_changes` is always
-    /// false — the whole tail is returned.
+    /// datatype since `since_state` (frozen §2.1), returning the **whole** tail
+    /// with `has_more_changes: false`.
+    ///
+    /// The `changes` table is append-only — nothing in `crates/` deletes from it
+    /// — so "the whole tail" grows for the life of a deployment. Anything
+    /// answering a client should pass a cap via [`Engine::build_changes_limited`]
+    /// instead (26.20 t22-e2, finding V6).
     pub(crate) async fn build_changes(
         &self,
         account_id: &str,
         kind: ChangeType,
         since_state: &str,
     ) -> Result<Changes> {
+        self.build_changes_limited(account_id, kind, since_state, None)
+            .await
+    }
+
+    /// [`Engine::build_changes`] with JMAP's `maxChanges` reaching **SQL**
+    /// (26.20 t22-e2, finding V6).
+    ///
+    /// `max: None` is the unbounded form. `max: Some(n)` returns at most `n`
+    /// change rows and sets `has_more_changes` when the tail continued past
+    /// them.
+    ///
+    /// **`new_state` is the state of the last row actually returned**, not the
+    /// current state, whenever the page was truncated. This is the half that is
+    /// easy to get wrong and impossible to notice: reporting the current state
+    /// alongside a partial list tells the client "you are now up to date" about
+    /// changes it was never sent, and it will not ask again. The rows are read
+    /// `ORDER BY state ASC`, so the last one is the highest state the client has
+    /// genuinely seen. When the cap is so small that no row comes back at all
+    /// (`maxChanges: 0`, which JMAP permits), `new_state` stays at `old_state`
+    /// for the same reason.
+    ///
+    /// The fold below can still collapse the returned rows to fewer entries — a
+    /// created-then-destroyed pair inside the window cancels — so
+    /// `created.len() + updated.len() + destroyed.len()` is not the cap and is
+    /// not what `has_more_changes` describes. The cap is on **rows read**, which
+    /// is what bounds the work and the response.
+    pub(crate) async fn build_changes_limited(
+        &self,
+        account_id: &str,
+        kind: ChangeType,
+        since_state: &str,
+        max: Option<i64>,
+    ) -> Result<Changes> {
         let since: u64 = since_state.parse().unwrap_or(0);
         let current = self
             .store()
             .current_state(account_id, kind.as_str())
             .await?;
-        let rows = self
-            .store()
-            .changes_since(account_id, kind.as_str(), since)
-            .await?;
+        let (rows, has_more) = match max {
+            Some(n) => {
+                self.store()
+                    .changes_since_limited(account_id, kind.as_str(), since, n)
+                    .await?
+            }
+            None => (
+                self.store()
+                    .changes_since(account_id, kind.as_str(), since)
+                    .await?,
+                false,
+            ),
+        };
+        // Read before the fold consumes `rows`: the resume point is a property of
+        // the rows read, not of the ids they folded into.
+        let truncated_state = rows.last().map(|r| r.state).unwrap_or(since);
 
         // Fold to the latest op per id; "created then destroyed in-window" cancels.
         let mut order: Vec<String> = Vec::new();
@@ -292,11 +342,15 @@ impl Engine {
 
         Ok(Changes {
             old_state: since.to_string(),
-            new_state: current.to_string(),
+            new_state: if has_more {
+                truncated_state.to_string()
+            } else {
+                current.to_string()
+            },
             created,
             updated,
             destroyed,
-            has_more_changes: false,
+            has_more_changes: has_more,
         })
     }
 
@@ -379,7 +433,7 @@ pub(crate) fn fold_changes<'a>(
 }
 
 #[cfg(test)]
-mod session_state_tests {
+pub(crate) mod session_state_tests {
     //! `sessionState` cost + value tests (t22-e0).
     //!
     //! The instrument is a **statement count**, not elapsed time. On SQLite the
@@ -442,35 +496,60 @@ mod session_state_tests {
     /// control caught. sqlx-postgres has no worker thread and emits from the
     /// polling thread, so the emitting thread differs per backend and is
     /// discovered empirically by [`db_threads`] rather than assumed.
-    static SEEN: OnceLock<Mutex<Vec<(ThreadId, String)>>> = OnceLock::new();
+    static SEEN: OnceLock<Mutex<Vec<(ThreadId, Stmt)>>> = OnceLock::new();
     static MEASURING: AtomicBool = AtomicBool::new(false);
     /// Serializes measurements so two concurrent `#[tokio::test]`s cannot clear
     /// each other's recording. Statements from *unmeasured* concurrent tests are
     /// filtered out by thread instead.
     static MEASURE_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
-    fn seen() -> &'static Mutex<Vec<(ThreadId, String)>> {
+    fn seen() -> &'static Mutex<Vec<(ThreadId, Stmt)>> {
         SEEN.get_or_init(Mutex::default)
     }
 
+    /// One observed statement: its SQL, and **how many rows it returned**.
+    ///
+    /// `rows` comes from sqlx's own `rows_returned` field
+    /// (`sqlx_core::logger::QueryLogger::finish`) and is the instrument for a
+    /// question the SQL text cannot answer, because the text carries
+    /// placeholders rather than bound values: *did the `LIMIT` reach the
+    /// database, or did Rust slice afterwards?* Both shapes issue one statement
+    /// against one table; only one of them reads 50 rows out of 20 000
+    /// (26.20 t22-e2).
+    pub(crate) struct Stmt {
+        pub(crate) sql: String,
+        pub(crate) rows: u64,
+    }
+
     /// The SQL statements one measurement observed.
-    struct Stmts(Vec<String>);
+    pub(crate) struct Stmts(pub(crate) Vec<Stmt>);
 
     impl Stmts {
-        fn len(&self) -> usize {
+        pub(crate) fn len(&self) -> usize {
             self.0.len()
         }
 
         /// How many recorded statements mention `table`. Used to prove the fold
         /// is *one statement per group*, not three statements against one table.
-        fn against(&self, table: &str) -> usize {
-            self.0.iter().filter(|s| s.contains(table)).count()
+        pub(crate) fn against(&self, table: &str) -> usize {
+            self.0.iter().filter(|s| s.sql.contains(table)).count()
+        }
+
+        /// Every statement whose SQL mentions `needle`.
+        pub(crate) fn matching(&self, needle: &str) -> Vec<&Stmt> {
+            self.0.iter().filter(|s| s.sql.contains(needle)).collect()
         }
     }
 
     impl std::fmt::Debug for Stmts {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             f.debug_list().entries(self.0.iter()).finish()
+        }
+    }
+
+    impl std::fmt::Debug for Stmt {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "[rows={}] {}", self.rows, self.sql)
         }
     }
 
@@ -505,19 +584,31 @@ mod session_state_tests {
     struct SqlVisitor {
         summary: String,
         statement: String,
+        rows: u64,
     }
 
     impl SqlVisitor {
-        fn text(self) -> String {
-            if self.statement.trim().is_empty() {
+        fn stmt(self) -> Stmt {
+            let sql = if self.statement.trim().is_empty() {
                 self.summary
             } else {
                 self.statement
+            };
+            Stmt {
+                sql,
+                rows: self.rows,
             }
         }
     }
 
     impl Visit for SqlVisitor {
+        /// sqlx emits `rows_returned`/`rows_affected` as `u64` fields.
+        fn record_u64(&mut self, field: &Field, value: u64) {
+            if field.name() == "rows_returned" {
+                self.rows = value;
+            }
+        }
+
         fn record_str(&mut self, field: &Field, value: &str) {
             match field.name() {
                 "summary" => self.summary = value.to_string(),
@@ -574,7 +665,7 @@ mod session_state_tests {
             seen()
                 .lock()
                 .unwrap()
-                .push((std::thread::current().id(), v.text()));
+                .push((std::thread::current().id(), v.stmt()));
         }
 
         fn enter(&self, _: &span::Id) {}
@@ -589,7 +680,7 @@ mod session_state_tests {
     /// statements — is what keeps the count exact when the suite runs with more
     /// than one test thread: a concurrent, unmeasured test's SQL lands in
     /// [`SEEN`] but is discarded here.
-    async fn counted<T>(
+    pub(crate) async fn counted<T>(
         threads: &HashSet<ThreadId>,
         fut: impl std::future::Future<Output = T>,
     ) -> (T, Stmts) {
@@ -614,7 +705,7 @@ mod session_state_tests {
     /// statement per pooled connection and seeing where the event comes from.
     /// Empirical rather than assumed: SQLite answers with worker threads and
     /// Postgres answers with the polling thread.
-    async fn db_threads(store: &Store) -> HashSet<ThreadId> {
+    pub(crate) async fn db_threads(store: &Store) -> HashSet<ThreadId> {
         install();
         seen().lock().unwrap().clear();
         MEASURING.store(true, Ordering::Relaxed);
@@ -803,7 +894,7 @@ mod session_state_tests {
             let mail_stmts = folded
                 .0
                 .iter()
-                .filter(|s| !s.contains("pim_changes") && !s.contains("crypto_changes"))
+                .filter(|s| !s.sql.contains("pim_changes") && !s.sql.contains("crypto_changes"))
                 .count();
             assert_eq!(mail_stmts, 1, "{what}: one mail statement; got {folded:#?}");
         }
@@ -941,7 +1032,7 @@ mod session_state_tests {
     // round trips are ~2 ms on SQLite and ~45 ms on PG. Skipped LOUDLY (the test
     // name says live, and the skip prints) when no DSN is configured.
 
-    fn pg_dsn() -> Option<String> {
+    pub(crate) fn pg_dsn() -> Option<String> {
         std::env::var("MW_E14_PG_DSN")
             .or_else(|_| std::env::var("DATABASE_URL_PG"))
             .ok()

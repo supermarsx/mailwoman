@@ -203,12 +203,48 @@ impl Engine {
 
     /// The generic `*/changes` handler (frozen §2.1): `{oldState,newState,
     /// created,updated,destroyed,hasMoreChanges}` for a datatype since a state.
+    ///
+    /// **`maxChanges` is honoured, and `hasMoreChanges` is true when it bites**
+    /// (26.20 t22-e2, finding V6). Before this, `maxChanges` was ignored here
+    /// exactly as it was on `Email/queryChanges` — measured, a 550-change tail
+    /// came back in full with `hasMoreChanges: false`, so a client asking for 50
+    /// received 550 and was told that was all of them. Fixing only
+    /// `queryChanges` would have left the identical bug one method over, which
+    /// is why it is fixed in the shared handler that serves `Email/changes`,
+    /// `Mailbox/changes` and `EmailSubmission/changes` alike.
+    ///
+    /// Unlike `queryChanges`, truncating here is **legal and safe**: RFC 8620
+    /// §5.2 gives `Foo/changes` a `hasMoreChanges` flag, and
+    /// [`Engine::build_changes_limited`] sets `newState` to the last row
+    /// actually returned, so the client's next call resumes exactly where this
+    /// one stopped instead of skipping the remainder.
+    ///
+    /// A `sinceState` this account never reached is `cannotCalculateChanges`,
+    /// per the spec — previously it produced an empty diff, which tells a client
+    /// with a stale or invented state that it is up to date.
     async fn type_changes(&self, account_id: &str, kind: ChangeType, args: &Value) -> Value {
         let since = args
             .get("sinceState")
             .and_then(Value::as_str)
             .unwrap_or("0");
-        match self.build_changes(account_id, kind, since).await {
+        let max_changes = args
+            .get("maxChanges")
+            .and_then(Value::as_u64)
+            .map(|n| n.min(i64::MAX as u64) as i64)
+            .unwrap_or(DEFAULT_MAX_QUERY_CHANGES);
+
+        let current = match self.store().current_state(account_id, kind.as_str()).await {
+            Ok(n) => n,
+            Err(e) => return server_fail(&EngineError::Store(e)),
+        };
+        if since.parse::<u64>().map(|n| n > current).unwrap_or(true) {
+            return cannot_calculate_changes("sinceState is not a known state");
+        }
+
+        match self
+            .build_changes_limited(account_id, kind, since, Some(max_changes))
+            .await
+        {
             Ok(changes) => {
                 let mut v = serde_json::to_value(&changes).unwrap_or_else(|_| json!({}));
                 if let Some(obj) = v.as_object_mut() {
@@ -304,42 +340,80 @@ impl Engine {
     // ---- Email/query ----------------------------------------------------
 
     async fn email_query(&self, account_id: &str, args: &Value) -> Value {
-        let all = match self.query_ids(account_id, args).await {
-            Ok(v) => v,
-            Err(e) => return server_fail(&e),
+        let page = match self.query_page(account_id, args).await {
+            Ok(p) => p,
+            Err(QueryFail::AnchorNotFound) => return anchor_not_found(),
+            Err(QueryFail::Engine(e)) => return server_fail(&e),
         };
-        let total = all.len();
-        let position = args.get("position").and_then(Value::as_u64).unwrap_or(0) as usize;
-        let limit = args
-            .get("limit")
-            .and_then(Value::as_u64)
-            .map(|n| n as usize);
 
-        let ids: Vec<String> = all
-            .into_iter()
-            .skip(position)
-            .take(limit.unwrap_or(usize::MAX))
-            .collect();
-
-        json!({
+        let mut out = json!({
             "accountId": account_id,
             "queryState": self.type_state(account_id, ChangeType::Email).await.unwrap_or_default(),
-            "ids": ids,
-            "total": total,
-            "position": position,
+            "ids": page.ids,
+            "position": page.position,
             "canCalculateChanges": true
-        })
+        });
+        page.publish_total(&mut out);
+        out
     }
 
-    /// Resolve an `Email/query` to the full ordered id list (before paging),
-    /// routing to `mw-search` for any full-text/attachment/custom-sort condition
-    /// and to the SQL fast path for a pure `inMailbox` newest-first listing
-    /// (frozen routing rule §2.1). Saved-search folders run their stored filter.
+    /// Resolve an `Email/query` to the **page the client asked for**, pushing
+    /// `position`/`limit` into SQL where the filter allows it (26.20 t22-e2).
     ///
-    /// `pub(crate)` so the A8 re-rank tests can drive the real filter → search →
-    /// re-rank path without standing up a mock account backend; the JSON envelope
-    /// around it is already covered by the V2 integration suite.
-    pub(crate) async fn query_ids(&self, account_id: &str, args: &Value) -> Result<Vec<String>> {
+    /// Routing is the frozen rule (§2.1): `mw-search` for any
+    /// full-text/attachment/custom-sort condition, the SQL fast path for a pure
+    /// `inMailbox` newest-first listing, and saved-search folders run their
+    /// stored filter.
+    ///
+    /// # Three things this does that the unpaged predecessor did not
+    ///
+    /// **`limit`/`position` reach SQL.** They used to be a `.skip().take()` over
+    /// a fully materialised folder, so a 50-row page of a 20 000-message mailbox
+    /// read 20 000 ids. `Store::list_message_ids` now receives the requested
+    /// numbers. A request that sends **no** `limit` is still unbounded, exactly
+    /// as before: inventing a server cap would silently truncate an existing
+    /// caller's list, which is the failure this lane condemns elsewhere (V9).
+    ///
+    /// **`anchor`/`anchorOffset` (RFC 8620 §5.5).** The window can start at an
+    /// id rather than an index, which is how a client pages a folder that is
+    /// being written to without rows sliding under it. On the SQL path the
+    /// anchor's index comes from [`Store::message_position_in_mailbox`] — two
+    /// statements, no folder scan — so anchor paging does not cost what it was
+    /// introduced to avoid. An anchor that is not in the result is
+    /// `anchorNotFound`, per the spec, rather than a silent page 1.
+    ///
+    /// **No unconditional `get_saved_search` (V7).** That lookup ran on *every*
+    /// `Email/query`, including the pure `inMailbox` fast path where it can only
+    /// ever miss. It is now deferred, and the deferral rests on a real
+    /// invariant: **a saved-search folder id is never a `messages.mailbox_id`**,
+    /// so any id that yields rows is a real mailbox and needs no lookup at all.
+    /// The probe happens only when the fast path comes back empty — an empty
+    /// mailbox, or a page past the end, pays one extra statement it did not pay
+    /// before, and the overwhelmingly common case pays one fewer. Filters that
+    /// do *not* take the fast path keep the eager expansion unchanged, including
+    /// its existing behaviour of replacing the whole filter.
+    async fn query_page(
+        &self,
+        account_id: &str,
+        args: &Value,
+    ) -> std::result::Result<QueryPage, QueryFail> {
+        let want_total = args
+            .get("calculateTotal")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let anchor = args.get("anchor").and_then(Value::as_str);
+        let anchor_offset = args
+            .get("anchorOffset")
+            .and_then(Value::as_i64)
+            .unwrap_or(0);
+        let position = args.get("position").and_then(Value::as_u64).unwrap_or(0);
+        // Absent `limit` stays unbounded, as it has always been.
+        let sql_limit = args
+            .get("limit")
+            .and_then(Value::as_u64)
+            .map(|n| n.min(i64::MAX as u64) as i64)
+            .unwrap_or(i64::MAX);
+
         let raw_filter = args.get("filter").cloned().unwrap_or(Value::Null);
         let mut filter: EmailFilter = serde_json::from_value(raw_filter).unwrap_or_default();
         // A8: captured before the saved-search expansion below can replace
@@ -350,24 +424,134 @@ impl Engine {
         let sort = search_index::sort_from_comparator(comparator.as_ref());
         let custom_sort = sort != mw_search::Sort::received_desc();
 
-        // A saved-search folder id in `inMailbox` expands to its stored filter.
-        let mut saved_folder = false;
-        if let Some(mb) = filter.in_mailbox.clone()
+        if let Some(mb) = sql_fast_path_mailbox(&filter, custom_sort) {
+            // Where the window starts. `None` means an anchor was requested and
+            // this mailbox does not contain it — which is either `anchorNotFound`
+            // or a saved-search folder, decided after the probe below.
+            let anchor_pos = match anchor {
+                Some(a) => self.store().message_position_in_mailbox(&mb, a).await?,
+                None => None,
+            };
+            let start = match anchor {
+                Some(_) => anchor_pos.map(|p| p.saturating_add_signed(anchor_offset)),
+                None => Some(position),
+            };
+
+            if let Some(start) = start {
+                let ids = self
+                    .store()
+                    .list_message_ids(&mb, sql_limit, start as i64)
+                    .await?;
+                // Rows came back, or the anchor was found here: `mb` is a real
+                // mailbox and the saved-search probe is provably pointless.
+                if !ids.is_empty() || anchor_pos.is_some() {
+                    return Ok(QueryPage {
+                        ids,
+                        position: start,
+                        total: self.exact_mailbox_total(&mb, want_total).await?,
+                        total_truncated: false,
+                    });
+                }
+            }
+
+            match self.store().get_saved_search(&mb).await? {
+                // It was a saved-search folder after all: run its stored filter
+                // through the search path below.
+                Some(ss) => filter = serde_json::from_str(&ss.query_json).unwrap_or_default(),
+                None if anchor.is_some() => return Err(QueryFail::AnchorNotFound),
+                // A real mailbox with nothing at this offset.
+                None => {
+                    return Ok(QueryPage {
+                        ids: Vec::new(),
+                        position: start.unwrap_or(0),
+                        total: self.exact_mailbox_total(&mb, want_total).await?,
+                        total_truncated: false,
+                    });
+                }
+            }
+        } else if let Some(mb) = filter.in_mailbox.clone()
             && let Some(ss) = self.store().get_saved_search(&mb).await?
         {
-            saved_folder = true;
+            // Unchanged from 26.19 for the non-fast-path filters: a saved-search
+            // folder id in `inMailbox` replaces the filter wholesale.
             filter = serde_json::from_str(&ss.query_json).unwrap_or_default();
         }
 
-        let use_search = saved_folder || custom_sort || filter.needs_search();
-        if !use_search {
-            // SQL fast path: pure `inMailbox`, newest-first.
-            let Some(mb) = filter.in_mailbox.as_deref() else {
-                return Ok(Vec::new());
-            };
-            return Ok(self.store().list_message_ids(mb, i64::MAX, 0).await?);
-        }
+        let hits = self.search_ids(account_id, &filter, sort, semantic).await?;
+        let start = match anchor {
+            Some(a) => match hits.ids.iter().position(|id| id == a) {
+                Some(p) => (p as u64).saturating_add_signed(anchor_offset),
+                None => return Err(QueryFail::AnchorNotFound),
+            },
+            None => position,
+        };
+        let total = if want_total && !hits.truncated {
+            Some(hits.ids.len() as u64)
+        } else {
+            None
+        };
+        let ids: Vec<String> = hits
+            .ids
+            .into_iter()
+            .skip(start as usize)
+            .take(usize::try_from(sql_limit).unwrap_or(usize::MAX))
+            .collect();
+        Ok(QueryPage {
+            ids,
+            position: start,
+            total,
+            total_truncated: want_total && hits.truncated,
+        })
+    }
 
+    /// `COUNT(*)` for the fast path's `calculateTotal`, or `None` when the client
+    /// did not ask — the point of asking being that a client which does not want
+    /// a total does not pay for one (t22 OQ-5).
+    async fn exact_mailbox_total(&self, mailbox_id: &str, want: bool) -> Result<Option<u64>> {
+        if !want {
+            return Ok(None);
+        }
+        Ok(Some(
+            self.store().count_messages_in_mailbox(mailbox_id).await?,
+        ))
+    }
+
+    /// Resolve an `Email/query` to the full ordered id list (before paging).
+    ///
+    /// `pub(crate)` so the A8 re-rank tests can drive the real filter → search →
+    /// re-rank path without standing up a mock account backend; the JSON envelope
+    /// around it is already covered by the V2 integration suite.
+    ///
+    /// Paging arguments are **stripped** rather than honoured: this is the
+    /// "whole result" entry point, and a caller that passes a `limit` through it
+    /// would get a page back under a name that promises everything.
+    pub(crate) async fn query_ids(&self, account_id: &str, args: &Value) -> Result<Vec<String>> {
+        let mut unpaged = args.clone();
+        if let Some(obj) = unpaged.as_object_mut() {
+            for k in ["position", "limit", "anchor", "anchorOffset"] {
+                obj.remove(k);
+            }
+        }
+        match self.query_page(account_id, &unpaged).await {
+            Ok(p) => Ok(p.ids),
+            Err(QueryFail::Engine(e)) => Err(e),
+            // Unreachable: `anchor` was just removed.
+            Err(QueryFail::AnchorNotFound) => Err(EngineError::Protocol(
+                "anchorNotFound from an unpaged query".into(),
+            )),
+        }
+    }
+
+    /// Run the `mw-search` half of a query: account scoping, the compiled filter,
+    /// and the A8 re-rank, reporting whether the index cap truncated the result
+    /// (V9).
+    async fn search_ids(
+        &self,
+        account_id: &str,
+        filter: &EmailFilter,
+        sort: mw_search::Sort,
+        semantic: Option<bool>,
+    ) -> Result<mw_search::SearchHits> {
         let mailbox_ids: Vec<String> = self
             .store()
             .list_mailboxes(account_id)
@@ -380,10 +564,13 @@ impl Engine {
             .in_mailbox
             .as_deref()
             .filter(|mb| mailbox_ids.iter().any(|m| m == mb));
-        let sq = search_index::build_search_query(&filter, sort, &mailbox_ids, scope);
-        let mut ids = self
+        let sq = search_index::build_search_query(filter, sort, &mailbox_ids, scope);
+        // `search_hits`, not `search`: the latter cannot say whether `MAX_HITS`
+        // cut the result, and a `total` derived from a cut result is a wrong
+        // number that looks exactly like a right one (V9).
+        let mut hits = self
             .search()
-            .search(&sq, 0)
+            .search_hits(&sq, 0)
             .map_err(|e| EngineError::Protocol(format!("search: {e}")))?;
 
         // A8 (26.19, SPEC §10.4/§14.3): opt-in semantic re-rank. Reached ONLY when
@@ -414,7 +601,7 @@ impl Engine {
                 self.search_handle(),
                 account_id,
                 query_text,
-                &mut ids,
+                &mut hits.ids,
             )
             .await;
             tracing::debug!(
@@ -426,45 +613,231 @@ impl Engine {
                 "semantic re-rank"
             );
         }
-        Ok(ids)
+        Ok(hits)
     }
 
-    /// `Email/queryChanges` (frozen §2.1): a best-effort delta. Recomputes the
-    /// current query and diffs it against the caller's `sinceQueryState` using
-    /// the change log so `added`/`removed` are cheap for the client to apply.
+    /// `Email/queryChanges` (RFC 8620 §5.6): what changed in this query since
+    /// `sinceQueryState`, and **only** what changed (26.20 t22-e2).
+    ///
+    /// # What this replaced, and why it was worth replacing
+    ///
+    /// It returned the **entire current query** as `added`, at every index, on
+    /// every call. Measured on a 20 000-message folder: **1 749 125 bytes**
+    /// against the **3 580-byte** page it exists to spare the client — 489× the
+    /// bytes, and 1.5–1.7× the *time*, of simply refetching. A delta method that
+    /// costs more than the refetch is not an optimisation with a bug in it; it
+    /// is a method that has never once been worth calling. The `oldQueryState`
+    /// it reported was the client's own argument echoed back, so a client could
+    /// not even tell it had been given a full resync.
+    ///
+    /// # The shape now
+    ///
+    /// The change log is the source, not the query: the ids that changed since
+    /// `since` go into `removed`, and those that still match go back into
+    /// `added` with their current index — which is what an id whose *position*
+    /// moved needs, and is the reason an id appears in both lists.
+    ///
+    /// **`maxChanges` refuses rather than truncates.** `Foo/queryChanges` has no
+    /// `hasMoreChanges`; RFC 8620 §5.6 says a server that cannot answer within
+    /// `maxChanges` MUST return `cannotCalculateChanges`, and the client resyncs
+    /// with a plain `Email/query`. That is the honest answer — a truncated delta
+    /// silently corrupts the client's list, because the client applies it and
+    /// believes it is up to date. The cap reaches SQL
+    /// ([`Store::changes_since_limited`]), so a refusal costs one bounded read
+    /// rather than materialising a tail in order to measure it.
+    ///
+    /// A client that sends no `maxChanges` gets [`DEFAULT_MAX_QUERY_CHANGES`].
+    /// JMAP permits an unbounded delta, but the `changes` table is append-only —
+    /// nothing in `crates/` prunes it — so "unbounded" means "the whole history
+    /// of this deployment" for a client returning from a long absence, and the
+    /// spec-defined fallback for refusing is exactly the full refetch such a
+    /// client should be doing anyway.
+    ///
+    /// **`upToId` bounds the query read.** It is the client's statement of how
+    /// far its own list reaches; nothing past it can affect what the client
+    /// shows, so only that prefix is materialised — see [`Engine::query_prefix`].
+    ///
+    /// **`total` is emitted only for `calculateTotal: true`**, and only when it
+    /// is exact (V9), matching `Email/query`. It used to be `ids.len()` of the
+    /// whole materialised query, unconditionally.
     async fn email_query_changes(&self, account_id: &str, args: &Value) -> Value {
         let since = args
             .get("sinceQueryState")
             .and_then(Value::as_str)
             .unwrap_or("0");
-        let new_state = self
-            .type_state(account_id, ChangeType::Email)
-            .await
-            .unwrap_or_default();
-        let ids = match self.query_ids(account_id, args).await {
-            Ok(v) => v,
+        let max_changes = args
+            .get("maxChanges")
+            .and_then(Value::as_u64)
+            .map(|n| n.min(i64::MAX as u64) as i64)
+            .unwrap_or(DEFAULT_MAX_QUERY_CHANGES);
+
+        // A state we cannot diff from is a refusal, not an empty delta: a client
+        // told "nothing changed" stops asking.
+        match self.resumable_from(account_id, since).await {
+            Ok(true) => {}
+            Ok(false) => return cannot_calculate_changes("sinceQueryState is not a known state"),
             Err(e) => return server_fail(&e),
-        };
-        // Destroyed ids since `since` that the client should drop.
-        let removed: Vec<String> = match self
-            .build_changes(account_id, ChangeType::Email, since)
+        }
+
+        let changes = match self
+            .build_changes_limited(account_id, ChangeType::Email, since, Some(max_changes))
             .await
         {
-            Ok(c) => c.destroyed,
-            Err(_) => Vec::new(),
+            Ok(c) => c,
+            Err(e) => return server_fail(&e),
         };
-        let added: Vec<Value> = ids
+        if changes.has_more_changes {
+            return cannot_calculate_changes(
+                "more changes than maxChanges; refetch the query instead",
+            );
+        }
+
+        // Every id that changed leaves the client's list; those still matching
+        // re-enter it at their current index.
+        let touched: Vec<String> = changes
+            .created
             .iter()
-            .enumerate()
-            .map(|(i, id)| json!({ "id": id, "index": i }))
+            .chain(changes.updated.iter())
+            .cloned()
             .collect();
-        json!({
+        let removed: Vec<String> = changes
+            .destroyed
+            .iter()
+            .cloned()
+            .chain(touched.iter().cloned())
+            .collect();
+
+        let added: Vec<Value> = if touched.is_empty() {
+            // Nothing can be added, so the query is not read at all — the common
+            // case for a push tick that only saw deletions.
+            Vec::new()
+        } else {
+            let up_to_id = args.get("upToId").and_then(Value::as_str);
+            let ids = match self.query_prefix(account_id, args, up_to_id).await {
+                Ok(v) => v,
+                Err(e) => return server_fail(&e),
+            };
+            let mut added: Vec<Value> = touched
+                .iter()
+                .filter_map(|id| {
+                    ids.iter()
+                        .position(|q| q == id)
+                        .map(|i| json!({ "id": id, "index": i }))
+                })
+                .collect();
+            // Ascending index is what a client applying them in order wants.
+            added.sort_by_key(|v| v.get("index").and_then(Value::as_u64).unwrap_or(0));
+            added
+        };
+
+        let mut out = json!({
             "accountId": account_id,
-            "oldQueryState": since,
-            "newQueryState": new_state,
-            "total": ids.len(),
+            "oldQueryState": changes.old_state,
+            "newQueryState": changes.new_state,
             "removed": removed,
             "added": added
+        });
+        match self.query_total(account_id, args).await {
+            Ok(total) => total.publish_total(&mut out),
+            Err(e) => return server_fail(&e),
+        }
+        out
+    }
+
+    /// Can a delta be computed from `since`? `false` for a state this account
+    /// never reached — a client that invented one, or one from a database that
+    /// has been replaced underneath it.
+    ///
+    /// State `0` is always resumable: it is the "I have nothing" state every
+    /// client starts from, and it is below `current` by construction.
+    async fn resumable_from(&self, account_id: &str, since: &str) -> Result<bool> {
+        let Ok(n) = since.parse::<u64>() else {
+            return Ok(false);
+        };
+        let current = self
+            .store()
+            .current_state(account_id, ChangeType::Email.as_str())
+            .await?;
+        Ok(n <= current)
+    }
+
+    /// The prefix of a query the client can actually be holding: everything up
+    /// to and including `up_to_id`, or the whole query when the client did not
+    /// say (26.20 t22-e2).
+    ///
+    /// On the SQL fast path the prefix is read as a prefix — one positional
+    /// lookup plus a `LIMIT`ed read — rather than materialised and then cut. A
+    /// client holding 50 rows of a 20 000-message folder therefore causes a
+    /// 50-row read, which is the difference between `upToId` being a real bound
+    /// and being decoration.
+    async fn query_prefix(
+        &self,
+        account_id: &str,
+        args: &Value,
+        up_to_id: Option<&str>,
+    ) -> Result<Vec<String>> {
+        if let Some(id) = up_to_id {
+            let filter: EmailFilter =
+                serde_json::from_value(args.get("filter").cloned().unwrap_or(Value::Null))
+                    .unwrap_or_default();
+            let comparator = first_comparator(args);
+            let sort = search_index::sort_from_comparator(comparator.as_ref());
+            let custom_sort = sort != mw_search::Sort::received_desc();
+            if let Some(mb) = sql_fast_path_mailbox(&filter, custom_sort)
+                && let Some(p) = self.store().message_position_in_mailbox(&mb, id).await?
+            {
+                return Ok(self
+                    .store()
+                    .list_message_ids(&mb, p.saturating_add(1).min(i64::MAX as u64) as i64, 0)
+                    .await?);
+            }
+        }
+        let mut ids = self.query_ids(account_id, args).await?;
+        if let Some(id) = up_to_id
+            && let Some(p) = ids.iter().position(|q| q == id)
+        {
+            ids.truncate(p + 1);
+        }
+        Ok(ids)
+    }
+
+    /// The `calculateTotal` half of a query, without its ids — for the paths
+    /// that need the number but not the list. Returns a [`QueryPage`] carrying
+    /// only the total so both callers publish it through the same rule (V9).
+    async fn query_total(&self, account_id: &str, args: &Value) -> Result<QueryPage> {
+        let want_total = args
+            .get("calculateTotal")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if !want_total {
+            return Ok(QueryPage::default());
+        }
+        let filter: EmailFilter =
+            serde_json::from_value(args.get("filter").cloned().unwrap_or(Value::Null))
+                .unwrap_or_default();
+        let semantic = filter.semantic;
+        let comparator = first_comparator(args);
+        let sort = search_index::sort_from_comparator(comparator.as_ref());
+        let custom_sort = sort != mw_search::Sort::received_desc();
+
+        let (total, truncated) = match sql_fast_path_mailbox(&filter, custom_sort) {
+            Some(mb) => (
+                Some(self.store().count_messages_in_mailbox(&mb).await?),
+                false,
+            ),
+            None => {
+                let hits = self.search_ids(account_id, &filter, sort, semantic).await?;
+                if hits.truncated {
+                    (None, true)
+                } else {
+                    (Some(hits.ids.len() as u64), false)
+                }
+            }
+        };
+        Ok(QueryPage {
+            total,
+            total_truncated: truncated,
+            ..QueryPage::default()
         })
     }
 
@@ -1694,6 +2067,120 @@ pub fn resolve_references(args: &mut Value, responses: &[Value]) {
     }
 }
 
+/// The default `maxChanges` for `*/changes` and `Email/queryChanges` when the
+/// client sends none (26.20 t22-e2).
+///
+/// JMAP permits an unbounded delta, and this is deliberately not that. The
+/// `changes` table is append-only — **no code in `crates/` ever deletes from
+/// it** — so "every change since state 0" is the entire history of a
+/// deployment, and the two methods that read it are the ones a reconnecting
+/// client calls first. Both have a defined answer for exceeding the bound:
+/// `*/changes` truncates and says so via `hasMoreChanges`, `queryChanges`
+/// refuses via `cannotCalculateChanges` and the client refetches. Neither loses
+/// data; both bound the response.
+///
+/// 500 is chosen against the measurement this lane started from: a 20 000-row
+/// folder produced 550 changes for 551 flag writes, so a cap at 500 is reached
+/// by a bulk operation on a large selection and by very little else. It is not
+/// tuned to a byte budget, because the response size depends on id width; it is
+/// tuned to "a client that has been away long enough for a refetch to be the
+/// cheaper answer".
+const DEFAULT_MAX_QUERY_CHANGES: i64 = 500;
+
+/// One resolved page of an `Email/query` (26.20 t22-e2).
+#[derive(Default)]
+struct QueryPage {
+    /// The window the client asked for, already paged — not the whole query.
+    ids: Vec<String>,
+    /// The absolute index of `ids[0]` in the full query order.
+    position: u64,
+    /// The exact number of matching messages. `None` unless the client asked
+    /// (`calculateTotal`) **and** an exact answer was available.
+    total: Option<u64>,
+    /// The client asked for a total and the search index cap made an exact one
+    /// impossible (V9).
+    total_truncated: bool,
+}
+
+impl QueryPage {
+    /// Write `total` into a response, or say plainly that there is not one.
+    ///
+    /// Three distinct outcomes, which is one more than a bare `total` field can
+    /// express and the reason this is a method rather than an inline `insert`:
+    ///
+    /// * the client did not ask → **no `total` key**, and no `COUNT(*)` was
+    ///   issued to produce one;
+    /// * the client asked and the number is exact → `total`;
+    /// * the client asked and the number would be a **truncated** one → still no
+    ///   `total`, plus `mailwomanCannotCalculateTotal: true` (V9).
+    ///
+    /// The third case is the point. `mw_search` caps an unbounded search at
+    /// 100 000 documents, so a 200 000-document index used to answer
+    /// `total: 100000` — a wrong number, indistinguishable from a right one, and
+    /// the number a client sizes its scrollbar and its paging against. An absent
+    /// total is visibly absent; a truncated one is not.
+    fn publish_total(&self, out: &mut Value) {
+        let Some(obj) = out.as_object_mut() else {
+            return;
+        };
+        match self.total {
+            Some(n) => {
+                obj.insert("total".into(), json!(n));
+            }
+            None if self.total_truncated => {
+                obj.insert("mailwomanCannotCalculateTotal".into(), json!(true));
+            }
+            None => {}
+        }
+    }
+}
+
+/// Why an `Email/query` could not be answered as asked.
+enum QueryFail {
+    /// RFC 8620 §5.5: the `anchor` id is not in the query result.
+    AnchorNotFound,
+    Engine(EngineError),
+}
+
+impl From<EngineError> for QueryFail {
+    fn from(e: EngineError) -> Self {
+        QueryFail::Engine(e)
+    }
+}
+
+impl From<mw_store::StoreError> for QueryFail {
+    fn from(e: mw_store::StoreError) -> Self {
+        QueryFail::Engine(EngineError::Store(e))
+    }
+}
+
+/// The mailbox id an `Email/query` can answer straight from SQL, or `None` when
+/// the filter needs the search index (frozen routing rule §2.1).
+///
+/// Shared by the pager, the `upToId` prefix read and the `calculateTotal`
+/// counter so the three cannot disagree about which path a given query takes —
+/// a disagreement would show up as a `total` counted over one order and a page
+/// read from another.
+fn sql_fast_path_mailbox(filter: &EmailFilter, custom_sort: bool) -> Option<String> {
+    if custom_sort || filter.needs_search() {
+        return None;
+    }
+    filter.in_mailbox.clone()
+}
+
+/// RFC 8620 §5.5 `anchorNotFound`: the `anchor` id is not in the query result.
+fn anchor_not_found() -> Value {
+    json!({
+        "type": "anchorNotFound",
+        "description": "the anchor id is not in this query's result"
+    })
+}
+
+/// RFC 8620 §5.2/§5.6 `cannotCalculateChanges`: the client must refetch.
+fn cannot_calculate_changes(why: &str) -> Value {
+    json!({ "type": "cannotCalculateChanges", "description": why })
+}
+
 /// The first `sort` comparator of a query, if any (frozen §2.1 sort set).
 fn first_comparator(args: &Value) -> Option<Comparator> {
     args.get("sort")
@@ -1955,4 +2442,778 @@ fn identity_slug(email: &str) -> String {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod query_paging_tests {
+    //! `Email/query` paging, `Email/queryChanges`, `Email/changes` (26.20 t22-e2).
+    //!
+    //! # The instruments, and why each one rather than the obvious one
+    //!
+    //! * **`rows_returned`, not statement count, for pushdown.** Slicing a fully
+    //!   materialised folder in Rust and pushing `LIMIT`/`OFFSET` into SQL both
+    //!   issue *one* statement against *one* table, and the recorded SQL text
+    //!   carries placeholders rather than bound values — so neither the count nor
+    //!   the text can tell them apart. What differs is how many rows the database
+    //!   handed back: 50 against 20 000. That number is sqlx's own
+    //!   `rows_returned`, captured by the shared recorder in
+    //!   [`crate::state::session_state_tests`].
+    //! * **Response bytes, not elapsed time, for `queryChanges`.** The failure
+    //!   was 489x the bytes of the refetch it replaces, and bytes are what a push
+    //!   tick pays for. The "before" number is not quoted from a document —
+    //!   `master_shape_query_changes` reproduces the pre-fix response *verbatim*
+    //!   and is measured in the same run, so the ratio is derived here rather
+    //!   than asserted from memory.
+    //! * **The absence of a *named* statement, not a smaller total, for V7.**
+    //!   Dropping `get_saved_search` is one statement in fifteen; a total-count
+    //!   assertion rounds it away, and a later regression would not move the
+    //!   total either.
+    //! * **A refusal that is actually reached.** A `maxChanges` implementation
+    //!   that never refuses has not been tested, so every cap assertion here has
+    //!   a leg that trips it and a leg that does not.
+    //!
+    //! Every scale assertion states the value it produces on `master` in its
+    //! failure message, so a future reader can tell a fix from a tautology.
+
+    use std::collections::HashSet;
+    use std::thread::ThreadId;
+
+    use mw_store::{
+        AccountKind, Credentials, MailboxUpsert, MessageUpsert, NewAccount, SavedSearchRow,
+        ServerKey, Store,
+    };
+    use serde_json::json;
+
+    use super::*;
+    use crate::state::session_state_tests::{Stmts, counted, db_threads};
+
+    /// The folder size the scale assertions run against.
+    ///
+    /// Big enough that the pre-fix `queryChanges` response is genuinely large,
+    /// and small enough to seed row by row through the public store API in a
+    /// unit test. The measured headline is a 20 000-row folder at 1 749 125
+    /// bytes; the property under test is that the new response does not grow
+    /// with the folder **at all**, and that is asserted directly by comparing
+    /// two folder sizes rather than extrapolated from one.
+    const FOLDER: usize = 2_000;
+
+    struct Fixture {
+        engine: Engine,
+        threads: HashSet<ThreadId>,
+        account: String,
+        mailbox: String,
+        /// Every id in `mailbox`, in the order `Email/query` returns them.
+        ordered: Vec<String>,
+    }
+
+    impl Fixture {
+        async fn with(n: usize) -> Self {
+            let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+            let threads = db_threads(&store).await;
+            let account = store
+                .create_account(
+                    &NewAccount {
+                        kind: AccountKind::Imap,
+                        host: "h",
+                        port: 993,
+                        tls: "implicit",
+                        username: "u",
+                        sync_policy_json: "{}",
+                    },
+                    &Credentials {
+                        username: "u".into(),
+                        password: "p".into(),
+                    },
+                )
+                .await
+                .unwrap();
+            let mailbox = store
+                .upsert_mailbox(&MailboxUpsert {
+                    account_id: &account,
+                    name: "INBOX",
+                    role: Some("inbox"),
+                    uidvalidity: 100,
+                    uidnext: 1,
+                    highestmodseq: 0,
+                    total: 0,
+                    unread: 0,
+                    parent_id: None,
+                })
+                .await
+                .unwrap();
+            for uid in 1..=n as u32 {
+                // Distinct ascending dates, so "newest first" is a real order
+                // rather than a tie broken by the id.
+                let date = format!("2026-07-01T00:00:{uid:08}Z");
+                let message_id = format!("<m{uid}@x>");
+                store
+                    .upsert_message(&MessageUpsert {
+                        account_id: &account,
+                        mailbox_id: &mailbox,
+                        uid,
+                        uidvalidity: 100,
+                        message_id: Some(&message_id),
+                        thread_id: None,
+                        internaldate: Some(&date),
+                        size: 1024,
+                        flags_json: "[]",
+                        envelope: None,
+                        blob_ref: None,
+                    })
+                    .await
+                    .unwrap();
+            }
+            let ordered = store.list_message_ids(&mailbox, i64::MAX, 0).await.unwrap();
+            assert_eq!(ordered.len(), n);
+            Self {
+                engine: Engine::new(store),
+                threads,
+                account,
+                mailbox,
+                ordered,
+            }
+        }
+
+        fn store(&self) -> &Store {
+            self.engine.store()
+        }
+
+        /// The filter every fast-path assertion uses.
+        fn in_mailbox(&self) -> Value {
+            json!({ "inMailbox": self.mailbox })
+        }
+
+        async fn query(&self, args: Value) -> Value {
+            self.engine.email_query(&self.account, &args).await
+        }
+
+        async fn counted_query(&self, args: Value) -> (Value, Stmts) {
+            counted(&self.threads, self.engine.email_query(&self.account, &args)).await
+        }
+
+        async fn query_changes(&self, args: Value) -> Value {
+            self.engine.email_query_changes(&self.account, &args).await
+        }
+
+        async fn changes(&self, args: Value) -> Value {
+            self.engine
+                .type_changes(&self.account, ChangeType::Email, &args)
+                .await
+        }
+
+        /// Mark `n` messages read the way `Email/set` does, so the change log
+        /// holds real rows at real states.
+        async fn touch(&self, n: usize) {
+            for id in self.ordered.iter().take(n) {
+                self.store().set_flags(id, "[\"Seen\"]").await.unwrap();
+                self.engine
+                    .record_change(&self.account, ChangeType::Email, id, ChangeOp::Updated)
+                    .await
+                    .unwrap();
+            }
+        }
+
+        async fn email_state(&self) -> String {
+            self.engine
+                .type_state(&self.account, ChangeType::Email)
+                .await
+                .unwrap()
+        }
+    }
+
+    fn ids_of(resp: &Value) -> Vec<String> {
+        resp["ids"]
+            .as_array()
+            .expect("ids")
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect()
+    }
+
+    fn bytes(v: &Value) -> usize {
+        serde_json::to_vec(v).expect("serialize").len()
+    }
+
+    /// `Email/queryChanges` **as `master` answered it**, reproduced here so the
+    /// "before" number is measured in the same run as the "after" rather than
+    /// quoted from a document.
+    ///
+    /// The shape, verbatim: the whole current query, every id, at every index,
+    /// in `added`, plus `total` and the caller's own `sinceQueryState` echoed
+    /// back as `oldQueryState`.
+    fn master_shape_query_changes(
+        account_id: &str,
+        since: &str,
+        new_state: &str,
+        ids: &[String],
+    ) -> Value {
+        let added: Vec<Value> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| json!({ "id": id, "index": i }))
+            .collect();
+        json!({
+            "accountId": account_id,
+            "oldQueryState": since,
+            "newQueryState": new_state,
+            "total": ids.len(),
+            "removed": Vec::<String>::new(),
+            "added": added
+        })
+    }
+
+    // -- Email/query: paging reaches SQL --------------------------------------
+
+    /// The pushdown, on the instrument that can see it.
+    ///
+    /// On `master` the fast path called `list_message_ids(mb, i64::MAX, 0)` and
+    /// sliced in Rust, so a 50-row page of a 2 000-message folder read **2 000**
+    /// rows. The statement count was 1 then and is 1 now; only `rows_returned`
+    /// separates the two.
+    #[tokio::test]
+    async fn a_page_reads_the_page_not_the_folder() {
+        let f = Fixture::with(FOLDER).await;
+
+        let (resp, stmts) = f
+            .counted_query(json!({ "filter": f.in_mailbox(), "position": 0, "limit": 50 }))
+            .await;
+        assert_eq!(ids_of(&resp), f.ordered[..50]);
+
+        let paging = stmts.matching("FROM messages");
+        assert_eq!(
+            paging.len(),
+            1,
+            "one statement answers the page; got {stmts:#?}"
+        );
+        assert_eq!(
+            paging[0].rows, 50,
+            "the LIMIT must reach the database: {} rows came back for a 50-row \
+             page of a {FOLDER}-message folder. On master this reads {FOLDER}, \
+             because the limit was applied by .take() after a full read",
+            paging[0].rows
+        );
+
+        // A deep page costs the same read, which is the property a client pages
+        // 20 000 rows on.
+        let (deep, stmts) = f
+            .counted_query(json!({
+                "filter": f.in_mailbox(), "position": FOLDER - 50, "limit": 50
+            }))
+            .await;
+        assert_eq!(ids_of(&deep), f.ordered[FOLDER - 50..]);
+        assert_eq!(deep["position"], json!(FOLDER - 50));
+        assert_eq!(stmts.matching("FROM messages")[0].rows, 50);
+    }
+
+    /// `calculateTotal` is opt-in, and opting out costs nothing.
+    ///
+    /// `master` returned `total` unconditionally, computed as the length of the
+    /// fully materialised query — so "no `COUNT(*)` was issued" was true there
+    /// only because the whole folder had already been read.
+    #[tokio::test]
+    async fn total_is_computed_only_when_asked_for() {
+        let f = Fixture::with(FOLDER).await;
+
+        let (resp, stmts) = f
+            .counted_query(json!({ "filter": f.in_mailbox(), "limit": 50 }))
+            .await;
+        assert!(
+            resp.get("total").is_none(),
+            "no `calculateTotal`, no total: {resp}"
+        );
+        assert_eq!(
+            stmts.matching("COUNT(*)").len(),
+            0,
+            "a client that did not ask for a total must not pay for one; got {stmts:#?}"
+        );
+
+        let (resp, stmts) = f
+            .counted_query(json!({
+                "filter": f.in_mailbox(), "limit": 50, "calculateTotal": true
+            }))
+            .await;
+        assert_eq!(resp["total"], json!(FOLDER));
+        assert_eq!(
+            stmts.matching("COUNT(*)").len(),
+            1,
+            "exactly one count, once per query rather than once per page; got {stmts:#?}"
+        );
+        // And the total describes the folder, not the page.
+        assert_eq!(ids_of(&resp).len(), 50);
+    }
+
+    /// V7: the pure `inMailbox` fast path issues **no `saved_searches`
+    /// statement**.
+    ///
+    /// Asserted on the absence of that specific statement rather than on a
+    /// smaller total: the drop is one statement in fifteen and rounds away in a
+    /// total, so a total-based assertion would neither fail on `master` nor
+    /// catch the regression.
+    #[tokio::test]
+    async fn the_fast_path_does_not_look_up_a_saved_search() {
+        let f = Fixture::with(200).await;
+
+        let (resp, stmts) = f
+            .counted_query(json!({ "filter": f.in_mailbox(), "limit": 10 }))
+            .await;
+        assert_eq!(ids_of(&resp).len(), 10);
+        assert_eq!(
+            stmts.matching("saved_searches").len(),
+            0,
+            "master runs get_saved_search on every query, including this one, \
+             where it can only miss; got {stmts:#?}"
+        );
+
+        // The behaviour it paid for is intact: a saved-search folder id still
+        // expands to its stored filter, and there it costs the lookup, because
+        // there the lookup is the only thing that can resolve the id.
+        f.store()
+            .upsert_saved_search(&SavedSearchRow {
+                id: "ss-folder".into(),
+                user: f.account.clone(),
+                name: "Seen".into(),
+                query_json: json!({ "hasKeyword": "$seen" }).to_string(),
+                as_folder: true,
+            })
+            .await
+            .unwrap();
+        let (_, stmts) = f
+            .counted_query(json!({ "filter": { "inMailbox": "ss-folder" }, "limit": 10 }))
+            .await;
+        assert_eq!(
+            stmts.matching("saved_searches").len(),
+            1,
+            "an id with no messages is exactly the case the lookup exists for; \
+             got {stmts:#?}"
+        );
+    }
+
+    /// `anchor`/`anchorOffset`, and the refusal that makes them safe.
+    #[tokio::test]
+    async fn anchor_starts_the_window_at_an_id() {
+        let f = Fixture::with(FOLDER).await;
+        let anchor = f.ordered[1_234].clone();
+
+        let (resp, stmts) = f
+            .counted_query(json!({
+                "filter": f.in_mailbox(), "anchor": anchor, "limit": 5
+            }))
+            .await;
+        assert_eq!(ids_of(&resp), f.ordered[1_234..1_239]);
+        assert_eq!(resp["position"], json!(1_234));
+
+        // The property, stated as a constant rather than a bound: anchoring at
+        // row 1 234 reads exactly what anchoring at row 3 reads. Three
+        // statements — the anchor's own sort key, the `COUNT(*)` of the rows
+        // before it, and the page — for 7 rows total, at any depth. A bound
+        // ("fewer than N rows") would be satisfied by an implementation that
+        // walks the offset in a small folder; depth-independence would not.
+        let deep: u64 = stmts.matching("FROM messages").iter().map(|s| s.rows).sum();
+        let (_, shallow_stmts) = f
+            .counted_query(json!({
+                "filter": f.in_mailbox(), "anchor": f.ordered[3], "limit": 5
+            }))
+            .await;
+        let shallow: u64 = shallow_stmts
+            .matching("FROM messages")
+            .iter()
+            .map(|s| s.rows)
+            .sum();
+        assert_eq!(
+            deep, shallow,
+            "an anchor 1 234 rows deep read {deep} rows against {shallow} for an \
+             anchor 3 rows deep; the whole point of anchor paging is that it does \
+             not walk the offset. {stmts:#?}"
+        );
+        assert_eq!(
+            deep, 7,
+            "1 anchor row + 1 count + the 5-row page: {stmts:#?}"
+        );
+
+        // A negative offset opens the window before the anchor.
+        let back = f
+            .query(json!({
+                "filter": f.in_mailbox(), "anchor": anchor, "anchorOffset": -2, "limit": 3
+            }))
+            .await;
+        assert_eq!(ids_of(&back), f.ordered[1_232..1_235]);
+        assert_eq!(back["position"], json!(1_232));
+
+        // An offset that would run off the front clamps at 0 rather than wrapping.
+        let clamped = f
+            .query(json!({
+                "filter": f.in_mailbox(), "anchor": f.ordered[1], "anchorOffset": -50, "limit": 2
+            }))
+            .await;
+        assert_eq!(clamped["position"], json!(0));
+        assert_eq!(ids_of(&clamped), f.ordered[..2]);
+
+        // RFC 8620 5.5: an anchor that is not in the result is an error, not
+        // page 1. Returning page 1 is the failure that silently resets a
+        // client's scroll position.
+        let missing = f
+            .query(json!({
+                "filter": f.in_mailbox(), "anchor": "not-a-message", "limit": 5
+            }))
+            .await;
+        assert_eq!(missing["type"], json!("anchorNotFound"), "{missing}");
+        assert!(missing.get("ids").is_none());
+    }
+
+    /// V9: a truncated search publishes **no** total rather than a truncated one.
+    ///
+    /// `mw_search`'s cap is 100 000, which no unit test is going to index, so the
+    /// mechanism is driven at the seam it really runs through — a search whose
+    /// `SearchHits::truncated` is set — using an explicit cap. What is asserted
+    /// is the engine's *rule*: `truncated` means the `total` field is absent and
+    /// flagged, never a number. On master the field was `ids.len()`
+    /// unconditionally, so a 200 000-document index answered `total: 100000`.
+    #[tokio::test]
+    async fn a_truncated_search_publishes_no_total() {
+        let f = Fixture::with(20).await;
+        let sq = mw_search::SearchQuery {
+            raw: String::new(),
+            expr: mw_search::Expr::All,
+            sort: mw_search::Sort::received_desc(),
+        };
+        for (i, id) in f.ordered.iter().enumerate() {
+            f.engine
+                .search()
+                .upsert(&mw_search::IndexDoc {
+                    stable_id: id.clone(),
+                    account_id: f.account.clone(),
+                    mailbox_id: f.mailbox.clone(),
+                    subject: format!("needle {i}"),
+                    body: "needle".into(),
+                    ..mw_search::IndexDoc::default()
+                })
+                .unwrap();
+        }
+
+        // The seam: the cap is binding, and the index says so.
+        let capped = f.engine.search().search_hits(&sq, 5).unwrap();
+        assert!(capped.truncated, "5 of 20 must report truncation");
+        assert_eq!(capped.ids.len(), 5);
+        // ...and is not binding when it is not.
+        assert!(!f.engine.search().search_hits(&sq, 0).unwrap().truncated);
+
+        // The rule, through the response builder both query paths publish
+        // through: a truncated total is never emitted as a number.
+        let mut out = json!({});
+        QueryPage {
+            total: None,
+            total_truncated: true,
+            ..QueryPage::default()
+        }
+        .publish_total(&mut out);
+        assert!(
+            out.get("total").is_none(),
+            "master answers `total: 100000` for a 200 000-document index — a wrong \
+             number that looks exactly like a right one: {out}"
+        );
+        assert_eq!(out["mailwomanCannotCalculateTotal"], json!(true));
+
+        // An untruncated search still gets a real total, so the flag is not just
+        // "totals are gone".
+        let full = f
+            .query(json!({
+                "filter": { "text": "needle" }, "calculateTotal": true
+            }))
+            .await;
+        assert_eq!(full["total"], json!(20));
+        assert!(full.get("mailwomanCannotCalculateTotal").is_none());
+    }
+
+    // -- Email/queryChanges ---------------------------------------------------
+
+    /// The headline: what a delta costs on the wire.
+    ///
+    /// Measured against `master`'s response shape, reproduced in this same run
+    /// by `master_shape_query_changes`, so the ratio is derived rather than
+    /// quoted.
+    #[tokio::test]
+    async fn query_changes_sends_the_delta_not_the_query() {
+        let f = Fixture::with(FOLDER).await;
+        let before_state = f.email_state().await;
+        f.touch(3).await;
+
+        let resp = f
+            .query_changes(json!({
+                "filter": f.in_mailbox(), "sinceQueryState": before_state, "maxChanges": 50
+            }))
+            .await;
+
+        let master = master_shape_query_changes(
+            &f.account,
+            &before_state,
+            &f.email_state().await,
+            &f.ordered,
+        );
+        let (new_bytes, old_bytes) = (bytes(&resp), bytes(&master));
+        eprintln!(
+            "[t22-e2] Email/queryChanges over a {FOLDER}-message folder, 3 changed: \
+             master {old_bytes} bytes -> {new_bytes} bytes ({}x)",
+            old_bytes / new_bytes.max(1)
+        );
+        assert!(
+            new_bytes < 16 * 1024,
+            "a 3-change delta must fit in a page's worth of bytes; got {new_bytes} \
+             against master's {old_bytes}"
+        );
+        assert!(
+            old_bytes / new_bytes.max(1) >= 100,
+            "master {old_bytes} vs {new_bytes}: if this ratio is small the corpus \
+             is too small for the byte assertion to mean anything"
+        );
+
+        // The delta is the three ids, at their real indices, and nothing else.
+        let added = resp["added"].as_array().unwrap().clone();
+        assert_eq!(added.len(), 3, "{resp}");
+        for entry in &added {
+            let id = entry["id"].as_str().unwrap();
+            let index = entry["index"].as_u64().unwrap() as usize;
+            assert_eq!(&f.ordered[index], id, "index must name the id: {entry}");
+        }
+        // An id whose position may have moved leaves the client's list first.
+        let removed: Vec<&str> = resp["removed"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        for entry in &added {
+            assert!(removed.contains(&entry["id"].as_str().unwrap()), "{resp}");
+        }
+        assert_eq!(resp["oldQueryState"], json!(before_state));
+        assert_ne!(resp["newQueryState"], json!(before_state));
+    }
+
+    /// The same measurement at the folder size the plan quotes: **20 000**.
+    ///
+    /// `#[ignore]`d because seeding 20 000 rows one at a time through the public
+    /// store API takes about a minute and the property is already proved by the
+    /// two tests either side of this one. It exists so the headline number is
+    /// reproducible by anyone (`cargo test -p mw-engine --lib -- --ignored
+    /// query_changes_at_the_measured_folder_size --nocapture`) rather than
+    /// carried in a commit message. Recorded on this host:
+    ///
+    /// ```text
+    /// master 1 749 047 bytes -> 595 bytes (2939x)
+    /// ```
+    ///
+    /// The plan's independently-measured figure for the same folder is
+    /// **1 749 125 bytes**; the 78-byte gap is the width of this fixture's
+    /// account id and state token against the verifier's. That the two agree to
+    /// four significant figures is the calibration — a "before" reproduced from
+    /// the old source shape should land on the number the old source produced.
+    #[tokio::test]
+    #[ignore = "seeds 20 000 rows; the scale headline, reproducible on demand"]
+    async fn query_changes_at_the_measured_folder_size() {
+        let f = Fixture::with(20_000).await;
+        let since = f.email_state().await;
+        f.touch(3).await;
+        let resp = f
+            .query_changes(json!({
+                "filter": f.in_mailbox(), "sinceQueryState": since, "maxChanges": 50
+            }))
+            .await;
+        let master =
+            master_shape_query_changes(&f.account, &since, &f.email_state().await, &f.ordered);
+        let (new_bytes, old_bytes) = (bytes(&resp), bytes(&master));
+        eprintln!(
+            "[t22-e2] Email/queryChanges over a 20 000-message folder, 3 changed: \
+             master {old_bytes} bytes -> {new_bytes} bytes ({}x)",
+            old_bytes / new_bytes.max(1)
+        );
+        assert!(
+            old_bytes > 1_500_000,
+            "master's response: {old_bytes} bytes"
+        );
+        assert!(new_bytes < 16 * 1024, "the delta: {new_bytes} bytes");
+    }
+
+    /// The response does not grow with the folder — the load-independent form of
+    /// the byte assertion above, and the one a corpus size cannot flatter.
+    #[tokio::test]
+    async fn the_delta_size_does_not_depend_on_the_folder_size() {
+        let mut sizes = Vec::new();
+        for n in [500usize, 2_000] {
+            let f = Fixture::with(n).await;
+            let since = f.email_state().await;
+            f.touch(3).await;
+            let resp = f
+                .query_changes(json!({
+                    "filter": f.in_mailbox(), "sinceQueryState": since, "maxChanges": 50
+                }))
+                .await;
+            assert_eq!(resp["added"].as_array().unwrap().len(), 3);
+            sizes.push(bytes(&resp));
+        }
+        assert_eq!(
+            sizes[0], sizes[1],
+            "the same three changes in a 500-message folder and a 2 000-message \
+             folder must serialise to the same bytes; master's grow 4x with the \
+             folder, because there the folder *is* the response"
+        );
+    }
+
+    /// The refusal path, exercised where it fires **and** where it does not.
+    ///
+    /// A `maxChanges` implementation that never refuses has not been tested; one
+    /// that always refuses is not an implementation. `Foo/queryChanges` has no
+    /// `hasMoreChanges`, so RFC 8620 5.6 requires refusal rather than a partial
+    /// answer — a truncated delta is applied by the client, which then believes
+    /// it is up to date.
+    #[tokio::test]
+    async fn query_changes_refuses_rather_than_truncating() {
+        let f = Fixture::with(200).await;
+        let since = f.email_state().await;
+        f.touch(60).await;
+
+        // Under the cap: a real delta.
+        let ok = f
+            .query_changes(json!({
+                "filter": f.in_mailbox(), "sinceQueryState": since, "maxChanges": 100
+            }))
+            .await;
+        assert_eq!(ok["added"].as_array().unwrap().len(), 60, "{ok}");
+        assert!(ok.get("type").is_none(), "not a refusal: {ok}");
+
+        // Over the cap: a refusal, and specifically this one.
+        let refused = f
+            .query_changes(json!({
+                "filter": f.in_mailbox(), "sinceQueryState": since, "maxChanges": 50
+            }))
+            .await;
+        assert_eq!(
+            refused["type"],
+            json!("cannotCalculateChanges"),
+            "60 changes with maxChanges: 50 must refuse, not answer 50 of them: {refused}"
+        );
+        assert!(
+            refused.get("added").is_none() && refused.get("removed").is_none(),
+            "a refusal carries no delta for a client to half-apply: {refused}"
+        );
+
+        // Exactly at the cap is not over it — the boundary a lookahead exists to
+        // get right.
+        let exact = f
+            .query_changes(json!({
+                "filter": f.in_mailbox(), "sinceQueryState": since, "maxChanges": 60
+            }))
+            .await;
+        assert_eq!(exact["added"].as_array().unwrap().len(), 60, "{exact}");
+
+        // A state this account never reached is also a refusal, not an empty
+        // delta: "nothing changed" makes a client with a stale state stop asking.
+        let bogus = f
+            .query_changes(json!({
+                "filter": f.in_mailbox(), "sinceQueryState": "99999", "maxChanges": 50
+            }))
+            .await;
+        assert_eq!(bogus["type"], json!("cannotCalculateChanges"), "{bogus}");
+        let garbage = f
+            .query_changes(json!({
+                "filter": f.in_mailbox(), "sinceQueryState": "not-a-state"
+            }))
+            .await;
+        assert_eq!(
+            garbage["type"],
+            json!("cannotCalculateChanges"),
+            "{garbage}"
+        );
+    }
+
+    /// `upToId` bounds the read, not just the answer.
+    #[tokio::test]
+    async fn up_to_id_bounds_the_query_read() {
+        let f = Fixture::with(FOLDER).await;
+        let since = f.email_state().await;
+        f.touch(3).await;
+
+        let (resp, stmts) = counted(
+            &f.threads,
+            f.engine.email_query_changes(
+                &f.account,
+                &json!({
+                    "filter": f.in_mailbox(),
+                    "sinceQueryState": since,
+                    "maxChanges": 50,
+                    "upToId": f.ordered[49],
+                }),
+            ),
+        )
+        .await;
+        assert_eq!(resp["added"].as_array().unwrap().len(), 3, "{resp}");
+
+        let listing: u64 = stmts
+            .matching("ORDER BY internaldate")
+            .iter()
+            .map(|s| s.rows)
+            .sum();
+        assert_eq!(
+            listing, 50,
+            "a client holding 50 rows must cause a 50-row read, not a \
+             {FOLDER}-row one: {stmts:#?}"
+        );
+    }
+
+    // -- Email/changes (V6) ---------------------------------------------------
+
+    /// V6: `maxChanges` is honoured here too, and truncation is **reported**.
+    ///
+    /// Fixing only `queryChanges` would leave the identical bug one method over.
+    /// On `master` this returned all 60 with `hasMoreChanges: false` — a client
+    /// asking for 20 got 60 and was told that was all of them.
+    #[tokio::test]
+    async fn email_changes_honours_max_changes_and_says_when_it_truncated() {
+        let f = Fixture::with(100).await;
+        let since = f.email_state().await;
+        f.touch(60).await;
+
+        let capped = f
+            .changes(json!({ "sinceState": since, "maxChanges": 20 }))
+            .await;
+        let updated = capped["updated"].as_array().unwrap().clone();
+        assert_eq!(updated.len(), 20, "the cap must bind: {capped}");
+        assert_eq!(
+            capped["hasMoreChanges"],
+            json!(true),
+            "master answers false here, with all 60 rows attached: {capped}"
+        );
+
+        // The resume point is the last row RETURNED, not the current state.
+        // Reporting the current state alongside a partial list tells the client
+        // it is up to date about changes it was never sent.
+        let resumed = f
+            .changes(json!({
+                "sinceState": capped["newState"].as_str().unwrap(), "maxChanges": 100
+            }))
+            .await;
+        assert_eq!(
+            resumed["updated"].as_array().unwrap().len(),
+            40,
+            "{resumed}"
+        );
+        assert_eq!(resumed["hasMoreChanges"], json!(false));
+
+        // The two pages together are every change, exactly once.
+        let mut all: Vec<String> = updated
+            .iter()
+            .chain(resumed["updated"].as_array().unwrap())
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect();
+        all.sort();
+        all.dedup();
+        assert_eq!(all.len(), 60, "no change may be skipped between the pages");
+
+        // Uncapped (under the default) is unchanged behaviour.
+        let whole = f.changes(json!({ "sinceState": since })).await;
+        assert_eq!(whole["updated"].as_array().unwrap().len(), 60);
+        assert_eq!(whole["hasMoreChanges"], json!(false));
+
+        // An unknown state refuses rather than reporting an empty diff.
+        let bogus = f.changes(json!({ "sinceState": "99999" })).await;
+        assert_eq!(bogus["type"], json!("cannotCalculateChanges"), "{bogus}");
+    }
 }
