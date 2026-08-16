@@ -719,28 +719,61 @@ impl Store {
     /// `offset` is clamped to 0 (SQLite treats a negative OFFSET as 0, Postgres
     /// rejects it — the clamp makes the two agree).
     ///
-    /// # Known divergence: `internaldate IS NULL` (predates 26.20, NOT fixed here)
+    /// # `internaldate IS NULL`: `NULLS LAST`, and why (26.20 t22-e2)
     ///
-    /// The two backends disagree about where undated messages sort. Under
-    /// `ORDER BY … DESC`, SQLite puts NULLs **last** and Postgres puts them
-    /// **first**, so the same mailbox pages differently — measured with two
-    /// undated rows among 20 000: SQLite's page 1 starts at the newest dated
-    /// message, Postgres' page 1 starts with the two undated ones, above
-    /// everything, permanently.
+    /// t22-e1 measured this and left the reasoning here rather than fixing it,
+    /// because the fix needs a migration. t22-e2 shipped both halves in one
+    /// commit — this `ORDER BY` and `0025_message_paging_nulls_last.sql`. The
+    /// reasoning stays here, extended, because `.orchestration/` is not tracked
+    /// and a maintainer who later "simplifies" the `NULLS LAST` away needs to
+    /// find out from this comment rather than from a bug report.
+    ///
+    /// **What was wrong.** The two backends disagreed about where undated
+    /// messages sort. Under a bare `ORDER BY … DESC`, SQLite puts NULLs **last**
+    /// and Postgres puts them **first**, so the same mailbox paged differently —
+    /// measured with two undated rows among 20 000: SQLite's page 1 started at
+    /// the newest dated message, Postgres' page 1 started with the two undated
+    /// ones, above everything, permanently.
     ///
     /// This is reachable, not theoretical: `mw-pop3` supplies `internaldate:
     /// None` for **every** message it ingests, and `mw-imap`'s is an `Option`
     /// too, so any mailbox mixing POP3-ingested and dated messages hits it.
     ///
-    /// It matters beyond the ordering itself, because an `anchor`/`anchorOffset`
-    /// primitive ("the position of this id in this mailbox's order") is only
-    /// definable once the order is. The fix is `ORDER BY internaldate DESC NULLS
-    /// LAST, uid DESC, stable_id` **plus** a migration redefining the Postgres
-    /// index with a matching `DESC NULLS LAST` — measured, the `ORDER BY` change
-    /// alone keeps the index but adds a Sort node on Postgres, and costs SQLite
-    /// nothing at all (same covering-index plan, same output, since its `DESC`
-    /// index is already NULLS-last). That is a cross-backend ordering change with
-    /// its own migration, so it is deliberately not made under a paging lane.
+    /// **Why `LAST` and not `FIRST`.** `NULLS LAST` is the direction that
+    /// *removes* a divergence instead of adding one, because there is a **third**
+    /// order in play and it already agreed with SQLite. The search path sorts on
+    /// `unix_secs(received_at)` with `unwrap_or(0)`
+    /// (`crates/mw-engine/src/search_index.rs`), so an absent date becomes epoch
+    /// 0 and an undated message sorts LAST under `receivedAt desc`. A Postgres
+    /// deployment therefore showed the same user's undated mail at the **bottom**
+    /// of a folder when they typed in the search box and at the **top** when they
+    /// did not — same folder, same session, same messages. `NULLS LAST` makes
+    /// SQL-on-Postgres, SQL-on-SQLite and the search path give one answer.
+    /// `NULLS FIRST` would have made three orders out of two by moving SQLite and
+    /// leaving the search path behind.
+    ///
+    /// It also matters beyond the ordering itself: `anchor`/`anchorOffset` ("the
+    /// position of this id in this mailbox's order", see
+    /// [`Store::message_position_in_mailbox`]) is only definable once the order
+    /// is, and that positional query has to encode the same null rule in a
+    /// `WHERE` clause.
+    ///
+    /// **The migration is not optional and not separable.** Postgres' index
+    /// ordering for a `DESC` column is `NULLS FIRST`, so 0023's index does not
+    /// satisfy this `ORDER BY`. The index is still **chosen** — it stays the
+    /// access path and stays in the plan, which is exactly what makes this a
+    /// silent failure — but Postgres re-adds a Sort over every row the scan
+    /// produces. Measured on live PG 16, 20 000 rows at a deep offset: 15.5 ms
+    /// with the old `ORDER BY`, **71.2 ms (4.6×)** with this `ORDER BY` against
+    /// 0023's index, 16.7 ms with 0025's redefined index. SQLite needs no
+    /// migration at all — no `NULLS FIRST/LAST` clause exists on its
+    /// `CREATE INDEX`, and its `DESC` index is already NULLS-last, so the plan
+    /// and the output are unchanged there.
+    ///
+    /// `postgres_deep_offset_page_uses_the_covering_index` asserts the plan
+    /// contains no `Sort Method`, and **fails on the half-shipped version** — the
+    /// `ORDER BY` without 0025. That is the guard; do not weaken it to
+    /// "the index is still used", which the broken version also satisfies.
     pub async fn list_message_ids(
         &self,
         mailbox_id: &str,
@@ -751,13 +784,94 @@ impl Store {
             return Ok(Vec::new());
         }
         Ok(q("SELECT stable_id FROM messages WHERE mailbox_id = ?1
-             ORDER BY internaldate DESC, uid DESC, stable_id
+             ORDER BY internaldate DESC NULLS LAST, uid DESC, stable_id
              LIMIT ?2 OFFSET ?3")
         .bind(mailbox_id)
         .bind(limit)
         .bind(offset.max(0))
         .fetch_all_scalar_string(&self.backend)
         .await?)
+    }
+
+    /// The zero-based position of `stable_id` in the mailbox order
+    /// [`Store::list_message_ids`] returns, or `None` when the id is not in that
+    /// mailbox. The `anchor`/`anchorOffset` primitive of `Email/query`
+    /// (26.20 t22-e2).
+    ///
+    /// **Two statements, no scan of the page it anchors.** JMAP's `anchor` means
+    /// "start the page at this id, plus `anchorOffset`". The obvious
+    /// implementation — list the ids and call `.position()` — costs the whole
+    /// folder to answer a question about one row, which is the cost this tag
+    /// exists to remove; a client paging by anchor to escape `OFFSET` would have
+    /// re-introduced it. Instead: read the anchor's own sort key, then `COUNT(*)`
+    /// the rows that sort strictly before it. Both statements are served by
+    /// `idx_messages_mailbox_page` (0023, redefined by 0025), and the count is
+    /// independent of how deep the anchor sits.
+    ///
+    /// **The `WHERE` clause is the `ORDER BY`, rewritten as a predicate**, and it
+    /// has to encode the null rule the same way or the position it returns names
+    /// a different row than the page that follows it. Under
+    /// `internaldate DESC NULLS LAST, uid DESC, stable_id ASC`, a row sorts
+    /// before the anchor when it is dated and the anchor is not, or when both
+    /// share a null-ness and the tuple comparison puts it first. That is why
+    /// this is two statements rather than one self-joining statement with bound
+    /// NULLs: the anchor's null-ness selects which of the two predicates to
+    /// issue, in Rust, where it is legible — and neither backend has to be
+    /// trusted with three-valued logic over a bound parameter.
+    ///
+    /// A duplicate `(internaldate, uid)` pair cannot make this ambiguous,
+    /// because `stable_id` is a primary key and is the final sort term, so the
+    /// order is total and exactly one row sorts at any position.
+    pub async fn message_position_in_mailbox(
+        &self,
+        mailbox_id: &str,
+        stable_id: &str,
+    ) -> Result<Option<u64>, StoreError> {
+        let Some(anchor) = q("SELECT internaldate, uid FROM messages
+             WHERE mailbox_id = ?1 AND stable_id = ?2")
+        .bind(mailbox_id)
+        .bind(stable_id)
+        .fetch_optional(&self.backend)
+        .await?
+        else {
+            return Ok(None);
+        };
+        let uid = anchor.get_i64("uid");
+
+        let before = match anchor.get_opt_string("internaldate") {
+            // Dated anchor: only dated rows can precede it, and among them the
+            // tuple order decides.
+            Some(date) => {
+                q("SELECT COUNT(*) FROM messages
+                     WHERE mailbox_id = ?1 AND internaldate IS NOT NULL
+                       AND (internaldate > ?2
+                            OR (internaldate = ?2
+                                AND (uid > ?3 OR (uid = ?3 AND stable_id < ?4))))")
+                .bind(mailbox_id)
+                .bind(date)
+                .bind(uid)
+                .bind(stable_id)
+                .fetch_scalar_i64(&self.backend)
+                .await?
+            }
+            // Undated anchor: every dated row precedes it (that is what NULLS
+            // LAST means), plus the undated rows that beat it on the tie-break.
+            // A dated row satisfies the first disjunct and is never reached by
+            // the second, so no `internaldate IS NULL` guard is needed there.
+            None => {
+                q("SELECT COUNT(*) FROM messages
+                     WHERE mailbox_id = ?1
+                       AND (internaldate IS NOT NULL
+                            OR uid > ?2
+                            OR (uid = ?2 AND stable_id < ?3))")
+                .bind(mailbox_id)
+                .bind(uid)
+                .bind(stable_id)
+                .fetch_scalar_i64(&self.backend)
+                .await?
+            }
+        };
+        Ok(Some(before.max(0) as u64))
     }
 
     /// Replace a message's opaque flags JSON (server-authoritative, SPEC §15.2)
@@ -2025,6 +2139,134 @@ mod tests {
         );
     }
 
+    /// Seed a folder that mixes dated and undated mail — the shape `mw-pop3`
+    /// produces, since it supplies `internaldate: None` for every message it
+    /// ingests — and return `(mailbox_id, dated_newest_first, undated_uid_desc)`.
+    async fn seed_mixed_dates(
+        s: &Store,
+        account_id: &str,
+        name: &str,
+    ) -> (String, Vec<String>, Vec<String>) {
+        let mailbox_id = seed_mailbox(s, account_id, name, 100).await;
+        // Dated, inserted oldest-first so insertion order cannot be mistaken for
+        // sort order.
+        let mut dated = Vec::new();
+        for uid in 1..=3u32 {
+            let date = format!("2026-07-0{uid}T00:00:00Z");
+            let m = msg(account_id, &mailbox_id, uid, 100, "<d@x>", &date);
+            dated.push(s.upsert_message(&m).await.unwrap());
+        }
+        dated.reverse(); // newest first
+
+        let mut undated = Vec::new();
+        for uid in [91u32, 92] {
+            let mut m = msg(account_id, &mailbox_id, uid, 100, "<u@x>", "unused");
+            m.internaldate = None;
+            undated.push(s.upsert_message(&m).await.unwrap());
+        }
+        undated.reverse(); // uid DESC, matching the tie-break among undated rows
+        (mailbox_id, dated, undated)
+    }
+
+    /// 26.20 t22-e2. Undated mail sorts **last**, on whichever backend this runs
+    /// against — the divergence `NULLS LAST` + migration 0025 exist to remove.
+    ///
+    /// Before 26.20 this assertion had two different right answers: SQLite put
+    /// the undated rows at the end and Postgres put them at the front, from the
+    /// same `ORDER BY … DESC` over the same rows. The test is written to be run
+    /// verbatim on both backends for exactly that reason — a SQLite-only version
+    /// of it passed on `master`, which is what let the divergence survive.
+    async fn assert_undated_mail_sorts_last(s: &Store) {
+        let account_id = seed_account(s).await;
+        let (mailbox_id, dated, undated) = seed_mixed_dates(s, &account_id, "INBOX").await;
+
+        let listed = s.list_message_ids(&mailbox_id, 100, 0).await.unwrap();
+        let expected: Vec<String> = dated.iter().chain(undated.iter()).cloned().collect();
+        assert_eq!(
+            listed, expected,
+            "dated newest-first, then undated — on Postgres before 0025 the two \
+             undated rows led the folder instead, permanently and above everything"
+        );
+
+        // The same order under paging: an ordering that only holds for an
+        // unbounded read is not the ordering a client pages through.
+        let mut paged = Vec::new();
+        for offset in (0..5).step_by(2) {
+            paged.extend(s.list_message_ids(&mailbox_id, 2, offset).await.unwrap());
+        }
+        assert_eq!(paged, expected);
+    }
+
+    /// 26.20 t22-e2. `message_position_in_mailbox` answers the question
+    /// `list_message_ids` answers, for one row, without reading the folder.
+    ///
+    /// The instrument is **agreement with the listing at every index**, not a
+    /// hand-written expected number: a positional query whose `WHERE` clause
+    /// encodes the null rule differently from the `ORDER BY` returns a position
+    /// that names a different row than the page starting there, and a
+    /// spot-checked index in the dated middle of the folder would not notice.
+    async fn assert_anchor_position_matches_the_listing(s: &Store) {
+        let account_id = seed_account(s).await;
+        let (mailbox_id, _, _) = seed_mixed_dates(s, &account_id, "INBOX").await;
+        let listed = s.list_message_ids(&mailbox_id, 100, 0).await.unwrap();
+        assert_eq!(listed.len(), 5);
+
+        for (i, id) in listed.iter().enumerate() {
+            assert_eq!(
+                s.message_position_in_mailbox(&mailbox_id, id)
+                    .await
+                    .unwrap(),
+                Some(i as u64),
+                "position of {id} must be its index in the listing (both undated \
+                 rows sit at the end, and their tie-break must agree too)"
+            );
+            // The paired property a client actually uses: paging from the
+            // reported position starts at the anchor.
+            assert_eq!(
+                s.list_message_ids(&mailbox_id, 1, i as i64)
+                    .await
+                    .unwrap()
+                    .first(),
+                Some(id)
+            );
+        }
+
+        // Not in this mailbox → no position, which is JMAP's `anchorNotFound`.
+        assert_eq!(
+            s.message_position_in_mailbox(&mailbox_id, "no-such-id")
+                .await
+                .unwrap(),
+            None
+        );
+        let (other, _, _) = seed_mixed_dates(s, &account_id, "Archive").await;
+        assert_eq!(
+            s.message_position_in_mailbox(&other, &listed[0])
+                .await
+                .unwrap(),
+            None,
+            "a real id in the wrong mailbox is not found, not position 0"
+        );
+    }
+
+    #[tokio::test]
+    async fn sqlite_undated_mail_sorts_last_and_anchors_agree() {
+        assert_undated_mail_sorts_last(&store().await).await;
+        assert_anchor_position_matches_the_listing(&store().await).await;
+    }
+
+    /// 26.20 t22-e2, the half that could not be proved on SQLite. Postgres is the
+    /// backend whose default this changes, and its `COUNT(*)` predicate is the
+    /// one that has to agree with a `NULLS LAST` index rather than with SQLite's
+    /// natural order.
+    #[tokio::test]
+    async fn postgres_undated_mail_sorts_last_and_anchors_agree() {
+        let Some(s) = live_pg("NULLS LAST ordering + anchor position").await else {
+            return;
+        };
+        assert_undated_mail_sorts_last(&s).await;
+        assert_anchor_position_matches_the_listing(&s).await;
+    }
+
     /// Open the live-Postgres store for the env-gated legs, or explain why they
     /// are not running. `DATABASE_URL_PG` / `MW_TEST_PG`, the same convention as
     /// `tests/backend_parity.rs`.
@@ -2099,9 +2341,15 @@ mod tests {
                 let m = msg(&account_id, &mailbox_id, uid, 100, "<p@x>", &date);
                 s.upsert_message(&m).await.unwrap();
             }
+            // The `NULLS LAST` is load-bearing in this string: it must be the
+            // statement `list_message_ids` issues, or the plan asserted below is
+            // a plan for code that no longer exists. On SQLite the clause is
+            // free (0025's SQLite half is an explained no-op) and this assertion
+            // is what proves it — the covering index still answers the page with
+            // nothing left to sort.
             let rows = q("EXPLAIN QUERY PLAN
                  SELECT stable_id FROM messages WHERE mailbox_id = ?1
-                 ORDER BY internaldate DESC, uid DESC, stable_id
+                 ORDER BY internaldate DESC NULLS LAST, uid DESC, stable_id
                  LIMIT 5 OFFSET 30")
             .bind(&mailbox_id)
             .fetch_all(s.backend())
@@ -2218,9 +2466,13 @@ mod tests {
         }
 
         async fn plan(s: &Store, mailbox_id: &str) -> String {
+            // `NULLS LAST` here is not decoration — it is the statement
+            // `list_message_ids` issues since 26.20 t22-e2, and it is the reason
+            // 0025 redefines the index. EXPLAIN the old `ORDER BY` and this test
+            // passes against an index the running code cannot use.
             let rows = q("EXPLAIN (ANALYZE, BUFFERS)
                  SELECT stable_id FROM messages WHERE mailbox_id = ?1
-                 ORDER BY internaldate DESC, uid DESC, stable_id
+                 ORDER BY internaldate DESC NULLS LAST, uid DESC, stable_id
                  LIMIT 50 OFFSET 19950")
             .bind(mailbox_id)
             .fetch_all(s.backend())
@@ -2241,8 +2493,12 @@ mod tests {
             .unwrap();
         q("ANALYZE messages").execute(s.backend()).await.unwrap();
         let without_index = plan(&s, &mailbox_id).await;
+        // Restore 0025's definition, not 0023's. Recreating the `NULLS FIRST`
+        // form here would leave the shared database with an index the running
+        // code silently sorts around — the exact half-shipped state this test
+        // exists to catch, installed by the test itself.
         q("CREATE INDEX IF NOT EXISTS idx_messages_mailbox_page
-             ON messages (mailbox_id, internaldate DESC, uid DESC, stable_id)")
+             ON messages (mailbox_id, internaldate DESC NULLS LAST, uid DESC, stable_id)")
         .execute(s.backend())
         .await
         .unwrap();

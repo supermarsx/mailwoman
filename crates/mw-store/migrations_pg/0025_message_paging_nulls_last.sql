@@ -1,0 +1,54 @@
+-- 0025 (26.20 t22-e2): redefine 0023's paging index as
+-- `(mailbox_id, internaldate DESC NULLS LAST, uid DESC, stable_id)` — POSTGRES
+-- variant, and the half that does the work. The SQLite variant
+-- (`migrations/0025_message_paging_nulls_last.sql`) is an explained no-op:
+-- SQLite has no `NULLS FIRST/LAST` clause on `CREATE INDEX` and does not need
+-- one, since its `DESC` index is already NULLS-last. Both files exist so the two
+-- migration directories stay at the same version number. ADDITIVE over
+-- 0001..0024; NEVER edit an earlier migration.
+--
+-- WHY THIS MIGRATION IS NOT SEPARABLE FROM THE `ORDER BY` CHANGE.
+-- `Store::list_message_ids` now issues
+-- `ORDER BY internaldate DESC NULLS LAST, uid DESC, stable_id`. Postgres' index
+-- ordering for a `DESC` column is `NULLS FIRST` (its default), so 0023's index
+-- no longer satisfies that `ORDER BY`.
+--
+-- **The index does not stop being chosen.** That is the part that makes this a
+-- silent regression rather than a loud one: it stays the access path and stays
+-- in the plan, so a "the index is still used" check passes. What Postgres adds
+-- is a Sort node over every row the scan produces. Measured on live PG 16,
+-- 20 000 rows in a 100 000-row table, at a deep offset:
+--
+--     DESC (0023 only), ORDER BY … DESC              Index Only Scan            15.5 ms
+--     DESC (0023 only), ORDER BY … DESC NULLS LAST   Index Only Scan + Sort      71.2 ms   (4.6×)
+--     DESC NULLS LAST (this file), same ORDER BY     Index Only Scan            16.7 ms
+--
+-- Shipping the `ORDER BY` without this file is a 4.6× regression of the exact
+-- operation 26.20 exists to make cheap, with the index still visible in the
+-- plan. Hence: one commit, both halves, and
+-- `postgres_deep_offset_page_uses_the_covering_index` in
+-- `crates/mw-store/src/cache.rs` asserts the plan contains no `Sort Method` —
+-- an assertion that fails on the half-shipped version, which is the only reason
+-- it is worth having.
+--
+-- WHY `NULLS LAST` — it removes a divergence rather than adding one. Full
+-- argument in the `Store::list_message_ids` doc comment (tracked, unlike
+-- `.orchestration/`). In brief: `mw-pop3` supplies `internaldate: None` for
+-- every message it ingests, so undated mail is reachable, not theoretical; the
+-- search path sorts undated mail LAST because `search_index.rs` maps an absent
+-- date to epoch 0; SQLite's SQL path already sorted it last. Postgres was the
+-- only one of the three putting it first, which meant one deployment showed a
+-- user's undated mail at the bottom of a folder when they typed in the search
+-- box and at the top when they did not.
+--
+-- REBUILD COST, stated rather than glossed. `DROP` + `CREATE` rebuilds the whole
+-- index; there is no in-place way to change an index's null ordering. The
+-- non-concurrent form is deliberate: `CREATE INDEX CONCURRENTLY` cannot run
+-- inside a transaction block, and `sqlx` runs each migration in one. The write
+-- lock is held for the rebuild — on the 100 000-row corpus above, ~0.9 s. A
+-- deployment large enough for that to matter can build the replacement
+-- concurrently by hand before upgrading; `IF NOT EXISTS` then makes this
+-- statement a no-op.
+DROP INDEX IF EXISTS idx_messages_mailbox_page;
+CREATE INDEX IF NOT EXISTS idx_messages_mailbox_page
+    ON messages (mailbox_id, internaldate DESC NULLS LAST, uid DESC, stable_id);

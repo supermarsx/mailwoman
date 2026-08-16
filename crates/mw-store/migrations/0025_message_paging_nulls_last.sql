@@ -1,0 +1,44 @@
+-- 0025 (26.20 t22-e2): make `Email/query`'s order agree across backends by
+-- pinning where undated messages land — `ORDER BY internaldate DESC NULLS LAST`.
+-- This is the SQLite variant; the Postgres variant is
+-- `migrations_pg/0025_message_paging_nulls_last.sql` and the two MUST be applied
+-- as one change. ADDITIVE over 0001..0024. NEVER edit an earlier migration —
+-- a dev database that already applied 0023 fails `VersionMismatch(23)` if its
+-- bytes move.
+--
+-- ON SQLITE THIS FILE IS A DELIBERATE NO-OP, and that is the whole content of
+-- the change on this backend. Two facts make it one:
+--
+--   1. SQLite has **no `NULLS FIRST`/`NULLS LAST` clause on `CREATE INDEX`** at
+--      all. There is nothing to write here even if something needed writing.
+--   2. Nothing does. SQLite sorts NULL smallest, so a `DESC` index is already
+--      NULLS-last, and `ORDER BY internaldate DESC NULLS LAST` is satisfied by
+--      the exact index 0023 created. `idx_messages_mailbox_page` keeps serving
+--      the page query as a covering index with no sort — asserted, with the
+--      index dropped as a negative control, by
+--      `sqlite_page_query_uses_the_covering_index_and_sorts_nothing` in
+--      `crates/mw-store/src/cache.rs`, which now EXPLAINs the `NULLS LAST`
+--      statement the code actually issues.
+--
+-- It exists as a file rather than as a Postgres-only migration because the two
+-- migration directories are applied by version number and must stay in
+-- lockstep: a Postgres deployment at 0025 and a SQLite deployment at 0024 is a
+-- schema-version skew that nothing in the tree would notice until something
+-- else diverged. One statement per dialect per version, always.
+--
+-- WHY `NULLS LAST` AND NOT `NULLS FIRST` — the full argument lives in the
+-- `Store::list_message_ids` doc comment, because `.orchestration/` is not
+-- tracked. The short form: `NULLS LAST` is the direction that *removes* a
+-- divergence rather than adding one. The search path sorts on
+-- `unix_secs(received_at)` with `unwrap_or(0)`
+-- (`crates/mw-engine/src/search_index.rs`), so an undated message carries a date
+-- of epoch 0 and sorts LAST under `receivedAt desc`. SQLite's SQL path already
+-- agreed. Only Postgres disagreed, and it is the one this pair of migrations
+-- moves.
+--
+-- The choice is not free of consequence and is not being sold as free: an
+-- existing Postgres deployment with undated mail will see those messages move
+-- from the top of the folder to the bottom the first time it runs 26.20. That
+-- is the intended outcome — they were at the top because of a default nobody
+-- chose, and a user searching for one of them already found it at the bottom.
+SELECT 1;
