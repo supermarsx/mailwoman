@@ -632,6 +632,30 @@ impl Engine {
     /// log — reversible, never an in-place overwrite of a card the caller did
     /// not name. `destroyed` is the JMAP-conventional name and is reported by
     /// both shapes; `tombstoned` is the original name, kept alongside it.
+    ///
+    /// # Known limit: on a CardDAV-backed book, a merge is local only
+    ///
+    /// **Neither shape changes anything on the server.** Both pass
+    /// `push_rt = None` to [`Engine::persist_contact`], whose CardDAV `PUT` is
+    /// gated on that argument, and both tombstone by calling
+    /// `store().delete_contact` directly rather than going through
+    /// [`Engine::contact_destroy`], which is where the CardDAV `DELETE` lives.
+    /// So the survivor's new content is never pushed and the merged-away cards
+    /// are never removed upstream — a second client, or this one after a full
+    /// resync, still sees the duplicates.
+    ///
+    /// This is **pre-existing** and was not introduced when the `{keepId,
+    /// mergeIds}` shape was added; it is recorded here rather than fixed
+    /// because repairing it is a sync-semantics change, not a contract repair.
+    /// Tracked for 26.21.
+    ///
+    /// A previous version of this comment said *"an explicit re-sync
+    /// propagates"*. That is wrong in **direction**: `sync_pim` calls
+    /// `pull_address_book`, which pulls from the server, so a re-sync cannot
+    /// carry a local merge outward. **Not verified**: what a *full* resync does
+    /// when the sync token is absent or expired — the pull is token-delta based,
+    /// so an incremental sync sees nothing, but whether a tokenless resync
+    /// re-creates the merged-away cards locally was not checked.
     pub(crate) async fn contact_merge(&self, account_id: &str, args: &Value) -> Value {
         match args.get("keepId").and_then(Value::as_str) {
             Some(keep) if !keep.is_empty() => self.contact_merge_into(account_id, keep, args).await,
@@ -667,8 +691,10 @@ impl Engine {
             Ok(None) => return server_fail(format!("unknown contact {keep_id}")),
             Err(e) => return server_fail(e),
         };
-        // The survivor keeps its id, its uid and its etag, so a CardDAV-backed
-        // book sees an update to the existing resource rather than a new one.
+        // The survivor keeps its id, its uid and its etag. That is what would
+        // make a future CardDAV push an update to the existing resource rather
+        // than a create — but no push happens on this path today; see the
+        // `contact_merge` note on DAV-backed books.
         let book_id = keep_row.address_book_id.clone();
         let uid = keep_row.uid.clone();
         let prior_etag = keep_row.etag.clone();
@@ -682,7 +708,7 @@ impl Engine {
             }
         }
         let merged = merge_cards(&sources.iter().map(contact_row_to_json).collect::<Vec<_>>());
-        // No push here (a Mailwoman-native merge); an explicit re-sync propagates.
+        // `push_rt = None`: no CardDAV push. See the `contact_merge` note.
         if let Err(e) = self
             .persist_contact(
                 account_id, &book_id, keep_id, &uid, merged, prior_etag, None,
@@ -753,7 +779,7 @@ impl Engine {
         let merged = merge_cards(&sources.iter().map(contact_row_to_json).collect::<Vec<_>>());
         let new_id = gen_id("contact");
         let uid = format!("{}@mailwoman.local", gen_token());
-        // No push here (a Mailwoman-native merge); an explicit re-sync propagates.
+        // `push_rt = None`: no CardDAV push. See the `contact_merge` note.
         if let Err(e) = self
             .persist_contact(account_id, &book_id, &new_id, &uid, merged, None, None)
             .await
