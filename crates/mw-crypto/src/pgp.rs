@@ -588,27 +588,47 @@ pub fn wkd_url(email: &str, advanced: bool) -> Result<String> {
     }
 }
 
+/// The `User-Agent` WKD lookups announce. Named for what it is rather than
+/// inheriting `mw-egress`'s image-proxy default, which would tell a key server it was
+/// talking to an image proxy.
+#[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
+const WKD_UA: &str = "Mailwoman-WKD";
+
+/// Map an egress refusal onto a crypto error, keeping `404` distinct.
+///
+/// A WKD `404` is the ordinary case — most addresses publish no key — and saying so
+/// plainly is the difference between "this person has no published key" and "the
+/// lookup broke". Before this routed through the gate the status was never checked at
+/// all and a 404 error page was fed to the key parser, surfacing as a parse failure.
+#[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
+fn wkd_refusal(r: mw_egress::Refusal) -> CryptoError {
+    match r.status() {
+        Some(404) => CryptoError::Input("no key published for that address".into()),
+        Some(code) => CryptoError::Io(format!("WKD lookup failed: HTTP {code}")),
+        None => CryptoError::Io(format!("WKD lookup failed: {r:?}")),
+    }
+}
+
 /// Fetch a WKD key (native only — HTTPS GET, no keyserver fallback).
 #[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
 pub async fn wkd_fetch(email: &str) -> Result<CryptoKey> {
     let url = wkd_url(email, true)?;
-    // `.no_proxy()`: `reqwest::get` uses a default client, which reads
-    // `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` from the environment — that would hand
-    // the WKD hash (and so the correspondent's address) to a third party and let it
-    // resolve the domain itself. See `mw_egress::harden_client`.
-    let resp = reqwest::Client::builder()
-        .no_proxy()
-        .build()
-        .map_err(|e| CryptoError::Io(e.to_string()))?
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| CryptoError::Io(e.to_string()))?;
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| CryptoError::Io(e.to_string()))?;
-    let cert = SignedPublicKey::from_bytes(std::io::Cursor::new(bytes.to_vec())).map_err(parse)?;
+    // Routed through `mw-egress` (t22-e9): the full SSRF gate, not just the ambient
+    // proxy refusal this used to carry. The URL's domain comes from a correspondent's
+    // address — which arrives in an incoming message — so it is attacker-influenceable,
+    // and refusing proxies did nothing about it resolving to an internal host. The
+    // strict `ip_allowed` policy applies: WKD is served from a public domain's
+    // `.well-known`, so there is no legitimate private target here (unlike autoconfig,
+    // which has an opt-in for exactly that reason).
+    let bytes = mw_egress::fetch_url_hardened_with(
+        &url,
+        "application/octet-stream",
+        WKD_UA,
+        mw_egress::ip_allowed,
+    )
+    .await
+    .map_err(wkd_refusal)?;
+    let cert = SignedPublicKey::from_bytes(std::io::Cursor::new(bytes)).map_err(parse)?;
     let armored = cert
         .to_armored_string(ArmorOptions::default())
         .map_err(parse)?;

@@ -1,8 +1,9 @@
 //! Public-key discovery helpers (C2). The **keys.openpgp.org Verifying Key Server
 //! (VKS)** HTTP API complements the WKD path in [`crate::pgp`]: WKD serves a key
 //! from the address' own domain, VKS is a central, identity-verifying pool. Pure
-//! URL derivation is testable offline; the HTTPS GET is native-only and rides the
-//! same rustls `reqwest` as [`crate::pgp::wkd_fetch`].
+//! URL derivation is testable offline; the HTTPS GET is native-only and routes
+//! through [`mw_egress`] — the same SSRF-gated path as [`crate::pgp::wkd_fetch`].
+//! This crate holds no HTTP client of its own.
 //!
 //! VKS (draft-shaw-openpgp-hkp-… successor) exposes three lookup routes returning
 //! an ASCII-armored transferable public key (`application/pgp-keys`), or `404` when
@@ -74,35 +75,47 @@ pub async fn vks_lookup_by_fingerprint(fingerprint: &str) -> Result<CryptoKey> {
     Ok(key)
 }
 
+/// The `User-Agent` VKS lookups announce. Named for what it is rather than inheriting
+/// `mw-egress`'s image-proxy default, which would tell keys.openpgp.org it was talking
+/// to an image proxy.
+#[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
+const VKS_UA: &str = "Mailwoman-VKS";
+
+/// Map an egress refusal onto a crypto error, keeping `404` distinct — see
+/// [`vks_get`] for why that distinction is the whole point.
+#[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
+fn vks_refusal(r: mw_egress::Refusal) -> CryptoError {
+    match r.status() {
+        Some(404) => CryptoError::Input("no key published for that lookup".into()),
+        Some(code) => CryptoError::Io(format!("VKS lookup failed: HTTP {code}")),
+        None => CryptoError::Io(format!("VKS lookup failed: {r:?}")),
+    }
+}
+
 /// HTTPS GET a VKS URL, returning the armored key body. `404` → a clear "not found".
 #[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
 async fn vks_get(url: &str) -> Result<String> {
-    // `.no_proxy()`: `reqwest::get` uses a default client, which reads the
-    // environment's proxy variables — that would disclose which key is being looked
-    // up and let a third party resolve the keyserver. See `mw_egress::harden_client`.
-    let resp = reqwest::Client::builder()
-        .no_proxy()
-        .build()
-        .map_err(|e| CryptoError::Io(e.to_string()))?
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| CryptoError::Io(e.to_string()))?;
-    if resp.status().as_u16() == 404 {
-        return Err(CryptoError::Input(
-            "no key published for that lookup".into(),
-        ));
-    }
-    if !resp.status().is_success() {
-        return Err(CryptoError::Io(format!(
-            "VKS lookup failed: HTTP {}",
-            resp.status()
-        )));
-    }
-    let body = resp
-        .text()
-        .await
-        .map_err(|e| CryptoError::Io(e.to_string()))?;
+    // Routed through `mw-egress` (t22-e9): the full SSRF gate rather than the ambient
+    // proxy refusal this used to carry. The strict `ip_allowed` policy applies — VKS
+    // is a public keyserver pool, so a private target is never legitimate here.
+    //
+    // **The `404` distinction is why this uses the `Refusal`-returning entry point.**
+    // `fetch_url_hardened` flattens every failure to prose, which would turn "no key
+    // published for that lookup" — the ordinary, expected answer — into "the keyserver
+    // failed". `mw_egress::Refusal::Status` carries the code precisely so this caller
+    // can keep the two apart; the image proxy's arm discards it, deliberately, because
+    // forwarding an upstream status there would make it a reachability oracle. The
+    // variant exists so the two callers choose differently.
+    let bytes = mw_egress::fetch_url_hardened_with(
+        url,
+        "application/pgp-keys",
+        VKS_UA,
+        mw_egress::ip_allowed,
+    )
+    .await
+    .map_err(vks_refusal)?;
+    let body = String::from_utf8(bytes)
+        .map_err(|_| CryptoError::Parse("VKS response is not text".into()))?;
     if !body.contains("BEGIN PGP PUBLIC KEY") {
         return Err(CryptoError::Parse(
             "VKS response is not an armored public key".into(),
