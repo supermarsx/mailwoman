@@ -1,6 +1,11 @@
 //! 26.20 `t22-e3s` — `Email/set` over a multi-id `update` must cost **one**
-//! search-index commit, one state increment and one change-log row, however
-//! many ids it touches.
+//! search-index commit and **one** state increment however many ids it touches,
+//! and its SQL cost must not depend on the id count at all.
+//!
+//! It still writes a change row **per id** — all sharing that one state — because
+//! one state bump is what makes the batch cheap while a row per id is what keeps
+//! `Email/changes` truthful. Collapsing to a single row satisfies the first and
+//! silently breaks the second.
 //!
 //! ## Why the instruments here are counts and not timings
 //!
@@ -27,16 +32,21 @@
 //!    (`batched_set_keeps_the_index_truthful`).
 //! 3. **Bounds instead of constants.** `commits(500) == commits(5) == 1` is
 //!    asserted as an equality at two different loads, so a per-id path cannot
-//!    hide inside a generous bound. The same reasoning is why the SQL assertion
-//!    names the four statements the batch removed and requires zero of each,
-//!    rather than dividing a total by the id count — an average moves whenever
-//!    any peer changes store internals, and it did.
+//!    hide inside a generous bound. The SQL assertion is the same shape —
+//!    `stmts(500) == stmts(5)` — plus the removed statements named individually
+//!    and required to be zero. It was a per-id *average* first, and that was
+//!    wrong: an average moves whenever any peer changes store internals, and it
+//!    did, twice.
 //!
 //! Recorded against `master` (`57046c7`) before the fix, with only the counter
 //! added: **500 commits for 500 ids** (one per id, at every id count tried —
 //! 5, 10, 25, 70, 500) and **4 514 SQL statements for 500 ids = 9.03/id**, with
-//! state advancing by 500. Six of the eight tests below failed on that run;
-//! the two that passed are the calibration control and the all-ids-fail edge.
+//! state advancing by 500 and `Email/changes` reporting all 500 across 500
+//! states. Six of the eight tests then present failed on that run; the two that
+//! passed are the calibration control and the all-ids-fail edge.
+//!
+//! Now: **1 commit · 11 statements at any id count · state +1 · all 500 ids
+//! reported at that one state.**
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -384,6 +394,19 @@ fn result<'a>(resp: &'a Value, call_id: &str) -> &'a Value {
         .unwrap_or(&Value::Null)
 }
 
+async fn mailbox_with_role(h: &Harness, role: &str) -> String {
+    let mb = jmap(h, json!([["Mailbox/get", {}, "mb"]])).await;
+    result(&mb, "mb")["list"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["role"] == role)
+        .unwrap_or_else(|| panic!("mailbox with role {role}"))["id"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
 async fn inbox(h: &Harness) -> String {
     let mb = jmap(h, json!([["Mailbox/get", {}, "mb"]])).await;
     result(&mb, "mb")["list"]
@@ -555,7 +578,7 @@ async fn multi_id_email_set_commits_the_index_exactly_once() {
 /// One transaction's worth of bookkeeping: one state increment and one change
 /// row for the whole batch, not one per id.
 #[tokio::test]
-async fn multi_id_email_set_bumps_state_once_and_writes_one_change_row() {
+async fn multi_id_email_set_bumps_state_once_and_reports_every_changed_id() {
     let h = setup(500).await;
     let inbox = inbox(&h).await;
     let ids = all_ids(&h, &inbox).await;
@@ -577,60 +600,67 @@ async fn multi_id_email_set_bumps_state_once_and_writes_one_change_row() {
         ids.len()
     );
 
-    // …and exactly one row landed in the change log for the batch.
+    // …and every id the batch touched is reported as changed, all sharing that
+    // one state.
+    //
+    // The two assertions together are the point. One state bump is what makes
+    // the batch cheap; a row per id is what keeps `Email/changes` truthful.
+    // Satisfying only the first — a single row naming a single id, which is what
+    // this batch wrote until `Store::record_changes` existed — leaves every other
+    // device and push subscriber showing stale flags for the remaining N-1 until
+    // something else happens to touch them.
     let after = jmap(&h, json!([["Email/changes", { "sinceState": since }, "c"]])).await;
-    let updated = result(&after, "c")["updated"].as_array().unwrap().len();
+    let mut updated: Vec<String> = result(&after, "c")["updated"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    let mut expected = ids.clone();
+    updated.sort();
+    expected.sort();
     assert_eq!(
-        updated, 1,
-        "one change-log row for the batch (see the lane log for the sync-fidelity \
-         consequence this criterion carries)"
+        updated, expected,
+        "Email/changes must report every id the batch touched, not just one"
     );
 }
 
 /// The store round trips the batch removed, asserted **by name and by exact
-/// count** rather than as a ratio.
+/// count** — and the property those add up to: **the statement count of a
+/// multi-id `Email/set` no longer depends on the id count at all.**
 ///
 /// A per-id average is a weak instrument: it is satisfied by a path that still
 /// does something once per id, just fewer somethings, and it moves whenever a
 /// peer adds or removes legitimate per-id store work anywhere under the call.
-/// That is not hypothetical — it happened to this very assertion (see below).
-/// So the load-bearing assertions here name the four statements this lane
-/// removed and require **zero** of each, plus the two that must be **constant**
-/// across the batch, plus the message row being read **once** per id instead of
-/// twice.
+/// That is not hypothetical — it happened to this very assertion, twice, before
+/// it was rewritten this way. So nothing here is a ratio.
 ///
-/// Master at `57046c7`, this harness: 4 514 statements for 500 ids = **9.03/id**,
-/// of which 500 each were the four re-index reads below and 1 000 were the
-/// message row read twice per id.
+/// Three measurements on this harness, 500 ids, same fixture:
 ///
-/// ## The per-id budget, and why it is 4 and not the plan's 3
-///
-/// The plan's `≤ 3` was an estimate made before the per-statement breakdown
-/// existed. Measured, four statements per id survive a fully batched set, and
-/// **none of the four is reachable from this lane's files**:
-///
-/// | statement | why it is per-id | owner |
+/// | | statements | per id |
 /// |---|---|---|
-/// | `SELECT stable_id, account_id, …` | `update_email` needs the row's current flags and coordinates | collapsible only by `t22-e1`'s batch getters |
-/// | `UPDATE messages SET flags_json` | the flag write itself | `Store::set_flags` (`t22-e1`) |
-/// | `SELECT mailbox_id, flags_json …` | `set_flags` re-reads to diff `$seen` | `Store::set_flags` (`t22-e1`) |
-/// | `UPDATE mailboxes SET unread …` | V8's maintained unread counter, per message by design | `Store::set_flags` (`t22-e1`) |
+/// | master `57046c7` | 4 514 | 9.03 |
+/// | batched index commit (`fef455a`) | 1 016 → 2 007 once `t22-e1` landed V8's counter | 2.03 → 4.01 |
+/// | adopting `t22-e1`'s `get_messages` + `set_flags_batch` | **11** | **0.022** |
 ///
-/// The last two arrived in `t22-e1`'s work *after* this lane measured 2.03/id,
-/// which is what took the figure to 4.01 and is why this assertion is written
-/// against statement identity rather than an average. Reaching 3 or below needs
-/// a batched `set_flags` and a batched row read — both `t22-e1`'s file. The
-/// ceiling below is stated as `4 × ids + a bounded constant`, so a **fifth**
-/// per-id statement still fails it.
+/// The middle row is why the plan's `≤ 3/id` target was briefly unreachable and
+/// why an average was the wrong thing to assert: two of those four statements
+/// were a *peer's* correct new work (`Store::set_flags` re-reading to diff
+/// `$seen`, and V8's per-message `unread` counter), landing inside a method this
+/// lane does not own. Adopting the batch forms removed the question rather than
+/// arguing about the number — the eleven statements are now a fixed cost, so
+/// there is no per-id budget left to breach.
 #[tokio::test]
-async fn multi_id_email_set_drops_the_per_id_store_round_trips() {
-    let h = setup(500).await;
+async fn multi_id_email_set_costs_the_same_statements_at_any_id_count() {
+    let h = setup(520).await;
     let inbox = inbox(&h).await;
     let ids = all_ids(&h, &inbox).await;
-    let n = ids.len();
 
+    // Five ids, then a hundred times as many, through the identical path.
     let _ = take_sql_text();
-    let (_, _, stmts) = measured_set(&h, &ids).await;
+    let (_, _, stmts_5) = measured_set(&h, &ids[..5]).await;
+    let _ = take_sql_text();
+    let (_, _, stmts_500) = measured_set(&h, &ids[20..520]).await;
     let histogram = take_sql_text();
 
     let count_of = |prefix: &str| -> usize {
@@ -641,9 +671,15 @@ async fn multi_id_email_set_drops_the_per_id_store_round_trips() {
             .sum()
     };
 
-    // The four reads the batched re-index and `imap_ref_from` removed. Each was
-    // 500 on master. These are the assertions that fail if the per-id pattern
-    // comes back, and they do not move when a peer changes store internals.
+    // THE assertion. Not a bound, not an average — an equality across a 100x
+    // load difference. A path that does anything once per id fails it.
+    assert_eq!(
+        stmts_500, stmts_5,
+        "the SQL cost of Email/set must not depend on the id count: {stmts_5}          statements for 5 ids vs {stmts_500} for 500. Breakdown of the 500-id          call: {histogram:#?}"
+    );
+
+    // The per-id statements this lane and `t22-e1`'s batch forms removed. Each
+    // was 500 on master or at `fef455a`; each must now be zero.
     for (sql, what) in [
         ("SELECT envelope_json FROM messages", "get_envelope"),
         ("SELECT sealed_bytes FROM bodies", "get_body"),
@@ -655,48 +691,36 @@ async fn multi_id_email_set_drops_the_per_id_store_round_trips() {
             "SELECT mailbox_id, uidvalidity, uid FROM messages",
             "message_location",
         ),
+        ("UPDATE messages SET flags_json = ?2", "per-id set_flags"),
     ] {
         assert_eq!(
             count_of(sql),
             0,
-            "{what} must not be issued at all for a batched set — it was 500 times \
-             on master. Breakdown: {histogram:#?}"
+            "{what} must not be issued at all for a batched set.              Breakdown: {histogram:#?}"
         );
     }
 
-    // The message row: once per id, not twice (master re-read it inside the
-    // per-id re-index).
-    assert_eq!(
-        count_of("SELECT stable_id, account_id"),
-        n,
-        "the message row is read exactly once per id (master read it twice). \
-         NOTE for whoever adopts `t22-e1`'s batched `Store::get_messages` here: \
-         this count becomes 1, not {n}, and that is an improvement — update this \
-         assertion deliberately rather than reading it as a regression. \
-         Breakdown: {histogram:#?}"
-    );
+    // …and the batch forms that replaced them, each exactly once.
+    for (sql, what) in [
+        ("SELECT stable_id, account_id", "the batched message read"),
+        (
+            "UPDATE messages SET flags_json = j.f",
+            "the batched flag write",
+        ),
+        ("INSERT INTO changes", "the change-log write"),
+        ("SELECT id, account_id, name, role", "the mailbox row read"),
+    ] {
+        assert_eq!(
+            count_of(sql),
+            1,
+            "{what} happens once for the batch, at any id count.              Breakdown: {histogram:#?}"
+        );
+    }
 
-    // Constant across the batch, at any id count.
-    assert_eq!(
-        count_of("INSERT INTO changes"),
-        1,
-        "one change-log write for the batch, not one per id. Breakdown: {histogram:#?}"
-    );
-    assert_eq!(
-        count_of("SELECT id, account_id, name, role"),
-        1,
-        "the mailbox row backing the upstream flag write is read once per batch, \
-         not once per id. Breakdown: {histogram:#?}"
-    );
-
-    // Four per-id statements plus a bounded constant (sessionState counters, the
-    // change insert, the mailbox read). Master needed 4 514 here.
-    let ceiling = 4 * n + 16;
+    // A hard constant, independent of n. Master needed 4 514 for this call.
     assert!(
-        stmts as usize <= ceiling,
-        "{stmts} SQL statements for {n} ids = {:.2}/id, over the {ceiling}-statement \
-         ceiling (4/id + 16). Master records 9.03/id. Breakdown: {histogram:#?}",
-        stmts as f64 / n as f64
+        stmts_500 <= 16,
+        "{stmts_500} statements for a 500-id set, over the fixed ceiling of 16.          Breakdown: {histogram:#?}"
     );
 }
 
@@ -827,4 +851,49 @@ async fn an_all_failing_batch_commits_nothing_and_does_not_advance_state() {
         state_of(&set, "oldState"),
         "a batch that changed nothing must not advance state"
     );
+}
+
+/// A patch that sets keywords **and** moves must still write its flags to the
+/// store *before* the move runs.
+///
+/// This is the one branch the batched flag write could have broken silently.
+/// `move_email` re-keys the index entry from what the store holds at that
+/// moment, so deferring such an id's flag write into the post-loop batch would
+/// relocate a document carrying the *old* keywords — and every count assertion
+/// in this file would still pass. `update_email` therefore writes moving ids
+/// through directly and only batches the rest; this test is what holds that
+/// rule in place.
+#[tokio::test]
+async fn a_patch_that_moves_and_sets_flags_keeps_both() {
+    let h = setup(6).await;
+    let inbox = inbox(&h).await;
+    let archive = mailbox_with_role(&h, "archive").await;
+    let ids = all_ids(&h, &inbox).await;
+    let mover = ids[0].clone();
+
+    // One id moves and is marked read in the same patch; the rest only get the
+    // keyword, so both paths run in a single Email/set.
+    let mut update = serde_json::Map::new();
+    update.insert(
+        mover.clone(),
+        json!({ "keywords": { "$seen": true }, "mailboxIds": { archive.clone(): true } }),
+    );
+    for id in &ids[1..] {
+        update.insert(id.clone(), json!({ "keywords": { "$seen": true } }));
+    }
+    let resp = jmap(&h, json!([["Email/set", { "update": update }, "s"]])).await;
+    assert_eq!(result(&resp, "s")["updated"].as_object().unwrap().len(), 6);
+
+    // The move landed…
+    let moved = search_ids(&h, &archive, "is:read").await;
+    assert_eq!(
+        moved,
+        vec![mover.clone()],
+        "the moved id must be in Archive AND carry its new keyword — if the flag \
+         write had been deferred past the move, the relocated index document \
+         would still say unread"
+    );
+    // …and the five batched ids kept theirs, in the mailbox they never left.
+    assert_eq!(search_ids(&h, &inbox, "is:read").await.len(), 5);
+    assert_eq!(search_ids(&h, &inbox, "is:unread").await.len(), 0);
 }

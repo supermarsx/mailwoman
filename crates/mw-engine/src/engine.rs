@@ -43,6 +43,14 @@ pub(crate) struct IndexPatch {
     pub(crate) flags: Option<Vec<crate::backend::Flag>>,
     /// The pinned state now stored, if the update wrote engine-local metadata.
     pub(crate) pinned: Option<bool>,
+    /// Whether the same patch also relocated the message.
+    ///
+    /// Such an id still needs its keywords patched into the index — `move_email`
+    /// re-keys only the mailbox via [`mw_search::Index::relocate`], which
+    /// reconstructs from the stored `doc_json` and therefore preserves whatever
+    /// keywords the document already had. But it must **not** contribute the
+    /// batch's change-log row, because `move_email` already recorded its own.
+    pub(crate) moved: bool,
 }
 
 impl IndexPatch {

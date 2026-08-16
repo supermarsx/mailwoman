@@ -582,7 +582,8 @@ impl Engine {
 
         // The multi-id `update` is a BATCH (26.20 t22-e3s): every id's store
         // write happens in the loop, then the whole set costs exactly **one**
-        // search-index commit, one change-log row and one state increment.
+        // search-index commit, one batched flag write and one state increment
+        // — with a change row per id, all sharing that one state.
         //
         // Before 26.20 each id paid its own Tantivy `commit()` + `reader
         // .reload()` inside `reindex_message`, which is where essentially the
@@ -598,9 +599,42 @@ impl Engine {
         // Mailbox rows resolved once per batch rather than once per id: 500 ids
         // in one folder used to mean 500 identical `get_mailbox` reads.
         let mut mailbox_names: HashMap<String, String> = HashMap::new();
+        // Flag writes are collected here and applied in ONE `set_flags_batch`
+        // after the loop (3 statements for 500 ids, against 1 500 through
+        // per-id `set_flags`).
+        let mut pending_flags: Vec<(String, String)> = Vec::new();
         if let Some(updates) = args.get("update").and_then(Value::as_object) {
+            // One read for every id in the request. An id the batch does not
+            // return falls back to `get_message` inside `update_email`, which
+            // preserves the exact per-id error (`NotFound` → `notUpdated`) and
+            // costs a statement only for ids that are missing anyway.
+            let update_ids: Vec<String> = updates.keys().cloned().collect();
+            let mut rows: HashMap<String, mw_store::Message> = HashMap::new();
+            match self.store().get_messages(&update_ids).await {
+                Ok(found) => {
+                    for (id, msg) in update_ids.iter().zip(found) {
+                        if let Some(msg) = msg {
+                            rows.insert(id.clone(), msg);
+                        }
+                    }
+                }
+                // Not fatal: every id simply takes the per-id read below, which
+                // is what this method did before 26.20.
+                Err(e) => tracing::warn!("batched read for Email/set failed, per-id fallback: {e}"),
+            }
+
             for (id, patch) in updates {
-                match self.update_email(rt, id, patch, &mut mailbox_names).await {
+                match self
+                    .update_email(
+                        rt,
+                        id,
+                        patch,
+                        rows.remove(id),
+                        &mut mailbox_names,
+                        &mut pending_flags,
+                    )
+                    .await
+                {
                     Ok(indexed) => {
                         updated.insert(id.clone(), Value::Null);
                         patches.extend(indexed);
@@ -612,23 +646,71 @@ impl Engine {
             }
         }
 
+        // The batched flag write, before anything is published to the index —
+        // OQ-11's ordering: the store commits first, so a rejected id cannot
+        // reach the index. `false` is the batch form of `NotFound`; those ids
+        // move from `updated` to `notUpdated` and lose their index patch, which
+        // is what keeps RFC 8620 §5.3's per-id semantics intact.
+        if !pending_flags.is_empty() {
+            let (failed, why): (Vec<&String>, Value) =
+                match self.store().set_flags_batch(&pending_flags).await {
+                    Ok(written) => (
+                        pending_flags
+                            .iter()
+                            .zip(written)
+                            .filter(|(_, ok)| !ok)
+                            .map(|((id, _), _)| id)
+                            .collect(),
+                        set_error(&EngineError::Store(mw_store::StoreError::NotFound)),
+                    ),
+                    // Nothing was written, so nothing may be indexed or reported
+                    // as updated.
+                    Err(e) => (
+                        pending_flags.iter().map(|(id, _)| id).collect(),
+                        set_error(&EngineError::Protocol(format!(
+                            "batched flag write failed: {e}"
+                        ))),
+                    ),
+                };
+            if !failed.is_empty() {
+                let failed: std::collections::HashSet<&str> =
+                    failed.into_iter().map(String::as_str).collect();
+                for id in &failed {
+                    updated.remove(*id);
+                    not_updated.insert((*id).to_string(), why.clone());
+                }
+                patches.retain(|p| !failed.contains(p.stable_id.as_str()));
+            }
+        }
+
         if !patches.is_empty() {
             self.reindex_messages(&patches).await;
-            // One change row and one state increment for the batch. NOTE: the
-            // row names the first id in the batch, so `Email/changes` reports
-            // one id where 500 changed — see the 26.20 t22-e3s lane log; the
-            // fix (N rows sharing one state, one INSERT) needs a store method
-            // this lane does not own.
+        }
+        // Only non-move ids contribute the batch's change rows; a moved id was
+        // already recorded by `move_email`.
+        let changed: Vec<String> = patches
+            .iter()
+            .filter(|p| !p.moved)
+            .map(|p| p.stable_id.clone())
+            .collect();
+        if !changed.is_empty() {
+            // **One state increment, but a row per id.** `Email/changes` returns
+            // rows with `state > since`, so N rows all sharing state `S+1` give
+            // the single state bump this batching is for *and* a truthful change
+            // list — a single row naming one id would leave every other device
+            // showing stale flags for the remaining N-1 until something else
+            // touched them.
             if let Err(e) = self
-                .record_change(
+                .store()
+                .record_changes(
                     account_id,
-                    ChangeType::Email,
-                    &patches[0].stable_id,
-                    ChangeOp::Updated,
+                    ChangeType::Email.as_str(),
+                    &changed,
+                    ChangeOp::Updated.as_str(),
                 )
                 .await
             {
-                tracing::warn!("recording the batched Email/set change failed: {e}");
+                tracing::warn!("recording the batched Email/set changes failed: {e}");
             }
         }
 
@@ -757,22 +839,40 @@ impl Engine {
     /// when there is nothing for the batch to do — either the patch changed
     /// nothing, or it was a move, which records its own change and re-index.
     ///
-    /// **This method no longer commits the index or records a change itself**
-    /// (26.20 t22-e3s): both are the batch's job in [`Engine::email_set`], which
-    /// is what makes a 500-id update cost one commit instead of 500.
-    /// `mailbox_names` memoizes mailbox-row reads across the batch.
+    /// **This method no longer commits the index, records a change, or writes
+    /// flags to the store itself** (26.20 t22-e3s): all three are the batch's
+    /// job in [`Engine::email_set`], which is what makes a 500-id update cost
+    /// one index commit and three flag statements instead of 500 and 1 500.
+    ///
+    /// `row` is the message this id's entry of the caller's batched
+    /// [`mw_store::Store::get_messages`] returned; `None` falls back to the
+    /// per-id read so a missing id still produces its own `NotFound`.
+    /// `mailbox_names` memoizes mailbox-row reads across the batch, and
+    /// `pending_flags` collects `(stable_id, flags_json)` for the single
+    /// [`mw_store::Store::set_flags_batch`] the caller runs afterwards.
+    ///
+    /// The **flag delta and the upstream `store_flags` call remain per-id** —
+    /// each id can want a different add/remove set, and the backend seam takes
+    /// one `MessageRef` slice per delta. Batching those is a backend-protocol
+    /// change, not part of this adoption; the win taken here is the store and
+    /// index round trips.
     async fn update_email(
         &self,
         rt: &AccountRuntime,
         id: &str,
         patch: &Value,
+        row: Option<mw_store::Message>,
         mailbox_names: &mut HashMap<String, String>,
+        pending_flags: &mut Vec<(String, String)>,
     ) -> Result<Option<IndexPatch>> {
-        let msg = self
-            .store()
-            .get_message(id)
-            .await
-            .map_err(EngineError::Store)?;
+        let msg = match row {
+            Some(msg) => msg,
+            None => self
+                .store()
+                .get_message(id)
+                .await
+                .map_err(EngineError::Store)?,
+        };
         let mut touched = false;
         let mut new_flags: Option<Vec<Flag>> = None;
         let mut new_pinned: Option<bool> = None;
@@ -801,7 +901,20 @@ impl Engine {
                 .cloned()
                 .collect();
             stored.extend(desired);
-            self.store().set_flags(id, &flags_to_json(&stored)).await?;
+            let flags_json = flags_to_json(&stored);
+            if moves_mailbox(patch, &msg.mailbox_id) {
+                // A patch that also moves must have its flags on disk *before*
+                // `move_email` runs, because `set_flags` adjusts the `unread`
+                // counter of whichever mailbox the message is in **at the time
+                // of the write** (t22-e1's V8 work). Deferring it into the
+                // post-loop batch would decrement the destination's counter
+                // instead of the source's, quietly corrupting both. Rare, and
+                // not the path this batching exists for — write it through and
+                // keep the ordering identical to pre-26.20.
+                self.store().set_flags(id, &flags_json).await?;
+            } else {
+                pending_flags.push((id.to_string(), flags_json));
+            }
             new_flags = Some(stored);
             touched = true;
         }
@@ -837,23 +950,22 @@ impl Engine {
         }
 
         let mut moved = false;
-        if let Some(mids) = patch.get("mailboxIds").and_then(Value::as_object)
-            && let Some(target) = mids
-                .iter()
-                .find(|(_, v)| v.as_bool() == Some(true))
-                .map(|(k, _)| k.clone())
-            && target != msg.mailbox_id
-        {
+        if let Some(target) = move_target(patch, &msg.mailbox_id) {
             self.move_email(rt, id, &target).await?;
             moved = true;
         }
 
-        // `move_email` already records its own change + re-index; only join the
-        // batch when a non-move field changed.
-        Ok((touched && !moved).then(|| IndexPatch {
+        // A moved id joins the re-index batch too. `move_email` re-keys the
+        // index entry with `Index::relocate`, which rebuilds from the stored
+        // `doc_json` and so keeps the keywords the document already had — a
+        // patch that archives AND marks read would otherwise leave the index
+        // asserting the message is still unread. It does not contribute the
+        // batch's change row, because `move_email` recorded its own.
+        Ok(touched.then(|| IndexPatch {
             stable_id: id.to_string(),
             flags: new_flags,
             pinned: new_pinned,
+            moved,
         }))
     }
 
@@ -1705,6 +1817,28 @@ pub(crate) fn recipients(email: &mw_jmap::Email) -> Vec<String> {
     }
     out.retain(|e| !e.is_empty());
     out
+}
+
+/// The mailbox an `Email/set` update patch moves a message to, if it moves at
+/// all: the first `mailboxIds` entry set to `true` that is not where the message
+/// already is.
+///
+/// Extracted so the two places that need the answer cannot drift apart — the
+/// move itself, and the flag write, which must go through to the store *before*
+/// a move rather than into the batch (26.20 t22-e3s).
+fn move_target(patch: &Value, current_mailbox_id: &str) -> Option<String> {
+    patch
+        .get("mailboxIds")
+        .and_then(Value::as_object)?
+        .iter()
+        .find(|(_, v)| v.as_bool() == Some(true))
+        .map(|(k, _)| k.clone())
+        .filter(|target| target != current_mailbox_id)
+}
+
+/// Whether this patch relocates the message — see [`move_target`].
+fn moves_mailbox(patch: &Value, current_mailbox_id: &str) -> bool {
+    move_target(patch, current_mailbox_id).is_some()
 }
 
 /// A JMAP method-level `SetError` object for a failed create/update.
