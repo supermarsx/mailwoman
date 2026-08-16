@@ -49,26 +49,30 @@
 //!
 //! The proxy REQUIRES a session ([`crate::authed`]) so it is never an open relay.
 //!
-//! # What the grants do and do not gate (known gap, t22-e7 P3)
-//! The four grant scopes below gate what the CLIENT rewrites. The fetch handler
-//! checks the session and the per-account rate limit, but **not** the grants, so an
-//! authenticated session can drive a fetch of any URL the SSRF gate permits — scoped
-//! to public targets and rate-limited, but not scoped to a message the reader
-//! actually consented to load images for.
+//! # The grants are enforced HERE, not only in the client (t22-e7 P3)
+//! The four grant scopes gate what the client rewrites AND what this server will
+//! fetch. Until 26.20 only the former was true: `proxy_image` required a session and
+//! then fetched any URL, so any authenticated session was an anonymizing fetch relay
+//! for arbitrary public URLs — rate-limited, but not scoped to a message the reader
+//! had actually consented to load images for.
 //!
-//! This is not an oversight that a check here would close. Every scope in
-//! [`mw_store::Store::remote_image_allowed`] is keyed on MESSAGE context — `single` on
-//! the message id, `per-sender` on the sender address, `per-domain` on the SENDER's
-//! domain — and the request carries only `?url=`. An image URL's host
-//! (`cdn.example`) has no relation to the sender's domain, so nothing in the request
-//! can be resolved into any of the four scopes. Enforcing them requires the message
-//! id on the wire (`apps/web/src/api/remote-images.ts::imageProxyUrl`, which already
-//! has it at rewrite time), after which the handler can read the sender from the
-//! sealed envelope and call `remote_image_allowed`. The store reads for that already
-//! exist (`get_message` for ownership, `get_envelope` for the sender); only the wire
-//! parameter is missing. Escalated by `t22-e7` rather than replaced with an
-//! "any active grant" check, which would admit any URL for any message and so would
-//! read as enforcement without being it.
+//! Enforcing it needed the wire to carry what the scopes are keyed on. Every scope in
+//! [`mw_store::Store::remote_image_allowed`] is MESSAGE context — `single` is the
+//! message id, `per-sender` and `per-domain` come from that message's SENDER — and an
+//! image URL's host (`cdn.example`) has no relation to a sender's domain, so nothing
+//! in a bare `?url=` request could be resolved into any of them. `t22-e4` added
+//! `&emailId=` (`apps/web/src/api/remote-images.ts::imageProxyUrl`, threaded from
+//! `Reader.tsx`); [`grant_covers`] resolves it here.
+//!
+//! Deny-by-default, and the order is load-bearing — see [`grant_covers`] for the
+//! decision and [`ungranted_response`] for what a refusal costs and reveals. The gate
+//! sits ahead of the cache, so an ungranted session cannot read images a granted one
+//! fetched.
+//!
+//! What it does NOT do: the scopes are per-account and per-message, not per-URL, so a
+//! session holding a covering grant may still proxy any *public* URL it names under
+//! that message's id. Narrowing the fetch to URLs that actually occur in the message
+//! body would need the body at fetch time and is not attempted here.
 //!
 //! # Ownership
 //! This module exposes [`image_proxy_router`]; `crate::lib` (t16-e10, chain link 3)
@@ -420,8 +424,81 @@ fn etag_for(bytes: &[u8]) -> String {
 // ── handlers ───────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ProxyQuery {
     url: String,
+    /// The message this image is being loaded FOR — what every grant scope is keyed
+    /// on. Optional on the wire (a request may simply omit it) but NOT optional for
+    /// the fetch: without it no scope can match, so [`grant_covers`] refuses.
+    #[serde(default)]
+    email_id: Option<String>,
+}
+
+/// Whether `account_id` holds a grant covering the message `email_id` — the
+/// server-side half of the remote-image grant model (t22-e7 P3).
+///
+/// Deny-by-default at every step: no id, an id that does not resolve, an id
+/// belonging to ANOTHER account, or no covering grant all return `false`. The
+/// account check matters because grants are per-account — an id borrowed from
+/// another account must not unlock that account's sender scopes.
+///
+/// All four scopes are resolved by [`mw_store::Store::remote_image_allowed`] in one
+/// query rather than reassembled here, so this cannot drift from the model the grant
+/// endpoints below write.
+///
+/// `Err(())` is a store failure, distinct from "not granted", so a database problem
+/// surfaces as a `500` instead of silently reading as a denied grant.
+async fn grant_covers(
+    store: &mw_store::Store,
+    account_id: &str,
+    email_id: Option<&str>,
+) -> Result<bool, ()> {
+    let Some(email_id) = email_id.filter(|s| !s.is_empty()) else {
+        return Ok(false);
+    };
+    let msg = match store.get_message(email_id).await {
+        Ok(m) => m,
+        Err(mw_store::StoreError::NotFound) => return Ok(false),
+        Err(_) => return Err(()),
+    };
+    if msg.account_id != account_id {
+        return Ok(false);
+    }
+    let (sender, domain) = sender_of(store, email_id).await;
+    store
+        .remote_image_allowed(account_id, email_id, &sender, &domain)
+        .await
+        .map_err(|_| ())
+}
+
+/// A message's sender address and its domain, both lower-cased.
+///
+/// Derived exactly as the client derives the values it GRANTS, or the two would
+/// never match: the first `from` address (`Reader.tsx`'s
+/// `props.email.from?.[0]?.email ?? ''`) and the part after its last `@`
+/// (`remote-images.ts::senderDomain`).
+///
+/// Empty when the message has no stored envelope or no `from`. Such a message can
+/// then only be covered by an `all` or `single` grant — which is the honest answer,
+/// since nothing is known about its sender.
+async fn sender_of(store: &mw_store::Store, email_id: &str) -> (String, String) {
+    let Ok(Some(bytes)) = store.get_envelope(email_id).await else {
+        return (String::new(), String::new());
+    };
+    let Ok(email) = serde_json::from_slice::<mw_jmap::Email>(&bytes) else {
+        return (String::new(), String::new());
+    };
+    let sender = email
+        .from
+        .as_ref()
+        .and_then(|v| v.first())
+        .map(|a| a.email.trim().to_lowercase())
+        .unwrap_or_default();
+    let domain = match sender.rfind('@') {
+        Some(at) => sender[at + 1..].to_string(),
+        None => String::new(),
+    };
+    (sender, domain)
 }
 
 /// `GET /api/image-proxy?url=…` — session-authed, SSRF-gated fetch → wasm-jail
@@ -437,6 +514,14 @@ async fn proxy_image(
         Ok(s) => s,
         Err(r) => return r,
     };
+
+    // P3: the grant gate comes BEFORE the cache, or a session with no grant could
+    // read images another session fetched.
+    match grant_covers(&state.store, &session.account_id, q.email_id.as_deref()).await {
+        Ok(true) => {}
+        Ok(false) => return ungranted_response(&session.account_id, &q.url).await,
+        Err(()) => return internal("remote-image grant check"),
+    }
 
     // Serve a cache hit before doing any work (and honor If-None-Match). A cache hit
     // performs no upstream fetch, so it does NOT consume the per-account rate budget.
@@ -501,6 +586,52 @@ async fn proxy_image(
         .expect("image cache lock")
         .put(key, etag.clone(), png.clone());
     image_response(png, etag)
+}
+
+/// The response for a request no grant covers.
+///
+/// It charges the rate limiter and then runs the egress policy, in that order, and
+/// only says "not granted" if the URL would otherwise have been fetchable.
+///
+/// Both steps are deliberate. Charging keeps the fan-out cap meaningful on exactly
+/// the requests most worth capping — a session with no grant retrying in a loop —
+/// and keeps the limiter's existing behaviour, where a refused request is charged and
+/// only a cache hit is free. Running the policy first keeps a refusal reported as
+/// what it is: a `file://` URL stays a `400` and a loopback target stays a `403`
+/// whether or not the caller holds a grant, so the grant gate never becomes a way to
+/// tell a granted session's refusals apart from an ungranted one's. Neither step
+/// fetches anything, and the policy runs exactly once on this path — a granted
+/// request runs it inside `fetch_remote` instead, never twice.
+///
+/// Known residual, stated rather than implied: an authenticated session with no grant
+/// can still cause a DNS resolution of an arbitrary host here, and can still learn
+/// from the status code whether that host resolves to a blocked address. That is not
+/// new — before the gate the same session could resolve AND fetch it — but the gate
+/// does not close it.
+async fn ungranted_response(account_id: &str, raw_url: &str) -> Response {
+    if !rate_limiter()
+        .lock()
+        .expect("image rate-limit lock")
+        .check(account_id)
+    {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            "image proxy rate limit exceeded",
+        )
+            .into_response();
+    }
+    let url = match reqwest::Url::parse(raw_url) {
+        Ok(u) => u,
+        Err(_) => return refusal_response(Refusal::BadRequest("malformed URL")),
+    };
+    if let Err(r) = mw_egress::validate_and_resolve(url).await {
+        return refusal_response(r);
+    }
+    (
+        StatusCode::FORBIDDEN,
+        "no remote-image grant covers this message",
+    )
+        .into_response()
 }
 
 /// Build a `200` image response with the content-hash `ETag` + private caching.
@@ -943,6 +1074,271 @@ mod tests {
         assert!(SHELL_CSP_TIGHTENED.contains("require-trusted-types-for 'script'"));
         assert!(SHELL_CSP_TIGHTENED.contains("style-src 'self';"));
         assert!(!SHELL_CSP_TIGHTENED.contains("style-src 'self' 'unsafe-inline'"));
+    }
+
+    // ── P3: server-side grant enforcement, BOTH directions ─────────────────────
+    //
+    // These drive `grant_covers` against a real store, which is where the decision
+    // is made; the handler's only job is to call it before the cache and the fetch.
+    // A refusal-only test would pass with the feature deleted, so every case below
+    // asserts the pair: the same request refused without a grant and admitted with
+    // one.
+
+    use mw_store::{
+        AccountKind, Credentials, MailboxUpsert, MessageUpsert, NewAccount, ServerKey, Store,
+    };
+
+    /// A real store with a real account + mailbox, so messages carry the account id
+    /// the FK and the grant check both read.
+    struct Fixture {
+        store: Store,
+        account: String,
+        mailbox: String,
+    }
+
+    async fn fixture() -> Fixture {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let (account, mailbox) = seed_account(&store, "reader@example.org", 1).await;
+        Fixture {
+            store,
+            account,
+            mailbox,
+        }
+    }
+
+    async fn seed_account(store: &Store, username: &str, uidvalidity: u32) -> (String, String) {
+        let account = store
+            .create_account(
+                &NewAccount {
+                    kind: AccountKind::Imap,
+                    host: "imap.example.org",
+                    port: 993,
+                    tls: "implicit",
+                    username,
+                    sync_policy_json: "{}",
+                },
+                &Credentials {
+                    username: username.to_string(),
+                    password: "pw".into(),
+                },
+            )
+            .await
+            .unwrap();
+        let mailbox = store
+            .upsert_mailbox(&MailboxUpsert {
+                account_id: &account,
+                name: "INBOX",
+                role: Some("inbox"),
+                uidvalidity,
+                uidnext: 1,
+                highestmodseq: 0,
+                total: 0,
+                unread: 0,
+                parent_id: None,
+            })
+            .await
+            .unwrap();
+        (account, mailbox)
+    }
+
+    /// Store a message and return the stable id the store assigned it.
+    async fn seed_message(
+        store: &Store,
+        account: &str,
+        mailbox: &str,
+        uid: u32,
+        from: Option<&str>,
+    ) -> String {
+        let envelope = from.map(|addr| {
+            serde_json::to_vec(&json!({ "from": [{ "email": addr }] })).expect("envelope")
+        });
+        store
+            .upsert_message(&MessageUpsert {
+                account_id: account,
+                mailbox_id: mailbox,
+                uid,
+                uidvalidity: 1,
+                message_id: None,
+                thread_id: None,
+                internaldate: None,
+                size: 10,
+                flags_json: "[]",
+                envelope: envelope.as_deref(),
+                blob_ref: None,
+            })
+            .await
+            .expect("seed message")
+    }
+
+    impl Fixture {
+        async fn message(&self, uid: u32, from: Option<&str>) -> String {
+            seed_message(&self.store, &self.account, &self.mailbox, uid, from).await
+        }
+    }
+
+    #[tokio::test]
+    async fn an_account_without_a_grant_is_refused_and_with_one_is_admitted() {
+        let f = fixture().await;
+        let m = f.message(1, Some("sales@shop.example")).await;
+
+        // Deny-by-default: the message exists and belongs to the caller, but nothing
+        // is granted.
+        assert!(
+            !grant_covers(&f.store, &f.account, Some(&m)).await.unwrap(),
+            "no grant must refuse"
+        );
+
+        // The SAME request, once a covering grant exists, is admitted. Without this
+        // direction the test would pass with the whole gate deleted.
+        f.store
+            .grant_remote_image(&f.account, "single", &m)
+            .await
+            .unwrap();
+        assert!(
+            grant_covers(&f.store, &f.account, Some(&m)).await.unwrap(),
+            "a covering grant must admit"
+        );
+
+        // ...and revoking puts it back to refused.
+        f.store
+            .revoke_remote_image(&f.account, "single", &m)
+            .await
+            .unwrap();
+        assert!(
+            !grant_covers(&f.store, &f.account, Some(&m)).await.unwrap(),
+            "a revoked grant must refuse again"
+        );
+    }
+
+    #[tokio::test]
+    async fn every_one_of_the_four_scopes_admits_and_only_when_it_matches() {
+        // Each scope: refused before, admitted after, and NOT admitted for a message
+        // the scope does not cover — so no scope can be read as account-wide except
+        // `all`, which is the one that means it.
+        for kind in ["single", "per-sender", "per-domain", "all"] {
+            let f = fixture().await;
+            let m = f.message(1, Some("sales@shop.example")).await;
+            // A second message from a DIFFERENT sender, same account.
+            let other = f.message(2, Some("noreply@other.example")).await;
+
+            let value = match kind {
+                "single" => m.clone(),
+                "per-sender" => "sales@shop.example".to_string(),
+                "per-domain" => "shop.example".to_string(),
+                _ => String::new(),
+            };
+
+            assert!(!grant_covers(&f.store, &f.account, Some(&m)).await.unwrap());
+            f.store
+                .grant_remote_image(&f.account, kind, &value)
+                .await
+                .unwrap();
+            assert!(
+                grant_covers(&f.store, &f.account, Some(&m)).await.unwrap(),
+                "a {kind} grant must cover the message it was granted for"
+            );
+            assert_eq!(
+                grant_covers(&f.store, &f.account, Some(&other))
+                    .await
+                    .unwrap(),
+                kind == "all",
+                "{kind} must not leak onto an unrelated message"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_grant_does_not_cross_accounts() {
+        let f = fixture().await;
+        let m = f.message(1, Some("sales@shop.example")).await;
+        let (other_account, _) = seed_account(&f.store, "someone@else.example", 2).await;
+
+        // The other account grants itself everything...
+        f.store
+            .grant_remote_image(&other_account, "all", "")
+            .await
+            .unwrap();
+
+        // ...which must not let it proxy for a message it does not own, even though
+        // its own grant is as broad as grants get.
+        assert!(
+            !grant_covers(&f.store, &other_account, Some(&m))
+                .await
+                .unwrap(),
+            "another account's message id must not be usable"
+        );
+        // ...and must not carry over to the message's real owner, who granted nothing.
+        assert!(
+            !grant_covers(&f.store, &f.account, Some(&m)).await.unwrap(),
+            "the owner holds no grant of its own"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_missing_or_unknown_message_id_is_refused_even_with_an_account_grant() {
+        let f = fixture().await;
+        let m = f.message(1, Some("sales@shop.example")).await;
+        // The broadest grant there is.
+        f.store
+            .grant_remote_image(&f.account, "all", "")
+            .await
+            .unwrap();
+
+        // No id, an empty id, and an id that resolves to nothing all name no message
+        // — refused. This is what stops the gate degrading into "the account holds
+        // some grant", which would admit any URL for any message.
+        assert!(!grant_covers(&f.store, &f.account, None).await.unwrap());
+        assert!(!grant_covers(&f.store, &f.account, Some("")).await.unwrap());
+        assert!(
+            !grant_covers(&f.store, &f.account, Some("no-such-id"))
+                .await
+                .unwrap()
+        );
+        // The real id under that same grant IS admitted — the control that proves
+        // the refusals above are about the id, not about the grant being missing.
+        assert!(grant_covers(&f.store, &f.account, Some(&m)).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn sender_scopes_are_derived_the_way_the_client_grants_them() {
+        // The client grants `sender.toLowerCase()` and `senderDomain(sender)`; the
+        // server must derive the same strings from the envelope or the two never
+        // match. Mixed case in the envelope, lower-case in the grant.
+        let f = fixture().await;
+        let m = f.message(1, Some("Sales@Shop.Example")).await;
+
+        let (sender, domain) = sender_of(&f.store, &m).await;
+        assert_eq!(sender, "sales@shop.example");
+        assert_eq!(domain, "shop.example");
+
+        f.store
+            .grant_remote_image(&f.account, "per-sender", "sales@shop.example")
+            .await
+            .unwrap();
+        assert!(grant_covers(&f.store, &f.account, Some(&m)).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_message_with_no_envelope_falls_back_to_all_and_single_only() {
+        let f = fixture().await;
+        let m = f.message(1, None).await;
+        assert_eq!(
+            sender_of(&f.store, &m).await,
+            (String::new(), String::new())
+        );
+
+        // Nothing is known about the sender, so a per-domain grant cannot cover it...
+        f.store
+            .grant_remote_image(&f.account, "per-domain", "shop.example")
+            .await
+            .unwrap();
+        assert!(!grant_covers(&f.store, &f.account, Some(&m)).await.unwrap());
+        // ...but a single-message grant still can.
+        f.store
+            .grant_remote_image(&f.account, "single", &m)
+            .await
+            .unwrap();
+        assert!(grant_covers(&f.store, &f.account, Some(&m)).await.unwrap());
     }
 
     #[test]
