@@ -130,6 +130,38 @@ unnoticed for three releases.
 
 ---
 
+## 4a. Running the gate
+
+Use the aliases; they exist so the flags cannot be forgotten.
+
+```
+cargo gate        # test --workspace -- --test-threads=1
+cargo gate-core   # the lean core gate CI's `rust` job runs
+cargo lint        # clippy --all-targets -- -D warnings
+cargo fmt --all --check
+```
+
+**`--test-threads=1` is not a preference.** The default-parallel workspace run
+shares one `_sqlx_migrations` table across test binaries and flakes. The alias is
+the gate of record; a bare `cargo test --workspace` is not.
+
+Two things the gate has taught, both from releases where it caught something the
+lane runs had not:
+
+* **The full-workspace test run is the true integration gate.** A build-only
+  integration check is not enough — one release shipped a latent date-dependent
+  bug that every lane's own `-p <crate>` run had passed, and only the full run
+  at release time exposed it.
+* **A worktree must never point `CARGO_TARGET_DIR` at the shared `target/`.**
+  Sharing it overwrites test binaries and produces a **silent false pass**, with
+  tests vanishing from the count rather than failing. Use a private target
+  directory outside the repo, or work in the main tree.
+
+Before gating, sweep `%TEMP%/mw-*`: PID reuse can re-open a previous run's
+database.
+
+---
+
 ## 5. Flake policy: no blanket `retry`
 
 There is deliberately **no `retry`** configured in the web suite, and adding one
