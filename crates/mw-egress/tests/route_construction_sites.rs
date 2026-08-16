@@ -118,6 +118,18 @@ fn test_region_starts(lines: &[&str]) -> Vec<usize> {
     out
 }
 
+/// Whether a signature's **return type** mentions `ProxyRoute`.
+///
+/// Position matters: `fn f(route: &ProxyRoute) -> ProxyHop` consumes one and
+/// builds none, so "the line mentions ProxyRoute" is the wrong question. The
+/// text after the last `->` is the return type on a signature line.
+fn returns_a_route(line: &str) -> bool {
+    line.rsplit("->")
+        .next()
+        .is_some_and(|ret| ret.contains("ProxyRoute"))
+        && line.contains("->")
+}
+
 fn classify(where_: &str, src: &str, is_test_file: bool, scan: &mut Scan) {
     let lines: Vec<&str> = src.lines().collect();
     let regions = test_region_starts(&lines);
@@ -146,10 +158,26 @@ fn classify(where_: &str, src: &str, is_test_file: bool, scan: &mut Scan) {
                 || l.contains("Deserialize"))
         {
             Some(Kind::Conversion)
-        } else if raw.contains("-> ProxyRoute")
-            || raw.contains("-> Option<ProxyRoute>")
-            || raw.contains("-> Result<ProxyRoute")
-        {
+        } else if l.contains("fn ") && returns_a_route(raw) {
+            // Any RETURN TYPE mentioning `ProxyRoute`, however nested — and the
+            // return type only.
+            //
+            // Two bugs live here, both found by running the both-ways control
+            // rather than by reading:
+            //
+            // 1. This was an enumeration of shapes (`-> ProxyRoute`,
+            //    `-> Option<ProxyRoute>`, `-> Result<ProxyRoute`) and it missed
+            //    the real one: `active_route` returns
+            //    `Result<Option<ProxyRoute>, ()>`, which matches none of them. The
+            //    scanner did not see it as a factory at all, so the visibility
+            //    rule below never ran on it — a `pub fn f() -> Result<Option<
+            //    ProxyRoute>, E>` would have walked straight through.
+            // 2. Broadening it to "the line mentions ProxyRoute" then caught
+            //    `tunnel_fetch_hop(target, route: &ProxyRoute, ..) -> ProxyHop`,
+            //    which **consumes** a route and builds none.
+            //
+            // Enumerating shapes is one bug and ignoring position is the other;
+            // the property is "the value coming *out* is a route".
             Some(Kind::Factory)
         } else if raw.contains("ProxyRoute {") {
             Some(Kind::Literal)
@@ -372,6 +400,21 @@ fn exactly_one_production_site_builds_a_proxy_route() {
         literals[0]
     );
 
+    // Both known production factories must be SEEN, by name. This is the floor
+    // for the visibility rule below, and it is not redundant with the total: the
+    // factory detector has already narrowed silently once — it enumerated return
+    // shapes and so never saw `active_route`'s `Result<Option<ProxyRoute>, ()>`,
+    // which meant the visibility rule ran on one factory instead of two while
+    // every assertion still passed.
+    let factories = scan.production_of(Kind::Factory);
+    for name in ["fn proxy_route", "fn active_route"] {
+        assert!(
+            factories.iter().any(|f| f.line.contains(name)),
+            "`{name}` is a production factory and must be seen as one, or the \
+             visibility rule below silently skips it: {factories:#?}"
+        );
+    }
+
     // No conversion may exist: a `Deserialize`/`From`/`FromStr` would let a
     // value from anywhere become a route without passing the factory.
     assert!(
@@ -380,14 +423,90 @@ fn exactly_one_production_site_builds_a_proxy_route() {
         scan.production_of(Kind::Conversion)
     );
 
-    // And construction must not be re-opened to arbitrary callers. `pub(crate)`
-    // is included deliberately: within `mw-server` that is every module.
+    // And a factory visible beyond its module must be **unsteerable by its
+    // signature**.
+    //
+    // "No public factory" is the wrong rule, and stating the right one matters
+    // because the wrong one fails on a legitimate change. What makes a factory
+    // safe to share is not its visibility but **what it accepts**:
+    //
+    //   * `fn active_route(store: &Store) -> Option<ProxyRoute>` takes a handle
+    //     to the database and nothing else. A caller cannot use it to name a
+    //     host, so sharing it shares the *configured* route — which is the whole
+    //     point of that function existing, and `import_routes.rs` needs exactly
+    //     that.
+    //   * `fn proxy_route(row: &EgressProxyRow) -> Option<ProxyRoute>` takes a
+    //     plain struct any module can build. Sharing THAT hands every caller the
+    //     ability to turn a value it invented into a route whose `host` is
+    //     exempt from the address policy.
+    //
+    // So: a factory may be `pub`/`pub(crate)` only if its parameters are a store
+    // handle. Anything else stays private to the module that knows where its
+    // input came from.
     for f in scan.production_of(Kind::Factory) {
+        if !f.line.starts_with("pub ") {
+            continue; // private: its module owns the provenance of its input.
+        }
         assert!(
-            !f.line.starts_with("pub "),
-            "a public factory re-opens construction to any caller — the point of \
-             one private constructor is that a route can only be assembled where \
-             its input is known to be operator config: {f:#?}"
+            store_fed(&f.line),
+            "a factory visible outside its module must take only a store handle, \
+             so no caller can choose what it builds. `ProxyRoute::host` is exempt \
+             from the SSRF address policy, so a row-fed constructor shared across \
+             the crate hands every module a way past it: {f:#?}"
+        );
+    }
+}
+
+/// The parameter list of a factory signature, or `""`.
+fn params_of(line: &str) -> String {
+    line.split_once('(')
+        .and_then(|(_, rest)| rest.rsplit_once(')'))
+        .map(|(p, _)| p.trim().to_string())
+        .unwrap_or_default()
+}
+
+/// Whether a factory's inputs are only a store handle — i.e. whether a caller
+/// can influence what it builds.
+fn store_fed(line: &str) -> bool {
+    let p = params_of(line);
+    p.contains("&Store") || p.contains("&mw_store::Store") || p.contains("&self")
+}
+
+/// The rule above, **both ways round**, so it is not merely satisfied by
+/// today's visibility.
+///
+/// This is the control for the assertion about to be exercised for real:
+/// `import_routes.rs` needs a route, so `active_route` becomes crate-visible.
+/// That is safe and must pass. Widening the *row-fed* constructor alongside it
+/// is the thing that must not, and nothing about their visibility distinguishes
+/// them — only their parameters do.
+#[test]
+fn a_shared_factory_may_take_a_store_but_not_a_row() {
+    const SAFE: &str = "pub(crate) async fn active_route(store: &mw_store::Store) -> Result<Option<ProxyRoute>, ()> {";
+    const UNSAFE: &str = "pub(crate) fn proxy_route(row: &EgressProxyRow) -> Option<ProxyRoute> {";
+
+    assert!(
+        store_fed(SAFE),
+        "sharing the store-fed accessor is what lets another module use the \
+         CONFIGURED route, and must be permitted; params read as {:?}",
+        params_of(SAFE)
+    );
+    assert!(
+        !store_fed(UNSAFE),
+        "sharing the row-fed constructor hands every module the ability to build \
+         a route from a value it invented, and must be refused; params read as {:?}",
+        params_of(UNSAFE)
+    );
+
+    // Both are classified as factories in the first place — otherwise the rule
+    // above never runs on them and this control proves nothing.
+    for src in [SAFE, UNSAFE] {
+        let mut scan = Scan::default();
+        classify("fixture.rs", src, false, &mut scan);
+        assert_eq!(
+            scan.production_of(Kind::Factory).len(),
+            1,
+            "must be seen as a factory at all: {src}"
         );
     }
 }
