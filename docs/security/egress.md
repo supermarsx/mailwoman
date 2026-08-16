@@ -94,6 +94,17 @@ through it, so the design is:
 > plaintext for an `https` origin. We cannot guarantee it dials the address we
 > asked for.**
 
+Read "never sees plaintext" as being about **content**, not about the identity of
+the destination. **A proxy learns the origin hostname either way**: it is in the
+`CONNECT` authority for an HTTP proxy, and the TLS **SNI is cleartext** in the
+ClientHello, so an `https` origin's name is visible to anything on the path. What
+the tunnel protects is the request and the response.
+
+The narrower claim — that the proxy is never *asked to resolve* a name — is the
+one that matters and is the one that holds: resolution and the address policy stay
+on our side, so the proxy cannot choose which address the name maps to. It can see
+where we are going; it cannot decide it.
+
 A malicious or compromised proxy can connect somewhere other than the address it
 was given. For an `https` origin this is bounded by certificate verification: the
 wrong destination cannot present the origin's certificate, so the fetch fails
