@@ -1,9 +1,10 @@
 # cargo-fuzz harnesses for Mailwoman's network- and attacker-facing parsers.
 #
 # These crates all consume bytes that originate off the wire or out of untrusted
-# email: MIME messages, HTML bodies, IMAP/POP3 server responses, and Sieve
-# scripts. Each parser is contracted to never panic on arbitrary input; the fuzz
-# targets exercise that contract. Run them with `cargo +nightly fuzz run <target>`
+# email: MIME messages, HTML bodies, IMAP/POP3 server responses, Sieve scripts,
+# and the search-operator queries users type. Each parser is contracted to never
+# panic on arbitrary input; the fuzz targets exercise that contract. Run them
+# with `cargo +nightly fuzz run <target>`
 # (see fuzz/README.md); CI runs a bounded smoke pass on every push.
 #
 # This package carries its own empty `[workspace]` table so `cargo` invoked at
@@ -25,6 +26,7 @@ mw-sanitize = { path = "../crates/mw-sanitize" }
 mw-imap = { path = "../crates/mw-imap" }
 mw-pop3 = { path = "../crates/mw-pop3" }
 mw-sieve = { path = "../crates/mw-sieve" }
+mw-search = { path = "../crates/mw-search" }
 
 # Prevent `cargo` at the repo root from pulling this instrumented crate into the
 # main workspace build.
@@ -64,6 +66,13 @@ bench = false
 [[bin]]
 name = "sieve_parse"
 path = "fuzz_targets/sieve_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "search_query"
+path = "fuzz_targets/search_query.rs"
 test = false
 doc = false
 bench = false
