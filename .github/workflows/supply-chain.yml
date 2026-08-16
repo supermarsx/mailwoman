@@ -208,7 +208,7 @@ jobs:
         working-directory: fuzz
         run: |
           set -euo pipefail
-          for t in mime_parse sanitize_html imap_parse_response pop3_parse sieve_parse; do
+          for t in mime_parse sanitize_html imap_parse_response pop3_parse sieve_parse search_query; do
             echo "::group::fuzz $t"
             cargo +nightly fuzz build "$t"
             cargo +nightly fuzz run "$t" -- -max_total_time=45 -runs=200000

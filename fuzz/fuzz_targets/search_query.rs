@@ -11,15 +11,19 @@ use libfuzzer_sys::fuzz_target;
 // (`atom := '(' or ')'`), so nesting depth is part of what is being fuzzed and
 // the input is deliberately **not** truncated here.
 //
-// That is a deliberate choice with a known consequence. Measured before this
-// target was written (26.20, `t22-e13`), `parse_expr` has no depth guard and
-// costs ~975 bytes of stack per nesting level: it overflows at 1 077 nested
-// `(` on a 1 MiB stack, 2 187 on 2 MiB, 8 852 on 8 MiB. A stack overflow is not
-// a catchable panic — it takes the process down. libFuzzer's default
-// `-max_len` is 4096, so this target can reach that depth and CI will go red
-// until the parser bounds its recursion. Capping the input length here to keep
-// the pass green would be writing a fuzz target that cannot see the class of
-// bug it exists to find.
+// Writing this target is what surfaced the reason that matters. Measured in
+// 26.20 (`t22-e13`), `parse_expr` had no depth guard and cost ~975 bytes of
+// stack per nesting level — it died at 1 077 nested `(` on a 1 MiB stack, 2 187
+// on 2 MiB (a tokio worker's default, i.e. what serves a JMAP request) and
+// 8 852 on 8 MiB. A stack overflow is not a catchable panic; it takes the
+// process down. libFuzzer's default `-max_len` is 4096, so this target reaches
+// that depth. `mw_search::query::MAX_DEPTH` is what makes it safe to run, and
+// the ordering was deliberate: the guard landed first, so this target goes
+// green because the bug is fixed rather than red on a bug already known.
+//
+// Capping the input length here to keep the pass green would have been a fuzz
+// target written so it cannot see the class of bug it exists to find, so the
+// length stays uncapped — a future red here is a genuinely new finding.
 //
 // Non-UTF-8 bytes are lossily converted rather than skipped: `parse_query` takes
 // `&str`, so gating on `from_utf8` (as `sieve_parse` does) would throw away most

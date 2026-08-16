@@ -11,6 +11,7 @@ the parser must never panic on arbitrary input.
 | `imap_parse_response` | `mw-imap` | IMAP server responses off the wire |
 | `pop3_parse` | `mw-pop3` | POP3 CAPA/UIDL/LIST bodies off the wire |
 | `sieve_parse` | `mw-sieve` | user-supplied Sieve scripts |
+| `search_query` | `mw-search` | search-operator text typed by users (`Email/query`'s `filter.text`) |
 
 ## Running
 
