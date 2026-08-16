@@ -16,6 +16,11 @@
 //!     password**, in any form, to any caller.
 //!   * `POST /admin/egress/proxies` — create or replace a route.
 //!   * `POST /admin/egress/proxies/{id}/delete` — remove a route.
+//!   * `POST /admin/egress/proxies/{id}/activate` — make this the one live route.
+//!   * `POST /admin/egress/proxies/deactivate` — return egress to direct.
+//!
+//! Configuring a route does **not** make it live: activation is a separate,
+//! deliberate act (0027), so adding a route can never silently reroute traffic.
 //!
 //! # The password must not leak, and the leak has four exits
 //! Sealing the column closes one of them. The others are `tracing` events, panic
@@ -146,11 +151,20 @@ impl From<&EgressProxyRow> for ProxyView {
 /// `scheme://host:port` — the only form of a route that may be logged or audited.
 /// Carries no credential.
 ///
-/// **This is the seam.** When `t22-e11`'s `mw_egress::proxy::ProxyRoute` lands, the
-/// mapping from a stored [`EgressProxyRow`] to that type belongs here and nowhere
-/// else, so adopting it is one function rather than a hunt for field renames across
-/// the lane. `ProxyRoute::endpoint()` produces exactly this string, which is the
-/// point at which the two representations should be reconciled.
+/// **The `EgressProxyRow` → `mw_egress::proxy::ProxyRoute` mapping does NOT live
+/// here — it lives in `image_proxy.rs` (t22-e14).** This comment previously claimed
+/// the mapping belonged in this module "and nowhere else". That was right when it
+/// was written and wrong by the time it mattered: `image_proxy.rs` has since become
+/// the crate's egress facade, re-exporting `ip_allowed`/`embedded_ipv4s`/
+/// `fetch_url_hardened` for in-tree callers, and **both** consumers of a route reach
+/// it there — the image proxy itself and the `webcal://`/ICS importer at
+/// `import_routes.rs:485`. This module is a pure configuration surface: it never
+/// fetches anything, so a fetch-time mapping placed here would have to be imported
+/// backwards by the code that actually egresses.
+///
+/// What remains here is only the audit/display form below. `ProxyRoute::endpoint()`
+/// produces the identical string, and that duplication is deliberate — this module
+/// must be able to render a route for an audit row without linking the transport.
 fn endpoint(r: &EgressProxyRow) -> String {
     format!("{}://{}:{}", r.scheme, r.host, r.port)
 }
