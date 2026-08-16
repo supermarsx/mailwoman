@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@solidjs/testing-library';
 import { Compose } from './Compose.tsx';
 import { renderWithApp, makeClient } from './appHarness.tsx';
@@ -73,6 +73,33 @@ const IDENTITIES: Identity[] = [
 
 describe('Compose', () => {
   beforeEach(() => localStorage.clear());
+
+  /**
+   * Pay for the rich editor's chunk HERE, not inside a `findBy` (t22-e10 flake).
+   *
+   * `Compose` reaches its editor through `lazy(() => import(…))`, so the first
+   * `await screen.findByTestId('compose-richtext')` in this file was waiting on a
+   * real dynamic import of the ~286 kB ProseMirror module. `findBy*` carries its
+   * OWN 1 000 ms ceiling, independent of the 5 000 ms test timeout — so this was
+   * never a test-timeout problem, and raising `testTimeout` would not have moved
+   * it. In a full-suite run that import competes with ~128 other files for the
+   * transform pipeline (and with whatever else is on the host), which is why the
+   * spec was green in isolation and red under load.
+   *
+   * Establishing that it is the IMPORT and not the editor: with this hook in
+   * place the whole file passes with the `findBy` budget starved to **1 ms**.
+   * Without it, at 1 ms, exactly one test fails — the first one to await the
+   * editor — with `Unable to find an element by: [data-testid="compose-richtext"]`,
+   * which is the failure seen in the wild. The second await was always warm.
+   *
+   * So the fix is not a bigger budget. It moves the cold, contended cost out of
+   * an assertion budget and into a hook with a generous one, and every `findBy`
+   * in this file keeps its 1 s fast-fail — a genuinely missing element still
+   * fails in a second.
+   */
+  beforeAll(async () => {
+    await import('./compose/RichTextEditor.tsx');
+  }, 60_000);
 
   it('keeps the core To/Subject/Body labels + Send button (e2e contract)', () => {
     renderWithApp(() => <Compose onClose={() => undefined} />);

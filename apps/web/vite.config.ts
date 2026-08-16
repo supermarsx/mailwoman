@@ -39,6 +39,46 @@ export default defineConfig({
     sourcemap: false,
   },
   test: {
+    // ── FLAKE POLICY (t22-e10) — there is deliberately NO `retry` here ────────
+    //
+    // Two specs flaked during 26.20, both only under host load, both green in
+    // isolation and on re-run. `retry: 1` would have silenced both in one line.
+    // It is not set, and should not be: a retry turns every nondeterminism into
+    // a silent pass, which is the same defect as a test that passes for the
+    // wrong reason — only installed as policy, applied to the whole suite, and
+    // hiding the next one too. A flake nobody can see is a flake nobody fixes.
+    //
+    // The rule instead: **diagnose the mechanism, then match the fix to it.**
+    // The two are worked examples, and they had DIFFERENT mechanisms despite
+    // looking identical from the outside (green in isolation, red under load):
+    //
+    //   * `MessageList.lifecycle` — the TEST TIMEOUT. It mounts and scrolls 2000
+    //     rows through jsdom: 2 382 ms of real work against the 5 000 ms default,
+    //     a 2.1× margin. Fixed with a per-test timeout, row count untouched,
+    //     because the 2000 rows are what make the bound it asserts meaningful.
+    //
+    //   * `Compose` — the FIND TIMEOUT, a different ceiling entirely, and it did
+    //     not want a bigger budget at all. `findBy*` gives up after 1 000 ms
+    //     regardless of `testTimeout`, and the first await in that file was
+    //     waiting on a real dynamic import of the ~286 kB ProseMirror chunk,
+    //     which in a full run competes with ~128 other files for the transform
+    //     pipeline. Fixed by importing it in `beforeAll` — the cold cost moves
+    //     out of an assertion budget into a hook with a generous one, and all
+    //     three awaits KEEP the 1 s fast-fail. Proof: with the hook the file
+    //     passes with the find budget starved to 1 ms; without it, at 1 ms,
+    //     exactly the first await fails, with the failure text seen in the wild.
+    //
+    // The second one is the cautionary half. The first diagnosis of `Compose`
+    // was "budget too tight, 3.1× margin" — measured in a single-file cold run,
+    // which is not how it fails. Widening the budget on that basis would have
+    // gone green and left the contended import inside a 1 s ceiling, ready to
+    // flake again on a busier day. The 1 ms control is what disproved it.
+    //
+    // So: measure the real cost against the budget that actually applies, in the
+    // configuration where it actually fails, and prefer removing the cost from
+    // the budget over widening the budget. Do not widen globally, do not reach
+    // for `retry`, and do not shrink the work being measured — that last one
+    // silently weakens whatever the test was asserting.
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test/setup.ts'],
