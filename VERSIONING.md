@@ -160,6 +160,12 @@ already-tagged release (`26.1.1`); normal forward progress increments `N`
 
   **Contract fixes.** `ContactCard/merge` now accepts the request the client actually
   sends — every invocation had been failing — and keeps the card the caller names.
+  **A stated limit, unchanged by this tag and not introduced by it:** a merge is
+  **local**. It is not pushed to CardDAV, and the merged-away cards' resources are
+  not deleted from the server, so until the account is re-synced a DAV address book
+  holds the survivor's *pre-merge* vCard plus an orphaned resource per merged-away
+  card — visible to any other client reading that book. Logged as a fix for a later
+  release; see `docs/deploy/caldav-carddav.md`.
 
   **Known documentation hazard:** `mw-mock-jmap` emits `total` on every
   `Email/query`, while the engine emits it only when `calculateTotal` was requested.

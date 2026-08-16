@@ -27,8 +27,8 @@ the proxy dialled the address it was given.
 >   built against an agreed contract; the server half does not exist yet, so the
 >   button cannot succeed.
 >
-> **Whoever tags the release must re-check both and either delete this banner or
-> cut the corresponding sections.** Shipping this page as-is would describe a
+> **Whoever tags the release must re-check all three and either delete this banner
+> or cut the corresponding sections.** Shipping this page as-is would describe a
 > capability an operator cannot actually obtain — which is the exact class of
 > claim this project has had to correct before.
 
@@ -80,8 +80,13 @@ authentication, and you would not find out until the next fetch failed.
 
 ## Testing a route
 
-Each route has a **Test** button that performs a live attempt and reports what
-happened. It reports an **outcome** and the **stage** it reached:
+**Not available yet.** The admin UI renders a **Test** control, but the endpoint
+behind it does not exist — see the status note at the top. The button cannot
+succeed today. This section describes what it will report once the server half
+lands; it is here so the contract is reviewable, not because you can use it.
+
+Once available, each route has a **Test** button that performs a live attempt and
+reports what happened. It reports an **outcome** and the **stage** it reached:
 
 | outcome | meaning |
 |---|---|
@@ -114,9 +119,9 @@ silently stops applying exactly when the proxy is down.
 
 The operational consequence is that **a briefly unavailable proxy looks like a
 bug** — remote images stop loading, webcal refreshes fail. If you are diagnosing
-that, the route's Test button is the fastest way to distinguish "the proxy is
-down" from "Mailwoman refused the target", and the audit row records which
-actually happened rather than what was configured.
+that, the audit row records which actually happened rather than what was
+configured. (The route Test button will be the fastest way to tell "the proxy is
+down" from "Mailwoman refused the target" — once its endpoint exists; see above.)
 
 ---
 

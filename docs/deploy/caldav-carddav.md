@@ -103,6 +103,30 @@ security-header layers as every other route. A **read-only overlay calendar**
 (`isReadOnlyOverlay`, backed by a foreign `caldavUrl`) is pull-only and never
 written back.
 
+## Merging contacts is local until you re-sync
+
+**A contact merge does not reach the CardDAV server by itself.** Merging two
+cards is a Mailwoman-native operation: the survivor is rewritten locally and the
+merged-away cards are removed locally, and neither change is pushed. Ordinary
+contact edits *are* pushed; merges are the exception.
+
+Until something re-syncs the address book, a CardDAV server therefore holds:
+
+* the **survivor's pre-merge** vCard — the merged content is not there yet; and
+* an **orphaned resource** for each merged-away card, which no longer exists in
+  Mailwoman.
+
+The visible consequence is that another client reading the same address book —
+a phone, a second desktop — still sees the duplicates you just merged, and sees
+the surviving card without whatever the merge folded into it. Re-syncing the
+account reconciles it.
+
+This is a stated limitation rather than a bug report: it is long-standing
+behaviour, the engine comments it at the merge (*"a Mailwoman-native merge; an
+explicit re-sync propagates"*), and it is logged as a fix for a later release.
+It is written down here because "merge" reads like an operation that would
+propagate, and nothing in the UI says otherwise.
+
 ## Holiday feeds
 
 Bundled, subscribable holiday packs are compiled into the binary and served as
