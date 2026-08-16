@@ -434,10 +434,16 @@ fn parse_autodiscover(body: &str) -> Option<AccountCandidate> {
 
 // ---- default live fetcher -------------------------------------------------
 
-/// Live [`Fetcher`] over `reqwest` (rustls) for the HTTP rungs, with SRV
-/// resolved live by a [`resolver::SrvResolver`] (the [`HickoryResolver`] by
-/// default). If the system resolver cannot be built, SRV degrades to a no-op
-/// and the ladder relies on the HTTP rungs.
+/// Live [`Fetcher`]: the HTTP rungs go through [`mw_egress`]'s SSRF-gated fetch, and
+/// SRV is resolved live by a [`resolver::SrvResolver`] (the [`HickoryResolver`] by
+/// default). If the system resolver cannot be built, SRV degrades to a no-op and the
+/// ladder relies on the HTTP rungs.
+///
+/// **The name is now a misnomer.** This held a `reqwest::Client` until t22-e9 routed
+/// the rungs through `mw-egress`; there is no client here any more, and `reqwest` is
+/// not a dependency of this crate. Renaming it is a breaking change to a public type
+/// that `mw-server` constructs, so it is left alone deliberately rather than
+/// overlooked — a rename belongs in a tag that can absorb the churn.
 pub struct ReqwestFetcher {
     resolver: Box<dyn resolver::SrvResolver>,
 }
