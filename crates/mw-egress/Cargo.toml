@@ -20,9 +20,51 @@ path = "src/lib.rs"
 reqwest = { workspace = true }
 tokio = { workspace = true }
 
+# ── t22-e11: the upstream-proxy transport (`src/proxy/`) ──────────────────────
+# NET-ZERO NEW CRATES IN THE RESOLVED GRAPH. Every entry below already appears in
+# `Cargo.lock` at the version pinned here; none is new to the build. Three of them
+# (`hyper`, `hyper-util`, `http-body-util`) were previously TRANSITIVE only, pulled
+# in by `reqwest`/`axum`, and are promoted to direct entries here — plan §7 asserts
+# they were already `[workspace.dependencies]`, which is not the case, so the
+# accurate claim is "no new crate enters the graph", not "no manifest changed".
+# They are declared locally rather than in the workspace table because this crate
+# is their only direct consumer.
+#
+# Why each is needed, given the design must not delegate the security property:
+#   * tokio-rustls/rustls/rustls-pki-types/webpki-roots — origin TLS is terminated
+#     BY US inside the tunnel, against the origin's own name and the same Mozilla
+#     roots a direct fetch uses, so a MITM proxy is a certificate failure rather
+#     than a silent substitution. Same setup as mw-imap/mw-sieve/mw-smtp.
+#   * hyper (client + http1) + hyper-util (TokioIo) + http-body-util + bytes — the
+#     HTTP/1.1 exchange over the tunnel is ours too: same headers, same
+#     `Accept-Encoding: identity`, same streaming size cap, redirects disabled so
+#     each `Location` re-enters the address gate.
+#
+# NOT taken: `tokio-socks` (or any SOCKS crate). Licence MIT and the transitive
+# weight is small, so weight is not the objection. The property this design rests
+# on is "the SOCKS5 encoder cannot emit ATYP=0x03 (DOMAINNAME)". Through a crate
+# that is an assertion about someone else's control flow, re-verified on every
+# upgrade, and their API accepts a hostname because ordinary callers want one.
+# Hand-rolled in `src/proxy/socks5.rs` it is a property of a function whose
+# parameter type (`SocketAddr`) cannot hold a name — about 200 lines for the RFC
+# 1928 greeting, the RFC 1929 username/password sub-negotiation and the CONNECT
+# request/reply.
+tokio-rustls = { workspace = true }
+rustls = { workspace = true }
+rustls-pki-types = { workspace = true }
+webpki-roots = { workspace = true }
+bytes = { workspace = true }
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+
 # `axum` backs the loopback test origin the fetch-mechanics tests spawn; it is the
 # same helper those tests used before the move, and it is dev-only so no consumer
-# of this crate pulls it.
+# of this crate pulls it. `rcgen` (already in `Cargo.lock` via `tokio-rustls-acme`,
+# same default `ring` feature set) issues the self-signed certificate the MITM
+# proxy presents, so the "a substituted peer is refused" assertion runs against the
+# real, non-configurable client config rather than a stub.
 [dev-dependencies]
 axum = { workspace = true }
 tokio = { workspace = true }
+rcgen = "0.14"

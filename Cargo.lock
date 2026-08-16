@@ -5292,8 +5292,17 @@ name = "mw-egress"
 version = "26.19.0"
 dependencies = [
  "axum",
+ "bytes",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "rcgen",
  "reqwest 0.12.28",
+ "rustls",
+ "rustls-pki-types",
  "tokio",
+ "tokio-rustls",
+ "webpki-roots 1.0.8",
 ]
 
 [[package]]

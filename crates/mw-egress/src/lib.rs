@@ -47,6 +47,12 @@
 //! bypasses [`validate_and_resolve`], so any caller that does so owns the
 //! [`ip_allowed`] check.**
 
+/// Operator-configured upstream egress proxies (t22-e11). The transport that
+/// tunnels the fetch above through an HTTP `CONNECT` or SOCKS5 proxy **without ever
+/// handing the proxy a hostname to resolve** — see the module docs for the threat
+/// model, the residual it cannot close, and the deliberate origin/proxy asymmetry.
+pub mod proxy;
+
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::time::Duration;
 
