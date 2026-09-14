@@ -271,13 +271,9 @@ fn padded_blocks(msg: &[u8]) -> Vec<[u8; 64]> {
         data.push(0);
     }
     data.extend_from_slice(&bit_len.to_le_bytes());
-    data.chunks_exact(64)
-        .map(|c| {
-            let mut b = [0u8; 64];
-            b.copy_from_slice(c);
-            b
-        })
-        .collect()
+    // The padding above makes `data.len()` an exact multiple of 64, so the
+    // trailing partial chunk `as_chunks` reports is always empty.
+    data.as_chunks::<64>().0.to_vec()
 }
 
 fn words_le(block: &[u8; 64]) -> [u32; 16] {

@@ -532,8 +532,7 @@ mod tests {
 
     use std::future::Future;
     use std::pin::Pin;
-    use std::sync::Arc;
-    use std::task::{Context, Poll, Wake};
+    use std::task::{Context, Poll};
 
     use openidconnect::http::Response;
     use openidconnect::{HttpRequest as OidcHttpRequest, HttpResponse};
@@ -598,17 +597,13 @@ mod tests {
         }
     }
 
-    /// A no-op waker so we can drive the fixture futures (which never truly pend —
-    /// every mock response is immediately ready) without a real async runtime.
-    struct NoopWake;
-    impl Wake for NoopWake {
-        fn wake(self: Arc<Self>) {}
-    }
-
     fn block_on<F: Future>(fut: F) -> F::Output {
         let mut fut = std::pin::pin!(fut);
-        let waker = Arc::new(NoopWake).into();
-        let mut cx = Context::from_waker(&waker);
+        // A no-op waker so we can drive the fixture futures (which never truly
+        // pend — every mock response is immediately ready) without a real async
+        // runtime. Nothing observes the wake: the loop below re-polls regardless.
+        let waker = std::task::Waker::noop();
+        let mut cx = Context::from_waker(waker);
         loop {
             if let Poll::Ready(v) = fut.as_mut().poll(&mut cx) {
                 return v;

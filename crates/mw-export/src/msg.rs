@@ -698,7 +698,7 @@ fn read_nameid_map(
     };
     let strings = read_binary(comp, &string_path).unwrap_or_default();
 
-    for entry in entries.chunks_exact(8) {
+    for entry in entries.as_chunks::<8>().0 {
         let str_offset = u32::from_le_bytes([entry[0], entry[1], entry[2], entry[3]]) as usize;
         let kind_and_guid = u16::from_le_bytes([entry[4], entry[5]]);
         let prop_index = u16::from_le_bytes([entry[6], entry[7]]);
@@ -722,8 +722,10 @@ fn read_string_record(strings: &[u8], offset: usize) -> Option<String> {
     let data_end = len_end.checked_add(len)?;
     let bytes = strings.get(len_end..data_end)?;
     let units: Vec<u16> = bytes
-        .chunks_exact(2)
-        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|c| u16::from_le_bytes(*c))
         .collect();
     Some(String::from_utf16_lossy(&units))
 }
@@ -792,8 +794,10 @@ fn read_stream_bytes(comp: &mut cfb::CompoundFile<Cursor<Vec<u8>>>, path: &str) 
 fn read_unicode(comp: &mut cfb::CompoundFile<Cursor<Vec<u8>>>, path: &str) -> Option<String> {
     let bytes = read_stream_bytes(comp, path)?;
     let mut units: Vec<u16> = bytes
-        .chunks_exact(2)
-        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|c| u16::from_le_bytes(*c))
         .collect();
     // Outlook stores UTF-16 strings NUL-terminated; drop any trailing NULs so a
     // real-world `.msg` reads the same as one we wrote (which omits them).

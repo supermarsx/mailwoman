@@ -3,6 +3,15 @@
 //! `/api/sanitize` endpoint that runs untrusted HTML through the disposable
 //! `mw-render` child process (the §7.5 boundary), and the embedded SPA.
 
+// `clippy::result_large_err` is a size heuristic, not a correctness lint. Under
+// rustc/clippy 1.98.1 it fires on 18 helpers that return
+// `Result<_, axum::response::Response>` (the early-return-a-response idiom; clippy
+// measures the `Err` at 128+ bytes). Boxing the error would change those
+// signatures across this crate while other work is editing it, for no behaviour
+// change, so the refactor is deferred rather than done inside a toolchain pin.
+// Only this one lint is allowed, and only for this crate.
+#![allow(clippy::result_large_err)]
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -161,7 +170,9 @@ const _: &str = image_proxy::SHELL_CSP_TIGHTENED;
 fn seal_key_bytes(key: &ServerKey) -> Vec<u8> {
     let hex = key.to_hex();
     hex.as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| {
             let hi = (pair[0] as char).to_digit(16).unwrap_or(0);
             let lo = (pair[1] as char).to_digit(16).unwrap_or(0);

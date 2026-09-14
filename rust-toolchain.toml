@@ -1,3 +1,8 @@
 [toolchain]
-channel = "stable"
+# Pinned, not floating. "stable" meant CI silently compiled with a newer rustc
+# than developer machines, so `clippy -D warnings` failed only in CI and every
+# job with `needs: [rust]` was skipped. Bumping this is an explicit, reviewed
+# change: raise the version here and fix whatever the new compiler rejects in
+# the same commit.
+channel = "1.98.1"
 components = ["rustfmt", "clippy"]
