@@ -42,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
       - name: Bring up the SCRAM-only Dovecot (seeded thread + SORT fixtures)
         run: docker compose -f docker-compose.ci.yml up -d --wait dovecot-sasl
@@ -67,7 +67,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
       - name: SMTP DSN/SMTPUTF8/BDAT + REQUIRETLS fails-closed (real TCP ESMTP sidecar)
         run: cargo test -p mw-server --test t12_smtp_ext -- --nocapture --test-threads=1
@@ -79,7 +79,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
       - name: Bring up OpenLDAP (seeded alice userCertificate;binary)
         run: docker compose -f docker-compose.ci.yml up -d --wait openldap
@@ -96,7 +96,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
       - name: Bring up Postgres (0011 ews_account_cred applies on the PG dialect)
         run: docker compose -f docker-compose.ci.yml up -d --wait postgres

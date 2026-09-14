@@ -120,6 +120,39 @@ jobs:
               sys.exit(1)
           print(f"\nAll {len(files)} workflow files parse and define jobs.")
           PY
+      # t24-e3: the Rust version is written in three kinds of place — the
+      # `channel` in rust-toolchain.toml, every `dtolnay/rust-toolchain@<ref>` in
+      # the workflows, and the `rust:<version>-*` base images in the Dockerfile.
+      # If an action ref disagrees with the file, its `targets:`/`components:` go
+      # onto a toolchain cargo never uses and builds fail with a missing target; if
+      # the Dockerfile disagrees, rustup downloads the pinned toolchain inside every
+      # image build. This fails the job on any mismatch so a bump has to touch all.
+      - name: rust version agrees across rust-toolchain.toml, workflows and Dockerfile
+        run: |
+          python3 - <<'PY'
+          import glob, re, sys, tomllib
+
+          channel = tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"]
+          print(f"rust-toolchain.toml channel = {channel}")
+          errs = []
+          # `@nightly` is allowed: the fuzz job selects it with an explicit `cargo +nightly`.
+          allowed = {channel, "nightly"}
+          for f in sorted(glob.glob(".github/workflows/*.yml")):
+              for n, line in enumerate(open(f, encoding="utf-8"), 1):
+                  for ref in re.findall(r"dtolnay/rust-toolchain@([\w.\-]+)", line):
+                      if ref not in allowed:
+                          errs.append(f"{f}:{n}: dtolnay/rust-toolchain@{ref} != {channel}")
+          for n, line in enumerate(open("Dockerfile", encoding="utf-8"), 1):
+              m = re.match(r"\s*FROM\s+rust:([\w.]+)-", line)
+              if m and m.group(1) != channel:
+                  errs.append(f"Dockerfile:{n}: rust:{m.group(1)} != {channel}")
+          if errs:
+              print("FAIL:")
+              for e in errs:
+                  print("  -", e)
+              sys.exit(1)
+          print("action refs and Dockerfile base images match the pinned channel")
+          PY
 
   # -------------------------------------------------------------------------
   # Rust: format, lint, test, build. rust-embed compiles against the committed
@@ -131,16 +164,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # TOOLCHAIN PRECEDENCE (t24-e3). This action installs `stable` and makes it
-      # the rustup default, but `rust-toolchain.toml` pins an exact version and a
-      # toolchain file overrides the default, so every cargo step in this repo
-      # compiles with the PINNED rustc (rustup installs it on first use, with the
-      # file's rustfmt + clippy components). The same applies to every job that
-      # uses this action. Consequence: `targets:` / `components:` given to this
-      # action land on `stable`, not on the pinned toolchain — a job that needs an
-      # extra target or component must `rustup target add` / `rustup component add`
-      # from inside the checkout (the plugin/wasm build scripts already do).
-      - uses: dtolnay/rust-toolchain@stable
+      # TOOLCHAIN PIN (t24-e3). Every `dtolnay/rust-toolchain@<ref>` in these
+      # workflows names the same version as `rust-toolchain.toml`. Inside the
+      # checkout that file decides which rustc compiles; if the action installed a
+      # DIFFERENT toolchain (e.g. `@stable`), its `targets:` / `components:` would
+      # land on that one and not on the toolchain cargo actually uses, and builds
+      # would fail with a missing target. The `workflow-lint` job fails if any ref
+      # disagrees with the file, so bump both together. (`@nightly` for the fuzz
+      # job is the one exception: it runs `cargo +nightly` explicitly.)
+      - uses: dtolnay/rust-toolchain@1.98.1
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
@@ -266,7 +298,7 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
@@ -295,7 +327,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
@@ -371,7 +403,7 @@ jobs:
     continue-on-error: ${{ matrix.required == 'false' }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
       - name: boot ${{ matrix.backend }} (wait for healthy)
         run: docker compose -f docker-compose.dev.yml up -d --wait ${{ matrix.backend }}
@@ -569,7 +601,7 @@ jobs:
     needs: [rust]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
       - name: mw-search p95 gate (<50 ms over 100k)
         run: bash ./scripts/search-bench.sh
@@ -673,7 +705,7 @@ jobs:
     needs: [rust]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
       - name: boot radicale (wait healthy)
         run: docker compose -f docker-compose.dev.yml up -d --wait radicale
@@ -838,10 +870,7 @@ jobs:
     continue-on-error: ${{ matrix.os == 'macos-latest' }}
     steps:
       - uses: actions/checkout@v4
-      # `targets:` lands on `stable`, not the pinned toolchain (see the `rust` job).
-      # build-wasm.{sh,ps1} run `rustup target add wasm32-unknown-unknown` from the
-      # checkout, which adds it to the pinned toolchain.
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
@@ -869,7 +898,7 @@ jobs:
     needs: [rust]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
       - name: PGP/S-MIME interop fixtures (recorded GnuPG/Thunderbird/Outlook)
         run: cargo test -p mw-crypto --test pgp --test smime
@@ -883,7 +912,7 @@ jobs:
     needs: [rust]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
       - name: DKIM/verdict tests (seeded-DNS, pass AND fail)
         run: cargo test -p mw-engine --lib security::verdict
@@ -979,7 +1008,7 @@ jobs:
     continue-on-error: ${{ matrix.os == 'macos-latest' }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
       - uses: pnpm/action-setup@v4
         with:
@@ -1025,16 +1054,13 @@ jobs:
   #
   # t24 (D4): deliberately NOT repaired in t24 (NDK provisioning has no local
   # verification path on the dev box, and continue-on-error means it cannot red the
-  # pipeline or block a tag). To check when it is picked up: `targets:` below land on
-  # `stable`, not on the toolchain pinned by rust-toolchain.toml; whether
-  # `tauri android build` adds the Android targets to the pinned toolchain itself
-  # is unverified.
+  # pipeline or block a tag).
   android-apk:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
       - uses: Swatinem/rust-cache@v2
@@ -1102,7 +1128,7 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
       - uses: pnpm/action-setup@v4
         with:
@@ -1162,7 +1188,7 @@ jobs:
     needs: [rust]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
       - name: boot postgres:16 (wait healthy)
         run: docker compose -f docker-compose.ci.yml up -d --wait postgres
@@ -1203,7 +1229,7 @@ jobs:
     needs: [rust]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
       - name: boot postgres:16 (wait healthy)
         run: docker compose -f docker-compose.ci.yml up -d --wait postgres
@@ -1231,7 +1257,7 @@ jobs:
     needs: [rust]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
       - name: boot valkey:8 (wait healthy)
         run: docker compose -f docker-compose.ci.yml up -d --wait valkey
@@ -1266,7 +1292,7 @@ jobs:
       MW_SERVER_KEY: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
       - uses: pnpm/action-setup@v4
         with:
@@ -1390,7 +1416,7 @@ jobs:
     needs: [rust]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
         with:
           # wasm32-unknown-unknown is for the media-jail guest (a bare CORE
           # module, no component tooling) verified in the last three steps.
@@ -1463,11 +1489,13 @@ jobs:
       #     catches source/binary drift that changes the module's interface.
       #
       # What it deliberately does NOT gate on: byte-for-byte digest equality. The
-      # toolchain here is floating (`dtolnay/rust-toolchain@stable`) while the
-      # artifact was committed against whatever stable was current at the time, and
-      # rustc codegen differs across releases; dependency paths can also be
-      # embedded in panic metadata. A digest gate would therefore red permanently
-      # for reasons that are not tampering. Digests ARE computed and a mismatch is
+      # committed artifact was built with whatever stable rustc was current at the
+      # time, and rustc codegen differs across releases; dependency paths can also
+      # be embedded in panic metadata. A digest gate would therefore red for
+      # reasons that are not tampering. Since t24 the CI rustc is pinned
+      # (`rust-toolchain.toml`), so a digest gate becomes plausible once media.wasm
+      # is rebuilt and committed with the pinned toolchain and the build is shown to
+      # be reproducible across runners — a follow-up, not done here. Digests ARE computed and a mismatch is
       # surfaced as a warning annotation, so drift is visible without a gate that
       # cries wolf. HONEST LIMIT: identical exports + zero imports does not prove
       # identical behaviour — the behavioural leg is the `cargo test -p mw-render`
@@ -1568,7 +1596,7 @@ jobs:
           if cd != fd:
               print(f"::warning file=crates/mw-media-wasm/media.wasm::media.wasm is not "
                     f"byte-identical to a fresh build (committed {cd[:16]}..., fresh "
-                    f"{fd[:16]}...). Expected under a floating rustc — NOT a tamper signal "
+                    f"{fd[:16]}...). Expected while the committed guest predates the pinned rustc — NOT a tamper signal "
                     f"on its own. Interface and behaviour are gated separately.")
           else:
               print("digests match byte-for-byte (stronger than this job requires)")
@@ -1603,7 +1631,7 @@ jobs:
     needs: [rust]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
         with:
           targets: wasm32-wasip2
       - uses: Swatinem/rust-cache@v2
@@ -1623,7 +1651,7 @@ jobs:
     needs: [rust]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
       - name: boot openldap (wait healthy)
         run: docker compose -f docker-compose.ci.yml up -d --wait openldap
@@ -1656,7 +1684,7 @@ jobs:
       COMPOSE_DOCKER_CLI_BUILD: "1"
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
       - name: boot mock-assist (wait healthy)
         run: docker compose -f docker-compose.ci.yml up -d --build --wait mock-assist
@@ -1680,7 +1708,7 @@ jobs:
     needs: [rust]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
       - name: bridge fixture replay (Graph/EWS/Gmail through the real engine)
         run: cargo test -p bridge-graph -p bridge-ews -p bridge-gmail
@@ -1699,7 +1727,7 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
       - name: bridges vs real tenants (Graph/EWS/Gmail) — only if tenant secrets set
         env:
@@ -1759,7 +1787,7 @@ jobs:
       MW_SERVER_KEY: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
         with:
           targets: wasm32-wasip2
       - uses: Swatinem/rust-cache@v2

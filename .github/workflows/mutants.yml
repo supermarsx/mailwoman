@@ -134,7 +134,7 @@ jobs:
             echo "$PACKAGE not in dispatch selection '$SELECTED' — skipping."
           fi
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
         if: steps.select.outputs.run == 'true'
 
       - uses: Swatinem/rust-cache@v2
