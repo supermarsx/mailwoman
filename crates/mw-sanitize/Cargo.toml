@@ -37,3 +37,9 @@ cssparser = "0.37"
 # `cargo build -p mw-sanitize --target wasm32-unknown-unknown` / wasm-pack. ──
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = { workspace = true }
+
+# wasm-pack's release `wasm-opt` pass — same flags and reason as mw-crypto's
+# Cargo.toml: current rustc emits bulk-memory and non-trapping float-to-int ops for
+# wasm32-unknown-unknown, which wasm-pack's binaryen rejects unless enabled.
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-O", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]

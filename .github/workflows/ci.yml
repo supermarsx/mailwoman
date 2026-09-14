@@ -131,10 +131,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # TOOLCHAIN PRECEDENCE (t24-e3). This action installs `stable` and makes it
+      # the rustup default, but `rust-toolchain.toml` pins an exact version and a
+      # toolchain file overrides the default, so every cargo step in this repo
+      # compiles with the PINNED rustc (rustup installs it on first use, with the
+      # file's rustfmt + clippy components). The same applies to every job that
+      # uses this action. Consequence: `targets:` / `components:` given to this
+      # action land on `stable`, not on the pinned toolchain — a job that needs an
+      # extra target or component must `rustup target add` / `rustup component add`
+      # from inside the checkout (the plugin/wasm build scripts already do).
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - name: show the toolchain that actually compiles (pinned by rust-toolchain.toml)
+        run: rustc -vV
       # The V5 Tauri shell crates (mailwoman-desktop / mailwoman-mobile) need the
       # Linux WebKitGTK system libraries to compile; they are built (Win + Linux)
       # in the dedicated `desktop-shell` job below (e8), NOT in this lean core job.
@@ -244,6 +255,8 @@ jobs:
   # -------------------------------------------------------------------------
   rust-crossplatform:
     # Windows: required. macOS: advisory until a green macOS run exists.
+    # t24 (D4): the macOS leg is deliberately NOT repaired in t24 — it is already
+    # continue-on-error, so it cannot red the pipeline or block a tag.
     continue-on-error: ${{ matrix.os == 'macos-latest' }}
     strategy:
       fail-fast: false
@@ -286,6 +299,28 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+      # t23-e9-02: both shell crates cannot compile from a clean checkout.
+      # `apps/desktop/src-tauri/src/lib.rs` does `include_str!("../bundle-hash.json")`,
+      # that file is gitignored, and only a web build + emit-bundle-hash.mjs writes
+      # it (the Tauri context also reads the built `apps/web/dist`). Same sequence
+      # `android-apk` and `scripts/build-shells.*` use. With the file present the
+      # shells lint clean and their unit tests pass (t23-e9: 51 passed, 0 failed).
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      # bash, not the Windows default pwsh: GitHub's pwsh wrapper only checks the
+      # exit code of the LAST line, so a failed install or build would be skipped.
+      - name: build shared SPA + emit UI-bundle hash (§7.4)
+        shell: bash
+        run: |
+          pnpm -C apps/web install --frozen-lockfile
+          pnpm -C apps/web build
+          node scripts/emit-bundle-hash.mjs
       - name: clippy (desktop + mobile shells)
         run: cargo clippy -p mailwoman-desktop -p mailwoman-mobile --all-targets -- -D warnings
       - name: test (desktop + mobile shells)
@@ -798,9 +833,14 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    # t24 (D4): the macOS leg is deliberately NOT repaired in t24 — it is already
+    # continue-on-error, so it cannot red the pipeline or block a tag.
     continue-on-error: ${{ matrix.os == 'macos-latest' }}
     steps:
       - uses: actions/checkout@v4
+      # `targets:` lands on `stable`, not the pinned toolchain (see the `rust` job).
+      # build-wasm.{sh,ps1} run `rustup target add wasm32-unknown-unknown` from the
+      # checkout, which adds it to the pinned toolchain.
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -931,6 +971,11 @@ jobs:
     #   green, replace the expression with `continue-on-error: false` or delete
     #   the line. Bundling/notarization stays best-effort regardless — no signing
     #   certificates exist, and this job builds with `--no-bundle`.
+    # t24 (D4): the macOS leg is deliberately NOT repaired in t24 — it is already
+    # continue-on-error, so it cannot red the pipeline or block a tag.
+    # t24-e3: on Linux/macOS build-shells.sh runs `./scripts/bundle-server.sh`
+    # directly, which failed with "Permission denied" because the script was
+    # committed as mode 100644. The git index now records it as 100755.
     continue-on-error: ${{ matrix.os == 'macos-latest' }}
     steps:
       - uses: actions/checkout@v4
@@ -977,6 +1022,13 @@ jobs:
   # gen/ project before the APK build. continue-on-error keeps this HONEST: a
   # toolchain-provisioning or merge failure is a tracked gap (docs/deploy/mobile-android.md),
   # not a pipeline-red, exactly as planned for the Android/iOS deferrals.
+  #
+  # t24 (D4): deliberately NOT repaired in t24 (NDK provisioning has no local
+  # verification path on the dev box, and continue-on-error means it cannot red the
+  # pipeline or block a tag). To check when it is picked up: `targets:` below land on
+  # `stable`, not on the toolchain pinned by rust-toolchain.toml; whether
+  # `tauri android build` adds the Android targets to the pinned toolchain itself
+  # is unverified.
   android-apk:
     runs-on: ubuntu-latest
     continue-on-error: true
@@ -1042,6 +1094,9 @@ jobs:
   # independently, and if Microsoft has not yet published the exactly-matching driver
   # the session cannot attach. So it is informational (same posture as the dovecot
   # fidelity + android-apk legs) rather than reddening PR CI on a driver-pin drift.
+  #
+  # t24 (D4): deliberately NOT repaired in t24 — continue-on-error means it cannot
+  # red the pipeline or block a tag, so it is not on the path to a green gate.
   desktop-e2e:
     runs-on: windows-latest
     continue-on-error: true
@@ -1116,7 +1171,18 @@ jobs:
           # The store tests read the PG DSN from DATABASE_URL_PG (or MW_TEST_PG);
           # crates that don't consume it run their default SQLite path unchanged.
           DATABASE_URL_PG: "postgres://mailwoman:mailwoman@127.0.0.1:5432/mailwoman"
-        run: cargo test -p mw-store -p mw-engine -p mw-server -- --include-ignored
+          # t24-e3: twelve mw-server test sites (t13_jwz, t14_blob_attach,
+          # t14_jwz_backfill, t15_plugin_kv, t15_thirdparty_load, t15_upload x2,
+          # t16_bridge_oauth, t16_threading, t16_twofa, t17_note_seal,
+          # t18_e2e_vacuum) read ONLY MW_E14_PG_DSN, with no DATABASE_URL_PG
+          # fallback. Without it their Postgres legs printed a skip and reported
+          # `ok` here. Same database as above.
+          MW_E14_PG_DSN: "postgres://mailwoman:mailwoman@127.0.0.1:5432/mailwoman"
+        # --test-threads=1: with MW_E14_PG_DSN set, several binaries (t15_upload,
+        # t19_e2e, …) run more than one live-PG test against this ONE database,
+        # and parallel tests in a binary race on the shared `_sqlx_migrations`
+        # table. Serial is the canonical gate's setting for the same reason.
+        run: cargo test -p mw-store -p mw-engine -p mw-server -- --include-ignored --test-threads=1
       - name: postgres logs on failure
         if: failure()
         run: docker compose -f docker-compose.ci.yml logs --no-color postgres

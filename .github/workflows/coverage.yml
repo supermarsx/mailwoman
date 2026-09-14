@@ -74,6 +74,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
+      # t24-e3: `rust-toolchain.toml` pins an exact rustc and overrides the
+      # `stable` this action installs, so the component above lands on the wrong
+      # toolchain. Adding it from inside the checkout puts it on the pinned one,
+      # which is the toolchain cargo-llvm-cov instruments with.
+      - name: llvm-tools-preview on the pinned toolchain
+        run: rustup component add llvm-tools-preview && rustc -vV
       - uses: Swatinem/rust-cache@v2
         with:
           # Instrumented artifacts have different rustflags to the `ci.yml`

@@ -24,13 +24,42 @@ cargo install cargo-deny        # or use EmbarkStudios/cargo-deny-action@v2 as C
 cargo deny check licenses advisories bans sources
 ```
 
-**Current posture (26.8):** GREEN. Permissive-license floor (GPL/LGPL/AGPL denied by
-omission); `openssl` + `sequoia-openpgp` banned; `yanked = "deny"`; unknown
-registry/git denied. The only advisory ignores are the four **bounded, documented**
-ignores (RSA-Marvin, quick-xml write-only DoS, Tauri unmaintained) — see
+**Policy:** permissive-license floor (GPL/LGPL/AGPL denied by omission); `openssl` +
+`sequoia-openpgp` banned; `yanked = "deny"`; unknown registry/git denied.
+
+**Posture history (corrected 2026-09-14, t24-e3).** This section previously read
+"Current posture (26.8): GREEN". That was a statement about 26.8 that was never
+re-dated, and it was false for the untagged 26.20 work at commit `583746f`:
+`cargo deny check` exited 1 there with `advisories FAILED`, with no dependency
+change since 26.19. Newly published advisories and yanks caused it:
+RUSTSEC-2026-0258 (`h2` 0.4.15), RUSTSEC-2026-0268 and RUSTSEC-2026-0269
+(`wasmtime` 46.0.2), and yanked `chacha20` 0.10.1 and `wnaf` 0.14.0. The CI `deny`
+job was red for the same reason.
+
+**State at commit `d7ff46b` (2026-09-14):** a lock-only `cargo update` (h2 0.4.19,
+wasmtime + wasmtime-wasi 46.0.3, chacha20 0.10.2, wnaf 0.14.1) made a **local**
+`cargo deny check` exit 0 (`advisories ok, bans ok, licenses ok, sources ok`). No
+advisory ignore and no license allow-entry was added to get there. The CI `deny` job
+had not yet run on that commit when this was written, so CI green is **not yet
+shown**. Advisories are published continuously; a pass on one date does not carry
+forward, so re-run the command rather than trusting this paragraph.
+
+**Advisory ignores in `deny.toml`:** 19 IDs in four groups, each with its reason in
+the file — see
 [`surface-inventory.md`](./surface-inventory.md#6-supply-chain-posture--the-denytoml-bounded-ignores)
-for each boundary. `cargo deny check advisories` reports **zero `vulnerability`-class**
-entries; the ignores are `unmaintained`/reader-DoS only.
+for the boundaries:
+- RUSTSEC-2023-0071 — `rsa` Marvin timing side-channel (a vulnerability advisory with
+  no fixed version; bounded to client-side decryption);
+- RUSTSEC-2026-0194 / -0195 — `quick-xml` 0.36 reader memory-exhaustion DoS (reached
+  only through `docx-rs`, which Mailwoman uses for writing, not parsing);
+- RUSTSEC-2024-0411..0420 (gtk-rs), RUSTSEC-2024-0370 (`proc-macro-error`),
+  RUSTSEC-2025-0075/0080/0081/0098/0100 (`unic-*`) — `unmaintained` advisories carried
+  by the Tauri shells. The ten gtk-rs IDs currently report `advisory-not-detected`
+  (a warning, not an error) while the crates remain in the lock; they are kept.
+
+The earlier wording "the ignores are `unmaintained`/reader-DoS only" left out the RSA
+timing side-channel: the ignores include defect advisories (RSA, quick-xml) that are
+accepted on a documented reachability argument, not only maintenance-status ones.
 
 **Auditor action:** confirm each bounded-ignore boundary empirically (no server-side RSA
 decrypt; no untrusted DOCX/XML through `docx-rs`; Tauri advisories are Linux-desktop/build
@@ -138,7 +167,7 @@ M365/Workspace/Ollama/OpenAI/Anthropic endpoints when secrets are present.
 
 | Baseline | How | Current state | Auditor next step |
 |---|---|---|---|
-| Supply chain | `cargo deny check …` | GREEN; 4 bounded ignores | confirm each boundary |
+| Supply chain | `cargo deny check …` | local exit 0 at `d7ff46b` (2026-09-14); red at `583746f`; CI not yet shown; 19 ignored IDs in 4 groups | re-run; confirm each boundary |
 | JS licenses | `license-checker-rseidelsohn` | permissive-only (non-blocking) | confirm no copyleft ships |
 | Dynamic scan | `zap-baseline.py` | baseline floor (continue-on-error) | authenticated + active scan |
 | Zero-access at rest | `mw-server --test v6_e2e` | ciphertext-at-rest proven | independent DB inspection |

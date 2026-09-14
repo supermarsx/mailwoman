@@ -30,7 +30,10 @@ RUN pnpm build
 # Stage 2 — build: compile the Rust workspace. The SPA must be in place at
 # apps/web/dist BEFORE cargo runs so rust-embed bakes it into `mailwoman`.
 # ---------------------------------------------------------------------------
-FROM rust:1.95-bookworm AS build
+# The image's rustc must match `rust-toolchain.toml` (COPY . . brings that file
+# in, and a mismatch makes rustup download the pinned toolchain inside the build).
+# Bump both together.
+FROM rust:1.98.1-bookworm AS build
 WORKDIR /src
 COPY . .
 # Replace the committed dist placeholder with the freshly built SPA.
@@ -96,7 +99,8 @@ ENTRYPOINT ["/usr/local/bin/mw-mock-jmap"]
 # The Alpine rust image targets musl natively; RUSTFLAGS static-links the
 # crt so the binaries have zero shared-object dependencies.
 # ---------------------------------------------------------------------------
-FROM rust:1.95-alpine AS build-musl
+# Same pin as the `build` stage above — keep it equal to `rust-toolchain.toml`.
+FROM rust:1.98.1-alpine AS build-musl
 # build-base = gcc + make + musl-dev, needed to compile the C/asm in `ring` and
 # `zstd-sys` against musl for a fully static link. ca-certificates provides the
 # root bundle copied into the scratch image for rustls upstream TLS.

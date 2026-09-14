@@ -114,3 +114,11 @@ console_error_panic_hook = "0.1"
 [dev-dependencies]
 serde_json = { workspace = true }
 hex = { workspace = true }
+
+# wasm-pack's release `wasm-opt` pass (scripts/build-wasm.{sh,ps1}). Current rustc
+# emits bulk-memory and non-trapping float-to-int ops for wasm32-unknown-unknown by
+# default; the binaryen wasm-pack runs rejects them unless the features are enabled
+# ("Bulk memory operations require bulk memory [--enable-bulk-memory]" in CI).
+# `-O` is wasm-pack's default and is kept. Read only by wasm-pack; cargo ignores it.
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-O", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
