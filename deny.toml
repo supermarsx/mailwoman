@@ -174,6 +174,31 @@
 # (MIT/Apache-2.0), optional `simdutf8` (MIT/Apache-2.0). No GPL/LGPL/AGPL, no
 # openssl/-sys C. NO new `[licenses].allow` and NO new advisory ignore required;
 # `cargo deny check` stays green. (E11 records the final "now linked" confirmation.)
+#
+# 26.20 (t24-e1, 2026-09-14) — the advisories check went RED with no code change,
+# so the "is green across the workspace" claim at the top of this file was false
+# for an interval; this note dates it. `Cargo.lock` had not moved since 26.19 —
+# newly published advisories and two yanks did: RUSTSEC-2026-0258 (`h2` 0.4.15,
+# unbounded queued empty DATA frames), RUSTSEC-2026-0268 and RUSTSEC-2026-0269
+# (`wasmtime` 46.0.2, a guest-controlled-size host heap allocation through WASIp3
+# streams, and a filesystem sandbox escape when paths or symlinks carry trailing
+# slashes), plus yanked `chacha20` 0.10.1 and `wnaf` 0.14.0. All five were cleared
+# by a LOCK-ONLY targeted `cargo update`: h2 0.4.19, wasmtime + wasmtime-wasi
+# 46.0.3, chacha20 0.10.2, wnaf 0.14.1, and the cranelift / cap-std / pulley trees
+# that wasmtime pins in lockstep. NO new `[licenses].allow` entry and NO new
+# advisory ignore was required — each had a semver-compatible fixed version, so
+# none of this is an accepted risk. wasmtime stayed on the 46.x line (48.x exists;
+# the advisories' own fixed range `>=46.0.3, <47.0.0` does not require it). The
+# tree gained NO dependency node: 1108 -> 1107 `[[package]]` entries, the single
+# removal being a duplicate `windows-core` 0.62.2 collapsing onto the 0.61.2
+# already present. The `-sys` crate set is unchanged, no `openssl`/`native-tls`/
+# `boring`/`aws-lc` entered the tree, and the `[bans]` deny below still passes.
+#   The ten gtk-rs ignores above (RUSTSEC-2024-0411..0420) now report
+#   `advisory-not-detected` under cargo-deny 0.19.9. The gtk/gdk/atk/glib 0.18
+#   crates are still in the lock, so this is a change in what the check reports,
+#   not in what the tree contains. They are RETAINED: those notices are warnings,
+#   not errors, and dropping the ignores would re-red the check if the advisories
+#   are reported against the same unmaintained crates again.
 
 [graph]
 all-features = false
