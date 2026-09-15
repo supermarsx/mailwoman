@@ -52,6 +52,23 @@ async fn spawn_server() -> (String, PathBuf) {
 
 const INDEX_HTML: &str = "<!doctype html><title>Mailwoman</title><div id=app>MW_TEST_INDEX</div>";
 
+/// Whether the server under test will find an `mw-render` worker. Mirrors the
+/// server's own lookup: `MW_RENDER_BIN`, then beside this test binary
+/// (`target/<profile>/deps/`), then one level up (`target/<profile>/`).
+fn render_worker_built() -> bool {
+    if std::env::var_os("MW_RENDER_BIN").is_some_and(|p| std::path::Path::new(&p).exists()) {
+        return true;
+    }
+    let name = if cfg!(windows) {
+        "mw-render.exe"
+    } else {
+        "mw-render"
+    };
+    let exe = std::env::current_exe().unwrap();
+    let deps = exe.parent().unwrap();
+    deps.join(name).exists() || deps.parent().is_some_and(|d| d.join(name).exists())
+}
+
 fn client() -> reqwest::Client {
     reqwest::Client::builder()
         .cookie_store(true)
@@ -203,15 +220,38 @@ async fn sanitize_strips_hostile_script() {
     let c = client();
     do_login(&c, &server, &mock).await;
 
-    let out: Value = c
+    let resp = c
         .post(format!("{server}/api/sanitize"))
         .json(&json!({ "html": mw_mock_jmap::HOSTILE_HTML }))
         .send()
         .await
-        .unwrap()
-        .json()
-        .await
         .unwrap();
+    let status = resp.status();
+    let out: Value = resp.json().await.unwrap();
+
+    // On Linux a kernel jail is expected by default, and without the `mw-render`
+    // worker the server must refuse rather than parse hostile HTML in-process.
+    // `cargo test --tests` does not build another package's binary, so a plain
+    // workspace test run on Linux lands here (t24-e10). This is the fail-closed
+    // contract, asserted — not the sanitizer, which the worker branch below covers.
+    if mw_sandbox::jail_expected() && !render_worker_built() {
+        assert_eq!(
+            status, 503,
+            "no render worker and a jail is expected: /api/sanitize must fail closed ({out})"
+        );
+        assert!(
+            out.get("html").is_none(),
+            "a fail-closed refusal must not carry sanitized output: {out}"
+        );
+        common::gate::skip(
+            "sanitize content assertions: a kernel jail is expected and no mw-render worker \
+             is built; asserted the 503 fail-closed refusal instead. `cargo build -p \
+             mw-render` first to drive the jailed worker.",
+        );
+        return;
+    }
+
+    assert_eq!(status, 200, "sanitize: {out}");
     let html = out["html"].as_str().unwrap();
     assert!(!html.contains("script"), "script survived: {html}");
     assert!(!html.contains("__mw_pwned"), "sentinel survived: {html}");
@@ -219,6 +259,68 @@ async fn sanitize_strips_hostile_script() {
     assert!(!html.contains("javascript:"), "js url survived: {html}");
     // Benign content is preserved.
     assert!(html.contains("Invoice"), "content dropped: {html}");
+}
+
+/// `.oft`/`.msg` import has no in-process path: the compound-file parse runs only in
+/// the `mw-render` worker's wasmtime media jail, and on Linux that worker also runs
+/// under the kernel jail. Until t24-e10 nothing drove this route, and the jailed
+/// worker was SIGSYS-killed on every CFB job (wasmtime's copy-on-write memory init
+/// calls `memfd_create`, which the seccomp allowlist does not permit), so every
+/// import on Linux failed with 422.
+#[tokio::test]
+async fn import_oft_parses_in_the_render_worker() {
+    use base64::Engine as _;
+
+    let mock = spawn_mock().await;
+    let (server, _web) = spawn_server().await;
+    let c = client();
+    do_login(&c, &server, &mock).await;
+
+    let raw =
+        b"Subject: Weekly status template\r\n\r\n<p>Fill me in.</p><script>bad()</script>\r\n";
+    let oft = mw_export::export_one(
+        &mw_export::RawEmail::new(raw.to_vec()),
+        mw_export::Format::Oft,
+    )
+    .expect("write .oft");
+    let resp = c
+        .post(format!("{server}/api/import/oft"))
+        .json(&json!({
+            "contentBase64": base64::engine::general_purpose::STANDARD.encode(&oft)
+        }))
+        .send()
+        .await
+        .unwrap();
+    let status = resp.status();
+    let out: Value = resp.json().await.unwrap();
+
+    if !render_worker_built() {
+        // No worker: refused on every platform, jail or not.
+        assert_eq!(
+            status, 503,
+            "no render worker: the CFB import must be refused ({out})"
+        );
+        common::gate::skip(
+            "oft import through the render worker: no mw-render worker is built; asserted \
+             the 503 refusal instead. `cargo build -p mw-render` first to drive it.",
+        );
+        return;
+    }
+
+    assert_eq!(
+        status,
+        200,
+        "the render worker{} must import a valid .oft: {out}",
+        if mw_sandbox::jail_expected() {
+            " (kernel-jailed on this platform)"
+        } else {
+            ""
+        }
+    );
+    assert_eq!(out["subject"], json!("Weekly status template"), "{out}");
+    let html = out["html"].as_str().unwrap();
+    assert!(html.contains("Fill me in."), "body dropped: {html}");
+    assert!(!html.contains("script"), "script survived: {html}");
 }
 
 #[tokio::test]
