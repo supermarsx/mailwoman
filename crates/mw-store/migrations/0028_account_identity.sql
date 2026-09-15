@@ -31,14 +31,25 @@
 --
 -- MERGING THE DUPLICATES THAT ALREADY EXIST (user decision D5: keep all data)
 -- The index cannot be created over existing duplicates, so they are merged first.
---   * Survivor per identity: the account holding the earliest-created second factor
---     (a confirmed TOTP, a passkey or a recovery code); with no factor anywhere in the
---     group, the lowest id.
---   * Second factors when more than one duplicate holds them: `totp_secrets` allows
---     one TOTP per account, so the survivor keeps its own (or, having none, the
---     next-ranked duplicate's) and the rest are dropped; every duplicate's passkeys
---     and recovery codes are moved onto the survivor. A pending (unconfirmed) TOTP
---     enrolment gives way to a confirmed one.
+--   * Survivor per identity (user decision, t24): the account whose second factor
+--     was created EARLIEST, ties broken by the lowest id; with no factor anywhere in
+--     the group, the lowest id. A second factor is a CONFIRMED `totp_secrets` row, a
+--     `webauthn_credentials` row or a `recovery_codes` row, and "created" is each
+--     table's `created_at`. The schema records no separate confirmation time:
+--     `totp_secrets.created_at` is when enrolment began (kept when it is confirmed),
+--     a passkey row is written only once its registration verified, and recovery
+--     codes are issued when a TOTP enrolment is confirmed.
+--   * Second factors are NOT merged. The survivor keeps only its own TOTP, passkeys
+--     and recovery codes; every other duplicate's (a pending TOTP enrolment
+--     included) is dropped. Before the merge was fixed, anyone holding the password
+--     could enrol an authenticator on a fresh duplicate, so a later enrolment cannot
+--     be trusted to belong to the owner. Each dropped factor first gets an
+--     `audit_log` row: actor 'migration-0028', actor_kind 'system', action
+--     'twofa-factor-dropped-on-merge', target = the survivor's id, and detail_json
+--     holding the factor type ('totp' with its confirmed flag, 'passkey' with its
+--     public credential id, 'recovery-codes' as one row per account with count and
+--     unused count), both account ids and the creation time. No TOTP secret, key
+--     bytes or code hash is written. See docs/deploy/upgrade-notes/0028-account-merge.md.
 --   * Every account-keyed table is repointed onto the survivor. A row that is unique
 --     to a duplicate is MOVED. Where repointing would violate a uniqueness
 --     constraint, the two rows are one thing recorded twice, and the row of the
@@ -65,10 +76,9 @@
 --     sync_state           PK (account_id, mailbox_id)
 --     plugin_grants        PK (plugin_id, account_id, capability)
 --     plugin_kv            PK (plugin_id, account_id, key)
---     recovery_codes       PK (account_id, code_hash)
 --     remote_image_grants  PK (account_id, scope_kind, scope_value)
 --     signatures           PK (account_id, name)
---     totp_secrets, quotas, zeroaccess_accounts, passwd_config, bridge_accounts,
+--     quotas, zeroaccess_accounts, passwd_config, bridge_accounts,
 --     ews_account_cred, notification_rules   PK (account_id)
 --     bridge_oauth_tokens  PK (bridge_account_id)
 --     assist_config        PK (scope), scope = 'user:<account id>'
@@ -78,8 +88,10 @@
 --     dlp_audit, sender_controls, crypto_changes, push_subscriptions (UNIQUE endpoint
 --     is global), native_sessions, api_keys (UNIQUE key_prefix is global), oauth_tokens,
 --     webhooks, password_change_audit, masked_email (UNIQUE alias_addr is global),
---     uploaded_blobs, message_embeddings, webauthn_credentials, tags ("user"),
---     saved_searches ("user")
+--     uploaded_blobs, message_embeddings, tags ("user"), saved_searches ("user")
+--   never moved — a duplicate's rows are audited and dropped (see above):
+--     totp_secrets PK (account_id), webauthn_credentials PK (credential_id),
+--     recovery_codes PK (account_id, code_hash)
 --   reached only through a remapped id (no account column):
 --     message_meta (stable_id)
 --   deliberately not rewritten:
@@ -229,15 +241,39 @@ DELETE FROM bodies
 UPDATE messages SET account_id = (SELECT survivor FROM mw0028_map WHERE loser = messages.account_id)
  WHERE account_id IN (SELECT loser FROM mw0028_map);
 
--- ── 5. Every other account-keyed table ───────────────────────────────────────
--- A pending (unconfirmed) TOTP enrolment gives way to a confirmed one held by
--- another account of the same identity.
-DELETE FROM totp_secrets
- WHERE confirmed = 0
-   AND account_id IN (SELECT id FROM mw0028_acct)
-   AND EXISTS (SELECT 1 FROM totp_secrets o, mw0028_acct ro, mw0028_acct rt
-                WHERE ro.id = o.account_id AND rt.id = totp_secrets.account_id
-                  AND ro.grp = rt.grp AND o.confirmed = 1);
+-- ── 5. Second factors: only the survivor's own are kept ─────────────────────
+-- A duplicate's TOTP secret, passkeys and recovery codes are never moved onto the
+-- survivor. Each dropped factor is first recorded in audit_log, content-free: the
+-- factor type, both account ids, when it was created, and for a passkey its public
+-- credential id. No secret, key bytes or code hash is copied. Recovery codes are
+-- recorded as one row per account (they are issued, and used, as one set).
+INSERT INTO audit_log (id, ts, actor, actor_kind, action, target, detail_json, ip)
+SELECT lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-' || hex(randomblob(2)) || '-' || hex(randomblob(2)) || '-' || hex(randomblob(6))), strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'), 'migration-0028', 'system',
+       'twofa-factor-dropped-on-merge', m.survivor,
+       json_object('factor', 'totp', 'confirmed', json(CASE WHEN t.confirmed = 1 THEN 'true' ELSE 'false' END), 'duplicateAccountId', m.loser, 'survivorAccountId', m.survivor, 'createdAt', t.created_at),
+       NULL
+  FROM totp_secrets t, mw0028_map m
+ WHERE t.account_id = m.loser;
+INSERT INTO audit_log (id, ts, actor, actor_kind, action, target, detail_json, ip)
+SELECT lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-' || hex(randomblob(2)) || '-' || hex(randomblob(2)) || '-' || hex(randomblob(6))), strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'), 'migration-0028', 'system',
+       'twofa-factor-dropped-on-merge', m.survivor,
+       json_object('factor', 'passkey', 'credentialId', c.credential_id, 'duplicateAccountId', m.loser, 'survivorAccountId', m.survivor, 'createdAt', c.created_at),
+       NULL
+  FROM webauthn_credentials c, mw0028_map m
+ WHERE c.account_id = m.loser;
+INSERT INTO audit_log (id, ts, actor, actor_kind, action, target, detail_json, ip)
+SELECT lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-' || hex(randomblob(2)) || '-' || hex(randomblob(2)) || '-' || hex(randomblob(6))), strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'), 'migration-0028', 'system',
+       'twofa-factor-dropped-on-merge', m.survivor,
+       json_object('factor', 'recovery-codes', 'count', COUNT(*), 'unused', SUM(CASE WHEN r.used = 0 THEN 1 ELSE 0 END), 'duplicateAccountId', m.loser, 'survivorAccountId', m.survivor, 'createdAt', MIN(r.created_at)),
+       NULL
+  FROM recovery_codes r, mw0028_map m
+ WHERE r.account_id = m.loser
+ GROUP BY m.loser, m.survivor;
+DELETE FROM totp_secrets WHERE account_id IN (SELECT loser FROM mw0028_map);
+DELETE FROM webauthn_credentials WHERE account_id IN (SELECT loser FROM mw0028_map);
+DELETE FROM recovery_codes WHERE account_id IN (SELECT loser FROM mw0028_map);
+
+-- ── 6. Every other account-keyed table ───────────────────────────────────────
 DELETE FROM pop3_uidl
  WHERE account_id IN (SELECT loser FROM mw0028_map)
    AND EXISTS (SELECT 1 FROM pop3_uidl o, mw0028_acct ro, mw0028_acct rt
@@ -296,13 +332,6 @@ DELETE FROM notification_rules
                 AND ro.grp = rt.grp AND ro.rn < rt.rn);
 UPDATE notification_rules SET account_id = (SELECT survivor FROM mw0028_map WHERE loser = notification_rules.account_id)
  WHERE account_id IN (SELECT loser FROM mw0028_map);
-DELETE FROM totp_secrets
- WHERE account_id IN (SELECT loser FROM mw0028_map)
-   AND EXISTS (SELECT 1 FROM totp_secrets o, mw0028_acct ro, mw0028_acct rt
-              WHERE ro.id = o.account_id AND rt.id = totp_secrets.account_id
-                AND ro.grp = rt.grp AND ro.rn < rt.rn);
-UPDATE totp_secrets SET account_id = (SELECT survivor FROM mw0028_map WHERE loser = totp_secrets.account_id)
- WHERE account_id IN (SELECT loser FROM mw0028_map);
 DELETE FROM bridge_oauth_tokens
  WHERE bridge_account_id IN (SELECT loser FROM mw0028_map)
    AND EXISTS (SELECT 1 FROM bridge_oauth_tokens o, mw0028_acct ro, mw0028_acct rt
@@ -327,14 +356,6 @@ DELETE FROM plugin_kv
                 AND o.plugin_id = plugin_kv.plugin_id
                 AND o.key = plugin_kv.key);
 UPDATE plugin_kv SET account_id = (SELECT survivor FROM mw0028_map WHERE loser = plugin_kv.account_id)
- WHERE account_id IN (SELECT loser FROM mw0028_map);
-DELETE FROM recovery_codes
- WHERE account_id IN (SELECT loser FROM mw0028_map)
-   AND EXISTS (SELECT 1 FROM recovery_codes o, mw0028_acct ro, mw0028_acct rt
-              WHERE ro.id = o.account_id AND rt.id = recovery_codes.account_id
-                AND ro.grp = rt.grp AND ro.rn < rt.rn
-                AND o.code_hash = recovery_codes.code_hash);
-UPDATE recovery_codes SET account_id = (SELECT survivor FROM mw0028_map WHERE loser = recovery_codes.account_id)
  WHERE account_id IN (SELECT loser FROM mw0028_map);
 DELETE FROM remote_image_grants
  WHERE account_id IN (SELECT loser FROM mw0028_map)
@@ -403,8 +424,6 @@ UPDATE uploaded_blobs SET account_id = (SELECT survivor FROM mw0028_map WHERE lo
  WHERE account_id IN (SELECT loser FROM mw0028_map);
 UPDATE message_embeddings SET account_id = (SELECT survivor FROM mw0028_map WHERE loser = message_embeddings.account_id)
  WHERE account_id IN (SELECT loser FROM mw0028_map);
-UPDATE webauthn_credentials SET account_id = (SELECT survivor FROM mw0028_map WHERE loser = webauthn_credentials.account_id)
- WHERE account_id IN (SELECT loser FROM mw0028_map);
 UPDATE tags SET "user" = (SELECT survivor FROM mw0028_map WHERE loser = tags."user")
  WHERE "user" IN (SELECT loser FROM mw0028_map);
 UPDATE saved_searches SET "user" = (SELECT survivor FROM mw0028_map WHERE loser = saved_searches."user")
@@ -419,7 +438,7 @@ UPDATE assist_config
    SET scope = (SELECT 'user:' || survivor FROM mw0028_map WHERE 'user:' || loser = assist_config.scope)
  WHERE scope IN (SELECT 'user:' || loser FROM mw0028_map);
 
--- ── 6. Drop the emptied duplicates, then constrain ────────────────────────────
+-- ── 7. Drop the emptied duplicates, then constrain ────────────────────────────
 DELETE FROM accounts WHERE id IN (SELECT loser FROM mw0028_map);
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_identity

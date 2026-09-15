@@ -19,7 +19,9 @@
 //!     Postgres: duplicate accounts merge onto one survivor that keeps the factor and
 //!     the union of both accounts' distinct cached messages, a message cached twice
 //!     appears once, nothing is left pointing at the removed account, and the unique
-//!     index exists and folds case identically on both backends.
+//!     index exists and folds case identically on both backends. Where several
+//!     duplicates enrolled second factors, only the earliest-enrolled account's
+//!     remain, and every dropped factor has a content-free `audit_log` row.
 //!
 //! Run:
 //!   cargo test -p mw-server --test t24_engine_twofa -- --test-threads=1
@@ -542,7 +544,8 @@ macro_rules! d5_merge_scenario {
             vec!["b-dup", "n1", "n2"],
             "the duplicate merged onto the factor holder; ÄBC and äbc are distinct"
         );
-        // The factor is preserved on the survivor.
+        // The factor is preserved on the survivor, and no factor was dropped.
+        assert_eq!(one("SELECT COUNT(*) FROM audit_log").await, 0);
         assert_eq!(
             one("SELECT COUNT(*) FROM totp_secrets WHERE account_id = 'b-dup' AND confirmed = 1").await,
             1
@@ -669,12 +672,16 @@ macro_rules! d5_merge_scenario {
     }};
 }
 
-/// Three accounts for one POP3 identity. `x3` holds the EARLIEST confirmed factor
-/// (TOTP, plus a recovery code) and survives although it has the highest id; `x2`
-/// holds a later TOTP and a passkey; `x1` holds only a pending, unconfirmed TOTP.
-/// The survivor has no INBOX, so the two duplicates' INBOX copies collide with EACH
-/// OTHER and the rank-2 account's copy (`x2`) is the one kept; the same holds for
-/// the message both of them cached (uid 42).
+/// Three accounts for one POP3 identity. `x3` holds the EARLIEST factor (a TOTP
+/// created 02-01, plus a recovery code) and survives although it has the highest
+/// id. `x2` enrolled later (03-01): a confirmed TOTP, a passkey and a recovery code.
+/// `x1` holds only a pending, unconfirmed TOTP. Under the t24 rule only `x3`'s
+/// factors remain, and each of the others is recorded in `audit_log` without its
+/// secret material (`{S}` / `{K}` are recognisable bytes the audit must not carry).
+///
+/// The mail cache still merges fully: the survivor has no INBOX, so the two
+/// duplicates' INBOX copies collide with EACH OTHER and the rank-2 account's copy
+/// (`x2`) is kept; the same holds for the message both of them cached (uid 42).
 const THREE_WAY: &[&str] = &[
     "INSERT INTO accounts (id, kind, host, port, tls, username, sealed_creds, sync_policy_json) VALUES
         ('x1', 'pop3', 'pop.example.org', 995, 'implicit', 'bob', {B}, '{}'),
@@ -682,12 +689,13 @@ const THREE_WAY: &[&str] = &[
         ('x3', 'pop3', 'pop.example.org', 995, 'implicit', 'BOB', {B}, '{}')",
     "INSERT INTO totp_secrets (account_id, sealed_secret, confirmed, created_at) VALUES
         ('x1', {B}, 0, '2026-01-01T00:00:00+00:00'),
-        ('x2', {B}, 1, '2026-03-01T00:00:00+00:00'),
+        ('x2', {S}, 1, '2026-03-01T00:00:00+00:00'),
         ('x3', {B}, 1, '2026-02-01T00:00:00+00:00')",
     "INSERT INTO webauthn_credentials (credential_id, account_id, cose_public_key, created_at)
-        VALUES ('pk2', 'x2', {B}, '2026-03-01T00:00:00+00:00')",
-    "INSERT INTO recovery_codes (account_id, code_hash, created_at)
-        VALUES ('x3', 'rc3', '2026-02-01T00:00:00+00:00')",
+        VALUES ('pk2', 'x2', {K}, '2026-03-02T00:00:00+00:00')",
+    "INSERT INTO recovery_codes (account_id, code_hash, created_at) VALUES
+        ('x3', 'rc3', '2026-02-01T00:00:00+00:00'),
+        ('x2', 'RC2-ARGON2-HASH', '2026-03-01T00:00:00+00:00')",
     "INSERT INTO mailboxes (id, account_id, name, uidvalidity) VALUES
         ('mb1', 'x1', 'INBOX', 0), ('mb2', 'x2', 'INBOX', 0)",
     "INSERT INTO messages (stable_id, account_id, mailbox_id, uid, uidvalidity) VALUES
@@ -701,14 +709,27 @@ const THREE_WAY: &[&str] = &[
         ('x1', 'mb1', 'c1'), ('x2', 'mb2', 'c2')",
 ];
 
+/// Bytes of the later duplicate's TOTP secret and passkey key, as seeded.
+const X2_TOTP_SECRET: &[u8] = b"TOTP-SECRET-OF-X2";
+const X2_PASSKEY_KEY: &[u8] = b"COSE-KEY-OF-X2";
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
 macro_rules! three_way_scenario {
-    ($pool:expr, $blob:expr, $open:expr) => {{
+    ($pool:expr, $blob:expr, $bytes_literal:expr, $open:expr) => {{
         let pool = $pool;
+        let bytes_literal: fn(&[u8]) -> String = $bytes_literal;
         for stmt in THREE_WAY {
-            sqlx::query(&stmt.replace("{B}", $blob))
+            let sql = stmt
+                .replace("{B}", $blob)
+                .replace("{S}", &bytes_literal(X2_TOTP_SECRET))
+                .replace("{K}", &bytes_literal(X2_PASSKEY_KEY));
+            sqlx::query(&sql)
                 .execute(&pool)
                 .await
-                .unwrap_or_else(|e| panic!("seed failed: {e}\n{stmt}"));
+                .unwrap_or_else(|e| panic!("seed failed: {e}\n{sql}"));
         }
         let _store: Store = $open.await;
         let strings = |sql: &'static str| {
@@ -725,22 +746,120 @@ macro_rules! three_way_scenario {
         assert_eq!(
             strings("SELECT id FROM accounts").await,
             vec!["x3"],
-            "the earliest factor holder survives, not the lowest id"
+            "the earliest-enrolled account survives, not the lowest id"
+        );
+
+        // Only the survivor's own factors remain.
+        assert_eq!(
+            strings("SELECT account_id || ' ' || created_at FROM totp_secrets").await,
+            vec!["x3 2026-02-01T00:00:00+00:00"],
+            "the later duplicate's TOTP (and x1's pending one) are gone"
+        );
+        assert!(
+            strings("SELECT credential_id FROM webauthn_credentials")
+                .await
+                .is_empty(),
+            "the later duplicate's passkey is gone, not moved"
         );
         assert_eq!(
-            strings("SELECT created_at FROM totp_secrets").await,
-            vec!["2026-02-01T00:00:00+00:00"],
-            "one TOTP per account: the survivor's own is kept"
+            strings("SELECT account_id || ' ' || code_hash FROM recovery_codes").await,
+            vec!["x3 rc3"],
+            "only the survivor's recovery codes remain"
         );
+
+        // One content-free audit row per dropped factor.
+        let rows: Vec<(String, String, String, String, String)> =
+            sqlx::query_as("SELECT actor, actor_kind, action, target, detail_json FROM audit_log")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        let mut details: Vec<serde_json::Value> = Vec::new();
+        for (actor, actor_kind, action, target, detail) in &rows {
+            assert_eq!(
+                (
+                    actor.as_str(),
+                    actor_kind.as_str(),
+                    action.as_str(),
+                    target.as_str()
+                ),
+                (
+                    "migration-0028",
+                    "system",
+                    "twofa-factor-dropped-on-merge",
+                    "x3"
+                )
+            );
+            let v: serde_json::Value = serde_json::from_str(detail).expect("detail_json is JSON");
+            assert_eq!(v["survivorAccountId"], json!("x3"), "{v}");
+            details.push(v);
+        }
+        let find = |factor: &str, from: &str| {
+            details
+                .iter()
+                .filter(|v| v["factor"] == json!(factor) && v["duplicateAccountId"] == json!(from))
+                .cloned()
+                .collect::<Vec<_>>()
+        };
         assert_eq!(
-            strings("SELECT account_id FROM webauthn_credentials").await,
-            vec!["x3"],
-            "a duplicate's passkey is moved onto the survivor"
+            rows.len(),
+            4,
+            "one audit row per dropped factor: {details:?}"
         );
+        let x2_totp = find("totp", "x2");
+        assert_eq!(x2_totp.len(), 1, "{details:?}");
+        assert_eq!(x2_totp[0]["confirmed"], json!(true));
+        assert_eq!(x2_totp[0]["createdAt"], json!("2026-03-01T00:00:00+00:00"));
+        let x2_passkey = find("passkey", "x2");
+        assert_eq!(x2_passkey.len(), 1, "{details:?}");
+        assert_eq!(x2_passkey[0]["credentialId"], json!("pk2"));
         assert_eq!(
-            strings("SELECT account_id FROM recovery_codes").await,
-            vec!["x3"]
+            x2_passkey[0]["createdAt"],
+            json!("2026-03-02T00:00:00+00:00")
         );
+        let x2_codes = find("recovery-codes", "x2");
+        assert_eq!(x2_codes.len(), 1, "{details:?}");
+        assert_eq!(
+            (
+                x2_codes[0]["count"].as_i64(),
+                x2_codes[0]["unused"].as_i64()
+            ),
+            (Some(1), Some(1))
+        );
+        let x1_pending = find("totp", "x1");
+        assert_eq!(x1_pending.len(), 1, "{details:?}");
+        assert_eq!(x1_pending[0]["confirmed"], json!(false));
+
+        // No secret material in any audit column, in any encoding.
+        let all: Vec<(
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        )> = sqlx::query_as(
+            "SELECT id, ts, actor, actor_kind, action, target, detail_json, ip FROM audit_log",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        let text = format!("{all:?}").to_ascii_lowercase();
+        for needle in [
+            String::from_utf8_lossy(X2_TOTP_SECRET).to_ascii_lowercase(),
+            hex(X2_TOTP_SECRET),
+            String::from_utf8_lossy(X2_PASSKEY_KEY).to_ascii_lowercase(),
+            hex(X2_PASSKEY_KEY),
+            "rc2-argon2-hash".to_string(),
+        ] {
+            assert!(
+                !text.contains(&needle),
+                "audit_log carries secret material ({needle}): {text}"
+            );
+        }
+
+        // The mail cache still merges fully.
         assert_eq!(strings("SELECT id FROM mailboxes").await, vec!["mb2"]);
         assert_eq!(
             strings("SELECT stable_id FROM messages WHERE account_id = 'x3'").await,
@@ -856,7 +975,7 @@ async fn migration_0028_merges_a_populated_sqlite_database_keeping_all_data() {
     assert_eq!(n, 4);
 
     let (path, pool) = sqlite_at_0027("mig-sqlite-3way").await;
-    three_way_scenario!(pool, "X'00'", async {
+    three_way_scenario!(pool, "X'00'", |b| format!("X'{}'", hex(b)), async {
         Store::open(&path, ServerKey::generate())
             .await
             .expect("open applies 0028")
@@ -895,11 +1014,16 @@ async fn migration_0028_merges_a_populated_postgres_database_keeping_all_data() 
     drop_schema(&dsn, &schema).await;
 
     let (schema3, scoped3, pool3) = postgres_at_0027(&dsn).await;
-    three_way_scenario!(pool3.clone(), "'\\x00'::bytea", async {
-        Store::open(&scoped3, ServerKey::generate())
-            .await
-            .expect("open applies 0028 on Postgres")
-    });
+    three_way_scenario!(
+        pool3.clone(),
+        "'\\x00'::bytea",
+        |b| format!("'\\x{}'::bytea", hex(b)),
+        async {
+            Store::open(&scoped3, ServerKey::generate())
+                .await
+                .expect("open applies 0028 on Postgres")
+        }
+    );
     pool3.close().await;
     drop_schema(&dsn, &schema3).await;
     eprintln!("[t24 0028] Postgres leg RAN in schemas {schema} and {schema3}");
