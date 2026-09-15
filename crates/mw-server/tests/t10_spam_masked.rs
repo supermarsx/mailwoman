@@ -22,6 +22,8 @@
 //! `spamassassin`) to the published localhost ports so the on-host test reaches the
 //! compose services while the guest URL + `net_allowlist` stay exactly as production.
 
+mod common;
+
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -218,10 +220,10 @@ async fn classify_live(id: &str, allow: &str, msg: Vec<u8>) -> String {
 #[tokio::test]
 async fn spam_live_gtube_is_spam_ham_is_ham() {
     if !spam_live() {
-        eprintln!(
-            "\n[t10-e14 SPAM SKIP] MW_SPAM_LIVE!=1 — real rspamd/SpamAssassin not driven. \
+        common::gate::skip(
+            "[t10-e14 SPAM] MW_SPAM_LIVE!=1 — real rspamd/SpamAssassin not driven. \
              Bring up: docker compose -f docker-compose.ci.yml up -d --wait rspamd spamd \
-             spamassassin ; then MW_SPAM_LIVE=1 cargo test -p mw-server --test t10_spam_masked.\n"
+             spamassassin ; then MW_SPAM_LIVE=1 cargo test -p mw-server --test t10_spam_masked.",
         );
         return;
     }

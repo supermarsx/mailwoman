@@ -39,6 +39,8 @@
 //! machine with no Docker must not fail the suite. A skip is never reported as a
 //! verification; read the printed line, not the green tick.
 
+mod common;
+
 use mw_egress::proxy::{ProxyRefusal, ProxyRoute, ProxyScheme, fetch_via_proxy};
 
 /// `host:port` of a live forward proxy, or `None` to skip.
@@ -70,9 +72,9 @@ macro_rules! skip_unless_squid {
         match squid() {
             Some(v) => v,
             None => {
-                println!(
-                    "[t22-e2e] SKIPPED: set MW_T22_SQUID=host:port to a live forward proxy \
-                     (docker run -d -p 3128:3128 ubuntu/squid:latest). Nothing was verified."
+                common::gate::skip(
+                    "[t22-e2e] set MW_T22_SQUID=host:port to a live forward proxy \
+                     (docker run -d -p 3128:3128 ubuntu/squid:latest). Nothing was verified.",
                 );
                 return;
             }

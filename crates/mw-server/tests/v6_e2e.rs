@@ -68,12 +68,12 @@ macro_rules! require_pg {
         match pg_dsn() {
             Some(dsn) => dsn,
             None => {
-                eprintln!(
-                    "\n[e13 SKIP] {} — MW_E13_PG_DSN (or DATABASE_URL_PG) is unset; \
+                common::gate::skip(format_args!(
+                    "[e13] {} — MW_E13_PG_DSN (or DATABASE_URL_PG) is unset; \
                      the live Postgres+Valkey stack is not up. This scenario is NOT covered \
-                     by this run (CI e2e-v6 covers it). See the test header for bring-up.\n",
+                     by this run (CI e2e-v6 covers it). See the test header for bring-up.",
                     module_path!()
-                );
+                ));
                 return;
             }
         }
@@ -909,9 +909,9 @@ async fn cache_posture_redis_optional_and_down_degrades_live() {
             (true, Some(u))
         }
         None => {
-            eprintln!(
-                "[e13 NOTE] MW_E13_REDIS_URL unset — skipping the live-Valkey leg; \
-                 the Redis-DOWN degradation leg still runs (points at a dead port)."
+            common::gate::skip(
+                "[e13] MW_E13_REDIS_URL unset — the live-Valkey leg is not driven; \
+                 the Redis-DOWN degradation leg still runs (points at a dead port).",
             );
             (false, None)
         }

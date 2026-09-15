@@ -36,6 +36,8 @@ use mw_imap::{Credentials as ImapCredentials, ImapBackend, ImapConfig};
 use mw_smtp::{Outgoing, SubmissionResult};
 use mw_store::{AccountKind, Credentials as StoreCreds, NewAccount, ServerKey, Store};
 
+mod common;
+
 const IMAP_PLAINTEXT: u16 = 3143;
 const USER: &str = "testuser";
 const PASS: &str = "testpass";
@@ -311,8 +313,8 @@ fn assert_thread_invariants(emails: &[serde_json::Value], dialect: &str) {
 #[tokio::test]
 async fn jwz_live_ingest_convergence_sqlite() {
     if !live() {
-        eprintln!(
-            "\n[t13 JWZ SKIP] MW_T13_LIVE!=1 — live ingest not driven (leg 1 corpora still ran).\n"
+        common::gate::skip(
+            "[t13 JWZ] MW_T13_LIVE!=1 — live ingest not driven (leg 1 corpora still ran).",
         );
         return;
     }
@@ -324,10 +326,13 @@ async fn jwz_live_ingest_convergence_sqlite() {
 #[tokio::test]
 async fn jwz_live_ingest_convergence_postgres() {
     if !live() {
+        common::gate::skip("[t13 JWZ] MW_T13_LIVE!=1 — live ingest not driven.");
         return;
     }
-    let Ok(dsn) = std::env::var("MW_E14_PG_DSN") else {
-        eprintln!("\n[t13 JWZ SKIP] MW_E14_PG_DSN unset — Postgres thread-id leg not driven.\n");
+    let Some(dsn) = common::gate::pg_dsn() else {
+        common::gate::skip(
+            "[t13 JWZ] MW_E14_PG_DSN and DATABASE_URL_PG unset — Postgres thread-id leg not driven.",
+        );
         return;
     };
     let store = Store::open(&dsn, ServerKey::generate())

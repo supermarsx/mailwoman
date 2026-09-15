@@ -19,6 +19,8 @@
 //! Dovecot OAUTHBEARER needs an oauth2 introspection backend, so the live token
 //! path is covered at the frame level here and end-to-end by the vector tests.
 
+mod common;
+
 use mw_imap::session::{Credentials, SelectMode, Session};
 use mw_imap::transport::TlsMode;
 
@@ -46,19 +48,21 @@ async fn connect_probe(scenario: &str) -> Option<Session> {
     match Session::connect(&host(), port(), TlsMode::Plaintext).await {
         Ok(mut s) => {
             if let Err(e) = s.probe_capabilities().await {
-                eprintln!("\n[t12 IMAP SKIP] {scenario}: CAPABILITY probe failed ({e}).");
+                common::gate::skip(format_args!(
+                    "[t12 IMAP] {scenario}: CAPABILITY probe failed ({e})."
+                ));
                 return None;
             }
             Some(s)
         }
         Err(e) => {
-            eprintln!(
-                "\n[t12 IMAP SKIP] {scenario}: Dovecot-SASL unreachable at {}:{} ({e}). \
+            common::gate::skip(format_args!(
+                "[t12 IMAP] {scenario}: Dovecot-SASL unreachable at {}:{} ({e}). \
                  Bring it up: docker compose -f docker-compose.ci.yml up -d --wait \
-                 dovecot-sasl ; then MW_IMAP_LIVE=1 cargo test -p mw-server --test t12_sasl.\n",
+                 dovecot-sasl ; then MW_IMAP_LIVE=1 cargo test -p mw-server --test t12_sasl.",
                 host(),
                 port()
-            );
+            ));
             None
         }
     }
@@ -68,8 +72,8 @@ async fn connect_probe(scenario: &str) -> Option<Session> {
 #[tokio::test]
 async fn imap_scram_sha256_login_live() {
     if !live() {
-        eprintln!(
-            "\n[t12 IMAP SKIP] MW_IMAP_LIVE!=1 — real Dovecot SCRAM not driven. See module doc.\n"
+        common::gate::skip(
+            "[t12 IMAP] MW_IMAP_LIVE!=1 — real Dovecot SCRAM not driven. See module doc.",
         );
         return;
     }
@@ -110,6 +114,7 @@ async fn imap_scram_sha256_login_live() {
 #[tokio::test]
 async fn imap_scram_wrong_password_rejected_live() {
     if !live() {
+        common::gate::skip("[t12 IMAP] MW_IMAP_LIVE!=1 — real Dovecot SCRAM not driven.");
         return;
     }
     let Some(mut session) = connect_probe("imap_scram_wrong_password_rejected_live").await else {

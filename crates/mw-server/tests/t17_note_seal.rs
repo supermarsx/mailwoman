@@ -318,9 +318,9 @@ async fn store_open_backfill_seals_a_legacy_plaintext_row_and_is_idempotent_sqli
 
 #[tokio::test]
 async fn note_metadata_is_sealed_at_rest_and_backfilled_on_live_postgres() {
-    let Ok(dsn) = std::env::var("MW_E14_PG_DSN") else {
-        eprintln!(
-            "\n[t17 note-seal SKIP] MW_E14_PG_DSN unset — C8 sealing + backfill not exercised on live Postgres.\n"
+    let Some(dsn) = common::gate::pg_dsn() else {
+        common::gate::skip(
+            "[t17 note-seal] MW_E14_PG_DSN and DATABASE_URL_PG unset — C8 sealing + backfill not exercised on live Postgres.",
         );
         return;
     };

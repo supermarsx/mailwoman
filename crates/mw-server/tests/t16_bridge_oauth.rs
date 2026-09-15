@@ -81,9 +81,9 @@ async fn bridge_oauth_tokens_are_sealed_on_the_real_store_sqlite() {
 
 #[tokio::test]
 async fn bridge_oauth_token_round_trips_on_live_postgres() {
-    let Ok(dsn) = std::env::var("MW_E14_PG_DSN") else {
-        eprintln!(
-            "\n[t16 bridge-oauth SKIP] MW_E14_PG_DSN unset — 0018 SQL + seal not exercised on live Postgres.\n"
+    let Some(dsn) = common::gate::pg_dsn() else {
+        common::gate::skip(
+            "[t16 bridge-oauth] MW_E14_PG_DSN and DATABASE_URL_PG unset — 0018 SQL + seal not exercised on live Postgres.",
         );
         return;
     };

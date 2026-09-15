@@ -50,6 +50,8 @@
 //!   docker compose -f docker-compose.ci.yml up -d --wait dovecot-t13 dovecot-t13-sha512
 //!   MW_T13_TLS_LIVE=1 cargo test -p mw-server --test t13_scram_plus -- --nocapture
 
+mod common;
+
 use std::sync::Arc;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -137,12 +139,12 @@ async fn tls_connect(port: u16) -> Option<(TlsStream<TcpStream>, Vec<u8>)> {
     let tcp = match TcpStream::connect((h.as_str(), port)).await {
         Ok(t) => t,
         Err(e) => {
-            eprintln!(
-                "\n[t13 SCRAM-PLUS SKIP] dovecot-t13 unreachable at {h}:{port} ({e}). Bring it up: \
+            common::gate::skip(format_args!(
+                "[t13 SCRAM-PLUS] dovecot-t13 unreachable at {h}:{port} ({e}). Bring it up: \
                  scripts/dovecot-t13/gen-certs.sh ; docker compose -f docker-compose.ci.yml up -d \
                  --wait dovecot-t13 dovecot-t13-sha512 ; MW_T13_TLS_LIVE=1 cargo test -p mw-server \
-                 --test t13_scram_plus.\n"
-            );
+                 --test t13_scram_plus."
+            ));
             return None;
         }
     };
@@ -214,7 +216,7 @@ async fn imap_authenticate(
 #[tokio::test]
 async fn imap_tls_server_end_point_binding_sha256_cert_live() {
     if !live() {
-        eprintln!("\n[t13 SCRAM-PLUS SKIP] MW_T13_TLS_LIVE!=1 — real CB Dovecot not driven.\n");
+        common::gate::skip("[t13 SCRAM-PLUS] MW_T13_TLS_LIVE!=1 — real CB Dovecot not driven.");
         return;
     }
     let Some((mut s, leaf)) = tls_connect(IMAPS_SHA256).await else {
@@ -244,6 +246,7 @@ async fn imap_tls_server_end_point_binding_sha256_cert_live() {
 #[tokio::test]
 async fn imap_tls_server_end_point_binding_sha512_cert_live() {
     if !live() {
+        common::gate::skip("[t13 SCRAM-PLUS] MW_T13_TLS_LIVE!=1 — real CB Dovecot not driven.");
         return;
     }
     let Some((mut s, leaf)) = tls_connect(IMAPS_SHA512).await else {
@@ -269,6 +272,7 @@ async fn imap_tls_server_end_point_binding_sha512_cert_live() {
 #[tokio::test]
 async fn imap_scram_plus_dovecot_lacks_tls_server_end_point_live() {
     if !live() {
+        common::gate::skip("[t13 SCRAM-PLUS] MW_T13_TLS_LIVE!=1 — real CB Dovecot not driven.");
         return;
     }
     let Some((mut s, leaf)) = tls_connect(IMAPS_SHA256).await else {
@@ -297,6 +301,7 @@ async fn imap_scram_plus_dovecot_lacks_tls_server_end_point_live() {
 #[tokio::test]
 async fn pop3_tls_server_end_point_binding_and_cbind_gap_live() {
     if !live() {
+        common::gate::skip("[t13 SCRAM-PLUS] MW_T13_TLS_LIVE!=1 — real CB Dovecot not driven.");
         return;
     }
     let Some((mut s, leaf)) = tls_connect(POP3S_SHA256).await else {

@@ -17,6 +17,8 @@
 //!   docker compose -f docker-compose.ci.yml up -d --wait dovecot-sasl
 //!   MW_IMAP_LIVE=1 cargo test -p mw-server --test t12_imap_sort_thread -- --nocapture
 
+mod common;
+
 use mw_imap::session::{
     Credentials, SelectMode, Session, SortCriterion, SortKey, ThreadAlgorithm, ThreadNode,
 };
@@ -40,12 +42,12 @@ async fn logged_in(scenario: &str) -> Option<Session> {
     let mut session = match Session::connect(&host(), port(), TlsMode::Plaintext).await {
         Ok(s) => s,
         Err(e) => {
-            eprintln!(
-                "\n[t12 SORT/THREAD SKIP] {scenario}: Dovecot-SASL unreachable at {}:{} ({e}). \
-                 up -d --wait dovecot-sasl ; MW_IMAP_LIVE=1.\n",
+            common::gate::skip(format_args!(
+                "[t12 SORT/THREAD] {scenario}: Dovecot-SASL unreachable at {}:{} ({e}). \
+                 up -d --wait dovecot-sasl ; MW_IMAP_LIVE=1.",
                 host(),
                 port()
-            );
+            ));
             return None;
         }
     };
@@ -74,14 +76,14 @@ fn flatten(nodes: &[ThreadNode], out: &mut Vec<u32>) {
 #[tokio::test]
 async fn imap_uid_sort_live() {
     if !live() {
-        eprintln!("\n[t12 SORT/THREAD SKIP] MW_IMAP_LIVE!=1 — see module doc.\n");
+        common::gate::skip("[t12 SORT/THREAD] MW_IMAP_LIVE!=1 — see module doc.");
         return;
     }
     let Some(mut s) = logged_in("imap_uid_sort_live").await else {
         return;
     };
     if !s.backend_caps().sort {
-        eprintln!("\n[t12 SORT SKIP] server does not advertise SORT.\n");
+        common::gate::skip("[t12 SORT] server does not advertise SORT.");
         return;
     }
 
@@ -127,13 +129,14 @@ async fn imap_uid_sort_live() {
 #[tokio::test]
 async fn imap_uid_thread_references_live() {
     if !live() {
+        common::gate::skip("[t12 SORT/THREAD] MW_IMAP_LIVE!=1 — real Dovecot not driven.");
         return;
     }
     let Some(mut s) = logged_in("imap_uid_thread_references_live").await else {
         return;
     };
     if !s.backend_caps().thread_references {
-        eprintln!("\n[t12 THREAD SKIP] server does not advertise THREAD=REFERENCES.\n");
+        common::gate::skip("[t12 THREAD] server does not advertise THREAD=REFERENCES.");
         return;
     }
 

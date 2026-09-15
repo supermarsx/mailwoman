@@ -200,9 +200,9 @@ async fn plugin_kv_persists_across_restart_sqlite() {
 
 #[tokio::test]
 async fn plugin_kv_persists_across_restart_postgres() {
-    let Ok(dsn) = std::env::var("MW_E14_PG_DSN") else {
-        eprintln!(
-            "\n[t15 plugin-kv SKIP] MW_E14_PG_DSN unset — live Postgres KV persistence not driven.\n"
+    let Some(dsn) = common::gate::pg_dsn() else {
+        common::gate::skip(
+            "[t15 plugin-kv] MW_E14_PG_DSN and DATABASE_URL_PG unset — live Postgres KV persistence not driven.",
         );
         return;
     };

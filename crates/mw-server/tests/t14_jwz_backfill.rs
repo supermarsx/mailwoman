@@ -304,8 +304,10 @@ async fn jwz_backfill_endpoint_converges_and_idempotent_sqlite() {
 
 #[tokio::test]
 async fn jwz_backfill_endpoint_converges_and_idempotent_postgres() {
-    let Ok(dsn) = std::env::var("MW_E14_PG_DSN") else {
-        eprintln!("\n[t14 JWZ SKIP] MW_E14_PG_DSN unset — live Postgres backfill not driven.\n");
+    let Some(dsn) = common::gate::pg_dsn() else {
+        common::gate::skip(
+            "[t14 JWZ] MW_E14_PG_DSN and DATABASE_URL_PG unset — live Postgres backfill not driven.",
+        );
         return;
     };
     drive(&dsn, "postgres").await;

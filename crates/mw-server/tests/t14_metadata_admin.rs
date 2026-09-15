@@ -156,7 +156,7 @@ async fn admin_jmap(c: &reqwest::Client, base: &str, cookie: &str, call: Value) 
 #[tokio::test]
 async fn admin_server_metadata_set_get_remove_roundtrip_live() {
     if !live() {
-        eprintln!("\n[t14 metadata SKIP] MW_T14_LIVE!=1 — real Dovecot METADATA not driven.\n");
+        common::gate::skip("[t14 metadata] MW_T14_LIVE!=1 — real Dovecot METADATA not driven.");
         return;
     }
     let db = test_db::unique_db_path("mw-t14-md");

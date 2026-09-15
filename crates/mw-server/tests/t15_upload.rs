@@ -429,9 +429,9 @@ async fn upload_gc_reclaims_aged_only_sqlite() {
 
 #[tokio::test]
 async fn upload_round_trip_and_send_postgres() {
-    let Ok(dsn) = std::env::var("MW_E14_PG_DSN") else {
-        eprintln!(
-            "\n[t15 upload SKIP] MW_E14_PG_DSN unset — live Postgres upload round-trip not driven.\n"
+    let Some(dsn) = common::gate::pg_dsn() else {
+        common::gate::skip(
+            "[t15 upload] MW_E14_PG_DSN and DATABASE_URL_PG unset — live Postgres upload round-trip not driven.",
         );
         return;
     };
@@ -445,8 +445,10 @@ async fn upload_round_trip_and_send_postgres() {
 
 #[tokio::test]
 async fn upload_gc_reclaims_aged_only_postgres() {
-    let Ok(dsn) = std::env::var("MW_E14_PG_DSN") else {
-        eprintln!("\n[t15 upload gc SKIP] MW_E14_PG_DSN unset — live Postgres gc not driven.\n");
+    let Some(dsn) = common::gate::pg_dsn() else {
+        common::gate::skip(
+            "[t15 upload gc] MW_E14_PG_DSN and DATABASE_URL_PG unset — live Postgres gc not driven.",
+        );
         return;
     };
     let root = temp_root("gc-pg");

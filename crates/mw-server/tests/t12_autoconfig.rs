@@ -10,6 +10,8 @@
 //! public `_imaps._tcp` SRV via the shipped `ReqwestFetcher` (hickory) — loud-skip
 //! offline.
 
+mod common;
+
 use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -137,16 +139,18 @@ async fn srv_rung_builds_candidate() {
 #[tokio::test]
 async fn live_srv_resolves_public_record() {
     if std::env::var("MW_AUTOCONFIG_LIVE_DNS").ok().as_deref() != Some("1") {
-        eprintln!(
-            "\n[t12 AUTOCONFIG SKIP] MW_AUTOCONFIG_LIVE_DNS!=1 — real DNS SRV not queried \
-             (deterministic legs cover the ladder). Set it to resolve a public SRV.\n"
+        common::gate::skip(
+            "[t12 AUTOCONFIG] MW_AUTOCONFIG_LIVE_DNS!=1 — real DNS SRV not queried \
+             (deterministic legs cover the ladder). Set it to resolve a public SRV.",
         );
         return;
     }
     let fetcher = match mw_autoconfig::ReqwestFetcher::new() {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("\n[t12 AUTOCONFIG SKIP] could not build the live resolver: {e}\n");
+            common::gate::skip(format_args!(
+                "[t12 AUTOCONFIG] could not build the live resolver: {e}"
+            ));
             return;
         }
     };

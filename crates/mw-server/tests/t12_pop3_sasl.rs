@@ -11,6 +11,8 @@
 //!   docker compose -f docker-compose.ci.yml up -d --wait dovecot-sasl
 //!   MW_POP3_LIVE=1 cargo test -p mw-server --test t12_pop3_sasl -- --nocapture
 
+mod common;
+
 use std::time::Duration;
 
 use mw_pop3::conn::Pop3Conn;
@@ -45,10 +47,10 @@ fn config(secret: &str) -> Pop3Config {
 #[tokio::test]
 async fn pop3_scram_sha256_login_live() {
     if !live() {
-        eprintln!(
-            "\n[t12 POP3 SKIP] MW_POP3_LIVE!=1 — real Dovecot POP3 SCRAM not driven. Bring it up: \
+        common::gate::skip(
+            "[t12 POP3] MW_POP3_LIVE!=1 — real Dovecot POP3 SCRAM not driven. Bring it up: \
              docker compose -f docker-compose.ci.yml up -d --wait dovecot-sasl ; then \
-             MW_POP3_LIVE=1 cargo test -p mw-server --test t12_pop3_sasl.\n"
+             MW_POP3_LIVE=1 cargo test -p mw-server --test t12_pop3_sasl.",
         );
         return;
     }
@@ -56,12 +58,12 @@ async fn pop3_scram_sha256_login_live() {
     let mut conn = match Pop3Conn::open(&config("testpass")).await {
         Ok(c) => c,
         Err(e) => {
-            eprintln!(
-                "\n[t12 POP3 SKIP] pop3_scram_sha256_login_live: could not open/auth at {}:{} \
-                 ({e}). Is dovecot-sasl up?\n",
+            common::gate::skip(format_args!(
+                "[t12 POP3] pop3_scram_sha256_login_live: could not open/auth at {}:{} \
+                 ({e}). Is dovecot-sasl up?",
                 host(),
                 port()
-            );
+            ));
             return;
         }
     };
@@ -81,6 +83,7 @@ async fn pop3_scram_sha256_login_live() {
 #[tokio::test]
 async fn pop3_scram_wrong_password_rejected_live() {
     if !live() {
+        common::gate::skip("[t12 POP3] MW_POP3_LIVE!=1 — real Dovecot POP3 SCRAM not driven.");
         return;
     }
     // Only meaningful when the server is actually reachable; a transport error would

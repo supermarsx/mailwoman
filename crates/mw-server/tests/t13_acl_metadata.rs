@@ -20,6 +20,8 @@
 //!   docker compose -f docker-compose.ci.yml up -d --wait dovecot-t13
 //!   MW_T13_LIVE=1 cargo test -p mw-server --test t13_acl_metadata -- --nocapture --test-threads=1
 
+mod common;
+
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -72,11 +74,11 @@ async fn login_session(scenario: &str) -> Option<Session> {
             Some(s)
         }
         Err(e) => {
-            eprintln!(
-                "\n[t13 ACL/METADATA SKIP] {scenario}: dovecot-t13 unreachable at {}:{IMAP_PLAINTEXT} \
-                 ({e}). Bring it up: docker compose -f docker-compose.ci.yml up -d --wait dovecot-t13.\n",
+            common::gate::skip(format_args!(
+                "[t13 ACL/METADATA] {scenario}: dovecot-t13 unreachable at {}:{IMAP_PLAINTEXT} \
+                 ({e}). Bring it up: docker compose -f docker-compose.ci.yml up -d --wait dovecot-t13.",
                 host()
-            );
+            ));
             None
         }
     }
@@ -86,7 +88,7 @@ async fn login_session(scenario: &str) -> Option<Session> {
 #[tokio::test]
 async fn session_acl_roundtrip_and_deleteacl_is_gone() {
     if !live() {
-        eprintln!("\n[t13 ACL/METADATA SKIP] MW_T13_LIVE!=1 — real Dovecot not driven.\n");
+        common::gate::skip("[t13 ACL/METADATA] MW_T13_LIVE!=1 — real Dovecot not driven.");
         return;
     }
     let Some(mut s) = login_session("session_acl_roundtrip").await else {
@@ -147,6 +149,7 @@ async fn session_acl_roundtrip_and_deleteacl_is_gone() {
 #[tokio::test]
 async fn session_metadata_roundtrip_mailbox_and_server_level() {
     if !live() {
+        common::gate::skip("[t13 ACL/METADATA] MW_T13_LIVE!=1 — real Dovecot not driven.");
         return;
     }
     let Some(mut s) = login_session("session_metadata_roundtrip").await else {
@@ -219,7 +222,9 @@ async fn engine_with_live_backend() -> Option<(Arc<Engine>, String, String)> {
     let backend = match ImapBackend::connect(cfg).await {
         Ok(b) => b,
         Err(e) => {
-            eprintln!("\n[t13 ACL/METADATA SKIP] engine backend connect failed: {e}\n");
+            common::gate::skip(format_args!(
+                "[t13 ACL/METADATA] engine backend connect failed: {e}"
+            ));
             return None;
         }
     };
@@ -278,6 +283,7 @@ async fn jmap(engine: &Engine, account_id: &str, method: &str, args: Value) -> V
 #[tokio::test]
 async fn engine_mailbox_rights_grant_then_revoke_deleteacl() {
     if !live() {
+        common::gate::skip("[t13 ACL/METADATA] MW_T13_LIVE!=1 — real Dovecot not driven.");
         return;
     }
     let Some((engine, account_id, mailbox_id)) = engine_with_live_backend().await else {
@@ -362,6 +368,7 @@ async fn engine_mailbox_rights_grant_then_revoke_deleteacl() {
 #[tokio::test]
 async fn engine_server_metadata_set_get_and_remove() {
     if !live() {
+        common::gate::skip("[t13 ACL/METADATA] MW_T13_LIVE!=1 — real Dovecot not driven.");
         return;
     }
     let Some((engine, account_id, _mailbox_id)) = engine_with_live_backend().await else {

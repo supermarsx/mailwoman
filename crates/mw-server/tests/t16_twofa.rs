@@ -553,9 +553,9 @@ async fn totp_secret_and_recovery_are_sealed_on_the_real_store_sqlite() {
 
 #[tokio::test]
 async fn twofa_secrets_round_trip_on_live_postgres() {
-    let Ok(dsn) = std::env::var("MW_E14_PG_DSN") else {
-        eprintln!(
-            "\n[t16 2fa SKIP] MW_E14_PG_DSN unset — 0015 SQL + seal not exercised on live Postgres.\n"
+    let Some(dsn) = common::gate::pg_dsn() else {
+        common::gate::skip(
+            "[t16 2fa] MW_E14_PG_DSN and DATABASE_URL_PG unset — 0015 SQL + seal not exercised on live Postgres.",
         );
         return;
     };

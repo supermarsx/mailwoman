@@ -217,9 +217,9 @@ async fn third_party_trust_store_positive_and_negatives_sqlite() {
 
 #[tokio::test]
 async fn third_party_trust_store_positive_and_negatives_postgres() {
-    let Ok(dsn) = std::env::var("MW_E14_PG_DSN") else {
-        eprintln!(
-            "\n[t15 third-party SKIP] MW_E14_PG_DSN unset — live Postgres 0014 allowlist not driven.\n"
+    let Some(dsn) = common::gate::pg_dsn() else {
+        common::gate::skip(
+            "[t15 third-party] MW_E14_PG_DSN and DATABASE_URL_PG unset — live Postgres 0014 allowlist not driven.",
         );
         return;
     };

@@ -3,7 +3,12 @@
 //! Cargo does not build `tests/common/mod.rs` as a test target of its own, so
 //! this file is only ever compiled into the binaries that say `mod common;`.
 //!
-//! Its whole job is to make one helper reachable. `crates/mw-store/src/test_db.rs`
+//! It carries two things. The first is [`gate`]: `gate::pg_dsn`, the Postgres DSN
+//! lookup the PG legs use, and `gate::skip`, which every env-gated leg calls when it
+//! does not run so the gate log shows it. See `gate.rs` for why a skip has to bypass libtest's
+//! output capture.
+//!
+//! The second is a bridge to one helper. `crates/mw-store/src/test_db.rs`
 //! hands out temporary SQLite paths that are unique by construction; it lives
 //! in `mw-store/src` so that `mw-store`'s own tests can use it too, but it is
 //! deliberately not declared in `mw-store`'s `lib.rs` — test-support code has no
@@ -18,12 +23,19 @@
 //! use common::test_db;
 //!
 //! let db = test_db::unique_db_path("mw-t19-example");
+//!
+//! let Some(dsn) = common::gate::pg_dsn() else {
+//!     common::gate::skip("MW_E14_PG_DSN and DATABASE_URL_PG unset — Postgres leg not driven.");
+//!     return;
+//! };
 //! ```
 //!
-//! The guarantees `test_db` makes are exercised once, by the sibling `common`
-//! test target in `main.rs`.
+//! The guarantees `test_db` and `gate` make are exercised once, by the sibling
+//! `common` test target in `main.rs`.
 
 #![allow(dead_code)] // No single test binary uses every helper.
+
+pub mod gate;
 
 #[path = "../../../mw-store/src/test_db.rs"]
 pub mod test_db;

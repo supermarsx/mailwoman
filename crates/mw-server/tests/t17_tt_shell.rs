@@ -71,11 +71,11 @@ fn entry_src(html: &str) -> Option<String> {
 async fn shipped_bundle_is_served_under_enforced_trusted_types_and_registers_the_default_policy() {
     let dist = dist_dir();
     if !dist.join("index.html").exists() {
-        eprintln!(
-            "\n[t17 TT SKIP] {} not built (no apps/web/dist/index.html) — build the web \
-             SPA (pnpm -C apps/web build) to exercise the served-artifact TT boot.\n",
+        common::gate::skip(format_args!(
+            "[t17 TT] {} not built (no apps/web/dist/index.html) — build the web \
+             SPA (pnpm -C apps/web build) to exercise the served-artifact TT boot.",
             dist.display()
-        );
+        ));
         return;
     }
 

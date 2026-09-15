@@ -47,9 +47,9 @@ fn server_base() -> String {
 /// Skip guard: true when the live stack isn't requested/reachable (prints loudly).
 async fn skipped() -> bool {
     if std::env::var("MW_SSO_LIVE").ok().as_deref() != Some("1") {
-        eprintln!(
-            "\n[t9-e6 SKIP] MW_SSO_LIVE!=1 — live SSO harness not run. Bring up Keycloak \
-             (docker compose -f docker-compose.ci.yml up -d keycloak) and set MW_SSO_LIVE=1.\n"
+        common::gate::skip(
+            "[t9-e6] MW_SSO_LIVE!=1 — live SSO harness not run. Bring up Keycloak \
+             (docker compose -f docker-compose.ci.yml up -d keycloak) and set MW_SSO_LIVE=1.",
         );
         return true;
     }
@@ -57,10 +57,10 @@ async fn skipped() -> bool {
     match reqwest::get(&discovery).await {
         Ok(r) if r.status().is_success() => false,
         other => {
-            eprintln!(
-                "\n[t9-e6 SKIP] Keycloak discovery unreachable at {discovery}: {other:?}. \
-                 Start the stack + wait-for-keycloak.sh.\n"
-            );
+            common::gate::skip(format_args!(
+                "[t9-e6] Keycloak discovery unreachable at {discovery}: {other:?}. \
+                 Start the stack + wait-for-keycloak.sh."
+            ));
             true
         }
     }
@@ -188,8 +188,8 @@ async fn seed_into(db: &str, saml_cert_pem: &str) {
 #[tokio::test(flavor = "multi_thread")]
 async fn seed_standing_db() {
     let Ok(path) = std::env::var("MW_SSO_SEED_DB") else {
-        eprintln!(
-            "[t9-e6] MW_SSO_SEED_DB unset — standing-db seeder skipped (used by the SSO-E2E job)."
+        common::gate::skip(
+            "[t9-e6] MW_SSO_SEED_DB unset — standing-db seeder not run (used by the SSO-E2E job).",
         );
         return;
     };

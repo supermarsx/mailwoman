@@ -66,9 +66,10 @@ fn db_target() -> (String, bool) {
         eprintln!("[t12 ews_auth] running the store leg against LIVE Postgres (0011 + bool-bind)");
         (dsn, true)
     } else {
-        eprintln!(
-            "[t12 ews_auth] MW_E14_PG_DSN unset — store leg on SQLite only. Set it (bring up \
-             docker-compose.ci.yml postgres) to also exercise 0011 on Postgres."
+        common::gate::skip(
+            "[t12 ews_auth] MW_E14_PG_DSN and DATABASE_URL_PG unset — Postgres store leg not \
+             driven, running on SQLite only. Set one (bring up \
+             docker-compose.ci.yml postgres) to also exercise 0011 on Postgres.",
         );
         let p = test_db::unique_db_path("mw-t12-ews");
         (p.to_string_lossy().into_owned(), false)
@@ -84,10 +85,10 @@ async fn seed_basic_account() -> Option<(Store, String)> {
         Ok(s) => s,
         Err(e) => {
             if on_pg {
-                eprintln!(
-                    "\n[t12 ews_auth SKIP] could not open/migrate Postgres at the DSN ({e}). Is \
-                     docker-compose.ci.yml postgres up?\n"
-                );
+                common::gate::skip(format_args!(
+                    "[t12 ews_auth] could not open/migrate Postgres at the DSN ({e}). Is \
+                     docker-compose.ci.yml postgres up?"
+                ));
                 return None;
             }
             panic!("open sqlite store: {e}");

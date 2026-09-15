@@ -307,9 +307,9 @@ async fn threading_groups_real_jwz_data_sqlite() {
 
 #[tokio::test]
 async fn threading_groups_real_jwz_data_postgres() {
-    let Ok(dsn) = std::env::var("MW_E14_PG_DSN") else {
-        eprintln!(
-            "\n[t16 threading SKIP] MW_E14_PG_DSN unset — JWZ threading not driven on live Postgres.\n"
+    let Some(dsn) = common::gate::pg_dsn() else {
+        common::gate::skip(
+            "[t16 threading] MW_E14_PG_DSN and DATABASE_URL_PG unset — JWZ threading not driven on live Postgres.",
         );
         return;
     };

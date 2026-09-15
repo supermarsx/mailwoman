@@ -21,6 +21,8 @@
 //!   docker compose -f docker-compose.ci.yml up -d --wait dovecot-t13
 //!   MW_T13_LIVE=1 cargo test -p mw-server --test t13_geoip -- --nocapture --test-threads=1
 
+mod common;
+
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -75,7 +77,7 @@ async fn geo_received_hops() -> Option<Vec<Value>> {
     let backend = match ImapBackend::connect(cfg).await {
         Ok(b) => b,
         Err(e) => {
-            eprintln!("\n[t13 GeoIP SKIP] dovecot-t13 unreachable ({e}).\n");
+            common::gate::skip(format_args!("[t13 GeoIP] dovecot-t13 unreachable ({e})."));
             return None;
         }
     };
@@ -164,7 +166,7 @@ async fn geo_received_hops() -> Option<Vec<Value>> {
 #[tokio::test]
 async fn geoip_asn_surfaces_in_received_hop() {
     if !live() {
-        eprintln!("\n[t13 GeoIP SKIP] MW_T13_LIVE!=1 — live ingest not driven.\n");
+        common::gate::skip("[t13 GeoIP] MW_T13_LIVE!=1 — live ingest not driven.");
         return;
     }
     unsafe {
@@ -188,6 +190,7 @@ async fn geoip_asn_surfaces_in_received_hop() {
 #[tokio::test]
 async fn geoip_country_surfaces_in_received_hop() {
     if !live() {
+        common::gate::skip("[t13 GeoIP] MW_T13_LIVE!=1 — live ingest not driven.");
         return;
     }
     unsafe {

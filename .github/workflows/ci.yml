@@ -193,6 +193,10 @@ jobs:
       #   1. `cargo fmt --all --check`            (above)
       #   2. `--lib --tests -- --test-threads=1`  (below)
       #   3. `--doc`                              (below)
+      # Leg 3 is a compile check of doc examples, not a test leg: across the 39
+      # doc targets it runs 0 doctests and ignores 1 (t23-e9-09). It exits 0 while
+      # asserting nothing, so its step name says so; rename it if doc examples that
+      # assert something are added. See docs/testing/coverage.md.
       # Combining 2 and 3 exits 1 on a doctest artifact even when every test
       # passes: `cargo test` activates dev-dependencies, which enable extra
       # features on shared crates, so the doctest phase can resolve a different
@@ -205,7 +209,7 @@ jobs:
       # per-test unique temp DB has proven itself, that flag can be dropped.
       - name: test (lib + integration; --test-threads=1)
         run: cargo test --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile --lib --tests -- --test-threads=1
-      - name: doctests (separate invocation — see above)
+      - name: doc examples (a compile check, not a test leg; separate invocation — see above)
         run: cargo test --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile --doc
       - name: build
         run: cargo build --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile
@@ -309,7 +313,7 @@ jobs:
       # These legs run the gate they will have to pass once promoted to required.
       - name: test (lib + integration; --test-threads=1)
         run: cargo test --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile --lib --tests -- --test-threads=1
-      - name: doctests (separate invocation — see the `rust` job)
+      - name: doc examples (a compile check, not a test leg; separate invocation — see the `rust` job)
         run: cargo test --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile --doc
       - name: build
         run: cargo build --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile

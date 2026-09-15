@@ -35,6 +35,8 @@
 //! Override the URL with `MW_E16_LDAP_URL`; when LDAP is unreachable the directory /
 //! ldap-passwd scenarios **skip loudly** (never silently) so CI-without-docker is green.
 
+mod common;
+
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -64,15 +66,17 @@ async fn ldap_reachable(scenario: &str) -> bool {
             let ok = ldap.simple_bind(LDAP_ADMIN_DN, LDAP_ADMIN_PW).await.is_ok();
             let _ = ldap.unbind().await;
             if !ok {
-                eprintln!("\n[e16 SKIP] {scenario}: LDAP at {url} did not accept the admin bind.");
+                common::gate::skip(format_args!(
+                    "[e16] {scenario}: LDAP at {url} did not accept the admin bind."
+                ));
             }
             ok
         }
         Err(e) => {
-            eprintln!(
-                "\n[e16 SKIP] {scenario}: OpenLDAP unreachable at {url} ({e}). \
+            common::gate::skip(format_args!(
+                "[e16] {scenario}: OpenLDAP unreachable at {url} ({e}). \
                  Start it with the docker command in the module doc, or set MW_E16_LDAP_URL."
-            );
+            ));
             false
         }
     }

@@ -15,6 +15,12 @@
 #[path = "../../../mw-store/src/test_db.rs"]
 mod test_db;
 
+// `pg_dsn` and `skip` read the process environment; their logic is asserted here
+// through `pg_dsn_from` and `skip_line`, which is why the two are unused.
+#[allow(dead_code)]
+#[path = "gate.rs"]
+mod gate;
+
 use std::collections::HashSet;
 
 #[test]
@@ -137,6 +143,84 @@ fn concurrent_dir_allocation_never_collides() {
     for d in &dirs {
         std::fs::remove_dir_all(d).ok();
     }
+}
+
+#[test]
+fn pg_dsn_prefers_e14_then_falls_back_to_database_url_pg() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |name: &str| {
+            pairs
+                .iter()
+                .find(|(k, _)| *k == name)
+                .map(|(_, v)| v.to_string())
+        }
+    };
+    assert_eq!(gate::pg_dsn_from(env(&[])), None);
+    assert_eq!(
+        gate::pg_dsn_from(env(&[("DATABASE_URL_PG", "pg://ci")])).as_deref(),
+        Some("pg://ci"),
+        "CI's store-dual-backend sets only DATABASE_URL_PG; a PG leg must find it"
+    );
+    assert_eq!(
+        gate::pg_dsn_from(env(&[
+            ("MW_E14_PG_DSN", "pg://e14"),
+            ("DATABASE_URL_PG", "pg://ci")
+        ]))
+        .as_deref(),
+        Some("pg://e14")
+    );
+    assert_eq!(
+        gate::pg_dsn_from(env(&[
+            ("MW_E14_PG_DSN", " "),
+            ("DATABASE_URL_PG", "pg://ci")
+        ]))
+        .as_deref(),
+        Some("pg://ci"),
+        "an empty MW_E14_PG_DSN counts as unset"
+    );
+    assert_eq!(gate::pg_dsn_from(env(&[("DATABASE_URL_PG", "")])), None);
+}
+
+#[test]
+fn skip_line_names_the_test_and_call_site_on_one_line() {
+    assert_eq!(
+        gate::skip_line(
+            Some("leg_postgres"),
+            "crates/mw-server/tests/t15_upload.rs",
+            432,
+            "\n[t15 upload] MW_E14_PG_DSN unset —\n   not driven.\n"
+        ),
+        "SKIPPED leg_postgres (t15_upload.rs:432): [t15 upload] MW_E14_PG_DSN unset — not driven."
+    );
+    assert_eq!(
+        gate::skip_line(Some("main"), r"tests\t12_sasl.rs", 7, "why"),
+        "SKIPPED (t12_sasl.rs:7): why"
+    );
+}
+
+#[test]
+fn skips_are_reported_through_the_shared_helper() {
+    // The spelling every env-gated leg used before `common::gate::skip` existed. It went
+    // through `eprintln!`, which libtest captures for a passing test. This catches a
+    // new leg copying that pattern; it does not claim to recognise every early return.
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+    let mut offenders = Vec::new();
+    for entry in std::fs::read_dir(&dir).expect("read tests/") {
+        let path = entry.expect("dir entry").path();
+        if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).expect("read test file");
+        for (n, line) in text.lines().enumerate() {
+            if line.contains("SKIP]") || line.contains("SKIPPED:") {
+                offenders.push(format!("{}:{}", path.display(), n + 1));
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "report a skipped leg with common::gate::skip(..), not eprintln!: {offenders:#?}"
+    );
 }
 
 #[test]

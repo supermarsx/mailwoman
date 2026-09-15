@@ -57,6 +57,8 @@
 //! runner's NAT behaviour and that comment **before** changing any proxy config or
 //! the trust model.
 
+mod common;
+
 use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
@@ -75,7 +77,7 @@ fn var(key: &str) -> Option<String> {
 }
 
 fn skip(reason: &str) {
-    eprintln!("\n[t20-e11 SKIP] {reason}\n");
+    common::gate::skip(format_args!("[t20-e11] {reason}"));
 }
 
 /// One booted proxy cell.

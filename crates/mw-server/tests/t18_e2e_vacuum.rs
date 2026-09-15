@@ -277,9 +277,9 @@ async fn note_backfill_auto_vacuums_and_cli_reclaims_sqlite() {
 
 #[tokio::test]
 async fn note_backfill_reclaim_runs_on_live_postgres() {
-    let Ok(dsn) = std::env::var("MW_E14_PG_DSN") else {
-        eprintln!(
-            "\n[t18 vacuum SKIP] MW_E14_PG_DSN unset — R2 PG `VACUUM notes` reclaim + CLI not exercised on live Postgres.\n"
+    let Some(dsn) = common::gate::pg_dsn() else {
+        common::gate::skip(
+            "[t18 vacuum] MW_E14_PG_DSN and DATABASE_URL_PG unset — R2 PG `VACUUM notes` reclaim + CLI not exercised on live Postgres.",
         );
         return;
     };

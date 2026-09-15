@@ -19,6 +19,8 @@
 //! external-dependency piece of this row — the S/MIME GAL cert lookup vs a real
 //! directory — is what this file exercises live.
 
+mod common;
+
 use std::sync::Arc;
 
 use ldap3::LdapConnAsync;
@@ -50,19 +52,19 @@ async fn ldap_reachable(scenario: &str) -> bool {
             let ok = ldap.simple_bind(LDAP_ADMIN_DN, LDAP_ADMIN_PW).await.is_ok();
             let _ = ldap.unbind().await;
             if !ok {
-                eprintln!(
-                    "\n[t12 S/MIME SKIP] {scenario}: LDAP admin bind rejected at {}.",
+                common::gate::skip(format_args!(
+                    "[t12 S/MIME] {scenario}: LDAP admin bind rejected at {}.",
                     ldap_url()
-                );
+                ));
             }
             ok
         }
         Err(e) => {
-            eprintln!(
-                "\n[t12 S/MIME SKIP] {scenario}: OpenLDAP unreachable at {} ({e}). Bring it up: \
-                 docker compose -f docker-compose.ci.yml up -d --wait openldap ; then MW_LDAP_LIVE=1.\n",
+            common::gate::skip(format_args!(
+                "[t12 S/MIME] {scenario}: OpenLDAP unreachable at {} ({e}). Bring it up: \
+                 docker compose -f docker-compose.ci.yml up -d --wait openldap ; then MW_LDAP_LIVE=1.",
                 ldap_url()
-            );
+            ));
             false
         }
     }
@@ -87,8 +89,8 @@ fn live_directory() -> Directory {
 #[tokio::test]
 async fn engine_gal_lookup_cert_live() {
     if !live() {
-        eprintln!(
-            "\n[t12 S/MIME SKIP] MW_LDAP_LIVE!=1 — real OpenLDAP not driven. See module doc.\n"
+        common::gate::skip(
+            "[t12 S/MIME] MW_LDAP_LIVE!=1 — real OpenLDAP not driven. See module doc.",
         );
         return;
     }
@@ -142,6 +144,7 @@ async fn engine_gal_lookup_cert_live() {
 #[tokio::test]
 async fn directory_lookup_cert_live() {
     if !live() {
+        common::gate::skip("[t12 S/MIME] MW_LDAP_LIVE!=1 — real OpenLDAP not driven.");
         return;
     }
     if !ldap_reachable("directory_lookup_cert_live").await {

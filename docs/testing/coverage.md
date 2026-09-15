@@ -29,6 +29,79 @@ Concretely, as shipped:
 The distance between the measured baseline and the target is visible in every
 run's job summary. Closing it is ongoing work, not a shipped state.
 
+## What the Rust test gate runs, and what it does not
+
+A green gate is a count of tests that returned without panicking. Several kinds of
+test return early without exercising anything, and before t24 the gate log could
+not tell them apart from tests that ran. Read a gate result with this section.
+
+### The three legs
+
+| leg | what it is |
+|---|---|
+| `cargo fmt --all --check` | formatting |
+| `cargo test --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile --lib --tests -- --test-threads=1` | the test leg |
+| the same selection with `--doc` | **a compile check of doc examples, not a test leg.** At `583746f` it built 39 doc targets and ran **0** doctests, 1 ignored (`mw-egress` `fetch_remote_routed`, t23-e9-09). It exits 0 while asserting nothing. `ci.yml` names the step accordingly. No doc examples were added to raise the count. |
+
+### Skipped legs are printed as `SKIPPED`
+
+Many `crates/mw-server/tests/*.rs` legs need live infrastructure (Postgres,
+Dovecot, Keycloak, OpenLDAP, rspamd/SpamAssassin, Squid, Valkey, real DNS, a built
+SPA, a Linux kernel). When it is not configured they return early and libtest
+reports `ok`. Skipping is still a pass: a missing rig is not a defect in the code
+under test, and a local run without the rigs must stay green.
+
+What changed is that a skip is now visible. Each of those early returns calls
+`common::gate::skip` (`crates/mw-server/tests/common/gate.rs`), which writes one
+line straight to the process's stderr handle:
+
+```text
+SKIPPED upload_round_trip_and_send_postgres (t15_upload.rs:433): [t15 upload] MW_E14_PG_DSN and DATABASE_URL_PG unset — live Postgres upload round-trip not driven.
+```
+
+libtest captures `print!`/`eprint!` for a passing test but not a direct write to
+stderr, so the line appears in the gate log **without `--nocapture`**. The skip
+messages these legs printed before went through `eprintln!` and were visible only
+with `--nocapture` (t23-e9-10); nine files also had later tests that returned with
+no message at all.
+
+- `grep '^SKIPPED ' gate.log` lists what the run did not cover.
+- Set `MW_TEST_SKIP_LOG=<file>` to also append each line to that file, across
+  binaries.
+- A test in the `common` target fails if a test file reintroduces the old
+  `[… SKIP]` / `SKIPPED:` `eprintln!` spelling. It catches that pattern, not every
+  conceivable early return.
+
+For scale: `cargo test -p mw-server --lib --tests -- --test-threads=1` with no gate
+variables set (t24-e4, rustc 1.98.1) reported 72 binaries, 577 passed, 0 failed,
+2 ignored, and printed **77 `SKIPPED` lines**. Those 77 are among the 577 passes.
+
+Not yet covered by the helper: skip paths outside `mw-server`'s integration tests,
+for example the live-Postgres tests in `crates/mw-engine/src/state.rs` and
+`crates/mw-store/tests/backend_parity.rs`, which still print through the captured
+macros.
+
+### Postgres legs
+
+The `mw-server` Postgres legs resolve their database as `MW_E14_PG_DSN`, then
+`DATABASE_URL_PG` (`common::gate::pg_dsn`). `v6_e2e` reads `MW_E13_PG_DSN`, then
+`DATABASE_URL_PG`; `mw-store`'s `backend_parity` reads `DATABASE_URL_PG`, then
+`MW_TEST_PG`. Before t24, twelve legs read only `MW_E14_PG_DSN`, so a run that set
+only `DATABASE_URL_PG` skipped them. To run every Postgres leg, point all four
+variables at a fresh, empty database: the legs share it, and rows one binary leaves
+behind can fail another (t23-e9-08; `t10_dcr` leaves DCR enabled for
+`t11_dcr_admin`).
+
+### Not run by the test leg at all
+
+- **`#[ignore]` tests** (13 attribute sites, t23-e9): live IMAP/POP3/SMTP against
+  Greenmail, live CalDAV/CardDAV against Radicale, live Valkey cache, and two
+  scale benchmarks. They run only with `--include-ignored`.
+- **Linux-only code** (`cfg(target_os = "linux")`: seccomp, Landlock, namespaces,
+  the media jail) on a Windows or macOS host.
+- **Playwright, desktop tauri-driver E2E, ZAP, fuzz and mutation testing** are
+  separate workflows.
+
 ## The ratchet rule
 
 One rule, and it is the whole design:

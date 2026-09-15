@@ -134,7 +134,7 @@ fn shipped_assist_url() -> Option<String> {
 }
 
 fn skip(leg: &str, why: &str) {
-    eprintln!("\n[t19-e2e SKIP] {leg}: {why}\n");
+    common::gate::skip(format_args!("[t19-e2e] {leg}: {why}"));
 }
 
 /// Prove the shipped mock is actually up before any leg claims to have used it.

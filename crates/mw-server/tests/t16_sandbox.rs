@@ -12,6 +12,8 @@
 //! degrading, and `mailwoman doctor`'s posture reports the degraded state plainly
 //! (no-hype). Those are asserted here directly against the real `mw-sandbox` API.
 
+mod common;
+
 use mw_sandbox::{
     JailPolicy, SandboxError, confine_current_process, jail_expected, probe, render_posture,
 };
@@ -147,11 +149,11 @@ fn kernel_jail_syscall_kill_is_linux_ci_only() {
              .github/workflows/t16-conformance.yml (jailed child + blocked syscall)."
         );
     } else {
-        eprintln!(
-            "\n[t16 sandbox SKIP] non-Linux ({}) — kernel jail unavailable; the \
+        common::gate::skip(format_args!(
+            "[t16 sandbox] non-Linux ({}) — kernel jail unavailable; the \
              seccomp/Landlock/namespace syscall-kill proof is Linux-CI-gated. \
-             Fail-closed + degraded-posture are proven above on this platform.\n",
+             Fail-closed + degraded-posture are proven above on this platform.",
             std::env::consts::OS
-        );
+        ));
     }
 }

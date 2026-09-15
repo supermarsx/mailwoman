@@ -46,9 +46,10 @@ fn db_path() -> (String, bool) {
         eprintln!("[t10-e14 dcr] running against LIVE Postgres (the V6 bool-bind lesson)");
         (dsn, true)
     } else {
-        eprintln!(
-            "[t10-e14 dcr] MW_E14_PG_DSN unset — running on SQLite only. Set it (bring up \
-             docker-compose.ci.yml postgres) to also exercise the Postgres path."
+        common::gate::skip(
+            "[t10-e14 dcr] MW_E14_PG_DSN and DATABASE_URL_PG unset — Postgres leg not driven, \
+             running on SQLite only. Set one (bring up \
+             docker-compose.ci.yml postgres) to also exercise the Postgres path.",
         );
         let p = test_db::unique_db_path("mw-e14-dcr");
         (p.to_string_lossy().into_owned(), false)

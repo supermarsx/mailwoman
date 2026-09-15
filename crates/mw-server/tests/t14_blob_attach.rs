@@ -341,8 +341,10 @@ async fn forwarded_blob_attachment_rides_the_sent_message_sqlite() {
 
 #[tokio::test]
 async fn forwarded_blob_attachment_rides_the_sent_message_postgres() {
-    let Ok(dsn) = std::env::var("MW_E14_PG_DSN") else {
-        eprintln!("\n[t14 blob SKIP] MW_E14_PG_DSN unset — live Postgres send path not driven.\n");
+    let Some(dsn) = common::gate::pg_dsn() else {
+        common::gate::skip(
+            "[t14 blob] MW_E14_PG_DSN and DATABASE_URL_PG unset — live Postgres send path not driven.",
+        );
         return;
     };
     let store = Store::open(&dsn, ServerKey::generate())
