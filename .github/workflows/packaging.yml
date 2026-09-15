@@ -44,10 +44,21 @@ jobs:
           python-version: '3.12'
       - name: install parsers
         run: pip install --quiet pyyaml
+      # Helm chart templates are Go templates, not YAML, so the parser below skips
+      # them. The chart is linted and rendered here instead, and the RENDERED
+      # manifests go through the same YAML parse. Same helm version as supply-chain.yml.
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+      - name: helm lint + render the chart
+        run: |
+          set -euo pipefail
+          helm lint packaging/helm/mailwoman
+          helm template mw packaging/helm/mailwoman > "$RUNNER_TEMP/helm-rendered.yaml"
       - name: validate recipes + Tauri configs
         run: |
           python3 - <<'PY'
-          import json, sys, glob, plistlib, pathlib, tomllib
+          import json, os, sys, glob, plistlib, pathlib, tomllib
           import xml.dom.minidom as minidom
           import yaml
 
@@ -66,9 +77,17 @@ jobs:
                   ok(f"{label} == {VER}")
 
           # --- every YAML recipe parses ---
-          for f in glob.glob("packaging/**/*.y*ml", recursive=True):
+          # Files under a chart's templates/ are Go templates; the rendered chart
+          # (from the helm step) is parsed in their place.
+          charts = {str(pathlib.Path(c).parent) for c in glob.glob("packaging/**/Chart.yaml", recursive=True)}
+          rendered = pathlib.Path(os.environ["RUNNER_TEMP"], "helm-rendered.yaml")
+          yaml_files = [f for f in glob.glob("packaging/**/*.y*ml", recursive=True)
+                        if not any(pathlib.Path(f).is_relative_to(pathlib.Path(c, "templates")) for c in charts)]
+          for f in yaml_files + [str(rendered)]:
               try:
-                  list(yaml.safe_load_all(pathlib.Path(f).read_text(encoding="utf-8")))
+                  docs = [d for d in yaml.safe_load_all(pathlib.Path(f).read_text(encoding="utf-8")) if d]
+                  if f == str(rendered) and not docs:
+                      raise ValueError("helm rendered no manifests")
                   ok(f)
               except Exception as e:
                   errs.append(f"YAML {f}: {e}")
@@ -233,10 +252,20 @@ jobs:
           tags: mailwoman:packaging-smoke
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      # docker-compose.crypto.yml is an overlay: it only adds environment to the
+      # base file's `mailwoman-engine`, so on its own it has no image or build
+      # context. Parse it the way ci.yml's e2e-crypto job uses it, on top of the
+      # base. Each parse is its own command so a failure fails the step.
       - name: compose configs parse
         run: |
-          for f in docker-compose.dev.yml docker-compose.ci.yml docker-compose.crypto.yml; do
-            [ -f "$f" ] && docker compose -f "$f" config >/dev/null && echo "ok  $f"
+          set -euo pipefail
+          for f in docker-compose.dev.yml docker-compose.ci.yml docker-compose.proxy.yml; do
+            docker compose -f "$f" config >/dev/null
+            echo "ok  $f"
+          done
+          for o in docker-compose.crypto.yml docker-compose.hardened.yml; do
+            docker compose -f docker-compose.dev.yml -f "$o" config >/dev/null
+            echo "ok  docker-compose.dev.yml + $o"
           done
 
   # ---------------------------------------------------------------------------

@@ -165,18 +165,25 @@ jobs:
       - name: compose files parse
         run: |
           set -euo pipefail
-          for f in docker-compose.dev.yml docker-compose.ci.yml docker-compose.crypto.yml; do
-            [ -f "$f" ] && docker compose -f "$f" config >/dev/null && echo "ok  $f"
+          # Each parse is its own command: inside `a && b && echo` a failing parse
+          # was not the last command of the list, so `set -e` ignored it.
+          for f in docker-compose.dev.yml docker-compose.ci.yml; do
+            docker compose -f "$f" config >/dev/null
+            echo "ok  $f"
           done
-          # The overlay is applied on top of the base for a real config parse.
-          docker compose -f docker-compose.dev.yml -f docker-compose.hardened.yml config >/dev/null
-          echo "ok  hardened overlay merges"
+          # Overlays (crypto adds engine env, hardened adds hardening) have no
+          # image of their own; they are parsed on top of the base.
+          for o in docker-compose.crypto.yml docker-compose.hardened.yml; do
+            docker compose -f docker-compose.dev.yml -f "$o" config >/dev/null
+            echo "ok  docker-compose.dev.yml + $o"
+          done
       - name: assert overlay hardening directives
         run: |
           set -euo pipefail
           f=docker-compose.hardened.yml
+          # -F -e: fixed strings, and `-e` so "- ALL" is a pattern, not an option.
           for k in "read_only: true" "no-new-privileges:true" "cap_drop" "- ALL" "tmpfs" "pids_limit"; do
-            grep -q "$k" "$f" || { echo "MISSING in $f: $k"; exit 1; }
+            grep -qF -e "$k" "$f" || { echo "MISSING in $f: $k"; exit 1; }
           done
           echo "compose hardening directives present"
       - name: assert Dockerfile scratch stage
