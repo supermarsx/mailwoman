@@ -413,19 +413,39 @@ pub async fn validate_and_resolve_with(
         .port_or_known_default()
         .ok_or(Refusal::BadRequest("URL has no port"))?;
 
-    // Resolve ONCE. `lookup_host` parses an IP literal directly (so a literal
-    // loopback/metadata host is caught here too). Pin to the first allowed address;
-    // if none is allowed, refuse (a rebinding answer of [public, private] never
-    // reaches the private one because we pin to the allowed address).
-    let resolved = tokio::net::lookup_host((host.as_str(), port))
-        .await
-        .map_err(|_| Refusal::Blocked)?;
+    // Resolve ONCE. Pin to the first allowed address; if none is allowed, refuse (a
+    // rebinding answer of [public, private] never reaches the private one because we
+    // pin to the allowed address).
+    //
+    // An IP literal never goes to the resolver. `host_str` keeps an IPv6 literal's
+    // brackets (`[64:ff9b::808:808]`), which `lookup_host` does not parse as an
+    // address and hands to getaddrinfo. Windows' getaddrinfo accepts the bracketed
+    // form; glibc and macOS return "name not known". On those platforms every IPv6
+    // literal was refused as `Blocked` before `policy` ever saw it — public ones
+    // wrongly, and private ones for the wrong reason, so the NAT64/6to4/Teredo/ISATAP
+    // decode was never what refused them on the production platform (t24-e10).
+    let resolved: Vec<SocketAddr> = match literal_ip(&host) {
+        Some(ip) => vec![SocketAddr::new(ip, port)],
+        None => tokio::net::lookup_host((host.as_str(), port))
+            .await
+            .map_err(|_| Refusal::Blocked)?
+            .collect(),
+    };
     let addr = resolved
         .into_iter()
         .find(|a| policy(&a.ip()))
         .ok_or(Refusal::Blocked)?;
 
     Ok(Target { url, host, addr })
+}
+
+/// The address a URL host names directly, if it is an IP literal: a dotted IPv4, or
+/// an IPv6 in the brackets `Url::host_str` puts around it. `None` for a hostname.
+fn literal_ip(host: &str) -> Option<IpAddr> {
+    match host.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
+        Some(v6) => v6.parse::<Ipv6Addr>().ok().map(IpAddr::V6),
+        None => host.parse::<Ipv4Addr>().ok().map(IpAddr::V4),
+    }
 }
 
 // ── the pinned single-hop fetch ────────────────────────────────────────────────
@@ -1063,8 +1083,8 @@ mod tests {
 
     #[tokio::test]
     async fn gate_blocks_literal_loopback_and_metadata_hosts() {
-        // A literal private/metadata host is resolved by lookup_host to itself and
-        // refused by the IP gate — no DNS needed. This is the end-to-end SSRF refusal.
+        // A literal private/metadata host resolves to itself without DNS and is
+        // refused by the IP gate. This is the end-to-end SSRF refusal.
         for u in [
             "http://127.0.0.1/x.png",
             "http://169.254.169.254/latest/meta-data/",
@@ -1074,6 +1094,71 @@ mod tests {
             let url = reqwest::Url::parse(u).unwrap();
             let err = validate_and_resolve(url).await.unwrap_err();
             assert_eq!(err, Refusal::Blocked, "{u} must be blocked");
+        }
+    }
+
+    #[tokio::test]
+    async fn ipv6_literals_reach_the_policy_on_every_platform() {
+        // t24-e10: a bracketed IPv6 literal used to go to getaddrinfo, which glibc and
+        // macOS refuse, so on Linux every one of these was `Blocked` by a resolver
+        // error before the predicate ran. A permit-all predicate proves the literal
+        // now resolves to itself with no DNS, which is what makes the refusals below
+        // the policy's own.
+        for u in [
+            "http://[64:ff9b::7f00:1]/x.png",
+            "http://[2002:a9fe:a9fe::]/x",
+            "http://[2001:0:4136:e378:8000:ffff:80ff:fffe]/x.png",
+            "http://[2001:470::5efe:a9fe:a9fe]/x",
+            "http://[::1]/x.png",
+            "http://[2001:4860:4860::8888]:8443/x.png",
+        ] {
+            let url = reqwest::Url::parse(u).unwrap();
+            let want: IpAddr = url
+                .host_str()
+                .unwrap()
+                .trim_matches(['[', ']'])
+                .parse()
+                .unwrap();
+            let port = url.port_or_known_default().unwrap();
+            let t = validate_and_resolve_with(url, |_| true)
+                .await
+                .unwrap_or_else(|e| panic!("{u} must resolve without DNS: {e:?}"));
+            assert_eq!(t.addr, SocketAddr::new(want, port), "{u}");
+            // The pin host keeps the brackets the TLS/SNI consumers expect.
+            assert!(t.host.starts_with('['), "{u} → host {}", t.host);
+        }
+
+        // Public embedded v4s are permitted by the strict gate...
+        for u in [
+            "http://[64:ff9b::808:808]/x.png",
+            "http://[2002:808:808::]/x.png",
+            "http://[2001:0:4136:e378:8000:ffff:f7f7:f7f7]/x.png",
+            "http://[2001:470::5efe:808:808]/x.png",
+            "http://[2001:4860:4860::8888]/x.png",
+        ] {
+            let url = reqwest::Url::parse(u).unwrap();
+            assert!(
+                validate_and_resolve(url).await.is_ok(),
+                "{u} wraps a public address and must pass the gate"
+            );
+        }
+        // ...and private/loopback/metadata ones are refused by it.
+        for u in [
+            "http://[64:ff9b::7f00:1]/x.png",
+            "http://[64:ff9b::a9fe:a9fe]/latest/meta-data/",
+            "http://[2002:c0a8:101::]/logo.png",
+            "http://[2001:0:4136:e378:8000:ffff:80ff:fffe]/x.png",
+            "http://[2001:0:a00:1:8000:ffff:f7f7:f7f7]/x.png",
+            "http://[2001:470::5efe:a9fe:a9fe]/x",
+            "http://[::ffff:127.0.0.1]/x.png",
+            "http://[fd00::1]/x.png",
+        ] {
+            let url = reqwest::Url::parse(u).unwrap();
+            assert_eq!(
+                validate_and_resolve(url).await.unwrap_err(),
+                Refusal::Blocked,
+                "{u} must be blocked"
+            );
         }
     }
 
