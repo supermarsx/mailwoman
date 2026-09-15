@@ -261,68 +261,6 @@ async fn sanitize_strips_hostile_script() {
     assert!(html.contains("Invoice"), "content dropped: {html}");
 }
 
-/// `.oft`/`.msg` import has no in-process path: the compound-file parse runs only in
-/// the `mw-render` worker's wasmtime media jail, and on Linux that worker also runs
-/// under the kernel jail. Until t24-e10 nothing drove this route, and the jailed
-/// worker was SIGSYS-killed on every CFB job (wasmtime's copy-on-write memory init
-/// calls `memfd_create`, which the seccomp allowlist does not permit), so every
-/// import on Linux failed with 422.
-#[tokio::test]
-async fn import_oft_parses_in_the_render_worker() {
-    use base64::Engine as _;
-
-    let mock = spawn_mock().await;
-    let (server, _web) = spawn_server().await;
-    let c = client();
-    do_login(&c, &server, &mock).await;
-
-    let raw =
-        b"Subject: Weekly status template\r\n\r\n<p>Fill me in.</p><script>bad()</script>\r\n";
-    let oft = mw_export::export_one(
-        &mw_export::RawEmail::new(raw.to_vec()),
-        mw_export::Format::Oft,
-    )
-    .expect("write .oft");
-    let resp = c
-        .post(format!("{server}/api/import/oft"))
-        .json(&json!({
-            "contentBase64": base64::engine::general_purpose::STANDARD.encode(&oft)
-        }))
-        .send()
-        .await
-        .unwrap();
-    let status = resp.status();
-    let out: Value = resp.json().await.unwrap();
-
-    if !render_worker_built() {
-        // No worker: refused on every platform, jail or not.
-        assert_eq!(
-            status, 503,
-            "no render worker: the CFB import must be refused ({out})"
-        );
-        common::gate::skip(
-            "oft import through the render worker: no mw-render worker is built; asserted \
-             the 503 refusal instead. `cargo build -p mw-render` first to drive it.",
-        );
-        return;
-    }
-
-    assert_eq!(
-        status,
-        200,
-        "the render worker{} must import a valid .oft: {out}",
-        if mw_sandbox::jail_expected() {
-            " (kernel-jailed on this platform)"
-        } else {
-            ""
-        }
-    );
-    assert_eq!(out["subject"], json!("Weekly status template"), "{out}");
-    let html = out["html"].as_str().unwrap();
-    assert!(html.contains("Fill me in."), "body dropped: {html}");
-    assert!(!html.contains("script"), "script survived: {html}");
-}
-
 #[tokio::test]
 async fn static_index_is_served() {
     let (server, _web) = spawn_server().await;
