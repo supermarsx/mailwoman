@@ -68,6 +68,14 @@ fn engine() -> &'static Engine {
     ENGINE.get_or_init(|| {
         let mut cfg = Config::new();
         cfg.epoch_interruption(true);
+        // No copy-on-write memory images. On Linux wasmtime backs them with
+        // `memfd_create`, which the render child's seccomp allowlist does not
+        // permit, so every CFB job was SIGSYS-killed inside the kernel jail from
+        // 26.16 until t24-e10. Initial linear memory is copied instead of mapped: a
+        // per-instantiation cost, with the seccomp allowlist and rlimits unchanged.
+        // (Allowlisting memfd would not have worked either: writes to it are
+        // bounded by the jail's `RLIMIT_FSIZE=0`.)
+        cfg.memory_init_cow(false);
         cfg.target("pulley64")
             .expect("wasmtime pulley target unavailable");
         Engine::new(&cfg).expect("wasmtime media-jail engine init")
