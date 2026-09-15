@@ -11,6 +11,11 @@ pub enum JmapError {
     Status(reqwest::StatusCode),
     #[error("invalid JMAP url: {0}")]
     InvalidUrl(String),
+    /// The upstream answered the session request with a redirect. The client never
+    /// follows one: the caller decides whether the `Location` is acceptable and, if
+    /// it is, builds a client for that target and asks again.
+    #[error("upstream redirected to {0}")]
+    Redirect(String),
 }
 
 /// Thin async JMAP client with HTTP Basic auth (upstream servers; the
@@ -19,6 +24,11 @@ pub enum JmapError {
 pub struct JmapClient {
     http: reqwest::Client,
     authorization: String,
+}
+
+/// The `Authorization` header value for HTTP Basic auth.
+fn basic_authorization(username: &str, password: &str) -> String {
+    format!("Basic {}", B64.encode(format!("{username}:{password}")))
 }
 
 /// Normalize a user-supplied server URL to its JMAP session endpoint.
@@ -35,35 +45,54 @@ pub fn session_url(input: &str) -> Result<String, JmapError> {
 }
 
 impl JmapClient {
-    pub fn new(username: &str, password: &str) -> Result<Self, JmapError> {
-        // `.no_proxy()`: the Basic credential below rides every request, so an
-        // ambient `HTTP_PROXY` would put it in front of a third party.
-        // See `mw_egress::harden_client`.
-        let http = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::limited(3))
-            .no_proxy()
-            .build()?;
-        let authorization = format!("Basic {}", B64.encode(format!("{username}:{password}")));
-        Ok(Self {
+    /// Wrap an HTTP client the caller built for one validated target.
+    ///
+    /// This crate does not construct its own `reqwest::Client` (t24 B2). Every URL
+    /// handed to it is request-shaped — the server URL comes from an anonymous login
+    /// body, and `apiUrl`/`downloadUrl`/`uploadUrl` come from that server's own
+    /// session document — so the address policy, the DNS pin and the redirect policy
+    /// cannot be decided here. The caller resolves and checks the target, builds
+    /// `http` with `mw_egress::harden_client` (pinned address, redirects off,
+    /// `no_proxy`), and uses the resulting client for that target only. In
+    /// `mw-server` that is `upstream_client`.
+    ///
+    /// A client built with redirects enabled would let an upstream send the Basic
+    /// credential below, and the relayed response, to an address nobody checked.
+    pub fn with_http(http: reqwest::Client, username: &str, password: &str) -> Self {
+        Self {
             http,
-            authorization,
-        })
+            authorization: basic_authorization(username, password),
+        }
     }
 
     pub fn authorization(&self) -> &str {
         &self.authorization
     }
 
-    /// Fetch the JMAP Session resource (validates credentials).
+    /// Fetch the JMAP Session resource (validates credentials) from a server URL,
+    /// normalised by [`session_url`].
     pub async fn session(&self, server_url: &str) -> Result<Session, JmapError> {
-        let url = session_url(server_url)?;
+        self.session_at(&session_url(server_url)?).await
+    }
+
+    /// Fetch the JMAP Session resource from exactly `url`. A redirect is returned as
+    /// [`JmapError::Redirect`] with the raw `Location`, for the caller to check.
+    pub async fn session_at(&self, url: &str) -> Result<Session, JmapError> {
         let resp = self
             .http
-            .get(&url)
+            .get(url)
             .header("Authorization", &self.authorization)
             .header("Accept", "application/json")
             .send()
             .await?;
+        if resp.status().is_redirection() {
+            let location = resp
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|v| v.to_str().ok())
+                .ok_or(JmapError::Status(resp.status()))?;
+            return Err(JmapError::Redirect(location.to_string()));
+        }
         if !resp.status().is_success() {
             return Err(JmapError::Status(resp.status()));
         }
@@ -87,7 +116,8 @@ impl JmapClient {
     }
 
     /// Forward a raw JMAP request body, returning `(status, body)` verbatim.
-    /// Used by the proxy so unknown methods/extensions pass through untouched.
+    /// Used by the proxy so unknown methods/extensions pass through untouched. A
+    /// redirect is returned as its status, never followed.
     pub async fn request_raw(
         &self,
         api_url: &str,
@@ -109,7 +139,7 @@ impl JmapClient {
     /// POST raw bytes to an upload URL with injected auth and a caller-supplied
     /// `Content-Type`, returning `(status, content_type, body)` so the proxy can
     /// relay the upstream `{accountId, blobId, type, size}` upload response back
-    /// to the browser verbatim (RFC 8620 §6.1) — the symmetric counterpart of
+    /// to the browser (RFC 8620 §6.1) — the symmetric counterpart of
     /// [`JmapClient::get_bytes`].
     pub async fn post_bytes(
         &self,
@@ -136,9 +166,9 @@ impl JmapClient {
     }
 
     /// GET a blob/download URL with injected auth, returning
-    /// `(status, content_type, content_disposition, body)` so the proxy can
-    /// stream an upstream attachment/message download back to the browser
-    /// verbatim (RFC 8620 §6.2).
+    /// `(status, content_type, content_disposition, body)` (RFC 8620 §6.2). The
+    /// headers are the upstream's claims; the proxy decides what, if anything, of
+    /// them reaches the browser.
     #[allow(clippy::type_complexity)]
     pub async fn get_bytes(
         &self,
@@ -198,7 +228,6 @@ mod tests {
 
     #[test]
     fn basic_auth_header() {
-        let c = JmapClient::new("user", "pass").unwrap();
-        assert_eq!(c.authorization(), "Basic dXNlcjpwYXNz");
+        assert_eq!(basic_authorization("user", "pass"), "Basic dXNlcjpwYXNz");
     }
 }

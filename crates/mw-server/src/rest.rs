@@ -32,7 +32,6 @@ use axum::{Extension, Router, body::Bytes};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use mw_jmap::JmapClient;
 use mw_store::Session;
 
 use crate::scope_mw::{RestSessionSource, rest_session};
@@ -181,8 +180,19 @@ async fn dispatch_jmap(
         }
         return Ok(engine.handle_jmap(&session.account_id, request).await);
     }
-    let client = JmapClient::new(&session.credentials.username, &session.credentials.password)
-        .map_err(|_| upstream_error())?;
+    // The same upstream policy `/jmap/api` applies (t24 B2): same origin as the
+    // session's upstream, address-checked and pinned, no redirects.
+    let client = crate::upstream_client(
+        &state.security,
+        &session.jmap_url,
+        &session.api_url,
+        &session.credentials,
+    )
+    .await
+    .map_err(|r| {
+        tracing::warn!("rest: upstream request refused: {r}");
+        upstream_error()
+    })?;
     let body = Bytes::from(serde_json::to_vec(request).expect("jmap request serialises"));
     match client.request_raw(&session.api_url, body).await {
         Ok((status, bytes)) => {
