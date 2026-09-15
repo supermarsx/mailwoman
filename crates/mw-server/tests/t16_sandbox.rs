@@ -30,15 +30,17 @@ fn fail_closed_when_a_jail_is_required_but_unavailable() {
     // The security contract (DQ4/S6): a REQUIRED jail that cannot be installed is an
     // error, never a silent in-process parse. On win32 no kernel jail exists, so a
     // required policy MUST fail closed here.
-    let result = confine_current_process(&JailPolicy { required: true });
     if cfg!(target_os = "linux") {
-        // On Linux the jail installs (this would confine the test process); we do not
-        // assert the confine here to avoid seccomp-killing the harness — the live
-        // syscall-kill proof is the Linux-CI job.
+        // On Linux the jail installs, so calling it here would confine this harness:
+        // its rlimits are process-wide, and the harness's exit then ran under
+        // `RLIMIT_FSIZE=0` (SIGXFSZ under coverage, t24-e10). Not called. The confine,
+        // the SIGSYS kill and the Landlock denial are proven in a disposable child by
+        // `crates/mw-sandbox/tests/linux_enforcement.rs`.
         eprintln!(
-            "[t16 sandbox] Linux host: kernel jail installs; syscall-kill proof is Linux-CI."
+            "[t16 sandbox] Linux host: kernel jail proven in a child by mw-sandbox's linux_enforcement."
         );
     } else {
+        let result = confine_current_process(&JailPolicy { required: true });
         let err = result.expect_err("a required jail must fail closed off Linux");
         assert!(
             matches!(err, SandboxError::Unavailable(_)),

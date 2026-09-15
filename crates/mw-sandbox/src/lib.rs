@@ -341,10 +341,14 @@ mod tests {
         }
     }
 
+    // Off Linux only. On Linux this would confine the test harness itself: the
+    // rlimits are process-wide, so every later test and the harness's own exit would
+    // run under `RLIMIT_FSIZE=0` — which is what killed this binary with SIGXFSZ under
+    // coverage instrumentation, whose profile is written at exit (t24-e10). The Linux
+    // confine is exercised in a disposable child by `tests/linux_enforcement.rs`.
+    #[cfg(not(target_os = "linux"))]
     #[test]
-    fn non_required_confine_is_ok_everywhere() {
-        // On the non-Linux dev host this exercises the degraded no-op; on Linux it
-        // actually confines the test process (still returns Ok).
+    fn non_required_confine_is_ok_off_linux() {
         let report = confine_current_process(&JailPolicy { required: false }).unwrap();
         assert_eq!(report.platform, std::env::consts::OS);
     }

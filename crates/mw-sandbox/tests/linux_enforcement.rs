@@ -7,9 +7,11 @@
 //!
 //! ## Why a child process
 //!
-//! [`mw_sandbox::confine_current_process`] confines the **caller**, and seccomp's
-//! filter is installed with `TSYNC`, so it applies to the whole process. Calling it
-//! inside a test binary would place every subsequent test in the jail. So each probe
+//! [`mw_sandbox::confine_current_process`] confines the **caller**: seccomp, Landlock
+//! and `no_new_privs` bind the calling thread (seccomp is installed without `TSYNC`)
+//! and every thread it creates afterwards, and the rlimits bind the whole process.
+//! Calling it inside a test binary would jail that test's thread and leave the
+//! harness running under `RLIMIT_FSIZE=0` and a 256-fd cap. So each probe
 //! re-executes *this same test binary*, filtered to the `#[ignore]`d helper below,
 //! with `MW_SANDBOX_TEST_CHILD` naming the probe to run. The helper does nothing
 //! unless that variable is set, so `cargo test -- --include-ignored` stays safe.
@@ -67,6 +69,18 @@ mod linux_child {
         let _ = std::io::stdout().flush();
     }
 
+    /// Leave with `code` without running exit handlers. The jail sets
+    /// `RLIMIT_FSIZE=0`, and a coverage-instrumented build writes its profile from an
+    /// exit handler through a descriptor it opened before the jail, so a plain
+    /// `process::exit` turned every probe's result into SIGXFSZ under `cargo llvm-cov`
+    /// (t24-e10). The probe has already printed and flushed everything the parent
+    /// reads; only the child's own coverage profile is lost.
+    fn leave(code: i32) -> ! {
+        flush();
+        // SAFETY: `_exit` takes no pointers and does not return.
+        unsafe { libc::_exit(code) }
+    }
+
     /// Confine this process for real, publish the resulting layer states on stdout so
     /// the parent can adapt its assertions to the kernel, then run one probe.
     pub(super) fn run(mode: &str) -> ! {
@@ -74,8 +88,7 @@ mod linux_child {
             Ok(r) => r,
             Err(e) => {
                 println!("CONFINE_ERR {e}");
-                flush();
-                std::process::exit(20);
+                leave(20);
             }
         };
         for layer in &report.layers {
@@ -99,8 +112,7 @@ mod linux_child {
             "socket" => {
                 let _ = std::net::TcpStream::connect("127.0.0.1:9");
                 println!("SURVIVED");
-                flush();
-                std::process::exit(21);
+                leave(21);
             }
             // Landlock: an empty ruleset denies every path. `openat` is *allowed* by
             // seccomp, so a refusal here is Landlock's doing, not the syscall filter's.
@@ -110,19 +122,16 @@ mod linux_child {
                     Ok(_) => println!("OPEN ok"),
                     Err(e) => println!("OPEN err {:?}", e.kind()),
                 }
-                flush();
-                std::process::exit(0);
+                leave(0);
             }
             // Just report and leave: proves a required jail INSTALLS on this kernel.
             "posture" => {
                 print!("{}", mw_sandbox::render_posture(&report));
-                flush();
-                std::process::exit(0);
+                leave(0);
             }
             other => {
                 println!("UNKNOWN_MODE {other}");
-                flush();
-                std::process::exit(22);
+                leave(22);
             }
         }
     }
