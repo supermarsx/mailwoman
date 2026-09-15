@@ -670,15 +670,231 @@ async fn the_download_leg_does_not_relay_upstream_content_headers_as_received() 
     );
 }
 
-// ── structure: no JMAP client is built outside the gate ──────────────────────
+// ── structure: every relay leg is gated ──────────────────────────────────────
 //
 // `t22_every_fetch_takes_the_route` scans `mw-server/src` for `mw_egress`'s unrouted
-// fetch entry points. The JMAP proxy never called those, so that scan could not
-// see it, and it should not be extended to: that test enforces the egress
-// *route*, which by design is never selected for a request-derived upstream.
-// What has to hold for B2 is different — every JMAP client is built by
-// `upstream_client`, which checks origin and address and pins the connection —
-// so that is what this sweep asserts, over every crate that could build one.
+// fetch entry points. It is not extended to cover this, deliberately: it enforces
+// the egress *route*, which by design is never selected for a request-derived
+// upstream, and the JMAP proxy never called those entry points, so pointing it at
+// `mw-jmap` would find nothing and assert the wrong thing.
+//
+// What B2 needs is enforced here, over every crate under `crates/` and `plugins/`:
+//
+// 1. **Construction.** A `JmapClient` is built only inside `upstream_client` in
+//    `mw-server/src/lib.rs`, which checks origin and address and pins the
+//    connection. This cannot be made a compile-time property cheaply:
+//    `JmapClient::with_http` is public, and making `mw-jmap` build the hardened
+//    client itself would add an `mw-egress` dependency (a `Cargo.toml` and
+//    `Cargo.lock` change this lane was told not to make). So it is a sweep, and the
+//    sweep matches any `with_http(` call, so a `use … as` alias does not escape it.
+// 2. **Session URLs.** A read of `.jmap_url`, `.api_url`, `.download_url`,
+//    `.upload_url` or `.event_source_url` in production code must sit in a function
+//    on the named list below, each with its reason. A new relay leg (a sixth) that
+//    fetches a session-supplied URL with a plain `reqwest` client fails here and
+//    has to be reviewed onto the list.
+//
+// Both rules run against embedded fixtures first, so "nothing found" cannot come
+// from a scanner that stopped matching.
+
+/// Where a `JmapClient` may be built.
+const GATED_CONSTRUCTION: (&str, &str) = ("crates/mw-server/src/lib.rs", "upstream_client");
+
+/// Every production function that reads a session URL field, and why it is safe.
+const SESSION_URL_READERS: &[(&str, &str, &str)] = &[
+    (
+        "crates/mw-server/src/lib.rs",
+        "login",
+        "gated: upstream_session + session_urls_on_origin before the session is stored",
+    ),
+    (
+        "crates/mw-server/src/lib.rs",
+        "header_auth_login",
+        "stores the URL only; every later leg gates it through upstream_client",
+    ),
+    (
+        "crates/mw-server/src/lib.rs",
+        "engine_login",
+        "engine mode: passed to engine_mode (IMAP/POP3 dial, t23-e2-02), no JMAP relay",
+    ),
+    (
+        "crates/mw-server/src/lib.rs",
+        "rotate_session",
+        "copies stored values into a new session row; no request",
+    ),
+    (
+        "crates/mw-server/src/lib.rs",
+        "jmap_session",
+        "gated: upstream_session; writes local /jmap/* URLs over the upstream's",
+    ),
+    (
+        "crates/mw-server/src/lib.rs",
+        "jmap_api",
+        "gated: upstream_client",
+    ),
+    (
+        "crates/mw-server/src/lib.rs",
+        "proxy_download",
+        "gated: upstream_client",
+    ),
+    (
+        "crates/mw-server/src/lib.rs",
+        "proxy_upload",
+        "gated: upstream_client",
+    ),
+    (
+        "crates/mw-server/src/lib.rs",
+        "session_urls_on_origin",
+        "the same-origin check itself",
+    ),
+    (
+        "crates/mw-server/src/rest.rs",
+        "dispatch_jmap",
+        "gated: upstream_client",
+    ),
+    (
+        "crates/mw-server/src/twofa_routes.rs",
+        "complete_login",
+        "stores the URLs login already checked; no request",
+    ),
+    (
+        "crates/mw-passwd/src/dovecot.rs",
+        "build_request",
+        "not a JMAP session: DovecotConfig.api_url is operator configuration",
+    ),
+];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SiteKind {
+    ClientConstruction,
+    SessionUrlRead,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Site {
+    path: String,
+    line: usize,
+    function: String,
+    kind: SiteKind,
+    text: String,
+}
+
+const SESSION_URL_FIELDS: [&str; 5] = [
+    ".jmap_url",
+    ".api_url",
+    ".download_url",
+    ".upload_url",
+    ".event_source_url",
+];
+
+/// The identifier after the last `fn ` on a code line, if any.
+fn fn_name(code: &str) -> Option<String> {
+    let at = code.rfind("fn ")?;
+    // `fn` must be a whole word (not the tail of e.g. `dyn_fn `).
+    if at > 0
+        && code[..at]
+            .chars()
+            .next_back()
+            .is_some_and(|c| c.is_alphanumeric() || c == '_')
+    {
+        return None;
+    }
+    let name: String = code[at + 3..]
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
+    (!name.is_empty()).then_some(name)
+}
+
+/// Classify one source file. Pure, so the fixtures below exercise exactly the code
+/// the tree sweep runs.
+fn scan_source(path: &str, source: &str) -> Vec<Site> {
+    let mut sites = Vec::new();
+    let mut function = String::new();
+    let mut depth = 0i32;
+    let mut in_tests = false;
+    let mut region_depth = 0i32;
+    let mut pending = false;
+    for (i, raw) in source.lines().enumerate() {
+        let code = raw.split("//").next().unwrap_or_default();
+        let trimmed = code.trim();
+
+        // Inline `#[cfg(test)] mod … { … }` only; an out-of-line `mod tests;` opens
+        // no region (the scanner bug t22-e-sec caught in its own sweep).
+        if trimmed == "#[cfg(test)]" {
+            pending = true;
+        } else if pending && !trimmed.is_empty() {
+            if code.contains('{') {
+                in_tests = true;
+                region_depth = depth;
+            }
+            pending = false;
+        }
+        if let Some(name) = fn_name(code) {
+            function = name;
+        }
+
+        if !in_tests {
+            let definition = trimmed.contains("fn with_http(")
+                || trimmed.contains("struct JmapClient")
+                || trimmed.starts_with("impl ");
+            // `-> JmapClient {` on a signature is a return type, not a literal.
+            let literal = code.contains("JmapClient {") && fn_name(code).is_none();
+            if !definition
+                && (code.contains("with_http(") || code.contains("JmapClient::new(") || literal)
+            {
+                sites.push(Site {
+                    path: path.to_string(),
+                    line: i + 1,
+                    function: function.clone(),
+                    kind: SiteKind::ClientConstruction,
+                    text: trimmed.to_string(),
+                });
+            }
+            if SESSION_URL_FIELDS.iter().any(|f| {
+                code.match_indices(f).any(|(at, _)| {
+                    // `.api_url` but not `.api_url_template`.
+                    !code[at + f.len()..]
+                        .chars()
+                        .next()
+                        .is_some_and(|c| c.is_alphanumeric() || c == '_')
+                })
+            }) {
+                sites.push(Site {
+                    path: path.to_string(),
+                    line: i + 1,
+                    function: function.clone(),
+                    kind: SiteKind::SessionUrlRead,
+                    text: trimmed.to_string(),
+                });
+            }
+        }
+
+        depth += code.matches('{').count() as i32;
+        depth -= code.matches('}').count() as i32;
+        if in_tests && depth <= region_depth {
+            in_tests = false;
+        }
+    }
+    sites
+}
+
+/// Sites that break a rule: a construction outside the gate, or a session-URL read
+/// in a function not on the list.
+fn violations(sites: &[Site]) -> Vec<Site> {
+    sites
+        .iter()
+        .filter(|s| match s.kind {
+            SiteKind::ClientConstruction => {
+                (s.path.as_str(), s.function.as_str()) != GATED_CONSTRUCTION
+            }
+            SiteKind::SessionUrlRead => !SESSION_URL_READERS
+                .iter()
+                .any(|(p, f, _)| *p == s.path && *f == s.function),
+        })
+        .cloned()
+        .collect()
+}
 
 fn workspace_root() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -695,12 +911,6 @@ fn rust_sources(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            if path
-                .file_name()
-                .is_some_and(|n| n == "target" || n == "node_modules")
-            {
-                continue;
-            }
             rust_sources(&path, out);
         } else if path.extension().is_some_and(|e| e == "rs") {
             out.push(path);
@@ -708,9 +918,8 @@ fn rust_sources(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
     }
 }
 
-/// Every non-comment line under `crates/*/src` and `plugins/*/src` that builds a
-/// `JmapClient`, as `(path, line index, enclosing fn line)`.
-fn jmap_client_constructions() -> Vec<(String, usize, String)> {
+/// Run [`scan_source`] over every `crates/*/src` and `plugins/*/src` file.
+fn scan_tree() -> Vec<Site> {
     let root = workspace_root();
     let mut files = Vec::new();
     for top in ["crates", "plugins"] {
@@ -726,61 +935,142 @@ fn jmap_client_constructions() -> Vec<(String, usize, String)> {
         let Ok(body) = std::fs::read_to_string(&path) else {
             continue;
         };
-        let lines: Vec<&str> = body.lines().collect();
-        for (i, raw) in lines.iter().enumerate() {
-            let code = raw.split("//").next().unwrap_or_default();
-            // `struct JmapClient {` and `impl JmapClient {` are definitions, not
-            // constructions.
-            let definition = code.contains("struct JmapClient") || code.contains("impl ");
-            if !definition
-                && (code.contains("JmapClient::with_http(")
-                    || code.contains("JmapClient::new(")
-                    || code.contains("JmapClient {"))
-            {
-                let enclosing = lines[..=i]
-                    .iter()
-                    .rev()
-                    .find(|l| l.contains("fn "))
-                    .map(|l| l.trim().to_string())
-                    .unwrap_or_default();
-                let rel = path
-                    .strip_prefix(&root)
-                    .unwrap_or(&path)
-                    .to_string_lossy()
-                    .replace('\\', "/");
-                sites.push((rel, i + 1, enclosing));
-            }
-        }
+        let rel = path
+            .strip_prefix(&root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        sites.extend(scan_source(&rel, &body));
     }
     sites
 }
 
 #[test]
-fn every_jmap_client_is_built_by_the_upstream_gate() {
-    let sites = jmap_client_constructions();
-    // Calibration: the scanner must see the one legitimate site. A scanner that read
-    // nothing would report an empty "outside" list, which must not pass.
-    // (`with_http`'s own `Self { .. }` is not matched: it does not name the type, and
-    // `mw_jmap_does_not_build_its_own_http_client` covers that crate.)
+fn the_relay_sweep_goes_red_on_an_ungated_leg() {
+    // Each fixture is a way a sixth relay leg could be added. Every one must be
+    // reported, or the tree assertion below could pass because the scanner is blind.
+    let lib = "crates/mw-server/src/lib.rs";
+    let ungated_client = r#"
+async fn proxy_thumbnail(session: &Session) -> Response {
+    let http = reqwest::Client::new();
+    let client = JmapClient::with_http(http, &session.credentials.username, "p");
+    todo!()
+}
+"#;
+    let aliased = r#"
+use mw_jmap::JmapClient as Upstream;
+async fn proxy_preview(session: &Session) {
+    let client = Upstream::with_http(reqwest::Client::new(), "u", "p");
+}
+"#;
+    let raw_reqwest_on_session_url = r#"
+async fn proxy_preview(session: &mw_store::Session) -> Response {
+    let body = reqwest::get(&session.download_url).await;
+    todo!()
+}
+"#;
+    for (name, source, kind) in [
+        (
+            "ungated client",
+            ungated_client,
+            SiteKind::ClientConstruction,
+        ),
+        ("aliased client", aliased, SiteKind::ClientConstruction),
+        (
+            "plain reqwest on a session URL",
+            raw_reqwest_on_session_url,
+            SiteKind::SessionUrlRead,
+        ),
+    ] {
+        let found = violations(&scan_source(lib, source));
+        assert!(
+            found.iter().any(|s| s.kind == kind),
+            "the sweep missed the {name} fixture: {found:#?}"
+        );
+    }
+
+    // And it does not cry wolf: the gate itself, definitions, a listed reader, and a
+    // test module are all quiet.
+    let quiet = r#"
+pub struct JmapClient {
+    http: reqwest::Client,
+}
+impl JmapClient {
+    pub fn with_http(http: reqwest::Client, username: &str, password: &str) -> Self {
+        Self { http }
+    }
+}
+pub(crate) async fn upstream_client(
+    security: &SecurityConfig,
+) -> Result<JmapClient, UpstreamRefusal> {
+    Ok(JmapClient::with_http(
+        http,
+        &credentials.username,
+        &credentials.password,
+    ))
+}
+async fn jmap_api(State(state): State<AppState>) -> Response {
+    let client = upstream_client(&state.security, &session.jmap_url, &session.api_url).await;
+}
+async fn upstream_client_for(security: &SecurityConfig) -> JmapClient {
+    todo!()
+}
+#[cfg(test)]
+mod tests;
+#[cfg(test)]
+mod more_tests {
+    fn t() {
+        let c = JmapClient::with_http(reqwest::Client::new(), "u", "p");
+        assert_eq!(s.api_url, "x");
+    }
+}
+"#;
+    let found = violations(&scan_source(lib, quiet));
+    assert!(found.is_empty(), "false positives: {found:#?}");
+    // `mod tests;` must not swallow what follows it: a leg after it is still seen.
+    let after_out_of_line = format!("#[cfg(test)]\nmod tests;\n{ungated_client}");
     assert!(
-        sites
-            .iter()
-            .any(|(path, _, enclosing)| path == "crates/mw-server/src/lib.rs"
-                && enclosing.contains("fn upstream_client(")),
-        "the scanner did not find the construction in `upstream_client` — it is not \
-         reading the tree, so an empty result below would mean nothing: {sites:#?}"
+        !violations(&scan_source(lib, &after_out_of_line)).is_empty(),
+        "an out-of-line `mod tests;` hid the code after it"
     );
-    let outside: Vec<_> = sites
-        .iter()
-        .filter(|(path, _, enclosing)| {
-            !(path == "crates/mw-server/src/lib.rs" && enclosing.contains("fn upstream_client("))
-        })
-        .collect();
+}
+
+#[test]
+fn every_relay_leg_in_the_tree_is_gated() {
+    let sites = scan_tree();
+
+    // Calibration against the real tree: the gate and at least the six gated legs
+    // must be seen, or an empty violation list means nothing.
     assert!(
-        outside.is_empty(),
-        "A JmapClient built anywhere but `mw_server::upstream_client` talks to an upstream \
-         URL that no origin check, address policy or DNS pin has seen (t24 B2). Use \
-         `upstream_client` / `upstream_session`.\n\nfound: {outside:#?}"
+        sites.iter().any(|s| s.kind == SiteKind::ClientConstruction
+            && (s.path.as_str(), s.function.as_str()) == GATED_CONSTRUCTION),
+        "the sweep did not see the construction in `upstream_client`: {sites:#?}"
+    );
+    for leg in [
+        "login",
+        "jmap_session",
+        "jmap_api",
+        "proxy_download",
+        "proxy_upload",
+        "dispatch_jmap",
+    ] {
+        assert!(
+            sites
+                .iter()
+                .any(|s| s.kind == SiteKind::SessionUrlRead && s.function == leg),
+            "the sweep did not see the `{leg}` leg reading a session URL"
+        );
+    }
+
+    let bad = violations(&sites);
+    assert!(
+        bad.is_empty(),
+        "A JMAP relay path that does not go through `mw_server::upstream_client` talks to \
+         an upstream URL that no origin check, address policy or DNS pin has seen (t24 B2).\n\n\
+         * A `JmapClient` built outside `upstream_client`: build it there instead.\n\
+         * A new function reading a session URL field: if it sends a request, route it \
+         through `upstream_client`/`upstream_session`; then add it to SESSION_URL_READERS \
+         with the reason it is safe.\n\nfound: {bad:#?}"
     );
 }
 
@@ -792,14 +1082,27 @@ fn mw_jmap_does_not_build_its_own_http_client() {
         body.contains("pub fn with_http("),
         "calibration: the constructor this test is about must exist"
     );
-    let offending: Vec<&str> = body
+    let code: Vec<&str> = body
         .lines()
         .map(|l| l.split("//").next().unwrap_or_default())
-        .filter(|code| code.contains("Client::builder(") || code.contains("Client::new("))
+        .collect();
+    let builders: Vec<&&str> = code
+        .iter()
+        .filter(|c| c.contains("Client::builder(") || c.contains("Client::new("))
         .collect();
     assert!(
-        offending.is_empty(),
+        builders.is_empty(),
         "mw-jmap must take its HTTP client from the caller, who owns the address policy \
-         and the pin: {offending:#?}"
+         and the pin: {builders:#?}"
+    );
+    // `with_http` is the crate's only constructor; a second `Self { .. }` would be a
+    // second way in.
+    let self_literals = code
+        .iter()
+        .filter(|c| c.trim_start().starts_with("Self {"))
+        .count();
+    assert_eq!(
+        self_literals, 1,
+        "JmapClient must have exactly one constructor (`with_http`)"
     );
 }
