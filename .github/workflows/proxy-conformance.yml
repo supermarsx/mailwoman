@@ -242,7 +242,10 @@ jobs:
         run: |
           set -eu
           gzip -dc proxy-images.tar.gz | docker load
-          docker image ls mailwoman:proxy-test mailwoman-mock:proxy-test
+          # `docker image ls` takes at most one reference on current Docker CLIs.
+          # `inspect` takes several and exits non-zero if either tag is missing.
+          docker image inspect --format '{{.Id}} {{.RepoTags}}' \
+            mailwoman:proxy-test mailwoman-mock:proxy-test
 
       # MUST run before `compose up`. The compose file mounts this directory
       # read-only into every HTTPS listener and into app-tls; if it is empty,
