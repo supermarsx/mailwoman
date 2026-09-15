@@ -817,6 +817,9 @@ mod tests {
     }
 
     async fn seed_msg(s: &Store) -> (String, String, String) {
+        // A username unique to this call: 0028 (t24-e6) makes the account identity
+        // unique, and the Postgres legs reuse one database across tests and runs.
+        let username = format!("u-{}", crate::seal::random_token());
         let account_id = s
             .create_account(
                 &NewAccount {
@@ -824,11 +827,11 @@ mod tests {
                     host: "h",
                     port: 993,
                     tls: "implicit",
-                    username: "u",
+                    username: &username,
                     sync_policy_json: "{}",
                 },
                 &Credentials {
-                    username: "u".into(),
+                    username: username.clone(),
                     password: "p".into(),
                 },
             )
