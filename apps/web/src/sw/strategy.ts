@@ -54,6 +54,34 @@ export function isHashedAsset(pathname: string): boolean {
 }
 
 /**
+ * True when `res` is the server's SPA fallback being returned for a request that
+ * asked for a SUBRESOURCE — i.e. `index.html` masquerading as a font or a script.
+ *
+ * mw-server's static handler answers any unmatched path with `index.html` under a
+ * **200** (`crates/mw-server/src/lib.rs`, "SPA fallback: unknown non-asset routes
+ * get index.html"). That is right for navigations and wrong for everything else,
+ * and `res.ok` alone cannot tell the two apart — so a miss on `/fonts/inter-400.woff2`
+ * came back 200 `text/html` and was cached, **permanently**, under the font's URL.
+ * The cache-first path never revalidates and `mw-shell-v1` is only dropped on a
+ * cache-version bump, so the poisoned entry would outlive the operator finally
+ * running `mailwoman fonts pull` — the fonts would 404 into HTML once and then be
+ * served from cache as HTML forever. t24-e12 traced the live symptom:
+ *
+ *   Failed to decode downloaded font: …/fonts/inter-400.woff2
+ *   OTS parsing error: invalid sfntVersion: 1008821359   (= the bytes `<!DO`)
+ *
+ * Refusing to CACHE it is this layer's job and is all this function does; the
+ * response is still returned to the caller, which fails to decode it exactly as
+ * before. Making the server answer 404 instead of the SPA shell is the other half
+ * of the fix and lives in mw-server.
+ */
+export function isSpaFallbackForSubresource(req: ReqLike, res: Response): boolean {
+  if (req.mode === 'navigate') return false;
+  const type = res.headers.get('content-type') ?? '';
+  return type.toLowerCase().includes('text/html');
+}
+
+/**
  * Classify a request into a fetch strategy (§2.5).
  *
  * Sub-path hosting (t20 B4): the deploy prefix is stripped BEFORE matching, so the
@@ -82,7 +110,9 @@ export interface FetchDeps {
 async function networkFirst(req: ReqLike, deps: FetchDeps): Promise<Response> {
   try {
     const res = await deps.fetch(req);
-    if (res.ok) await deps.cachePut(req.url, res.clone());
+    if (res.ok && !isSpaFallbackForSubresource(req, res)) {
+      await deps.cachePut(req.url, res.clone());
+    }
     return res;
   } catch (err) {
     const cached = await deps.cacheMatch(req.url);
@@ -95,7 +125,9 @@ async function cacheFirst(req: ReqLike, deps: FetchDeps): Promise<Response> {
   const cached = await deps.cacheMatch(req.url);
   if (cached !== undefined) return cached;
   const res = await deps.fetch(req);
-  if (res.ok) await deps.cachePut(req.url, res.clone());
+  if (res.ok && !isSpaFallbackForSubresource(req, res)) {
+    await deps.cachePut(req.url, res.clone());
+  }
   return res;
 }
 

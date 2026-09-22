@@ -4,6 +4,7 @@ import {
   isApiPath,
   isFont,
   isHashedAsset,
+  isSpaFallbackForSubresource,
   respondTo,
   shellUrl,
   shellUrls,
@@ -100,8 +101,13 @@ describe('chooseStrategy under a sub-path', () => {
   });
 });
 
-function res(body = 'ok', ok = true): Response {
-  return { ok, clone: () => res(body, ok), body } as unknown as Response;
+function res(body = 'ok', ok = true, contentType = ''): Response {
+  return {
+    ok,
+    clone: () => res(body, ok, contentType),
+    body,
+    headers: { get: (h: string) => (h.toLowerCase() === 'content-type' ? contentType : null) },
+  } as unknown as Response;
 }
 
 function deps(
@@ -163,6 +169,50 @@ describe('respondTo', () => {
     const { deps: d, puts } = deps({ fetch: vi.fn(async () => network) });
     expect(await respondTo(get('/assets/app-a1b2c3d4.js'), d)).toBe(network);
     expect(puts).toContain(`${ORIGIN}/assets/app-a1b2c3d4.js`);
+  });
+
+  // ── The SPA fallback must never be cached as a subresource (t24-e13) ───────
+  // mw-server answers an unmatched path with index.html under a 200, so a miss on
+  // a font came back 200 text/html and `res.ok` cached it under the font's URL.
+  // Cache-first never revalidates, so the poisoned entry then outlived the
+  // operator actually installing the fonts. These are the assertions that would
+  // have caught it: the old code only checked `res.ok`, which is true here.
+  it('cache-first does NOT cache the SPA fallback returned for a font', async () => {
+    const fallback = res('<!doctype html><html>…', true, 'text/html; charset=utf-8');
+    const { deps: d, puts } = deps({ fetch: vi.fn(async () => fallback) });
+    // The response is still returned to the caller — only the caching is refused.
+    expect(await respondTo(get('/fonts/inter-400.woff2'), d)).toBe(fallback);
+    expect(puts, 'index.html must not be cached under a font URL').toEqual([]);
+  });
+
+  it('cache-first does NOT cache the SPA fallback returned for a hashed asset', async () => {
+    const fallback = res('<!doctype html>', true, 'text/html');
+    const { deps: d, puts } = deps({ fetch: vi.fn(async () => fallback) });
+    await respondTo(get('/assets/app-a1b2c3d4.js'), d);
+    expect(puts).toEqual([]);
+  });
+
+  it('network-first does NOT cache an HTML fallback returned for an API path', async () => {
+    const fallback = res('<!doctype html>', true, 'text/html');
+    const { deps: d, puts } = deps({ fetch: vi.fn(async () => fallback) });
+    await respondTo(get('/jmap/api'), d);
+    expect(puts).toEqual([]);
+  });
+
+  it('still caches a REAL font response', async () => {
+    const font = res('wOF2…', true, 'font/woff2');
+    const { deps: d, puts } = deps({ fetch: vi.fn(async () => font) });
+    expect(await respondTo(get('/fonts/inter-400.woff2'), d)).toBe(font);
+    expect(puts).toContain(`${ORIGIN}/fonts/inter-400.woff2`);
+  });
+
+  it('still caches HTML for a NAVIGATION (that one really is the shell)', async () => {
+    const shell = res('<!doctype html>', true, 'text/html');
+    const { deps: d } = deps({ fetch: vi.fn(async () => shell) });
+    // Navigations are 'shell-fallback', which does not cache on the happy path;
+    // the guard must not reclassify them as poisoned.
+    expect(isSpaFallbackForSubresource(get('/inbox', 'navigate'), shell)).toBe(false);
+    expect(await respondTo(get('/inbox', 'navigate'), d)).toBe(shell);
   });
 
   it('offline navigation falls back to the precached app shell', async () => {

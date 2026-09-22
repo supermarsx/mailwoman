@@ -48,6 +48,17 @@ function isHashedAsset(pathname) {
   return /-[A-Za-z0-9_]{8,}\.[a-z0-9]+$/i.test(pathname) || pathname.startsWith('/assets/');
 }
 
+// `index.html` returned for a SUBRESOURCE request must never be cached (t24-e13).
+// mw-server answers any unmatched path with the SPA shell under a 200, so a miss on
+// /fonts/*.woff2 comes back 200 text/html; `res.ok` cannot tell that from a real
+// hit, and cache-first never revalidates — so the HTML would be served as the font
+// forever, outliving the operator running `mailwoman fonts pull`. Mirrors
+// isSpaFallbackForSubresource() in src/sw/strategy.ts; keep the two in sync.
+function isSpaFallbackForSubresource(request, res) {
+  if (request.mode === 'navigate') return false;
+  return (res.headers.get('content-type') || '').toLowerCase().includes('text/html');
+}
+
 function chooseStrategy(request) {
   if (request.method !== 'GET') return 'passthrough';
   const pathname = stripBase(new URL(request.url).pathname);
@@ -61,7 +72,9 @@ async function networkFirst(request) {
   const cache = await caches.open(CACHE_NAME);
   try {
     const res = await fetch(request);
-    if (res.ok) await cache.put(request, res.clone());
+    if (res.ok && !isSpaFallbackForSubresource(request, res)) {
+      await cache.put(request, res.clone());
+    }
     return res;
   } catch (err) {
     const cached = await cache.match(request);
@@ -75,7 +88,9 @@ async function cacheFirst(request) {
   const cached = await cache.match(request);
   if (cached) return cached;
   const res = await fetch(request);
-  if (res.ok) await cache.put(request, res.clone());
+  if (res.ok && !isSpaFallbackForSubresource(request, res)) {
+    await cache.put(request, res.clone());
+  }
   return res;
 }
 
