@@ -44,10 +44,24 @@ test('PGP: generate → encrypt → send → decrypt-on-receipt (round-trip + in
   const passphrase = `e2e-pgp-pass-${token}`;
   // The plaintext is HTML with a hostile <script> + inline handler that the
   // in-worker sanitizer must strip on decrypt, plus two visible markers.
+  //
+  // The last three constructs are a FRESHNESS probe for the committed wasm guest
+  // (t24-e13). `mw_sanitize_bg.wasm` is a committed binary and had silently fallen
+  // three releases behind `crates/mw-sanitize/src`: the shipped guest predated
+  // `db57bc0` (CSS parse + property allowlist: drop positioning and `@import`,
+  // clamp `z-index`) and `06628e5` (26.16 tracker markers). Because this guest is
+  // what sanitizes DECRYPTED E2EE mail, a stale one means decrypted mail gets a
+  // weaker policy than server-sanitized mail — and the old suite passed anyway,
+  // since it only asserted the <script>/handler stripping that every version did.
+  // These three make a stale guest FAIL here, in the live round-trip, rather than
+  // pass quietly.
   const plaintextHtml =
     `<p>${marker}</p>` +
     `<script>window.__pwned_${token}=1</script>` +
-    `<b onclick="window.__pwned_${token}=2">${boldMarker}</b>`;
+    `<b onclick="window.__pwned_${token}=2">${boldMarker}</b>` +
+    `<style>@import url("https://evil.example/x.css");</style>` +
+    `<div style="position:fixed;z-index:999999">overlay</div>` +
+    `<img src="https://tracker.evil.example/p.gif">`;
 
   await engineLogin(page);
 
@@ -102,6 +116,26 @@ test('PGP: generate → encrypt → send → decrypt-on-receipt (round-trip + in
   expect(srcdoc!).not.toContain('<script');
   expect(srcdoc!).not.toContain('__pwned');
   expect(srcdoc!.toLowerCase()).not.toContain('onclick');
+
+  // ── Freshness of the in-worker guest (t24-e13) ───────────────────────────
+  // Each assertion fails against the guest that shipped before this lane, so a
+  // stale `mw_sanitize_bg.wasm` cannot pass this spec.
+  //   db57bc0 — the CSS allowlist:
+  expect(srcdoc!, '@import must be dropped').not.toContain('@import');
+  expect(srcdoc!, 'external stylesheet host must not survive').not.toContain('evil.example/x.css');
+  expect(srcdoc!, 'position:fixed must be dropped (overlay/clickjacking)').not.toMatch(
+    /position\s*:\s*fixed/i,
+  );
+  expect(srcdoc!, 'z-index must be clamped to MAX_Z_INDEX').not.toContain('999999');
+  //   06628e5 — the blocked-remote-image marker, which the reader's
+  //   "N trackers blocked" UI reads. It reports the host and, by construction,
+  //   never carries a loadable URL — so assert both halves.
+  expect(srcdoc!, 'blocked-host breadcrumb must be emitted').toContain(
+    'data-mw-blocked-host="tracker.evil.example"',
+  );
+  expect(srcdoc!, 'the breadcrumb must not be loadable').not.toMatch(
+    /(?:src|href)\s*=\s*["'][^"']*tracker\.evil/i,
+  );
 
   // The window global the script would have set must NOT exist (no script ran —
   // and the frame is script-free anyway; belt-and-braces on the sanitize path).
