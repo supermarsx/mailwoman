@@ -60,7 +60,13 @@ describe('withImageLoadingHints over real sanitized output (the consumer)', () =
     expect(attrs(out, 'width')[0]).toBe('600');
     expect(attrs(out, 'height')[0]).toBe('200');
     // The sanitizer's own decisions are untouched: the remote src is still gone.
-    expect(out).not.toContain('tracker.example');
+    // The host remains only inside the deliberate hidden `data-mw-blocked-host`
+    // breadcrumb (t16 S9), which never carries a loadable URL — so assert the
+    // property that matters (nothing can LOAD from it) rather than the mere
+    // absence of the string. The flat form passed only while the committed
+    // mw-sanitize guest predated 26.16 and emitted no marker (t24-e13).
+    expect(out).not.toMatch(/src\s*=\s*["'][^"']*tracker\.example/i);
+    expect(out.replace(/\sdata-mw-blocked-host="[^"]*"/g, '')).not.toContain('tracker.example');
     expect(out).toContain('cid:a');
     expect(out).toContain('cid:b');
     // Negative control: the assertion above is only evidence if imgs survived.

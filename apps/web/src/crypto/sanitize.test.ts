@@ -47,7 +47,16 @@ describe('in-worker mw-sanitize wasm (plan §1.3)', () => {
       '<a href="javascript:alert(1)">x</a><img src="https://tracker.evil/p.gif">',
     );
     expect(clean).not.toContain('javascript:');
-    expect(clean).not.toContain('tracker.evil');
+    // The host survives ONLY inside the hidden `data-mw-blocked-host` breadcrumb
+    // the sanitizer appends on purpose (t16 S9) — it "never carries a loadable
+    // URL". This assertion used to be a flat `not.toContain('tracker.evil')`,
+    // which passed only because the committed wasm guest predated 26.16 and
+    // emitted no marker at all; rebuilding the guest (t24-e13) exposed it. The
+    // property that matters is that nothing can LOAD from the host, so assert
+    // that, exactly as e2e/sanitizer.spec.ts now does.
+    expect(clean).toMatch(/data-mw-blocked-host="tracker\.evil"/);
+    expect(clean.replace(/\sdata-mw-blocked-host="[^"]*"/g, '')).not.toContain('tracker.evil');
+    expect(clean).not.toMatch(/(?:src|href)\s*=\s*["'][^"']*tracker\.evil/i);
   });
 
   it('routes decrypted HTML through the worker wiring and sanitizes it (script stripped)', () => {
@@ -79,6 +88,57 @@ describe('in-worker mw-sanitize wasm (plan §1.3)', () => {
       sanitizeEmailHtml,
     );
     expect(out.subject).toBe('Protected subject');
+  });
+});
+
+// ── Freshness of the committed guest (t24-e13) ─────────────────────────────
+//
+// `mw_sanitize_bg.wasm` is a COMMITTED binary, so it can silently fall behind
+// `crates/mw-sanitize/src`. It had: the guest shipping in 26.19 was built before
+// `db57bc0` (the CSS parse + property allowlist + selector namespacing: drop
+// positioning and `@import`, drop external `url()`, clamp `z-index`) and before
+// `06628e5` (26.16 tracker markers), so decrypted E2EE mail — the ONLY consumer of
+// the in-worker sanitizer — was getting a weaker policy than server-sanitized mail.
+//
+// These assert behaviour that ONLY the current sanitizer has, so a stale guest
+// fails the suite instead of passing quietly. They deliberately do not test string
+// markers in the binary: `"z-index"` and the at-rule names are match arms, which
+// rustc compiles to inline byte comparisons and never emits as data, so grepping
+// the `.wasm` for them reports 0 on a perfectly fresh build. Behaviour is the only
+// honest detector.
+describe('committed mw-sanitize guest is CURRENT with crates/mw-sanitize/src', () => {
+  it('clamps z-index (db57bc0) — MAX_Z_INDEX = 1000', () => {
+    const out = sanitizeEmailHtml('<div style="z-index:999999">x</div>');
+    expect(out).not.toContain('999999');
+    expect(out).toMatch(/z-index:\s*1000/);
+  });
+
+  it('drops @import and keeps @media (db57bc0)', () => {
+    const out = sanitizeEmailHtml(
+      '<style>@import url("//evil.example/x.css"); @media screen { p { color: red } }</style><p>hi</p>',
+    );
+    expect(out).not.toContain('@import');
+    expect(out).not.toContain('evil.example');
+    expect(out).toContain('@media');
+  });
+
+  it('drops positioning and external url() from inline style (db57bc0)', () => {
+    const fixed = sanitizeEmailHtml('<div style="position:fixed;top:0">x</div>');
+    expect(fixed).not.toContain('fixed');
+    const bg = sanitizeEmailHtml('<div style="background:url(https://evil.example/t.png)">x</div>');
+    expect(bg).not.toContain('evil.example');
+  });
+
+  it('namespaces <style> selectors under .mw-email-body (db57bc0)', () => {
+    const out = sanitizeEmailHtml('<style>p { color: red }</style><p>hi</p>');
+    expect(out).toContain('mw-email-body');
+  });
+
+  it('emits the blocked-remote-image marker (06628e5 / t16 S9)', () => {
+    const out = sanitizeEmailHtml('<img src="https://tracker.evil.example/p.gif">');
+    // The marker reports what was blocked and never carries a loadable URL.
+    expect(out).toContain('data-mw-blocked-host="tracker.evil.example"');
+    expect(out).not.toMatch(/src\s*=\s*["'][^"']*tracker\.evil/i);
   });
 });
 
