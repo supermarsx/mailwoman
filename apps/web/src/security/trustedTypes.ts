@@ -45,9 +45,16 @@
 //         `public/` and never a CDN (src/viewers/pdfWorkerSrc.ts).
 //
 // Anything else throws, which surfaces at the construction site as a TypeError
-// rather than silently loading. `createScript` is deliberately still ABSENT: the
-// app has no string-to-code sink (no `eval`, no `new Function`), so that one
+// rather than silently loading. `createScript` is deliberately still UNSUPPLIED:
+// the app has no string-to-code sink (no `eval`, no `new Function`), so that one
 // stays fail-closed as 26.17 intended.
+//
+// Note "unsupplied", not "absent": a `TrustedTypePolicy` exposes `createHTML`,
+// `createScript` and `createScriptURL` on its prototype whichever callbacks were
+// passed to `createPolicy`, and an unsupplied one throws only when CALLED. So
+// `typeof policy.createScript === 'function'` is true either way and proves
+// nothing — a test for this property has to invoke it (see
+// apps/web/e2e/crypto-trustedtypes.spec.ts).
 //
 // Query strings and fragments are ignored (Vite does not add them to worker URLs,
 // but a `?worker` style suffix must not defeat the extension check); the path is
