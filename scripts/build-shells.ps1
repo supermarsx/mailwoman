@@ -6,15 +6,30 @@
 $ErrorActionPreference = 'Stop'
 Set-Location (Join-Path $PSScriptRoot '..')
 
+# `$ErrorActionPreference = 'Stop'` covers cmdlet errors, NOT the exit code of a
+# native command: `pnpm`, `node` and `tauri` could fail and this script would run
+# on and exit 0. t24-e11 found the Windows desktop-shell CI leg green that way
+# while check-bundle-size.mjs was printing budget failures. Hence a $LASTEXITCODE
+# check after every native call below. (A wrapper function is not used: arguments
+# like `-e` bind to the wrapper's own common parameters instead of being passed on.)
+function Assert-LastExit([string]$Label) {
+  if ($LASTEXITCODE -ne 0) {
+    throw "[build-shells] $Label failed with exit code $LASTEXITCODE"
+  }
+}
+
 # Include the self-contained mw-server unless MW_SELF_CONTAINED=0.
 $selfContained = if ($env:MW_SELF_CONTAINED) { $env:MW_SELF_CONTAINED } else { '1' }
 
 Write-Host '[build-shells] 1/5 building shared SPA (apps/web)...'
 pnpm -C apps/web install --frozen-lockfile
+Assert-LastExit 'pnpm -C apps/web install'
 pnpm -C apps/web build
+Assert-LastExit 'pnpm -C apps/web build'
 
 Write-Host '[build-shells] 2/5 emitting UI-bundle integrity hash (SPEC 7.4)...'
 node scripts/emit-bundle-hash.mjs
+Assert-LastExit 'scripts/emit-bundle-hash.mjs'
 
 Write-Host '[build-shells] 3/5 bundling mw-server for self-contained mode...'
 if ($selfContained -eq '1') {
@@ -25,10 +40,13 @@ if ($selfContained -eq '1') {
 
 Write-Host '[build-shells] 4/5 building desktop shell...'
 pnpm -C apps/desktop install
+Assert-LastExit 'pnpm -C apps/desktop install'
 pnpm -C apps/desktop exec tauri build --no-bundle
+Assert-LastExit 'tauri build'
 
 Write-Host '[build-shells] 5/5 checking bundle-size budgets (SPEC 16)...'
 node scripts/check-bundle-size.mjs
+Assert-LastExit 'scripts/check-bundle-size.mjs'
 
 # Android needs Android SDK+NDK+JDK; this machine has SDK+NDK but no JDK on PATH
 # (plan risk #1) — the APK build is the e8 CI gate:

@@ -14,7 +14,7 @@ pnpm -C apps/desktop exec tauri build
 ```
 
 `.github/workflows/packaging.yml` builds the thin shell + asserts the §16 size
-budgets (thin < 10 MB, self-contained < 40 MB). Full-bundle deb/rpm/appimage
+budgets (thin < 21 MB, self-contained < 126 MB; 26.20 measured revision). Full-bundle deb/rpm/appimage
 generation is exercised by the existing `desktop-shell` CI job.
 
 ## Per-format tuning (in `tauri.conf.json` → `bundle.linux`)

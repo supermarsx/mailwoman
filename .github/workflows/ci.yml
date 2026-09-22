@@ -991,7 +991,8 @@ jobs:
   # with macOS best-effort. Runs scripts/build-shells.{sh,ps1}, which builds the
   # shared SPA once, emits the §7.4 bundle-hash, bundles the sibling `mw-server` for
   # self-contained mode, `tauri build --no-bundle`s the shell, and asserts the §16
-  # size budgets (thin < 10 MB, self-contained < 40 MB via scripts/check-bundle-size.mjs).
+  # size budgets (thin < 21 MB, self-contained < 126 MB via scripts/check-bundle-size.mjs;
+  # 26.20 measured revision — docs/perf/size-budget-revision.md).
   desktop-shell:
     strategy:
       fail-fast: false

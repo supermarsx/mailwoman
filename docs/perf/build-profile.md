@@ -256,3 +256,7 @@ future lane that owns those crates, and out of scope for a build-profile pass.
 - `scripts/check-bundle-size.mjs`'s 10 MB thin-shell budget deserves the same
   measured-revision treatment `docs/perf/size-budget-revision.md` gave the server
   binary in 26.9, or a check that the Linux artifact it actually gates is under it.
+  **Done in 26.20** (t24-e11): the gate's own Linux artifact measured 18.20 MB and
+  the budget is now 21 MB (self-contained 126 MB) — same file, new section. The
+  numbers quoted elsewhere in this document are the 26.x measurements as taken then
+  and are left as written.

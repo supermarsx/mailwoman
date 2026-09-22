@@ -9,7 +9,8 @@ Config: `apps/desktop/src-tauri/tauri.conf.json` → `bundle.linux.appimage`.
 ```
 
 `bundleMediaFramework: false` keeps the AppImage within the SPEC §16 thin-shell size
-budget (< 10 MB); enabling it bundles gstreamer and inflates the image well past it.
+budget (< 21 MB, 26.20 measured revision); enabling it bundles gstreamer and
+inflates the image well past it.
 
 Build: `pnpm -C apps/desktop exec tauri build` → `…/bundle/appimage/*.AppImage`.
 Run: `chmod +x Mailwoman_26.8.0_amd64.AppImage && ./Mailwoman_26.8.0_amd64.AppImage`.

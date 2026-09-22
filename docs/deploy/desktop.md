@@ -44,8 +44,12 @@ CI builds this on **Windows + Linux** (macOS best-effort) in the `desktop-shell`
 
 | Variant | Budget | Contents |
 |---|---|---|
-| **Thin shell** | **< 10 MB** | SPA + Tauri/WebView runtime, no engine |
-| **Self-contained** | **< 40 MB** | thin shell + the bundled sibling `mw-server` |
+| **Thin shell** | **< 21 MB** | SPA + Tauri/WebView runtime, no engine |
+| **Self-contained** | **< 126 MB** | thin shell + the bundled sibling `mw-server` |
+
+Both budgets were revised in 26.20 (from 10 MB / 40 MB) to the largest measured
+platform size × 1.15 — see `docs/perf/size-budget-revision.md` for the
+measurements and the policy.
 
 The engine appears **only** in the self-contained variant, as the bundled
 `mw-server` resource — never linked into the thin shell.

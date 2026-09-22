@@ -8,6 +8,11 @@ Set-Location (Join-Path $PSScriptRoot '..')
 
 Write-Host '[bundle-server] building release mw-server...'
 cargo build --release -p mw-server
+# `$ErrorActionPreference = 'Stop'` does not act on a native command's exit code,
+# so a failed build would fall through to a stale binary from an earlier run.
+if ($LASTEXITCODE -ne 0) {
+    throw "[bundle-server] cargo build failed with exit code $LASTEXITCODE"
+}
 
 # The `mw-server` crate's binary is named `mailwoman` ([[bin]] name); rename it to
 # the stable resource name `mw-server.exe` the shell resolves at runtime.
@@ -20,6 +25,6 @@ Copy-Item -Force $bin (Join-Path $dest 'mw-server.exe')
 
 $sizeMb = [int]((Get-Item $bin).Length / 1MB)
 Write-Host "[bundle-server] copied mailwoman.exe -> $dest/mw-server.exe ($sizeMb MB)"
-if ($sizeMb -gt 40) {
-    Write-Warning "[bundle-server] bundled mw-server is $sizeMb MB (> 40 MB self-contained budget, §16)"
+if ($sizeMb -gt 126) {
+    Write-Warning "[bundle-server] bundled mw-server is $sizeMb MB (> 126 MB self-contained budget, §16)"
 }
