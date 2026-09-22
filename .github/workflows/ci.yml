@@ -12,10 +12,19 @@ on:
     - cron: "17 3 * * *"
   workflow_dispatch: {}
 
-# Cancel superseded runs on the same ref.
+# Cancel superseded runs on a PR or a topic branch — never on the default branch.
+#
+# master's run IS the verdict for that commit. `rust` is long and `e2e-crypto`
+# declares `needs: [rust, web]`, so under a shared `ci-refs/heads/master` group
+# each push cancelled the previous run before the e2e stage was even created —
+# at least six consecutively while several lanes were pushing minutes apart
+# (t24-e12 / t24-e13). `workflow_dispatch` joins the same group, so dispatching
+# could not escape it either. Giving each master SHA its own group means every
+# commit on master gets a full verdict; PRs and topic branches keep the
+# cancel-on-push behaviour, which is correct there.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.ref }}-${{ github.ref == 'refs/heads/master' && github.sha || '' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 permissions:
   contents: read

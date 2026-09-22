@@ -107,9 +107,14 @@ on:
 permissions:
   contents: read
 
+# Same rule as ci.yml: cancel superseded runs on a PR or topic branch, never on
+# the default branch, where each SHA gets its own group so master's verdict for
+# that commit survives the next push. This workflow's push filter includes
+# `crates/mw-server/**`, which the lanes touch constantly, so it was exposed to
+# exactly the same cancellation storm.
 concurrency:
-  group: proxy-conformance-${{ github.ref }}
-  cancel-in-progress: true
+  group: proxy-conformance-${{ github.ref }}-${{ github.ref == 'refs/heads/master' && github.sha || '' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 env:
   CARGO_TERM_COLOR: always

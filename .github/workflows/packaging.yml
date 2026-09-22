@@ -21,9 +21,12 @@ on:
 permissions:
   contents: read
 
+# Same rule as ci.yml: cancel superseded runs on a PR or topic branch, never on
+# the default branch, where each SHA gets its own group so master's verdict for
+# that commit survives the next push.
 concurrency:
-  group: packaging-${{ github.ref }}
-  cancel-in-progress: true
+  group: packaging-${{ github.ref }}-${{ github.ref == 'refs/heads/master' && github.sha || '' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 jobs:
   # ---------------------------------------------------------------------------

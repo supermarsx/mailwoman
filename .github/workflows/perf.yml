@@ -29,9 +29,13 @@ on:
     branches: [master]
   workflow_dispatch: {}
 
+# Same rule as ci.yml: cancel superseded runs on a PR or topic branch, never on
+# the default branch, where each SHA gets its own group so master's verdict for
+# that commit survives the next push. Two master runs may now overlap; they are
+# separate hosted runners, so this does not add contention between them.
 concurrency:
-  group: perf-${{ github.ref }}
-  cancel-in-progress: true
+  group: perf-${{ github.ref }}-${{ github.ref == 'refs/heads/master' && github.sha || '' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 permissions:
   contents: read
