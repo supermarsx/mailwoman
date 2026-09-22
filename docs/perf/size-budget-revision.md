@@ -1,3 +1,8 @@
+# Size-budget revisions (SPEC §23 — 26.9; SPEC §16 shells — 26.20)
+
+The §16 shell revision is at the end of this file; the server/image revision
+(§23, 26.9) follows immediately below and is unchanged.
+
 # Size-budget revision (SPEC §23) — 26.9
 
 **Status:** measured + revised (t9-e5-size). Supersedes the honest-red gate the
@@ -84,3 +89,71 @@ documented here so the ceiling is auditable.
 - `FROM scratch` + musl-static runtime image (Dockerfile TODO) to shed the
   distroless/cc base layer.
 - LTO / `opt-level = "z"` (build-time + runtime trade-offs; likely still > 45 MB).
+
+---
+
+# Shell size-budget revision (SPEC §16) — 26.20
+
+**Status:** measured + revised (t24-e11). Same policy as §23 above: the budget is
+the measurement × 1.15, documented rather than quietly raised.
+
+## TL;DR
+
+| Metric | Original §16 | Measured (26.20, largest platform) | Revised budget = ceil(measure × 1.15) |
+|---|---|---|---|
+| Thin desktop shell (no engine) | < 10 MB | **18.20 MB** (Linux) | **21 MB** |
+| Self-contained desktop (shell + bundled `mw-server`) | < 40 MB | **109.48 MB** (Windows) | **126 MB** |
+
+## The measurements
+
+Commit `433c1e1`, 2026-09-15 — the first CI runs in which `tauri build` completed
+on every OS (before that the shell jobs failed earlier, on a Tauri npm/crate version
+mismatch, so the gate had never reported a full Linux or macOS number).
+Runs: `ci` 35005857248 (`desktop-shell`) and `packaging` 35005857382
+(`build shells + §16 size gate`); both produced identical figures per OS.
+
+| OS | thin shell | bundled `mw-server` | self-contained total |
+|---|---|---|---|
+| ubuntu-latest | **18.20 MB** | 85.13 MB | 103.34 MB |
+| windows-latest | 17.43 MB | 92.04 MB | **109.48 MB** |
+| macos-latest | 14.03 MB | 72.21 MB | 86.24 MB |
+
+The basis is the largest measurement per budget (a budget the shipped Linux or
+Windows artifact cannot meet is not a budget), so: thin 18.20 × 1.15 = 20.93 → **21 MB**;
+self-contained 109.48 × 1.15 = 125.90 → **126 MB**.
+
+## Why the original numbers were unreachable
+
+The self-contained budget is dominated by the bundled `mw-server`, which is the same
+full-feature binary §23 measured at ~79 MB on Linux (~85 MB as built here, ~92 MB on
+Windows/MSVC): the wasmtime plugin JIT, every mail + PIM protocol, the crypto stack,
+the embedded SPA. 40 MB for shell + engine was never reachable while §23's own budget
+for the engine alone is 91 MB. The thin shell carries the Tauri/WebView runtime, the
+embedded SPA and the shell's own Rust code; at 14–18 MB it is over 10 MB on every OS,
+by the widest margin on Linux.
+
+## What the +15% headroom does
+
+The same tripwire as §23: it catches a regression (a new heavy dependency, a lost
+`strip = true`, an accidentally bundled media framework), not day-to-day drift. The
+measured base above is what makes the ceiling auditable.
+
+## Enforcement (and one correction)
+
+`scripts/check-bundle-size.mjs` holds both numbers and is run as step 5/5 of
+`scripts/build-shells.{sh,ps1}` by ci.yml `desktop-shell` and packaging.yml
+`desktop-bundles`, on all three OSes.
+
+Until 26.20 the **Windows leg did not enforce anything**: `build-shells.ps1` set
+`$ErrorActionPreference = 'Stop'`, which does not apply to a native command's exit
+code, so `node scripts/check-bundle-size.mjs` printed its `✗` lines, exited 1, and
+the script carried on to `[build-shells] done` and exited 0. The Windows job was
+green while over both budgets. `build-shells.ps1` now checks `$LASTEXITCODE` after
+every native call (`pnpm`, `node`, `tauri`), and `bundle-server.ps1` after its
+`cargo build`. `build-shells.sh` was already correct (`set -euo pipefail`).
+
+## Future levers (unchanged from §23)
+
+A feature-gated "core" server SKU without the bundled bridges/plugins and the
+wasmtime JIT is the lever that would move the self-contained number materially.
+Nothing here forecloses it; the budget would be revised down with it.

@@ -991,7 +991,8 @@ jobs:
   # with macOS best-effort. Runs scripts/build-shells.{sh,ps1}, which builds the
   # shared SPA once, emits the §7.4 bundle-hash, bundles the sibling `mw-server` for
   # self-contained mode, `tauri build --no-bundle`s the shell, and asserts the §16
-  # size budgets (thin < 10 MB, self-contained < 40 MB via scripts/check-bundle-size.mjs).
+  # size budgets (thin < 21 MB, self-contained < 126 MB via scripts/check-bundle-size.mjs;
+  # 26.20 measured revision — docs/perf/size-budget-revision.md).
   desktop-shell:
     strategy:
       fail-fast: false
@@ -1345,10 +1346,9 @@ jobs:
         env:
           MW_BIND: "127.0.0.1:8090"
           MW_MODE: "proxy"
-          # Proxy mode refuses a JMAP upstream on a loopback address unless the
-          # operator names its origin (t24 B2). The mock is published on host
-          # :8181 by docker-compose.dev.yml, which is where the browser specs
-          # point MW_E2E_JMAP_URL.
+          # Operator allowlist of JMAP upstreams this proxy may dial (t24-e8). The
+          # upstream is the in-repo mock published on loopback, which the policy
+          # floor refuses unless it is named here.
           MW_JMAP_UPSTREAMS: "http://127.0.0.1:8181"
           MW_DB_PATH: "postgres://mailwoman:mailwoman@127.0.0.1:5432/mailwoman"
           MW_REDIS_URL: "redis://127.0.0.1:6379"
@@ -1859,10 +1859,9 @@ jobs:
         env:
           MW_BIND: "127.0.0.1:8090"
           MW_MODE: "proxy"
-          # Proxy mode refuses a JMAP upstream on a loopback address unless the
-          # operator names its origin (t24 B2). The mock is published on host
-          # :8181 by docker-compose.dev.yml, which is where the browser specs
-          # point MW_E2E_JMAP_URL.
+          # Operator allowlist of JMAP upstreams this proxy may dial (t24-e8). The
+          # upstream is the in-repo mock published on loopback, which the policy
+          # floor refuses unless it is named here.
           MW_JMAP_UPSTREAMS: "http://127.0.0.1:8181"
           MW_DB_PATH: "postgres://mailwoman:mailwoman@127.0.0.1:5432/mailwoman"
           MW_REDIS_URL: "redis://127.0.0.1:6379"

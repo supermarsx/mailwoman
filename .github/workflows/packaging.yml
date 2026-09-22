@@ -5,8 +5,9 @@
 # HUMAN-gated input (see packaging/**/README.md + docs/deploy/packaging.md). No Apple,
 # Google, Microsoft, minisign, or repo-GPG secret is referenced here.
 #
-# §16 size budgets asserted: thin desktop shell < 10 MB, self-contained desktop < 40 MB
-# (scripts/check-bundle-size.mjs, run inside scripts/build-shells.*).
+# §16 size budgets asserted: thin desktop shell < 21 MB, self-contained desktop < 126 MB
+# (scripts/check-bundle-size.mjs, run inside scripts/build-shells.*; 26.20 measured
+# revision — docs/perf/size-budget-revision.md).
 # Separate workflow (not ci.yml) to avoid the single-file collision.
 name: packaging
 

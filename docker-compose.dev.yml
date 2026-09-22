@@ -58,14 +58,17 @@ services:
       MW_BIND: "0.0.0.0:8080"
       MW_DB_PATH: "/data/mailwoman.db"
       MW_RENDER_BIN: "/usr/local/bin/mw-render"
-      # Proxy mode refuses a JMAP upstream on a private or loopback address unless
-      # the operator names its origin (t24 B2). `mock` is on the compose network, so
-      # without this the login below is refused before any connection is made.
-      MW_JMAP_UPSTREAMS: "http://mock:8181"
       # Fixed dev key so sessions survive restarts. DEV ONLY — never reuse.
       MW_SERVER_KEY: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
       # Plain HTTP for local E2E, so the session cookie is not marked Secure.
       MW_COOKIE_SECURE: "false"
+      # Operator allowlist of JMAP upstreams this proxy may dial (t24-e8). The
+      # upstream here is the in-repo mock on the compose network, a private
+      # address the policy floor refuses unless it is named. Needed by every
+      # proxy-mode stack that logs in against `mock`: ci.yml `e2e` + `zap`,
+      # perf.yml. Add the stalwart profile's `http://stalwart:8080` here too if a
+      # cell ever proxies to it.
+      MW_JMAP_UPSTREAMS: "http://mock:8181"
       RUST_LOG: "info"
     ports:
       - "8080:8080"

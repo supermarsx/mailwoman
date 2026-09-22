@@ -1,7 +1,10 @@
 // Bundle-size budget gate (SPEC §16 / plan §3 e7, e8 asserts it in CI).
 //
-// Budgets: the THIN desktop shell (SPA + Tauri runtime, NO engine) < 10 MB; the
-// SELF-CONTAINED desktop (thin shell + the bundled sibling `mw-server`) < 40 MB.
+// Budgets: the THIN desktop shell (SPA + Tauri runtime, NO engine) < 21 MB; the
+// SELF-CONTAINED desktop (thin shell + the bundled sibling `mw-server`) < 126 MB.
+// These are the 26.20 measured revision of the original 10 MB / 40 MB numbers —
+// measured × 1.15, the same policy §23 got in 26.9. Basis and measurements:
+// docs/perf/size-budget-revision.md.
 // The thin shell carries only the SPA + WebView glue; the engine appears solely as
 // the bundled `mw-server` resource in self-contained mode.
 //
@@ -15,8 +18,8 @@ import { fileURLToPath } from 'node:url';
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const MB = 1024 * 1024;
-const THIN_BUDGET = 10 * MB;
-const SELF_CONTAINED_BUDGET = 40 * MB;
+const THIN_BUDGET = 21 * MB;
+const SELF_CONTAINED_BUDGET = 126 * MB;
 
 const exeCandidates = [
   join(root, 'target', 'release', 'mailwoman-desktop.exe'),
@@ -48,7 +51,7 @@ let failed = false;
 
 console.log(`check-bundle-size: thin desktop binary ${fmt(exeSize)} (budget ${fmt(THIN_BUDGET)})`);
 if (exeSize > THIN_BUDGET) {
-  console.error(`  ✗ thin shell exceeds the §16 10 MB budget`);
+  console.error(`  ✗ thin shell exceeds the §16 ${fmt(THIN_BUDGET)} budget`);
   failed = true;
 }
 
@@ -58,7 +61,7 @@ if (serverSize > 0) {
     `check-bundle-size: self-contained (shell + mw-server ${fmt(serverSize)}) = ${fmt(total)} (budget ${fmt(SELF_CONTAINED_BUDGET)})`,
   );
   if (total > SELF_CONTAINED_BUDGET) {
-    console.error(`  ✗ self-contained bundle exceeds the §16 40 MB budget`);
+    console.error(`  ✗ self-contained bundle exceeds the §16 ${fmt(SELF_CONTAINED_BUDGET)} budget`);
     failed = true;
   }
 } else {

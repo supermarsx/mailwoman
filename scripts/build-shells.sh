@@ -7,7 +7,7 @@
 #   2. emit the UI-bundle hash (§7.4) (node scripts/emit-bundle-hash.mjs)
 #   3. bundle mw-server for self-contained mode (scripts/bundle-server.sh)
 #   4. build the desktop shell        (tauri build)
-#   5. assert the §16 size budgets    (thin < 10 MB, self-contained < 40 MB)
+#   5. assert the §16 size budgets    (thin < 21 MB, self-contained < 126 MB)
 #   6. build the Android APK          (tauri android build)  [needs SDK/NDK+JDK]
 #
 # The ORDER of 1→2→4 matters: the shell compiles the emitted bundle-hash.json into

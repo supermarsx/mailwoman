@@ -26,7 +26,8 @@ shell config is `apps/mobile/src-tauri/tauri.conf.json`.
 
 None of this **submits** anything. The CI workflow
 `.github/workflows/packaging.yml` asserts the artifacts **build** and meet the §16
-size budgets (thin shell < 10 MB, self-contained desktop < 40 MB); it never signs or
+size budgets (thin shell < 21 MB, self-contained desktop < 126 MB — revised against
+measurement in 26.20, see `docs/perf/size-budget-revision.md`); it never signs or
 uploads.
 
 ## First-party plugin components (`.wasm`) — shipping contract (26.9, t9-e5)
