@@ -193,7 +193,7 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
       <div class={css.body}>
         <aside class={css.sidebar} aria-label={t('calendar-calendars-heading')}>
           <div>
-            <h3 style={{ margin: '0 0 0.25rem', 'font-size': '0.85rem' }}>{t('calendar-calendars-heading')}</h3>
+            <h3 class={css.sideHeading}>{t('calendar-calendars-heading')}</h3>
             <ul class={css.calList}>
               <For each={c.calendars()}>
                 {(cal) => (
@@ -233,7 +233,7 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
           </div>
 
           <div>
-            <h3 style={{ margin: '0 0 0.25rem', 'font-size': '0.85rem' }}>{t('calendar-filter-heading')}</h3>
+            <h3 class={css.sideHeading}>{t('calendar-filter-heading')}</h3>
             <input
               class={css.input}
               placeholder={t('calendar-filter-category-placeholder')}
@@ -244,7 +244,7 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
           </div>
 
           <div>
-            <h3 style={{ margin: '0 0 0.25rem', 'font-size': '0.85rem' }}>{t('calendar-subscribe-heading')}</h3>
+            <h3 class={css.sideHeading}>{t('calendar-subscribe-heading')}</h3>
             <div class={css.row}>
               <input
                 class={css.input}
@@ -262,7 +262,7 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
           </div>
 
           <div>
-            <h3 style={{ margin: '0 0 0.25rem', 'font-size': '0.85rem' }}>{t('calendar-holidays-heading')}</h3>
+            <h3 class={css.sideHeading}>{t('calendar-holidays-heading')}</h3>
             <select class={css.input} aria-label={t('calendar-subscribe-holidays')} onChange={(e) => { const v = e.currentTarget.value; if (v !== '') void subscribeHoliday(v); e.currentTarget.value = ''; }}>
               <option value="">{t('calendar-add-region')}</option>
               <For each={HOLIDAY_PACKS}>{(p) => <option value={p.id}>{p.label}</option>}</For>

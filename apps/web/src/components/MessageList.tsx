@@ -397,7 +397,6 @@ export function MessageList(): JSX.Element {
             ref={scroller}
             onScroll={onScroll}
             onKeyDown={onKeyDown}
-            style={{ overflow: 'auto', flex: '1 1 auto', 'min-height': '0' }}
           >
             <ul
               class="list__items"

@@ -138,8 +138,7 @@ export function AssistPanel(props: AssistPanelProps): JSX.Element {
             }}
           >
             <input
-              class={css.input}
-              style={{ flex: '1 1 auto' }}
+              class={`${css.input} ${css.askInput}`}
               aria-label={t('assist-input-label')}
               placeholder={t('assist-input-placeholder')}
               value={draft()}

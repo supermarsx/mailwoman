@@ -185,7 +185,12 @@ export function TimeGridView(props: ViewProps): JSX.Element {
           </For>
         </div>
       </div>
-      <div style={{ display: 'grid', 'grid-template-columns': cols(), 'border-bottom': '1px solid' }} class={css.allDayRow}>
+      {/* Only the column track is dynamic. `display:grid` and the border are on
+          `allDayRow` already — restating them inline made Solid hoist them into
+          the compiled template as a literal `style="…"` attribute, which
+          `style-src 'self'` blocks (t24-e13); the inline `1px solid` also
+          overrode the class's themed border colour with `currentColor`. */}
+      <div style={{ 'grid-template-columns': cols() }} class={css.allDayRow}>
         <div class={css.gutter} style={{ 'font-size': '0.7rem', 'text-align': 'end', 'padding-inline-end': '4px' }}>
           {t('calendar-all-day')}
         </div>

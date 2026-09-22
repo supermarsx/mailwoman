@@ -91,6 +91,12 @@ export const sidebar = style({
   gap: vars.space[3],
 });
 
+/** The `<h3>` heading above each sidebar group. A class rather than an inline
+ *  `style={{…}}`: a fully-static style object is hoisted by Solid's compiler into
+ *  the template as a literal `style="…"` attribute, which the shell's
+ *  `style-src 'self'` blocks (t24-e13). */
+export const sideHeading = style({ margin: '0 0 0.25rem', fontSize: '0.85rem' });
+
 export const calList = style({ display: 'flex', flexDirection: 'column', gap: vars.space[1], listStyle: 'none', margin: 0, padding: 0 });
 
 export const calItem = style({ display: 'flex', alignItems: 'center', gap: vars.space[2] });

@@ -9,8 +9,23 @@
 // landing in one is exactly the intended split; pdfjs in ANY critical chunk
 // fails the gate.
 //
-// Run after `vite build`. Exits non-zero on: entry over budget, or pdfjs on the
-// critical path.
+// A third, CSP gate rides along here because this is the repo's only post-build
+// check of the emitted bundle (t24-e13): no compiled template may carry a literal
+// `style="…"` attribute. The shell ships `style-src 'self'` with no
+// `'unsafe-inline'` (dropped deliberately in 26.16), and a literal style attribute
+// is subject to that directive, so the browser silently refuses to apply it.
+//
+// It is easy to reintroduce by accident. Solid applies a DYNAMIC `style={{…}}`
+// value through the CSSOM (`el.style.setProperty`), which `style-src` does not
+// govern — but a STATIC one (and the static subset of a partly-dynamic object) is
+// hoisted by the compiler into the template HTML, where it does. The two look
+// identical in the JSX, which is why 26.16's reasoning that "every inline style in
+// the SPA is Solid object-form, applied through the CSSOM" held for the sites its
+// author checked and was false for five others. Only the built output tells them
+// apart, so the check lives here.
+//
+// Run after `vite build`. Exits non-zero on: entry over budget, pdfjs on the
+// critical path, or a literal style attribute in an app chunk.
 import { readdir, readFile } from 'node:fs/promises';
 import { gzipSync } from 'node:zlib';
 import { join } from 'node:path';
@@ -77,6 +92,7 @@ if (assetFiles.length === 0) {
 let entryGz = 0;
 let criticalOnPdfjs = [];
 let pdfjsLazyChunk = null;
+let inlineStyleChunks = [];
 
 console.log('check-size: JS assets (raw / gzip):');
 for (const f of assetFiles) {
@@ -91,6 +107,13 @@ for (const f of assetFiles) {
   if (isEntry) entryGz = gz;
   if (hasPdfjs && critical) criticalOnPdfjs.push(f);
   if (hasPdfjs && !critical) pdfjsLazyChunk = f;
+  // Skip the vendored pdfjs chunk: it is third-party code we do not author, and
+  // its only match sits inside a `data:image/svg+xml` URI, which is not a DOM
+  // attribute on our page and so is not governed by `style-src`.
+  if (!hasPdfjs) {
+    const found = [...new Set(text.match(/style="[^"]*"/g) ?? [])];
+    if (found.length > 0) inlineStyleChunks.push({ file: f, found });
+  }
 }
 
 // --- gate 1: entry chunk under the gzip budget ------------------------------
@@ -115,6 +138,23 @@ if (criticalOnPdfjs.length > 0) {
   // Viewers not yet reachable from the app graph -> pdfjs tree-shaken out
   // entirely. The "not on the critical path" invariant still holds.
   console.log('check-size: pdfjs not present in any chunk (viewers not yet in the graph) — OK');
+}
+
+// --- gate 3: no literal style attribute (blocked by `style-src 'self'`) -----
+if (inlineStyleChunks.length > 0) {
+  console.error(
+    '\ncheck-size: literal style="…" attribute in a compiled template — the shell CSP\n' +
+      "  (`style-src 'self'`, no 'unsafe-inline') refuses to apply it, so the element\n" +
+      '  renders unstyled. Move the STATIC declarations to a CSS class; keep only the\n' +
+      '  dynamic ones in `style={{…}}` (Solid applies those via the CSSOM, which\n' +
+      '  `style-src` does not govern).',
+  );
+  for (const { file, found } of inlineStyleChunks) {
+    console.error(`  ${file}: ${found.join(' ')}`);
+  }
+  failed = true;
+} else {
+  console.log('check-size: no literal style attributes in compiled templates — OK');
 }
 
 if (failed) process.exit(1);

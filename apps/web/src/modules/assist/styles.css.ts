@@ -38,6 +38,12 @@ export const row = style({ display: 'flex', gap: vars.space[3], alignItems: 'cen
 export const field = style({ display: 'flex', flexDirection: 'column', gap: vars.space[2] });
 export const toolbar = style({ display: 'flex', gap: vars.space[2], flexWrap: 'wrap' });
 
+/** The ask box: {@link input} that grows to fill its flex {@link row}. A class
+ *  rather than an inline `style={{ flex: '1 1 auto' }}` — a fully-static style
+ *  object is hoisted by Solid's compiler into the compiled template as a literal
+ *  `style="…"` attribute, which the shell's `style-src 'self'` blocks (t24-e13). */
+export const askInput = style({ flex: '1 1 auto' });
+
 export const input = style({
   padding: `${vars.space[2]} ${vars.space[3]}`,
   borderRadius: vars.radius.md,

@@ -28,6 +28,7 @@ import {
 import { createFocusTrap } from '../../components/a11y';
 import { t, loadCatalog } from '../../i18n';
 import { vars } from '../../theme/contract.css.ts';
+import { modalOverlay } from '../../components/modalOverlay.css.ts';
 import * as css from './admin.css.ts';
 
 export interface RethreadMaintenanceProps {
@@ -148,17 +149,7 @@ export function RethreadMaintenance(props: RethreadMaintenanceProps): JSX.Elemen
       </Show>
 
       <Show when={confirmOpen()}>
-        <div
-          style={{
-            position: 'fixed',
-            inset: '0',
-            display: 'grid',
-            'place-items': 'center',
-            background: 'rgba(0, 0, 0, 0.5)',
-            padding: vars.space[4],
-            'z-index': '1000',
-          }}
-        >
+        <div class={modalOverlay}>
           <div
             ref={setDialogEl}
             role="dialog"
