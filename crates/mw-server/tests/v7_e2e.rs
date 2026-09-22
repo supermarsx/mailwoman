@@ -25,13 +25,27 @@
 //! coordinator gate; this file adds only new live scenarios.
 //!
 //! ## Live infra
-//! The LDAP scenarios talk to a real OpenLDAP the executor stood up:
-//! `docker run -d --name mw-e16-ldap -e LDAP_ROOT=dc=example,dc=com
-//!  -e LDAP_ADMIN_USERNAME=admin -e LDAP_ADMIN_PASSWORD=adminpassword
-//!  -e LDAP_USERS=alice,bob,carol -e LDAP_PASSWORDS=alicepass,bobpass,carolpass
-//!  -e LDAP_GROUP=engineering -p 1389:1389 -p 1636:1636 bitnamilegacy/openldap:2.6`
-//! then `ldapmodify` adds mail / displayName / userCertificate;binary / jpegPhoto and
-//! the `engineering` groupOfNames carries alice/bob/carol as members.
+//! The LDAP scenarios talk to the **seeded** OpenLDAP that `docker-compose.ci.yml`
+//! brings up, and `scripts/openldap/ldifs/00-seed.ldif` is the source of truth for
+//! every DN this file names:
+//!
+//! ```text
+//! docker compose -f docker-compose.ci.yml up -d --wait openldap
+//! ```
+//!
+//! The compose service sets `LDAP_SKIP_DEFAULT_TREE: "yes"` and mounts that seed, so
+//! the whole tree comes from the LDIF: `ou=people` and `ou=groups` only, with
+//! `uid={alice,bob,carol},ou=people` and `cn={engineering,all-staff},ou=groups`, plus
+//! the mail / displayName / `userCertificate;binary` / jpegPhoto attributes the GAL,
+//! S/MIME and photo scenarios read.
+//!
+//! **This file was originally developed against an ad-hoc container** —
+//! `docker run … -e LDAP_USERS=alice,bob,carol … bitnamilegacy/openldap:2.6`, run
+//! *without* `LDAP_SKIP_DEFAULT_TREE`, where the image's default tree put users at
+//! `cn=<user>,ou=users`. CI moved to the in-repo seed; a DN constant that did not
+//! follow is a `rc=32 noSuchObject`, not a credentials error. Read the seed, not this
+//! paragraph's history, when adding a DN.
+//!
 //! Override the URL with `MW_E16_LDAP_URL`; when LDAP is unreachable the directory /
 //! ldap-passwd scenarios **skip loudly** (never silently) so CI-without-docker is green.
 
@@ -49,6 +63,22 @@ const LDAP_ADMIN_DN: &str = "cn=admin,dc=example,dc=com";
 const LDAP_ADMIN_PW: &str = "adminpassword";
 const LDAP_BASE_DN: &str = "dc=example,dc=com";
 const LDAP_GROUP_DN: &str = "cn=engineering,ou=groups,dc=example,dc=com";
+
+/// bob's DN **as the seed defines it** — `scripts/openldap/ldifs/00-seed.ldif:43`.
+///
+/// This was `cn=bob,ou=users,dc=example,dc=com` in two separate `const BOB_DN`
+/// declarations inside the two password tests, and both were wrong: the seed
+/// creates exactly two OUs, `ou=people` and `ou=groups`, and there is **no
+/// `ou=users` anywhere in it**, which is why the job failed `rc=32 noSuchObject`
+/// rather than with a credentials error. `docker-compose.ci.yml` sets
+/// `LDAP_SKIP_DEFAULT_TREE: "yes"` and mounts that seed, so the bitnami image's
+/// default tree — the only place a `cn=<user>,ou=users` layout exists — is
+/// deliberately suppressed. The stale value came from the ad-hoc
+/// `LDAP_USERS=alice,bob,carol` container in this file's own header, which was run
+/// **without** that flag; CI moved to the in-repo seed and the constant did not
+/// follow. One constant here, rather than a copy per test, so the two cannot drift
+/// apart again — the earlier triage of this failure spotted only one of them.
+const LDAP_BOB_DN: &str = "uid=bob,ou=people,dc=example,dc=com";
 
 fn ldap_url() -> String {
     std::env::var("MW_E16_LDAP_URL").unwrap_or_else(|_| "ldap://127.0.0.1:1389".to_string())
@@ -883,8 +913,7 @@ impl LdapExopTransport for LiveExop {
 /// rootdn (userIdentity=bob, no old) — used to normalize state before/after the
 /// self-service change so the test is idempotent across (possibly interrupted) runs.
 async fn admin_set_bob_password(new: &str) -> PwResult<()> {
-    const BOB_DN: &str = "cn=bob,ou=users,dc=example,dc=com";
-    let req = mw_passwd::encode_passwd_modify_request(Some(BOB_DN), None, Some(new));
+    let req = mw_passwd::encode_passwd_modify_request(Some(LDAP_BOB_DN), None, Some(new));
     LiveExop {
         bind_dn: LDAP_ADMIN_DN.into(),
         bind_pw: LDAP_ADMIN_PW.into(),
@@ -924,15 +953,29 @@ async fn direct_bind_ok(dn: &str, pw: &str) -> bool {
 /// one no longer does. Uses `bob` so it never disturbs the `alice` fixtures, and
 /// admin-normalizes bob's password before/after so the test is idempotent.
 ///
-/// (The data DB carries a self-write ACL on `userPassword`: `by self write by anonymous
-/// auth by * none` — the seed the executor added, matching a real self-service
-/// password-change deployment; the default bitnami ACL is read-only for non-rootdn.)
+/// ## The ACL this needs, which the CI seed does NOT have (t24-e14, measured)
+/// This claimed the data DB "carries a self-write ACL on `userPassword`: `by self write
+/// by anonymous auth by * none` — the seed the executor added". **It does not.** Against
+/// `docker-compose.ci.yml`'s `openldap`, `olcDatabase={2}mdb,cn=config` (suffix
+/// `dc=example,dc=com`) has **no `olcAccess` attribute at all**, so slapd falls back to
+/// its implicit `to * by * read` — writable by the rootdn and nobody else. The
+/// self-write ACL existed only in the ad-hoc container this file was developed against.
+///
+/// So the self-service leg answers **`rc=50 insufficientAccess`**. That is the directory
+/// refusing, not the backend misbehaving: `admin_set_bob_password` (bound as the rootdn)
+/// succeeds, and bob's own simple bind succeeds (`ldapwhoami` returns his DN), so it is
+/// neither the DN nor the credentials. Granting it needs a `cn=config` change —
+/// `olcAccess: to attrs=userPassword by self write by anonymous auth by * none` on
+/// `{2}mdb` — which `LDAP_CUSTOM_LDIF_DIR` cannot do, since that dir seeds the data tree
+/// only. It belongs to whoever owns `scripts/openldap/**` + `docker-compose.ci.yml`.
+/// Until then this leg fails on the ACL; before t24-e14 it never got that far, because
+/// the DN was wrong and it failed `rc=32 noSuchObject` first.
 #[tokio::test]
 async fn passwd_ldap3062_change_live() {
     if !ldap_reachable("passwd_ldap3062_change_live").await {
         return;
     }
-    const BOB_DN: &str = "cn=bob,ou=users,dc=example,dc=com";
+    const BOB_DN: &str = LDAP_BOB_DN;
 
     // Normalize to a known start (admin set; no old-verify) so leftover state can't
     // fail the self-service change below.
