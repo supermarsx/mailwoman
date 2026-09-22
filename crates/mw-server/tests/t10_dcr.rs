@@ -21,8 +21,10 @@
 //!     cargo test -p mw-server --test t10_dcr -- --nocapture
 
 use std::net::SocketAddr;
+use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
 
+use futures_util::FutureExt;
 use serde_json::{Value, json};
 
 use mw_server::{AppConfig, HardeningConfig, SecurityConfig, ServerMode, V6Config, build_app_full};
@@ -125,6 +127,20 @@ fn client() -> reqwest::Client {
 }
 
 /// The whole DCR lifecycle, end-to-end against the running AuthServer + the db under test.
+///
+/// ## Why this restores the policy row (t24-e14)
+/// `oauth_dcr` is a **singleton** row (`crates/mw-store/src/v9_tail.rs`, `WHERE id = ?1`),
+/// and on the `store-dual-backend` job every mw-server test binary resolves to the SAME
+/// `MW_E14_PG_DSN` database with no namespacing. Step 2 below enables the policy and the
+/// scenario ends at the RFC 7592 DELETE, so the row was left `enabled=true`. The next
+/// binary, `t11_dcr_admin`, opens on that row and its first assertion — "DCR stays
+/// default-disabled after a rejected unauth PUT" — saw `201` instead of `403` and failed.
+/// With `cargo test` fail-fast that one failure stopped the run after 15 of 71 binaries.
+///
+/// **That 201 was leftover test state, not a product defect**: nothing here shows DCR is
+/// enabled by default on Postgres. `t11_dcr_admin` simply inherited an enabled row.
+/// The restore below runs even when the scenario panics, so a later binary's failure is
+/// always its own. On SQLite each test gets a fresh temp file and this is a no-op.
 #[tokio::test]
 async fn dcr_full_lifecycle_against_real_authserver() {
     let (db, on_pg) = db_path();
@@ -132,10 +148,23 @@ async fn dcr_full_lifecycle_against_real_authserver() {
     // the policy through a second handle sharing the same key + db.
     let server = spawn(db.clone()).await;
     let store = store_for(&db).await;
+
+    let outcome = AssertUnwindSafe(dcr_lifecycle(&server, &store, on_pg))
+        .catch_unwind()
+        .await;
+    // Restore the shared singleton to its deny-by-default state before surfacing any
+    // panic, so the reset happens on the failure path too.
+    disable_policy(&store).await;
+    if let Err(panic) = outcome {
+        std::panic::resume_unwind(panic);
+    }
+}
+
+async fn dcr_lifecycle(server: &str, store: &Store, on_pg: bool) {
     let c = client();
 
     // ── 1. Default DISABLED → 403 before any enablement (deny-by-default). ────────
-    disable_policy(&store).await;
+    disable_policy(store).await;
     let redirect = "https://apps.vogue-homes.com/cb";
     let r = c
         .post(format!("{server}/oauth/register"))
@@ -150,7 +179,7 @@ async fn dcr_full_lifecycle_against_real_authserver() {
     );
 
     // ── 2. Enable + a redirect OUTSIDE the allowlist → 400 invalid_redirect_uri. ──
-    enable_policy(&store, &["apps.vogue-homes.com"]).await;
+    enable_policy(store, &["apps.vogue-homes.com"]).await;
     let bad = c
         .post(format!("{server}/oauth/register"))
         .json(&json!({ "redirect_uris": ["https://evil.example/cb"] }))
