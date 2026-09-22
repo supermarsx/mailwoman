@@ -48,7 +48,17 @@ test.describe('v6 scoped API keys — enforcement matrix (live)', () => {
       'expired → 401',
     ).toBe(401);
 
-    // DENY: source IP outside the allowlist → 403; inside → 200.
+    // DENY: source IP outside the allowlist → 403, and X-Forwarded-For cannot move
+    // it. Since t20 B1 the source IP is the real peer address, refined by a
+    // forwarded header ONLY when MW_FORWARDED_MODE names one and the peer is inside
+    // MW_TRUSTED_PROXIES (crates/mw-server/src/scope_mw.rs). This standing server
+    // sets neither, so the peer is loopback whatever the request claims.
+    //
+    // Until t24-e14 this spec asserted `x-forwarded-for: 10.1.2.3` → 200 against a
+    // 10.0.0.0/8 allowlist. That expectation WAS the bypass t20 closed — any caller
+    // could name an allowlisted address in a header it controls — so the spec is
+    // what changed here, not the product. The second assertion below is the one
+    // that now proves the hardening rather than passing for the wrong reason.
     const ipKey = await mintKey(request, account, scope({ account, ipAllowlist: ['10.0.0.0/8'] }));
     expect(
       (
@@ -56,7 +66,7 @@ test.describe('v6 scoped API keys — enforcement matrix (live)', () => {
           headers: { 'x-api-key': ipKey, 'x-forwarded-for': '8.8.8.8' },
         })
       ).status(),
-      'IP outside allowlist → 403',
+      'peer outside allowlist → 403',
     ).toBe(403);
     expect(
       (
@@ -64,7 +74,19 @@ test.describe('v6 scoped API keys — enforcement matrix (live)', () => {
           headers: { 'x-api-key': ipKey, 'x-forwarded-for': '10.1.2.3' },
         })
       ).status(),
-      'IP inside allowlist → 200',
+      'a spoofed X-Forwarded-For from an untrusted peer cannot enter the allowlist (t20 B1)',
+    ).toBe(403);
+
+    // GRANT: allowlist the REAL peer → 200. Without this the IP checks above would
+    // all be satisfied by an allowlist that never matches anything.
+    const peerKey = await mintKey(
+      request,
+      account,
+      scope({ account, ipAllowlist: ['127.0.0.1/32', '::1/128'] }),
+    );
+    expect(
+      (await request.get('/api/v1/messages', { headers: { 'x-api-key': peerKey } })).status(),
+      'peer inside allowlist → 200',
     ).toBe(200);
 
     // DENY: over the per-key rate limit → 429.
