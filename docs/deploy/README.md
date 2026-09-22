@@ -93,6 +93,7 @@ pluggable Postgres, layered Valkey/Redis cache, observability) adds:
 | `MW_WEB_DIR` | *(embedded)* | Serve the SPA from disk instead of the embedded copy (dev override). |
 | `MW_COOKIE_SECURE` | `false` | Mark the session cookie `Secure`. **Set `true` behind TLS** (i.e. always in production). |
 | `MW_MODE` | `proxy` | `proxy` (JMAP upstream) or `engine` (local IMAP/POP3 + SMTP). |
+| `MW_JMAP_UPSTREAMS` | *(unset)* | 26.20. Proxy mode only. Comma-separated JMAP upstream **origins** a login may name, e.g. `https://jmap.example.org,http://stalwart:8080`. **Unset:** any upstream on a public address; loopback, private (RFC 1918), link-local and cloud-metadata, CGNAT and unique-local targets are refused. **Set:** only the listed origins (scheme, host and port must all match), at whatever address they resolve to. This is how you use an internal JMAP server. An entry that is not an `http(s)` origin never matches. See [Upgrading: the proxy upstream is now checked](#upgrading-the-proxy-upstream-is-now-checked). |
 | `MW_ENGINE_TLS` | *(from URL)* | Engine mode only. Force the IMAP/POP3 transport (`implicit`/`starttls`/`plaintext`) regardless of the `imap(s)://` URL the browser posts — used to point at a plaintext test server (Greenmail) without changing the URL. |
 | `MW_SMTP_HOST` | *(IMAP host)* | Engine mode only. SMTP submission host for `EmailSubmission/set`. |
 | `MW_SMTP_PORT` | `587`/`465`/`25` | Engine mode only. SMTP port (default keys off `MW_SMTP_SECURITY`). |
@@ -111,6 +112,48 @@ pluggable Postgres, layered Valkey/Redis cache, observability) adds:
 | `MW_BASE_PATH` | *(unset)* | 26.19. Serve under a path prefix (`/mail`). The app **also** stays mounted at the origin root by design; the prefix is routing, not isolation. |
 | `MW_HEADER_AUTH_TRUSTED_IPS` | *(empty)* | Peers allowed to assert `X-Remote-User` when `MW_HEADER_AUTH=1`. Fails closed — empty authenticates nobody. Not independent of `MW_TRUSTED_PROXIES` once `MW_PROXY_PROTOCOL != off`. |
 | `MW_ASSIST_RATE_LIMIT_PER_MIN` | *(unset)* | 26.19. Per-account Assist budget in **outbound endpoint requests**/minute. `0` = hard stop. A cold-cache semantic search costs up to 33; a chat turn costs 1. |
+
+### Upgrading: the proxy upstream is now checked
+
+Applies to proxy mode (`MW_MODE=proxy`, the default), from 26.20.
+
+The login form's server URL comes from whoever submits it, and before 26.20 the
+server fetched it unchecked. It then relayed `/jmap/api`, `/jmap/download` and
+`/jmap/upload` to whatever URLs that server's session document named. Anyone
+running a JMAP server of their own could log in against it and read back
+responses from addresses only your server can reach, such as a cloud metadata
+endpoint or an internal admin API.
+
+**What stops working on upgrade.** A deployment whose JMAP server has a
+**private or loopback address**: another container on a Docker network
+(`http://stalwart:8080`), a Kubernetes service, `localhost`, or a LAN address.
+Logins against it fail with the usual "invalid credentials", and the server logs
+`proxy login refused: refused by the egress policy (Blocked)`. **Fix:** list the
+upstream in `MW_JMAP_UPSTREAMS`, e.g. `MW_JMAP_UPSTREAMS=http://stalwart:8080`,
+using the same scheme, host and port your users type. A deployment whose JMAP
+server is on a **public address** (`https://jmap.example.org`) needs no change.
+
+**Also enforced, whether or not the variable is set:**
+
+* The session document's `apiUrl`, `downloadUrl` and `uploadUrl` must be on the
+  same origin as the server URL. An upstream that serves its API from a different
+  host or port is refused at login, and the server logs `the upstream session's
+  URLs: not on the upstream's origin`.
+* The initial session request follows a redirect only to the same origin. Users
+  of a provider whose `/.well-known/jmap` redirects to another host should enter
+  the redirect's target URL.
+* Redirects on the API, download and upload requests are not followed.
+* Every request is pinned to the address checked for it, with no ambient
+  `HTTP_PROXY`. Each request is limited to 300 seconds; before 26.20 there was no
+  limit.
+* Downloads are served as `Content-Disposition: attachment` with a type derived
+  from the upstream's but never an HTML, XML or script type. An upload response is
+  labelled `application/json`.
+
+**What you gain.** With the variable unset, an anonymous caller can no longer use
+your server to reach internal addresses. Setting it narrows logins to the JMAP
+servers you name, which is the right setting for any single-provider deployment,
+public or not.
 
 ## Docker
 

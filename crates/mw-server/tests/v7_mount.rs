@@ -16,13 +16,27 @@ const INDEX_HTML: &str = "<!doctype html><title>Mailwoman</title><div id=app>MW_
 mod common;
 use common::test_db;
 
+/// Origins of the mock upstreams this test binary has started. Proxy mode refuses a
+/// loopback JMAP upstream unless the operator allowlist names it (t24 B2), so the
+/// server under test lists these in `SecurityConfig::jmap_upstreams` — the
+/// production control an operator uses for an internal upstream, not a test switch.
+/// A test must start its mock before its server.
+static MOCK_UPSTREAMS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// The mock upstreams started so far, as an allowlist.
+fn mock_upstreams() -> Option<Vec<String>> {
+    Some(MOCK_UPSTREAMS.lock().unwrap().clone())
+}
+
 async fn spawn_mock() -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
         axum::serve(listener, mw_mock_jmap::router()).await.unwrap();
     });
-    format!("http://{addr}")
+    let origin = format!("http://{addr}");
+    MOCK_UPSTREAMS.lock().unwrap().push(origin.clone());
+    origin
 }
 
 fn admin_v6() -> V6Config {
@@ -46,7 +60,10 @@ async fn spawn_server(mode: ServerMode) -> String {
         cookie_secure: false,
         mode,
         hardening: HardeningConfig::default(),
-        security: SecurityConfig::default(),
+        security: SecurityConfig {
+            jmap_upstreams: mock_upstreams(),
+            ..SecurityConfig::default()
+        },
     };
     let app = build_app_full(config, admin_v6()).await.unwrap().0;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
