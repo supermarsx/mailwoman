@@ -1692,10 +1692,26 @@ impl Engine {
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .is_some_and(|dt| dt.with_timezone(&chrono::Utc) > now);
         if hold_seconds == 0 && !future_send {
-            // Fire now (preserves the V1 synchronous send shape).
-            match self.submit_email(account_id, rt, email_id).await {
-                Ok(()) => {
-                    self.store().set_submission_status(&sub_id, "final").await?;
+            // Fire now (preserves the V1 synchronous send shape). The status follows
+            // what SMTP did: `send_submission` has already recorded `final` if the
+            // message was accepted, whatever happened to the Sent copy afterwards.
+            match self
+                .send_submission(&sub_id, account_id, rt, email_id)
+                .await
+            {
+                Ok(()) => Ok((sub_id, "final")),
+                Err(not_sent) => {
+                    // Nothing was delivered. The caller is told synchronously and
+                    // can send again, so this path does not also retry on its own —
+                    // two independent retries of one message is how copies multiply.
+                    self.store()
+                        .record_submission_failure(
+                            &sub_id,
+                            &not_sent.error.to_string(),
+                            None,
+                            SUBMISSION_FAILED,
+                        )
+                        .await?;
                     self.record_change(
                         account_id,
                         ChangeType::EmailSubmission,
@@ -1703,13 +1719,7 @@ impl Engine {
                         ChangeOp::Updated,
                     )
                     .await?;
-                    Ok((sub_id, "final"))
-                }
-                Err(e) => {
-                    self.store()
-                        .set_submission_status(&sub_id, "canceled")
-                        .await?;
-                    Err(e)
+                    Err(not_sent.error)
                 }
             }
         } else {
@@ -1729,13 +1739,24 @@ impl Engine {
             .get_submission(id)
             .await?
             .ok_or_else(|| EngineError::Protocol(format!("unknown submission {id}")))?;
-        if row.undo_status != "pending" {
+        // Compare-and-set: a send that completed after the read above has already
+        // made the row `final`, and a cancel must not overwrite that.
+        if row.undo_status != SUBMISSION_PENDING
+            || !self
+                .store()
+                .transition_submission(id, SUBMISSION_PENDING, "canceled")
+                .await?
+        {
+            let now = self
+                .store()
+                .get_submission(id)
+                .await?
+                .map_or(row.undo_status, |r| r.undo_status);
             return Err(EngineError::Protocol(format!(
                 "submission {id} is {} and cannot be canceled",
-                row.undo_status
+                public_undo_status(&now)
             )));
         }
-        self.store().set_submission_status(id, "canceled").await?;
         self.record_change(
             account_id,
             ChangeType::EmailSubmission,
@@ -1765,6 +1786,10 @@ impl Engine {
             Ok(v) => v,
             Err(e) => return server_fail(&e),
         };
+        let attempts = match self.store().list_submission_attempts(account_id).await {
+            Ok(v) => v,
+            Err(e) => return server_fail(&e),
+        };
         let mut list = Vec::new();
         let mut found = Vec::new();
         for row in &rows {
@@ -1774,7 +1799,13 @@ impl Engine {
                 continue;
             }
             found.push(row.id.clone());
-            list.push(submission_json(row));
+            let a = attempts.get(&row.id).cloned().unwrap_or_default();
+            list.push(submission_json(
+                row,
+                a.attempts,
+                a.last_error.as_deref(),
+                a.next_attempt_at.as_deref(),
+            ));
         }
         let not_found: Vec<Value> = match &wanted {
             Some(ids) => ids
@@ -1805,7 +1836,7 @@ impl Engine {
             .and_then(Value::as_str);
         let ids: Vec<String> = rows
             .iter()
-            .filter(|r| want_status.is_none_or(|s| r.undo_status == s))
+            .filter(|r| want_status.is_none_or(|s| public_undo_status(&r.undo_status) == s))
             .map(|r| r.id.clone())
             .collect();
         json!({
@@ -1950,31 +1981,124 @@ impl Engine {
         }
     }
 
-    /// Submit a draft's MIME through the account submitter, then file the sent
-    /// copy into `Sent` (both upstream, best-effort, and in the local cache).
-    pub(crate) async fn submit_email(
+    /// Send one submission's message and record the outcome in the order that
+    /// keeps a single send single (26.20 t24-e7, B3):
+    ///
+    /// 1. hand the draft to SMTP ([`Engine::transmit_draft`]);
+    /// 2. the moment SMTP accepts it, record the submission `final`;
+    /// 3. only then file the Sent copy and remove the draft.
+    ///
+    /// `Err` means SMTP accepted nothing, so sending again cannot duplicate the
+    /// message; the caller decides whether to retry. `Ok` means it was delivered.
+    /// Step 3 is best-effort: a failure there is logged and kept on the row as
+    /// `last_error`, and never reaches the caller, because the only thing a
+    /// caller could do with it — treat the submission as unsent — is what used to
+    /// send the message again on every dispatcher pass.
+    pub(crate) async fn send_submission(
         &self,
+        sub_id: &str,
         account_id: &str,
         rt: &AccountRuntime,
         email_id: &str,
-    ) -> Result<()> {
+    ) -> std::result::Result<(), NotSent> {
+        let sent = self.transmit_draft(rt, email_id).await?;
+        self.record_delivered(sub_id).await;
+        if let Err(e) = self
+            .record_change(
+                account_id,
+                ChangeType::EmailSubmission,
+                sub_id,
+                ChangeOp::Updated,
+            )
+            .await
+        {
+            tracing::warn!("submission {sub_id} was sent; recording the change failed: {e}");
+        }
+        if let Err(e) = self.file_sent_copy(account_id, rt, email_id, sent).await {
+            tracing::warn!(
+                "submission {sub_id} was sent; filing the Sent copy failed and will not be \
+                 retried: {e}"
+            );
+            let note = format!("sent, but filing the copy into Sent failed: {e}");
+            if let Err(e) = self
+                .store()
+                .record_submission_filing_error(sub_id, &note)
+                .await
+            {
+                tracing::warn!("submission {sub_id}: could not record the filing error: {e}");
+            }
+        }
+        Ok(())
+    }
+
+    /// Record `final` for a submission SMTP has accepted.
+    ///
+    /// A store write can fail, and a row left `pending` is a row the dispatcher
+    /// sends again. So the write is retried briefly; if it still fails, the id is
+    /// remembered in-process ([`accepted_unrecorded`]) and the dispatcher, which
+    /// checks that set before it transmits anything, keeps retrying the write
+    /// instead of the send. What this cannot cover is a store that is still
+    /// unwritable when the process restarts: the set is in memory, so the new
+    /// process finds the row `pending` and sends it again.
+    async fn record_delivered(&self, sub_id: &str) {
+        const DELAYS_MS: [u64; 3] = [0, 50, 250];
+        let mut last = None;
+        for delay in DELAYS_MS {
+            if delay > 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+            }
+            match self.store().mark_submission_sent(sub_id).await {
+                Ok(()) => return,
+                Err(e) => last = Some(e),
+            }
+        }
+        tracing::error!(
+            "submission {sub_id} was accepted by SMTP but could not be recorded as sent \
+             ({}); it will not be transmitted again by this process",
+            last.map(|e| e.to_string()).unwrap_or_default()
+        );
+        accepted_unrecorded()
+            .lock()
+            .expect("accepted-unrecorded lock")
+            .insert(sub_id.to_string());
+    }
+
+    /// Load a draft and hand it to the account submitter. Returns what filing
+    /// needs once SMTP has accepted the message, or why nothing was sent.
+    async fn transmit_draft(
+        &self,
+        rt: &AccountRuntime,
+        email_id: &str,
+    ) -> std::result::Result<Transmitted, NotSent> {
         let msg = self
             .store()
             .get_message(email_id)
             .await
-            .map_err(EngineError::Store)?;
-        let blob = msg
-            .blob_ref
-            .as_ref()
-            .ok_or_else(|| EngineError::Protocol("draft has no stored body".into()))?;
+            .map_err(|e| match e {
+                mw_store::StoreError::NotFound => NotSent::permanent(EngineError::Protocol(
+                    format!("draft {email_id} no longer exists"),
+                )),
+                e => NotSent::transient(EngineError::Store(e)),
+            })?;
+        let blob = msg.blob_ref.as_ref().ok_or_else(|| {
+            NotSent::permanent(EngineError::Protocol("draft has no stored body".into()))
+        })?;
         let raw = self
             .store()
             .get_body(blob)
-            .await?
-            .ok_or_else(|| EngineError::Protocol("draft body missing".into()))?;
+            .await
+            .map_err(|e| NotSent::transient(e.into()))?
+            .ok_or_else(|| {
+                NotSent::permanent(EngineError::Protocol("draft body missing".into()))
+            })?;
 
         // Envelope addresses drive MAIL FROM / RCPT TO.
-        let email: mw_jmap::Email = match self.store().get_envelope(email_id).await? {
+        let email: mw_jmap::Email = match self
+            .store()
+            .get_envelope(email_id)
+            .await
+            .map_err(|e| NotSent::transient(e.into()))?
+        {
             Some(bytes) => serde_json::from_slice(&bytes).unwrap_or_default(),
             None => mw_mime::parse(&raw).map(|p| p.email).unwrap_or_default(),
         };
@@ -1987,7 +2111,9 @@ impl Engine {
             .unwrap_or_else(|| rt.identity.clone());
         let rcpt_to = recipients(&email);
         if rcpt_to.is_empty() {
-            return Err(EngineError::Protocol("no recipients".into()));
+            return Err(NotSent::permanent(EngineError::Protocol(
+                "no recipients".into(),
+            )));
         }
 
         // V4 DLP enforcement runs at `EmailSubmission/set` create time (see
@@ -2002,55 +2128,110 @@ impl Engine {
                 rcpt_to,
                 raw: raw.clone(),
             })
-            .await?;
+            .await
+            .map_err(|e| match e {
+                // A submitter that cannot send will not start to on a retry.
+                e @ EngineError::Unsupported(_) => NotSent::permanent(e),
+                e => NotSent::transient(e),
+            })?;
+        // `mw-smtp` returns `Ok` with an empty `accepted` only when every RCPT TO
+        // was refused, in which case it never sent DATA. Refused recipients stay
+        // refused, so this is not retried.
         if result.accepted.is_empty() {
-            return Err(EngineError::Protocol(format!(
+            return Err(NotSent::permanent(EngineError::Protocol(format!(
                 "all recipients rejected: {:?}",
                 result.rejected
-            )));
+            ))));
         }
-
-        // File into Sent: upstream APPEND (best-effort) + local re-file. A
-        // plugin/bridge backend's `submit` export *transmits* rather than appends
-        // (the send already fired through `rt.submitter` above), and the provider
-        // files the message into its own Sent folder on send — so a second upstream
-        // append here would RE-SEND. Skip it for plugin-backed accounts; the local
-        // re-file below still surfaces the sent copy on the JMAP Sent mailbox.
-        // Standards IMAP keeps the best-effort upstream APPEND (byte-unchanged).
-        let (sent_id, sent_name) = self.ensure_role_mailbox(account_id, "sent", "Sent").await?;
-        let sent_ref = RawMailboxRef {
-            name: sent_name,
-            uidvalidity: 0,
-        };
-        if !self.is_plugin_backed(account_id) {
-            tolerant(rt.backend.append(&sent_ref, &raw, &[Flag::Seen]).await)?;
-        }
-
-        let message_id = msg.message_id.clone().unwrap_or_else(gen_message_id);
-        self.ingest_local(
-            account_id,
-            &sent_id,
-            &sent_ref,
-            &message_id,
+        Ok(Transmitted {
             raw,
-            &[Flag::Seen],
-        )
-        .await?;
-        // Remove the original draft now that it has been sent + filed: drop it
-        // from the cache + index and record the Email destroyed change.
-        let draft_mailbox = msg.mailbox_id.clone();
-        self.store().delete_message(email_id).await?;
+            message_id: msg.message_id.clone(),
+            draft_mailbox: msg.mailbox_id.clone(),
+        })
+    }
+
+    /// File a delivered message into Sent (upstream APPEND + local copy) and
+    /// remove its draft. Every step is attempted even if an earlier one failed —
+    /// in particular the draft is removed whether or not the copy was filed — and
+    /// the first error is returned for the caller to log. Nothing here can cause
+    /// the message to be sent again.
+    async fn file_sent_copy(
+        &self,
+        account_id: &str,
+        rt: &AccountRuntime,
+        email_id: &str,
+        sent: Transmitted,
+    ) -> Result<()> {
+        let mut first_err: Option<EngineError> = None;
+        let mut keep = |r: Result<()>| {
+            if let Err(e) = r {
+                first_err.get_or_insert(e);
+            }
+        };
+
+        // File into Sent: upstream APPEND + local re-file. A plugin/bridge
+        // backend's `submit` export *transmits* rather than appends (the send
+        // already fired through `rt.submitter`), and the provider files the
+        // message into its own Sent folder on send — so a second upstream append
+        // here would RE-SEND. Skip it for plugin-backed accounts; the local re-file
+        // below still surfaces the sent copy on the JMAP Sent mailbox. Standards
+        // IMAP keeps the upstream APPEND, whose failure (e.g. a tagged `NO
+        // [OVERQUOTA]`) no longer propagates: the local copy is still made.
+        match self.ensure_role_mailbox(account_id, "sent", "Sent").await {
+            Ok((sent_id, sent_name)) => {
+                let sent_ref = RawMailboxRef {
+                    name: sent_name,
+                    uidvalidity: 0,
+                };
+                if !self.is_plugin_backed(account_id) {
+                    keep(
+                        tolerant(rt.backend.append(&sent_ref, &sent.raw, &[Flag::Seen]).await)
+                            .map(|_| ()),
+                    );
+                }
+                let message_id = sent.message_id.clone().unwrap_or_else(gen_message_id);
+                keep(
+                    self.ingest_local(
+                        account_id,
+                        &sent_id,
+                        &sent_ref,
+                        &message_id,
+                        sent.raw,
+                        &[Flag::Seen],
+                    )
+                    .await
+                    .map(|_| ()),
+                );
+            }
+            Err(e) => keep(Err(e)),
+        }
+
+        // Remove the original draft: drop it from the cache + index and record the
+        // Email destroyed change. A delivered message left sitting in Drafts
+        // invites the user to send it again, so this runs however filing went.
+        keep(
+            self.store()
+                .delete_message(email_id)
+                .await
+                .map_err(Into::into),
+        );
         let _ = self.search().delete(email_id);
-        self.record_change(account_id, ChangeType::Email, email_id, ChangeOp::Destroyed)
-            .await?;
-        self.record_change(
-            account_id,
-            ChangeType::Mailbox,
-            &draft_mailbox,
-            ChangeOp::Updated,
-        )
-        .await?;
-        Ok(())
+        keep(
+            self.record_change(account_id, ChangeType::Email, email_id, ChangeOp::Destroyed)
+                .await
+                .map(|_| ()),
+        );
+        keep(
+            self.record_change(
+                account_id,
+                ChangeType::Mailbox,
+                &sent.draft_mailbox,
+                ChangeOp::Updated,
+            )
+            .await
+            .map(|_| ()),
+        );
+        first_err.map_or(Ok(()), Err)
     }
 
     // ---- shared helpers -------------------------------------------------
@@ -2501,6 +2682,55 @@ fn server_fail(e: &dyn std::error::Error) -> Value {
 
 /// Swallow an `Unsupported` backend result (a POP3/local no-op) while
 /// propagating real failures.
+/// A submission waiting for its undo window, its `sendAt`, or a retry.
+pub(crate) const SUBMISSION_PENDING: &str = "pending";
+/// Terminal: SMTP never accepted the message and the engine has stopped trying.
+/// Stored only; RFC 8621 clients see `canceled` (see [`public_undo_status`]).
+pub(crate) const SUBMISSION_FAILED: &str = "failed";
+
+/// Why a dispatch attempt delivered nothing. Only this outcome may lead to the
+/// message being handed to SMTP again.
+#[derive(Debug)]
+pub(crate) struct NotSent {
+    pub(crate) error: EngineError,
+    /// Retrying cannot succeed (no recipients, every recipient refused, the
+    /// draft is gone): go straight to `failed`.
+    pub(crate) permanent: bool,
+}
+
+impl NotSent {
+    fn permanent(error: EngineError) -> Self {
+        Self {
+            error,
+            permanent: true,
+        }
+    }
+
+    fn transient(error: EngineError) -> Self {
+        Self {
+            error,
+            permanent: false,
+        }
+    }
+}
+
+/// What filing needs from a message SMTP has accepted.
+struct Transmitted {
+    raw: Vec<u8>,
+    message_id: Option<String>,
+    draft_mailbox: String,
+}
+
+/// Submissions this process knows SMTP accepted but could not record as `final`
+/// (see [`Engine::record_delivered`]). The dispatcher consults it before
+/// transmitting anything. Keyed by submission id, which is random per row.
+pub(crate) fn accepted_unrecorded() -> &'static std::sync::Mutex<std::collections::HashSet<String>>
+{
+    static SET: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+        std::sync::OnceLock::new();
+    SET.get_or_init(Default::default)
+}
+
 fn tolerant<T>(res: Result<T>) -> Result<Option<T>> {
     match res {
         Ok(v) => Ok(Some(v)),
@@ -2562,15 +2792,44 @@ fn now_rfc3339() -> String {
 }
 
 /// The JMAP `EmailSubmission` object for a stored row (frozen §2.1).
-fn submission_json(row: &SubmissionRow) -> Value {
+/// The JMAP `EmailSubmission` object for a stored row, plus its retry
+/// bookkeeping (0029), surfaced additively:
+///
+/// * `mailwomanFailed` — the engine gave up: nothing was delivered. RFC 8621 has
+///   no `undoStatus` for that, so such a row reports `canceled` (true: it was not
+///   sent, and it will not be) and this flag says why.
+/// * `mailwomanAttempts` / `mailwomanNextAttemptAt` — dispatch attempts in which
+///   SMTP accepted nothing, and when the next one is due.
+/// * `mailwomanLastError` — the latest failure. On a `final` row the message WAS
+///   delivered and this names what went wrong filing the Sent copy.
+fn submission_json(
+    row: &SubmissionRow,
+    attempts: u32,
+    last_error: Option<&str>,
+    next_attempt_at: Option<&str>,
+) -> Value {
     json!({
         "id": row.id,
         "emailId": row.email_id,
         "identityId": row.identity_id,
         "sendAt": row.send_at,
-        "undoStatus": row.undo_status,
+        "undoStatus": public_undo_status(&row.undo_status),
         "mailwomanHoldSeconds": row.hold_seconds,
+        "mailwomanFailed": row.undo_status == SUBMISSION_FAILED,
+        "mailwomanAttempts": attempts,
+        "mailwomanLastError": last_error,
+        "mailwomanNextAttemptAt": next_attempt_at,
     })
+}
+
+/// A stored submission status as RFC 8621 `undoStatus`: the engine-only terminal
+/// `failed` reads as `canceled` (see [`submission_json`]).
+fn public_undo_status(stored: &str) -> &str {
+    if stored == SUBMISSION_FAILED {
+        "canceled"
+    } else {
+        stored
+    }
 }
 
 /// The JMAP `Identity` object for a stored row (frozen §2.1). `source`
