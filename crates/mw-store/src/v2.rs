@@ -63,10 +63,23 @@ pub struct SubmissionRow {
     pub email_id: String,
     pub identity_id: Option<String>,
     pub send_at: Option<String>,
-    /// `pending` | `final` | `canceled` (opaque to the store).
+    /// `pending` | `final` | `canceled` | `failed` (opaque to the store).
     pub undo_status: String,
     pub hold_seconds: u32,
     pub created_at: String,
+}
+
+/// A submission's retry bookkeeping (0029). Kept apart from [`SubmissionRow`] so
+/// the enqueue shape is unchanged: a new row always starts with no attempts.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SubmissionAttempts {
+    /// Dispatch attempts that ended without SMTP accepting the message.
+    pub attempts: u32,
+    /// The most recent failure. On a `final` row this is a failure to file the
+    /// Sent copy; the message itself was delivered.
+    pub last_error: Option<String>,
+    /// RFC3339 time before which the dispatcher must not try again.
+    pub next_attempt_at: Option<String>,
 }
 
 /// A sending identity (plan §0.7): configured or server-pulled allowed-from.
@@ -362,14 +375,112 @@ impl Store {
         Ok(rows.iter().map(submission_from_row).collect())
     }
 
-    /// Set a submission's lifecycle status (`pending`/`final`/`canceled`).
-    pub async fn set_submission_status(&self, id: &str, status: &str) -> Result<(), StoreError> {
-        q("UPDATE submissions SET undo_status = ?2 WHERE id = ?1")
+    /// Move a submission from `from` to `to`, and only from `from`
+    /// (compare-and-set). Returns `true` iff this call made the change, so a
+    /// caller holding a stale read — a cancel that lost to a send, a failure
+    /// recorded after the row went `final` — cannot overwrite a newer state.
+    pub async fn transition_submission(
+        &self,
+        id: &str,
+        from: &str,
+        to: &str,
+    ) -> Result<bool, StoreError> {
+        let affected =
+            q("UPDATE submissions SET undo_status = ?2 WHERE id = ?1 AND undo_status = ?3")
+                .bind(id)
+                .bind(to)
+                .bind(from)
+                .execute(&self.backend)
+                .await?;
+        Ok(affected == 1)
+    }
+
+    /// Record that SMTP accepted the submission's message: `final`, from
+    /// whatever state the row is in, with any earlier retry error and backoff
+    /// cleared.
+    ///
+    /// This is the one transition that is deliberately NOT compare-and-set. Once
+    /// the message has been delivered the row must say so, even if a cancel
+    /// landed while SMTP was in flight — a row left `pending` is picked up and
+    /// sent again, and a row left `canceled` tells the user a delivered message
+    /// was not sent. The engine calls it before filing the Sent copy.
+    pub async fn mark_submission_sent(&self, id: &str) -> Result<(), StoreError> {
+        q("UPDATE submissions SET undo_status = 'final', last_error = NULL, next_attempt_at = NULL
+           WHERE id = ?1")
+        .bind(id)
+        .execute(&self.backend)
+        .await?;
+        Ok(())
+    }
+
+    /// Record a failure that happened AFTER delivery (filing the Sent copy) on a
+    /// `final` row, for the Outbox. Never changes the status.
+    pub async fn record_submission_filing_error(
+        &self,
+        id: &str,
+        error: &str,
+    ) -> Result<(), StoreError> {
+        q("UPDATE submissions SET last_error = ?2 WHERE id = ?1 AND undo_status = 'final'")
             .bind(id)
-            .bind(status)
+            .bind(error)
             .execute(&self.backend)
             .await?;
         Ok(())
+    }
+
+    /// Record a dispatch attempt in which SMTP accepted nothing: bump
+    /// `attempts`, store the error, and either schedule the next attempt
+    /// (`status = "pending"`, `next_attempt_at` set) or end the submission
+    /// (`status = "failed"`). Applies only while the row is still `pending`, so a
+    /// row that was canceled or sent meanwhile is left alone. Returns `true` iff
+    /// the row was updated.
+    pub async fn record_submission_failure(
+        &self,
+        id: &str,
+        error: &str,
+        next_attempt_at: Option<&str>,
+        status: &str,
+    ) -> Result<bool, StoreError> {
+        let affected = q("UPDATE submissions
+             SET attempts = attempts + 1, last_error = ?2, next_attempt_at = ?3, undo_status = ?4
+             WHERE id = ?1 AND undo_status = 'pending'")
+        .bind(id)
+        .bind(error)
+        .bind(next_attempt_at)
+        .bind(status)
+        .execute(&self.backend)
+        .await?;
+        Ok(affected == 1)
+    }
+
+    /// A submission's retry bookkeeping, or `None` for an unknown id.
+    pub async fn get_submission_attempts(
+        &self,
+        id: &str,
+    ) -> Result<Option<SubmissionAttempts>, StoreError> {
+        let row = q("SELECT attempts, last_error, next_attempt_at FROM submissions WHERE id = ?1")
+            .bind(id)
+            .fetch_optional(&self.backend)
+            .await?;
+        Ok(row.as_ref().map(attempts_from_row))
+    }
+
+    /// Retry bookkeeping for every submission of an account, keyed by id (the
+    /// Outbox read, alongside [`Store::list_submissions`]).
+    pub async fn list_submission_attempts(
+        &self,
+        account_id: &str,
+    ) -> Result<HashMap<String, SubmissionAttempts>, StoreError> {
+        let rows = q(
+            "SELECT id, attempts, last_error, next_attempt_at FROM submissions WHERE account_id = ?1",
+        )
+        .bind(account_id)
+        .fetch_all(&self.backend)
+        .await?;
+        Ok(rows
+            .iter()
+            .map(|r| (r.get_string("id"), attempts_from_row(r)))
+            .collect())
     }
 
     /// Every still-`pending` submission across all accounts (the dispatcher scan).
@@ -671,6 +782,14 @@ fn submission_from_row(r: &Row) -> SubmissionRow {
     }
 }
 
+fn attempts_from_row(r: &Row) -> SubmissionAttempts {
+    SubmissionAttempts {
+        attempts: u32_col(r, "attempts"),
+        last_error: r.get_opt_string("last_error"),
+        next_attempt_at: r.get_opt_string("next_attempt_at"),
+    }
+}
+
 fn identity_from_row(r: &Row) -> IdentityRow {
     IdentityRow {
         id: r.get_string("id"),
@@ -698,6 +817,9 @@ mod tests {
     }
 
     async fn seed_msg(s: &Store) -> (String, String, String) {
+        // A username unique to this call: 0028 (t24-e6) makes the account identity
+        // unique, and the Postgres legs reuse one database across tests and runs.
+        let username = format!("u-{}", crate::seal::random_token());
         let account_id = s
             .create_account(
                 &NewAccount {
@@ -705,11 +827,11 @@ mod tests {
                     host: "h",
                     port: 993,
                     tls: "implicit",
-                    username: "u",
+                    username: &username,
                     sync_policy_json: "{}",
                 },
                 &Credentials {
-                    username: "u".into(),
+                    username: username.clone(),
                     password: "p".into(),
                 },
             )
@@ -1123,12 +1245,396 @@ mod tests {
         .unwrap();
         assert_eq!(s.pending_submissions().await.unwrap().len(), 1);
         assert_eq!(s.list_submissions(&account_id).await.unwrap().len(), 1);
-        s.set_submission_status("sub1", "canceled").await.unwrap();
+        assert!(
+            s.transition_submission("sub1", "pending", "canceled")
+                .await
+                .unwrap()
+        );
         assert_eq!(s.pending_submissions().await.unwrap().len(), 0);
         assert_eq!(
             s.get_submission("sub1").await.unwrap().unwrap().undo_status,
             "canceled"
         );
+    }
+
+    /// 26.20 t24-e7 (B3). The retry bookkeeping and the compare-and-set
+    /// transitions, on whichever backend `s` is.
+    async fn assert_submission_state_machine(s: &Store) {
+        let (account_id, _m, sid) = seed_msg(s).await;
+        // Ids unique to this run: the Postgres leg shares a database with other
+        // tests and with earlier runs.
+        let retry = format!("retry-{account_id}");
+        let dead = format!("dead-{account_id}");
+        let raced = format!("raced-{account_id}");
+        let mine = |rows: Vec<SubmissionRow>| {
+            rows.into_iter()
+                .filter(|r| r.account_id == account_id)
+                .count()
+        };
+        let enqueue = |id: &str| SubmissionRow {
+            id: id.to_string(),
+            account_id: account_id.clone(),
+            email_id: sid.clone(),
+            identity_id: None,
+            send_at: None,
+            undo_status: "pending".into(),
+            hold_seconds: 10,
+            created_at: "2026-07-01T10:00:00Z".into(),
+        };
+
+        // A new row has no attempts.
+        s.insert_submission(&enqueue(&retry)).await.unwrap();
+        assert_eq!(
+            s.get_submission_attempts(&retry).await.unwrap().unwrap(),
+            SubmissionAttempts::default()
+        );
+
+        // A failed attempt counts, keeps the error and the backoff, stays pending.
+        assert!(
+            s.record_submission_failure(
+                &retry,
+                "transport error",
+                Some("2026-07-01T10:00:30Z"),
+                "pending"
+            )
+            .await
+            .unwrap()
+        );
+        let a = s.get_submission_attempts(&retry).await.unwrap().unwrap();
+        assert_eq!(a.attempts, 1);
+        assert_eq!(a.last_error.as_deref(), Some("transport error"));
+        assert_eq!(a.next_attempt_at.as_deref(), Some("2026-07-01T10:00:30Z"));
+        assert_eq!(mine(s.pending_submissions().await.unwrap()), 1);
+
+        // Delivery: final, error and backoff cleared, attempts kept as history.
+        s.mark_submission_sent(&retry).await.unwrap();
+        let a = s.get_submission_attempts(&retry).await.unwrap().unwrap();
+        assert_eq!(
+            a,
+            SubmissionAttempts {
+                attempts: 1,
+                last_error: None,
+                next_attempt_at: None
+            }
+        );
+        assert_eq!(
+            s.get_submission(&retry).await.unwrap().unwrap().undo_status,
+            "final"
+        );
+
+        // Nothing stale can move a final row: not a cancel, not a late failure.
+        assert!(
+            !s.transition_submission(&retry, "pending", "canceled")
+                .await
+                .unwrap()
+        );
+        assert!(
+            !s.record_submission_failure(&retry, "late", None, "failed")
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            s.get_submission(&retry).await.unwrap().unwrap().undo_status,
+            "final"
+        );
+        // A filing error is kept on the final row without changing its status.
+        s.record_submission_filing_error(&retry, "sent, but filing failed")
+            .await
+            .unwrap();
+        assert_eq!(
+            s.get_submission_attempts(&retry)
+                .await
+                .unwrap()
+                .unwrap()
+                .last_error
+                .as_deref(),
+            Some("sent, but filing failed")
+        );
+        assert_eq!(
+            s.get_submission(&retry).await.unwrap().unwrap().undo_status,
+            "final"
+        );
+
+        // Terminal failure leaves the scan; a filing note cannot attach to it.
+        s.insert_submission(&enqueue(&dead)).await.unwrap();
+        assert!(
+            s.record_submission_failure(&dead, "all recipients rejected", None, "failed")
+                .await
+                .unwrap()
+        );
+        s.record_submission_filing_error(&dead, "must not apply")
+            .await
+            .unwrap();
+        assert_eq!(
+            s.get_submission(&dead).await.unwrap().unwrap().undo_status,
+            "failed"
+        );
+        assert_eq!(
+            s.get_submission_attempts(&dead)
+                .await
+                .unwrap()
+                .unwrap()
+                .last_error
+                .as_deref(),
+            Some("all recipients rejected")
+        );
+        assert_eq!(mine(s.pending_submissions().await.unwrap()), 0);
+
+        // Delivery wins over a cancel that landed while SMTP was in flight.
+        s.insert_submission(&enqueue(&raced)).await.unwrap();
+        assert!(
+            s.transition_submission(&raced, "pending", "canceled")
+                .await
+                .unwrap()
+        );
+        s.mark_submission_sent(&raced).await.unwrap();
+        assert_eq!(
+            s.get_submission(&raced).await.unwrap().unwrap().undo_status,
+            "final"
+        );
+
+        let all = s.list_submission_attempts(&account_id).await.unwrap();
+        assert_eq!(all.len(), 3);
+        assert_eq!(all[&retry].attempts, 1);
+        assert_eq!(all[&dead].attempts, 1);
+        assert_eq!(all[&raced].attempts, 0);
+        assert!(s.get_submission_attempts("nope").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn submission_state_machine() {
+        assert_submission_state_machine(&store().await).await;
+    }
+
+    /// The Postgres half, env-gated like the other legs in this module.
+    #[tokio::test]
+    async fn postgres_submission_state_machine() {
+        let Some(dsn) = pg_dsn() else {
+            skip("t24-e7 submission state machine: Postgres path");
+            return;
+        };
+        let s = crate::Store::open_postgres(&dsn, crate::ServerKey::generate())
+            .await
+            .expect("DATABASE_URL_PG is set but Postgres is not reachable");
+        assert_submission_state_machine(&s).await;
+    }
+
+    fn pg_dsn() -> Option<String> {
+        std::env::var("DATABASE_URL_PG")
+            .ok()
+            .or_else(|| std::env::var("MW_TEST_PG").ok())
+            .filter(|s| !s.trim().is_empty())
+    }
+
+    /// A leg that did not run says so on the process's stderr handle, which
+    /// libtest does not capture (the `mw-server/tests/common/gate.rs` convention),
+    /// so a gate log shows it without `--nocapture`.
+    fn skip(what: &str) {
+        use std::io::Write;
+        let _ = writeln!(
+            std::io::stderr(),
+            "\nSKIPPED [mw-store] {what} (set DATABASE_URL_PG or MW_TEST_PG to a live \
+             postgres:16 to run it). The SQLite path still asserted."
+        );
+    }
+
+    // ---- 0029 over a populated database -----------------------------------
+
+    /// The migrator for one dialect, cut off before `version` — the schema an
+    /// existing deployment has when it upgrades to the release that adds it.
+    fn migrator_before(mut m: sqlx::migrate::Migrator, version: i64) -> sqlx::migrate::Migrator {
+        m.migrations.to_mut().retain(|mig| mig.version < version);
+        assert!(
+            m.migrations.iter().all(|mig| mig.version < version) && !m.migrations.is_empty(),
+            "the cut-off migrator holds only earlier migrations"
+        );
+        m
+    }
+
+    /// Rows written at the pre-0029 schema, with raw SQL so nothing in them can
+    /// depend on the new columns. Placeholders are `?N`; `q` maps them per dialect.
+    async fn seed_pre_0029(s: &Store) -> String {
+        let (account_id, _m, sid) = seed_msg(s).await;
+        for (id, status, hold) in [
+            ("old-pending", "pending", 10_i64),
+            ("old-final", "final", 0),
+            ("old-canceled", "canceled", 3600),
+        ] {
+            q("INSERT INTO submissions
+                 (id, account_id, email_id, identity_id, send_at, undo_status, hold_seconds, created_at)
+               VALUES (?1, ?2, ?3, NULL, NULL, ?4, ?5, '2026-07-01T10:00:00Z')")
+            .bind(id)
+            .bind(account_id.as_str())
+            .bind(sid.as_str())
+            .bind(status)
+            .bind(hold)
+            .execute(&s.backend)
+            .await
+            .unwrap();
+        }
+        account_id
+    }
+
+    /// What must hold after 0029 has run over those rows: every row survives
+    /// unchanged, with no attempts, no error and no backoff — so the pending one
+    /// fires exactly as it did before the upgrade — and the new columns work.
+    async fn assert_upgraded(s: &Store, account_id: &str) {
+        let rows = s.list_submissions(account_id).await.unwrap();
+        let mut got: Vec<(String, String, u32)> = rows
+            .iter()
+            .map(|r| (r.id.clone(), r.undo_status.clone(), r.hold_seconds))
+            .collect();
+        got.sort();
+        assert_eq!(
+            got,
+            vec![
+                ("old-canceled".into(), "canceled".into(), 3600),
+                ("old-final".into(), "final".into(), 0),
+                ("old-pending".into(), "pending".into(), 10),
+            ]
+        );
+        let attempts = s.list_submission_attempts(account_id).await.unwrap();
+        assert_eq!(attempts.len(), 3);
+        assert!(
+            attempts
+                .values()
+                .all(|a| *a == SubmissionAttempts::default()),
+            "existing rows get the defaults: {attempts:?}"
+        );
+        let pending: Vec<String> = s
+            .pending_submissions()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|r| r.id)
+            .collect();
+        assert_eq!(pending, vec!["old-pending".to_string()]);
+        assert!(
+            s.record_submission_failure(
+                "old-pending",
+                "x",
+                Some("2026-07-01T10:01:00Z"),
+                "pending"
+            )
+            .await
+            .unwrap()
+        );
+        assert_eq!(
+            s.get_submission_attempts("old-pending")
+                .await
+                .unwrap()
+                .unwrap()
+                .attempts,
+            1
+        );
+    }
+
+    /// SQLite: build the database at the pre-0029 schema, write rows, then open it
+    /// the way the server does and let the full migrator bring it forward.
+    #[tokio::test]
+    async fn migration_0029_over_a_populated_sqlite_database() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        migrator_before(sqlx::migrate!("./migrations"), 29)
+            .run(&pool)
+            .await
+            .unwrap();
+        let before = crate::Store {
+            backend: crate::backend::Backend::Sqlite(pool.clone()),
+            key: ServerKey::from_bytes(&[9u8; 32]).unwrap(),
+            uploads: crate::upload::fail_closed_backend(),
+        };
+        let has_attempts = q("SELECT COUNT(*) AS n FROM pragma_table_info('submissions')
+                              WHERE name = 'attempts'")
+        .fetch_one(&before.backend)
+        .await
+        .unwrap()
+        .get_i64("n");
+        assert_eq!(has_attempts, 0, "the seed really is at the pre-0029 schema");
+        let account_id = seed_pre_0029(&before).await;
+
+        let after = Store::init_sqlite(pool, ServerKey::from_bytes(&[9u8; 32]).unwrap())
+            .await
+            .expect("0029 applies over a populated database");
+        assert_upgraded(&after, &account_id).await;
+    }
+
+    /// Postgres: the same, inside a schema of its own so an already-migrated
+    /// shared test database cannot mask the pre-0029 state. The schema is dropped
+    /// afterwards.
+    #[tokio::test]
+    async fn migration_0029_over_a_populated_postgres_database() {
+        let Some(dsn) = pg_dsn() else {
+            skip("t24-e7 migration 0029 over a populated database: Postgres path");
+            return;
+        };
+        let schema = format!(
+            "t24_e7_mig_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let admin = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&dsn)
+            .await
+            .expect("DATABASE_URL_PG is set but Postgres is not reachable");
+        sqlx::query(&format!("CREATE SCHEMA {schema}"))
+            .execute(&admin)
+            .await
+            .unwrap();
+        let sep = if dsn.contains('?') { '&' } else { '?' };
+        let scoped = format!("{dsn}{sep}options=-c%20search_path%3D{schema}");
+
+        let result = async move {
+            let pool = sqlx::postgres::PgPoolOptions::new()
+                .max_connections(1)
+                .connect(&scoped)
+                .await
+                .unwrap();
+            migrator_before(sqlx::migrate!("./migrations_pg"), 29)
+                .run(&pool)
+                .await
+                .unwrap();
+            let before = crate::Store {
+                backend: crate::backend::Backend::Postgres(pool.clone()),
+                key: ServerKey::from_bytes(&[9u8; 32]).unwrap(),
+                uploads: crate::upload::fail_closed_backend(),
+            };
+            let has_attempts = q("SELECT COUNT(*) AS n FROM information_schema.columns
+                                  WHERE table_schema = current_schema()
+                                    AND table_name = 'submissions' AND column_name = 'attempts'")
+            .fetch_one(&before.backend)
+            .await
+            .unwrap()
+            .get_i64("n");
+            assert_eq!(has_attempts, 0, "the seed really is at the pre-0029 schema");
+            let account_id = seed_pre_0029(&before).await;
+            pool.close().await;
+
+            let after = Store::open_postgres(&scoped, ServerKey::from_bytes(&[9u8; 32]).unwrap())
+                .await
+                .expect("0029 applies over a populated database");
+            let applied: i64 = sqlx::query_scalar("SELECT MAX(version) FROM _sqlx_migrations")
+                .fetch_one(after.pg_pool())
+                .await
+                .unwrap();
+            assert!(applied >= 29, "the full migrator ran in the scoped schema");
+            assert_upgraded(&after, &account_id).await;
+        };
+        let outcome = tokio::spawn(result).await;
+        sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+            .execute(&admin)
+            .await
+            .unwrap();
+        if let Err(e) = outcome {
+            std::panic::resume_unwind(e.into_panic());
+        }
     }
 
     #[tokio::test]

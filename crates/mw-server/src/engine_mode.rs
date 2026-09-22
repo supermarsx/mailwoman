@@ -61,6 +61,9 @@ fn parse_mail_url(input: &str) -> Option<MailUrl> {
         }
         _ => (rest.to_string(), None),
     };
+    // Hostnames are case-insensitive and a trailing dot names the same host, so
+    // store the canonical spelling (the account-identity lookup ignores both too).
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
     if host.is_empty() {
         return None;
     }
@@ -204,8 +207,8 @@ async fn register(
     engine.register_backend(account_id.to_string(), runtime);
 }
 
-/// Log in an IMAP/POP3 account: parse the URL, persist the account, dial the
-/// backend, register it, and run an initial sync. Returns `(account_id,
+/// Log in an IMAP/POP3 account: parse the URL, dial and authenticate the
+/// backend, find or create the account, register it, and run an initial sync. Returns `(account_id,
 /// username)` for the session cookie. Any failure is a uniform login error.
 pub async fn engine_login(
     engine: &Arc<Engine>,
@@ -228,11 +231,22 @@ pub async fn engine_login(
         password: password.to_string(),
     };
 
-    // Persist the account (sealed creds) before connecting so a reconnect after
-    // restart has everything it needs.
+    // Authenticate before writing anything. A refused login must leave no row
+    // behind, and must not overwrite the credentials stored for an account that
+    // already exists. IMAP authenticates inside `connect`; POP3 constructs without
+    // dialling, so one authenticated round-trip is what proves the password.
+    let backend = connect_backend(
+        url.kind, &url.host, url.port, &url.tls, username, password, &policy,
+    )
+    .await?;
+    backend.list_mailboxes().await.map_err(|e| e.to_string())?;
+
+    // Find the account this identity logged in as before, or create it. The id
+    // must be stable across logins: second factors, and everything else the
+    // account owns, are keyed by it.
     let account_id = engine
         .store()
-        .create_account(
+        .upsert_account_by_identity(
             &NewAccount {
                 kind: url.kind,
                 host: &url.host,
@@ -246,10 +260,6 @@ pub async fn engine_login(
         .await
         .map_err(|e| e.to_string())?;
 
-    let backend = connect_backend(
-        url.kind, &url.host, url.port, &url.tls, username, password, &policy,
-    )
-    .await?;
     let submitter = build_submitter(&policy, username, password);
     register(engine, &account_id, backend, submitter, username).await;
 
@@ -320,6 +330,10 @@ mod tests {
 
         // Bare host defaults to IMAPS.
         assert_eq!(parse_mail_url("mail.example.org").unwrap().port, 993);
+        // The host is stored in one spelling whatever case or trailing dot was typed.
+        let u = parse_mail_url("IMAPS://Mail.Example.ORG.:993/").unwrap();
+        assert_eq!(u.host, "mail.example.org");
+        assert_eq!(u.port, 993);
         // Unknown scheme is rejected.
         assert!(parse_mail_url("ftp://x").is_none());
     }

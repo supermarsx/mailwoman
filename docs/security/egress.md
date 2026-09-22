@@ -57,6 +57,52 @@ Teredo/ISATAP decode paths stay refused — an "allow private for on-prem" switc
 that also opened the metadata endpoint would convert a self-hoster convenience
 into instance-credential theft.
 
+### The proxy-mode JMAP upstream (26.20, t24 B2)
+
+In proxy mode the upstream is chosen by the request **twice**. An anonymous
+`POST /api/login` names the server, and that server's session document then names
+the `apiUrl`, `downloadUrl` and `uploadUrl` that `/jmap/api`, `/jmap/download`,
+`/jmap/upload` and the REST layer relay to, with the login's credential attached.
+Until 26.20 `mw-jmap` built its own client, which checked no address and followed
+redirects. A caller with a JMAP server of their own could therefore read back
+internal responses through the download and API legs.
+
+Every upstream request now goes through `mw_server::upstream_client`:
+
+* **Same origin.** The target must share the origin of the session's server URL,
+  so an upstream can only name URLs on itself. The session's three relayed URLs
+  are checked at login, and each leg checks the URL it actually uses again,
+  because a stored session outlives both a configuration change and the
+  upstream's own session document.
+* **Address policy.** When `MW_JMAP_UPSTREAMS` is unset, the strict policy above
+  (`ip_allowed`) applies: public upstreams work and private, loopback and metadata
+  addresses are refused before any connection is made. When it is set, only the
+  listed origins are accepted, at any address. Naming an exact origin is the
+  operator's decision, and it is the only way to use an internal JMAP server.
+  Unlike `MW_AUTOCONFIG_ALLOW_PRIVATE`, it opens no *range*, so it keeps no
+  metadata carve-out: a request cannot steer to an address the operator's listed
+  name does not resolve to.
+* **Pinned, no redirects, no ambient proxy.** The client is built with
+  `harden_client` against the checked address. The session fetch follows up to
+  `MAX_REDIRECTS` redirects **on the same origin only** (RFC 8620 §2.2 lets
+  `/.well-known/jmap` redirect), checking and pinning each hop. The relayed legs
+  follow none.
+* **No verbatim content headers.** A proxied download is served as an attachment
+  with a type reduced to `type/subtype`, and never as an HTML, XML or script type.
+
+**Why this is not the egress route.** A configured route may only be selected by
+deployment configuration (`route_construction_sites.rs`); this upstream is
+request-derived, so the policy and pinning primitives apply and
+`fetch_remote_routed` does not. The same reason keeps it out of
+`t22_every_fetch_takes_the_route.rs`, which enforces the route. The invariant B2
+needs is enforced separately by `t24_proxy_upstream.rs`: a JMAP client may be
+built only inside `upstream_client` in any crate, and `mw-jmap` may not build an
+HTTP client of its own.
+
+**Not covered.** Engine mode's IMAP/POP3/SMTP dial (t23-e2-02) is a separate
+surface and is not changed by this. A proxied response body is still read into
+memory whole, with no size cap beyond the 300-second request limit.
+
 ---
 
 ## The upstream proxy, and the one thing it cannot guarantee

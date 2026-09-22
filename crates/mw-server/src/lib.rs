@@ -239,6 +239,22 @@ pub struct SecurityConfig {
     pub dlp_rules: Option<String>,
     /// Web watermark honesty-overlay config (§7.6).
     pub watermark: WatermarkConfig,
+    /// Proxy mode: the JMAP upstream origins a login may name (env:
+    /// `MW_JMAP_UPSTREAMS`, comma-separated, e.g. `https://jmap.example.org`).
+    ///
+    /// * `None` (unset) — any upstream whose every connection target passes
+    ///   `mw_egress::ip_allowed`: public addresses work; loopback, RFC1918,
+    ///   link-local (including `169.254.169.254`), CGNAT, ULA and the other
+    ///   blocked ranges are refused before a connection is made (t24 decision D3).
+    /// * `Some(list)` — only an upstream whose origin (scheme, host, port) is on
+    ///   the list, and for those the address floor does not apply: naming an
+    ///   origin is how an operator permits an internal JMAP server. The connection
+    ///   is still pinned to the address resolved at check time. An empty or wholly
+    ///   unparseable list refuses every upstream.
+    ///
+    /// Either way the session's `apiUrl`/`downloadUrl`/`uploadUrl` must share the
+    /// upstream's origin; see `upstream_client`.
+    pub jmap_upstreams: Option<Vec<String>>,
 }
 
 impl SecurityConfig {
@@ -267,8 +283,34 @@ impl SecurityConfig {
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(0.08),
             },
+            jmap_upstreams: string("MW_JMAP_UPSTREAMS").map(|v| parse_jmap_upstreams(&v)),
         }
     }
+}
+
+/// Split `MW_JMAP_UPSTREAMS` into entries, warning about any that cannot name an
+/// origin. Bad entries are dropped rather than failing startup; they can never
+/// match, so a list of only bad entries refuses every upstream (fail closed).
+fn parse_jmap_upstreams(raw: &str) -> Vec<String> {
+    let entries: Vec<String> = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|e| !e.is_empty())
+        .map(str::to_string)
+        .collect();
+    for entry in &entries {
+        if upstream_list_origin(entry).is_none() {
+            tracing::warn!(
+                "MW_JMAP_UPSTREAMS: {entry:?} is not an http(s) origin and will never match"
+            );
+        }
+    }
+    if !entries.iter().any(|e| upstream_list_origin(e).is_some()) {
+        tracing::warn!(
+            "MW_JMAP_UPSTREAMS is set but names no usable origin: every proxy login will be refused"
+        );
+    }
+    entries
 }
 
 // ---------------------------------------------------------------------------
@@ -1849,15 +1891,27 @@ async fn login(
     if let Some(engine) = &state.engine {
         return engine_login(&state, &headers, engine, body).await;
     }
-    let client = match JmapClient::new(&body.username, &body.password) {
-        Ok(c) => c,
-        Err(_) => return unauthorized(),
+    let creds = Credentials {
+        username: body.username.clone(),
+        password: body.password.clone(),
     };
-    // Validate credentials by fetching the upstream Session server-side.
-    let session = match client.session(&body.jmap_url).await {
+    // Validate credentials by fetching the upstream Session server-side — under the
+    // upstream policy, so a refused upstream is never contacted (t24 B2). A refusal
+    // answers with the same 401 as a wrong password.
+    let session = match upstream_session(&state.security, &body.jmap_url, &creds).await {
         Ok(s) => s,
-        Err(_) => return unauthorized(),
+        Err(e) => {
+            if let UpstreamSessionError::Refused(r) = &e {
+                tracing::warn!("proxy login refused: {r}");
+            }
+            return unauthorized();
+        }
     };
+    // An upstream may only name URLs on itself.
+    if let Err(r) = session_urls_on_origin(&body.jmap_url, &session) {
+        tracing::warn!("proxy login refused: the upstream session's URLs: {r}");
+        return unauthorized();
+    }
     let account_id = session
         .primary_mail_account()
         .unwrap_or_default()
@@ -1870,10 +1924,6 @@ async fn login(
     // Resolve the (possibly relative) upstream apiUrl to an absolute URL so
     // server-side proxying can reach it regardless of the browser origin.
     let api_url = resolve_api_url(&body.jmap_url, &session.api_url);
-    let creds = Credentials {
-        username: body.username.clone(),
-        password: body.password.clone(),
-    };
     // Credentials validated — hand off to the 2FA gate (DQ2). It either completes the
     // login (no factor enrolled/required) or returns a `twofaRequired` challenge and
     // withholds the session until the second factor clears.
@@ -2346,18 +2396,14 @@ async fn jmap_session(State(state): State<AppState>, headers: HeaderMap) -> Resp
         ))
         .into_response();
     }
-    let client = match JmapClient::new(&session.credentials.username, &session.credentials.password)
-    {
-        Ok(c) => c,
-        Err(_) => return upstream_error(),
-    };
-    let mut upstream = match client.session(&session.jmap_url).await {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::warn!("upstream session fetch failed: {e}");
-            return upstream_error();
-        }
-    };
+    let mut upstream =
+        match upstream_session(&state.security, &session.jmap_url, &session.credentials).await {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!("upstream session fetch failed: {e}");
+                return upstream_error();
+            }
+        };
     // Rewrite every URL so the browser only ever talks to us, never upstream.
     // t20 B4: and under the deploy prefix, so the browser addresses `/mail/jmap/*`.
     let base = &*state.base_path;
@@ -2427,10 +2473,19 @@ async fn jmap_api(State(state): State<AppState>, headers: HeaderMap, body: Bytes
         let response = engine.handle_jmap(&session.account_id, &request).await;
         return Json(response).into_response();
     }
-    let client = match JmapClient::new(&session.credentials.username, &session.credentials.password)
+    let client = match upstream_client(
+        &state.security,
+        &session.jmap_url,
+        &session.api_url,
+        &session.credentials,
+    )
+    .await
     {
         Ok(c) => c,
-        Err(_) => return upstream_error(),
+        Err(r) => {
+            tracing::warn!("upstream API request refused: {r}");
+            return upstream_error();
+        }
     };
     match client.request_raw(&session.api_url, body).await {
         Ok((status, bytes)) => {
@@ -2457,6 +2512,244 @@ fn upstream_error() -> Response {
         Json(json!({ "error": "upstream request failed" })),
     )
         .into_response()
+}
+
+// ---------------------------------------------------------------------------
+// Proxy-mode upstream policy (t24 B2)
+// ---------------------------------------------------------------------------
+//
+// The proxy's upstream is request-shaped twice over: an anonymous login names the
+// server, and that server's session document names the `apiUrl`, `downloadUrl` and
+// `uploadUrl` the relayed legs use. Before t24 nothing checked either, so a login
+// against a JMAP server the caller controlled turned `/jmap/download` and
+// `/jmap/api` into a read-back of any address the server host could reach.
+//
+// Every upstream request in proxy mode now goes through [`upstream_client`], which
+//   1. requires the target to share the origin of the session's `jmap_url`, so an
+//      upstream can only name URLs on itself;
+//   2. applies the address policy: the operator allowlist when one is configured
+//      (`SecurityConfig::jmap_upstreams`), otherwise `mw_egress::ip_allowed`;
+//   3. resolves once and pins the connection to the checked address with
+//      `mw_egress::harden_client`, which also turns redirects off and drops any
+//      ambient proxy.
+// The check is repeated on every leg, not only at login: a stored session outlives
+// a configuration change, and an upstream can change its session document.
+//
+// This is not the egress *route* (`fetch_remote_routed`). A route may be selected
+// only by deployment configuration, and the upstream here is request-derived; the
+// policy and pinning primitives are what apply.
+
+/// Total time allowed for one upstream request. `harden_client` sets
+/// `mw_egress::FETCH_TIMEOUT` (10 s), which suits an image fetch but not a 50 MB
+/// upload or a large `Email/get`; before t24 these requests had no limit at all.
+const UPSTREAM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// Why an upstream URL was not used. Logged for the operator; the client only
+/// ever sees the uniform `401` (login) or `502` (relayed legs).
+#[derive(Debug)]
+pub(crate) enum UpstreamRefusal {
+    /// Not an absolute http(s) URL.
+    Malformed,
+    /// Not on the origin the session is bound to.
+    CrossOrigin,
+    /// An allowlist is configured and does not name this origin.
+    NotListed,
+    /// `mw_egress` refused it: blocked address, credentials in the URL, or the
+    /// name did not resolve.
+    Egress(mw_egress::Refusal),
+    /// The session fetch redirected more than `mw_egress::MAX_REDIRECTS` times.
+    TooManyRedirects,
+    /// The pinned HTTP client could not be built.
+    Client,
+}
+
+impl std::fmt::Display for UpstreamRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Malformed => f.write_str("not an absolute http(s) URL"),
+            Self::CrossOrigin => f.write_str("not on the upstream's origin"),
+            Self::NotListed => f.write_str("origin not in MW_JMAP_UPSTREAMS"),
+            Self::Egress(r) => write!(f, "refused by the egress policy ({r:?})"),
+            Self::TooManyRedirects => f.write_str("too many redirects"),
+            Self::Client => f.write_str("HTTP client could not be built"),
+        }
+    }
+}
+
+/// Why an upstream session could not be obtained.
+#[derive(Debug)]
+pub(crate) enum UpstreamSessionError {
+    /// A URL was refused before any request was sent to it.
+    Refused(UpstreamRefusal),
+    /// The request was sent and failed (status, transport, bad JSON).
+    Jmap(mw_jmap::JmapError),
+}
+
+impl std::fmt::Display for UpstreamSessionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Refused(r) => write!(f, "upstream refused: {r}"),
+            Self::Jmap(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+/// Parse an absolute http(s) URL with a host.
+fn http_url(raw: &str) -> Result<reqwest::Url, UpstreamRefusal> {
+    let url = reqwest::Url::parse(raw.trim()).map_err(|_| UpstreamRefusal::Malformed)?;
+    match url.scheme() {
+        "http" | "https" if url.host_str().is_some() => Ok(url),
+        _ => Err(UpstreamRefusal::Malformed),
+    }
+}
+
+/// The origin an `MW_JMAP_UPSTREAMS` entry names, if it names one.
+fn upstream_list_origin(entry: &str) -> Option<reqwest::Url> {
+    let url = http_url(entry).ok()?;
+    (url.username().is_empty() && url.password().is_none()).then_some(url)
+}
+
+/// The address predicate that applies to `url`, or the refusal when a configured
+/// allowlist does not name its origin.
+fn upstream_address_policy(
+    security: &SecurityConfig,
+    url: &reqwest::Url,
+) -> Result<fn(&std::net::IpAddr) -> bool, UpstreamRefusal> {
+    let Some(list) = &security.jmap_upstreams else {
+        return Ok(mw_egress::ip_allowed);
+    };
+    let listed = list
+        .iter()
+        .filter_map(|entry| upstream_list_origin(entry))
+        .any(|entry| entry.origin() == url.origin());
+    if listed {
+        Ok(operator_listed_address)
+    } else {
+        Err(UpstreamRefusal::NotListed)
+    }
+}
+
+/// The address predicate for an origin the operator named in `MW_JMAP_UPSTREAMS`.
+/// Naming the origin is the operator's decision to trust wherever it resolves —
+/// that is what lets a deployment use an internal JMAP server — so no range is
+/// refused. The connection is still pinned to the address resolved at check time.
+fn operator_listed_address(_: &std::net::IpAddr) -> bool {
+    true
+}
+
+/// Check `target` against the upstream policy and return a JMAP client pinned to
+/// its resolved address. `bound` is the session's `jmap_url`, whose origin the
+/// target must share.
+///
+/// The returned client is for `target` only: it is pinned to that host's address
+/// and follows no redirects.
+pub(crate) async fn upstream_client(
+    security: &SecurityConfig,
+    bound: &str,
+    target: &str,
+    credentials: &Credentials,
+) -> Result<JmapClient, UpstreamRefusal> {
+    let bound = http_url(bound)?;
+    let url = http_url(target)?;
+    if url.origin() != bound.origin() {
+        return Err(UpstreamRefusal::CrossOrigin);
+    }
+    let policy = upstream_address_policy(security, &url)?;
+    let pinned = mw_egress::validate_and_resolve_with(url, policy)
+        .await
+        .map_err(UpstreamRefusal::Egress)?;
+    let http = mw_egress::harden_client(reqwest::Client::builder(), &pinned.host, pinned.addr)
+        .timeout(UPSTREAM_TIMEOUT)
+        .connect_timeout(mw_egress::FETCH_TIMEOUT)
+        .build()
+        .map_err(|_| UpstreamRefusal::Client)?;
+    Ok(JmapClient::with_http(
+        http,
+        &credentials.username,
+        &credentials.password,
+    ))
+}
+
+/// Fetch the upstream JMAP session for `jmap_url` under the upstream policy.
+///
+/// RFC 8620 §2.2 allows `/.well-known/jmap` to redirect, and providers do. A
+/// redirect is followed only on the same origin, and each hop is checked and
+/// pinned again, up to `mw_egress::MAX_REDIRECTS`.
+pub(crate) async fn upstream_session(
+    security: &SecurityConfig,
+    jmap_url: &str,
+    credentials: &Credentials,
+) -> Result<mw_jmap::Session, UpstreamSessionError> {
+    let mut url = mw_jmap::client::session_url(jmap_url)
+        .map_err(|_| UpstreamSessionError::Refused(UpstreamRefusal::Malformed))?;
+    for _ in 0..=mw_egress::MAX_REDIRECTS {
+        let client = upstream_client(security, jmap_url, &url, credentials)
+            .await
+            .map_err(UpstreamSessionError::Refused)?;
+        match client.session_at(&url).await {
+            Err(mw_jmap::JmapError::Redirect(location)) => {
+                let next = http_url(&url)
+                    .and_then(|base| base.join(&location).map_err(|_| UpstreamRefusal::Malformed))
+                    .map_err(UpstreamSessionError::Refused)?;
+                url = next.to_string();
+            }
+            other => return other.map_err(UpstreamSessionError::Jmap),
+        }
+    }
+    Err(UpstreamSessionError::Refused(
+        UpstreamRefusal::TooManyRedirects,
+    ))
+}
+
+/// Require the session's relayed URLs to share the upstream's origin. Checked at
+/// login so a session naming a foreign URL is never issued; the relayed legs check
+/// the URL they actually use again, through [`upstream_client`].
+///
+/// `eventSourceUrl` is not checked: the proxy never relays it (`/jmap/eventsource`
+/// is served locally), so constraining it would refuse upstreams for no gain.
+fn session_urls_on_origin(
+    jmap_url: &str,
+    session: &mw_jmap::Session,
+) -> Result<(), UpstreamRefusal> {
+    let origin = http_url(jmap_url)?.origin();
+    for relayed in [&session.api_url, &session.download_url, &session.upload_url] {
+        let url = http_url(&resolve_api_url(jmap_url, relayed))?;
+        if url.origin() != origin {
+            return Err(UpstreamRefusal::CrossOrigin);
+        }
+    }
+    Ok(())
+}
+
+/// The `Content-Type` a proxied download is served with. The upstream's value is
+/// reduced to its `type/subtype`, and any type a browser would run or render as a
+/// document is replaced with `application/octet-stream`. The response also carries
+/// `Content-Disposition: attachment` and `nosniff`; this is a second layer.
+fn proxied_download_type(upstream: Option<&str>) -> String {
+    const OPAQUE: &str = "application/octet-stream";
+    let Some(essence) = upstream
+        .and_then(|v| v.split(';').next())
+        .map(|v| v.trim().to_ascii_lowercase())
+    else {
+        return OPAQUE.to_string();
+    };
+    let token = |s: &str| {
+        !s.is_empty()
+            && s.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"!#$&-^_.+".contains(&b))
+    };
+    let well_formed = essence
+        .split_once('/')
+        .is_some_and(|(kind, sub)| token(kind) && token(sub));
+    let active = essence.contains("html")
+        || essence.contains("xml")
+        || essence.contains("script")
+        || essence.starts_with("multipart/");
+    if well_formed && !active {
+        essence
+    } else {
+        OPAQUE.to_string()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2512,13 +2805,26 @@ async fn jmap_download(
             }
         }
     } else {
-        proxy_download(&session, &account_id, &blob_id, &name, &headers).await
+        proxy_download(
+            &state.security,
+            &session,
+            &account_id,
+            &blob_id,
+            &name,
+            &headers,
+        )
+        .await
     }
 }
 
 /// Proxy a download to the upstream JMAP server: fetch its Session for the real
 /// downloadUrl template, substitute the coordinates, GET it with injected auth,
-/// and relay status + content headers + body straight back to the browser.
+/// and relay status + body back to the browser.
+///
+/// The upstream's `Content-Type` and `Content-Disposition` are not relayed as
+/// received (t24 B2): a full `200` is served through [`blob_response`] with an
+/// `attachment` disposition built from the requested name and the type reduced by
+/// [`proxied_download_type`]; any other status carries no upstream content headers.
 ///
 /// The body is **buffered, not streamed** — `JmapClient::get_bytes` reads the
 /// whole upstream response into memory before this function sees it, so peak
@@ -2527,18 +2833,14 @@ async fn jmap_download(
 /// in hand, a client `Range` is served by slicing that buffer, matching the
 /// engine path's behaviour; the request itself is always sent upstream whole.
 async fn proxy_download(
+    security: &SecurityConfig,
     session: &mw_store::Session,
     account_id: &str,
     blob_id: &str,
     name: &str,
     req: &HeaderMap,
 ) -> Response {
-    let client = match JmapClient::new(&session.credentials.username, &session.credentials.password)
-    {
-        Ok(c) => c,
-        Err(_) => return upstream_error(),
-    };
-    let upstream = match client.session(&session.jmap_url).await {
+    let upstream = match upstream_session(security, &session.jmap_url, &session.credentials).await {
         Ok(s) => s,
         Err(e) => {
             tracing::warn!("upstream session for download failed: {e}");
@@ -2552,37 +2854,30 @@ async fn proxy_download(
         .replace("{name}", &percent_encode(name))
         .replace("{type}", "application/octet-stream");
     let abs = resolve_api_url(&session.jmap_url, &url);
+    let client =
+        match upstream_client(security, &session.jmap_url, &abs, &session.credentials).await {
+            Ok(c) => c,
+            Err(r) => {
+                tracing::warn!("upstream download refused: {r}");
+                return upstream_error();
+            }
+        };
     match client.get_bytes(&abs).await {
-        Ok((status, content_type, content_disposition, bytes)) => {
+        Ok((status, content_type, _content_disposition, bytes)) => {
             let code = StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
-            // Only a full upstream 200 is a representation we may slice; anything
-            // else (redirect, error, or an upstream 206 we did not ask for) is
-            // relayed exactly as received.
-            let (code, bytes, content_range) = if code == StatusCode::OK {
-                apply_range(bytes, req)
-            } else {
-                (code, bytes, None)
-            };
-            let unsatisfiable = code == StatusCode::RANGE_NOT_SATISFIABLE;
-            let len = bytes.len();
+            // Only a full upstream 200 is a representation we may slice and serve as
+            // a blob; anything else (redirect, error, or an upstream 206 we did not
+            // ask for) is relayed with its status and body only.
+            if code == StatusCode::OK {
+                return blob_response(
+                    &proxied_download_type(content_type.as_deref()),
+                    name,
+                    bytes.to_vec(),
+                    req,
+                );
+            }
             let mut resp = Response::new(Body::from(bytes));
             *resp.status_mut() = code;
-            let h = resp.headers_mut();
-            if code.is_success() || unsatisfiable {
-                h.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
-            }
-            if !unsatisfiable {
-                if let Some(ct) = content_type.and_then(|v| HeaderValue::from_str(&v).ok()) {
-                    h.insert(header::CONTENT_TYPE, ct);
-                }
-                if let Some(cd) = content_disposition.and_then(|v| HeaderValue::from_str(&v).ok()) {
-                    h.insert(header::CONTENT_DISPOSITION, cd);
-                }
-            }
-            if let Some(cr) = content_range.and_then(|v| HeaderValue::from_str(&v).ok()) {
-                h.insert(header::CONTENT_RANGE, cr);
-                h.insert(header::CONTENT_LENGTH, HeaderValue::from(len));
-            }
             resp
         }
         Err(e) => {
@@ -2649,7 +2944,7 @@ async fn jmap_upload(
         Err(()) => return upload_too_large(),
     };
     let Some(engine) = &state.engine else {
-        return proxy_upload(&session, &account_id, &content_type, bytes).await;
+        return proxy_upload(&state.security, &session, &account_id, &content_type, bytes).await;
     };
     match engine
         .store_upload(&account_id, &content_type, &bytes)
@@ -2810,20 +3105,19 @@ fn upload_too_large() -> Response {
 /// Forward an upload to the upstream JMAP server (proxy mode): fetch its Session for
 /// the real uploadUrl template, substitute the accountId, POST the bytes with injected
 /// auth + the client's `Content-Type`, and relay the upstream `{accountId, blobId,
-/// type, size}` response (status + content-type + body) straight back — the symmetric
-/// counterpart of [`proxy_download`].
+/// type, size}` response back — the symmetric counterpart of [`proxy_download`].
+///
+/// The upstream's `Content-Type` is not relayed as received (t24 B2): a success is
+/// labelled `application/json`, which RFC 8620 §6.1 says it is, and anything else
+/// carries no upstream content type.
 async fn proxy_upload(
+    security: &SecurityConfig,
     session: &mw_store::Session,
     account_id: &str,
     content_type: &str,
     bytes: Bytes,
 ) -> Response {
-    let client = match JmapClient::new(&session.credentials.username, &session.credentials.password)
-    {
-        Ok(c) => c,
-        Err(_) => return upstream_error(),
-    };
-    let upstream = match client.session(&session.jmap_url).await {
+    let upstream = match upstream_session(security, &session.jmap_url, &session.credentials).await {
         Ok(s) => s,
         Err(e) => {
             tracing::warn!("upstream session for upload failed: {e}");
@@ -2834,13 +3128,24 @@ async fn proxy_upload(
         .upload_url
         .replace("{accountId}", &percent_encode(account_id));
     let abs = resolve_api_url(&session.jmap_url, &url);
+    let client =
+        match upstream_client(security, &session.jmap_url, &abs, &session.credentials).await {
+            Ok(c) => c,
+            Err(r) => {
+                tracing::warn!("upstream upload refused: {r}");
+                return upstream_error();
+            }
+        };
     match client.post_bytes(&abs, content_type, bytes).await {
-        Ok((status, ct, body)) => {
+        Ok((status, _upstream_type, body)) => {
             let code = StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
             let mut resp = Response::new(Body::from(body));
             *resp.status_mut() = code;
-            if let Some(ct) = ct.and_then(|v| HeaderValue::from_str(&v).ok()) {
-                resp.headers_mut().insert(header::CONTENT_TYPE, ct);
+            if code.is_success() {
+                resp.headers_mut().insert(
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static("application/json"),
+                );
             }
             resp
         }
@@ -5139,6 +5444,127 @@ mod tests {
             resolve_api_url("http://ignored", "https://real.example/api"),
             "https://real.example/api"
         );
+    }
+
+    fn jmap_session_with(api: &str, download: &str, upload: &str) -> mw_jmap::Session {
+        serde_json::from_value(json!({
+            "apiUrl": api,
+            "downloadUrl": download,
+            "uploadUrl": upload,
+            "eventSourceUrl": "https://push.elsewhere.example/events",
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn session_urls_must_share_the_upstream_origin() {
+        let up = "https://jmap.example.org/.well-known/jmap";
+        // Relative and same-origin absolute URLs pass; `eventSourceUrl` is not
+        // relayed and is not checked.
+        assert!(
+            session_urls_on_origin(
+                up,
+                &jmap_session_with(
+                    "/jmap",
+                    "https://jmap.example.org/dl/{accountId}/{blobId}/{name}",
+                    ""
+                )
+            )
+            .is_ok()
+        );
+        // A scheme-relative path is joined as a path on the upstream, not a host.
+        assert!(session_urls_on_origin(up, &jmap_session_with("//10.0.0.5/api", "", "")).is_ok());
+        for foreign in [
+            "http://169.254.169.254/latest/meta-data/",
+            "http://jmap.example.org/jmap",       // scheme differs
+            "https://jmap.example.org:8443/jmap", // port differs
+            "https://jmap.example.org@10.0.0.5/jmap",
+            "https://{accountId}.example.org/x",
+        ] {
+            for session in [
+                jmap_session_with(foreign, "", ""),
+                jmap_session_with("/jmap", foreign, ""),
+                jmap_session_with("/jmap", "", foreign),
+            ] {
+                assert!(
+                    session_urls_on_origin(up, &session).is_err(),
+                    "{foreign} must be refused"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_allowlist_matches_origins_and_its_absence_is_the_address_floor() {
+        let url = reqwest::Url::parse("https://jmap.example.org/.well-known/jmap").unwrap();
+        let floor = upstream_address_policy(&SecurityConfig::default(), &url).unwrap();
+        assert!(!floor(&"127.0.0.1".parse().unwrap()));
+        assert!(!floor(&"169.254.169.254".parse().unwrap()));
+        assert!(!floor(&"10.1.2.3".parse().unwrap()));
+        assert!(floor(&"93.184.215.14".parse().unwrap()));
+
+        let listed = |entries: &[&str]| SecurityConfig {
+            jmap_upstreams: Some(entries.iter().map(|e| e.to_string()).collect()),
+            ..SecurityConfig::default()
+        };
+        // Named origin (a path in the entry is ignored; the default port is implied):
+        // no range refused, because the operator chose it.
+        for entry in [
+            "https://jmap.example.org",
+            " https://jmap.example.org:443/ ",
+            "https://JMAP.example.org/.well-known/jmap",
+        ] {
+            let policy = upstream_address_policy(&listed(&[entry]), &url)
+                .unwrap_or_else(|_| panic!("{entry:?} names the origin"));
+            assert!(policy(&"10.1.2.3".parse().unwrap()));
+        }
+        for entry in [
+            "http://jmap.example.org",
+            "https://jmap.example.org:8443",
+            "https://other.example.org",
+            "jmap.example.org",
+            "https://user:pw@jmap.example.org",
+        ] {
+            assert!(
+                upstream_address_policy(&listed(&[entry]), &url).is_err(),
+                "{entry:?} does not name the origin"
+            );
+        }
+        // Set but empty: nothing is permitted.
+        assert!(upstream_address_policy(&listed(&[]), &url).is_err());
+        assert_eq!(
+            parse_jmap_upstreams(" https://a.example, ,http://b.example:8080 "),
+            vec!["https://a.example", "http://b.example:8080"]
+        );
+    }
+
+    #[test]
+    fn proxied_download_type_drops_parameters_and_active_types() {
+        assert_eq!(proxied_download_type(Some("image/png")), "image/png");
+        assert_eq!(
+            proxied_download_type(Some("Application/PDF; name=\"x.pdf\"")),
+            "application/pdf"
+        );
+        for active in [
+            "text/html",
+            "text/html; charset=utf-8",
+            "application/xhtml+xml",
+            "image/svg+xml",
+            "text/xml",
+            "application/javascript",
+            "text/javascript",
+            "multipart/x-mixed-replace; boundary=x",
+            "garbage",
+            "text/plain\r\nX-Injected: 1",
+            "",
+        ] {
+            assert_eq!(
+                proxied_download_type(Some(active)),
+                "application/octet-stream",
+                "{active:?}"
+            );
+        }
+        assert_eq!(proxied_download_type(None), "application/octet-stream");
     }
 
     #[test]
