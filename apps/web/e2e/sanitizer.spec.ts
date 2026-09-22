@@ -29,8 +29,31 @@ test.describe('sanitizer wiring', () => {
     // Hostile content is gone from the sanitized DOM.
     expect(srcdoc).not.toContain('<script');
     expect(srcdoc).not.toContain('__mw_pwned');
-    expect(srcdoc).not.toContain('tracker.evil.example');
     expect(srcdoc).not.toContain('javascript:');
+
+    // The tracker host must survive in exactly ONE place: the hidden block marker
+    // the sanitizer appends on purpose (`data-mw-blocked-host`, t16 S9 —
+    // crates/mw-sanitize/src/lib.rs). That marker is how the reader can say
+    // "N trackers blocked" without a second round-trip
+    // (analyzeBlockedContent, src/api/remote-images.ts), and by construction it
+    // "never carries a loadable URL".
+    //
+    // This assertion used to be a flat `not.toContain('tracker.evil.example')`,
+    // which failed on the breadcrumb and so called a working sanitizer broken. The
+    // property that actually matters is that nothing can LOAD from the host, so
+    // that is what is asserted: strip the breadcrumb attributes, then require the
+    // host to be absent from everything that remains.
+    expect(srcdoc, 'the block marker must be present and inert').toMatch(
+      /<span[^>]*\bhidden\b[^>]*data-mw-blocked-host="tracker\.evil\.example"/,
+    );
+    const withoutMarkers = srcdoc.replace(/\sdata-mw-blocked-host="[^"]*"/g, '');
+    expect(
+      withoutMarkers,
+      'outside the hidden marker the tracker host must not appear at all',
+    ).not.toContain('tracker.evil.example');
+    // And belt-and-braces: no loadable attribute ever names it.
+    expect(srcdoc).not.toMatch(/(?:src|href|srcset|action|poster)\s*=\s*["'][^"']*tracker\.evil/i);
+
     // Legit content survived.
     expect(srcdoc).toContain('Please review.');
 

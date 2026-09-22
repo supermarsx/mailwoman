@@ -21,7 +21,7 @@ test.describe('PIM modules are reachable from the shell nav (engine mode)', () =
 
     // Clicking each navigates the hash router and mounts the real module.
     await gotoModule(page, 'calendar');
-    await expect(page.getByRole('button', { name: '+ Event' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'New event' })).toBeVisible();
 
     await gotoModule(page, 'tasks');
     await expect(page.getByLabel('New task title')).toBeVisible();

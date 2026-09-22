@@ -31,7 +31,7 @@ async function openCalendar(page: Page): Promise<void> {
  * a daily recurrence.
  */
 async function createEvent(page: Page, title: string, opts: { daily?: boolean } = {}): Promise<void> {
-  await page.getByRole('button', { name: '+ Event' }).click();
+  await page.getByRole('button', { name: 'New event' }).click();
   const dialog = page.getByRole('dialog', { name: 'New event' });
   await expect(dialog).toBeVisible();
   await dialog.getByLabel('Title').fill(title);
@@ -51,7 +51,7 @@ test.describe('Calendar module through the real UI (engine mode)', () => {
     await engineLogin(page);
     await openCalendar(page);
 
-    await page.getByRole('button', { name: '+ Event' }).click();
+    await page.getByRole('button', { name: 'New event' }).click();
     const dialog = page.getByRole('dialog', { name: 'New event' });
     await expect(dialog).toBeVisible();
     await dialog.getByLabel('Title').fill(`Standup ${uid()}`);
