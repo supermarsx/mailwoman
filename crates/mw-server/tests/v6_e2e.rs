@@ -85,16 +85,27 @@ macro_rules! require_pg {
 /// Run a SQL statement inside the live Postgres container via `psql`, returning the
 /// tuples-only stdout. This is the DoD's "connect to the live PG, read the row"
 /// primitive — it bypasses the application entirely.
+///
+/// **The role and database come from [`pg_dsn`] — the very DSN the server under test
+/// was handed** — rather than being assumed (t24-e14). This used to run
+/// `psql -U mailwoman -d mailwoman` unconditionally, so whenever the DSN named any
+/// other database the seeds landed in one database while the server read another.
+/// `oauth_code_pkce_to_token_live` then could not find the `oauth_clients` row it had
+/// just inserted, and `zeroaccess_ciphertext_at_rest_direct_pg_query_live` found no
+/// `zeroaccess_accounts` row to read back — two failures with nothing to do with the
+/// product. t24-e9 and t24-e5 each hit this independently; both only passed because
+/// their throwaway container happened to name its database `mailwoman`.
 fn psql(sql: &str) -> String {
+    let (user, db) = psql_target(pg_dsn().as_deref());
     let out = Command::new("docker")
         .args([
             "exec",
             &pg_container(),
             "psql",
             "-U",
-            "mailwoman",
+            &user,
             "-d",
-            "mailwoman",
+            &db,
             "-tAc",
             sql,
         ])
@@ -102,10 +113,122 @@ fn psql(sql: &str) -> String {
         .expect("docker exec psql must run (is docker on PATH + the container up?)");
     assert!(
         out.status.success(),
-        "psql failed: {}",
+        "psql -U {user} -d {db} failed: {}",
         String::from_utf8_lossy(&out.stderr)
     );
     String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// The `(role, database)` `psql` must connect as, read out of a `postgres://` DSN.
+///
+/// Falls back to `mailwoman`/`mailwoman` — the documented bring-up in this file's
+/// header and the CI job both use it — only for the part the DSN does not state, so
+/// a DSN that names a database is always believed over the default.
+fn psql_target(dsn: Option<&str>) -> (String, String) {
+    const DEFAULT: &str = "mailwoman";
+    let Some(dsn) = dsn else {
+        return (DEFAULT.into(), DEFAULT.into());
+    };
+    // scheme://[user[:password]@]host[:port]/[database][?params]
+    let rest = dsn
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(dsn)
+        .split(['?', '#'])
+        .next()
+        .unwrap_or_default();
+    // Split authority from path on the FIRST '/' after the authority. A password may
+    // legally contain '/', so find the '@' first and only search after it.
+    let (authority, path) = match rest.rsplit_once('@') {
+        Some((userinfo, hostpart)) => match hostpart.split_once('/') {
+            Some((host, path)) => (format!("{userinfo}@{host}"), path),
+            None => (format!("{userinfo}@{hostpart}"), ""),
+        },
+        None => match rest.split_once('/') {
+            Some((host, path)) => (host.to_string(), path),
+            None => (rest.to_string(), ""),
+        },
+    };
+    let user = authority
+        .rsplit_once('@')
+        .map(|(userinfo, _)| userinfo.split(':').next().unwrap_or_default())
+        .map(percent_decode)
+        .filter(|u| !u.is_empty())
+        .unwrap_or_else(|| DEFAULT.into());
+    let db = {
+        let d = percent_decode(path);
+        if d.is_empty() { DEFAULT.into() } else { d }
+    };
+    (user, db)
+}
+
+/// Minimal `%XX` decoding, so a role or database containing an escaped `@`, `/` or
+/// space reaches `psql` as the byte it names. Anything that is not a valid escape is
+/// passed through unchanged.
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hi = (bytes[i + 1] as char).to_digit(16);
+            let lo = (bytes[i + 2] as char).to_digit(16);
+            if let (Some(hi), Some(lo)) = (hi, lo) {
+                out.push((hi * 16 + lo) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// The parse above, over the DSN shapes this repo actually uses. Runs without the
+/// live stack, so the regression is caught by a plain `cargo test`.
+#[test]
+fn psql_targets_the_database_the_dsn_names() {
+    // The CI e2e-v6 DSN and this file's documented bring-up.
+    assert_eq!(
+        psql_target(Some(
+            "postgres://mailwoman:mailwoman@127.0.0.1:5432/mailwoman"
+        )),
+        ("mailwoman".into(), "mailwoman".into())
+    );
+    // The case that failed: a database that is NOT named `mailwoman`.
+    assert_eq!(
+        psql_target(Some("postgres://mailwoman:mailwoman@127.0.0.1:5432/t24e14")),
+        ("mailwoman".into(), "t24e14".into())
+    );
+    // A different role as well.
+    assert_eq!(
+        psql_target(Some("postgresql://alice:s3cret@db.internal:6432/mw_ci")),
+        ("alice".into(), "mw_ci".into())
+    );
+    // Query parameters are not part of the database name.
+    assert_eq!(
+        psql_target(Some(
+            "postgres://mailwoman:pw@host:5432/mw_ci?sslmode=disable"
+        )),
+        ("mailwoman".into(), "mw_ci".into())
+    );
+    // A password containing '/' or '@' must not be mistaken for the path or the role.
+    assert_eq!(
+        psql_target(Some("postgres://bob:p/a@ss@host:5432/mw_ci")),
+        ("bob".into(), "mw_ci".into())
+    );
+    // Percent-escapes are decoded.
+    assert_eq!(
+        psql_target(Some("postgres://svc%40corp:pw@host/mw%20ci")),
+        ("svc@corp".into(), "mw ci".into())
+    );
+    // Anything the DSN leaves unsaid keeps the documented default.
+    assert_eq!(
+        psql_target(Some("postgres://host:5432/")),
+        ("mailwoman".into(), "mailwoman".into())
+    );
+    assert_eq!(psql_target(None), ("mailwoman".into(), "mailwoman".into()));
 }
 
 /// Run a `valkey-cli` command inside the live Valkey container, returning stdout.
