@@ -1346,6 +1346,10 @@ jobs:
         env:
           MW_BIND: "127.0.0.1:8090"
           MW_MODE: "proxy"
+          # Operator allowlist of JMAP upstreams this proxy may dial (t24-e8). The
+          # upstream is the in-repo mock published on loopback, which the policy
+          # floor refuses unless it is named here.
+          MW_JMAP_UPSTREAMS: "http://127.0.0.1:8181"
           MW_DB_PATH: "postgres://mailwoman:mailwoman@127.0.0.1:5432/mailwoman"
           MW_REDIS_URL: "redis://127.0.0.1:6379"
           MW_ADMIN_ENABLED: "true"
@@ -1855,6 +1859,10 @@ jobs:
         env:
           MW_BIND: "127.0.0.1:8090"
           MW_MODE: "proxy"
+          # Operator allowlist of JMAP upstreams this proxy may dial (t24-e8). The
+          # upstream is the in-repo mock published on loopback, which the policy
+          # floor refuses unless it is named here.
+          MW_JMAP_UPSTREAMS: "http://127.0.0.1:8181"
           MW_DB_PATH: "postgres://mailwoman:mailwoman@127.0.0.1:5432/mailwoman"
           MW_REDIS_URL: "redis://127.0.0.1:6379"
           MW_ADMIN_ENABLED: "true"
