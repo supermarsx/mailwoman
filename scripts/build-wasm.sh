@@ -19,10 +19,48 @@
 # server sanitizer (which would defeat end-to-end encryption). HTML decrypted mail is
 # then rendered as sanitized HTML in the existing no-scripts/no-same-origin sandboxed
 # iframe; non-HTML plaintext keeps rendering as escaped text.
+#
+# ── Toolchain pin + what reproducibility is actually achievable (t24-e13) ────
+#
+# `wasm-pack` is PINNED below. It is not cosmetic: wasm-pack chooses the flags
+# handed to `wasm-bindgen`, and a different wasm-pack emits a different glue ABI
+# for the SAME crate version. The guests committed before 26.20 carry the newer
+# multi-value/externref ABI; 0.15.0 emits the older stack-pointer one. Both work
+# — glue and `.wasm` are generated together and are internally consistent — but
+# the artefact changes wholesale when this version moves, so moving it is an
+# explicit, reviewed change, exactly like rust-toolchain.toml.
+#
+# The wasm-bindgen CLI needs NO separate pin. wasm-pack resolves it from the
+# build's own dependency graph and downloads that exact version (verified: with
+# `wasm-bindgen 0.2.126` in Cargo.lock it fetched CLI 0.2.126), and a CLI/crate
+# mismatch fails loudly with the "rust wasm file schema version" error rather
+# than silently producing a bad artefact. So Cargo.lock IS the CLI pin.
+#
+# MEASURED, so nobody builds a byte-comparison gate on a false premise:
+#   * Same machine, twice  → BYTE-IDENTICAL. Verified for both guests.
+#   * Windows host vs `rust:1.98.1-bookworm` container, same pinned rustc AND
+#     the same pinned wasm-pack → NOT byte-identical.
+#     Not fixable by pinning: it still differs with every absolute path remapped
+#     away via `--remap-path-prefix` (which does remove the embedded
+#     `C:\Users\…\.cargo\registry` / `/usr/local/cargo/registry` strings), AND it
+#     still differs with `--no-opt`, so it is not `wasm-opt` either — rustc's own
+#     codegen differs by HOST for the same target and version.
+#
+# Therefore: a CI gate must NOT compare these artefacts byte-for-byte against a
+# fresh rebuild; it would flap for anyone who commits from a different OS. Gate
+# on the export/symbol set and on BEHAVIOUR instead — the pattern the media-jail
+# verifier already uses — and treat a hash difference as informational. The
+# behavioural half lives in apps/web/src/crypto/sanitize.test.ts (drives the
+# committed bytes directly) and apps/web/e2e/crypto-pgp.spec.ts (drives them
+# through the real worker).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="${ROOT}/apps/web/src/wasm"
+
+# Pinned; see the note above. Bump deliberately, and re-commit both guests in the
+# same change (the ABI moves with it).
+WASM_PACK_VERSION="0.15.0"
 
 # rPGP/RustCrypto reach getrandom's JS backend on wasm32 via plain crate features
 # (mw-crypto's Cargo.toml wasm target deps), so no `--cfg getrandom_backend` is
@@ -30,8 +68,17 @@ OUT_DIR="${ROOT}/apps/web/src/wasm"
 export RUSTFLAGS="${RUSTFLAGS:-} --cfg getrandom_backend=\"wasm_js\""
 
 if ! command -v wasm-pack >/dev/null 2>&1; then
-  echo "wasm-pack not found. Install: cargo install wasm-pack (or https://rustwasm.github.io/wasm-pack/)" >&2
+  echo "wasm-pack not found. Install: cargo install wasm-pack --version ${WASM_PACK_VERSION} --locked" >&2
   exit 1
+fi
+have="$(wasm-pack --version 2>/dev/null | awk '{print $2}')"
+if [ "${have}" != "${WASM_PACK_VERSION}" ]; then
+  echo "wasm-pack ${have:-unknown} found, but these artefacts are pinned to ${WASM_PACK_VERSION}." >&2
+  echo "A different wasm-pack emits a different glue ABI, so the committed guests would" >&2
+  echo "change wholesale. Install the pin:" >&2
+  echo "  cargo install wasm-pack --version ${WASM_PACK_VERSION} --locked --force" >&2
+  echo "Set MW_WASM_PACK_ANY=1 to override deliberately (e.g. when bumping the pin)." >&2
+  [ "${MW_WASM_PACK_ANY:-}" = "1" ] || exit 1
 fi
 rustup target add wasm32-unknown-unknown >/dev/null 2>&1 || true
 
