@@ -261,6 +261,105 @@ impl Store {
         Ok(id)
     }
 
+    /// The id of the account whose normalised identity matches, if one exists.
+    ///
+    /// An account's identity is `(kind, host, port, username)` with the host and
+    /// username compared case-insensitively and a trailing `.` ignored on the host.
+    /// Migration `0028` puts a unique index over exactly this expression, so at
+    /// most one row can match. Case folding is **ASCII-only** on both backends:
+    /// SQLite's built-in `lower()` folds only ASCII, and Postgres' `lower()` folds
+    /// by locale, so the Postgres statements spell the ASCII fold out with
+    /// `translate`. The two backends therefore agree on which identities are equal.
+    pub async fn account_id_by_identity(
+        &self,
+        kind: AccountKind,
+        host: &str,
+        port: u16,
+        username: &str,
+    ) -> Result<Option<String>, StoreError> {
+        let sql = match self.backend.dialect() {
+            Dialect::Sqlite => {
+                "SELECT id FROM accounts
+                 WHERE kind = ?1 AND rtrim(lower(host), '.') = rtrim(lower(?2), '.')
+                   AND port = ?3 AND lower(username) = lower(?4)"
+            }
+            Dialect::Postgres => {
+                "SELECT id FROM accounts
+                 WHERE kind = ?1
+                   AND rtrim(translate(host, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '.')
+                     = rtrim(translate(?2, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '.')
+                   AND port = ?3
+                   AND translate(username, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')
+                     = translate(?4, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')"
+            }
+        };
+        Ok(q(sql)
+            .bind(kind.as_str())
+            .bind(host)
+            .bind(port as i64)
+            .bind(username)
+            .fetch_opt_scalar_string(&self.backend)
+            .await?)
+    }
+
+    /// Record a login for an account identity, returning the account's id.
+    ///
+    /// If an account with the same normalised identity exists (see
+    /// [`Store::account_id_by_identity`]), its credentials are re-sealed from
+    /// `creds` and its `tls` and `sync_policy_json` refreshed; its id, and so every
+    /// row keyed by it (second factors included), is kept. Otherwise a new account
+    /// is created. Call it only with credentials the upstream has just accepted:
+    /// it overwrites the stored ones.
+    ///
+    /// Two concurrent first logins for one identity cannot both insert: the
+    /// `0028` unique index turns the loser's insert into a no-op, and the loser
+    /// then updates the winner's row.
+    pub async fn upsert_account_by_identity(
+        &self,
+        acct: &NewAccount<'_>,
+        creds: &crate::Credentials,
+    ) -> Result<String, StoreError> {
+        let sealed = self.key.seal(&crate::encode_creds(creds))?;
+        for _ in 0..2 {
+            if let Some(id) = self
+                .account_id_by_identity(acct.kind, acct.host, acct.port, acct.username)
+                .await?
+            {
+                q("UPDATE accounts SET tls = ?2, sealed_creds = ?3, sync_policy_json = ?4 WHERE id = ?1")
+                    .bind(&id)
+                    .bind(acct.tls)
+                    .bind(sealed.clone())
+                    .bind(acct.sync_policy_json)
+                    .execute(&self.backend)
+                    .await?;
+                return Ok(id);
+            }
+            let id = seal::random_token();
+            let inserted = q(
+                "INSERT INTO accounts (id, kind, host, port, tls, username, sealed_creds, sync_policy_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                 ON CONFLICT DO NOTHING",
+            )
+            .bind(&id)
+            .bind(acct.kind.as_str())
+            .bind(acct.host)
+            .bind(acct.port as i64)
+            .bind(acct.tls)
+            .bind(acct.username)
+            .bind(sealed.clone())
+            .bind(acct.sync_policy_json)
+            .execute(&self.backend)
+            .await?;
+            if inserted == 1 {
+                return Ok(id);
+            }
+            // A concurrent login inserted the identity first: loop to update it.
+        }
+        Err(StoreError::Corrupt(
+            "account identity neither found nor insertable".into(),
+        ))
+    }
+
     /// Fetch an account by id.
     pub async fn get_account(&self, id: &str) -> Result<Account, StoreError> {
         let row = q(
@@ -1441,14 +1540,18 @@ mod tests {
         }
     }
 
+    /// A fresh account. The username carries a random suffix because the live
+    /// Postgres legs share one database across tests and runs, and 0028 allows
+    /// one account row per `(kind, host, port, username)`.
     async fn seed_account(s: &Store) -> String {
+        let username = format!("imap-user-{}", seal::random_token());
         s.create_account(
             &NewAccount {
                 kind: AccountKind::Imap,
                 host: "imap.example.org",
                 port: 993,
                 tls: "implicit",
-                username: "imap-user",
+                username: &username,
                 sync_policy_json: r#"{"keep":true}"#,
             },
             &creds(),
@@ -1494,7 +1597,7 @@ mod tests {
         assert_eq!(got.kind, AccountKind::Imap);
         assert_eq!(got.host, "imap.example.org");
         assert_eq!(got.port, 993);
-        assert_eq!(got.username, "imap-user");
+        assert!(got.username.starts_with("imap-user-"), "{}", got.username);
 
         // Credentials open only through the store's key.
         assert_eq!(s.account_credentials(&id).await.unwrap(), creds());
