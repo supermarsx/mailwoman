@@ -2,7 +2,9 @@
 //! (audit #2), with the storage leg on live Postgres (the V6 bool-bind lesson).
 //!
 //! Proves the t12 EWS path against real components:
-//!   * the committed `bridge-ews.wasm` runs in the REAL `mw-plugin` wasmtime jail;
+//!   * the SHIPPED `plugins/dist/bridge-ews.wasm` — the file the server itself loads
+//!     and digest-pins — runs in the REAL `mw-plugin` wasmtime jail (see `GUEST`
+//!     below: it deliberately does NOT load the crate's test fixture);
 //!   * per-account credentials come from the REAL 0011 `ews_account_cred` store —
 //!     SEALED at rest, unsealed by a host `BasicCredentialProvider` and handed to the
 //!     guest over the gated `basic-credentials` import (NO placeholder constants);
@@ -44,7 +46,19 @@ use mw_plugin::{
 };
 use mw_store::{EwsAccountCred, ServerKey, Store};
 
-const GUEST: &[u8] = include_bytes!("../../../plugins/bridge-ews/fixtures/bridge-ews.wasm");
+/// The SHIPPED artifact — the same file `v7_mount.rs::resolve_component` loads and
+/// pins in `FIRST_PARTY_DIGESTS`, not the crate's test fixture.
+///
+/// This used to be `plugins/bridge-ews/fixtures/bridge-ews.wasm`, and that is how
+/// t24-e15 found E8-02: `9b91b54` added the `basic-credentials` host import this
+/// file exercises and refreshed only the fixture, so from 26.12 to 26.19 this test
+/// passed against a guest nobody shipped while the shipped one could not ask the
+/// host for credentials at all. A test that loads a different binary from the one
+/// the server loads cannot see that, however thorough it is otherwise.
+///
+/// `plugins/verify-artifacts.py` keeps the two files byte-identical, so pointing
+/// here costs nothing and closes the gap permanently.
+const GUEST: &[u8] = include_bytes!("../../../plugins/dist/bridge-ews.wasm");
 const HIER: &str = include_str!("../../../plugins/bridge-ews/fixtures/sync_folder_hierarchy.xml");
 const ITEMS: &str = include_str!("../../../plugins/bridge-ews/fixtures/sync_folder_items.xml");
 const GETITEM: &str = include_str!("../../../plugins/bridge-ews/fixtures/get_item_mime.xml");
