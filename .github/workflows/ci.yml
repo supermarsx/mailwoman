@@ -423,7 +423,15 @@ jobs:
           GREENMAIL_POP3: ${{ matrix.pop3 }}
           GREENMAIL_USER: testuser
           GREENMAIL_PASS: testpass
+          # Read by the live IMAP/POP3/SMTP tests themselves (engine_live.rs:45).
           GREENMAIL_TLS: plaintext
+          # Read by the PRODUCT (engine_login, crates/mw-server/src/engine_mode.rs),
+          # which is what engine_download.rs drives through the HTTP login route.
+          # Without it parse_mail_url("imap://127.0.0.1:3143") yields starttls, the
+          # dial against a plaintext port fails and the route answers 401
+          # (t24-e12's triage). Both matrix legs are plaintext, so this is set for
+          # the job rather than per backend.
+          MW_ENGINE_TLS: plaintext
         run: |
           if [ -n "${{ matrix.smtp }}" ]; then
             export GREENMAIL_SMTP="${{ matrix.smtp }}"
@@ -1213,7 +1221,13 @@ jobs:
         # t19_e2e, …) run more than one live-PG test against this ONE database,
         # and parallel tests in a binary race on the shared `_sqlx_migrations`
         # table. Serial is the canonical gate's setting for the same reason.
-        run: cargo test -p mw-store -p mw-engine -p mw-server -- --include-ignored --test-threads=1
+        #
+        # --no-fail-fast: cargo stops at the first failing BINARY, and this job's
+        # first failure (t11_dcr_admin, early in the alphabet) was hiding 56 of
+        # mw-server's 71 binaries — including all twelve MW_E14_PG_DSN sites the
+        # env block above exists for (t24-e12's triage). One isolation failure
+        # must not decide what the rest of the dual-backend gate reports.
+        run: cargo test -p mw-store -p mw-engine -p mw-server --no-fail-fast -- --include-ignored --test-threads=1
       - name: postgres logs on failure
         if: failure()
         run: docker compose -f docker-compose.ci.yml logs --no-color postgres

@@ -76,6 +76,12 @@ telephoneNumber: +1-202-555-0103
 userPassword: carolpass
 
 # Distribution groups (groupOfNames) for expand-before-send.
+# `engineering` carries all three people on purpose: it is a distribution list,
+# not an org unit, and the live v7 E2E expands it to assert a flatten across OUs
+# (alice=Engineering, bob=Product, carol=Design). The contract is written down at
+# crates/mw-server/tests/v7_e2e.rs:34 ("the `engineering` groupOfNames carries
+# alice/bob/carol as members"); carol was missing here, which is what made the
+# expand assertion fail (t24-e12's triage).
 dn: cn=engineering,ou=groups,dc=example,dc=com
 objectClass: top
 objectClass: groupOfNames
@@ -83,6 +89,7 @@ cn: engineering
 description: Engineering distribution list
 member: uid=alice,ou=people,dc=example,dc=com
 member: uid=bob,ou=people,dc=example,dc=com
+member: uid=carol,ou=people,dc=example,dc=com
 
 dn: cn=all-staff,ou=groups,dc=example,dc=com
 objectClass: top
