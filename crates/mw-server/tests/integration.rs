@@ -287,9 +287,18 @@ async fn static_index_is_served() {
     assert_eq!(root.status(), 200);
     assert!(root.text().await.unwrap().contains("MW_TEST_INDEX"));
 
-    // Unknown non-asset route falls back to the SPA index.
+    // An unknown non-asset route falls back to the SPA index — for a NAVIGATION.
+    // Since t24-e14 the fallback discriminates: the shell answers a navigation,
+    // and every other unmatched request gets a plain 404, because answering a
+    // missing subresource with `200 text/html` is what made a webfont arrive as
+    // `<!DO…`. This request therefore carries the headers a browser actually sends
+    // on a top-level navigation; `tests/t24_spa_fallback.rs` owns the full matrix,
+    // including what a header-less client gets (a 404 — deliberately).
     let spa = c
         .get(format!("{server}/mailbox/inbox"))
+        .header("accept", "text/html,application/xhtml+xml,*/*;q=0.8")
+        .header("sec-fetch-dest", "document")
+        .header("sec-fetch-mode", "navigate")
         .send()
         .await
         .unwrap();

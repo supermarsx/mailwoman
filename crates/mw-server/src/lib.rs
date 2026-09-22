@@ -18,7 +18,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use axum::body::{Body, Bytes};
 use axum::extract::{Extension, OriginalUri, Path as UrlPath, Query, Request, State};
-use axum::http::{HeaderMap, HeaderValue, StatusCode, Uri, header};
+use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -1150,10 +1150,22 @@ async fn build_app_inner(
         }
     }
 
-    // The `/mcp` Streamable-HTTP router over the REAL engine (a no-op mount in
-    // proxy mode — tools return an engine error but `tools/list` still works). The
-    // countersign resolver now reads the REAL admin `unattended_send` flag from the
-    // 0007 `api_keys` table (folded V6 follow-up b) — no longer an empty stub.
+    // The `/mcp` Streamable-HTTP router over the REAL engine. The countersign
+    // resolver reads the REAL admin `unattended_send` flag from the 0007 `api_keys`
+    // table (folded V6 follow-up b) — no longer an empty stub.
+    //
+    // **`/mcp` exists in engine mode only, and its absence in proxy mode is
+    // deliberate** (t24-e14). This comment used to promise "a no-op mount in proxy
+    // mode — tools return an engine error but `tools/list` still works"; the code
+    // never did that, and could not: `build_mcp_router` takes an `Arc<Engine>` and
+    // every one of the frozen ten tools is a call into it, so a proxy-mode mount
+    // would have to fabricate an engine. A stub that answers `initialize` and
+    // enumerates ten tools it cannot execute is a worse answer than no endpoint: an
+    // MCP client discovers a tool surface, binds to it, and fails at call time. The
+    // honest answer to "is MCP available here" is the transport-level 404 an absent
+    // route gives — which `static_handler` now actually returns, instead of the SPA
+    // shell it used to hand back with a 200 (see [`wants_spa_shell`]).
+    // `apps/web/e2e/mcp.spec.ts:21` was already written to skip loudly on that 404.
     let countersigned = v7_mount::load_countersigned_prefixes(&store).await;
     let mcp_router = engine.as_ref().map(|engine| {
         let audit = stores_v6::AdminOAuthAudit::new(admin.clone());
@@ -3967,6 +3979,7 @@ const BASE_SHIM_PATH: &str = "__mw_base.js";
 
 async fn static_handler(
     State(state): State<AppState>,
+    method: Method,
     OriginalUri(original): OriginalUri,
     uri: Uri,
     headers: HeaderMap,
@@ -3991,9 +4004,126 @@ async fn static_handler(
     if let Some(resp) = serve_asset(&state, path, &headers) {
         return resp;
     }
-    // SPA fallback: unknown non-asset routes get index.html.
-    serve_asset(&state, "index.html", &headers)
-        .unwrap_or_else(|| (StatusCode::NOT_FOUND, "not found").into_response())
+    // SPA fallback: a client-side route gets index.html; everything else gets a
+    // plain 404. See [`wants_spa_shell`] — answering a subresource or a non-GET
+    // with `200 text/html` is what made a missing webfont arrive as `<!DO…` and an
+    // unmounted `POST /mcp` arrive as an HTML page a JSON client then choked on.
+    if !wants_spa_shell(&method, &headers, path) {
+        return not_found_plain();
+    }
+    serve_asset(&state, "index.html", &headers).unwrap_or_else(not_found_plain)
+}
+
+/// A 404 that is never the SPA shell — `text/plain`, so no client can mistake it
+/// for a document, a stylesheet, a font or a JSON reply.
+fn not_found_plain() -> Response {
+    (StatusCode::NOT_FOUND, "not found").into_response()
+}
+
+/// Final path segments that only ever name a **subresource**. A request for one of
+/// these is not a client-side route whatever headers it carries, so it is settled
+/// before the header signals below — which is what makes a missing
+/// `/fonts/inter-400.woff2` a 404 even for a client that sends no useful headers.
+///
+/// `.html` is deliberately absent: `index.html` is served directly above, and any
+/// other `.html` is close enough to a document to be worth the shell.
+const SUBRESOURCE_EXTENSIONS: &[&str] = &[
+    "avif",
+    "css",
+    "eot",
+    "gif",
+    "ico",
+    "jpeg",
+    "jpg",
+    "js",
+    "json",
+    "map",
+    "mjs",
+    "otf",
+    "png",
+    "svg",
+    "ttf",
+    "wasm",
+    "webmanifest",
+    "webp",
+    "woff",
+    "woff2",
+    "xml",
+];
+
+/// May this unmatched request be answered with `index.html`?
+///
+/// The SPA fallback exists so a deep link like `/mail/inbox/42` reloads into the
+/// app instead of 404ing. Applying it to *every* unmatched path is the defect:
+/// a missing subresource then arrives with `200` and an HTML body, which the
+/// browser reports as a corrupt asset (`OTS parsing error: invalid sfntVersion:
+/// 1008821359` — those four bytes are `<!DO`) and a JSON client reports as
+/// `Unexpected token '<'`. Both hide the real answer, which is "that is not here".
+///
+/// The discriminator, most reliable signal first:
+///
+/// 1. **Method.** Only `GET`/`HEAD` can be a navigation. A `POST` that reaches the
+///    fallback is a call to a route that is not mounted, and must say so.
+/// 2. **A subresource extension** on the last path segment — never a client-side
+///    route, and the one check that does not depend on the client's headers.
+/// 3. **Fetch Metadata**, which every current browser sends on same-origin requests
+///    and which no other signal can override: `Sec-Fetch-Dest` names the consumer
+///    directly (`document`/`iframe`/`frame`/`embed`/`object` are navigations,
+///    `font`/`script`/`style`/`image`/`empty` are not), and `Sec-Fetch-Mode:
+///    navigate` says the same thing for the handful of cases that send only it.
+/// 4. **`Accept`**, for a client that sends no Fetch Metadata at all (curl, an HTTP
+///    library, an old browser): the shell is served only if the client explicitly
+///    asked for `text/html` or `application/xhtml+xml`.
+///
+/// **A client that sends none of these gets a 404**, including one sending `Accept:
+/// */*` or no `Accept` at all. That is the deliberate direction to fail in: a real
+/// browser navigation always sends both Fetch Metadata and `Accept: text/html`, so
+/// the case this forgoes is a hand-written deep-link request from a CLI, where a
+/// 404 is visible and diagnosable. The opposite error — a `200` HTML page in place
+/// of a font, a chunk or a JSON reply — is silent and corrupts the caller.
+fn wants_spa_shell(method: &Method, headers: &HeaderMap, path: &str) -> bool {
+    if !matches!(*method, Method::GET | Method::HEAD) {
+        return false;
+    }
+    if has_subresource_extension(path) {
+        return false;
+    }
+    if let Some(dest) = header_str(headers, "sec-fetch-dest") {
+        return matches!(dest, "document" | "iframe" | "frame" | "embed" | "object");
+    }
+    if let Some(mode) = header_str(headers, "sec-fetch-mode") {
+        return mode.eq_ignore_ascii_case("navigate");
+    }
+    accepts_html(headers)
+}
+
+/// The last path segment's extension, matched case-insensitively against
+/// [`SUBRESOURCE_EXTENSIONS`].
+fn has_subresource_extension(path: &str) -> bool {
+    let last = path.rsplit('/').next().unwrap_or(path);
+    let Some((_, ext)) = last.rsplit_once('.') else {
+        return false;
+    };
+    SUBRESOURCE_EXTENSIONS
+        .iter()
+        .any(|known| ext.eq_ignore_ascii_case(known))
+}
+
+/// Does the client explicitly ask for an HTML document? `*/*` does not count — it
+/// is what a fetch with no stated preference sends, which is the case this refuses.
+fn accepts_html(headers: &HeaderMap) -> bool {
+    let Some(accept) = header_str(headers, header::ACCEPT.as_str()) else {
+        return false;
+    };
+    accept.split(',').any(|part| {
+        let media = part.split(';').next().unwrap_or_default().trim();
+        media.eq_ignore_ascii_case("text/html")
+            || media.eq_ignore_ascii_case("application/xhtml+xml")
+    })
+}
+
+fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+    headers.get(name)?.to_str().ok()
 }
 
 /// `308 {base}` → `{base}/` (t20 B4). `None` for every other request.
