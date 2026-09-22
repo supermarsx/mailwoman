@@ -1345,6 +1345,11 @@ jobs:
         env:
           MW_BIND: "127.0.0.1:8090"
           MW_MODE: "proxy"
+          # Proxy mode refuses a JMAP upstream on a loopback address unless the
+          # operator names its origin (t24 B2). The mock is published on host
+          # :8181 by docker-compose.dev.yml, which is where the browser specs
+          # point MW_E2E_JMAP_URL.
+          MW_JMAP_UPSTREAMS: "http://127.0.0.1:8181"
           MW_DB_PATH: "postgres://mailwoman:mailwoman@127.0.0.1:5432/mailwoman"
           MW_REDIS_URL: "redis://127.0.0.1:6379"
           MW_ADMIN_ENABLED: "true"
@@ -1854,6 +1859,11 @@ jobs:
         env:
           MW_BIND: "127.0.0.1:8090"
           MW_MODE: "proxy"
+          # Proxy mode refuses a JMAP upstream on a loopback address unless the
+          # operator names its origin (t24 B2). The mock is published on host
+          # :8181 by docker-compose.dev.yml, which is where the browser specs
+          # point MW_E2E_JMAP_URL.
+          MW_JMAP_UPSTREAMS: "http://127.0.0.1:8181"
           MW_DB_PATH: "postgres://mailwoman:mailwoman@127.0.0.1:5432/mailwoman"
           MW_REDIS_URL: "redis://127.0.0.1:6379"
           MW_ADMIN_ENABLED: "true"

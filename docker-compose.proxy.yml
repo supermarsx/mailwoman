@@ -106,6 +106,10 @@ x-app-env: &app-env
   # Fixed key so sessions survive a container restart mid-suite. TEST ONLY.
   MW_SERVER_KEY: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
   MW_MODE: "proxy"
+  # Proxy mode refuses a JMAP upstream on a private or loopback address unless the
+  # operator names its origin (t24 B2). `mock` is on `proxynet`, so without this
+  # every cell's login is refused before any connection is made.
+  MW_JMAP_UPSTREAMS: "http://mock:8181"
   # --- forwarded-header trust (t20-e1) ---
   # Deliberately narrower than the network: the bridge gateway (172.28.0.1),
   # which is where host-originated test traffic appears from, is NOT in here.
