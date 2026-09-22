@@ -1212,8 +1212,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
-      - name: boot postgres:16 (wait healthy)
-        run: docker compose -f docker-compose.ci.yml up -d --wait postgres
+      # valkey joins postgres because the v6_e2e live tests reach into BOTH
+      # containers by name (see MW_E13_*_CONTAINER below). They only started
+      # running here once --no-fail-fast stopped an earlier binary from ending
+      # the run.
+      - name: boot postgres:16 + valkey (wait healthy)
+        run: docker compose -f docker-compose.ci.yml up -d --wait postgres valkey
       - name: store/engine/server suites on BOTH backends (SQLite + live Postgres)
         env:
           # The store tests read the PG DSN from DATABASE_URL_PG (or MW_TEST_PG);
@@ -1226,6 +1230,13 @@ jobs:
           # fallback. Without it their Postgres legs printed a skip and reported
           # `ok` here. Same database as above.
           MW_E14_PG_DSN: "postgres://mailwoman:mailwoman@127.0.0.1:5432/mailwoman"
+          # v6_e2e reads rows straight out of the containers with `docker exec`,
+          # and defaults to the names of a hand-rolled throwaway pair
+          # (`mw-e13-pg` / `mw-e13-valkey`) that do not exist here — four tests
+          # failed with `No such container: mw-e13-pg`. Same values the e2e-v6
+          # job uses; these are the compose project's container names.
+          MW_E13_PG_CONTAINER: "mailwoman-ci-postgres-1"
+          MW_E13_VALKEY_CONTAINER: "mailwoman-ci-valkey-1"
         # --test-threads=1: with MW_E14_PG_DSN set, several binaries (t15_upload,
         # t19_e2e, …) run more than one live-PG test against this ONE database,
         # and parallel tests in a binary race on the shared `_sqlx_migrations`
