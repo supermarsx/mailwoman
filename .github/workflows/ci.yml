@@ -1448,6 +1448,18 @@ jobs:
     needs: [rust]
     steps:
       - uses: actions/checkout@v4
+      # FIRST, before any toolchain or build: the committed artifacts must match
+      # their sources of truth, and the verifier itself must be shown to reject.
+      # `--self-test` runs a positive control and then five mutations it must
+      # refuse — including a SUBSTITUTED artifact whose digest pin was updated to
+      # match, which only the dist-vs-fixture comparison catches (t24-e15). Running
+      # it first means a broken verifier fails loudly instead of passing vacuously,
+      # and neither leg needs a toolchain, so this fails fast.
+      - name: verify committed wasm artifacts (and prove the checks reject)
+        run: |
+          set -eux
+          python3 plugins/verify-artifacts.py --self-test
+          python3 plugins/verify-artifacts.py
       - uses: dtolnay/rust-toolchain@1.98.1
         with:
           # wasm32-unknown-unknown is for the media-jail guest (a bare CORE
@@ -1650,6 +1662,26 @@ jobs:
       # comparison alone cannot establish.
       - name: media jail — the freshly built guest passes the real jail suite
         run: cargo test -p mw-render
+
+      # LAST: rebuild every committed first-party artifact from source and compare.
+      # The steps above build five components; this covers all seven — `spam-rspamd`
+      # and `spam-spamassassin` are shipped and digest-pinned but were built by no job
+      # at all (t24-e15 §7). Their build.sh scripts are plain
+      # `cargo build --target wasm32-wasip2 --release`, so the two targets installed
+      # above are all this needs; no extra toolchain or container.
+      #
+      # media.wasm is compared BYTE FOR BYTE against the digest pinned in the script.
+      # Note the interaction with the snapshot step above: that step deliberately
+      # leaves the FRESH build in the working tree, so this compares the runner's own
+      # build against the pin rather than against the committed file. That is the
+      # intended direction — it IS the reproducibility claim, which t24-e15
+      # established by rebuilding on ubuntu:24.04 (the runner's OS) with rustup
+      # 1.98.1 and getting byte-identical output. The plugin components are compared
+      # on host-capability surface and exports, not bytes, because their build.sh
+      # scripts do not yet remap paths; the three byte-level pins inside the repo
+      # (checks 1-3, run in the first step) are what make that relaxation safe.
+      - name: rebuild every committed wasm artifact from source and compare
+        run: python3 plugins/verify-artifacts.py --rebuild
 
   # jail (e15) — load the REAL LanguageTool WASM component in the wasmtime host and
   # assert the SECURITY CORE (plan §22 / §7.5): loads only when its capability is
