@@ -157,6 +157,46 @@ services:
     ports:
       - "8080:8080"   # HTTP (OIDC discovery + SAML SSO endpoints)
       - "9000:9000"   # management (health)
+    # Without this the `sso-live` job had NO readiness gate at all: it ran
+    # `up -d keycloak` and went straight to the tests, so a keycloak that never
+    # became ready produced self-skipping tests and a GREEN sso job that had
+    # tested no SSO (t24-e16). `--wait` alone could not have fixed that — with no
+    # healthcheck defined, `--wait` only waits for the container to be *running*,
+    # which for keycloak is true long before the realm import finishes.
+    #
+    # The probe has to be bash's /dev/tcp: this image ships NO curl, wget, nc,
+    # python3 or openssl (verified by inspecting the image, not assumed), and
+    # `/dev/tcp` is a bash builtin, not POSIX — so `CMD-SHELL` (which is
+    # `/bin/sh -c`) would not work either, hence the explicit `bash -c`.
+    # `/health/ready` is served on the management port because the service sets
+    # KC_HEALTH_ENABLED=true above, and it reports UP only once the realm import
+    # has completed — which is the condition the tests actually depend on.
+    healthcheck:
+      test:
+        - "CMD"
+        - "bash"
+        - "-c"
+        - "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '\"status\": \"UP\"' <&3"
+      # These numbers are load-bearing, and the naive ones do not work. MEASURED
+      # against compose v5.1.3: `up --wait` fails only once a container is
+      # `unhealthy`; while it is still `starting` a failing probe does NOT fail
+      # the wait, and if `--wait-timeout` expires in that window compose exits
+      # **0**. So the healthcheck must be able to REACH `unhealthy` in a bounded
+      # time, or `--wait` is decorative. A first draft with `retries: 40` kept the
+      # container `starting` for ~200s and reproduced exactly the silent pass this
+      # gate exists to close (verified: exit 0 on a keycloak whose probe was
+      # refusing).
+      #
+      # Healthy path: a probe that passes during start_period marks the container
+      # healthy immediately, so start_period only delays FAILURE counting. Local
+      # cold start to healthy was 38s, so 30s + headroom is safe on a slower runner.
+      # Broken path: unhealthy at 30 + 18x5 = 120s, bounded.
+      # Callers must NOT pass a `--wait-timeout` shorter than that, or they land
+      # back in the exit-0 window; `sso-e2e.yml` passes none.
+      interval: 5s
+      timeout: 5s
+      retries: 18
+      start_period: 30s
 
   # ── t10 (26.10) spam-classify CI services (plan §3 e6/e14) — STUBBED by t10-e0,
   # ACTIVATED by e14. All are NETWORK-ONLY services (Apache-2.0, mere aggregation —
