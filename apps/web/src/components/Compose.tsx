@@ -13,6 +13,7 @@ import {
 import { useApp } from '../state/context.ts';
 import { t, isolate, loadCatalog } from '../i18n/index.ts';
 import * as a11y from './mailA11y.css.ts';
+import { AsyncBoundary } from './ErrorBoundary.tsx';
 import type { RichTextApi } from './compose/RichTextEditor.tsx';
 import {
   SignaturePicker,
@@ -98,6 +99,18 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
   // plain-text / format=flowed textarea; the toggle round-trips the text.
   const [body, setBody] = createSignal('');
   const [bodyHtml, setBodyHtml] = createSignal('');
+
+  /** The plain-text Body field. It is the fallback for all three ways the rich
+   *  editor can be absent — plain-text mode, the chunk still loading, and the
+   *  chunk failing to load at all — so it lives in one place rather than three. */
+  const plainBody = (): JSX.Element => (
+    <textarea
+      aria-label={t('mail-compose-body')}
+      rows="10"
+      value={body()}
+      onInput={(e) => setBody(e.currentTarget.value)}
+    />
+  );
   const [richMode, setRichMode] = createSignal(true);
   const [editorApi, setEditorApi] = createSignal<RichTextApi | null>(null);
   // W11 send-option toggles (read receipt + open-tracking pixel).
@@ -696,35 +709,38 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
               {richMode() ? t('mail-compose-format-plain') : t('mail-compose-format-rich')}
             </button>
           </div>
-          <Show
-            when={richMode()}
-            fallback={
-              <textarea
-                aria-label={t('mail-compose-body')}
-                rows="10"
-                value={body()}
-                onInput={(e) => setBody(e.currentTarget.value)}
-              />
-            }
-          >
-            <Suspense
-              fallback={
-                <textarea
-                  aria-label={t('mail-compose-body')}
-                  rows="10"
-                  value={body()}
-                  onInput={(e) => setBody(e.currentTarget.value)}
+          <Show when={richMode()} fallback={plainBody()}>
+            {/* The editor chunk can FAIL to arrive, not just be slow — offline, or
+                a 404 against a tab open across a redeploy. `Suspense` covers only
+                the PENDING case; a rejected `lazy()` import throws, and with no
+                boundary here that throw escapes the dialog. The plain textarea
+                was always the documented contract for "the editor is not here"
+                (see the `lazy()` call above), so honour it when the import fails
+                and not only while it is in flight — the same reasoning
+                ErrorBoundary.tsx was written for.
+
+                SCOPE, so the next reader does not over-credit this: it is
+                hardening, NOT a verified fix for the `e2e-engine`
+                `offline.spec.ts:18` failure ("Compose message" dialog never
+                found). That failure is older than this boundary — the
+                byte-identical error is in the e2e-engine log at `b34b9d3` — and
+                the lazy chunk being unfetchable offline is a PLAUSIBLE cause that
+                has not been proven. It resists unit coverage: under vitest a
+                mocked rejecting import leaves Suspense pending forever, so the
+                boundary is never exercised and a test asserting it passes with or
+                without this wrapper. Proving it needs a real browser with the SW
+                cache cold and the context offline. */}
+            <AsyncBoundary fallback={() => plainBody()}>
+              <Suspense fallback={plainBody()}>
+                <RichTextEditor
+                  initialHtml={bodyHtml()}
+                  externalText={body}
+                  ariaLabel={t('mail-compose-body')}
+                  onChange={onEditorChange}
+                  onReady={setEditorApi}
                 />
-              }
-            >
-              <RichTextEditor
-                initialHtml={bodyHtml()}
-                externalText={body}
-                ariaLabel={t('mail-compose-body')}
-                onChange={onEditorChange}
-                onReady={setEditorApi}
-              />
-            </Suspense>
+              </Suspense>
+            </AsyncBoundary>
           </Show>
         </div>
 
