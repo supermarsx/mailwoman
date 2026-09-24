@@ -317,6 +317,17 @@ body {
   width: 100%;
   max-width: 560px;
   max-height: 90vh;
+  /* `max-height` alone was a trap: this is a flex column whose children default to
+     `min-height:auto`, so they refuse to shrink and simply overflow the capped box
+     — and the backdrop is `position:fixed` with `place-items:center`, which has no
+     scrollport, so the overflow was unreachable. Measured in Chromium at the
+     1280x720 Playwright viewport: the box clamped to 648px while its content was
+     805px, putting the footer's Send button at y=798..835, entirely below the
+     fold. That is the "element is visible, enabled and stable / outside of the
+     viewport" failure t24-e12 recorded against e2e, e2e-engine and e2e-crypto.
+     Making the dialog its own scrollport is what lets `max-height` actually clamp
+     (t24-e13). */
+  overflow-y: auto;
   padding: 1.1rem;
   border-radius: 10px;
   background: var(--bg);

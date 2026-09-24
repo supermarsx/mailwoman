@@ -58,8 +58,15 @@ export async function generatePgpKey(
   await dialog.getByRole('button', { name: 'Generate', exact: true }).click();
   // Real WASM keygen + CryptoKey/set; the dialog closes and the key row appears.
   await expect(dialog).toBeHidden({ timeout: 30_000 });
+  // `.first()` because more than one own key may legitimately carry this address,
+  // so a bare locator is a strict-mode violation rather than a real failure
+  // ("resolved to 2 elements", seen in e2e-crypto): the crypto specs share one
+  // standing engine-mode server, several of them generate a key for
+  // ENGINE_CREDS.selfAddress, and an S/MIME import adds a second key for the same
+  // address. The assertion's job is "a key for this address is now listed", which
+  // is what this expresses. Same reason and same form as crypto-smime.spec.ts.
   await expect(
-    page.getByRole('list', { name: 'Your keys' }).getByText(opts.email),
+    page.getByRole('list', { name: 'Your keys' }).getByText(opts.email).first(),
   ).toBeVisible({ timeout: 30_000 });
 }
 
