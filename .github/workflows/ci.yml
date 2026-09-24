@@ -413,6 +413,20 @@ jobs:
             crates: "-p mw-imap -p mw-pop3 -p mw-server"
             required: "false"
     # Dovecot is the fidelity leg — informational, never fails the pipeline.
+    #
+    # PROMOTION CRITERION (t24-e16, so this is not re-litigated from scratch):
+    # the cell was red for a long time on a cause that is now fixed — the job set
+    # GREENMAIL_TLS but `engine_login` reads MW_ENGINE_TLS, so the HTTP login
+    # route answered 401 (t24-e12). Both variables are set below, and the cell
+    # went GREEN in run 35951743012, its first pass ever.
+    #
+    # That is NOT yet grounds to promote it. The deferral's stated reason is
+    # FLAKINESS, and one green run says nothing about flakiness. Promote by
+    # setting `required: "true"` on the dovecot matrix entry only after THREE
+    # CONSECUTIVE GREEN NIGHTLIES on master, and quote the three run ids in the
+    # commit message. Until then it stays advisory — it is also gated on an
+    # upstream third-party image (dovecot/dovecot:2.4.1), so it can go red for
+    # reasons that are not this repository's.
     continue-on-error: ${{ matrix.required == 'false' }}
     steps:
       - uses: actions/checkout@v4
