@@ -1,4 +1,4 @@
-import { expect, type APIRequestContext } from '@playwright/test';
+import { expect, type APIRequestContext, type APIResponse } from '@playwright/test';
 
 /**
  * Shared helpers for the V7 live E2E specs (plan §3 e16). Like the V6 specs, these
@@ -50,10 +50,38 @@ export async function adminLogin(request: APIRequestContext): Promise<void> {
 }
 
 /**
- * A mounted route answered with its OWN handler (not the SPA index.html
- * fall-through). Any concrete API status (200/204/400/401/403/501, …) proves the
- * route is wired; a 404 that returns the SPA HTML would mean it fell through.
+ * A mounted route answered with its OWN handler, rather than the server's static
+ * fall-through.
+ *
+ * This used to assert `status !== 404`, which **could not fail**: before t24-e14
+ * `static_handler` answered every unmatched path with `index.html` and a `200`, so
+ * an unmounted route looked exactly like a mounted one and this check passed for
+ * any URL at all, including URLs that never existed. Its own docstring already
+ * described the real test — "a 404 that returns the SPA HTML would mean it fell
+ * through" — but it only ever looked at the number.
+ *
+ * Now that the fallback answers honestly, it has exactly two shapes, and those are
+ * what this rejects:
+ *   * the SPA shell — `200 text/html`; and
+ *   * "no such route" — `404 text/plain` (`not found`).
+ *
+ * Everything else is a real handler, **including a `404` it chose**: `POST
+ * /admin/plugins/{id}/approve` answers `404 {"error":"unknown plugin '…'"}` for an
+ * unknown id, which is the deny-by-default behaviour the plugin specs assert two
+ * lines later. Distinguishing the two on the body's content-type is what lets this
+ * say "not mounted" without also mis-flagging "mounted, and the thing you asked for
+ * isn't there".
  */
-export function expectMounted(status: number, label: string): void {
-  expect(status, `${label}: route is mounted (real handler answered)`).not.toBe(404);
+export function expectMounted(resp: APIResponse, label: string): void {
+  const status = resp.status();
+  const contentType = resp.headers()['content-type'] ?? '';
+  const servedTheShell = contentType.startsWith('text/html');
+  // A mounted handler that means "not found" says so in JSON; the fallback's 404 is
+  // `text/plain`. See crates/mw-server/tests/t24_spa_fallback.rs, which pins both.
+  const noSuchRoute = status === 404 && !contentType.startsWith('application/json');
+  expect(
+    servedTheShell || noSuchRoute,
+    `${label}: route is mounted — answered ${status} ${contentType || '(no content-type)'}, ` +
+      'which is the static fall-through, not a handler',
+  ).toBe(false);
 }

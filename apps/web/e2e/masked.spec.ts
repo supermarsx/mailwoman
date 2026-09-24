@@ -36,7 +36,7 @@ async function listAliases(ctx: APIRequestContext): Promise<Alias[]> {
 test.describe('Masked-email lifecycle on the real server', () => {
   test('the /api/masked surface is mounted and fail-closed without a session', async ({ request }) => {
     const list = await request.get('/api/masked');
-    expectMounted(list.status(), 'GET /api/masked');
+    expectMounted(list, 'GET /api/masked');
     expect(list.status(), 'unauthenticated ⇒ 401 (mounted + fail-closed)').toBe(401);
   });
 

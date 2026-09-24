@@ -210,12 +210,12 @@ test.describe('UI-plugin registry + admin approval + broker on the real server',
     const rpc = await request.post('/api/ui-plugins/does-not-exist/rpc', {
       data: { v: RPC_PROTOCOL_VERSION, id: 'x:1', cap: 'net:host-allowlist', method: 'fetch', args: [] },
     });
-    expectMounted(rpc.status(), 'POST /api/ui-plugins/{id}/rpc');
+    expectMounted(rpc, 'POST /api/ui-plugins/{id}/rpc');
     expect((await rpc.json()).err.code).toBe('capability-denied');
 
     // Admin surface is admin-gated: unauthenticated ⇒ 401/403 (mounted, not 404/SPA).
     const adminList = await request.get('/admin/ui-plugins');
-    expectMounted(adminList.status(), 'GET /admin/ui-plugins');
+    expectMounted(adminList, 'GET /admin/ui-plugins');
     expect([401, 403]).toContain(adminList.status());
   });
 

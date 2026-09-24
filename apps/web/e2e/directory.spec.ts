@@ -17,7 +17,7 @@ test.describe('Directory / GAL (V7) — web-facing HTTP contract', () => {
     await mailboxLogin(request);
 
     const search = await request.get('/api/directory/search?q=alice');
-    expectMounted(search.status(), 'GET /api/directory/search');
+    expectMounted(search, 'GET /api/directory/search');
     // Configured ⇒ 200 with entries; unconfigured ⇒ 501. Both prove the mount.
     expect([200, 501]).toContain(search.status());
     if (search.status() === 200) {
@@ -27,15 +27,21 @@ test.describe('Directory / GAL (V7) — web-facing HTTP contract', () => {
     }
 
     const cert = await request.get('/api/directory/cert?email=alice@example.com');
-    expectMounted(cert.status(), 'GET /api/directory/cert');
+    expectMounted(cert, 'GET /api/directory/cert');
     expect([200, 404, 501]).toContain(cert.status());
 
-    // Group expand-before-send: the endpoint is mounted (405/400/501 all prove a real
-    // handler answered; a 404-SPA would not).
+    // Group expand-before-send. The DN is a PATH segment, not a query parameter:
+    // the route is `GET /api/directory/group/{dn}` (crates/mw-server/src/directory.rs,
+    // "The DN is path-encoded by the caller"), and that is what the real SPA client
+    // calls — apps/web/src/modules/directory/service.ts encodes the DN into the path.
+    // This spec asked for `/api/directory/group?dn=…`, which matches no route at all;
+    // it only ever passed because the static fall-through answered 200 for every URL,
+    // so the assertion was checking the fallback rather than the mount (t24-e14).
+    const dn = 'cn=engineering,ou=groups,dc=example,dc=com';
     const expand = await request
-      .get('/api/directory/group?dn=cn=engineering,ou=groups,dc=example,dc=com')
+      .get(`/api/directory/group/${encodeURIComponent(dn)}`)
       .catch(() => null);
-    if (expand) expectMounted(expand.status(), 'GET /api/directory/group');
+    if (expand) expectMounted(expand, 'GET /api/directory/group/{dn}');
   });
 });
 

@@ -20,7 +20,7 @@ test.describe('Assist (V7) — web-facing contract on the real server', () => {
     await mailboxLogin(request);
 
     const cfg = await request.get('/api/assist/config');
-    expectMounted(cfg.status(), 'GET /api/assist/config');
+    expectMounted(cfg, 'GET /api/assist/config');
     expect(cfg.status()).toBe(200);
     const body = await cfg.json();
     // The disclosure copy is ALWAYS present so the UI can show "what left the device".
@@ -61,7 +61,7 @@ test.describe('Assist (V7) — web-facing contract on the real server', () => {
     await adminLogin(request);
 
     const get = await request.get('/admin/assist');
-    expectMounted(get.status(), 'GET /admin/assist');
+    expectMounted(get, 'GET /admin/assist');
     expect(get.status()).toBe(200);
 
     // Persist an endpoint allowlist + capability grants, then flip the kill switch.
@@ -83,7 +83,7 @@ test.describe('Assist (V7) — web-facing contract on the real server', () => {
     expect([200, 204]).toContain(put.status());
 
     const kill = await request.post('/admin/assist/kill');
-    expectMounted(kill.status(), 'POST /admin/assist/kill');
+    expectMounted(kill, 'POST /admin/assist/kill');
     expect(kill.status()).toBe(200);
     expect((await kill.json()).killed).toBe(true);
 

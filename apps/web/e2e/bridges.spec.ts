@@ -19,7 +19,7 @@ test.describe('Bridges (V7) — registry surface on the real server', () => {
     await adminLogin(request);
 
     const list = await request.get('/admin/plugins');
-    expectMounted(list.status(), 'GET /admin/plugins');
+    expectMounted(list, 'GET /admin/plugins');
     expect(list.status()).toBe(200);
     const plugins = (await list.json()).plugins as Array<Record<string, unknown>>;
     expect(Array.isArray(plugins)).toBe(true);

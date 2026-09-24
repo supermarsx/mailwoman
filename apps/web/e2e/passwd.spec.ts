@@ -17,7 +17,7 @@ test.describe('Password change (V7) — web-facing HTTP contract', () => {
     await mailboxLogin(request);
 
     const policy = await request.get('/api/password/policy');
-    expectMounted(policy.status(), 'GET /api/password/policy');
+    expectMounted(policy, 'GET /api/password/policy');
     expect(policy.status()).toBe(200);
     const body = await policy.json();
     // The rules the change form displays before a change.
@@ -29,7 +29,7 @@ test.describe('Password change (V7) — web-facing HTTP contract', () => {
     const change = await request.post('/api/password', {
       data: { oldPassword: 'definitely-not-the-current', newPassword: 'A-Strong-Passw0rd!' },
     });
-    expectMounted(change.status(), 'POST /api/password');
+    expectMounted(change, 'POST /api/password');
     expect([400, 403]).toContain(change.status());
   });
 });

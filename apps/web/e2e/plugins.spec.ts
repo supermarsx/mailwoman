@@ -17,7 +17,7 @@ test.describe('Plugin registry (V7) — admin surface on the real server', () =>
     await adminLogin(request);
 
     const list = await request.get('/admin/plugins');
-    expectMounted(list.status(), 'GET /admin/plugins');
+    expectMounted(list, 'GET /admin/plugins');
     expect(list.status()).toBe(200);
     const body = await list.json();
     expect(Array.isArray(body.plugins), 'registry returns a plugin array').toBe(true);
@@ -34,10 +34,10 @@ test.describe('Plugin registry (V7) — admin surface on the real server', () =>
     // The lifecycle routes answer with their own handler (deny-by-default: an unknown
     // id is a 400/404-from-handler, never the SPA fall-through).
     const approve = await request.post('/admin/plugins/does-not-exist/approve').catch(() => null);
-    if (approve) expectMounted(approve.status(), 'POST /admin/plugins/{id}/approve');
+    if (approve) expectMounted(approve, 'POST /admin/plugins/{id}/approve');
 
     const unsigned = await request.post('/admin/plugins/does-not-exist/allow-unsigned');
-    expectMounted(unsigned.status(), 'POST /admin/plugins/{id}/allow-unsigned');
+    expectMounted(unsigned, 'POST /admin/plugins/{id}/allow-unsigned');
     expect(unsigned.status(), 'unknown id ⇒ handler 400 (not SPA)').toBe(400);
   });
 

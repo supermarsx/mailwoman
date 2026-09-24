@@ -34,7 +34,7 @@ test.describe('OAuth DCR gate on the real server (default-disabled)', () => {
       },
       failOnStatusCode: false,
     });
-    expectMounted(resp.status(), 'POST /oauth/register');
+    expectMounted(resp, 'POST /oauth/register');
     expect(resp.status(), 'default-disabled ⇒ 403').toBe(403);
     const body = await resp.json();
     expect(body.error).toBe('access_denied');
@@ -45,16 +45,16 @@ test.describe('OAuth DCR gate on the real server (default-disabled)', () => {
     // With DCR disabled these still resolve through the DCR handler chain rather than
     // falling through to index.html; any concrete API status proves the mount.
     const read = await request.get('/oauth/register/does-not-exist', { failOnStatusCode: false });
-    expectMounted(read.status(), 'GET /oauth/register/{id}');
+    expectMounted(read, 'GET /oauth/register/{id}');
 
     const put = await request.put('/oauth/register/does-not-exist', {
       data: { redirect_uris: ['https://app.example.com/callback'] },
       failOnStatusCode: false,
     });
-    expectMounted(put.status(), 'PUT /oauth/register/{id}');
+    expectMounted(put, 'PUT /oauth/register/{id}');
 
     const del = await request.delete('/oauth/register/does-not-exist', { failOnStatusCode: false });
-    expectMounted(del.status(), 'DELETE /oauth/register/{id}');
+    expectMounted(del, 'DELETE /oauth/register/{id}');
 
     // None of these should be a 200 success while disabled / for an unknown client.
     for (const s of [read.status(), put.status(), del.status()]) {
