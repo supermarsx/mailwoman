@@ -19,6 +19,16 @@ use mw_store::{
 #[path = "../src/test_db.rs"]
 mod test_db;
 
+// The env-gate helper, reached by path for the same reason `test_db` is: it is
+// test support, not library surface. It is a leaf file over `std` alone, so the
+// include carries no dependency from `mw-store` to `mw-server`. Both CI jobs that
+// run this target — `migrate-store-smoke`, whose only test is below, and
+// `store-dual-backend` — boot Postgres, so both set `MW_REQUIRE_LIVE` and need the
+// two Postgres legs here to fail rather than skip. See `gate.rs` module docs.
+#[allow(dead_code)]
+#[path = "../../mw-server/tests/common/gate.rs"]
+mod gate;
+
 fn key() -> ServerKey {
     ServerKey::from_bytes(&[7u8; 32]).unwrap()
 }
@@ -602,9 +612,9 @@ async fn backend_parity_sqlite_and_postgres() {
             eprintln!("[mw-store] backend-parity: Postgres path RAN and matched SQLite.");
         }
         None => {
-            eprintln!(
-                "[mw-store] backend-parity: Postgres path SKIPPED (set DATABASE_URL_PG or \
-                 MW_TEST_PG to a live postgres:16 to run it). SQLite path asserted."
+            gate::skip(
+                "[mw-store] backend-parity: DATABASE_URL_PG and MW_TEST_PG unset — the \
+                 Postgres path is not driven and the parity claim rests on SQLite alone.",
             );
         }
     }
@@ -613,9 +623,9 @@ async fn backend_parity_sqlite_and_postgres() {
 #[tokio::test]
 async fn migrate_store_sqlite_to_postgres() {
     let Some(dsn) = pg_dsn() else {
-        eprintln!(
-            "[mw-store] migrate-store: SKIPPED (set DATABASE_URL_PG or MW_TEST_PG to a live \
-             postgres:16 to run it)."
+        gate::skip(
+            "[mw-store] migrate-store: DATABASE_URL_PG and MW_TEST_PG unset — the SQLite → \
+             Postgres migration is not driven.",
         );
         return;
     };

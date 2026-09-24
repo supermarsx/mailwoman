@@ -199,6 +199,103 @@ fn skip_line_names_the_test_and_call_site_on_one_line() {
 }
 
 #[test]
+fn require_live_is_off_unless_it_names_something() {
+    use gate::Require;
+    assert_eq!(Require::parse(None), Require::Off);
+    assert_eq!(Require::parse(Some("")), Require::Off);
+    assert_eq!(Require::parse(Some("  ")), Require::Off);
+    assert_eq!(Require::parse(Some("all")), Require::All);
+    assert_eq!(Require::parse(Some("ALL")), Require::All);
+    assert_eq!(
+        Require::parse(Some("MW_E14_PG_DSN,DATABASE_URL_PG")),
+        Require::Vars(vec!["MW_E14_PG_DSN".into(), "DATABASE_URL_PG".into()])
+    );
+    assert_eq!(
+        Require::parse(Some("MW_IMAP_LIVE MW_POP3_LIVE")),
+        Require::Vars(vec!["MW_IMAP_LIVE".into(), "MW_POP3_LIVE".into()]),
+        "a space-separated value is the shape a YAML folded scalar produces"
+    );
+}
+
+#[test]
+fn a_required_variable_turns_the_skip_that_cites_it_into_a_failure() {
+    use gate::{Require, require_violation};
+    let set = |_: &str| true;
+    let pg = Require::parse(Some("MW_E14_PG_DSN,DATABASE_URL_PG"));
+
+    let why = require_violation(
+        &pg,
+        set,
+        "[t15 upload] MW_E14_PG_DSN and DATABASE_URL_PG unset — live Postgres upload \
+         round-trip not driven.",
+    )
+    .expect("a skip citing a required variable must fail");
+    assert!(why.contains("MW_E14_PG_DSN"), "names the variable: {why}");
+
+    // The reason this is a list and not a flag: `store-dual-backend` runs the whole
+    // mw-server suite with Postgres up and Dovecot deliberately down. Its Dovecot
+    // legs must stay free to skip, or the switch manufactures failures.
+    assert_eq!(
+        require_violation(
+            &pg,
+            set,
+            "[t13 ACL/METADATA] MW_T13_LIVE!=1 — real Dovecot not driven."
+        ),
+        None,
+        "a service this job does not boot must still be allowed to skip"
+    );
+
+    // `all` is for a job running one narrowly gated target; there, a post-gate
+    // failure to reach the booted service is exactly what must go red.
+    assert!(
+        require_violation(
+            &Require::All,
+            set,
+            "[t12 IMAP] imap_scram_login_live: Dovecot-SASL unreachable at 127.0.0.1:2143 (timed out)."
+        )
+        .is_some(),
+        "under `all` a booted-but-unreachable service is a failure, not a skip"
+    );
+
+    assert_eq!(
+        require_violation(&Require::Off, set, "anything at all"),
+        None
+    );
+}
+
+#[test]
+fn a_required_variable_that_is_set_nowhere_fails_on_its_own() {
+    // The trap this switch could otherwise fall into: a job writes
+    // MW_REQUIRE_LIVE=MW_E14_PG_DSNN, the name matches no skip reason, the switch
+    // requires nothing, and the job stays green — a seventh check that cannot fail.
+    use gate::{Require, require_violation};
+    let why = require_violation(
+        &Require::parse(Some("MW_E14_PG_DSNN")),
+        |_| false,
+        "[t13 ACL/METADATA] MW_T13_LIVE!=1 — real Dovecot not driven.",
+    )
+    .expect("a required name the step never exported must fail on the first skip");
+    assert!(why.contains("MW_E14_PG_DSNN"), "names the typo: {why}");
+    assert!(why.contains("spelling"), "says where to look: {why}");
+}
+
+#[test]
+fn a_require_failure_carries_the_whole_skipped_record() {
+    // Whatever the switch does, the reader gets what the gate log would have given
+    // them: which test, which call site, which variable it was waiting for.
+    let record = gate::skip_line(
+        Some("leg_postgres"),
+        "crates/mw-server/tests/t15_upload.rs",
+        433,
+        "[t15 upload] MW_E14_PG_DSN unset — not driven.",
+    );
+    let body = gate::require_failure(&record, "because the job boots Postgres.");
+    assert!(body.starts_with("SKIPPED leg_postgres (t15_upload.rs:433):"));
+    assert!(body.contains("MW_E14_PG_DSN"));
+    assert!(body.ends_with("because the job boots Postgres."));
+}
+
+#[test]
 fn skips_are_reported_through_the_shared_helper() {
     // The spelling every env-gated leg used before `common::gate::skip` existed. It went
     // through `eprintln!`, which libtest captures for a passing test. This catches a
