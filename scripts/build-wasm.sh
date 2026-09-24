@@ -79,7 +79,16 @@ WASM_PACK_VERSION="0.15.0"
 #
 # It discovers the workspace root by walking up rather than assuming a depth,
 # because a wrong prefix does not fail — it silently matches nothing and leaves the
-# paths embedded.
+# paths embedded. Verified: it resolves correctly from the repo root, from
+# `scripts/`, and from deep subdirectories, and refuses loudly (non-zero, with a
+# message) when run from outside any workspace.
+#
+# `cd` to ROOT first so that discovery cannot key off an unrelated workspace. The
+# walk-up starts at `pwd`, not at this script's location, so
+# `cd /some-other-rust-repo && bash /path/to/mailwoman/scripts/build-wasm.sh` would
+# otherwise remap THAT workspace's prefix — which matches nothing here, embeds the
+# real paths, and still exits 0. The one case the shared script cannot detect.
+cd "${ROOT}"
 . "${ROOT}/plugins/reproducible-env.sh"
 
 # CAREFUL: reproducible-env.sh sets CARGO_ENCODED_RUSTFLAGS, and that variable
