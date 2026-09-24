@@ -49,7 +49,7 @@ wrapped keys, webhook secrets) are copied as opaque bytes and are never opened o
 re-encrypted on the way, so the source and destination **must share the same
 `MW_SERVER_KEY`** — without it the copied bytes are unreadable on the destination.
 
-**It does not copy the whole database.** As of migration 0029 it copies 40 of the 76
+**It does not copy the whole database.** As of migration 0029 it copies 43 of the 76
 tables the schema defines. What is left behind is listed below; read it before cutting
 over.
 
@@ -79,9 +79,8 @@ destination starts empty and you re-configure them there. Plan for this: after c
 over you will need to bootstrap an admin login, re-mint API keys, and re-approve OAuth
 clients and plugins before those surfaces work again.
 
-**Not yet decided — 20 tables.** These are *not* blessed as safe to drop; no decision
-has been taken on them. They include per-account 2FA enrolments (`totp_secrets`,
-`webauthn_credentials`, `recovery_codes`), user settings and content (`signatures`,
+**Not yet decided — 17 tables.** These are *not* blessed as safe to drop; no decision
+has been taken on them. They include user settings and content (`signatures`,
 `notification_rules`, `passwd_config`, `remote_image_grants`, `masked_email`),
 attachment upload metadata (`uploaded_blobs`), bridge and EWS account bindings, plugin
 state, and the remaining append-only audit logs (`sso_login_audit`,
@@ -90,11 +89,23 @@ state, and the remaining append-only audit logs (`sso_login_audit`,
 reason recorded per table, is `NOT_MIGRATED_UNCLASSIFIED` in
 `crates/mw-store/tests/backend_parity.rs`.
 
-Five tables moved from that list into the copied set in 26.20 because leaving them
+Eight tables moved from that list into the copied set in 26.20 because leaving them
 behind lost data rather than deferring configuration: `zeroaccess_accounts` (the only
 copy of each account's wrapped root key — without it the destination cannot decrypt
 zero-access mail at all), `crypto_changes`, the `audit_log`, and `twofa_policy` and
-`quotas`, whose absence silently relaxed a protection on the destination.
+`quotas`, whose absence silently relaxed a protection on the destination. Copying the
+require-2FA policy without the enrolments then produced a lockout of its own — the
+destination demanded a second factor while holding none — so `totp_secrets`,
+`webauthn_credentials` and `recovery_codes` are copied too. A spent recovery code stays
+spent and the TOTP replay counter travels with the secret, so migrating does not hand
+back codes the account had already burned.
+
+**One caveat on passkeys.** WebAuthn credentials are bound to the deployment's
+Relying Party ID — its domain. `migrate-store` changes the database backend, not the
+domain, so passkeys keep working across a normal cutover. If you also move the
+deployment to a **different domain**, enrolled passkeys stop verifying there; that is
+true whether or not the rows are copied, and users must re-enrol. TOTP secrets and
+recovery codes are unaffected by a domain change.
 
 ### What the tests check
 

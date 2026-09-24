@@ -11,7 +11,7 @@
 use mw_store::{
     AccountKind, AddressBookRow, AuditRow, CalendarRow, ContactRow, Credentials, EventInstanceRow,
     EventRow, MailboxUpsert, MessageUpsert, NewAccount, NoteRow, ServerKey, SsoConfigRow, Store,
-    StoreKeyMaterialRow, SubmissionRow, TwofaPolicyRow, ZeroAccessRow,
+    StoreKeyMaterialRow, SubmissionRow, TwofaPolicyRow, WebauthnCredentialRow, ZeroAccessRow,
 };
 
 // Test-support helper; not part of the shipped `mw-store` library, so it is
@@ -45,7 +45,8 @@ const ALL_TABLES: &str = "sessions, settings, accounts, mailboxes, messages, bod
     contacts, contact_groups, pim_changes, crypto_keys, key_associations, security_verdicts, \
     dlp_audit, sender_controls, store_key_material, push_subscriptions, push_config, \
     native_sessions, sso_config, sso_login_audit, quotas, zeroaccess_accounts, \
-    crypto_changes, audit_log, twofa_policy";
+    crypto_changes, audit_log, twofa_policy, totp_secrets, webauthn_credentials, \
+    recovery_codes";
 
 async fn truncate_pg(dsn: &str) {
     use sqlx::postgres::PgPoolOptions;
@@ -518,8 +519,63 @@ async fn run_ops(s: &Store) -> Vec<String> {
         s.list_audit(10).await.unwrap().len()
     ));
 
+    // 2FA enrolments, which must travel with the `twofa_policy` above.
+    s.put_totp_secret(&account, TOTP_SECRET, true)
+        .await
+        .unwrap();
+    // A step already consumed on the source: it must stay consumed on the
+    // destination, or a spent code could be replayed there.
+    assert!(
+        s.advance_totp_last_step(&account, 57_000_000)
+            .await
+            .unwrap()
+    );
+    out.push(format!(
+        "totp_unseals={}",
+        s.get_totp_secret(&account).await.unwrap().map(|t| t.secret) == Some(TOTP_SECRET.to_vec())
+    ));
+
+    s.add_webauthn_credential(&WebauthnCredentialRow {
+        credential_id: "cred-1".into(),
+        account_id: account.clone(),
+        cose_public_key: b"cose-public-key-bytes".to_vec(),
+        sign_count: 41,
+        transports: "usb,nfc".into(),
+        label: "YubiKey".into(),
+        created_at: String::new(), // set to now by the setter
+    })
+    .await
+    .unwrap();
+    out.push(format!(
+        "webauthn_count={}",
+        s.list_webauthn_credentials(&account).await.unwrap().len()
+    ));
+
+    // One spent code and one live one, so the copy is checked on both states.
+    s.add_recovery_codes(
+        &account,
+        &[RECOVERY_LIVE.to_string(), RECOVERY_SPENT.to_string()],
+    )
+    .await
+    .unwrap();
+    assert!(
+        s.consume_recovery_code(&account, RECOVERY_SPENT)
+            .await
+            .unwrap()
+    );
+    out.push(format!(
+        "recovery_unused={}",
+        s.list_unused_recovery_codes(&account).await.unwrap().len()
+    ));
+
     out
 }
+
+/// Fixtures for the 2FA enrolments, so a migration test can prove they are still
+/// usable on the destination rather than merely present.
+const TOTP_SECRET: &[u8] = b"totp-shared-secret-bytes";
+const RECOVERY_LIVE: &str = "argon2-hash-of-unused-code";
+const RECOVERY_SPENT: &str = "argon2-hash-of-already-used-code";
 
 /// Plaintexts sealed into `zeroaccess_accounts` by [`run_ops`], so a migration
 /// test can prove the copied key material still opens.
@@ -734,22 +790,10 @@ const NOT_MIGRATED_DELIBERATELY: &[(&str, &str)] = &[
 ///
 /// Five entries left this list in 26.20 by being answered rather than deleted:
 /// `zeroaccess_accounts`, `crypto_changes`, `audit_log`, `twofa_policy` and
-/// `quotas` are now copied. That is what an entry here is for.
+/// `quotas` are now copied, and `totp_secrets`, `webauthn_credentials` and
+/// `recovery_codes` followed once copying the policy without the enrolments
+/// proved to be its own lockout. That is what an entry here is for.
 const NOT_MIGRATED_UNCLASSIFIED: &[(&str, &str)] = &[
-    (
-        "totp_secrets",
-        "0015: per-account sealed TOTP secrets. Not copying silently un-enrols every user's \
-         authenticator app.",
-    ),
-    (
-        "webauthn_credentials",
-        "0015: per-account passkeys/security keys. Same silent un-enrolment.",
-    ),
-    (
-        "recovery_codes",
-        "0015: per-account 2FA recovery code hashes — the fallback when the factors above \
-         are gone.",
-    ),
     (
         "passwd_config",
         "0008: per-account password policy and the force-change-on-next-login flag; the flag \
@@ -903,6 +947,22 @@ async fn migrate_store_accounts_for_every_schema_table() {
             "`{t}` IS copied by the migrator but is also listed as not migrated"
         );
     }
+
+    // `ALL_TABLES` is a third hand-maintained list, and a copied table missing from
+    // it leaves rows behind between Postgres runs — which either breaks the next
+    // migration on a duplicate key or, worse, lets a stale row satisfy an
+    // assertion the copy should have satisfied. Hold it to the same standard.
+    let truncated: BTreeSet<&str> = ALL_TABLES.split(',').map(str::trim).collect();
+    let untruncated: Vec<&str> = copied
+        .iter()
+        .copied()
+        .filter(|t| !truncated.contains(t))
+        .collect();
+    assert!(
+        untruncated.is_empty(),
+        "these copied table(s) are missing from ALL_TABLES, so Postgres runs do not \
+         clear them between tests: {untruncated:?}"
+    );
 
     // The gate itself.
     let unaccounted: Vec<&str> = schema
@@ -1161,6 +1221,104 @@ async fn assert_carried_surfaces(dest: &Store, account: &str) {
         );
     }
 
+    // ── totp_secrets: the sealed secret must still UNSEAL on the destination ─
+    // `get_totp_secret` opens the blob with the destination's own key, so this
+    // fails if the row is absent, the bytes are damaged, or the key material did
+    // not travel. The same secret bytes generate the same codes, so recovering
+    // them is what "the authenticator app still works" reduces to here.
+    match dest.get_totp_secret(account).await.unwrap() {
+        None => lost.push(
+            "totp_secrets: enrolment absent — every user's authenticator app is \
+             silently un-enrolled, while twofa_policy still demands a second factor"
+                .into(),
+        ),
+        Some(secret) => {
+            if secret.secret != TOTP_SECRET {
+                lost.push(
+                    "totp_secrets: the sealed secret no longer unseals to the enrolled \
+                     value — present but unusable"
+                        .into(),
+                );
+            }
+            if !secret.confirmed {
+                lost.push("totp_secrets: the enrolment arrived unconfirmed".into());
+            }
+        }
+    }
+    // 0021's replay guard: a step spent on the source must stay spent.
+    let last_step = dest.totp_last_step(account).await.unwrap();
+    if last_step != 57_000_000 {
+        lost.push(format!(
+            "totp_secrets.last_step: {last_step} instead of 57000000 — a TOTP code \
+             already used on the source could be replayed on the destination"
+        ));
+    }
+
+    // ── webauthn_credentials ─────────────────────────────────────────────────
+    // NOTE ON WHAT THIS DOES NOT PROVE: completing a WebAuthn assertion needs a
+    // signature from the authenticator's private key, which lives in hardware and
+    // is unavailable to any test. So this checks that the verification material
+    // arrived intact — not that a login succeeds. Copying is still strictly better
+    // than not: the rows are useless on the source once it is retired, and an
+    // uncopied credential is a guaranteed lockout rather than a possible one. The
+    // separate deployment caveat (credentials are bound to the RP ID, so changing
+    // the deployment's domain invalidates them whether or not they are copied) is
+    // documented in docs/deploy/postgres.md.
+    match dest.get_webauthn_credential("cred-1").await.unwrap() {
+        None => lost.push(
+            "webauthn_credentials: credential absent — the enrolled security key can \
+             no longer be presented"
+                .into(),
+        ),
+        Some(cred) => {
+            if cred.cose_public_key != b"cose-public-key-bytes" {
+                lost.push(
+                    "webauthn_credentials: the COSE public key was altered — no \
+                     assertion from this authenticator could verify"
+                        .into(),
+                );
+            }
+            if cred.sign_count != 41 {
+                lost.push(format!(
+                    "webauthn_credentials.sign_count: {} instead of 41 — a counter that \
+                     travels backwards stops the destination detecting a cloned \
+                     authenticator",
+                    cred.sign_count
+                ));
+            }
+            if cred.account_id != account || cred.label != "YubiKey" {
+                lost.push("webauthn_credentials: the credential's binding was altered".into());
+            }
+        }
+    }
+
+    // ── recovery_codes: usable, and a spent one still spent ──────────────────
+    // `consume_recovery_code` returns true only for a code that is present AND
+    // unused, so this is the store's own "would this code authenticate?" answer.
+    if !dest
+        .consume_recovery_code(account, RECOVERY_LIVE)
+        .await
+        .unwrap()
+    {
+        lost.push(
+            "recovery_codes: the unused recovery code is gone or arrived spent — the \
+             fallback for a lost authenticator no longer works"
+                .into(),
+        );
+    }
+    if dest
+        .consume_recovery_code(account, RECOVERY_SPENT)
+        .await
+        .unwrap()
+    {
+        lost.push(
+            "recovery_codes: a code already spent on the source was accepted on the \
+             destination — the `used` flag did not travel, so every burned code is \
+             live again"
+                .into(),
+        );
+    }
+
     // ── quotas: also fails OPEN ──────────────────────────────────────────────
     if dest
         .get_quota(account)
@@ -1234,7 +1392,8 @@ async fn migrate_store_carries_zero_access_and_policy_rows_sqlite() {
     let (dest, account) = migrate_into(Store::open_in_memory(key()).await.unwrap()).await;
     assert_carried_surfaces(&dest, &account).await;
     eprintln!(
-        "[mw-store] migrate-store: zero-access key, 2FA policy, quota, audit log and \
-         crypto change-feed carried (SQLite destination)."
+        "[mw-store] migrate-store: zero-access key, 2FA policy AND its enrolments (TOTP \
+         secret, passkey, recovery codes), quota, audit log and crypto change-feed \
+         carried (SQLite destination)."
     );
 }

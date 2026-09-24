@@ -9,7 +9,7 @@
 //! validated at commit.
 //!
 //! **The copy is not the whole schema.** `TABLES` below is the complete list of
-//! what is copied: as of migration 0029 that is 40 tables out of the 76 the
+//! what is copied: as of migration 0029 that is 43 tables out of the 76 the
 //! migrations create. Everything else is left behind. An earlier version of this
 //! note claimed "only the 0001–0006 tables are copied; the 0007 admin/OAuth/
 //! webhook tables are provisioned empty"; that was never a full account of the
@@ -35,7 +35,10 @@
 //! without it the destination cannot decrypt zero-access mail at all),
 //! `crypto_changes`, `audit_log` (append-only by invariant), and `twofa_policy`
 //! and `quotas`, whose absence silently *relaxed* a protection on the
-//! destination.
+//! destination. Copying `twofa_policy` alone then left a migrated deployment
+//! requiring a second factor while carrying no enrolments, so `totp_secrets`,
+//! `webauthn_credentials` and `recovery_codes` followed in the same release —
+//! the four are one decision, not four.
 
 use crate::backend::{Arg, Backend, IntoArg, Row, Tx};
 use crate::{MigrationReport, Store, StoreError, backend, q};
@@ -185,6 +188,66 @@ const TABLES: &[TableSpec] = &[
                 t(r, "kdf_params"),
                 ob(r, "recovery_wrapped"),
                 t(r, "paired_devices"),
+            ]
+        },
+    },
+    // The 0015 login-2FA enrolments, copied alongside the `twofa_policy` that
+    // requires them. Like `quotas`/`zeroaccess_accounts` above they are keyed by
+    // `account_id` and declare no `REFERENCES` in either dialect, so they sit with
+    // `accounts` for the same reason. Copying the policy without these three left
+    // a migrated deployment demanding a second factor while holding no enrolment
+    // and no recovery code — a lockout, and worse than either consistent state.
+    TableSpec {
+        name: "totp_secrets",
+        // `sealed_secret` is sealed under the store's `ServerKey`, so it is only
+        // usable on a destination holding the same key — which is already required
+        // for every other sealed column. 0021's `last_step` is the replay guard: if
+        // it reset to 0, a TOTP code already spent on the source could be presented
+        // again on the destination, so it is copied with the secret.
+        select: "SELECT account_id, sealed_secret, confirmed, created_at, last_step FROM totp_secrets",
+        insert: "INSERT INTO totp_secrets (account_id, sealed_secret, confirmed, created_at, last_step) VALUES (?1,?2,?3,?4,?5)",
+        map: |r| {
+            vec![
+                t(r, "account_id"),
+                b(r, "sealed_secret"),
+                i(r, "confirmed"),
+                t(r, "created_at"),
+                i(r, "last_step"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "webauthn_credentials",
+        // `cose_public_key` is a public verification key, not a secret. `sign_count`
+        // is the clone-detection counter and must never travel backwards, so it is
+        // copied rather than defaulted: a destination that reset it to 0 would stop
+        // noticing a cloned authenticator.
+        select: "SELECT credential_id, account_id, cose_public_key, sign_count, transports, label, created_at FROM webauthn_credentials",
+        insert: "INSERT INTO webauthn_credentials (credential_id, account_id, cose_public_key, sign_count, transports, label, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        map: |r| {
+            vec![
+                t(r, "credential_id"),
+                t(r, "account_id"),
+                b(r, "cose_public_key"),
+                i(r, "sign_count"),
+                t(r, "transports"),
+                t(r, "label"),
+                t(r, "created_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "recovery_codes",
+        // `used` is copied with the hash: a spent code must stay spent, or the copy
+        // would silently un-consume every recovery code the account had burned.
+        select: "SELECT account_id, code_hash, used, created_at FROM recovery_codes",
+        insert: "INSERT INTO recovery_codes (account_id, code_hash, used, created_at) VALUES (?1,?2,?3,?4)",
+        map: |r| {
+            vec![
+                t(r, "account_id"),
+                t(r, "code_hash"),
+                i(r, "used"),
+                t(r, "created_at"),
             ]
         },
     },
