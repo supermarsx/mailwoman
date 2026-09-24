@@ -912,8 +912,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: install wasm-pack
-        run: cargo install wasm-pack --locked
+      # PINNED to match scripts/build-wasm.{sh,ps1}, which since 26.20 hard-fail
+      # when `wasm-pack --version` is not exactly this. A bare
+      # `cargo install wasm-pack --locked` takes whatever is newest on crates.io,
+      # so without the pin this job breaks on all three legs the moment upstream
+      # publishes a release — and silently builds a different glue ABI before
+      # that. wasm-pack chooses the flags handed to wasm-bindgen, so the artefact
+      # moves wholesale with it. Bump here, in both build scripts, and re-commit
+      # the guests in one change.
+      - name: install wasm-pack (pinned; see scripts/build-wasm.sh)
+        run: cargo install wasm-pack --version 0.15.0 --locked
       - name: build wasm bundles (mw-crypto + mw-sanitize)
         shell: bash
         run: |
@@ -922,6 +930,79 @@ jobs:
         shell: bash
         run: |
           node --input-type=module -e "import {readFileSync} from 'node:fs'; import {resolve} from 'node:path'; import {pathToFileURL} from 'node:url'; const dir=resolve(process.cwd(),'apps/web/src/wasm/mw-crypto'); const m=await import(pathToFileURL(resolve(dir,'mw_crypto.js')).href); m.initSync({module:readFileSync(resolve(dir,'mw_crypto_bg.wasm'))}); const P='mailwoman wasm smoke round-trip'; const k=m.generateKey({kind:'pgp',userId:'Smoke <smoke@example.com>',passphrase:'pw'}); const c=m.encrypt({kind:'pgp',plaintext:P,recipientPublicKeys:[k.publicKeyArmored]}); const o=m.decrypt({kind:'pgp',ciphertext:c.armoredCiphertext,encryptedPrivateBundle:k.encryptedPrivateBundle,passphrase:'pw'}); if(o.plaintextText!==P) throw new Error('wasm smoke round-trip mismatch: '+JSON.stringify(o.plaintextText)); console.log('ROUNDTRIP_OK');"
+
+  # wasm-guest-freshness (t24-e13, wired by t24-e16) — the committed SPA wasm
+  # guests still match their Rust source.
+  #
+  # This closes the third instance of a class t24 found repeatedly: a committed
+  # binary drifting from the source it claims to be built from, with nothing
+  # rebuilding and comparing it. `apps/web/src/wasm/mw-sanitize/` had been stale
+  # since 2026-07-13 while `crates/mw-sanitize/src` moved twice — so decrypted
+  # E2EE mail was being sanitized by a guest three releases behind the server-side
+  # sanitizer, and nothing noticed because the worker could not even be
+  # constructed under the app's own CSP (t24-e12/e13).
+  #
+  # BORN GREEN, deliberately. t24-e13 re-committed both guests from a Linux build
+  # at 0bcee2d first. A gate that must be born red — or watered down to avoid
+  # being red — is worse than a named finding, which is why this waited.
+  #
+  # Why a byte comparison is sound here, and its honest limit: the guests are
+  # reproducible because `scripts/build-wasm.sh` remaps the Cargo registry and the
+  # workspace root out of the build (shared with the first-party plugins, t24-e15).
+  # That is strictly stronger than pinning CARGO_HOME — it makes builds agree
+  # across DIFFERENT cargo homes and checkout paths, verified at two paths with
+  # two cargo homes. It does NOT make Linux and Windows agree: rustc codegen
+  # differs by host and `--remap-path-prefix` only replaces the prefix. So this
+  # job is Linux-only and the script documents that rather than papering over it.
+  #
+  # BOTH halves are load-bearing, and they fail for different reasons:
+  #   * `git diff --exit-code` catches a STALE guest — committed bytes that no
+  #     longer come from the current source.
+  #   * the vitest run catches a guest that is FRESH but BROKEN, and it is the
+  #     half that survives a deliberate toolchain or wasm-pack bump, when the
+  #     digest is expected to move.
+  # Do not drop one as redundant; neither subsumes the other.
+  #
+  # No Swatinem/rust-cache here, deliberately. This job's whole claim is about the
+  # bytes a clean build produces, and t24 spent two commits on failures caused by
+  # a restored target dir handing the compiler a stale artefact (the E0460
+  # cdylib/doctest hazard). A cold build is the point, not an oversight.
+  wasm-guest-freshness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The pinned rustc is load-bearing, not boilerplate: the committed bytes are
+      # a function of the compiler that produced them, so without this the job
+      # would compare a 1.98.1 artefact against whatever rustc the runner image
+      # happens to ship and flap on every image bump.
+      - uses: dtolnay/rust-toolchain@1.98.1
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: install wasm-pack (pinned; the glue ABI moves with it)
+        run: cargo install wasm-pack --version 0.15.0 --locked
+      - name: install web deps
+        run: pnpm -C apps/web install --frozen-lockfile
+      - name: wasm guests are current with their source
+        run: |
+          set -eux
+          # build-wasm.sh sources plugins/reproducible-env.sh itself and adds the
+          # wasm32 target; it also hard-fails on a wasm-pack other than the pin.
+          # Invoked via `bash`, not `./`: the file is committed 100644, so `./`
+          # would die with Permission denied. Same form the `wasm-build` job uses.
+          bash scripts/build-wasm.sh
+          git diff --exit-code -- apps/web/src/wasm
+      - name: the rebuilt guests still behave (the half a toolchain bump survives)
+        run: |
+          pnpm -C apps/web exec vitest run \
+            src/crypto/sanitize.test.ts src/crypto/wasm-crypto.test.ts
 
   # crypto-interop — decrypt/verify GnuPG- and openssl(Outlook-style)-GENERATED
   # recorded fixtures (fixtures/crypto/**, no live keyserver/DNS — §6#6 / §25). The
