@@ -258,6 +258,33 @@ jobs:
       - name: generate self-signed TLS material
         run: sh docs/deploy/proxy/tls/gen-certs.sh
 
+      # THE RULE, because this is the only `--wait-timeout` in the repo and it is
+      # the one shape that can turn a gate into a silent pass (t24-e16, measured
+      # against compose v5.1.3):
+      #
+      #   `up --wait` fails only once a container is `unhealthy`. While it is
+      #   still `starting`, a failing probe does NOT fail the wait — so if
+      #   `--wait-timeout` expires in that window, compose exits 0 and the job
+      #   proceeds against a dead dependency.
+      #
+      # Therefore: a service's healthcheck must be able to REACH `unhealthy`
+      # within the timeout, i.e. `start_period + retries x (interval + timeout)`
+      # must stay BELOW the `--wait-timeout` here. Reproduced both ways: a
+      # `retries: 40` healthcheck kept a container `starting` for ~200s and
+      # `--wait --wait-timeout 45` exited 0 against a refusing probe; the same
+      # stack with fast retries reached `unhealthy` and exited 1 in 13s.
+      #
+      # Worst case in this file today is `app` at 3 + 24 x (5 + 5) = 250s, inside
+      # the 300s below — but the margin is only 50s. If you raise any `retries`
+      # or `interval` in docker-compose.proxy.yml, raise this timeout with it, or
+      # this gate starts reporting success on a cell that never came up.
+      #
+      # `app-tls` (haproxy-l4) is the documented exception: its healthcheck is
+      # deliberately `disable: true` because the listener is TLS-only AND demands
+      # a PROXY header before the ClientHello, so no probe shape in that image can
+      # succeed. A disabled healthcheck can never reach `unhealthy`, so `--wait`
+      # cannot gate on it — that is a known, loud, non-blocking failure recorded
+      # by t24-e11, not a silent one.
       - name: boot the ${{ matrix.profile }} cell
         run: |
           docker compose -f docker-compose.proxy.yml \

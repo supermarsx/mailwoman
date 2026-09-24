@@ -411,6 +411,32 @@ services:
     depends_on:
       app:
         condition: service_healthy
+    # envoy was the only service booted with `up -d --wait` that had NO
+    # healthcheck, which does not fail the wait — it silently weakens it: with
+    # none defined, `--wait` returns as soon as the container is RUNNING, which
+    # for envoy is true before it is serving. The conformance suite then drove a
+    # proxy that might not be listening yet (t24-e16).
+    #
+    # `/ready` on the admin listener (configured at
+    # docs/deploy/proxy/envoy/envoy.yaml) answers LIVE only once envoy is
+    # actually serving. bash's /dev/tcp for the same reason as keycloak and
+    # spamd: this image ships no curl, wget, nc or python3 — verified by
+    # inspecting it — and /dev/tcp is a bash builtin, not POSIX, so `CMD-SHELL`
+    # (/bin/sh -c) would not work either.
+    #
+    # Timings match the sibling proxy cells (nginx/caddy/traefik/haproxy), so the
+    # profile reaches `unhealthy` in a bounded 203s — inside the call site's
+    # `--wait-timeout 300`. See the rule recorded at that call site.
+    healthcheck:
+      test:
+        - "CMD"
+        - "bash"
+        - "-c"
+        - "exec 3<>/dev/tcp/127.0.0.1/9901 && printf 'GET /ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q LIVE <&3"
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 3s
 
   # IIS has no cell, and is not covered by CI: Windows Server Core containers are
   # multi-GB and Windows container jobs on hosted runners are slow and flaky
