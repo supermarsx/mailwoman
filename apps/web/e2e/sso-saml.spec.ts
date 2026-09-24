@@ -65,13 +65,11 @@ test.describe('SSO SAML (26.9) — live Keycloak browser login (interop decision
         (who.username ?? '').toLowerCase(),
         'FULL-SHIP: Keycloak SAML identity resolved to the account',
       ).toBe(KC_EMAIL.toLowerCase());
-      // eslint-disable-next-line no-console
       console.log('[t9-e6 SAML] browser verdict: FULL-SHIP — authenticated inbox via SAML.');
     } else {
       // FLAGGED-SHIP: the exc-C14N interop hardening is a bounded follow-up; the ACS honestly
       // DECLINES Keycloak's assertion (uniform 401, no session) rather than over-accepting.
       expect(me.status(), 'FLAGGED-SHIP: no session minted from the rejected assertion').toBe(401);
-      // eslint-disable-next-line no-console
       console.log(
         '[t9-e6 SAML] browser verdict: FLAGGED-SHIP — SAML wiring proven end-to-end; ACS ' +
           'declined the real assertion (exc-C14N interop is a documented follow-up).',

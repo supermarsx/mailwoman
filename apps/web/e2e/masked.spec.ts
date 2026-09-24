@@ -15,6 +15,23 @@ import { V7, expectMounted } from './v7-helpers.ts';
  * rewrite on send.
  */
 
+/**
+ * The project's `baseURL`, asserted present.
+ *
+ * Playwright types the fixture as `string | undefined`, and under
+ * `exactOptionalPropertyTypes` that cannot be passed straight to `newContext`,
+ * whose property is `baseURL?: string`. Asserting beats a conditional spread
+ * here: every project that runs this spec sets a baseURL, and one that did not
+ * would otherwise build a context with no base and fail later on an unresolvable
+ * relative URL.
+ */
+function requireBaseURL(baseURL: string | undefined): string {
+  if (baseURL === undefined) {
+    throw new Error('masked.spec: this Playwright project must define a baseURL');
+  }
+  return baseURL;
+}
+
 /** Cookie-authenticate a mailbox session in a fresh request context; returns accountId. */
 async function loginAs(ctx: APIRequestContext, username: string, password: string): Promise<string> {
   const resp = await ctx.post('/api/login', {
@@ -41,7 +58,7 @@ test.describe('Masked-email lifecycle on the real server', () => {
   });
 
   test('generate → list → disable → enable → delete round-trips in the UI surface', async ({ playwright, baseURL }) => {
-    const ctx = await playwright.request.newContext({ baseURL });
+    const ctx = await playwright.request.newContext({ baseURL: requireBaseURL(baseURL) });
     await loginAs(ctx, V7.mailUser, V7.mailPass);
 
     // Generate a fresh alias with a description; it comes back enabled with a unique address.
@@ -92,8 +109,8 @@ test.describe('Masked-email lifecycle on the real server', () => {
       'per-user scoping needs a SECOND mailbox account (MW_E2E_USERNAME_B/PASSWORD_B); the single-account mock cannot prove it.',
     );
 
-    const a = await playwright.request.newContext({ baseURL });
-    const b = await playwright.request.newContext({ baseURL });
+    const a = await playwright.request.newContext({ baseURL: requireBaseURL(baseURL) });
+    const b = await playwright.request.newContext({ baseURL: requireBaseURL(baseURL) });
     await loginAs(a, V7.mailUser, V7.mailPass);
     await loginAs(b, other!, process.env['MW_E2E_PASSWORD_B']!);
 

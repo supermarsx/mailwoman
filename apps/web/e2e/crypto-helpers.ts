@@ -1,6 +1,8 @@
 import { expect, type APIRequestContext, type Page } from '@playwright/test';
 import net from 'node:net';
-import { engineLogin, ENGINE_CREDS, messageRow, sidebarInbox } from './helpers.ts';
+// `engineLogin` is deliberately NOT imported here — it is only re-exported below,
+// and importing it as well is an unused local (TS6133).
+import { ENGINE_CREDS, messageRow, sidebarInbox } from './helpers.ts';
 
 /**
  * Shared helpers for the V4 crypto/security live E2E (plan §3 e10). These specs

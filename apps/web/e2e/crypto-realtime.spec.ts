@@ -72,8 +72,14 @@ test('Realtime: an out-of-band CryptoKey change appears in the open key list via
     },
   });
   expect(setRes.ok()).toBeTruthy();
-  const created = ((await setRes.json()) as { methodResponses: [string, { created?: Record<string, unknown> }, string][] })
-    .methodResponses[0][1].created;
+  const body = (await setRes.json()) as {
+    methodResponses: [string, { created?: Record<string, unknown> }, string][];
+  };
+  // `noUncheckedIndexedAccess`: assert the response the method call must produce
+  // rather than indexing blind — a missing frame is a real failure worth naming.
+  const first = body.methodResponses[0];
+  expect(first, 'CryptoKey/set returned a method response').toBeTruthy();
+  const created = first![1].created;
   expect(created && Object.keys(created).length, 'CryptoKey/set created the key').toBeTruthy();
 
   // The open key list picks it up via the realtime push — no manual reload.

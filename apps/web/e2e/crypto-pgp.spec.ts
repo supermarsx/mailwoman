@@ -139,6 +139,10 @@ test('PGP: generate → encrypt → send → decrypt-on-receipt (round-trip + in
 
   // The window global the script would have set must NOT exist (no script ran —
   // and the frame is script-free anyway; belt-and-braces on the sanitize path).
-  const leaked = await page.evaluate((t) => (window as Record<string, unknown>)[`__pwned_${t}`], token);
+  // `Window` has no string index signature, so the cast needs `unknown` in between.
+  const leaked = await page.evaluate(
+    (t) => (window as unknown as Record<string, unknown>)[`__pwned_${t}`],
+    token,
+  );
   expect(leaked).toBeUndefined();
 });

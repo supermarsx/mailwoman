@@ -7,7 +7,12 @@ export default tseslint.config(
     ignores: [
       'dist/**',
       'node_modules/**',
-      'e2e/**',
+      // `e2e/**` is NOT ignored (t24-e13). The Playwright specs gate the product,
+      // so leaving them the one unlinted, untypechecked TypeScript in the repo
+      // meant the gates themselves had no gate. They are hand-authored source and
+      // are cheap to keep clean — bringing them in cost one real fix and two stale
+      // `eslint-disable` directives. `tsconfig.json` includes them for the same
+      // reason; see the note there for what the typecheck surfaced.
       'coverage/**',
       // Generated Playwright live-E2E output (gitignored; left on disk after a
       // local run). Minified trace bundles — never hand-authored, not shipped.

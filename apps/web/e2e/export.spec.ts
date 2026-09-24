@@ -33,7 +33,11 @@ async function firstInboxEmailId(page: Page): Promise<string> {
   const boxes = (await jmap(page, 'Mailbox/get', { accountId }, 'c0')).list as { id: string; role: string }[];
   const inbox = boxes.find((b) => b.role === 'inbox')!.id;
   const q = await jmap(page, 'Email/query', { accountId, filter: { inMailbox: inbox }, limit: 1 }, 'q');
-  return (q.ids as string[])[0];
+  // `noUncheckedIndexedAccess`: an empty Inbox would otherwise return `undefined`
+  // and fail later with a confusing error; say what actually went wrong here.
+  const id = (q.ids as string[])[0];
+  if (id === undefined) throw new Error('export.spec: the Inbox has no message to export');
+  return id;
 }
 
 test.describe.configure({ mode: 'serial', retries: 2 });

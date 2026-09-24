@@ -53,6 +53,11 @@ class MockPushReceiver {
   }
 
   static async start(): Promise<MockPushReceiver> {
+    // `prefer-const` is wrong here and the rewrite it implies is impossible: the
+    // request handler below closes over `receiver` and runs only after
+    // `listen()`, while the instance itself cannot be built until the server
+    // exists. The binding therefore has to be declared before it is assigned.
+    // eslint-disable-next-line prefer-const
     let receiver!: MockPushReceiver;
     const server = http.createServer((req, res) => {
       const chunks: Buffer[] = [];

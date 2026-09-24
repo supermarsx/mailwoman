@@ -22,6 +22,13 @@
     "noEmit": true,
     "resolveJsonModule": true
   },
-  "include": ["src", "vite.config.ts"],
-  "exclude": ["node_modules", "dist", "e2e"]
+  // `e2e` is INCLUDED (t24-e13). It was excluded, so the Playwright specs — the
+  // things that gate the product — were themselves the only unchecked TypeScript
+  // in the repo. Bringing them in surfaced seven real errors that no gate had ever
+  // seen, including three `exactOptionalPropertyTypes` violations on `baseURL` and
+  // two `noUncheckedIndexedAccess` holes that would have failed late and
+  // confusingly at runtime. This only affects `tsc --noEmit`: Vite resolves the
+  // bundle from its entry points, not from this `include`.
+  "include": ["src", "e2e", "vite.config.ts"],
+  "exclude": ["node_modules", "dist"]
 }
