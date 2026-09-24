@@ -84,6 +84,15 @@ services:
       LDAP_ALLOW_ANON_BINDING: "no"
     volumes:
       - ./scripts/openldap/ldifs:/ldifs:ro
+      # RFC 3062 self-service password change needs an olcAccess rule that this
+      # image does not ship: `olcDatabase={2}mdb` has NO olcAccess at all, so
+      # slapd falls back to a read-only built-in default and the exop is refused
+      # with rc=50 insufficientAccessRights (v7_e2e `passwd_ldap3062_change_live`,
+      # which only reached the directory at all once t24-e14 fixed a stale BOB_DN).
+      # olcAccess lives in cn=config, which `/ldifs` cannot reach — those are
+      # applied as the DATA rootdn and can only add entries — so the rule is
+      # applied by the image's supported init hook instead. See the script header.
+      - ./scripts/openldap/initdb:/docker-entrypoint-initdb.d:ro
     ports:
       - "1389:1389"                          # LDAP (StartTLS)
       - "1636:1636"                          # LDAPS
