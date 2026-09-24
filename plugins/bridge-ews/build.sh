@@ -13,8 +13,12 @@ set -eu
 cd "$(dirname "$0")"
 
 rustup target add wasm32-wasip2 >/dev/null 2>&1 || true
+
+# Normalise the build inputs so the output is byte-reproducible and carries no
+# builder paths (t24-e15). See ../reproducible-env.sh for the why and the limits.
+. ../reproducible-env.sh
 # Build just this package for wasm (dev-deps like mw-plugin/wasmtime are NOT built
 # for the wasm target — they are host-only test deps).
-cargo build -p bridge-ews --target wasm32-wasip2 --release
+cargo build --locked -p bridge-ews --target wasm32-wasip2 --release
 cp ../../target/wasm32-wasip2/release/bridge_ews.wasm fixtures/bridge-ews.wasm
 echo "refreshed plugins/bridge-ews/fixtures/bridge-ews.wasm"

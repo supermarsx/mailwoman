@@ -10,7 +10,11 @@ set -eu
 cd "$(dirname "$0")"
 
 rustup target add wasm32-wasip2 >/dev/null 2>&1 || true
-cargo build -p spam-spamassassin --target wasm32-wasip2 --release
+
+# Normalise the build inputs so the output is byte-reproducible and carries no
+# builder paths (t24-e15). See ../reproducible-env.sh for the why and the limits.
+. ../reproducible-env.sh
+cargo build --locked -p spam-spamassassin --target wasm32-wasip2 --release
 mkdir -p tests/fixtures
 cp ../../target/wasm32-wasip2/release/spam_spamassassin.wasm tests/fixtures/spam-spamassassin.wasm
 echo "refreshed plugins/spam-spamassassin/tests/fixtures/spam-spamassassin.wasm"
