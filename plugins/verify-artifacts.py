@@ -335,51 +335,58 @@ def rebuild_and_compare(root: Path) -> list[str]:
 
     The comparison differs by artifact, and the difference is the honest part:
 
-      * `media.wasm` is compared BYTE FOR BYTE. Its build.sh remaps the Cargo
-        registry and crate paths out of the output, so a Linux build with the
-        pinned rustc is deterministic (proven: two builds from different source
-        paths and different CARGO_HOMEs give the same digest).
-      * The plugin COMPONENTS are compared on their host-capability surface and
-        their exports, not their bytes, because their build.sh scripts do not yet
-        remap paths and so still embed the builder's registry directory. A byte
-        difference is printed, not failed.
+    Everything is compared BYTE FOR BYTE, which only became possible in 26.20.
+    Every build.sh now remaps the Cargo registry and the workspace root out of the
+    output (`plugins/reproducible-env.sh`, and the same treatment inside
+    `crates/mw-media-wasm/build.sh`), so a Linux build with the pinned rustc is
+    deterministic. Proven for all eight artifacts: two builds from different source
+    paths and different CARGO_HOMEs give identical digests.
 
-    That relaxation is safe only because it is not the whole check: a substituted
-    or stale component still fails `verify()` above, on the dist-vs-fixture
-    comparison, on the FIRST_PARTY_DIGESTS pin, and on the recorded capability
-    surface — three independent byte-level pins inside the repository. What this
-    leg adds on top is the one thing those cannot see: that the committed bytes
-    still correspond to the CURRENT source. Making the components byte-reproducible
-    the way media.wasm now is would let this be tightened to a digest comparison;
-    it is a follow-up, not done here.
+    Before that, the components embedded the builder's home directory, so no two
+    machines produced the same bytes and this leg could only compare capability
+    surfaces. That weaker comparison is what made `wasm-plugin-build`'s first red
+    unreadable — a runner's rebuild of a fixture necessarily differed from the
+    committed one, and nothing could distinguish that from real drift.
+
+    Run BOTH modes; they answer different questions. The plain mode asks whether
+    the committed tree is self-consistent (fixture == dist == pin == the reviewed
+    capability surface). This one asks the thing no in-repo pin can: whether those
+    committed bytes are still what the CURRENT source compiles to.
 
     Every `build.sh` OVERWRITES the artifact it builds, so each one is snapshotted
-    and restored. Leaving the tree dirty would make the checks above fail for the
-    next caller — an ordering trap, since a dirty fixture is indistinguishable from
-    the drift they exist to catch.
+    and restored — but this function never TRUSTS the working tree as the committed
+    state, because an earlier CI step may already have overwritten a fixture before
+    it runs. It compares against two things that no build.sh can touch:
+    `plugins/dist/<id>.wasm`, and the `MEDIA_WASM_SHA256` literal in this file.
+    That is what makes it safe to run at any point in a job.
     """
     errs: list[str] = []
     with tempfile.TemporaryDirectory() as td:
         out = Path(td)
 
+        # Compare the fresh build against the PINNED digest, not against the file
+        # on disk: `ci.yml`'s media-jail step rebuilds media.wasm and deliberately
+        # leaves the fresh build in place, so a working-tree comparison here would
+        # be fresh-vs-fresh and could never fail. The pin is the committed value —
+        # `verify()` is what ties the pin to the committed file, on a clean tree.
         media = root / MEDIA_WASM
-        snapshot = out / "media.committed.wasm"
+        snapshot = out / "media.onentry.wasm"
         shutil.copy2(media, snapshot)
-        committed = sha256(snapshot)
         try:
             subprocess.run(["sh", str(root / "crates/mw-media-wasm/build.sh")],
                            check=True, cwd=root)
             fresh = sha256(media)
         finally:
             shutil.copy2(snapshot, media)
-        print(f"media.wasm  committed={committed[:16]}…  fresh={fresh[:16]}…")
-        if fresh != committed:
+        print(f"media.wasm  pinned={MEDIA_WASM_SHA256[:16]}…  fresh={fresh[:16]}…")
+        if fresh != MEDIA_WASM_SHA256:
             errs.append(
-                f"{MEDIA_WASM} does not match a fresh build of its source: committed "
-                f"{committed}, fresh {fresh}. The build IS reproducible, so this is real "
-                f"drift — re-run crates/mw-media-wasm/build.sh and commit the result. "
-                f"(If you are not on Linux, see the build.sh header: the remapped paths "
-                f"keep the host's separators, so only a Linux build reproduces these bytes.)"
+                f"{MEDIA_WASM}: a fresh build of its source is {fresh}, but "
+                f"MEDIA_WASM_SHA256 pins {MEDIA_WASM_SHA256}. The build IS reproducible, "
+                f"so this is real drift — re-run crates/mw-media-wasm/build.sh, commit the "
+                f"result and update the pin in the same commit. (If you are not on Linux, "
+                f"see the build.sh header: the remapped paths keep the host's separators, "
+                f"so only a Linux build reproduces these bytes.)"
             )
 
         for cid, _ in sorted(COMPONENTS.items()):
@@ -399,14 +406,29 @@ def rebuild_and_compare(root: Path) -> list[str]:
                 errs.append(f"{cid}: rebuilt artifact unreadable: {e}")
                 continue
             if bc != dc:
+                # Reported separately from the byte comparison because it names the
+                # operator-visible consequence: a guest that lost a host import
+                # cannot perform the feature that import exists for. This is the
+                # shape E8-02 took — the shipped bridge-ews had lost
+                # `basic-credentials`, so on-prem EWS Basic auth was never attempted.
                 errs.append(
                     f"{cid}: a fresh build of plugins/{cid}/src imports "
                     f"{sorted(bc)} from the host, but the shipped "
                     f"plugins/dist/{cid}.wasm imports {sorted(dc)}. The shipped artifact "
                     f"has drifted from its source — rebuild it and refresh the digest."
                 )
-            same = "byte-identical" if built == dist else "differs (paths, not gated)"
-            print(f"{cid}: host caps {'match' if bc == dc else 'DIFFER'}; bytes {same}")
+            elif built != dist:
+                errs.append(
+                    f"{cid}: plugins/dist/{cid}.wasm ({sha256(root / 'plugins/dist' / f'{cid}.wasm')[:16]}…, "
+                    f"{len(dist)} B) is not what a fresh build of its source produces "
+                    f"({hashlib.sha256(built).hexdigest()[:16]}…, {len(built)} B). The host "
+                    f"capability surface is unchanged, so this is not a lost feature — but "
+                    f"the build IS reproducible since 26.20, so the bytes should match. "
+                    f"Rebuild with plugins/{cid}/build.sh on Linux, copy to dist AND the "
+                    f"fixture, and re-run plugins/gen-digests.sh."
+                )
+            print(f"{cid}: host caps {'match' if bc == dc else 'DIFFER'}; "
+                  f"bytes {'match' if built == dist else 'DIFFER'}")
     return errs
 
 
@@ -544,14 +566,31 @@ def main() -> int:
     if args.self_test:
         return self_test(ROOT)
 
-    errs = verify(ROOT)
-    if not errs:
-        print(f"{len(COMPONENTS)} shipped components + the media-jail guest verified: "
-              f"each matches the fixture its tests load, its FIRST_PARTY_DIGESTS pin and "
-              f"its recorded host-capability surface; the media guest matches its pinned "
-              f"digest and declares zero host imports.")
+    # `verify()` reads the working tree and assumes it is the committed one. That is
+    # true for a fresh checkout and false the moment ANY build.sh has run, because
+    # every build.sh overwrites the fixture it produces. `--rebuild` therefore does
+    # NOT run it: on its first CI outing this pairing reported five plugins as
+    # divergent when nothing had drifted at all — the job's earlier
+    # "build plugin components via each build.sh" step had already replaced those
+    # five fixtures with the runner's own builds, and `verify()` was comparing
+    # THOSE against the committed dist files. The five it named were exactly the
+    # five that step rebuilds.
+    #
+    # So the two modes have separate jobs, and the split is the point:
+    #   plain      — the committed tree is self-consistent. Run it on a CLEAN
+    #                checkout, before anything builds.
+    #   --rebuild  — the committed bytes still match current source. Safe at any
+    #                point, because it only ever reads `plugins/dist/<id>.wasm`,
+    #                which no build.sh writes.
     if args.rebuild:
-        errs += rebuild_and_compare(ROOT)
+        errs = rebuild_and_compare(ROOT)
+    else:
+        errs = verify(ROOT)
+        if not errs:
+            print(f"{len(COMPONENTS)} shipped components + the media-jail guest verified: "
+                  f"each matches the fixture its tests load, its FIRST_PARTY_DIGESTS pin and "
+                  f"its recorded host-capability surface; the media guest matches its pinned "
+                  f"digest and declares zero host imports.")
 
     if errs:
         print("\nFAIL:", file=sys.stderr)
