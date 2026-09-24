@@ -9,13 +9,13 @@
 //! validated at commit.
 //!
 //! **The copy is not the whole schema.** `TABLES` below is the complete list of
-//! what is copied: as of migration 0029 that is 35 tables out of the 76 the
+//! what is copied: as of migration 0029 that is 40 tables out of the 76 the
 //! migrations create. Everything else is left behind. An earlier version of this
 //! note claimed "only the 0001–0006 tables are copied; the 0007 admin/OAuth/
 //! webhook tables are provisioned empty"; that was never a full account of the
-//! split and is now wrong in both directions — `crypto_changes` is a 0005 table
-//! and is *not* copied, while migrations 0008–0029 added tables the note never
-//! mentioned at all.
+//! split, and both halves were wrong — `crypto_changes` is a 0005 table that was
+//! *not* copied, while migrations 0008–0029 added tables the note never mentioned
+//! at all.
 //!
 //! The real split is recorded table by table, with a reason for each, in two
 //! lists in `tests/backend_parity.rs`: `NOT_MIGRATED_DELIBERATELY` (live session
@@ -26,6 +26,16 @@
 //! blessed). The test `migrate_store_accounts_for_every_schema_table` enumerates
 //! the live schema and fails if a table appears in neither `TABLES` nor one of
 //! those two lists, so a new migration cannot quietly join the left-behind set.
+//! `migrate_store_copies_every_column_of_every_copied_table` does the same one
+//! level down, for the columns of each copied table.
+//!
+//! Five tables moved out of the unclassified list and into `TABLES` in 26.20
+//! because leaving them behind was losing data, not deferring configuration:
+//! `zeroaccess_accounts` (the only copy of each account's wrapped root key —
+//! without it the destination cannot decrypt zero-access mail at all),
+//! `crypto_changes`, `audit_log` (append-only by invariant), and `twofa_policy`
+//! and `quotas`, whose absence silently *relaxed* a protection on the
+//! destination.
 
 use crate::backend::{Arg, Backend, IntoArg, Row, Tx};
 use crate::{MigrationReport, Store, StoreError, backend, q};
@@ -147,6 +157,34 @@ const TABLES: &[TableSpec] = &[
                 t(r, "username"),
                 b(r, "sealed_creds"),
                 t(r, "sync_policy_json"),
+            ]
+        },
+    },
+    // `quotas` and `zeroaccess_accounts` are keyed by `account_id` but declare no
+    // `REFERENCES accounts(id)` in either dialect, so nothing constrains their
+    // position; they sit next to `accounts` because that is what they describe.
+    TableSpec {
+        name: "quotas",
+        select: "SELECT account_id, bytes_limit, msg_limit FROM quotas",
+        insert: "INSERT INTO quotas (account_id, bytes_limit, msg_limit) VALUES (?1,?2,?3)",
+        map: |r| vec![t(r, "account_id"), i(r, "bytes_limit"), i(r, "msg_limit")],
+    },
+    TableSpec {
+        name: "zeroaccess_accounts",
+        // `wrapped_root_key` and `recovery_wrapped` are opaque to the store — it
+        // never wraps or unwraps them. They are also the ONLY copy of the account's
+        // client-derived root key, so leaving them behind made zero-access mail on
+        // the destination permanently undecryptable. Copied byte-for-byte.
+        select: "SELECT account_id, enabled, wrapped_root_key, kdf_params, recovery_wrapped, paired_devices FROM zeroaccess_accounts",
+        insert: "INSERT INTO zeroaccess_accounts (account_id, enabled, wrapped_root_key, kdf_params, recovery_wrapped, paired_devices) VALUES (?1,?2,?3,?4,?5,?6)",
+        map: |r| {
+            vec![
+                t(r, "account_id"),
+                i(r, "enabled"),
+                b(r, "wrapped_root_key"),
+                t(r, "kdf_params"),
+                ob(r, "recovery_wrapped"),
+                t(r, "paired_devices"),
             ]
         },
     },
@@ -507,6 +545,25 @@ const TABLES: &[TableSpec] = &[
         },
     },
     TableSpec {
+        name: "crypto_changes",
+        // 0005. `account_id REFERENCES accounts(id) ON DELETE CASCADE` — the only
+        // one of these five with a declared foreign key, so it must follow
+        // `accounts`. Placed beside its copied siblings `changes` and
+        // `pim_changes`, whose change-feed shape it shares.
+        select: "SELECT account_id, type, state, object_id, op, at FROM crypto_changes",
+        insert: "INSERT INTO crypto_changes (account_id, type, state, object_id, op, at) VALUES (?1,?2,?3,?4,?5,?6)",
+        map: |r| {
+            vec![
+                t(r, "account_id"),
+                t(r, "type"),
+                i(r, "state"),
+                t(r, "object_id"),
+                t(r, "op"),
+                t(r, "at"),
+            ]
+        },
+    },
+    TableSpec {
         name: "crypto_keys",
         select: "SELECT id, account_id, kind, is_own, addresses_json, fingerprint, key_id, algorithm, created_at, expires_at, public_key, cert_pem, trust, autocrypt, source, encrypted_private_backup, verified_at, key_history_json FROM crypto_keys",
         insert: "INSERT INTO crypto_keys (id, account_id, kind, is_own, addresses_json, fingerprint, key_id, algorithm, created_at, expires_at, public_key, cert_pem, trust, autocrypt, source, encrypted_private_backup, verified_at, key_history_json) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
@@ -649,6 +706,44 @@ const TABLES: &[TableSpec] = &[
                 t(r, "created_at"),
                 t(r, "last_seen"),
                 ot(r, "rotated_from"),
+            ]
+        },
+    },
+    // `audit_log` and `twofa_policy` reference nothing and are referenced by
+    // nothing, so their position is unconstrained; they go last rather than being
+    // interleaved with the mail graph they have no part in.
+    TableSpec {
+        name: "audit_log",
+        // 0007, SPEC §21: append-only, with no update or delete path anywhere in
+        // the store. A migration that dropped it was the only way to erase it.
+        select: "SELECT id, ts, actor, actor_kind, action, target, detail_json, ip FROM audit_log",
+        insert: "INSERT INTO audit_log (id, ts, actor, actor_kind, action, target, detail_json, ip) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "ts"),
+                t(r, "actor"),
+                t(r, "actor_kind"),
+                t(r, "action"),
+                ot(r, "target"),
+                t(r, "detail_json"),
+                ot(r, "ip"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "twofa_policy",
+        // 0015. Not copying this failed OPEN: a deployment that required a second
+        // factor silently stopped requiring one the moment it was migrated.
+        select: "SELECT scope_kind, scope_value, require_2fa, updated_by, updated_at FROM twofa_policy",
+        insert: "INSERT INTO twofa_policy (scope_kind, scope_value, require_2fa, updated_by, updated_at) VALUES (?1,?2,?3,?4,?5)",
+        map: |r| {
+            vec![
+                t(r, "scope_kind"),
+                t(r, "scope_value"),
+                i(r, "require_2fa"),
+                t(r, "updated_by"),
+                t(r, "updated_at"),
             ]
         },
     },

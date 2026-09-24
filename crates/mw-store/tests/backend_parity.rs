@@ -9,9 +9,9 @@
 //! backend-independent result snapshot must be byte-identical.
 
 use mw_store::{
-    AccountKind, AddressBookRow, CalendarRow, ContactRow, Credentials, EventInstanceRow, EventRow,
-    MailboxUpsert, MessageUpsert, NewAccount, NoteRow, ServerKey, SsoConfigRow, Store,
-    StoreKeyMaterialRow, SubmissionRow,
+    AccountKind, AddressBookRow, AuditRow, CalendarRow, ContactRow, Credentials, EventInstanceRow,
+    EventRow, MailboxUpsert, MessageUpsert, NewAccount, NoteRow, ServerKey, SsoConfigRow, Store,
+    StoreKeyMaterialRow, SubmissionRow, TwofaPolicyRow, ZeroAccessRow,
 };
 
 // Test-support helper; not part of the shipped `mw-store` library, so it is
@@ -44,7 +44,8 @@ const ALL_TABLES: &str = "sessions, settings, accounts, mailboxes, messages, bod
     calendars, calendar_shares, events, event_instances, tasks, notebooks, notes, address_books, \
     contacts, contact_groups, pim_changes, crypto_keys, key_associations, security_verdicts, \
     dlp_audit, sender_controls, store_key_material, push_subscriptions, push_config, \
-    native_sessions, sso_config, sso_login_audit";
+    native_sessions, sso_config, sso_login_audit, quotas, zeroaccess_accounts, \
+    crypto_changes, audit_log, twofa_policy";
 
 async fn truncate_pg(dsn: &str) {
     use sqlx::postgres::PgPoolOptions;
@@ -443,8 +444,87 @@ async fn run_ops(s: &Store) -> Vec<String> {
         .unwrap();
     out.push("sso_audit_appended".into());
 
+    // ---- V6/2FA surfaces that `migrate-store` now carries (26.20) ----
+    // `wrapped_root_key` is opaque to the store, so the test seals a known
+    // plaintext with the SAME ServerKey the store is opened under. That makes the
+    // migration assertions able to check the key still *opens* after a copy, not
+    // merely that some bytes arrived.
+    s.upsert_zeroaccess(&ZeroAccessRow {
+        account_id: account.clone(),
+        enabled: true,
+        wrapped_root_key: key().seal(ZA_ROOT_KEY_PLAINTEXT).unwrap(),
+        kdf_params_json: r#"{"kdf":"argon2id","m":19456,"t":2,"p":1}"#.into(),
+        recovery_wrapped: Some(key().seal(ZA_RECOVERY_PLAINTEXT).unwrap()),
+        paired_devices_json: r#"[{"id":"dev-1"}]"#.into(),
+    })
+    .await
+    .unwrap();
+    let za = s.get_zeroaccess(&account).await.unwrap().unwrap();
+    out.push(format!(
+        "zeroaccess_opens={}",
+        key().open(&za.wrapped_root_key).unwrap() == ZA_ROOT_KEY_PLAINTEXT
+    ));
+
+    s.set_quota(
+        &account,
+        mw_store::QuotaRow {
+            bytes_limit: 12_345_678,
+            msg_limit: 4_321,
+        },
+    )
+    .await
+    .unwrap();
+    out.push(format!(
+        "quota={:?}",
+        s.get_quota(&account)
+            .await
+            .unwrap()
+            .map(|q| (q.bytes_limit, q.msg_limit))
+    ));
+
+    s.set_twofa_policy(&TwofaPolicyRow {
+        scope_kind: "global".into(),
+        scope_value: String::new(),
+        require_2fa: true,
+        updated_by: "admin-1".into(),
+        // Overwritten with `now` by the setter; the copy still carries whatever
+        // value ends up stored.
+        updated_at: String::new(),
+    })
+    .await
+    .unwrap();
+    out.push(format!(
+        "twofa_required={:?}",
+        s.get_twofa_policy("global", "")
+            .await
+            .unwrap()
+            .map(|p| p.require_2fa)
+    ));
+
+    s.append_audit(&AuditRow {
+        id: "audit-1".into(),
+        ts: "2026-07-20T00:00:00Z".into(),
+        actor: "admin-1".into(),
+        actor_kind: "admin".into(),
+        action: "quota.set".into(),
+        target: Some(account.clone()),
+        detail_json: r#"{"bytes_limit":12345678}"#.into(),
+        ip: None,
+    })
+    .await
+    .unwrap();
+    out.push(format!(
+        "audit_rows={}",
+        s.list_audit(10).await.unwrap().len()
+    ));
+
     out
 }
+
+/// Plaintexts sealed into `zeroaccess_accounts` by [`run_ops`], so a migration
+/// test can prove the copied key material still opens.
+const ZA_ROOT_KEY_PLAINTEXT: &[u8] = b"zero-access-root-key-plaintext";
+const ZA_RECOVERY_PLAINTEXT: &[u8] = b"zero-access-recovery-plaintext";
 
 #[tokio::test]
 async fn backend_parity_sqlite_and_postgres() {
@@ -489,6 +569,7 @@ async fn migrate_store_sqlite_to_postgres() {
     let path_str = path.to_string_lossy().to_string();
     let src = Store::open(&path_str, key()).await.unwrap();
     let _snapshot = run_ops(&src).await;
+    let account = src.list_accounts().await.unwrap()[0].id.clone();
     drop(src);
 
     // Migrate into a freshly-truncated Postgres backend sharing the same key.
@@ -508,6 +589,12 @@ async fn migrate_store_sqlite_to_postgres() {
         (vp.as_str(), vk.as_slice()),
         ("PUBLIC", &b"vapid-private"[..])
     );
+
+    // The five surfaces promoted out of `NOT_MIGRATED_UNCLASSIFIED` in 26.20,
+    // asserted on the Postgres destination as well as the SQLite one — the blob
+    // columns differ by dialect (BLOB vs BYTEA), so a wrapped key that opens on
+    // SQLite is not evidence that it opens here.
+    assert_carried_surfaces(&pg, &account).await;
 
     // Row-count parity for a couple of representative tables (via SQLite source).
     let src_pool = sqlx::sqlite::SqlitePoolOptions::new()
@@ -644,13 +731,11 @@ const NOT_MIGRATED_DELIBERATELY: &[(&str, &str)] = &[
 /// Each entry is a question for the follow-up task that decides, table by table,
 /// whether the migrator should copy it. Presence here means "undecided", never
 /// "fine to leave behind".
+///
+/// Five entries left this list in 26.20 by being answered rather than deleted:
+/// `zeroaccess_accounts`, `crypto_changes`, `audit_log`, `twofa_policy` and
+/// `quotas` are now copied. That is what an entry here is for.
 const NOT_MIGRATED_UNCLASSIFIED: &[(&str, &str)] = &[
-    (
-        "zeroaccess_accounts",
-        "0007: the per-account WRAPPED client-derived root key (+ recovery-wrapped copy, \
-         paired devices). Nothing else holds it — if it is not copied, zero-access mail on \
-         the destination is undecryptable. Strongest data-loss candidate.",
-    ),
     (
         "totp_secrets",
         "0015: per-account sealed TOTP secrets. Not copying silently un-enrols every user's \
@@ -664,15 +749,6 @@ const NOT_MIGRATED_UNCLASSIFIED: &[(&str, &str)] = &[
         "recovery_codes",
         "0015: per-account 2FA recovery code hashes — the fallback when the factors above \
          are gone.",
-    ),
-    (
-        "twofa_policy",
-        "0015: the admin require-2FA policy (global or per-domain). Omission fails OPEN: a \
-         required second factor silently becomes optional after the move.",
-    ),
-    (
-        "quotas",
-        "0007: per-account byte/message limits. Also fails OPEN — limits silently lift.",
     ),
     (
         "passwd_config",
@@ -709,11 +785,6 @@ const NOT_MIGRATED_UNCLASSIFIED: &[(&str, &str)] = &[
          the embedder over the whole store.",
     ),
     (
-        "crypto_changes",
-        "0005: the crypto object change-feed. Its siblings `changes` (0001) and `pim_changes` \
-         (0004) ARE copied, so this looks like an omission rather than a decision.",
-    ),
-    (
         "ews_account_cred",
         "0011: per-account EWS endpoint + sealed credential. An account binding, in the same \
          family as `accounts.sealed_creds`, which IS copied.",
@@ -746,11 +817,6 @@ const NOT_MIGRATED_UNCLASSIFIED: &[(&str, &str)] = &[
         "cache_scope",
         "0007: the per-CacheClass layer/TTL matrix. Reads as deployment tuning (a \
          reclassification candidate), but it was never decided.",
-    ),
-    (
-        "audit_log",
-        "0007 (SPEC §21): the append-only admin audit log, which by invariant has no delete \
-         path — yet a migration drops all of it.",
     ),
     (
         "sso_login_audit",
@@ -997,5 +1063,178 @@ async fn migrate_store_copies_every_column_of_every_copied_table() {
         checked_columns,
         specs.len(),
         COLUMNS_NOT_COPIED.len()
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The five tables promoted out of `NOT_MIGRATED_UNCLASSIFIED` in 26.20.
+//
+// Before this, `migrate-store` copied none of them. The gap was invisible to the
+// pre-existing assertions for the reason recorded above: the row-count parity
+// loop iterates `report.tables`, which is built from the same hardcoded list that
+// decides what gets copied, so a table that was never copied was never compared.
+// The assertions below read the DESTINATION through the store's public API, so
+// they fail on the pre-fix copier — the rows simply are not there.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Assert that everything [`run_ops`] wrote into the five newly-copied tables
+/// survived a `migrate-store` into `dest`, which must be open under [`key`].
+///
+/// For `zeroaccess_accounts` this goes past row presence: the wrapped root key is
+/// the only copy of the account's client-derived key, so the test seals a known
+/// plaintext into it on the source and requires the destination's bytes to still
+/// *open* to that plaintext. A row that arrived corrupt, truncated, or
+/// re-encrypted under a different key would pass a presence check and fail here.
+async fn assert_carried_surfaces(dest: &Store, account: &str) {
+    // Collected rather than asserted one at a time, so a copier that drops all
+    // five names all five in a single run instead of one per fix cycle.
+    let mut lost: Vec<String> = Vec::new();
+
+    // ── zeroaccess_accounts: present, and the key still OPENS ────────────────
+    match dest.get_zeroaccess(account).await.unwrap() {
+        None => lost.push(
+            "zeroaccess_accounts: row absent — the account's wrapped root key exists \
+             nowhere else, so zero-access mail on the destination is permanently \
+             undecryptable"
+                .into(),
+        ),
+        Some(za) => {
+            if !za.enabled {
+                lost.push("zeroaccess_accounts: arrived disabled".into());
+            }
+            if key().open(&za.wrapped_root_key).ok().as_deref() != Some(ZA_ROOT_KEY_PLAINTEXT) {
+                lost.push(
+                    "zeroaccess_accounts: wrapped_root_key no longer opens — present but \
+                     unusable"
+                        .into(),
+                );
+            }
+            if za
+                .recovery_wrapped
+                .as_deref()
+                .and_then(|b| key().open(b).ok())
+                .as_deref()
+                != Some(ZA_RECOVERY_PLAINTEXT)
+            {
+                lost.push("zeroaccess_accounts: recovery_wrapped no longer opens".into());
+            }
+            if za.paired_devices_json != r#"[{"id":"dev-1"}]"#
+                || !za.kdf_params_json.contains("argon2id")
+            {
+                lost.push(format!(
+                    "zeroaccess_accounts: metadata altered (kdf={:?}, devices={:?})",
+                    za.kdf_params_json, za.paired_devices_json
+                ));
+            }
+        }
+    }
+
+    // The wrapped key is opaque to the store, so "usable" also requires the
+    // destination to hold the same seal key material. It is copied, and this is
+    // the assertion that it arrived intact.
+    if dest
+        .get_store_key_material()
+        .await
+        .unwrap()
+        .map(|r| r.wrapped_seal_key)
+        != Some(vec![1, 2, 3, 4])
+    {
+        lost.push(
+            "store_key_material: absent or altered — nothing sealed under the store key \
+             would open on the destination"
+                .into(),
+        );
+    }
+
+    // ── twofa_policy: fails OPEN if dropped ──────────────────────────────────
+    if dest
+        .get_twofa_policy("global", "")
+        .await
+        .unwrap()
+        .map(|p| p.require_2fa)
+        != Some(true)
+    {
+        lost.push(
+            "twofa_policy: the require-2FA policy is gone — the destination silently \
+             stopped requiring a second factor"
+                .into(),
+        );
+    }
+
+    // ── quotas: also fails OPEN ──────────────────────────────────────────────
+    if dest
+        .get_quota(account)
+        .await
+        .unwrap()
+        .map(|q| (q.bytes_limit, q.msg_limit))
+        != Some((12_345_678, 4_321))
+    {
+        lost.push("quotas: the account quota is gone — limits silently lifted".into());
+    }
+
+    // ── audit_log: append-only by invariant, so a migration must not erase it ─
+    let audit = dest.list_audit(10).await.unwrap();
+    if !audit.iter().any(|a| {
+        a.id == "audit-1" && a.action == "quota.set" && a.target.as_deref() == Some(account)
+    }) {
+        lost.push(format!(
+            "audit_log: the append-only audit entry is gone ({} row(s) present)",
+            audit.len()
+        ));
+    }
+
+    // ── crypto_changes: the state counter is derived from the copied rows ────
+    let state = dest
+        .current_crypto_state(account, "CryptoKey")
+        .await
+        .unwrap();
+    let feed: Vec<(String, String)> = dest
+        .crypto_changes_since(account, "CryptoKey", 0)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|c| (c.object_id, c.op))
+        .collect();
+    if state != 1 || feed != vec![("k1".to_string(), "created".to_string())] {
+        lost.push(format!(
+            "crypto_changes: the change-feed did not survive (state={state}, rows={feed:?}) — \
+             the destination would replay every crypto object as new"
+        ));
+    }
+
+    assert!(
+        lost.is_empty(),
+        "`migrate-store` lost {} surface(s) that must survive a store move:\n  - {}",
+        lost.len(),
+        lost.join("\n  - ")
+    );
+}
+
+/// Populate a SQLite source, migrate it, and return `(dest, account_id)`.
+async fn migrate_into(dest: Store) -> (Store, String) {
+    let path = test_db::unique_file_path("mw-store-carry", "src.sqlite");
+    let path_str = path.to_string_lossy().to_string();
+    let src = Store::open(&path_str, key()).await.unwrap();
+    let _ = run_ops(&src).await;
+    let account = src.list_accounts().await.unwrap()[0].id.clone();
+    drop(src);
+
+    dest.migrate_from_sqlite(&path_str).await.unwrap();
+
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(format!("{path_str}-wal"));
+    let _ = std::fs::remove_file(format!("{path_str}-shm"));
+    (dest, account)
+}
+
+/// SQLite destination. Runs unconditionally, so the regression is caught on any
+/// machine; the Postgres leg is asserted by `migrate_store_sqlite_to_postgres`.
+#[tokio::test]
+async fn migrate_store_carries_zero_access_and_policy_rows_sqlite() {
+    let (dest, account) = migrate_into(Store::open_in_memory(key()).await.unwrap()).await;
+    assert_carried_surfaces(&dest, &account).await;
+    eprintln!(
+        "[mw-store] migrate-store: zero-access key, 2FA policy, quota, audit log and \
+         crypto change-feed carried (SQLite destination)."
     );
 }
