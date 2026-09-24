@@ -230,9 +230,70 @@ def pinned_digests(root: Path) -> dict[str, str]:
 
 # ── the checks ────────────────────────────────────────────────────────────────
 
-def verify(root: Path) -> list[str]:
-    """Every check that needs no wasm toolchain. Returns the failures."""
+def tracked_artifacts() -> list[str]:
+    """Every committed binary these checks compare, as repo-relative paths."""
+    return (["plugins/dist/%s.wasm" % cid for cid in COMPONENTS]
+            + list(COMPONENTS.values())
+            + [MEDIA_WASM])
+
+
+def dirty_artifacts(root: Path) -> tuple[list[str], str | None]:
+    """Which of the artifacts differ from HEAD. Returns (paths, why-unknown).
+
+    `verify()` compares files in the working tree against each other and against
+    literals in this file. That is only a statement about the COMMITTED tree if the
+    working tree still is the committed tree — and it stops being so the moment any
+    build.sh runs, because every build.sh overwrites the artifact it produces.
+    """
+    try:
+        r = subprocess.run(["git", "-C", str(root), "status", "--porcelain", "--"]
+                           + tracked_artifacts(),
+                           capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as e:
+        return [], f"could not run git ({e})"
+    if r.returncode != 0:
+        return [], f"git status failed: {r.stderr.strip()[:200]}"
+    return sorted(line[3:].strip().strip('"') for line in r.stdout.splitlines() if line.strip()), None
+
+
+def verify(root: Path, require_pristine: bool = True) -> list[str]:
+    """Every check that needs no wasm toolchain. Returns the failures.
+
+    PRECONDITION: the artifacts in the working tree are the committed ones. This is
+    asserted, not assumed, and a violation FAILS rather than being skipped — the
+    checks below would otherwise report a locally rebuilt fixture as drift, which is
+    exactly what happened on this script's first CI run. The five plugins it named
+    as divergent were simply the five the job's earlier build.sh loop had rebuilt.
+
+    A precondition that is silently skipped when inconvenient is how a gate becomes
+    a formality, so the failure is loud and names the accurate cause instead of the
+    misleading one. `require_pristine=False` exists only for `--self-test`, which
+    deliberately constructs mutated throwaway trees and is not a repo check at all.
+    """
     errs: list[str] = []
+
+    if require_pristine:
+        dirty, unknown = dirty_artifacts(root)
+        if unknown:
+            errs.append(
+                f"cannot establish that the artifacts are the committed ones: {unknown}. "
+                f"These checks only mean something against a clean checkout, so this is a "
+                f"failure rather than a pass — re-run where git works, or use --rebuild, "
+                f"which compares against plugins/dist/ and the pinned digest instead."
+            )
+        elif dirty:
+            errs.append(
+                "PRECONDITION: these artifacts differ from HEAD, so the working tree is "
+                f"not the committed tree: {dirty}. This mode answers 'is the COMMITTED "
+                "tree self-consistent', and it cannot answer that here — the differences "
+                "below would be your own rebuild, not drift. This is the state left by "
+                "running a build.sh (each one overwrites its fixture). Either commit the "
+                "rebuild to BOTH plugins/dist/ and the fixture and re-run "
+                "plugins/gen-digests.sh, or run this on a clean checkout. To ask whether "
+                "the committed bytes still match current source, use --rebuild: it is "
+                "immune to this because it only reads plugins/dist/ and the pinned digest."
+            )
+            return errs
 
     try:
         pins = pinned_digests(root)
@@ -525,7 +586,11 @@ def self_test(root: Path) -> int:
                 shutil.copytree(root / rel, t / rel,
                                 ignore=shutil.ignore_patterns("target", "*.rs.bk"))
             apply(t)
-            errs = verify(t)
+            # The mutated trees are throwaway copies, not checkouts, so the
+            # pristine precondition cannot apply to them — and must not, or every
+            # case below would "fail" for that reason instead of for its mutation,
+            # which would prove nothing about the checks themselves.
+            errs = verify(t, require_pristine=False)
             if errs:
                 print(f"REJECTED (correct): {label}")
                 for e in errs:
