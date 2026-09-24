@@ -67,6 +67,9 @@ jobs:
         run: docker compose -f docker-compose.ci.yml up -d --build --wait postgres mock-assist
       - name: 26.19 live E2E — A8 re-rank (0022, both dialects) + assist contract + appearance sync
         env:
+          # the reason is built at runtime, so a comma list could not match
+          # it
+          MW_REQUIRE_LIVE: "all"
           MW_E14_PG_DSN: "postgres://mailwoman:mailwoman@localhost:5432/mailwoman"
           MW_TEST_ASSIST_URL: "http://127.0.0.1:8199"
         run: cargo test -p mw-server --test t19_e2e -- --nocapture --test-threads=1

@@ -48,14 +48,22 @@ jobs:
         run: docker compose -f docker-compose.ci.yml up -d --wait dovecot-sasl
       - name: IMAP SCRAM-SHA-256 login vs real Dovecot
         env:
+          # dovecot-sasl is booted and MW_IMAP_LIVE exported; :51 :59 :75
+          # :117
+          MW_REQUIRE_LIVE: "all"
           MW_IMAP_LIVE: "1"
         run: cargo test -p mw-server --test t12_sasl -- --nocapture --test-threads=1
       - name: IMAP SORT + THREAD (RFC 5256) vs real Dovecot
         env:
+          # NOT all: :86 and :139 skip when the server does not advertise
+          # SORT/THREAD, which is a CAPABILITY, not a gate
+          MW_REQUIRE_LIVE: "MW_IMAP_LIVE"
           MW_IMAP_LIVE: "1"
         run: cargo test -p mw-server --test t12_imap_sort_thread -- --nocapture --test-threads=1
       - name: POP3 SCRAM-SHA-256 login vs real Dovecot
         env:
+          # dovecot-sasl booted, MW_POP3_LIVE exported; :50 :61 :86
+          MW_REQUIRE_LIVE: "all"
           MW_POP3_LIVE: "1"
         run: cargo test -p mw-server --test t12_pop3_sasl -- --nocapture --test-threads=1
       - name: Tear down
@@ -85,6 +93,8 @@ jobs:
         run: docker compose -f docker-compose.ci.yml up -d --wait openldap
       - name: S/MIME GAL cert lookup through the engine seam vs real OpenLDAP
         env:
+          # openldap booted, MW_LDAP_LIVE exported; :55 :63 :92 :147
+          MW_REQUIRE_LIVE: "all"
           MW_LDAP_LIVE: "1"
         run: cargo test -p mw-server --test t12_dlp_spf_smime -- --nocapture --test-threads=1
       - name: Tear down
@@ -102,6 +112,8 @@ jobs:
         run: docker compose -f docker-compose.ci.yml up -d --wait postgres
       - name: EWS Basic/per-account through the jail + 0011 round-trip on Postgres
         env:
+          # postgres booted, MW_E14_PG_DSN exported; :83 :102
+          MW_REQUIRE_LIVE: "all"
           MW_E14_PG_DSN: "postgres://mailwoman:mailwoman@localhost:5432/mailwoman"
         run: cargo test -p mw-server --test t12_ews_auth -- --nocapture --test-threads=1
       - name: Tear down

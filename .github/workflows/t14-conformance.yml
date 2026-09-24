@@ -50,6 +50,8 @@ jobs:
         run: docker compose -f docker-compose.ci.yml up -d --wait dovecot-t13
       - name: SCRAM-SHA-256-PLUS login via tls-exporter (IMAP + POP3) vs real Dovecot
         env:
+          # dovecot-t13 booted; :137 :223 :251
+          MW_REQUIRE_LIVE: "all"
           MW_T14_TLS_LIVE: "1"
         run: cargo test -p mw-server --test t14_scram_plus_login -- --nocapture --test-threads=1
       - name: Tear down
@@ -69,6 +71,8 @@ jobs:
         run: docker compose -f docker-compose.ci.yml up -d --wait dovecot-t13
       - name: Admin ServerMetadata set/get/NIL round-trip through /jmap/api passthrough
         env:
+          # dovecot-t13 booted; :159
+          MW_REQUIRE_LIVE: "all"
           MW_T14_LIVE: "1"
         run: cargo test -p mw-server --test t14_metadata_admin -- --nocapture --test-threads=1
       - name: Tear down
@@ -86,10 +90,14 @@ jobs:
         run: docker compose -f docker-compose.ci.yml up -d --wait postgres
       - name: JWZ backfill endpoint — convergence + idempotency (SQLite + live Postgres)
         env:
+          # postgres booted; :308
+          MW_REQUIRE_LIVE: "all"
           MW_E14_PG_DSN: "postgres://mailwoman:mailwoman@localhost:5432/mailwoman"
         run: cargo test -p mw-server --test t14_jwz_backfill -- --nocapture --test-threads=1
       - name: Blob-attachment forward — SENT message carries the part (SQLite + live Postgres)
         env:
+          # postgres booted; :345
+          MW_REQUIRE_LIVE: "all"
           MW_E14_PG_DSN: "postgres://mailwoman:mailwoman@localhost:5432/mailwoman"
         run: cargo test -p mw-server --test t14_blob_attach -- --nocapture --test-threads=1
       - name: Tear down

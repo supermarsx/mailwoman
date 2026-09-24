@@ -1332,6 +1332,16 @@ jobs:
           # job uses; these are the compose project's container names.
           MW_E13_PG_CONTAINER: "mailwoman-ci-postgres-1"
           MW_E13_VALKEY_CONTAINER: "mailwoman-ci-valkey-1"
+          # A skip reads as a pass, and nothing counted them: this job's own log
+          # carried 51 SKIPPED lines in a run we called a substantive pass. This
+          # turns a skip into a hard failure — but ONLY for the guards this step
+          # actually satisfies. It is a LIST, not a boolean, and that is
+          # load-bearing here: this job runs the whole mw-server suite with
+          # Dovecot, OpenLDAP and Keycloak deliberately absent, so `all` would
+          # manufacture ~36 false failures out of skips that are correct.
+          # A name the step never exports fails on the first skip, so a typo
+          # cannot quietly require nothing.
+          MW_REQUIRE_LIVE: "MW_E14_PG_DSN,DATABASE_URL_PG"
         # --test-threads=1: with MW_E14_PG_DSN set, several binaries (t15_upload,
         # t19_e2e, …) run more than one live-PG test against this ONE database,
         # and parallel tests in a binary race on the shared `_sqlx_migrations`
@@ -1395,6 +1405,10 @@ jobs:
       - name: migrate-store SQLite -> Postgres copy + verify
         env:
           DATABASE_URL_PG: "postgres://mailwoman:mailwoman@127.0.0.1:5432/mailwoman"
+          # This job exists to prove the migrator copies SQLite into Postgres.
+          # Without this, `pg_dsn()` returning None makes the single test SKIP and
+          # the job reports success having migrated nothing.
+          MW_REQUIRE_LIVE: "DATABASE_URL_PG"
         run: cargo test -p mw-store --test backend_parity migrate_store_sqlite_to_postgres -- --include-ignored --nocapture
       - name: postgres logs on failure
         if: failure()
@@ -1493,6 +1507,10 @@ jobs:
           MW_E13_REDIS_URL: "redis://127.0.0.1:6379"
           MW_E13_PG_CONTAINER: "mailwoman-ci-postgres-1"
           MW_E13_VALKEY_CONTAINER: "mailwoman-ci-valkey-1"
+          # `all`: this step boots and exports everything v6_e2e gates on
+          # (MW_E13_PG_DSN at :71, MW_E13_REDIS_URL at :1052), so any skip here
+          # means a service did not come up.
+          MW_REQUIRE_LIVE: "all"
         run: cargo test -p mw-server --test v6_e2e -- --nocapture --test-threads=1
       # ---- Leg 2: a standing mw-server in PROXY mode (postgres + valkey, admin on,
       # proxying to the JMAP mock) for the Playwright `v6` browser project.
@@ -2052,6 +2070,15 @@ jobs:
       - name: Rust live E2E harness (jail + directory-vs-OpenLDAP + Assist redaction proofs)
         env:
           MW_E16_LDAP_URL: "ldap://127.0.0.1:1389"
+          # MUST be `all`, not a list. Both of v7_e2e's guards (:99, :106) report
+          # "OpenLDAP unreachable" and name NO variable, so a comma list would
+          # match nothing and require nothing — the switch would look set and do
+          # nothing at all.
+          #
+          # This is the job whose `passwd_ldap3062_change_live` had never once
+          # executed: first hidden behind a stale BOB_DN, and it would have hidden
+          # just as well behind a skip once the DN was fixed.
+          MW_REQUIRE_LIVE: "all"
         run: cargo test -p mw-server --test v7_e2e -- --nocapture --test-threads=1
       # ---- Leg 2: a standing mw-server in PROXY mode (postgres + valkey, admin on,
       # proxying to the JMAP mock) for the Playwright `v7` browser project. The password-

@@ -48,6 +48,8 @@ jobs:
         run: docker compose -f docker-compose.ci.yml up -d --wait postgres
       - name: C8 Note-metadata sealed at rest + list order + store-open backfill — SQLite + live Postgres
         env:
+          # postgres booted; :322
+          MW_REQUIRE_LIVE: "all"
           MW_E14_PG_DSN: "postgres://mailwoman:mailwoman@localhost:5432/mailwoman"
         run: cargo test -p mw-server --test t17_note_seal -- --nocapture --test-threads=1
       - name: Identity.signatureName round-trips through the prefs route (0020 column)

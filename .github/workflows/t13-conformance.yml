@@ -45,6 +45,8 @@ jobs:
         run: docker compose -f docker-compose.ci.yml up -d --wait dovecot-t13 dovecot-t13-sha512
       - name: SCRAM-SHA-256-PLUS binding + cbind-gap vs real Dovecot
         env:
+          # both dovecot-t13 cells booted; :142 :219 :249 :275 :304
+          MW_REQUIRE_LIVE: "all"
           MW_T13_TLS_LIVE: "1"
         run: cargo test -p mw-server --test t13_scram_plus -- --nocapture --test-threads=1
       - name: Tear down
@@ -64,6 +66,8 @@ jobs:
         run: docker compose -f docker-compose.ci.yml up -d --wait dovecot-t13
       - name: ACL/METADATA round-trip + DELETEACL semantics vs real Dovecot
         env:
+          # dovecot-t13 booted; :77 :91 :152 :225 :286 :371
+          MW_REQUIRE_LIVE: "all"
           MW_T13_LIVE: "1"
         run: cargo test -p mw-server --test t13_acl_metadata -- --nocapture --test-threads=1
       - name: Tear down
@@ -83,11 +87,15 @@ jobs:
         run: docker compose -f docker-compose.ci.yml up -d --wait dovecot-t13 postgres
       - name: JWZ ingest convergence/repair on SQLite AND live Postgres
         env:
+          # dovecot-t13 + postgres booted; :316 :329 :332
+          MW_REQUIRE_LIVE: "all"
           MW_T13_LIVE: "1"
           MW_E14_PG_DSN: "postgres://mailwoman:mailwoman@localhost:5432/mailwoman"
         run: cargo test -p mw-server --test t13_jwz -- --nocapture --test-threads=1
       - name: GeoIP/ASN Received-hop enrichment vs the committed .mmdb fixtures
         env:
+          # :80 :169 :193
+          MW_REQUIRE_LIVE: "all"
           MW_T13_LIVE: "1"
         run: cargo test -p mw-server --test t13_geoip -- --nocapture --test-threads=1
       - name: Tear down

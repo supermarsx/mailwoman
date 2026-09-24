@@ -302,6 +302,13 @@ jobs:
           MW_T20_JMAP_URL: http://mock:8181/.well-known/jmap
           MW_T20_USER: testuser@example.org
           MW_T20_PASS: testpass
+          # `all`, not a list: t20_proxy_conformance:80 builds its skip reason at
+          # runtime, so a comma list could not match it and would require nothing.
+          # The cell is booted and waited on above, so any skip here means the
+          # proxy under test was never actually driven.
+          # (The `--no-run` step earlier only compiles the suite; it executes no
+          # tests, so it has nothing to assert and is deliberately left alone.)
+          MW_REQUIRE_LIVE: "all"
           # MW_T20_PROXY_PREFIX intentionally unset — see the header. Sub-path
           # legs must loud-skip until t20-e12 + t20-e13 land.
         run: |

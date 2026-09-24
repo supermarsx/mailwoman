@@ -51,12 +51,25 @@ jobs:
 
       # ── 1. Authoritative headless gate: OIDC MUST pass; SAML reports the verdict ──
       - name: Rust live SSO harness (OIDC full + SAML interop decision)
+        # NOT `all`. This step sets MW_SSO_LIVE but not MW_SSO_SEED_DB, so
+        # sso_live:191 skips here legitimately — `all` would fail the job on a
+        # correct skip. Naming MW_SSO_LIVE asserts only :50 and :60, the two
+        # guards this step genuinely satisfies. The seeding step below, which does
+        # export MW_SSO_SEED_DB, uses `all`.
+        env:
+          MW_REQUIRE_LIVE: "MW_SSO_LIVE"
         run: |
           MW_SSO_LIVE=1 cargo test -p mw-server --test sso_live \
             -- --nocapture --test-threads=1
 
       # ── 2. Browser gate: seed a standing SSO server + drive the real UI ──
       - name: Seed the standing SSO db (both backends → live Keycloak)
+        # `all` here: this step exports BOTH MW_SSO_LIVE and MW_SSO_SEED_DB, so
+        # every guard sso_live reaches is satisfied and any skip means the seed
+        # silently did not run — which would leave the browser gate below driving
+        # an unseeded server.
+        env:
+          MW_REQUIRE_LIVE: "all"
         run: |
           MW_SSO_LIVE=1 MW_SSO_SEED_DB="$SSO_DB" cargo test -p mw-server --test sso_live \
             seed_standing_db -- --nocapture --test-threads=1

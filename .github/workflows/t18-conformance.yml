@@ -54,6 +54,8 @@ jobs:
         run: cargo test -p mw-server --test t18_totp_enrol_confirm_replay -- --nocapture --test-threads=1
       - name: R2 — Note backfill→auto-VACUUM + `maintenance vacuum` CLI — SQLite + live Postgres
         env:
+          # postgres booted; :281
+          MW_REQUIRE_LIVE: "all"
           MW_E14_PG_DSN: "postgres://mailwoman:mailwoman@localhost:5432/mailwoman"
         run: cargo test -p mw-server --test t18_e2e_vacuum -- --nocapture --test-threads=1
       - name: Tear down

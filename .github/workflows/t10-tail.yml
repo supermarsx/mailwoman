@@ -59,6 +59,10 @@ jobs:
           MW_SPAM_LIVE: "1"
           MW_RSPAMD_PORT: "11333"
           MW_SPAMC_RELAY_PORT: "7830"
+          # This step boots rspamd/spamd/spamassassin and exports every guard
+          # t10_spam_masked reads, so a skip here means a service did not come up
+          # and the classification was never exercised (t10_spam_masked:223).
+          MW_REQUIRE_LIVE: "all"
         run: cargo test -p mw-server --test t10_spam_masked -- --nocapture --test-threads=1
       - name: Tear down
         if: always()
@@ -76,6 +80,9 @@ jobs:
       - name: DCR lifecycle (disabled→403, register/read/update/delete, allowlist, no-escalation)
         env:
           MW_E14_PG_DSN: "postgres://mailwoman:mailwoman@localhost:5432/mailwoman"
+          # Postgres is booted above and the DSN is exported here, so t10_dcr:51
+          # must not skip.
+          MW_REQUIRE_LIVE: "all"
         run: cargo test -p mw-server --test t10_dcr -- --nocapture --test-threads=1
       - name: Tear down
         if: always()
