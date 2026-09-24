@@ -1710,8 +1710,25 @@ jobs:
       # tests against the COMMITTED module, so together they show both modules
       # satisfy the same behavioural contract — which is the part an interface
       # comparison alone cannot establish.
+      # --lib --tests for the same reason as `store-dual-backend` (see the note on
+      # its cargo line): this job restores a `target/` with Swatinem/rust-cache and
+      # `mw-render` depends on `mw-sanitize`, which is
+      # `crate-type = ["cdylib", "rlib"]` — a cdylib crate's rlib is emitted
+      # WITHOUT a metadata hash, so it lands as `libmw_sanitize.rlib` where every
+      # sibling is `libmw_render-<hash>.rlib`. An unhashed filename cannot be
+      # disambiguated after a rebuild, so a restored target dir can hand rustdoc a
+      # stale one and the doctest phase fails with E0460 even when every test
+      # passes. That is exactly how `store-dual-backend` failed in run 35951743012.
+      # This job has the same three ingredients and had simply not tripped it yet —
+      # a single-package invocation activates far fewer dev-dependencies, so the
+      # feature-unification rebuild that triggers it is much less likely.
+      #
+      # Coverage given up: NONE, and here that is exact rather than statistical —
+      # `crates/mw-render/src` contains ZERO doc-comment code fences, so this crate
+      # has no doctests at all. The `rust` job separately runs `--doc`
+      # workspace-wide, which is where doc examples are compile-checked.
       - name: media jail — the freshly built guest passes the real jail suite
-        run: cargo test -p mw-render
+        run: cargo test -p mw-render --lib --tests
 
       # LAST: rebuild every committed first-party artifact from source and compare.
       # The steps above build five components; this covers all seven — `spam-rspamd`
