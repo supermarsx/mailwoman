@@ -37,22 +37,28 @@
 # than silently producing a bad artefact. So Cargo.lock IS the CLI pin.
 #
 # MEASURED, so nobody builds a byte-comparison gate on a false premise:
-#   * Same machine, twice  → BYTE-IDENTICAL. Verified for both guests.
-#   * Windows host vs `rust:1.98.1-bookworm` container, same pinned rustc AND
-#     the same pinned wasm-pack → NOT byte-identical.
-#     Not fixable by pinning: it still differs with every absolute path remapped
-#     away via `--remap-path-prefix` (which does remove the embedded
-#     `C:\Users\…\.cargo\registry` / `/usr/local/cargo/registry` strings), AND it
-#     still differs with `--no-opt`, so it is not `wasm-opt` either — rustc's own
-#     codegen differs by HOST for the same target and version.
+#   * Same machine, twice → BYTE-IDENTICAL.
+#   * Two Linux hosts with DIFFERENT `CARGO_HOME` and different workspace paths →
+#     BYTE-IDENTICAL, once the remap below is applied. This is what makes a digest
+#     comparison a usable gate rather than a machine-specific accident.
+#   * Windows host vs a Linux container, same pinned rustc AND wasm-pack →
+#     still NOT byte-identical, and the remap does not fix it (nor does `--no-opt`,
+#     so it is not `wasm-opt` either): rustc's own codegen differs by HOST, and
+#     `--remap-path-prefix` replaces only the prefix — the remainder keeps the
+#     host's separators (`a\b` vs `a/b`). Same honest limit e15 records for the
+#     plugins.
 #
-# Therefore: a CI gate must NOT compare these artefacts byte-for-byte against a
-# fresh rebuild; it would flap for anyone who commits from a different OS. Gate
-# on the export/symbol set and on BEHAVIOUR instead — the pattern the media-jail
-# verifier already uses — and treat a hash difference as informational. The
-# behavioural half lives in apps/web/src/crypto/sanitize.test.ts (drives the
-# committed bytes directly) and apps/web/e2e/crypto-pgp.spec.ts (drives them
-# through the real worker).
+# So **Linux is canonical**: it is what the Dockerfile and the CI runner build
+# with, and the committed guests are Linux builds. To reproduce them off Linux:
+#
+#     docker run --rm -v "$PWD:/w" -w /w rust:1.98.1-bookworm bash scripts/build-wasm.sh
+#
+# A digest gate is therefore sound on the runner. Keep the behavioural checks
+# beside it, because they catch a different failure: the digest catches a STALE
+# guest, the tests catch one that is fresh but broken, and only the tests survive
+# a deliberate toolchain bump. They live in apps/web/src/crypto/sanitize.test.ts
+# and wasm-crypto.test.ts (both drive the committed bytes directly) and
+# apps/web/e2e/crypto-pgp.spec.ts (drives them through the real worker).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -62,10 +68,32 @@ OUT_DIR="${ROOT}/apps/web/src/wasm"
 # same change (the ABI moves with it).
 WASM_PACK_VERSION="0.15.0"
 
+# Build-input normalisation, shared with the first-party plugins (t24-e15). It
+# remaps `$CARGO_HOME/registry/src` and the workspace root to constants, so the
+# bytes stop being a function of WHERE the build ran. That is strictly stronger
+# than pinning `CARGO_HOME`: pinning only makes two builds agree when both happen
+# to use the same value, whereas remapping makes them agree across different ones
+# — verified for these guests with `CARGO_HOME=/usr/local/cargo` at `/tmp/ws` vs
+# `CARGO_HOME=/tmp/ch-alt` at `/other/path/deep`, identical digests, and zero
+# embedded cargo paths in either (they had 40 in mw-sanitize and 302 in mw-crypto).
+#
+# It discovers the workspace root by walking up rather than assuming a depth,
+# because a wrong prefix does not fail — it silently matches nothing and leaves the
+# paths embedded.
+. "${ROOT}/plugins/reproducible-env.sh"
+
+# CAREFUL: reproducible-env.sh sets CARGO_ENCODED_RUSTFLAGS, and that variable
+# OVERRIDES RUSTFLAGS entirely — cargo reads one or the other, never both. The
+# `--cfg` below therefore has to be appended to the encoded form; setting RUSTFLAGS
+# here (as this script used to) would silently drop it.
+#
 # rPGP/RustCrypto reach getrandom's JS backend on wasm32 via plain crate features
 # (mw-crypto's Cargo.toml wasm target deps), so no `--cfg getrandom_backend` is
-# strictly required; we still export it for older getrandom generations' safety.
-export RUSTFLAGS="${RUSTFLAGS:-} --cfg getrandom_backend=\"wasm_js\""
+# strictly required; we still pass it for older getrandom generations' safety.
+# `\037` is the 0x1f separator the encoded form uses, and `--cfg` and its value are
+# two separate arguments to rustc, hence two elements.
+CARGO_ENCODED_RUSTFLAGS="${CARGO_ENCODED_RUSTFLAGS}$(printf '\037')--cfg$(printf '\037')getrandom_backend=\"wasm_js\""
+export CARGO_ENCODED_RUSTFLAGS
 
 if ! command -v wasm-pack >/dev/null 2>&1; then
   echo "wasm-pack not found. Install: cargo install wasm-pack --version ${WASM_PACK_VERSION} --locked" >&2

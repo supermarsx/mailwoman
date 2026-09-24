@@ -17,9 +17,34 @@ $outDir = Join-Path $root 'apps/web/src/wasm'
 # SAME machine but NOT across Windows/Linux, so never gate CI on a byte compare.
 $WasmPackVersion = '0.15.0'
 
-# See build-wasm.sh: getrandom's JS backend is selected by mw-crypto's wasm crate
-# features; the cfg is exported for older getrandom generations' safety.
-$env:RUSTFLAGS = "$($env:RUSTFLAGS) --cfg getrandom_backend=`"wasm_js`""
+# Build-input normalisation, mirroring plugins/reproducible-env.sh (t24-e15), which
+# this script cannot source. Remaps `$CARGO_HOME/registry/src` and the workspace
+# root to constants so the bytes stop depending on WHERE the build ran.
+#
+# CARGO_ENCODED_RUSTFLAGS (0x1f-separated) rather than RUSTFLAGS, for the same two
+# reasons as the shared script: a builder whose home directory contains a space
+# would otherwise get the flag split in half, and a shipped artefact must not
+# inherit the caller's ambient flags. It OVERRIDES RUSTFLAGS entirely, so the
+# getrandom `--cfg` is appended to it rather than set separately — setting
+# RUSTFLAGS here (as this script used to) would now silently drop it.
+#
+# Paths are native Windows form because rustc matches the remap prefix against the
+# paths IT sees.
+$cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { Join-Path $env:USERPROFILE '.cargo' }
+$registry = Join-Path $cargoHome 'registry\src'
+$sep = [char]0x1f
+$env:CARGO_ENCODED_RUSTFLAGS = (@(
+  "--remap-path-prefix=$registry=/cargo",
+  "--remap-path-prefix=$root=/src",
+  '--cfg',
+  'getrandom_backend="wasm_js"'
+) -join $sep)
+
+# NOTE: a Windows build still will NOT byte-match the committed guests, which are
+# Linux builds — `--remap-path-prefix` replaces only the prefix and the remainder
+# keeps this host's `\` separators, and rustc's codegen differs by host regardless.
+# That is expected and documented in build-wasm.sh. Use this script for local
+# development; reproduce the committed bytes with the docker one-liner there.
 
 if (-not (Get-Command wasm-pack -ErrorAction SilentlyContinue)) {
   Write-Error "wasm-pack not found. Install: cargo install wasm-pack --version $WasmPackVersion --locked"
