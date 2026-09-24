@@ -6,9 +6,26 @@
 //! `SET CONSTRAINTS ALL DEFERRED` first (the schema declares every foreign key
 //! `DEFERRABLE`), so cross-table and self-referential (`mailboxes.parent_id`)
 //! references need not be inserted in dependency order — the whole graph is
-//! validated at commit. Only the 0001–0006 tables the store manages are copied;
-//! the 0007 admin/OAuth/webhook tables are provisioned empty (a `migrate-store`
-//! moves an existing *mail* store — those surfaces are configured post-migration).
+//! validated at commit.
+//!
+//! **The copy is not the whole schema.** `TABLES` below is the complete list of
+//! what is copied: as of migration 0029 that is 35 tables out of the 76 the
+//! migrations create. Everything else is left behind. An earlier version of this
+//! note claimed "only the 0001–0006 tables are copied; the 0007 admin/OAuth/
+//! webhook tables are provisioned empty"; that was never a full account of the
+//! split and is now wrong in both directions — `crypto_changes` is a 0005 table
+//! and is *not* copied, while migrations 0008–0029 added tables the note never
+//! mentioned at all.
+//!
+//! The real split is recorded table by table, with a reason for each, in two
+//! lists in `tests/backend_parity.rs`: `NOT_MIGRATED_DELIBERATELY` (live session
+//! state and admin/deployment surfaces an operator re-configures on the new host)
+//! and `NOT_MIGRATED_UNCLASSIFIED` (tables whose omission has *not* been ruled a
+//! design choice — 2FA enrolments, per-account settings, append-only audit logs
+//! and the zero-access wrapped root keys among them; open questions, not
+//! blessed). The test `migrate_store_accounts_for_every_schema_table` enumerates
+//! the live schema and fails if a table appears in neither `TABLES` nor one of
+//! those two lists, so a new migration cannot quietly join the left-behind set.
 
 use crate::backend::{Arg, Backend, IntoArg, Row, Tx};
 use crate::{MigrationReport, Store, StoreError, backend, q};
@@ -89,8 +106,9 @@ fn ob(r: &Row, c: &str) -> Arg {
     r.get_opt_blob(c).into_arg()
 }
 
-/// Every 0001–0006 table, in FK-parent-first order (belt-and-braces alongside the
-/// deferred constraints).
+/// Every table `migrate-store` copies, in FK-parent-first order (belt-and-braces
+/// alongside the deferred constraints). This list is not the whole schema — see
+/// the module note above for the two lists that account for the rest.
 const TABLES: &[TableSpec] = &[
     TableSpec {
         name: "settings",

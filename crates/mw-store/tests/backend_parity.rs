@@ -535,3 +535,331 @@ async fn migrate_store_sqlite_to_postgres() {
     let _ = std::fs::remove_file(format!("{path_str}-shm"));
     eprintln!("[mw-store] migrate-store: RAN against Postgres and verified content + counts.");
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `migrate-store` schema-coverage gate.
+//
+// `migrate_from_sqlite` copies the tables named in `migrate.rs`'s `TABLES`, and
+// builds its `MigrationReport` from that same list. Asserting row-count parity
+// over the report therefore cannot detect a table the migrator never mentions —
+// the oracle is the thing under test. The gate below asserts instead against the
+// LIVE schema (`sqlite_master`), so every table the migrations create must be
+// accounted for: copied, or named in exactly one of the two lists here.
+//
+// The two lists are deliberately separate and are NOT equivalent. The first is a
+// decision; the second is an open question that has not been decided yet. Both
+// are tolerated by the gate today (t24 landed the detection, not the data fix),
+// so the backlog is visible in source rather than silently passing.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// DELIBERATELY NOT MIGRATED — live session state that cannot outlive the old
+/// deployment, or an admin/deployment surface the operator re-configures on the
+/// new host. `(table, reason)`.
+const NOT_MIGRATED_DELIBERATELY: &[(&str, &str)] = &[
+    (
+        "admin_users",
+        "0007: the admin panel is a separate identity domain from mail accounts; the \
+         operator bootstraps the admin login on the new deployment.",
+    ),
+    (
+        "admin_sessions",
+        "0007: live admin bearer-token hashes. Sessions are re-established after a move.",
+    ),
+    (
+        "oauth_clients",
+        "0007: admin-approved OAuth clients whose redirect_uris name the OLD host; \
+         re-approved against the new one.",
+    ),
+    (
+        "oauth_tokens",
+        "0007: live auth-code/access/refresh token hashes. Clients re-authorize.",
+    ),
+    (
+        "oauth_client_meta",
+        "0010: RFC 7591 side table keyed by oauth_clients.client_id — meaningless without \
+         its parent, which is itself not copied.",
+    ),
+    (
+        "oauth_dcr",
+        "0010: the singleton dynamic-client-registration POLICY row, default-disabled; a \
+         deployment setting, not account data.",
+    ),
+    (
+        "api_keys",
+        "0007: per-deployment API credentials (Argon2id hash + ip_allowlist + rate_limit). \
+         Re-minted against the new host.",
+    ),
+    (
+        "webhooks",
+        "0007: outbound webhook endpoints and their sealed HMAC secrets, registered against \
+         the old deployment's delivery surface.",
+    ),
+    (
+        "domains",
+        "0007 (SPEC §19): managed-domain upstream routing + allow/blocklists — operator \
+         configuration of the deployment, re-entered in the admin UI.",
+    ),
+    (
+        "directory_config",
+        "0008 (SPEC §13): LDAP/GAL endpoint URLs, bind DNs and attribute maps — deployment \
+         configuration.",
+    ),
+    (
+        "egress_proxy",
+        "0026: the outbound proxy host/port/sealed credentials of the OLD deployment's \
+         network position.",
+    ),
+    (
+        "sso_config",
+        "0009: IdP endpoints, sealed client secret and claim map, registered against the \
+         old deployment's redirect/ACS URLs.",
+    ),
+    (
+        "plugins",
+        "0008: the installed WASM plugin registry (admin-approved, enabled deny-by-default). \
+         Plugin bundles live outside the store; the operator re-approves them.",
+    ),
+    (
+        "plugin_allowlist",
+        "0014: admin-pinned plugin SHA-256 digests. Omission fails CLOSED — an un-pinned \
+         plugin will not load.",
+    ),
+    (
+        "ui_plugins",
+        "0010: the UI plugin registry (manifest + signature, enabled deny-by-default). Same \
+         re-approval story as `plugins`.",
+    ),
+    (
+        "ui_plugin_grants",
+        "0010: admin-granted UI plugin capabilities. Omission fails CLOSED — no capability \
+         is granted until an admin grants it again.",
+    ),
+];
+
+/// UNCLASSIFIED — NOT blessed. Tables whose omission has not been ruled a
+/// deliberate design choice: they hold per-account state, security enrolments,
+/// append-only audit history, or key material, and dropping them is at least
+/// arguably data loss. `(table, the open question)`.
+///
+/// Each entry is a question for the follow-up task that decides, table by table,
+/// whether the migrator should copy it. Presence here means "undecided", never
+/// "fine to leave behind".
+const NOT_MIGRATED_UNCLASSIFIED: &[(&str, &str)] = &[
+    (
+        "zeroaccess_accounts",
+        "0007: the per-account WRAPPED client-derived root key (+ recovery-wrapped copy, \
+         paired devices). Nothing else holds it — if it is not copied, zero-access mail on \
+         the destination is undecryptable. Strongest data-loss candidate.",
+    ),
+    (
+        "totp_secrets",
+        "0015: per-account sealed TOTP secrets. Not copying silently un-enrols every user's \
+         authenticator app.",
+    ),
+    (
+        "webauthn_credentials",
+        "0015: per-account passkeys/security keys. Same silent un-enrolment.",
+    ),
+    (
+        "recovery_codes",
+        "0015: per-account 2FA recovery code hashes — the fallback when the factors above \
+         are gone.",
+    ),
+    (
+        "twofa_policy",
+        "0015: the admin require-2FA policy (global or per-domain). Omission fails OPEN: a \
+         required second factor silently becomes optional after the move.",
+    ),
+    (
+        "quotas",
+        "0007: per-account byte/message limits. Also fails OPEN — limits silently lift.",
+    ),
+    (
+        "passwd_config",
+        "0008: per-account password policy and the force-change-on-next-login flag; the flag \
+         silently clears.",
+    ),
+    (
+        "signatures",
+        "0017: user-authored signature bodies and their auto-apply rules. Author content, not \
+         deployment config. (`identities.signature_*` IS copied — these are not.)",
+    ),
+    (
+        "notification_rules",
+        "0017: per-account notification rules and quiet hours.",
+    ),
+    (
+        "remote_image_grants",
+        "0016: per-account remote-image privacy decisions. Fails closed (images re-prompt) but \
+         is still user state.",
+    ),
+    (
+        "masked_email",
+        "0010 (SPEC §28.4): per-account alias addresses. Losing the rows does not stop mail \
+         arriving at the alias, so the destination cannot attribute or manage it.",
+    ),
+    (
+        "uploaded_blobs",
+        "0012: metadata for uploaded attachment objects. The objects live on the upload \
+         backend; without these rows they are orphaned and unfetchable.",
+    ),
+    (
+        "message_embeddings",
+        "0022: per-message sealed vectors. Derived data — recomputable, but only by re-running \
+         the embedder over the whole store.",
+    ),
+    (
+        "crypto_changes",
+        "0005: the crypto object change-feed. Its siblings `changes` (0001) and `pim_changes` \
+         (0004) ARE copied, so this looks like an omission rather than a decision.",
+    ),
+    (
+        "ews_account_cred",
+        "0011: per-account EWS endpoint + sealed credential. An account binding, in the same \
+         family as `accounts.sealed_creds`, which IS copied.",
+    ),
+    (
+        "bridge_accounts",
+        "0008: which account is served by which bridge plugin, plus its settings.",
+    ),
+    (
+        "bridge_oauth_tokens",
+        "0018: sealed bridge OAuth access/refresh tokens. Not copying forces every bridged \
+         account through re-consent.",
+    ),
+    (
+        "plugin_grants",
+        "0008: plugin capability grants, which may be account-scoped (a non-empty account_id) \
+         as well as deployment-wide.",
+    ),
+    (
+        "plugin_kv",
+        "0013: per-plugin, per-account SEALED plugin state with quota accounting — application \
+         data a plugin cannot regenerate.",
+    ),
+    (
+        "assist_config",
+        "0008: Assist configuration keyed by scope — 'deployment' AND 'user:<account_id>'. The \
+         per-user rows are not deployment config.",
+    ),
+    (
+        "cache_scope",
+        "0007: the per-CacheClass layer/TTL matrix. Reads as deployment tuning (a \
+         reclassification candidate), but it was never decided.",
+    ),
+    (
+        "audit_log",
+        "0007 (SPEC §21): the append-only admin audit log, which by invariant has no delete \
+         path — yet a migration drops all of it.",
+    ),
+    (
+        "sso_login_audit",
+        "0009: append-only SSO login outcomes (hashed subjects). Same history loss.",
+    ),
+    (
+        "password_change_audit",
+        "0008: append-only password-change outcomes. Same history loss.",
+    ),
+    (
+        "assist_audit",
+        "0008: append-only, content-free Assist capability audit. Same history loss.",
+    ),
+];
+
+/// The completeness gate. Enumerates the LIVE schema and requires every table to
+/// be accounted for by exactly one of: copied by the migrator, deliberately
+/// skipped, or explicitly unclassified. A table added by a new migration lands in
+/// none of the three and fails here until someone classifies it.
+///
+/// Runs unconditionally: WHICH tables the migrator names is backend-independent,
+/// so this needs no Postgres DSN — the destination is a second SQLite store.
+/// Row counts are deliberately ignored; an empty table copies trivially and would
+/// otherwise mask a missing one.
+#[tokio::test]
+async fn migrate_store_accounts_for_every_schema_table() {
+    use std::collections::BTreeSet;
+
+    // A source store with the full migration chain applied and some rows in it.
+    let path = test_db::unique_file_path("mw-store-schema-gate", "src.sqlite");
+    let path_str = path.to_string_lossy().to_string();
+    let src = Store::open(&path_str, key()).await.unwrap();
+    let _ = run_ops(&src).await;
+    drop(src);
+
+    let dest = Store::open_in_memory(key()).await.unwrap();
+    let report = dest.migrate_from_sqlite(&path_str).await.unwrap();
+
+    let src_pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect(&format!("sqlite://{path_str}?mode=ro"))
+        .await
+        .unwrap();
+    let schema: BTreeSet<String> = sqlx::query_scalar::<_, String>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' \
+           AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' \
+           AND name <> '_sqlx_migrations'",
+    )
+    .fetch_all(&src_pool)
+    .await
+    .unwrap()
+    .into_iter()
+    .collect();
+    drop(src_pool);
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(format!("{path_str}-wal"));
+    let _ = std::fs::remove_file(format!("{path_str}-shm"));
+
+    assert!(
+        schema.len() > 50,
+        "schema enumeration returned {} tables — the query, not the migrator, is broken",
+        schema.len()
+    );
+
+    let copied: BTreeSet<&str> = report.tables.iter().map(|(t, _)| t.as_str()).collect();
+    let deliberate: BTreeSet<&str> = NOT_MIGRATED_DELIBERATELY.iter().map(|(t, _)| *t).collect();
+    let unclassified: BTreeSet<&str> = NOT_MIGRATED_UNCLASSIFIED.iter().map(|(t, _)| *t).collect();
+
+    // The lists stay honest: a renamed or dropped table must not linger in them.
+    for t in deliberate.iter().chain(unclassified.iter()) {
+        assert!(
+            schema.contains(*t),
+            "`{t}` is listed as not-migrated but no longer exists in the schema — remove the \
+             stale entry"
+        );
+    }
+    // Nothing may be both copied and listed as skipped, or in both lists.
+    if let Some(t) = deliberate.intersection(&unclassified).next() {
+        panic!("`{t}` appears in BOTH not-migrated lists — it is either decided or not");
+    }
+    for t in &copied {
+        assert!(
+            !deliberate.contains(t) && !unclassified.contains(t),
+            "`{t}` IS copied by the migrator but is also listed as not migrated"
+        );
+    }
+
+    // The gate itself.
+    let unaccounted: Vec<&str> = schema
+        .iter()
+        .map(String::as_str)
+        .filter(|t| !copied.contains(t) && !deliberate.contains(t) && !unclassified.contains(t))
+        .collect();
+    assert!(
+        unaccounted.is_empty(),
+        "`migrate-store` does not account for {} schema table(s): {:?}\nEach must be either \
+         added to `TABLES` in mw-store/src/migrate.rs (so it is copied), or listed in \
+         `NOT_MIGRATED_DELIBERATELY` with the reason it is safe to leave behind, or listed in \
+         `NOT_MIGRATED_UNCLASSIFIED` as an open question.",
+        unaccounted.len(),
+        unaccounted
+    );
+
+    eprintln!(
+        "[mw-store] migrate-store schema coverage: {} schema tables = {} copied + {} \
+         deliberately skipped + {} UNCLASSIFIED (open questions, not blessed).",
+        schema.len(),
+        copied.len(),
+        deliberate.len(),
+        unclassified.len()
+    );
+}
