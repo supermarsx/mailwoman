@@ -863,3 +863,139 @@ async fn migrate_store_accounts_for_every_schema_table() {
         unclassified.len()
     );
 }
+
+/// The migrator's own source, so the column check can read the REAL copy specs
+/// rather than a second copy of them maintained here. `TABLES` is private and
+/// `mod migrate` is not re-exported, so the specs are not reachable as values;
+/// reading the text is the cheapest honest oracle available from an integration
+/// test. Every `select:` in that file is a single string literal on one line
+/// (rustfmt does not split string literals), which is what `copy_specs` relies on.
+const MIGRATE_RS: &str = include_str!("../src/migrate.rs");
+
+/// `(table, columns)` for every `SELECT ... FROM <table>` copy spec in
+/// `migrate.rs`, parsed from its source.
+fn copy_specs() -> Vec<(String, Vec<String>)> {
+    let mut out = Vec::new();
+    for line in MIGRATE_RS.lines() {
+        let line = line.trim();
+        let Some(rest) = line.strip_prefix("select: \"SELECT ") else {
+            continue;
+        };
+        let stmt = rest.trim_end_matches("\",");
+        let (cols, table) = stmt
+            .split_once(" FROM ")
+            .unwrap_or_else(|| panic!("copy spec has no FROM clause: {stmt}"));
+        out.push((
+            table.trim().to_string(),
+            cols.split(',')
+                // A reserved word is quoted in the SQL, and that quoting reaches
+                // us as `\"` because we are reading Rust source, not SQL.
+                .map(|c| c.trim().trim_matches(['"', '\\']).to_string())
+                .collect(),
+        ));
+    }
+    assert!(
+        out.len() > 30,
+        "parsed only {} copy specs out of migrate.rs — the parser has drifted from \
+         the file's formatting and is no longer checking anything",
+        out.len()
+    );
+    out
+}
+
+/// Columns that exist on a COPIED table but are deliberately left behind.
+/// `(table, column, reason)`. Empty today: every column of every copied table is
+/// carried. An entry here is a decision that must be argued for, not a way to
+/// quiet the gate.
+const COLUMNS_NOT_COPIED: &[(&str, &str, &str)] = &[];
+
+/// The column-level companion to the table-level gate.
+///
+/// The table gate cannot see this class of bug: a table whose copy spec has
+/// drifted from a later `ALTER TABLE ... ADD COLUMN` is still present in
+/// `report.tables`, so it is counted, compared and passed. That is how 0029's
+/// `submissions.attempts` / `last_error` / `next_attempt_at` went uncarried.
+///
+/// For every table the migrator copies, every column the live schema declares
+/// must appear in that table's `SELECT`, unless it is listed in
+/// `COLUMNS_NOT_COPIED` with a reason.
+///
+/// Limitation, stated rather than papered over: this reads the `SELECT` side of
+/// each spec. A column that is selected but dropped from the `INSERT` or the
+/// `map` would still pass here — though the two are positional and a mismatch in
+/// arity fails at runtime. It closes the realistic drift (a migration adds a
+/// column and the spec is not updated), not every conceivable one.
+#[tokio::test]
+async fn migrate_store_copies_every_column_of_every_copied_table() {
+    use std::collections::BTreeSet;
+
+    let path = test_db::unique_file_path("mw-store-column-gate", "src.sqlite");
+    let path_str = path.to_string_lossy().to_string();
+    let src = Store::open(&path_str, key()).await.unwrap();
+    let _ = run_ops(&src).await;
+    drop(src);
+
+    let src_pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect(&format!("sqlite://{path_str}?mode=ro"))
+        .await
+        .unwrap();
+
+    let specs = copy_specs();
+    let mut missing: Vec<String> = Vec::new();
+    let mut checked_columns = 0usize;
+
+    for (table, carried) in &specs {
+        let schema_cols: Vec<String> = sqlx::query_scalar::<_, String>(&format!(
+            "SELECT name FROM pragma_table_info('{table}')"
+        ))
+        .fetch_all(&src_pool)
+        .await
+        .unwrap();
+        assert!(
+            !schema_cols.is_empty(),
+            "copy spec names table `{table}`, which the live schema does not have"
+        );
+
+        let carried: BTreeSet<&str> = carried.iter().map(String::as_str).collect();
+        // A spec must not select a column the schema dropped.
+        for c in &carried {
+            assert!(
+                schema_cols.iter().any(|s| s == c),
+                "copy spec for `{table}` selects `{c}`, which the live schema does not have"
+            );
+        }
+        for c in &schema_cols {
+            checked_columns += 1;
+            let excused = COLUMNS_NOT_COPIED
+                .iter()
+                .any(|(t, col, _)| t == table && col == c);
+            if !carried.contains(c.as_str()) && !excused {
+                missing.push(format!("{table}.{c}"));
+            }
+        }
+    }
+
+    drop(src_pool);
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(format!("{path_str}-wal"));
+    let _ = std::fs::remove_file(format!("{path_str}-shm"));
+
+    assert!(
+        missing.is_empty(),
+        "`migrate-store` copies these tables but silently drops {} of their column(s): \
+         {:?}\nAdd each column to that table's SELECT, INSERT and map in \
+         mw-store/src/migrate.rs, or list it in `COLUMNS_NOT_COPIED` with the reason \
+         it is safe to leave behind.",
+        missing.len(),
+        missing
+    );
+
+    eprintln!(
+        "[mw-store] migrate-store column coverage: {} columns across {} copied tables, \
+         all carried ({} deliberately excluded).",
+        checked_columns,
+        specs.len(),
+        COLUMNS_NOT_COPIED.len()
+    );
+}

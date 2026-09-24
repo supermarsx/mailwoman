@@ -270,8 +270,13 @@ const TABLES: &[TableSpec] = &[
     },
     TableSpec {
         name: "submissions",
-        select: "SELECT id, account_id, email_id, identity_id, send_at, undo_status, hold_seconds, created_at FROM submissions",
-        insert: "INSERT INTO submissions (id, account_id, email_id, identity_id, send_at, undo_status, hold_seconds, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+        // 0029 (26.20): `attempts` / `last_error` / `next_attempt_at` are copied
+        // alongside the 0003 columns. Without them a submission still awaiting
+        // dispatch would cross a `migrate-store` having forgotten how many times it
+        // has already failed and how long it agreed to wait — the retry budget
+        // resets to zero and the backoff is dropped.
+        select: "SELECT id, account_id, email_id, identity_id, send_at, undo_status, hold_seconds, created_at, attempts, last_error, next_attempt_at FROM submissions",
+        insert: "INSERT INTO submissions (id, account_id, email_id, identity_id, send_at, undo_status, hold_seconds, created_at, attempts, last_error, next_attempt_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
         map: |r| {
             vec![
                 t(r, "id"),
@@ -282,6 +287,9 @@ const TABLES: &[TableSpec] = &[
                 t(r, "undo_status"),
                 i(r, "hold_seconds"),
                 t(r, "created_at"),
+                i(r, "attempts"),
+                ot(r, "last_error"),
+                ot(r, "next_attempt_at"),
             ]
         },
     },
