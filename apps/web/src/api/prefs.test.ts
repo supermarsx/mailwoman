@@ -415,3 +415,75 @@ describe('the app-wide singleton', () => {
     expect(s.theme()).toBe('hc-dark');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The e2e isolation leak this models (t24-e13).
+//
+// Appearance syncs PER ACCOUNT, and every engine-mode Playwright spec signs in as
+// the same account — so the account's stored appearance is shared mutable state
+// between tests, and a fresh browser context does not clear it because the state
+// is on the server.
+//
+// That is how `theming.spec.ts:55` and `:158` failed: they expected `amoled` /
+// `ocean-light` after a reload and got `grove-dark` with `data-density=compact` —
+// exactly what the first test in that file leaves on the account.
+//
+// The product is behaving correctly at every step; the tests were sharing state.
+// These pin the leak and the fix at the level of the real sync module, since the
+// e2e-level proof needs the engine stack.
+describe('cross-test appearance leak on a shared account (t24-e13)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    document.documentElement.removeAttribute('data-theme');
+  });
+  afterEach(() => {
+    stopAppearanceSync();
+    vi.useRealTimers();
+  });
+
+  /** A fresh browser context: new localStorage, so no sync mark. */
+  function freshContext(): void {
+    localStorage.clear();
+  }
+
+  it('RED: a later test adopts the earlier test’s theme after a reload', async () => {
+    // Test A (theming.spec.ts:21) picked grove-dark; its PUT reached the account.
+    const accountHolds = stored({ mode: 'fixed', theme: 'grove-dark', density: 'compact' }, 100);
+
+    // Test B starts in a fresh context and picks amoled…
+    freshContext();
+    const b = slice();
+    b.setTheme('amoled');
+    expect(b.theme()).toBe('amoled');
+
+    // …then reloads promptly. The 600 ms debounce means B's own PUT never got
+    // away, so on the next boot this device still has no mark.
+    localStorage.removeItem('mw.theme.sync');
+    const afterReload = slice();
+    await createAppearanceSync(afterReload, { api: fakeApi(accountHolds).api, debounceMs: 0 }).start();
+
+    // The account's leftover wins — this is the failure, reproduced.
+    expect(afterReload.theme()).toBe('grove-dark');
+    expect(afterReload.density()).toBe('compact');
+  });
+
+  it('GREEN: resetting the account first lets the test’s own pick survive', async () => {
+    // What `resetAccountAppearance()` produces: the account has nothing stored.
+    const accountCleared = stored(null, null);
+
+    freshContext();
+    const b = slice();
+    b.setTheme('amoled');
+
+    localStorage.removeItem('mw.theme.sync');
+    const afterReload = slice();
+    afterReload.setTheme('amoled'); // the reload re-reads mw.theme.prefs
+    const f = fakeApi(accountCleared);
+    await createAppearanceSync(afterReload, { api: f.api, debounceMs: 0 }).start();
+
+    // "server has nothing → push this device's set": the pick stands, and is
+    // seeded to the account rather than overwritten by it.
+    expect(afterReload.theme()).toBe('amoled');
+    expect(f.saved.at(-1)?.theme).toBe('amoled');
+  });
+});

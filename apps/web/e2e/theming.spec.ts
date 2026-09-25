@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { engineLogin } from './helpers.ts';
+import { engineLogin, resetAccountAppearance } from './helpers.ts';
 import { THEME_LIST } from '../src/theme/registry.ts';
 
 /**
@@ -10,6 +10,20 @@ import { THEME_LIST } from '../src/theme/registry.ts';
  * persists to localStorage (mw.theme.prefs). No localStorage seeding — this
  * drives the genuine picker.
  */
+
+// Appearance is ALSO synced per account (`/api/account/appearance`), and every
+// engine-mode spec signs in as the same account — so it is shared mutable state
+// across these tests, and a fresh browser context does not clear it. Without this
+// reset, the theme picked by whichever theming test ran first is re-adopted on the
+// next test's boot and after every reload, overwriting that test's own pick:
+// `theming.spec.ts:55` and `:158` failed with `data-theme="grove-dark"` (plus
+// `data-density="compact"`) where they expected `amoled` / `ocean-light` — exactly
+// the state the first test in this file sets. See `resetAccountAppearance` for the
+// reconcile rule that makes it happen and why resetting fixes the isolation rather
+// than the ordering.
+test.beforeEach(async ({ request }) => {
+  await resetAccountAppearance(request);
+});
 
 async function bgVar(page: Page): Promise<string> {
   return page.evaluate(() =>

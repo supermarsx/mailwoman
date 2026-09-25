@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type APIRequestContext, type Page } from '@playwright/test';
 import net from 'node:net';
 
 /**
@@ -229,4 +229,51 @@ export async function injectViaSmtp(opts: {
 function extractAddr(input: string): string {
   const m = input.match(/<([^>]+)>/);
   return m ? m[1]! : input.trim();
+}
+
+/**
+ * Forget the engine account's SERVER-STORED appearance preferences.
+ *
+ * Appearance is synced per account (`/api/account/appearance`, `api/prefs.ts`),
+ * and every engine-mode spec signs in as the SAME account — so it is shared
+ * mutable state between tests, in the same way the DCR singleton row was between
+ * two Rust test binaries.
+ *
+ * That leaks in a way a fresh browser context does not fix, because the leak is
+ * server-side. Each Playwright test gets a clean `localStorage`, so it has no
+ * sync mark, and the reconcile rule for that case is "this device never synced →
+ * adopt the server's" (documented in api/prefs.ts; pinned by
+ * `prefs.test.ts` "adopts the account value on a device that has never synced").
+ * So whatever the previously-run theming test left on the account is re-adopted
+ * on the next test's first boot, and again after any reload — overwriting the
+ * theme that test just picked.
+ *
+ * The 600 ms push debounce makes it worse rather than causing it: a test that
+ * picks a theme and reloads promptly never gets its own PUT away, so it still
+ * looks like a device that has never synced.
+ *
+ * Resetting to "the account has nothing stored" puts the reconcile on its other
+ * branch — "server has nothing → push this device's set"
+ * (`prefs.test.ts` "seeds the server when the account has nothing stored") — so a
+ * test's own pick survives a reload. This fixes the ISOLATION rather than the
+ * order: it does not depend on which specs run, or in what sequence, or on
+ * whether the runner parallelises them.
+ *
+ * Uses its own request context (the `request` fixture), so it runs before the
+ * page has navigated and cannot race the app's own boot-time reconcile.
+ */
+export async function resetAccountAppearance(request: APIRequestContext): Promise<void> {
+  const login = await request.post('/api/login', {
+    data: {
+      jmapUrl: ENGINE_CREDS.imapUrl,
+      username: ENGINE_CREDS.username,
+      password: ENGINE_CREDS.password,
+    },
+  });
+  expect(login.status(), 'engine API login for the appearance reset').toBe(200);
+  const cleared = await request.delete('/api/account/appearance');
+  expect(
+    [200, 204].includes(cleared.status()),
+    `DELETE /api/account/appearance ⇒ ${cleared.status()} (expected 200 or 204)`,
+  ).toBe(true);
 }
