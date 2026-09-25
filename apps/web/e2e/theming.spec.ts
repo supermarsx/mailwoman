@@ -90,10 +90,32 @@ test.describe('V2 theming via the Settings dialog', () => {
 // entire numeric matrix and render as the default Light theme. Only a browser can
 // tell the difference, and that is the one thing these specs exist to prove.
 
-/** Seed `mw.theme.prefs` before the app boots, the way a returning user arrives. */
+/**
+ * Seed `mw.theme.prefs` before the app boots, the way a returning user arrives.
+ *
+ * Seeds ONLY when the key is absent. `addInitScript` runs on EVERY navigation,
+ * not just the first, so an unconditional `setItem` re-stamps the seed on
+ * `page.reload()` and silently discards whatever the app stored in between —
+ * which is not seeding a returning user, it is overwriting the user's choice.
+ *
+ * That is what broke "an explicit pick leaves system mode and survives a reload":
+ * the test seeded `{mode:'system', darkTheme:'dark'}`, picked Ocean Light, then
+ * reloaded — and the init script put the system-mode seed straight back, so the
+ * app booted in system mode under `prefers-color-scheme: dark` and painted
+ * `dark`. Verified directly: with an unconditional `setItem`, a pick of
+ * `{mode:'fixed', theme:'ocean-light'}` reads back as `{mode:'system',
+ * darkTheme:'dark'}` after `reload()`.
+ *
+ * Not the shared-account leak `resetAccountAppearance` handles, and not a product
+ * defect — no application can defend against its own storage being rewritten
+ * before it boots. The received `data-density="cozy"` (the default, not the
+ * `compact` that theming.spec.ts:35 sets) is what rules the account leak out.
+ */
 async function seedPrefs(page: Page, prefs: Record<string, unknown>): Promise<void> {
   await page.addInitScript((p) => {
-    localStorage.setItem('mw.theme.prefs', JSON.stringify(p));
+    if (localStorage.getItem('mw.theme.prefs') === null) {
+      localStorage.setItem('mw.theme.prefs', JSON.stringify(p));
+    }
   }, prefs);
 }
 
