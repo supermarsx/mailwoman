@@ -296,6 +296,76 @@ fn a_require_failure_carries_the_whole_skipped_record() {
 }
 
 #[test]
+fn a_gate_variable_is_recognised_by_shape_not_by_a_list() {
+    use gate::names_a_gate_variable;
+    // The reasons a list form decides on.
+    assert!(names_a_gate_variable(
+        "[t12 IMAP] MW_IMAP_LIVE!=1 — not driven."
+    ));
+    assert!(names_a_gate_variable(
+        "[t15 upload] MW_E14_PG_DSN and DATABASE_URL_PG unset — not driven."
+    ));
+    assert!(
+        names_a_gate_variable("… or set MW_E16_LDAP_URL."),
+        "a guard added after this file was written must count too"
+    );
+    // The reasons it cannot decide on: build preconditions, platform, capability.
+    assert!(!names_a_gate_variable(
+        "[t17 TT] not built (no apps/web/dist/index.html) — build the web SPA."
+    ));
+    assert!(!names_a_gate_variable(
+        "[t16 sandbox] non-Linux (windows) — kernel jail unavailable."
+    ));
+    assert!(!names_a_gate_variable(
+        "[t12 SORT] server does not advertise SORT."
+    ));
+    assert!(
+        !names_a_gate_variable("MW_ alone is not a variable"),
+        "the bare prefix must not count"
+    );
+}
+
+#[test]
+fn only_a_list_marks_a_skip_it_could_not_have_spoken_to() {
+    use gate::{Require, is_unmatched};
+    let build_precondition = "[t17 TT] not built (no apps/web/dist/index.html).";
+    let names_its_guard = "[t13 ACL/METADATA] MW_T13_LIVE!=1 — real Dovecot not driven.";
+    let list = Require::parse(Some("MW_E14_PG_DSN,DATABASE_URL_PG"));
+
+    assert!(
+        is_unmatched(&list, build_precondition),
+        "a list decides by matching the reason, so this skip is outside it in both \
+         directions — that is the gap the marker exists to show"
+    );
+    assert!(
+        !is_unmatched(&list, names_its_guard),
+        "naming a DIFFERENT guard is not a gap: we can tell which guard this is, and \
+         store-dual-backend's Dovecot legs are correctly skipping"
+    );
+    // Under `all` a variable-less reason is exactly what is being caught, so a marker
+    // there would be noise on a working assertion.
+    assert!(!is_unmatched(&Require::All, build_precondition));
+    assert!(!is_unmatched(&Require::Off, build_precondition));
+}
+
+#[test]
+fn an_unmatched_line_is_countable_and_says_which_leg() {
+    let marker = gate::unmatched_line(
+        Some("shipped_bundle_is_served_under_enforced_trusted_types"),
+        "crates/mw-server/tests/t17_tt_shell.rs",
+        74,
+    );
+    assert_eq!(
+        marker,
+        "UNMATCHED shipped_bundle_is_served_under_enforced_trusted_types \
+         (t17_tt_shell.rs:74): reason names no gate variable; MW_REQUIRE_LIVE cannot assert it"
+    );
+    // Both tags lead their line, so a gate log stays countable per tag.
+    assert!(marker.starts_with("UNMATCHED "));
+    assert!(gate::skip_line(None, "x.rs", 1, "why").starts_with("SKIPPED "));
+}
+
+#[test]
 fn skips_are_reported_through_the_shared_helper() {
     // The spelling every env-gated leg used before `common::gate::skip` existed. It went
     // through `eprintln!`, which libtest captures for a passing test. This catches a

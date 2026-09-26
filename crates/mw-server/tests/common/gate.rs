@@ -30,6 +30,13 @@
 //! Dovecot and OpenLDAP legs must still be free to skip. `all` is for a job that
 //! runs one narrowly gated target, where any skip at all means the job did not do
 //! its work.
+//!
+//! A list decides by matching the reason, so it cannot speak to a skip whose reason
+//! names no variable — coverage held by convention in free text is coverage that
+//! decays. Those skips get a second `UNMATCHED` line, so the gap is greppable in
+//! exactly the job that asked to be strict (`grep -c '^UNMATCHED '`) instead of
+//! silent. It is a marker and never a failure: the skips it fires for are build
+//! preconditions rather than live-service gates.
 
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -153,21 +160,34 @@ pub fn pg_dsn_from(get: impl Fn(&str) -> Option<String>) -> Option<String> {
 /// call site, so it can be traced back without `--nocapture`. The `SKIPPED` line is
 /// written before any panic, so the skip log records what the run did not cover
 /// whichever way the switch is set.
+///
+/// Under a [`Require::Vars`] requirement a second `UNMATCHED` line follows for a
+/// skip the list could not have spoken to. It is a marker and never a failure; see
+/// [`is_unmatched`].
 #[track_caller]
 pub fn skip(reason: impl std::fmt::Display) {
     let at = std::panic::Location::caller();
     let reason = reason.to_string();
     let test = std::thread::current().name().map(str::to_string);
+    let req = Require::from_env();
     let line = skip_line(test.as_deref(), at.file(), at.line(), &reason);
     let _ = writeln!(std::io::stderr(), "\n{line}");
     record_skip(&line);
 
     if let Some(why) = require_violation(
-        &Require::from_env(),
+        &req,
         |name| std::env::var_os(name).is_some_and(|v| !v.is_empty()),
         &reason,
     ) {
         panic!("{}", require_failure(&line, &why));
+    }
+
+    // Only once the requirement has cleared this skip: a misspelled variable fails
+    // above, and pairing that failure with a marker would read as two problems.
+    if is_unmatched(&req, &reason) {
+        let marker = unmatched_line(test.as_deref(), at.file(), at.line());
+        let _ = writeln!(std::io::stderr(), "{marker}");
+        record_skip(&marker);
     }
 }
 
@@ -180,7 +200,8 @@ pub fn require_failure(record: &str, why: &str) -> String {
     format!("{record}\n  {why}")
 }
 
-/// Append one `SKIPPED` line to the file named by [`SKIP_LOG_VAR`], if it is set.
+/// Append one `SKIPPED` or `UNMATCHED` line to the file named by [`SKIP_LOG_VAR`],
+/// if it is set. Each tag leads its line, so a log stays countable per tag.
 fn record_skip(line: &str) {
     if let Some(path) = std::env::var_os(SKIP_LOG_VAR).filter(|p| !p.is_empty()) {
         // The variable was set on purpose; losing its lines silently would defeat it.
@@ -197,10 +218,56 @@ fn record_skip(line: &str) {
 /// One `SKIPPED` line: `SKIPPED <test> (<file>:<line>): <reason>`, whitespace in
 /// the reason collapsed so the whole record stays on one line.
 pub fn skip_line(test: Option<&str>, file: &str, line: u32, reason: &str) -> String {
+    tagged_line("SKIPPED", test, file, line, reason)
+}
+
+/// One `UNMATCHED` line, marking a skip that a [`Require::Vars`] requirement could
+/// not have spoken to either way. See [`is_unmatched`].
+pub fn unmatched_line(test: Option<&str>, file: &str, line: u32) -> String {
+    tagged_line(
+        "UNMATCHED",
+        test,
+        file,
+        line,
+        &format!("reason names no gate variable; {REQUIRE_LIVE_VAR} cannot assert it"),
+    )
+}
+
+/// `<TAG> <test> (<file>:<line>): <reason>`, whitespace in the reason collapsed so
+/// the whole record stays on one line and a log can be counted with `grep -c`.
+fn tagged_line(tag: &str, test: Option<&str>, file: &str, line: u32, reason: &str) -> String {
     let reason = reason.split_whitespace().collect::<Vec<_>>().join(" ");
     let file = file.rsplit(['/', '\\']).next().unwrap_or(file);
     match test.filter(|t| *t != "main") {
-        Some(test) => format!("SKIPPED {test} ({file}:{line}): {reason}"),
-        None => format!("SKIPPED ({file}:{line}): {reason}"),
+        Some(test) => format!("{tag} {test} ({file}:{line}): {reason}"),
+        None => format!("{tag} ({file}:{line}): {reason}"),
     }
+}
+
+/// Whether a list-mode requirement is simply unable to speak to this skip.
+///
+/// [`Require::Vars`] decides by matching the reason against the named variables, so
+/// a reason naming no gate variable at all is outside its reach in both directions:
+/// it can never be asserted, and it can never be cleared. That is a gap worth
+/// seeing, not a failure — the two skips it fires for in `store-dual-backend`
+/// (`t17_tt_shell`, `integration`) are build preconditions rather than live-service
+/// gates, and failing them is the false-failure class this switch was corrected
+/// twice to avoid.
+///
+/// Never true under [`Require::All`], where a reason naming no variable is precisely
+/// what is being caught, nor under [`Require::Off`].
+pub fn is_unmatched(req: &Require, reason: &str) -> bool {
+    matches!(req, Require::Vars(_)) && !names_a_gate_variable(reason)
+}
+
+/// Whether a reason names something shaped like a gate variable — `MW_…` or
+/// `DATABASE_URL…`. Deliberately a shape test and not a list of known variables: a
+/// guard added after this file was written must count too.
+pub fn names_a_gate_variable(reason: &str) -> bool {
+    reason
+        .split(|c: char| !(c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'))
+        .any(|token| {
+            (token.starts_with("MW_") && token.len() > "MW_".len())
+                || token.starts_with("DATABASE_URL")
+        })
 }
