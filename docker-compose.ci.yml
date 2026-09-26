@@ -369,3 +369,56 @@ services:
       timeout: 5s
       retries: 24
       start_period: 5s
+
+  # ── t22 routed-egress conformance leg (26.20 t24-e16) ──────────────────────
+  # A REAL forward proxy for crates/mw-server/tests/t22_egress_live.rs. Until this
+  # service existed no workflow booted Squid, so `MW_T22_SQUID` was never set and
+  # **both** of that file's tests had skipped in every run since t22 added them —
+  # the routed-egress path had never once been exercised in CI.
+  #
+  # The suite's premise is Squid's SHIPPED config, not a config of ours: stock
+  # Squid restricts CONNECT to `SSL_ports`, so a plaintext route is refused by
+  # SQUID rather than by us, and the test asserts WHICH refusal that produces
+  # (403 must land in ProxyRejected, not ProxyAuthRejected — the proxy refusing
+  # the destination, not rejecting our credentials). So this service deliberately
+  # mounts NO config: the defaults are the thing under test.
+  #
+  # Verified on this exact pinned image before wiring it, not assumed:
+  #   /etc/squid/squid.conf ships `acl SSL_ports port 443` and
+  #   `http_access deny CONNECT !SSL_ports`
+  #   CONNECT example.com:443 -> HTTP/1.1 200 Connection established
+  #   CONNECT example.com:80  -> HTTP/1.1 403 Forbidden
+  # — which is exactly what the test file's header documented.
+  #
+  # PINNED, unlike the `latest` in the test's doc comment: this leg asserts the
+  # behaviour of the proxy's own defaults, so a floating tag could change the
+  # thing under test underneath us. (Canonical publishes no `_stable` tag for
+  # this image; `6.6-24.04_edge` is the 24.04 LTS-based line and currently ships
+  # Squid 6.14 — the tag name lags the contents, which is why the ACL above is
+  # verified rather than inferred from the tag.)
+  squid:
+    image: ubuntu/squid:6.6-24.04_edge
+    ports:
+      - "3128:3128"   # forward proxy (MW_T22_SQUID)
+    healthcheck:
+      # Deliberately a LOCAL probe: it asserts that Squid is listening and
+      # parsing, NOT that the internet is reachable. The tests need outbound
+      # egress and will say so if it is missing; a healthcheck that depended on
+      # it would turn a network problem into an unhealthy container and hide
+      # which of the two actually failed.
+      #
+      # bash's /dev/tcp, as for keycloak and spamd — this image ships no curl,
+      # wget or nc (checked, not assumed), and /dev/tcp is a bash builtin rather
+      # than POSIX, so CMD-SHELL (/bin/sh -c) could not run it.
+      test:
+        - "CMD"
+        - "bash"
+        - "-c"
+        - "exec 3<>/dev/tcp/127.0.0.1/3128 && printf 'GET / HTTP/1.0\r\n\r\n' >&3 && grep -qm1 '^HTTP/1' <&3"
+      # Bounded time to `unhealthy` = 5 + 12 x (5 + 5) = 125s, so `up --wait`
+      # can actually fail on a Squid that never comes up. See the rule recorded
+      # at the --wait-timeout call site in proxy-conformance.yml.
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s

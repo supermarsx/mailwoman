@@ -1172,6 +1172,21 @@ jobs:
   # t24 (D4): deliberately NOT repaired in t24 (NDK provisioning has no local
   # verification path on the dev box, and continue-on-error means it cannot red the
   # pipeline or block a tag).
+  #
+  # t24-e16: the FIRST failure is fixed (the retired `tools` package — see the
+  # `packages:` override below), but `continue-on-error` STAYS, and not by inertia.
+  # The flag's stated reason above is broader than that bug: it covers the whole
+  # Android toolchain-provisioning and Kotlin-merge chain as a tracked gap with no
+  # local verification path. That reason is untouched by fixing one sdkmanager
+  # argument. Every step after `setup-android` — `tauri android init`, `merge.py`,
+  # and the APK build itself — has NEVER EXECUTED in CI, because the job died
+  # before reaching them, so there is no evidence about any of it.
+  #
+  # PROMOTION CRITERION: not "the job went green once". Promote only when the APK
+  # build itself has succeeded on master and the uploaded artifact has been checked
+  # by someone, since the flag covers the whole chain rather than this one step.
+  # Expect further, genuine failures behind this fix — they will be first
+  # observations, not regressions.
   android-apk:
     runs-on: ubuntu-latest
     continue-on-error: true
@@ -1185,7 +1200,23 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+      # `packages` overridden to drop `tools`. The action's DEFAULT is
+      # `tools platform-tools`, and the failure was inside the action itself, not
+      # in any step of ours — established from the run log rather than inferred:
+      #
+      #   with:  packages: tools platform-tools          (the action's default)
+      #   [command] .../cmdline-tools/16.0/bin/sdkmanager tools
+      #   Warning: Failed to find package 'tools'
+      #   Error: The process '.../sdkmanager' failed with exit code 1
+      #
+      # `tools` is the retired SDK Tools package; it is no longer served to
+      # current cmdline-tools, so sdkmanager cannot resolve it and exits 1. Nothing
+      # in this job uses it — the NDK is installed explicitly below, and Gradle
+      # resolves the rest — so naming only `platform-tools` removes the retired
+      # entry without changing what is actually installed.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - name: install Android NDK
         run: sdkmanager "ndk;27.0.12077973"
       - uses: pnpm/action-setup@v4
@@ -1240,6 +1271,23 @@ jobs:
   #
   # t24 (D4): deliberately NOT repaired in t24 — continue-on-error means it cannot
   # red the pipeline or block a tag, so it is not on the path to a green gate.
+  #
+  # t24-e16: NOT FIXED, and `continue-on-error` STAYS. Two things worth knowing.
+  #
+  # First, the flag's stated reason above — an Evergreen WebView2 runtime with no
+  # matching msedgedriver published yet — is a FLAKINESS reason, and one green run
+  # could never speak to it. So even a passing job would not justify promotion.
+  # PROMOTION CRITERION, the same bar as the dovecot fidelity leg: three
+  # consecutive green nightlies on master, with the three run ids quoted in the
+  # commit message.
+  #
+  # Second, and more useful: that stated reason is NOT what is failing now.
+  # Run 36127929059 logged `WebView2 runtime version: 153.0.4234.48` and fetched
+  # exactly that driver, so the version match held and the session still failed
+  # with `DevToolsActivePort file doesn't exist`. The note above was therefore
+  # incomplete, and chasing the version match is a dead end — the eliminations are
+  # recorded at the diagnostic step below so the next reader starts where the
+  # evidence actually ran out.
   desktop-e2e:
     runs-on: windows-latest
     continue-on-error: true
@@ -1281,6 +1329,59 @@ jobs:
           "MSEDGEDRIVER=$env:RUNNER_TEMP\edgedriver\msedgedriver.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: install desktop E2E harness deps
         run: pnpm -C apps/desktop/e2e install
+      # DIAGNOSTIC, added by t24-e16 because this job's failure is NOT diagnosable
+      # from its current log. It fails with msedgedriver's
+      # `session not created: DevToolsActivePort file doesn't exist`, which means
+      # the driver launched the app and never saw a debug endpoint appear. The log
+      # cannot distinguish "the app exited immediately" from "the app is running
+      # but WebView2 exposed no debug port" — and those have different owners.
+      #
+      # Eliminated from the completed run 36127929059 before adding this, so nobody
+      # repeats the search:
+      #   * NOT the Linux Chrome sandbox (no --no-sandbox needed): this is the
+      #     WINDOWS leg, driving WebView2 through msedgedriver, not Chrome.
+      #   * NOT a driver/runtime version mismatch: the step above derives the
+      #     version from the WebView2 Evergreen registry key and downloads that
+      #     exact msedgedriver (the run logged `WebView2 runtime version:
+      #     153.0.4234.48`), and throws rather than guessing if the key is absent.
+      #   * NOT a missing or unbuilt binary: `check-bundle-size` in the same run
+      #     reported `thin desktop binary 17.44 MB`, and wdio.conf.mjs throws if it
+      #     cannot resolve the exe.
+      #   * NOT a wdio misconfiguration: `tauri:options.application` is set and the
+      #     run logged the resolved path.
+      #
+      # So this step answers the one question left: does the shell stay up on its
+      # own? It starts the built exe, waits, and reports whether the process is
+      # still alive, with whatever the app wrote. `continue-on-error` is already on
+      # this job, so the diagnostic cannot make anything worse, and it is
+      # deliberately `if: always()`-free — it runs BEFORE the E2E so its output is
+      # present whether or not the E2E then fails.
+      - name: diagnostic — does the desktop shell stay up when launched directly?
+        shell: pwsh
+        run: |
+          $exe = "target/release/mailwoman-desktop.exe"
+          if (-not (Test-Path $exe)) { Write-Host "MISSING: $exe"; exit 0 }
+          $out = "$env:RUNNER_TEMP\shell-stdout.log"
+          $err = "$env:RUNNER_TEMP\shell-stderr.log"
+          $p = Start-Process -FilePath $exe -PassThru `
+                 -RedirectStandardOutput $out -RedirectStandardError $err
+          Start-Sleep -Seconds 20
+          if ($p.HasExited) {
+            Write-Host "SHELL EXITED on its own after <20s, exit code $($p.ExitCode)."
+            Write-Host "That is the cause: msedgedriver cannot find a DevToolsActivePort"
+            Write-Host "for a process that is no longer running. Owner: the desktop shell."
+          } else {
+            Write-Host "SHELL STILL RUNNING after 20s (pid $($p.Id))."
+            Write-Host "So the app starts and stays up, and the failure is in the"
+            Write-Host "WebView2/msedgedriver debug-port handshake, not the app. Owner:"
+            Write-Host "the tauri-driver / WebView2 seam."
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          }
+          foreach ($f in @($out, $err)) {
+            if ((Test-Path $f) -and (Get-Item $f).Length -gt 0) {
+              Write-Host "--- $f ---"; Get-Content $f -TotalCount 40
+            }
+          }
       # wdio.conf.mjs auto-resolves target/release/mailwoman-desktop.exe (repo-root
       # relative) and reads MSEDGEDRIVER from the env set above.
       - name: run desktop live E2E (tauri-driver + WebdriverIO)
@@ -1925,6 +2026,52 @@ jobs:
       - name: mock-assist logs on failure
         if: failure()
         run: docker compose -f docker-compose.ci.yml logs --no-color mock-assist
+      - name: tear down
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v
+
+  # egress-squid (t24-e16) — the routed-egress transport against a REAL forward
+  # proxy: crates/mw-server/tests/t22_egress_live.rs.
+  #
+  # WHY THIS JOB DID NOT EXIST AND SHOULD HAVE. No workflow booted Squid, so
+  # `MW_T22_SQUID` was never set and **both** of that file's tests skipped in
+  # every run since t22 added them. The routed-egress path had never once been
+  # exercised in CI — found while auditing which live guards no job asserts.
+  #
+  # What it actually pins down: stock Squid restricts CONNECT to `SSL_ports`, so a
+  # plaintext route is refused by SQUID rather than by us, and the suite asserts
+  # WHICH refusal that produces. t22-e11 split `ProxyAuthRejected` out of
+  # `ProxyRejected` deliberately — an HTTP 403 has to stay `ProxyRejected`,
+  # because it is the proxy refusing the DESTINATION, not rejecting our
+  # credentials. An operator told "check your proxy password" when the real answer
+  # is "your proxy will not reach that host" has been sent to the wrong place.
+  # This is the only thing in CI that checks that split against a proxy nobody
+  # here wrote, and the compose service mounts NO config for exactly that reason:
+  # Squid's own defaults are the thing under test.
+  #
+  # Needs outbound network — Squid resolves and dials the origin itself.
+  egress-squid:
+    runs-on: ubuntu-latest
+    needs: [rust]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: Swatinem/rust-cache@v2
+      - name: boot squid (wait healthy)
+        run: docker compose -f docker-compose.ci.yml up -d --wait squid
+      - name: routed egress through a real Squid (CONNECT allowed on 443, refused on 80)
+        env:
+          MW_T22_SQUID: "127.0.0.1:3128"
+          # The whole point of the job. Without this the leg would go back to
+          # skipping the moment the service failed to come up, and the job would
+          # stay green having verified nothing — which is exactly the state it was
+          # in before this job existed. `all` rather than a list: this step boots
+          # and exports the one guard the file has.
+          MW_REQUIRE_LIVE: "all"
+        run: cargo test -p mw-server --test t22_egress_live -- --nocapture
+      - name: squid logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.ci.yml logs --no-color squid
       - name: tear down
         if: always()
         run: docker compose -f docker-compose.ci.yml down -v
