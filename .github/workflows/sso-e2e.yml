@@ -58,9 +58,22 @@ jobs:
         # export MW_SSO_SEED_DB, uses `all`.
         env:
           MW_REQUIRE_LIVE: "MW_SSO_LIVE"
+          MW_TEST_SKIP_LOG: ${{ github.workspace }}/skip-log.txt
         run: |
           MW_SSO_LIVE=1 cargo test -p mw-server --test sso_live \
             -- --nocapture --test-threads=1
+      # MARKER ONLY — never fails the job. Counts the skips a LIST cannot assert
+      # (t24-e18's UNMATCHED line); only list-mode steps need it, since `all`
+      # already asserts a variable-less reason. The `|| true` must stay: `grep -c`
+      # exits non-zero when it matches nothing, so a clean run would fail the step.
+      # A skip cited here is one no variable names — read it, do not assume it is
+      # the seeder.
+      - name: skips MW_REQUIRE_LIVE could not assert (marker only, never fails)
+        if: always()
+        run: |
+          n=$(grep -c '^UNMATCHED ' skip-log.txt 2>/dev/null || true)
+          echo "UNMATCHED: ${n:-0} skip(s) outside the list's reach"
+          grep '^UNMATCHED ' skip-log.txt 2>/dev/null || true
 
       # ── 2. Browser gate: seed a standing SSO server + drive the real UI ──
       - name: Seed the standing SSO db (both backends → live Keycloak)

@@ -59,7 +59,21 @@ jobs:
           # SORT/THREAD, which is a CAPABILITY, not a gate
           MW_REQUIRE_LIVE: "MW_IMAP_LIVE"
           MW_IMAP_LIVE: "1"
+          MW_TEST_SKIP_LOG: ${{ github.workspace }}/skip-log.txt
         run: cargo test -p mw-server --test t12_imap_sort_thread -- --nocapture --test-threads=1
+      # MARKER ONLY — never fails the job. Counts the skips a LIST cannot assert
+      # (t24-e18's UNMATCHED line); `all`-mode steps need none, since a
+      # variable-less reason is already asserted there. Here it is genuinely
+      # informative: :86 and :139 skip on a missing SORT/THREAD CAPABILITY, which
+      # names no variable by design, so this is where "Dovecot came up but does not
+      # advertise what we need" becomes visible instead of passing quietly.
+      # The `|| true` must stay — `grep -c` exits non-zero on no match.
+      - name: skips MW_REQUIRE_LIVE could not assert (marker only, never fails)
+        if: always()
+        run: |
+          n=$(grep -c '^UNMATCHED ' skip-log.txt 2>/dev/null || true)
+          echo "UNMATCHED: ${n:-0} skip(s) outside the list's reach"
+          grep '^UNMATCHED ' skip-log.txt 2>/dev/null || true
       - name: POP3 SCRAM-SHA-256 login vs real Dovecot
         env:
           # dovecot-sasl booted, MW_POP3_LIVE exported; :50 :61 :86

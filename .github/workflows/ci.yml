@@ -1443,6 +1443,10 @@ jobs:
           # A name the step never exports fails on the first skip, so a typo
           # cannot quietly require nothing.
           MW_REQUIRE_LIVE: "MW_E14_PG_DSN,DATABASE_URL_PG"
+          # Collect the skip records so the step below can count the ones the list
+          # above cannot speak to. Only list-mode steps need this: under `all` a
+          # variable-less reason is already asserted, so nothing is out of reach.
+          MW_TEST_SKIP_LOG: ${{ github.workspace }}/skip-log.txt
         # --test-threads=1: with MW_E14_PG_DSN set, several binaries (t15_upload,
         # t19_e2e, …) run more than one live-PG test against this ONE database,
         # and parallel tests in a binary race on the shared `_sqlx_migrations`
@@ -1479,6 +1483,25 @@ jobs:
         # unaffected: the live-Postgres `#[ignore]`d tests are lib and integration
         # tests, which is precisely what `--lib --tests` selects.
         run: cargo test -p mw-store -p mw-engine -p mw-server --no-fail-fast --lib --tests -- --include-ignored --test-threads=1
+      # MARKER ONLY — never fails the job. A skip whose reason names no gate
+      # variable cannot be asserted by a list, so it is invisible to
+      # MW_REQUIRE_LIVE; t24-e18's UNMATCHED line makes those countable, and this
+      # surfaces the count where it can be read.
+      #
+      # EXPECT 2 HERE (t17_tt_shell and integration): the web SPA and mw-render are
+      # not built in this job, so those two skips are BUILD preconditions rather
+      # than live-service gates, which is why no variable names them. **A 0 here
+      # means this step is not reading the log, not that the tree got cleaner** —
+      # that is the failure mode to check for.
+      #
+      # `|| true` on the grep is deliberate and must stay: `grep -c` exits non-zero
+      # when it matches nothing, so a clean run would otherwise fail the step.
+      - name: skips MW_REQUIRE_LIVE could not assert (marker only, never fails)
+        if: always()
+        run: |
+          n=$(grep -c '^UNMATCHED ' skip-log.txt 2>/dev/null || true)
+          echo "UNMATCHED: ${n:-0} skip(s) outside the list's reach"
+          grep '^UNMATCHED ' skip-log.txt 2>/dev/null || true
       - name: postgres logs on failure
         if: failure()
         run: docker compose -f docker-compose.ci.yml logs --no-color postgres
@@ -1510,7 +1533,19 @@ jobs:
           # Without this, `pg_dsn()` returning None makes the single test SKIP and
           # the job reports success having migrated nothing.
           MW_REQUIRE_LIVE: "DATABASE_URL_PG"
+          MW_TEST_SKIP_LOG: ${{ github.workspace }}/skip-log.txt
         run: cargo test -p mw-store --test backend_parity migrate_store_sqlite_to_postgres -- --include-ignored --nocapture
+      # MARKER ONLY — never fails the job. See the note on the same step in
+      # `store-dual-backend`. EXPECT 0 here: this job runs one narrowly gated test
+      # whose only skip cites DATABASE_URL_PG, which the list names, so there is
+      # nothing outside its reach. A non-zero count here would be the interesting
+      # result — a skip nobody had accounted for.
+      - name: skips MW_REQUIRE_LIVE could not assert (marker only, never fails)
+        if: always()
+        run: |
+          n=$(grep -c '^UNMATCHED ' skip-log.txt 2>/dev/null || true)
+          echo "UNMATCHED: ${n:-0} skip(s) outside the list's reach"
+          grep '^UNMATCHED ' skip-log.txt 2>/dev/null || true
       - name: postgres logs on failure
         if: failure()
         run: docker compose -f docker-compose.ci.yml logs --no-color postgres
