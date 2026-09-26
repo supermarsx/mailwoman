@@ -1217,8 +1217,40 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
+      # The NDK path is published to $GITHUB_ENV here rather than relied on from
+      # the runner image. The steps below used `NDK_HOME: ${{ env.ANDROID_NDK_ROOT }}`,
+      # and in run 36258183808 that rendered as EMPTY — the log shows `NDK_HOME: `
+      # with no value, and `tauri android init` then failed with
+      # `failed to ensure Android environment: Android NDK invalid. Make sure the
+      # NDK_HOME environment variable has correct value.`
+      #
+      # Mechanism, established from the log rather than assumed:
+      # `ANDROID_NDK_ROOT` appears in ZERO step `env:` blocks in that run.
+      # `${{ env.X }}` resolves only against workflow-level `env:` and whatever a
+      # previous step wrote to `$GITHUB_ENV` — it does NOT see the runner's
+      # pre-existing process environment. `android-actions/setup-android`
+      # publishes `ANDROID_HOME` and `ANDROID_SDK_ROOT` that way (both are
+      # present in the log) but not `ANDROID_NDK_ROOT`, so the expression had
+      # nothing to resolve to and silently produced "".
+      #
+      # So the path is derived from the version actually installed, and asserted:
+      # an empty or wrong NDK_HOME previously travelled two steps before failing
+      # with a message that named the variable but not the reason.
       - name: install Android NDK
-        run: sdkmanager "ndk;27.0.12077973"
+        run: |
+          set -euo pipefail
+          ndk_version=27.0.12077973
+          sdkmanager "ndk;${ndk_version}"
+          ndk_home="${ANDROID_HOME:?ANDROID_HOME not set by setup-android}/ndk/${ndk_version}"
+          if [ ! -d "$ndk_home" ]; then
+            echo "NDK not found at $ndk_home after installing ndk;${ndk_version}." >&2
+            echo "Contents of ${ANDROID_HOME}/ndk:" >&2
+            ls -1 "${ANDROID_HOME}/ndk" >&2 || echo "  (no ndk directory at all)" >&2
+            exit 1
+          fi
+          echo "NDK_HOME=$ndk_home" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ndk_home" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$ndk_home"
       - uses: pnpm/action-setup@v4
         with:
           version: 11.12.0
@@ -1232,17 +1264,18 @@ jobs:
           pnpm -C apps/web install --frozen-lockfile
           pnpm -C apps/web build
           node scripts/emit-bundle-hash.mjs
+      # No step-level NDK_HOME: the install step above exports it to $GITHUB_ENV,
+      # so it applies here already. Re-deriving it from `${{ env.ANDROID_NDK_ROOT }}`
+      # is what rendered empty before, and repeating that indirection would only
+      # re-create the failure mode for no benefit.
       - name: tauri android init (generate gen/android)
-        env:
-          NDK_HOME: ${{ env.ANDROID_NDK_ROOT }}
         run: |
           pnpm -C apps/mobile install
           pnpm -C apps/mobile exec tauri android init --ci
       - name: merge tracked Kotlin plugins + manifest + Gradle deps
         run: python3 apps/mobile/src-tauri/android-src/merge.py
+      # Same as above: NDK_HOME comes from $GITHUB_ENV, not a re-derived expression.
       - name: tauri android build (APK)
-        env:
-          NDK_HOME: ${{ env.ANDROID_NDK_ROOT }}
         run: pnpm -C apps/mobile exec tauri android build --apk
       - name: upload APK
         if: always()
@@ -1356,6 +1389,23 @@ jobs:
       # this job, so the diagnostic cannot make anything worse, and it is
       # deliberately `if: always()`-free — it runs BEFORE the E2E so its output is
       # present whether or not the E2E then fails.
+      #
+      # IT ANSWERED, in run 36258183808:
+      #   SHELL STILL RUNNING after 20s (pid 2156).
+      #   [mailwoman] UI-bundle integrity OK: 254/254 files match (bundleHash 859c1ca0…)
+      #
+      # So the app starts, stays up, AND passes its own §7.4 integrity gate — which
+      # also retires the "the shell refuses to boot" hypothesis. Every candidate on
+      # our side of the line is now eliminated, and what remains is the
+      # tauri-driver <-> WebView2 <-> msedgedriver debug-port handshake: a
+      # dependency seam, not a workflow or shell defect. Reported rather than
+      # worked around; the next move belongs to whoever owns that seam, and the
+      # useful next datum is msedgedriver's own verbose log, which this job cannot
+      # obtain because tauri-driver owns the driver process.
+      #
+      # KEPT now that it has answered, on purpose: if the shell ever stops starting,
+      # this names that immediately instead of letting it surface as the same
+      # opaque driver error, and it re-checks the integrity gate for free.
       - name: diagnostic — does the desktop shell stay up when launched directly?
         shell: pwsh
         run: |
