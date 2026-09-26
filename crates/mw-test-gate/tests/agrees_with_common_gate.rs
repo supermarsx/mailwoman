@@ -23,6 +23,35 @@
 //! stderr, a log file), so calling both copies in one process would have each observe
 //! the other's effects. Their bodies are plumbing; every decision they make is made
 //! by one of the functions compared below.
+//!
+//! # The door this test used to leave open
+//!
+//! Comparing named functions can only see the **intersection** of the two copies. A
+//! function added to canonical alone is invisible to it: there is nothing to call on
+//! this side, so every comparison still passes while the two copies have stopped
+//! meaning the same thing. That is not hypothetical — t24-e18 added `is_unmatched`,
+//! `names_a_gate_variable` and `unmatched_line` to canonical and this file passed
+//! against the change. They are ported now, but the door stayed open for the next one.
+//!
+//! [`every_public_item_of_canonical_is_accounted_for`] closes it by asserting the
+//! **set**, not the intersection: it reads the canonical file as text, extracts every
+//! public item, and fails unless each is listed in [`COMPARED`] or [`NOT_COMPARED`]
+//! *and* actually named in this file's source. A new public item in canonical is then
+//! red by default and has to be deliberately classified.
+//!
+//! Its own discriminating power is tested rather than assumed
+//! ([`the_accounting_check_detects_a_canonical_only_addition`]), against the real
+//! canonical text with one synthetic function appended. That is the "add a scratch
+//! function and watch it go red" proof, done as an assertion instead of a one-off edit
+//! to a file three other lanes are committing to — so it holds for every future
+//! change, not just the one that motivated it.
+//!
+//! Worth knowing about the division of labour, because it is not what it looks like:
+//! dropping a [`COMPARED`] item from the copy is caught by **rustc**, not by this
+//! check — the matrix names it, so the crate stops compiling, which is stronger than a
+//! failing assertion. What the accounting check uniquely reaches is the two cases that
+//! compile cleanly: a public item added to canonical alone, and a [`NOT_COMPARED`]
+//! item dropped from the copy, which nothing here calls.
 
 // The canonical statement of the convention. Unused items are expected: this test
 // calls the deciding functions and ignores the stateful plumbing around them.
@@ -271,6 +300,185 @@ fn the_reasons_this_crate_was_added_for_are_assertable() {
             reason
         ));
     }
+}
+
+/// The two `pub const`s are what every message in both copies is formatted around, so
+/// a silent rename on one side would change what CI is told to set.
+#[test]
+fn the_public_constants_agree() {
+    assert_eq!(mw_test_gate::SKIP_LOG_VAR, canonical::SKIP_LOG_VAR);
+    assert_eq!(mw_test_gate::REQUIRE_LIVE_VAR, canonical::REQUIRE_LIVE_VAR);
+}
+
+// ── the set check: a public item added to canonical alone must go red ───────────
+
+/// Canonical's public items that this file compares, each paired with the spelling it
+/// is compared through. The pairing is what stops the list from claiming a comparison
+/// nobody wrote: `every_public_item_of_canonical_is_accounted_for` greps this very
+/// file for the spelling.
+const COMPARED: &[(&str, &str)] = &[
+    ("SKIP_LOG_VAR", "canonical::SKIP_LOG_VAR"),
+    ("REQUIRE_LIVE_VAR", "canonical::REQUIRE_LIVE_VAR"),
+    // Compared through the Debug spelling of every variant `parse` can produce.
+    ("Require", "canonical::Require"),
+    ("parse", "canonical::Require::parse"),
+    ("require_violation", "canonical::require_violation"),
+    ("pg_dsn_from", "canonical::pg_dsn_from"),
+    ("skip_line", "canonical::skip_line"),
+    ("require_failure", "canonical::require_failure"),
+    ("unmatched_line", "canonical::unmatched_line"),
+    ("is_unmatched", "canonical::is_unmatched"),
+    ("names_a_gate_variable", "canonical::names_a_gate_variable"),
+];
+
+/// Canonical's public items this file deliberately does **not** compare, because each
+/// reads or writes process-global state and two copies called in one process would
+/// observe each other. Every decision they make is made by something in [`COMPARED`].
+/// They must still be **present** in the copy.
+const NOT_COMPARED: &[&str] = &["from_env", "pg_dsn", "skip"];
+
+/// Every `pub` item name declared in a Rust source text, in order of appearance.
+fn public_items(src: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    for line in src.lines() {
+        let line = line.trim();
+        let Some(rest) = line.strip_prefix("pub ") else {
+            continue;
+        };
+        for kw in [
+            "fn ", "const ", "enum ", "struct ", "trait ", "type ", "mod ",
+        ] {
+            if let Some(tail) = rest.strip_prefix(kw) {
+                let name: String = tail
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .collect();
+                if !name.is_empty() {
+                    found.push(name);
+                }
+                break;
+            }
+        }
+    }
+    found
+}
+
+/// Everything wrong with the accounting between the two copies, as reader-facing
+/// complaints. Pure over the three texts so its discriminating power can be tested.
+fn accounting_complaints(canonical_src: &str, copy_src: &str, test_src: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let canon = public_items(canonical_src);
+    let copy = public_items(copy_src);
+
+    // 1. The door this check exists for: canonical grew a public item nobody classified.
+    for name in &canon {
+        let known =
+            COMPARED.iter().any(|(n, _)| n == name) || NOT_COMPARED.contains(&name.as_str());
+        if !known {
+            out.push(format!(
+                "`{name}` is public in mw-server/tests/common/gate.rs and this file neither \
+                 compares it nor records why not. Port it into mw-test-gate/src/lib.rs, then \
+                 add it to COMPARED with a matrix that exercises it — or to NOT_COMPARED with \
+                 the reason, in the module docs. Comparing only the functions both copies \
+                 happen to share is what let t24-e18's three additions through."
+            ));
+        }
+    }
+
+    // 2. Classified but not actually ported: the two copies cannot agree about an item
+    //    only one of them has.
+    for name in COMPARED
+        .iter()
+        .map(|(n, _)| *n)
+        .chain(NOT_COMPARED.iter().copied())
+    {
+        if canon.iter().any(|c| c == name) && !copy.iter().any(|c| c == name) {
+            out.push(format!(
+                "`{name}` is public in the canonical file and missing from \
+                 mw-test-gate/src/lib.rs — the copies have diverged."
+            ));
+        }
+    }
+
+    // 3. A COMPARED entry this file never actually calls. Without this the table could
+    //    silence complaint 1 by naming an item and comparing nothing.
+    for (name, spelling) in COMPARED {
+        if !test_src.contains(spelling) {
+            out.push(format!(
+                "COMPARED lists `{name}` but this file never names `{spelling}`, so nothing \
+                 compares it. Write the comparison or move it to NOT_COMPARED."
+            ));
+        }
+    }
+    out
+}
+
+fn canonical_src() -> String {
+    let p =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../mw-server/tests/common/gate.rs");
+    std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("read {}: {e}", p.display()))
+}
+
+fn copy_src() -> String {
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs");
+    std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("read {}: {e}", p.display()))
+}
+
+/// This file's own source, so a COMPARED entry cannot claim a comparison nobody wrote.
+const TEST_SRC: &str = include_str!("agrees_with_common_gate.rs");
+
+#[test]
+fn every_public_item_of_canonical_is_accounted_for() {
+    let complaints = accounting_complaints(&canonical_src(), &copy_src(), TEST_SRC);
+    assert!(
+        complaints.is_empty(),
+        "the two copies of the gate convention are out of step:\n  {}",
+        complaints.join("\n  ")
+    );
+}
+
+/// The check above is only worth having if it can actually see the divergence it was
+/// built for, so this drives it against the **real** canonical text with one extra
+/// public function appended — the "add a scratch function to canonical and watch it go
+/// red" proof, as a permanent assertion rather than a one-off edit to a file other
+/// lanes are committing to.
+#[test]
+fn the_accounting_check_detects_a_canonical_only_addition() {
+    let real = canonical_src();
+    let copy = copy_src();
+    assert!(
+        accounting_complaints(&real, &copy, TEST_SRC).is_empty(),
+        "precondition: the real pair must be clean before this proves anything"
+    );
+
+    let grown =
+        format!("{real}\npub fn a_scratch_function_only_canonical_has() -> bool {{ true }}\n");
+    let complaints = accounting_complaints(&grown, &copy, TEST_SRC);
+    // Exactly one: the item is unclassified. The "classified but not ported" complaint
+    // deliberately does not also fire — it only speaks about names the tables list, so
+    // an unclassified addition is reported once and for the right reason, rather than
+    // twice for reasons a reader would have to disentangle.
+    assert_eq!(
+        complaints.len(),
+        1,
+        "expected exactly the unclassified complaint, got: {complaints:#?}"
+    );
+    assert!(
+        complaints[0].contains("a_scratch_function_only_canonical_has")
+            && complaints[0].contains("neither compares it nor records why not"),
+        "the unclassified complaint must name the new function: {:?}",
+        complaints[0]
+    );
+
+    // And the mirror: an item classified and compared, but dropped from the copy.
+    let shrunk = copy.replace("pub fn is_unmatched(", "fn is_unmatched(");
+    let complaints = accounting_complaints(&real, &shrunk, TEST_SRC);
+    assert!(
+        complaints
+            .iter()
+            .any(|c| c.contains("`is_unmatched`") && c.contains("have diverged")),
+        "un-porting a compared function must be caught too: {complaints:#?}"
+    );
 }
 
 /// `require_failure` is two lines of `format!`, but it is the text a red CI job is
