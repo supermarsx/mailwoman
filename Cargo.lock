@@ -5611,6 +5611,7 @@ dependencies = [
  "mw-smtp",
  "mw-sso",
  "mw-store",
+ "mw-test-gate",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",

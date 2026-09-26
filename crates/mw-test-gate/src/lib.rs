@@ -1,59 +1,77 @@
-//! The skip/gate convention, in a crate a **library `src/` unit test** can reach.
+//! Env-gated legs: where a Postgres leg finds its DSN, and how a leg that did not
+//! run says so. **This crate is the canonical statement of that convention**;
+//! `crates/mw-server/tests/common/gate.rs` is a one-line re-export of it, kept so the
+//! ~70 test binaries that path-include `gate::…` go on working.
 //!
-//! # Why this crate exists at all
+//! A leg that returns early because its live service is not configured reports `ok` to
+//! libtest, the same as a leg that ran. The explanation those legs used to print went
+//! through `eprintln!`, which libtest captures for a passing test, so it was visible
+//! only under `--nocapture` and a gate log could not be read for what did not run
+//! (t23-e9-10).
 //!
-//! The convention itself is documented at length in
-//! `crates/mw-server/tests/common/gate.rs`, which is where it was built (t23-e9-10,
-//! t24-e18) and which remains the canonical statement of it. In one paragraph: a leg
-//! that returns early because its live service is not configured reports `ok` to
-//! libtest, exactly like a leg that ran, so [`skip`] writes a `SKIPPED` record to the
-//! process's stderr **handle** (libtest's capture intercepts only the print macros,
-//! so the line survives for a passing test), appends it to `$MW_TEST_SKIP_LOG` when
-//! that is set, and — when [`REQUIRE_LIVE_VAR`] says the running job exists to run
-//! this leg — panics instead of passing.
+//! [`skip`] writes to the process's stderr handle directly. libtest's capture only
+//! intercepts the print macros, so the line reaches the gate log for a passing test
+//! too. Grep a log for `^SKIPPED ` to list what a run did not cover. Set
+//! `MW_TEST_SKIP_LOG` to a file path to also collect the same lines there, one per
+//! skip, appended across test binaries.
 //!
-//! What this crate adds is **reach**. `common/gate.rs` is a file inside
-//! `mw-server/tests/`, consumed by `#[path = …]` includes. A test in another crate's
-//! `tests/` directory can include it (`mw-store/tests/backend_parity.rs` does), but a
-//! `#[cfg(test)]` module inside a *library's* `src/` cannot: the include would pull a
-//! file from outside the crate into that crate's own build, and `cargo package` for a
-//! crate that ships would then be packaging something it does not contain.
+//! Skipping is still a pass. A missing live rig is not a failure of the code under
+//! test; the defect was that a skip looked the same as a leg that ran.
 //!
-//! So six Postgres legs — three in `mw-engine/src/state.rs`, three in
-//! `mw-store/src/v2.rs` — were left outside `MW_REQUIRE_LIVE` when it landed, and
-//! under CI's `store-dual-backend` job they could still skip invisibly while the job
-//! stayed green. Four of them were worse than invisible to the switch: they reported
-//! through `eprintln!`, which libtest captures for a passing test, so they said
-//! nothing on either stream.
+//! That loudness still lands in a log nobody opens when the job is green, so a job
+//! that *boots* the service it tests can opt out of skipping with
+//! [`REQUIRE_LIVE_VAR`]. Its value names the gate variables that job has satisfied
+//! (`MW_REQUIRE_LIVE=MW_E14_PG_DSN,DATABASE_URL_PG`), or the single token `all`.
+//! A skip that cites one of those variables then fails the test instead of passing
+//! it. Unset — every local run, and every job that does not boot the service —
+//! behaviour is unchanged.
 //!
-//! This crate is taken as a **dev-dependency**, which a `src/` `#[cfg(test)]` module
-//! may use freely and which Cargo strips from the published manifest (a `path`
-//! dev-dependency with no `version`), so those legs get the gate without either
-//! crate's package changing.
+//! The value is a list rather than a flag because the broad jobs run test binaries
+//! whose other legs are gated on services they deliberately do not boot:
+//! `store-dual-backend` runs the whole `mw-server` suite against Postgres, and its
+//! Dovecot and OpenLDAP legs must still be free to skip. `all` is for a job that
+//! runs one narrowly gated target, where any skip at all means the job did not do
+//! its work.
 //!
-//! # Relationship to `common/gate.rs`
+//! A list decides by matching the reason, so it cannot speak to a skip whose reason
+//! names no variable — coverage held by convention in free text is coverage that
+//! decays. Those skips get a second `UNMATCHED` line, so the gap is greppable in
+//! exactly the job that asked to be strict (`grep -c '^UNMATCHED '`) instead of
+//! silent. It is a marker and never a failure: the skips it fires for are build
+//! preconditions rather than live-service gates.
 //!
-//! This is a **copy**, not a re-export, and that is a first step rather than a
-//! preference: making the two share one implementation means editing
-//! `common/gate.rs`, which another lane was editing when this landed. The end state
-//! is for that file to become a thin re-export of this crate and for the equivalence
-//! test below to be deleted as redundant.
+//! # Why this is a crate and not a file (t25-e1)
 //!
-//! Until then the copy is not held together by a comment.
-//! `tests/agrees_with_common_gate.rs` path-includes the canonical file and asserts
-//! that every function that *decides* something — [`Require::parse`],
-//! [`require_violation`], [`skip_line`], [`unmatched_line`], [`is_unmatched`],
-//! [`names_a_gate_variable`], [`pg_dsn_from`], [`require_failure`] — returns the same
-//! answer for the same input, across a matrix that reaches every branch of each. If
-//! the canonical file moves and this copy does not, that test goes red and names the
-//! input the two disagree on.
+//! It began as `mw-server/tests/common/gate.rs`, consumed by `#[path]` includes. A
+//! test in another crate's `tests/` directory can include it, but a `#[cfg(test)]`
+//! module inside a *library's* `src/` cannot: the include pulls a file from outside
+//! the crate into that crate's own build, and `cargo package` would then be packaging
+//! something the crate does not contain. Six Postgres legs — three in
+//! `mw-engine/src/state.rs`, three in `mw-store/src/v2.rs` — sat outside
+//! `MW_REQUIRE_LIVE` for exactly that reason, four of them reporting through
+//! `eprintln!` and so saying nothing on either stream.
+//!
+//! A crate is reachable from both places as a **dev-dependency**, which a `src/`
+//! `#[cfg(test)]` module may use freely and which Cargo strips from the published
+//! manifest when it carries a `path` and no `version`. So those legs got the gate
+//! without either shipping crate's package changing.
+//!
+//! It was briefly a *copy* of `gate.rs`, held in step by a parity test. That test
+//! compared answers, so it could only see the **intersection** of the two public
+//! surfaces: when t24-e18 added `is_unmatched`, `names_a_gate_variable` and
+//! `unmatched_line` to `gate.rs` alone, the parity test passed. Widening it to compare
+//! the *set* closed that door, but a re-export makes divergence **impossible** rather
+//! than detectable, so the copy and its parity test are gone.
+//!
+//! This crate links nothing but `std`, and `tests/no_dependencies.rs` fails if that
+//! changes — it is a dev-dependency of `mw-engine`, `mw-store` and `mw-server`, so
+//! anything it linked would enter the dev-dependency closure of most of the workspace.
 //!
 //! # Using it
 //!
-//! `text` rather than `ignore` on both blocks below, deliberately: an `ignore` block
-//! is still a doctest target, and the workspace's doctest inventory is a documented
-//! figure (`docs/testing/coverage.md`) that a test-support crate has no business
-//! moving. Neither block is runnable anyway — one is a manifest fragment.
+//! `text` rather than `ignore` on both blocks below, deliberately: an `ignore` block is
+//! still a doctest target, and the workspace doctest inventory is a figure
+//! `docs/testing/coverage.md` records. Neither block is runnable anyway.
 //!
 //! ```text
 //! # crates/<crate>/Cargo.toml
@@ -72,7 +90,8 @@
 //! `MW_REQUIRE_LIVE`'s list form decides whether a skip is a failure by looking for
 //! those names in the reason, so a reason that omits them describes a leg no job can
 //! assert — and [`is_unmatched`] will say so on stderr rather than let it pass for
-//! covered.
+//! covered. `tests/the_gated_legs_are_assertable.rs` pins that for the six legs this
+//! crate was added for.
 
 use std::fs::OpenOptions;
 use std::io::Write;

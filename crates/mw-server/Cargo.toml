@@ -137,6 +137,12 @@ opentelemetry_sdk = { version = "0.31", features = ["rt-tokio", "trace", "metric
 tracing-opentelemetry = { workspace = true }
 
 [dev-dependencies]
+# t25-e1: `tests/common/gate.rs` is now a re-export of this crate, which is where the
+# skip/gate convention lives — it had to move out of `tests/` so `mw-engine`'s and
+# `mw-store`'s library `#[cfg(test)]` modules could reach it without a `#[path]`
+# include that breaks `cargo package`. No `version` key, so Cargo strips it from the
+# published manifest; it links nothing but `std`.
+mw-test-gate = { workspace = true }
 mw-mock-jmap = { workspace = true }
 # t16 (26.16, e3): the integration test computes valid TOTP codes + decodes the
 # base32 enrolment secret to prove the login 2FA gate end-to-end.
