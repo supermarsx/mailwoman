@@ -9,9 +9,12 @@
 //! backend-independent result snapshot must be byte-identical.
 
 use mw_store::{
-    AccountKind, AddressBookRow, AuditRow, CalendarRow, ContactRow, Credentials, EventInstanceRow,
-    EventRow, MailboxUpsert, MessageUpsert, NewAccount, NoteRow, ServerKey, SsoConfigRow, Store,
-    StoreKeyMaterialRow, SubmissionRow, TwofaPolicyRow, WebauthnCredentialRow, ZeroAccessRow,
+    AccountKind, AddressBookRow, AssistConfigRow, AuditRow, BridgeAccountRow, BridgeOauthTokenRow,
+    CacheScopeRow, CalendarRow, ContactRow, Credentials, EventInstanceRow, EventRow,
+    EwsAccountCred, MailboxUpsert, MaskedEmailRow, MessageUpsert, NewAccount, NoteRow,
+    NotificationRulesRow, PasswdConfigRow, PluginKvLimits, ServerKey, SignatureRow, SsoConfigRow,
+    Store, StoreKeyMaterialRow, SubmissionRow, TwofaPolicyRow, WebauthnCredentialRow,
+    ZeroAccessRow,
 };
 
 // Test-support helper; not part of the shipped `mw-store` library, so it is
@@ -56,7 +59,10 @@ const ALL_TABLES: &str = "sessions, settings, accounts, mailboxes, messages, bod
     dlp_audit, sender_controls, store_key_material, push_subscriptions, push_config, \
     native_sessions, sso_config, sso_login_audit, quotas, zeroaccess_accounts, \
     crypto_changes, audit_log, twofa_policy, totp_secrets, webauthn_credentials, \
-    recovery_codes";
+    recovery_codes, passwd_config, signatures, notification_rules, \
+    remote_image_grants, masked_email, ews_account_cred, bridge_accounts, \
+    bridge_oauth_tokens, uploaded_blobs, message_embeddings, plugin_kv, \
+    assist_config, cache_scope, password_change_audit, assist_audit";
 
 async fn truncate_pg(dsn: &str) {
     use sqlx::postgres::PgPoolOptions;
@@ -578,6 +584,215 @@ async fn run_ops(s: &Store) -> Vec<String> {
         s.list_unused_recovery_codes(&account).await.unwrap().len()
     ));
 
+    // ---- The remaining surfaces `migrate-store` carries as of 26.20 ----
+    // Sealed values are written through the store's own setters, so the migration
+    // assertions can require the destination to recover the PLAINTEXT rather than
+    // compare opaque bytes.
+    s.put_passwd_config(&PasswdConfigRow {
+        account_id: account.clone(),
+        config_json: r#"{"min_len":12}"#.into(),
+        force_change: true,
+        updated_at: "2026-07-21T00:00:00Z".into(),
+    })
+    .await
+    .unwrap();
+    out.push(format!(
+        "passwd_force_change={:?}",
+        s.get_passwd_config(&account)
+            .await
+            .unwrap()
+            .map(|c| c.force_change)
+    ));
+
+    s.upsert_signature(&SignatureRow {
+        account_id: account.clone(),
+        name: "work".into(),
+        body: "-- \nSent from Mailwoman".into(),
+        is_default: true,
+        rule_json: r#"{"apply":"replies"}"#.into(),
+        updated_at: String::new(), // setter stamps it
+    })
+    .await
+    .unwrap();
+    out.push(format!(
+        "signatures={}",
+        s.list_signatures(&account).await.unwrap().len()
+    ));
+
+    s.put_notification_rules(&NotificationRulesRow {
+        account_id: account.clone(),
+        rule_json: r#"{"vip":["boss@example"]}"#.into(),
+        quiet_hours_json: r#"{"from":"22:00","to":"07:00"}"#.into(),
+        enabled: true,
+        updated_at: String::new(),
+    })
+    .await
+    .unwrap();
+    out.push(format!(
+        "notif_enabled={:?}",
+        s.get_notification_rules(&account)
+            .await
+            .unwrap()
+            .map(|n| n.enabled)
+    ));
+
+    // One live grant and one revoked, so the copy is checked on both states.
+    s.grant_remote_image(&account, "per-sender", "news@example")
+        .await
+        .unwrap();
+    s.grant_remote_image(&account, "per-domain", "ads.example")
+        .await
+        .unwrap();
+    s.revoke_remote_image(&account, "per-domain", "ads.example")
+        .await
+        .unwrap();
+    out.push(format!(
+        "image_grant_live={}",
+        s.is_remote_image_granted(&account, "per-sender", "news@example")
+            .await
+            .unwrap()
+    ));
+
+    s.put_masked_email(&MaskedEmailRow {
+        id: "mask-1".into(),
+        account_id: account.clone(),
+        alias_addr: "alias-1@masked.example".into(),
+        target_desc: "shopping".into(),
+        state: "enabled".into(),
+        created_at: "2026-07-21T00:00:00Z".into(),
+        last_used_at: None,
+    })
+    .await
+    .unwrap();
+    out.push(format!(
+        "masked_alias={:?}",
+        s.get_masked_email("mask-1")
+            .await
+            .unwrap()
+            .map(|m| m.alias_addr)
+    ));
+
+    s.put_ews_account_cred(&EwsAccountCred {
+        account_id: account.clone(),
+        endpoint: "https://ews.example/EWS/Exchange.asmx".into(),
+        endpoint_host: "ews.example".into(),
+        user: "ews-user".into(),
+        domain: "CORP".into(),
+        password: EWS_PASSWORD.into(),
+        workstation: "MW".into(),
+        enabled: true,
+    })
+    .await
+    .unwrap();
+    out.push(format!(
+        "ews_cred_opens={}",
+        s.get_ews_account_cred(&account)
+            .await
+            .unwrap()
+            .map(|c| c.password)
+            .as_deref()
+            == Some(EWS_PASSWORD)
+    ));
+
+    s.put_bridge_account(&BridgeAccountRow {
+        account_id: account.clone(),
+        bridge_id: "bridge-plugin-1".into(),
+        oauth_ref: Some("oauth-ref-1".into()),
+        extra_json: r#"{"folder":"All Mail"}"#.into(),
+    })
+    .await
+    .unwrap();
+    out.push(format!(
+        "bridge_accounts={}",
+        s.list_bridge_accounts().await.unwrap().len()
+    ));
+
+    s.put_bridge_oauth_token(&BridgeOauthTokenRow {
+        bridge_account_id: account.clone(),
+        access_token: BRIDGE_ACCESS_TOKEN.into(),
+        refresh_token: Some(BRIDGE_REFRESH_TOKEN.into()),
+        expires_at: "2026-12-31T00:00:00Z".into(),
+        scope: "mail.read".into(),
+        updated_at: "2026-07-21T00:00:00Z".into(),
+    })
+    .await
+    .unwrap();
+    out.push(format!(
+        "bridge_token_opens={}",
+        s.get_bridge_oauth_token(&account)
+            .await
+            .unwrap()
+            .map(|t| t.access_token)
+            .as_deref()
+            == Some(BRIDGE_ACCESS_TOKEN)
+    ));
+
+    s.put_message_embedding(&sid, &account, "text-embedding-3-small", EMBEDDING_VECTOR)
+        .await
+        .unwrap();
+    out.push(format!(
+        "embedding_opens={:?}",
+        s.get_message_embedding(&sid)
+            .await
+            .unwrap()
+            .map(|e| e.vector)
+    ));
+
+    s.plugin_kv_set(
+        "plugin-1",
+        &account,
+        "state",
+        PLUGIN_KV_VALUE,
+        &PluginKvLimits::default(),
+    )
+    .await
+    .unwrap();
+    out.push(format!(
+        "plugin_kv_opens={}",
+        s.plugin_kv_get("plugin-1", &account, "state")
+            .await
+            .unwrap()
+            .as_deref()
+            == Some(PLUGIN_KV_VALUE)
+    ));
+
+    s.put_assist_config(&AssistConfigRow {
+        scope: "deployment".into(),
+        adapters_json: r#"[{"kind":"openai-compatible"}]"#.into(),
+        capability_grants_json: r#"["summarize"]"#.into(),
+        data_ceilings_json: r#"{"folders":["INBOX"]}"#.into(),
+        enabled: true,
+    })
+    .await
+    .unwrap();
+    out.push(format!(
+        "assist_enabled={:?}",
+        s.get_assist_config("deployment")
+            .await
+            .unwrap()
+            .map(|a| a.enabled)
+    ));
+
+    s.upsert_cache_scope(&CacheScopeRow {
+        class: "mailbox-list".into(),
+        layers_json: r#"["memory","redis"]"#.into(),
+        ttl_secs: 300,
+    })
+    .await
+    .unwrap();
+    out.push(format!(
+        "cache_scope={}",
+        s.list_cache_scope().await.unwrap().len()
+    ));
+
+    s.put_password_change_audit(&account, "local", "ok")
+        .await
+        .unwrap();
+    s.put_assist_audit("u@e", "summarize", "INBOX", "api.example")
+        .await
+        .unwrap();
+    out.push("audits_appended".into());
+
     out
 }
 
@@ -586,6 +801,14 @@ async fn run_ops(s: &Store) -> Vec<String> {
 const TOTP_SECRET: &[u8] = b"totp-shared-secret-bytes";
 const RECOVERY_LIVE: &str = "argon2-hash-of-unused-code";
 const RECOVERY_SPENT: &str = "argon2-hash-of-already-used-code";
+
+/// Fixtures for the sealed surfaces copied in the final 26.20 round. Each is a
+/// plaintext the destination must be able to recover, not just a blob to compare.
+const EWS_PASSWORD: &str = "ews-upstream-password";
+const BRIDGE_ACCESS_TOKEN: &str = "bridge-access-token-value";
+const BRIDGE_REFRESH_TOKEN: &str = "bridge-refresh-token-value";
+const PLUGIN_KV_VALUE: &[u8] = b"plugin-sealed-state-value";
+const EMBEDDING_VECTOR: &[f32] = &[0.5, -0.25, 0.125, 1.0];
 
 /// Plaintexts sealed into `zeroaccess_accounts` by [`run_ops`], so a migration
 /// test can prove the copied key material still opens.
@@ -631,12 +854,7 @@ async fn migrate_store_sqlite_to_postgres() {
     };
 
     // Populate a temp SQLite file store via the public API.
-    let path = test_db::unique_file_path("mw-store-migrate", "src.sqlite");
-    let path_str = path.to_string_lossy().to_string();
-    let src = Store::open(&path_str, key()).await.unwrap();
-    let _snapshot = run_ops(&src).await;
-    let account = src.list_accounts().await.unwrap()[0].id.clone();
-    drop(src);
+    let (path_str, account, stable_id) = seed_migration_source("mw-store-migrate").await;
 
     // Migrate into a freshly-truncated Postgres backend sharing the same key.
     let _guard = pg_lock().lock().await;
@@ -656,11 +874,11 @@ async fn migrate_store_sqlite_to_postgres() {
         ("PUBLIC", &b"vapid-private"[..])
     );
 
-    // The five surfaces promoted out of `NOT_MIGRATED_UNCLASSIFIED` in 26.20,
+    // Every surface promoted out of `NOT_MIGRATED_UNCLASSIFIED` during 26.20,
     // asserted on the Postgres destination as well as the SQLite one — the blob
     // columns differ by dialect (BLOB vs BYTEA), so a wrapped key that opens on
     // SQLite is not evidence that it opens here.
-    assert_carried_surfaces(&pg, &account).await;
+    assert_carried_surfaces(&pg, &account, &stable_id, &DestRef::Postgres(dsn.clone())).await;
 
     // Row-count parity for a couple of representative tables (via SQLite source).
     let src_pool = sqlx::sqlite::SqlitePoolOptions::new()
@@ -683,9 +901,7 @@ async fn migrate_store_sqlite_to_postgres() {
     }
 
     drop(pg);
-    let _ = std::fs::remove_file(&path);
-    let _ = std::fs::remove_file(format!("{path_str}-wal"));
-    let _ = std::fs::remove_file(format!("{path_str}-shm"));
+    remove_sqlite_files(&path_str);
     eprintln!("[mw-store] migrate-store: RAN against Postgres and verified content + counts.");
 }
 
@@ -783,108 +999,28 @@ const NOT_MIGRATED_DELIBERATELY: &[(&str, &str)] = &[
          re-approval story as `plugins`.",
     ),
     (
+        "plugin_grants",
+        "0008: capability grants for plugins in `plugins`, which is itself not copied.          Copying them would silently re-arm capabilities for a plugin the admin has          NOT re-approved on the new deployment — the grant would already be there          when the plugin was re-installed under the same id. Fails CLOSED as it is:          no capability until an admin grants it again. Excluded for exactly the          reason `ui_plugin_grants` below already was.",
+    ),
+    (
         "ui_plugin_grants",
         "0010: admin-granted UI plugin capabilities. Omission fails CLOSED — no capability \
          is granted until an admin grants it again.",
     ),
 ];
 
-/// UNCLASSIFIED — NOT blessed. Tables whose omission has not been ruled a
-/// deliberate design choice: they hold per-account state, security enrolments,
-/// append-only audit history, or key material, and dropping them is at least
-/// arguably data loss. `(table, the open question)`.
+/// Formerly the UNCLASSIFIED list: tables whose omission had not been ruled a
+/// deliberate design choice. **It is empty, and that is the point.** Every one of
+/// the 76 schema tables is now either copied or listed in
+/// `NOT_MIGRATED_DELIBERATELY` with a reason — there is no third category where a
+/// table can sit un-argued.
 ///
-/// Each entry is a question for the follow-up task that decides, table by table,
-/// whether the migrator should copy it. Presence here means "undecided", never
-/// "fine to leave behind".
-///
-/// Five entries left this list in 26.20 by being answered rather than deleted:
-/// `zeroaccess_accounts`, `crypto_changes`, `audit_log`, `twofa_policy` and
-/// `quotas` are now copied, and `totp_secrets`, `webauthn_credentials` and
-/// `recovery_codes` followed once copying the policy without the enrolments
-/// proved to be its own lockout. That is what an entry here is for.
-const NOT_MIGRATED_UNCLASSIFIED: &[(&str, &str)] = &[
-    (
-        "passwd_config",
-        "0008: per-account password policy and the force-change-on-next-login flag; the flag \
-         silently clears.",
-    ),
-    (
-        "signatures",
-        "0017: user-authored signature bodies and their auto-apply rules. Author content, not \
-         deployment config. (`identities.signature_*` IS copied — these are not.)",
-    ),
-    (
-        "notification_rules",
-        "0017: per-account notification rules and quiet hours.",
-    ),
-    (
-        "remote_image_grants",
-        "0016: per-account remote-image privacy decisions. Fails closed (images re-prompt) but \
-         is still user state.",
-    ),
-    (
-        "masked_email",
-        "0010 (SPEC §28.4): per-account alias addresses. Losing the rows does not stop mail \
-         arriving at the alias, so the destination cannot attribute or manage it.",
-    ),
-    (
-        "uploaded_blobs",
-        "0012: metadata for uploaded attachment objects. The objects live on the upload \
-         backend; without these rows they are orphaned and unfetchable.",
-    ),
-    (
-        "message_embeddings",
-        "0022: per-message sealed vectors. Derived data — recomputable, but only by re-running \
-         the embedder over the whole store.",
-    ),
-    (
-        "ews_account_cred",
-        "0011: per-account EWS endpoint + sealed credential. An account binding, in the same \
-         family as `accounts.sealed_creds`, which IS copied.",
-    ),
-    (
-        "bridge_accounts",
-        "0008: which account is served by which bridge plugin, plus its settings.",
-    ),
-    (
-        "bridge_oauth_tokens",
-        "0018: sealed bridge OAuth access/refresh tokens. Not copying forces every bridged \
-         account through re-consent.",
-    ),
-    (
-        "plugin_grants",
-        "0008: plugin capability grants, which may be account-scoped (a non-empty account_id) \
-         as well as deployment-wide.",
-    ),
-    (
-        "plugin_kv",
-        "0013: per-plugin, per-account SEALED plugin state with quota accounting — application \
-         data a plugin cannot regenerate.",
-    ),
-    (
-        "assist_config",
-        "0008: Assist configuration keyed by scope — 'deployment' AND 'user:<account_id>'. The \
-         per-user rows are not deployment config.",
-    ),
-    (
-        "cache_scope",
-        "0007: the per-CacheClass layer/TTL matrix. Reads as deployment tuning (a \
-         reclassification candidate), but it was never decided.",
-    ),
-    (
-        "sso_login_audit",
-        "0009: append-only SSO login outcomes (hashed subjects). Same history loss.",
-    ),
-    (
-        "password_change_audit",
-        "0008: append-only password-change outcomes. Same history loss.",
-    ),
-    (
-        "assist_audit",
-        "0008: append-only, content-free Assist capability audit. Same history loss.",
-    ),
-];
+/// The list is kept rather than deleted because the gate still reads it, so a new
+/// migration can be parked here with an open question instead of being forced into
+/// a decision before anyone has made one. An entry here is a debt, not a verdict:
+/// it started at 25 in 26.20 and was paid down to zero, 24 tables into `TABLES`
+/// and `plugin_grants` out to the deliberate list.
+const NOT_MIGRATED_UNCLASSIFIED: &[(&str, &str)] = &[];
 
 /// The completeness gate. Enumerates the LIVE schema and requires every table to
 /// be accounted for by exactly one of: copied by the migrator, deliberately
@@ -962,7 +1098,15 @@ async fn migrate_store_accounts_for_every_schema_table() {
     // it leaves rows behind between Postgres runs — which either breaks the next
     // migration on a duplicate key or, worse, lets a stale row satisfy an
     // assertion the copy should have satisfied. Hold it to the same standard.
-    let truncated: BTreeSet<&str> = ALL_TABLES.split(',').map(str::trim).collect();
+    let truncated_list: Vec<&str> = ALL_TABLES.split(',').map(str::trim).collect();
+    let truncated: BTreeSet<&str> = truncated_list.iter().copied().collect();
+    // Postgres rejects a TRUNCATE naming the same table twice, and the error names a
+    // line number rather than the mistake. Catch it here instead.
+    assert_eq!(
+        truncated_list.len(),
+        truncated.len(),
+        "ALL_TABLES lists a table more than once; TRUNCATE rejects duplicates"
+    );
     let untruncated: Vec<&str> = copied
         .iter()
         .copied()
@@ -992,7 +1136,8 @@ async fn migrate_store_accounts_for_every_schema_table() {
 
     eprintln!(
         "[mw-store] migrate-store schema coverage: {} schema tables = {} copied + {} \
-         deliberately skipped + {} UNCLASSIFIED (open questions, not blessed).",
+         deliberately skipped + {} unclassified (an unclassified table is an open \
+         question, not a blessing; zero means every table has been argued either way).",
         schema.len(),
         copied.len(),
         deliberate.len(),
@@ -1147,6 +1292,96 @@ async fn migrate_store_copies_every_column_of_every_copied_table() {
 // they fail on the pre-fix copier — the rows simply are not there.
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// A raw handle on the migration DESTINATION, for the handful of copied tables
+/// `mw-store` exposes no reader for (`uploaded_blobs` metadata without its object,
+/// and the `sso_login_audit` / `password_change_audit` / `assist_audit` append-only
+/// logs, which are write-only through the public API). Everything else is asserted
+/// through the store's own getters, which is always preferable — a getter proves
+/// the row is *usable*, a raw count only proves it is there.
+enum DestRef {
+    Sqlite(String),
+    Postgres(String),
+}
+
+impl DestRef {
+    /// `COUNT(*)` for `table`, optionally filtered by `where_sql` (no bind params —
+    /// callers pass literals they control).
+    async fn count(&self, table: &str, where_sql: &str) -> i64 {
+        let sql = if where_sql.is_empty() {
+            format!("SELECT COUNT(*) FROM \"{table}\"")
+        } else {
+            format!("SELECT COUNT(*) FROM \"{table}\" WHERE {where_sql}")
+        };
+        match self {
+            Self::Sqlite(path) => {
+                let pool = sqlx::sqlite::SqlitePoolOptions::new()
+                    .max_connections(1)
+                    .connect(&format!("sqlite://{path}?mode=ro"))
+                    .await
+                    .unwrap();
+                sqlx::query_scalar(&sql).fetch_one(&pool).await.unwrap()
+            }
+            Self::Postgres(dsn) => {
+                let pool = sqlx::postgres::PgPoolOptions::new()
+                    .max_connections(1)
+                    .connect(dsn)
+                    .await
+                    .unwrap();
+                sqlx::query_scalar(&sql).fetch_one(&pool).await.unwrap()
+            }
+        }
+    }
+}
+
+/// Write the one `uploaded_blobs` row the migration assertions look for, straight
+/// into the SQLite source at `path`.
+///
+/// Not written through `Store::put_upload` deliberately: that also seals and writes
+/// the object to an upload backend, and this suite injects none (a store without one
+/// fails closed by design). Wiring a real `FsUploadBackend` through every store
+/// construction here would be a larger change than the row it is testing, and the
+/// row is what `migrate-store` actually carries.
+async fn seed_uploaded_blob(path: &str, account: &str) {
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect(&format!("sqlite://{path}"))
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO uploaded_blobs \
+         (blob_id, account_id, content_type, size, storage_key, backend_kind, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+    )
+    .bind(UPLOAD_BLOB_ID)
+    .bind(account)
+    .bind("image/png")
+    .bind(2048_i64)
+    .bind(UPLOAD_STORAGE_KEY)
+    .bind("fs")
+    .bind("2026-07-21T00:00:00Z")
+    .execute(&pool)
+    .await
+    .unwrap();
+}
+
+const UPLOAD_BLOB_ID: &str = "U0123456789abcdef";
+const UPLOAD_STORAGE_KEY: &str = "0123456789abcdef";
+
+/// The one message stable id in a seeded source store, read from the SOURCE so the
+/// migration assertions compare against an expectation rather than against whatever
+/// the destination happens to hold.
+async fn source_stable_id(path: &str) -> String {
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect(&format!("sqlite://{path}?mode=ro"))
+        .await
+        .unwrap();
+    sqlx::query_scalar("SELECT stable_id FROM messages LIMIT 1")
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+}
+
 /// Assert that everything [`run_ops`] wrote into the five newly-copied tables
 /// survived a `migrate-store` into `dest`, which must be open under [`key`].
 ///
@@ -1155,7 +1390,7 @@ async fn migrate_store_copies_every_column_of_every_copied_table() {
 /// plaintext into it on the source and requires the destination's bytes to still
 /// *open* to that plaintext. A row that arrived corrupt, truncated, or
 /// re-encrypted under a different key would pass a presence check and fail here.
-async fn assert_carried_surfaces(dest: &Store, account: &str) {
+async fn assert_carried_surfaces(dest: &Store, account: &str, stable_id: &str, raw: &DestRef) {
     // Collected rather than asserted one at a time, so a copier that drops all
     // five names all five in a single run instead of one per fix cycle.
     let mut lost: Vec<String> = Vec::new();
@@ -1370,6 +1605,210 @@ async fn assert_carried_surfaces(dest: &Store, account: &str) {
         ));
     }
 
+    // ── Per-account settings and content ─────────────────────────────────────
+    if dest
+        .get_passwd_config(account)
+        .await
+        .unwrap()
+        .map(|c| c.force_change)
+        != Some(true)
+    {
+        lost.push(
+            "passwd_config: gone — the force-change-on-next-login flag cleared, so a \
+             user the operator had flagged walks in unchallenged"
+                .into(),
+        );
+    }
+
+    let sigs = dest.list_signatures(account).await.unwrap();
+    if !sigs
+        .iter()
+        .any(|s| s.name == "work" && s.body.contains("Sent from Mailwoman") && s.is_default)
+    {
+        lost.push(format!(
+            "signatures: the user's authored signature is gone ({} row(s) present)",
+            sigs.len()
+        ));
+    }
+
+    if dest
+        .get_notification_rules(account)
+        .await
+        .unwrap()
+        .map(|n| (n.enabled, n.quiet_hours_json.contains("22:00")))
+        != Some((true, true))
+    {
+        lost.push("notification_rules: per-account rules and quiet hours are gone".into());
+    }
+
+    // Live grant must survive AND the revoked one must stay revoked.
+    if !dest
+        .is_remote_image_granted(account, "per-sender", "news@example")
+        .await
+        .unwrap()
+    {
+        lost.push("remote_image_grants: the user's live grant is gone".into());
+    }
+    if dest
+        .is_remote_image_granted(account, "per-domain", "ads.example")
+        .await
+        .unwrap()
+    {
+        lost.push(
+            "remote_image_grants: a REVOKED grant came back live — `revoked` did not \
+             travel, so remote images the user turned off are permitted again"
+                .into(),
+        );
+    }
+
+    if dest
+        .get_masked_email("mask-1")
+        .await
+        .unwrap()
+        .map(|m| (m.alias_addr, m.state))
+        != Some(("alias-1@masked.example".into(), "enabled".into()))
+    {
+        lost.push(
+            "masked_email: the alias record is gone — mail still arrives at the alias \
+             but the destination cannot attribute, list or disable it"
+                .into(),
+        );
+    }
+
+    // ── Sealed account credentials: must OPEN, not merely arrive ─────────────
+    match dest.get_ews_account_cred(account).await.unwrap() {
+        None => lost.push(
+            "ews_account_cred: the account's EWS binding is gone, so its upstream \
+             mailbox stops syncing until someone re-enters the password"
+                .into(),
+        ),
+        Some(cred) => {
+            if cred.password != EWS_PASSWORD || cred.domain != "CORP" || !cred.enabled {
+                lost.push(
+                    "ews_account_cred: the sealed credential no longer opens to the \
+                     enrolled value — present but unusable"
+                        .into(),
+                );
+            }
+        }
+    }
+
+    if dest.list_bridge_accounts().await.unwrap().iter().all(|b| {
+        b.account_id != account
+            || b.bridge_id != "bridge-plugin-1"
+            || b.oauth_ref.as_deref() != Some("oauth-ref-1")
+    }) {
+        lost.push("bridge_accounts: the account's bridge binding is gone".into());
+    }
+
+    match dest.get_bridge_oauth_token(account).await.unwrap() {
+        None => lost.push(
+            "bridge_oauth_tokens: the sealed OAuth grant is gone — every bridged \
+             account is forced back through interactive re-consent"
+                .into(),
+        ),
+        Some(tok) => {
+            if tok.access_token != BRIDGE_ACCESS_TOKEN
+                || tok.refresh_token.as_deref() != Some(BRIDGE_REFRESH_TOKEN)
+            {
+                lost.push(
+                    "bridge_oauth_tokens: the sealed tokens no longer open to the \
+                     granted values"
+                        .into(),
+                );
+            }
+        }
+    }
+
+    // ── message_embeddings: the vector must unseal AND survive `dim` validation ─
+    // `get_message_embedding` checks the stored `dim` against the decoded vector
+    // length, so a truncated or mis-copied blob is rejected rather than returned.
+    match dest.get_message_embedding(stable_id).await.unwrap() {
+        None => lost.push(
+            "message_embeddings: the sealed vector is gone — semantic search must \
+             re-embed the whole store to recover"
+                .into(),
+        ),
+        Some(emb) => {
+            if emb.vector != EMBEDDING_VECTOR || emb.model != "text-embedding-3-small" {
+                lost.push("message_embeddings: the vector did not survive the copy intact".into());
+            }
+        }
+    }
+
+    // ── plugin_kv: sealed plugin state must open ─────────────────────────────
+    if dest
+        .plugin_kv_get("plugin-1", account, "state")
+        .await
+        .unwrap()
+        .as_deref()
+        != Some(PLUGIN_KV_VALUE)
+    {
+        lost.push(
+            "plugin_kv: the plugin's sealed state is gone or no longer opens — a \
+             plugin cannot regenerate it"
+                .into(),
+        );
+    }
+
+    // ── Deployment configuration that travels with the data ─────────────────
+    if dest
+        .get_assist_config("deployment")
+        .await
+        .unwrap()
+        .map(|a| (a.enabled, a.capability_grants_json))
+        != Some((true, r#"["summarize"]"#.into()))
+    {
+        lost.push("assist_config: the Assist configuration and its grants are gone".into());
+    }
+    if !dest
+        .list_cache_scope()
+        .await
+        .unwrap()
+        .iter()
+        .any(|c| c.class == "mailbox-list" && c.ttl_secs == 300)
+    {
+        lost.push("cache_scope: the operator's cache tuning is gone".into());
+    }
+
+    // ── The write-only tables, checked raw ───────────────────────────────────
+    // `mw-store` exposes no reader for these, so a row count is all that is
+    // available. For the three audit logs that is also all that is needed: they are
+    // append-only and content-free, and a row either arrived or did not.
+    if raw
+        .count(
+            "uploaded_blobs",
+            &format!("blob_id = '{UPLOAD_BLOB_ID}' AND storage_key = '{UPLOAD_STORAGE_KEY}'"),
+        )
+        .await
+        != 1
+    {
+        lost.push(
+            "uploaded_blobs: the attachment metadata is gone — the sealed objects on \
+             the upload backend become unreachable and the gc sweep cannot see them"
+                .into(),
+        );
+    }
+    // NOTE ON WHAT THIS DOES NOT PROVE: the object itself lives on the upload
+    // backend, outside this database, and `migrate-store` does not move it. This
+    // asserts the metadata survives with the `storage_key` that locates the object —
+    // not that a `get_upload` succeeds, which would additionally require the upload
+    // directory to have been carried across. That operator step is documented in
+    // docs/deploy/postgres.md.
+
+    for (table, what) in [
+        ("sso_login_audit", "SSO login history (hashed subjects)"),
+        ("password_change_audit", "password-change history"),
+        ("assist_audit", "Assist capability-use history"),
+    ] {
+        if raw.count(table, "").await < 1 {
+            lost.push(format!(
+                "{table}: the {what} did not survive the copy — the table is \
+                 append-only, so a migration is the only thing that can erase it"
+            ));
+        }
+    }
+
     assert!(
         lost.is_empty(),
         "`migrate-store` lost {} surface(s) that must survive a store move:\n  - {}",
@@ -1378,32 +1817,54 @@ async fn assert_carried_surfaces(dest: &Store, account: &str) {
     );
 }
 
-/// Populate a SQLite source, migrate it, and return `(dest, account_id)`.
-async fn migrate_into(dest: Store) -> (Store, String) {
-    let path = test_db::unique_file_path("mw-store-carry", "src.sqlite");
+/// Seed a SQLite source store and return `(path, account_id, stable_id)`. The
+/// caller migrates it into whichever destination it wants to assert on.
+async fn seed_migration_source(tag: &str) -> (String, String, String) {
+    let path = test_db::unique_file_path(tag, "src.sqlite");
     let path_str = path.to_string_lossy().to_string();
     let src = Store::open(&path_str, key()).await.unwrap();
     let _ = run_ops(&src).await;
     let account = src.list_accounts().await.unwrap()[0].id.clone();
     drop(src);
+    seed_uploaded_blob(&path_str, &account).await;
+    let stable_id = source_stable_id(&path_str).await;
+    (path_str, account, stable_id)
+}
 
-    dest.migrate_from_sqlite(&path_str).await.unwrap();
-
-    let _ = std::fs::remove_file(&path);
+fn remove_sqlite_files(path_str: &str) {
+    let _ = std::fs::remove_file(path_str);
     let _ = std::fs::remove_file(format!("{path_str}-wal"));
     let _ = std::fs::remove_file(format!("{path_str}-shm"));
-    (dest, account)
 }
 
 /// SQLite destination. Runs unconditionally, so the regression is caught on any
 /// machine; the Postgres leg is asserted by `migrate_store_sqlite_to_postgres`.
 #[tokio::test]
 async fn migrate_store_carries_zero_access_and_policy_rows_sqlite() {
-    let (dest, account) = migrate_into(Store::open_in_memory(key()).await.unwrap()).await;
-    assert_carried_surfaces(&dest, &account).await;
+    let (src_path, account, stable_id) = seed_migration_source("mw-store-carry-src").await;
+
+    // A FILE-backed destination, not in-memory: a few copied tables have no reader
+    // on `Store`, so the assertions need to reach the destination with raw SQL.
+    let dest_path = test_db::unique_file_path("mw-store-carry-dest", "dest.sqlite");
+    let dest_path_str = dest_path.to_string_lossy().to_string();
+    let dest = Store::open(&dest_path_str, key()).await.unwrap();
+    dest.migrate_from_sqlite(&src_path).await.unwrap();
+
+    assert_carried_surfaces(
+        &dest,
+        &account,
+        &stable_id,
+        &DestRef::Sqlite(dest_path_str.clone()),
+    )
+    .await;
+
+    drop(dest);
+    remove_sqlite_files(&src_path);
+    remove_sqlite_files(&dest_path_str);
     eprintln!(
-        "[mw-store] migrate-store: zero-access key, 2FA policy AND its enrolments (TOTP \
-         secret, passkey, recovery codes), quota, audit log and crypto change-feed \
-         carried (SQLite destination)."
+        "[mw-store] migrate-store: zero-access key, 2FA policy AND its enrolments, \
+         per-account settings and content, sealed EWS/bridge credentials, upload \
+         metadata, embeddings, plugin state, Assist/cache config and all four \
+         append-only audit logs carried (SQLite destination)."
     );
 }

@@ -49,63 +49,60 @@ wrapped keys, webhook secrets) are copied as opaque bytes and are never opened o
 re-encrypted on the way, so the source and destination **must share the same
 `MW_SERVER_KEY`** — without it the copied bytes are unreadable on the destination.
 
-**It does not copy the whole database.** As of migration 0029 it copies 43 of the 76
-tables the schema defines. What is left behind is listed below; read it before cutting
-over.
+**It does not copy the whole database, but it now copies nearly all of it.** As of
+migration 0029 it copies 59 of the 76 tables the schema defines. The other 17 are left
+behind deliberately, listed below. There is no longer an undecided remainder.
 
-```sh
-export MW_SERVER_KEY="…the key your SQLite deployment already uses…"
+### What is not copied — 17 tables, all deliberate
 
-mailwoman migrate-store \
-  --from "sqlite://var/lib/mailwoman/mailwoman.db" \
-  --to   "postgres://mailwoman:secret@db.internal:5432/mailwoman"
-# → migrated N rows across M tables from … → …
-```
+The admin panel's own identity domain (`admin_users`, `admin_sessions`); OAuth clients
+and tokens (`oauth_clients`, `oauth_tokens`, `oauth_client_meta`, `oauth_dcr`);
+`api_keys`; `webhooks`; the managed-domain, directory, egress-proxy and SSO
+configuration (`domains`, `directory_config`, `egress_proxy`, `sso_config`); and the
+plugin registries and their capability grants (`plugins`, `plugin_allowlist`,
+`ui_plugins`, `plugin_grants`, `ui_plugin_grants`).
 
-`--from`/`--to` also read `MW_MIGRATE_FROM` / `MW_MIGRATE_TO`. The command is a copy,
-not a move: the SQLite file is left untouched, so you can verify the Postgres side and
-cut over by changing `MW_DB_PATH`, then retire the old file.
-
-### What is not copied
-
-**Deliberately left behind — 16 tables.** The admin panel's own identity domain
-(`admin_users`, `admin_sessions`), OAuth clients and tokens (`oauth_clients`,
-`oauth_tokens`, `oauth_client_meta`, `oauth_dcr`), `api_keys`, `webhooks`, the managed
-domain, directory, egress-proxy and SSO configuration (`domains`, `directory_config`,
-`egress_proxy`, `sso_config`), and the plugin registries and grants (`plugins`,
-`plugin_allowlist`, `ui_plugins`, `ui_plugin_grants`). These name the old deployment's
-hosts, redirect URIs and network position, or are live session state, so the
-destination starts empty and you re-configure them there. Plan for this: after cutting
-over you will need to bootstrap an admin login, re-mint API keys, and re-approve OAuth
-clients and plugins before those surfaces work again.
-
-**Not yet decided — 17 tables.** These are *not* blessed as safe to drop; no decision
-has been taken on them. They include user settings and content (`signatures`,
-`notification_rules`, `passwd_config`, `remote_image_grants`, `masked_email`),
-attachment upload metadata (`uploaded_blobs`), bridge and EWS account bindings, plugin
-state, and the remaining append-only audit logs (`sso_login_audit`,
-`password_change_audit`, `assist_audit`). **If your deployment relies on any of these,
-`migrate-store` will lose them — check before you cut over.** The full list, with a
-reason recorded per table, is `NOT_MIGRATED_UNCLASSIFIED` in
+These either name the old deployment's hosts and redirect URIs, or are live session
+state, or are deny-by-default surfaces an operator re-approves. **Plan for this:** after
+cutting over you will need to bootstrap an admin login, re-mint API keys, re-register
+webhooks, and re-approve OAuth clients and plugins before those surfaces work again.
+Each table's reason is recorded at its entry in `NOT_MIGRATED_DELIBERATELY` in
 `crates/mw-store/tests/backend_parity.rs`.
 
-Eight tables moved from that list into the copied set in 26.20 because leaving them
-behind lost data rather than deferring configuration: `zeroaccess_accounts` (the only
-copy of each account's wrapped root key — without it the destination cannot decrypt
-zero-access mail at all), `crypto_changes`, the `audit_log`, and `twofa_policy` and
-`quotas`, whose absence silently relaxed a protection on the destination. Copying the
-require-2FA policy without the enrolments then produced a lockout of its own — the
-destination demanded a second factor while holding none — so `totp_secrets`,
-`webauthn_credentials` and `recovery_codes` are copied too. A spent recovery code stays
-spent and the TOTP replay counter travels with the secret, so migrating does not hand
-back codes the account had already burned.
+The two grant tables deserve a word: `plugin_grants` and `ui_plugin_grants` are **not**
+copied on purpose, because the plugin registries they refer to are not copied either.
+Copying a grant would silently re-arm a capability for a plugin the admin has not
+re-approved on the new deployment. As it is, a re-installed plugin starts with no
+capabilities until someone grants them again.
 
-**One caveat on passkeys.** WebAuthn credentials are bound to the deployment's
-Relying Party ID — its domain. `migrate-store` changes the database backend, not the
-domain, so passkeys keep working across a normal cutover. If you also move the
-deployment to a **different domain**, enrolled passkeys stop verifying there; that is
-true whether or not the rows are copied, and users must re-enrol. TOTP secrets and
-recovery codes are unaffected by a domain change.
+### What the copy carries that you may not expect
+
+Everything else, including the things a store move most obviously must not lose: the
+zero-access wrapped root keys, every 2FA enrolment and the policy that requires them,
+all four append-only audit logs, sealed account and bridge credentials, per-account
+settings and user-authored content, message embeddings, plugin state, and the Assist and
+cache configuration. A spent recovery code stays spent, a revoked remote-image grant
+stays revoked, and the TOTP replay counter travels with the secret, so migrating never
+re-opens something the user or operator had closed.
+
+### Two things that live outside the database
+
+**Uploaded attachment objects.** `uploaded_blobs` rows carry the `storage_key` that
+locates each sealed object, but the objects themselves live on the upload backend (a
+filesystem directory, or S3), not in the database. `migrate-store` moves the database
+only. If you also change host or upload directory, **copy the upload store across as
+well**, or the metadata will point at objects that are not there.
+
+**Passkeys and the deployment domain.** WebAuthn credentials are bound to the
+deployment's Relying Party ID — its domain. `migrate-store` changes the database
+backend, not the domain, so passkeys keep working across a normal cutover. If you also
+move to a **different domain**, enrolled passkeys stop verifying there; that is true
+whether or not the rows are copied, and users must re-enrol. TOTP secrets and recovery
+codes are unaffected by a domain change.
+
+**Masked-email aliases** are copied, but alias *delivery* also depends on the `domains`
+routing configuration, which is not copied. Re-enter that routing on the new deployment
+or the aliases will be listed but undeliverable.
 
 ### What the tests check
 
@@ -114,10 +111,16 @@ not against the migrator's own report, so a table or column the copier never men
 still fails them:
 
 - `migrate_store_accounts_for_every_schema_table` — every table in the schema must be
-  copied or listed in one of the two lists above. A new migration fails it until
+  either copied or listed as deliberately not copied. A new migration fails it until
   someone classifies the table.
 - `migrate_store_copies_every_column_of_every_copied_table` — every column of every
-  copied table must appear in that table's copy spec.
+  copied table must appear in that table's copy spec, so a later `ALTER TABLE … ADD
+  COLUMN` cannot drift away from the copier unnoticed.
+- `migrate_store_carries_zero_access_and_policy_rows_sqlite`, and the same assertions on
+  the Postgres destination, require the copied surfaces to be *usable* and not merely
+  present: the wrapped root key, the TOTP secret, the EWS and bridge credentials and the
+  plugin state must all still open under the destination's key, and a recovery code must
+  still be accepted.
 
 Alongside them, the copy asserts row-count and content parity on a populated database
 against a live `postgres:16` (`migrate-store-smoke`), and a table-driven backend-parity

@@ -8,37 +8,48 @@
 //! references need not be inserted in dependency order — the whole graph is
 //! validated at commit.
 //!
-//! **The copy is not the whole schema.** `TABLES` below is the complete list of
-//! what is copied: as of migration 0029 that is 43 tables out of the 76 the
-//! migrations create. Everything else is left behind. An earlier version of this
-//! note claimed "only the 0001–0006 tables are copied; the 0007 admin/OAuth/
-//! webhook tables are provisioned empty"; that was never a full account of the
-//! split, and both halves were wrong — `crypto_changes` is a 0005 table that was
-//! *not* copied, while migrations 0008–0029 added tables the note never mentioned
-//! at all.
+//! **The copy is not the whole schema, but it is now nearly all of it.** `TABLES`
+//! below is the complete list of what is copied: as of migration 0029 that is 59
+//! tables out of the 76 the migrations create. The other 17 are left behind
+//! deliberately, each with its reason recorded at its entry in
+//! `NOT_MIGRATED_DELIBERATELY` in `tests/backend_parity.rs`: the admin panel's
+//! separate identity domain, OAuth clients and tokens, API keys, webhooks, the
+//! managed-domain/directory/egress/SSO configuration that names the OLD
+//! deployment's hosts, and the plugin registries and their capability grants,
+//! which are deny-by-default and re-approved by an operator.
 //!
-//! The real split is recorded table by table, with a reason for each, in two
-//! lists in `tests/backend_parity.rs`: `NOT_MIGRATED_DELIBERATELY` (live session
-//! state and admin/deployment surfaces an operator re-configures on the new host)
-//! and `NOT_MIGRATED_UNCLASSIFIED` (tables whose omission has *not* been ruled a
-//! design choice — 2FA enrolments, per-account settings, append-only audit logs
-//! and the zero-access wrapped root keys among them; open questions, not
-//! blessed). The test `migrate_store_accounts_for_every_schema_table` enumerates
-//! the live schema and fails if a table appears in neither `TABLES` nor one of
-//! those two lists, so a new migration cannot quietly join the left-behind set.
+//! There is no longer an "undecided" category. An earlier version of this note
+//! claimed "only the 0001–0006 tables are copied; the 0007 admin/OAuth/webhook
+//! tables are provisioned empty"; that was never a full account of the split, and
+//! both halves were wrong — `crypto_changes` is a 0005 table that was *not*
+//! copied, while migrations 0008–0029 added tables the note never mentioned.
+//!
+//! Two gates in `tests/backend_parity.rs` keep this honest, and both assert
+//! against the LIVE schema rather than against this module's own report:
+//! `migrate_store_accounts_for_every_schema_table` fails if a table appears in
+//! neither `TABLES` nor the deliberate list, and
 //! `migrate_store_copies_every_column_of_every_copied_table` does the same one
-//! level down, for the columns of each copied table.
+//! level down for the columns of each copied table. A new migration therefore
+//! cannot quietly join the left-behind set.
 //!
-//! Five tables moved out of the unclassified list and into `TABLES` in 26.20
-//! because leaving them behind was losing data, not deferring configuration:
-//! `zeroaccess_accounts` (the only copy of each account's wrapped root key —
-//! without it the destination cannot decrypt zero-access mail at all),
-//! `crypto_changes`, `audit_log` (append-only by invariant), and `twofa_policy`
-//! and `quotas`, whose absence silently *relaxed* a protection on the
-//! destination. Copying `twofa_policy` alone then left a migrated deployment
-//! requiring a second factor while carrying no enrolments, so `totp_secrets`,
-//! `webauthn_credentials` and `recovery_codes` followed in the same release —
-//! the four are one decision, not four.
+//! How the left-behind set shrank from 41 tables to 17 during 26.20, in the order
+//! the reasons were established: `zeroaccess_accounts` first, because it holds the
+//! only copy of each account's wrapped root key and without it the destination
+//! cannot decrypt zero-access mail at all; then `crypto_changes`, `audit_log`
+//! (append-only by invariant), and `twofa_policy`/`quotas`, whose absence silently
+//! *relaxed* a protection. Copying the require-2FA policy without the enrolments
+//! then produced a lockout of its own, so `totp_secrets`, `webauthn_credentials`
+//! and `recovery_codes` followed. The remaining sixteen — per-account settings and
+//! content, sealed account and bridge credentials, upload metadata, embeddings,
+//! plugin state, Assist and cache configuration, and the last three append-only
+//! audit logs — were copied once it was clear that every one of them was data a
+//! store move should carry rather than configuration an operator re-enters.
+//!
+//! `plugin_grants` is the one table that moved the *other* way, to deliberate: it
+//! grants capabilities to plugins in `plugins`, which is not copied, so copying it
+//! would silently re-arm capabilities for a plugin the admin has not re-approved on
+//! the new deployment. Its sibling `ui_plugin_grants` was already excluded for the
+//! same fail-closed reason.
 
 use crate::backend::{Arg, Backend, IntoArg, Row, Tx};
 use crate::{MigrationReport, Store, StoreError, backend, q};
@@ -251,6 +262,168 @@ const TABLES: &[TableSpec] = &[
             ]
         },
     },
+    // ── Remaining per-account surfaces (26.20). None of these declares a
+    // `REFERENCES` in either dialect — checked in `migrations/` and
+    // `migrations_pg/` table by table — so their position is unconstrained; they
+    // sit with `accounts` because that is what they hang off.
+    TableSpec {
+        name: "passwd_config",
+        // `force_change` is the force-change-on-next-login flag: uncopied it cleared
+        // silently, so a user the operator had flagged walked in unchallenged.
+        select: "SELECT account_id, config, force_change, updated_at FROM passwd_config",
+        insert: "INSERT INTO passwd_config (account_id, config, force_change, updated_at) VALUES (?1,?2,?3,?4)",
+        map: |r| {
+            vec![
+                t(r, "account_id"),
+                t(r, "config"),
+                i(r, "force_change"),
+                t(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "signatures",
+        // User-authored content. The `identities.signature_*` columns beside it were
+        // always copied, so leaving these behind lost half of one feature.
+        select: "SELECT account_id, name, body, is_default, rule_json, updated_at FROM signatures",
+        insert: "INSERT INTO signatures (account_id, name, body, is_default, rule_json, updated_at) VALUES (?1,?2,?3,?4,?5,?6)",
+        map: |r| {
+            vec![
+                t(r, "account_id"),
+                t(r, "name"),
+                t(r, "body"),
+                i(r, "is_default"),
+                t(r, "rule_json"),
+                t(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "notification_rules",
+        select: "SELECT account_id, rule_json, quiet_hours_json, enabled, updated_at FROM notification_rules",
+        insert: "INSERT INTO notification_rules (account_id, rule_json, quiet_hours_json, enabled, updated_at) VALUES (?1,?2,?3,?4,?5)",
+        map: |r| {
+            vec![
+                t(r, "account_id"),
+                t(r, "rule_json"),
+                t(r, "quiet_hours_json"),
+                i(r, "enabled"),
+                t(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "remote_image_grants",
+        // `revoked` is copied with the grant: a revoked grant must stay revoked, or
+        // the copy would silently re-permit remote images the user had turned off.
+        select: "SELECT account_id, scope_kind, scope_value, granted_at, revoked FROM remote_image_grants",
+        insert: "INSERT INTO remote_image_grants (account_id, scope_kind, scope_value, granted_at, revoked) VALUES (?1,?2,?3,?4,?5)",
+        map: |r| {
+            vec![
+                t(r, "account_id"),
+                t(r, "scope_kind"),
+                t(r, "scope_value"),
+                t(r, "granted_at"),
+                i(r, "revoked"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "masked_email",
+        // The alias records are the user's. Mail already flowing to an alias keeps
+        // arriving whether or not these rows travel; without them the destination
+        // cannot attribute, disable or list the alias. Note that alias DELIVERY also
+        // needs the `domains` routing, which is deliberately not copied — see the
+        // operator note in docs/deploy/postgres.md.
+        select: "SELECT id, account_id, alias_addr, target_desc, state, created_at, last_used_at FROM masked_email",
+        insert: "INSERT INTO masked_email (id, account_id, alias_addr, target_desc, state, created_at, last_used_at) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "account_id"),
+                t(r, "alias_addr"),
+                t(r, "target_desc"),
+                t(r, "state"),
+                t(r, "created_at"),
+                ot(r, "last_used_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "ews_account_cred",
+        // `sealed_cred` is the sealed {user, domain, password, workstation} quad — an
+        // account binding in the same family as `accounts.sealed_creds`, which was
+        // always copied. Opens on the destination under the shared `MW_SERVER_KEY`.
+        select: "SELECT account_id, endpoint, endpoint_host, sealed_cred, enabled, created_at, updated_at FROM ews_account_cred",
+        insert: "INSERT INTO ews_account_cred (account_id, endpoint, endpoint_host, sealed_cred, enabled, created_at, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        map: |r| {
+            vec![
+                t(r, "account_id"),
+                t(r, "endpoint"),
+                t(r, "endpoint_host"),
+                b(r, "sealed_cred"),
+                i(r, "enabled"),
+                t(r, "created_at"),
+                t(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "bridge_accounts",
+        // `bridge_id` names a `plugins.id`, and `plugins` is deliberately NOT copied
+        // (the operator re-approves plugins on the new deployment). Copying the
+        // binding is still right: it is the account's configuration, and a bridge
+        // cannot run until it is re-approved, so nothing is armed early.
+        select: "SELECT account_id, bridge_id, oauth_ref, extra FROM bridge_accounts",
+        insert: "INSERT INTO bridge_accounts (account_id, bridge_id, oauth_ref, extra) VALUES (?1,?2,?3,?4)",
+        map: |r| {
+            vec![
+                t(r, "account_id"),
+                t(r, "bridge_id"),
+                ot(r, "oauth_ref"),
+                t(r, "extra"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "bridge_oauth_tokens",
+        // Sealed access + refresh tokens. Uncopied, every bridged account was forced
+        // back through interactive re-consent after a backend swap.
+        select: "SELECT bridge_account_id, sealed_access_token, sealed_refresh_token, expires_at, scope, updated_at FROM bridge_oauth_tokens",
+        insert: "INSERT INTO bridge_oauth_tokens (bridge_account_id, sealed_access_token, sealed_refresh_token, expires_at, scope, updated_at) VALUES (?1,?2,?3,?4,?5,?6)",
+        map: |r| {
+            vec![
+                t(r, "bridge_account_id"),
+                b(r, "sealed_access_token"),
+                b(r, "sealed_refresh_token"),
+                t(r, "expires_at"),
+                t(r, "scope"),
+                t(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "uploaded_blobs",
+        // Metadata for sealed attachment objects that live on the UPLOAD BACKEND,
+        // not in this database. `storage_key` + `backend_kind` are how an object is
+        // found, so without these rows the objects are unreachable and the
+        // gc-uploads sweep has nothing to sweep. `migrate-store` moves the database
+        // only: if the deployment also changes host or upload directory, the objects
+        // must be moved alongside or these rows dangle. See docs/deploy/postgres.md.
+        select: "SELECT blob_id, account_id, content_type, size, storage_key, backend_kind, created_at FROM uploaded_blobs",
+        insert: "INSERT INTO uploaded_blobs (blob_id, account_id, content_type, size, storage_key, backend_kind, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        map: |r| {
+            vec![
+                t(r, "blob_id"),
+                t(r, "account_id"),
+                t(r, "content_type"),
+                i(r, "size"),
+                t(r, "storage_key"),
+                t(r, "backend_kind"),
+                t(r, "created_at"),
+            ]
+        },
+    },
     TableSpec {
         name: "mailboxes",
         select: "SELECT id, account_id, name, role, uidvalidity, uidnext, highestmodseq, total, unread, parent_id FROM mailboxes",
@@ -338,6 +511,26 @@ const TABLES: &[TableSpec] = &[
                 i(r, "pinned"),
                 ot(r, "snoozed_until"),
                 ot(r, "follow_up_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "message_embeddings",
+        // Per-message SEALED vectors, keyed by `messages.stable_id` (by value; no
+        // declared FK). Derived data, but only recomputable by re-running the
+        // embedder over the whole store, so a migration silently threw away work
+        // that costs real money and time to rebuild. `dim` is validated against the
+        // vector length on read, so a truncated copy is rejected rather than used.
+        select: "SELECT stable_id, account_id, model, dim, vector_sealed, updated_at FROM message_embeddings",
+        insert: "INSERT INTO message_embeddings (stable_id, account_id, model, dim, vector_sealed, updated_at) VALUES (?1,?2,?3,?4,?5,?6)",
+        map: |r| {
+            vec![
+                t(r, "stable_id"),
+                t(r, "account_id"),
+                t(r, "model"),
+                i(r, "dim"),
+                b(r, "vector_sealed"),
+                t(r, "updated_at"),
             ]
         },
     },
@@ -807,6 +1000,101 @@ const TABLES: &[TableSpec] = &[
                 i(r, "require_2fa"),
                 t(r, "updated_by"),
                 t(r, "updated_at"),
+            ]
+        },
+    },
+    // ── Deployment surfaces and the remaining append-only audit logs (26.20).
+    // No declared `REFERENCES` in either dialect; nothing references them either,
+    // so they go last rather than into the mail graph.
+    TableSpec {
+        name: "plugin_kv",
+        // Per-plugin, per-account SEALED plugin state with quota accounting —
+        // application data a plugin cannot regenerate. Rows for a plugin the operator
+        // never re-approves are inert (a plugin reads only its own namespace), so
+        // copying costs nothing and not copying destroyed the plugin's data.
+        select: "SELECT plugin_id, account_id, key, sealed_value, size, updated_at FROM plugin_kv",
+        insert: "INSERT INTO plugin_kv (plugin_id, account_id, key, sealed_value, size, updated_at) VALUES (?1,?2,?3,?4,?5,?6)",
+        map: |r| {
+            vec![
+                t(r, "plugin_id"),
+                t(r, "account_id"),
+                t(r, "key"),
+                b(r, "sealed_value"),
+                i(r, "size"),
+                t(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "assist_config",
+        // Keyed by scope: 'deployment' AND 'user:<account_id>'. The per-user rows are
+        // user configuration, not deployment config, so the table could not be
+        // dismissed as re-configurable. `enabled` travels with it, so a deployment
+        // that had Assist off stays off.
+        select: "SELECT scope, adapters, capability_grants, data_ceilings, enabled FROM assist_config",
+        insert: "INSERT INTO assist_config (scope, adapters, capability_grants, data_ceilings, enabled) VALUES (?1,?2,?3,?4,?5)",
+        map: |r| {
+            vec![
+                t(r, "scope"),
+                t(r, "adapters"),
+                t(r, "capability_grants"),
+                t(r, "data_ceilings"),
+                i(r, "enabled"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "cache_scope",
+        // The per-CacheClass layer/TTL matrix: admin tuning of a pure accelerator.
+        // Copying preserves the operator's tuning; the cache is never authoritative,
+        // so nothing here can be stale in a way that matters.
+        select: "SELECT class, layers, ttl_secs FROM cache_scope",
+        insert: "INSERT INTO cache_scope (class, layers, ttl_secs) VALUES (?1,?2,?3)",
+        map: |r| vec![t(r, "class"), t(r, "layers"), i(r, "ttl_secs")],
+    },
+    TableSpec {
+        name: "sso_login_audit",
+        // Append-only (hashed subjects, never raw). Same reasoning as `audit_log`:
+        // a table with no delete path must not lose its history to a backend swap.
+        select: "SELECT id, ts, provider_id, kind, subject_hash, outcome FROM sso_login_audit",
+        insert: "INSERT INTO sso_login_audit (id, ts, provider_id, kind, subject_hash, outcome) VALUES (?1,?2,?3,?4,?5,?6)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "ts"),
+                t(r, "provider_id"),
+                t(r, "kind"),
+                t(r, "subject_hash"),
+                t(r, "outcome"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "password_change_audit",
+        select: "SELECT id, ts, account_id, backend, outcome FROM password_change_audit",
+        insert: "INSERT INTO password_change_audit (id, ts, account_id, backend, outcome) VALUES (?1,?2,?3,?4,?5)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "ts"),
+                t(r, "account_id"),
+                t(r, "backend"),
+                t(r, "outcome"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "assist_audit",
+        select: "SELECT id, ts, actor, capability, scope_summary, endpoint_host FROM assist_audit",
+        insert: "INSERT INTO assist_audit (id, ts, actor, capability, scope_summary, endpoint_host) VALUES (?1,?2,?3,?4,?5,?6)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "ts"),
+                t(r, "actor"),
+                t(r, "capability"),
+                t(r, "scope_summary"),
+                t(r, "endpoint_host"),
             ]
         },
     },
