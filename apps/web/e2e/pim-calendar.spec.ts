@@ -30,12 +30,43 @@ async function openCalendar(page: Page): Promise<void> {
  * i.e. this week) so it renders in the default week view, and optionally makes it
  * a daily recurrence.
  */
+/**
+ * `datetime-local` wants `YYYY-MM-DDTHH:mm` in LOCAL time, which is also the
+ * timezone the week grid is laid out in — so this must not go through
+ * `toISOString()`, whose UTC shift can move the date across a day boundary.
+ */
+function localDateTimeValue(d: Date): string {
+  const p = (n: number): string => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 async function createEvent(page: Page, title: string, opts: { daily?: boolean } = {}): Promise<void> {
   await page.getByRole('button', { name: 'New event' }).click();
   const dialog = page.getByRole('dialog', { name: 'New event' });
   await expect(dialog).toBeVisible();
   await dialog.getByLabel('Title').fill(title);
   if (opts.daily === true) {
+    // Start the rule in the PAST, so the expansion covers the whole visible week
+    // on every day of the year.
+    //
+    // Leaving the default start ("now") made this date-latent, and it duly went
+    // red on Saturday 2026-09-26. The week grid starts on the locale's first day
+    // — `localeWeekStart()` is 0 (Sunday) for the `en-US` the CI browser runs
+    // with — so Saturday is the LAST visible day, and a daily rule starting that
+    // day has exactly one instance in the window. `> 1` then fails. It passed the
+    // day before (Friday gives Fri + Sat = 2) and would have passed on any other
+    // weekday, which is why it looked intermittent: the window was one day wide,
+    // one day a week.
+    //
+    // An unbounded daily rule anchored three days back always yields a full
+    // week's worth of instances no matter which weekday the run lands on, and it
+    // exercises expansion across the whole window rather than only its tail. A
+    // wider VIEW would not have fixed this — month view has the same defect at a
+    // month boundary, just 12 days a year instead of 52.
+    const anchor = new Date();
+    anchor.setDate(anchor.getDate() - 3);
+    anchor.setHours(9, 0, 0, 0);
+    await dialog.getByLabel('Start', { exact: true }).fill(localDateTimeValue(anchor));
     await dialog.getByLabel('Repeats').check();
     await dialog.getByLabel('Frequency').selectOption('daily');
   }
