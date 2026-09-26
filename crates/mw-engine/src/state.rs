@@ -1426,10 +1426,31 @@ pub(crate) mod session_state_tests {
     // name says live, and the skip prints) when no DSN is configured.
 
     pub(crate) fn pg_dsn() -> Option<String> {
-        std::env::var("MW_E14_PG_DSN")
-            .or_else(|_| std::env::var("DATABASE_URL_PG"))
-            .ok()
-            .filter(|s| !s.trim().is_empty())
+        // `mw_test_gate::pg_dsn` resolves the same two variables in the same order;
+        // this is the shared definition rather than a fourth copy of it.
+        mw_test_gate::pg_dsn()
+    }
+
+    /// A leg that did not run says so on the process's stderr **handle**, which
+    /// libtest does not capture — these three used to report through `eprintln!`,
+    /// which it does, so they were silent for a passing test and a gate log could
+    /// not show what the run had not covered.
+    ///
+    /// Going through `mw-test-gate` also brings them inside `MW_REQUIRE_LIVE`: in a
+    /// job that boots Postgres and names `MW_E14_PG_DSN`/`DATABASE_URL_PG`, a skip
+    /// here fails the leg instead of passing it. Reaching the convention needed a
+    /// crate rather than the `#[path]` include `mw-server`'s integration tests use —
+    /// pulling a file from outside this crate into `src/` breaks `cargo package`.
+    ///
+    /// `#[track_caller]` so the `SKIPPED` line names the leg, not this function. The
+    /// reason names both variables because that is what `MW_REQUIRE_LIVE`'s list form
+    /// matches against.
+    #[track_caller]
+    fn skip(leg: &str) {
+        mw_test_gate::skip(format!(
+            "[mw-engine t22-e0] {leg}: MW_E14_PG_DSN and DATABASE_URL_PG unset — the live \
+             Postgres statement-count legs are not driven. The SQLite legs still asserted."
+        ));
     }
 
     /// A run-unique username so repeated live runs never collide on the shared
@@ -1445,7 +1466,7 @@ pub(crate) mod session_state_tests {
     #[tokio::test]
     async fn live_pg_session_state_is_one_statement_per_group() {
         let Some(p) = Probe::pg().await else {
-            eprintln!("SKIP live_pg_session_state_is_one_statement_per_group: no MW_E14_PG_DSN");
+            skip("session_state is one statement per group");
             return;
         };
 
@@ -1478,9 +1499,7 @@ pub(crate) mod session_state_tests {
     #[tokio::test]
     async fn live_pg_broadcast_state_is_one_statement_per_change_log() {
         let Some(p) = Probe::pg().await else {
-            eprintln!(
-                "SKIP live_pg_broadcast_state_is_one_statement_per_change_log: no MW_E14_PG_DSN"
-            );
+            skip("broadcast_state is one statement per change log");
             return;
         };
         let full = p.account(&unique("bcast")).await;
@@ -1494,10 +1513,7 @@ pub(crate) mod session_state_tests {
     #[tokio::test]
     async fn live_pg_per_request_session_state_overhead_is_three_statements() {
         let Some(p) = Probe::pg().await else {
-            eprintln!(
-                "SKIP live_pg_per_request_session_state_overhead_is_three_statements: \
-                 no MW_E14_PG_DSN"
-            );
+            skip("per-request session_state overhead is three statements");
             return;
         };
         let acct = p.account(&unique("req")).await;

@@ -1,0 +1,20 @@
+[package]
+name = "mw-test-gate"
+description = "Test-support: the shared skip/gate convention, reachable from a shipped crate's `#[cfg(test)]` modules"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+# Test support only. It is taken as a `[dev-dependencies]` entry carrying a `path`
+# and no `version`, which Cargo strips from the published manifest — so it never
+# becomes a requirement of a crate that ships, and its source is not in that
+# crate's packaged file list. Nothing in the tree links it as a normal dependency.
+publish = false
+
+# NO DEPENDENCIES, deliberately, and this is a property of the crate rather than a
+# coincidence of its current contents. It exists so that `mw-engine`/`mw-store`'s
+# library unit tests can reach the gate convention; anything it linked would become
+# part of the dev-dependency closure of two crates the whole workspace builds. The
+# implementation needs only `std`. `crates/mw-test-gate/tests/no_dependencies.rs`
+# fails if an entry is ever added here.
+[dependencies]

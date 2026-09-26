@@ -5328,6 +5328,7 @@ dependencies = [
  "mw-sieve",
  "mw-smtp",
  "mw-store",
+ "mw-test-gate",
  "regex",
  "serde",
  "serde_json",
@@ -5702,6 +5703,7 @@ dependencies = [
  "async-trait",
  "chacha20poly1305",
  "chrono",
+ "mw-test-gate",
  "rand 0.8.7",
  "serde",
  "serde_json",
@@ -5710,6 +5712,10 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
 ]
+
+[[package]]
+name = "mw-test-gate"
+version = "26.19.0"
 
 [[package]]
 name = "ndk"

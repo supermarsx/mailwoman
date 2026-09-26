@@ -33,3 +33,10 @@ tokio = { workspace = true }
 # pool (to TRUNCATE between runs and read ciphertext columns directly) when
 # `DATABASE_URL_PG`/`MW_TEST_PG` is set; they run SQLite-only otherwise.
 sqlx = { workspace = true, features = ["postgres", "tls-rustls"] }
+# t25-e1: the shared skip/gate convention, so the three env-gated Postgres legs in
+# `src/v2.rs`'s `#[cfg(test)]` module honour `MW_REQUIRE_LIVE` — a skip becomes a
+# failure in the CI job that boots Postgres. It has to be a crate rather than the
+# `#[path]` include `tests/backend_parity.rs` uses, because including a file from
+# outside this crate into `src/` would break `cargo package`. Carries no `version`,
+# so Cargo strips it from the published manifest; links nothing but `std`.
+mw-test-gate = { workspace = true }

@@ -83,3 +83,10 @@ mw-dav = { workspace = true }
 # byte-shape-identical to the engine's real output. Cycle-free (the mock does not
 # depend on mw-engine).
 mw-mock-jmap = { workspace = true }
+# t25-e1: the shared skip/gate convention, so the three env-gated live-Postgres legs
+# in `src/state.rs`'s `#[cfg(test)]` module honour `MW_REQUIRE_LIVE` — a skip becomes
+# a failure in the CI job that boots Postgres. It has to be a crate, not a `#[path]`
+# include of `mw-server/tests/common/gate.rs`: that would pull a file from outside
+# this crate into `src/` and break `cargo package`. Carries no `version`, so Cargo
+# strips it from the published manifest; links nothing but `std`.
+mw-test-gate = { workspace = true }

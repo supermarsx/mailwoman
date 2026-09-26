@@ -46,6 +46,14 @@ members = [
     # reuse it (they cannot depend on mw-server). NET-ZERO new third-party deps —
     # it links only the `reqwest`/`tokio` the moved code already used. ──
     "crates/mw-egress",
+    # ── t25 (26.20) e1: the skip/gate convention, in a crate a library `src/`
+    # `#[cfg(test)]` module can take as a dev-dependency. `mw-server/tests/common/
+    # gate.rs` cannot be `#[path]`-included into a shipped crate's source tree
+    # (`cargo package` would carry a file from outside the crate), which is why six
+    # Postgres legs in `mw-engine`/`mw-store` sat outside `MW_REQUIRE_LIVE` — four of
+    # them reporting through `eprintln!`, which libtest captures for a passing test,
+    # so they said nothing anywhere. NOT PUBLISHED and NO dependencies: `std` only. ──
+    "crates/mw-test-gate",
     "plugins/bridge-graph",
     "plugins/bridge-ews",
     "plugins/bridge-gmail",
@@ -365,6 +373,11 @@ mw-assist = { path = "crates/mw-assist" }
 mw-sandbox = { path = "crates/mw-sandbox" }
 # ── t22 (26.20) shared outbound-egress policy (plan §2.2 e6). ──
 mw-egress = { path = "crates/mw-egress" }
+# ── t25 (26.20) e1: test-support only. Taken exclusively as a `[dev-dependencies]`
+# entry. Deliberately NO `version` key: Cargo strips a path dev-dependency that has
+# none from the published manifest, so `mw-engine`/`mw-store` can use it from their
+# `#[cfg(test)]` modules without it becoming a requirement of what they ship. ──
+mw-test-gate = { path = "crates/mw-test-gate" }
 
 # ── Build profiles ──────────────────────────────────────────────────────────
 # 26.19 (t19-e1). Every claim below was measured on the dev host, cold tree; the

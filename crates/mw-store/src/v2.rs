@@ -1006,16 +1006,12 @@ mod tests {
     /// will actually run it. Env-gated exactly like the `cache.rs` legs.
     #[tokio::test]
     async fn postgres_record_changes_writes_n_rows_at_one_state() {
-        let Some(dsn) = std::env::var("DATABASE_URL_PG")
-            .ok()
-            .or_else(|| std::env::var("MW_TEST_PG").ok())
-            .filter(|s| !s.trim().is_empty())
-        else {
-            eprintln!(
-                "[mw-store] t22-e1 record_changes: Postgres path SKIPPED (set \
-                 DATABASE_URL_PG or MW_TEST_PG to a live postgres:16 to run it). The \
-                 SQLite path still asserted."
-            );
+        // This site used to resolve the DSN inline and report through `eprintln!`,
+        // which libtest captures for a passing test — so the one leg that most
+        // needed saying it did not run was the one that said nothing at all. It now
+        // uses the module's `pg_dsn` (byte-identical variable order) and `skip`.
+        let Some(dsn) = pg_dsn() else {
+            skip("t22-e1 record_changes: Postgres path");
             return;
         };
         let s = crate::Store::open_postgres(&dsn, crate::ServerKey::generate())
@@ -1426,16 +1422,26 @@ mod tests {
             .filter(|s| !s.trim().is_empty())
     }
 
-    /// A leg that did not run says so on the process's stderr handle, which
-    /// libtest does not capture (the `mw-server/tests/common/gate.rs` convention),
-    /// so a gate log shows it without `--nocapture`.
+    /// A leg that did not run says so on the process's stderr handle, which libtest
+    /// does not capture, so a gate log shows it without `--nocapture`.
+    ///
+    /// This used to be a local re-implementation of that convention. It now defers to
+    /// `mw-test-gate`, which is the same code `mw-server/tests/common/gate.rs` runs,
+    /// so these legs also honour `MW_REQUIRE_LIVE`: in a job that boots Postgres and
+    /// names `DATABASE_URL_PG`, a skip here fails instead of passing quietly. The
+    /// local copy could not do that, and it could not be replaced by a `#[path]`
+    /// include either — that would put a file from outside this crate into its build
+    /// and break `cargo package` for a crate that ships.
+    ///
+    /// `#[track_caller]` so the `SKIPPED` line names the leg's line, not this one.
+    /// The reason names both gate variables because that is what `MW_REQUIRE_LIVE`'s
+    /// list form matches against.
+    #[track_caller]
     fn skip(what: &str) {
-        use std::io::Write;
-        let _ = writeln!(
-            std::io::stderr(),
-            "\nSKIPPED [mw-store] {what} (set DATABASE_URL_PG or MW_TEST_PG to a live \
-             postgres:16 to run it). The SQLite path still asserted."
-        );
+        mw_test_gate::skip(format!(
+            "[mw-store] {what} (set DATABASE_URL_PG or MW_TEST_PG to a live postgres:16 \
+             to run it). The SQLite path still asserted."
+        ));
     }
 
     // ---- 0029 over a populated database -----------------------------------
