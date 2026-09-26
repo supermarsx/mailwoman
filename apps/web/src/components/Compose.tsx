@@ -719,17 +719,27 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
                 and not only while it is in flight — the same reasoning
                 ErrorBoundary.tsx was written for.
 
-                SCOPE, so the next reader does not over-credit this: it is
-                hardening, NOT a verified fix for the `e2e-engine`
-                `offline.spec.ts:18` failure ("Compose message" dialog never
-                found). That failure is older than this boundary — the
-                byte-identical error is in the e2e-engine log at `b34b9d3` — and
-                the lazy chunk being unfetchable offline is a PLAUSIBLE cause that
-                has not been proven. It resists unit coverage: under vitest a
-                mocked rejecting import leaves Suspense pending forever, so the
-                boundary is never exercised and a test asserting it passes with or
-                without this wrapper. Proving it needs a real browser with the SW
-                cache cold and the context offline. */}
+                PROVEN to fix the `e2e-engine` `offline.spec.ts:18` failure
+                ("Compose message" dialog never found), by controlled revert: on
+                `9216888` plus a revert of this boundary and nothing else, that
+                spec fails on all three retries with `element(s) not found` for
+                the dialog (run 36255164856, 30 passed / 1 failed), while
+                `9216888` itself is green. The signature is byte-identical to the
+                historical failure at `b34b9d3`.
+
+                Mechanism: `offline.spec.ts` opens Compose for the first time while
+                the browser context is offline, so the ~286 kB ProseMirror chunk
+                has never been fetched into the service-worker cache. The import
+                rejects, and without this boundary the throw escapes and the dialog
+                never renders — which is why the error was `element(s) not found`
+                on the ROLE, never a name mismatch.
+
+                Do not try to cover this with a unit test: under vitest a mocked
+                rejecting import leaves Suspense pending forever, so the boundary is
+                never exercised and such a test passes with OR without this wrapper.
+                One was written, found to be vacuous, and deleted. The real coverage
+                is `offline.spec.ts:18` itself — a real browser with the SW cache
+                cold and the context offline. */}
             <AsyncBoundary fallback={() => plainBody()}>
               <Suspense fallback={plainBody()}>
                 <RichTextEditor
