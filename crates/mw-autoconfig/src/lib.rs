@@ -836,6 +836,54 @@ mod tests {
         assert!(matches!(err, DiscoverError::NotFound(_)));
     }
 
+    /// The 26.20 unauthenticated stack-overflow DoS, driven through the ladder
+    /// rather than the parser: a hostile `autoconfig.<domain>` host answers both
+    /// rung-3 URLs with 150 000 nested elements, which is what
+    /// `POST /api/discover` would hand to `parse_autoconfig`. The ladder must
+    /// treat it as one more rung that produced nothing and fall through to
+    /// `NotFound` — which `mw-server`'s `discover` maps to **404
+    /// `no configuration discovered`**, not a 500 and nothing reflecting the
+    /// parser's internals.
+    ///
+    /// **The ladder runs on a thread sized to tokio's default 2 MiB worker
+    /// stack**, with its own current-thread runtime, for the same reason
+    /// `xml::tests::deep_nesting_is_refused_not_fatal` does: libtest's thread is
+    /// larger than a real request's, so a test on it would pass at depths that
+    /// kill the process in production.
+    ///
+    /// This is one step below the HTTP route: it does not exercise axum's
+    /// extractor or the rate-limit layer, because `mw-server`'s `discover`
+    /// handler calls `mw_autoconfig::discover` with the real egress fetcher and
+    /// has no seam to inject one. The `Err(NotFound) -> 404` arm it depends on is
+    /// a plain match in that handler.
+    #[test]
+    fn a_hostile_autoconfig_host_degrades_to_not_found() {
+        let outcome = std::thread::Builder::new()
+            .stack_size(2 * 1024 * 1024)
+            .spawn(|| {
+                let bomb = "<a>".repeat(150_000);
+                let f = MockFetcher::default()
+                    .page(
+                        "https://autoconfig.evil.invalid/mail/config-v1.1.xml?emailaddress=x@evil.invalid",
+                        &bomb,
+                    )
+                    .page("https://autoconfig.thunderbird.net/v1.1/evil.invalid", &bomb);
+                tokio::runtime::Builder::new_current_thread()
+                    .build()
+                    .expect("build a current-thread runtime")
+                    .block_on(discover_with("x@evil.invalid", &f))
+            })
+            .expect("spawn a 2 MiB probe thread")
+            .join()
+            .expect("the probe thread must return — a stack overflow aborts the process");
+
+        assert!(
+            matches!(outcome, Err(DiscoverError::NotFound(ref d)) if d == "evil.invalid"),
+            "a hostile autoconfig document must leave the ladder at NotFound, \
+             got {outcome:?}"
+        );
+    }
+
     #[tokio::test]
     async fn invalid_email_is_rejected() {
         let f = MockFetcher::default();

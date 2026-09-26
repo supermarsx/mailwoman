@@ -953,24 +953,68 @@ enum ThreadElem {
     List(Vec<ThreadElem>),
 }
 
+/// Maximum `THREAD` nesting the reply parser will descend into. Deeper sub-lists
+/// are consumed and discarded rather than recursed into.
+///
+/// **Why a cap is needed.** `parse_thread_elems` recurses per `(` and
+/// `thread_members` recurses again over the result, so depth is one stack frame
+/// each from a **one-byte** token. The body is a server reply, and t23-e4 (E4-01)
+/// established that `read_response` puts no size cap on it, so a hostile or
+/// compromised IMAP server can answer `THREAD` with megabytes of `(` — an abort
+/// that takes the process, not a failed fetch. It needs the user to be talking to
+/// that server, so this is hostile-upstream rather than unauthenticated exposure,
+/// but the cost is the same.
+///
+/// **256 because depth here is branch points, not messages.** RFC 5256's
+/// `THREAD=REFERENCES` nests only where a thread forks: a linear 500-reply chain
+/// is the flat `(1 2 3 … 500)`, one level. A thread that branches 256 times along
+/// a single path does not occur in real mail. t25-e3 measured the fattest
+/// recursive parser in the tree (`mw-autoconfig`'s XML reader) overflowing a
+/// 2 MiB tokio worker stack at ~1 150 levels in a debug build; these two frames
+/// together are smaller than that one, so 256 keeps a wide margin.
+const MAX_THREAD_DEPTH: usize = 256;
+
 /// Parse a `* THREAD` reply body (e.g. `(2)(3 6 (4 23)(44 7 96))`) into roots.
 fn parse_thread_response(body: &str) -> Vec<ThreadNode> {
     let bytes = body.as_bytes();
     let mut pos = 0;
-    let elems = parse_thread_elems(bytes, &mut pos);
+    let elems = parse_thread_elems(bytes, &mut pos, 0);
     thread_members(&elems)
+}
+
+/// Consume a sub-list whose `(` has already been eaten, counting brackets
+/// iteratively so that discarding an over-deep list costs no stack.
+fn discard_thread_list(bytes: &[u8], pos: &mut usize) {
+    let mut open = 1usize;
+    while *pos < bytes.len() && open > 0 {
+        match bytes[*pos] {
+            b'(' => open += 1,
+            b')' => open -= 1,
+            _ => {}
+        }
+        *pos += 1;
+    }
 }
 
 /// Recursive-descent over the THREAD grammar: a sequence of numbers and
 /// parenthesised sub-lists, stopping at the matching `)` or end of input.
-fn parse_thread_elems(bytes: &[u8], pos: &mut usize) -> Vec<ThreadElem> {
+///
+/// `depth` is the number of enclosing sub-lists; past [`MAX_THREAD_DEPTH`] a
+/// sub-list is consumed and dropped rather than descended into, so the reply
+/// still parses and `pos` stays consistent — the thread simply loses nesting
+/// nothing real would have had. See [`MAX_THREAD_DEPTH`].
+fn parse_thread_elems(bytes: &[u8], pos: &mut usize, depth: usize) -> Vec<ThreadElem> {
     let mut elems = Vec::new();
     while *pos < bytes.len() {
         match bytes[*pos] {
             b' ' => *pos += 1,
             b'(' => {
                 *pos += 1;
-                elems.push(ThreadElem::List(parse_thread_elems(bytes, pos)));
+                if depth >= MAX_THREAD_DEPTH {
+                    discard_thread_list(bytes, pos);
+                    continue;
+                }
+                elems.push(ThreadElem::List(parse_thread_elems(bytes, pos, depth + 1)));
             }
             b')' => {
                 *pos += 1;
@@ -1536,6 +1580,64 @@ mod sort_thread_tests {
     #[test]
     fn thread_empty_reply_is_no_threads() {
         assert!(parse_thread_response("").is_empty());
+    }
+
+    /// Regression for the 26.20 `THREAD` stack overflow (t25-e3): a hostile or
+    /// compromised server answering with 200 000 nested `(` recursed once per
+    /// byte through `parse_thread_elems` and again through `thread_members`.
+    /// `read_response` caps neither the reply's length nor its nesting, so the
+    /// depth guard is the only bound. See [`MAX_THREAD_DEPTH`].
+    ///
+    /// **Run on a 2 MiB thread** — tokio's default worker stack — because
+    /// libtest's own thread is larger, so a test on it would pass at depths that
+    /// abort a real `THREAD` fetch. A stack overflow is not catchable, so the
+    /// assertion is that the call returns; the depth of what it returns is
+    /// asserted too.
+    #[test]
+    fn a_deeply_nested_thread_reply_is_bounded_not_fatal() {
+        fn deepest(n: &ThreadNode) -> usize {
+            1 + n.children.iter().map(deepest).max().unwrap_or(0)
+        }
+        let depth = std::thread::Builder::new()
+            .stack_size(2 * 1024 * 1024)
+            .spawn(|| {
+                let bomb = format!("{}1{}", "(".repeat(200_000), ")".repeat(200_000));
+                parse_thread_response(&bomb)
+                    .iter()
+                    .map(deepest)
+                    .max()
+                    .unwrap_or(0)
+            })
+            .expect("spawn a 2 MiB probe thread")
+            .join()
+            .expect("the probe thread must return — a stack overflow aborts the process");
+        assert!(
+            depth <= MAX_THREAD_DEPTH + 1,
+            "nesting must be bounded by MAX_THREAD_DEPTH, got {depth}"
+        );
+    }
+
+    /// Control for the test above: the cap must not flatten real replies.
+    /// Without this, "deep input returns" would be satisfied by a parser that
+    /// nests nothing — and the four tests above would still pass while threading
+    /// silently lost every branch beyond the first.
+    #[test]
+    fn nesting_within_the_thread_cap_is_preserved() {
+        fn deepest(n: &ThreadNode) -> usize {
+            1 + n.children.iter().map(deepest).max().unwrap_or(0)
+        }
+        // 64 nested branch points, each `(N ...)` — far more forking than real
+        // mail, and well inside the cap.
+        let mut body = String::new();
+        for i in 1..=64 {
+            body.push_str(&format!("({i} "));
+        }
+        body.push_str(&")".repeat(64));
+        assert_eq!(
+            deepest(&parse_thread_response(&body)[0]),
+            64,
+            "64 levels of real branching must survive"
+        );
     }
 }
 

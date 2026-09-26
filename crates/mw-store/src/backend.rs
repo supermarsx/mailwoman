@@ -228,7 +228,7 @@ impl Sql {
 
     /// A single-column `i64` scalar (`COUNT`/`MAX`/`RETURNING state`).
     pub(crate) async fn fetch_scalar_i64(self, backend: &Backend) -> Result<i64, sqlx::Error> {
-        Ok(self.fetch_one(backend).await?.get_i64_idx(0))
+        self.fetch_one(backend).await?.try_get_i64_idx(0)
     }
 
     /// An optional single-column text scalar (id lookups).
@@ -373,16 +373,34 @@ impl Row {
         }
     }
 
-    /// Positional `i64` (for anonymous scalar columns like `COALESCE(MAX(..),0)`).
-    /// Tolerant of Postgres returning `int4` for a bare integer literal.
-    pub(crate) fn get_i64_idx(&self, idx: usize) -> i64 {
+    /// Positional `i64` (for anonymous scalar columns like `COALESCE(MAX(..),0)`),
+    /// tolerant of Postgres returning `int4` for a bare integer literal.
+    ///
+    /// Fallible on purpose (t25-e3). This ran as `.expect("scalar column is an
+    /// integer")`, which made it the one panic in this crate that fires at
+    /// **query** time rather than at boot: a schema or migration drift that leaves
+    /// a scalar column `NUMERIC` or `TEXT`, or a `COUNT` typed differently than
+    /// assumed, turned a recoverable decode failure into a panic inside a request
+    /// path. The `sqlx` decode error is a perfectly good `StoreError::Db`, so it
+    /// is now returned. The SQLite arm was `r.get(..)`, which panics the same way,
+    /// and is converted with it.
+    pub(crate) fn try_get_i64_idx(&self, idx: usize) -> Result<i64, sqlx::Error> {
         match self {
-            Row::Sqlite(r) => r.get::<i64, _>(idx),
+            Row::Sqlite(r) => r.try_get::<i64, _>(idx),
             Row::Postgres(r) => r
                 .try_get::<i64, _>(idx)
-                .or_else(|_| r.try_get::<i32, _>(idx).map(i64::from))
-                .expect("scalar column is an integer"),
+                .or_else(|_| r.try_get::<i32, _>(idx).map(i64::from)),
         }
+    }
+
+    /// Infallible wrapper kept for the **one** caller that cannot yet propagate:
+    /// `v2.rs`'s `RETURNING state` read. That file was locked by another lane when
+    /// this landed, so the `?` there is a one-line follow-up rather than part of
+    /// this change; the panic is still reachable through that path alone.
+    /// Everything routed through [`Q::fetch_scalar_i64`] is now fallible.
+    pub(crate) fn get_i64_idx(&self, idx: usize) -> i64 {
+        self.try_get_i64_idx(idx)
+            .expect("scalar column is an integer")
     }
 
     /// Positional text (for anonymous single-column scalar selects).

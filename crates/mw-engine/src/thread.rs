@@ -128,6 +128,41 @@ pub fn thread_root(target: &Message, siblings: &[Message]) -> Option<String> {
     t.identity_root(0)
 }
 
+/// Maximum container-tree depth this threader will build.
+///
+/// **Why a cap is needed.** Tree depth here is the length of a message's
+/// `References` chain — `build` links each consecutive pair (`:1.B`), so *one*
+/// inbound message with N ids creates an N-deep chain. Nothing on the ingest path
+/// bounds N: it is just a header, and at ~5 bytes per id a header inside any
+/// plausible message-size limit carries hundreds of thousands. Four separate
+/// walks then recurse over that tree — [`Threader::in_subtree`],
+/// `collect_mids`, `prune_walk` and `node` — so it is not one function that is
+/// exposed but the whole threader, and a stack overflow is an abort that takes
+/// the process rather than the request.
+///
+/// **What was measured (t25-e3).** A single `Message` with N synthetic
+/// `References` ids through the real `thread()`, `cargo test` **debug** profile,
+/// Windows `x86_64-pc-windows-msvc`, on a thread created with
+/// `stack_size(2 * 1024 * 1024)` — tokio's default worker stack. 1 000, 2 000 and
+/// 4 000 returned; **5 000 aborted the test process with
+/// `STATUS_STACK_OVERFLOW` (0xc00000fd)**. So the ceiling sits between 4 000 and
+/// 5 000 there, ~465 bytes of stack per level. Debug frames are larger than
+/// release's and per-level cost is platform-specific, so that is the failure
+/// class and an order of magnitude, not an exact boundary.
+///
+/// **Why 512, and what it actually bounds.** The check lives in
+/// [`Threader::link`] and [`Threader::reparent`], the only two places an edge is
+/// created below a non-root, so every tree is at most `MAX_DEPTH` deep at the end
+/// of `build`. `subject_gather`'s `adopt`/`move_children` attach to members of
+/// the **root set** only (depth 0), so they add at most one level rather than
+/// composing two capped depths; `prune` only ever lifts nodes. The tree is
+/// therefore bounded at `MAX_DEPTH + 1`, roughly 8× below the measured ceiling.
+/// 512 is chosen over a smaller number because depth is a real thread's reply
+/// chain: a mailing-list thread 512 replies deep in one unbranched line is
+/// implausible, but 64 would not have been. Past the cap the excess attaches as
+/// separate roots — threading degrades, nothing is lost.
+pub const MAX_DEPTH: usize = 512;
+
 /// Full JWZ over a complete message set: build → prune empty containers →
 /// subject-gather. Returns the container forest (deterministically ordered).
 pub fn thread(messages: &[Message]) -> Vec<ThreadNode> {
@@ -187,9 +222,27 @@ impl Threader {
         i
     }
 
+    /// Depth of `c` in parent links, saturating at [`MAX_DEPTH`]. Iterative on
+    /// purpose: asking how deep the tree is must not itself be able to overflow.
+    fn depth_of(&self, mut c: usize) -> usize {
+        let mut d = 0;
+        while let Some(p) = self.arena[c].parent {
+            d += 1;
+            if d >= MAX_DEPTH {
+                return MAX_DEPTH;
+            }
+            c = p;
+        }
+        d
+    }
+
     /// Is `node` inside the subtree rooted at `root` (used as the link loop
     /// guard: linking `root -> node` would loop iff `root` is already under
     /// `node`).
+    ///
+    /// Recursive, and safe only because [`MAX_DEPTH`] bounds how deep any
+    /// subtree can be — see that constant before removing the depth checks in
+    /// [`Threader::link`] and [`Threader::reparent`].
     fn in_subtree(&self, node: usize, root: usize) -> bool {
         if node == root {
             return true;
@@ -206,6 +259,11 @@ impl Threader {
         if parent == child || self.arena[child].parent.is_some() || self.in_subtree(parent, child) {
             return;
         }
+        // Refusing the edge leaves `child` a root, which is already this
+        // function's behaviour for a loop or an existing parent. See [`MAX_DEPTH`].
+        if self.depth_of(parent) >= MAX_DEPTH {
+            return;
+        }
         self.arena[child].parent = Some(parent);
         self.arena[parent].children.push(child);
     }
@@ -214,6 +272,9 @@ impl Threader {
     /// (`References` is definitive), unless that would loop.
     fn reparent(&mut self, child: usize, new_parent: usize) {
         if child == new_parent || self.in_subtree(new_parent, child) {
+            return;
+        }
+        if self.depth_of(new_parent) >= MAX_DEPTH {
             return;
         }
         if let Some(old) = self.arena[child].parent {
@@ -593,6 +654,82 @@ mod tests {
             references: refs.iter().map(|s| s.to_string()).collect(),
             subject: subject.map(String::from),
         }
+    }
+
+    /// Regression for the 26.20 threader stack overflow: **one** inbound message
+    /// whose `References` header carries tens of thousands of ids built an equally
+    /// deep container chain, and the four recursive walks over it aborted the
+    /// process. Measured on this exact harness with [`MAX_DEPTH`] absent: 4 000
+    /// returned, 5 000 printed `thread '<unknown>' has overflowed its stack` and
+    /// exited `0xc00000fd`; 200 000 — a header-sized chain — likewise. See
+    /// [`MAX_DEPTH`].
+    ///
+    /// **50 000 rather than 200 000**, which is 10× the measured ceiling and so
+    /// still could not have passed before the cap, because the threader is
+    /// `O(refs × MAX_DEPTH)` on this input (`link` measures the parent's depth per
+    /// pair) and 200 000 cost the suite three seconds to say the same thing.
+    ///
+    /// **Run on a 2 MiB thread** — tokio's default worker stack — because
+    /// libtest's own thread is larger, so a test on it would pass at depths that
+    /// kill a real ingest. A stack overflow is not catchable, so the assertion is
+    /// that the call returns at all; the tree shape is asserted separately below.
+    #[test]
+    fn a_vast_references_chain_is_bounded_not_fatal() {
+        let depth = std::thread::Builder::new()
+            .stack_size(2 * 1024 * 1024)
+            .spawn(|| {
+                let refs: Vec<String> = (0..50_000).map(|i| format!("<r{i}>")).collect();
+                let m = Message {
+                    message_id: Some("<tip>".into()),
+                    in_reply_to: None,
+                    references: refs,
+                    subject: None,
+                };
+                // Deepest path in the returned forest.
+                fn deepest(n: &ThreadNode) -> usize {
+                    1 + n.children.iter().map(deepest).max().unwrap_or(0)
+                }
+                thread(&[m]).iter().map(deepest).max().unwrap_or(0)
+            })
+            .expect("spawn a 2 MiB probe thread")
+            .join()
+            .expect("the probe thread must return — a stack overflow aborts the process");
+
+        assert!(
+            depth <= MAX_DEPTH + 1,
+            "the tree must be bounded at MAX_DEPTH + 1, got {depth}"
+        );
+    }
+
+    /// Control for the test above: the cap must not flatten ordinary threads.
+    /// Without this, "deep input returns" would be satisfied by a threader that
+    /// nests nothing, and the fix would have broken threading while passing its
+    /// own regression test.
+    #[test]
+    fn ordinary_reply_chains_still_nest_fully() {
+        // A 300-message unbranched reply chain — well inside MAX_DEPTH, and each
+        // message carries the full References prefix the way real clients do.
+        let n = 300;
+        let msgs: Vec<Message> = (0..n)
+            .map(|i| {
+                let refs: Vec<String> = (0..i).map(|j| format!("<m{j}>")).collect();
+                Message {
+                    message_id: Some(format!("<m{i}>")),
+                    in_reply_to: None,
+                    references: refs,
+                    subject: None,
+                }
+            })
+            .collect();
+        fn deepest(node: &ThreadNode) -> usize {
+            1 + node.children.iter().map(deepest).max().unwrap_or(0)
+        }
+        let forest = thread(&msgs);
+        let depth = forest.iter().map(deepest).max().unwrap_or(0);
+        assert_eq!(
+            depth, n,
+            "a {n}-deep real reply chain must still nest in full"
+        );
     }
 
     // ---- incremental identity (engine ingest path) ----------------------
