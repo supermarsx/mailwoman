@@ -1,7 +1,13 @@
-//! Admin configuration: TOML/env binding (plan §2.5 — GitOps-friendly). The
-//! whole panel is described by [`AdminConfig`]; `enabled = false` unmounts the
-//! panel (the actual route unmount is e11's — this models the flag). Every field
-//! round-trips TOML↔struct and can be overlaid from the environment.
+//! Admin configuration model (plan §2.5). [`AdminConfig`] round-trips
+//! TOML↔struct.
+//!
+//! **Nothing loads it.** `mw-server` builds `AdminConfig::default()` and reads
+//! three variables of its own (`MW_ADMIN_ENABLED`, `MW_ADMIN_USER`,
+//! `MW_ADMIN_PASSWORD`). Until 26.20 this module also carried an environment
+//! overlay (`apply_env`) for ten more `MW_ADMIN_*` variables; it had no caller, so
+//! setting any of them changed nothing and said nothing. The overlay is gone and
+//! [`reject_unsupported_env`] names those variables instead, so a deployment that
+//! sets one is told at start rather than left believing it took effect.
 
 use serde::{Deserialize, Serialize};
 
@@ -48,17 +54,19 @@ impl Default for Appearance {
     }
 }
 
-/// The full admin-panel configuration (plan §2.5). Scalar fields precede the
+/// The admin-panel configuration model (plan §2.5). Scalar fields precede the
 /// `[security]`/`[observability]`/`[appearance]` sub-tables so TOML
 /// serialization (which requires values-before-tables) round-trips cleanly.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AdminConfig {
-    /// `admin.enabled` — `false` unmounts the panel (route unmount is e11's).
+    /// `admin.enabled`. A model field: `mw-server` gates `/admin/*` on its own
+    /// `V6Config::admin_enabled` (`MW_ADMIN_ENABLED`).
     pub enabled: bool,
-    /// The separate admin session cookie name (§2.5 separate session domain).
+    /// A model field with no reader: the cookie name is the constant
+    /// `mw_admin_session` at every site that sets or reads it.
     pub session_cookie: String,
-    /// Optional dedicated admin port (separate session domain).
+    /// A model field with no reader: nothing binds a separate admin port.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub separate_port: Option<u16>,
     pub security: SecurityPolicy,
@@ -89,86 +97,88 @@ impl AdminConfig {
     pub fn to_toml(&self) -> Result<String, AdminError> {
         toml::to_string_pretty(self).map_err(|e| AdminError::Config(e.to_string()))
     }
-
-    /// Overlay environment variables onto the config (env wins over TOML, plan
-    /// §2.5). Recognized:
-    /// `MW_ADMIN_ENABLED`, `MW_ADMIN_SESSION_COOKIE`, `MW_ADMIN_PORT`,
-    /// `MW_ADMIN_LOG_LEVEL`, `MW_ADMIN_OTLP_DSN`, `MW_ADMIN_METRICS`,
-    /// `MW_ADMIN_REQUIRE_2FA`, `MW_ADMIN_MIN_TLS`, `MW_ADMIN_THEME`,
-    /// `MW_ADMIN_BRAND`, `MW_ADMIN_ACCENT`.
-    pub fn apply_env(&mut self) {
-        apply_env_with(self, |k| std::env::var(k).ok());
-    }
-
-    /// Load from an optional TOML source, then overlay the environment.
-    pub fn load(toml_src: Option<&str>) -> Result<Self, AdminError> {
-        let mut cfg = match toml_src {
-            Some(s) => Self::from_toml(s)?,
-            None => Self::default(),
-        };
-        cfg.apply_env();
-        Ok(cfg)
-    }
 }
 
-/// Env overlay with an injectable lookup (keeps the logic testable without
-/// touching the process environment).
-fn apply_env_with(cfg: &mut AdminConfig, get: impl Fn(&str) -> Option<String>) {
-    if let Some(v) = get("MW_ADMIN_ENABLED") {
-        cfg.enabled = parse_bool(&v).unwrap_or(cfg.enabled);
-    }
-    if let Some(v) = get("MW_ADMIN_SESSION_COOKIE") {
-        cfg.session_cookie = v;
-    }
-    if let Some(v) = get("MW_ADMIN_PORT")
-        && let Ok(p) = v.parse::<u16>()
-    {
-        cfg.separate_port = Some(p);
-    }
-    if let Some(v) = get("MW_ADMIN_LOG_LEVEL") {
-        cfg.observability.log_level = v;
-    }
-    if let Some(v) = get("MW_ADMIN_OTLP_DSN") {
-        cfg.observability.otlp_dsn = if v.is_empty() { None } else { Some(v) };
-    }
-    if let Some(v) = get("MW_ADMIN_METRICS") {
-        cfg.observability.metrics_enabled =
-            parse_bool(&v).unwrap_or(cfg.observability.metrics_enabled);
-    }
-    if let Some(v) = get("MW_ADMIN_REQUIRE_2FA") {
-        cfg.security.require_2fa = parse_bool(&v).unwrap_or(cfg.security.require_2fa);
-    }
-    if let Some(v) = get("MW_ADMIN_MIN_TLS") {
-        cfg.security.min_tls = v;
-    }
-    if let Some(v) = get("MW_ADMIN_THEME") {
-        cfg.appearance.theme = v;
-    }
-    if let Some(v) = get("MW_ADMIN_BRAND") {
-        cfg.appearance.brand_name = v;
-    }
-    // The third appearance field had no env overlay, so a GitOps deployment that
-    // set theme + brand from the environment still had to ship a TOML file for
-    // the accent alone. An EMPTY value clears the accent (back to the theme's
-    // own), matching how `MW_ADMIN_OTLP_DSN` treats "" above — an env var that
-    // exists but is blank is an instruction, not an absence.
-    if let Some(v) = get("MW_ADMIN_ACCENT") {
-        cfg.appearance.accent = if v.is_empty() { None } else { Some(v) };
-    }
+/// The `MW_ADMIN_*` variables that name a setting nothing in the workspace applies,
+/// each with what to do instead. `MW_ADMIN_ENABLED`, `MW_ADMIN_USER` and
+/// `MW_ADMIN_PASSWORD` are not here: `mw-server` reads those.
+pub const UNSUPPORTED_ENV: &[(&str, &str)] = &[
+    (
+        "MW_ADMIN_PORT",
+        "the admin panel is served on the main listener; there is no separate admin port",
+    ),
+    (
+        "MW_ADMIN_SESSION_COOKIE",
+        "the admin session cookie is always named mw_admin_session",
+    ),
+    (
+        "MW_ADMIN_LOG_LEVEL",
+        "the log filter is set with MW_LOG at start",
+    ),
+    (
+        "MW_ADMIN_OTLP_DSN",
+        "the OTLP collector is set with MW_OTLP_ENDPOINT at start",
+    ),
+    (
+        "MW_ADMIN_METRICS",
+        "/metrics is served when MW_METRICS_TOKEN is set at start",
+    ),
+    (
+        "MW_ADMIN_REQUIRE_2FA",
+        "require two-factor from the admin panel's \"Require two-factor\" screen",
+    ),
+    (
+        "MW_ADMIN_MIN_TLS",
+        "no minimum TLS version setting exists; the listeners use the rustls defaults",
+    ),
+    (
+        "MW_ADMIN_THEME",
+        "no deployment-default theme is read from the environment",
+    ),
+    (
+        "MW_ADMIN_BRAND",
+        "no brand name is read from the environment",
+    ),
+    (
+        "MW_ADMIN_ACCENT",
+        "no accent colour is read from the environment",
+    ),
+];
+
+/// Refuse to continue when the process environment sets a `MW_ADMIN_*` variable
+/// that nothing applies ([`UNSUPPORTED_ENV`]). The error names every such variable
+/// that is set, with what to use instead.
+///
+/// A variable set to the empty string counts as set: an operator who exported it
+/// meant something by it.
+///
+/// Intended to be called once at server start, before anything is bound.
+pub fn reject_unsupported_env() -> Result<(), AdminError> {
+    reject_unsupported_env_with(|k| std::env::var_os(k).is_some())
 }
 
-fn parse_bool(v: &str) -> Option<bool> {
-    match v.trim().to_ascii_lowercase().as_str() {
-        "1" | "true" | "yes" | "on" => Some(true),
-        "0" | "false" | "no" | "off" => Some(false),
-        _ => None,
+/// [`reject_unsupported_env`] with an injectable lookup (keeps the logic testable
+/// without touching the process environment).
+fn reject_unsupported_env_with(is_set: impl Fn(&str) -> bool) -> Result<(), AdminError> {
+    let set: Vec<String> = UNSUPPORTED_ENV
+        .iter()
+        .filter(|(name, _)| is_set(name))
+        .map(|(name, instead)| format!("{name} is set but is not supported: {instead}"))
+        .collect();
+    if set.is_empty() {
+        Ok(())
+    } else {
+        Err(AdminError::Config(format!(
+            "{}. Unset {} to start.",
+            set.join("; "),
+            if set.len() == 1 { "it" } else { "them" }
+        )))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
     #[test]
     fn toml_round_trips() {
@@ -202,60 +212,82 @@ mod tests {
         assert_eq!(cfg.appearance.brand_name, "Mailwoman");
     }
 
-    #[test]
-    fn env_overlay_wins() {
-        let mut cfg = AdminConfig::default();
-        let env: HashMap<&str, &str> = [
-            ("MW_ADMIN_ENABLED", "false"),
-            ("MW_ADMIN_LOG_LEVEL", "debug"),
-            ("MW_ADMIN_OTLP_DSN", "http://c:4317"),
-            ("MW_ADMIN_REQUIRE_2FA", "true"),
-            ("MW_ADMIN_PORT", "9443"),
-        ]
-        .into_iter()
-        .collect();
-        apply_env_with(&mut cfg, |k| env.get(k).map(|s| s.to_string()));
-        assert!(!cfg.enabled);
-        assert_eq!(cfg.observability.log_level, "debug");
-        assert_eq!(cfg.observability.otlp_dsn.as_deref(), Some("http://c:4317"));
-        assert!(cfg.security.require_2fa);
-        assert_eq!(cfg.separate_port, Some(9443));
+    fn rejected(set: &[&str]) -> Result<(), AdminError> {
+        reject_unsupported_env_with(|k| set.contains(&k))
     }
 
     #[test]
-    fn env_overlays_the_whole_appearance_section() {
-        let mut cfg = AdminConfig::default();
-        let env: HashMap<&str, &str> = [
-            ("MW_ADMIN_THEME", "ocean-dark"),
-            ("MW_ADMIN_BRAND", "Acme Mail"),
-            ("MW_ADMIN_ACCENT", "#3355ff"),
-        ]
-        .into_iter()
-        .collect();
-        apply_env_with(&mut cfg, |k| env.get(k).map(|s| s.to_string()));
-        assert_eq!(cfg.appearance.theme, "ocean-dark");
-        assert_eq!(cfg.appearance.brand_name, "Acme Mail");
-        assert_eq!(cfg.appearance.accent.as_deref(), Some("#3355ff"));
+    fn an_environment_without_unsupported_variables_passes() {
+        assert!(rejected(&[]).is_ok());
+        // The three variables `mw-server` reads are not refused.
+        assert!(rejected(&["MW_ADMIN_ENABLED", "MW_ADMIN_USER", "MW_ADMIN_PASSWORD"]).is_ok());
     }
 
     #[test]
-    fn blank_accent_env_clears_the_accent() {
-        let mut cfg = AdminConfig::default();
-        cfg.appearance.accent = Some("#3355ff".to_string());
-        apply_env_with(&mut cfg, |k| (k == "MW_ADMIN_ACCENT").then(String::new));
-        assert_eq!(cfg.appearance.accent, None);
+    fn the_admin_port_is_refused_by_name() {
+        let err = rejected(&["MW_ADMIN_PORT"]).unwrap_err();
+        let AdminError::Config(msg) = &err else {
+            panic!("a config error, got {err:?}");
+        };
+        assert!(
+            msg.contains("MW_ADMIN_PORT is set but is not supported"),
+            "{msg}"
+        );
+        assert!(msg.contains("no separate admin port"), "{msg}");
+        assert!(msg.ends_with("Unset it to start."), "{msg}");
+        assert!(!msg.contains("MW_ADMIN_SESSION_COOKIE"), "{msg}");
     }
 
     #[test]
-    fn an_unknown_theme_id_is_accepted_verbatim() {
-        // The theme union lives in the web theme registry, not here (see the
-        // `Appearance` doc comment). Storing it verbatim is what keeps this crate
-        // from drifting behind a released pack; the client resolves an id it does
-        // not know back to its own default.
-        let mut cfg = AdminConfig::default();
-        apply_env_with(&mut cfg, |k| {
-            (k == "MW_ADMIN_THEME").then(|| "pack-shipped-next-release".to_string())
-        });
-        assert_eq!(cfg.appearance.theme, "pack-shipped-next-release");
+    fn the_session_cookie_variable_is_refused_by_name() {
+        let AdminError::Config(msg) = rejected(&["MW_ADMIN_SESSION_COOKIE"]).unwrap_err() else {
+            panic!("a config error");
+        };
+        assert!(
+            msg.contains("MW_ADMIN_SESSION_COOKIE is set but is not supported"),
+            "{msg}"
+        );
+        assert!(msg.contains("mw_admin_session"), "{msg}");
+    }
+
+    #[test]
+    fn every_variable_that_is_set_is_named_in_one_error() {
+        let AdminError::Config(msg) =
+            rejected(&["MW_ADMIN_PORT", "MW_ADMIN_LOG_LEVEL", "MW_ADMIN_BRAND"]).unwrap_err()
+        else {
+            panic!("a config error");
+        };
+        for name in ["MW_ADMIN_PORT", "MW_ADMIN_LOG_LEVEL", "MW_ADMIN_BRAND"] {
+            assert!(
+                msg.contains(&format!("{name} is set but is not supported")),
+                "{msg}"
+            );
+        }
+        assert!(msg.ends_with("Unset them to start."), "{msg}");
+    }
+
+    /// Each of the ten variables the removed overlay used to accept is refused on
+    /// its own, so none of them can go back to being silently ignored.
+    #[test]
+    fn each_former_overlay_variable_is_refused() {
+        let former = [
+            "MW_ADMIN_SESSION_COOKIE",
+            "MW_ADMIN_PORT",
+            "MW_ADMIN_LOG_LEVEL",
+            "MW_ADMIN_OTLP_DSN",
+            "MW_ADMIN_METRICS",
+            "MW_ADMIN_REQUIRE_2FA",
+            "MW_ADMIN_MIN_TLS",
+            "MW_ADMIN_THEME",
+            "MW_ADMIN_BRAND",
+            "MW_ADMIN_ACCENT",
+        ];
+        assert_eq!(UNSUPPORTED_ENV.len(), former.len());
+        for name in former {
+            let AdminError::Config(msg) = rejected(&[name]).unwrap_err() else {
+                panic!("a config error for {name}");
+            };
+            assert!(msg.starts_with(&format!("{name} is set")), "{msg}");
+        }
     }
 }
