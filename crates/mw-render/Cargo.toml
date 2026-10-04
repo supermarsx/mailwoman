@@ -26,7 +26,7 @@ base64 = { workspace = true }
 # `pulley` selects the pure-interpreter target (no JIT W^X page → survives the render
 # child's seccomp/Landlock jail from t16-e4). No `component-model`/`wasi`: the guest
 # is a bare core module with zero host imports.
-wasmtime = { version = "46", default-features = false, features = [
+wasmtime = { version = "49.0.2", default-features = false, features = [
     "runtime",
     "std",
     "cranelift",

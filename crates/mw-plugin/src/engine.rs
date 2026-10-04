@@ -39,7 +39,7 @@ pub(crate) fn build_engine() -> Result<Engine> {
     {
         // Pulley pure-interpreter: no JIT, no W^X page — safe under systemd
         // MemoryDenyWriteExecute (§7.5). Selected by compilation target, not by
-        // `Strategy` (wasmtime 38 exposes Pulley only as a target triple).
+        // `Strategy` (wasmtime exposes Pulley only as a target triple).
         cfg.target("pulley64")
             .map_err(|e| PluginError::Load(format!("pulley target unavailable: {e}")))?;
     }

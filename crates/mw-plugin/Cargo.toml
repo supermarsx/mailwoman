@@ -39,19 +39,24 @@ mw-engine = { workspace = true }
 # pulley interpreter, no openssl / no `-sys` C. e1 VERIFIED the whole tree clears
 # the license/TLS floor (`cargo deny check` — licenses/bans/sources green).
 #
-# VERSION (R3, e1 ESCALATION): declared DIRECTLY (not `workspace = true`) at **46**,
-# NOT the e0-pinned **38**. Two reasons: (1) `default-features = false` is required to
-# keep the tree C-free (default `profiling` pulls `ittapi-sys`, a C VTune lib; `cache`
-# pulls `zstd-sys`), and a workspace-inherited dep may not override default-features;
-# (2) wasmtime/wasmtime-wasi **38.0.4 carry THREE vulnerability-class RustSec
-# advisories** (GHSA-2r75-cxrj-cmph, RUSTSEC-2026-0182, RUSTSEC-2026-0188 — WASI
-# fd/filesystem issues; non-exploitable here since guests get NO filesystem, but the
-# `cargo deny` gate is zero-vuln). There is no 38.x fix; the fixes land in 46.0.1.
-# Only mw-plugin uses wasmtime, so the root's declare-only `38` pin is inert (nothing
-# inherits it → it never enters Cargo.lock). **Coordinator/e15 should update the root
-# workspace pins 38→46 to match this crate's effective version.** Same major-version
-# for both wasmtime + wasmtime-wasi so they resolve consistently.
-wasmtime = { version = "46", default-features = false, features = [
+# VERSION: declared DIRECTLY (not `workspace = true`) because `default-features =
+# false` is required to keep the tree C-free (default `profiling` pulls `ittapi-sys`,
+# a C VTune lib; `cache` pulls `zstd-sys`), and a workspace-inherited dep may not
+# override default-features. The root `[workspace.dependencies]` entry is declare-only
+# (nothing inherits it); it is kept at the same version as this one.
+#
+# Pinned at **49.0.2** (26.20 t27-e1, 2026-10-04; was 46.0.3). 46.0.3 carried seven
+# RustSec advisories — RUSTSEC-2026-0314, -0316, -0321, -0322, -0323, -0324, -0327 —
+# and no patched 46.x release exists; `cargo deny check advisories` is clear at
+# 49.0.2. The requirement names the patch release so the resolver cannot select
+# 49.0.0/49.0.1.
+# wasmtime and wasmtime-wasi are kept at the same version so they resolve
+# consistently; `mw-render` declares the same wasmtime version.
+#
+# wasmtime-wasi: `p2` is named explicitly. Its default set is `p1` + `p2` + `p3`;
+# only the WASI-p2 linker (`wasmtime_wasi::p2`) is used here, so `p1` (wiggle) and
+# `p3` (component-model-async) stay off.
+wasmtime = { version = "49.0.2", default-features = false, features = [
     "runtime",
     "std",
     "cranelift",
@@ -66,7 +71,7 @@ wasmtime = { version = "46", default-features = false, features = [
     "addr2line",
     "pulley",
 ] }
-wasmtime-wasi = { version = "46", default-features = false }
+wasmtime-wasi = { version = "49.0.2", default-features = false, features = ["p2"] }
 
 # Ed25519 detached-signature verification over component bytes (signed registry).
 # REUSE of the crate rPGP already pulls into the tree (2.2.0) — no new supply-chain
