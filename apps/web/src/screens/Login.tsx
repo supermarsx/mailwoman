@@ -28,6 +28,11 @@ export function Login(): JSX.Element {
   const [password, setPassword] = createSignal('');
   const [error, setError] = createSignal<string | null>(ssoErrorReturn() ? t('auth-sso-error') : null);
   const [busy, setBusy] = createSignal(false);
+  // Set when the server refused the credentials (401). A disabled account gets
+  // the same 401 as a wrong password — the server keeps one shape so the refusal
+  // does not reveal account state — so the form cannot say WHICH it was; it adds
+  // a note naming the other possibility.
+  const [refused, setRefused] = createSignal(false);
 
   // When the password is accepted but a second factor is required, the login is
   // NOT complete: `app.login` threw `TwoFactorRequired` before any session was
@@ -49,6 +54,7 @@ export function Login(): JSX.Element {
   async function onSubmit(e: Event): Promise<void> {
     e.preventDefault();
     setError(null);
+    setRefused(false);
     setBusy(true);
     try {
       await app.login({ jmapUrl: jmapUrl(), username: username(), password: password() });
@@ -58,6 +64,7 @@ export function Login(): JSX.Element {
         setChallenge(err.challenge);
       } else if (err instanceof ApiError && err.status === 401) {
         setError(t('auth-invalid-credentials'));
+        setRefused(true);
       } else {
         setError(t('auth-unreachable'));
       }
@@ -129,6 +136,11 @@ export function Login(): JSX.Element {
         <Show when={error()}>
           <p class="login__error" role="alert">
             {error()}
+          </p>
+        </Show>
+        <Show when={refused()}>
+          <p class="login__hint" data-testid="login-refused-note">
+            {t('auth-refused-note')}
           </p>
         </Show>
         <button type="submit" class="btn btn--primary" disabled={busy()}>

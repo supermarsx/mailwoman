@@ -6,7 +6,7 @@
 // V2 surface is additive.
 
 import { createSignal, createMemo, type Accessor } from 'solid-js';
-import { ApiError, NetworkError, type LoginInput, type Me } from '../../api/client.ts';
+import { ApiError, NetworkError, PasswordChangeRequired, type LoginInput, type Me } from '../../api/client.ts';
 import {
   cancelSubmission,
   emailGetFull,
@@ -1014,12 +1014,38 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     if (current !== null) await selectMailbox(current);
   }
 
+  // Forced password change (t27, OH-1). While the account's admin flag is set
+  // the server answers every JMAP request with 403, so a flagged session is
+  // recorded (`me()` carries `passwordChangeRequired`, which the shell renders
+  // as the change screen) and no mail is loaded for it.
+  const mustChangePassword = (user: Me): boolean => user.passwordChangeRequired === true;
+  function holdForPasswordChange(): void {
+    setMe((user) => (user === null || mustChangePassword(user) ? user : { ...user, passwordChangeRequired: true }));
+  }
+
+  // The flag can also be set while a session is open: the next request is then
+  // refused, and the client reports it here.
+  client.onPasswordChangeRequired?.(holdForPasswordChange);
+
+  /** Load mail for a new session, unless the server holds it at the change screen. */
+  async function loadMailFor(user: Me): Promise<void> {
+    if (mustChangePassword(user)) return;
+    try {
+      await loadMailboxes();
+    } catch (err) {
+      // `/api/me` did not carry the flag but the first mail request was refused
+      // for it. That is the hold, not a boot or sign-in failure.
+      if (!(err instanceof PasswordChangeRequired)) throw err;
+      holdForPasswordChange();
+    }
+  }
+
   async function init(): Promise<void> {
     try {
       const user = await client.me();
       setMe(user);
       setAccountId(user.accountId);
-      await loadMailboxes();
+      await loadMailFor(user);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setMe(null);
@@ -1035,7 +1061,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const user = await client.login(input);
     setMe(user);
     setAccountId(user.accountId);
-    await loadMailboxes();
+    await loadMailFor(user);
   }
 
   async function logout(): Promise<void> {

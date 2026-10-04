@@ -152,3 +152,30 @@ export const banner = style({
 
 export const success = style({ fontSize: '0.9rem', color: vars.color.success, margin: 0, fontWeight: 600 });
 export const error = style({ fontSize: '0.85rem', color: vars.color.danger, margin: 0 });
+
+/** One line inside the error region (the region itself carries colour and size). */
+export const errorLine = style({ margin: 0, lineHeight: 1.5 });
+
+// -- Forced change screen (t27) ------------------------------------------------
+export const forced = style({
+  minHeight: '100vh',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: vars.space[4],
+  padding: vars.space[5],
+  fontFamily: vars.font.ui,
+  color: vars.color.text,
+  background: vars.color.bg,
+});
+
+export const forcedBody = style({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: vars.space[4],
+  width: '100%',
+  maxWidth: '32rem',
+});
+
+export const forcedTitle = style({ fontSize: '1.25rem', fontWeight: 600, margin: 0 });

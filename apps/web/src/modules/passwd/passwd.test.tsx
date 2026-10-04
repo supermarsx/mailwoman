@@ -85,6 +85,116 @@ describe('plain (non zero-access) change', () => {
   });
 });
 
+// The bodies in this block are what mw-server sends (crates/mw-server/src/passwd.rs
+// `policy`, `change_password`, `password_error`), field for field.
+describe('server contract (t27-e4)', () => {
+  function errJson(status: number, error: string): Response {
+    return new Response(JSON.stringify({ error }), { status, headers: { 'content-type': 'application/json' } });
+  }
+
+  function submitChange(): void {
+    fireEvent.input(screen.getByLabelText('Current password'), { target: { value: 'OldPass1' } });
+    fireEvent.input(screen.getByLabelText('New password'), { target: { value: 'NewPass1' } });
+    fireEvent.input(screen.getByLabelText('Confirm new password'), { target: { value: 'NewPass1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Change password' }));
+  }
+
+  it('reads the policy as the server names it, including forceChange', async () => {
+    const fetcher = vi.fn(async (_input: string, _init?: RequestInit) =>
+      okJson({
+        description: 'at least 10 characters',
+        minLength: 10,
+        requireUpper: true,
+        requireLower: false,
+        requireDigit: true,
+        requireSymbol: false,
+        forceChange: true,
+      }),
+    );
+    const policy = await new PasswordService(fetcher).policy();
+    expect(policy).toEqual({
+      description: 'at least 10 characters',
+      minLength: 10,
+      requireUppercase: true,
+      requireLowercase: false,
+      requireDigit: true,
+      requireSymbol: false,
+      forceChange: true,
+    });
+    // The rule the server asked for is enforced client-side, not silently dropped.
+    expect(policyViolations(policy, 'alllowercase1')).toContain('an uppercase letter');
+  });
+
+  it('treats an absent forceChange as false', async () => {
+    const fetcher = vi.fn(async (_input: string, _init?: RequestInit) =>
+      okJson({ description: 'd', minLength: 8, requireUpper: false, requireLower: false, requireDigit: false, requireSymbol: false }),
+    );
+    expect((await new PasswordService(fetcher).policy()).forceChange).toBe(false);
+  });
+
+  it('shows the banner from a fetched policy carrying forceChange', async () => {
+    const fetcher = vi.fn(async (_input: string, _init?: RequestInit) =>
+      okJson({ description: 'd', minLength: 8, requireUpper: false, requireLower: false, requireDigit: false, requireSymbol: false, forceChange: true }),
+    );
+    render(() => <PasswordChange accountId="a" service={new PasswordService(fetcher)} />);
+    await waitFor(() => expect(screen.getByTestId('force-change-banner')).toBeInTheDocument());
+  });
+
+  it('maps credentialsResealed onto the outcome', async () => {
+    const fetcher = vi.fn(async (_input: string, _init?: RequestInit) =>
+      okJson({ changed: true, credentialsResealed: 2, zeroaccessRewrapRequired: false }),
+    );
+    const outcome = await new PasswordService(fetcher).change({ oldPassword: 'a', newPassword: 'b' });
+    expect(outcome).toEqual({ changed: true, reencryptCredentials: true, zeroaccessRewrapRequired: false });
+  });
+
+  it('control: a successful change shows no error', async () => {
+    const fetcher = vi.fn(async (_input: string, _init?: RequestInit) =>
+      okJson({ changed: true, credentialsResealed: 0, zeroaccessRewrapRequired: false }),
+    );
+    render(() => <PasswordChange accountId="a" initialPolicy={POLICY} service={new PasswordService(fetcher)} />);
+    submitChange();
+    await waitFor(() => expect(screen.getByTestId('change-done')).toBeInTheDocument());
+    expect(screen.queryByTestId('passwd-error')).toBeNull();
+  });
+
+  it('501: shows the server message and says the server cannot change passwords', async () => {
+    const fetcher = vi.fn(async (_input: string, _init?: RequestInit) => errJson(501, 'password change not configured'));
+    render(() => <PasswordChange accountId="a" initialPolicy={POLICY} service={new PasswordService(fetcher)} />);
+    submitChange();
+    const alert = await screen.findByTestId('passwd-error');
+    expect(alert).toHaveTextContent('password change not configured');
+    expect(alert).toHaveTextContent('This server is not set up to change passwords. Contact your administrator.');
+    expect(screen.queryByTestId('change-done')).toBeNull();
+  });
+
+  it('502: shows the server message and the contact-your-administrator line', async () => {
+    const fetcher = vi.fn(async (_input: string, _init?: RequestInit) => errJson(502, 'password change failed'));
+    render(() => <PasswordChange accountId="a" initialPolicy={POLICY} service={new PasswordService(fetcher)} />);
+    submitChange();
+    const alert = await screen.findByTestId('passwd-error');
+    expect(alert).toHaveTextContent('password change failed');
+    expect(alert).toHaveTextContent('The server could not complete the change. Contact your administrator.');
+  });
+
+  it('403 wrong current password: shows the server message, without the administrator line', async () => {
+    const fetcher = vi.fn(async (_input: string, _init?: RequestInit) => errJson(403, 'current password rejected'));
+    render(() => <PasswordChange accountId="a" initialPolicy={POLICY} service={new PasswordService(fetcher)} />);
+    submitChange();
+    const alert = await screen.findByTestId('passwd-error');
+    expect(alert).toHaveTextContent('current password rejected');
+    expect(alert).not.toHaveTextContent('administrator');
+  });
+
+  it('401: says the session has ended', async () => {
+    const fetcher = vi.fn(async (_input: string, _init?: RequestInit) => errJson(401, 'invalid credentials'));
+    render(() => <PasswordChange accountId="a" initialPolicy={POLICY} service={new PasswordService(fetcher)} />);
+    submitChange();
+    const alert = await screen.findByTestId('passwd-error');
+    expect(alert).toHaveTextContent('Your session has ended. Sign in again.');
+  });
+});
+
 describe('zero-access re-wrap — recovery-phrase pre-prompt BEFORE the change (ordering)', () => {
   it('shows the recovery phrase and does NOT change until it is acknowledged', async () => {
     const order: string[] = [];

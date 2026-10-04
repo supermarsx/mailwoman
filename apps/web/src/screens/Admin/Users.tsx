@@ -118,7 +118,7 @@ export function Users(): JSX.Element {
               </thead>
               <tbody>
                 <For each={users()}>
-                  {(u) => (
+                  {(u, i) => (
                     <tr>
                       <td dir="auto">{u.accountId}</td>
                       <td>{u.quota ? `${u.quota.bytesLimit} / ${u.quota.msgLimit}` : '—'}</td>
@@ -137,20 +137,28 @@ export function Users(): JSX.Element {
                           <input
                             type="checkbox"
                             aria-label={t('admin-users-disable-for', { account: u.accountId })}
+                            aria-describedby={`admin-users-disabled-help-${i()}`}
                             checked={u.flags.disabled}
                             onChange={(e) => void patchFlag(u, 'disabled', e.currentTarget.checked)}
                           />{' '}
                           {t('admin-users-disabled')}
                         </label>
+                        <p class={css.note} id={`admin-users-disabled-help-${i()}`}>
+                          {t('admin-users-disabled-help')}
+                        </p>
                         <label class="field">
                           <input
                             type="checkbox"
                             aria-label={t('admin-users-force-change-for', { account: u.accountId })}
+                            aria-describedby={`admin-users-force-change-help-${i()}`}
                             checked={u.flags.forcePasswordChange}
                             onChange={(e) => void patchFlag(u, 'forcePasswordChange', e.currentTarget.checked)}
                           />{' '}
                           {t('admin-users-force-change')}
                         </label>
+                        <p class={css.note} id={`admin-users-force-change-help-${i()}`}>
+                          {t('admin-users-force-change-help')}
+                        </p>
                         <label class="field">
                           <input
                             type="checkbox"

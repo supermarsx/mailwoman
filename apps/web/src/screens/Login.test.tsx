@@ -85,6 +85,90 @@ describe('Login', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Invalid credentials');
   });
+
+  // A disabled account is refused with the SAME 401 body as a wrong password
+  // (t27 plan §4 e3: one shape, so the refusal is not an account-state oracle).
+  // The screen therefore cannot say "this account is disabled"; it states the
+  // possibility next to the refusal.
+  it('a 401 also says the account may have been disabled', async () => {
+    const client = fakeClient({
+      login: vi.fn(async () => {
+        throw new ApiError(401, 'invalid credentials');
+      }),
+    });
+    renderLogin(client);
+    // Control: the note is not part of the form before a refusal.
+    expect(screen.queryByTestId('login-refused-note')).toBeNull();
+
+    fireEvent.input(screen.getByPlaceholderText('https://jmap.example.org'), {
+      target: { value: 'https://jmap.example.org' },
+    });
+    fireEvent.input(screen.getByLabelText('Username'), { target: { value: 'x' } });
+    fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'y' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    const note = await screen.findByTestId('login-refused-note');
+    expect(note).toHaveTextContent('the account may have been disabled by an administrator');
+  });
+
+  it('an unreachable server does not show the disabled-account note', async () => {
+    const client = fakeClient({
+      login: vi.fn(async () => {
+        throw new Error('boom');
+      }),
+    });
+    renderLogin(client);
+
+    fireEvent.input(screen.getByPlaceholderText('https://jmap.example.org'), {
+      target: { value: 'https://jmap.example.org' },
+    });
+    fireEvent.input(screen.getByLabelText('Username'), { target: { value: 'x' } });
+    fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'y' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not reach the server');
+    expect(screen.queryByTestId('login-refused-note')).toBeNull();
+  });
+
+  it('a flagged account is signed in without loading mail', async () => {
+    const client = fakeClient({
+      login: vi.fn(
+        async (_input: LoginInput): Promise<Me> => ({
+          username: 'testuser@example.org',
+          accountId: 'acct1',
+          passwordChangeRequired: true,
+        }),
+      ),
+    });
+    const app = createAppState(client);
+    render(() => <AppContext.Provider value={app}>{<Login />}</AppContext.Provider>);
+
+    fireEvent.input(screen.getByPlaceholderText('https://jmap.example.org'), {
+      target: { value: 'https://jmap.example.org' },
+    });
+    fireEvent.input(screen.getByLabelText('Username'), { target: { value: 'testuser@example.org' } });
+    fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'testpass' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await vi.waitFor(() => expect(app.me()?.passwordChangeRequired).toBe(true));
+    // The session exists, but no JMAP request was made for it.
+    expect(client.jmap).not.toHaveBeenCalled();
+  });
+
+  it('control: an unflagged account loads mail on login', async () => {
+    const client = fakeClient();
+    const app = createAppState(client);
+    render(() => <AppContext.Provider value={app}>{<Login />}</AppContext.Provider>);
+
+    fireEvent.input(screen.getByPlaceholderText('https://jmap.example.org'), {
+      target: { value: 'https://jmap.example.org' },
+    });
+    fireEvent.input(screen.getByLabelText('Username'), { target: { value: 'testuser@example.org' } });
+    fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'testpass' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await vi.waitFor(() => expect(client.jmap).toHaveBeenCalled());
+  });
 });
 
 describe('Login › 2FA', () => {

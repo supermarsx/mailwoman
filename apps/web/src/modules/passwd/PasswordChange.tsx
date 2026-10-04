@@ -15,6 +15,7 @@ import { createSignal, createResource, Show, onMount, type JSX } from 'solid-js'
 import { t, loadCatalog } from '../../i18n';
 import {
   PasswordService,
+  PasswordRequestError,
   policyViolations,
   type Fetcher,
   type PasswordPolicy,
@@ -54,6 +55,8 @@ export function PasswordChange(props: PasswordChangeProps): JSX.Element {
   const [ack, setAck] = createSignal(false);
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal('');
+  // A second line under a server refusal, saying what the user can do about it.
+  const [errorHelp, setErrorHelp] = createSignal('');
   const [outcome, setOutcome] = createSignal<PasswordChangeOutcome | null>(null);
 
   const isZeroAccess = (): boolean => props.zeroAccess?.account.enabled === true;
@@ -76,6 +79,7 @@ export function PasswordChange(props: PasswordChangeProps): JSX.Element {
    *  pre-prompt FIRST (derive + show the recovery phrase; DO NOT change yet). */
   async function onSubmit(): Promise<void> {
     setError('');
+    setErrorHelp('');
     const problem = validate();
     if (problem !== '') {
       setError(problem);
@@ -111,9 +115,22 @@ export function PasswordChange(props: PasswordChangeProps): JSX.Element {
     await applyChange();
   }
 
+  /**
+   * What to add under a refused change. The server's own message is shown as
+   * the error; this says what follows from the status. Nothing is added for a
+   * 400/403 (policy / current password): those the user can fix here.
+   */
+  function helpFor(status: number): string {
+    if (status === 401) return t('passwd-error-session-ended');
+    if (status === 501) return t('passwd-error-not-configured');
+    if (status >= 500) return t('passwd-error-contact-admin');
+    return '';
+  }
+
   /** Perform the actual change POST (with re-wrap material for zero-access accounts). */
   async function applyChange(): Promise<void> {
     setError('');
+    setErrorHelp('');
     setBusy(true);
     try {
       let rewrap: RewrapPayload | undefined;
@@ -140,7 +157,12 @@ export function PasswordChange(props: PasswordChangeProps): JSX.Element {
       setPhrase('');
       props.onChanged?.(result);
     } catch (e) {
-      setError(e instanceof Error ? e.message : t('passwd-error-change'));
+      if (e instanceof PasswordRequestError) {
+        setError(e.serverMessage !== '' ? e.serverMessage : t('passwd-error-change'));
+        setErrorHelp(helpFor(e.status));
+      } else {
+        setError(e instanceof Error ? e.message : t('passwd-error-change'));
+      }
     } finally {
       setBusy(false);
     }
@@ -280,9 +302,12 @@ export function PasswordChange(props: PasswordChangeProps): JSX.Element {
       </Show>
 
       <Show when={error() !== ''}>
-        <p class={css.error} id={errorId} role="alert">
-          {error()}
-        </p>
+        <div class={css.error} id={errorId} role="alert" data-testid="passwd-error">
+          <p class={css.errorLine}>{error()}</p>
+          <Show when={errorHelp() !== ''}>
+            <p class={css.errorLine}>{errorHelp()}</p>
+          </Show>
+        </div>
       </Show>
     </div>
   );

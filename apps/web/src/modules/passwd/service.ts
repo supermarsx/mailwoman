@@ -13,9 +13,57 @@ export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
 const defaultFetcher: Fetcher = (input, init) => fetch(input, { credentials: 'same-origin', ...init });
 
+/**
+ * A non-2xx answer from `/api/password[/policy]`. mw-server sends
+ * `{"error": "<message>"}` with the status saying which kind it is
+ * (`crates/mw-server/src/passwd.rs` `password_error`): 400 policy violation,
+ * 403 current password rejected, 501 no password-change backend configured,
+ * 502 the backend failed, 500 changed upstream but the credential re-seal failed.
+ */
+export class PasswordRequestError extends Error {
+  readonly status: number;
+  /** The server's `error` string, or `''` when the body carried none. */
+  readonly serverMessage: string;
+  constructor(status: number, serverMessage: string) {
+    super(serverMessage !== '' ? serverMessage : `password request failed: ${status}`);
+    this.name = 'PasswordRequestError';
+    this.status = status;
+    this.serverMessage = serverMessage;
+  }
+}
+
 async function jsonOrThrow<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new Error(`password request failed: ${res.status}`);
+  if (!res.ok) {
+    let serverMessage = '';
+    try {
+      const body = (await res.json()) as { error?: unknown } | null;
+      if (typeof body?.error === 'string') serverMessage = body.error;
+    } catch {
+      /* no JSON body: the status is all there is */
+    }
+    throw new PasswordRequestError(res.status, serverMessage);
+  }
   return (await res.json()) as T;
+}
+
+/** `GET /api/password/policy` as mw-server serialises it. `forceChange` is the
+ *  account's admin `force_password_change` flag. */
+interface WirePolicy {
+  readonly description?: string;
+  readonly minLength?: number;
+  readonly requireUpper?: boolean;
+  readonly requireLower?: boolean;
+  readonly requireDigit?: boolean;
+  readonly requireSymbol?: boolean;
+  readonly forceChange?: boolean;
+}
+
+/** `POST /api/password` success as mw-server serialises it. */
+interface WireOutcome {
+  readonly changed?: boolean;
+  /** How many stored upstream credentials were re-sealed under the new password. */
+  readonly credentialsResealed?: number;
+  readonly zeroaccessRewrapRequired?: boolean;
 }
 
 /** The password policy the backend advertises (`GET /api/password/policy`). */
@@ -27,7 +75,7 @@ export interface PasswordPolicy {
   readonly requireSymbol: boolean;
   /** The backend's `PasswordPolicy` Display string (human summary). */
   readonly description: string;
-  /** Whether the account is under forced-change-on-next-login. */
+  /** Whether the account's admin `force_password_change` flag is set. */
   readonly forceChange: boolean;
 }
 
@@ -59,7 +107,16 @@ export class PasswordService {
   /** Fetch the backend's password policy + forced-change state. */
   async policy(): Promise<PasswordPolicy> {
     const res = await this.fetcher(withBase('/api/password/policy'));
-    return jsonOrThrow<PasswordPolicy>(res);
+    const wire = await jsonOrThrow<WirePolicy>(res);
+    return {
+      minLength: wire.minLength ?? 0,
+      requireUppercase: wire.requireUpper === true,
+      requireLowercase: wire.requireLower === true,
+      requireDigit: wire.requireDigit === true,
+      requireSymbol: wire.requireSymbol === true,
+      description: wire.description ?? '',
+      forceChange: wire.forceChange === true,
+    };
   }
 
   /** Apply a password change. For zero-access accounts pass the `rewrap` material. */
@@ -69,7 +126,12 @@ export class PasswordService {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(req),
     });
-    return jsonOrThrow<PasswordChangeOutcome>(res);
+    const wire = await jsonOrThrow<WireOutcome>(res);
+    return {
+      changed: wire.changed === true,
+      reencryptCredentials: (wire.credentialsResealed ?? 0) > 0,
+      zeroaccessRewrapRequired: wire.zeroaccessRewrapRequired === true,
+    };
   }
 }
 

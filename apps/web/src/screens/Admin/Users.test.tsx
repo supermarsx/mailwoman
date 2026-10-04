@@ -47,6 +47,30 @@ describe('Admin › Users', () => {
     expect(setFlags).not.toHaveBeenCalled();
   });
 
+  it('says what "disabled" and "force change" do, and ties each note to its checkbox', async () => {
+    renderWithAdmin(() => <Users />, mockAdminApi({ listUsers: vi.fn(async () => [U]) }));
+
+    const disabled = await screen.findByLabelText('Disable alice@example.com');
+    const disabledHelp = document.getElementById(disabled.getAttribute('aria-describedby') ?? '');
+    expect(disabledHelp).toHaveTextContent('Blocks sign-in');
+    expect(disabledHelp).toHaveTextContent('API keys and tokens');
+    expect(disabledHelp).toHaveTextContent('does not disable the mailbox on the mail server');
+
+    const force = screen.getByLabelText('Force password change for alice@example.com');
+    const forceHelp = document.getElementById(force.getAttribute('aria-describedby') ?? '');
+    expect(forceHelp).toHaveTextContent('held at a password-change screen');
+    expect(forceHelp).toHaveTextContent('MW_PASSWD_BACKEND');
+    expect(forceHelp).toHaveTextContent('until you clear this box');
+  });
+
+  it('setting "disabled" sends the flag through setFlags', async () => {
+    const setFlags = vi.fn(async () => undefined);
+    renderWithAdmin(() => <Users />, mockAdminApi({ listUsers: vi.fn(async () => [U]), setFlags }));
+    fireEvent.change(await screen.findByLabelText('Disable alice@example.com'), { target: { checked: true } });
+    await Promise.resolve();
+    expect(setFlags).toHaveBeenCalledWith('alice@example.com', { ...U.flags, disabled: true });
+  });
+
   it('revokes sessions', async () => {
     const revokeSessions = vi.fn(async () => 3);
     renderWithAdmin(() => <Users />, mockAdminApi({ listUsers: vi.fn(async () => [U]), revokeSessions }));

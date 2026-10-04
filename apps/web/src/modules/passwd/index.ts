@@ -16,6 +16,7 @@
 export { PasswordChange, type PasswordChangeProps } from './PasswordChange.tsx';
 export {
   PasswordService,
+  PasswordRequestError,
   policyViolations,
   type Fetcher,
   type PasswordPolicy,

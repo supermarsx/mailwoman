@@ -11,6 +11,9 @@ auth-password = Password
 auth-sign-in = Sign in
 auth-signing-in = Signing in…
 auth-invalid-credentials = Invalid credentials
+# Shown under the refusal. The server answers a disabled account with the same
+# response as a wrong password, so this states a possibility, not a diagnosis.
+auth-refused-note = If the username and password are correct, the account may have been disabled by an administrator. A disabled account cannot sign in until an administrator enables it again.
 auth-unreachable = Could not reach the server
 auth-mock-hint = Mock account: testuser@example.org / testpass
 

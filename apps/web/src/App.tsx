@@ -34,6 +34,11 @@ const loadConsentScreen = () => import('./screens/Consent/index.tsx');
  *  unchanged. Mounted only inside the authenticated branch below. */
 const loadUiPluginTier = () => import('./plugins-ui/Tier.tsx');
 
+/** Forced password change (t27, OH-1): the only screen an account gets while its
+ *  admin `force_password_change` flag is set. Its own chunk — most sessions never
+ *  need it, and it must not pull the mail UI in. */
+const loadForcedPasswordChange = () => import('./modules/passwd/ForcedPasswordChange.tsx');
+
 /** The mailbox itself, now code-split out of the entry chunk: the shell renders
  *  Login without it, so a logged-out visitor never downloads the whole mail UI. */
 const loadMailboxScreen = () =>
@@ -86,6 +91,12 @@ export function App(): JSX.Element {
     void app.init().catch(setBootError);
   }
 
+  // A session whose account must change its password first. The server refuses
+  // its JMAP, push and realtime requests (403 `passwordChangeRequired`), so it
+  // is a session but not yet a mail session: nothing below may treat it as one.
+  const held = (): boolean => app.me()?.passwordChangeRequired === true;
+  const inMail = (): boolean => app.me() !== null && !held();
+
   onMount(() => {
     boot();
     // V7 Assist (plan §14): read the gateway config once at boot. A gateway that is
@@ -101,14 +112,14 @@ export function App(): JSX.Element {
   // Open the realtime push transport once a session exists, and tear it down on
   // logout (plan §2.2). Inert under jsdom (no WebSocket/EventSource).
   createEffect(() => {
-    if (app.me() !== null) app.startRealtime();
+    if (inMail()) app.startRealtime();
     else app.stopRealtime();
   });
 
   // V5 push subscribe on login (plan §3 e6). Fire-and-forget + gated: a plain
   // browser (no shell, no injected capability) never touches the push endpoints.
   createEffect(() => {
-    if (app.me() !== null && capabilityEnabled('push')) {
+    if (inMail() && capabilityEnabled('push')) {
       void getPlatform()
         .pushSubscribe()
         .catch(() => undefined);
@@ -173,7 +184,12 @@ export function App(): JSX.Element {
           <Match when={app.me() === null}>
             <Login />
           </Match>
-          <Match when={app.me() !== null}>
+          <Match when={held()}>
+            {/* Ordered before the mailbox: the change form and a sign-out
+                control are all a held account gets. */}
+            <LazyRoute load={loadForcedPasswordChange} />
+          </Match>
+          <Match when={inMail()}>
             <>
               {/* The mailbox is the app; if it throws, a blank shell with a
                   working Toast is not a usable fallback. */}

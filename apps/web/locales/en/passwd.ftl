@@ -53,3 +53,22 @@ passwd-error-policy = the new password needs { $rules }
 passwd-error-ack-first = confirm you have saved the recovery phrase first
 passwd-error-prepare-recovery = could not prepare the recovery phrase
 passwd-error-change = could not change the password
+# Shown under the server's own message when a change is refused. Each line states
+# what the status means; none of them claims the password was or was not changed.
+passwd-error-session-ended = Your session has ended. Sign in again.
+passwd-error-not-configured = This server is not set up to change passwords. Contact your administrator.
+passwd-error-contact-admin = The server could not complete the change. Contact your administrator.
+
+# -- Forced change screen ----------------------------------------------------
+# Shown instead of the mailbox while an administrator's "force password change"
+# flag is set on the account. The server refuses mail requests until the change
+# succeeds, so this copy must say exactly that — including the case where the
+# server has no way to change the password.
+passwd-forced-title = Change your password to continue
+passwd-forced-signed-in-as = Signed in as { $username }.
+passwd-forced-explain = An administrator has required a password change for this account. Mail, calendar and contacts are not available until the change succeeds.
+passwd-forced-backend-note = If the change is refused even though your current password is correct, this server may not be able to change your password. Contact your administrator: they can set up password changes or remove the requirement.
+passwd-forced-sign-out = Sign out
+passwd-forced-still-required = The server accepted the change but still requires a password change for this account. Contact your administrator.
+passwd-forced-reload-failed = The password was changed, but your account could not be loaded. Check your connection and try again.
+passwd-forced-retry = Try again

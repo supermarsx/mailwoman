@@ -39,6 +39,42 @@ export interface LoginInput {
 export interface Me {
   username: string;
   accountId: string;
+  /**
+   * `true` while the account's admin `force_password_change` flag is set; the
+   * server omits the field otherwise. Sent by both `/api/login` and `/api/me`.
+   * While it is set the server refuses everything except the password-change
+   * endpoints, `/api/me`, logout and session rotation, so the shell must not
+   * load mail for such a session.
+   */
+  passwordChangeRequired?: boolean;
+}
+
+/**
+ * Thrown when the server refuses a request with
+ * `403 {"error":"password change required","passwordChangeRequired":true}`:
+ * the session is valid, but the account must change its password first. It is
+ * an `ApiError` (status 403) so status checks keep working; the body field, not
+ * the status, is what identifies it — `POST /api/password` answers a plain 403
+ * for a wrong current password, and the origin/CSRF guard answers 403 too.
+ */
+export class PasswordChangeRequired extends ApiError {
+  constructor() {
+    super(403, 'password change required');
+    this.name = 'PasswordChangeRequired';
+  }
+}
+
+export type PasswordChangeRequiredListener = () => void;
+
+/** Is `res` the forced-password-change refusal (see {@link PasswordChangeRequired})? */
+async function isPasswordChangeGate(res: Response): Promise<boolean> {
+  if (res.status !== 403) return false;
+  try {
+    const body = (await res.json()) as { passwordChangeRequired?: unknown } | null;
+    return body?.passwordChangeRequired === true;
+  } catch {
+    return false; // not JSON: an ordinary 403
+  }
 }
 
 /**
@@ -122,6 +158,13 @@ export interface Client {
   jmap(body: JmapRequest, opts?: { signal?: AbortSignal }): Promise<JmapResponse>;
   sanitize(html: string): Promise<string>;
   onNetwork(listener: NetworkListener): () => void;
+  /**
+   * Subscribe to the forced-password-change refusal: called each time a request
+   * made through this client is answered with `passwordChangeRequired` (an
+   * admin can set the flag while a session is open). Optional so a hand-built
+   * client need not provide it.
+   */
+  onPasswordChangeRequired?(listener: PasswordChangeRequiredListener): () => void;
 }
 
 /**
@@ -132,6 +175,16 @@ export interface Client {
  */
 export function createClient(base = basePath(), auth?: ClientAuth): Client {
   const listeners = new Set<NetworkListener>();
+  const gateListeners = new Set<PasswordChangeRequiredListener>();
+
+  /** `jsonOrThrow`, with the forced-password-change refusal told apart first. */
+  async function jsonOrGate<T>(res: Response): Promise<T> {
+    if (await isPasswordChangeGate(res)) {
+      for (const l of gateListeners) l();
+      throw new PasswordChangeRequired();
+    }
+    return jsonOrThrow<T>(res);
+  }
 
   /**
    * Perform a request. With no `auth` (the browser default) this is byte-for-byte
@@ -212,14 +265,14 @@ export function createClient(base = basePath(), auth?: ClientAuth): Client {
       return guarded(async () => {
         const res = await req(`${base}/api/me`);
         if (res.status === 401) throw new ApiError(401, 'not authenticated');
-        return jsonOrThrow<Me>(res);
+        return jsonOrGate<Me>(res);
       });
     },
     session() {
       return guarded(async () => {
         const res = await req(`${base}/jmap/session`);
         if (res.status === 401) throw new ApiError(401, 'not authenticated');
-        return jsonOrThrow<JmapSession>(res);
+        return jsonOrGate<JmapSession>(res);
       });
     },
     jmap(body, opts) {
@@ -231,7 +284,7 @@ export function createClient(base = basePath(), auth?: ClientAuth): Client {
           ...(opts?.signal !== undefined ? { signal: opts.signal } : {}),
         });
         if (res.status === 401) throw new ApiError(401, 'not authenticated');
-        return jsonOrThrow<JmapResponse>(res);
+        return jsonOrGate<JmapResponse>(res);
       });
     },
     sanitize(html) {
@@ -241,13 +294,17 @@ export function createClient(base = basePath(), auth?: ClientAuth): Client {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ html }),
         });
-        const out = await jsonOrThrow<{ html: string }>(res);
+        const out = await jsonOrGate<{ html: string }>(res);
         return out.html;
       });
     },
     onNetwork(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    onPasswordChangeRequired(listener) {
+      gateListeners.add(listener);
+      return () => gateListeners.delete(listener);
     },
   };
 }
