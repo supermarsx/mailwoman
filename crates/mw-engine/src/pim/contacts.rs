@@ -1,6 +1,9 @@
 //! `AddressBook/*`, `ContactCard/*`, `ContactGroup/*` (frozen §2.2): CardDAV /
 //! vCard-backed contacts. `vcard_raw` is the round-trip source of truth (plan
-//! risk #13); the projection is `mw_ics::parse_vcard`. Includes merge-duplicates
+//! risk #13); the projection is `mw_ics::parse_vcard`. Properties the projection
+//! has no field for travel with the stored card under [`VCARD_EXTRA`] and are
+//! written back on every save; that key never leaves the engine and is never
+//! taken from a client. Includes merge-duplicates
 //! (fold into a kept card, or the original new-card form — either way the
 //! sources are tombstoned, reversibly), vCard/CSV import/export, and the
 //! Compose recipient `autocomplete`.
@@ -17,6 +20,12 @@ use super::events::resource_href;
 use super::{
     SetOutcome, gen_id, gen_token, get_response, query_response, server_fail, set_error, wanted_ids,
 };
+
+/// The projection key under which `mw_ics::parse_vcard` returns, and
+/// `mw_ics::emit_vcard` writes back, the content lines of vCard properties that
+/// have no field (`PHOTO`, `CATEGORIES`, `X-…`). The name is fixed by
+/// `mw-ics/src/vcard.rs` (`EXTRA`).
+const VCARD_EXTRA: &str = "vcardExtra";
 
 impl Engine {
     // ── AddressBook/{get,set} ────────────────────────────────────────────────
@@ -189,7 +198,7 @@ impl Engine {
         let mut not_found = Vec::new();
         for id in &ids {
             match self.store().get_contact(id).await {
-                Ok(Some(row)) => list.push(contact_row_to_json(&row)),
+                Ok(Some(row)) => list.push(contact_card_json(&row)),
                 Ok(None) => not_found.push(json!(id)),
                 Err(e) => return server_fail(e),
             }
@@ -272,16 +281,12 @@ impl Engine {
             .filter(|s| !s.is_empty())
             .map(String::from)
             .unwrap_or_else(|| format!("{}@mailwoman.local", gen_token()));
-        self.persist_contact(
-            account_id,
-            &book_id,
-            &id,
-            &uid,
-            spec.clone(),
-            None,
-            Some(rt),
-        )
-        .await?;
+        let mut json = spec.clone();
+        if let Some(obj) = json.as_object_mut() {
+            obj.remove(VCARD_EXTRA);
+        }
+        self.persist_contact(account_id, &book_id, &id, &uid, json, None, Some(rt))
+            .await?;
         self.record_pim_change(account_id, ChangeType::ContactCard, &id, ChangeOp::Created)
             .await?;
         Ok(id)
@@ -302,7 +307,9 @@ impl Engine {
         let mut json = contact_row_to_json(&row);
         if let (Some(t), Some(p)) = (json.as_object_mut(), patch.as_object()) {
             for (k, v) in p {
-                t.insert(k.clone(), v.clone());
+                if k != VCARD_EXTRA {
+                    t.insert(k.clone(), v.clone());
+                }
             }
         }
         self.persist_contact(
@@ -365,7 +372,7 @@ impl Engine {
         set_str(&mut canonical, "id", id);
         set_str(&mut canonical, "addressBookId", book_id);
         set_str(&mut canonical, "uid", uid);
-        // Carry client-only flags the vCard grammar does not round-trip.
+        // Carry the engine-owned fields the vCard does not hold.
         let is_favorite = json
             .get("isFavorite")
             .and_then(Value::as_bool)
@@ -374,6 +381,11 @@ impl Engine {
         if let Some(g) = json.get("groupIds").cloned() {
             set_json(&mut canonical, "groupIds", g);
         }
+        let photo_blob_id = json
+            .get("photoBlobId")
+            .and_then(Value::as_str)
+            .map(String::from);
+        set_json(&mut canonical, "photoBlobId", json!(photo_blob_id));
 
         let mut etag = prior_etag.clone();
         if let Some(rt) = push_rt
@@ -405,10 +417,7 @@ impl Engine {
             json: serde_json::to_vec(&canonical).ok(),
             full_name,
             is_favorite,
-            photo_blob_id: json
-                .get("photoBlobId")
-                .and_then(Value::as_str)
-                .map(String::from),
+            photo_blob_id,
             pgp_key: json.get("pgpKey").and_then(Value::as_str).map(String::from),
             smime_cert: json
                 .get("smimeCert")
@@ -456,7 +465,7 @@ impl Engine {
                 }
                 if let Some(q) = &text
                     && !c.full_name.to_lowercase().contains(q)
-                    && !c.vcard_raw.to_lowercase().contains(q)
+                    && !searchable_vcard(&c.vcard_raw).to_lowercase().contains(q)
                 {
                     continue;
                 }
@@ -737,7 +746,7 @@ impl Engine {
         // the card returned is the one that is actually stored — vCard round-trip
         // and all.
         let card = match self.store().get_contact(keep_id).await {
-            Ok(Some(r)) => contact_row_to_json(&r),
+            Ok(Some(r)) => contact_card_json(&r),
             Ok(None) => return server_fail(format!("merged contact {keep_id} is missing")),
             Err(e) => return server_fail(e),
         };
@@ -818,7 +827,7 @@ impl Engine {
             .and_then(Value::as_str)
             .unwrap_or_default();
         let limit = args.get("limit").and_then(Value::as_i64).unwrap_or(10);
-        let rows = match self
+        let mut rows = match self
             .store()
             .autocomplete_contacts(account_id, prefix, limit)
             .await
@@ -826,6 +835,16 @@ impl Engine {
             Ok(v) => v,
             Err(e) => return server_fail(e),
         };
+        // The store matches anywhere in the stored card, embedded media
+        // included; a row found only there is not a match. This runs after the
+        // store's `limit`, so such rows can make the list shorter than `limit`.
+        let needle = prefix.to_lowercase();
+        rows.retain(|r| {
+            r.full_name.to_lowercase().contains(&needle)
+                || searchable_vcard(&r.vcard_raw)
+                    .to_lowercase()
+                    .contains(&needle)
+        });
         let list: Vec<Value> = rows
             .iter()
             .map(|r| {
@@ -1086,8 +1105,38 @@ fn contact_in_group(c: &ContactRow, group_id: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// The §2.1 `ContactCard` JSON for a row (stored projection, patched with the
-/// row identity + the engine-owned favorite/etag/key columns).
+/// The content lines of a stored card that a text query is matched against:
+/// all of them except embedded media. A `PHOTO`, `LOGO` or `SOUND` value is
+/// base64 or a URL, and a short query would match it by accident.
+fn searchable_vcard(vcard_raw: &str) -> String {
+    vcard_raw
+        .lines()
+        .filter(|l| {
+            let name = l.split([':', ';']).next().unwrap_or_default();
+            let name = name.rsplit('.').next().unwrap_or_default();
+            !["PHOTO", "LOGO", "SOUND"]
+                .iter()
+                .any(|media| name.eq_ignore_ascii_case(media))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The §2.1 `ContactCard` a client is given for a row: [`contact_row_to_json`]
+/// without [`VCARD_EXTRA`]. Those lines can hold an inline photo, and a client
+/// has no use for them; they stay with the stored card.
+fn contact_card_json(row: &ContactRow) -> Value {
+    let mut json = contact_row_to_json(row);
+    if let Some(obj) = json.as_object_mut() {
+        obj.remove(VCARD_EXTRA);
+    }
+    json
+}
+
+/// The stored projection for a row, patched with the row identity + the
+/// engine-owned favorite/photo/etag/key columns. This is what a save starts
+/// from, so it includes [`VCARD_EXTRA`]; use [`contact_card_json`] for anything
+/// that leaves the engine.
 fn contact_row_to_json(row: &ContactRow) -> Value {
     let mut json = row
         .json
@@ -1104,6 +1153,7 @@ fn contact_row_to_json(row: &ContactRow) -> Value {
     set_str(&mut json, "addressBookId", &row.address_book_id);
     set_str(&mut json, "uid", &row.uid);
     set_json(&mut json, "isFavorite", json!(row.is_favorite));
+    set_json(&mut json, "photoBlobId", json!(row.photo_blob_id));
     set_json(
         &mut json,
         "pgpKey",
@@ -1148,9 +1198,11 @@ fn contact_group_to_json(row: &ContactGroupRow) -> Value {
     })
 }
 
-/// Merge N contact projections into one (§2.2): first non-empty name wins;
-/// emails / phones / organizations / titles are unioned by value; `isFavorite`
-/// is true if any source is favourited.
+/// Merge N contact projections into one (§2.2): the first card's scalar fields
+/// (name, kind, notes, photo, keys) win; emails / phones / online services are
+/// unioned by value; organizations / titles / nicknames / group members /
+/// addresses / anniversaries and the carried-over vCard lines are unioned as
+/// whole entries; `isFavorite` is true if any source is favourited.
 fn merge_cards(cards: &[Value]) -> Value {
     let mut out = cards.first().cloned().unwrap_or_else(|| json!({}));
     let obj = out.as_object_mut().expect("merged card object");
@@ -1162,6 +1214,10 @@ fn merge_cards(cards: &[Value]) -> Value {
         union_scalars(obj, card, "organizations");
         union_scalars(obj, card, "titles");
         union_scalars(obj, card, "nicknames");
+        union_scalars(obj, card, "members");
+        union_entries(obj, card, "addresses");
+        union_entries(obj, card, "anniversaries");
+        union_entries(obj, card, VCARD_EXTRA);
         if card.get("isFavorite").and_then(Value::as_bool) == Some(true) {
             obj.insert("isFavorite".into(), json!(true));
         }
@@ -1215,6 +1271,22 @@ fn union_scalars(target: &mut serde_json::Map<String, Value>, src: &Value, key: 
             && !seen.contains(&v.to_string())
         {
             seen.push(v.to_string());
+            merged.push(item.clone());
+        }
+    }
+    target.insert(key.to_string(), Value::Array(merged));
+}
+
+/// Append every entry of `src[key]` that `target[key]` does not already hold,
+/// comparing whole entries.
+fn union_entries(target: &mut serde_json::Map<String, Value>, src: &Value, key: &str) {
+    let mut merged: Vec<Value> = target
+        .get(key)
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    for item in src.get(key).and_then(Value::as_array).into_iter().flatten() {
+        if !merged.contains(item) {
             merged.push(item.clone());
         }
     }
