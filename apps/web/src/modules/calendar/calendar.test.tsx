@@ -3,7 +3,7 @@ import { render, fireEvent, screen, waitFor } from '@solidjs/testing-library';
 import { CalendarApp } from './index.tsx';
 import { EventEditor } from './EventEditor.tsx';
 import { createCalendarController, type CalendarController } from './controller.ts';
-import { createMockFeeds, createMockStore, createMockJmap, type MockStore } from './mock.ts';
+import { MOCK_IDENTITY, createMockFeeds, createMockStore, createMockJmap, type MockStore } from './mock.ts';
 import { addDays, dateToCalDate, startOfDay } from './datetime.ts';
 import type { CalendarEvent } from '../../api/pim-types.ts';
 
@@ -11,6 +11,7 @@ function makeController(store: MockStore): CalendarController {
   return createCalendarController({
     jmap: createMockJmap(store),
     resolveAccount: () => Promise.resolve('acct-mock'),
+    resolveIdentity: () => Promise.resolve(MOCK_IDENTITY),
     feeds: createMockFeeds(store),
   });
 }
@@ -54,7 +55,7 @@ describe('CalendarApp', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Accept' }));
     await waitFor(() =>
-      expect(store.events.find((e) => e.id === 'ev-review')!.participants['me']!.participationStatus).toBe('accepted'),
+      expect(store.events.find((e) => e.id === 'ev-review')!.participants[MOCK_IDENTITY]!.participationStatus).toBe('accepted'),
     );
   });
 

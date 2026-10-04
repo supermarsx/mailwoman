@@ -34,9 +34,17 @@ import type {
   ConflictPairResponse,
 } from './api.ts';
 import { FeedError, type CalendarFeeds } from './feeds.ts';
+import { isMailbox } from './participants.ts';
 import type { CalendarEventExt, CalendarRow } from './types.ts';
 
 const ACCOUNT = 'acct-mock';
+
+/**
+ * The mock account's identity — the address the engine would key this user's
+ * own participant entry by (`rt.identity`, `event_respond`,
+ * `crates/mw-engine/src/pim/events.rs`). Pass it as `resolveIdentity`.
+ */
+export const MOCK_IDENTITY = 'me@example.com';
 
 /**
  * The seeded collections: a personal (default) calendar, a work calendar in a
@@ -127,8 +135,10 @@ export function seedEvents(today = new Date()): CalendarEvent[] {
     baseEvent({ id: 'ev-lunch', calendarId: 'cal-personal', title: 'Lunch', start: at(d, 12, 0), duration: 'PT1H' }),
     baseEvent({ id: 'ev-review', calendarId: 'cal-work', title: 'Design review', start: at(d, 12, 30), duration: 'PT1H',
       participants: {
-        me: { name: 'Me', email: 'me@example.com', role: 'attendee', participationStatus: 'needs-action', expectReply: true },
-        org: { name: 'Organizer', email: 'boss@example.com', role: 'owner', participationStatus: 'accepted', expectReply: false },
+        // Keyed by address, as every stored event is (`read_participants`,
+        // `crates/mw-ics/src/ical.rs:196-227`).
+        'me@example.com': { name: 'Me', email: 'me@example.com', role: 'attendee', participationStatus: 'needs-action', expectReply: true },
+        'boss@example.com': { name: 'Organizer', email: 'boss@example.com', role: 'owner', participationStatus: 'accepted', expectReply: false },
       },
       status: 'tentative' }),
     baseEvent({ id: 'ev-oneon', calendarId: 'cal-work', title: '1:1', start: at(d + 1, 15, 0), duration: 'PT30M' }),
@@ -245,11 +255,55 @@ function persistParsed(store: MockStore, calendarId: string, blob: string): stri
   return created;
 }
 
+/**
+ * `check_participants` (`crates/mw-engine/src/pim/events.rs`, 26.20 t27-e2):
+ * every participant key, and every non-empty `email`, must be a mailbox. Keys
+ * the stored event already has are skipped on update. Returns the reason, or
+ * `null` when acceptable.
+ */
+function participantsRefusal(
+  spec: Partial<CalendarEvent>,
+  alreadyStored: CalendarEvent['participants'] | null,
+): string | null {
+  for (const [key, entry] of Object.entries(spec.participants ?? {})) {
+    if (alreadyStored !== null && Object.prototype.hasOwnProperty.call(alreadyStored, key)) continue;
+    if (!isMailbox(key)) return `participant key: not a mailbox: ${JSON.stringify(key)}`;
+    if (entry.email !== '' && !isMailbox(entry.email)) return `participant email: not a mailbox: ${JSON.stringify(entry.email)}`;
+  }
+  return null;
+}
+
+/** `invalid_participants` (same file): the `SetError` for a refused spec. */
+function invalidParticipants(why: string): unknown {
+  return { type: 'invalidProperties', description: why, properties: ['participants'] };
+}
+
+/**
+ * The stored projection is the ICS round trip of what was sent (`persist_event`
+ * re-parses its own `emit_ical` output), and the parser keys participants by
+ * address (`read_participants`, `crates/mw-ics/src/ical.rs:196-227`). So whatever
+ * keys a client sends, what comes back is keyed by `email`.
+ */
+function rekeyByEmail(participants: CalendarEvent['participants']): CalendarEvent['participants'] {
+  const out: CalendarEvent['participants'] = {};
+  for (const p of Object.values(participants)) out[p.email] = p;
+  return out;
+}
+
 /** The engine's PIM set-response envelope (`SetOutcome::into_response`, `pim/mod.rs:103-122`):
  *  `created` / `updated` / `destroyed` are always present; the `notX` maps are
  *  omitted when empty. */
-function setResponse(created: Record<string, unknown>, updated: Record<string, unknown>, destroyed: string[]): unknown {
-  return { accountId: ACCOUNT, oldState: '1', newState: '2', created, updated, destroyed };
+function setResponse(
+  created: Record<string, unknown>,
+  updated: Record<string, unknown>,
+  destroyed: string[],
+  notCreated: Record<string, unknown> = {},
+  notUpdated: Record<string, unknown> = {},
+): unknown {
+  const res: Record<string, unknown> = { accountId: ACCOUNT, oldState: '1', newState: '2', created, updated, destroyed };
+  if (Object.keys(notCreated).length > 0) res['notCreated'] = notCreated;
+  if (Object.keys(notUpdated).length > 0) res['notUpdated'] = notUpdated;
+  return res;
 }
 
 /** Dispatch one method call against the store, returning its `Invocation`. */
@@ -320,11 +374,19 @@ function dispatch(store: MockStore, call: Invocation): Invocation {
       return ok(callId, name, res);
     }
     case 'CalendarEvent/set': {
-      // `event_set` (`events.rs:50-106`).
+      // `event_set` (`events.rs`): a create or update whose participants are not
+      // addresses is refused per item, before anything is stored.
       const created: Record<string, Partial<CalendarEvent> & { id: string }> = {};
       const updated: Record<string, unknown> = {};
       const destroyed: string[] = [];
+      const notCreated: Record<string, unknown> = {};
+      const notUpdated: Record<string, unknown> = {};
       for (const [key, val] of Object.entries((args['create'] as Record<string, Partial<CalendarEvent>>) ?? {})) {
+        const why = participantsRefusal(val, null);
+        if (why !== null) {
+          notCreated[key] = invalidParticipants(why);
+          continue;
+        }
         const id = nextId('ev');
         const ev = baseEvent({
           id,
@@ -332,24 +394,36 @@ function dispatch(store: MockStore, call: Invocation): Invocation {
           title: val.title ?? '(no title)',
           start: val.start ?? dateToLocal(new Date()),
           ...val,
+          participants: rekeyByEmail(val.participants ?? {}),
         });
         store.events.push(ev);
         created[key] = { id };
       }
       for (const [id, patch] of Object.entries((args['update'] as Record<string, Partial<CalendarEvent>>) ?? {})) {
-        store.events = store.events.map((e) => (e.id === id ? { ...e, ...patch, sequence: e.sequence + 1 } : e));
+        const stored = store.events.find((e) => e.id === id);
+        const why = stored === undefined ? null : participantsRefusal(patch, stored.participants);
+        if (why !== null) {
+          notUpdated[id] = invalidParticipants(why);
+          continue;
+        }
+        store.events = store.events.map((e) => {
+          if (e.id !== id) return e;
+          const next = { ...e, ...patch, sequence: e.sequence + 1 };
+          return { ...next, participants: rekeyByEmail(next.participants) };
+        });
         updated[id] = null;
       }
       for (const id of (args['destroy'] as string[]) ?? []) {
         store.events = store.events.filter((e) => e.id !== id);
         destroyed.push(id);
       }
-      return ok(callId, name, setResponse(created, updated, destroyed));
+      return ok(callId, name, setResponse(created, updated, destroyed, notCreated, notUpdated));
     }
     case 'CalendarEvent/respond': {
-      // `event_respond` (`events.rs:589-674`) updates the participant keyed by
-      // the account identity and returns the reloaded event under `updated`.
-      // The mock's own participant is the seeded `me` key.
+      // `event_respond` (`events.rs`) updates the participant whose KEY equals the
+      // account identity — an exact match, `parts.get_mut(&me)` — and returns the
+      // reloaded event under `updated`. An event the user is not a participant of
+      // is still "responded to": no entry changes, the sequence is bumped.
       const eventId = args['eventId'] as string;
       const action = args['action'] as string;
       const statusMap: Record<string, CalendarEvent['participants'][string]['participationStatus']> = {
@@ -360,9 +434,8 @@ function dispatch(store: MockStore, call: Invocation): Invocation {
       store.events = store.events.map((e) => {
         if (e.id !== eventId) return e;
         const participants = { ...e.participants };
-        if (participants['me'] !== undefined) {
-          participants['me'] = { ...participants['me'], participationStatus: statusMap[action]! };
-        }
+        const own = participants[MOCK_IDENTITY];
+        if (own !== undefined) participants[MOCK_IDENTITY] = { ...own, participationStatus: statusMap[action]! };
         return { ...e, participants, sequence: e.sequence + 1 };
       });
       return ok(callId, name, { accountId: ACCOUNT, updated: store.events.find((e) => e.id === eventId) ?? null });

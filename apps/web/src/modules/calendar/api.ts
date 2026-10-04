@@ -33,9 +33,10 @@ export interface CalendarSetResponse {
   created: Record<string, Partial<Calendar> & { id: Id }> | null;
   updated: Record<Id, unknown> | null;
   destroyed: Id[] | null;
-  notCreated: Record<string, { type: string; description?: string | null }> | null;
-  notUpdated: Record<Id, { type: string; description?: string | null }> | null;
-  notDestroyed: Record<Id, { type: string; description?: string | null }> | null;
+  /** The three `notX` maps are omitted when empty (`pim/mod.rs:112-120`). */
+  notCreated?: Record<string, { type: string; description?: string | null }> | null;
+  notUpdated?: Record<Id, { type: string; description?: string | null }> | null;
+  notDestroyed?: Record<Id, { type: string; description?: string | null }> | null;
 }
 
 export interface EventGetResponse {
@@ -60,9 +61,10 @@ export interface EventSetResponse {
   created: Record<string, Partial<CalendarEvent> & { id: Id }> | null;
   updated: Record<Id, unknown> | null;
   destroyed: Id[] | null;
-  notCreated: Record<string, { type: string; description?: string | null }> | null;
-  notUpdated: Record<Id, { type: string; description?: string | null }> | null;
-  notDestroyed: Record<Id, { type: string; description?: string | null }> | null;
+  /** The three `notX` maps are omitted when empty (`pim/mod.rs:112-120`). */
+  notCreated?: Record<string, { type: string; description?: string | null }> | null;
+  notUpdated?: Record<Id, { type: string; description?: string | null }> | null;
+  notDestroyed?: Record<Id, { type: string; description?: string | null }> | null;
 }
 
 /**

@@ -8,13 +8,14 @@ import { CalendarApp } from './index.tsx';
 import { EventEditor } from './EventEditor.tsx';
 import { ShareDialog } from './ShareDialog.tsx';
 import { createCalendarController, type CalendarController } from './controller.ts';
-import { createMockFeeds, createMockStore, createMockJmap, type MockStore } from './mock.ts';
+import { MOCK_IDENTITY, createMockFeeds, createMockStore, createMockJmap, type MockStore } from './mock.ts';
 import type { CalendarEventExt } from './types.ts';
 
 function makeController(store: MockStore): CalendarController {
   return createCalendarController({
     jmap: createMockJmap(store),
     resolveAccount: () => Promise.resolve('acct-mock'),
+    resolveIdentity: () => Promise.resolve(MOCK_IDENTITY),
     feeds: createMockFeeds(store),
   });
 }

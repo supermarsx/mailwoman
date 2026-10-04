@@ -65,6 +65,11 @@ export interface CalendarBackend {
   /** Resolve the account id (from the session), cached by the caller. */
   resolveAccount(): Promise<Id | null>;
   /**
+   * Resolve the account identity — the session `username`, which is the address
+   * the engine keys the user's own participant entry by.
+   */
+  resolveIdentity?(): Promise<string | null>;
+  /**
    * The feed-subscription client. Omitted by the app, which then talks to the
    * server's sync-driver routes (`feeds.ts`); tests pass the mock's.
    */
@@ -115,6 +120,8 @@ export interface CalendarController {
   conflicts: Accessor<ConflictPair[]>;
   /** The active category filter (P4), or `null` when unfiltered. */
   categoryFilter: Accessor<string | null>;
+  /** The account identity (known once `load()` has run), or `null`. */
+  identity: Accessor<string | null>;
 
   // ── derived ──
   visibleCalendars: Accessor<Calendar[]>;
@@ -139,7 +146,9 @@ export interface CalendarController {
   setCategoryFilter(category: string | null): void;
 
   // ── event mutations ──
+  /** Create an event. Rejects when the engine refuses it (`notCreated`). */
   createEvent(draft: EventDraft): Promise<Id | null>;
+  /** Update an event. Rejects when the engine refuses it (`notUpdated`). */
   updateEvent(id: Id, patch: Partial<CalendarEvent>): Promise<void>;
   deleteEvent(id: Id): Promise<void>;
   respond(eventId: Id, action: RespondAction, counter?: { start: string; duration: string }): Promise<void>;
@@ -246,6 +255,16 @@ export function conflictsInWindow(
   return out;
 }
 
+/**
+ * Throw for a per-item `SetError` (`notCreated[key]` / `notUpdated[id]`). The
+ * engine omits the `notX` maps when nothing failed (`SetOutcome::into_response`,
+ * `crates/mw-engine/src/pim/mod.rs:103-122`), so an absent entry is success.
+ */
+function throwIfRefused(err: { type: string; description?: string | null } | undefined): void {
+  if (err === undefined) return;
+  throw new Error(`event not saved: ${err.type} ${err.description ?? ''}`.trim());
+}
+
 /** The step a prev/next navigation applies for a view. */
 function navigate(view: CalendarView, focus: Date, dir: -1 | 1): Date {
   switch (view) {
@@ -282,6 +301,7 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
   const [conflictEventIds, setConflictEventIds] = createSignal<Set<Id>>(new Set());
   const [conflicts, setConflicts] = createSignal<ConflictPair[]>([]);
   const [categoryFilter, setCategoryFilterSig] = createSignal<string | null>(null);
+  const [identity, setIdentity] = createSignal<string | null>(null);
 
   const window = createMemo<ViewWindow>(() => windowFor(view(), focusDate()));
 
@@ -343,6 +363,9 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
     setLoading(true);
     setError(null);
     try {
+      if (identity() === null && backend.resolveIdentity !== undefined) {
+        setIdentity(await backend.resolveIdentity());
+      }
       const calRes = await backend.jmap(calendarsGet(acct));
       // `Calendar/get` lists the account's task lists next to its event
       // calendars; only the latter belong in this module (see `CalendarRow`).
@@ -441,6 +464,7 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
     };
     const res = await backend.jmap(eventSet(acct, { create: { new: create } }));
     const set = pimResponse<EventSetResponse>(res, 'set');
+    throwIfRefused(set.notCreated?.['new']);
     const id = set.created?.['new']?.id ?? null;
     await load();
     return id;
@@ -449,7 +473,8 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
   async function updateEvent(id: Id, patch: Partial<CalendarEvent>): Promise<void> {
     const acct = await backend.resolveAccount();
     if (acct === null) return;
-    await backend.jmap(eventSet(acct, { update: { [id]: { ...patch } } }));
+    const res = await backend.jmap(eventSet(acct, { update: { [id]: { ...patch } } }));
+    throwIfRefused(pimResponse<EventSetResponse>(res, 'set').notUpdated?.[id]);
     await load();
   }
 
@@ -611,6 +636,7 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
     conflictEventIds,
     conflicts,
     categoryFilter,
+    identity,
     visibleCalendars,
     visibleInstances,
     window,

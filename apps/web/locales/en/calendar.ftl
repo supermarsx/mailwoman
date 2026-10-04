@@ -114,6 +114,8 @@ calendar-reminder-60 = 1 hour
 calendar-reminder-1440 = 1 day
 calendar-attendees = Attendees
 calendar-add-attendee = Add attendee
+calendar-attendee-invalid = That is not an email address. Enter one address, like name@example.com.
+calendar-save-failed = The event was not saved. The server refused it.
 calendar-remove-attendee = Remove { $email }
 calendar-notes = Notes
 

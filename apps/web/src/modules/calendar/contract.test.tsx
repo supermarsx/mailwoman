@@ -30,11 +30,13 @@ import {
   pimResponse,
 } from './api.ts';
 import { ConflictResolver } from './ConflictResolver.tsx';
+import { EventEditor } from './EventEditor.tsx';
+import { isMailbox, ownParticipant } from './participants.ts';
 import { conflictsInWindow, createCalendarController, type CalendarController } from './controller.ts';
 import { instanceBound, queryBounds } from './datetime.ts';
 import { createCalendarFeeds, FeedError, type CalendarFeeds } from './feeds.ts';
 import { CalendarApp } from './index.tsx';
-import { createMockFeeds, createMockJmap, createMockStore, type MockStore } from './mock.ts';
+import { MOCK_IDENTITY, createMockFeeds, createMockJmap, createMockStore, type MockStore } from './mock.ts';
 
 // ── fixtures transcribed from the server ─────────────────────────────────────
 
@@ -600,5 +602,290 @@ describe('calendar shell feedback', () => {
     const alert = await screen.findByTestId('calendar-feedback');
     expect(alert).toHaveAttribute('role', 'alert');
     expect(store.events.length).toBe(before);
+  });
+});
+
+// ── 7. participants are keyed by address ────────────────────────────────────
+//
+// Server rules these fixtures are transcribed from (crates/mw-engine/src/pim/events.rs
+// unless stated; function names are given because the line numbers were moving
+// while t27-e2 edited the file):
+//   - `check_participants` + `invalid_participants`: a create/update whose
+//     participant KEY (or non-empty `email`) is not a mailbox is refused per item
+//     with `{type:"invalidProperties", description, properties:["participants"]}`;
+//     on update, keys the stored event already has are skipped.
+//   - `mw_smtp::validate_mailbox` / `check_chars` (crates/mw-smtp/src/addr.rs:20-35,56-84).
+//   - `read_participants` (crates/mw-ics/src/ical.rs:196-227): the stored
+//     projection is keyed by address.
+//   - `event_respond`: `let me = rt.identity.clone(); … parts.get_mut(&me)` — the
+//     user's own entry is the one whose key EQUALS the account identity.
+//   - `session_json` (crates/mw-engine/src/jmap.rs:40,89): the identity reaches
+//     the client as the session `username`.
+
+/** `invalid_participants` for a key that is not a mailbox. The KEYS are the
+ *  server's; the `description` wording is an example (it embeds an `SmtpError`). */
+const SERVER_REFUSED_PARTICIPANTS = {
+  type: 'invalidProperties',
+  description: 'participant key: invalid address "a0": no @',
+  properties: ['participants'],
+};
+
+/** What `validate_mailbox` accepts and refuses, from its doc comment and `check_chars`. */
+const MAILBOX_CASES: Array<[string, boolean]> = [
+  ['guest@example.com', true],
+  ['üser@exämple.com', true], // non-ASCII is allowed (SMTPUTF8)
+  ['a0', false], // no @
+  ['me', false],
+  ['', false],
+  ['@example.com', false], // empty local part
+  ['guest@', false], // empty domain
+  ['a@b@c', false], // more than one @
+  ['guest @example.com', false], // whitespace
+  ['guest@example.com\r\nRCPT TO:<x@y.z>', false], // control characters
+  ['<guest@example.com>', false],
+  ['"guest"@example.com', false],
+  ['a@b.c,d@e.f', false],
+  ['a@b.c;d@e.f', false],
+  ['guest(comment)@example.com', false],
+  [`${'x'.repeat(320)}@example.com`, false], // over 320 bytes
+];
+
+function mockBackedController(store: MockStore, identity: string | null = MOCK_IDENTITY, sent?: JmapRequest[]): CalendarController {
+  const real = createMockJmap(store);
+  return createCalendarController({
+    jmap: (body) => {
+      sent?.push(body);
+      return real(body);
+    },
+    resolveAccount: () => Promise.resolve('acct-mock'),
+    ...(identity !== null ? { resolveIdentity: () => Promise.resolve(identity) } : {}),
+    feeds: createMockFeeds(store),
+  });
+}
+
+function invite(participants: CalendarEvent['participants']): CalendarEvent {
+  return master({ id: 'ev-inv', calendarId: 'cal-work', title: 'Budget review', start: '2026-07-13T09:00:00', participants });
+}
+
+const part = (email: string, role = 'attendee'): CalendarEvent['participants'][string] => ({
+  name: email.split('@')[0]!, email, role, participationStatus: 'needs-action', expectReply: true,
+});
+
+describe('participant addressing', () => {
+  it.each(MAILBOX_CASES)('isMailbox(%j) is %s, as validate_mailbox decides', (addr, ok) => {
+    expect(isMailbox(addr)).toBe(ok);
+  });
+
+  it('the editor sends new attendees keyed by their address', async () => {
+    const store = createMockStore();
+    const sent: JmapRequest[] = [];
+    const controller = mockBackedController(store, MOCK_IDENTITY, sent);
+    await controller.load();
+    render(() => <EventEditor controller={controller} event={null} onClose={() => {}} />);
+    fireEvent.input(screen.getByLabelText('Title'), { target: { value: 'Planning' } });
+    for (const addr of ['zed@example.com', 'amy@example.org']) {
+      fireEvent.input(screen.getByLabelText('Add attendee'), { target: { value: addr } });
+      fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(store.events.some((e) => e.title === 'Planning')).toBe(true));
+
+    const create = sent
+      .map((b) => b.methodCalls[0]!)
+      .filter(([name, args]) => name === 'CalendarEvent/set' && (args as Record<string, unknown>)['create'] !== undefined)
+      .map(([, args]) => ((args as Record<string, unknown>)['create'] as Record<string, CalendarEvent>)['new']!)[0]!;
+    const keys = Object.keys(create.participants);
+    expect(keys).toEqual(['zed@example.com', 'amy@example.org']);
+    for (const key of keys) {
+      // What `check_participants` requires of every key …
+      expect(isMailbox(key)).toBe(true);
+      // … and the key is the entry's own address.
+      expect(create.participants[key]!.email).toBe(key);
+    }
+  });
+
+  it('text that is not an address is not added as an attendee, and says why', async () => {
+    const store = createMockStore();
+    const controller = mockBackedController(store);
+    await controller.load();
+    render(() => <EventEditor controller={controller} event={null} onClose={() => {}} />);
+    // Precondition: no error is showing.
+    expect(screen.queryByTestId('attendee-error')).toBeNull();
+    fireEvent.input(screen.getByLabelText('Add attendee'), { target: { value: 'Zed <zed@example.com>' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    expect(screen.getByTestId('attendee-error')).toHaveAttribute('role', 'alert');
+    expect(screen.queryByLabelText(/^Role for/)).toBeNull();
+    // A real address clears it and is added.
+    fireEvent.input(screen.getByLabelText('Add attendee'), { target: { value: 'zed@example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    expect(screen.queryByTestId('attendee-error')).toBeNull();
+    expect(screen.getByLabelText(/^Role for/)).toBeInTheDocument();
+  });
+
+  it('a save the server refuses rejects, and the editor stays open and says so', async () => {
+    const h = overServer({
+      // `event_set` with a refused create: `created` empty, `notCreated[new]` set.
+      'CalendarEvent/set': {
+        accountId: 'acct1', oldState: '2', newState: '2', created: {}, updated: {}, destroyed: [],
+        notCreated: { new: SERVER_REFUSED_PARTICIPANTS },
+      },
+    });
+    await expect(
+      h.controller.createEvent({ calendarId: 'cal-1', title: 'X', start: '2026-07-13T09:00:00' }),
+    ).rejects.toThrow(/invalidProperties/);
+
+    await h.controller.load();
+    let closed = false;
+    render(() => <EventEditor controller={h.controller} event={null} onClose={() => (closed = true)} />);
+    fireEvent.input(screen.getByLabelText('Title'), { target: { value: 'X' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByTestId('event-save-failed')).toHaveAttribute('role', 'alert');
+    expect(closed).toBe(false);
+  });
+
+  it('a refused update rejects too (`notUpdated`)', async () => {
+    const h = overServer({
+      'CalendarEvent/set': {
+        accountId: 'acct1', oldState: '2', newState: '2', created: {}, updated: {}, destroyed: [],
+        notUpdated: { 'ev-1': SERVER_REFUSED_PARTICIPANTS },
+      },
+    });
+    await expect(h.controller.updateEvent('ev-1', { title: 'Y' })).rejects.toThrow(/invalidProperties/);
+  });
+
+  it('the mock refuses a key that is not an address, in the server shape', async () => {
+    const store = createMockStore();
+    const before = store.events.length;
+    const jmap = createMockJmap(store);
+    const res = await jmap({
+      using: [],
+      methodCalls: [['CalendarEvent/set', { accountId: 'acct-mock', create: { new: { title: 'T', start: '2026-07-13T09:00:00', participants: { a0: part('zed@example.com') } } } }, 's']],
+    } as unknown as JmapRequest);
+    const body = res.methodResponses[0]![1] as Record<string, Record<string, Record<string, unknown>>>;
+    expect(Object.keys(body['notCreated']!['new']!).sort()).toEqual(Object.keys(SERVER_REFUSED_PARTICIPANTS).sort());
+    expect(body['notCreated']!['new']!['type']).toBe('invalidProperties');
+    expect(body['notCreated']!['new']!['properties']).toEqual(['participants']);
+    expect(body['created']).toEqual({});
+    expect(store.events.length).toBe(before);
+    // … and the controller turns that into a rejection.
+    const controller = mockBackedController(store);
+    await expect(
+      controller.createEvent({ calendarId: 'cal-work', title: 'T', start: '2026-07-13T09:00:00', participants: { a0: part('zed@example.com') } }),
+    ).rejects.toThrow(/invalidProperties/);
+  });
+
+  it('the mock stores participants keyed by address, and tolerates an old stored key on update', async () => {
+    const store = createMockStore();
+    // A legacy event held under non-address keys (as an import can leave one).
+    store.events.push(invite({ a0: part('zed@example.com') }));
+    const controller = mockBackedController(store);
+    await controller.load();
+    // Sending the stored key back is not refused (`update_participants_error`
+    // skips keys the stored event already has) …
+    await expect(
+      controller.updateEvent('ev-inv', { participants: { a0: part('zed@example.com'), 'amy@example.org': part('amy@example.org') } }),
+    ).resolves.toBeUndefined();
+    // … and the stored projection comes back keyed by address.
+    expect(Object.keys(store.events.find((e) => e.id === 'ev-inv')!.participants).sort()).toEqual(['amy@example.org', 'zed@example.com']);
+    // A NEW non-address key on that event is refused.
+    await expect(controller.updateEvent('ev-inv', { participants: { b7: part('bob@example.com') } })).rejects.toThrow(/invalidProperties/);
+  });
+});
+
+// ── 8. the user's own participation is found under their address ────────────
+
+describe('own participation (event_respond keys the user by the account identity)', () => {
+  it('ownParticipant matches the key exactly, as `parts.get_mut(&me)` does', () => {
+    const map = { 'me@example.com': 1, 'boss@example.com': 2 };
+    expect(ownParticipant(map, 'me@example.com')).toBe(1);
+    expect(ownParticipant(map, 'ME@example.com')).toBeNull();
+    expect(ownParticipant(map, 'other@example.com')).toBeNull();
+    expect(ownParticipant(map, null)).toBeNull();
+    expect(ownParticipant(map, '')).toBeNull();
+    expect(ownParticipant({ me: 1 }, 'me@example.com')).toBeNull();
+    expect(ownParticipant(map, 'toString')).toBeNull();
+  });
+
+  async function openInvite(participants: CalendarEvent['participants'], identity: string | null): Promise<{ store: MockStore; controller: CalendarController }> {
+    const store = createMockStore();
+    store.events.push(invite(participants));
+    const controller = mockBackedController(store, identity);
+    await controller.load();
+    render(() => <EventEditor controller={controller} event={store.events.find((e) => e.id === 'ev-inv')!} onClose={() => {}} />);
+    return { store, controller };
+  }
+
+  const others = { 'boss@example.com': part('boss@example.com', 'organizer'), 'zed@example.com': part('zed@example.com') };
+
+  it('no response controls for an event the user is not a participant of', async () => {
+    await openInvite(others, MOCK_IDENTITY);
+    expect(screen.getByRole('dialog', { name: 'Edit event' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Decline' })).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Invitation' })).toBeNull();
+  });
+
+  it('response controls for a participant keyed by the account address', async () => {
+    await openInvite({ ...others, [MOCK_IDENTITY]: part(MOCK_IDENTITY) }, MOCK_IDENTITY);
+    expect(screen.getByRole('group', { name: 'Invitation' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Accept' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Decline' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Tentative' })).toBeInTheDocument();
+    // The user is not listed among the attendees of their own invitation.
+    expect(screen.getAllByLabelText(/^Role for/)).toHaveLength(2);
+  });
+
+  it('no controls when the key differs from the identity by case — the engine would not update that entry', async () => {
+    await openInvite({ ...others, 'Me@Example.com': part('Me@Example.com') }, MOCK_IDENTITY);
+    expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull();
+  });
+
+  it('no controls when the session gives no identity', async () => {
+    await openInvite({ ...others, [MOCK_IDENTITY]: part(MOCK_IDENTITY) }, null);
+    expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull();
+  });
+
+  it('accepting updates the entry keyed by the identity, in the mock as in the engine', async () => {
+    const { store } = await openInvite({ ...others, [MOCK_IDENTITY]: part(MOCK_IDENTITY) }, MOCK_IDENTITY);
+    // Precondition.
+    expect(store.events.find((e) => e.id === 'ev-inv')!.participants[MOCK_IDENTITY]!.participationStatus).toBe('needs-action');
+    fireEvent.click(screen.getByRole('button', { name: 'Accept' }));
+    await waitFor(() =>
+      expect(store.events.find((e) => e.id === 'ev-inv')!.participants[MOCK_IDENTITY]!.participationStatus).toBe('accepted'),
+    );
+    // Nobody else's status moved.
+    expect(store.events.find((e) => e.id === 'ev-inv')!.participants['zed@example.com']!.participationStatus).toBe('needs-action');
+  });
+
+  it('saving an invitation keeps the user\'s own entry under the same key', async () => {
+    const { store } = await openInvite({ ...others, [MOCK_IDENTITY]: { ...part(MOCK_IDENTITY), participationStatus: 'accepted' } }, MOCK_IDENTITY);
+    fireEvent.input(screen.getByLabelText('Title'), { target: { value: 'Budget review (moved)' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(store.events.find((e) => e.id === 'ev-inv')!.title).toBe('Budget review (moved)'));
+    const saved = store.events.find((e) => e.id === 'ev-inv')!.participants;
+    expect(Object.keys(saved).sort()).toEqual(['boss@example.com', MOCK_IDENTITY, 'zed@example.com'].sort());
+    expect(saved[MOCK_IDENTITY]!.participationStatus).toBe('accepted');
+  });
+
+  it('the app slice hands the session username to the controller as the identity', async () => {
+    const { createCalendarSlice } = await import('../../state/slices/calendar.ts');
+    const session = { username: 'user@example.org', primaryAccounts: { 'urn:mailwoman:calendars': 'acct1' }, accounts: { acct1: {} } };
+    const client = {
+      session: () => Promise.resolve(session),
+      jmap: (body: JmapRequest) =>
+        Promise.resolve({
+          methodResponses: body.methodCalls.map(([name, , callId]) => [
+            name,
+            name === 'Calendar/get' ? SERVER_CALENDARS : { accountId: 'acct1', state: '2', list: [], notFound: [] },
+            callId,
+          ]),
+        }),
+    };
+    const slice = createCalendarSlice({ client } as unknown as Parameters<typeof createCalendarSlice>[0]);
+    const controller = slice.calendarController();
+    // Precondition: unknown until the first load.
+    expect(controller.identity()).toBeNull();
+    await controller.load();
+    expect(controller.identity()).toBe('user@example.org');
   });
 });

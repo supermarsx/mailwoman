@@ -45,9 +45,20 @@ export function createCalendarSlice(ctx: SliceContext): CalendarSlice {
     return cachedAccount;
   }
 
+  // The session `username` is the account identity the engine keys the user's
+  // own participant entry by (`event_respond`, `crates/mw-engine/src/pim/events.rs`).
+  async function resolveIdentity(): Promise<string | null> {
+    try {
+      return (await client.session()).username || null;
+    } catch {
+      return null;
+    }
+  }
+
   const backend: CalendarBackend = {
     jmap: (body) => client.jmap(body),
     resolveAccount,
+    resolveIdentity,
   };
 
   const controller = createCalendarController(backend);

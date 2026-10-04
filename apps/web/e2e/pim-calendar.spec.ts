@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { test, expect, type Page } from '@playwright/test';
 import { engineLogin, gotoModule, reloadToShell, uid } from './pim-helpers.ts';
+import { ENGINE_CREDS } from './helpers.ts';
 
 /**
  * V3 Calendar live E2E (plan §3 e12): drive the real Calendar module against the
@@ -249,5 +250,67 @@ test.describe('Calendar module through the real UI (engine mode)', () => {
     // Each calendar row carries a "Toggle <name>" checkbox; the task list has none.
     await expect(calendar(page).locator('aside li', { hasText: /^\W*Tasks\b/ })).toHaveCount(0);
     await expect(calendar(page).getByLabel(/^Toggle \W*Tasks\W*$/)).toHaveCount(0);
+  });
+
+  test('an invitation addressed to the account shows Accept / Decline; one that is not, does not', async ({ page }) => {
+    await engineLogin(page);
+    await openCalendar(page);
+
+    // The engine finds the user's own participant entry by an exact match of the
+    // account identity against the participant key (`event_respond`), and the
+    // identity is the LOGIN NAME — against Greenmail the bare `testuser`. So the
+    // invitation below addresses the attendee by that name. (An invitation sent
+    // to `testuser@example.org` is not recognised by the engine as the user's;
+    // that is a server-side limit, recorded in the t28-e5 log.)
+    const tag = uid();
+    const mine = `Invited ${tag}`;
+    const theirs = `Not invited ${tag}`;
+    const d = new Date();
+    const p = (n: number): string => String(n).padStart(2, '0');
+    const ymd = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`;
+    const vevent = (title: string, hour: string, attendee: string): string[] => [
+      'BEGIN:VEVENT',
+      `UID:inv-${title.replace(/\s+/g, '-')}@e2e.test`,
+      `SUMMARY:${title}`,
+      `DTSTART:${ymd}T${hour}0000`,
+      `DTEND:${ymd}T${hour}3000`,
+      'ORGANIZER;CN=Boss:mailto:boss@example.org',
+      `ATTENDEE;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${attendee}`,
+      'END:VEVENT',
+    ];
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//Mailwoman e2e//EN',
+      ...vevent(mine, '14', ENGINE_CREDS.username),
+      ...vevent(theirs, '16', 'someone.else@example.org'),
+      'END:VCALENDAR',
+      '',
+    ].join('\r\n');
+    await calendar(page)
+      .getByLabel('Import calendar file')
+      .setInputFiles({ name: 'invites.ics', mimeType: 'text/calendar', buffer: Buffer.from(ics, 'utf8') });
+    await expect(calendar(page).getByTestId('calendar-feedback')).toHaveText('Imported 2 events.');
+
+    // Not a participant → no response controls.
+    await calendar(page).getByText(theirs).first().click();
+    const editor = page.getByRole('dialog', { name: 'Edit event' });
+    await expect(editor).toBeVisible();
+    await expect(editor.getByRole('button', { name: 'Accept' })).toHaveCount(0);
+    await editor.getByRole('button', { name: 'Cancel' }).click();
+    await expect(editor).toBeHidden();
+
+    // A participant keyed by the account identity → the controls are there, and
+    // accepting is stored by the engine (it survives a reload).
+    await calendar(page).getByText(mine).first().click();
+    await expect(editor).toBeVisible();
+    await expect(editor.getByRole('group', { name: 'Invitation' })).toContainText('needs-action');
+    await editor.getByRole('button', { name: 'Accept' }).click();
+    await expect(editor).toBeHidden();
+
+    await reloadToShell(page);
+    await openCalendar(page);
+    await calendar(page).getByText(mine).first().click();
+    await expect(editor.getByRole('group', { name: 'Invitation' })).toContainText('accepted');
   });
 });

@@ -59,6 +59,7 @@ export function ConflictResolver(props: ConflictResolverProps): JSX.Element {
   const c = props.controller;
   const [selected, setSelected] = createSignal(0);
   const [busy, setBusy] = createSignal(false);
+  const [failed, setFailed] = createSignal(false);
   // `null` = the free/busy query failed: the grid is withheld rather than drawn
   // as all-free.
   const [blocks, setBlocks] = createSignal<FreeBusyBlock[] | null>([]);
@@ -138,8 +139,12 @@ export function ConflictResolver(props: ConflictResolverProps): JSX.Element {
   async function run(fn: () => Promise<void>): Promise<void> {
     if (busy()) return;
     setBusy(true);
+    setFailed(false);
     try {
       await fn();
+    } catch {
+      // The engine refused the update (`updateEvent` rejects on `notUpdated`).
+      setFailed(true);
     } finally {
       setBusy(false);
     }
@@ -332,6 +337,10 @@ export function ConflictResolver(props: ConflictResolverProps): JSX.Element {
 
               <Show when={hasAttendees()}>
                 <p class={css.dimText} role="note" data-testid="freebusy-own-only">{t('calendar-fb-own-only')}</p>
+              </Show>
+
+              <Show when={failed()}>
+                <p class={css.dangerText} role="alert">{t('calendar-save-failed')}</p>
               </Show>
 
               <div class={css.resolverActions}>

@@ -10,6 +10,7 @@ import { t, isolate } from '../../i18n';
 import type { CalendarEvent, Participant } from '../../api/pim-types.ts';
 import type { CalendarController, EventDraft } from './controller.ts';
 import { dateToLocal, localToDate } from './datetime.ts';
+import { isMailbox, ownParticipant } from './participants.ts';
 import {
   ATTENDEE_CUTYPES,
   ATTENDEE_ROLES,
@@ -115,9 +116,16 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
   const [reminders, setReminders] = createSignal<number[]>(initialReminders);
 
   // ── attendees ──
-  const initialAttendees = ev !== null ? extractAttendees(ev) : [];
+  // The user's own participant entry is keyed by the account identity (the
+  // engine looks it up that way — see `ownParticipant`); it is not an attendee
+  // row, and it is carried through a save unchanged.
+  const self = props.controller.identity();
+  const initialAttendees = ev !== null ? extractAttendees(ev, self) : [];
   const [attendees, setAttendees] = createSignal<AttendeeRow[]>(initialAttendees);
   const [newAttendee, setNewAttendee] = createSignal('');
+  const [attendeeError, setAttendeeError] = createSignal(false);
+  // True when the engine refused the last save; the dialog stays open.
+  const [saveFailed, setSaveFailed] = createSignal(false);
 
   // ── categories (P4) + attachments (P5) ──
   const [categories, setCategories] = createSignal<string[]>(ev !== null ? eventCategories(ev) : []);
@@ -127,7 +135,7 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
   const [newAttachUri, setNewAttachUri] = createSignal('');
 
   // ── invite state (is this event addressed to me and awaiting a reply?) ──
-  const myParticipation = createMemo<Participant | null>(() => (ev !== null ? (ev.participants['me'] ?? null) : null));
+  const myParticipation = createMemo<Participant | null>(() => (ev !== null ? ownParticipant(ev.participants, self) : null));
   const isInvite = createMemo(() => myParticipation() !== null);
 
   const [counterOpen, setCounterOpen] = createSignal(false);
@@ -178,6 +186,18 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
   function addAttendee(): void {
     const raw = newAttendee().trim();
     if (raw === '') return;
+    // The engine refuses the whole save for a participant that is not a mailbox
+    // (see `participants.ts`), so one is not let into the list.
+    if (!isMailbox(raw)) {
+      setAttendeeError(true);
+      return;
+    }
+    setAttendeeError(false);
+    // One entry per address: the map is keyed by it.
+    if (raw === self || attendees().some((a) => a.email === raw)) {
+      setNewAttendee('');
+      return;
+    }
     setAttendees((a) => [
       ...a,
       { name: raw.split('@')[0] ?? raw, email: raw, role: 'required', cutype: 'individual', participationStatus: 'needs-action' },
@@ -215,7 +235,8 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
     // Built as ParticipantExt (Participant + the JSCalendar `roles` JSMap + `kind`
     // the ICS layer round-trips) then narrowed to the frozen `participants` shape.
     const participants: Record<string, ParticipantExt> = {};
-    if (ev !== null && ev.participants['me'] !== undefined) participants['me'] = ev.participants['me'];
+    const own = ev !== null ? ownParticipant(ev.participants, self) : null;
+    if (own !== null && self !== null) participants[self] = own;
     // Keyed by email address, as the engine keys them: its ICS layer rebuilds the
     // map by address (`read_participants`, `crates/mw-ics/src/ical.rs:196-227`),
     // and on create it addresses the iTIP REQUEST to the map KEYS
@@ -257,6 +278,17 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
   }
 
   async function save(): Promise<void> {
+    setSaveFailed(false);
+    try {
+      await persist();
+    } catch {
+      setSaveFailed(true);
+      return;
+    }
+    props.onClose();
+  }
+
+  async function persist(): Promise<void> {
     const draft = buildDraft();
     if (ev === null) {
       await props.controller.createEvent(draft);
@@ -281,7 +313,6 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
         attachments: draft.attachments ?? [],
       } as Partial<CalendarEvent>);
     }
-    props.onClose();
   }
 
   async function remove(): Promise<void> {
@@ -556,6 +587,9 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
             />
             <button type="button" class={css.button} onClick={addAttendee}>{t('common-add')}</button>
           </div>
+          <Show when={attendeeError()}>
+            <p class={css.dangerText} role="alert" data-testid="attendee-error">{t('calendar-attendee-invalid')}</p>
+          </Show>
         </div>
 
         {/* ── categories (P4) ── */}
@@ -636,6 +670,10 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
           <textarea id="ev-desc" class={css.input} rows="3" value={description()} onInput={(e) => setDescription(e.currentTarget.value)} />
         </div>
 
+        <Show when={saveFailed()}>
+          <p class={css.dangerText} role="alert" data-testid="event-save-failed">{t('calendar-save-failed')}</p>
+        </Show>
+
         <div class={css.dialogActions}>
           <Show when={ev !== null}>
             <button type="button" class={css.button} onClick={() => void remove()}>{t('common-delete')}</button>
@@ -662,11 +700,12 @@ export function extractReminders(ev: CalendarEvent): number[] {
   return out;
 }
 
-/** Pull the non-self attendees out of an event's participants map, reading the
+/** Pull the attendees other than `self` (the account identity, which keys the
+ *  user's own entry) out of an event's participants map, reading the
  *  JSCalendar `roles`/`kind` fields (falling back to the legacy `role` string). */
-export function extractAttendees(ev: CalendarEvent): AttendeeRow[] {
+export function extractAttendees(ev: CalendarEvent, self: string | null = null): AttendeeRow[] {
   return Object.entries(ev.participants)
-    .filter(([id]) => id !== 'me')
+    .filter(([id]) => id !== self)
     .map(([, raw]) => {
       const p = raw as ParticipantExt;
       return {

@@ -12,7 +12,7 @@ import { For, Show, createSignal, onMount, type JSX } from 'solid-js';
 import { t, loadCatalog } from '../../i18n';
 import type { Calendar, CalendarEvent } from '../../api/pim-types.ts';
 import { createCalendarController, type CalendarBackend, type CalendarController } from './controller.ts';
-import { createMockFeeds, createMockStore, mockSession, createMockJmap, type MockStore } from './mock.ts';
+import { MOCK_IDENTITY, createMockFeeds, createMockStore, mockSession, createMockJmap, type MockStore } from './mock.ts';
 import { CALENDAR_VIEWS, type CalendarView } from './types.ts';
 import { ActiveView } from './views.tsx';
 import { EventEditor } from './EventEditor.tsx';
@@ -30,6 +30,7 @@ export function makeMockController(store: MockStore = createMockStore()): Calend
     feeds: createMockFeeds(store),
     resolveAccount: () =>
       Promise.resolve(mockSession().primaryAccounts['urn:mailwoman:calendars'] ?? null),
+    resolveIdentity: () => Promise.resolve(MOCK_IDENTITY),
   };
   return createCalendarController(backend);
 }
