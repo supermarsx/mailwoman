@@ -791,24 +791,31 @@ mod tests {
     /// a different identifier. Delete-by-account with the login name removes
     /// nothing (the control), delete-by-username removes exactly that user's rows
     /// whatever the case, and takes the native marker with them.
-    #[tokio::test]
-    async fn delete_sessions_for_username_matches_login_name_case_insensitively() {
+    ///
+    /// The names carry a per-run tag so the body can run against a Postgres
+    /// database that other runs have used.
+    async fn assert_delete_by_username(s: &Store) {
         use crate::{Credentials, NativeSessionRow};
-        let s = store().await;
+        let tag = crate::seal::random_token();
+        let alice_mixed = format!("Alice-{tag}@Example.org");
+        let alice_lower = alice_mixed.to_ascii_lowercase();
+        let alice_upper = alice_mixed.to_ascii_uppercase();
+        let bob_name = format!("bob-{tag}@example.org");
+        let (alice_acct, bob_acct) = (format!("acct-a-{tag}"), format!("acct-b-{tag}"));
         let creds = Credentials {
             username: "u".into(),
             password: "p".into(),
         };
         let alice_1 = s
-            .create_session("acct-7f", "Alice@Example.org", "engine", "engine", &creds)
+            .create_session(&alice_acct, &alice_mixed, "engine", "engine", &creds)
             .await
             .unwrap();
         let alice_2 = s
-            .create_session("acct-7f", "alice@example.org", "engine", "engine", &creds)
+            .create_session(&alice_acct, &alice_lower, "engine", "engine", &creds)
             .await
             .unwrap();
         let bob = s
-            .create_session("acct-99", "bob@example.org", "engine", "engine", &creds)
+            .create_session(&bob_acct, &bob_name, "engine", "engine", &creds)
             .await
             .unwrap();
         let native_hash = |id: &str| -> String {
@@ -833,17 +840,13 @@ mod tests {
         // Control: the pre-existing by-account delete, given the login name,
         // matches no row — this is the dead "revoke sessions" button.
         assert_eq!(
-            s.delete_sessions_for_account("alice@example.org")
-                .await
-                .unwrap(),
+            s.delete_sessions_for_account(&alice_lower).await.unwrap(),
             0
         );
         assert!(s.get_session(&alice_1).await.is_ok());
 
         assert_eq!(
-            s.delete_sessions_for_username("ALICE@example.ORG")
-                .await
-                .unwrap(),
+            s.delete_sessions_for_username(&alice_upper).await.unwrap(),
             2
         );
         assert!(s.get_session(&alice_1).await.is_err());
@@ -865,11 +868,39 @@ mod tests {
         );
         // Nothing left to delete.
         assert_eq!(
-            s.delete_sessions_for_username("alice@example.org")
-                .await
-                .unwrap(),
+            s.delete_sessions_for_username(&alice_lower).await.unwrap(),
             0
         );
+        // Leave a shared database as it was found.
+        assert_eq!(s.delete_sessions_for_username(&bob_name).await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn delete_sessions_for_username_matches_login_name_case_insensitively() {
+        assert_delete_by_username(&store().await).await;
+    }
+
+    /// The same assertions on live Postgres, whose statement spells the case fold
+    /// differently. Runs when `DATABASE_URL_PG` / `MW_TEST_PG` names a server (the
+    /// convention of `tests/backend_parity.rs`); says so when it does not.
+    #[tokio::test]
+    async fn delete_sessions_for_username_on_postgres() {
+        let Some(dsn) = std::env::var("DATABASE_URL_PG")
+            .ok()
+            .or_else(|| std::env::var("MW_TEST_PG").ok())
+            .filter(|s| !s.trim().is_empty())
+        else {
+            eprintln!(
+                "[mw-store] t27-e3 delete_sessions_for_username: Postgres path SKIPPED (set \
+                 DATABASE_URL_PG or MW_TEST_PG to a live postgres:16 to run it). The SQLite \
+                 path still asserted."
+            );
+            return;
+        };
+        let s = Store::open_postgres(&dsn, ServerKey::generate())
+            .await
+            .expect("DATABASE_URL_PG is set but Postgres is not reachable");
+        assert_delete_by_username(&s).await;
     }
 
     #[tokio::test]
