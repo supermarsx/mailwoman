@@ -1277,13 +1277,15 @@ jobs:
       # Same as above: NDK_HOME comes from $GITHUB_ENV, not a re-derived expression.
       - name: tauri android build (APK)
         run: pnpm -C apps/mobile exec tauri android build --apk
+      # No `if: always()`: this runs only when the build step above succeeded, and
+      # it fails when that build left no APK. With `always()` and
+      # `if-no-files-found: ignore` it reported success beside a skipped build.
       - name: upload APK
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: mailwoman-android
           path: apps/mobile/src-tauri/gen/android/app/build/outputs/**/*.apk
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 7
 
   # desktop-e2e (e9) — the LIVE tauri-driver / WebdriverIO desktop E2E on Windows.
@@ -2028,10 +2030,10 @@ jobs:
       # build against the pin rather than against the committed file. That is the
       # intended direction — it IS the reproducibility claim, which t24-e15
       # established by rebuilding on ubuntu:24.04 (the runner's OS) with rustup
-      # 1.98.1 and getting byte-identical output. The plugin components are compared
-      # on host-capability surface and exports, not bytes, because their build.sh
-      # scripts do not yet remap paths; the three byte-level pins inside the repo
-      # (checks 1-3, run in the first step) are what make that relaxation safe.
+      # 1.98.1 and getting byte-identical output. Each plugin component is rebuilt
+      # and compared with its committed plugins/dist/<id>.wasm twice: on the host
+      # imports it declares, and BYTE FOR BYTE. Either difference fails the step
+      # (verify-artifacts.py, the `--rebuild` loop over COMPONENTS).
       - name: rebuild every committed wasm artifact from source and compare
         run: python3 plugins/verify-artifacts.py --rebuild
 
