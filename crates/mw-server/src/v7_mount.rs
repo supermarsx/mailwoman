@@ -1219,6 +1219,11 @@ impl mw_engine::account::MailSubmitter for BridgeSubmitter {
         &self,
         msg: mw_smtp::Outgoing,
     ) -> mw_engine::backend::Result<mw_smtp::SubmissionResult> {
+        // The envelope check `mw_smtp::Submitter` runs before it connects. This path
+        // never reaches that submitter, so it is run here; a refusal is the error the
+        // SMTP path yields through this seam, and the bridge is not called.
+        msg.validate()
+            .map_err(|e| mw_engine::backend::EngineError::Protocol(e.to_string()))?;
         // Route to the bridge's `submit` export via the frozen `AccountBackend::append`
         // seam (adapter → WIT `submit` → provider send). The mailbox ref is a neutral
         // placeholder — a bridge send ignores it beyond a synthetic return ref.
@@ -1238,6 +1243,123 @@ impl mw_engine::account::MailSubmitter for BridgeSubmitter {
             accepted: msg.rcpt_to,
             rejected: Vec::new(),
         })
+    }
+}
+
+#[cfg(test)]
+mod bridge_submitter_tests {
+    use super::BridgeSubmitter;
+    use async_trait::async_trait;
+    use mw_engine::account::MailSubmitter;
+    use mw_engine::backend::{
+        AccountBackend, BackendCaps, ChangeSink, EngineError, Flag, MailboxDelta, MessageRef,
+        MoveOutcome, RawMailbox, RawMailboxRef, RawMessage, Result, SyncCursor, WatchHandle,
+    };
+    use std::sync::{Arc, Mutex};
+
+    /// A bridge backend that records every message handed to its `append` (the
+    /// bridge `submit` export); nothing else is called by the submitter.
+    #[derive(Default)]
+    struct RecordingBridge {
+        sent: Mutex<Vec<Vec<u8>>>,
+    }
+
+    #[async_trait]
+    impl AccountBackend for RecordingBridge {
+        async fn capabilities(&self) -> Result<BackendCaps> {
+            Ok(BackendCaps::default())
+        }
+        async fn list_mailboxes(&self) -> Result<Vec<RawMailbox>> {
+            Ok(Vec::new())
+        }
+        async fn sync_mailbox(&self, _: &RawMailboxRef, _: &SyncCursor) -> Result<MailboxDelta> {
+            Err(EngineError::Unsupported("recording bridge".into()))
+        }
+        async fn fetch_raw(&self, _: &[MessageRef]) -> Result<Vec<RawMessage>> {
+            Ok(Vec::new())
+        }
+        async fn store_flags(&self, _: &[MessageRef], _: &[Flag], _: &[Flag]) -> Result<()> {
+            Ok(())
+        }
+        async fn move_messages(&self, _: &[MessageRef], _: &RawMailboxRef) -> Result<MoveOutcome> {
+            Err(EngineError::Unsupported("recording bridge".into()))
+        }
+        async fn append(&self, _: &RawMailboxRef, raw: &[u8], _: &[Flag]) -> Result<MessageRef> {
+            self.sent.lock().unwrap().push(raw.to_vec());
+            Ok(MessageRef::Pop3 {
+                uidl: "sent".into(),
+            })
+        }
+        async fn watch(&self, _: ChangeSink) -> Result<WatchHandle> {
+            Err(EngineError::Unsupported("recording bridge".into()))
+        }
+    }
+
+    fn submitter() -> (Arc<RecordingBridge>, BridgeSubmitter) {
+        let bridge = Arc::new(RecordingBridge::default());
+        let submitter = BridgeSubmitter {
+            backend: bridge.clone(),
+            bridge_id: "bridge-test".into(),
+        };
+        (bridge, submitter)
+    }
+
+    fn outgoing(mail_from: &str, rcpt_to: &[&str]) -> mw_smtp::Outgoing {
+        mw_smtp::Outgoing {
+            mail_from: mail_from.into(),
+            rcpt_to: rcpt_to.iter().map(|r| r.to_string()).collect(),
+            raw: b"Subject: hi\r\n\r\nbody\r\n".to_vec(),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_valid_envelope_reaches_the_bridge() {
+        let (bridge, submitter) = submitter();
+        let out = submitter
+            .submit(outgoing("alice@example.test", &["bob@example.test"]))
+            .await
+            .unwrap();
+        assert_eq!(out.accepted, vec!["bob@example.test".to_string()]);
+        assert_eq!(bridge.sent.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_hostile_envelope_address_is_refused_before_the_bridge() {
+        let cases: [(&str, &[&str]); 5] = [
+            (
+                "alice@example.test",
+                &["bob@example.test\r\nRCPT TO:<victim@example.test>"],
+            ),
+            (
+                "alice@example.test",
+                &[
+                    "bob@example.test",
+                    "x@example.test\nBcc: victim@example.test",
+                ],
+            ),
+            ("alice@example.test", &["no-at-sign"]),
+            ("alice@example.test", &[""]),
+            (
+                "alice@example.test>\r\nRCPT TO:<victim@example.test",
+                &["bob@example.test"],
+            ),
+        ];
+        for (from, to) in cases {
+            let (bridge, submitter) = submitter();
+            // What the SMTP path yields through the engine seam for the same message.
+            let want = match outgoing(from, to).validate() {
+                Err(e @ mw_smtp::SmtpError::InvalidAddress(_)) => e.to_string(),
+                other => panic!("{from:?} {to:?}: mw-smtp did not refuse it: {other:?}"),
+            };
+            match submitter.submit(outgoing(from, to)).await {
+                Err(EngineError::Protocol(m)) => assert_eq!(m, want),
+                other => panic!("{from:?} {to:?}: not refused: {other:?}"),
+            }
+            assert!(
+                bridge.sent.lock().unwrap().is_empty(),
+                "{from:?} {to:?}: the message reached the bridge"
+            );
+        }
     }
 }
 
