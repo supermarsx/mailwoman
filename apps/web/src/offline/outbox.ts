@@ -285,8 +285,45 @@ export interface DrainResult {
  *    next drain (and in neither count);
  *  - the network is still down → nothing recorded, and STOP, preserving FIFO
  *    order for the next reconnect. Being offline is not an attempt.
+ *
+ * Only one drain runs at a time. Two callers fire together on every reconnect
+ * (the client's first successful request and the browser's `online` event);
+ * each would read the queue before the other had deleted anything, and every
+ * queued send went out twice. A call made while a drain of the same store is
+ * running gets that drain's result. Across tabs, which share the IndexedDB
+ * queue, a Web Lock does the same job where the browser has one: a tab that
+ * finds the lock taken skips its drain, since the holder is draining the same
+ * rows.
  */
-export async function drainOutbox(store: OutboxStore, client: Client): Promise<DrainResult> {
+export function drainOutbox(store: OutboxStore, client: Client): Promise<DrainResult> {
+  const running = draining.get(store);
+  if (running !== undefined) return running;
+  const run = withQueueLock(() => drainOnce(store, client)).finally(() => draining.delete(store));
+  draining.set(store, run);
+  return run;
+}
+
+/** The drain in flight for each store, if any. */
+const draining = new WeakMap<OutboxStore, Promise<DrainResult>>();
+
+/** Name of the cross-tab lock held for the length of a drain. */
+const DRAIN_LOCK = 'mw-outbox-drain';
+
+/** The slice of the Web Locks API used here (absent in jsdom and older WebViews). */
+interface LockManagerLike {
+  request<T>(name: string, options: { ifAvailable: boolean }, callback: (lock: unknown) => Promise<T>): Promise<T>;
+}
+
+async function withQueueLock(drain: () => Promise<DrainResult>): Promise<DrainResult> {
+  const locks =
+    typeof navigator !== 'undefined' ? (navigator as { locks?: LockManagerLike }).locks : undefined;
+  if (locks === undefined) return drain();
+  return locks.request(DRAIN_LOCK, { ifAvailable: true }, (lock) =>
+    lock === null ? Promise.resolve({ sent: 0, failed: 0 }) : drain(),
+  );
+}
+
+async function drainOnce(store: OutboxStore, client: Client): Promise<DrainResult> {
   const pending = ((await store.all()) as QueuedItem[]).filter((i) => i.state === 'queued');
   let sent = 0;
   let failed = 0;

@@ -222,6 +222,57 @@ describe('drainOutbox', () => {
   });
 });
 
+describe('drainOutbox — one drain at a time', () => {
+  // Two things call for a drain on reconnect, at the same moment: the client's
+  // first successful request and the browser's `online` event. Each drain reads
+  // the queue before the other has deleted anything.
+  it('two drains started together send each item once', async () => {
+    const store = memoryOutboxStore([item('send', send, 1), item('flag', flag, 2)]);
+    const client = fakeClient(
+      vi.fn(async (body) => {
+        await new Promise((r) => setTimeout(r, 5));
+        return body.methodCalls.length === 2
+          ? jmapResponse(
+              ['Email/set', { created: { draft: { id: 'e9' } } }, 'set'],
+              ['EmailSubmission/set', { created: { send: { id: 's1' } }, notCreated: null }, 'submit'],
+            )
+          : setResponse({ updated: { m1: null } });
+      }),
+    );
+    const [first, second] = await Promise.all([drainOutbox(store, client), drainOutbox(store, client)]);
+    expect(client.jmap).toHaveBeenCalledTimes(2);
+    expect(first).toEqual({ sent: 2, failed: 0 });
+    // The second caller is told what the one drain did, not a second tally.
+    expect(second).toEqual({ sent: 2, failed: 0 });
+    expect(await store.all()).toEqual([]);
+  });
+
+  it('a drain started after the first finished runs normally', async () => {
+    const store = memoryOutboxStore([item('flag', flag, 1)]);
+    const client = fakeClient(vi.fn(async () => setResponse({ updated: { m1: null } })));
+    expect(await drainOutbox(store, client)).toEqual({ sent: 1, failed: 0 });
+    await store.add(item('move', move, 2));
+    expect(await drainOutbox(store, client)).toEqual({ sent: 1, failed: 0 });
+    expect(client.jmap).toHaveBeenCalledTimes(2);
+  });
+
+  it('skips the drain when another tab holds the queue lock', async () => {
+    const store = memoryOutboxStore([item('flag', flag, 1)]);
+    const client = fakeClient(vi.fn(async () => setResponse({ updated: { m1: null } })));
+    // Web Locks with `ifAvailable`: the callback gets `null` when the lock is taken.
+    vi.stubGlobal('navigator', {
+      locks: { request: async (_n: string, _o: unknown, cb: (lock: unknown) => unknown) => cb(null) },
+    });
+    try {
+      expect(await drainOutbox(store, client)).toEqual({ sent: 0, failed: 0 });
+      expect(client.jmap).not.toHaveBeenCalled();
+      expect(await store.all()).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe('outboundRejection', () => {
   it('reads the SetError for the item, preferring its description', () => {
     expect(
