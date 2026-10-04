@@ -1,10 +1,11 @@
 // Admin panel client + slice (SPEC §19, plan §2.5 / §2.6, §3 e7).
 //
-// The admin panel drives a SEPARATE session domain (`mw_admin_session` cookie or a
-// separate port; passkey-capable — plan §2.5) over a small REST surface under
-// `/admin/*`, distinct from the cookie-authed JMAP surface the mailbox uses. This
-// file owns the TYPED client (`AdminApi` + `createHttpAdminApi`) — the exact wire
-// shape e11 mounts against — plus the reactive `AdminSlice` the screens consume.
+// The admin panel drives a SEPARATE session domain (the `mw_admin_session` cookie)
+// over a small REST surface under `/admin/*`, distinct from the cookie-authed JMAP
+// surface the mailbox uses. This file owns the TYPED client (`AdminApi` +
+// `createHttpAdminApi`) plus the reactive `AdminSlice` the screens consume. The
+// wire shapes are the server's (`crates/mw-server/src/admin.rs`); each DTO below
+// cites the Rust struct it mirrors.
 //
 // The client is an interface so component tests inject a mock; the HTTP impl is a
 // thin `fetch` wrapper (same-origin, cookie-authed) that never touches the JMAP
@@ -20,13 +21,22 @@ export interface AdminSession {
   username: string;
 }
 
-/** A managed mail domain (`domains`, 0007). */
+/** A managed mail domain: its name (`DomainDto`, `crates/mw-server/src/admin.rs`).
+ *  The server stores more columns for a domain; nothing reads them, so they are
+ *  not part of the wire shape. */
 export interface Domain {
   name: string;
-  /** Upstream routing config (opaque JSON blob per §19). */
-  upstreamJson: string;
-  allowlist: string[];
-  blocklist: string[];
+  /**
+   * @deprecated The server neither sends nor accepts these three. They are
+   * declared optional only so the fixtures in `TwoFactorPolicy.test.tsx` (which
+   * still set them, and which t28-e8 did not own) type-check; delete them together
+   * with those fixture fields. No code reads them.
+   */
+  upstreamJson?: string;
+  /** @deprecated See `upstreamJson`. */
+  allowlist?: string[];
+  /** @deprecated See `upstreamJson`. */
+  blocklist?: string[];
 }
 
 /** A per-account quota (`quotas`, 0007). A non-positive limit means "no limit". */
@@ -52,28 +62,32 @@ export interface UserSummary {
   flags: UserFeatureFlags;
 }
 
-/** The security-policy model (§19 security-policy section). */
+/** The stored security-policy record as the server exposes it
+ *  (`SecurityPolicyDto`, `crates/mw-server/src/admin.rs`). Both fields are stored
+ *  and NOT applied by this release, so no screen offers them; the server refuses a
+ *  `PUT` carrying any other field. */
 export interface SecurityPolicy {
-  minTls: string;
-  require2fa: boolean;
-  argon2MCost: number;
-  argon2TCost: number;
-  argon2PCost: number;
   dlpRulesJson: string;
   maxSecurityFloor: boolean;
-  capturePolicy: string;
 }
 
-/** Whether an integration is live now or a deferred (inert) config surface. */
-export type IntegrationStatus = 'active' | 'deferred';
+/** The statuses `GET /admin/integrations` sends
+ *  (`mw_admin::IntegrationStatus::as_str`, `crates/mw-admin/src/provisioning.rs`). */
+export type IntegrationStatus = 'active' | 'configured' | 'not-configured' | 'unknown';
 
-/** The integrations surface (§19): webhooks + API-key oversight live; LDAP/
- *  Nextcloud shown inert/deferred. */
+/**
+ * `GET /admin/integrations` (`get_integrations`, `crates/mw-server/src/admin.rs`).
+ *
+ * The fields are `string`, not {@link IntegrationStatus}: a value this build does
+ * not recognise must render as "status unknown" rather than fail to type-check or
+ * be shown as one of the known states. `ldap` / `nextcloud` say whether the
+ * deployment has CONFIGURATION for them — never that the remote service answers.
+ */
 export interface IntegrationsConfig {
-  webhooks: IntegrationStatus;
-  apiKeyOversight: IntegrationStatus;
-  ldap: IntegrationStatus;
-  nextcloud: IntegrationStatus;
+  webhooks: string;
+  apiKeyOversight: string;
+  ldap: string;
+  nextcloud: string;
 }
 
 /** An outbound webhook registration (oversight view; secret never returned). */
@@ -99,7 +113,9 @@ export interface ApiKeyInfo {
   revokedAt: string | null;
 }
 
-/** Observability configuration (§19 observability section). */
+/** The stored telemetry record (`GET /admin/observability`). Stored, not applied:
+ *  the running log filter, OTLP exporter and metrics endpoint come from the
+ *  server's environment at start. No screen reads or writes it. */
 export interface ObservabilityConfig {
   logLevel: string;
   otlpDsn: string | null;
@@ -123,7 +139,7 @@ export interface AuditLogEntry {
   ip: string | null;
 }
 
-/** A banned source (login-monitor / ban-list, fail2ban-compatible). */
+/** A ban-list entry. A record: the server does not refuse a listed address. */
 export interface BanEntry {
   ip: string;
   reason: string;
@@ -131,7 +147,8 @@ export interface BanEntry {
   expiresAt: string | null;
 }
 
-/** Admin-managed appearance (§19 appearance section). */
+/** The deployment-default appearance (`GET /admin/appearance`). Held in the
+ *  server's memory only — a restart resets it — so no screen reads or writes it. */
 export interface Appearance {
   theme: string;
   brandName: string;
@@ -152,14 +169,21 @@ export interface BanInput {
   expiresAt: string | null;
 }
 
-// ── The typed client (frozen `/admin/*` surface) ──────────────────────────────
+// ── The typed client (`/admin/*` surface) ─────────────────────────────────────
 
 /**
  * The admin REST client. Component tests supply a mock; `createHttpAdminApi`
  * is the production `fetch` impl. Every method maps to exactly one `/admin/*`
- * endpoint (documented inline — this is the contract e11 mounts).
+ * endpoint (documented inline).
  */
 export interface AdminApi {
+  /**
+   * Called when a request other than the session probe or the sign-in is answered
+   * `401`: the admin session has ended (idle for 30 minutes, 12 hours old, or
+   * signed out elsewhere). The slice sets this to return the panel to the sign-in
+   * gate. Optional so a mock need not supply it.
+   */
+  onSessionEnded?: () => void;
   /** `GET /admin/session` → the session, or `null` on 401 (gate). */
   session(): Promise<AdminSession | null>;
   /** `POST /admin/login` → the session (401 throws `AdminApiError`). */
@@ -169,8 +193,8 @@ export interface AdminApi {
 
   /** `GET /admin/domains`. */
   listDomains(): Promise<Domain[]>;
-  /** `PUT /admin/domains/{name}`. */
-  saveDomain(domain: Domain): Promise<void>;
+  /** `PUT /admin/domains/{name}` — registers the name; no body is sent. */
+  saveDomain(name: string): Promise<void>;
   /** `DELETE /admin/domains/{name}`. */
   deleteDomain(name: string): Promise<void>;
 
@@ -187,9 +211,9 @@ export interface AdminApi {
   /** `POST /admin/users/{accountId}/revoke-sessions` → count revoked. */
   revokeSessions(accountId: string): Promise<number>;
 
-  /** `GET /admin/security-policy`. */
+  /** `GET /admin/security-policy`. No screen calls this — see {@link SecurityPolicy}. */
   getSecurityPolicy(): Promise<SecurityPolicy>;
-  /** `PUT /admin/security-policy`. */
+  /** `PUT /admin/security-policy`. No screen calls this. */
   setSecurityPolicy(policy: SecurityPolicy): Promise<void>;
 
   /** `GET /admin/integrations`. */
@@ -201,9 +225,9 @@ export interface AdminApi {
   /** `POST /admin/api-keys/{id}/revoke`. */
   revokeApiKey(id: string): Promise<void>;
 
-  /** `GET /admin/observability`. */
+  /** `GET /admin/observability`. No screen calls this — see {@link ObservabilityConfig}. */
   getObservability(): Promise<ObservabilityConfig>;
-  /** `PUT /admin/observability`. */
+  /** `PUT /admin/observability`. No screen calls this. */
   setObservability(cfg: ObservabilityConfig): Promise<void>;
   /** `GET /admin/audit?limit=`. */
   listAudit(limit: number): Promise<AuditLogEntry[]>;
@@ -216,9 +240,9 @@ export interface AdminApi {
   /** `DELETE /admin/bans/{ip}`. */
   removeBan(ip: string): Promise<void>;
 
-  /** `GET /admin/appearance`. */
+  /** `GET /admin/appearance`. No screen calls this — see {@link Appearance}. */
   getAppearance(): Promise<Appearance>;
-  /** `PUT /admin/appearance`. */
+  /** `PUT /admin/appearance`. No screen calls this. */
   setAppearance(appearance: Appearance): Promise<void>;
 }
 
@@ -242,7 +266,11 @@ export class AdminApiError extends Error {
  */
 export function createHttpAdminApi(base = basePath()): AdminApi {
   async function raw(path: string, init?: RequestInit): Promise<Response> {
-    return fetch(`${base}/admin${path}`, { credentials: 'same-origin', ...init });
+    const res = await fetch(`${base}/admin${path}`, { credentials: 'same-origin', ...init });
+    // `/session` answers 401 for "not signed in" and `/login` for a wrong password;
+    // on every other route a 401 means a session that existed has ended.
+    if (res.status === 401 && path !== '/session' && path !== '/login') api.onSessionEnded?.();
+    return res;
   }
   async function getJson<T>(path: string): Promise<T> {
     const res = await raw(path);
@@ -260,7 +288,7 @@ export function createHttpAdminApi(base = basePath()): AdminApi {
     return res;
   }
 
-  return {
+  const api: AdminApi = {
     async session() {
       const res = await raw('/session');
       if (res.status === 401) return null;
@@ -282,8 +310,8 @@ export function createHttpAdminApi(base = basePath()): AdminApi {
     },
 
     listDomains: () => getJson<Domain[]>('/domains'),
-    async saveDomain(domain) {
-      await send(`/domains/${encodeURIComponent(domain.name)}`, 'PUT', domain);
+    async saveDomain(name) {
+      await send(`/domains/${encodeURIComponent(name)}`, 'PUT');
     },
     async deleteDomain(name) {
       await send(`/domains/${encodeURIComponent(name)}`, 'DELETE');
@@ -343,6 +371,7 @@ export function createHttpAdminApi(base = basePath()): AdminApi {
       await send('/appearance', 'PUT', appearance);
     },
   };
+  return api;
 }
 
 // ── The reactive slice (session gate + shared api handle) ──────────────────────
@@ -381,6 +410,9 @@ export interface AdminSlice {
   session: Accessor<AdminSession | null>;
   /** Whether the initial session probe has completed (gates the boot spinner). */
   sessionChecked: Accessor<boolean>;
+  /** True after the server ended a session this panel was using; the sign-in gate
+   *  says so. Cleared by the next successful sign-in. */
+  sessionEnded: Accessor<boolean>;
   /** The visible section. */
   section: Accessor<AdminSection>;
   setSection(section: AdminSection): void;
@@ -397,6 +429,15 @@ export function createAdminSlice(api: AdminApi): AdminSlice {
   const [session, setSession] = createSignal<AdminSession | null>(null);
   const [sessionChecked, setSessionChecked] = createSignal(false);
   const [section, setSection] = createSignal<AdminSection>('domains');
+  const [sessionEnded, setSessionEnded] = createSignal(false);
+
+  // Only a session that was in use can "end": a 401 with no session held is the
+  // ordinary signed-out state and gets no message.
+  api.onSessionEnded = () => {
+    if (session() === null) return;
+    setSession(null);
+    setSessionEnded(true);
+  };
 
   async function loadSession(): Promise<void> {
     try {
@@ -408,6 +449,7 @@ export function createAdminSlice(api: AdminApi): AdminSlice {
 
   async function login(username: string, password: string): Promise<void> {
     setSession(await api.login(username, password));
+    setSessionEnded(false);
   }
 
   async function logout(): Promise<void> {
@@ -419,6 +461,7 @@ export function createAdminSlice(api: AdminApi): AdminSlice {
     api,
     session,
     sessionChecked,
+    sessionEnded,
     section,
     setSection,
     loadSession,

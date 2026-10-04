@@ -1,25 +1,29 @@
-import { describe, it, expect, vi } from 'vitest';
-import { fireEvent, screen } from '@solidjs/testing-library';
+import { describe, it, expect } from 'vitest';
+import { screen } from '@solidjs/testing-library';
 import { Appearance } from './Appearance.tsx';
 import { mockAdminApi, renderWithAdmin } from './testkit.tsx';
 
+// The brand / theme / accent form saved to the server's memory only and was reset
+// by a restart; it was removed (26.20, t28-e8). These tests fail if it comes back.
 describe('Admin › Appearance', () => {
-  it('loads the brand + theme', async () => {
-    renderWithAdmin(
-      () => <Appearance />,
-      mockAdminApi({ getAppearance: vi.fn(async () => ({ theme: 'grove-dark', brandName: 'Acme Mail', accent: '#123456' })) }),
-    );
-    const brand = (await screen.findByText('Brand name')).parentElement!.querySelector('input') as HTMLInputElement;
-    expect(brand.value).toBe('Acme Mail');
+  it('has no form control of any kind', () => {
+    const { container } = renderWithAdmin(() => <Appearance />);
+    expect(container.querySelectorAll('input, textarea, select, button, form')).toHaveLength(0);
+    for (const label of ['Brand name', 'Default theme', 'Accent (hex, optional)', 'Save appearance']) {
+      expect(screen.queryByText(label)).toBeNull();
+    }
   });
 
-  it('saves an edited appearance', async () => {
-    const setAppearance = vi.fn(async () => undefined);
-    renderWithAdmin(() => <Appearance />, mockAdminApi({ setAppearance }));
-    const brand = (await screen.findByText('Brand name')).parentElement!.querySelector('input')!;
-    fireEvent.input(brand, { target: { value: 'Vogue Mail' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save appearance' }));
-    await Promise.resolve();
-    expect(setAppearance).toHaveBeenCalledWith(expect.objectContaining({ brandName: 'Vogue Mail' }));
+  it('neither reads nor writes the deployment appearance', () => {
+    const { api } = renderWithAdmin(() => <Appearance />, mockAdminApi());
+    expect(api.getAppearance).not.toHaveBeenCalled();
+    expect(api.setAppearance).not.toHaveBeenCalled();
+  });
+
+  it('says why, and that per-user appearance is unaffected', () => {
+    renderWithAdmin(() => <Appearance />);
+    const region = screen.getByRole('region', { name: 'Appearance' });
+    expect(region).toHaveTextContent('reset at every restart');
+    expect(region).toHaveTextContent("Each user's own appearance");
   });
 });

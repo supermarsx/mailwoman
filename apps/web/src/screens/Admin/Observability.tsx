@@ -1,34 +1,33 @@
-// Admin › Observability (§19, §21). Log level + OTLP DSN + auth-gated Prometheus
-// metrics toggle; the append-only audit-log viewer + JSONL export; the login
-// monitor / ban list (fail2ban-compatible) with add + unban.
+// Admin › Observability (§19, §21). The append-only audit-log viewer + JSONL
+// export, and the login monitor's ban list with add + unban.
+//
+// There is no telemetry form. The log level, OTLP DSN and metrics toggle it used
+// to carry were saved to a settings row that nothing applies: the running log
+// filter, OTLP exporter and `/metrics` endpoint are set from the server's
+// environment at start (`crates/mw-server/src/observability.rs`,
+// `ObservabilityConfig::from_env`). The form returns when a save changes the
+// running server (26.20, t28-e8).
+//
+// The ban list is a record, and the screen says so: no request path refuses a
+// listed address (`mw_admin::BanEntry`, `crates/mw-admin/src/lib.rs`).
 
 import { createSignal, For, Show, onMount, type JSX } from 'solid-js';
 import { useAdmin } from './context.ts';
-import type { AuditLogEntry, BanEntry, ObservabilityConfig } from '../../state/slices/admin.ts';
+import type { AuditLogEntry, BanEntry } from '../../state/slices/admin.ts';
 import { t } from '../../i18n';
 import * as css from './admin.css.ts';
 
-const DEFAULT_OBS: ObservabilityConfig = {
-  logLevel: 'info',
-  otlpDsn: null,
-  metricsEnabled: false,
-  sentryDsn: null,
-};
-
 export function Observability(): JSX.Element {
   const { api } = useAdmin();
-  const [obs, setObs] = createSignal<ObservabilityConfig>(DEFAULT_OBS);
   const [audit, setAudit] = createSignal<AuditLogEntry[]>([]);
   const [bans, setBans] = createSignal<BanEntry[]>([]);
   const [error, setError] = createSignal<string | null>(null);
-  const [saved, setSaved] = createSignal(false);
   const [banIp, setBanIp] = createSignal('');
   const [banReason, setBanReason] = createSignal('');
 
   async function reload(): Promise<void> {
     try {
-      const [o, a, b] = await Promise.all([api.getObservability(), api.listAudit(100), api.listBans()]);
-      setObs(o);
+      const [a, b] = await Promise.all([api.listAudit(100), api.listBans()]);
       setAudit(a);
       setBans(b);
       setError(null);
@@ -37,21 +36,6 @@ export function Observability(): JSX.Element {
     }
   }
   onMount(() => void reload());
-
-  function patch<K extends keyof ObservabilityConfig>(key: K, value: ObservabilityConfig[K]): void {
-    setObs({ ...obs(), [key]: value });
-    setSaved(false);
-  }
-
-  async function onSaveConfig(e: Event): Promise<void> {
-    e.preventDefault();
-    try {
-      await api.setObservability(obs());
-      setSaved(true);
-    } catch {
-      setError(t('admin-obs-save-error'));
-    }
-  }
 
   async function onExport(): Promise<void> {
     try {
@@ -99,40 +83,9 @@ export function Observability(): JSX.Element {
         </p>
       </Show>
 
-      <form class={css.card} onSubmit={(e) => void onSaveConfig(e)} aria-label={t('admin-obs-config')}>
-        <div class={css.grid}>
-          <label class="field">
-            <span>{t('admin-obs-log-level')}</span>
-            <input type="text" value={obs().logLevel} onInput={(e) => patch('logLevel', e.currentTarget.value)} />
-          </label>
-          <label class="field">
-            <span>{t('admin-obs-otlp')}</span>
-            <input
-              type="text"
-              value={obs().otlpDsn ?? ''}
-              placeholder={t('admin-obs-otlp-placeholder')}
-              onInput={(e) => patch('otlpDsn', e.currentTarget.value === '' ? null : e.currentTarget.value)}
-            />
-          </label>
-        </div>
-        <label class="field">
-          <input
-            type="checkbox"
-            checked={obs().metricsEnabled}
-            aria-label={t('admin-obs-metrics-label')}
-            onChange={(e) => patch('metricsEnabled', e.currentTarget.checked)}
-          />{' '}
-          {t('admin-obs-metrics')}
-        </label>
-        <button type="submit" class="btn btn--primary">
-          {t('admin-obs-save')}
-        </button>
-        <Show when={saved()}>
-          <p class={css.note} role="status">
-            {t('admin-saved')}
-          </p>
-        </Show>
-      </form>
+      <div class={css.card}>
+        <p class={css.note}>{t('admin-obs-telemetry-note')}</p>
+      </div>
 
       <div class={css.card}>
         <div style={{ display: 'flex', 'justify-content': 'space-between', 'align-items': 'center' }}>
@@ -173,6 +126,9 @@ export function Observability(): JSX.Element {
 
       <div class={css.card}>
         <h3 class={css.heading}>{t('admin-obs-bans')}</h3>
+        <p class={css.note} data-testid="admin-obs-bans-note">
+          {t('admin-obs-bans-note')}
+        </p>
         <form onSubmit={(e) => void onAddBan(e)} aria-label={t('admin-obs-ban-add')} class={css.grid}>
           <label class="field">
             <span>{t('admin-obs-ban-ip')}</span>

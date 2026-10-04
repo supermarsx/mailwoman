@@ -27,7 +27,8 @@ admin-saved = Saved.
 
 # -- Sign-in gate (separate admin session) -----------------------------------
 admin-login-form = Admin sign in
-admin-login-note = This panel runs under a separate admin session.
+admin-login-note = This panel runs under a separate admin session. The session ends after 30 minutes without activity, and 12 hours after sign-in at the latest.
+admin-login-session-ended = Your admin session has ended. Sign in again.
 admin-login-username = Admin username
 admin-login-password = Password
 admin-login-sign-in = Sign in
@@ -43,13 +44,9 @@ admin-domains-delete-error = Could not delete the domain
 admin-domains-add = Add domain
 admin-domains-name = Domain name
 admin-domains-name-placeholder = example.com
-admin-domains-upstream = Upstream (JSON)
-admin-domains-allowlist = Allowlist
-admin-domains-blocklist = Blocklist
-admin-domains-one-per-line = one per line
+admin-domains-note = A domain is registered by name. Registered names are offered on the Require two-factor screen when a rule applies to one domain. Registering a domain does not route or filter mail.
 admin-domains-save = Save domain
 admin-domains-empty = No domains yet.
-admin-domains-counts = ({ $allow } allow / { $block } block)
 admin-domains-delete-for = Delete { $name }
 
 # -- Users -------------------------------------------------------------------
@@ -71,31 +68,21 @@ admin-users-col-zeroaccess = Zero-access
 admin-users-col-flags = Flags
 admin-users-col-sessions = Sessions
 admin-users-zeroaccess-for = Zero-access for { $account }
+admin-users-zeroaccess-help = A record only. Zero-access storage is turned on and off by the user, in their own settings, with their own key. Ticking this box does not encrypt the account's stored mail, and clearing it does not decrypt it.
 admin-users-disable-for = Disable { $account }
 admin-users-disabled = disabled
 admin-users-disabled-help = Blocks sign-in and ends every open session for this account. Its API keys and tokens are refused. This does not disable the mailbox on the mail server: other mail clients can still reach it until you disable it there too.
 admin-users-force-change-for = Force password change for { $account }
 admin-users-force-change = force change
 admin-users-force-change-help = The user is held at a password-change screen, at the next sign-in and in sessions already open, and cannot reach mail until the change succeeds. This needs a working password-change backend (MW_PASSWD_BACKEND). Without one the change cannot succeed and the user stays at that screen until you clear this box.
-admin-users-cache-wipe-for = Remote cache wipe for { $account }
-admin-users-cache-wipe = cache wipe
 admin-users-revoke-for = Revoke sessions for { $account }
 
 # -- Security policy ---------------------------------------------------------
 admin-security-title = Security policy
-admin-security-load-error = Could not load the security policy
-admin-security-save-error = Could not save the security policy
-admin-security-min-tls = Minimum TLS
-admin-security-capture = Capture policy
-admin-security-argon-mem = Argon2 memory cost (KiB)
-admin-security-argon-time = Argon2 time cost
-admin-security-argon-par = Argon2 parallelism
-admin-security-dlp = DLP rules (JSON)
-admin-security-require-2fa-label = Require two-factor authentication
-admin-security-require-2fa = Require 2FA
-admin-security-floor-label = Enforce maximum-security floor
-admin-security-floor = Enforce maximum-security floor
-admin-security-save = Save policy
+admin-security-none = There are no settings on this screen. The values it used to hold (minimum TLS, capture policy, Argon2 parameters, Require 2FA, DLP rules, maximum-security floor) were saved and never applied, so the controls were removed.
+admin-security-where-2fa = Two-factor requirements are set on the Require two-factor screen, for the whole deployment or per domain. Those are enforced at sign-in.
+admin-security-where-dlp = The outbound DLP rules that are applied are read from the MW_DLP_RULES environment variable when the server starts.
+admin-security-where-tls = The TLS versions the server accepts are fixed in the server build. There is no setting for them.
 
 # -- Integrations ------------------------------------------------------------
 admin-integrations-title = Integrations
@@ -103,9 +90,11 @@ admin-integrations-load-error = Could not load integrations
 admin-integrations-revoke-error = Could not revoke the key
 admin-integrations-ldap = LDAP / GAL directory
 admin-integrations-nextcloud = Nextcloud bridge
-admin-integrations-deferred = Deferred
 admin-integrations-active = Active
-admin-integrations-deferred-note = LDAP and Nextcloud are configuration surfaces only in this release; they are not yet wired.
+admin-integrations-configured = Configured
+admin-integrations-not-configured = Not configured
+admin-integrations-unknown = Status unknown
+admin-integrations-config-note = "Configured" means this deployment has settings for the integration: an enabled LDAP directory entry in the database, or the three MW_NEXTCLOUD_* environment variables. Both are read when the server starts. It does not mean the remote service was contacted or is reachable.
 admin-integrations-webhooks = Webhooks
 admin-integrations-webhooks-empty = No webhooks registered.
 admin-integrations-keys = API & MCP keys
@@ -121,17 +110,10 @@ admin-integrations-revoke-key = Revoke key { $prefix }
 # -- Observability -----------------------------------------------------------
 admin-obs-title = Observability
 admin-obs-load-error = Could not load observability data
-admin-obs-save-error = Could not save observability config
 admin-obs-export-error = Could not export the audit log
 admin-obs-ban-add-error = Could not add the ban
 admin-obs-unban-error = Could not remove the ban
-admin-obs-config = Logging and telemetry
-admin-obs-log-level = Log level
-admin-obs-otlp = OTLP DSN
-admin-obs-otlp-placeholder = https://otlp.example.org
-admin-obs-metrics-label = Enable Prometheus metrics endpoint
-admin-obs-metrics = Enable auth-gated Prometheus /metrics
-admin-obs-save = Save telemetry
+admin-obs-telemetry-note = Logging and telemetry are not set here. The log filter (MW_LOG), the OTLP collector (MW_OTLP_ENDPOINT) and the metrics endpoint (MW_METRICS_TOKEN) are read from the server's environment when it starts.
 admin-obs-audit = Audit log
 admin-obs-export = Export JSONL
 admin-obs-audit-empty = No audit entries.
@@ -140,6 +122,7 @@ admin-obs-col-actor = Actor
 admin-obs-col-action = Action
 admin-obs-col-target = Target
 admin-obs-bans = Login monitor / ban list
+admin-obs-bans-note = This list is a record. Mailwoman does not refuse connections from the addresses on it, and an entry has no effect on sign-in. Each failed admin sign-in writes a line to the server log that a fail2ban jail can act on, and five failures from one address add that address here. Blocking is done by that jail or by your firewall.
 admin-obs-ban-add = Add ban
 admin-obs-ban-ip = IP address
 admin-obs-ban-reason = Reason
@@ -150,13 +133,7 @@ admin-obs-unban-btn = Unban
 
 # -- Appearance (deployment default) -----------------------------------------
 admin-appearance-title = Appearance
-admin-appearance-load-error = Could not load appearance
-admin-appearance-save-error = Could not save appearance
-admin-appearance-brand = Brand name
-admin-appearance-theme = Default theme
-admin-appearance-accent = Accent (hex, optional)
-admin-appearance-accent-placeholder = #6d8a4e
-admin-appearance-save = Save appearance
+admin-appearance-none = There are no settings on this screen. The deployment-wide brand name, default theme and accent were kept only in the server's memory and reset at every restart, so the controls were removed. Each user's own appearance, chosen in their settings, is stored and is not affected.
 
 # -- Plugins (§22) -----------------------------------------------------------
 # NB: the unsigned-plugin banner copy is a FROZEN, exported const (UNSIGNED_BANNER
@@ -400,6 +377,18 @@ admin-nav-egress = Egress
 admin-egress-heading = Outbound proxy routes
 admin-egress-intro = Route the server's outbound fetches through an HTTP CONNECT or SOCKS5 proxy. Mailwoman still enforces its own address policy — the proxy is never asked to resolve a name.
 admin-egress-empty = No routes configured. Outbound fetches go direct.
+admin-egress-none-active = No route is in use. Outbound fetches go direct. A saved route carries traffic only after you choose "Use this route".
+admin-egress-in-use = Outbound fetches use the route "{ $id }".
+admin-egress-deactivate = Stop using a proxy
+admin-egress-activate = Use this route
+admin-egress-activate-for = Use route { $id }
+admin-egress-activate-error = Could not switch to the route
+admin-egress-deactivate-error = Could not stop using the route
+admin-egress-col-state = State
+admin-egress-state-active = In use
+admin-egress-state-inactive = Not in use
+admin-egress-test-scope = Only the route in use can be tested. A test fetches one fixed URL through the route and reports how far it got; it changes nothing.
+admin-egress-probe-url = Fetched: { $url }
 admin-egress-load-error = Could not load the egress routes
 admin-egress-save-error = Could not save the route
 admin-egress-delete-error = Could not delete the route

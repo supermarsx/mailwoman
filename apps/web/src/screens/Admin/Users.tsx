@@ -1,6 +1,12 @@
-// Admin › Users (§19). Provision users, set quota, revoke sessions, toggle
-// feature flags including the zero-access storage toggle (§9), force password
-// change, and request a remote cache wipe. Every action audits server-side.
+// Admin › Users (§19). Provision users, set quota, revoke sessions, and set the
+// per-account flags: disabled, force password change, and the zero-access flag.
+// Every action audits server-side.
+//
+// There is no "cache wipe" checkbox: `remoteCacheWipe` is stored by
+// `PUT /admin/users/{id}/flags` and read by nothing, so ticking it wiped no cache
+// (26.20, t28-e8). The field stays in `UserFeatureFlags` because the server sends
+// and expects it (`FlagsDto`, `crates/mw-server/src/admin.rs`), and is passed
+// through unchanged when another flag is saved.
 
 import { createSignal, For, Show, onMount, type JSX } from 'solid-js';
 import { useAdmin } from './context.ts';
@@ -127,10 +133,14 @@ export function Users(): JSX.Element {
                           <input
                             type="checkbox"
                             aria-label={t('admin-users-zeroaccess-for', { account: u.accountId })}
+                            aria-describedby={`admin-users-zeroaccess-help-${i()}`}
                             checked={u.flags.zeroAccess}
                             onChange={(e) => void patchFlag(u, 'zeroAccess', e.currentTarget.checked)}
                           />
                         </label>
+                        <p class={css.note} id={`admin-users-zeroaccess-help-${i()}`}>
+                          {t('admin-users-zeroaccess-help')}
+                        </p>
                       </td>
                       <td>
                         <label class="field">
@@ -159,15 +169,6 @@ export function Users(): JSX.Element {
                         <p class={css.note} id={`admin-users-force-change-help-${i()}`}>
                           {t('admin-users-force-change-help')}
                         </p>
-                        <label class="field">
-                          <input
-                            type="checkbox"
-                            aria-label={t('admin-users-cache-wipe-for', { account: u.accountId })}
-                            checked={u.flags.remoteCacheWipe}
-                            onChange={(e) => void patchFlag(u, 'remoteCacheWipe', e.currentTarget.checked)}
-                          />{' '}
-                          {t('admin-users-cache-wipe')}
-                        </label>
                       </td>
                       <td>
                         <button

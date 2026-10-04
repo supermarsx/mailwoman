@@ -36,13 +36,35 @@ describe('Admin › Observability', () => {
     expect(exportAudit).toHaveBeenCalled();
   });
 
-  it('saves telemetry config', async () => {
-    const setObservability = vi.fn(async () => undefined);
-    renderWithAdmin(() => <Observability />, mockAdminApi({ setObservability }));
-    fireEvent.click(await screen.findByLabelText('Enable Prometheus metrics endpoint'));
-    fireEvent.click(screen.getByRole('button', { name: 'Save telemetry' }));
-    await Promise.resolve();
-    expect(setObservability).toHaveBeenCalledWith(expect.objectContaining({ metricsEnabled: true }));
+  // The log level / OTLP DSN / metrics form stored a record nothing applied and
+  // was removed (26.20, t28-e8). These fail if it comes back.
+  it('has no telemetry form and does not read the stored telemetry record', async () => {
+    const { api } = renderWithAdmin(() => <Observability />, mockAdminApi());
+    expect(await screen.findByText('No audit entries.')).toBeInTheDocument();
+    for (const label of ['Log level', 'OTLP DSN', 'Enable auth-gated Prometheus /metrics']) {
+      expect(screen.queryByText(label)).toBeNull();
+    }
+    expect(screen.queryByLabelText('Enable Prometheus metrics endpoint')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Save telemetry' })).toBeNull();
+    expect(screen.queryByRole('form', { name: 'Logging and telemetry' })).toBeNull();
+    expect(api.getObservability).not.toHaveBeenCalled();
+    expect(api.setObservability).not.toHaveBeenCalled();
+  });
+
+  it('names the environment variables that do set telemetry', async () => {
+    renderWithAdmin(() => <Observability />);
+    const region = await screen.findByRole('region', { name: 'Observability' });
+    expect(region).toHaveTextContent('MW_LOG');
+    expect(region).toHaveTextContent('MW_OTLP_ENDPOINT');
+    expect(region).toHaveTextContent('MW_METRICS_TOKEN');
+  });
+
+  it('says the ban list is a record that blocks nothing', async () => {
+    renderWithAdmin(() => <Observability />);
+    const note = await screen.findByTestId('admin-obs-bans-note');
+    expect(note).toHaveTextContent('This list is a record');
+    expect(note).toHaveTextContent('does not refuse connections');
+    expect(note).toHaveTextContent('fail2ban');
   });
 
   it('lists bans and can unban', async () => {

@@ -50,6 +50,9 @@ function view(over: Partial<EgressProxyView> = {}): EgressProxyView {
     username: 'svc',
     hasCredentials: true,
     allowPlaintext: false,
+    // `ProxyView.active` (crates/mw-server/src/egress_admin.rs). A saved route is
+    // not in use until it is activated (`put_proxy` writes `active: false`).
+    active: false,
     createdAt: '2026-08-01T00:00:00Z',
     updatedAt: '2026-08-01T00:00:00Z',
     ...over,
@@ -60,20 +63,33 @@ function view(over: Partial<EgressProxyView> = {}): EgressProxyView {
 function fakeApi(rows: EgressProxyView[] = [view()], testResult?: EgressTestResult | Error) {
   const puts: PutProxyInput[] = [];
   const removed: string[] = [];
+  const activated: string[] = [];
+  let deactivations = 0;
+  // Mutable, so activate/deactivate change what the next `list()` returns, the way
+  // the server's rows change (`activate_proxy` / `deactivate_proxies`).
+  let current = rows;
   const api: EgressAdminApi = {
-    list: vi.fn(async () => rows),
+    list: vi.fn(async () => current),
     put: vi.fn(async (input: PutProxyInput) => {
       puts.push(input);
     }),
     remove: vi.fn(async (id: string) => {
       removed.push(id);
     }),
+    activate: vi.fn(async (id: string) => {
+      activated.push(id);
+      current = current.map((r) => ({ ...r, active: r.id === id }));
+    }),
+    deactivate: vi.fn(async () => {
+      deactivations += 1;
+      current = current.map((r) => ({ ...r, active: false }));
+    }),
     test: vi.fn(async () => {
       if (testResult instanceof Error) throw testResult;
       return testResult ?? result();
     }),
   };
-  return { api, puts, removed };
+  return { api, puts, removed, activated, deactivations: () => deactivations };
 }
 
 async function mounted(api: EgressAdminApi): Promise<void> {
@@ -114,6 +130,8 @@ describe('egress routes — listing', () => {
       }),
       put: vi.fn(),
       remove: vi.fn(),
+      activate: vi.fn(),
+      deactivate: vi.fn(),
       test: vi.fn(async () => result()),
     };
     await mounted(api);
@@ -264,7 +282,100 @@ describe('egress routes — add and delete', () => {
   });
 });
 
+describe('egress routes — a saved route is used only once it is activated', () => {
+  it('says outbound fetches go direct while no route is active, and offers to use one', async () => {
+    const { api } = fakeApi([view()]);
+    await mounted(api);
+    await screen.findByTestId('egress-row-corp');
+    expect(screen.getByTestId('egress-direct').textContent).toContain('go direct');
+    expect(screen.getByTestId('egress-state-corp').textContent).toBe('Not in use');
+    expect(screen.queryByTestId('egress-in-use')).toBeNull();
+    expect(screen.queryByTestId('egress-deactivate')).toBeNull();
+  });
+
+  it('activates a route and then shows it as the one in use', async () => {
+    const { api, activated } = fakeApi([view(), view({ id: 'backup' })]);
+    await mounted(api);
+    fireEvent.click(await screen.findByTestId('egress-activate-backup'));
+
+    await waitFor(() => expect(screen.getByTestId('egress-state-backup').textContent).toBe('In use'));
+    expect(activated).toEqual(['backup']);
+    expect(screen.getByTestId('egress-in-use').textContent).toContain('backup');
+    expect(screen.getByTestId('egress-state-corp').textContent).toBe('Not in use');
+    // The active row no longer offers "use this route"; the other still does.
+    expect(screen.queryByTestId('egress-activate-backup')).toBeNull();
+    expect(screen.getByTestId('egress-activate-corp')).toBeInTheDocument();
+  });
+
+  it('stops using a proxy and returns to direct', async () => {
+    const { api, deactivations } = fakeApi([view({ active: true })]);
+    await mounted(api);
+    fireEvent.click(await screen.findByTestId('egress-deactivate'));
+
+    await waitFor(() => expect(screen.getByTestId('egress-direct')).toBeInTheDocument());
+    expect(deactivations()).toBe(1);
+    expect(screen.getByTestId('egress-state-corp').textContent).toBe('Not in use');
+  });
+
+  it('reports a failed activation and does not show the route as in use', async () => {
+    const { api } = fakeApi([view()]);
+    api.activate = vi.fn(async () => {
+      throw new Error('nope');
+    });
+    await mounted(api);
+    fireEvent.click(await screen.findByTestId('egress-activate-corp'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not switch to the route');
+    expect(screen.getByTestId('egress-state-corp').textContent).toBe('Not in use');
+  });
+
+  it('offers Test on the active route only (the server answers 409 for any other)', async () => {
+    // `test_proxy` in crates/mw-server/src/egress_admin.rs probes the active route
+    // and refuses the rest, so a Test button on an inactive row could only fail.
+    const { api } = fakeApi([view({ active: true }), view({ id: 'staged' })]);
+    await mounted(api);
+    await screen.findByTestId('egress-row-staged');
+    expect(screen.getByTestId('egress-test-corp')).toBeInTheDocument();
+    expect(screen.queryByTestId('egress-test-staged')).toBeNull();
+  });
+
+  it('shows the URL the server fetched, when the verdict carries one', async () => {
+    const { api } = fakeApi(
+      [view({ active: true })],
+      result({ probeUrl: 'https://example.com/' }),
+    );
+    await mounted(api);
+    fireEvent.click(await screen.findByTestId('egress-test-corp'));
+    expect((await screen.findByTestId('egress-probe-corp')).textContent).toContain('https://example.com/');
+  });
+});
+
 describe('egress routes — the HTTP client', () => {
+  it('posts to the activate and deactivate routes', async () => {
+    const calls: { url: string; method: string | undefined }[] = [];
+    globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, method: init?.method });
+      // `activate_proxy` → {"ok":true,"activated":true}; `deactivate_proxies` →
+      // {"ok":true,"deactivated":true} (crates/mw-server/src/egress_admin.rs).
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const api = createHttpEgressAdminApi('');
+    await api.activate('corp');
+    await api.deactivate();
+    expect(calls).toEqual([
+      { url: '/admin/egress/proxies/corp/activate', method: 'POST' },
+      { url: '/admin/egress/proxies/deactivate', method: 'POST' },
+    ]);
+  });
+
+  it('throws when the server refuses to activate (404 for an unknown id)', async () => {
+    globalThis.fetch = vi.fn(
+      async () => new Response(JSON.stringify({ error: 'no such egress route' }), { status: 404 }),
+    ) as unknown as typeof fetch;
+    await expect(createHttpEgressAdminApi('').activate('nope')).rejects.toThrow(/404/);
+  });
+
+
   it('talks to t22-e12 endpoints and reads its envelope', async () => {
     const calls: { url: string; init: RequestInit | undefined }[] = [];
     globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
@@ -291,7 +402,7 @@ describe('egress routes — the HTTP client', () => {
 
 describe('egress routes — a test reports what happened, not whether a request succeeded', () => {
   it('shows a connected route as connected, with the stage it reached', async () => {
-    const { api } = fakeApi([view()], result({ outcome: 'connected', stage: 'origin' }));
+    const { api } = fakeApi([view({ active: true })], result({ outcome: 'connected', stage: 'origin' }));
     await mounted(api);
     fireEvent.click(await screen.findByTestId('egress-test-corp'));
 
@@ -306,7 +417,7 @@ describe('egress routes — a test reports what happened, not whether a request 
     // HTTP 200 — a UI keying off the status calls all seven healthy, and a UI
     // using a denylist calls every future variant healthy too.
     for (const outcome of ALL_OUTCOMES) {
-      const { api } = fakeApi([view()], result({ outcome }));
+      const { api } = fakeApi([view({ active: true })], result({ outcome }));
       const { unmount } = render(() => <AdminEgress api={api} />);
       await screen.findByTestId('admin-egress');
       fireEvent.click(await screen.findByTestId('egress-test-corp'));
@@ -323,7 +434,7 @@ describe('egress routes — a test reports what happened, not whether a request 
     // The enum is expected to grow — proxy auth rejection is being split out of a
     // bundled variant upstream. A value this build has never seen must not arrive
     // pre-approved as healthy.
-    const { api } = fakeApi([view()], result({ outcome: 'proxyAuthRejected', stage: 'tunnel' }));
+    const { api } = fakeApi([view({ active: true })], result({ outcome: 'proxyAuthRejected', stage: 'tunnel' }));
     await mounted(api);
     fireEvent.click(await screen.findByTestId('egress-test-corp'));
 
@@ -338,14 +449,14 @@ describe('egress routes — a test reports what happened, not whether a request 
     // "Refused by policy at the tunnel" and "refused by policy at the origin" are
     // different faults with different fixes; collapsing both to a red cross throws
     // away the reason the endpoint carries a stage at all.
-    const a = fakeApi([view()], result({ outcome: 'refusedByPolicy', stage: 'tunnel' }));
+    const a = fakeApi([view({ active: true })], result({ outcome: 'refusedByPolicy', stage: 'tunnel' }));
     const first = render(() => <AdminEgress api={a.api} />);
     await screen.findByTestId('admin-egress');
     fireEvent.click(await screen.findByTestId('egress-test-corp'));
     const tunnelText = (await screen.findByTestId('egress-verdict-corp')).textContent ?? '';
     first.unmount();
 
-    const b = fakeApi([view()], result({ outcome: 'refusedByPolicy', stage: 'origin' }));
+    const b = fakeApi([view({ active: true })], result({ outcome: 'refusedByPolicy', stage: 'origin' }));
     render(() => <AdminEgress api={b.api} />);
     await screen.findByTestId('admin-egress');
     fireEvent.click(await screen.findByTestId('egress-test-corp'));
@@ -359,7 +470,7 @@ describe('egress routes — a test reports what happened, not whether a request 
   it('states whether the proxy was actually traversed', async () => {
     // From the transport's own progress, so it is a fact about this attempt rather
     // than a restatement of the configuration.
-    const { api } = fakeApi([view()], result({ outcome: 'dnsFailed', stage: 'dns', traversedProxy: false }));
+    const { api } = fakeApi([view({ active: true })], result({ outcome: 'dnsFailed', stage: 'dns', traversedProxy: false }));
     await mounted(api);
     fireEvent.click(await screen.findByTestId('egress-test-corp'));
     expect((await screen.findByTestId('egress-proxied-corp')).textContent).toContain('Did not traverse');
@@ -368,7 +479,7 @@ describe('egress routes — a test reports what happened, not whether a request 
   it('a test that could not RUN is not a verdict about the route', async () => {
     // 404/401/5xx mean we did not learn anything. Rendering that as a failed route
     // would be the mirror of rendering a failed route as success.
-    const { api } = fakeApi([view()], new Error('could not run'));
+    const { api } = fakeApi([view({ active: true })], new Error('could not run'));
     await mounted(api);
     fireEvent.click(await screen.findByTestId('egress-test-corp'));
 

@@ -1,5 +1,11 @@
-// Admin › Domains (§19). List managed mail domains; create/update (name +
-// upstream JSON + allow/blocklist) and delete. Every action audits server-side.
+// Admin › Domains (§19). List managed mail domains; register a name and delete
+// one. Every action audits server-side.
+//
+// A domain is its name. The upstream-JSON, allowlist and blocklist fields this
+// form used to carry were stored and read by nothing, with no defined meaning;
+// the server no longer returns or accepts them (`DomainDto`,
+// `crates/mw-server/src/admin.rs`). The names are what the Require two-factor
+// screen offers when a rule is scoped to one domain.
 
 import { createSignal, For, Show, onMount, type JSX } from 'solid-js';
 import { useAdmin } from './context.ts';
@@ -7,21 +13,11 @@ import type { Domain } from '../../state/slices/admin.ts';
 import { t } from '../../i18n';
 import * as css from './admin.css.ts';
 
-function parseList(raw: string): string[] {
-  return raw
-    .split(/[\n,]/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-}
-
 export function Domains(): JSX.Element {
   const { api } = useAdmin();
   const [domains, setDomains] = createSignal<Domain[]>([]);
   const [error, setError] = createSignal<string | null>(null);
   const [name, setName] = createSignal('');
-  const [upstream, setUpstream] = createSignal('{}');
-  const [allow, setAllow] = createSignal('');
-  const [block, setBlock] = createSignal('');
 
   async function reload(): Promise<void> {
     try {
@@ -37,16 +33,8 @@ export function Domains(): JSX.Element {
     e.preventDefault();
     if (name().trim() === '') return;
     try {
-      await api.saveDomain({
-        name: name().trim(),
-        upstreamJson: upstream().trim() === '' ? '{}' : upstream().trim(),
-        allowlist: parseList(allow()),
-        blocklist: parseList(block()),
-      });
+      await api.saveDomain(name().trim());
       setName('');
-      setAllow('');
-      setBlock('');
-      setUpstream('{}');
       await reload();
     } catch {
       setError(t('admin-domains-save-error'));
@@ -81,30 +69,7 @@ export function Domains(): JSX.Element {
             onInput={(e) => setName(e.currentTarget.value)}
           />
         </label>
-        <label class="field">
-          <span>{t('admin-domains-upstream')}</span>
-          <textarea value={upstream()} rows={2} onInput={(e) => setUpstream(e.currentTarget.value)} />
-        </label>
-        <div class={css.grid}>
-          <label class="field">
-            <span>{t('admin-domains-allowlist')}</span>
-            <textarea
-              value={allow()}
-              rows={2}
-              placeholder={t('admin-domains-one-per-line')}
-              onInput={(e) => setAllow(e.currentTarget.value)}
-            />
-          </label>
-          <label class="field">
-            <span>{t('admin-domains-blocklist')}</span>
-            <textarea
-              value={block()}
-              rows={2}
-              placeholder={t('admin-domains-one-per-line')}
-              onInput={(e) => setBlock(e.currentTarget.value)}
-            />
-          </label>
-        </div>
+        <p class={css.note}>{t('admin-domains-note')}</p>
         <button type="submit" class="btn btn--primary">
           {t('admin-domains-save')}
         </button>
@@ -117,12 +82,6 @@ export function Domains(): JSX.Element {
               <div class={css.listRow}>
                 <div>
                   <strong dir="auto">{d.name}</strong>
-                  <Show when={d.allowlist.length + d.blocklist.length > 0}>
-                    <span class={css.note}>
-                      {' '}
-                      {t('admin-domains-counts', { allow: d.allowlist.length, block: d.blocklist.length })}
-                    </span>
-                  </Show>
                 </div>
                 <button
                   type="button"

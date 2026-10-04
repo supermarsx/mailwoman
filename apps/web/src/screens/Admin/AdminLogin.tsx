@@ -1,7 +1,12 @@
 // Admin sign-in gate (plan §2.5 — SEPARATE session domain). The panel is gated on
 // an admin session distinct from the mailbox cookie; when none is present this
-// form authenticates against `/admin/login`. e11 backs it with the admin session
-// domain (passkey-capable); this is the password fallback surface.
+// form authenticates against `/admin/login` with the operator's username and
+// password. That is the only sign-in method the server has.
+//
+// An admin session ends after 30 minutes without a request and at most 12 hours
+// after sign-in (`Store::ADMIN_SESSION_IDLE_SECS` / `ADMIN_SESSION_MAX_SECS`,
+// `crates/mw-store/src/v6.rs`). The form states that, and says so when it is being
+// shown because a session in use was ended.
 
 import { createSignal, Show, type JSX } from 'solid-js';
 import { useAdmin } from './context.ts';
@@ -38,6 +43,11 @@ export function AdminLogin(): JSX.Element {
       <form class={css.card} onSubmit={(e) => void onSubmit(e)} aria-label={t('admin-login-form')}>
         <h1 class={css.heading}>{t('admin-brand')}</h1>
         <p class={css.note}>{t('admin-login-note')}</p>
+        <Show when={admin.sessionEnded()}>
+          <p class={css.error} role="status" data-testid="admin-session-ended">
+            {t('admin-login-session-ended')}
+          </p>
+        </Show>
         <label class="field">
           <span>{t('admin-login-username')}</span>
           <input type="text" autocomplete="username" value={username()} onInput={(e) => setUsername(e.currentTarget.value)} />

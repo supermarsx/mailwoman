@@ -3,6 +3,20 @@
 //   GET  /admin/egress/proxies              → { proxies: ProxyView[] }
 //   POST /admin/egress/proxies              ← PutProxyReq (create or replace)
 //   POST /admin/egress/proxies/{id}/delete
+//   POST /admin/egress/proxies/{id}/activate
+//   POST /admin/egress/proxies/deactivate
+//   POST /admin/egress/proxies/{id}/test    → TestVerdict (active route only)
+//
+// The shapes are `crates/mw-server/src/egress_admin.rs`: `ProxyView`,
+// `PutProxyReq`, `TestVerdict`.
+//
+// ── Saving a route does not use it ───────────────────────────────────────────
+// A saved route carries no traffic until it is activated, and at most one route
+// is active (`activate_proxy` / `deactivate_proxies`). The table marks the active
+// route and gives each other route a "Use this route" button; "Stop using a
+// proxy" returns outbound fetches to direct. Until 26.20 t28-e8 the server had
+// both routes and this screen had neither control, so no saved route could be put
+// into use from the panel.
 //
 // Admin-session-gated and cookie-authed, same as the sibling `/admin/plugins`
 // client. A local section layered on the frozen `AdminSection` union, exactly as
@@ -23,6 +37,8 @@
 // was written as empty and every edit silently wiped the route's auth.
 //
 // ── "Test this route" reports what happened, not whether a request succeeded ──
+// The server tests the ACTIVE route only (`test_proxy` answers 409 for any other),
+// so the Test button is offered on the active row alone and the others say why.
 // `POST /admin/egress/proxies/{id}/test` puts the VERDICT in the body and uses the
 // status only for whether the test RAN. So `200` covers every outcome including
 // the failures, and a UI keying off the status would call a broken route healthy.
@@ -46,6 +62,8 @@ export interface EgressProxyView {
   /** Whether a password is sealed for this route. The password itself is never sent. */
   hasCredentials: boolean;
   allowPlaintext: boolean;
+  /** Whether this is the one route outbound fetches use. At most one row has it. */
+  active: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -112,6 +130,9 @@ export interface EgressTestResult {
   traversedProxy: boolean;
   /** Human-readable, and never a credential. */
   detail: string;
+  /** The URL the server fetched through the route (`MW_EGRESS_PROBE_URL`, or the
+   *  server's default). Optional: a server older than the field omits it. */
+  probeUrl?: string;
 }
 
 /** Raised when an `/admin/egress/*` request fails. */
@@ -132,8 +153,12 @@ export interface EgressAdminApi {
   list(): Promise<EgressProxyView[]>;
   put(input: PutProxyInput): Promise<void>;
   remove(id: string): Promise<void>;
+  /** Make this the one route outbound fetches use (`{id}/activate`). */
+  activate(id: string): Promise<void>;
+  /** Stop using any route; outbound fetches go direct (`deactivate`). */
+  deactivate(): Promise<void>;
   /**
-   * Run a live test of one route and return the verdict it reached.
+   * Run a live test of the active route and return the verdict it reached.
    *
    * Throws only when the test could not be RUN (no such route, not admin, the
    * probe itself failed). A route that is broken is a resolved `EgressTestResult`
@@ -167,6 +192,14 @@ export function createHttpEgressAdminApi(base = basePath()): EgressAdminApi {
     async remove(id) {
       const res = await send(`${root}/${encodeURIComponent(id)}/delete`);
       if (!res.ok) throw new EgressApiError(res.status, `delete egress proxy failed (${res.status})`);
+    },
+    async activate(id) {
+      const res = await send(`${root}/${encodeURIComponent(id)}/activate`);
+      if (!res.ok) throw new EgressApiError(res.status, `activate egress proxy failed (${res.status})`);
+    },
+    async deactivate() {
+      const res = await send(`${root}/deactivate`);
+      if (!res.ok) throw new EgressApiError(res.status, `deactivate egress proxy failed (${res.status})`);
     },
     async test(id) {
       const res = await send(`${root}/${encodeURIComponent(id)}/test`);
@@ -358,6 +391,29 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
     }
   }
 
+  async function activate(row: EgressProxyView): Promise<void> {
+    try {
+      await api.activate(row.id);
+      setError(null);
+      await reload();
+    } catch {
+      setError(t('admin-egress-activate-error'));
+    }
+  }
+
+  async function deactivate(): Promise<void> {
+    try {
+      await api.deactivate();
+      setError(null);
+      await reload();
+    } catch {
+      setError(t('admin-egress-deactivate-error'));
+    }
+  }
+
+  /** The route outbound fetches use now, if any. */
+  const activeRoute = (): EgressProxyView | undefined => routes().find((r) => r.active);
+
   async function remove(row: EgressProxyView): Promise<void> {
     try {
       await api.remove(row.id);
@@ -392,6 +448,30 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
             </Show>
           }
         >
+          {/* Which route is in use is stated in words, from the list the server
+              returned — not inferred from routes merely being configured. */}
+          <Show
+            when={activeRoute()}
+            fallback={
+              <p class={css.note} data-testid="egress-direct">
+                {t('admin-egress-none-active')}
+              </p>
+            }
+          >
+            {(live) => (
+              <p class={css.note} data-testid="egress-in-use">
+                {t('admin-egress-in-use', { id: live().id })}{' '}
+                <button
+                  type="button"
+                  class={`btn btn--ghost ${a11y.focusable}`}
+                  data-testid="egress-deactivate"
+                  onClick={() => void deactivate()}
+                >
+                  {t('admin-egress-deactivate')}
+                </button>
+              </p>
+            )}
+          </Show>
           <div class={css.tableWrap}>
             <table class={css.table}>
               <thead>
@@ -401,6 +481,7 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
                   <th scope="col">{t('admin-egress-col-username')}</th>
                   <th scope="col">{t('admin-egress-col-credentials')}</th>
                   <th scope="col">{t('admin-egress-col-plaintext')}</th>
+                  <th scope="col">{t('admin-egress-col-state')}</th>
                   <th scope="col">{t('admin-egress-col-actions')}</th>
                 </tr>
               </thead>
@@ -408,7 +489,7 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
                 <For each={routes()}>
                   {(row) => (
                     <>
-                    <tr data-testid={`egress-row-${row.id}`}>
+                    <tr data-testid={`egress-row-${row.id}`} data-active={String(row.active)}>
                       <td class={css.mono}>{row.id}</td>
                       <td class={css.mono}>{`${row.scheme}://${row.host}:${row.port}`}</td>
                       <td>{row.username}</td>
@@ -418,6 +499,9 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
                         {row.hasCredentials ? t('admin-egress-cred-set') : t('admin-egress-cred-none')}
                       </td>
                       <td>{row.allowPlaintext ? t('admin-egress-plaintext-on') : t('admin-egress-plaintext-off')}</td>
+                      <td data-testid={`egress-state-${row.id}`}>
+                        {row.active ? t('admin-egress-state-active') : t('admin-egress-state-inactive')}
+                      </td>
                       <td>
                         <button
                           type="button"
@@ -427,15 +511,32 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
                         >
                           {t('common-edit')}
                         </button>
-                        <button
-                          type="button"
-                          class={`btn btn--ghost ${a11y.focusable}`}
-                          data-testid={`egress-test-${row.id}`}
-                          disabled={testing() === row.id}
-                          onClick={() => void runTest(row.id)}
+                        <Show
+                          when={row.active}
+                          fallback={
+                            <button
+                              type="button"
+                              class={`btn btn--ghost ${a11y.focusable}`}
+                              data-testid={`egress-activate-${row.id}`}
+                              aria-label={t('admin-egress-activate-for', { id: row.id })}
+                              onClick={() => void activate(row)}
+                            >
+                              {t('admin-egress-activate')}
+                            </button>
+                          }
                         >
-                          {testing() === row.id ? t('admin-egress-testing') : t('admin-egress-test')}
-                        </button>
+                          {/* The server tests the active route only, so the button
+                              exists only where pressing it can produce a verdict. */}
+                          <button
+                            type="button"
+                            class={`btn btn--ghost ${a11y.focusable}`}
+                            data-testid={`egress-test-${row.id}`}
+                            disabled={testing() === row.id}
+                            onClick={() => void runTest(row.id)}
+                          >
+                            {testing() === row.id ? t('admin-egress-testing') : t('admin-egress-test')}
+                          </button>
+                        </Show>
                         <button
                           type="button"
                           class={`btn btn--ghost ${a11y.focusable}`}
@@ -458,7 +559,7 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
                             // 200 for failures too.
                             data-ok={String(isConnected(r()))}
                           >
-                            <td colSpan={6}>
+                            <td colSpan={7}>
                               <p
                                 class={isConnected(r()) ? css.note : css.error}
                                 role="status"
@@ -482,6 +583,13 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
                               <Show when={r().detail !== ''}>
                                 <p class={css.note}>{r().detail}</p>
                               </Show>
+                              <Show when={r().probeUrl}>
+                                {(url) => (
+                                  <p class={css.note} data-testid={`egress-probe-${row.id}`}>
+                                    {t('admin-egress-probe-url', { url: url() })}
+                                  </p>
+                                )}
+                              </Show>
                             </td>
                           </tr>
                         );
@@ -489,7 +597,7 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
                     </Show>
                     <Show when={testFailures()[row.id] === true}>
                       <tr data-testid={`egress-test-failed-${row.id}`}>
-                        <td colSpan={6}>
+                        <td colSpan={7}>
                           {/* Distinct from every verdict: we did not learn anything
                               about the route, so nothing is claimed about it. */}
                           <p class={css.error} role="alert">
@@ -506,6 +614,8 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
           </div>
         </Show>
       </Show>
+
+      <p class={css.note}>{t('admin-egress-test-scope')}</p>
 
       <form class={css.card} onSubmit={(e) => void save(e)}>
         <h3 class={css.heading}>
