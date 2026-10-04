@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   emailGetFull,
+  invalidRecipients,
+  isMailbox,
   listMailbox,
   mailboxGet,
   parseRecipients,
@@ -65,6 +67,73 @@ describe('parseRecipients', () => {
   it('drops empties', () => {
     expect(parseRecipients(' , ')).toEqual([]);
   });
+  it('separates the display name from the addr-spec', () => {
+    // The form the contact autocomplete inserts (`suggestionDisplay`).
+    expect(parseRecipients('Alice Example <alice@x.org>, bob@y.org, <carol@z.org>')).toEqual([
+      { name: 'Alice Example', email: 'alice@x.org' },
+      { name: null, email: 'bob@y.org' },
+      { name: null, email: 'carol@z.org' },
+    ]);
+  });
+  it('does not split inside a quoted display name, and unquotes it', () => {
+    expect(parseRecipients('"Doe, Jane; PhD" <jane@z.org>; "Say \\"hi\\"" <q@z.org>')).toEqual([
+      { name: 'Doe, Jane; PhD', email: 'jane@z.org' },
+      { name: 'Say "hi"', email: 'q@z.org' },
+    ]);
+  });
+  it('leaves a token it cannot read as one address, so validation refuses it whole', () => {
+    expect(parseRecipients('Alice <alice@x.org> extra')).toEqual([
+      { name: null, email: 'Alice <alice@x.org> extra' },
+    ]);
+    expect(invalidRecipients('Alice <alice@x.org> extra, bob@y.org, carol')).toEqual([
+      'Alice <alice@x.org> extra',
+      'carol',
+    ]);
+  });
+});
+
+describe('isMailbox', () => {
+  // The same tables as `crates/mw-smtp/src/addr.rs` (`validate_mailbox`), which
+  // is what refuses the draft server-side.
+  it('accepts what the server accepts', () => {
+    for (const ok of [
+      'a@b',
+      'bob@example.test',
+      'first.last+tag@sub.example.test',
+      'møt@example.com',
+      'user@[192.0.2.1]',
+      "o'brien@example.test",
+    ]) {
+      expect(isMailbox(ok), ok).toBe(true);
+    }
+  });
+  it('refuses what the server refuses', () => {
+    for (const bad of [
+      '',
+      'bob',
+      '@example.test',
+      'bob@',
+      'a@b@c',
+      'x@example.test>\r\nRCPT TO:<victim@example.test',
+      'x@example.test\nDATA',
+      'x@example.\0test',
+      'x@example.test\u007f',
+      'x@example.test\u0085',
+      'x@example.test\u2028',
+      'x @example.test',
+      '\tx@example.test',
+      'a@b>',
+      '<a@b',
+      '"a b"@example.test',
+      'a\\@b@example.test',
+      'a@b,c@d',
+      'a@b;c@d',
+      'a(comment)@b',
+      `${'a'.repeat(310)}@example.test`,
+    ]) {
+      expect(isMailbox(bad), JSON.stringify(bad)).toBe(false);
+    }
+  });
 });
 
 describe('sendEnvelope', () => {
@@ -107,6 +176,62 @@ describe('sendEnvelope', () => {
     });
     const [, submissionSet] = r.methodCalls as [Invocation, Invocation];
     expect(submissionSet[1]['onSuccessUpdateEmail']).toBeUndefined();
+  });
+
+  it('a recipient with a display name is addressed by name in To and by bare address in rcptTo', () => {
+    const r = sendEnvelope('acct1', {
+      from: { name: 'Me', email: 'me@example.org' },
+      to: 'Alice Example <alice@example.org>, bob@example.org',
+      subject: 'Hi',
+      htmlBody: '<p>hello</p>',
+      draftMailboxId: 'drafts1',
+      sentMailboxId: 'sent1',
+      holdSeconds: 10,
+    });
+    expect(r).toEqual({
+      using: ['urn:ietf:params:jmap:core', CAP_MAIL, CAP_SUBMISSION],
+      methodCalls: [
+        [
+          'Email/set',
+          {
+            accountId: 'acct1',
+            create: {
+              draft: {
+                mailboxIds: { drafts1: true },
+                keywords: { $draft: true, $seen: true },
+                from: [{ name: 'Me', email: 'me@example.org' }],
+                to: [
+                  { name: 'Alice Example', email: 'alice@example.org' },
+                  { name: null, email: 'bob@example.org' },
+                ],
+                subject: 'Hi',
+                htmlBody: [{ partId: 'body', type: 'text/html' }],
+                bodyValues: { body: { value: '<p>hello</p>' } },
+              },
+            },
+          },
+          'set',
+        ],
+        [
+          'EmailSubmission/set',
+          {
+            accountId: 'acct1',
+            create: {
+              send: {
+                emailId: '#draft',
+                envelope: {
+                  mailFrom: { email: 'me@example.org' },
+                  rcptTo: [{ email: 'alice@example.org' }, { email: 'bob@example.org' }],
+                },
+                mailwomanHoldSeconds: 10,
+              },
+            },
+            onSuccessUpdateEmail: { '#send': { mailboxIds: { sent1: true }, 'keywords/$draft': null } },
+          },
+          'submit',
+        ],
+      ],
+    });
   });
 });
 

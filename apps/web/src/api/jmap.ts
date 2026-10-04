@@ -272,12 +272,87 @@ export function sendEnvelope(accountId: Id, input: DraftInput): JmapRequest {
   return request(SUBMISSION_USING, [emailSet, submissionSet]);
 }
 
+/**
+ * Split an address-list field into its entries. `,` and `;` separate entries
+ * except inside a double-quoted display name or between `<` and `>`.
+ */
+function splitAddressList(raw: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let quoted = false;
+  let angle = false;
+  for (let i = 0; i < raw.length; i += 1) {
+    const c = raw[i]!;
+    if (quoted && c === '\\' && i + 1 < raw.length) {
+      cur += c + raw[i + 1]!;
+      i += 1;
+      continue;
+    }
+    if (c === '"' && !angle) quoted = !quoted;
+    else if (c === '<' && !quoted) angle = true;
+    else if (c === '>' && !quoted) angle = false;
+    if ((c === ',' || c === ';') && !quoted && !angle) {
+      out.push(cur);
+      cur = '';
+    } else {
+      cur += c;
+    }
+  }
+  out.push(cur);
+  return out.map((s) => s.trim()).filter((s) => s.length > 0);
+}
+
+/** The display-name half of `Name <addr>`: unquoted, on one line, or `null`. */
+function displayName(raw: string): string | null {
+  let name = raw.trim();
+  if (name.length >= 2 && name.startsWith('"') && name.endsWith('"')) {
+    name = name.slice(1, -1).replace(/\\(.)/g, '$1');
+  }
+  name = name.replace(/[\p{Cc}\s]+/gu, ' ').trim();
+  return name.length > 0 ? name : null;
+}
+
+/**
+ * Parse a recipient field into `{ name, email }` entries. The one parser for
+ * every consumer: the draft's `to`, the submission's `rcptTo`, and the
+ * composer's per-recipient key lookup.
+ *
+ * `Name <addr>` — the form the contact autocomplete inserts — yields the
+ * display name and the addr-spec separately; a bare token is an address with no
+ * name. An entry that is neither (text after the `>`, say) is returned whole as
+ * its `email`, so `isMailbox` refuses it rather than a repaired guess being sent.
+ */
 export function parseRecipients(raw: string): EmailAddress[] {
-  return raw
-    .split(/[,;]/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0)
-    .map((email) => ({ name: null, email }));
+  return splitAddressList(raw).map((entry) => {
+    const m = /^([^<>]*)<([^<>]*)>$/.exec(entry);
+    if (m === null) return { name: null, email: entry };
+    return { name: displayName(m[1]!), email: m[2]!.trim() };
+  });
+}
+
+/** RFC 5321 §4.5.3.1: 64-octet local part + `@` + 255-octet domain. */
+const MAX_ADDR_BYTES = 320;
+
+/**
+ * Whether the server will accept `addr` as a recipient. This restates
+ * `validate_mailbox` in `crates/mw-smtp/src/addr.rs`, which `Email/set` applies
+ * to every `to` address of a draft: non-empty, at most 320 bytes, no control
+ * character, no whitespace, none of `< > " \ , ; ( )`, and exactly one `@` with
+ * text on both sides. The server's check is the one that counts; this one lets
+ * the composer name the bad entry before a request is made.
+ */
+export function isMailbox(addr: string): boolean {
+  if (addr.length === 0 || new TextEncoder().encode(addr).length > MAX_ADDR_BYTES) return false;
+  if (/[\p{Cc}\p{White_Space}<>"\\,;()]/u.test(addr)) return false;
+  const parts = addr.split('@');
+  return parts.length === 2 && parts[0]!.length > 0 && parts[1]!.length > 0;
+}
+
+/** The entries of a recipient field that are not a mailbox, as typed. */
+export function invalidRecipients(raw: string): string[] {
+  return parseRecipients(raw)
+    .map((r) => r.email)
+    .filter((email) => !isMailbox(email));
 }
 
 // ── New-file blob upload (26.15 §1) ─────────────────────────────────────────
