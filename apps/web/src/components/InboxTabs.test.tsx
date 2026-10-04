@@ -25,10 +25,16 @@ describe('InboxTabs', () => {
     expect(other).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('toggles the unified inbox', () => {
+  it('offers no unified-inbox control, in either mode, and the store has no such flag', () => {
     const { app } = renderWithApp(() => <InboxTabs />);
-    const checkbox = screen.getByLabelText('Unified inbox');
-    fireEvent.click(checkbox);
-    expect(app.unifiedInbox()).toBe(true);
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    expect(screen.queryByText(/unified/i)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Focused inbox' }));
+    // Precondition for the second half: the focused tabs really are showing.
+    expect(screen.getAllByRole('tab')).toHaveLength(2);
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    expect(screen.queryByText(/unified/i)).toBeNull();
+    expect('unifiedInbox' in app).toBe(false);
+    expect('setUnifiedInbox' in app).toBe(false);
   });
 });

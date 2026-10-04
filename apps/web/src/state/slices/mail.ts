@@ -1,8 +1,8 @@
 // Mail slice: session/auth, mailbox list, message list + reader, compose+send,
 // and — new in V2 (plan §3 e7, §1.5) — the modern-mail UX that mutates the
 // message list: tags (keywords), pins, snooze, follow-up, archive/trash/move/
-// spam, sweep, the shared 10-second undo primitive, and the focused/unified
-// inbox derivation. The V1 session+mail behaviour is preserved verbatim; the
+// spam, sweep, the shared 10-second undo primitive, and the focused-inbox
+// derivation. The V1 session+mail behaviour is preserved verbatim; the
 // V2 surface is additive.
 
 import { createSignal, createMemo, type Accessor } from 'solid-js';
@@ -196,8 +196,6 @@ export interface MailSlice {
   listMessages: Accessor<Email[]>;
   inboxTab: Accessor<InboxTab>;
   setInboxTab(tab: InboxTab): void;
-  unifiedInbox: Accessor<boolean>;
-  setUnifiedInbox(on: boolean): void;
   /** Opt-in two-tab focused inbox (off by default so the list shows everything). */
   focusedInbox: Accessor<boolean>;
   setFocusedInbox(on: boolean): void;
@@ -368,7 +366,6 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   const jmapCall = client.jmap.bind(client);
 
   const [inboxTab, setInboxTab] = createSignal<InboxTab>('focused');
-  const [unifiedInbox, setUnifiedInbox] = createSignal(false);
   const [focusedInbox, setFocusedInbox] = createSignal(false);
   const [pendingUndo, setPendingUndo] = createSignal<PendingUndo | null>(null);
   const [training, setTraining] = createSignal<Record<string, InboxTab>>(loadMap(FOCUS_KEY));
@@ -1157,8 +1154,6 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     listMessages,
     inboxTab,
     setInboxTab,
-    unifiedInbox,
-    setUnifiedInbox,
     focusedInbox,
     setFocusedInbox,
 

@@ -64,7 +64,6 @@ mail-inbox-filter = Inbox filter
 mail-inbox-focused = Focused
 mail-inbox-other = Other
 mail-inbox-turn-off = Turn off
-mail-inbox-unified = Unified inbox
 
 # -- Sub-tab strip -----------------------------------------------------------
 mail-subtabs-label = Open tabs
