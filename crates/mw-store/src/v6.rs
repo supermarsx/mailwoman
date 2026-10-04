@@ -22,6 +22,12 @@ use sha2::{Digest, Sha256};
 use crate::backend::{Dialect, q};
 use crate::{Store, StoreError};
 
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
+}
+
 // ─── Row structs (plain data; the mw-server adapters map to the trait types) ──
 
 /// An `api_keys` row (0007). The scope's ip-allowlist/expiry/rate-limit live
@@ -526,31 +532,94 @@ impl Store {
 
     // ── admin_sessions (separate admin session domain) ───────────────────────
 
+    /// How long an admin session survives without being used, in seconds (0030).
+    pub const ADMIN_SESSION_IDLE_SECS: i64 = 30 * 60;
+
+    /// The longest an admin session lives however much it is used, in seconds
+    /// (0030). `mw-server` sends the same figure as the admin cookie's `Max-Age`.
+    pub const ADMIN_SESSION_MAX_SECS: i64 = 12 * 60 * 60;
+
+    /// The smallest forward move of an admin session's idle deadline that is
+    /// written back, in seconds. See [`Store::get_admin_session_at`].
+    pub const ADMIN_SESSION_REFRESH_GRANULARITY_SECS: i64 = 60;
+
+    /// Store a new admin session. It is accepted until it has gone
+    /// [`Self::ADMIN_SESSION_IDLE_SECS`] without a read, and never past
+    /// [`Self::ADMIN_SESSION_MAX_SECS`] from now (0030). Rows whose deadline has
+    /// already passed are deleted in the same call, so abandoned sessions do not
+    /// accumulate.
     pub async fn put_admin_session(
         &self,
         token_hash: &str,
         admin_id: &str,
         now: &str,
     ) -> Result<(), StoreError> {
-        q(
-            "INSERT INTO admin_sessions (token_hash, admin_id, created_at, last_seen)
-           VALUES (?1, ?2, ?3, ?3)
-           ON CONFLICT(token_hash) DO UPDATE SET last_seen = excluded.last_seen",
-        )
+        let unix = unix_now();
+        q("DELETE FROM admin_sessions WHERE expires_at <= ?1 OR absolute_expires_at <= ?1")
+            .bind(unix)
+            .execute(&self.backend)
+            .await?;
+        q("INSERT INTO admin_sessions
+               (token_hash, admin_id, created_at, last_seen, expires_at, absolute_expires_at)
+           VALUES (?1, ?2, ?3, ?3, ?4, ?5)
+           ON CONFLICT(token_hash) DO UPDATE SET
+             last_seen = excluded.last_seen,
+             expires_at = excluded.expires_at,
+             absolute_expires_at = excluded.absolute_expires_at")
         .bind(token_hash)
         .bind(admin_id)
         .bind(now)
+        .bind(unix + Self::ADMIN_SESSION_IDLE_SECS)
+        .bind(unix + Self::ADMIN_SESSION_MAX_SECS)
         .execute(&self.backend)
         .await?;
         Ok(())
     }
 
+    /// The admin a session token belongs to, or `None` when the token is unknown or
+    /// its session has expired. Every admin gate in `mw-server` resolves a cookie
+    /// through this one method, so the expiry applies to all of them.
     pub async fn get_admin_session(&self, token_hash: &str) -> Result<Option<String>, StoreError> {
-        q("SELECT admin_id FROM admin_sessions WHERE token_hash = ?1")
-            .bind(token_hash)
-            .fetch_opt_scalar_string(&self.backend)
-            .await
-            .map_err(StoreError::from)
+        self.get_admin_session_at(token_hash, unix_now()).await
+    }
+
+    /// [`get_admin_session`](Self::get_admin_session) with the clock supplied
+    /// (`now` in unix seconds).
+    ///
+    /// A session is refused once `now` reaches its idle deadline or its absolute
+    /// cap, and the row is deleted. An accepted read moves the idle deadline to
+    /// `now + Self::ADMIN_SESSION_IDLE_SECS`, bounded by the absolute cap; the row is
+    /// rewritten only when that moves the deadline by
+    /// [`Self::ADMIN_SESSION_REFRESH_GRANULARITY_SECS`] or more, so a burst of panel
+    /// requests costs one write rather than one each.
+    pub async fn get_admin_session_at(
+        &self,
+        token_hash: &str,
+        now: i64,
+    ) -> Result<Option<String>, StoreError> {
+        let Some(row) = q("SELECT admin_id, expires_at, absolute_expires_at
+               FROM admin_sessions WHERE token_hash = ?1")
+        .bind(token_hash)
+        .fetch_optional(&self.backend)
+        .await?
+        else {
+            return Ok(None);
+        };
+        let expires_at = row.get_i64("expires_at");
+        let absolute = row.get_i64("absolute_expires_at");
+        if now >= expires_at || now >= absolute {
+            self.delete_admin_session(token_hash).await?;
+            return Ok(None);
+        }
+        let refreshed = (now + Self::ADMIN_SESSION_IDLE_SECS).min(absolute);
+        if refreshed - expires_at >= Self::ADMIN_SESSION_REFRESH_GRANULARITY_SECS {
+            q("UPDATE admin_sessions SET expires_at = ?2 WHERE token_hash = ?1")
+                .bind(token_hash)
+                .bind(refreshed)
+                .execute(&self.backend)
+                .await?;
+        }
+        Ok(Some(row.get_string("admin_id")))
     }
 
     pub async fn delete_admin_session(&self, token_hash: &str) -> Result<(), StoreError> {
@@ -901,6 +970,174 @@ mod tests {
             .await
             .expect("DATABASE_URL_PG is set but Postgres is not reachable");
         assert_delete_by_username(&s).await;
+    }
+
+    /// The deadlines of one admin session row: `(expires_at, absolute_expires_at)`.
+    async fn admin_deadlines(s: &Store, hash: &str) -> Option<(i64, i64)> {
+        q("SELECT expires_at, absolute_expires_at FROM admin_sessions WHERE token_hash = ?1")
+            .bind(hash)
+            .fetch_optional(&s.backend)
+            .await
+            .unwrap()
+            .map(|r| (r.get_i64("expires_at"), r.get_i64("absolute_expires_at")))
+    }
+
+    async fn resolves(s: &Store, hash: &str, now: i64) -> bool {
+        s.get_admin_session_at(hash, now).await.unwrap().as_deref() == Some("root")
+    }
+
+    async fn assert_admin_session_expiry(s: &Store, hash: &str) {
+        let t0 = unix_now();
+        s.put_admin_session(hash, "root", "2026-10-05T00:00:00Z")
+            .await
+            .unwrap();
+        let (idle0, cap) = admin_deadlines(s, hash).await.expect("row written");
+        assert!(
+            (idle0 - t0 - Store::ADMIN_SESSION_IDLE_SECS).abs() <= 5,
+            "{idle0}"
+        );
+        assert!(
+            (cap - t0 - Store::ADMIN_SESSION_MAX_SECS).abs() <= 5,
+            "{cap}"
+        );
+
+        // Control: inside the idle window the token resolves.
+        assert!(resolves(s, hash, t0 + 10).await);
+        // A read that moves the deadline by less than the granularity writes nothing.
+        assert_eq!(admin_deadlines(s, hash).await.unwrap().0, idle0);
+
+        // A later read inside the window moves the idle deadline forward...
+        let later = idle0 - 60;
+        assert!(resolves(s, hash, later).await);
+        let (idle1, cap1) = admin_deadlines(s, hash).await.unwrap();
+        assert_eq!(idle1, later + Store::ADMIN_SESSION_IDLE_SECS);
+        assert_eq!(cap1, cap, "the absolute cap never moves");
+        // ...so a time past the ORIGINAL deadline is still accepted,
+        assert!(resolves(s, hash, idle0 + 30).await);
+
+        // and the refresh is bounded by the absolute cap. Walk the session there in
+        // steps shorter than the idle window, as a session in constant use would.
+        let mut now = idle0 + 30;
+        while now + Store::ADMIN_SESSION_IDLE_SECS / 2 < cap {
+            now += Store::ADMIN_SESSION_IDLE_SECS / 2;
+            assert!(resolves(s, hash, now).await, "in use at {now}");
+        }
+        assert_eq!(admin_deadlines(s, hash).await.unwrap().0, cap);
+        assert!(resolves(s, hash, cap - 1).await);
+        assert!(
+            !resolves(s, hash, cap).await,
+            "a session in constant use still ends at the absolute cap"
+        );
+        assert!(
+            admin_deadlines(s, hash).await.is_none(),
+            "an expired row is deleted, not left to be retried"
+        );
+
+        // Idle expiry on its own: one second before the deadline, then at it.
+        s.put_admin_session(hash, "root", "2026-10-05T00:00:00Z")
+            .await
+            .unwrap();
+        let (idle, _) = admin_deadlines(s, hash).await.unwrap();
+        assert!(resolves(s, hash, idle - 1).await);
+        s.put_admin_session(hash, "root", "2026-10-05T00:00:00Z")
+            .await
+            .unwrap();
+        let (idle, _) = admin_deadlines(s, hash).await.unwrap();
+        assert!(!resolves(s, hash, idle).await);
+        assert!(s.get_admin_session(hash).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn admin_session_expires_when_idle_and_at_the_absolute_cap() {
+        assert_admin_session_expiry(&store().await, "h-expiry").await;
+    }
+
+    /// The same on live Postgres (BIGINT columns). Runs when `DATABASE_URL_PG` /
+    /// `MW_TEST_PG` names a server; says so when it does not.
+    #[tokio::test]
+    async fn admin_session_expiry_on_postgres() {
+        let Some(dsn) = std::env::var("DATABASE_URL_PG")
+            .ok()
+            .or_else(|| std::env::var("MW_TEST_PG").ok())
+            .filter(|s| !s.trim().is_empty())
+        else {
+            eprintln!(
+                "[mw-store] t28-e8 admin session expiry: Postgres path SKIPPED (set \
+                 DATABASE_URL_PG or MW_TEST_PG to a live postgres:16 to run it). The SQLite \
+                 path still asserted."
+            );
+            return;
+        };
+        let s = Store::open_postgres(&dsn, ServerKey::generate())
+            .await
+            .expect("DATABASE_URL_PG is set but Postgres is not reachable");
+        // A hash unique to this run: the Postgres test database is shared.
+        let hash = format!("h-expiry-{}-{}", std::process::id(), unix_now());
+        assert_admin_session_expiry(&s, &hash).await;
+    }
+
+    /// A new login deletes rows whose deadline has passed, whoever they belong to.
+    #[tokio::test]
+    async fn a_new_admin_session_purges_expired_ones() {
+        let s = store().await;
+        s.put_admin_session("stale", "root", "t").await.unwrap();
+        s.put_admin_session("live", "root", "t").await.unwrap();
+        q("UPDATE admin_sessions SET expires_at = 1 WHERE token_hash = 'stale'")
+            .execute(&s.backend)
+            .await
+            .unwrap();
+        s.put_admin_session("fresh", "root", "t").await.unwrap();
+        assert!(admin_deadlines(&s, "stale").await.is_none());
+        assert!(admin_deadlines(&s, "live").await.is_some());
+        assert!(admin_deadlines(&s, "fresh").await.is_some());
+    }
+
+    /// 0030 over a database that already holds an admin session: the row survives
+    /// the migration and reads as expired, because it carries no deadline.
+    #[tokio::test]
+    async fn migration_0030_expires_admin_sessions_issued_before_it() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let mut before = sqlx::migrate!("./migrations");
+        before.migrations.to_mut().retain(|m| m.version < 30);
+        assert!(before.migrations.iter().any(|m| m.version == 29));
+        before.run(&pool).await.unwrap();
+        let pre = crate::Store {
+            backend: crate::backend::Backend::Sqlite(pool.clone()),
+            key: ServerKey::from_bytes(&[9u8; 32]).unwrap(),
+            uploads: crate::upload::fail_closed_backend(),
+        };
+        let has_column = q(
+            "SELECT COUNT(*) AS n FROM pragma_table_info('admin_sessions')
+                            WHERE name = 'expires_at'",
+        )
+        .fetch_one(&pre.backend)
+        .await
+        .unwrap()
+        .get_i64("n");
+        assert_eq!(has_column, 0, "the seed really is at the pre-0030 schema");
+        q(
+            "INSERT INTO admin_sessions (token_hash, admin_id, created_at, last_seen)
+           VALUES ('old', 'root', 't', 't')",
+        )
+        .execute(&pre.backend)
+        .await
+        .unwrap();
+
+        let after = Store::init_sqlite(pool, ServerKey::from_bytes(&[9u8; 32]).unwrap())
+            .await
+            .expect("0030 applies over a populated database");
+        assert_eq!(admin_deadlines(&after, "old").await, Some((0, 0)));
+        assert!(after.get_admin_session("old").await.unwrap().is_none());
+        // A session issued after the migration works.
+        after.put_admin_session("new", "root", "t").await.unwrap();
+        assert_eq!(
+            after.get_admin_session("new").await.unwrap().as_deref(),
+            Some("root")
+        );
     }
 
     #[tokio::test]

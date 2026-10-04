@@ -9,7 +9,7 @@
 //! validated at commit.
 //!
 //! **The copy is not the whole schema, but it is now nearly all of it.** `TABLES`
-//! below is the complete list of what is copied: as of migration 0029 that is 59
+//! below is the complete list of what is copied: as of migration 0030 that is 59
 //! tables out of the 76 the migrations create. The other 17 are left behind
 //! deliberately, each with its reason recorded at its entry in
 //! `NOT_MIGRATED_DELIBERATELY` in `tests/backend_parity.rs`: the admin panel's

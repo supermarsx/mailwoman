@@ -1,0 +1,21 @@
+-- 0030 (26.20 t28-e8): admin sessions expire.
+-- ADDITIVE over 0001..0029 — NEVER edit an earlier migration. SQLite variant; the
+-- behaviourally-identical Postgres variant is `migrations_pg/0030_admin_session_expiry.sql`.
+-- (0024 remains retired and must never be filled — see `tests/t22_migration_tombstone.rs`.)
+--
+-- WHY
+-- An `admin_sessions` row (0007) had no expiry: the token minted at `/admin/login`
+-- was accepted until the operator signed out, and the cookie carrying it had no
+-- `Max-Age`. A token copied from a browser profile stayed valid for the life of the
+-- deployment.
+--
+-- COLUMNS (both unix seconds; INTEGER here, BIGINT in Postgres)
+-- * `expires_at` — the idle deadline. `Store::get_admin_session` refuses a row whose
+--   deadline has passed and moves the deadline forward on each accepted read.
+-- * `absolute_expires_at` — the hard cap, set once at login. The idle deadline is
+--   never moved past it.
+--
+-- DEFAULT 0 is deliberate: a row written before this migration has no deadline it
+-- was issued under, so it reads as already expired and the operator signs in again.
+ALTER TABLE admin_sessions ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE admin_sessions ADD COLUMN absolute_expires_at INTEGER NOT NULL DEFAULT 0;

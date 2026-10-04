@@ -932,7 +932,8 @@ const NOT_MIGRATED_DELIBERATELY: &[(&str, &str)] = &[
     ),
     (
         "admin_sessions",
-        "0007: live admin bearer-token hashes. Sessions are re-established after a move.",
+        "0007, 0030: live admin bearer-token hashes and their expiry deadlines. Sessions \
+         are re-established after a move.",
     ),
     (
         "oauth_clients",
