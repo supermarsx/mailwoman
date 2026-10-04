@@ -428,6 +428,28 @@ async fn complete_flow(
         return sso_unauthorized();
     };
 
+    // An administratively disabled account gets no session, whatever the IdP says
+    // about the user (t27-e3). Same uniform 401 and the same audit trail as any
+    // other refused SSO login.
+    match crate::account_gate::for_login(&state.store, &account.username, &account.username).await {
+        Ok(gate) if gate.disabled => {
+            tracing::info!(
+                "sso login refused: account {} is disabled",
+                account.username
+            );
+            return audit_and_401(
+                state,
+                id,
+                entry.meta.kind,
+                &subject_hash,
+                "account_disabled",
+            )
+            .await;
+        }
+        Ok(_) => {}
+        Err(e) => return crate::account_gate::unavailable("sso login", e),
+    }
+
     // Mint the SAME opaque session the password path issues (no new mechanism). SSO
     // sessions carry no upstream Basic-auth creds to proxy (engine serves the mailbox
     // locally), so the sealed credential slot is empty.

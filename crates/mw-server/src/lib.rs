@@ -100,6 +100,9 @@ pub mod sieve_sync;
 // V6 MOUNT (t6-e11): store adapters backing the frozen Batch-B persistence seams
 // over the real 0007 tables.
 mod stores_v6;
+// t27-e3 (OH-1): the reader for the admin panel's per-account `disabled` and
+// `force_password_change` flags, consulted on every auth path.
+mod account_gate;
 // V6 scoped-API-key enforcement middleware (t6-e11b): the `Send` guard that lets a
 // scoped `mwk_…` key authorize `/api/v1/*` REST + adds IP-allowlist/rate-limit to
 // `/mcp`. Keeps the cookie path unchanged.
@@ -2331,7 +2334,9 @@ async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
 }
 
 async fn me(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let session = match authed(&state, &headers).await {
+    // Reachable by an account held for a password change: this is where the
+    // client learns it is held.
+    let (session, gate) = match authed_with_gate(&state, &headers).await {
         Ok(s) => s,
         Err(resp) => return resp,
     };
@@ -2339,6 +2344,11 @@ async fn me(State(state): State<AppState>, headers: HeaderMap) -> Response {
         "username": session.username,
         "accountId": session.account_id,
     });
+    if gate.password_change_required
+        && let Some(obj) = body.as_object_mut()
+    {
+        obj.insert("passwordChangeRequired".into(), json!(true));
+    }
     // Ensure the client holds a CSRF token without rotating one it already has.
     let existing = hardening::cookie(&headers, CSRF_COOKIE);
     let token = existing.clone().unwrap_or_else(new_csrf_token);
@@ -4439,19 +4449,69 @@ pub(crate) fn cookie_value(headers: &HeaderMap) -> Option<String> {
     None
 }
 
-/// Resolve the authenticated session from the cookie, or return a 401 response.
-/// Also enforces the idle/absolute session timeouts (§7.4): an expired session is
-/// deleted and rejected.
+/// Resolve the authenticated session from the cookie or native bearer, or return
+/// the refusal. Enforces the idle/absolute session timeouts (§7.4) — an expired
+/// session is deleted and rejected — and the account's admin flags
+/// ([`account_gate`]): a disabled account's session is deleted and answered 401,
+/// and an account held for a password change is answered
+/// [`account_gate::password_change_required`].
+///
+/// Every session-authed handler calls this, so a held account reaches nothing but
+/// the handlers that call [`authed_with_gate`] instead.
 pub(crate) async fn authed(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<mw_store::Session, Response> {
-    // V5 (plan §2.2): a native client presents `Authorization: Bearer <token>`
-    // instead of the cookie. Absent for browsers → the cookie path below is
-    // byte-identical.
-    if let Some(token) = push_relay::bearer_token(headers) {
-        return authed_native(state, &token).await;
+    let (session, gate) = authed_with_gate(state, headers).await?;
+    if gate.password_change_required {
+        return Err(account_gate::password_change_required());
     }
+    Ok(session)
+}
+
+/// [`authed`] for the handlers an account held for a password change must still
+/// reach — `GET /api/me`, `GET /api/password/policy`, `POST /api/password` — which
+/// get the gate back instead of a refusal. A disabled account is refused here
+/// exactly as in [`authed`].
+pub(crate) async fn authed_with_gate(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<(mw_store::Session, account_gate::AccountGate), Response> {
+    let bearer = push_relay::bearer_token(headers);
+    let session = match &bearer {
+        Some(token) => authed_native(state, token).await?,
+        None => authed_cookie(state, headers).await?,
+    };
+    let gate = account_gate::for_session(&state.store, &session)
+        .await
+        .map_err(|e| account_gate::unavailable("session", e))?;
+    if gate.disabled {
+        // The panel deletes a disabled account's sessions when it sets the flag;
+        // this covers a session that survived that (another server process, a
+        // login that raced the flag) and makes the refusal independent of it.
+        tracing::info!(
+            "session for disabled account {} refused and deleted",
+            session.username
+        );
+        let _ = state.store.delete_session(&session.id).await;
+        if bearer.is_some() {
+            let _ = state
+                .store
+                .delete_native_session(&push_relay::hash_token(&session.id))
+                .await;
+        }
+        state.sessions.forget(&session.id);
+        return Err(unauthorized());
+    }
+    Ok((session, gate))
+}
+
+/// The cookie half of [`authed_with_gate`]: resolve the session and enforce its
+/// timeouts.
+async fn authed_cookie(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<mw_store::Session, Response> {
     let id = cookie_value(headers).ok_or_else(unauthorized)?;
     let session = state
         .store

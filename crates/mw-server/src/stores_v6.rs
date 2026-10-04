@@ -28,15 +28,15 @@ use mw_store::{
     OAuthTokenRow, QuotaRow, ServerKey, Store,
 };
 
+use crate::account_gate;
 use crate::webhooks::{WebhookEndpoint, WebhookRegistry};
 
 // Settings keys for the config surfaces without a dedicated 0007 table.
 const KEY_SECURITY: &str = "v6:admin:security_policy";
 const KEY_OBS: &str = "v6:admin:observability";
 const KEY_BANS: &str = "v6:admin:bans";
-fn flags_key(account_id: &str) -> String {
-    format!("v6:admin:flags:{account_id}")
-}
+// Per-account flags live in `settings` too; their key and its normalisation belong
+// to `crate::account_gate`, which is also where they are read on the auth paths.
 
 // ─── OAuthStore ⇄ mw-store ────────────────────────────────────────────────────
 
@@ -57,6 +57,24 @@ impl OAuthStoreAdapter {
 
 fn oauth_err(e: impl std::fmt::Display) -> OAuthError {
     OAuthError::Store(e.to_string())
+}
+
+impl OAuthStoreAdapter {
+    /// Whether the account behind a key or token is administratively disabled
+    /// (t27-e3). `get_api_key` and `get_token` are the two lookups every consumer
+    /// of a stored credential goes through — the `/api/v1` and `/mcp` guards, the
+    /// per-tool MCP authorizer, authorization-code redemption, the refresh grant,
+    /// introspection — so answering "not found" from them refuses a disabled
+    /// account's credentials on all of those without each having to ask.
+    ///
+    /// The rows are left in place: re-enabling the account restores them. A store
+    /// error is returned as an error, which every caller treats as a refusal.
+    async fn account_disabled(&self, account_id: &str) -> Result<bool, OAuthError> {
+        Ok(account_gate::for_account(&self.store, account_id)
+            .await
+            .map_err(oauth_err)?
+            .disabled)
+    }
 }
 
 fn kind_to_str(k: TokenKind) -> &'static str {
@@ -161,6 +179,9 @@ impl OAuthStore for OAuthStoreAdapter {
         else {
             return Ok(None);
         };
+        if self.account_disabled(&r.account_id).await? {
+            return Ok(None);
+        }
         Ok(Some(OAuthToken {
             token_hash: r.token_hash,
             client_id: r.client_id,
@@ -191,6 +212,7 @@ impl OAuthStore for OAuthStoreAdapter {
 
     async fn get_api_key(&self, prefix: &str) -> Result<Option<ApiKey>, OAuthError> {
         match self.store.get_api_key(prefix).await.map_err(oauth_err)? {
+            Some(r) if self.account_disabled(&r.account_id).await? => Ok(None),
             Some(r) => Ok(Some(api_key_from_row(r)?)),
             None => Ok(None),
         }
@@ -374,31 +396,45 @@ impl AdminBackend for AdminBackendAdapter {
             }))
     }
 
+    /// Store the flags and, when they disable the account, delete its sessions.
+    ///
+    /// The revoke lives here rather than in the HTTP handler so that every writer
+    /// gets it: the panel (`PUT /admin/users/{id}/flags`) and the `mailwoman admin`
+    /// CLI both end in this call. The flag is written first, so a request that
+    /// races the delete is still refused by the reader in `crate::authed`.
     async fn set_flags(&self, account_id: &str, flags: UserFeatureFlags) -> Result<(), AdminError> {
-        let json = serde_json::to_string(&flags).map_err(admin_err)?;
-        self.store
-            .set_setting(&flags_key(account_id), &json)
+        account_gate::write_flags(&self.store, account_id, flags)
             .await
-            .map_err(admin_err)
+            .map_err(admin_err)?;
+        if flags.disabled {
+            let n = self.revoke_sessions(account_id).await?;
+            tracing::info!("account {account_id} disabled; {n} session(s) deleted");
+        }
+        Ok(())
     }
 
     async fn get_flags(&self, account_id: &str) -> Result<UserFeatureFlags, AdminError> {
-        match self
-            .store
-            .get_setting(&flags_key(account_id))
-            .await
-            .map_err(admin_err)?
-        {
-            Some(s) => serde_json::from_str(&s).map_err(admin_err),
-            None => Ok(UserFeatureFlags::default()),
-        }
-    }
-
-    async fn revoke_sessions(&self, account_id: &str) -> Result<u64, AdminError> {
-        self.store
-            .delete_sessions_for_account(account_id)
+        account_gate::read_flags(&self.store, account_id)
             .await
             .map_err(admin_err)
+    }
+
+    /// Delete the account's sessions. `account_id` is the admin surface's name for
+    /// the account — a login name — which is not what `sessions.account_id` holds
+    /// in proxy or engine mode, so the rows are matched on the login name as well
+    /// as on the id (the two coincide under header-auth).
+    async fn revoke_sessions(&self, account_id: &str) -> Result<u64, AdminError> {
+        let by_name = self
+            .store
+            .delete_sessions_for_username(account_id.trim())
+            .await
+            .map_err(admin_err)?;
+        let by_id = self
+            .store
+            .delete_sessions_for_account(account_id)
+            .await
+            .map_err(admin_err)?;
+        Ok(by_name + by_id)
     }
 
     async fn set_security_policy(&self, policy: SecurityPolicy) -> Result<(), AdminError> {

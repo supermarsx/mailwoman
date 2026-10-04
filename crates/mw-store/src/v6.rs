@@ -17,7 +17,9 @@
 //! Sealed columns (`webhooks.secret_sealed`, `zeroaccess_accounts.wrapped_root_key`)
 //! are stored as opaque bytes; the caller (e11) seals/unseals via [`ServerKey`].
 
-use crate::backend::q;
+use sha2::{Digest, Sha256};
+
+use crate::backend::{Dialect, q};
 use crate::{Store, StoreError};
 
 // ─── Row structs (plain data; the mw-server adapters map to the trait types) ──
@@ -598,6 +600,51 @@ impl Store {
         Ok(n)
     }
 
+    /// Delete every stored session whose login `username` equals `username`,
+    /// compared with ASCII case folded, together with the `native_sessions` marker
+    /// of each. Returns the number of `sessions` rows removed.
+    ///
+    /// The admin surface names an account as `username@domain`, while
+    /// `sessions.account_id` is a store-generated id (engine mode) or the upstream's
+    /// account id (proxy mode), so [`delete_sessions_for_account`](Self::delete_sessions_for_account)
+    /// given the admin's name matches nothing in those modes. The login name is the
+    /// one column the two share.
+    ///
+    /// The case fold is spelled the same way as in
+    /// [`account_id_by_identity`](Self::account_id_by_identity), for the same reason:
+    /// SQLite's `lower()` folds ASCII only and Postgres' folds by locale.
+    ///
+    /// A native marker is keyed by the lowercase hex SHA-256 of the session id (the
+    /// bearer token), which is what `mw-server` writes into `native_sessions.token_hash`.
+    pub async fn delete_sessions_for_username(&self, username: &str) -> Result<u64, StoreError> {
+        let select = match self.backend.dialect() {
+            Dialect::Sqlite => "SELECT id FROM sessions WHERE lower(username) = lower(?1)",
+            Dialect::Postgres => {
+                "SELECT id FROM sessions
+                 WHERE translate(username, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')
+                     = translate(?1, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')"
+            }
+        };
+        let rows = q(select).bind(username).fetch_all(&self.backend).await?;
+        let mut removed = 0u64;
+        for row in rows {
+            let id = row.get_string("id");
+            let token_hash: String = Sha256::digest(id.as_bytes())
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            q("DELETE FROM native_sessions WHERE token_hash = ?1")
+                .bind(&token_hash)
+                .execute(&self.backend)
+                .await?;
+            removed += q("DELETE FROM sessions WHERE id = ?1")
+                .bind(&id)
+                .execute(&self.backend)
+                .await?;
+        }
+        Ok(removed)
+    }
+
     // ── zeroaccess_accounts ──────────────────────────────────────────────────
 
     pub async fn get_zeroaccess(
@@ -737,6 +784,91 @@ mod tests {
                 .unwrap()
                 .revoked_at
                 .is_some()
+        );
+    }
+
+    /// The admin surface names an account by login name; `sessions.account_id` is
+    /// a different identifier. Delete-by-account with the login name removes
+    /// nothing (the control), delete-by-username removes exactly that user's rows
+    /// whatever the case, and takes the native marker with them.
+    #[tokio::test]
+    async fn delete_sessions_for_username_matches_login_name_case_insensitively() {
+        use crate::{Credentials, NativeSessionRow};
+        let s = store().await;
+        let creds = Credentials {
+            username: "u".into(),
+            password: "p".into(),
+        };
+        let alice_1 = s
+            .create_session("acct-7f", "Alice@Example.org", "engine", "engine", &creds)
+            .await
+            .unwrap();
+        let alice_2 = s
+            .create_session("acct-7f", "alice@example.org", "engine", "engine", &creds)
+            .await
+            .unwrap();
+        let bob = s
+            .create_session("acct-99", "bob@example.org", "engine", "engine", &creds)
+            .await
+            .unwrap();
+        let native_hash = |id: &str| -> String {
+            Sha256::digest(id.as_bytes())
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect()
+        };
+        for id in [&alice_2, &bob] {
+            s.create_native_session(&NativeSessionRow {
+                token_hash: native_hash(id),
+                account_id: "x".into(),
+                client_type: "native".into(),
+                created_at: "2026-01-01T00:00:00Z".into(),
+                last_seen: "2026-01-01T00:00:00Z".into(),
+                rotated_from: None,
+            })
+            .await
+            .unwrap();
+        }
+
+        // Control: the pre-existing by-account delete, given the login name,
+        // matches no row — this is the dead "revoke sessions" button.
+        assert_eq!(
+            s.delete_sessions_for_account("alice@example.org")
+                .await
+                .unwrap(),
+            0
+        );
+        assert!(s.get_session(&alice_1).await.is_ok());
+
+        assert_eq!(
+            s.delete_sessions_for_username("ALICE@example.ORG")
+                .await
+                .unwrap(),
+            2
+        );
+        assert!(s.get_session(&alice_1).await.is_err());
+        assert!(s.get_session(&alice_2).await.is_err());
+        assert!(
+            s.get_native_session(&native_hash(&alice_2))
+                .await
+                .unwrap()
+                .is_none(),
+            "the native marker goes with its session"
+        );
+        // Another user's session and native marker are untouched.
+        assert!(s.get_session(&bob).await.is_ok());
+        assert!(
+            s.get_native_session(&native_hash(&bob))
+                .await
+                .unwrap()
+                .is_some()
+        );
+        // Nothing left to delete.
+        assert_eq!(
+            s.delete_sessions_for_username("alice@example.org")
+                .await
+                .unwrap(),
+            0
         );
     }
 

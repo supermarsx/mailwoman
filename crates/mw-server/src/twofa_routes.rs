@@ -49,7 +49,7 @@ use mw_mfa::webauthn::{
 use mw_mfa::{recovery, totp};
 use mw_store::{Credentials, TwofaPolicyRow, WebauthnCredentialRow};
 
-use crate::AppState;
+use crate::{AppState, account_gate};
 
 /// How long a pending login (awaiting its second factor / forced enrolment) or a
 /// registration challenge stays valid.
@@ -192,12 +192,23 @@ pub(crate) struct SessionArgs {
 /// Insert the second-factor gate after credential validation. Either completes the
 /// login (no factor needed) or returns a `twofaRequired` body carrying a one-shot
 /// pending token; NO session is issued until the factor clears.
+///
+/// An administratively disabled account is refused here, before any factor is
+/// looked up, so it is never issued a challenge or a pending token. Every caller
+/// has already validated the credentials, so the refusal costs what a successful
+/// login costs up to this point, and its body is the wrong-password body.
 pub(crate) async fn gate_login(
     state: &AppState,
     headers: &HeaderMap,
     args: SessionArgs,
 ) -> Response {
     let store = &state.store;
+
+    match account_gate::for_login(store, &args.username, &args.creds.username).await {
+        Ok(gate) if gate.disabled => return disabled_response(&args.username),
+        Ok(_) => {}
+        Err(e) => return account_gate::unavailable("login", e),
+    }
 
     let totp_enrolled = match store.get_totp_secret(&args.account_id).await {
         Ok(Some(t)) => t.confirmed,
@@ -305,13 +316,39 @@ async fn policy_requires(state: &AppState, username: &str) -> Result<bool, mw_st
     Ok(false)
 }
 
+/// The refusal for a disabled account whose credentials were valid: the same
+/// status and body as a wrong password (`crate::unauthorized`), so the response
+/// does not tell the caller that the account exists and is disabled.
+fn disabled_response(username: &str) -> Response {
+    tracing::info!("login refused: account {username} is disabled");
+    crate::unauthorized()
+}
+
 /// Create the session and finish the login, merging `extra` (e.g. one-time recovery
 /// codes) into the success body.
+///
+/// The account's flags are read again here: the second-factor and forced-enrolment
+/// handlers reach this with a [`PendingLogin`] minted up to [`PENDING_TTL`] earlier,
+/// and an account disabled in between must not get a session. An account held for
+/// a password change does get one, with `passwordChangeRequired` in the body.
 async fn complete_login(
     state: &AppState,
     args: &SessionArgs,
-    extra: serde_json::Value,
+    mut extra: serde_json::Value,
 ) -> Response {
+    let gate =
+        match account_gate::for_login(&state.store, &args.username, &args.creds.username).await {
+            Ok(gate) => gate,
+            Err(e) => return account_gate::unavailable("login", e),
+        };
+    if gate.disabled {
+        return disabled_response(&args.username);
+    }
+    if gate.password_change_required
+        && let Some(obj) = extra.as_object_mut()
+    {
+        obj.insert("passwordChangeRequired".into(), json!(true));
+    }
     let id = match state
         .store
         .create_session(

@@ -20,6 +20,10 @@
 //! per-tool `Scope::allows` + countersign check e11 wired stays in place. An
 //! unauthenticated MCP call (`initialize`/`tools/list`) passes through.
 //!
+//! Both guards also apply the account's admin flags to a key or token principal
+//! (`key_account_gate`, t27-e3): refused when the account is disabled, held when
+//! it must change its password.
+//!
 //! Source IP comes from [`proxy::client_ip`]: the peer address that
 //! `into_make_service_with_connect_info` installs, refined by a forwarded header only
 //! when `MW_FORWARDED_MODE` selects one **and** the peer is inside
@@ -182,6 +186,9 @@ pub(crate) async fn rest_scope_guard(
         .await
     {
         Ok(granted) => {
+            if let Err(resp) = key_account_gate(&state, &granted.account_id).await {
+                return resp;
+            }
             let source = if cookie_account.is_some() {
                 RestSessionSource::Cookie
             } else {
@@ -206,7 +213,23 @@ pub(crate) async fn mcp_scope_guard(
 ) -> Response {
     let headers = req.headers().clone();
     let Some(key) = extract_api_key(&headers) else {
-        // Unauthenticated MCP (`initialize`/`tools/list`) is unchanged.
+        // Not a scoped key. A bearer here is an OAuth access token, which the
+        // per-tool authorizer validates; this guard only holds it back when its
+        // account must change its password first. No bearer at all is an
+        // unauthenticated MCP call (`initialize`/`tools/list`), unchanged.
+        if let Some(token) = crate::push_relay::bearer_token(&headers) {
+            match state.v6.auth.introspect(&token).await {
+                Ok(i) => {
+                    if i.active
+                        && let Some(account_id) = i.account_id
+                        && let Err(resp) = key_account_gate(&state, &account_id).await
+                    {
+                        return resp;
+                    }
+                }
+                Err(e) => return crate::account_gate::unavailable("mcp token", e),
+            }
+        }
         return next.run(req).await;
     };
     let source_ip = client_ip(&headers, req.extensions());
@@ -224,9 +247,36 @@ pub(crate) async fn mcp_scope_guard(
         .require_scope_send(&ctx, &nothing_required(), &*audit)
         .await
     {
-        Ok(_) => next.run(req).await,
+        Ok(granted) => {
+            if let Err(resp) = key_account_gate(&state, &granted.account_id).await {
+                return resp;
+            }
+            next.run(req).await
+        }
         Err(e) => scope_error_response(&e),
     }
+}
+
+/// The account flags for a key or token principal that has already resolved
+/// (t27-e3). A disabled account's key or token does not get this far — the store
+/// adapter answers "not found" for it (`stores_v6::OAuthStoreAdapter`), which the
+/// caller maps to "invalid api key" — so `disabled` is checked here only as a
+/// second line, with that same response. What this adds is the hold: an account
+/// that must change its password gets [`account_gate::password_change_required`]
+/// for its keys and tokens as it does for its sessions.
+///
+/// [`account_gate::password_change_required`]: crate::account_gate::password_change_required
+async fn key_account_gate(state: &AppState, account_id: &str) -> Result<(), Response> {
+    let gate = crate::account_gate::for_account(&state.store, account_id)
+        .await
+        .map_err(|e| crate::account_gate::unavailable("api key", e))?;
+    if gate.disabled {
+        return Err(scope_error_response(&OAuthError::InvalidGrant));
+    }
+    if gate.password_change_required {
+        return Err(crate::account_gate::password_change_required());
+    }
+    Ok(())
 }
 
 /// Extract a presented `mwk_…` key from `x-api-key` (preferred) or a `Bearer`

@@ -6,13 +6,18 @@
 //!   2. re-seal the account's stored upstream credentials under the same
 //!      `ServerKey` when the outcome sets `reencrypt_credentials`
 //!      ([`mw_store::Store::reseal_account_credentials`]), and
-//!   3. clear the forced-change flag, returning `zeroaccessRewrapRequired` so the
-//!      client can run the zero-access key-hierarchy re-wrap (mw-crypto, client-side;
-//!      the server only relays ciphertext — it performs no zero-access crypto).
+//!   3. clear both forced-change records — the `passwd_config.force_change` mirror
+//!      column and the admin panel's per-account `force_password_change` flag, which
+//!      is the one that holds the account (`account_gate`) — returning
+//!      `zeroaccessRewrapRequired` so the client can run the zero-access
+//!      key-hierarchy re-wrap (mw-crypto, client-side; the server only relays
+//!      ciphertext — it performs no zero-access crypto).
 //!
-//! `GET /api/password/policy` returns the backend's displayed policy.
+//! `GET /api/password/policy` returns the backend's displayed policy plus
+//! `forceChange`, whether this account is held until it changes its password.
 //!
-//! Both routes are **mailbox-session-authed** (a user changes their own password).
+//! Both routes are **mailbox-session-authed** (a user changes their own password)
+//! and are the two an account held for a password change may still reach.
 //! The old/new passwords never leave [`mw_passwd::Secret`]/the request body; no
 //! password material is ever logged (§21.1) — the audit is content-free by type.
 //!
@@ -64,9 +69,12 @@ async fn policy(
     headers: HeaderMap,
     Extension(backend): Extension<PasswdBackend>,
 ) -> Response {
-    if let Err(resp) = crate::authed(&state, &headers).await {
-        return resp;
-    }
+    // Reachable while held for a password change (`authed_with_gate`): the forced
+    // screen shows the policy.
+    let gate = match crate::authed_with_gate(&state, &headers).await {
+        Ok((_, gate)) => gate,
+        Err(resp) => return resp,
+    };
     let p = backend.policy();
     Json(json!({
         "description": p.to_string(),
@@ -75,6 +83,7 @@ async fn policy(
         "requireLower": p.require_lower,
         "requireDigit": p.require_digit,
         "requireSymbol": p.require_symbol,
+        "forceChange": gate.password_change_required,
     }))
     .into_response()
 }
@@ -86,8 +95,9 @@ async fn change_password(
     Extension(backend): Extension<PasswdBackend>,
     Json(body): Json<ChangeReq>,
 ) -> Response {
-    let session = match crate::authed(&state, &headers).await {
-        Ok(s) => s,
+    // Reachable while held for a password change: this is the way out of the hold.
+    let session = match crate::authed_with_gate(&state, &headers).await {
+        Ok((s, _)) => s,
         Err(resp) => return resp,
     };
 
@@ -174,6 +184,17 @@ async fn change_password(
             ..existing
         };
         let _ = state.store.put_passwd_config(&cleared).await;
+    }
+    // The admin panel's `force_password_change` flag is a separate record, and it
+    // is the one the session gate reads (`account_gate`). Clear it too, or the
+    // account stays held after a change that succeeded. A failure here is logged,
+    // not returned: the password did change, and the client finds out it is still
+    // held from the next `GET /api/me`.
+    if let Err(e) = crate::account_gate::clear_password_change(&state, &session).await {
+        tracing::error!(
+            "password changed for {} but clearing force_password_change failed: {e}",
+            session.username
+        );
     }
 
     Json(json!({
