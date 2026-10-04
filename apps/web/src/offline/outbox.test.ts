@@ -3,11 +3,17 @@ import { NetworkError, type Client } from '../api/client.ts';
 import type { Invocation, JmapResponse } from '../api/jmap-types.ts';
 import type { OutboundItem } from '../contracts/offline.ts';
 import {
+  MAX_ATTEMPTS,
+  discardOutbound,
   drainOutbox,
   enqueueOutbound,
+  failedOutbound,
   memoryOutboxStore,
   outboundApplied,
+  outboundRejection,
   outboundToRequest,
+  removeQueued,
+  retryOutbound,
   type DraftPayload,
   type FlagPayload,
   type MovePayload,
@@ -138,13 +144,66 @@ describe('drainOutbox', () => {
     expect(client.jmap).toHaveBeenCalledTimes(2);
   });
 
-  it('marks a server-rejected item failed and keeps it', async () => {
+  it('marks a server-refused item failed with the reason, and never replays it again', async () => {
+    const queued = item('flag', flag, 1);
+    const store = memoryOutboxStore([queued]);
+    const client = fakeClient(
+      vi.fn(async () =>
+        setResponse({ notUpdated: { m1: { type: 'notFound', description: 'no such message' } } }),
+      ),
+    );
+    expect(await drainOutbox(store, client)).toEqual({ sent: 0, failed: 1 });
+    expect(await store.all()).toEqual([{ ...queued, state: 'failed', attempts: 1, lastError: 'no such message' }]);
+
+    // A second reconnect must not send the refused mutation again.
+    expect(await drainOutbox(store, client)).toEqual({ sent: 0, failed: 0 });
+    expect(client.jmap).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries an item whose replay errors, up to MAX_ATTEMPTS, then gives up', async () => {
+    const queued = item('move', move, 1);
+    const store = memoryOutboxStore([queued]);
+    const client = fakeClient(
+      vi.fn(async () => {
+        throw new Error('HTTP 503');
+      }),
+    );
+    // Precondition for the loop below: the cap leaves room for a retry.
+    expect(MAX_ATTEMPTS).toBe(3);
+
+    expect(await drainOutbox(store, client)).toEqual({ sent: 0, failed: 0 });
+    expect(await store.all()).toEqual([{ ...queued, state: 'queued', attempts: 1, lastError: 'HTTP 503' }]);
+    expect(await drainOutbox(store, client)).toEqual({ sent: 0, failed: 0 });
+    expect(await store.all()).toEqual([{ ...queued, state: 'queued', attempts: 2, lastError: 'HTTP 503' }]);
+    expect(await drainOutbox(store, client)).toEqual({ sent: 0, failed: 1 });
+    expect(await store.all()).toEqual([{ ...queued, state: 'failed', attempts: 3, lastError: 'HTTP 503' }]);
+
+    // Given up on: a fourth drain does not touch it.
+    expect(await drainOutbox(store, client)).toEqual({ sent: 0, failed: 0 });
+    expect(client.jmap).toHaveBeenCalledTimes(3);
+  });
+
+  it('an item that errored once is applied on the next drain and leaves the queue', async () => {
     const store = memoryOutboxStore([item('flag', flag, 1)]);
-    const client = fakeClient(vi.fn(async () => setResponse({ notUpdated: { m1: { type: 'forbidden' } } })));
-    const result = await drainOutbox(store, client);
-    expect(result).toEqual({ sent: 0, failed: 1 });
-    const [remaining] = await store.all();
-    expect(remaining!.state).toBe('failed');
+    const jmap = vi
+      .fn<Client['jmap']>()
+      .mockRejectedValueOnce(new Error('HTTP 502'))
+      .mockResolvedValueOnce(setResponse({ updated: { m1: null } }));
+    const client = fakeClient(jmap);
+    expect(await drainOutbox(store, client)).toEqual({ sent: 0, failed: 0 });
+    expect(await store.all()).toHaveLength(1);
+    expect(await drainOutbox(store, client)).toEqual({ sent: 1, failed: 0 });
+    expect(await store.all()).toEqual([]);
+  });
+
+  it('one bad item does not hold up the ones behind it', async () => {
+    const store = memoryOutboxStore([item('flag', flag, 1), item('move', move, 2)]);
+    const jmap = vi
+      .fn<Client['jmap']>()
+      .mockResolvedValueOnce(setResponse({ notUpdated: { m1: { type: 'forbidden' } } }))
+      .mockResolvedValueOnce(setResponse({ updated: { m1: null } }));
+    expect(await drainOutbox(store, fakeClient(jmap))).toEqual({ sent: 1, failed: 1 });
+    expect((await store.all()).map((i) => [i.type, i.state])).toEqual([['flag', 'failed']]);
   });
 
   it('stops on a network error, leaving the item queued for the next reconnect', async () => {
@@ -156,10 +215,99 @@ describe('drainOutbox', () => {
     );
     const result = await drainOutbox(store, client);
     expect(result).toEqual({ sent: 0, failed: 0 });
-    // Only the first item was attempted; both remain queued (FIFO preserved).
+    // Only the first item was attempted; both remain queued (FIFO preserved),
+    // and being offline is not counted as an attempt.
     expect(client.jmap).toHaveBeenCalledTimes(1);
-    const all = await store.all();
-    expect(all).toHaveLength(2);
-    expect(all.every((i) => i.state === 'queued')).toBe(true);
+    expect(await store.all()).toEqual([item('flag', flag, 1), item('move', move, 2)]);
+  });
+});
+
+describe('outboundRejection', () => {
+  it('reads the SetError for the item, preferring its description', () => {
+    expect(
+      outboundRejection(item('move', move), setResponse({ notUpdated: { m1: { type: 'notFound' } } })),
+    ).toBe('notFound');
+    const refusedSend = jmapResponse(
+      [
+        'Email/set',
+        { created: null, notCreated: { draft: { type: 'invalidProperties', description: 'to: "bob": no @' } } },
+        'set',
+      ],
+      ['EmailSubmission/set', { created: null, notCreated: { send: { type: 'invalidProperties' } } }, 'submit'],
+    );
+    expect(outboundRejection(item('send', send), refusedSend)).toBe('to: "bob": no @');
+    const refusedSubmission = jmapResponse(
+      ['Email/set', { created: { draft: { id: 'e9' } }, notCreated: null }, 'set'],
+      [
+        'EmailSubmission/set',
+        { created: null, notCreated: { send: { type: 'invalidProperties', description: 'sendAt: is in the past' } } },
+        'submit',
+      ],
+    );
+    expect(outboundRejection(item('send', send), refusedSubmission)).toBe('sendAt: is in the past');
+  });
+
+  it('is null when the response names no error for the item', () => {
+    expect(outboundRejection(item('flag', flag), setResponse({ updated: { m1: null } }))).toBeNull();
+  });
+});
+
+describe('queue management', () => {
+  const failed = (id: string, createdAt: number): OutboundItem & { attempts: number; lastError: string } => ({
+    ...item('flag', flag, createdAt),
+    id,
+    state: 'failed',
+    attempts: 3,
+    lastError: 'HTTP 503',
+  });
+
+  it('removeQueued takes an unsent item out, so a later drain sends nothing for it', async () => {
+    const store = memoryOutboxStore();
+    const queued = await enqueueOutbound(store, { type: 'move', payload: move });
+    const client = fakeClient(vi.fn(async () => setResponse({ updated: { m1: null } })));
+
+    expect(await removeQueued(store, queued.id)).toBe(true);
+    expect(await store.all()).toEqual([]);
+    expect(await drainOutbox(store, client)).toEqual({ sent: 0, failed: 0 });
+    expect(client.jmap).not.toHaveBeenCalled();
+  });
+
+  it('removeQueued reports false for an item the queue no longer holds', async () => {
+    const store = memoryOutboxStore();
+    const queued = await enqueueOutbound(store, { type: 'move', payload: move });
+    await drainOutbox(store, fakeClient(vi.fn(async () => setResponse({ updated: { m1: null } }))));
+    expect(await removeQueued(store, queued.id)).toBe(false);
+  });
+
+  it('failedOutbound lists only the items given up on, oldest first', async () => {
+    const store = memoryOutboxStore([failed('f2', 5), item('move', move, 3), failed('f1', 1)]);
+    expect((await failedOutbound(store)).map((i) => i.id)).toEqual(['f1', 'f2']);
+  });
+
+  it('retryOutbound re-queues a failed item with a fresh count, and a drain then sends it', async () => {
+    const store = memoryOutboxStore([failed('f1', 1)]);
+    const client = fakeClient(vi.fn(async () => setResponse({ updated: { m1: null } })));
+    // Precondition: as it stands, a drain leaves the failed item alone.
+    expect(await drainOutbox(store, client)).toEqual({ sent: 0, failed: 0 });
+    expect(client.jmap).not.toHaveBeenCalled();
+
+    expect(await retryOutbound(store, 'f1')).toBe(true);
+    expect(await store.all()).toEqual([{ ...item('flag', flag, 1), id: 'f1', state: 'queued', attempts: 0 }]);
+    expect(await drainOutbox(store, client)).toEqual({ sent: 1, failed: 0 });
+    expect(await store.all()).toEqual([]);
+  });
+
+  it('retryOutbound does nothing for an id that is not a failed item', async () => {
+    const queued = item('flag', flag, 1);
+    const store = memoryOutboxStore([queued]);
+    expect(await retryOutbound(store, queued.id)).toBe(false);
+    expect(await retryOutbound(store, 'nope')).toBe(false);
+    expect(await store.all()).toEqual([queued]);
+  });
+
+  it('discardOutbound removes a failed item without sending it', async () => {
+    const store = memoryOutboxStore([failed('f1', 1), failed('f2', 2)]);
+    await discardOutbound(store, 'f1');
+    expect((await store.all()).map((i) => i.id)).toEqual(['f2']);
   });
 });

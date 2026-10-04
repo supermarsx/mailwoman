@@ -2,6 +2,13 @@
 // mutations made while the network is down, then drain them FIFO on reconnect →
 // JMAP → reconcile against the set/submission response.
 //
+// An item leaves the queue in one of three ways: the server applied it (it is
+// deleted), the user removed it (`removeQueued` before it was sent,
+// `discardOutbound` after it failed), or it is given up on — state `failed`,
+// which no drain touches again until the user asks (`retryOutbound`). A drain
+// only ever replays `queued` items, so a refused item is not re-sent on every
+// reconnect.
+//
 // ── BOUNDARY vs e7's Outbox (documented for e7) ────────────────────────────
 // THIS queue = the OFFLINE REPLAY queue. It holds mutations (send / flag / move
 // / draft) captured while the browser was offline and re-applies them verbatim
@@ -29,6 +36,26 @@ import {
   type JmapResponse,
 } from '../api/jmap-types.ts';
 import type { OutboundItem, OutboundType } from '../contracts/offline.ts';
+
+/**
+ * How many times an item is replayed when the replay itself errors (an HTTP 5xx,
+ * an expired session, a JMAP method-level error) before it is marked `failed`.
+ * A refusal of the item — the server answered and said no — is not retried at
+ * all: asking again gets the same answer.
+ */
+export const MAX_ATTEMPTS = 3;
+
+/**
+ * A queue row as this module stores it: the frozen contract's `OutboundItem`
+ * plus two optional fields the contract has no place for. Rows written before
+ * these existed simply lack them (`attempts` reads as 0).
+ */
+export interface QueuedItem extends OutboundItem {
+  /** Replays that errored so far (see MAX_ATTEMPTS). */
+  attempts?: number;
+  /** Why the last replay did not apply: the server's SetError, or the error thrown. */
+  lastError?: string;
+}
 
 // ── Per-type payloads. `payload` is `unknown` in the frozen contract; these are
 //    the shapes this module reads back when building the replay request. ──
@@ -170,6 +197,41 @@ export function enqueuePimMutation(
   return enqueueOutbound(store, { type: 'pim', payload: pimOutbound(request, callId) });
 }
 
+/**
+ * Why the server did not apply a replayed item, from the response: the
+ * SetError's description when there is one, else its type. `null` when the
+ * response carries no SetError for the item (it simply is not in `created` /
+ * `updated`).
+ */
+export function outboundRejection(item: OutboundItem, res: JmapResponse): string | null {
+  const reason = (err: { type?: string; description?: string | null } | undefined): string | null => {
+    if (err === undefined) return null;
+    if (typeof err.description === 'string' && err.description.length > 0) return err.description;
+    return typeof err.type === 'string' ? err.type : null;
+  };
+  try {
+    switch (item.type) {
+      case 'flag':
+      case 'move': {
+        const p = item.payload as FlagPayload | MovePayload;
+        return reason(responseFor<EmailSetResponse>(res, 'set').notUpdated?.[p.emailId]);
+      }
+      case 'draft':
+        return reason(responseFor<EmailSetResponse>(res, 'set').notCreated?.['draft']);
+      case 'send':
+        return (
+          reason(responseFor<EmailSetResponse>(res, 'set').notCreated?.['draft']) ??
+          reason(responseFor<EmailSubmissionSetResponse>(res, 'submit').notCreated?.['send'])
+        );
+      case 'pim':
+        return null;
+    }
+  } catch (err) {
+    // A method-level error for the call (`responseFor` throws on those).
+    return err instanceof Error ? err.message : null;
+  }
+}
+
 /** Did the server actually apply the replayed item? Reconciles vs the response. */
 export function outboundApplied(item: OutboundItem, res: JmapResponse): boolean {
   switch (item.type) {
@@ -208,17 +270,24 @@ export function outboundApplied(item: OutboundItem, res: JmapResponse): boolean 
 }
 
 export interface DrainResult {
+  /** Applied by the server and removed from the queue. */
   sent: number;
+  /** Given up on in this drain (now state `failed`; kept until retried or discarded). */
   failed: number;
 }
 
 /**
- * Drain the queue FIFO. For each item: replay → if applied, delete it and count
- * `sent`; if the server rejected it, mark `failed` and keep it; if the network
- * is still down, re-queue it and STOP (preserving FIFO order for next reconnect).
+ * Drain the queue FIFO. Only `queued` items are replayed. For each:
+ *  - applied → delete it, count `sent`;
+ *  - the server answered and refused it → `failed` at once, with the reason;
+ *  - the replay errored (not a network failure) → one more attempt recorded;
+ *    `failed` once MAX_ATTEMPTS is reached, otherwise left `queued` for the
+ *    next drain (and in neither count);
+ *  - the network is still down → nothing recorded, and STOP, preserving FIFO
+ *    order for the next reconnect. Being offline is not an attempt.
  */
 export async function drainOutbox(store: OutboxStore, client: Client): Promise<DrainResult> {
-  const pending = (await store.all()).filter((i) => i.state !== 'sent');
+  const pending = ((await store.all()) as QueuedItem[]).filter((i) => i.state === 'queued');
   let sent = 0;
   let failed = 0;
   for (const item of pending) {
@@ -228,21 +297,64 @@ export async function drainOutbox(store: OutboxStore, client: Client): Promise<D
         await store.delete(item.id);
         sent += 1;
       } else {
-        await store.put({ ...item, state: 'failed' });
+        const lastError = outboundRejection(item, res);
+        const refused: QueuedItem = {
+          ...item,
+          state: 'failed',
+          attempts: (item.attempts ?? 0) + 1,
+          ...(lastError !== null ? { lastError } : {}),
+        };
+        await store.put(refused);
         failed += 1;
       }
     } catch (err) {
-      if (err instanceof NetworkError) {
-        // Still offline: leave it queued and stop; retry on the next reconnect.
-        await store.put({ ...item, state: 'queued' });
-        break;
-      }
-      // A JMAP-level / server error: the item itself is bad — mark it failed.
-      await store.put({ ...item, state: 'failed' });
-      failed += 1;
+      if (err instanceof NetworkError) break;
+      const attempts = (item.attempts ?? 0) + 1;
+      const gaveUp = attempts >= MAX_ATTEMPTS;
+      const errored: QueuedItem = {
+        ...item,
+        state: gaveUp ? 'failed' : 'queued',
+        attempts,
+        lastError: err instanceof Error ? err.message : String(err),
+      };
+      await store.put(errored);
+      if (gaveUp) failed += 1;
     }
   }
   return { sent, failed };
+}
+
+/** The items the queue has given up on, oldest first. */
+export async function failedOutbound(store: OutboxStore): Promise<QueuedItem[]> {
+  return ((await store.all()) as QueuedItem[]).filter((i) => i.state === 'failed');
+}
+
+/**
+ * Take an item out of the queue before it has been sent (offline undo). Returns
+ * `true` if it was still there and is now gone; `false` if it is not in the
+ * queue any more — it was already replayed, so the caller has to reverse the
+ * change on the server instead.
+ */
+export async function removeQueued(store: OutboxStore, id: string): Promise<boolean> {
+  const present = (await store.all()).some((i) => i.id === id);
+  if (present) await store.delete(id);
+  return present;
+}
+
+/** Put a failed item back in line with a fresh attempt count. No-op for an id
+ *  that is not a failed item. Returns whether anything was re-queued. */
+export async function retryOutbound(store: OutboxStore, id: string): Promise<boolean> {
+  const item = ((await store.all()) as QueuedItem[]).find((i) => i.id === id && i.state === 'failed');
+  if (item === undefined) return false;
+  const { lastError: _dropped, ...rest } = item;
+  const requeued: QueuedItem = { ...rest, state: 'queued', attempts: 0 };
+  await store.put(requeued);
+  return true;
+}
+
+/** Drop a failed item for good. The change it carried is not applied. */
+export async function discardOutbound(store: OutboxStore, id: string): Promise<void> {
+  await store.delete(id);
 }
 
 /** In-memory queue: the unit-test fake and the graceful fallback when IDB is absent. */
