@@ -31,9 +31,13 @@ const KEYS_USING = [CAP_CORE, CAP_CRYPTO, CAP_SECURITY];
 /** A source the keyring can look a contact key up from (§2.2 `CryptoKey/lookup`). */
 export type KeyLookupSource = 'wkd' | 'vks' | 'autocrypt' | 'harvested';
 
-/** The fields a new own-key generation collects from the UI. */
+/**
+ * The fields a new own-key generation collects from the UI. Only OpenPGP keys
+ * are generated: an S/MIME certificate is issued by a certificate authority and
+ * arrives through the PKCS#12 import (`previewPkcs12Key` → `commitImport`).
+ */
 export interface OwnKeyDraft {
-  kind: KeyKind;
+  kind: 'pgp';
   /** A user id (`Name <email>` or a bare address). */
   userId: string;
   passphrase: string;
@@ -231,12 +235,15 @@ export function createKeysSlice(ctx: SliceContext): KeysSlice {
   async function generateOwnKey(draft: OwnKeyDraft): Promise<CryptoKey> {
     const acct = await resolveAccount();
     if (acct === null) throw new Error('no account available for keys');
-    const gen = await worker.generateKey({ kind: draft.kind, userId: draft.userId, passphrase: draft.passphrase });
+    // The type already says 'pgp'; this refuses a caller that got past it (a cast,
+    // plain JS) before anything reaches the worker, the vault or the server.
+    if ((draft.kind as KeyKind) !== 'pgp') throw new Error('only OpenPGP keys can be generated');
+    const gen = await worker.generateKey({ kind: 'pgp', userId: draft.userId, passphrase: draft.passphrase });
     const address = addressOf(draft.userId);
     const now = new Date().toISOString();
     await vault.put({
       fingerprint: gen.fingerprint,
-      kind: draft.kind,
+      kind: 'pgp',
       encryptedPrivateBundle: gen.encryptedPrivateBundle,
       addresses: [address],
     });
@@ -244,18 +251,18 @@ export function createKeysSlice(ctx: SliceContext): KeysSlice {
     // Own keys are trusted by construction (we hold the private half).
     const key: CryptoKey = {
       id: `own-${gen.fingerprint}`,
-      kind: draft.kind,
+      kind: 'pgp',
       isOwn: true,
       addresses: [address],
       fingerprint: gen.fingerprint,
       keyId: gen.keyId,
-      algorithm: draft.kind === 'pgp' ? 'ed25519' : 'ecdsa-p256',
+      algorithm: 'ed25519',
       createdAt: now,
       expiresAt: null,
-      publicKeyArmored: draft.kind === 'pgp' ? gen.publicKeyArmored : null,
-      certPem: draft.kind === 'smime' ? gen.publicKeyArmored : null,
+      publicKeyArmored: gen.publicKeyArmored,
+      certPem: null,
       trust: 'verified',
-      autocrypt: draft.kind === 'pgp',
+      autocrypt: true,
       source: 'generated',
       hasPrivate: true,
       encryptedPrivateBackup: gen.encryptedPrivateBundle,
@@ -265,7 +272,7 @@ export function createKeysSlice(ctx: SliceContext): KeysSlice {
     const stored = await persistKey(acct, key);
     upsert(stored);
     ctx.broadcastChange?.();
-    ctx.showToast('success', `${draft.kind.toUpperCase()} key generated`);
+    ctx.showToast('success', 'PGP key generated');
     return stored;
   }
 
