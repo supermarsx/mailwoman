@@ -391,6 +391,13 @@ fn text_clause(field: TextField, value: String, phrase: bool) -> Clause {
     }
 }
 
+/// Whether `value` is one of the `has:` spellings for "carries an attachment".
+fn is_attachment_word(value: &str) -> bool {
+    ["attachment", "attachments", "file", "files"]
+        .iter()
+        .any(|w| value.eq_ignore_ascii_case(w))
+}
+
 /// Build the leaf [`Expr`] for a `field:value` operator (or a literal term when
 /// `field` is not a known operator).
 fn operator_atom(field: &str, value: String, phrase: bool) -> Expr {
@@ -405,7 +412,10 @@ fn operator_atom(field: &str, value: String, phrase: bool) -> Expr {
         "text" => text_clause(TextField::All, value, phrase),
         "tag" => Clause::Keyword(value),
         "in" => Clause::Mailbox(value),
-        "has" => Clause::HasAttachment(value.eq_ignore_ascii_case("attachment")),
+        // `has:` names one thing, in four spellings. Any other value falls to
+        // the unknown-operator arm below: `HasAttachment(false)` would answer
+        // `has:attachments` with every message that has none.
+        "has" if is_attachment_word(&value) => Clause::HasAttachment(true),
         "pinned" => Clause::Pinned(!value.eq_ignore_ascii_case("false") && value != "0"),
         "is" => match value.to_ascii_lowercase().as_str() {
             "unread" => Clause::NotKeyword(KW_SEEN.to_string()),

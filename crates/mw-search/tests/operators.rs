@@ -67,6 +67,37 @@ fn attachment_mailbox_keyword_pinned_operators() {
     assert_eq!(find(&idx, "pinned:false"), ids(&["m2", "m3", "m4"]));
 }
 
+/// 26.20 t28-e1: `has:` used to compile to `HasAttachment(value == "attachment")`,
+/// so every other spelling asked for the messages WITHOUT an attachment.
+#[test]
+fn has_operator_spellings_select_the_attachment_set() {
+    let idx = indexed();
+    // Precondition: the corpus splits both ways, so neither side can pass by
+    // the query matching everything or nothing.
+    let with = ids(&["m1", "m3"]);
+    let without = ids(&["m2", "m4"]);
+    assert_eq!(find(&idx, "has:attachment"), with);
+    assert_eq!(find(&idx, "-has:attachment"), without);
+
+    for spelling in [
+        "has:attachments",
+        "has:file",
+        "has:files",
+        "HAS:Attachments",
+    ] {
+        assert_eq!(find(&idx, spelling), with, "{spelling}");
+    }
+    assert_eq!(find(&idx, "in:INBOX has:attachments"), ids(&["m1"]));
+
+    // A value `has:` does not define is not an attachment filter in either
+    // direction: it must not come back as the without-attachment set.
+    for unknown in ["has:zzqx", "has:attachmentz", "has:"] {
+        let got = find(&idx, unknown);
+        assert_ne!(got, without, "{unknown} inverted");
+        assert_ne!(got, with, "{unknown} read as has:attachment");
+    }
+}
+
 #[test]
 fn date_and_size_range_operators() {
     let idx = indexed();
