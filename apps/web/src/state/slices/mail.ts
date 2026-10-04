@@ -10,9 +10,11 @@ import { ApiError, NetworkError, PasswordChangeRequired, type LoginInput, type M
 import {
   cancelSubmission,
   emailGetFull,
+  invalidRecipients,
   listMailbox,
   mailboxGet,
   moveEmail,
+  parseRecipients,
   responseFor,
   searchEmails,
   sendEnvelope,
@@ -40,7 +42,9 @@ import {
   type JmapResponse,
   type Mailbox,
   type MailboxGetResponse,
+  type SetError,
 } from '../../api/jmap-types.ts';
+import { t, isolate } from '../../i18n/index.ts';
 import type { SliceContext } from './context.ts';
 
 /**
@@ -88,12 +92,17 @@ export type InboxTab = 'focused' | 'other';
 
 /** The compose/send input (grown for identities + send-later + undo-send). */
 export interface SendInput {
+  /** The recipient field as typed: `addr` or `Name <addr>` entries, `,`/`;`-separated. */
   to: string;
   subject: string;
+  /** The body, sent exactly as given. Nothing is appended here — the composer
+   *  adds the identity's signature itself, because only it knows whether the
+   *  body is ciphertext or a clear-signed block that must not be altered. */
   htmlBody: string;
-  /** Send as this identity (from-address + signature); `null` = default. */
+  /** Send as this identity (its from-address); `null` = the account's own. */
   identity?: Identity | null;
-  /** Send-later: ISO 8601 UTC time; omitted/null = send now (with undo window). */
+  /** Send-later: ISO 8601 UTC time, which must be in the future; omitted/null =
+   *  send now (with undo window). */
   sendAt?: string | null;
   /** Undo-send window in seconds; default 10. Ignored when `sendAt` is set. */
   holdSeconds?: number;
@@ -225,6 +234,12 @@ export interface MailSlice {
   openMessage(id: Id): Promise<void>;
   closeMessage(): void;
   sendMessage(input: SendInput): Promise<void>;
+}
+
+/** What a refused create says about itself: the server's description when it
+ *  gave one (`to: "bob": no @`), otherwise the bare error type. */
+function refusalReason(err: SetError): string {
+  return typeof err.description === 'string' && err.description.length > 0 ? err.description : err.type;
 }
 
 function roleOf(mailboxes: Mailbox[], role: string): Id | null {
@@ -949,13 +964,28 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     if (drafts === null) throw new Error('no mailbox to hold the draft');
     const sent = roleOf(mailboxes(), 'sent');
 
+    // Refuse what the server would refuse (`Email/set` rejects a draft whose
+    // `to` holds anything but mailboxes), naming the entries, before a request
+    // is made or — offline — before the send is queued to fail on reconnect.
+    if (parseRecipients(input.to).length === 0) throw new Error(t('mail-send-no-recipient'));
+    const bad = invalidRecipients(input.to);
+    if (bad.length > 0) {
+      throw new Error(t('mail-send-bad-recipient', { count: bad.length, addresses: isolate(bad.join(', ')) }));
+    }
+
     const identity = input.identity ?? null;
     const fromEmail = identity?.email ?? user.username;
     const fromName = identity?.name ?? null;
-    let html = input.htmlBody;
-    if (identity?.signatureHtml) html += `<br><br>${identity.signatureHtml}`;
 
-    const scheduled = input.sendAt != null && input.sendAt.length > 0;
+    // A scheduled send carries no undo hold, so a `sendAt` that is unreadable
+    // or already past would leave at once and could not be cancelled. It is
+    // refused here; only a time in the future zeroes the hold.
+    let scheduled = false;
+    if (input.sendAt != null && input.sendAt.length > 0) {
+      const at = new Date(input.sendAt).getTime();
+      if (Number.isNaN(at) || at <= Date.now()) throw new Error(t('mail-send-later-past'));
+      scheduled = true;
+    }
     const holdSeconds = scheduled ? 0 : (input.holdSeconds ?? 10);
 
     const draft: DraftInput = {
@@ -963,7 +993,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       draftMailboxId: drafts,
       to: input.to,
       subject: input.subject,
-      htmlBody: html,
+      htmlBody: input.htmlBody,
       holdSeconds,
       ...(sent !== null ? { sentMailboxId: sent } : {}),
       ...(identity !== null ? { identityId: identity.id } : {}),
@@ -983,12 +1013,15 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const res = await client.jmap(sendEnvelope(acct, draft));
     ctx.broadcastChange?.();
     const setRes = responseFor<EmailSetResponse>(res, 'set');
-    if (setRes.notCreated?.['draft'] !== undefined) {
-      throw new Error(`draft rejected: ${setRes.notCreated['draft'].type}`);
+    // A refused create throws, so the composer stays open and shows why.
+    const draftRefused = setRes.notCreated?.['draft'];
+    if (draftRefused !== undefined) {
+      throw new Error(t('mail-send-draft-refused', { reason: isolate(refusalReason(draftRefused)) }));
     }
     const subRes = responseFor<EmailSubmissionSetResponse>(res, 'submit');
-    if (subRes.notCreated?.['send'] !== undefined) {
-      throw new Error(`send rejected: ${subRes.notCreated['send'].type}`);
+    const sendRefused = subRes.notCreated?.['send'];
+    if (sendRefused !== undefined) {
+      throw new Error(t('mail-send-submission-refused', { reason: isolate(refusalReason(sendRefused)) }));
     }
     const submissionId = subRes.created?.['send']?.id ?? null;
 

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createRoot } from 'solid-js';
 import { createMailSlice, extractHtmlBody, type MailSlice } from './mail.ts';
 import type { SliceContext } from './context.ts';
+import { isolate } from '../../i18n/index.ts';
 import type { Client, Me } from '../../api/client.ts';
 import {
   CAP_MAIL,
@@ -334,6 +335,283 @@ describe('mail slice — undo-send', () => {
       });
       expect(mail.pendingUndo()).toBeNull();
       expect(toast).toHaveBeenCalledWith('success', 'Scheduled to send');
+    });
+  });
+});
+
+/** The compose+submit requests among everything the fake client was handed. */
+function sendRequests(jmap: ReturnType<typeof vi.fn>): JmapRequest[] {
+  return jmap.mock.calls
+    .map((call) => call[0] as JmapRequest)
+    .filter((r) => r.methodCalls.some((c) => c[0] === 'EmailSubmission/set' && 'create' in c[1]));
+}
+
+/** The whole request `sendMessage` builds for the test inbox (no Drafts or Sent
+ *  folder, so the draft is held in the selected mailbox and nothing is moved). */
+function expectedSend(over: {
+  to: unknown;
+  rcptTo: unknown;
+  body?: string;
+  send?: Record<string, unknown>;
+}): JmapRequest['methodCalls'] {
+  return [
+    [
+      'Email/set',
+      {
+        accountId: 'acct1',
+        create: {
+          draft: {
+            mailboxIds: { inbox: true },
+            keywords: { $draft: true, $seen: true },
+            from: [{ name: null, email: 'me@example.org' }],
+            to: over.to,
+            subject: 'Hi',
+            htmlBody: [{ partId: 'body', type: 'text/html' }],
+            bodyValues: { body: { value: over.body ?? '<p>x</p>' } },
+          },
+        },
+      },
+      'set',
+    ],
+    [
+      'EmailSubmission/set',
+      {
+        accountId: 'acct1',
+        create: {
+          send: {
+            emailId: '#draft',
+            envelope: { mailFrom: { email: 'me@example.org' }, rcptTo: over.rcptTo },
+            ...(over.send ?? { mailwomanHoldSeconds: 10 }),
+          },
+        },
+      },
+      'submit',
+    ],
+  ];
+}
+
+describe('mail slice — what a send puts on the wire', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('addresses a display-name recipient by name in To and by bare address in rcptTo', async () => {
+    await withInbox([email('a')], async (mail, { jmap }) => {
+      jmap.mockClear();
+      await mail.sendMessage({
+        to: 'Alice Example <alice@example.org>, bob@example.org',
+        subject: 'Hi',
+        htmlBody: '<p>x</p>',
+      });
+      const sends = sendRequests(jmap);
+      expect(sends).toHaveLength(1);
+      expect(sends[0]!.methodCalls).toEqual(
+        expectedSend({
+          to: [
+            { name: 'Alice Example', email: 'alice@example.org' },
+            { name: null, email: 'bob@example.org' },
+          ],
+          rcptTo: [{ email: 'alice@example.org' }, { email: 'bob@example.org' }],
+        }),
+      );
+    });
+  });
+
+  it('sends the body exactly as given: the slice appends no signature', async () => {
+    const identity = {
+      id: 'id1',
+      name: 'Me',
+      email: 'me@example.org',
+      replyTo: null,
+      signatureHtml: '<img src="https://t.example/p.gif"><p>Sig</p>',
+      signatureText: 'Sig',
+      sentMailboxId: null,
+    };
+    await withInbox([email('a')], async (mail, { jmap }) => {
+      jmap.mockClear();
+      await mail.sendMessage({ to: 'you@example.org', subject: 'Hi', htmlBody: '<p>x</p>', identity });
+      const sends = sendRequests(jmap);
+      expect(sends).toHaveLength(1);
+      const draft = (sends[0]!.methodCalls[0]![1]['create'] as Record<string, Record<string, unknown>>)['draft']!;
+      expect(draft['bodyValues']).toEqual({ body: { value: '<p>x</p>' } });
+    });
+  });
+
+  it('refuses an entry that is not an address, names it, and makes no request', async () => {
+    await withInbox([email('a')], async (mail, { jmap }) => {
+      jmap.mockClear();
+      await expect(
+        mail.sendMessage({ to: 'you@example.org, bob, Al <al@x.org> junk', subject: 'Hi', htmlBody: '<p>x</p>' }),
+      ).rejects.toThrow(`These are not email addresses: ${isolate('bob, Al <al@x.org> junk')}`);
+      expect(jmap).not.toHaveBeenCalled();
+      expect(mail.pendingUndo()).toBeNull();
+    });
+  });
+
+  it('refuses a recipient field with no entries', async () => {
+    await withInbox([email('a')], async (mail, { jmap }) => {
+      jmap.mockClear();
+      await expect(mail.sendMessage({ to: ' , ; ', subject: 'Hi', htmlBody: '<p>x</p>' })).rejects.toThrow(
+        'Add at least one recipient.',
+      );
+      expect(jmap).not.toHaveBeenCalled();
+    });
+  });
+
+  it('does not queue a send with a bad recipient while offline', async () => {
+    const enqueueOffline = vi.fn(async () => undefined);
+    await withDeps([email('a')], { online: () => false, enqueueOffline }, async (mail) => {
+      await expect(mail.sendMessage({ to: 'bob', subject: 'Hi', htmlBody: '<p>x</p>' })).rejects.toThrow(
+        `This is not an email address: ${isolate('bob')}`,
+      );
+      expect(enqueueOffline).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe('mail slice — send later', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('a future sendAt rides the submission with the undo hold zeroed', async () => {
+    const at = new Date(Date.now() + 3_600_000).toISOString();
+    await withInbox([email('a')], async (mail, { jmap }) => {
+      jmap.mockClear();
+      await mail.sendMessage({ to: 'you@example.org', subject: 'Hi', htmlBody: '<p>x</p>', sendAt: at });
+      const sends = sendRequests(jmap);
+      expect(sends).toHaveLength(1);
+      expect(sends[0]!.methodCalls).toEqual(
+        expectedSend({
+          to: [{ name: null, email: 'you@example.org' }],
+          rcptTo: [{ email: 'you@example.org' }],
+          send: { sendAt: at, mailwomanHoldSeconds: 0 },
+        }),
+      );
+    });
+  });
+
+  it.each([
+    ['a past time', () => new Date(Date.now() - 60_000).toISOString()],
+    ['an unreadable time', () => 'tomorrow-ish'],
+  ])('refuses %s instead of sending at once with no undo window', async (_name, make) => {
+    await withInbox([email('a')], async (mail, { jmap, toast }) => {
+      // Precondition: the same call with a future time does send.
+      await mail.sendMessage({
+        to: 'you@example.org',
+        subject: 'Hi',
+        htmlBody: '<p>x</p>',
+        sendAt: new Date(Date.now() + 3_600_000).toISOString(),
+      });
+      expect(sendRequests(jmap)).toHaveLength(1);
+
+      jmap.mockClear();
+      toast.mockClear();
+      await expect(
+        mail.sendMessage({ to: 'you@example.org', subject: 'Hi', htmlBody: '<p>x</p>', sendAt: make() }),
+      ).rejects.toThrow('The send time is not in the future. Nothing was sent.');
+      expect(jmap).not.toHaveBeenCalled();
+      expect(toast).not.toHaveBeenCalled();
+      expect(mail.pendingUndo()).toBeNull();
+    });
+  });
+});
+
+describe('mail slice — a refused send', () => {
+  beforeEach(() => localStorage.clear());
+
+  /** The response shapes are the engine's: `Email/set` answers a draft it will
+   *  not store with `invalidProperties` + `properties` + `description`
+   *  (crates/mw-engine/src/jmap.rs, `InvalidProperty::set_error`). */
+  function refusedDraft(): JmapResponse {
+    return {
+      methodResponses: [
+        [
+          'Email/set',
+          {
+            accountId: 'acct1',
+            created: null,
+            notCreated: {
+              draft: { type: 'invalidProperties', properties: ['to'], description: 'to: "a@b@c": more than one @' },
+            },
+          },
+          'set',
+        ],
+        [
+          'EmailSubmission/set',
+          { accountId: 'acct1', created: null, notCreated: { send: { type: 'invalidProperties' } } },
+          'submit',
+        ],
+      ],
+      sessionState: 's',
+    };
+  }
+  function refusedSubmission(): JmapResponse {
+    return {
+      methodResponses: [
+        ['Email/set', { accountId: 'acct1', created: { draft: { id: 'draft1' } }, notCreated: null }, 'set'],
+        [
+          'EmailSubmission/set',
+          {
+            accountId: 'acct1',
+            created: null,
+            notCreated: {
+              send: { type: 'invalidProperties', properties: ['sendAt'], description: 'sendAt: is in the past' },
+            },
+          },
+          'submit',
+        ],
+      ],
+      sessionState: 's',
+    };
+  }
+
+  it('a draft the server refuses is an error carrying the server reason, not a sent message', async () => {
+    await withInbox([email('a')], async (mail, { jmap, toast }) => {
+      // Precondition: with the default response the same send succeeds.
+      await mail.sendMessage({ to: 'you@example.org', subject: 'Hi', htmlBody: '<p>x</p>' });
+      expect(mail.pendingUndo()?.label).toBe('Message sent');
+      mail.dismissUndo();
+      toast.mockClear();
+
+      jmap.mockImplementationOnce(async () => refusedDraft());
+      await expect(
+        mail.sendMessage({ to: 'you@example.org', subject: 'Hi', htmlBody: '<p>x</p>' }),
+      ).rejects.toThrow(
+        `The server refused this message: ${isolate('to: "a@b@c": more than one @')}. Nothing was sent.`,
+      );
+      expect(mail.pendingUndo()).toBeNull();
+      expect(toast).not.toHaveBeenCalled();
+    });
+  });
+
+  it('a submission the server refuses (a past sendAt) is an error too', async () => {
+    await withInbox([email('a')], async (mail, { jmap, toast }) => {
+      toast.mockClear();
+      jmap.mockImplementationOnce(async () => refusedSubmission());
+      await expect(
+        mail.sendMessage({
+          to: 'you@example.org',
+          subject: 'Hi',
+          htmlBody: '<p>x</p>',
+          sendAt: new Date(Date.now() + 5_000).toISOString(),
+        }),
+      ).rejects.toThrow(
+        `The server refused to send this message: ${isolate('sendAt: is in the past')}. Nothing was sent.`,
+      );
+      expect(mail.pendingUndo()).toBeNull();
+      expect(toast).not.toHaveBeenCalled();
+    });
+  });
+
+  it('falls back to the error type when the server gives no description', async () => {
+    await withInbox([email('a')], async (mail, { jmap }) => {
+      jmap.mockImplementationOnce(async () => ({
+        methodResponses: [
+          ['Email/set', { accountId: 'acct1', created: null, notCreated: { draft: { type: 'overQuota' } } }, 'set'],
+          ['EmailSubmission/set', { accountId: 'acct1', created: null, notCreated: null }, 'submit'],
+        ],
+        sessionState: 's',
+      }));
+      await expect(
+        mail.sendMessage({ to: 'you@example.org', subject: 'Hi', htmlBody: '<p>x</p>' }),
+      ).rejects.toThrow(`The server refused this message: ${isolate('overQuota')}. Nothing was sent.`);
     });
   });
 });

@@ -51,7 +51,7 @@ import {
 } from './compose/crypto-jmap.ts';
 import { getCryptoWorker } from '../crypto/index.ts';
 import { createConfiguredClient } from '../api/transport.ts';
-import { uploadBlob } from '../api/jmap.ts';
+import { parseRecipients, uploadBlob } from '../api/jmap.ts';
 import { CAP_CORE } from '../api/jmap-types.ts';
 // V7 last-mile mailbox integration (plan §2.7/§14, e14b). All ADDITIVE: each block
 // is gated so a deployment with no directory / disabled Assist / no Nextcloud sees
@@ -66,14 +66,6 @@ import { NextcloudAttach, type AttachedFile } from '../modules/nextcloud/index.t
 // bearer — plan §2.2/§2.5).
 const jmapClient = createConfiguredClient();
 
-/** Split the raw To field into recipient tokens (the banner is live as you type). */
-function splitRecipients(raw: string): string[] {
-  return raw
-    .split(/[,;]/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-}
-
 // Compose (plan §1.5, §2.1): grown with an identity/signature picker (multiple
 // from-addresses, server-pulled allowed-froms) and send-later. The core To /
 // Subject / Body fields + the Send button keep their exact labels so the mock +
@@ -85,14 +77,25 @@ function tokenBoundary(value: string): number {
   return Math.max(value.lastIndexOf(','), value.lastIndexOf(';'));
 }
 
+/** A `datetime-local` value (local wall clock, minute precision) for the first
+ *  whole minute after `now` — the earliest time Send later accepts. */
+function nextLocalMinute(now: Date): string {
+  const d = new Date(Math.floor(now.getTime() / 60_000) * 60_000 + 60_000);
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export function Compose(props: { onClose: () => void }): JSX.Element {
   const app = useApp();
   const [to, setTo] = createSignal('');
   const [subject, setSubject] = createSignal('');
   // `body` stays the PLAIN-TEXT source of truth (crypto/DLP/dictation read it).
-  // `bodyHtml` carries the rich-text HTML for the normal send path; the rich
-  // editor keeps both in sync. `richMode` toggles the ProseMirror editor vs a
-  // plain-text / format=flowed textarea; the toggle round-trips the text.
+  // `bodyHtml` carries the rich-text HTML, and is what the normal send path
+  // sends ONLY while the rich editor is mounted (`editorApi() !== null`); the
+  // editor keeps both in sync. Whenever the editor is not there — plain-text
+  // mode, its chunk still loading, its chunk failed — the send is built from
+  // `body`. `richMode` toggles the ProseMirror editor vs a plain-text textarea;
+  // the toggle round-trips the text.
   const [body, setBody] = createSignal('');
   const [bodyHtml, setBodyHtml] = createSignal('');
 
@@ -104,7 +107,13 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
       aria-label={t('mail-compose-body')}
       rows="10"
       value={body()}
-      onInput={(e) => setBody(e.currentTarget.value)}
+      onInput={(e) => {
+        // Keep `bodyHtml` in step, so an editor that mounts later (its chunk
+        // arrived after the user started typing here) is seeded with this text
+        // instead of starting empty and overwriting it.
+        setBody(e.currentTarget.value);
+        setBodyHtml(plainToHtml(e.currentTarget.value));
+      }}
     />
   );
   const [richMode, setRichMode] = createSignal(true);
@@ -117,6 +126,12 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
   const draftId = newDraftId();
   const [identityId, setIdentityId] = createSignal<string>('');
   const [sendAt, setSendAt] = createSignal('');
+  // Earliest time the Send-later field offers; refreshed when the field is
+  // focused, since a composer can stay open for a long time.
+  const [minSendAt, setMinSendAt] = createSignal(nextLocalMinute(new Date()));
+  // Identities whose signature the picker has already put into the body, so
+  // the send does not append the same signature a second time.
+  const [insertedSignatures, setInsertedSignatures] = createSignal<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [acOpen, setAcOpen] = createSignal(false);
@@ -323,10 +338,42 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
       .filter((s) => s.text !== '' || (s.html ?? '') !== ''),
   );
 
+  /** The signature the send appends by itself: the sending identity's, unless
+   *  the picker already put it in the body, and never on an encrypted or signed
+   *  send — there the body is ciphertext or a clear-signed block, and anything
+   *  appended after it would sit outside the encryption or break the signature. */
+  const autoSignature = createMemo<ComposeSignature | null>(() => {
+    const id = identity();
+    if (id === null) return null;
+    const sig = signatures().find((s) => s.id === id.id) ?? null;
+    if (sig === null || insertedSignatures().has(sig.id)) return null;
+    const cs = cryptoState();
+    if (cs !== null && (cs.encrypt || cs.sign)) return null;
+    return sig;
+  });
+
+  /** A signature as HTML for the outgoing body. `signatureHtml` is whatever the
+   *  server holds for the identity, so it is parsed into the composer's schema
+   *  and re-serialised — the same reduction typed and pasted content gets — and
+   *  only that result is sent. If the schema's chunk cannot be loaded, the
+   *  signature goes out as escaped text instead of as unfiltered markup. */
+  async function signatureBlock(sig: ComposeSignature): Promise<string> {
+    if (sig.html !== null && sig.html !== '') {
+      try {
+        const rt = await import('./compose/richtext.ts');
+        return rt.htmlFromDoc(rt.docFromHtml(sig.html));
+      } catch {
+        // Fall through to the text form.
+      }
+    }
+    return plainToHtml(sig.text);
+  }
+
   /** Insert a chosen signature (W12). In rich mode it appends as HTML through the
    *  editor handle (keeping existing formatting); otherwise it appends its text
    *  to the plain body. */
   function insertSignature(sig: ComposeSignature): void {
+    setInsertedSignatures((prev) => new Set(prev).add(sig.id));
     const api = editorApi();
     if (richMode() && api !== null) {
       api.appendHtml(sig.html !== null && sig.html !== '' ? sig.html : plainToHtml(sig.text));
@@ -379,7 +426,7 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
       id: draftId,
       to: to(),
       subject: subject(),
-      bodyHtml: richMode() ? bodyHtml() : plainToHtml(body()),
+      bodyHtml: richMode() && editorApi() !== null ? bodyHtml() : plainToHtml(body()),
       bodyText: body(),
       savedAt: Date.now(),
     };
@@ -491,6 +538,18 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
       setError(t('mail-compose-sign-unlock-required'));
       return;
     }
+    // Send later: a time that is not in the future is refused here, with the
+    // field left as typed. It is never turned into an immediate send.
+    let sendAtIso: string | null = null;
+    if (sendAt() !== '') {
+      // datetime-local yields a local wall-clock string; convert to a UTC ISO.
+      const at = new Date(sendAt());
+      if (Number.isNaN(at.getTime()) || at.getTime() <= Date.now()) {
+        setError(t('mail-compose-send-later-past'));
+        return;
+      }
+      sendAtIso = at.toISOString();
+    }
     setBusy(true);
     try {
       // Encrypt-on-send (plan §2.5): when encryption is on the worker has already
@@ -510,12 +569,14 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
         htmlBody = enc.armoredCiphertext;
       } else if (signOnly && session !== null) {
         htmlBody = await clearSignBody(getCryptoWorker(), session, body());
-      } else if (richMode()) {
-        // W1: the rich editor's serialized HTML feeds the SAME send payload.
-        htmlBody = bodyHtml();
       } else {
-        // Plain-text / format=flowed: the original escaped-body behavior.
-        htmlBody = `<p>${escapeHtml(body()).replace(/\n/g, '<br>')}</p>`;
+        // The rich editor's serialized HTML, but only while the editor is
+        // actually mounted. In plain-text mode, and when the editor's chunk is
+        // still loading or failed to load, the user typed into the textarea and
+        // `bodyHtml` does not hold their text — the body is built from `body`.
+        htmlBody = richMode() && editorApi() !== null ? bodyHtml() : plainToHtml(body());
+        const sig = autoSignature();
+        if (sig !== null) htmlBody += `<br>${await signatureBlock(sig)}`;
       }
       const subjectToSend =
         enc !== null && cs !== null && cs.protectSubject && enc.encryptedSubjectApplied
@@ -527,8 +588,7 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
         subject: subjectToSend,
         htmlBody,
         identity: identity(),
-        // datetime-local yields a local wall-clock string; convert to a UTC ISO.
-        sendAt: sendAt() !== '' ? new Date(sendAt()).toISOString() : null,
+        sendAt: sendAtIso,
         // V7 (§18.4): Nextcloud-materialised blob attachments (empty ⇒ omitted).
         ...(attached.length > 0
           ? {
@@ -850,7 +910,7 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
             banner from real per-recipient CryptoKey/lookup, and the Dlp/scan
             pre-send warnings. Reports state up via onChange for the send path. */}
         <ComposeCrypto
-          recipients={() => splitRecipients(to())}
+          recipients={() => parseRecipients(to()).map((r) => r.email)}
           subject={() => subject()}
           bodyText={() => body()}
           lookupKeys={lookupKeys}
@@ -905,16 +965,26 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
           </section>
         </Show>
 
-        <Show when={identity()?.signatureText}>
-          {(sig) => <p class="compose__signature">— {isolate(sig())}</p>}
+        {/* Shown exactly when the send will append it (see `autoSignature`). */}
+        <Show when={autoSignature()}>
+          {(sig) => (
+            <p class="compose__signature" data-testid="compose-auto-signature">
+              — {isolate(sig().text)}
+            </p>
+          )}
         </Show>
 
         <label class="field">
           <span>{t('mail-compose-send-later')}</span>
           <input
             type="datetime-local"
+            min={minSendAt()}
             value={sendAt()}
+            onFocus={() => setMinSendAt(nextLocalMinute(new Date()))}
             onInput={(e) => setSendAt(e.currentTarget.value)}
+            // The browser blocks the submit itself for a value under `min`;
+            // say why in the dialog as well as in its own bubble.
+            onInvalid={() => setError(t('mail-compose-send-later-past'))}
           />
         </label>
 

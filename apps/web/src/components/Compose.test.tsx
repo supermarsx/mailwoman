@@ -5,6 +5,7 @@ import { renderWithApp, makeClient } from './appHarness.tsx';
 import { createAppState } from '../state/store.ts';
 import { AppContext } from '../state/context.ts';
 import { AssistService } from '../modules/assist/index.ts';
+import { isolate } from '../i18n/index.ts';
 import type { Identity, JmapRequest } from '../api/jmap-types.ts';
 
 // ── V7 (e14b) integration doubles ────────────────────────────────────────────
@@ -69,6 +70,17 @@ const nextcloudFetcher = async (input: string): Promise<Response> => {
 const IDENTITIES: Identity[] = [
   { id: 'id1', name: 'Personal', email: 'me@example.org', replyTo: null, signatureHtml: null, signatureText: 'Sent from Mailwoman', sentMailboxId: 'sent' },
   { id: 'id2', name: 'Work', email: 'work@corp.example', replyTo: null, signatureHtml: null, signatureText: null, sentMailboxId: 'sent' },
+  // A stored HTML signature holding what the composer's schema does not allow.
+  {
+    id: 'id3',
+    name: 'Markup',
+    email: 'markup@corp.example',
+    replyTo: null,
+    signatureHtml:
+      '<p style="position:fixed">Regards, <a href="javascript:alert(1)">me</a><img src="https://t.example/p.gif" width="1" height="1"></p><script>alert(2)</script>',
+    signatureText: null,
+    sentMailboxId: 'sent',
+  },
 ];
 
 describe('Compose', () => {
@@ -323,13 +335,36 @@ describe('Compose', () => {
   async function composeWithClient(opts: Parameters<typeof makeClient>[0] = {}) {
     const client = makeClient(opts);
     const app = createAppState(client);
+    const onClose = vi.fn();
     render(() => (
       <AppContext.Provider value={app}>
-        <Compose onClose={() => undefined} />
+        <Compose onClose={onClose} />
       </AppContext.Provider>
     ));
     await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
-    return { client, app };
+    return { client, app, onClose };
+  }
+
+  /** How many compose+submit requests the client was handed. */
+  function sendCount(client: ReturnType<typeof makeClient>): number {
+    return vi
+      .mocked(client.jmap)
+      .mock.calls.filter((c) => c[0].methodCalls.some((m) => m[0] === 'EmailSubmission/set' && 'create' in m[1]))
+      .length;
+  }
+
+  /** The body the one send carried. */
+  function sentBody(client: ReturnType<typeof makeClient>): unknown {
+    const create = sentRequest(client).methodCalls[0]![1]['create'] as Record<string, Record<string, unknown>>;
+    return create['draft']!['bodyValues'];
+  }
+
+  /** Fill To / Subject / Body in plain-text mode. */
+  function fillPlain(body: string, to = 'you@example.org'): void {
+    fireEvent.click(screen.getByTestId('format-toggle'));
+    fireEvent.input(screen.getByLabelText('To'), { target: { value: to } });
+    fireEvent.input(screen.getByLabelText('Subject'), { target: { value: 'Hi' } });
+    fireEvent.input(screen.getByLabelText('Body'), { target: { value: body } });
   }
 
   /** The one compose+submit request the client was handed. */
@@ -389,6 +424,162 @@ describe('Compose', () => {
         'submit',
       ],
     ]);
+  });
+
+  // ── Send later ───────────────────────────────────────────────────────────────
+
+  it('offers no send-later time earlier than the next minute', () => {
+    renderWithApp(() => <Compose onClose={() => undefined} />);
+    const min = screen.getByLabelText('Send later').getAttribute('min');
+    expect(min).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+    expect(new Date(min!).getTime()).toBeGreaterThan(Date.now());
+    expect(new Date(min!).getTime()).toBeLessThanOrEqual(Date.now() + 60_000);
+  });
+
+  it('schedules a future time: the submission carries it and the composer closes', async () => {
+    const { client, onClose } = await composeWithClient();
+    fillPlain('later');
+    fireEvent.input(screen.getByLabelText('Send later'), { target: { value: '2099-01-01T09:00' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Schedule' }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    const send = (sentRequest(client).methodCalls[1]![1]['create'] as Record<string, Record<string, unknown>>)['send']!;
+    expect(send).toEqual({
+      emailId: '#draft',
+      envelope: { mailFrom: { email: 'me@example.org' }, rcptTo: [{ email: 'you@example.org' }] },
+      sendAt: new Date('2099-01-01T09:00').toISOString(),
+      mailwomanHoldSeconds: 0,
+    });
+  });
+
+  it('refuses a past send-later time: says so, sends nothing, stays open', async () => {
+    const { client, onClose } = await composeWithClient();
+    fillPlain('later');
+    const later = screen.getByLabelText('Send later') as HTMLInputElement;
+    fireEvent.input(later, { target: { value: '2001-01-01T09:00' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Schedule' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Choose a send time in the future, or clear the field to send now.',
+    );
+    expect(sendCount(client)).toBe(0);
+    expect(onClose).not.toHaveBeenCalled();
+    // The field keeps what was typed, so it can be corrected.
+    expect(later.value).toBe('2001-01-01T09:00');
+  });
+
+  it('refuses a time that passed while the composer was open (the field minimum is stale)', async () => {
+    const { client, onClose } = await composeWithClient();
+    fillPlain('later');
+    const later = screen.getByLabelText('Send later') as HTMLInputElement;
+    // What a long-open composer looks like: the minimum was computed long ago,
+    // so the browser's own range check accepts a time that is now in the past.
+    later.setAttribute('min', '2000-01-01T00:00');
+    fireEvent.input(later, { target: { value: '2001-01-01T09:00' } });
+    expect(later.validity.valid).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Schedule' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Choose a send time in the future, or clear the field to send now.',
+    );
+    expect(sendCount(client)).toBe(0);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  // ── A refused send ───────────────────────────────────────────────────────────
+
+  it('shows why the server refused the draft and keeps the composer open', async () => {
+    const { client, onClose } = await composeWithClient();
+    const answer = vi.mocked(client.jmap).getMockImplementation()!;
+    vi.mocked(client.jmap).mockImplementation(async (body, opts) => {
+      if (!body.methodCalls.some((m) => m[0] === 'EmailSubmission/set' && 'create' in m[1])) return answer(body, opts);
+      // The engine's shape for a draft it will not store (mw-engine jmap.rs,
+      // `InvalidProperty::set_error`).
+      return {
+        methodResponses: [
+          [
+            'Email/set',
+            {
+              accountId: 'acct1',
+              created: null,
+              notCreated: {
+                draft: { type: 'invalidProperties', properties: ['from'], description: 'from: "a b": contains whitespace' },
+              },
+            },
+            'set',
+          ],
+          ['EmailSubmission/set', { accountId: 'acct1', created: null, notCreated: { send: { type: 'invalidProperties' } } }, 'submit'],
+        ],
+        sessionState: 's',
+      };
+    });
+    fillPlain('hello');
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      `The server refused this message: ${isolate('from: "a b": contains whitespace')}. Nothing was sent.`,
+    );
+    expect(sendCount(client)).toBe(1);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: 'Compose message' })).toBeInTheDocument();
+    expect((screen.getByLabelText('Body') as HTMLTextAreaElement).value).toBe('hello');
+  });
+
+  it('names a recipient that is not an address, sends nothing, stays open', async () => {
+    const { client, onClose } = await composeWithClient();
+    fillPlain('hello', 'you@example.org, bob');
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(`This is not an email address: ${isolate('bob')}`);
+    expect(sendCount(client)).toBe(0);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  // ── The identity signature ───────────────────────────────────────────────────
+
+  it('appends the identity signature once, reduced to the composer schema', async () => {
+    const { client, app, onClose } = await composeWithClient({ identities: IDENTITIES });
+    await app.loadIdentities();
+    fireEvent.change(await screen.findByLabelText('From'), { target: { value: 'id3' } });
+    fillPlain('hi');
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    // No <img>, no javascript: link, no style attribute, no <script>.
+    expect(sentBody(client)).toEqual({ body: { value: '<p>hi</p><br><p>Regards, me</p>' } });
+  });
+
+  it('appends a text-only signature as escaped text', async () => {
+    const { client, app, onClose } = await composeWithClient({ identities: IDENTITIES });
+    await app.loadIdentities();
+    fireEvent.change(await screen.findByLabelText('From'), { target: { value: 'id1' } });
+    expect(await screen.findByTestId('compose-auto-signature')).toHaveTextContent('Sent from Mailwoman');
+    fillPlain('hi');
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(sentBody(client)).toEqual({ body: { value: '<p>hi</p><br><p>Sent from Mailwoman</p>' } });
+  });
+
+  it('does not append a signature the picker already put in the body', async () => {
+    const { client, app, onClose } = await composeWithClient({ identities: IDENTITIES });
+    await app.loadIdentities();
+    fireEvent.change(await screen.findByLabelText('From'), { target: { value: 'id1' } });
+    fillPlain('hi');
+    // Precondition: the send would append it.
+    expect(screen.getByTestId('compose-auto-signature')).toBeInTheDocument();
+    const picker = await screen.findByTestId('compose-signature');
+    fireEvent.change(within(picker).getByRole('combobox'), { target: { value: 'id1' } });
+    expect(screen.queryByTestId('compose-auto-signature')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(sentBody(client)).toEqual({
+      body: { value: '<p>hi<br><br>-- <br>Sent from Mailwoman</p>' },
+    });
+  });
+
+  it('appends no signature to a signed send', async () => {
+    const { app } = await composeWithClient({ identities: IDENTITIES });
+    await app.loadIdentities();
+    fireEvent.change(await screen.findByLabelText('From'), { target: { value: 'id1' } });
+    fireEvent.input(screen.getByLabelText('To'), { target: { value: 'you@example.org' } });
+    // Precondition: unsigned, the signature would be appended.
+    expect(await screen.findByTestId('compose-auto-signature')).toBeInTheDocument();
+    fireEvent.click(await screen.findByTestId('sign-toggle'));
+    await waitFor(() => expect(screen.queryByTestId('compose-auto-signature')).toBeNull());
   });
 
   // ── W9 / W10 / W12: drawers + signature picker ───────────────────────────────

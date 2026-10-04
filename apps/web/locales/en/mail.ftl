@@ -146,6 +146,16 @@ mail-compose-sending = Sending…
 mail-compose-encrypted-subject = Encrypted message
 mail-compose-dlp-blocked = Sending is blocked by a data-loss-prevention rule (see the warning above).
 mail-compose-send-failed = Send failed
+mail-compose-send-later-past = Choose a send time in the future, or clear the field to send now.
+# Refusals raised by the send itself. The composer stays open and shows them.
+mail-send-no-recipient = Add at least one recipient.
+mail-send-bad-recipient = { $count ->
+    [one] This is not an email address: { $addresses }
+   *[other] These are not email addresses: { $addresses }
+}
+mail-send-later-past = The send time is not in the future. Nothing was sent.
+mail-send-draft-refused = The server refused this message: { $reason }. Nothing was sent.
+mail-send-submission-refused = The server refused to send this message: { $reason }. Nothing was sent.
 # Signing-key unlock (sign-on-send)
 mail-compose-sign-unlock-title = Unlock signing key
 mail-compose-sign-unlock-note = Enter your key passphrase to sign this message. It stays unlocked for this composer only.
