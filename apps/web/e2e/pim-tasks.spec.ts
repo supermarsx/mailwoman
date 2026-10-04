@@ -8,11 +8,14 @@ import { engineLogin, gotoModule, reloadToShell, uid } from './pim-helpers.ts';
  * date is NOT in My Day); completing a task toggles it done; and a created task
  * survives a reload (engine round-trip).
  *
- * NOTE (reported as a UI gap, not patched here — e12 owns e2e only): the Tasks
- * module exposes no per-task "add to My Day" control, and the add-task form has
- * no due-date field, so a task cannot be pinned into My Day through the current
- * UI even though the `Task/*` surface + the tasks slice (`setMyDay`) support it.
- * This spec therefore verifies My Day reachability + its filter, not UI pinning.
+ * Editing (26.20 t28-e5): a task's title, due date and priority are edited
+ * inline and a task can be deleted; each is asserted across a full reload, so
+ * the proof is the engine's stored row, not the optimistic local state.
+ *
+ * NOTE (a UI gap, not patched here): the Tasks module exposes no per-task "add
+ * to My Day" control, so a task cannot be PINNED into My Day through the UI even
+ * though the `Task/*` surface + the tasks slice (`setMyDay`) support it. A task
+ * does enter My Day through its due date, which the edit form sets.
  */
 
 const tasks = (page: Page) => page.locator('[data-module="tasks"]');
@@ -77,5 +80,72 @@ test.describe('Tasks module through the real UI (engine mode)', () => {
     await reloadToShell(page);
     await gotoModule(page, 'tasks');
     await expect(tasks(page).getByText(title)).toBeVisible();
+  });
+
+  test('rename a task, set its due date and priority → all three survive a reload', async ({ page }) => {
+    await engineLogin(page);
+    await gotoModule(page, 'tasks');
+
+    const tag = uid();
+    const before = `Draft the memo ${tag}`;
+    const after = `Send the memo ${tag}`;
+    await addTask(page, before);
+    const list = tasks(page).getByRole('list', { name: 'Tasks' });
+    await expect(list.getByText(before)).toBeVisible();
+    // Precondition: the new title is not already there, and the task has no due
+    // date (it is not in My Day).
+    await expect(tasks(page).getByText(after)).toHaveCount(0);
+
+    await tasks(page).getByRole('button', { name: `Edit ${before}` }).click();
+    const form = tasks(page).getByRole('form', { name: `Edit ${before}` });
+    await form.getByLabel('Title').fill(after);
+    const d = new Date();
+    const p = (n: number): string => String(n).padStart(2, '0');
+    const today = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    await form.getByLabel('Due date').fill(today);
+    await form.getByLabel('Priority').selectOption({ label: 'High' });
+    await form.getByRole('button', { name: 'Save' }).click();
+    await expect(list.getByText(after)).toBeVisible();
+
+    await reloadToShell(page);
+    await gotoModule(page, 'tasks');
+    const row = tasks(page).getByRole('list', { name: 'Tasks' }).locator('li', { hasText: after });
+    await expect(row).toBeVisible();
+    await expect(tasks(page).getByText(before)).toHaveCount(0);
+    await expect(row.getByText(today)).toBeVisible();
+    await expect(row.getByLabel('High priority')).toBeVisible();
+
+    // Due today → the engine-stored due date puts it in My Day.
+    await tasks(page).getByRole('button', { name: 'My Day' }).click();
+    await expect(tasks(page).getByRole('list', { name: 'My Day' }).getByText(after)).toBeVisible();
+  });
+
+  test('delete a task → it is gone after a reload; declining the confirm keeps it', async ({ page }) => {
+    await engineLogin(page);
+    await gotoModule(page, 'tasks');
+
+    const title = `Obsolete chore ${uid()}`;
+    await addTask(page, title);
+    await expect(tasks(page).getByText(title)).toBeVisible();
+
+    // Declining: the task is still stored.
+    await tasks(page).getByRole('button', { name: `Edit ${title}` }).click();
+    await tasks(page).getByRole('button', { name: 'Delete', exact: true }).click();
+    await tasks(page).getByRole('button', { name: 'Keep task' }).click();
+    await tasks(page).getByRole('button', { name: 'Cancel' }).click();
+    await reloadToShell(page);
+    await gotoModule(page, 'tasks');
+    await expect(tasks(page).getByText(title)).toBeVisible();
+
+    // Confirming: it is destroyed in the engine.
+    await tasks(page).getByRole('button', { name: `Edit ${title}` }).click();
+    await tasks(page).getByRole('button', { name: 'Delete', exact: true }).click();
+    await tasks(page).getByRole('button', { name: 'Delete task' }).click();
+    await expect(tasks(page).getByText(title)).toHaveCount(0);
+    await reloadToShell(page);
+    await gotoModule(page, 'tasks');
+    // The list has loaded (the add form is there) and the task is not in it.
+    await expect(tasks(page).getByLabel('New task title')).toBeVisible();
+    await expect(tasks(page).getByText(title)).toHaveCount(0);
   });
 });

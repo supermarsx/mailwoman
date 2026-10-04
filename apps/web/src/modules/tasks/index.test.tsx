@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render, fireEvent, screen, waitFor, within } from '@solidjs/testing-library';
-import { TasksModule } from './index.tsx';
+import { TasksModule, dueFromDateInput, priorityChoice } from './index.tsx';
 import { AppContext } from '../../state/context.ts';
 import { createAppState, type AppState } from '../../state/store.ts';
 import { todayDate } from '../../state/slices/tasks.ts';
@@ -152,5 +152,136 @@ describe('TasksModule', () => {
     });
     // The optimistic converted row appears without a reload.
     expect(await screen.findByText('Follow up: mail m-42')).toBeInTheDocument();
+  });
+});
+
+// ── editing + delete (26.20 t28-e5) ─────────────────────────────────────────
+//
+// The engine's `Task/set` update shallow-merges the patch into the stored task
+// (`task_update`, crates/mw-engine/src/pim/tasks.rs:145-150) and destroy takes a
+// list of ids (`task_destroy`, :173-189), so the assertions below are on the
+// exact `update` / `destroy` arguments the module sends.
+
+/** The `Task/set` calls carrying `key`, in the order they were sent. */
+function setCalls(sent: JmapRequest[], key: 'update' | 'destroy'): unknown[] {
+  return sent
+    .filter((b) => b.methodCalls[0]?.[0] === 'Task/set')
+    .map((b) => (b.methodCalls[0]?.[1] as Record<string, unknown>)[key])
+    .filter((v) => v !== undefined);
+}
+
+describe('TasksModule — edit and delete', () => {
+  it('edits title, due date and priority, sending one Task/set update with exactly those fields', async () => {
+    const sent: JmapRequest[] = [];
+    const app = renderTasks([mkTask({ id: 't1', title: 'Write the report' })], (body) => sent.push(body));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Write the report' }));
+    const form = screen.getByRole('form', { name: 'Edit Write the report' });
+    // Precondition: opening the editor sends nothing.
+    expect(setCalls(sent, 'update')).toHaveLength(0);
+
+    fireEvent.input(within(form).getByLabelText('Title'), { target: { value: 'Write the Q3 report' } });
+    fireEvent.input(within(form).getByLabelText('Due date'), { target: { value: '2026-10-09' } });
+    fireEvent.change(within(form).getByLabelText('Priority'), { target: { value: '1' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(setCalls(sent, 'update')).toHaveLength(1));
+    expect(setCalls(sent, 'update')[0]).toEqual({
+      t1: { title: 'Write the Q3 report', due: '2026-10-09', priority: 1 },
+    });
+    // The row shows the new values and the form is gone.
+    expect(await screen.findByText('Write the Q3 report')).toBeInTheDocument();
+    expect(screen.getByText('2026-10-09')).toBeInTheDocument();
+    expect(screen.getByLabelText('High priority')).toBeInTheDocument();
+    expect(screen.queryByRole('form')).toBeNull();
+    expect(app.tasks().find((t) => t.id === 't1')?.title).toBe('Write the Q3 report');
+  });
+
+  it('sends only the fields that changed — an untouched priority is not rewritten', async () => {
+    const sent: JmapRequest[] = [];
+    renderTasks(
+      [mkTask({ id: 't1', title: 'Renew passport', priority: 3, due: '2026-10-09T17:00:00' })],
+      (body) => sent.push(body),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Renew passport' }));
+    const form = screen.getByRole('form', { name: 'Edit Renew passport' });
+    // The stored values are what the form opens with.
+    expect((within(form).getByLabelText('Due date') as HTMLInputElement).value).toBe('2026-10-09');
+    expect((within(form).getByLabelText('Priority') as HTMLSelectElement).value).toBe('1');
+    fireEvent.input(within(form).getByLabelText('Due date'), { target: { value: '2026-10-12' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(setCalls(sent, 'update')).toHaveLength(1));
+    // The time of day is kept; title and priority (3) are not in the patch.
+    expect(setCalls(sent, 'update')[0]).toEqual({ t1: { due: '2026-10-12T17:00:00' } });
+  });
+
+  it('clearing the due date sends due: null', async () => {
+    const sent: JmapRequest[] = [];
+    renderTasks([mkTask({ id: 't1', title: 'Someday', due: '2026-10-09' })], (body) => sent.push(body));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Someday' }));
+    fireEvent.input(screen.getByLabelText('Due date'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(setCalls(sent, 'update')).toHaveLength(1));
+    expect(setCalls(sent, 'update')[0]).toEqual({ t1: { due: null } });
+  });
+
+  it('Cancel, an unchanged Save, and an emptied title send nothing', async () => {
+    const sent: JmapRequest[] = [];
+    renderTasks([mkTask({ id: 't1', title: 'Keep me' })], (body) => sent.push(body));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Keep me' }));
+    fireEvent.input(screen.getByLabelText('Title'), { target: { value: 'Changed my mind' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByText('Keep me')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Keep me' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.queryByRole('form')).toBeNull());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Keep me' }));
+    fireEvent.input(screen.getByLabelText('Title'), { target: { value: '   ' } });
+    fireEvent.submit(screen.getByRole('form'));
+    // The edit stays open on an empty title.
+    expect(screen.getByRole('form')).toBeInTheDocument();
+
+    expect(setCalls(sent, 'update')).toHaveLength(0);
+    expect(setCalls(sent, 'destroy')).toHaveLength(0);
+  });
+
+  it('delete asks first, then sends Task/set destroy and removes the row', async () => {
+    const sent: JmapRequest[] = [];
+    const app = renderTasks(
+      [mkTask({ id: 't1', title: 'Old chore' }), mkTask({ id: 't2', title: 'Stays' })],
+      (body) => sent.push(body),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Old chore' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    // First click only asks: nothing is sent and the task is still there.
+    expect(screen.getByText('Delete this task? This cannot be undone.')).toBeInTheDocument();
+    expect(setCalls(sent, 'destroy')).toHaveLength(0);
+    expect(app.tasks().some((t) => t.id === 't1')).toBe(true);
+
+    // Declining keeps it.
+    fireEvent.click(screen.getByRole('button', { name: 'Keep task' }));
+    expect(setCalls(sent, 'destroy')).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete task' }));
+    await waitFor(() => expect(setCalls(sent, 'destroy')).toEqual([['t1']]));
+    await waitFor(() => expect(app.tasks().some((t) => t.id === 't1')).toBe(false));
+    expect(screen.queryByText('Old chore')).toBeNull();
+    expect(screen.getByText('Stays')).toBeInTheDocument();
+  });
+});
+
+describe('task editor helpers', () => {
+  it('priorityChoice maps stored iCalendar priorities onto the offered choices', () => {
+    expect([0, 1, 4, 5, 6, 9, 12].map(priorityChoice)).toEqual([0, 1, 1, 5, 9, 9, 0]);
+  });
+
+  it('dueFromDateInput keeps an existing time of day and clears on empty', () => {
+    expect(dueFromDateInput('2026-10-12', null)).toBe('2026-10-12');
+    expect(dueFromDateInput('2026-10-12', '2026-10-09')).toBe('2026-10-12');
+    expect(dueFromDateInput('2026-10-12', '2026-10-09T17:00:00')).toBe('2026-10-12T17:00:00');
+    expect(dueFromDateInput('', '2026-10-09T17:00:00')).toBeNull();
   });
 });

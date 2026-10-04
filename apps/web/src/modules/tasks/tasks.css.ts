@@ -99,6 +99,12 @@ export const button = style({
   selectors: { '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing } },
 });
 
+/** The confirm step of a destructive action (delete). */
+export const dangerButton = style([
+  button,
+  { background: vars.color.danger, color: '#fff', borderColor: vars.color.danger },
+]);
+
 // WCAG 2.2 §2.5.8 — the complete/reopen checkbox is at least 24×24 CSS px.
 export const checkbox = style({
   width: vars.a11y.touchTarget,
@@ -133,6 +139,33 @@ export const row = style({
   border: `1px solid ${vars.color.border}`,
   borderRadius: vars.radius.md,
   background: vars.color.surface,
+});
+
+/** The inline edit form that replaces a row while it is being edited. */
+export const editForm = style({
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'flex-end',
+  gap: vars.space[3],
+  padding: `${vars.space[2]} ${vars.space[3]}`,
+  border: `1px solid ${vars.color.border}`,
+  borderRadius: vars.radius.md,
+  background: vars.color.surface,
+});
+
+export const field = style({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: vars.space[1],
+  flex: '1 1 10rem',
+  minWidth: 0,
+});
+
+export const editActions = style({
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'center',
+  gap: vars.space[2],
 });
 
 export const rowDone = style({

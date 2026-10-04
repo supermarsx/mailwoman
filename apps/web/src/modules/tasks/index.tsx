@@ -1,9 +1,9 @@
 // Tasks module (plan §2.5, §3 e5) — mounted into the app shell via the frozen
 // `AppModule` registry (`shell/modules.ts`). Task lists (CalDAV VTODO
 // collections), a create form, root tasks with nested subtasks, the My Day /
-// Today view, complete/reopen, drag-reorder of My Day, and the mail→task /
-// event→task convert entry points — all over `state/slices/tasks.ts` and the
-// frozen `Task/*` surface (mock-backed until e10 swaps in the real engine).
+// Today view, complete/reopen, per-task edit (title, due date, priority) and
+// delete, drag-reorder of My Day, and the mail→task / event→task convert entry
+// points — all over `state/slices/tasks.ts` and the `Task/*` surface.
 //
 // Shared primitives (ribbon / command-palette / tokens) are reused read-only;
 // this module owns only its own view. Styling is token-native (`tasks.css.ts`).
@@ -230,26 +230,150 @@ function Subtasks(props: { parentId: Id }): JSX.Element {
   );
 }
 
-/** One task row: complete toggle + title + schedule/priority meta. */
+/**
+ * The priority choices offered in the editor, as iCalendar PRIORITY values
+ * (RFC 5545 §3.8.1.9): 0 = undefined, 1–4 = high, 5 = medium, 6–9 = low. The
+ * engine stores the number as sent (`task_update` merges the patch,
+ * `crates/mw-engine/src/pim/tasks.rs:145-150`).
+ */
+const PRIORITY_CHOICES = [
+  { value: 0, label: 'tasks-priority-none' },
+  { value: 1, label: 'tasks-priority-high' },
+  { value: 5, label: 'tasks-priority-medium' },
+  { value: 9, label: 'tasks-priority-low' },
+] as const;
+
+/** The editor choice a stored PRIORITY value falls under. */
+export function priorityChoice(priority: number): number {
+  if (priority >= 1 && priority <= 4) return 1;
+  if (priority === 5) return 5;
+  if (priority >= 6 && priority <= 9) return 9;
+  return 0;
+}
+
+/**
+ * The `due` to store for a date picked in the editor: the picked day, keeping
+ * the time of day the task already had (a date-only due stays date-only), or
+ * `null` when the field was cleared.
+ */
+export function dueFromDateInput(date: string, previous: string | null): string | null {
+  if (date === '') return null;
+  const time = previous !== null && previous.length > 10 ? previous.slice(10) : '';
+  return `${date}${time}`;
+}
+
+/** One task row: complete toggle + title + schedule/priority meta + edit. */
 function TaskItem(props: { task: Task }): JSX.Element {
   const app = useApp();
   const done = (): boolean => isDone(props.task);
+  const [editing, setEditing] = createSignal(false);
+  const [confirmingDelete, setConfirmingDelete] = createSignal(false);
+  const [title, setTitle] = createSignal('');
+  const [due, setDue] = createSignal('');
+  const [priority, setPriority] = createSignal(0);
+
+  function startEdit(): void {
+    setTitle(props.task.title);
+    setDue(props.task.due === null ? '' : props.task.due.slice(0, 10));
+    setPriority(priorityChoice(props.task.priority));
+    setConfirmingDelete(false);
+    setEditing(true);
+  }
+
+  async function save(e: Event): Promise<void> {
+    e.preventDefault();
+    const next = title().trim();
+    // A task keeps a title: an emptied field leaves the edit open.
+    if (next === '') return;
+    // Send only what changed, so an untouched priority of e.g. 3 is not
+    // rewritten to the "high" choice's 1.
+    const patch: Partial<Task> = {};
+    if (next !== props.task.title) patch.title = next;
+    const nextDue = dueFromDateInput(due(), props.task.due);
+    if (nextDue !== props.task.due) patch.due = nextDue;
+    if (priority() !== priorityChoice(props.task.priority)) patch.priority = priority();
+    setEditing(false);
+    if (Object.keys(patch).length > 0) await app.updateTask(props.task.id, patch);
+  }
+
   return (
-    <div class={`${css.row} ${done() ? css.rowDone : ''}`}>
-      <input
-        type="checkbox"
-        class={css.checkbox}
-        checked={done()}
-        aria-label={done() ? t('tasks-reopen', { title: props.task.title }) : t('tasks-complete', { title: props.task.title })}
-        onChange={() => void app.toggleComplete(props.task.id)}
-      />
-      <span class={css.title}><bdi>{props.task.title}</bdi></span>
-      <Show when={props.task.priority >= 1 && props.task.priority <= 4}>
-        <span class={css.priorityHigh} aria-label={t('tasks-high-priority')}>!</span>
-      </Show>
-      <Show when={scheduleLabel(props.task) !== ''}>
-        <span class={css.meta}>{scheduleLabel(props.task)}</span>
-      </Show>
-    </div>
+    <Show
+      when={editing()}
+      fallback={
+        <div class={`${css.row} ${done() ? css.rowDone : ''}`}>
+          <input
+            type="checkbox"
+            class={css.checkbox}
+            checked={done()}
+            aria-label={done() ? t('tasks-reopen', { title: props.task.title }) : t('tasks-complete', { title: props.task.title })}
+            onChange={() => void app.toggleComplete(props.task.id)}
+          />
+          <span class={css.title}><bdi>{props.task.title}</bdi></span>
+          <Show when={props.task.priority >= 1 && props.task.priority <= 4}>
+            <span class={css.priorityHigh} aria-label={t('tasks-high-priority')}>!</span>
+          </Show>
+          <Show when={scheduleLabel(props.task) !== ''}>
+            <span class={css.meta}>{scheduleLabel(props.task)}</span>
+          </Show>
+          <button
+            type="button"
+            class={css.button}
+            aria-label={t('tasks-edit', { title: props.task.title })}
+            onClick={startEdit}
+          >
+            {t('common-edit')}
+          </button>
+        </div>
+      }
+    >
+      <form class={css.editForm} aria-label={t('tasks-edit', { title: props.task.title })} onSubmit={save}>
+        <label class={css.field}>
+          <span class={css.meta}>{t('tasks-field-title')}</span>
+          <input
+            class={css.input}
+            type="text"
+            required
+            value={title()}
+            onInput={(e) => setTitle(e.currentTarget.value)}
+          />
+        </label>
+        <label class={css.field}>
+          <span class={css.meta}>{t('tasks-field-due')}</span>
+          <input class={css.input} type="date" value={due()} onInput={(e) => setDue(e.currentTarget.value)} />
+        </label>
+        <label class={css.field}>
+          <span class={css.meta}>{t('tasks-field-priority')}</span>
+          <select
+            class={css.input}
+            value={priority()}
+            onChange={(e) => setPriority(Number(e.currentTarget.value))}
+          >
+            <For each={PRIORITY_CHOICES}>
+              {(choice) => <option value={choice.value}>{t(choice.label)}</option>}
+            </For>
+          </select>
+        </label>
+        <div class={css.editActions}>
+          <button class={css.button} type="submit">{t('common-save')}</button>
+          <button class={css.button} type="button" onClick={() => setEditing(false)}>{t('common-cancel')}</button>
+          <Show
+            when={confirmingDelete()}
+            fallback={
+              <button class={css.button} type="button" onClick={() => setConfirmingDelete(true)}>
+                {t('common-delete')}
+              </button>
+            }
+          >
+            <span class={css.meta} role="alert">{t('tasks-delete-confirm')}</span>
+            <button class={css.dangerButton} type="button" onClick={() => void app.deleteTask(props.task.id)}>
+              {t('tasks-delete-yes')}
+            </button>
+            <button class={css.button} type="button" onClick={() => setConfirmingDelete(false)}>
+              {t('tasks-delete-no')}
+            </button>
+          </Show>
+        </div>
+      </form>
+    </Show>
   );
 }
