@@ -147,6 +147,8 @@ mail-compose-dlp-blocked = Sending is blocked by a data-loss-prevention rule (se
 mail-compose-send-failed = Send failed
 mail-compose-send-later-past = Choose a send time in the future, or clear the field to send now.
 # Refusals raised by the send itself. The composer stays open and shows them.
+mail-send-not-signed-in = You are not signed in.
+mail-send-no-draft-folder = This account has no folder to hold the draft.
 mail-send-no-recipient = Add at least one recipient.
 mail-send-bad-recipient = { $count ->
     [one] This is not an email address: { $addresses }
@@ -224,6 +226,39 @@ mail-sweeping = Sweeping…
 
 # -- Undo toast --------------------------------------------------------------
 mail-undo-dismiss = Dismiss
+mail-undo-action = Undo
+mail-undo-send-cancel = Cancel
+mail-undo-failed = Could not undo
+
+# -- Toasts raised by mail actions (state/slices/mail.ts) ----------------------
+mail-toast-label-added = Label added
+mail-toast-label-removed = Label removed
+mail-toast-pinned = Pinned
+mail-toast-unpinned = Unpinned
+mail-toast-snoozed = Snoozed
+mail-toast-follow-up-set = Follow-up set
+mail-toast-follow-up-cleared = Follow-up cleared
+mail-toast-archived = Archived
+mail-toast-trashed = Moved to Trash
+mail-toast-marked-spam = Marked as spam
+mail-toast-moved-to = Moved to { $folder }
+mail-toast-moved = Moved to folder
+mail-toast-no-archive-folder = No Archive folder
+mail-toast-no-trash-folder = No Trash folder
+mail-toast-no-spam-folder = No Spam folder
+mail-toast-sweep-nothing = Nothing to sweep
+mail-toast-swept = { $count ->
+    [one] Swept { $count } message
+   *[other] Swept { $count } messages
+}
+mail-toast-load-more-failed = Could not load more messages
+mail-toast-export-nothing = Nothing to export
+mail-toast-exported = Exported .eml
+mail-toast-export-failed = Export failed
+mail-toast-send-queued = Queued — will send when back online
+mail-toast-send-scheduled = Scheduled to send
+mail-toast-sent = Message sent
+mail-toast-send-canceled = Send canceled
 
 # -- Ribbon (Outlook-style layout preset) ------------------------------------
 mail-ribbon-label = Ribbon

@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRoot } from 'solid-js';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { createMailSlice, extractHtmlBody, type MailSlice } from './mail.ts';
 import type { SliceContext } from './context.ts';
 import { isolate } from '../../i18n/index.ts';
@@ -1047,6 +1049,58 @@ describe('mail slice — session lifecycle', () => {
       expect(mail.pendingUndo()).toBeNull();
       await mail.undoNow(); // no-op — nothing pending
       expect(mail.messages().map((m) => m.id)).toEqual(['b']);
+    });
+  });
+});
+
+describe('mail slice — user-facing strings', () => {
+  // `scripts/i18n/no-hardcoded-strings.mjs` scans `.tsx` only, so nothing else
+  // stops a literal toast from being added to this slice.
+  const source = readFileSync(resolve(process.cwd(), 'src/state/slices/mail.ts'), 'utf8');
+  const quoted = String.raw`(?:'[^']*'|"[^"]*"|\`[^\`]*\`)`;
+
+  it.each([
+    ['a toast message', new RegExp(String.raw`showToast\(\s*'[a-z]+',\s*${quoted}`, 'g')],
+    ['an undo label', new RegExp(String.raw`showUndo\(\s*${quoted}`, 'g')],
+    ['a thrown message', new RegExp(String.raw`new Error\(\s*${quoted}`, 'g')],
+    ['a default action label', new RegExp(String.raw`actionLabel\s*=\s*${quoted}`, 'g')],
+    ['a relocation label', new RegExp(String.raw`relocateWithUndo\([^)]*,\s*${quoted}\s*\)`, 'g')],
+  ])('has no string literal as %s', (_what, pattern) => {
+    expect(source.match(pattern) ?? []).toEqual([]);
+  });
+
+  it('the patterns above do match the literal forms they guard against', () => {
+    // Without this, a typo in a pattern would make the guard pass on anything.
+    const sample = [
+      "showToast('error', 'No Trash folder');",
+      "showUndo('Label added', () => undefined);",
+      'throw new Error(`draft rejected: ${x}`);',
+      "function showUndo(a, b, ttlMs = 1, actionLabel = 'Undo') {}",
+      "await relocateWithUndo(id, target, 'Archived');",
+    ].join('\n');
+    expect(sample.match(new RegExp(String.raw`showToast\(\s*'[a-z]+',\s*${quoted}`, 'g'))).toHaveLength(1);
+    expect(sample.match(new RegExp(String.raw`showUndo\(\s*${quoted}`, 'g'))).toHaveLength(1);
+    expect(sample.match(new RegExp(String.raw`new Error\(\s*${quoted}`, 'g'))).toHaveLength(1);
+    expect(sample.match(new RegExp(String.raw`actionLabel\s*=\s*${quoted}`, 'g'))).toHaveLength(1);
+    expect(sample.match(new RegExp(String.raw`relocateWithUndo\([^)]*,\s*${quoted}\s*\)`, 'g'))).toHaveLength(1);
+  });
+
+  it('a move names the destination folder, and a sweep counts in the plural', async () => {
+    await withInbox([email('a'), email('b'), email('c')], async (mail) => {
+      await mail.moveMessage('a', 'archive');
+      expect(mail.pendingUndo()?.label).toBe(`Moved to ${isolate('Archive')}`);
+      expect(mail.pendingUndo()?.actionLabel).toBe('Undo');
+      await mail.moveMessage('b', 'no-such-mailbox');
+      expect(mail.pendingUndo()?.label).toBe('Moved to folder');
+    });
+    const from = [{ name: null, email: 'bulk@example.org' }];
+    await withInbox([email('x', { from }), email('y', { from })], async (mail) => {
+      await mail.executeSweep('bulk@example.org', 'all');
+      expect(mail.pendingUndo()?.label).toBe('Swept 2 messages');
+    });
+    await withInbox([email('x', { from })], async (mail) => {
+      await mail.executeSweep('bulk@example.org', 'all');
+      expect(mail.pendingUndo()?.label).toBe('Swept 1 message');
     });
   });
 });

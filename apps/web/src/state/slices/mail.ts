@@ -376,7 +376,12 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   let undoTimer: ReturnType<typeof setTimeout> | undefined;
 
   // ── undo primitive ──────────────────────────────────────────────────────
-  function showUndo(label: string, run: () => Promise<void>, ttlMs = 10_000, actionLabel = 'Undo'): void {
+  function showUndo(
+    label: string,
+    run: () => Promise<void>,
+    ttlMs = 10_000,
+    actionLabel = t('mail-undo-action'),
+  ): void {
     if (undoTimer !== undefined) clearTimeout(undoTimer);
     setPendingUndo({ label, actionLabel, run, expiresAt: Date.now() + ttlMs });
     undoTimer = setTimeout(() => setPendingUndo(null), ttlMs);
@@ -392,7 +397,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     try {
       await p.run();
     } catch {
-      showToast('error', 'Could not undo');
+      showToast('error', t('mail-undo-failed'));
     }
   }
 
@@ -452,23 +457,23 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   // ── tags ─────────────────────────────────────────────────────────────────
   async function applyTag(id: Id, keyword: string): Promise<void> {
     await rawKeyword(id, keyword, true);
-    showUndo('Label added', () => rawKeyword(id, keyword, false));
+    showUndo(t('mail-toast-label-added'), () => rawKeyword(id, keyword, false));
   }
   async function removeTag(id: Id, keyword: string): Promise<void> {
     await rawKeyword(id, keyword, false);
-    showUndo('Label removed', () => rawKeyword(id, keyword, true));
+    showUndo(t('mail-toast-label-removed'), () => rawKeyword(id, keyword, true));
   }
 
   // ── pin / snooze / follow-up ──────────────────────────────────────────────
   async function pinMessage(id: Id, pinned: boolean): Promise<void> {
     const prev = messages().find((m) => m.id === id)?.pinned ?? false;
     await rawMeta(id, { pinned });
-    showUndo(pinned ? 'Pinned' : 'Unpinned', () => rawMeta(id, { pinned: prev }));
+    showUndo(pinned ? t('mail-toast-pinned') : t('mail-toast-unpinned'), () => rawMeta(id, { pinned: prev }));
   }
   async function snoozeMessage(id: Id, untilIso: string): Promise<void> {
     const prev = messages().find((m) => m.id === id)?.snoozedUntil ?? null;
     await rawMeta(id, { snoozedUntil: untilIso });
-    showUndo('Snoozed', () => rawMeta(id, { snoozedUntil: prev }));
+    showUndo(t('mail-toast-snoozed'), () => rawMeta(id, { snoozedUntil: prev }));
   }
   async function unsnoozeMessage(id: Id): Promise<void> {
     await rawMeta(id, { snoozedUntil: null });
@@ -476,7 +481,9 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   async function setFollowUp(id: Id, atIso: string | null): Promise<void> {
     const prev = messages().find((m) => m.id === id)?.followUpAt ?? null;
     await rawMeta(id, { followUpAt: atIso });
-    showUndo(atIso ? 'Follow-up set' : 'Follow-up cleared', () => rawMeta(id, { followUpAt: prev }));
+    showUndo(atIso ? t('mail-toast-follow-up-set') : t('mail-toast-follow-up-cleared'), () =>
+      rawMeta(id, { followUpAt: prev }),
+    );
   }
 
   // ── archive / trash / move / spam ─────────────────────────────────────────
@@ -504,30 +511,32 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   async function archiveMessage(id: Id): Promise<void> {
     const target = roleOf(mailboxes(), 'archive');
     if (target === null) {
-      showToast('error', 'No Archive folder');
+      showToast('error', t('mail-toast-no-archive-folder'));
       return;
     }
-    await relocateWithUndo(id, target, 'Archived');
+    await relocateWithUndo(id, target, t('mail-toast-archived'));
   }
   async function trashMessage(id: Id): Promise<void> {
     const target = roleOf(mailboxes(), 'trash');
     if (target === null) {
-      showToast('error', 'No Trash folder');
+      showToast('error', t('mail-toast-no-trash-folder'));
       return;
     }
-    await relocateWithUndo(id, target, 'Moved to Trash');
+    await relocateWithUndo(id, target, t('mail-toast-trashed'));
   }
   async function markSpam(id: Id): Promise<void> {
     const target = roleOf(mailboxes(), 'junk');
     if (target === null) {
-      showToast('error', 'No Spam folder');
+      showToast('error', t('mail-toast-no-spam-folder'));
       return;
     }
-    await relocateWithUndo(id, target, 'Marked as spam');
+    await relocateWithUndo(id, target, t('mail-toast-marked-spam'));
   }
   async function moveMessage(id: Id, mailboxId: Id): Promise<void> {
     const box = mailboxes().find((m) => m.id === mailboxId);
-    await relocateWithUndo(id, mailboxId, `Moved to ${box?.name ?? 'folder'}`);
+    const label =
+      box !== undefined ? t('mail-toast-moved-to', { folder: isolate(box.name) }) : t('mail-toast-moved');
+    await relocateWithUndo(id, mailboxId, label);
   }
 
   // ── sweep ─────────────────────────────────────────────────────────────────
@@ -558,12 +567,12 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     if (acct === null) return;
     const trash = roleOf(mailboxes(), 'trash');
     if (trash === null) {
-      showToast('error', 'No Trash folder');
+      showToast('error', t('mail-toast-no-trash-folder'));
       return;
     }
     const victims = sweepMatches(fromEmail, strategy, olderThanDays);
     if (victims.length === 0) {
-      showToast('info', 'Nothing to sweep');
+      showToast('info', t('mail-toast-sweep-nothing'));
       return;
     }
     // Snapshot for undo, then move each victim to Trash.
@@ -588,7 +597,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
         }
       }
     }
-    showUndo(`Swept ${victims.length} message${victims.length === 1 ? '' : 's'}`, async () => {
+    showUndo(t('mail-toast-swept', { count: victims.length }), async () => {
       for (const t of taken) {
         await client.jmap(moveEmail(acct, t.email.id, t.email.mailboxIds));
       }
@@ -788,7 +797,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     } catch {
       // A failed page leaves the query un-exhausted, so the next scroll retries.
       // It must not throw: this runs from a scroll handler.
-      if (isCurrent(req)) showToast('error', 'Could not load more messages');
+      if (isCurrent(req)) showToast('error', t('mail-toast-load-more-failed'));
     } finally {
       if (isCurrent(req)) setLoadingMore(false);
       endListRequest(req);
@@ -940,7 +949,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     if (email === null || acct === null || url === null) return;
     const blobId = email.blobId;
     if (blobId === undefined || blobId === '') {
-      showToast('error', 'Nothing to export');
+      showToast('error', t('mail-toast-export-nothing'));
       return;
     }
     const base = (email.subject ?? 'message').replace(/[^\w.-]+/g, '_').slice(0, 80);
@@ -949,18 +958,18 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       const dl = buildDownloadUrl(url, { accountId: acct, blobId, name, mime: 'message/rfc822' });
       const objectUrl = await fetchObjectUrl(dl);
       triggerDownload(objectUrl, name);
-      showToast('success', 'Exported .eml');
+      showToast('success', t('mail-toast-exported'));
     } catch {
-      showToast('error', 'Export failed');
+      showToast('error', t('mail-toast-export-failed'));
     }
   }
 
   async function sendMessage(input: SendInput): Promise<void> {
     const acct = accountId();
     const user = me();
-    if (acct === null || user === null) throw new Error('not authenticated');
+    if (acct === null || user === null) throw new Error(t('mail-send-not-signed-in'));
     const drafts = roleOf(mailboxes(), 'drafts') ?? selectedMailboxId();
-    if (drafts === null) throw new Error('no mailbox to hold the draft');
+    if (drafts === null) throw new Error(t('mail-send-no-draft-folder'));
     const sent = roleOf(mailboxes(), 'sent');
 
     // Refuse what the server would refuse (`Email/set` rejects a draft whose
@@ -1005,7 +1014,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     // Offline: queue the send for replay on reconnect (drainOutbox → sendEnvelope).
     if (isOffline() && ctx.enqueueOffline) {
       await ctx.enqueueOffline('send', { accountId: acct, draft });
-      showToast('info', 'Queued — will send when back online');
+      showToast('info', t('mail-toast-send-queued'));
       return;
     }
 
@@ -1025,21 +1034,21 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const submissionId = subRes.created?.['send']?.id ?? null;
 
     if (scheduled) {
-      showToast('success', 'Scheduled to send');
+      showToast('success', t('mail-toast-send-scheduled'));
     } else if (submissionId !== null) {
       // Undo-send: the engine holds the submission for `holdSeconds`; the toast
       // Cancel path flips it to `canceled` before it dials SMTP (plan §1.3).
       showUndo(
-        'Message sent',
+        t('mail-toast-sent'),
         async () => {
           await client.jmap(cancelSubmission(acct, submissionId));
-          showToast('info', 'Send canceled');
+          showToast('info', t('mail-toast-send-canceled'));
         },
         holdSeconds * 1000,
-        'Cancel',
+        t('mail-undo-send-cancel'),
       );
     } else {
-      showToast('success', 'Message sent');
+      showToast('success', t('mail-toast-sent'));
     }
 
     const current = selectedMailboxId();
