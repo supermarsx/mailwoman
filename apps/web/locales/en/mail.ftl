@@ -87,6 +87,8 @@ mail-flag = Flag for follow-up
 mail-clear-flag = Clear follow-up
 mail-archive = Archive
 mail-delete = Delete
+# Opens the row's actions where they cannot be revealed by hovering (touch, phone).
+mail-more-actions = More actions
 
 # -- Reader ------------------------------------------------------------------
 mail-reader-label = Message

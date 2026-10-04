@@ -634,14 +634,6 @@ body {
   .mail-pane > .list > [role='group'] {
     display: none;
   }
-  /* The per-row action cluster (MessageActions) has no styles of its own, so
-     it stacks below its row and lands on top of the next one; at this width
-     that covers most of each row's tap target. It is not shown here. Pin,
-     Archive, Delete and Spam remain in the open message's toolbar; Snooze,
-     Label and Follow-up are not reachable at phone width. */
-  .list__slot > .msg-actions {
-    display: none;
-  }
   .module-pane,
   .outbox,
   .mw-attach {

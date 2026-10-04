@@ -6,6 +6,7 @@ import { TagChips } from './TagChips.tsx';
 import { MessageActions } from './MessageActions.tsx';
 import * as a11y from './mailA11y.css.ts';
 import * as thread from './threadList.css.ts';
+import * as rowCss from './messageRow.css.ts';
 import { groupThreads, type ThreadVisualRow } from './threads.ts';
 import { readingPane, setReadingPane, READING_PANE_OPTIONS, type ReadingPane } from './readingPane.ts';
 import type { Density } from '../theme/contract.css.ts';
@@ -13,7 +14,9 @@ import type { Email, EmailAddress } from '../api/jmap-types.ts';
 
 // The message list, virtualized for the §23 100k-row gate: only the rows inside
 // the viewport (± overscan) are mounted, positioned inside a full-height spacer
-// so the scrollbar still reflects the whole list. Rows keep the `.list__row`
+// so the scrollbar still reflects the whole list. Each slot is absolutely
+// positioned at the spacer's top (`rowCss.slot`) and moved to its place by
+// `translateY(index × rowHeight)` alone. Rows keep the `.list__row`
 // class + subject text the e2e/mock specs locate by. Pins float to the top and
 // snoozed rows are hidden — both handled upstream in `app.listMessages()`.
 //
@@ -94,7 +97,7 @@ function MessageRow(props: {
   const unread = () => email().keywords?.['$seen'] !== true;
   return (
     <li
-      class="list__slot"
+      class={`list__slot ${rowCss.slot}`}
       role="listitem"
       aria-posinset={props.index + 1}
       aria-setsize={props.total}
@@ -103,7 +106,7 @@ function MessageRow(props: {
       <button
         type="button"
         ref={(el) => props.setRef(el)}
-        class={`list__row ${a11y.focusable}`}
+        class={`list__row ${rowCss.row} ${a11y.focusable}`}
         classList={{
           'list__row--active': app.openEmail()?.id === email().id,
           'list__row--pinned': email().pinned === true,
@@ -119,20 +122,20 @@ function MessageRow(props: {
           <span class={a11y.srOnly}>{t('mail-unread')}</span>
         </Show>
         <span class={a11y.srOnly}>{t('mail-row-position', { pos: props.index + 1, total: props.total })}</span>
-        <span class="list__line1">
+        <span class={`list__line1 ${rowCss.line1}`}>
           {/* isolate the sender: it shares a line with the date, so a spoofed
               display name must not reorder surrounding UI (SPEC §24). */}
-          <span class="list__sender">{isolate(senderLabel(email().from))}</span>
+          <span class={`list__sender ${rowCss.sender}`}>{isolate(senderLabel(email().from))}</span>
           <Show when={email().pinned === true}>
             <span class="list__pin" aria-label={t('mail-pinned')}>📌</span>
           </Show>
           <Show when={email().hasAttachment === true}>
             <span class="list__attach" aria-label={t('mail-has-attachment')}>📎</span>
           </Show>
-          <span class="list__date">{formatDate(email().receivedAt)}</span>
+          <span class={`list__date ${rowCss.date}`}>{formatDate(email().receivedAt)}</span>
         </span>
         <span class="list__subject">{email().subject ?? t('mail-no-subject')}</span>
-        <span class="list__preview">{email().preview}</span>
+        <span class={`list__preview ${rowCss.preview}`}>{email().preview}</span>
         <TagChips email={email()} />
       </button>
       <MessageActions email={email()} />
@@ -152,7 +155,7 @@ function MessageRow(props: {
 function PlaceholderRow(props: { top: number; height: number; index: number; total: number }): JSX.Element {
   return (
     <li
-      class="list__slot list__slot--pending"
+      class={`list__slot list__slot--pending ${rowCss.slot}`}
       role="listitem"
       aria-busy="true"
       aria-posinset={props.index + 1}
@@ -182,7 +185,7 @@ function ThreadHeadRow(props: {
   const active = () => app.openEmail()?.id === rep().id;
   return (
     <li
-      class={`list__slot ${thread.headSlot}`}
+      class={`list__slot ${rowCss.slot} ${thread.headSlot}`}
       role="listitem"
       aria-posinset={props.index + 1}
       aria-setsize={props.total}
@@ -205,7 +208,7 @@ function ThreadHeadRow(props: {
       <button
         type="button"
         ref={(el) => props.setRef(el)}
-        class={`list__row ${thread.headRow} ${a11y.focusable}`}
+        class={`list__row ${rowCss.row} ${thread.headRow} ${a11y.focusable}`}
         classList={{
           'list__row--active': active(),
           'list__row--unread': props.row.unread,
@@ -220,18 +223,18 @@ function ThreadHeadRow(props: {
           <span class={a11y.srOnly}>{t('mail-unread')}</span>
         </Show>
         <span class={a11y.srOnly}>{t('mail-row-position', { pos: props.index + 1, total: props.total })}</span>
-        <span class="list__line1">
-          <span class="list__sender">{isolate(senderLabel(rep().from))}</span>
+        <span class={`list__line1 ${rowCss.line1}`}>
+          <span class={`list__sender ${rowCss.sender}`}>{isolate(senderLabel(rep().from))}</span>
           <span class={thread.count} aria-label={t('mail-thread-count', { count: props.row.count })}>
             {props.row.count}
           </span>
           <Show when={props.row.hasAttachment}>
             <span class="list__attach" aria-label={t('mail-has-attachment')}>📎</span>
           </Show>
-          <span class="list__date">{formatDate(rep().receivedAt)}</span>
+          <span class={`list__date ${rowCss.date}`}>{formatDate(rep().receivedAt)}</span>
         </span>
         <span class="list__subject">{rep().subject ?? t('mail-no-subject')}</span>
-        <span class="list__preview">{rep().preview}</span>
+        <span class={`list__preview ${rowCss.preview}`}>{rep().preview}</span>
       </button>
     </li>
   );
