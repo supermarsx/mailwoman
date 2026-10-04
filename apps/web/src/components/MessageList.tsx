@@ -48,10 +48,29 @@ const ROW_HEIGHTS: Record<Density, number> = { compact: 56, cozy: 72, relaxed: 8
  */
 const LOAD_MORE_SLACK = 10;
 
-function senderLabel(from: EmailAddress[] | null): string {
+/** Anything in a display name that reads as an email address. */
+const ADDRESS_IN_NAME = /[^\s<>"'(),;:]+@[^\s<>"'(),;:]+/g;
+
+/**
+ * The sender as the list shows it. The address is always part of the label: a
+ * display name is whatever the sender typed, so a row that showed the name
+ * alone let `"Your Bank" <x@evil.example>` read as "Your Bank".
+ *
+ *  - no name, or a name that is just the address: the address;
+ *  - a name: `Name <address>`;
+ *  - a name that itself contains an address other than the real one
+ *    (`"ceo@bank.example" <x@evil.example>`): the real address first, then the
+ *    name in parentheses, so the claimed address is not what the eye lands on.
+ */
+export function senderLabel(from: EmailAddress[] | null): string {
   const first = from?.[0];
   if (first === undefined) return t('mail-unknown-sender');
-  return first.name && first.name.length > 0 ? first.name : first.email;
+  const address = first.email;
+  const name = (first.name ?? '').trim();
+  if (name.length === 0 || name.toLowerCase() === address.toLowerCase()) return address;
+  const claimed = name.match(ADDRESS_IN_NAME) ?? [];
+  if (claimed.some((a) => a.toLowerCase() !== address.toLowerCase())) return `${address} (${name})`;
+  return `${name} <${address}>`;
 }
 
 function formatDate(iso: string): string {
