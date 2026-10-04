@@ -43,8 +43,14 @@ pub struct EmailFilter {
 
 impl EmailFilter {
     /// Whether this filter must route to the full-text index (`mw-search`)
-    /// rather than the SQL fast path (frozen routing rule, §2.1): any
-    /// text/from/to/cc/subject/body/filename/hasAttachment condition.
+    /// rather than the SQL fast path: every condition except `inMailbox`,
+    /// which is the only one the fast path evaluates. A condition left out of
+    /// this list is dropped on that path and the whole mailbox comes back, as
+    /// the keyword, date and size conditions did before 26.20 (t28-e1).
+    ///
+    /// `inMailboxOtherThan` is not listed: on its own it selects no route (see
+    /// `query_route` in `jmap.rs`), and the index applies it whenever another
+    /// condition routes there.
     pub fn needs_search(&self) -> bool {
         self.text.is_some()
             || self.from.is_some()
@@ -54,6 +60,12 @@ impl EmailFilter {
             || self.body.is_some()
             || self.filename.is_some()
             || self.has_attachment.is_some()
+            || self.has_keyword.is_some()
+            || self.not_keyword.is_some()
+            || self.before.is_some()
+            || self.after.is_some()
+            || self.min_size.is_some()
+            || self.max_size.is_some()
     }
 }
 
@@ -125,6 +137,64 @@ mod tests {
         let plain: EmailFilter =
             serde_json::from_str(r#"{"inMailbox":"mb1","text":"invoice"}"#).expect("parses");
         assert_eq!(plain.semantic, None);
+    }
+
+    #[test]
+    fn keyword_date_and_size_conditions_route_to_search() {
+        // Each of the six on its own, beside `inMailbox`: the fast path reads
+        // only `inMailbox`, so any of these left there is silently dropped.
+        let base = || EmailFilter {
+            in_mailbox: Some("mbox1".into()),
+            ..Default::default()
+        };
+        assert!(!base().needs_search());
+        let cases: [(&str, EmailFilter); 6] = [
+            (
+                "hasKeyword",
+                EmailFilter {
+                    has_keyword: Some("$flagged".into()),
+                    ..base()
+                },
+            ),
+            (
+                "notKeyword",
+                EmailFilter {
+                    not_keyword: Some("$seen".into()),
+                    ..base()
+                },
+            ),
+            (
+                "before",
+                EmailFilter {
+                    before: Some("2026-01-01T00:00:00Z".into()),
+                    ..base()
+                },
+            ),
+            (
+                "after",
+                EmailFilter {
+                    after: Some("2026-01-01T00:00:00Z".into()),
+                    ..base()
+                },
+            ),
+            (
+                "minSize",
+                EmailFilter {
+                    min_size: Some(1),
+                    ..base()
+                },
+            ),
+            (
+                "maxSize",
+                EmailFilter {
+                    max_size: Some(1),
+                    ..base()
+                },
+            ),
+        ];
+        for (name, filter) in cases {
+            assert!(filter.needs_search(), "{name} must route to the index");
+        }
     }
 
     #[test]

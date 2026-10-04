@@ -1109,6 +1109,14 @@ impl Engine {
             }
 
             for (id, patch) in updates {
+                // A patch this method cannot apply in full fails the id, naming
+                // the properties (26.20 t28-e1). It used to be reported under
+                // `updated` with nothing written, which is how the web's
+                // `keywords/<kw>` patches came back as successes.
+                if let Err(invalid) = check_update_patch(patch) {
+                    not_updated.insert(id.clone(), invalid);
+                    continue;
+                }
                 match self
                     .update_email(
                         rt,
@@ -1375,13 +1383,26 @@ impl Engine {
         let mut new_flags: Option<Vec<Flag>> = None;
         let mut new_pinned: Option<bool> = None;
 
-        if let Some(kw) = patch.get("keywords").and_then(Value::as_object) {
-            let kw_map: HashMap<String, bool> = kw
-                .iter()
-                .filter_map(|(k, v)| v.as_bool().map(|b| (k.clone(), b)))
-                .collect();
-            let desired = keywords_to_flags(&kw_map);
+        // Keywords arrive as a whole `keywords` object, which replaces the set,
+        // and/or as RFC 8620 §5.3 patch paths `keywords/<kw>` (`true` sets,
+        // `null` clears), which change one keyword and leave the others. The
+        // paths are what the web, the offline outbox and the Sieve action sink
+        // send. With both in one patch the paths apply on top of the object.
+        let whole_keywords = patch.get("keywords").and_then(Value::as_object);
+        let keyword_paths = keyword_patch_paths(patch);
+        if whole_keywords.is_some() || !keyword_paths.is_empty() {
             let current = flags_from_json(&msg.flags_json);
+            let mut kw_map: HashMap<String, bool> = match whole_keywords {
+                Some(kw) => kw
+                    .iter()
+                    .filter_map(|(k, v)| v.as_bool().map(|b| (k.clone(), b)))
+                    .collect(),
+                None => flags_to_keywords(&current),
+            };
+            for (keyword, on) in keyword_paths {
+                kw_map.insert(keyword.to_string(), on);
+            }
+            let desired = keywords_to_flags(&kw_map);
             let (add, remove) = flag_delta(&current, &desired);
 
             // The message row is already in hand, and it carries the same
@@ -1606,7 +1627,17 @@ impl Engine {
                     .get("identityId")
                     .and_then(Value::as_str)
                     .map(String::from);
-                let send_at = spec.get("sendAt").and_then(Value::as_str).map(String::from);
+                // A `sendAt` that is not a time, or is already in the past, fails
+                // the create (26.20 t28-e1). Both used to count as "not a future
+                // send", which with no hold window meant the message went out at
+                // once.
+                let send_at = match checked_send_at(spec, chrono::Utc::now()) {
+                    Ok(send_at) => send_at,
+                    Err(invalid) => {
+                        not_created.insert(client_id.clone(), invalid);
+                        continue;
+                    }
+                };
                 let hold = spec
                     .get("mailwomanHoldSeconds")
                     .and_then(Value::as_u64)
@@ -1685,6 +1716,17 @@ impl Engine {
         send_at: Option<String>,
         hold_seconds: u32,
     ) -> Result<(String, &'static str)> {
+        // `submission_set` has checked `send_at`. Parsing it again before the
+        // row exists means a value that is not a time can only be an error here,
+        // never the "not in the future" that sends inline below.
+        let send_time = match send_at.as_deref() {
+            Some(s) => Some(
+                chrono::DateTime::parse_from_rfc3339(s)
+                    .map_err(|e| EngineError::Protocol(format!("sendAt {s:?}: {e}")))?
+                    .with_timezone(&chrono::Utc),
+            ),
+            None => None,
+        };
         let sub_id = format!("sub-{}", gen_token());
         let created_at = now_rfc3339();
         let row = SubmissionRow {
@@ -1692,7 +1734,7 @@ impl Engine {
             account_id: account_id.to_string(),
             email_id: email_id.to_string(),
             identity_id,
-            send_at: send_at.clone(),
+            send_at,
             undo_status: "pending".to_string(),
             hold_seconds,
             created_at,
@@ -1706,11 +1748,7 @@ impl Engine {
         )
         .await?;
 
-        let now = chrono::Utc::now();
-        let future_send = send_at
-            .as_deref()
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .is_some_and(|dt| dt.with_timezone(&chrono::Utc) > now);
+        let future_send = send_time.is_some_and(|at| at > chrono::Utc::now());
         if hold_seconds == 0 && !future_send {
             // Fire now (preserves the V1 synchronous send shape). The status follows
             // what SMTP did: `send_submission` has already recorded `final` if the
@@ -2594,10 +2632,7 @@ fn compose_base_from_spec(spec: &Value, identity: &str, message_id: &str) -> Com
         text_body,
         html_body,
         message_id: Some(message_id.to_string()),
-        in_reply_to: spec
-            .get("inReplyTo")
-            .and_then(Value::as_str)
-            .map(String::from),
+        in_reply_to: in_reply_to_header(spec),
         references: spec
             .get("references")
             .and_then(Value::as_array)
@@ -2611,6 +2646,35 @@ fn compose_base_from_spec(spec: &Value, identity: &str, message_id: &str) -> Com
         headers: Vec::new(),
         attachments: Vec::new(),
     }
+}
+
+/// The `inReplyTo` ids of a create spec, as given. RFC 8621 §4.1.2.3 types the
+/// property `String[]|null`; a bare string is read as a list of one, which is
+/// the only form this engine read before 26.20 (t28-e1).
+///
+/// `Err` when the value is neither, or the list holds something that is not a
+/// string. [`check_compose_spec`] turns that into `invalidProperties`.
+fn in_reply_to_ids(spec: &Value) -> std::result::Result<Vec<&str>, ()> {
+    match spec.get("inReplyTo") {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(Value::String(id)) => Ok(vec![id.as_str()]),
+        Some(Value::Array(ids)) => ids.iter().map(|id| id.as_str().ok_or(())).collect(),
+        Some(_) => Err(()),
+    }
+}
+
+/// The `In-Reply-To` value for [`ComposeRequest::in_reply_to`], which is one
+/// string that `mw-mime` strips of its outer angle brackets and `mail-builder`
+/// then writes between `<` and `>`. Several ids are therefore joined with
+/// `> <`, so the header reads `<a> <b>`. `None` when the spec names no id.
+fn in_reply_to_header(spec: &Value) -> Option<String> {
+    let ids: Vec<&str> = in_reply_to_ids(spec)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|id| id.trim().trim_start_matches('<').trim_end_matches('>'))
+        .filter(|id| !id.is_empty())
+        .collect();
+    (!ids.is_empty()).then(|| ids.join("> <"))
 }
 
 /// A property of an `Email/set` create spec that cannot be written into a
@@ -2651,8 +2715,8 @@ fn has_control(s: &str) -> bool {
 /// - `from` addresses, written the same way and used as `MAIL FROM`: each must
 ///   be a reverse-path (`mw_smtp::validate_reverse_path`, which also admits the
 ///   bare login name an account's identity can be);
-/// - `inReplyTo` and `references`, written between `<` and `>`: no control
-///   character;
+/// - `inReplyTo` (a list of ids, or one id) and `references`, written between
+///   `<` and `>`: no control character in any id;
 /// - an attachment's declared `type`, written as the `Content-Type` value: no
 ///   control character.
 ///
@@ -2671,12 +2735,17 @@ fn check_compose_spec(spec: &Value) -> std::result::Result<(), InvalidProperty> 
         mw_smtp::validate_reverse_path(&addr.email).map_err(|e| invalid("from", e.to_string()))?;
     }
     let control = || "contains a control character".to_string();
-    if spec
-        .get("inReplyTo")
-        .and_then(Value::as_str)
-        .is_some_and(has_control)
-    {
-        return Err(invalid("inReplyTo", control()));
+    match in_reply_to_ids(spec) {
+        Ok(ids) if ids.iter().any(|id| has_control(id)) => {
+            return Err(invalid("inReplyTo", control()));
+        }
+        Ok(_) => {}
+        Err(()) => {
+            return Err(invalid(
+                "inReplyTo",
+                "must be a list of message ids, or one id".to_string(),
+            ));
+        }
     }
     if spec
         .get("references")
@@ -2758,6 +2827,62 @@ pub(crate) fn recipients(email: &mw_jmap::Email) -> Vec<String> {
     }
     out.retain(|e| !e.is_empty());
     out
+}
+
+/// The `keywords/<kw>` patch paths of an `Email/set` update, as
+/// `(keyword, set)`: `true` sets the keyword, `null` or `false` clears it. Any
+/// other value has been refused by [`check_update_patch`] and is skipped here.
+fn keyword_patch_paths(patch: &Value) -> Vec<(&str, bool)> {
+    let Some(patch) = patch.as_object() else {
+        return Vec::new();
+    };
+    patch
+        .iter()
+        .filter_map(|(path, v)| {
+            let keyword = path.strip_prefix("keywords/")?;
+            match v {
+                Value::Bool(on) => Some((keyword, *on)),
+                Value::Null => Some((keyword, false)),
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+/// Whether [`Engine::update_email`] can apply every property of this patch.
+/// `Err` is the RFC 8620 §5.3 SetError for the id's `notUpdated` entry.
+///
+/// The properties it applies are `keywords`, `keywords/<kw>`, `mailboxIds`,
+/// `pinned`, `snoozedUntil` and `followUpAt`. A patch naming anything else is
+/// `invalidProperties`, and so is a `keywords/<kw>` whose value is not `true`,
+/// `false` or `null`. A patch that names nothing is `invalidPatch`: there is
+/// no change to report as made.
+fn check_update_patch(patch: &Value) -> std::result::Result<(), Value> {
+    let Some(obj) = patch.as_object().filter(|o| !o.is_empty()) else {
+        return Err(json!({
+            "type": "invalidPatch",
+            "description": "the update names no property to change",
+        }));
+    };
+    let invalid: Vec<&str> = obj
+        .iter()
+        .filter(|(path, v)| match path.strip_prefix("keywords/") {
+            Some(keyword) => keyword.is_empty() || !(v.is_boolean() || v.is_null()),
+            None => !matches!(
+                path.as_str(),
+                "keywords" | "mailboxIds" | "pinned" | "snoozedUntil" | "followUpAt"
+            ),
+        })
+        .map(|(path, _)| path.as_str())
+        .collect();
+    if invalid.is_empty() {
+        return Ok(());
+    }
+    Err(json!({
+        "type": "invalidProperties",
+        "properties": invalid,
+        "description": "Email/set update cannot apply these properties",
+    }))
 }
 
 /// The mailbox an `Email/set` update patch moves a message to, if it moves at
@@ -2862,6 +2987,40 @@ fn pseudo_uid(seed: &str) -> u32 {
 
 /// Monotonic-ish unique token source for generated ids.
 static COUNTER: AtomicU64 = AtomicU64::new(1);
+
+/// How far behind the server clock a `sendAt` may be and still mean "now": a
+/// client that stamps the current time, and whose clock or request runs late,
+/// is asking for an immediate send.
+const SEND_AT_PAST_TOLERANCE_SECS: i64 = 60;
+
+/// The `sendAt` of an `EmailSubmission/set` create spec, as given, once it is
+/// known to be an RFC 3339 time no more than [`SEND_AT_PAST_TOLERANCE_SECS`]
+/// before `now`. Absent or `null` is `Ok(None)`. `Err` is the
+/// `invalidProperties` SetError for the create.
+fn checked_send_at(
+    spec: &Value,
+    now: chrono::DateTime<chrono::Utc>,
+) -> std::result::Result<Option<String>, Value> {
+    let invalid = |why: String| {
+        json!({
+            "type": "invalidProperties",
+            "properties": ["sendAt"],
+            "description": format!("sendAt: {why}"),
+        })
+    };
+    let given = match spec.get("sendAt") {
+        None | Some(Value::Null) => return Ok(None),
+        Some(Value::String(s)) => s,
+        Some(_) => return Err(invalid("must be an RFC 3339 date-time string".to_string())),
+    };
+    let at = chrono::DateTime::parse_from_rfc3339(given)
+        .map_err(|e| invalid(format!("{given:?} is not an RFC 3339 date-time ({e})")))?
+        .with_timezone(&chrono::Utc);
+    if at < now - chrono::Duration::seconds(SEND_AT_PAST_TOLERANCE_SECS) {
+        return Err(invalid(format!("{given:?} is in the past")));
+    }
+    Ok(Some(given.clone()))
+}
 
 /// Build the structured `dlpBlocked` `notCreated` error (frozen §2.2) when any
 /// DLP verdict is a block, else `None`. The `verdicts` are the redacted DLP
