@@ -88,6 +88,7 @@ export default defineConfig({
         'search.spec.ts',
         'viewers.spec.ts',
         'export.spec.ts',
+        'sw-cache.spec.ts',
       ],
       use: { ...devices['Desktop Chrome'], baseURL: engineBaseURL },
     },
