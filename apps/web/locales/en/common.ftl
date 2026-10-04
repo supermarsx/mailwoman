@@ -47,6 +47,11 @@ common-offline = You’re offline
 common-required = Required
 common-optional = Optional
 
+# -- Narrow-viewport shell (the top bar renders with the entry bundle, before
+#    any module catalog has loaded) -------------------------------------------
+common-nav-open = Open folders and apps
+common-nav-close = Close folders and apps
+
 # -- Attachments (global, cross-account view; rides the entry bundle so the
 #    account-wide attachments screen needs no extra catalog fetch) ------------
 common-attach-title = Attachments

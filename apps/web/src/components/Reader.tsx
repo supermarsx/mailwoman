@@ -14,6 +14,7 @@ import * as a11y from './mailA11y.css.ts';
 // Reading-pane layout switch (W3): the globalStyle overrides keyed on
 // `:root[data-reading-pane]`. Imported for its side effect so the rules ship.
 import './readerPane.css.ts';
+import { createNarrowViewport, focusListRow } from './narrowViewport.ts';
 import { SweepDialog } from './SweepDialog.tsx';
 import { ThumbnailStrip, type StripItem } from '../viewers/ThumbnailStrip.tsx';
 import { AttachmentViewer } from '../viewers/AttachmentViewer.tsx';
@@ -478,6 +479,27 @@ export function Reader(): JSX.Element {
   onMount(() => void loadCatalog('remote-images'));
 
   const emailId = (): string | null => app.openEmail()?.id ?? null;
+
+  // Narrow-viewport reading (t28-e6). At phone width the open reader is a
+  // full-height view that covers the list (styles/app.css), so focus has to
+  // follow it in: left on the list row it would sit on a control the reader
+  // hides. At desktop width the list stays visible beside the reader and focus
+  // stays on the row, as before.
+  const narrow = createNarrowViewport();
+  let backButton: HTMLButtonElement | undefined;
+  createEffect(
+    on(emailId, (id) => {
+      if (id !== null && narrow()) queueMicrotask(() => backButton?.focus());
+    }),
+  );
+
+  /** Close the open message and return focus to its list row. The Back button
+   *  unmounts with the message, so without this focus falls to `<body>`. */
+  function closeAndRefocusList(): void {
+    const row = document.querySelector<HTMLElement>('.list__row[aria-current="true"]');
+    app.closeMessage();
+    queueMicrotask(() => focusListRow(row));
+  }
   const sender = (): string => app.openEmail()?.from?.[0]?.email ?? '';
   const threadId = (): string | undefined => app.openEmail()?.threadId;
 
@@ -641,7 +663,12 @@ export function Reader(): JSX.Element {
         {(email) => (
           <>
             <header class="reader__header">
-              <button type="button" class={`btn btn--ghost reader__close ${a11y.focusable}`} onClick={() => app.closeMessage()}>
+              <button
+                type="button"
+                ref={backButton}
+                class={`btn btn--ghost reader__close ${a11y.focusable}`}
+                onClick={closeAndRefocusList}
+              >
                 ← {t('mail-back')}
               </button>
               <h2 class="reader__subject">{email().subject ?? t('mail-no-subject')}</h2>

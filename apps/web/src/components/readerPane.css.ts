@@ -7,9 +7,9 @@
 // open (`.reader--open`, set by Reader.tsx).
 //
 // Every override is guarded to the desktop width (≥ 761px) so it never fights the
-// existing mobile media query in app.css (which single-columns the shell and
-// hides the reader at ≤ 760px). The 220px offset matches the shell's fixed
-// sidebar column in app.css.
+// narrow-viewport media query in app.css (≤ 760px), which stacks the shell into
+// one pane and shows the open reader as a full-height view whatever this setting
+// is. The 220px offset matches the shell's fixed sidebar column in app.css.
 
 import { globalStyle } from '@vanilla-extract/css';
 

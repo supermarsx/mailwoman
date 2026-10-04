@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, Show, Suspense, onMount, onCleanup, type JSX } from 'solid-js';
+import { createEffect, createMemo, createSignal, For, Show, Suspense, onMount, onCleanup, type JSX } from 'solid-js';
 import { Dynamic } from 'solid-js/web';
 import { useApp } from '../state/context.ts';
 import { t, isolate, loadCatalog } from '../i18n/index.ts';
@@ -6,6 +6,7 @@ import * as a11y from '../components/mailA11y.css.ts';
 import { useRealtime } from '../realtime/context.ts';
 import { MessageList } from '../components/MessageList.tsx';
 import { Reader } from '../components/Reader.tsx';
+import { createNarrowViewport } from '../components/narrowViewport.ts';
 import { Compose } from '../components/Compose.tsx';
 import { Outbox } from '../components/Outbox.tsx';
 import { InboxTabs } from '../components/InboxTabs.tsx';
@@ -104,6 +105,80 @@ export function MailboxScreen(): JSX.Element {
   const router = createShellRouter();
   const surface = (): ShellSurface => router.route().surface;
 
+  // Narrow-viewport shell (t28-e6). At phone width the sidebar is an off-canvas
+  // drawer opened from a top bar (styles/app.css); `navOpen` is that drawer's
+  // state and has no effect on the desktop grid. The bar itself only renders
+  // when narrow, so the desktop DOM is the same as before.
+  const narrow = createNarrowViewport();
+  const [navOpen, setNavOpen] = createSignal(false);
+  let sidebarEl: HTMLElement | undefined;
+  let menuButton: HTMLButtonElement | undefined;
+  // A drawer left open across a resize to desktop width would keep its scrim
+  // state for the next narrowing; close it when the viewport widens.
+  createEffect(() => {
+    if (!narrow()) setNavOpen(false);
+  });
+
+  function openNav(): void {
+    setNavOpen(true);
+    // Into the drawer: the current destination if there is one, else its first control.
+    queueMicrotask(() => {
+      const target =
+        sidebarEl?.querySelector<HTMLElement>('.sidebar__box--active') ??
+        sidebarEl?.querySelector<HTMLElement>('button');
+      target?.focus();
+    });
+  }
+
+  /** Close the drawer. Focus returns to the menu button unless whatever closed
+   *  it (Compose, Settings, the sharing dialog) has already taken focus. */
+  function closeNav(): void {
+    if (!navOpen()) return;
+    setNavOpen(false);
+    queueMicrotask(() => {
+      const active = document.activeElement;
+      if (active === null || active === document.body || sidebarEl?.contains(active) === true) {
+        menuButton?.focus();
+      }
+    });
+  }
+
+  /** Drawer keyboard handling: Escape closes it, and Tab cycles inside it — the
+   *  page behind is under the scrim, so focus must not wander into it. */
+  function onNavKeyDown(e: KeyboardEvent): void {
+    if (!navOpen() || sidebarEl === undefined) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeNav();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    const stops = Array.from(sidebarEl.querySelectorAll<HTMLElement>('button:not([disabled])'));
+    const first = stops[0];
+    const last = stops[stops.length - 1];
+    if (first === undefined || last === undefined) return;
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+
+  // What the top bar names: the open mailbox on the mail surface, otherwise the
+  // surface the nav rail navigated to.
+  const barTitle = createMemo((): string => {
+    const s = surface();
+    if (s === 'mail') {
+      const box = app.mailboxes().find((m) => m.id === app.selectedMailboxId());
+      return box?.name ?? t('mail-brand');
+    }
+    if (s === 'outbox') return t('mail-nav-outbox');
+    if (s === 'attachments') return t('mail-nav-attachments');
+    return APP_NAV_MODULES.find((m) => m.id === s)?.label ?? t('mail-brand');
+  });
+
   // V7 Assist context (§14.3): the open message (subject + preview) the assistant
   // may reason over. Only plain text is ever forwarded (E2EE/attachments excluded by
   // the gateway ceilings); empty when nothing is open.
@@ -146,7 +221,50 @@ export function MailboxScreen(): JSX.Element {
       <Show when={app.layout() === 'ribbon'}>
         <Ribbon onCompose={() => setComposing(true)} onOpenSettings={() => setSettingsOpen(true)} />
       </Show>
-      <aside class="sidebar">
+      <Show when={narrow()}>
+        <header class="shell__bar">
+          <button
+            type="button"
+            ref={menuButton}
+            class={`btn btn--ghost shell__menu ${a11y.iconButton}`}
+            aria-label={t('common-nav-open')}
+            aria-expanded={navOpen()}
+            aria-controls="shell-nav"
+            onClick={openNav}
+          >
+            ☰
+          </button>
+          <span class="shell__bar-title">{barTitle()}</span>
+          <button
+            type="button"
+            class={`btn btn--primary shell__bar-compose ${a11y.focusable}`}
+            onClick={() => setComposing(true)}
+          >
+            {t('mail-compose')}
+          </button>
+        </header>
+        <Show when={navOpen()}>
+          <button
+            type="button"
+            class="shell__scrim"
+            tabindex={-1}
+            aria-label={t('common-nav-close')}
+            onClick={closeNav}
+          />
+        </Show>
+      </Show>
+      {/* Every control in the sidebar either navigates or opens a dialog, so any
+          button activated inside it also closes the narrow drawer. */}
+      <aside
+        class="sidebar"
+        id="shell-nav"
+        classList={{ 'sidebar--open': navOpen() }}
+        ref={sidebarEl}
+        onKeyDown={onNavKeyDown}
+        onClick={(e) => {
+          if (e.target instanceof Element && e.target.closest('button') !== null) closeNav();
+        }}
+      >
         <div class="sidebar__head">
           <span class="sidebar__brand">{t('mail-brand')}</span>
           <Show when={app.me()}>{(m) => <span class="sidebar__user">{isolate(m().username)}</span>}</Show>
@@ -247,7 +365,9 @@ export function MailboxScreen(): JSX.Element {
       </aside>
 
       <Show when={surface() === 'mail'}>
-        <div class="mail-pane">
+        {/* At phone width the open reader covers the list; `inert` keeps the
+            covered list out of the tab order and the accessibility tree. */}
+        <div class="mail-pane" inert={narrow() && app.openEmail() !== null}>
           <SubTabStrip />
           <SearchBox />
           <InboxTabs />
