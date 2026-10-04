@@ -763,10 +763,15 @@ jobs:
   # E2E (engine mode): the SAME web UI, but mw-server in MW_MODE=engine driving
   # a REAL IMAP/SMTP account (Greenmail) through mw-engine — the V1 exit gate
   # "engine mode drives a real IMAP account through the unmodified web UI".
-  # Boots greenmail + mailwoman-engine (:8090) and runs the `engine` Playwright
-  # project (imap-engine.spec.ts): login -> real IMAP mailbox -> compose+send
-  # via SMTP -> the message arrives, is MIME-parsed, and renders in the
-  # sandboxed reader. Sibling of the mock `e2e` job; both must stay green.
+  # Boots greenmail + mailwoman-engine (:8090) and runs two Playwright projects
+  # against it in one invocation:
+  #   - `engine`: imap-engine.spec.ts (login -> real IMAP mailbox -> compose+send
+  #     via SMTP -> the message arrives, is MIME-parsed, and renders in the
+  #     sandboxed reader) plus the other specs in that project's `testMatch`.
+  #   - `phone`: narrow.spec.ts, the same server at a phone viewport.
+  # One invocation, so there is one HTML report covering both and a failure in
+  # `engine` does not skip `phone`; the list reporter prefixes each test with
+  # its project name. Sibling of the mock `e2e` job; both must stay green.
   # -------------------------------------------------------------------------
   e2e-engine:
     runs-on: ubuntu-latest
@@ -797,8 +802,8 @@ jobs:
         run: docker compose -f docker-compose.dev.yml up -d --build --wait greenmail mailwoman-engine
       - name: wait for server health
         run: ./scripts/wait-for-health.sh http://localhost:8090/healthz 240
-      - name: run Playwright E2E (engine mode vs Greenmail)
-        run: pnpm -C apps/web exec playwright test --project=engine
+      - name: run Playwright E2E (engine mode vs Greenmail; desktop + phone viewport)
+        run: pnpm -C apps/web exec playwright test --project=engine --project=phone
       - name: compose logs on failure
         if: failure()
         run: docker compose -f docker-compose.dev.yml logs --no-color greenmail mailwoman-engine

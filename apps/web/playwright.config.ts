@@ -8,11 +8,17 @@ import { defineConfig, devices } from '@playwright/test';
  * (see .github/workflows/ci.yml); this config does NOT rebuild or manage the
  * server — it assumes the app is already reachable at the project's `baseURL`.
  *
- * Two projects target the two backends the V1 UI must work against, unchanged:
+ * The projects below `phone` in the `projects` array (crypto, push, v6, v7, t12,
+ * t10) are described where they are defined. The first four:
  *   - `mock`   — the V0 in-repo JMAP mock (proxy mode) on :8080. Runs the
  *                original happy-path + sanitizer specs.
  *   - `engine` — V1 engine mode: mw-server driving a REAL IMAP/SMTP account
- *                (Greenmail) through mw-engine, on :8090. Runs imap-engine.spec.
+ *                (Greenmail) through mw-engine, on :8090. Runs the specs named in
+ *                its `testMatch` (imap-engine.spec.ts and the later desktop-layout
+ *                specs). One of them, sw-cache.spec.ts, has a group that does not
+ *                use this server or `baseURL` at all: it starts its own HTTP
+ *                server on an ephemeral port and navigates to that absolute
+ *                origin. Its other group does use :8090.
  *   - `pim`    — V3 engine mode: the SAME engine-mode server (:8090), driving the
  *                four PIM modules (calendar/tasks/notes/contacts) through the real
  *                UI over the engine's auto-seeded Mailwoman-native collections.
@@ -75,9 +81,10 @@ export default defineConfig({
     },
     {
       name: 'engine',
-      // V1 IMAP round-trip + the V2 modern-UX/theming specs. All target the
-      // engine-mode server (:8090); a new spec added here "slots in" to the CI
-      // `e2e-engine` job with no workflow edits (per e11's handoff).
+      // V1 IMAP round-trip + the V2 modern-UX/theming specs and later additions.
+      // All target the engine-mode server (:8090), except the stub-origin group of
+      // sw-cache.spec.ts (see the header). A new spec added here "slots in" to the
+      // CI `e2e-engine` job with no workflow edits (per e11's handoff).
       testMatch: [
         'imap-engine.spec.ts',
         'modern-ux.spec.ts',
