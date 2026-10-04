@@ -18,6 +18,8 @@
 //!   * `POST /admin/egress/proxies/{id}/delete` — remove a route.
 //!   * `POST /admin/egress/proxies/{id}/activate` — make this the one live route.
 //!   * `POST /admin/egress/proxies/deactivate` — return egress to direct.
+//!   * `POST /admin/egress/proxies/{id}/test` — fetch the probe URL through the
+//!     active route and report how far it got. See [`test_proxy`].
 //!
 //! Configuring a route does **not** make it live: activation is a separate,
 //! deliberate act (0027), so adding a route can never silently reroute traffic.
@@ -52,6 +54,10 @@ use axum::routing::{get, post};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fmt;
+use std::time::Duration;
+
+use mw_egress::Refusal;
+use mw_egress::proxy::{ProxyRefusal, fetch_via_proxy};
 
 use crate::AppState;
 use mw_store::EgressProxyRow;
@@ -63,6 +69,7 @@ pub(crate) fn egress_admin_router() -> Router<AppState> {
         .route("/admin/egress/proxies/{id}/delete", post(delete_proxy))
         .route("/admin/egress/proxies/{id}/activate", post(activate_proxy))
         .route("/admin/egress/proxies/deactivate", post(deactivate_proxies))
+        .route("/admin/egress/proxies/{id}/test", post(test_proxy))
 }
 
 /// A create/replace request.
@@ -162,9 +169,11 @@ impl From<&EgressProxyRow> for ProxyView {
 /// fetches anything, so a fetch-time mapping placed here would have to be imported
 /// backwards by the code that actually egresses.
 ///
-/// What remains here is only the audit/display form below. `ProxyRoute::endpoint()`
-/// produces the identical string, and that duplication is deliberate — this module
-/// must be able to render a route for an audit row without linking the transport.
+/// What remains here is only the audit/display form below, built from the stored
+/// row so this module can render a route without one having been mapped to the
+/// transport. It is not the same string as `ProxyRoute::endpoint()`: that one
+/// spells the scheme the transport's way (`http-connect://…`), this one the way the
+/// row and the admin UI do (`http://…`).
 fn endpoint(r: &EgressProxyRow) -> String {
     format!("{}://{}:{}", r.scheme, r.host, r.port)
 }
@@ -360,6 +369,280 @@ async fn deactivate_proxies(State(state): State<AppState>, headers: HeaderMap) -
     Json(json!({ "ok": true, "deactivated": previous.is_some() })).into_response()
 }
 
+// ── "test this route" ────────────────────────────────────────────────────────
+
+/// What a route test fetches when `MW_EGRESS_PROBE_URL` is not set. `example.com`
+/// is reserved by IANA for documentation and answers over https.
+const DEFAULT_PROBE_URL: &str = "https://example.com/";
+
+/// How long the test waits for the proxy's own name to resolve, and separately for
+/// a TCP connection to it, before reporting that stage as the failure.
+const PROBE_STAGE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The URL a route test fetches: `MW_EGRESS_PROBE_URL` when set, else
+/// [`DEFAULT_PROBE_URL`].
+///
+/// It comes from the deployment's environment and never from the request, so the
+/// endpoint cannot be used to make the server fetch a URL of the caller's choosing.
+/// It is subject to the same address policy as any other proxied fetch.
+fn probe_url() -> String {
+    std::env::var("MW_EGRESS_PROBE_URL")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_PROBE_URL.to_string())
+}
+
+/// The verdict of a route test. `outcome` and `stage` are the wire vocabulary the
+/// admin UI renders (`apps/web/src/screens/Admin/Egress.tsx`).
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct TestVerdict {
+    /// `connected` · `authRejected` · `refusedByPolicy` · `dnsFailed` ·
+    /// `unreachable` · `originTlsFailed` · `routeInvalid`.
+    outcome: &'static str,
+    /// Where the attempt stopped: `dns` · `connect` · `tunnel` · `origin`.
+    stage: &'static str,
+    /// `scheme://host:port` of the route. No credential.
+    endpoint: String,
+    /// From the transport's own progress: true once the proxy accepted a tunnel.
+    traversed_proxy: bool,
+    /// One sentence. Written here or a `&'static str` from the transport; never
+    /// text received from the proxy or the origin, and never a credential.
+    detail: String,
+    /// The URL that was fetched.
+    probe_url: String,
+}
+
+/// Map the transport's result onto the wire vocabulary.
+///
+/// `traversed` decides between `tunnel` and `origin` for the failures that can
+/// happen on either side of the proxy accepting the tunnel.
+fn classify(
+    outcome: &Result<Vec<u8>, ProxyRefusal>,
+    traversed: bool,
+) -> (&'static str, &'static str, String) {
+    let past_tunnel = if traversed { "origin" } else { "tunnel" };
+    match outcome {
+        Ok(_) => (
+            "connected",
+            "origin",
+            "The probe URL was fetched through the route.".to_string(),
+        ),
+        // The origin answered HTTP through the tunnel. The route carried a request
+        // to it and a response back, which is what was being tested; the status is
+        // the probe target's business.
+        Err(ProxyRefusal::Origin(Refusal::Status(code))) => (
+            "connected",
+            "origin",
+            format!("The route reached the probe URL, which answered HTTP {code}."),
+        ),
+        Err(ProxyRefusal::Origin(Refusal::TooLarge)) => (
+            "connected",
+            "origin",
+            "The route reached the probe URL; its response was larger than the fetch limit."
+                .to_string(),
+        ),
+        Err(ProxyRefusal::Origin(Refusal::Blocked)) => (
+            "refusedByPolicy",
+            "tunnel",
+            "Mailwoman's address policy refused the probe URL's address, or its name did not \
+             resolve; the proxy was not contacted for it."
+                .to_string(),
+        ),
+        Err(ProxyRefusal::Origin(Refusal::BadRequest(m))) => (
+            "refusedByPolicy",
+            "tunnel",
+            format!("The probe URL was refused before the proxy was contacted: {m}."),
+        ),
+        Err(ProxyRefusal::PlaintextRefused) => (
+            "refusedByPolicy",
+            "tunnel",
+            "The probe URL is plaintext http and this route does not allow plaintext origins."
+                .to_string(),
+        ),
+        Err(ProxyRefusal::Origin(Refusal::Timeout)) => (
+            "unreachable",
+            past_tunnel,
+            "The fetch timed out.".to_string(),
+        ),
+        Err(ProxyRefusal::Origin(Refusal::Upstream)) => (
+            "unreachable",
+            past_tunnel,
+            "The exchange with the probe URL failed.".to_string(),
+        ),
+        Err(ProxyRefusal::OriginHttp(_)) => (
+            "unreachable",
+            "origin",
+            "The HTTP exchange with the probe URL failed inside the tunnel.".to_string(),
+        ),
+        Err(ProxyRefusal::RouteInvalid(m)) => ("routeInvalid", "connect", format!("{m}.")),
+        Err(ProxyRefusal::ProxyUnreachable(m)) => ("unreachable", "tunnel", format!("{m}.")),
+        Err(ProxyRefusal::ProxyAuthRejected(m)) => ("authRejected", "tunnel", format!("{m}.")),
+        // The payload is the proxy's own status line or reply code; it is not
+        // forwarded, so nothing a proxy says can reach the admin's browser.
+        Err(ProxyRefusal::ProxyRejected(_)) => (
+            "refusedByPolicy",
+            "tunnel",
+            "The proxy answered and refused to open a tunnel to the probe URL.".to_string(),
+        ),
+        Err(ProxyRefusal::OriginTls(_)) => (
+            "originTlsFailed",
+            "origin",
+            "TLS to the probe URL failed inside the tunnel.".to_string(),
+        ),
+    }
+}
+
+/// `POST /admin/egress/proxies/{id}/test` — fetch the probe URL through one route.
+///
+/// **The status says whether the test ran; the verdict is in the body.** `200`
+/// carries a [`TestVerdict`] for every outcome, the failures included; `404` means
+/// there is no such route; `409` the route is not the active one; `401` not an
+/// admin; `500` the route could not be loaded.
+///
+/// **Only the active route can be tested.** The one mapping from a stored row to
+/// the transport's `ProxyRoute` is private to `image_proxy.rs`, and the only
+/// accessor it shares is `active_route`, which returns the live route. A route
+/// that exists but is not active answers `409` and is not probed. Testing a staged
+/// route before switching to it needs a by-id accessor in that module
+/// (`route_by_id`, for which `mw-egress/tests/route_construction_sites.rs` already
+/// carries a named exception); until it exists this endpoint cannot do it.
+///
+/// Testing changes nothing — it does not go through the image proxy's cache or its
+/// transition audit.
+///
+/// Three stages, so the answer says where to look:
+/// 1. `dns` — the proxy's own host is resolved here.
+/// 2. `connect` — a TCP connection to that address is opened and dropped.
+/// 3. `tunnel` / `origin` — the transport (`mw_egress::proxy::fetch_via_proxy`)
+///    negotiates the tunnel and fetches the probe URL, under the same address
+///    policy and plaintext rule as a real fetch.
+///
+/// Stages 1 and 2 exist because the transport reports "does not resolve",
+/// "connection refused" and "died mid-negotiation" as one `ProxyUnreachable`.
+async fn test_proxy(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    UrlPath(id): UrlPath<String>,
+) -> Response {
+    let admin = match super::require_admin(&state, &headers).await {
+        Ok(a) => a,
+        Err(resp) => return resp,
+    };
+    let row = match state.store.get_egress_proxy(&id).await {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "no such egress route" })),
+            )
+                .into_response();
+        }
+        Err(e) => return store_failed("test lookup", &e),
+    };
+    if !row.active {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({ "error": "only the active egress route can be tested" })),
+        )
+            .into_response();
+    }
+    // `active_route` takes no id, so check it returned the row that was asked
+    // about: another admin may have switched routes since the lookup above.
+    let route = match crate::image_proxy::active_route(&state.store).await {
+        Ok(Some(route)) if route.id == id => route,
+        Ok(_) => {
+            return (
+                StatusCode::CONFLICT,
+                Json(json!({ "error": "only the active egress route can be tested" })),
+            )
+                .into_response();
+        }
+        Err(()) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "egress route could not be loaded" })),
+            )
+                .into_response();
+        }
+    };
+    let endpoint = endpoint(&row);
+    let probe = probe_url();
+    let verdict = |outcome, stage, traversed_proxy, detail: String| TestVerdict {
+        outcome,
+        stage,
+        endpoint: endpoint.clone(),
+        traversed_proxy,
+        detail,
+        probe_url: probe.clone(),
+    };
+
+    let verdict = 'probe: {
+        // 1. dns — the proxy's own name.
+        let lookup = tokio::time::timeout(
+            PROBE_STAGE_TIMEOUT,
+            tokio::net::lookup_host((route.host.as_str(), route.port)),
+        )
+        .await;
+        let proxy_addr = match lookup {
+            Ok(Ok(mut addrs)) => addrs.next(),
+            _ => None,
+        };
+        let Some(proxy_addr) = proxy_addr else {
+            break 'probe verdict(
+                "dnsFailed",
+                "dns",
+                false,
+                "The proxy host did not resolve to an address.".to_string(),
+            );
+        };
+        // 2. connect — is anything listening there.
+        match tokio::time::timeout(
+            PROBE_STAGE_TIMEOUT,
+            tokio::net::TcpStream::connect(proxy_addr),
+        )
+        .await
+        {
+            Ok(Ok(stream)) => drop(stream),
+            _ => {
+                break 'probe verdict(
+                    "unreachable",
+                    "connect",
+                    false,
+                    "No TCP connection could be opened to the proxy.".to_string(),
+                );
+            }
+        }
+        // 3. tunnel + origin — the real transport.
+        let Ok(url) = reqwest::Url::parse(&probe) else {
+            break 'probe verdict(
+                "refusedByPolicy",
+                "tunnel",
+                false,
+                "MW_EGRESS_PROBE_URL is not a URL.".to_string(),
+            );
+        };
+        let fetch = fetch_via_proxy(url, &route, "*/*").await;
+        let (outcome, stage, detail) = classify(&fetch.outcome, fetch.traversed_proxy);
+        verdict(outcome, stage, fetch.traversed_proxy, detail)
+    };
+
+    append_egress_audit(
+        &state,
+        &admin,
+        &id,
+        json!({
+            "tested": true,
+            "endpoint": verdict.endpoint,
+            "outcome": verdict.outcome,
+            "stage": verdict.stage,
+            "traversedProxy": verdict.traversed_proxy,
+        }),
+    )
+    .await;
+    Json(verdict).into_response()
+}
+
 /// Append an egress-configuration audit row.
 ///
 /// Uses the existing `SecurityPolicyChanged` kind: an egress route decides where all
@@ -465,6 +748,72 @@ mod tests {
         let rendered = format!("{req:?}");
         assert!(!rendered.contains(PASSWORD), "Debug leaked: {rendered}");
         assert!(rendered.contains("<redacted>"));
+    }
+
+    /// Every transport result maps onto the seven-outcome / four-stage vocabulary
+    /// the UI renders, and success is claimed only where the origin was reached.
+    #[test]
+    fn classify_maps_each_refusal_to_an_outcome_and_a_stage() {
+        let c = |r: Result<Vec<u8>, ProxyRefusal>, traversed| {
+            let (outcome, stage, _) = classify(&r, traversed);
+            (outcome, stage)
+        };
+        assert_eq!(c(Ok(vec![1]), true), ("connected", "origin"));
+        assert_eq!(
+            c(Err(ProxyRefusal::Origin(Refusal::Status(404))), true),
+            ("connected", "origin")
+        );
+        assert_eq!(
+            c(Err(ProxyRefusal::ProxyAuthRejected("x")), false),
+            ("authRejected", "tunnel")
+        );
+        assert_eq!(
+            c(Err(ProxyRefusal::ProxyRejected("403".into())), false),
+            ("refusedByPolicy", "tunnel")
+        );
+        assert_eq!(
+            c(Err(ProxyRefusal::PlaintextRefused), false),
+            ("refusedByPolicy", "tunnel")
+        );
+        assert_eq!(
+            c(Err(ProxyRefusal::Origin(Refusal::Blocked)), false),
+            ("refusedByPolicy", "tunnel")
+        );
+        assert_eq!(
+            c(Err(ProxyRefusal::ProxyUnreachable("x")), false),
+            ("unreachable", "tunnel")
+        );
+        assert_eq!(
+            c(Err(ProxyRefusal::Origin(Refusal::Timeout)), false),
+            ("unreachable", "tunnel")
+        );
+        assert_eq!(
+            c(Err(ProxyRefusal::Origin(Refusal::Timeout)), true),
+            ("unreachable", "origin")
+        );
+        assert_eq!(
+            c(Err(ProxyRefusal::OriginTls("bad cert".into())), true),
+            ("originTlsFailed", "origin")
+        );
+        assert_eq!(
+            c(Err(ProxyRefusal::RouteInvalid("x")), false),
+            ("routeInvalid", "connect")
+        );
+    }
+
+    /// Text the proxy or the origin sent is not copied into the verdict.
+    #[test]
+    fn third_party_text_does_not_reach_the_detail() {
+        const MARK: &str = "<script>from-the-proxy</script>";
+        for refusal in [
+            ProxyRefusal::ProxyRejected(MARK.into()),
+            ProxyRefusal::OriginTls(MARK.into()),
+            ProxyRefusal::OriginHttp(MARK.into()),
+        ] {
+            let (_, _, detail) = classify(&Err(refusal), true);
+            assert!(!detail.contains("from-the-proxy"), "{detail}");
+            assert!(!detail.is_empty());
+        }
     }
 
     #[test]
