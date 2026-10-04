@@ -7,18 +7,22 @@
 //   • double-book — keep both, but mark the later event's time as free so it no
 //                   longer counts against free/busy;
 //   • keep both  — accept the overlap as-is.
-// When either event has attendees the mutation goes through the controller's
-// `updateEvent`, which the engine turns into an iTIP update send (the "update
-// sends" the plan calls for) — surfaced here as a notice.
+// Every resolution is a `CalendarEvent/set` update through the controller's
+// `updateEvent`. The engine sends attendees nothing on an update (it emits an
+// iTIP REQUEST only on create — `event_create`, `crates/mw-engine/src/pim/events.rs:145`),
+// so the dialog makes no claim that anyone is notified.
 //
-// A free/busy grid (wiring the previously-unused `queryFreeBusy`) shows each
-// attendee's busy/tentative/free time across the conflict window so the user can
-// pick a clear slot.
+// A free/busy grid shows the signed-in account's own busy/tentative/free time
+// across the conflict day so the user can pick a clear slot. It has one row:
+// `Calendar/freeBusy` aggregates the account's own calendars and reports on no
+// other principal (`calendar_free_busy`, `crates/mw-engine/src/pim/calendars.rs:353-387`),
+// so there is no attendee availability to show. When the events have attendees
+// the dialog says so rather than drawing rows it has no data for.
 //
 // a11y (WCAG 2.2 AA): a focus-trapped `role=dialog` (Escape closes, focus is
 // restored on close); the free/busy grid is a semantic table with row/column
 // headers and per-cell text (status is never conveyed by color alone); every
-// user-controlled title/email is bidi-isolated.
+// user-controlled title is bidi-isolated.
 
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from 'solid-js';
 import { t, isolate } from '../../i18n';
@@ -26,7 +30,7 @@ import type { CalendarEvent } from '../../api/pim-types.ts';
 import type { CalendarController } from './controller.ts';
 import type { FreeBusyBlock } from './api.ts';
 import type { ConflictPair } from './types.ts';
-import { dateToLocal, formatFull, formatTime, localToDate, startOfDay } from './datetime.ts';
+import { addDays, dateToLocal, formatFull, formatTime, instanceBound, localToDate, startOfDay } from './datetime.ts';
 import { formatDuration, parseDuration } from './recurrence.ts';
 import * as css from './calendar.css.ts';
 
@@ -55,7 +59,9 @@ export function ConflictResolver(props: ConflictResolverProps): JSX.Element {
   const c = props.controller;
   const [selected, setSelected] = createSignal(0);
   const [busy, setBusy] = createSignal(false);
-  const [blocks, setBlocks] = createSignal<FreeBusyBlock[]>([]);
+  // `null` = the free/busy query failed: the grid is withheld rather than drawn
+  // as all-free.
+  const [blocks, setBlocks] = createSignal<FreeBusyBlock[] | null>([]);
 
   // Keep the selection in range as pairs resolve away.
   createEffect(() => {
@@ -82,19 +88,6 @@ export function ConflictResolver(props: ConflictResolverProps): JSX.Element {
     return Object.keys(pr.earlier.event.participants).length > 0 || Object.keys(pr.later.event.participants).length > 0;
   });
 
-  /** The union of attendee emails across both events (rows of the grid). */
-  const principals = createMemo<string[]>(() => {
-    const pr = pair();
-    if (pr === null) return [];
-    const set = new Set<string>();
-    for (const side of [pr.earlier, pr.later]) {
-      for (const part of Object.values(side.event.participants)) {
-        if (part.email !== '') set.add(part.email);
-      }
-    }
-    if (set.size === 0) set.add('me@example.com');
-    return [...set];
-  });
 
   /** The conflict day + the hour span the grid covers (union ± 1h, clamped). */
   const grid = createMemo(() => {
@@ -108,29 +101,31 @@ export function ConflictResolver(props: ConflictResolverProps): JSX.Element {
     return { day, hours };
   });
 
-  // Wire `queryFreeBusy`: refetch the grid whenever the selected pair changes.
+  // Refetch the account's busy time for the conflict day whenever the selected
+  // pair changes.
   createEffect(() => {
-    const pr = pair();
-    const ps = principals();
-    if (pr === null || ps.length === 0) {
+    if (pair() === null) {
       setBlocks([]);
       return;
     }
-    const g = grid();
-    const from = dateToLocal(g.day);
-    const to = dateToLocal(new Date(g.day.getTime() + 24 * 3600 * 1000));
-    void c.queryFreeBusy(ps, from, to).then(setBlocks);
+    const day = grid().day;
+    c.queryFreeBusy(day, addDays(day, 1)).then(setBlocks, () => setBlocks(null));
   });
 
-  function statusAt(principal: string, hour: number): FbStatus {
+  /**
+   * The account's status for one hour of the conflict day. Blocks are read as
+   * UTC instants. A merged block does not say whether a floating or all-day
+   * event contributed to it (those are stamped `Z` at their wall clock), so such
+   * an event's cells sit off by the viewer's UTC offset.
+   */
+  function statusAt(hour: number): FbStatus {
     const g = grid();
     const slotStart = new Date(g.day.getTime() + hour * 3600 * 1000);
     const slotEnd = new Date(slotStart.getTime() + 3600 * 1000);
     let status: FbStatus = 'free';
-    for (const b of blocks()) {
-      if (b.principal !== principal) continue;
-      const bs = localToDate(b.start);
-      const be = localToDate(b.end);
+    for (const b of blocks() ?? []) {
+      const bs = instanceBound(b.start, true);
+      const be = instanceBound(b.end, true);
       if (bs < slotEnd && be > slotStart) {
         if (b.status === 'busy') return 'busy';
         status = 'tentative';
@@ -293,51 +288,50 @@ export function ConflictResolver(props: ConflictResolverProps): JSX.Element {
                 })}
               </p>
 
-              {/* free/busy grid — consumes queryFreeBusy */}
-              <Show when={grid().hours.length > 0}>
+              {/* free/busy grid — the account's own busy time (queryFreeBusy) */}
+              <Show when={blocks() === null}>
+                <p class={css.dimText} role="note" data-testid="freebusy-unavailable">{t('calendar-fb-unavailable')}</p>
+              </Show>
+              <Show when={blocks() !== null && grid().hours.length > 0}>
                 <div class={css.fbScroll}>
                   <table class={css.fbGrid} data-testid="freebusy-grid">
                     <caption class={css.srOnly}>{t('calendar-fb-caption')}</caption>
                     <thead>
                       <tr>
-                        <th scope="col" class={css.fbCorner}>{t('calendar-fb-attendee')}</th>
+                        <th scope="col" class={css.fbCorner}>{t('calendar-fb-whose')}</th>
                         <For each={grid().hours}>
                           {(h) => <th scope="col" class={css.fbHead}>{String(h).padStart(2, '0')}</th>}
                         </For>
                       </tr>
                     </thead>
                     <tbody>
-                      <For each={principals()}>
-                        {(p) => (
-                          <tr>
-                            <th scope="row" class={css.fbRowHead}><bdi>{p}</bdi></th>
-                            <For each={grid().hours}>
-                              {(h) => {
-                                const s = (): FbStatus => statusAt(p, h);
-                                return (
-                                  <td
-                                    class={css.fbCell[s()]}
-                                    aria-label={t('calendar-fb-cell', {
-                                      principal: isolate(p),
-                                      hour: `${String(h).padStart(2, '0')}:00`,
-                                      status: t(`calendar-fb-${s()}`),
-                                    })}
-                                  >
-                                    <span aria-hidden="true">{s() === 'free' ? '' : s() === 'busy' ? '●' : '◐'}</span>
-                                  </td>
-                                );
-                              }}
-                            </For>
-                          </tr>
-                        )}
-                      </For>
+                      <tr>
+                        <th scope="row" class={css.fbRowHead}>{t('calendar-fb-own')}</th>
+                        <For each={grid().hours}>
+                          {(h) => {
+                            const s = (): FbStatus => statusAt(h);
+                            return (
+                              <td
+                                class={css.fbCell[s()]}
+                                aria-label={t('calendar-fb-cell', {
+                                  principal: t('calendar-fb-own'),
+                                  hour: `${String(h).padStart(2, '0')}:00`,
+                                  status: t(`calendar-fb-${s()}`),
+                                })}
+                              >
+                                <span aria-hidden="true">{s() === 'free' ? '' : s() === 'busy' ? '●' : '◐'}</span>
+                              </td>
+                            );
+                          }}
+                        </For>
+                      </tr>
                     </tbody>
                   </table>
                 </div>
               </Show>
 
               <Show when={hasAttendees()}>
-                <p class={css.dimText} role="note">{t('calendar-resolver-update-note')}</p>
+                <p class={css.dimText} role="note" data-testid="freebusy-own-only">{t('calendar-fb-own-only')}</p>
               </Show>
 
               <div class={css.resolverActions}>

@@ -8,13 +8,14 @@ import { CalendarApp } from './index.tsx';
 import { EventEditor } from './EventEditor.tsx';
 import { ShareDialog } from './ShareDialog.tsx';
 import { createCalendarController, type CalendarController } from './controller.ts';
-import { createMockStore, createMockJmap, type MockStore } from './mock.ts';
+import { createMockFeeds, createMockStore, createMockJmap, type MockStore } from './mock.ts';
 import type { CalendarEventExt } from './types.ts';
 
 function makeController(store: MockStore): CalendarController {
   return createCalendarController({
     jmap: createMockJmap(store),
     resolveAccount: () => Promise.resolve('acct-mock'),
+    feeds: createMockFeeds(store),
   });
 }
 
@@ -32,6 +33,14 @@ describe('calendar controller — quick add (P3)', () => {
     expect(id).not.toBeNull();
     expect(c.masters().length).toBe(before + 1);
     expect(c.masters().some((m) => m.title === 'Dentist Tuesday 9am')).toBe(true);
+  });
+
+  it('reads the created id out of `created.id`', async () => {
+    const store = createMockStore();
+    const c = await loaded(store);
+    const id = await c.quickAdd('Dentist');
+    expect(typeof id).toBe('string');
+    expect(store.events.some((e) => e.id === id)).toBe(true);
   });
 
   it('ignores an empty quick-add line', async () => {
@@ -66,12 +75,26 @@ describe('calendar controller — subscribe by URL (P6)', () => {
   it('adds a read-only overlay pinned to the source URL', async () => {
     const c = await loaded();
     const before = c.calendars().length;
-    const id = await c.subscribeUrl('https://example.com/team.ics', 'Team', '#123456');
-    expect(id).not.toBeNull();
+    const id = await c.subscribeUrl('https://example.com/team.ics', 'Team');
+    expect(typeof id).toBe('string');
     expect(c.calendars().length).toBe(before + 1);
     const added = c.calendars().find((x) => x.id === id)!;
+    expect(added.name).toBe('Team');
     expect(added.isReadOnlyOverlay).toBe(true);
     expect(added.caldavUrl).toBe('https://example.com/team.ics');
+  });
+
+  it('fills the overlay from the fetched feed', async () => {
+    const store = createMockStore();
+    const feed = 'BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:f1\r\nSUMMARY:Feed event\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n';
+    const c = createCalendarController({
+      jmap: createMockJmap(store),
+      resolveAccount: () => Promise.resolve('acct-mock'),
+      feeds: createMockFeeds(store, () => feed),
+    });
+    await c.load();
+    const id = await c.subscribeUrl('https://example.com/team.ics');
+    expect(store.events.filter((e) => e.calendarId === id).map((e) => e.title)).toEqual(['Feed event']);
   });
 
   it('ignores an empty URL', async () => {
@@ -81,10 +104,35 @@ describe('calendar controller — subscribe by URL (P6)', () => {
     expect(c.calendars().length).toBe(before);
   });
 
-  it('refreshes a subscription without error', async () => {
-    const c = await loaded();
+  it('refresh replaces the overlay with the re-fetched feed', async () => {
+    const store = createMockStore();
+    let title = 'First';
+    const c = createCalendarController({
+      jmap: createMockJmap(store),
+      resolveAccount: () => Promise.resolve('acct-mock'),
+      feeds: createMockFeeds(
+        store,
+        () => `BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:f1\r\nSUMMARY:${title}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n`,
+      ),
+    });
+    await c.load();
     const id = await c.subscribeUrl('https://example.com/team.ics');
-    await expect(c.refreshSubscription(id!, 'BEGIN:VCALENDAR\nEND:VCALENDAR')).resolves.toBeUndefined();
+    title = 'Second';
+    await c.refreshSubscription(id!);
+    expect(store.events.filter((e) => e.calendarId === id).map((e) => e.title)).toEqual(['Second']);
+  });
+
+  it('a feed the server cannot fetch rejects and adds no calendar', async () => {
+    const store = createMockStore();
+    const c = createCalendarController({
+      jmap: createMockJmap(store),
+      resolveAccount: () => Promise.resolve('acct-mock'),
+      feeds: createMockFeeds(store, () => null),
+    });
+    await c.load();
+    const before = store.calendars.length;
+    await expect(c.subscribeUrl('https://example.com/gone.ics')).rejects.toThrow();
+    expect(store.calendars.length).toBe(before);
   });
 });
 

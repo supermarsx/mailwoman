@@ -3,10 +3,15 @@
 // `api/jmap.ts` (methodCalls array, `#`-result-references, `{accountId,state,
 // list,notFound}` / `{created,updated,destroyed,...}` shapes) but for the
 // Mailwoman PIM calendar family. No I/O here so they are trivially unit-testable;
-// the slice runs them through the shared `Client.jmap` transport (mock until e10).
+// the slice runs them through the shared `Client.jmap` transport.
+//
+// The SERVER is the source of truth for every shape in this file. Each request
+// builder and response type cites the handler it mirrors in
+// `crates/mw-engine/src/pim/{calendars,events}.rs`; `mock.ts` cites the same
+// lines, and `contract.test.ts` pins both against fixtures taken from them.
 
-import { request } from '../../api/jmap.ts';
-import { CAP_CORE, type Id, type Invocation, type JmapRequest } from '../../api/jmap-types.ts';
+import { request, responseFor } from '../../api/jmap.ts';
+import { CAP_CORE, type Id, type Invocation, type JmapRequest, type JmapResponse } from '../../api/jmap-types.ts';
 import { CAP_CALENDARS, type Calendar, type CalendarEvent } from '../../api/pim-types.ts';
 
 /** `using` for the calendar surface: core + calendars. */
@@ -61,12 +66,14 @@ export interface EventSetResponse {
 }
 
 /**
- * One expanded, dated instance from `CalendarEvent/expand`. The engine returns
- * these in the response `list` (each row also carries the master's projection —
- * `id`/`calendarId`/`title`/…; the controller reads only the id + occurrence
- * bounds and joins to the masters fetched separately). `instanceStart` /
- * `instanceEnd` are RFC3339 UTC from the engine (and `LocalDateTime` from the
- * mock — both round-trip through `localToDate`).
+ * One expanded, dated instance from `CalendarEvent/expand` (`event_expand`,
+ * `events.rs:449-480`). The engine returns these in the response `list` (each
+ * row also carries the master's projection — `id`/`calendarId`/`title`/…; the
+ * controller reads only the id + occurrence bounds and joins to the masters
+ * fetched separately). `instanceStart` / `instanceEnd` are RFC3339 UTC: a true
+ * instant for an event with a `timeZone`, and the wall clock stamped `Z` for a
+ * floating or all-day one (`local_to_utc`, `mw-ics/src/recur.rs:47-63`).
+ * `instanceBound` in `datetime.ts` decodes the two cases.
  */
 export interface ExpandedInstance {
   eventId: Id;
@@ -97,9 +104,14 @@ export interface DetectConflictsResponse {
   list: ConflictPairResponse[];
 }
 
-/** One busy block from `Calendar/freeBusy`. */
+/**
+ * One merged busy interval from `Calendar/freeBusy` (`calendar_free_busy`,
+ * `calendars.rs:377-383`). The engine aggregates the ACCOUNT'S OWN events, so a
+ * block names no principal: it is the signed-in user's busy time. `start` /
+ * `end` are RFC3339 UTC in the same two encodings as `ExpandedInstance`, and
+ * a merged block does not say which encoding its contributors used.
+ */
 export interface FreeBusyBlock {
-  principal: string;
   start: string;
   end: string;
   status: 'busy' | 'tentative';
@@ -107,42 +119,77 @@ export interface FreeBusyBlock {
 
 export interface FreeBusyResponse {
   accountId: Id;
-  blocks: FreeBusyBlock[];
+  /** Merged busy intervals (frozen `list` envelope). */
+  list: FreeBusyBlock[];
 }
 
-/** A `CalendarEvent/export` result — an ICS blob (plan §2.2). */
+/** A `CalendarEvent/export` result (`event_export`, `events.rs:584`). */
 export interface EventExportResponse {
   accountId: Id;
-  ics: string;
+  /** One VCALENDAR document holding every exported VEVENT. */
+  blob: string;
 }
 
-/** A `CalendarEvent/quickAdd` result — the created event id (P3). */
+/** A `CalendarEvent/quickAdd` result (`event_quick_add`, `events.rs:728-738`).
+ *  Empty text is a method-level `serverFail`, not `created: null`. */
 export interface EventQuickAddResponse {
   accountId: Id;
-  /** The created master's id, or `null` when the text could not be parsed. */
-  created: Id | null;
+  created: { id: Id };
+  /** What the engine's parser understood, for echoing back. */
+  parsed: {
+    title: string;
+    start: string | null;
+    duration: string;
+    allDay: boolean;
+    location: string | null;
+  };
 }
 
-/** A `Calendar/subscribe` result — the created subscription calendar id (P6). */
+/** A `Calendar/subscribe` result (`calendar_subscribe`, `calendars.rs:291-296`). */
 export interface CalendarSubscribeResponse {
   accountId: Id;
-  /** The created (read-only overlay) calendar id, or `null` on failure. */
-  created: Id | null;
+  /** The created read-only overlay calendar. */
+  created: { id: Id };
+  /** The stored feed URL (`webcal://` normalized to `https://`). */
+  url: string;
+  /** Events imported from the fetched feed body. */
+  imported: number;
 }
 
-/** A `Calendar/refreshSubscription` result — the re-sync outcome (P6). */
+/** A `Calendar/refreshSubscription` result (`calendars.rs:348`). */
 export interface CalendarRefreshResponse {
   accountId: Id;
   calendarId: Id;
-  /** Events added/updated/removed by the refresh. */
-  changed: number;
+  /** Events in the overlay after the re-import. */
+  imported: number;
 }
 
-/** A `CalendarEvent/import` result — the created event ids. */
+/** A `CalendarEvent/import` result (`event_import`, `events.rs:516`). An event
+ *  that fails to persist is skipped server-side and is simply absent here. */
 export interface EventImportResponse {
   accountId: Id;
-  created: Id[];
-  notCreated: Array<{ index: number; reason: string }>;
+  /** Ids of the events created. */
+  imported: Id[];
+  count: number;
+}
+
+/**
+ * Read one PIM method response, throwing on a method-level failure.
+ *
+ * The engine does not send PIM failures as an RFC 8620 `error` invocation: it
+ * echoes the method name with a `{type, description}` body (`server_fail`,
+ * `pim/mod.rs:79-81`; envelope `jmap.rs:132`). `responseFor` therefore returns
+ * that body as if it were a result, and the caller reads `undefined` fields
+ * off it. No successful PIM response carries a top-level `type`, and every one
+ * carries `accountId`, so that pair identifies a failure.
+ */
+export function pimResponse<T>(res: JmapResponse, callId: string): T {
+  const body = responseFor<Record<string, unknown>>(res, callId);
+  if (typeof body['type'] === 'string' && body['accountId'] === undefined) {
+    const description = typeof body['description'] === 'string' ? body['description'] : '';
+    throw new Error(`JMAP method error: ${body['type']} ${description}`.trim());
+  }
+  return body as T;
 }
 
 // ── Request builders ─────────────────────────────────────────────────────────
@@ -170,20 +217,13 @@ export function calendarSet(
 }
 
 /**
- * Expand a window of events across the given calendars in one round-trip. The
- * engine (`mw-ics` + `rrule`) returns both the masters (for editing) and the
- * concrete instances overlapping `[start, end)` (plan §2.1/§2.2).
+ * Expand every event in the account over `[start, end)` (RFC3339 UTC) into
+ * concrete instances. `event_expand` (`events.rs:449-461`) reads `start`, `end`
+ * and an optional `ids`; it has no calendar filter, so none is sent — the
+ * controller narrows to the visible calendars itself.
  */
-export function eventsExpand(
-  accountId: Id,
-  calendarIds: Id[],
-  start: string,
-  end: string,
-  callId = 'x',
-): JmapRequest {
-  return request(CAL_USING, [
-    ['CalendarEvent/expand', { accountId, calendarIds, start, end }, callId],
-  ]);
+export function eventsExpand(accountId: Id, start: string, end: string, callId = 'x'): JmapRequest {
+  return request(CAL_USING, [['CalendarEvent/expand', { accountId, start, end }, callId]]);
 }
 
 /**
@@ -197,35 +237,28 @@ export function eventsGetAll(accountId: Id, callId = 'g'): JmapRequest {
 }
 
 /**
- * Fetch a page of events by query, then hydrate exactly those ids via a JMAP
- * result reference — used where the caller wants raw masters, not expansion.
- */
-export function eventsQueryGet(accountId: Id, calendarIds: Id[], limit = 1000): JmapRequest {
-  return request(CAL_USING, [
-    ['CalendarEvent/query', { accountId, filter: { inCalendars: calendarIds }, limit }, 'q'],
-    ['CalendarEvent/get', { accountId, '#ids': { resultOf: 'q', name: 'CalendarEvent/query', path: '/ids' } }, 'g'],
-  ]);
-}
-
-/**
- * Query the events in `calendarIds` carrying `category` (P4). Uses the engine's
- * `CalendarEvent/query` `categories` filter condition (e11) and returns the raw
- * id set — the controller intersects it with the expanded window to narrow the
- * view to a single category without a second round-trip per instance.
+ * Query the ids of the events carrying `category` (P4), optionally within one
+ * calendar. `event_query_ids` (`events.rs:337-361`) reads `filter.calendarId` —
+ * a single id, there is no multi-calendar condition — and `filter.categories`,
+ * matched case-insensitively against any of the event's categories
+ * (`filter_events_by_categories`, `events.rs:748-777`). The handler does not
+ * page, so no `limit` is sent. The controller intersects the id set with the
+ * expanded window.
  */
 export function eventsQueryByCategory(
   accountId: Id,
-  calendarIds: Id[],
   category: string,
-  limit = 1000,
+  calendarId?: Id,
+  callId = 'q',
 ): JmapRequest {
-  return request(CAL_USING, [
-    [
-      'CalendarEvent/query',
-      { accountId, filter: { inCalendars: calendarIds, categories: [category] }, limit },
-      'q',
-    ],
-  ]);
+  const filter: Record<string, unknown> = { categories: [category] };
+  if (calendarId !== undefined) filter['calendarId'] = calendarId;
+  return request(CAL_USING, [['CalendarEvent/query', { accountId, filter }, callId]]);
+}
+
+/** Query the ids of every event in one calendar (`filter.calendarId`, `events.rs:339-342`). */
+export function eventsQueryInCalendar(accountId: Id, calendarId: Id, callId = 'q'): JmapRequest {
+  return request(CAL_USING, [['CalendarEvent/query', { accountId, filter: { calendarId } }, callId]]);
 }
 
 /** Build a `CalendarEvent/set` request (create / update / destroy). */
@@ -266,53 +299,66 @@ export function eventRespond(
   return request(CAL_USING, [['CalendarEvent/respond', args, callId]]);
 }
 
-/** Detect overlapping instances across visible calendars in a window. */
+/**
+ * Detect overlapping instances across the whole account in a window.
+ * `calendar_detect_conflicts` (`calendars.rs:391-403`) reads only `start` and
+ * `end`; it has no calendar filter, so none is sent.
+ */
 export function detectConflicts(
   accountId: Id,
-  calendarIds: Id[],
   start: string,
   end: string,
   callId = 'conflicts',
 ): JmapRequest {
-  return request(CAL_USING, [
-    ['Calendar/detectConflicts', { accountId, calendarIds, start, end }, callId],
-  ]);
+  return request(CAL_USING, [['Calendar/detectConflicts', { accountId, start, end }, callId]]);
 }
 
-/** Query busy blocks for principals over a window (the free/busy picker). */
+/**
+ * Query the account's own merged busy intervals over `[start, end)`.
+ * `calendar_free_busy` (`calendars.rs:359-372`) reads `start` and `end` — both
+ * REQUIRED to be RFC3339 with a zone designator — plus an optional
+ * `calendarIds`. It reads no `principals`: it cannot report on anyone else.
+ */
 export function freeBusy(
   accountId: Id,
-  principals: string[],
   start: string,
   end: string,
+  calendarIds?: Id[],
   callId = 'fb',
 ): JmapRequest {
-  return request(CAL_USING, [['Calendar/freeBusy', { accountId, principals, start, end }, callId]]);
+  const args: Record<string, unknown> = { accountId, start, end };
+  if (calendarIds !== undefined) args['calendarIds'] = calendarIds;
+  return request(CAL_USING, [['Calendar/freeBusy', args, callId]]);
 }
 
-/** Import an ICS / `.hol` blob into a calendar (plan §2.2). */
+/**
+ * Import an ICS / `.hol` document into a calendar. `event_import`
+ * (`events.rs:500-505`) reads the document from `blob`.
+ */
 export function eventsImport(
   accountId: Id,
   calendarId: Id,
-  ics: string,
+  blob: string,
   callId = 'import',
 ): JmapRequest {
-  return request(CAL_USING, [['CalendarEvent/import', { accountId, calendarId, ics }, callId]]);
+  return request(CAL_USING, [['CalendarEvent/import', { accountId, calendarId, blob }, callId]]);
 }
 
-/** Export a set of events (or a whole calendar) to an ICS blob (plan §2.2). */
-export function eventsExport(
-  accountId: Id,
-  opts: { calendarId?: Id; eventIds?: Id[] },
-  callId = 'export',
-): JmapRequest {
-  return request(CAL_USING, [['CalendarEvent/export', { accountId, ...opts }, callId]]);
+/**
+ * Export events to one ICS document. `event_export` (`events.rs:568-572`) reads
+ * `ids`; anything that is not an array — `null` included — exports every event
+ * in the account. It has no calendar filter: to export one calendar the caller
+ * passes that calendar's event ids.
+ */
+export function eventsExport(accountId: Id, ids: Id[] | null, callId = 'export'): JmapRequest {
+  return request(CAL_USING, [['CalendarEvent/export', { accountId, ids }, callId]]);
 }
 
 /**
  * Create an event from a natural-language line (P3). The engine's `quickAdd`
- * parser (e11) turns e.g. "Lunch with Sam Friday 1pm" into a dated event on
- * `calendarId` (defaulting server-side to the primary calendar when omitted).
+ * parser (`event_quick_add`, `events.rs:682-742`) turns e.g. "Lunch with Sam
+ * Friday 1pm" into a dated event on `calendarId` (defaulting server-side to the
+ * primary calendar when omitted). Empty `text` is a method-level failure.
  */
 export function eventQuickAdd(
   accountId: Id,
@@ -325,35 +371,8 @@ export function eventQuickAdd(
   return request(CAL_USING, [['CalendarEvent/quickAdd', args, callId]]);
 }
 
-/**
- * Subscribe to an external (webcal / ICS URL) calendar as a read-only overlay
- * (P6). The engine has no arbitrary-URL fetcher, so when the caller already holds
- * the fetched ICS it passes it as `blob`; otherwise the server-side sync driver
- * fetches `url`. `name`/`color` seed the overlay's display.
- */
-export function calendarSubscribe(
-  accountId: Id,
-  opts: { url: string; name?: string; color?: string; blob?: string },
-  callId = 'sub',
-): JmapRequest {
-  const args: Record<string, unknown> = { accountId, url: opts.url };
-  if (opts.name !== undefined) args['name'] = opts.name;
-  if (opts.color !== undefined) args['color'] = opts.color;
-  if (opts.blob !== undefined) args['blob'] = opts.blob;
-  return request(CAL_USING, [['Calendar/subscribe', args, callId]]);
-}
-
-/**
- * Re-sync a subscription calendar from freshly fetched ICS (P6). `blob` is the
- * newly fetched calendar body; the engine reconciles the overlay's events to it.
- */
-export function calendarRefreshSubscription(
-  accountId: Id,
-  calendarId: Id,
-  blob?: string,
-  callId = 'refresh',
-): JmapRequest {
-  const args: Record<string, unknown> = { accountId, calendarId };
-  if (blob !== undefined) args['blob'] = blob;
-  return request(CAL_USING, [['Calendar/refreshSubscription', args, callId]]);
-}
+// `Calendar/subscribe` and `Calendar/refreshSubscription` have no request
+// builder here on purpose. The engine methods fetch nothing — they import a feed
+// body handed to them as `blob` (`calendar_subscribe` / `calendar_refresh_subscription`,
+// `calendars.rs:234-349`) — so the app reaches them only through the server's
+// sync driver, which does the fetch: see `feeds.ts`.

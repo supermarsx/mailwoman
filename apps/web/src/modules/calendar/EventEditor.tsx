@@ -216,8 +216,13 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
     // the ICS layer round-trips) then narrowed to the frozen `participants` shape.
     const participants: Record<string, ParticipantExt> = {};
     if (ev !== null && ev.participants['me'] !== undefined) participants['me'] = ev.participants['me'];
-    attendees().forEach((a, i) => {
-      participants[`a${i}`] = {
+    // Keyed by email address, as the engine keys them: its ICS layer rebuilds the
+    // map by address (`read_participants`, `crates/mw-ics/src/ical.rs:196-227`),
+    // and on create it addresses the iTIP REQUEST to the map KEYS
+    // (`maybe_send_request`, `crates/mw-engine/src/pim/events.rs:826-836`) — any
+    // other key is an invitation sent to a non-address.
+    attendees().forEach((a) => {
+      participants[a.email] = {
         name: a.name,
         email: a.email,
         role: attendeeRoleToLegacy(a.role),
@@ -616,7 +621,7 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
             />
             <input
               class={css.input}
-              placeholder="https://…"
+              placeholder={t('calendar-attachment-uri-placeholder')}
               value={newAttachUri()}
               onInput={(e) => setNewAttachUri(e.currentTarget.value)}
               onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addAttachment())}

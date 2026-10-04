@@ -7,7 +7,7 @@ import { render, fireEvent, screen, waitFor } from '@solidjs/testing-library';
 import { CalendarApp } from './index.tsx';
 import { EventEditor } from './EventEditor.tsx';
 import { createCalendarController, type CalendarController } from './controller.ts';
-import { createMockStore, createMockJmap, type MockStore } from './mock.ts';
+import { createMockFeeds, createMockStore, createMockJmap, type MockStore } from './mock.ts';
 import { dateToLocal } from './datetime.ts';
 import {
   attendeeRoleToRoles,
@@ -21,6 +21,7 @@ function makeController(store: MockStore): CalendarController {
   return createCalendarController({
     jmap: createMockJmap(store),
     resolveAccount: () => Promise.resolve('acct-mock'),
+    feeds: createMockFeeds(store),
   });
 }
 
@@ -61,7 +62,7 @@ describe('conflict resolver', () => {
     await renderApp();
     fireEvent.click(screen.getByRole('button', { name: /Resolve .* conflict/i }));
     await screen.findByTestId('freebusy-grid');
-    // Design review's attendees are busy during it → at least one cell is Busy.
+    // The account's own row is busy across Lunch + Design review.
     await waitFor(() => expect(screen.getAllByLabelText(/: Busy$/).length).toBeGreaterThan(0));
   });
 
@@ -162,7 +163,10 @@ describe('attendee role / cutype picker', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(controller.masters().some((mm) => mm.title === 'Sync')).toBe(true));
     const created = store.events.find((e) => e.title === 'Sync')!;
-    const part = Object.values(created.participants).find((p) => p.email === 'zed@example.com') as ParticipantExt;
+    // Keyed by address: the engine addresses the iTIP REQUEST to the map keys
+    // (crates/mw-engine/src/pim/events.rs:826-836).
+    expect(Object.keys(created.participants)).toContain('zed@example.com');
+    const part = created.participants['zed@example.com'] as ParticipantExt;
     expect(part.roles).toEqual({ attendee: true, optional: true });
     expect(part.kind).toBe('room');
   });

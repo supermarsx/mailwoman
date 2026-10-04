@@ -152,7 +152,6 @@ calendar-resolver-pick = Conflict
 calendar-resolver-pair-n = { $n } of { $total }: { $a } vs { $b }
 calendar-resolver-time = Time
 calendar-resolver-overlap = Overlap { $start } – { $end }
-calendar-resolver-update-note = Rescheduling or shortening an event with attendees sends them an update.
 calendar-resolver-reschedule = Reschedule later event
 calendar-resolver-shorten = Shorten earlier event
 calendar-resolver-tentative = Mark later tentative
@@ -165,8 +164,11 @@ calendar-events-count-people = { $count ->
 }
 
 # -- Free/busy grid ----------------------------------------------------------
-calendar-fb-caption = Attendee availability across the conflict window, by hour.
-calendar-fb-attendee = Attendee
+calendar-fb-caption = Your busy time on the day of the conflict, by hour.
+calendar-fb-whose = Calendars
+calendar-fb-own = Yours
+calendar-fb-own-only = Attendee availability is not shown. The server reports busy time for your own calendars only.
+calendar-fb-unavailable = Your busy time could not be loaded.
 calendar-fb-cell = { $principal } at { $hour }: { $status }
 calendar-fb-busy = Busy
 calendar-fb-tentative = Tentative
@@ -199,6 +201,19 @@ calendar-remove-attachment = Remove attachment { $name }
 calendar-subscribe-heading = Subscribe by URL
 calendar-subscribe-url = Calendar URL
 calendar-subscribe-add = Subscribe
+calendar-subscribe-url-placeholder = https://example.com/calendar.ics
+calendar-subscribe-failed = The calendar at that address could not be fetched, so it was not added.
+calendar-subscribe-refresh = Refresh { $name }
+calendar-subscribe-refresh-btn = Refresh
+calendar-subscribe-refresh-failed = The calendar feed could not be fetched. Its events were left as they were.
+calendar-import-failed = That file could not be read as a calendar. Nothing was imported.
+calendar-import-done = { $count ->
+    [one] Imported 1 event.
+   *[other] Imported { $count } events.
+}
+calendar-export-failed = The calendar could not be exported.
+calendar-quick-add-failed = That event could not be added.
+calendar-attachment-uri-placeholder = https://example.com/file
 
 # -- Calendar sharing (P1) ---------------------------------------------------
 calendar-share = Share

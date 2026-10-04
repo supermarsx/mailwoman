@@ -3,16 +3,16 @@
 // create/edit dialog (recurrence + reminders + attendees + free/busy + invite
 // controls), conflict badges, and ICS / `.hol` import + export.
 //
-// `CalendarModule` is the registry mount target (plan §2.5 `AppModule.mount`). It
-// is MOCK-BACKED by default (engine is e8, mounting/real-surface swap is e10);
-// e10 will pass an engine-backed controller instead. `CalendarApp` takes an
-// explicit controller so views + tests drive it without the app store.
+// `CalendarApp` takes an explicit controller so views + tests drive it without
+// the app store. The app shell (`shell/mounts.tsx`) renders it over the
+// engine-backed controller from `state/slices/calendar.ts`; `CalendarModule`
+// below is the mock-backed variant.
 
 import { For, Show, createSignal, onMount, type JSX } from 'solid-js';
 import { t, loadCatalog } from '../../i18n';
 import type { Calendar, CalendarEvent } from '../../api/pim-types.ts';
 import { createCalendarController, type CalendarBackend, type CalendarController } from './controller.ts';
-import { createMockStore, mockSession, createMockJmap, type MockStore } from './mock.ts';
+import { createMockFeeds, createMockStore, mockSession, createMockJmap, type MockStore } from './mock.ts';
 import { CALENDAR_VIEWS, type CalendarView } from './types.ts';
 import { ActiveView } from './views.tsx';
 import { EventEditor } from './EventEditor.tsx';
@@ -22,11 +22,12 @@ import { formatFull, formatMonth, formatMonthYear } from './datetime.ts';
 import { HOLIDAY_PACKS } from './holidays.ts';
 import * as css from './calendar.css.ts';
 
-/** Build a mock-backed controller (default until e10 wires the real engine). */
+/** Build a mock-backed controller (no server: the in-memory store in `mock.ts`). */
 export function makeMockController(store: MockStore = createMockStore()): CalendarController {
   const jmap = createMockJmap(store);
   const backend: CalendarBackend = {
     jmap,
+    feeds: createMockFeeds(store),
     resolveAccount: () =>
       Promise.resolve(mockSession().primaryAccounts['urn:mailwoman:calendars'] ?? null),
   };
@@ -69,6 +70,28 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
   const [quickText, setQuickText] = createSignal('');
   const [catFilter, setCatFilter] = createSignal('');
   const [webcalUrl, setWebcalUrl] = createSignal('');
+  // The outcome of the last import / export / subscribe / quick-add, shown in the
+  // sidebar: a failed engine call is reported rather than dropped.
+  const [feedback, setFeedback] = createSignal<{ kind: 'error' | 'info'; text: string } | null>(null);
+
+  /** Run a user action; on failure show `failKey`'s message instead of throwing. */
+  async function attempt(failKey: string, fn: () => Promise<void>): Promise<void> {
+    setFeedback(null);
+    try {
+      await fn();
+    } catch {
+      setFeedback({ kind: 'error', text: t(failKey) });
+    }
+  }
+
+  async function importInto(text: string): Promise<void> {
+    const target = c.visibleCalendars()[0]?.id ?? c.calendars()[0]?.id;
+    if (target === undefined) return;
+    await attempt('calendar-import-failed', async () => {
+      const count = await c.importIcs(target, text);
+      setFeedback({ kind: 'info', text: t('calendar-import-done', { count }) });
+    });
+  }
 
   onMount(() => {
     void loadCatalog('calendar');
@@ -96,35 +119,42 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
     const file = input.files?.[0];
     if (file === undefined) return;
     const text = await file.text();
-    const target = c.visibleCalendars()[0]?.id ?? c.calendars()[0]?.id;
-    if (target !== undefined) await c.importIcs(target, text);
+    await importInto(text);
     input.value = '';
   }
 
   async function onExport(): Promise<void> {
-    const ics = await c.exportIcs({});
-    triggerDownload('mailwoman-calendar.ics', ics);
+    await attempt('calendar-export-failed', async () => {
+      triggerDownload('mailwoman-calendar.ics', await c.exportIcs());
+    });
   }
 
   async function subscribeHoliday(packId: string): Promise<void> {
     const pack = HOLIDAY_PACKS.find((p) => p.id === packId);
-    const target = c.visibleCalendars()[0]?.id ?? c.calendars()[0]?.id;
-    if (pack === undefined || target === undefined) return;
-    await c.importIcs(target, pack.ics);
+    if (pack === undefined) return;
+    await importInto(pack.ics);
   }
 
   async function onQuickAdd(): Promise<void> {
     const text = quickText().trim();
     if (text === '') return;
-    await c.quickAdd(text);
-    setQuickText('');
+    await attempt('calendar-quick-add-failed', async () => {
+      await c.quickAdd(text);
+      setQuickText('');
+    });
   }
 
   async function onWebcalSubscribe(): Promise<void> {
     const url = webcalUrl().trim();
     if (url === '') return;
-    await c.subscribeUrl(url);
-    setWebcalUrl('');
+    await attempt('calendar-subscribe-failed', async () => {
+      await c.subscribeUrl(url);
+      setWebcalUrl('');
+    });
+  }
+
+  async function onRefreshFeed(id: string): Promise<void> {
+    await attempt('calendar-subscribe-refresh-failed', () => c.refreshSubscription(id));
   }
 
   function onCategoryFilter(value: string): void {
@@ -215,6 +245,16 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
                     <Show when={cal.isReadOnlyOverlay || cal.caldavUrl !== null}>
                       <span class={css.dimText} title={cal.caldavUrl ?? t('calendar-synced')} aria-label={t('calendar-synced')}>⇅</span>
                     </Show>
+                    <Show when={cal.isReadOnlyOverlay && cal.caldavUrl !== null}>
+                      <button
+                        type="button"
+                        class={css.button}
+                        onClick={() => void onRefreshFeed(cal.id)}
+                        aria-label={t('calendar-subscribe-refresh', { name: cal.name })}
+                      >
+                        {t('calendar-subscribe-refresh-btn')}
+                      </button>
+                    </Show>
                     <button
                       type="button"
                       class={css.button}
@@ -249,7 +289,7 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
               <input
                 class={css.input}
                 type="url"
-                placeholder="https://…/calendar.ics"
+                placeholder={t('calendar-subscribe-url-placeholder')}
                 value={webcalUrl()}
                 onInput={(e) => setWebcalUrl(e.currentTarget.value)}
                 onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), void onWebcalSubscribe())}
@@ -271,6 +311,17 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
 
           <Show when={c.error() !== null}>
             <p class={css.dangerText} role="alert">{c.error()}</p>
+          </Show>
+          <Show when={feedback()}>
+            {(f) => (
+              <p
+                class={f().kind === 'error' ? css.dangerText : css.dimText}
+                role={f().kind === 'error' ? 'alert' : 'status'}
+                data-testid="calendar-feedback"
+              >
+                {f().text}
+              </p>
+            )}
           </Show>
         </aside>
 
@@ -294,7 +345,7 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
   );
 }
 
-/** Registry mount target (plan §2.5). Mock-backed until e10 swaps in the engine. */
+/** The module over the in-memory mock (the app shell mounts `CalendarApp` over the engine instead). */
 export function CalendarModule(): JSX.Element {
   const controller = makeMockController();
   return <CalendarApp controller={controller} />;

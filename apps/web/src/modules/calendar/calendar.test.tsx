@@ -3,7 +3,7 @@ import { render, fireEvent, screen, waitFor } from '@solidjs/testing-library';
 import { CalendarApp } from './index.tsx';
 import { EventEditor } from './EventEditor.tsx';
 import { createCalendarController, type CalendarController } from './controller.ts';
-import { createMockStore, createMockJmap, type MockStore } from './mock.ts';
+import { createMockFeeds, createMockStore, createMockJmap, type MockStore } from './mock.ts';
 import { addDays, dateToCalDate, startOfDay } from './datetime.ts';
 import type { CalendarEvent } from '../../api/pim-types.ts';
 
@@ -11,6 +11,7 @@ function makeController(store: MockStore): CalendarController {
   return createCalendarController({
     jmap: createMockJmap(store),
     resolveAccount: () => Promise.resolve('acct-mock'),
+    feeds: createMockFeeds(store),
   });
 }
 

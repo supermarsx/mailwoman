@@ -67,6 +67,44 @@ export function dateToLocal(d: Date): string {
   );
 }
 
+// ── Engine bounds (RFC3339 UTC on the wire) ──────────────────────────────────
+//
+// The engine resolves every occurrence to RFC3339 UTC (`local_to_utc`,
+// `crates/mw-ics/src/recur.rs:47-63`), in one of two ways:
+//   - an event with a `timeZone` → the true UTC instant of its wall clock;
+//   - a floating or all-day event → its wall clock stamped `Z` unchanged.
+// The string alone does not say which, so the caller passes what the master
+// says. Reading a true instant as a wall clock renders it shifted by the
+// viewer's UTC offset; reading a floating time as an instant shifts it the other
+// way (and moves an all-day event to the previous day west of UTC).
+
+/** Whether a master's occurrences come back from the engine as true instants. */
+export function isZonedTimed(ev: { showWithoutTime: boolean; timeZone: string | null }): boolean {
+  return !ev.showWithoutTime && ev.timeZone !== null && ev.timeZone !== '';
+}
+
+/** Decode one engine bound: an instant when `zoned`, else a viewer wall clock. */
+export function instanceBound(s: string, zoned: boolean): Date {
+  if (zoned && /(?:Z|[+-]\d{2}:\d{2})$/.test(s)) {
+    const d = new Date(s);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  return localToDate(s);
+}
+
+/**
+ * The query bounds that cover the local range `[start, end)` for both
+ * encodings. The engine compares its UTC occurrence strings against these, so a
+ * bound that is exact for wall-clock-`Z` occurrences is off by the UTC offset
+ * for true instants and vice versa. UTC offsets span −12:00 … +14:00, so one day
+ * of padding on each side covers every case; the caller keeps only the decoded
+ * instances that overlap the real range. Both bounds carry a `Z` because the
+ * engine parses them with `DateTime::parse_from_rfc3339` (`recur.rs:40-44`).
+ */
+export function queryBounds(start: Date, end: Date): { start: string; end: string } {
+  return { start: `${dateToLocal(addDays(start, -1))}Z`, end: `${dateToLocal(addDays(end, 1))}Z` };
+}
+
 /** Serialize the date portion only (`"2026-07-12"`). */
 export function dateToCalDate(d: Date): string {
   return `${pad(d.getFullYear(), 4)}-${pad(d.getMonth() + 1, 2)}-${pad(d.getDate(), 2)}`;

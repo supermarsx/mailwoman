@@ -13,7 +13,12 @@ import { engineLogin, gotoModule, uid } from './pim-helpers.ts';
  *     conflict count;
  *   • the Schedule view renders DISTINCTLY (its own `schedule-view`, not aliasing
  *     the Agenda list);
- *   • the attendee ROLE / CUTYPE pickers work and the event saves through the engine.
+ *   • the attendee ROLE / CUTYPE pickers work and the event saves through the engine;
+ *   • (26.20 t28-e5) a conflict pair WITH participants renders its free/busy grid
+ *     from the engine's real `Calendar/freeBusy` shape — `{list:[{start,end,status}]}`,
+ *     the account's own busy time — with no uncaught error. The first spec could
+ *     not see that break: the grid's first paint precedes the response, so it was
+ *     "visible" while the re-render threw.
  */
 
 const calendar = (page: Page) => page.locator('[data-module="calendar"]');
@@ -159,4 +164,58 @@ test('attendee ROLE / CUTYPE pickers work and the event saves through the engine
   // Save → the event (with roles) persists through the engine; the dialog closes.
   await dialog.getByRole('button', { name: 'Save' }).click();
   await expect(dialog).toBeHidden();
+});
+
+test('conflict pair with participants: the free/busy grid renders the account\'s busy time, no page error', async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  const tag = uid();
+  const attendee = `guest-${tag}@example.com`;
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+
+  await engineLogin(page);
+  await openCalendar(page);
+
+  // Two overlapping 09:30 events, the first with an attendee.
+  await page.getByRole('button', { name: 'New event' }).click();
+  const dialog = page.getByRole('dialog', { name: 'New event' });
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel('Title').fill(`Guests A ${tag}`);
+  await dialog.getByLabel('Start').fill(midDayToday());
+  await dialog.getByLabel('Add attendee').fill(attendee);
+  await dialog.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(dialog.getByText(attendee)).toBeVisible();
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(dialog).toBeHidden();
+  await createEvent(page, `Guests B ${tag}`);
+
+  const resolveBtn = page.getByRole('button', { name: /Resolve \d+ conflict/ });
+  await expect(resolveBtn).toBeVisible();
+  await resolveBtn.click();
+  const resolver = page.getByRole('dialog', { name: 'Resolve conflicts' });
+  await expect(resolver).toBeVisible();
+  const picker = resolver.locator('#resolver-pair');
+  if ((await picker.count()) > 0) {
+    const value = await picker.locator('option', { hasText: tag }).first().getAttribute('value');
+    if (value !== null) await picker.selectOption(value);
+  }
+
+  // Precondition: this pair does have an attendee.
+  await expect(resolver.getByText(/^[1-9]\d* attendees?$/).first()).toBeVisible();
+
+  // One row — the account's own — and it is busy in the 09:00 hour, where both
+  // events sit; that cell is filled only after the engine's response is read.
+  const grid = resolver.locator('[data-testid="freebusy-grid"]');
+  await expect(grid).toBeVisible();
+  await expect(grid.locator('tbody tr')).toHaveCount(1);
+  await expect(grid.getByLabel('Yours at 09:00: Busy')).toBeVisible();
+  // The dialog does not claim to know the attendee's availability.
+  await expect(resolver.locator('[data-testid="freebusy-own-only"]')).toBeVisible();
+  await expect(grid.getByText(attendee)).toHaveCount(0);
+
+  await resolver.getByRole('button', { name: 'Close' }).click();
+  await expect(resolver).toBeHidden();
+  expect(errors, `uncaught page errors: ${errors.join(' | ')}`).toEqual([]);
 });

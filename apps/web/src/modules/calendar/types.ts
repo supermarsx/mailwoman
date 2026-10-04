@@ -2,7 +2,17 @@
 // types layered over the frozen `CalendarEvent` surface (`api/pim-types.ts`);
 // they never leave the module.
 
-import type { CalendarEvent, Participant } from '../../api/pim-types.ts';
+import type { Calendar, CalendarEvent, Participant } from '../../api/pim-types.ts';
+
+/**
+ * A `Calendar/get` row as the engine sends it: the frozen `Calendar` shape plus
+ * `component` (`calendar_row_to_json`, `crates/mw-engine/src/pim/calendars.rs:518-531`).
+ * `Calendar/get` lists the account's task lists (`"VTODO"`) alongside its event
+ * calendars (`"VEVENT"`); the calendar module shows only the latter.
+ */
+export interface CalendarRow extends Calendar {
+  component?: 'VEVENT' | 'VTODO';
+}
 
 /** The nine calendar views (plan §0.1 / §3 e4). */
 export type CalendarView =
@@ -57,7 +67,8 @@ export interface EventInstance {
 export interface ConflictPair {
   a: string;
   b: string;
-  /** Overlap window start (`LocalDateTime` / RFC3339 from the engine). */
+  /** Overlap window start, as a viewer-local `LocalDateTime` (the controller
+   *  decodes the engine's RFC3339 UTC bound before storing it here). */
   overlapStart: string;
   /** Overlap window end. */
   overlapEnd: string;

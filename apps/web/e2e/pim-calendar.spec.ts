@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { test, expect, type Page } from '@playwright/test';
 import { engineLogin, gotoModule, reloadToShell, uid } from './pim-helpers.ts';
 
@@ -13,6 +14,11 @@ import { engineLogin, gotoModule, reloadToShell, uid } from './pim-helpers.ts';
  * masters from `CalendarEvent/get {ids:null}`, and `Calendar/detectConflicts`
  * pairs from `response.list` ({eventA,eventB,…}). These four specs (render,
  * recurrence, conflict badge, reload persistence) are the live proof.
+ *
+ * 26.20 t28-e5 adds the three contracts no spec exercised, which is why each
+ * was broken against the real engine while the mock-backed unit tests passed:
+ * `.ics` import (`blob` in, `{imported,count}` out), export (`{blob}` out), and
+ * subscribe-by-URL (through the server's sync driver, `/api/calendar/subscribe`).
  */
 
 const calendar = (page: Page) => page.locator('[data-module="calendar"]');
@@ -138,5 +144,110 @@ test.describe('Calendar module through the real UI (engine mode)', () => {
     await reloadToShell(page);
     await openCalendar(page);
     await expect(calendar(page).getByText(title).first()).toBeVisible();
+  });
+
+  test('import an .ics file → its event renders and survives a reload', async ({ page }) => {
+    await engineLogin(page);
+    await openCalendar(page);
+
+    const title = `Imported review ${uid()}`;
+    // Precondition: nothing with this title is on the calendar yet.
+    await expect(calendar(page).getByText(title)).toHaveCount(0);
+
+    // A floating (no TZID, no Z) event at 10:00 today, so it lands in the
+    // default week view on any day and in any runner time zone.
+    const d = new Date();
+    const p = (n: number): string => String(n).padStart(2, '0');
+    const ymd = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`;
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//Mailwoman e2e//EN',
+      'BEGIN:VEVENT',
+      `UID:imp-${uid()}@e2e.test`,
+      `SUMMARY:${title}`,
+      `DTSTART:${ymd}T100000`,
+      `DTEND:${ymd}T110000`,
+      'END:VEVENT',
+      'END:VCALENDAR',
+      '',
+    ].join('\r\n');
+    await calendar(page)
+      .getByLabel('Import calendar file')
+      .setInputFiles({ name: 'review.ics', mimeType: 'text/calendar', buffer: Buffer.from(ics, 'utf8') });
+
+    // The engine reports one created event and the view renders it.
+    await expect(calendar(page).getByTestId('calendar-feedback')).toHaveText('Imported 1 event.');
+    await expect(calendar(page).getByText(title).first()).toBeVisible();
+
+    await reloadToShell(page);
+    await openCalendar(page);
+    await expect(calendar(page).getByText(title).first()).toBeVisible();
+  });
+
+  test('a file that is not a calendar is refused and says so', async ({ page }) => {
+    await engineLogin(page);
+    await openCalendar(page);
+
+    await calendar(page)
+      .getByLabel('Import calendar file')
+      .setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('not a calendar', 'utf8') });
+
+    const feedback = calendar(page).getByTestId('calendar-feedback');
+    await expect(feedback).toHaveAttribute('role', 'alert');
+    await expect(feedback).toContainText('Nothing was imported');
+  });
+
+  test('export downloads an .ics document containing a created event', async ({ page }) => {
+    await engineLogin(page);
+    await openCalendar(page);
+
+    const title = `Exported ${uid()}`;
+    await createEvent(page, title);
+    await expect(calendar(page).getByText(title).first()).toBeVisible();
+
+    const downloadPromise = page.waitForEvent('download');
+    await calendar(page).getByRole('button', { name: 'Export' }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe('mailwoman-calendar.ics');
+    const path = await download.path();
+    const body = await readFile(path, 'utf8');
+    // Not the literal "undefined" a missing response field serializes to.
+    expect(body.startsWith('BEGIN:VCALENDAR')).toBe(true);
+    expect(body).toContain(`SUMMARY:${title}`);
+    expect(body.trimEnd().endsWith('END:VCALENDAR')).toBe(true);
+  });
+
+  test('subscribing to a feed the server cannot fetch adds no calendar and says so', async ({ page }) => {
+    await engineLogin(page);
+    await openCalendar(page);
+
+    const rows = calendar(page).locator('aside li');
+    const before = await rows.count();
+    expect(before).toBeGreaterThan(0);
+
+    // The sync driver fetches through the SSRF-hardened fetcher, which refuses a
+    // loopback target — so this fails in the server, deterministically, and the
+    // app must not be left with an empty overlay calendar.
+    await calendar(page).getByLabel('Calendar URL').fill('http://127.0.0.1:9/none.ics');
+    await calendar(page).getByRole('button', { name: 'Subscribe' }).click();
+
+    const feedback = calendar(page).getByTestId('calendar-feedback');
+    await expect(feedback).toHaveAttribute('role', 'alert');
+    await expect(feedback).toContainText('could not be fetched');
+    await reloadToShell(page);
+    await openCalendar(page);
+    await expect(calendar(page).locator('aside li')).toHaveCount(before);
+  });
+
+  test('the task list is not listed as a calendar', async ({ page }) => {
+    await engineLogin(page);
+    // Visiting Tasks first guarantees the seeded VTODO list exists.
+    await gotoModule(page, 'tasks');
+    await expect(page.locator('[data-module="tasks"]').getByRole('button', { name: /Tasks/ }).first()).toBeVisible();
+    await openCalendar(page);
+    // Each calendar row carries a "Toggle <name>" checkbox; the task list has none.
+    await expect(calendar(page).locator('aside li', { hasText: /^\W*Tasks\b/ })).toHaveCount(0);
+    await expect(calendar(page).getByLabel(/^Toggle \W*Tasks\W*$/)).toHaveCount(0);
   });
 });

@@ -4,18 +4,17 @@
 // (event CRUD, invite responses, calendar visibility/color, ICS import/export).
 //
 // It runs over a `CalendarBackend` — a `jmap`-shaped transport + account
-// resolver — so it is identical against the in-memory mock (default, until e10)
-// and the real engine surface (`mw-server`, wired by e10). All engine calls go
-// through the frozen `Calendar/*` / `CalendarEvent/*` builders in `api.ts`.
+// resolver — so it is identical against the in-memory mock (tests) and the real
+// engine surface (`state/slices/calendar.ts`). All engine calls go through the
+// `Calendar/*` / `CalendarEvent/*` builders in `api.ts`, and every response is
+// read with `pimResponse`, which turns the engine's method-level failure body
+// into a thrown error instead of a result with missing fields.
 
 import { batch, createMemo, createSignal, type Accessor } from 'solid-js';
 import type { Id, JmapRequest, JmapResponse } from '../../api/jmap-types.ts';
-import { responseFor } from '../../api/jmap.ts';
 import type { Calendar, CalendarEvent } from '../../api/pim-types.ts';
 import {
-  calendarRefreshSubscription,
   calendarSet,
-  calendarSubscribe,
   calendarsGet,
   detectConflicts,
   eventQuickAdd,
@@ -26,10 +25,12 @@ import {
   eventsGetAll,
   eventsImport,
   eventsQueryByCategory,
+  eventsQueryInCalendar,
   freeBusy,
+  pimResponse,
   type CalendarGetResponse,
   type CalendarSetResponse,
-  type CalendarSubscribeResponse,
+  type ConflictPairResponse,
   type DetectConflictsResponse,
   type EventExpandResponse,
   type EventExportResponse,
@@ -47,19 +48,27 @@ import {
   addDays,
   addMonths,
   dateToLocal,
+  instanceBound,
+  isZonedTimed,
   localeWeekStart,
-  localToDate,
+  queryBounds,
   startOfDay,
   startOfMonth,
   startOfWeek,
 } from './datetime.ts';
-import type { CalendarView, ConflictPair, EventAttachment, EventInstance } from './types.ts';
+import { createCalendarFeeds, type CalendarFeeds } from './feeds.ts';
+import type { CalendarRow, CalendarView, ConflictPair, EventAttachment, EventInstance } from './types.ts';
 
 /** The transport the controller runs over (mock or the real engine). */
 export interface CalendarBackend {
   jmap(body: JmapRequest): Promise<JmapResponse>;
   /** Resolve the account id (from the session), cached by the caller. */
   resolveAccount(): Promise<Id | null>;
+  /**
+   * The feed-subscription client. Omitted by the app, which then talks to the
+   * server's sync-driver routes (`feeds.ts`); tests pass the mock's.
+   */
+  feeds?: CalendarFeeds;
 }
 
 /** The fields an event editor supplies on create/edit (a subset of the event). */
@@ -145,15 +154,24 @@ export interface CalendarController {
   shareCalendar(id: Id, principal: string, access: 'read' | 'readWrite'): Promise<void>;
   /** Remove a principal's share grant from a calendar (P1). */
   unshareCalendar(id: Id, principal: string): Promise<void>;
-  /** Subscribe to an external ICS/webcal URL as a read-only overlay (P6). */
-  subscribeUrl(url: string, name?: string, color?: string): Promise<Id | null>;
-  /** Re-sync a subscription calendar (P6). */
-  refreshSubscription(calendarId: Id, blob?: string): Promise<void>;
+  /**
+   * Subscribe to an external ICS/webcal URL as a read-only overlay (P6). The
+   * server fetches the feed; rejects when it cannot.
+   */
+  subscribeUrl(url: string, name?: string): Promise<Id | null>;
+  /** Re-fetch a subscription calendar's feed and replace its events (P6). */
+  refreshSubscription(calendarId: Id): Promise<void>;
 
   // ── ics / free-busy ──
+  /** Import an ICS / `.hol` document; resolves to the number of events created. */
   importIcs(calendarId: Id, ics: string): Promise<number>;
-  exportIcs(opts: { calendarId?: Id; eventIds?: Id[] }): Promise<string>;
-  queryFreeBusy(principals: string[], start: string, end: string): Promise<FreeBusyBlock[]>;
+  /** Export to one ICS document: the given events, one calendar's, or (default) all. */
+  exportIcs(opts?: { calendarId?: Id; eventIds?: Id[] }): Promise<string>;
+  /**
+   * The signed-in account's own busy intervals overlapping the local range
+   * `[start, end)`. The engine reports on no one else's calendars.
+   */
+  queryFreeBusy(start: Date, end: Date): Promise<FreeBusyBlock[]>;
 }
 
 /** Compute the [start,end) window a view needs expanded around `focus`. */
@@ -191,6 +209,43 @@ export function windowFor(view: CalendarView, focus: Date): ViewWindow {
   }
 }
 
+/**
+ * Turn the engine's conflict pairs into the resolver's, for the window `w`.
+ *
+ * `Calendar/detectConflicts` pairs every two overlapping instances in the
+ * account, all-day ones included, and stamps each pair with RFC3339 UTC bounds
+ * (`calendar_detect_conflicts`, `crates/mw-engine/src/pim/calendars.rs:404-429`).
+ * Three things happen here:
+ *   - a pair whose master is not loaded is dropped;
+ *   - a pair with an all-day event is dropped — an all-day entry (a birthday, a
+ *     holiday) overlaps everything on its day and is not a double-booking the
+ *     resolver's reschedule/shorten actions apply to;
+ *   - the overlap bounds are decoded to viewer-local `LocalDateTime`s and pairs
+ *     outside `w` (the query is padded — `queryBounds`) are dropped. Both bounds
+ *     are taken from instance columns, so they are decoded by the later event's
+ *     encoding (`overlapStart` is its start).
+ */
+export function conflictsInWindow(
+  pairs: ConflictPairResponse[],
+  masters: CalendarEvent[],
+  w: ViewWindow,
+): ConflictPair[] {
+  const byId = new Map(masters.map((m) => [m.id, m]));
+  const out: ConflictPair[] = [];
+  for (const p of pairs) {
+    const a = byId.get(p.eventA);
+    const b = byId.get(p.eventB);
+    if (a === undefined || b === undefined) continue;
+    if (a.showWithoutTime || b.showWithoutTime) continue;
+    const zoned = isZonedTimed(b);
+    const start = instanceBound(p.overlapStart, zoned);
+    const end = instanceBound(p.overlapEnd, zoned);
+    if (end <= w.start || start >= w.end) continue;
+    out.push({ a: p.eventA, b: p.eventB, overlapStart: dateToLocal(start), overlapEnd: dateToLocal(end) });
+  }
+  return out;
+}
+
 /** The step a prev/next navigation applies for a view. */
 function navigate(view: CalendarView, focus: Date, dir: -1 | 1): Date {
   switch (view) {
@@ -216,6 +271,7 @@ function navigate(view: CalendarView, focus: Date, dir: -1 | 1): Date {
 }
 
 export function createCalendarController(backend: CalendarBackend): CalendarController {
+  const feeds = backend.feeds ?? createCalendarFeeds();
   const [calendars, setCalendars] = createSignal<Calendar[]>([]);
   const [masters, setMasters] = createSignal<CalendarEvent[]>([]);
   const [instances, setInstances] = createSignal<EventInstance[]>([]);
@@ -252,16 +308,22 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
     return conflictEventIds().has(eventId);
   }
 
-  /** Join the engine's expanded instances onto the loaded masters + colors. */
-  function buildInstances(allMasters: CalendarEvent[], expanded: ExpandedInstance[]): EventInstance[] {
+  /**
+   * Join the engine's expanded instances onto the loaded masters + colors,
+   * decoding each bound by its master's encoding and keeping only the instances
+   * that overlap the view's window `w` (the query is padded — `queryBounds`).
+   */
+  function buildInstances(allMasters: CalendarEvent[], expanded: ExpandedInstance[], w: ViewWindow): EventInstance[] {
     const byId = new Map(allMasters.map((m) => [m.id, m]));
     const colorByCal = new Map(calendars().map((c) => [c.id, c.color]));
     const out: EventInstance[] = [];
     for (const inst of expanded) {
       const master = byId.get(inst.eventId);
       if (master === undefined) continue;
-      const start = localToDate(inst.instanceStart);
-      const end = localToDate(inst.instanceEnd);
+      const zoned = isZonedTimed(master);
+      const start = instanceBound(inst.instanceStart, zoned);
+      const end = instanceBound(inst.instanceEnd, zoned);
+      if (end <= w.start || start >= w.end) continue;
       out.push({
         key: `${inst.eventId}:${start.getTime()}`,
         event: master,
@@ -282,25 +344,22 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
     setError(null);
     try {
       const calRes = await backend.jmap(calendarsGet(acct));
-      const cals = responseFor<CalendarGetResponse>(calRes, 'cals').list;
+      // `Calendar/get` lists the account's task lists next to its event
+      // calendars; only the latter belong in this module (see `CalendarRow`).
+      const cals = pimResponse<CalendarGetResponse>(calRes, 'cals').list.filter(
+        (c) => (c as CalendarRow).component !== 'VTODO',
+      );
       setCalendars([...cals].sort((a, b) => a.order - b.order || a.name.localeCompare(b.name)));
 
       const w = window();
-      const calIds = cals.map((c) => c.id);
-      // The engine parses the expand/conflict window bounds with
-      // `DateTime::parse_from_rfc3339`, which REQUIRES a zone designator — so send
-      // the window wall-clock with a trailing `Z`. The module's naive wall-clock
-      // time model (plan §1.12) is preserved: `localToDate` + the mock ignore the
-      // suffix, so instances still render in the viewer's local zone.
-      const startL = `${dateToLocal(w.start)}Z`;
-      const endL = `${dateToLocal(w.end)}Z`;
+      const q = queryBounds(w.start, w.end);
 
-      const expRes = await backend.jmap(eventsExpand(acct, calIds, startL, endL));
-      const expanded = responseFor<EventExpandResponse>(expRes, 'x').list;
+      const expRes = await backend.jmap(eventsExpand(acct, q.start, q.end));
+      const expanded = pimResponse<EventExpandResponse>(expRes, 'x').list;
       const getRes = await backend.jmap(eventsGetAll(acct));
-      const allMasters = responseFor<EventGetResponse>(getRes, 'g').list;
-      const conRes = await backend.jmap(detectConflicts(acct, calIds, startL, endL));
-      const conflicts = responseFor<DetectConflictsResponse>(conRes, 'conflicts').list;
+      const allMasters = pimResponse<EventGetResponse>(getRes, 'g').list;
+      const conRes = await backend.jmap(detectConflicts(acct, q.start, q.end));
+      const conflicts = conflictsInWindow(pimResponse<DetectConflictsResponse>(conRes, 'conflicts').list, allMasters, w);
 
       // P4: when a category filter is active, ask the engine which event ids carry
       // it (`CalendarEvent/query` `categories` condition) and narrow the masters +
@@ -309,29 +368,22 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
       let masterList = allMasters;
       let instanceRows = expanded;
       if (cat !== null && cat !== '') {
-        const qRes = await backend.jmap(eventsQueryByCategory(acct, calIds, cat));
-        const matched = new Set(responseFor<EventQueryResponse>(qRes, 'q').ids);
+        const qRes = await backend.jmap(eventsQueryByCategory(acct, cat));
+        const matched = new Set(pimResponse<EventQueryResponse>(qRes, 'q').ids);
         masterList = allMasters.filter((m) => matched.has(m.id));
         instanceRows = expanded.filter((i) => matched.has(i.eventId));
       }
 
       batch(() => {
         setMasters(masterList);
-        setInstances(buildInstances(masterList, instanceRows));
+        setInstances(buildInstances(masterList, instanceRows, w));
         const ids = new Set<Id>();
         for (const p of conflicts) {
-          ids.add(p.eventA);
-          ids.add(p.eventB);
+          ids.add(p.a);
+          ids.add(p.b);
         }
         setConflictEventIds(ids);
-        setConflicts(
-          conflicts.map((p) => ({
-            a: p.eventA,
-            b: p.eventB,
-            overlapStart: p.overlapStart,
-            overlapEnd: p.overlapEnd,
-          })),
-        );
+        setConflicts(conflicts);
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'failed to load calendar');
@@ -388,7 +440,7 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
       attachments: draft.attachments ?? [],
     };
     const res = await backend.jmap(eventSet(acct, { create: { new: create } }));
-    const set = responseFor<EventSetResponse>(res, 'set');
+    const set = pimResponse<EventSetResponse>(res, 'set');
     const id = set.created?.['new']?.id ?? null;
     await load();
     return id;
@@ -428,7 +480,7 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
     // the engine falls back to the primary calendar when none is passed.
     const target = visibleCalendars()[0]?.id ?? calendars()[0]?.id;
     const res = await backend.jmap(eventQuickAdd(acct, trimmed, target));
-    const id = responseFor<EventQuickAddResponse>(res, 'qa').created;
+    const id = pimResponse<EventQuickAddResponse>(res, 'qa').created.id;
     await load();
     return id;
   }
@@ -465,7 +517,7 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
     const res = await backend.jmap(
       calendarSet(acct, { create: { new: { name, color, isVisible: true, isSubscribed: true } } }),
     );
-    const set = responseFor<CalendarSetResponse>(res, 'set');
+    const set = pimResponse<CalendarSetResponse>(res, 'set');
     const id = set.created?.['new']?.id ?? null;
     await load();
     return id;
@@ -499,24 +551,19 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
   }
 
   // ── subscriptions (P6) ──
-  async function subscribeUrl(url: string, name?: string, color?: string): Promise<Id | null> {
+  async function subscribeUrl(url: string, name?: string): Promise<Id | null> {
     const trimmed = url.trim();
     if (trimmed === '') return null;
-    const acct = await backend.resolveAccount();
-    if (acct === null) return null;
-    const opts: { url: string; name?: string; color?: string } = { url: trimmed };
-    if (name !== undefined && name !== '') opts.name = name;
-    if (color !== undefined && color !== '') opts.color = color;
-    const res = await backend.jmap(calendarSubscribe(acct, opts));
-    const id = responseFor<CalendarSubscribeResponse>(res, 'sub').created;
+    const id = (await feeds.subscribe(trimmed, name)).created.id;
     await load();
     return id;
   }
 
-  async function refreshSubscription(calendarId: Id, blob?: string): Promise<void> {
-    const acct = await backend.resolveAccount();
-    if (acct === null) return;
-    await backend.jmap(calendarRefreshSubscription(acct, calendarId, blob));
+  async function refreshSubscription(calendarId: Id): Promise<void> {
+    // The sync driver re-fetches the URL the overlay was registered with.
+    const url = calendars().find((c) => c.id === calendarId)?.caldavUrl ?? null;
+    if (url === null) return;
+    await feeds.refresh(calendarId, url);
     await load();
   }
 
@@ -525,23 +572,32 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
     const acct = await backend.resolveAccount();
     if (acct === null) return 0;
     const res = await backend.jmap(eventsImport(acct, calendarId, ics));
-    const imp = responseFor<EventImportResponse>(res, 'import');
+    const imp = pimResponse<EventImportResponse>(res, 'import');
     await load();
-    return imp.created.length;
+    return imp.count;
   }
 
-  async function exportIcs(opts: { calendarId?: Id; eventIds?: Id[] }): Promise<string> {
+  async function exportIcs(opts: { calendarId?: Id; eventIds?: Id[] } = {}): Promise<string> {
     const acct = await backend.resolveAccount();
     if (acct === null) return '';
-    const res = await backend.jmap(eventsExport(acct, opts));
-    return responseFor<EventExportResponse>(res, 'export').ics;
+    // `CalendarEvent/export` selects by event id only, so one calendar's export
+    // is that calendar's ids, asked for with the single-calendar query filter.
+    let ids: Id[] | null = opts.eventIds ?? null;
+    if (opts.calendarId !== undefined) {
+      const qRes = await backend.jmap(eventsQueryInCalendar(acct, opts.calendarId));
+      const inCal = pimResponse<EventQueryResponse>(qRes, 'q').ids;
+      ids = ids === null ? inCal : ids.filter((id) => inCal.includes(id));
+    }
+    const res = await backend.jmap(eventsExport(acct, ids));
+    return pimResponse<EventExportResponse>(res, 'export').blob;
   }
 
-  async function queryFreeBusy(principals: string[], start: string, end: string): Promise<FreeBusyBlock[]> {
+  async function queryFreeBusy(start: Date, end: Date): Promise<FreeBusyBlock[]> {
     const acct = await backend.resolveAccount();
     if (acct === null) return [];
-    const res = await backend.jmap(freeBusy(acct, principals, start, end));
-    return responseFor<FreeBusyResponse>(res, 'fb').blocks;
+    const q = queryBounds(start, end);
+    const res = await backend.jmap(freeBusy(acct, q.start, q.end));
+    return pimResponse<FreeBusyResponse>(res, 'fb').list;
   }
 
   return {
