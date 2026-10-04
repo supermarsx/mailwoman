@@ -121,6 +121,35 @@ function isTwofaGate(body: LoginResponse): body is { readonly twofaRequired: tru
   return (body as { twofaRequired?: unknown }).twofaRequired === true;
 }
 
+/** One endpoint in a discovery result (`ServerSpec`, `crates/mw-autoconfig/src/lib.rs:79-83`). */
+export interface DiscoveredServer {
+  host: string;
+  port: number;
+  /** `TlsMode`, kebab-case on the wire (`mw-autoconfig/src/lib.rs:35-44`). */
+  tls: 'implicit' | 'start-tls' | 'none';
+}
+
+/**
+ * What `POST /api/discover` answers with a 200 (`crates/mw-server/src/lib.rs:2262-2306`).
+ *
+ * Two shapes. When the autoconfig ladder finds a candidate, the body is the
+ * serialised `AccountCandidate` (`mw-autoconfig/src/lib.rs:86-93`): `imap`,
+ * `pop3` (`null` when absent), `smtp`, `auth` and `source`, plus `jmapSrv` when
+ * the domain also has a `_jmap._tcp` SRV record. When the ladder finds nothing
+ * but that SRV record exists, the body is only `{ source: "jmap-srv", jmapSrv }`.
+ *
+ * For `source: "jmap"` the `imap` and `smtp` entries both carry the host of the
+ * JMAP `apiUrl`, not an IMAP or SMTP server (`mw-autoconfig/src/lib.rs:60-64`).
+ */
+export interface DiscoverResult {
+  imap?: DiscoveredServer;
+  pop3?: DiscoveredServer | null;
+  smtp?: DiscoveredServer;
+  auth?: 'password' | 'oauth2';
+  source: 'jmap' | 'srv' | 'thunderbird-autoconfig' | 'autodiscover' | 'provider-db' | 'manual' | 'jmap-srv';
+  jmapSrv?: { host: string; port: number };
+}
+
 export type NetworkListener = (online: boolean) => void;
 
 /**
@@ -157,6 +186,15 @@ export interface Client {
    */
   jmap(body: JmapRequest, opts?: { signal?: AbortSignal }): Promise<JmapResponse>;
   sanitize(html: string): Promise<string>;
+  /**
+   * Ask the server which mail server belongs to `email` (`POST /api/discover`).
+   * The route needs no session and is exempt from the CSRF check; the server
+   * rate-limits it per source address. Rejects with an {@link ApiError} carrying
+   * the status: 400 (not an email address), 404 (nothing found), 429 (rate
+   * limit), 502 (the lookup itself failed). Optional so a hand-built client need
+   * not provide it.
+   */
+  discover?(email: string): Promise<DiscoverResult>;
   onNetwork(listener: NetworkListener): () => void;
   /**
    * Subscribe to the forced-password-change refusal: called each time a request
@@ -296,6 +334,16 @@ export function createClient(base = basePath(), auth?: ClientAuth): Client {
         });
         const out = await jsonOrGate<{ html: string }>(res);
         return out.html;
+      });
+    },
+    discover(email) {
+      return guarded(async () => {
+        const res = await req(`${base}/api/discover`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+        return jsonOrThrow<DiscoverResult>(res);
       });
     },
     onNetwork(listener) {

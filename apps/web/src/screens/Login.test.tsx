@@ -39,19 +39,38 @@ function renderLogin(client: Client) {
   return render(() => <AppContext.Provider value={app}>{<Login />}</AppContext.Provider>);
 }
 
+/**
+ * The screen opens on the email lookup (t28-e4); the server URL and username
+ * fields these cases drive are behind "Enter server details manually".
+ */
+function showManual(): void {
+  fireEvent.click(screen.getByRole('button', { name: 'Enter server details manually' }));
+}
+
 describe('Login', () => {
-  it('renders the fields and hint', () => {
+  it('renders the manual fields once they are asked for', () => {
     renderLogin(fakeClient());
+    showManual();
     expect(screen.getByText('JMAP server URL')).toBeInTheDocument();
     expect(screen.getByText('Username')).toBeInTheDocument();
     expect(screen.getByText('Password')).toBeInTheDocument();
-    expect(screen.getByText(/testuser@example.org/)).toBeInTheDocument();
+  });
+
+  // The mock backend's credentials used to be printed on every deployment's
+  // sign-in screen. The server has no signal that marks a mock deployment, so
+  // the line is gone rather than conditional.
+  it('does not print the mock account credentials', () => {
+    renderLogin(fakeClient());
+    expect(screen.queryByText(/testpass/)).toBeNull();
+    showManual();
+    expect(screen.queryByText(/testpass/)).toBeNull();
   });
 
   it('submits credentials to the client', async () => {
     const client = fakeClient();
     renderLogin(client);
 
+    showManual();
     fireEvent.input(screen.getByPlaceholderText('https://jmap.example.org'), {
       target: { value: 'https://jmap.example.org' },
     });
@@ -76,6 +95,7 @@ describe('Login', () => {
     });
     renderLogin(client);
 
+    showManual();
     fireEvent.input(screen.getByPlaceholderText('https://jmap.example.org'), {
       target: { value: 'https://jmap.example.org' },
     });
@@ -100,6 +120,7 @@ describe('Login', () => {
     // Control: the note is not part of the form before a refusal.
     expect(screen.queryByTestId('login-refused-note')).toBeNull();
 
+    showManual();
     fireEvent.input(screen.getByPlaceholderText('https://jmap.example.org'), {
       target: { value: 'https://jmap.example.org' },
     });
@@ -119,6 +140,7 @@ describe('Login', () => {
     });
     renderLogin(client);
 
+    showManual();
     fireEvent.input(screen.getByPlaceholderText('https://jmap.example.org'), {
       target: { value: 'https://jmap.example.org' },
     });
@@ -143,6 +165,7 @@ describe('Login', () => {
     const app = createAppState(client);
     render(() => <AppContext.Provider value={app}>{<Login />}</AppContext.Provider>);
 
+    showManual();
     fireEvent.input(screen.getByPlaceholderText('https://jmap.example.org'), {
       target: { value: 'https://jmap.example.org' },
     });
@@ -160,6 +183,7 @@ describe('Login', () => {
     const app = createAppState(client);
     render(() => <AppContext.Provider value={app}>{<Login />}</AppContext.Provider>);
 
+    showManual();
     fireEvent.input(screen.getByPlaceholderText('https://jmap.example.org'), {
       target: { value: 'https://jmap.example.org' },
     });
@@ -171,12 +195,283 @@ describe('Login', () => {
   });
 });
 
+/**
+ * `POST /api/discover` as the server implements it
+ * (`crates/mw-server/src/lib.rs:2262-2306`). The 200 body is the serialised
+ * `AccountCandidate` (`crates/mw-autoconfig/src/lib.rs:86-93`): `tls` is
+ * kebab-case (`:35-44`), `auth` lowercase (`:47-54`), `source` kebab-case
+ * (`:57-75`), and an absent POP3 server is `null`, not omitted.
+ */
+const SRV_CANDIDATE = {
+  imap: { host: 'imap.example.org', port: 993, tls: 'implicit' },
+  pop3: null,
+  smtp: { host: 'smtp.example.org', port: 587, tls: 'start-tls' },
+  auth: 'password',
+  source: 'srv',
+};
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+}
+
+/** Stub `fetch`: `/api/discover` answers with `discover()`, anything else with `[]`. */
+function stubDiscover(discover: () => Response | Promise<Response>): ReturnType<typeof vi.fn> {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) =>
+    String(input).endsWith('/api/discover') ? discover() : json([]),
+  );
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
+}
+
+function discoverCalls(fetchMock: ReturnType<typeof vi.fn>): unknown[][] {
+  return fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/api/discover'));
+}
+
+function typeEmailAndPassword(email: string): void {
+  fireEvent.input(screen.getByLabelText('Email address'), { target: { value: email } });
+  fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'testpass' } });
+}
+
+describe('Login › server lookup', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('opens on an email address and a password, without the server fields', () => {
+    renderLogin(fakeClient());
+    expect(screen.getByLabelText('Email address')).toBeInTheDocument();
+    expect(screen.getByLabelText('Password')).toBeInTheDocument();
+    expect(screen.queryByLabelText('JMAP server URL')).toBeNull();
+    expect(screen.queryByLabelText('Username')).toBeNull();
+  });
+
+  it('looks the address up, shows the server, and signs in only after confirmation', async () => {
+    const fetchMock = stubDiscover(() => json(SRV_CANDIDATE));
+    const client = fakeClient();
+    renderLogin(client);
+    // Precondition: nothing has been found before the lookup.
+    expect(screen.getByTestId('login-discovered')).toBeEmptyDOMElement();
+
+    typeEmailAndPassword('ada@example.org');
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    const confirm = await screen.findByRole('button', { name: 'Sign in with this server' });
+    const [url, init] = discoverCalls(fetchMock)[0] as [string, RequestInit];
+    expect(url).toBe('/api/discover');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(String(init.body))).toEqual({ email: 'ada@example.org' });
+
+    const shown = screen.getByTestId('login-discovered');
+    expect(shown).toHaveTextContent('imap.example.org');
+    expect(shown).toHaveTextContent('port 993, TLS.');
+    expect(shown).toHaveTextContent("Source: the domain's DNS SRV records.");
+    // The password has gone nowhere yet.
+    expect(client.login).not.toHaveBeenCalled();
+
+    fireEvent.click(confirm);
+    await vi.waitFor(() => {
+      expect(client.login).toHaveBeenCalledWith({
+        jmapUrl: 'imaps://imap.example.org:993',
+        username: 'ada@example.org',
+        password: 'testpass',
+      });
+    });
+  });
+
+  it('signs in to a STARTTLS server with the imap:// form', async () => {
+    stubDiscover(() =>
+      json({ ...SRV_CANDIDATE, imap: { host: 'mail.example.org', port: 143, tls: 'start-tls' } }),
+    );
+    const client = fakeClient();
+    renderLogin(client);
+    typeEmailAndPassword('ada@example.org');
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign in with this server' }));
+
+    expect(screen.getByTestId('login-discovered')).toHaveTextContent('port 143, STARTTLS.');
+    await vi.waitFor(() => {
+      expect(client.login).toHaveBeenCalledWith({
+        jmapUrl: 'imap://mail.example.org:143',
+        username: 'ada@example.org',
+        password: 'testpass',
+      });
+    });
+  });
+
+  // `source: "jmap"`: the candidate's `imap`/`smtp` carry the JMAP API host
+  // (`mw-autoconfig/src/lib.rs:60-64, 194-206`), so the sign-in must use the
+  // session URL the lookup fetched (`:177`), not an imaps:// URL to port 443.
+  it('signs in to a JMAP domain with its session URL', async () => {
+    const api = { host: 'api.example.org', port: 443, tls: 'implicit' };
+    stubDiscover(() => json({ imap: api, pop3: null, smtp: api, auth: 'password', source: 'jmap' }));
+    const client = fakeClient();
+    renderLogin(client);
+    typeEmailAndPassword('ada@example.org');
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign in with this server' }));
+
+    await vi.waitFor(() => {
+      expect(client.login).toHaveBeenCalledWith({
+        jmapUrl: 'https://example.org/.well-known/jmap',
+        username: 'ada@example.org',
+        password: 'testpass',
+      });
+    });
+  });
+
+  // The other 200 shape: no autoconfig candidate, only a `_jmap._tcp` SRV
+  // record (`crates/mw-server/src/lib.rs:2287-2289`).
+  it('signs in through a _jmap._tcp SRV record when that is all there is', async () => {
+    stubDiscover(() => json({ source: 'jmap-srv', jmapSrv: { host: 'jmap.example.net', port: 8443 } }));
+    const client = fakeClient();
+    renderLogin(client);
+    typeEmailAndPassword('ada@example.org');
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign in with this server' }));
+
+    await vi.waitFor(() => {
+      expect(client.login).toHaveBeenCalledWith({
+        jmapUrl: 'https://jmap.example.net:8443/.well-known/jmap',
+        username: 'ada@example.org',
+        password: 'testpass',
+      });
+    });
+  });
+
+  it('says so, and offers no sign-in, when the provider expects OAuth', async () => {
+    stubDiscover(() => json({ ...SRV_CANDIDATE, auth: 'oauth2', source: 'provider-db' }));
+    const client = fakeClient();
+    renderLogin(client);
+    // Control: the sentence is not on the screen before the lookup.
+    expect(screen.queryByTestId('login-oauth-only')).toBeNull();
+
+    typeEmailAndPassword('ada@example.org');
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    expect(await screen.findByTestId('login-oauth-only')).toHaveTextContent(
+      'This provider requires OAuth sign-in, which this build does not offer yet.',
+    );
+    expect(screen.queryByRole('button', { name: 'Sign in with this server' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Enter server details manually' })).toBeInTheDocument();
+    expect(client.login).not.toHaveBeenCalled();
+  });
+
+  // 404 `{"error":"no configuration discovered"}` (`lib.rs:2295-2299`).
+  it('opens the manual fields with the address kept when nothing is found', async () => {
+    stubDiscover(() => json({ error: 'no configuration discovered' }, 404));
+    const client = fakeClient();
+    renderLogin(client);
+    typeEmailAndPassword('ada@nowhere.example');
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /No server settings were found for .?nowhere\.example.?\. Enter the server details below\./,
+    );
+    expect(screen.getByLabelText('JMAP server URL')).toHaveValue('');
+    expect(screen.getByLabelText('Username')).toHaveValue('ada@nowhere.example');
+    expect(screen.getByLabelText('Password')).toHaveValue('testpass');
+    expect(document.activeElement).toBe(screen.getByLabelText('JMAP server URL'));
+    expect(client.login).not.toHaveBeenCalled();
+  });
+
+  // 400 (`lib.rs:2290-2294`), 429 (`discover_ratelimit.rs:158-164`), 502
+  // (`lib.rs:2300-2304`), and a request that never reached the server.
+  it.each([
+    [400, 'The server did not accept'],
+    [429, 'Too many server lookups were made from this network.'],
+    [502, 'The server lookup did not complete.'],
+  ])('a %i from the lookup opens the manual fields with a reason', async (status, reason) => {
+    stubDiscover(() => json({ error: 'x' }, status));
+    renderLogin(fakeClient());
+    typeEmailAndPassword('ada@example.org');
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(reason);
+    expect(screen.getByLabelText('Username')).toHaveValue('ada@example.org');
+  });
+
+  it('a lookup that cannot reach the server opens the manual fields', async () => {
+    stubDiscover(() => Promise.reject(new TypeError('Failed to fetch')));
+    renderLogin(fakeClient());
+    typeEmailAndPassword('ada@example.org');
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The server lookup did not complete.');
+    expect(screen.getByLabelText('Username')).toHaveValue('ada@example.org');
+  });
+
+  // Host and port come from DNS and from files the mail domain publishes.
+  it('does not build a sign-in from a host that is not a host name', async () => {
+    stubDiscover(() =>
+      json({ ...SRV_CANDIDATE, imap: { host: 'imap.example.org/x?y', port: 993, tls: 'implicit' } }),
+    );
+    const client = fakeClient();
+    renderLogin(client);
+    typeEmailAndPassword('ada@example.org');
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The server lookup did not complete.');
+    expect(screen.queryByRole('button', { name: 'Sign in with this server' })).toBeNull();
+    expect(client.login).not.toHaveBeenCalled();
+  });
+
+  it('forgets the found server when the address is edited', async () => {
+    const fetchMock = stubDiscover(() => json(SRV_CANDIDATE));
+    const client = fakeClient();
+    renderLogin(client);
+    typeEmailAndPassword('ada@example.org');
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    await screen.findByRole('button', { name: 'Sign in with this server' });
+
+    fireEvent.input(screen.getByLabelText('Email address'), { target: { value: 'ada@example.net' } });
+    expect(screen.getByTestId('login-discovered')).toBeEmptyDOMElement();
+    expect(screen.queryByRole('button', { name: 'Sign in with this server' })).toBeNull();
+
+    // The next submit looks the new address up; it does not sign in to the old server.
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    await vi.waitFor(() => expect(discoverCalls(fetchMock)).toHaveLength(2));
+    expect(client.login).not.toHaveBeenCalled();
+  });
+
+  // The server does not say whether it is in proxy or engine mode, and a 401
+  // does not say which of server, username and password was wrong.
+  it('a refused sign-in to a found server opens the manual fields with what was sent', async () => {
+    stubDiscover(() => json(SRV_CANDIDATE));
+    const client = fakeClient({
+      login: vi.fn(async () => {
+        throw new ApiError(401, 'invalid credentials');
+      }),
+    });
+    renderLogin(client);
+    expect(screen.queryByTestId('login-discovered-refused-note')).toBeNull();
+    typeEmailAndPassword('ada@example.org');
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign in with this server' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Invalid credentials');
+    expect(screen.getByTestId('login-refused-note')).toBeInTheDocument();
+    expect(screen.getByTestId('login-discovered-refused-note')).toHaveTextContent('imaps://imap.example.org:993');
+    expect(screen.getByLabelText('JMAP server URL')).toHaveValue('imaps://imap.example.org:993');
+    expect(screen.getByLabelText('Username')).toHaveValue('ada@example.org');
+  });
+
+  it('returns from the manual fields to the lookup', () => {
+    renderLogin(fakeClient());
+    showManual();
+    fireEvent.click(screen.getByRole('button', { name: 'Look up the server from an email address' }));
+    expect(screen.getByLabelText('Email address')).toBeInTheDocument();
+    expect(screen.queryByLabelText('JMAP server URL')).toBeNull();
+  });
+});
+
 describe('Login › 2FA', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
   function submitCreds(): void {
+    showManual();
     fireEvent.input(screen.getByPlaceholderText('https://jmap.example.org'), {
       target: { value: 'https://jmap.example.org' },
     });

@@ -15,7 +15,42 @@ auth-invalid-credentials = Invalid credentials
 # response as a wrong password, so this states a possibility, not a diagnosis.
 auth-refused-note = If the username and password are correct, the account may have been disabled by an administrator. A disabled account cannot sign in until an administrator enables it again.
 auth-unreachable = Could not reach the server
-auth-mock-hint = Mock account: testuser@example.org / testpass
+
+# -- Server lookup from the email address ------------------------------------
+# The sign-in screen starts with an email address and a password, asks the
+# server which mail server belongs to the address, shows the answer, and signs
+# in only after the user confirms it.
+auth-email = Email address
+auth-discovering = Looking up the mail server…
+# The button that confirms the server shown above it and signs in.
+auth-discover-confirm = Sign in with this server
+auth-manual-show = Enter server details manually
+auth-manual-hide = Look up the server from an email address
+# `tls` is what the lookup reported for the connection, not a setting.
+auth-discover-found-imap = Found for { $domain }: IMAP server { $host }, port { $port }, { $tls ->
+        [implicit] TLS
+        [start-tls] STARTTLS
+       *[none] no encryption advertised
+    }.
+auth-discover-found-jmap = Found for { $domain }: JMAP server { $url }
+auth-discover-source = { $source ->
+        [jmap] Source: the JMAP session resource published by the domain.
+        [jmap-srv] Source: the domain's DNS SRV record for JMAP.
+        [srv] Source: the domain's DNS SRV records.
+        [thunderbird-autoconfig] Source: a Thunderbird autoconfiguration file.
+        [autodiscover] Source: Microsoft Autodiscover.
+        [provider-db] Source: the provider list built into this server.
+       *[other] Source: { $source }.
+    }
+auth-discover-oauth-only = This provider requires OAuth sign-in, which this build does not offer yet.
+auth-discover-not-found = No server settings were found for { $domain }. Enter the server details below.
+auth-discover-invalid-email = The server did not accept { $email } as an email address. Enter the server details below.
+auth-discover-rate-limited = Too many server lookups were made from this network. Enter the server details below, or wait a minute and look up the address again.
+auth-discover-failed = The server lookup did not complete. Enter the server details below.
+# Shown with the refusal when the sign-in that was refused used a looked-up
+# server. The server answers every refusal the same way, so this names what was
+# sent rather than what was wrong.
+auth-discover-refused-note = That sign-in used { $url }, found for { $domain }, with the email address as the username. If the account uses a different server or username, change them above.
 
 # -- Single sign-on (t9) -----------------------------------------------------
 # The "or continue with" divider + one button per configured IdP. Only shown
