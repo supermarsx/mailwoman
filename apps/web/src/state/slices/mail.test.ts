@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRoot } from 'solid-js';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { createMailSlice, extractHtmlBody, type MailSlice } from './mail.ts';
+import { createMailSlice, extractHtmlBody, type MailSlice, type OfflineUndoSeams } from './mail.ts';
 import type { SliceContext } from './context.ts';
 import { isolate } from '../../i18n/index.ts';
 import { listDrafts, saveDraft } from '../../components/compose/drafts-store.ts';
@@ -941,6 +941,84 @@ describe('mail slice — offline mutation queue', () => {
         expect(mail.messages().map((m) => m.id)).toEqual(['b']);
       },
     );
+  });
+
+  it('undoing an offline move takes it out of the queue: nothing is sent, the row returns', async () => {
+    const enqueueOffline = vi.fn(async () => 'q1');
+    const dequeueOffline = vi.fn(async () => true);
+    const seams: OfflineUndoSeams = { enqueueOffline, dequeueOffline };
+    await withDeps(
+      [email('a'), email('b')],
+      { online: () => false, ...(seams as Pick<SliceContext, 'enqueueOffline'>) },
+      async (mail, { jmap, toast }) => {
+        jmap.mockClear();
+        await mail.archiveMessage('a');
+        // Precondition: the move was queued and the row is gone.
+        expect(enqueueOffline).toHaveBeenCalledTimes(1);
+        expect(mail.messages().map((m) => m.id)).toEqual(['b']);
+
+        await mail.undoNow();
+
+        expect(dequeueOffline).toHaveBeenCalledWith('q1');
+        expect(enqueueOffline).toHaveBeenCalledTimes(1);
+        expect(jmap).not.toHaveBeenCalled();
+        expect(mail.messages().map((m) => m.id)).toEqual(['a', 'b']);
+        expect(toast).not.toHaveBeenCalled();
+      },
+    );
+  });
+
+  it('undoing an offline move that was already replayed queues the reverse move', async () => {
+    const enqueueOffline = vi.fn(async () => 'q1');
+    const dequeueOffline = vi.fn(async () => false);
+    const seams: OfflineUndoSeams = { enqueueOffline, dequeueOffline };
+    await withDeps(
+      [email('a'), email('b')],
+      { online: () => false, ...(seams as Pick<SliceContext, 'enqueueOffline'>) },
+      async (mail, { jmap }) => {
+        jmap.mockClear();
+        await mail.archiveMessage('a');
+        await mail.undoNow();
+        expect(enqueueOffline.mock.calls).toEqual([
+          ['move', { accountId: 'acct1', emailId: 'a', mailboxIds: { archive: true } }],
+          ['move', { accountId: 'acct1', emailId: 'a', mailboxIds: { inbox: true } }],
+        ]);
+        expect(jmap).not.toHaveBeenCalled();
+        expect(mail.messages().map((m) => m.id)).toEqual(['a', 'b']);
+      },
+    );
+  });
+
+  it('with a queue that cannot take items back, an offline undo still queues the reverse move', async () => {
+    // The shape `SliceContext` declares today: resolves to nothing, no dequeue.
+    const enqueueOffline = vi.fn(async () => undefined);
+    await withDeps([email('a'), email('b')], { online: () => false, enqueueOffline }, async (mail, { jmap, toast }) => {
+      jmap.mockClear();
+      await mail.trashMessage('a');
+      await mail.undoNow();
+      expect(enqueueOffline.mock.calls).toEqual([
+        ['move', { accountId: 'acct1', emailId: 'a', mailboxIds: { trash: true } }],
+        ['move', { accountId: 'acct1', emailId: 'a', mailboxIds: { inbox: true } }],
+      ]);
+      expect(jmap).not.toHaveBeenCalled();
+      expect(mail.messages().map((m) => m.id)).toEqual(['a', 'b']);
+      expect(toast).not.toHaveBeenCalledWith('error', 'Could not undo');
+    });
+  });
+
+  it('online, undo moves the message back on the server and tells peer tabs', async () => {
+    const broadcastChange = vi.fn();
+    await withDeps([email('a'), email('b')], { online: () => true, broadcastChange }, async (mail, { jmap }) => {
+      await mail.archiveMessage('a');
+      jmap.mockClear();
+      broadcastChange.mockClear();
+      await mail.undoNow();
+      expect(jmap.mock.calls.map((c) => (c[0] as JmapRequest).methodCalls)).toEqual([
+        [['Email/set', { accountId: 'acct1', update: { a: { mailboxIds: { inbox: true } } } }, 'set']],
+      ]);
+      expect(broadcastChange).toHaveBeenCalledTimes(1);
+      expect(mail.messages().map((m) => m.id)).toEqual(['a', 'b']);
+    });
   });
 
   it('queues a send and says so rather than reporting it sent', async () => {

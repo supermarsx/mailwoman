@@ -236,6 +236,20 @@ export interface MailSlice {
   sendMessage(input: SendInput): Promise<void>;
 }
 
+/**
+ * The offline-queue seams as the relocation undo uses them. `SliceContext`
+ * declares `enqueueOffline` as resolving to nothing and has no way to take an
+ * item back out; a context that resolves to the queued item's id and provides
+ * `dequeueOffline` lets an offline undo remove the move before it is ever
+ * sent. With the plain context the undo still works: it queues the reverse
+ * move behind the original.
+ */
+export interface OfflineUndoSeams {
+  enqueueOffline?(type: 'move', payload: unknown): Promise<string | void>;
+  /** Remove a still-queued item; resolves `false` if it has already been replayed. */
+  dequeueOffline?(id: string): Promise<boolean>;
+}
+
 /** What a refused create says about itself: the server's description when it
  *  gave one (`to: "bob": no @`), otherwise the bare error type. */
 function refusalReason(err: SetError): string {
@@ -493,18 +507,37 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const taken = takeFromList(id);
     if (taken === null) return;
     const priorMailboxIds = taken.email.mailboxIds;
-    if (isOffline() && ctx.enqueueOffline) {
-      await ctx.enqueueOffline('move', {
+    const queue: OfflineUndoSeams = ctx;
+    // The id of the queued move, when the move was queued and the queue says
+    // which item it became.
+    let queuedId: string | null = null;
+    if (isOffline() && queue.enqueueOffline) {
+      const queued = await queue.enqueueOffline('move', {
         accountId: acct,
         emailId: id,
         mailboxIds: { [targetMailboxId]: true },
       });
+      if (typeof queued === 'string') queuedId = queued;
     } else {
       await client.jmap(moveEmail(acct, id, { [targetMailboxId]: true }));
       ctx.broadcastChange?.();
     }
     showUndo(label, async () => {
-      await client.jmap(moveEmail(acct, id, priorMailboxIds));
+      // Still waiting in the offline queue: take it out, and the server never
+      // hears of the move.
+      if (queuedId !== null && queue.dequeueOffline && (await queue.dequeueOffline(queuedId))) {
+        restoreToList(taken);
+        return;
+      }
+      // The move reached the server, or is queued where it cannot be taken
+      // back: move the message to where it was. Offline, that goes into the
+      // queue too — behind the original, so the pair nets out on reconnect.
+      if (isOffline() && queue.enqueueOffline) {
+        await queue.enqueueOffline('move', { accountId: acct, emailId: id, mailboxIds: priorMailboxIds });
+      } else {
+        await client.jmap(moveEmail(acct, id, priorMailboxIds));
+        ctx.broadcastChange?.();
+      }
       restoreToList(taken);
     });
   }
