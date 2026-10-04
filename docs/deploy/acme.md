@@ -26,6 +26,11 @@ mailwoman serve \
 - Start against the Let's Encrypt **staging** environment while validating
   (higher rate limits, untrusted certs) with `--acme-staging`, then drop the flag
   for production certificates.
+- `--acme` (env `MW_ACME`) takes a comma-separated list of domain names; ACME is
+  on whenever that list is non-empty, and the server then serves HTTPS on
+  `--bind`. **There is no `off` value:** `--acme off` requests a certificate for
+  a host named `off`. To run without ACME, do not pass `--acme` and leave
+  `MW_ACME` unset.
 
 Because ACME needs public DNS + a real CA, it **cannot run in CI** — CI covers
 the TLS wiring and hot-reload with a self-signed pair. Treat a first live

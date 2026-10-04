@@ -93,6 +93,16 @@ a TCP address; there is no `UnixListener` in the tree, and systemd socket activa
 [`mailwoman.service`](mailwoman.service) for the base systemd unit these adapt — a
 plain hardened `ExecStart` unit, not a socket-activated one.
 
+> **There is no `--acme off`.** Earlier revisions of this page told operators to
+> run with `--acme off` when the panel owns TLS. `--acme` (env `MW_ACME`) takes a
+> comma-separated list of domain names, and embedded ACME is on whenever that
+> list is non-empty. `--acme off` therefore requests a certificate for a host
+> named `off` and makes the server speak HTTPS on `--bind`, where the panel's
+> proxy sends plain HTTP. To run without embedded ACME, **do not pass `--acme`
+> and leave `MW_ACME` unset** (and do not pass `--tls-cert`/`--tls-key`); the
+> server then listens in plain HTTP on `--bind`. If you followed the old text,
+> remove the flag or variable and restart. See [`acme.md`](acme.md).
+
 ### cPanel (with WHM / "Application Manager")
 
 cPanel proxies to a persistent app via **Passenger/Application Manager** or a raw
@@ -112,8 +122,8 @@ reverse-proxy path:
 3. In **WHM → Apache → Include Editor** (or cPanel's "Domains → proxy"), add a
    reverse proxy from the domain to `127.0.0.1:8801`, passing `X-Forwarded-*` and
    WebSocket upgrade headers (see [`nginx.conf`](nginx.conf) for the header set).
-4. TLS is terminated by cPanel/AutoSSL; disable Mailwoman's embedded ACME
-   (`--acme off`).
+4. TLS is terminated by cPanel/AutoSSL; leave Mailwoman's embedded ACME off by
+   not passing `--acme` and leaving `MW_ACME` unset, as in the unit above.
 
 > **No shared-hosting fallback.** A cPanel account that cannot run a persistent
 > process cannot run Mailwoman — see the note at the top of this section. The
@@ -126,7 +136,8 @@ reverse-proxy path:
 2. In **Plesk → Domains → <domain> → Apache & nginx Settings**, add an
    **Additional nginx directive** reverse-proxying `/` to `http://127.0.0.1:8801`
    with the WebSocket `Upgrade`/`Connection` headers and `X-Forwarded-*`.
-3. Let Plesk's Let's Encrypt extension own TLS; run Mailwoman with `--acme off`.
+3. Let Plesk's Let's Encrypt extension own TLS; run Mailwoman without `--acme`
+   and with `MW_ACME` unset.
 4. Optional sub-path hosting (`/mail`) — set the proxy location and
    `MW_BASE_PATH=/mail`. **New in 26.19: this variable is now read.** It was
    documented here before any code consumed it; setting it had no effect. It now
@@ -153,14 +164,16 @@ CloudPanel is nginx-based. Create a **Reverse Proxy** site:
 2. CloudPanel → **+ Add Site → Create a Reverse Proxy**, target
    `http://127.0.0.1:8801`; CloudPanel writes the nginx vhost. Ensure the generated
    vhost carries the WebSocket upgrade block (add via **Vhost Editor** if absent).
-3. CloudPanel manages Let's Encrypt; run with `--acme off`.
+3. CloudPanel manages Let's Encrypt; run without `--acme` and with `MW_ACME`
+   unset.
 
 ### ISPConfig
 
 1. Binary + data dir + systemd unit on `127.0.0.1:8801`.
 2. In ISPConfig, create the website, then under **Options → nginx Directives** (or
    Apache `Directives`) add the reverse proxy + WebSocket headers to `127.0.0.1:8801`.
-3. ISPConfig's Let's Encrypt checkbox owns TLS; `--acme off`.
+3. ISPConfig's Let's Encrypt checkbox owns TLS; run without `--acme` and with
+   `MW_ACME` unset.
 
 ### Cloudron
 
@@ -184,7 +197,8 @@ YunoHost apps are packaged as a git repo with `manifest.toml` + install scripts:
   system user, install a hardened systemd unit (adapt
   [`mailwoman.service`](mailwoman.service)), and register the nginx reverse-proxy conf
   (`conf/nginx.conf` from [`nginx.conf`](nginx.conf)) with SSOwat.
-- YunoHost owns the domain + Let's Encrypt; run with `--acme off`.
+- YunoHost owns the domain + Let's Encrypt; run without `--acme` and with
+  `MW_ACME` unset.
 - **`# HUMAN:`** listing in the YunoHost app catalog is a PR to `YunoHost-Apps` +
   a CI/level review. Self-hosting from the repo needs no catalog entry.
 
