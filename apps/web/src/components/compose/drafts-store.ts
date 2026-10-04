@@ -1,11 +1,12 @@
 // Local draft persistence for the universal Drafts drawer (W9).
 //
 // Composer drafts are auto-saved to `localStorage` under a single JSON array so a
-// closed/refreshed composer can be resumed without a round-trip. This is the
-// client-side recovery layer; server-side draft sync (the JMAP Drafts mailbox)
-// remains the durable store and is out of this executor's file ownership — the
-// drawer is written prop-first so a server list can back it later without a
-// component change.
+// closed/refreshed composer can be resumed without a round-trip. These copies
+// are the ONLY saved state of an unsent composition: the composer does not
+// write drafts to the server's Drafts mailbox. They are plaintext (recipients,
+// subject, body) and belong to whoever is signed in, so `clearDrafts()` is
+// called on logout. The drawer is written prop-first so a server list can back
+// it later without a component change.
 
 const KEY = 'mw.compose.drafts.v1';
 const MAX_DRAFTS = 25;
@@ -72,6 +73,16 @@ export function saveDraft(draft: StoredDraft): void {
 /** Remove a draft by id (e.g. after it is sent or discarded). */
 export function deleteDraft(id: string): void {
   write(read().filter((d) => d.id !== id));
+}
+
+/** Remove every stored draft (logout: the next person at this browser must not
+ *  be offered the previous account's unsent mail). */
+export function clearDrafts(): void {
+  try {
+    localStorage.removeItem(KEY);
+  } catch {
+    // Storage disabled: nothing was stored.
+  }
 }
 
 /** A fresh, collision-resistant draft id for a composer session. */

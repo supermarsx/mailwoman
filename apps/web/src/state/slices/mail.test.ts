@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRoot } from 'solid-js';
 import { createMailSlice, extractHtmlBody, type MailSlice } from './mail.ts';
 import type { SliceContext } from './context.ts';
 import { isolate } from '../../i18n/index.ts';
+import { listDrafts, saveDraft } from '../../components/compose/drafts-store.ts';
 import type { Client, Me } from '../../api/client.ts';
 import {
   CAP_MAIL,
@@ -980,6 +981,62 @@ describe('mail slice — session lifecycle', () => {
       // A pending undo would otherwise fire a mutation against the account the
       // user just left.
       expect(mail.pendingUndo()).toBeNull();
+    });
+  });
+
+  it('logout removes the composer drafts stored in this browser', async () => {
+    localStorage.clear();
+    await withInbox([email('a')], async (mail) => {
+      saveDraft({ id: 'd1', to: 'you@example.org', subject: 'Unsent', bodyHtml: '<p>x</p>', bodyText: 'x', savedAt: 1 });
+      // Precondition: the draft is really in storage under the key the composer reads.
+      expect(listDrafts().map((d) => d.id)).toEqual(['d1']);
+      expect(localStorage.getItem('mw.compose.drafts.v1')).not.toBeNull();
+
+      await mail.logout();
+
+      expect(listDrafts()).toEqual([]);
+      expect(localStorage.getItem('mw.compose.drafts.v1')).toBeNull();
+    });
+  });
+
+  describe('logout and the service-worker caches', () => {
+    /** A Cache Storage holding two Mailwoman caches and one that is not ours. */
+    function stubCaches(): { names: string[]; deleted: string[] } {
+      const state = { names: ['mw-shell-v1', 'mw-assets-v2', 'someone-else'], deleted: [] as string[] };
+      vi.stubGlobal('caches', {
+        keys: async () => [...state.names],
+        delete: async (name: string) => {
+          state.deleted.push(name);
+          state.names = state.names.filter((n) => n !== name);
+          return true;
+        },
+      });
+      return state;
+    }
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('deletes every mw- cache, and only those', async () => {
+      const cacheStorage = stubCaches();
+      await withInbox([email('a')], async (mail) => {
+        // Precondition: nothing is deleted by signing in or loading mail.
+        expect(cacheStorage.deleted).toEqual([]);
+        await mail.logout();
+        await vi.waitFor(() => expect(cacheStorage.deleted.sort()).toEqual(['mw-assets-v2', 'mw-shell-v1']));
+        expect(cacheStorage.names).toEqual(['someone-else']);
+      });
+    });
+
+    it('still does so, and still clears drafts, when the logout request fails', async () => {
+      localStorage.clear();
+      const cacheStorage = stubCaches();
+      await withInbox([email('a')], async (mail, { client }) => {
+        saveDraft({ id: 'd1', to: '', subject: 'Unsent', bodyHtml: '', bodyText: '', savedAt: 1 });
+        vi.mocked(client.logout).mockRejectedValueOnce(new Error('offline'));
+        await expect(mail.logout()).rejects.toThrow('offline');
+        expect(mail.me()).toBeNull();
+        expect(listDrafts()).toEqual([]);
+        await vi.waitFor(() => expect(cacheStorage.deleted.sort()).toEqual(['mw-assets-v2', 'mw-shell-v1']));
+      });
     });
   });
 

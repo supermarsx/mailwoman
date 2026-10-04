@@ -45,6 +45,8 @@ import {
   type SetError,
 } from '../../api/jmap-types.ts';
 import { t, isolate } from '../../i18n/index.ts';
+import { clearDrafts } from '../../components/compose/drafts-store.ts';
+import { purgeShellCaches } from '../../sw/purge.ts';
 import type { SliceContext } from './context.ts';
 
 /**
@@ -1114,6 +1116,14 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       setExhausted(true);
       setListLoading(false);
       dismissUndo();
+      // What this browser holds for the account outside the store: the
+      // composer's auto-saved drafts (plaintext in localStorage) and the
+      // service worker's caches. The worker deletes its caches itself when it
+      // sees the logout request, but only for a page it controls; this covers
+      // the page it does not (see sw/purge.ts). Not awaited: it cannot fail and
+      // the signed-out screen should not wait on Cache Storage.
+      clearDrafts();
+      void purgeShellCaches();
     }
   }
 
