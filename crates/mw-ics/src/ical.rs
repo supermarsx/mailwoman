@@ -56,26 +56,59 @@ fn get_param<'a>(p: &'a PProperty<'a>, key: &str) -> Option<&'a str> {
 }
 
 // ── owned-property builders (for emit) ──────────────────────────────────────
+//
+// Every property and parameter this module emits is built by `prop` / `prop_p`
+// / `param`, and the serializer writes what they hold verbatim, so these are
+// where a value is kept on its own content line.
+
+/// Whether `c` may not appear in a content line: any control character (CR, LF,
+/// NUL, DEL, C1 …) except HTAB, which RFC 5545 allows in a value.
+fn is_line_control(c: char) -> bool {
+    c.is_control() && c != '\t'
+}
+
+/// A property value for one content line: `val` with the control characters of
+/// [`is_line_control`] removed. A value without any is returned unchanged.
+fn line_value(val: String) -> String {
+    if val.contains(is_line_control) {
+        val.chars().filter(|c| !is_line_control(*c)).collect()
+    } else {
+        val
+    }
+}
+
+/// A parameter value (RFC 5545 §3.1 `param-value`): control characters are
+/// removed and a DQUOTE, which no parameter value can carry, becomes `'`. A
+/// value holding `:`, `;` or `,` is written as a quoted-string, so it cannot
+/// end the parameter; any other value is written bare.
+fn param_value(val: &str) -> String {
+    let safe: String = val
+        .chars()
+        .filter(|c| !is_line_control(*c))
+        .map(|c| if c == '"' { '\'' } else { c })
+        .collect();
+    if safe.contains([':', ';', ',']) {
+        format!("\"{safe}\"")
+    } else {
+        safe
+    }
+}
 
 fn prop(name: &str, val: String) -> PProperty<'static> {
-    PProperty {
-        name: name.to_string().into(),
-        val: val.into(),
-        params: vec![],
-    }
+    prop_p(name, val, vec![])
 }
 
 fn param(key: &str, val: &str) -> PParameter<'static> {
     PParameter {
         key: key.to_string().into(),
-        val: Some(val.to_string().into()),
+        val: Some(param_value(val).into()),
     }
 }
 
 fn prop_p(name: &str, val: String, params: Vec<PParameter<'static>>) -> PProperty<'static> {
     PProperty {
         name: name.to_string().into(),
-        val: val.into(),
+        val: line_value(val).into(),
         params,
     }
 }
@@ -92,9 +125,12 @@ fn unfold(s: &str) -> String {
         .replace("\n\t", "")
 }
 
-/// RFC 5545 TEXT escaping (backslash, semicolon, comma, newline).
+/// RFC 5545 TEXT escaping (backslash, semicolon, comma, newline). A line break
+/// in any spelling — CRLF, a bare LF or a bare CR — is written as `\n`.
 fn esc(s: &str) -> String {
-    s.replace('\\', "\\\\")
+    s.replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .replace('\\', "\\\\")
         .replace(';', "\\;")
         .replace(',', "\\,")
         .replace('\n', "\\n")
@@ -420,6 +456,12 @@ fn participant_props(v: &Value) -> Vec<PProperty<'static>> {
     for part in map.values() {
         let email = s(part, "email");
         if email.is_empty() {
+            continue;
+        }
+        // A cal-address is a URI, not TEXT: it has no escape for a control
+        // character, and removing one could leave a different address. Such a
+        // participant is not emitted.
+        if email.contains(char::is_control) {
             continue;
         }
         let name = s(part, "name");

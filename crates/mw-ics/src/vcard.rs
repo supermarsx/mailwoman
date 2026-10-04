@@ -150,8 +150,12 @@ pub fn parse_vcard(bytes: &[u8]) -> Result<Vec<ParsedVcard>> {
 
 // ── emit ─────────────────────────────────────────────────────────────────────
 
+/// vCard TEXT escaping (backslash, comma, semicolon, newline). A line break in
+/// any spelling — CRLF, a bare LF or a bare CR — is written as `\n`.
 fn esc(s: &str) -> String {
-    s.replace('\\', "\\\\")
+    s.replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .replace('\\', "\\\\")
         .replace(',', "\\,")
         .replace(';', "\\;")
         .replace('\n', "\\n")
@@ -164,11 +168,16 @@ fn s(v: &Value, k: &str) -> String {
         .to_string()
 }
 
+/// Append one content line. Control characters other than HTAB (CR, LF, NUL,
+/// DEL, C1 …) are left out of `params` and `value`, so neither can end the
+/// line. Nothing else is escaped or quoted here: a `:` or `;` in `params` is
+/// still written as given.
 fn line(out: &mut String, name: &str, params: &str, value: &str) {
+    let keep = |c: &char| !c.is_control() || *c == '\t';
     out.push_str(name);
-    out.push_str(params);
+    out.extend(params.chars().filter(keep));
     out.push(':');
-    out.push_str(value);
+    out.extend(value.chars().filter(keep));
     out.push_str("\r\n");
 }
 
