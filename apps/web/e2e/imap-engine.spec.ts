@@ -1,15 +1,19 @@
-import { test, expect, type Page } from '@playwright/test';
-import { messageRow, sidebarInbox } from './helpers.ts';
+import { test, expect } from '@playwright/test';
+import { ENGINE_CREDS, engineLogin, messageRow, sidebarInbox } from './helpers.ts';
 
 /**
  * V1 engine-mode E2E: the SAME unmodified web UI, driven against mw-server in
  * MW_MODE=engine talking to a REAL IMAP/SMTP server (Greenmail) through
  * mw-engine — not the V0 JMAP mock. baseURL is :8090 (the `engine` project).
  *
- * The login form's "JMAP server URL" field is reinterpreted by engine mode as
- * an IMAP URL; the SERVER (not the browser) dials Greenmail over the compose
- * network, so the value is the in-network `imap://greenmail:3143`. Greenmail's
- * login name is the bare local part `testuser` (NOT the full address).
+ * The login screen's "JMAP server URL" field (behind "Enter server details
+ * manually") is reinterpreted by engine mode as an IMAP URL; the SERVER (not the
+ * browser) dials Greenmail over the compose network, so the value is the
+ * in-network `imap://greenmail:3143`. Greenmail's login name is the bare local
+ * part `testuser` (NOT the full address). `engineLogin` and `ENGINE_CREDS` in
+ * helpers.ts carry both and sign in through those manual fields; it returns once
+ * Compose and the sidebar's Inbox — from a real IMAP LIST/SELECT, role=inbox via
+ * SPECIAL-USE — are on screen.
  *
  * This genuinely exercises the real seams:
  *   - IMAP LIST/SELECT -> the sidebar mailbox list (Inbox, role from SPECIAL-USE)
@@ -22,31 +26,6 @@ import { messageRow, sidebarInbox } from './helpers.ts';
  * uniquely-subjected message addressed to the account itself, send it, and
  * assert it turns up in the mailbox — proving send AND receive AND read.
  */
-
-const ENGINE_CREDS = {
-  // The server dials Greenmail; the browser only ever talks to :8090.
-  imapUrl: process.env['MW_E2E_ENGINE_IMAP_URL'] ?? 'imap://greenmail:3143',
-  username: process.env['MW_E2E_ENGINE_USERNAME'] ?? 'testuser',
-  password: process.env['MW_E2E_ENGINE_PASSWORD'] ?? 'testpass',
-  // Full address for the SMTP RCPT TO (delivers back to the same account).
-  selfAddress: process.env['MW_E2E_ENGINE_SELF'] ?? 'testuser@example.org',
-} as const;
-
-/** Log in through the real UI against the engine stack. */
-async function engineLogin(page: Page): Promise<void> {
-  await page.goto('/');
-  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
-
-  await page.getByLabel('JMAP server URL').fill(ENGINE_CREDS.imapUrl);
-  await page.getByLabel('Username', { exact: true }).fill(ENGINE_CREDS.username);
-  await page.getByLabel('Password', { exact: true }).fill(ENGINE_CREDS.password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
-
-  // Mailbox shell is up once the sidebar renders. The mailbox list comes from a
-  // real IMAP LIST/SELECT, so Inbox (role=inbox via SPECIAL-USE) must appear.
-  await expect(page.getByRole('button', { name: 'Compose' })).toBeVisible();
-  await expect(sidebarInbox(page)).toBeVisible();
-}
 
 test.describe('IMAP account through the unmodified web UI (engine mode)', () => {
   test('login -> real IMAP mailbox -> compose+send via SMTP -> arrives, MIME-parsed, in the sandboxed reader', async ({

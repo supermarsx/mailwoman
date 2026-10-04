@@ -1,5 +1,14 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { ENGINE_CREDS, engineLogin, injectViaSmtp, messageRow, sidebarInbox } from './helpers.ts';
+import {
+  ENGINE_CREDS,
+  drawerButton as menuButton,
+  engineLogin,
+  enginePhoneLogin as phoneLogin,
+  injectViaSmtp,
+  messageRow,
+  sidebarInbox,
+  waitForInboxMessageViaDrawer as waitForRowViaDrawer,
+} from './helpers.ts';
 
 /**
  * Narrow-viewport layout (t28-e6), end-to-end against the REAL engine stack
@@ -15,38 +24,15 @@ import { ENGINE_CREDS, engineLogin, injectViaSmtp, messageRow, sidebarInbox } fr
  *
  * `engineLogin` and `waitForInboxMessage` from helpers.ts wait on the sidebar's
  * Inbox button, which at this width lives in the closed drawer, so the phone
- * cases sign in and poll through the helpers below instead.
+ * cases sign in and poll through the phone-width variants in helpers.ts
+ * (`enginePhoneLogin`, `waitForInboxMessageViaDrawer`, `drawerButton`), imported
+ * here under the short names the cases use.
  */
 
 // One shared Greenmail account: serial, like the other engine-mode specs.
 test.describe.configure({ mode: 'serial' });
 
 const BREAKPOINT = 761;
-
-function menuButton(page: Page): Locator {
-  return page.getByRole('button', { name: 'Open folders and apps' });
-}
-
-/** Sign in at phone width; the shell is ready once its top bar is up. */
-async function phoneLogin(page: Page): Promise<void> {
-  await page.goto('/');
-  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
-  await page.getByLabel('JMAP server URL').fill(ENGINE_CREDS.imapUrl);
-  await page.getByLabel('Username', { exact: true }).fill(ENGINE_CREDS.username);
-  await page.getByLabel('Password', { exact: true }).fill(ENGINE_CREDS.password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(menuButton(page)).toBeVisible();
-}
-
-/** Re-select the Inbox through the drawer (which re-queries the engine) until
- *  the injected message is listed. */
-async function waitForRowViaDrawer(page: Page, subject: string, timeout = 45_000): Promise<void> {
-  await expect(async () => {
-    await menuButton(page).click();
-    await sidebarInbox(page).click();
-    await expect(messageRow(page, subject)).toBeVisible({ timeout: 3_000 });
-  }).toPass({ timeout });
-}
 
 /** Deliver one plain-text message whose body carries `marker`. */
 async function seed(subject: string, marker: string): Promise<void> {
