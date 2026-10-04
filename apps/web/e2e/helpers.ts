@@ -23,18 +23,36 @@ export function sidebarInbox(page: Page) {
 }
 
 /**
+ * Open the app and sign in through the manual fields of the login screen.
+ *
+ * The screen opens on an email lookup (email address + password, then
+ * `POST /api/discover`); the server URL and username fields are behind "Enter
+ * server details manually". The test stacks are reached by in-network names
+ * (`mock`, `greenmail`) that no lookup of `example.org` returns, so every helper
+ * that signs in goes through the manual fields. Returns once the form has been
+ * submitted; the caller waits for whatever its viewport shows next.
+ */
+export async function signInManually(
+  page: Page,
+  creds: { serverUrl: string; username: string; password: string },
+): Promise<void> {
+  await page.goto('/');
+  // The app boots (checks /api/me) before rendering the login form.
+  await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Enter server details manually' }).click();
+
+  await page.getByLabel('JMAP server URL').fill(creds.serverUrl);
+  await page.getByLabel('Username', { exact: true }).fill(creds.username);
+  await page.getByLabel('Password', { exact: true }).fill(creds.password);
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+}
+
+/**
  * Log in through the real UI and wait until the mailbox shell is ready.
  * Each spec calls this so tests stay independent (fresh session per test).
  */
 export async function login(page: Page): Promise<void> {
-  await page.goto('/');
-  // The app boots (checks /api/me) before rendering the login form.
-  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
-
-  await page.getByLabel('JMAP server URL').fill(CREDS.jmapUrl);
-  await page.getByLabel('Username', { exact: true }).fill(CREDS.username);
-  await page.getByLabel('Password', { exact: true }).fill(CREDS.password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await signInManually(page, { serverUrl: CREDS.jmapUrl, username: CREDS.username, password: CREDS.password });
 
   // Mailbox shell is up once the sidebar and Inbox mailbox render.
   await expect(page.getByRole('button', { name: 'Compose' })).toBeVisible();
@@ -51,8 +69,9 @@ export function messageRow(page: Page, subject: string) {
 // The V2 modern-mail specs drive the SAME unmodified UI against mw-server in
 // MW_MODE=engine over a real IMAP/SMTP account (Greenmail) on :8090 — the
 // `engine` Playwright project. The server (not the browser) dials Greenmail, so
-// the login "JMAP server URL" field carries the in-network `imap://greenmail:3143`
-// and Greenmail's login name is the bare local part `testuser`.
+// the login screen's manual "JMAP server URL" field carries the in-network
+// `imap://greenmail:3143` and Greenmail's login name is the bare local part
+// `testuser`.
 
 export const ENGINE_CREDS = {
   imapUrl: process.env['MW_E2E_ENGINE_IMAP_URL'] ?? 'imap://greenmail:3143',
@@ -64,14 +83,46 @@ export const ENGINE_CREDS = {
 
 /** Log in through the real UI against the engine stack; waits for the shell. */
 export async function engineLogin(page: Page): Promise<void> {
-  await page.goto('/');
-  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
-  await page.getByLabel('JMAP server URL').fill(ENGINE_CREDS.imapUrl);
-  await page.getByLabel('Username', { exact: true }).fill(ENGINE_CREDS.username);
-  await page.getByLabel('Password', { exact: true }).fill(ENGINE_CREDS.password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await signInManually(page, {
+    serverUrl: ENGINE_CREDS.imapUrl,
+    username: ENGINE_CREDS.username,
+    password: ENGINE_CREDS.password,
+  });
   await expect(page.getByRole('button', { name: 'Compose' })).toBeVisible();
   await expect(sidebarInbox(page)).toBeVisible();
+}
+
+// ── Phone-width variants ────────────────────────────────────────────────────
+//
+// Below 761 px the sidebar is a closed drawer, so `engineLogin` and
+// `waitForInboxMessage` — which wait on and click the sidebar's Inbox button —
+// do not work there. These are the same two steps through the drawer.
+
+/** The top-bar button that opens the sidebar drawer at phone width. */
+export function drawerButton(page: Page) {
+  return page.getByRole('button', { name: 'Open folders and apps' });
+}
+
+/** Sign in to the engine stack at phone width; ready once the top bar is up. */
+export async function enginePhoneLogin(page: Page): Promise<void> {
+  await signInManually(page, {
+    serverUrl: ENGINE_CREDS.imapUrl,
+    username: ENGINE_CREDS.username,
+    password: ENGINE_CREDS.password,
+  });
+  await expect(drawerButton(page)).toBeVisible();
+}
+
+/**
+ * {@link waitForInboxMessage} at phone width: re-select the Inbox through the
+ * drawer (which re-queries the engine) until `subject` is listed.
+ */
+export async function waitForInboxMessageViaDrawer(page: Page, subject: string, timeout = 45_000): Promise<void> {
+  await expect(async () => {
+    await drawerButton(page).click();
+    await sidebarInbox(page).click();
+    await expect(messageRow(page, subject)).toBeVisible({ timeout: 3_000 });
+  }).toPass({ timeout });
 }
 
 /** The whole list slot (row button + its action cluster), located by subject. */
