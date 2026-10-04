@@ -1,6 +1,10 @@
-//! The `mailwoman admin <noun> <verb>` CLI (plan §2.5 — GitOps-friendly). This
-//! mirrors EVERY §19 panel section so an operator can drive provisioning,
-//! policy, observability, and the ban list from config management.
+//! The `mailwoman admin <noun> <verb>` CLI (plan §2.5 — GitOps-friendly): one
+//! noun per §19 panel section, so an operator can drive provisioning, the audit
+//! log and the ban list from config management.
+//!
+//! Like the panel, it offers no flag for a stored value that has no defined
+//! meaning (26.20, t28-e8). The flags that store a value nothing applies yet say
+//! so in their help text.
 //!
 //! `mw-admin` owns the clap tree ([`AdminCommand`]) + the [`run`] dispatcher;
 //! `mw-server`'s `main.rs` (owned by e11 at mount) embeds [`AdminCommand`] under
@@ -14,10 +18,7 @@
 
 use clap::{Args, Parser, Subcommand};
 
-use crate::{
-    Admin, AdminError, Appearance, CacheScopeRow, Domain, IntegrationStatus, Quota, SecurityPolicy,
-    UserFeatureFlags,
-};
+use crate::{Admin, AdminError, CacheScopeRow, Quota, SecurityPolicy, UserFeatureFlags};
 
 /// Standalone parser wrapping [`AdminCommand`] (tests / a potential
 /// `mailwoman-admin` binary). `main.rs` embeds [`AdminCommand`] directly.
@@ -44,23 +45,23 @@ pub enum AdminCommand {
         #[command(subcommand)]
         verb: UserVerb,
     },
-    /// Inspect/update the security policy.
+    /// Inspect/update the stored security-policy record.
     #[command(name = "security-policy")]
     SecurityPolicy {
         #[command(subcommand)]
         verb: PolicyVerb,
     },
-    /// Webhooks + MCP/API-key oversight (LDAP/Nextcloud deferred).
+    /// Integration statuses + API-key oversight.
     Integrations {
         #[command(subcommand)]
         verb: IntegrationVerb,
     },
-    /// Log level, OTLP DSN, audit viewer/export, login monitor + ban list.
+    /// Audit viewer/export, the ban list, and the stored telemetry record.
     Observability {
         #[command(subcommand)]
         verb: ObsVerb,
     },
-    /// Theme / branding.
+    /// The built-in appearance defaults.
     Appearance {
         #[command(subcommand)]
         verb: AppearanceVerb,
@@ -79,16 +80,8 @@ pub enum DomainVerb {
     List,
     /// Show one domain.
     Show { name: String },
-    /// Create/update a domain.
-    Create {
-        name: String,
-        #[arg(long, default_value = "{}")]
-        upstream: String,
-        #[arg(long = "allow", value_delimiter = ',')]
-        allowlist: Vec<String>,
-        #[arg(long = "block", value_delimiter = ',')]
-        blocklist: Vec<String>,
-    },
+    /// Register a domain name. An existing domain is left as it is.
+    Create { name: String },
     /// Delete a domain.
     Delete { name: String },
 }
@@ -132,28 +125,18 @@ pub enum UserVerb {
 
 #[derive(Debug, Subcommand)]
 pub enum PolicyVerb {
-    /// Show the effective security policy.
+    /// Show the two stored values this CLI can set.
     Show,
-    /// Patch the security policy (only provided fields change).
+    /// Patch the stored record (only provided fields change).
     Set(PolicySetArgs),
 }
 
 #[derive(Debug, Args)]
 pub struct PolicySetArgs {
-    #[arg(long)]
-    pub min_tls: Option<String>,
-    #[arg(long)]
-    pub require_2fa: Option<bool>,
+    /// Stored only: nothing reads this value in this release.
     #[arg(long)]
     pub max_security_floor: Option<bool>,
-    #[arg(long)]
-    pub capture_policy: Option<String>,
-    #[arg(long)]
-    pub argon2_m_cost: Option<u32>,
-    #[arg(long)]
-    pub argon2_t_cost: Option<u32>,
-    #[arg(long)]
-    pub argon2_p_cost: Option<u32>,
+    /// Stored only: the DLP rules that are applied come from MW_DLP_RULES.
     #[arg(long)]
     pub dlp_rules_json: Option<String>,
 }
@@ -168,9 +151,10 @@ pub enum IntegrationVerb {
 
 #[derive(Debug, Subcommand)]
 pub enum ObsVerb {
-    /// Show observability config.
+    /// Show the stored telemetry record.
     Show,
-    /// Patch observability config.
+    /// Patch the stored telemetry record. Stored only: the running log level,
+    /// OTLP exporter and metrics endpoint are set from the environment at start.
     Set(ObsSetArgs),
     /// List recent audit entries (newest first).
     Audit {
@@ -182,9 +166,9 @@ pub enum ObsVerb {
         #[arg(long, default_value_t = 1000)]
         limit: usize,
     },
-    /// List active bans.
+    /// List ban-list entries.
     Bans,
-    /// Ban a source IP.
+    /// Add a ban-list entry. A record: the server does not refuse the address.
     Ban {
         ip: String,
         #[arg(long, default_value = "manual")]
@@ -208,17 +192,9 @@ pub struct ObsSetArgs {
 
 #[derive(Debug, Subcommand)]
 pub enum AppearanceVerb {
-    /// Show appearance/branding.
+    /// Show the built-in appearance defaults. There is no `set`: the appearance is
+    /// not persisted, so a CLI process could not change what a server serves.
     Show,
-    /// Patch appearance/branding.
-    Set {
-        #[arg(long)]
-        theme: Option<String>,
-        #[arg(long)]
-        brand_name: Option<String>,
-        #[arg(long)]
-        accent: Option<String>,
-    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -244,35 +220,26 @@ pub async fn run(admin: &Admin, command: AdminCommand, actor: &str) -> Result<St
         AdminCommand::SecurityPolicy { verb } => policy(admin, verb, actor).await,
         AdminCommand::Integrations { verb } => integrations(admin, verb, actor).await,
         AdminCommand::Observability { verb } => observability(admin, verb, actor).await,
-        AdminCommand::Appearance { verb } => appearance(admin, verb, actor).await,
+        AdminCommand::Appearance { verb } => appearance(admin, verb).await,
         AdminCommand::CacheScope { verb } => cache_scope(admin, verb, actor).await,
     }
 }
 
 async fn domains(admin: &Admin, verb: DomainVerb, actor: &str) -> Result<String, AdminError> {
     match verb {
-        DomainVerb::List => Ok(pretty(&admin.list_domains().await?)),
+        DomainVerb::List => Ok(admin
+            .list_domains()
+            .await?
+            .into_iter()
+            .map(|d| d.name)
+            .collect::<Vec<_>>()
+            .join("\n")),
         DomainVerb::Show { name } => match admin.get_domain(&name).await? {
-            Some(d) => Ok(pretty(&d)),
+            Some(d) => Ok(d.name),
             None => Err(AdminError::NotFound),
         },
-        DomainVerb::Create {
-            name,
-            upstream,
-            allowlist,
-            blocklist,
-        } => {
-            admin
-                .create_domain(
-                    actor,
-                    Domain {
-                        name: name.clone(),
-                        upstream_json: upstream,
-                        allowlist,
-                        blocklist,
-                    },
-                )
-                .await?;
+        DomainVerb::Create { name } => {
+            admin.create_domain(actor, &name).await?;
             Ok(format!("domain '{name}' created"))
         }
         DomainVerb::Delete { name } => {
@@ -354,35 +321,23 @@ async fn users(admin: &Admin, verb: UserVerb, actor: &str) -> Result<String, Adm
 
 async fn policy(admin: &Admin, verb: PolicyVerb, actor: &str) -> Result<String, AdminError> {
     match verb {
-        PolicyVerb::Show => Ok(pretty(&admin.get_security_policy().await?)),
+        PolicyVerb::Show => {
+            let p = admin.get_security_policy().await?;
+            Ok(pretty(&serde_json::json!({
+                "max_security_floor": p.max_security_floor,
+                "dlp_rules_json": p.dlp_rules_json,
+            })))
+        }
         PolicyVerb::Set(args) => {
             let mut p: SecurityPolicy = admin.get_security_policy().await?;
-            if let Some(v) = args.min_tls {
-                p.min_tls = v;
-            }
-            if let Some(v) = args.require_2fa {
-                p.require_2fa = v;
-            }
             if let Some(v) = args.max_security_floor {
                 p.max_security_floor = v;
-            }
-            if let Some(v) = args.capture_policy {
-                p.capture_policy = v;
-            }
-            if let Some(v) = args.argon2_m_cost {
-                p.argon2_m_cost = v;
-            }
-            if let Some(v) = args.argon2_t_cost {
-                p.argon2_t_cost = v;
-            }
-            if let Some(v) = args.argon2_p_cost {
-                p.argon2_p_cost = v;
             }
             if let Some(v) = args.dlp_rules_json {
                 p.dlp_rules_json = v;
             }
             admin.set_security_policy(actor, p).await?;
-            Ok("security policy updated".to_string())
+            Ok("security policy record stored (not applied in this release)".to_string())
         }
     }
 }
@@ -394,13 +349,16 @@ async fn integrations(
 ) -> Result<String, AdminError> {
     match verb {
         IntegrationVerb::List => {
+            // This process is not the server, so it cannot see which LDAP rows or
+            // Nextcloud variables the running deployment loaded: those two print
+            // `unknown`. `GET /admin/integrations` on the server reports them.
             let i = admin.integrations();
             Ok(format!(
                 "webhooks={}\napi_key_oversight={}\nldap={}\nnextcloud={}",
-                status(i.webhooks),
-                status(i.api_key_oversight),
-                status(i.ldap),
-                status(i.nextcloud),
+                i.webhooks.as_str(),
+                i.api_key_oversight.as_str(),
+                i.ldap.as_str(),
+                i.nextcloud.as_str(),
             ))
         }
         IntegrationVerb::RevokeApiKey { id } => {
@@ -425,7 +383,7 @@ async fn observability(admin: &Admin, verb: ObsVerb, actor: &str) -> Result<Stri
                 c.metrics_enabled = v;
             }
             admin.set_observability(actor, c).await?;
-            Ok("observability config updated".to_string())
+            Ok("telemetry record stored (not applied in this release)".to_string())
         }
         ObsVerb::Audit { limit } => Ok(pretty(&admin.list_audit(limit).await?)),
         ObsVerb::AuditExport { limit } => admin.export_audit(limit).await,
@@ -445,31 +403,9 @@ async fn observability(admin: &Admin, verb: ObsVerb, actor: &str) -> Result<Stri
     }
 }
 
-async fn appearance(
-    admin: &Admin,
-    verb: AppearanceVerb,
-    actor: &str,
-) -> Result<String, AdminError> {
+async fn appearance(admin: &Admin, verb: AppearanceVerb) -> Result<String, AdminError> {
     match verb {
         AppearanceVerb::Show => Ok(pretty(&admin.config().appearance)),
-        AppearanceVerb::Set {
-            theme,
-            brand_name,
-            accent,
-        } => {
-            let mut a: Appearance = admin.config().appearance;
-            if let Some(v) = theme {
-                a.theme = v;
-            }
-            if let Some(v) = brand_name {
-                a.brand_name = v;
-            }
-            if let Some(v) = accent {
-                a.accent = if v.is_empty() { None } else { Some(v) };
-            }
-            admin.set_appearance(actor, a).await?;
-            Ok("appearance updated".to_string())
-        }
     }
 }
 
@@ -497,13 +433,6 @@ async fn cache_scope(
                 .await?;
             Ok(format!("cache scope for '{class}' set"))
         }
-    }
-}
-
-fn status(s: IntegrationStatus) -> &'static str {
-    match s {
-        IntegrationStatus::Active => "active",
-        IntegrationStatus::Deferred => "deferred",
     }
 }
 
@@ -581,6 +510,50 @@ mod tests {
                 msg_limit: 20
             })
         );
+    }
+
+    /// The flags for stored values with no defined meaning are gone: clap refuses
+    /// them rather than accepting and storing them.
+    #[test]
+    fn removed_flags_are_refused() {
+        // Controls: the same commands parse without the removed flags.
+        AdminCli::try_parse_from(["admin", "security-policy", "set"]).unwrap();
+        AdminCli::try_parse_from(["admin", "domains", "create", "example.com"]).unwrap();
+        AdminCli::try_parse_from(["admin", "appearance", "show"]).unwrap();
+        for argv in [
+            vec!["admin", "security-policy", "set", "--min-tls", "1.3"],
+            vec!["admin", "security-policy", "set", "--require-2fa", "true"],
+            vec!["admin", "security-policy", "set", "--capture-policy", "off"],
+            vec!["admin", "security-policy", "set", "--argon2-m-cost", "1"],
+            vec!["admin", "security-policy", "set", "--argon2-t-cost", "1"],
+            vec!["admin", "security-policy", "set", "--argon2-p-cost", "1"],
+            vec![
+                "admin",
+                "domains",
+                "create",
+                "example.com",
+                "--upstream",
+                "{}",
+            ],
+            vec!["admin", "domains", "create", "example.com", "--allow", "a"],
+            vec!["admin", "domains", "create", "example.com", "--block", "b"],
+            vec!["admin", "appearance", "set", "--theme", "x"],
+        ] {
+            assert!(
+                AdminCli::try_parse_from(&argv).is_err(),
+                "{argv:?} must not parse"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn integrations_list_does_not_claim_a_state_for_ldap_or_nextcloud() {
+        let admin = Admin::in_memory();
+        let cli = AdminCli::try_parse_from(["admin", "integrations", "list"]).unwrap();
+        let out = run(&admin, cli.command, "root").await.unwrap();
+        assert!(out.contains("ldap=unknown"), "{out}");
+        assert!(out.contains("nextcloud=unknown"), "{out}");
+        assert!(!out.contains("deferred"), "{out}");
     }
 
     #[tokio::test]

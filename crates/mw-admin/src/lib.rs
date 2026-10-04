@@ -5,12 +5,18 @@
 //! session domain (`mw_admin_session` cookie or a separate port; passkey-capable)
 //! and mirrors §19: [`Domain`]s, users (provision/quota/session-revoke/feature-
 //! flags incl. the zero-access toggle/force-change/remote-cache-wipe), the
-//! [`SecurityPolicy`], integrations (webhooks + MCP/API-key oversight; LDAP/
-//! Nextcloud entries INERT/deferred), observability (log-level/OTLP DSN/audit-
-//! viewer+export/login-monitor+ban-list), and appearance. Every endpoint has a
-//! `mailwoman admin <noun> <verb>` CLI equivalent (see [`cli`]) + TOML/env
-//! binding (see [`config`]); `admin.enabled = false` unmounts the panel. **All
-//! admin actions write the append-only [`AuditLogEntry`].**
+//! [`SecurityPolicy`], integrations (webhooks + MCP/API-key oversight; LDAP and
+//! Nextcloud configuration state), observability (audit viewer+export, login
+//! monitor + ban list), and appearance. The sections have a
+//! `mailwoman admin <noun> <verb>` CLI (see [`cli`]) and a TOML model (see
+//! [`config`]). **All admin actions write the append-only [`AuditLogEntry`].**
+//!
+//! **Stored is not the same as applied.** Several values this crate stores have
+//! no reader anywhere in the workspace: every [`SecurityPolicy`] field, the
+//! [`ObservabilityConfig`] fields, a [`Domain`]'s upstream/allowlist/blocklist,
+//! and the ban list (which records, and does not block). Each says so at its
+//! definition. The panel and the CLI do not offer the ones with no defined
+//! meaning (26.20, t28-e8).
 //!
 //! **Persistence** is abstracted behind [`store::AdminBackend`] so the domain
 //! logic is testable in isolation and does not hard-couple to the in-flight
@@ -41,12 +47,20 @@ pub use provisioning::{IntegrationStatus, IntegrationsConfig, UserFeatureFlags};
 pub use store::{AdminBackend, InMemoryBackend, UserRecord};
 
 /// A managed mail domain (`domains` table, 0007).
+///
+/// The name is what the require-two-factor screen offers as a domain to scope a
+/// rule to. `upstream_json`, `allowlist` and `blocklist` are stored columns with no
+/// reader and no defined meaning; since 26.20 neither the panel nor the CLI sets
+/// them, and [`Admin::create_domain`] carries an existing row's values forward
+/// untouched.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Domain {
     pub name: String,
-    /// Upstream routing config (JSON blob per §19).
+    /// Stored, unread.
     pub upstream_json: String,
+    /// Stored, unread.
     pub allowlist: Vec<String>,
+    /// Stored, unread.
     pub blocklist: Vec<String>,
 }
 
@@ -58,8 +72,18 @@ pub struct Quota {
     pub msg_limit: i64,
 }
 
-/// The security-policy model (§19 security-policy section): min-TLS, 2FA
-/// requirement, Argon2 params, DLP rules, the max-security floor, capture policy.
+/// The stored security-policy record (§19 security-policy section).
+///
+/// **No field of this struct is read by anything that enforces it.** The record is
+/// kept so that stored values survive, and so a later release can give
+/// `dlp_rules_json` and `max_security_floor` a reader:
+///
+/// * `min_tls`, `capture_policy`, `argon2_*` — no defined semantics; not offered by
+///   the panel or the CLI since 26.20.
+/// * `require_2fa` — superseded by the enforced `twofa_policy` table (the
+///   "Require two-factor" screen); not offered here since 26.20.
+/// * `dlp_rules_json`, `max_security_floor` — stored through the admin API and the
+///   CLI; not applied. The DLP rules that are applied come from `MW_DLP_RULES`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SecurityPolicy {
@@ -74,8 +98,8 @@ pub struct SecurityPolicy {
 }
 
 impl Default for SecurityPolicy {
-    /// OWASP-recommended Argon2id parameters (m = 19 MiB, t = 2, p = 1) and a
-    /// TLS 1.2 floor; 2FA optional; DLP empty; capture off.
+    /// The values a deployment that never stored a policy reports. They describe
+    /// nothing the server does.
     fn default() -> Self {
         Self {
             min_tls: "1.2".to_string(),
@@ -117,8 +141,10 @@ pub struct AuditLogEntry {
     pub ip: Option<String>,
 }
 
-/// A banned source (login-monitor / ban-list, fail2ban-compatible; see
-/// [`banlist`]).
+/// A ban-list entry (login-monitor / ban-list, fail2ban-compatible; see
+/// [`banlist`]). A record only: no request path consults the list, and
+/// `expires_at` is stored without being acted on. Blocking is done by a fail2ban
+/// jail reading the log line the login monitor emits.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BanEntry {
     pub ip: String,
@@ -138,6 +164,11 @@ pub struct CacheScopeRow {
 }
 
 /// Observability configuration (§19 observability section).
+///
+/// Stored through `PUT /admin/observability` and the CLI; **not applied**. The
+/// running log level, OTLP exporter and metrics endpoint are set from the process
+/// environment at start, and nothing reads this record. The panel does not offer
+/// these controls since 26.20.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ObservabilityConfig {
@@ -227,8 +258,8 @@ impl Admin {
         Self::new(Arc::new(InMemoryBackend::new()), AdminConfig::default())
     }
 
-    /// Whether the panel is enabled (`admin.enabled`). e11 unmounts the routes
-    /// when this is `false`; the domain logic + CLI keep working (GitOps).
+    /// The `enabled` value held in this process's config. Informational: the gate
+    /// on `/admin/*` is `mw-server`'s `V6Config::admin_enabled`, not this.
     pub fn panel_enabled(&self) -> bool {
         self.config.lock().expect("config poisoned").enabled
     }
@@ -301,14 +332,27 @@ impl Admin {
 
     // ── Domains ──────────────────────────────────────────────────────────────
 
-    pub async fn create_domain(&self, actor: &str, domain: Domain) -> Result<(), AdminError> {
-        let name = domain.name.clone();
+    /// Register a domain name, or do nothing to one that already exists.
+    ///
+    /// An existing row is written back unchanged, so the `upstream_json` /
+    /// `allowlist` / `blocklist` a deployment stored before 26.20 are not
+    /// overwritten. A new row gets the empty values the columns require.
+    pub async fn create_domain(&self, actor: &str, name: &str) -> Result<(), AdminError> {
+        let domain = match self.backend.get_domain(name).await? {
+            Some(existing) => existing,
+            None => Domain {
+                name: name.to_string(),
+                upstream_json: "{}".to_string(),
+                allowlist: Vec::new(),
+                blocklist: Vec::new(),
+            },
+        };
         self.backend.upsert_domain(domain).await?;
         self.emit(
             actor,
             ActorKind::Admin,
             AuditKind::DomainCreated,
-            Some(name),
+            Some(name.to_string()),
             serde_json::json!({}),
         )
         .await
@@ -510,6 +554,7 @@ impl Admin {
             .unwrap_or_else(|| self.config().security))
     }
 
+    /// Store the policy record. Storing is all this does — see [`SecurityPolicy`].
     pub async fn set_security_policy(
         &self,
         actor: &str,
@@ -521,11 +566,11 @@ impl Admin {
             ActorKind::Admin,
             AuditKind::SecurityPolicyChanged,
             None,
+            // The DLP rules are operator-written patterns, not secrets, but they
+            // can be long; the audit row records that they were set, not their text.
             serde_json::json!({
-                "min_tls": policy.min_tls,
-                "require_2fa": policy.require_2fa,
                 "max_security_floor": policy.max_security_floor,
-                "capture_policy": policy.capture_policy,
+                "dlp_rules_bytes": policy.dlp_rules_json.len(),
             }),
         )
         .await
@@ -541,6 +586,8 @@ impl Admin {
             .unwrap_or_else(|| self.config().observability))
     }
 
+    /// Store the observability record. Storing is all this does — see
+    /// [`ObservabilityConfig`].
     pub async fn set_observability(
         &self,
         actor: &str,
@@ -584,6 +631,12 @@ impl Admin {
 
     // ── Appearance / enabled ─────────────────────────────────────────────────
 
+    /// Replace the deployment-default appearance **in this process's memory**.
+    ///
+    /// It is not persisted: a restart returns to [`Appearance::default`]. While the
+    /// process runs, `GET /api/account/appearance` serves the value to accounts that
+    /// have chosen no appearance of their own. The panel does not offer this control
+    /// since 26.20, and the CLI never could change a running server with it.
     pub async fn set_appearance(
         &self,
         actor: &str,
@@ -600,7 +653,12 @@ impl Admin {
         .await
     }
 
-    /// Enable/disable the panel (`admin.enabled`). Audited as a config change.
+    /// Record `admin.enabled` in this process's config and audit it.
+    ///
+    /// This does not gate anything: `mw-server` decides whether `/admin/*` answers
+    /// from its own `V6Config::admin_enabled`, and nothing reads
+    /// [`Self::panel_enabled`]. The one caller is `mw-server`'s boot, which mirrors
+    /// `MW_ADMIN_ENABLED=false` here.
     pub async fn set_enabled(&self, actor: &str, enabled: bool) -> Result<(), AdminError> {
         self.config.lock().expect("config poisoned").enabled = enabled;
         self.emit(
@@ -615,8 +673,10 @@ impl Admin {
 
     // ── Integrations (oversight) ─────────────────────────────────────────────
 
-    /// The integrations surface (webhooks + API-key oversight live; LDAP/
-    /// Nextcloud deferred).
+    /// What this crate can say about the integrations on its own: the two
+    /// oversight lists exist, and LDAP / Nextcloud are
+    /// [`IntegrationStatus::Unknown`]. `mw-server`'s `GET /admin/integrations`
+    /// replaces those two with what the running deployment has configured.
     pub fn integrations(&self) -> IntegrationsConfig {
         IntegrationsConfig::default()
     }
@@ -777,6 +837,8 @@ impl Admin {
         self.backend.list_bans().await
     }
 
+    /// Whether `ip` is on the ban list. No request path calls this — see
+    /// [`BanEntry`].
     pub async fn is_banned(&self, ip: &str) -> Result<bool, AdminError> {
         self.backend.is_banned(ip).await
     }
@@ -1047,7 +1109,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn panel_disable_flag_models_unmount() {
+    async fn create_domain_keeps_what_an_existing_row_stores() {
+        let admin = Admin::in_memory();
+        admin
+            .backend()
+            .upsert_domain(Domain {
+                name: "example.com".into(),
+                upstream_json: r#"{"imap":"mail.example.com"}"#.into(),
+                allowlist: vec!["a@example.com".into()],
+                blocklist: vec!["b@example.com".into()],
+            })
+            .await
+            .unwrap();
+        admin.create_domain("root", "example.com").await.unwrap();
+        let kept = admin.get_domain("example.com").await.unwrap().unwrap();
+        assert_eq!(kept.upstream_json, r#"{"imap":"mail.example.com"}"#);
+        assert_eq!(kept.allowlist, vec!["a@example.com".to_string()]);
+        assert_eq!(kept.blocklist, vec!["b@example.com".to_string()]);
+
+        admin.create_domain("root", "new.example").await.unwrap();
+        let fresh = admin.get_domain("new.example").await.unwrap().unwrap();
+        assert_eq!(fresh.upstream_json, "{}");
+        assert!(fresh.allowlist.is_empty() && fresh.blocklist.is_empty());
+        assert_eq!(admin.list_audit(10).await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn the_enabled_flag_is_recorded() {
         let admin = Admin::in_memory();
         assert!(admin.panel_enabled());
         admin.set_enabled("root", false).await.unwrap();

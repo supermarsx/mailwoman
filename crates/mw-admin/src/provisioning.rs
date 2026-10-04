@@ -1,5 +1,5 @@
 //! User/domain/quota provisioning helpers + per-user feature flags + the
-//! integrations config model (plan §2.5, §19).
+//! integrations status model (plan §2.5, §19).
 
 use serde::{Deserialize, Serialize};
 
@@ -45,40 +45,63 @@ impl Quota {
     }
 }
 
-/// Deferred-integration status (plan §2.5: LDAP/Nextcloud entries are INERT until
-/// V7 — the panel shows the config surface but no live glue).
+/// What the admin surface can say about one integration.
+///
+/// `Active` is for the surfaces this crate's own routes serve. `Configured` /
+/// `NotConfigured` describe an integration whose configuration lives outside this
+/// crate (LDAP rows in the store, the Nextcloud environment variables); only the
+/// running server can tell which, so the default is `Unknown`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum IntegrationStatus {
-    /// Live and configurable now.
+    /// Served by the admin surface itself.
     Active,
-    /// Config surface present but not yet wired (LDAP/Nextcloud → V7).
-    Deferred,
+    /// The deployment has configuration for it.
+    Configured,
+    /// The deployment has no configuration for it.
+    NotConfigured,
+    /// Not determined by whoever produced this value.
+    Unknown,
 }
 
-/// The integrations surface (§19 integrations): live webhooks + MCP/API-key
-/// oversight, plus the inert LDAP/Nextcloud entries (deferred to V7).
+impl IntegrationStatus {
+    /// The wire / CLI spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            IntegrationStatus::Active => "active",
+            IntegrationStatus::Configured => "configured",
+            IntegrationStatus::NotConfigured => "not-configured",
+            IntegrationStatus::Unknown => "unknown",
+        }
+    }
+}
+
+/// The integrations surface (§19 integrations): webhooks + MCP/API-key oversight,
+/// and the configuration state of the LDAP directory and the Nextcloud bridge.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct IntegrationsConfig {
-    /// Webhooks feature availability (the concrete delivery lives in `mw-server`,
-    /// e9). Active in V6.
+    /// The webhook oversight list (`GET /admin/webhooks`).
     pub webhooks: IntegrationStatus,
-    /// MCP + API-key oversight (list/revoke via the admin surface). Active in V6.
+    /// MCP + API-key oversight (list/revoke via the admin surface).
     pub api_key_oversight: IntegrationStatus,
-    /// LDAP/GAL directory — deferred to V7 (config surface only).
+    /// LDAP/GAL directory. Configured through `directory_config` rows, which this
+    /// crate does not read.
     pub ldap: IntegrationStatus,
-    /// Nextcloud bridge — deferred to V7 (config surface only).
+    /// Nextcloud bridge. Configured through `MW_NEXTCLOUD_*`, which this crate does
+    /// not read.
     pub nextcloud: IntegrationStatus,
 }
 
 impl Default for IntegrationsConfig {
+    /// What can be said without asking the running server: the two oversight lists
+    /// exist, and nothing is known about LDAP or Nextcloud.
     fn default() -> Self {
         Self {
             webhooks: IntegrationStatus::Active,
             api_key_oversight: IntegrationStatus::Active,
-            ldap: IntegrationStatus::Deferred,
-            nextcloud: IntegrationStatus::Deferred,
+            ldap: IntegrationStatus::Unknown,
+            nextcloud: IntegrationStatus::Unknown,
         }
     }
 }
@@ -114,10 +137,18 @@ mod tests {
     }
 
     #[test]
-    fn integrations_defer_ldap_and_nextcloud() {
+    fn integrations_default_claims_nothing_about_ldap_or_nextcloud() {
         let i = IntegrationsConfig::default();
         assert_eq!(i.webhooks, IntegrationStatus::Active);
-        assert_eq!(i.ldap, IntegrationStatus::Deferred);
-        assert_eq!(i.nextcloud, IntegrationStatus::Deferred);
+        assert_eq!(i.ldap, IntegrationStatus::Unknown);
+        assert_eq!(i.nextcloud, IntegrationStatus::Unknown);
+    }
+
+    #[test]
+    fn integration_status_spellings() {
+        assert_eq!(IntegrationStatus::Active.as_str(), "active");
+        assert_eq!(IntegrationStatus::Configured.as_str(), "configured");
+        assert_eq!(IntegrationStatus::NotConfigured.as_str(), "not-configured");
+        assert_eq!(IntegrationStatus::Unknown.as_str(), "unknown");
     }
 }

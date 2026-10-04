@@ -1,13 +1,30 @@
 //! Admin-panel HTTP surface (SPEC §19, plan §2.5, §3 e11 MOUNT).
 //!
 //! A SEPARATE session domain: `/admin/*` runs under its own `mw_admin_session`
-//! cookie (Path=/admin), distinct from the mailbox `mw_session`. Login validates
-//! the operator credentials (`MW_ADMIN_USER`/`MW_ADMIN_PASSWORD`) and mints an
-//! admin session stored (hashed) in `admin_sessions`. Every action drives
-//! [`mw_admin::Admin`] (backed by the 0007 tables via
-//! [`crate::stores_v6::AdminBackendAdapter`]), which writes the append-only audit
-//! log. `admin.enabled = false` makes every route return `401` (the panel is
-//! unreachable) — the CLI + GitOps config keep working.
+//! cookie (`Path=/`, because admin routes also live under `/api/admin/*`), distinct
+//! from the mailbox `mw_session`. Login validates the operator credentials
+//! (`MW_ADMIN_USER`/`MW_ADMIN_PASSWORD`) and mints an admin session stored (hashed)
+//! in `admin_sessions`. Every action drives [`mw_admin::Admin`] (backed by the 0007
+//! tables via [`crate::stores_v6::AdminBackendAdapter`]), which writes the
+//! append-only audit log. `MW_ADMIN_ENABLED=false` makes every route return `401`
+//! (the panel is unreachable) — the CLI keeps working.
+//!
+//! **Session lifetime (0030).** A session ends after 30 minutes without a request
+//! and never lasts more than 12 hours; both are enforced in
+//! `Store::get_admin_session`, which every admin gate in this crate calls. The
+//! cookie carries the 12-hour figure as `Max-Age`, so a browser drops it at the
+//! same moment the server would refuse it.
+//!
+//! **What these routes do not offer (26.20, t28-e8).** A stored value that nothing
+//! in the workspace applies is not presented as a setting:
+//! * `/admin/security-policy` reads and writes two fields, `dlpRulesJson` and
+//!   `maxSecurityFloor`. They are stored and not yet applied; the panel shows
+//!   neither. The other stored fields (min TLS, capture policy, Argon2 parameters,
+//!   `require2fa`) have no defined meaning and are neither returned nor accepted.
+//! * `/admin/domains/{name}` registers a name. A domain's stored upstream JSON,
+//!   allowlist and blocklist are neither returned nor accepted.
+//! * `/admin/observability` and `/admin/appearance` still answer, for a later
+//!   release that gives them a reader; the panel shows neither form.
 //!
 //! JSON is camelCase to satisfy the typed web client in `state/slices/admin.ts`.
 
@@ -86,8 +103,14 @@ fn admin_cookie(headers: &HeaderMap) -> Option<String> {
     None
 }
 
+/// The admin cookie. `Max-Age` is the session's absolute cap: the idle deadline is
+/// shorter and moves, and only the server can know it, so the cookie carries the
+/// one figure that is fixed at login.
 fn set_admin_cookie(token: &str, secure: bool) -> String {
-    let mut c = format!("{ADMIN_COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/");
+    let mut c = format!(
+        "{ADMIN_COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={}",
+        mw_store::Store::ADMIN_SESSION_MAX_SECS
+    );
     if secure {
         c.push_str("; Secure");
     }
@@ -111,7 +134,8 @@ fn unauthorized() -> Response {
 }
 
 /// Resolve the authenticated admin username, or a `401` response. Also enforces the
-/// `admin.enabled` gate (disabled → every route is `401`).
+/// `admin.enabled` gate (disabled → every route is `401`). An expired session is a
+/// `401` like an unknown one: `get_admin_session` answers `None` for both.
 async fn admin_authed(state: &AppState, headers: &HeaderMap) -> Result<String, Response> {
     if !state.v6.admin_enabled {
         return Err(unauthorized());
@@ -295,16 +319,25 @@ async fn list_domains(State(state): State<AppState>, headers: HeaderMap) -> Resp
     }
 }
 
+/// `PUT /admin/domains/{name}` — register a domain name. The name comes from the
+/// path; no body is read. An existing domain is left as it is.
 async fn save_domain(
     State(state): State<AppState>,
     headers: HeaderMap,
-    UrlPath(_name): UrlPath<String>,
-    Json(body): Json<DomainDto>,
+    UrlPath(name): UrlPath<String>,
 ) -> Response {
     let Ok(actor) = admin_authed(&state, &headers).await else {
         return unauthorized();
     };
-    match state.v6.admin.create_domain(&actor, body.into()).await {
+    let name = name.trim();
+    if name.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "a domain name is required" })),
+        )
+            .into_response();
+    }
+    match state.v6.admin.create_domain(&actor, name).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => err500(e),
     }
@@ -477,6 +510,10 @@ async fn get_policy(State(state): State<AppState>, headers: HeaderMap) -> Respon
     }
 }
 
+/// `PUT /admin/security-policy` — store the two fields of [`SecurityPolicyDto`].
+/// The stored record's other fields are carried forward as they are. A body naming
+/// any other field is refused (`422`) rather than accepted and dropped.
+
 async fn set_policy(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -485,12 +522,13 @@ async fn set_policy(
     let Ok(actor) = admin_authed(&state, &headers).await else {
         return unauthorized();
     };
-    match state
-        .v6
-        .admin
-        .set_security_policy(&actor, body.into())
-        .await
-    {
+    let mut policy = match state.v6.admin.get_security_policy().await {
+        Ok(p) => p,
+        Err(e) => return err500(e),
+    };
+    policy.dlp_rules_json = body.dlp_rules_json;
+    policy.max_security_floor = body.max_security_floor;
+    match state.v6.admin.set_security_policy(&actor, policy).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => err500(e),
     }
@@ -498,20 +536,53 @@ async fn set_policy(
 
 // ─── integrations / oversight ─────────────────────────────────────────────────
 
+/// Whether this process built a Nextcloud gateway at start.
+///
+/// The gateway handle lives in a request extension on the `/api/nextcloud/*`
+/// routes, which this handler cannot see, so the answer is recomputed with the same
+/// function the mount used (`v7_mount::build_nextcloud`, which reads the three
+/// `MW_NEXTCLOUD_*` variables). Computed once: the mount ran it once too, and a
+/// process's environment does not change under it.
+fn nextcloud_configured() -> bool {
+    static CONFIGURED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *CONFIGURED.get_or_init(|| crate::v7_mount::build_nextcloud().is_some())
+}
+
+/// `GET /admin/integrations` — what this deployment has configured.
+///
+/// * `ldap` — `configured` when the store holds at least one enabled
+///   `directory_config` row, `not-configured` when it holds none, `unknown` when
+///   the store could not be read. The running directory client was built from those
+///   rows at start (`v7_mount::build_directory`), and no route writes them, so the
+///   two agree unless the table was edited underneath a running server.
+/// * `nextcloud` — `configured` when all three `MW_NEXTCLOUD_*` variables were set
+///   at start, else `not-configured`.
+///
+/// Neither value says the remote service is reachable: nothing here connects to it.
 async fn get_integrations(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Err(r) = admin_authed(&state, &headers).await {
         return r;
     }
+    use mw_admin::IntegrationStatus;
     let i = state.v6.admin.integrations();
-    let s = |v: mw_admin::IntegrationStatus| match v {
-        mw_admin::IntegrationStatus::Active => "active",
-        mw_admin::IntegrationStatus::Deferred => "deferred",
+    let ldap = match state.store.list_directory_config().await {
+        Ok(rows) if rows.iter().any(|r| r.enabled) => IntegrationStatus::Configured,
+        Ok(_) => IntegrationStatus::NotConfigured,
+        Err(e) => {
+            tracing::warn!("admin integrations: directory config not readable: {e}");
+            IntegrationStatus::Unknown
+        }
+    };
+    let nextcloud = if nextcloud_configured() {
+        IntegrationStatus::Configured
+    } else {
+        IntegrationStatus::NotConfigured
     };
     Json(json!({
-        "webhooks": s(i.webhooks),
-        "apiKeyOversight": s(i.api_key_oversight),
-        "ldap": s(i.ldap),
-        "nextcloud": s(i.nextcloud),
+        "webhooks": i.webhooks.as_str(),
+        "apiKeyOversight": i.api_key_oversight.as_str(),
+        "ldap": ldap.as_str(),
+        "nextcloud": nextcloud.as_str(),
     }))
     .into_response()
 }
@@ -587,6 +658,8 @@ async fn revoke_api_key(
 
 // ─── observability / audit / bans ─────────────────────────────────────────────
 
+/// `GET /admin/observability` — the stored telemetry record. Stored, not applied:
+/// see [`mw_admin::ObservabilityConfig`]. The panel does not call this.
 async fn get_obs(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Err(r) = admin_authed(&state, &headers).await {
         return r;
@@ -732,6 +805,9 @@ async fn remove_ban(
 
 // ─── appearance ───────────────────────────────────────────────────────────────
 
+/// `GET /admin/appearance` — the deployment-default appearance held in this
+/// process's memory (see [`mw_admin::Admin::set_appearance`]: it is not persisted).
+/// The panel does not call this.
 async fn get_appearance(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Err(r) = admin_authed(&state, &headers).await {
         return r;
@@ -774,32 +850,16 @@ struct AdminSessionDto {
     username: String,
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+/// A domain as the panel sees it: its name. The stored `upstream_json`,
+/// `allowlist` and `blocklist` columns are not part of the wire shape — see the
+/// module docs.
+#[derive(Serialize)]
 struct DomainDto {
     name: String,
-    upstream_json: String,
-    allowlist: Vec<String>,
-    blocklist: Vec<String>,
 }
 impl From<AdminDomain> for DomainDto {
     fn from(d: AdminDomain) -> Self {
-        Self {
-            name: d.name,
-            upstream_json: d.upstream_json,
-            allowlist: d.allowlist,
-            blocklist: d.blocklist,
-        }
-    }
-}
-impl From<DomainDto> for AdminDomain {
-    fn from(d: DomainDto) -> Self {
-        Self {
-            name: d.name,
-            upstream_json: d.upstream_json,
-            allowlist: d.allowlist,
-            blocklist: d.blocklist,
-        }
+        Self { name: d.name }
     }
 }
 
@@ -872,43 +932,20 @@ struct ProvisionReq {
     quota: QuotaDto,
 }
 
+/// The part of the stored security-policy record the admin API reads and writes.
+/// Both fields are stored and **not applied** in this release — see
+/// [`mw_admin::SecurityPolicy`].
 #[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SecurityPolicyDto {
-    min_tls: String,
-    require2fa: bool,
-    argon2_m_cost: u32,
-    argon2_t_cost: u32,
-    argon2_p_cost: u32,
     dlp_rules_json: String,
     max_security_floor: bool,
-    capture_policy: String,
 }
 impl From<mw_admin::SecurityPolicy> for SecurityPolicyDto {
     fn from(p: mw_admin::SecurityPolicy) -> Self {
         Self {
-            min_tls: p.min_tls,
-            require2fa: p.require_2fa,
-            argon2_m_cost: p.argon2_m_cost,
-            argon2_t_cost: p.argon2_t_cost,
-            argon2_p_cost: p.argon2_p_cost,
             dlp_rules_json: p.dlp_rules_json,
             max_security_floor: p.max_security_floor,
-            capture_policy: p.capture_policy,
-        }
-    }
-}
-impl From<SecurityPolicyDto> for mw_admin::SecurityPolicy {
-    fn from(p: SecurityPolicyDto) -> Self {
-        Self {
-            min_tls: p.min_tls,
-            require_2fa: p.require2fa,
-            argon2_m_cost: p.argon2_m_cost,
-            argon2_t_cost: p.argon2_t_cost,
-            argon2_p_cost: p.argon2_p_cost,
-            dlp_rules_json: p.dlp_rules_json,
-            max_security_floor: p.max_security_floor,
-            capture_policy: p.capture_policy,
         }
     }
 }
