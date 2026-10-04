@@ -20,11 +20,12 @@
 //!   * native bearer session
 //!   * header-auth (`X-Remote-User`)
 //!   * SSO callback (mock IdP)
-//!   * API key on `/api/v1`, API key and OAuth access token on `/mcp`, the OAuth
-//!     refresh grant and introspection (engine mode)
+//!   * engine-mode password login; API key on `/api/v1`, API key and OAuth access
+//!     token on `/mcp`, the OAuth refresh grant and introspection (engine mode)
 //!   * API key in proxy mode (the account id does not map back to a login name
 //!     once the sessions are gone; the key must read nothing)
 //!   * `force_password_change`: the hold, its allow-list, and its release
+//!     (session, API key and OAuth token)
 //!
 //! Run:
 //!   cargo test -p mw-server --test t27_account_flags --locked -- --test-threads=1
@@ -997,6 +998,20 @@ async fn disabled_account_keys_and_tokens_are_refused_on_rest_mcp_and_refresh() 
 
     set_flags(&admin, base, ENGINE_USER, true, false).await;
 
+    // The engine-mode password login and the session it issued earlier.
+    assert_eq!(
+        me(&c, base).await.status(),
+        401,
+        "the engine-mode session established before the flag was set is refused"
+    );
+    let relogin = engine_login(&browser(), base, &pop).await;
+    assert_eq!(
+        relogin.status(),
+        401,
+        "an engine-mode login for a disabled account is refused"
+    );
+    assert!(!sets_session_cookie(&relogin));
+
     let refused = key_mailboxes(base, &key).await;
     assert_eq!(
         refused.status(),
@@ -1162,6 +1177,20 @@ async fn forced_password_change_holds_the_account_until_the_password_is_changed(
         .await
         .unwrap();
     let key = mint_api_key(&c, base, &account_id).await;
+    store
+        .put_oauth_client(&OAuthClientRow {
+            client_id: CLIENT_ID.into(),
+            name: "t27 client".into(),
+            redirect_uris_json: json!([REDIRECT]).to_string(),
+            approved_by: "admin".into(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+        })
+        .await
+        .unwrap();
+    let access = mint_oauth_pair(&c, base, &account_id).await["access_token"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let policy = || async {
         c.get(format!("{base}/api/password/policy"))
@@ -1178,6 +1207,11 @@ async fn forced_password_change_holds_the_account_until_the_password_is_changed(
 
     // Controls, before the flag: nothing is held.
     assert_eq!(jmap(&c, base).await.status(), 200, "control: /jmap/api");
+    let (status, body) = mcp_call(base, &access, &account_id).await;
+    assert!(
+        status == 200 && rpc_error(&body) != Some(-32001),
+        "control: the OAuth token on /mcp: {status} {body}"
+    );
     let session = c.get(format!("{base}/jmap/session")).send().await.unwrap();
     assert_eq!(session.status(), 200, "control: /jmap/session");
     assert_eq!(
@@ -1229,6 +1263,9 @@ async fn forced_password_change_holds_the_account_until_the_password_is_changed(
     }
     let (status, body) = mcp_call(base, &key, &account_id).await;
     assert_eq!(status, 403, "the key is held on /mcp too: {body}");
+    assert_eq!(body, held_body());
+    let (status, body) = mcp_call(base, &access, &account_id).await;
+    assert_eq!(status, 403, "the OAuth token is held on /mcp too: {body}");
     assert_eq!(body, held_body());
 
     // The allow-list.
@@ -1297,6 +1334,11 @@ async fn forced_password_change_holds_the_account_until_the_password_is_changed(
         key_mailboxes(base, &key).await.status(),
         200,
         "released: key"
+    );
+    let (status, body) = mcp_call(base, &access, &account_id).await;
+    assert!(
+        status == 200 && rpc_error(&body) != Some(-32001),
+        "released: the OAuth token on /mcp: {status} {body}"
     );
     assert_eq!(
         policy().await.json::<Value>().await.unwrap()["forceChange"],
