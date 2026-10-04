@@ -19,11 +19,14 @@ import { defineConfig, devices } from '@playwright/test';
  *                Runs the pim-*.spec.ts specs. (The CalDAV/CardDAV round-trip
  *                itself is proven at the Rust level by e11's conformance job, so
  *                these specs need no CalDAV account in the browser.)
+ *   - `phone`  — the same engine-mode server (:8090) at a phone viewport: the
+ *                narrow single-pane layout (narrow.spec.ts).
  *
- * Select one with `--project=mock` / `--project=engine` / `--project=pim`. Each
+ * Select one with `--project=mock` / `--project=engine` / `--project=pim` /
+ * `--project=phone`. Each
  * project's `baseURL` can be overridden for local runs (e.g. `cargo run` / `vite`):
  *   - mock:          PLAYWRIGHT_BASE_URL or PLAYWRIGHT_MOCK_BASE_URL (default :8080)
- *   - engine / pim:  PLAYWRIGHT_ENGINE_BASE_URL (default :8090)
+ *   - engine / pim / phone:  PLAYWRIGHT_ENGINE_BASE_URL (default :8090)
  */
 const mockBaseURL =
   process.env['PLAYWRIGHT_MOCK_BASE_URL'] ??
@@ -87,6 +90,18 @@ export default defineConfig({
         'export.spec.ts',
       ],
       use: { ...devices['Desktop Chrome'], baseURL: engineBaseURL },
+    },
+    {
+      name: 'phone',
+      // Narrow-viewport layout (t28-e6): the SAME engine-mode server (:8090) as the
+      // `engine` project, driven at a phone viewport (Pixel 7, 412 px wide, touch).
+      // narrow.spec.ts opens a message from the list, asserts its body is on screen,
+      // and returns with Back; it also pins the desktop three-pane layout at 1280 px
+      // by overriding the viewport inside the spec. A separate project because the
+      // `engine` specs and their shared helpers assume the desktop sidebar is on
+      // screen, which at this width it is not (it is a drawer).
+      testMatch: ['narrow.spec.ts'],
+      use: { ...devices['Pixel 7'], baseURL: engineBaseURL },
     },
     {
       name: 'pim',
