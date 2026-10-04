@@ -440,7 +440,6 @@ function LookupForm(): JSX.Element {
 
 function GenerateDialog(props: { onClose: () => void; onGenerated: (id: Id) => void }): JSX.Element {
   const app = useApp();
-  const [kind, setKind] = createSignal<KeyKind>('pgp');
   const [name, setName] = createSignal('');
   const [email, setEmail] = createSignal('');
   const [passphrase, setPassphrase] = createSignal('');
@@ -452,7 +451,10 @@ function GenerateDialog(props: { onClose: () => void; onGenerated: (id: Id) => v
     setBusy(true);
     try {
       const userId = name().trim() === '' ? email().trim() : `${name().trim()} <${email().trim()}>`;
-      const key = await app.generateOwnKey({ kind: kind(), userId, passphrase: passphrase() });
+      // OpenPGP only: the crypto worker has no S/MIME key generation (a
+      // certificate comes from a certificate authority and is imported as
+      // PKCS#12), so the dialog does not offer it.
+      const key = await app.generateOwnKey({ kind: 'pgp', userId, passphrase: passphrase() });
       props.onGenerated(key.id);
     } finally {
       setBusy(false);
@@ -465,11 +467,11 @@ function GenerateDialog(props: { onClose: () => void; onGenerated: (id: Id) => v
       <div class={css.fieldStack}>
         <label class={css.label}>
           {t('keys-type')}
-          <select class={css.select} aria-label={t('keys-key-type')} value={kind()} onChange={(e) => setKind(e.currentTarget.value as KeyKind)}>
+          <select class={css.select} aria-label={t('keys-key-type')} value="pgp">
             <option value="pgp">{t('keys-openpgp')}</option>
-            <option value="smime">{t('keys-smime')}</option>
           </select>
         </label>
+        <p class={css.cardSub}>{t('keys-generate-smime-note')}</p>
         <label class={css.label}>
           {t('keys-name')}
           <input class={css.input} aria-label={t('keys-name')} value={name()} onInput={(e) => setName(e.currentTarget.value)} />

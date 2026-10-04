@@ -71,7 +71,8 @@ keys-generate-title = Generate a key
 keys-type = Type
 keys-key-type = Key type
 keys-openpgp = OpenPGP
-keys-smime = S/MIME
+# Under the type list, which has one entry: S/MIME keys are not generated here.
+keys-generate-smime-note = S/MIME certificates are issued by a certificate authority and cannot be generated here. Import one as a PKCS#12 file with Import key.
 keys-name = Name
 keys-email = Email
 keys-key-passphrase = Key passphrase

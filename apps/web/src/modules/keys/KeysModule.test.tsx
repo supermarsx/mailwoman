@@ -69,6 +69,35 @@ describe('KeysModule', () => {
     expect(within(ownList).getByText('alice@example.org')).toBeInTheDocument();
   });
 
+  // S/MIME generation was offered and produced an OpenPGP key filed as a
+  // certificate (audit row 35). The option is gone; the type list has OpenPGP only.
+  it('offers OpenPGP as the only key type to generate, and says where S/MIME comes from', async () => {
+    renderModule();
+    await screen.findByText('me@example.org');
+    fireEvent.click(screen.getByRole('button', { name: 'Generate key' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Generate a key' });
+    const type = within(dialog).getByLabelText('Key type') as HTMLSelectElement;
+    expect(Array.from(type.options).map((o) => o.value)).toEqual(['pgp']);
+    expect(within(dialog).queryByRole('option', { name: 'S/MIME' })).toBeNull();
+    expect(within(dialog).getByText(/S\/MIME certificates are issued by a certificate authority/)).toBeInTheDocument();
+  });
+
+  it('generates an OpenPGP key whatever the type list is made to say', async () => {
+    const { app } = renderModule();
+    await screen.findByText('me@example.org');
+    const before = app.ownKeys().length;
+    fireEvent.click(screen.getByRole('button', { name: 'Generate key' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Generate a key' });
+    fireEvent.change(within(dialog).getByLabelText('Key type'), { target: { value: 'smime' } });
+    fireEvent.input(within(dialog).getByLabelText('Email'), { target: { value: 'carol@example.org' } });
+    fireEvent.input(within(dialog).getByLabelText('Key passphrase'), { target: { value: 'hunter2' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Generate' }));
+    await waitFor(() => expect(app.ownKeys().length).toBe(before + 1));
+    const made = app.ownKeys().find((k) => k.addresses.includes('carol@example.org'));
+    expect(made?.kind).toBe('pgp');
+    expect(made?.certPem).toBeNull();
+  });
+
   it('previews an armored import before committing it', async () => {
     const { app } = renderModule();
     await screen.findByText('me@example.org');
