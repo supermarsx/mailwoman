@@ -191,10 +191,19 @@ impl TlsListener {
     /// Bind `addr` and prepare TLS termination. Returns the listener plus, for
     /// the external-cert mode, the [`ReloadableResolver`] the SIGHUP handler
     /// pokes to hot-reload.
+    ///
+    /// In ACME mode the domain list is checked first ([`validate_acme_domains`]);
+    /// a list that fails is an error and `addr` is never bound.
     pub async fn bind(
         addr: &str,
         tls: &TlsConfig,
     ) -> anyhow::Result<(Self, Option<Arc<ReloadableResolver>>)> {
+        // Refuse an ACME domain list that cannot be one before anything is bound:
+        // `--acme off` would otherwise start an HTTPS listener and ask Let's
+        // Encrypt for a certificate for a host named `off`.
+        if let TlsConfig::Acme { domains, .. } = tls {
+            validate_acme_domains(domains)?;
+        }
         // `ServerConfig::builder()` (here and inside rustls-acme) needs a
         // process-wide crypto provider. Install ring's once; ignore if another
         // component already did.
@@ -257,6 +266,55 @@ impl TlsListener {
     }
 }
 
+/// Values people write to mean "no ACME". `--acme` has no such sentinel — it takes
+/// domain names, and any value at all switches the listener to HTTPS — so each of
+/// these is refused by name instead of being requested as a certificate.
+const ACME_NOT_A_DOMAIN: &[&str] = &["off", "no", "none", "false", "disabled", "0"];
+
+/// Check that every `--acme` / `MW_ACME` entry could be a DNS name a public CA
+/// would issue for. Called by [`TlsListener::bind`] before the socket is bound.
+///
+/// An entry is refused when, after trimming and lowercasing, it is empty, is one of
+/// the "off" spellings above, has no dot, has a character outside `[a-z0-9.-]`, or
+/// has a label that is empty or starts or ends with `-`. This is a plausibility
+/// check, not DNS validation: it exists to turn `--acme off` (which the deploy
+/// docs once recommended) and `MW_ACME=""` into a startup error rather than an
+/// HTTPS listener with no certificate behind what the operator meant to be plain
+/// HTTP.
+pub fn validate_acme_domains(domains: &[String]) -> anyhow::Result<()> {
+    const HOW_TO_DISABLE: &str = "to run without built-in ACME, do not pass --acme and leave \
+                                  MW_ACME unset (an empty MW_ACME counts as set)";
+    if domains.is_empty() {
+        return Err(anyhow!("ACME needs at least one domain; {HOW_TO_DISABLE}"));
+    }
+    for raw in domains {
+        let d = raw.trim().to_ascii_lowercase();
+        if d.is_empty() {
+            return Err(anyhow!(
+                "--acme / MW_ACME has an empty entry; {HOW_TO_DISABLE}"
+            ));
+        }
+        if ACME_NOT_A_DOMAIN.contains(&d.as_str()) {
+            return Err(anyhow!(
+                "--acme / MW_ACME is set to {raw:?}, which is not a domain name: it would \
+                 request a certificate for a host named {raw:?}; {HOW_TO_DISABLE}"
+            ));
+        }
+        let plausible = d.contains('.')
+            && d.bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'-')
+            && d.split('.')
+                .all(|label| !label.is_empty() && !label.starts_with('-') && !label.ends_with('-'));
+        if !plausible {
+            return Err(anyhow!(
+                "--acme / MW_ACME entry {raw:?} is not a fully-qualified domain name; \
+                 {HOW_TO_DISABLE}"
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// A rustls server config that resolves certs through `resolver` and offers
 /// HTTP/1.1 + HTTP/2 over ALPN.
 fn server_config(resolver: Arc<dyn ResolvesServerCert>) -> ServerConfig {
@@ -308,6 +366,50 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/tls")
             .join(name)
+    }
+
+    fn acme(domains: &[&str]) -> Result<(), String> {
+        let owned: Vec<String> = domains.iter().map(|d| d.to_string()).collect();
+        validate_acme_domains(&owned).map_err(|e| e.to_string())
+    }
+
+    #[test]
+    fn acme_domains_accepts_hostnames() {
+        assert_eq!(acme(&["mail.example.org"]), Ok(()));
+        assert_eq!(acme(&["mail.example.org", "Webmail.Example.ORG"]), Ok(()));
+        assert_eq!(acme(&[" mail-2.example.org "]), Ok(()));
+        assert_eq!(acme(&["xn--mnchen-3ya.example"]), Ok(()));
+    }
+
+    #[test]
+    fn acme_domains_refuses_off_spellings_and_non_hostnames() {
+        for bad in ["off", "OFF", "no", "none", "false", "disabled", "0"] {
+            let err = acme(&[bad]).expect_err(bad);
+            assert!(
+                err.contains(bad) && err.contains("leave MW_ACME unset"),
+                "{bad}: the error names the value and says how to disable ACME: {err}"
+            );
+        }
+        for bad in [
+            "",
+            "   ",
+            "localhost",
+            "mail_server.example.org",
+            "mail.example.org/",
+            "https://mail.example.org",
+            ".example.org",
+            "example.org.",
+            "mail..example.org",
+            "-mail.example.org",
+            "mail-.example.org",
+            "*.example.org",
+        ] {
+            assert!(acme(&[bad]).is_err(), "{bad:?} must be refused");
+        }
+        // One bad entry refuses the whole list; an empty list is refused too.
+        assert!(acme(&["mail.example.org", "off"]).is_err());
+        assert!(acme(&["mail.example.org", ""]).is_err());
+        assert!(acme(&[]).is_err());
     }
 
     #[test]
