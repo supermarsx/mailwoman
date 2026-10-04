@@ -22,6 +22,15 @@ pub trait MailSubmitter: Send + Sync {
     async fn submit(&self, msg: Outgoing) -> Result<SubmissionResult>;
 }
 
+/// Text for one header line: `s` with every control character removed (CR, LF,
+/// NUL, TAB, DEL, C1 …), so the value cannot end the header it is written into.
+///
+/// This is for values the engine interpolates into a header itself. It does no
+/// RFC 2047 encoding: non-ASCII text passes through as UTF-8.
+pub(crate) fn header_text(s: &str) -> String {
+    s.chars().filter(|c| !c.is_control()).collect()
+}
+
 /// Adapt the real `mw-smtp` submitter onto the engine's [`MailSubmitter`] seam.
 #[async_trait]
 impl MailSubmitter for Submitter {

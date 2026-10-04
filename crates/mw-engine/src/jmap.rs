@@ -16,7 +16,7 @@ use mw_mime::{Attachment, ComposeRequest, EmailAddress};
 use mw_store::{IdentityRow, StoredMeta, SubmissionRow};
 use serde_json::{Map, Value, json};
 
-use crate::account::AccountRuntime;
+use crate::account::{AccountRuntime, header_text};
 use crate::backend::{EngineError, Flag, MessageRef, RawMailboxRef, RawMessage, Result};
 use crate::change::{ChangeOp, ChangeType};
 use crate::engine::{Engine, IndexPatch};
@@ -1046,6 +1046,13 @@ impl Engine {
 
         if let Some(creates) = args.get("create").and_then(Value::as_object) {
             for (client_id, spec) in creates {
+                // Addresses and header values that cannot be written into a
+                // message as given fail the create, naming the property
+                // (26.20 t27-e2, SEC-2). Nothing is composed or stored.
+                if let Err(invalid) = check_compose_spec(spec) {
+                    not_created.insert(client_id.clone(), invalid.set_error());
+                    continue;
+                }
                 match self.create_draft(account_id, rt, spec).await {
                     Ok((sid, blob)) => {
                         created_ids.insert(client_id.clone(), sid.clone());
@@ -1268,6 +1275,10 @@ impl Engine {
     /// — forward / attach-from-mail as well as attach-uploaded-file. A blobId
     /// that resolves to nothing is a clean error (→ `notCreated`), never a
     /// panic.
+    ///
+    /// The spec is checked with [`check_compose_spec`] first. `Email/set` has
+    /// already done that to report `invalidProperties`; it is repeated here so
+    /// that no caller can compose from a spec that was not checked.
     async fn compose_from_spec(
         &self,
         account_id: &str,
@@ -1275,6 +1286,7 @@ impl Engine {
         identity: &str,
         message_id: &str,
     ) -> Result<ComposeRequest> {
+        check_compose_spec(spec).map_err(|i| EngineError::Protocol(i.to_string()))?;
         let mut req = compose_base_from_spec(spec, identity, message_id);
         if let Some(atts) = spec.get("attachments").and_then(Value::as_array) {
             for att in atts {
@@ -1300,8 +1312,16 @@ impl Engine {
                     .and_then(Value::as_str)
                     .map(String::from)
                     .unwrap_or(blob.filename);
+                // `mail-builder` writes the type as the `Content-Type` value
+                // unchanged. A client-declared type was checked above; the
+                // fallback comes from a stored part, so check the result.
+                if has_control(&content_type) {
+                    return Err(EngineError::Protocol(
+                        "attachment content type contains a control character".into(),
+                    ));
+                }
                 req.attachments.push(Attachment {
-                    filename,
+                    filename: header_text(&filename),
                     content_type,
                     bytes: blob.bytes,
                 });
@@ -2115,25 +2135,30 @@ impl Engine {
                 "no recipients".into(),
             )));
         }
+        // These addresses are read back from the stored message, which need not
+        // have come through `Email/set` create (a synced or imported message can
+        // be submitted by id, and drafts stored before 26.20 were not checked).
+        // Refuse a malformed one here, whatever the account's submitter is. It
+        // will not become valid on a retry, so the refusal is permanent.
+        let outgoing = mw_smtp::Outgoing {
+            mail_from,
+            rcpt_to,
+            raw: raw.clone(),
+        };
+        if let Err(e) = outgoing.validate() {
+            return Err(NotSent::permanent(EngineError::Protocol(e.to_string())));
+        }
 
         // V4 DLP enforcement runs at `EmailSubmission/set` create time (see
         // `submission_set` → `dlp_block_error`), which gates BOTH the inline and
         // the deferred send paths before a submission is ever enqueued. By the
         // time we reach the actual dispatch here the draft has already cleared
         // DLP, so no second evaluation (and no duplicate audit) is needed.
-        let result = rt
-            .submitter
-            .submit(mw_smtp::Outgoing {
-                mail_from,
-                rcpt_to,
-                raw: raw.clone(),
-            })
-            .await
-            .map_err(|e| match e {
-                // A submitter that cannot send will not start to on a retry.
-                e @ EngineError::Unsupported(_) => NotSent::permanent(e),
-                e => NotSent::transient(e),
-            })?;
+        let result = rt.submitter.submit(outgoing).await.map_err(|e| match e {
+            // A submitter that cannot send will not start to on a retry.
+            e @ EngineError::Unsupported(_) => NotSent::permanent(e),
+            e => NotSent::transient(e),
+        })?;
         // `mw-smtp` returns `Ok` with an empty `accepted` only when every RCPT TO
         // was refused, in which case it never sent DATA. Refused recipients stay
         // refused, so this is not retried.
@@ -2563,10 +2588,9 @@ fn compose_base_from_spec(spec: &Value, identity: &str, message_id: &str) -> Com
         cc: parse_addrs(spec.get("cc")),
         bcc: parse_addrs(spec.get("bcc")),
         reply_to: parse_addrs(spec.get("replyTo")),
-        subject: spec
-            .get("subject")
-            .and_then(Value::as_str)
-            .map(String::from),
+        // `mail-builder` writes a subject containing CRLF as it stands, which
+        // ends the header; keep it to one line.
+        subject: spec.get("subject").and_then(Value::as_str).map(header_text),
         text_body,
         html_body,
         message_id: Some(message_id.to_string()),
@@ -2589,7 +2613,95 @@ fn compose_base_from_spec(spec: &Value, identity: &str, message_id: &str) -> Com
     }
 }
 
+/// A property of an `Email/set` create spec that cannot be written into a
+/// message as given.
+#[derive(Debug)]
+struct InvalidProperty {
+    property: &'static str,
+    /// The reason. Any echoed value in it is debug-escaped.
+    why: String,
+}
+
+impl InvalidProperty {
+    /// The RFC 8620 §5.3 `invalidProperties` SetError.
+    fn set_error(&self) -> Value {
+        json!({
+            "type": "invalidProperties",
+            "properties": [self.property],
+            "description": self.to_string(),
+        })
+    }
+}
+
+impl std::fmt::Display for InvalidProperty {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.property, self.why)
+    }
+}
+
+fn has_control(s: &str) -> bool {
+    s.chars().any(char::is_control)
+}
+
+/// Check the parts of a create spec that `mw-mime` / `mail-builder` write into
+/// the message without encoding:
+///
+/// - `to`/`cc`/`bcc`/`replyTo` addresses, written between `<` and `>` and later
+///   used as `RCPT TO`: each must be a mailbox (`mw_smtp::validate_mailbox`);
+/// - `from` addresses, written the same way and used as `MAIL FROM`: each must
+///   be a reverse-path (`mw_smtp::validate_reverse_path`, which also admits the
+///   bare login name an account's identity can be);
+/// - `inReplyTo` and `references`, written between `<` and `>`: no control
+///   character;
+/// - an attachment's declared `type`, written as the `Content-Type` value: no
+///   control character.
+///
+/// These are rejected rather than repaired because each is an identifier.
+/// Free text (`subject`, display names, attachment names) is not checked here;
+/// [`compose_base_from_spec`] and [`Engine::compose_from_spec`] remove control
+/// characters from it instead.
+fn check_compose_spec(spec: &Value) -> std::result::Result<(), InvalidProperty> {
+    let invalid = |property: &'static str, why: String| InvalidProperty { property, why };
+    for field in ["to", "cc", "bcc", "replyTo"] {
+        for addr in parse_addrs(spec.get(field)) {
+            mw_smtp::validate_mailbox(&addr.email).map_err(|e| invalid(field, e.to_string()))?;
+        }
+    }
+    for addr in parse_addrs(spec.get("from")) {
+        mw_smtp::validate_reverse_path(&addr.email).map_err(|e| invalid("from", e.to_string()))?;
+    }
+    let control = || "contains a control character".to_string();
+    if spec
+        .get("inReplyTo")
+        .and_then(Value::as_str)
+        .is_some_and(has_control)
+    {
+        return Err(invalid("inReplyTo", control()));
+    }
+    if spec
+        .get("references")
+        .and_then(Value::as_array)
+        .is_some_and(|a| a.iter().filter_map(Value::as_str).any(has_control))
+    {
+        return Err(invalid("references", control()));
+    }
+    if spec
+        .get("attachments")
+        .and_then(Value::as_array)
+        .is_some_and(|a| {
+            a.iter()
+                .filter_map(|att| att.get("type").and_then(Value::as_str))
+                .any(has_control)
+        })
+    {
+        return Err(invalid("attachments", control()));
+    }
+    Ok(())
+}
+
 /// Parse a JMAP address list (`[{name?, email}]`) into [`EmailAddress`]es.
+/// Display names are reduced to header text; the addresses are returned as
+/// given (see [`check_compose_spec`]).
 fn parse_addrs(v: Option<&Value>) -> Vec<EmailAddress> {
     v.and_then(Value::as_array)
         .map(|a| {
@@ -2597,7 +2709,7 @@ fn parse_addrs(v: Option<&Value>) -> Vec<EmailAddress> {
                 .filter_map(|x| {
                     let email = x.get("email").and_then(Value::as_str)?;
                     Some(EmailAddress {
-                        name: x.get("name").and_then(Value::as_str).map(String::from),
+                        name: x.get("name").and_then(Value::as_str).map(header_text),
                         email: email.to_string(),
                     })
                 })

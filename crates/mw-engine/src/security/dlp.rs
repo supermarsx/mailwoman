@@ -11,6 +11,7 @@
 
 use serde_json::{Value, json};
 
+use crate::account::header_text;
 use crate::engine::Engine;
 use crate::security::types::{DlpRule, DlpVerdict};
 
@@ -588,8 +589,13 @@ async fn notify_admin(engine: &Engine, account_id: &str, verdicts: &[DlpVerdict]
 
 /// A content-free DLP admin notice (`text/plain`) — rule names + detector tokens
 /// only, never the matched content or the message body.
+///
+/// `from` is the account's login name and `to` is `MW_DLP_ADMIN`; neither is
+/// validated before this point, so both are reduced to header text here. The
+/// envelope built from the same two values is checked by `mw-smtp`.
 fn build_dlp_notice(from: &str, to: &str, verdicts: &[&DlpVerdict]) -> Vec<u8> {
     use std::fmt::Write;
+    let (from, to) = (header_text(from), header_text(to));
     let date = chrono::Utc::now().to_rfc2822();
     let mut body = String::from("A Data Loss Prevention rule matched an outbound message.\r\n\r\n");
     for v in verdicts {
@@ -756,5 +762,28 @@ mod tests {
         assert!(text.contains("Card numbers"));
         // No message content leaks into the notice.
         assert!(!text.contains("4111"));
+    }
+
+    /// Defence in depth: the login name and `MW_DLP_ADMIN` are not validated
+    /// before they reach the notice, so a line break in either must not add a
+    /// header.
+    #[test]
+    fn dlp_notice_headers_stay_one_line_each() {
+        let headers = |from: &str, to: &str| -> Vec<String> {
+            let text = String::from_utf8(build_dlp_notice(from, to, &[])).unwrap();
+            let (head, _) = text.split_once("\r\n\r\n").unwrap();
+            head.split("\r\n").map(String::from).collect()
+        };
+        let plain = headers("me@example.org", "admin@example.org");
+        assert_eq!(plain[0], "From: me@example.org");
+        assert_eq!(plain[1], "To: admin@example.org");
+
+        let hostile = headers(
+            "me@example.org\r\nBcc: victim@example.org",
+            "admin@example.org\r\nX-Injected: 1",
+        );
+        assert_eq!(hostile.len(), plain.len(), "{hostile:?}");
+        assert_eq!(hostile[0], "From: me@example.orgBcc: victim@example.org");
+        assert_eq!(hostile[1], "To: admin@example.orgX-Injected: 1");
     }
 }

@@ -7,7 +7,7 @@
 use mw_store::{EventInstanceRow, EventRow};
 use serde_json::{Value, json};
 
-use crate::account::AccountRuntime;
+use crate::account::{AccountRuntime, header_text};
 use crate::backend::{EngineError, Result};
 use crate::change::{ChangeOp, ChangeType};
 use crate::engine::Engine;
@@ -61,6 +61,13 @@ impl Engine {
 
         if let Some(creates) = args.get("create").and_then(Value::as_object) {
             for (cid, spec) in creates {
+                // A participant that is not an address is refused here, before
+                // anything is stored or sent (26.20 t27-e2, SEC-2).
+                if let Err(why) = check_participants(spec, None) {
+                    out.not_created
+                        .insert(cid.clone(), invalid_participants(why));
+                    continue;
+                }
                 match self.event_create(account_id, rt, spec).await {
                     Ok(id) => {
                         out.created.insert(cid.clone(), json!({ "id": id }));
@@ -74,6 +81,10 @@ impl Engine {
         }
         if let Some(updates) = args.get("update").and_then(Value::as_object) {
             for (id, patch) in updates {
+                if let Some(err) = self.update_participants_error(id, patch).await {
+                    out.not_updated.insert(id.clone(), err);
+                    continue;
+                }
                 match self.event_update(account_id, rt, id, patch).await {
                     Ok(()) => {
                         out.updated.insert(id.clone(), Value::Null);
@@ -174,6 +185,28 @@ impl Engine {
         self.record_pim_change(account_id, ChangeType::CalendarEvent, id, ChangeOp::Updated)
             .await?;
         Ok(())
+    }
+
+    /// The `invalidProperties` error for an update whose patch adds a
+    /// participant that is not an address, or `None` when the patch is
+    /// acceptable on that score.
+    ///
+    /// Only participants the stored event does not already have are checked. An
+    /// event that was imported, or stored before this check existed, can hold a
+    /// key that is not an address (`CalendarEvent/import` does not reject one);
+    /// a client that edits such an event sends the whole map back, and refusing
+    /// that would make the event uneditable without removing anything from the
+    /// store. Those keys are refused where it matters, in [`Engine::send_itip`].
+    async fn update_participants_error(&self, id: &str, patch: &Value) -> Option<Value> {
+        patch.get("participants")?;
+        let stored = match self.store().get_event(id).await {
+            Ok(Some(row)) => self.event_row_to_json(&row),
+            // Unknown id or a store error: `event_update` reports it.
+            _ => return None,
+        };
+        check_participants(patch, stored.get("participants").and_then(Value::as_object))
+            .err()
+            .map(invalid_participants)
     }
 
     async fn event_destroy(&self, account_id: &str, rt: &AccountRuntime, id: &str) -> Result<()> {
@@ -845,6 +878,12 @@ impl Engine {
 
     /// Frame an iTIP method as a `text/calendar` message and submit it (§2.6).
     /// Best-effort — a submit failure is logged, never fatal to the mutation.
+    ///
+    /// `to` comes from participant-map keys. `CalendarEvent/set` validates the
+    /// ones it is given, but a stored event can hold others (import, CalDAV
+    /// sync, rows written before 26.20), so the envelope is checked here, for
+    /// every caller and whatever the account's submitter is. One bad address
+    /// and nothing is built or sent.
     async fn send_itip(
         &self,
         rt: &AccountRuntime,
@@ -853,6 +892,13 @@ impl Engine {
         event_json: &Value,
         method: mw_ics::ItipMethod,
     ) {
+        let envelope = mw_smtp::validate_reverse_path(from)
+            .and_then(|()| to.iter().try_for_each(|r| mw_smtp::validate_mailbox(r)));
+        if let Err(e) = envelope {
+            // The error text holds the address debug-escaped and truncated.
+            tracing::warn!("iTIP not sent: {e}");
+            return;
+        }
         let ics = match mw_ics::build_itip(event_json, method) {
             Ok(s) => s,
             Err(e) => {
@@ -966,8 +1012,50 @@ fn extract_components(ical: &str) -> Option<String> {
     Some(out)
 }
 
+/// Check the participants of a `CalendarEvent/set` create spec or update patch:
+/// each key, and each entry's `email` when it has one, must be a mailbox
+/// (`mw_smtp::validate_mailbox`). The key is what an iTIP message is addressed
+/// to; `email` is what `mw-ics` writes into `ATTENDEE`/`ORGANIZER` and what the
+/// stored projection is re-keyed by. Keys present in `already_stored` are
+/// skipped. `Err` is the reason, with the offending value debug-escaped.
+fn check_participants(
+    json: &Value,
+    already_stored: Option<&serde_json::Map<String, Value>>,
+) -> std::result::Result<(), String> {
+    let Some(participants) = json.get("participants").and_then(Value::as_object) else {
+        return Ok(());
+    };
+    for (key, entry) in participants {
+        if already_stored.is_some_and(|m| m.contains_key(key)) {
+            continue;
+        }
+        mw_smtp::validate_mailbox(key).map_err(|e| format!("participant key: {e}"))?;
+        if let Some(email) = entry.get("email").and_then(Value::as_str)
+            && !email.is_empty()
+        {
+            mw_smtp::validate_mailbox(email).map_err(|e| format!("participant email: {e}"))?;
+        }
+    }
+    Ok(())
+}
+
+/// The `/set` error for a spec refused by [`check_participants`].
+fn invalid_participants(why: String) -> Value {
+    let mut err = set_error("invalidProperties", why);
+    err["properties"] = json!(["participants"]);
+    err
+}
+
 /// Frame an iTIP payload as an RFC5322 message with a `text/calendar` body.
+///
+/// `from` and `to` are written as given: [`Engine::send_itip`], the only
+/// caller, has validated them. `title` is client text and is reduced to header
+/// text (control characters removed, so it stays one `Subject:` line); it is
+/// not RFC 2047-encoded, so a non-ASCII title is sent as raw UTF-8, as before.
+/// `method` is one of the four literals `send_itip` maps the enum to.
 fn build_itip_mime(from: &str, to: &[String], method: &str, title: &str, ics: &str) -> Vec<u8> {
+    debug_assert!(method.bytes().all(|b| b.is_ascii_uppercase()));
+    let title = header_text(title);
     let to_hdr = to.join(", ");
     let msg_id = format!("<{}@mailwoman.local>", gen_token());
     format!(

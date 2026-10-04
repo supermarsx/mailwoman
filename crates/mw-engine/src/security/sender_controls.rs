@@ -13,7 +13,7 @@
 use mw_sieve::{Action, Condition, MatchOp, Rule, StringTest};
 use serde_json::{Value, json};
 
-use crate::account::AccountRuntime;
+use crate::account::{AccountRuntime, header_text};
 use crate::change::{ChangeOp, ChangeType};
 use crate::engine::Engine;
 
@@ -232,7 +232,12 @@ impl Engine {
 
 /// A minimal RFC 5965 ARF (`multipart/report; report-type=feedback-report`).
 /// Content-free beyond the reported headers; the abuse address decides handling.
+///
+/// `from` is the account's login name and `to` is `MW_ABUSE_ADDRESS`; neither is
+/// validated before this point, so both are reduced to header text here. The
+/// envelope built from the same two values is checked by `mw-smtp`.
 fn build_arf(from: &str, to: &str, feedback_type: &str, original: &[u8]) -> Vec<u8> {
+    let (from, to) = (header_text(from), header_text(to));
     let boundary = "mw-arf-boundary";
     let date = chrono::Utc::now().to_rfc2822();
     let original_str = String::from_utf8_lossy(original);
@@ -260,4 +265,33 @@ fn build_arf(from: &str, to: &str, feedback_type: &str, original: &[u8]) -> Vec<
          --{boundary}--\r\n"
     )
     .into_bytes()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Defence in depth: the login name and `MW_ABUSE_ADDRESS` are not
+    /// validated before they reach the report, so a line break in either must
+    /// not add a header.
+    #[test]
+    fn arf_headers_stay_one_line_each() {
+        let headers = |from: &str, to: &str| -> Vec<String> {
+            let text =
+                String::from_utf8(build_arf(from, to, "abuse", b"Subject: x\r\n\r\n")).unwrap();
+            let (head, _) = text.split_once("\r\n\r\n").unwrap();
+            head.split("\r\n").map(String::from).collect()
+        };
+        let plain = headers("me@example.org", "abuse@example.org");
+        assert_eq!(plain[0], "From: me@example.org");
+        assert_eq!(plain[1], "To: abuse@example.org");
+
+        let hostile = headers(
+            "me@example.org\r\nBcc: victim@example.org",
+            "abuse@example.org\r\nX-Injected: 1",
+        );
+        assert_eq!(hostile.len(), plain.len(), "{hostile:?}");
+        assert_eq!(hostile[0], "From: me@example.orgBcc: victim@example.org");
+        assert_eq!(hostile[1], "To: abuse@example.orgX-Injected: 1");
+    }
 }
