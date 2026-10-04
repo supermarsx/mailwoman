@@ -5,7 +5,7 @@ import { renderWithApp, makeClient } from './appHarness.tsx';
 import { createAppState } from '../state/store.ts';
 import { AppContext } from '../state/context.ts';
 import { AssistService } from '../modules/assist/index.ts';
-import type { Identity } from '../api/jmap-types.ts';
+import type { Identity, JmapRequest } from '../api/jmap-types.ts';
 
 // ── V7 (e14b) integration doubles ────────────────────────────────────────────
 function json(body: unknown, status = 200): Response {
@@ -317,10 +317,11 @@ describe('Compose', () => {
     expect((screen.getByLabelText('Body') as HTMLTextAreaElement).value).toBe('hello\nworld');
   });
 
-  // ── W11: open-tracking pixel toggle feeds the send payload ───────────────────
+  // ── The send payload, whole ─────────────────────────────────────────────────
 
-  it('embeds an open-tracking pixel only when the toggle is on', async () => {
-    const client = makeClient({ identities: IDENTITIES });
+  /** A composer over a client whose calls the test can read back. */
+  async function composeWithClient(opts: Parameters<typeof makeClient>[0] = {}) {
+    const client = makeClient(opts);
     const app = createAppState(client);
     render(() => (
       <AppContext.Provider value={app}>
@@ -328,32 +329,66 @@ describe('Compose', () => {
       </AppContext.Provider>
     ));
     await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
-    fireEvent.click(screen.getByTestId('format-toggle')); // plain text (no PM in jsdom)
-    fireEvent.input(screen.getByLabelText('To'), { target: { value: 'you@example.org' } });
-    fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'hi' } });
-    fireEvent.click(screen.getByTestId('opt-tracking'));
-    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
-    await waitFor(() => expect(app.pendingUndo()?.actionLabel).toBe('Cancel'));
-    const sent = JSON.stringify(vi.mocked(client.jmap).mock.calls);
-    expect(sent).toContain('/api/track/open/');
-  });
+    return { client, app };
+  }
 
-  it('sends without a tracking pixel by default', async () => {
-    const client = makeClient({ identities: IDENTITIES });
-    const app = createAppState(client);
-    render(() => (
-      <AppContext.Provider value={app}>
-        <Compose onClose={() => undefined} />
-      </AppContext.Provider>
-    ));
-    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
-    fireEvent.click(screen.getByTestId('format-toggle'));
+  /** The one compose+submit request the client was handed. */
+  function sentRequest(client: ReturnType<typeof makeClient>): JmapRequest {
+    const sends = vi
+      .mocked(client.jmap)
+      .mock.calls.map((c) => c[0])
+      .filter((r) => r.methodCalls.some((m) => m[0] === 'EmailSubmission/set' && 'create' in m[1]));
+    expect(sends).toHaveLength(1);
+    return sends[0]!;
+  }
+
+  it('offers no tracking-pixel or read-receipt control, and sends exactly the typed body', async () => {
+    const { client, app } = await composeWithClient({ identities: IDENTITIES });
+    expect(screen.queryByTestId('compose-send-options')).toBeNull();
+    expect(screen.queryByTestId('opt-tracking')).toBeNull();
+    expect(screen.queryByTestId('opt-receipt')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('format-toggle')); // plain text
     fireEvent.input(screen.getByLabelText('To'), { target: { value: 'you@example.org' } });
+    fireEvent.input(screen.getByLabelText('Subject'), { target: { value: 'Hi' } });
     fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'plain body' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(app.pendingUndo()?.actionLabel).toBe('Cancel'));
-    const sent = JSON.stringify(vi.mocked(client.jmap).mock.calls);
-    expect(sent).not.toContain('/api/track/open/');
+
+    expect(sentRequest(client).methodCalls).toEqual([
+      [
+        'Email/set',
+        {
+          accountId: 'acct1',
+          create: {
+            draft: {
+              mailboxIds: { inbox: true },
+              keywords: { $draft: true, $seen: true },
+              from: [{ name: null, email: 'me@example.org' }],
+              to: [{ name: null, email: 'you@example.org' }],
+              subject: 'Hi',
+              htmlBody: [{ partId: 'body', type: 'text/html' }],
+              bodyValues: { body: { value: '<p>plain body</p>' } },
+            },
+          },
+        },
+        'set',
+      ],
+      [
+        'EmailSubmission/set',
+        {
+          accountId: 'acct1',
+          create: {
+            send: {
+              emailId: '#draft',
+              envelope: { mailFrom: { email: 'me@example.org' }, rcptTo: [{ email: 'you@example.org' }] },
+              mailwomanHoldSeconds: 10,
+            },
+          },
+        },
+        'submit',
+      ],
+    ]);
   });
 
   // ── W9 / W10 / W12: drawers + signature picker ───────────────────────────────

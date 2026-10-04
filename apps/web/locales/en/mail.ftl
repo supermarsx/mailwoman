@@ -174,12 +174,6 @@ mail-compose-rt-link-apply = Apply
 mail-compose-signature = Signature
 mail-compose-signature-none = Add a signature…
 
-# Send options (W11)
-mail-compose-options = Options
-mail-compose-receipt = Request a read receipt
-mail-compose-tracking = Add an open-tracking pixel
-mail-compose-tracking-hint = A tracking pixel embeds a remote image that reports when the message is opened. Off by default.
-
 # Recall (W10)
 mail-compose-recall = Recall
 mail-compose-recall-action = Recall

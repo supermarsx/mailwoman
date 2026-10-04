@@ -1,5 +1,4 @@
-// Composer side-features (W9 Drafts drawer, W10 recall, W11 send-option toggles,
-// W12 signature picker). Each is a small, prop-first component so it is unit-
+// Composer side-features (W9 Drafts drawer, W10 recall, W12 signature picker). Each is a small, prop-first component so it is unit-
 // testable in isolation and Compose stays the single wiring point. No component
 // here reaches into a store slice directly — Compose passes the data + callbacks.
 
@@ -45,50 +44,6 @@ export function SignaturePicker(props: {
         </select>
       </label>
     </Show>
-  );
-}
-
-// ── W11: send-option toggles (read receipt + open-tracking pixel) ────────────
-
-export interface SendOptionsState {
-  /** Ask the recipient's client for a read receipt (MDN). */
-  requestReceipt: boolean;
-  /** Embed a 1×1 open-tracking pixel in the HTML body. Off by default. */
-  trackingPixel: boolean;
-}
-
-export const DEFAULT_SEND_OPTIONS: SendOptionsState = {
-  requestReceipt: false,
-  trackingPixel: false,
-};
-
-export function SendOptions(props: {
-  state: () => SendOptionsState;
-  onChange: (next: SendOptionsState) => void;
-}): JSX.Element {
-  return (
-    <fieldset class="compose-extra__options" data-testid="compose-send-options">
-      <legend>{t('mail-compose-options')}</legend>
-      <label class="compose-extra__option">
-        <input
-          type="checkbox"
-          data-testid="opt-receipt"
-          checked={props.state().requestReceipt}
-          onChange={(e) => props.onChange({ ...props.state(), requestReceipt: e.currentTarget.checked })}
-        />
-        <span>{t('mail-compose-receipt')}</span>
-      </label>
-      <label class="compose-extra__option">
-        <input
-          type="checkbox"
-          data-testid="opt-tracking"
-          checked={props.state().trackingPixel}
-          onChange={(e) => props.onChange({ ...props.state(), trackingPixel: e.currentTarget.checked })}
-        />
-        <span>{t('mail-compose-tracking')}</span>
-      </label>
-      <p class="compose-extra__hint">{t('mail-compose-tracking-hint')}</p>
-    </fieldset>
   );
 }
 

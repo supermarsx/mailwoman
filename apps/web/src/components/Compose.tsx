@@ -17,12 +17,9 @@ import { AsyncBoundary } from './ErrorBoundary.tsx';
 import type { RichTextApi } from './compose/RichTextEditor.tsx';
 import {
   SignaturePicker,
-  SendOptions,
   RecallPanel,
   DraftsDrawer,
-  DEFAULT_SEND_OPTIONS,
   type ComposeSignature,
-  type SendOptionsState,
 } from './compose/ComposerExtras.tsx';
 import {
   listDrafts,
@@ -54,7 +51,6 @@ import {
 } from './compose/crypto-jmap.ts';
 import { getCryptoWorker } from '../crypto/index.ts';
 import { createConfiguredClient } from '../api/transport.ts';
-import { withBase } from '../api/basePath.ts';
 import { uploadBlob } from '../api/jmap.ts';
 import { CAP_CORE } from '../api/jmap-types.ts';
 // V7 last-mile mailbox integration (plan §2.7/§14, e14b). All ADDITIVE: each block
@@ -113,8 +109,6 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
   );
   const [richMode, setRichMode] = createSignal(true);
   const [editorApi, setEditorApi] = createSignal<RichTextApi | null>(null);
-  // W11 send-option toggles (read receipt + open-tracking pixel).
-  const [sendOptions, setSendOptions] = createSignal<SendOptionsState>(DEFAULT_SEND_OPTIONS);
   // W9 drafts drawer + W10 recall panel visibility, and the loaded draft list.
   const [draftsOpen, setDraftsOpen] = createSignal(false);
   const [recallOpen, setRecallOpen] = createSignal(false);
@@ -523,12 +517,6 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
         // Plain-text / format=flowed: the original escaped-body behavior.
         htmlBody = `<p>${escapeHtml(body()).replace(/\n/g, '<br>')}</p>`;
       }
-      // W11: an opt-in open-tracking pixel, only on a normal (not encrypted,
-      // not clear-signed) send. Off by default; the toggle copy is explicit
-      // that it embeds a remote image.
-      if (enc === null && !signOnly && sendOptions().trackingPixel) {
-        htmlBody += `<img src="${withBase(`/api/track/open/${encodeURIComponent(draftId)}.gif`)}" width="1" height="1" alt="">`;
-      }
       const subjectToSend =
         enc !== null && cs !== null && cs.protectSubject && enc.encryptedSubjectApplied
           ? t('mail-compose-encrypted-subject')
@@ -857,11 +845,6 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
             </For>
           </ul>
         </Show>
-
-        {/* W11: read-receipt request + open-tracking pixel toggles. Both off by
-            default; the tracking-pixel copy states plainly that it embeds a
-            remote image. */}
-        <SendOptions state={sendOptions} onChange={setSendOptions} />
 
         {/* Crypto + DLP (plan §2.5): encrypt/sign toggles, the live E2EE/TLS/mixed
             banner from real per-recipient CryptoKey/lookup, and the Dlp/scan

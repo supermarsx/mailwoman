@@ -1,15 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createSignal } from 'solid-js';
 import { render, screen, fireEvent, within } from '@solidjs/testing-library';
-import {
-  SignaturePicker,
-  SendOptions,
-  RecallPanel,
-  DraftsDrawer,
-  DEFAULT_SEND_OPTIONS,
-  type ComposeSignature,
-  type SendOptionsState,
-} from './ComposerExtras.tsx';
+import { SignaturePicker, RecallPanel, DraftsDrawer, type ComposeSignature } from './ComposerExtras.tsx';
 import type { EmailSubmission } from '../../api/jmap-types.ts';
 import type { StoredDraft } from './drafts-store.ts';
 
@@ -32,19 +24,6 @@ describe('SignaturePicker (W12)', () => {
   it('renders nothing when there are no signatures', () => {
     render(() => <SignaturePicker signatures={() => []} onInsert={() => undefined} />);
     expect(screen.queryByTestId('compose-signature')).toBeNull();
-  });
-});
-
-describe('SendOptions (W11)', () => {
-  it('toggles the read-receipt and tracking-pixel flags', () => {
-    const [state, setState] = createSignal<SendOptionsState>(DEFAULT_SEND_OPTIONS);
-    render(() => <SendOptions state={state} onChange={setState} />);
-    fireEvent.click(screen.getByTestId('opt-receipt'));
-    expect(state().requestReceipt).toBe(true);
-    fireEvent.click(screen.getByTestId('opt-tracking'));
-    expect(state().trackingPixel).toBe(true);
-    // Both are off by default.
-    expect(DEFAULT_SEND_OPTIONS).toEqual({ requestReceipt: false, trackingPixel: false });
   });
 });
 
