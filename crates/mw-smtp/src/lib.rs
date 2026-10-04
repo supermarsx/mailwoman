@@ -15,19 +15,22 @@
 //! already-serialized MIME bytes ([`Outgoing::raw`], built by `mw-mime`) so it
 //! stays decoupled — it depends on no other workspace crate.
 
+mod addr;
 mod conn;
 mod sasl;
 mod tls;
 
 use tokio::net::TcpStream;
 
+pub use addr::{validate_mailbox, validate_reverse_path};
 use conn::{Connection, MailParams, RcptOutcome};
 
 /// A message ready for submission: envelope + already-serialized MIME bytes.
 ///
 /// The `raw` bytes are produced by `mw-mime` (mail-builder); this crate never
 /// parses or re-encodes them, it only frames them into the `DATA` phase with
-/// dot-stuffing.
+/// dot-stuffing. Header content inside `raw` is therefore the caller's to get
+/// right; the envelope fields are checked here (see [`Outgoing::validate`]).
 #[derive(Debug, Clone)]
 pub struct Outgoing {
     /// Envelope sender (`MAIL FROM`).
@@ -36,6 +39,20 @@ pub struct Outgoing {
     pub rcpt_to: Vec<String>,
     /// Serialized RFC 5322 message bytes (`DATA`).
     pub raw: Vec<u8>,
+}
+
+impl Outgoing {
+    /// Check the envelope: `mail_from` with [`validate_reverse_path`] and every
+    /// `rcpt_to` entry with [`validate_mailbox`]. The first failure is returned
+    /// and nothing is repaired, so one bad recipient refuses the whole message.
+    ///
+    /// [`Submitter::submit_with`] calls this before it opens a connection. It is
+    /// public so that a caller which hands the message to something other than
+    /// this crate's `Submitter` can apply the same rule.
+    pub fn validate(&self) -> Result<(), SmtpError> {
+        validate_reverse_path(&self.mail_from)?;
+        self.rcpt_to.iter().try_for_each(|r| validate_mailbox(r))
+    }
 }
 
 /// Result of a submission: which recipients the server accepted and which it
@@ -60,6 +77,11 @@ pub enum SmtpError {
     /// Malformed or unexpected protocol reply.
     #[error("smtp protocol error: {0}")]
     Protocol(String),
+    /// An envelope address was refused before it was written to the wire (see
+    /// [`validate_mailbox`]). The text holds the value debug-escaped and
+    /// truncated, never raw.
+    #[error("invalid envelope address {0}")]
+    InvalidAddress(String),
 }
 
 impl From<std::io::Error> for SmtpError {
@@ -217,11 +239,18 @@ impl Submitter {
     /// EHLO] → AUTH → MAIL → RCPT* → DATA|BDAT → QUIT`, and reports the
     /// per-recipient outcome. The engine calls `AccountBackend::append(Sent, …)`
     /// on success unless the server auto-files.
+    ///
+    /// The envelope and the `EHLO` name are checked first. A malformed address
+    /// is `Err(SmtpError::InvalidAddress)` and no connection is made, so no
+    /// recipient of that message is sent to.
     pub async fn submit_with(
         &self,
         msg: Outgoing,
         opts: SubmitOptions,
     ) -> Result<SubmissionResult, SmtpError> {
+        msg.validate()?;
+        conn::check_ehlo_name(&self.config.ehlo_name)?;
+
         let addr = format!("{}:{}", self.config.host, self.config.port);
         let tcp = TcpStream::connect(&addr).await?;
 

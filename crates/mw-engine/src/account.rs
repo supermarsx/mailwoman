@@ -30,6 +30,7 @@ impl MailSubmitter for Submitter {
             mw_smtp::SmtpError::Auth(m) => EngineError::Auth(m),
             mw_smtp::SmtpError::Transport(m) => EngineError::Transport(m),
             mw_smtp::SmtpError::Protocol(m) => EngineError::Protocol(m),
+            e @ mw_smtp::SmtpError::InvalidAddress(_) => EngineError::Protocol(e.to_string()),
         })
     }
 }

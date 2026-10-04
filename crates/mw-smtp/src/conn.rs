@@ -11,7 +11,7 @@ use base64::prelude::*;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::sasl;
-use crate::{Credentials, DsnNotify, DsnRet, SmtpError};
+use crate::{Credentials, DsnNotify, DsnRet, SmtpError, validate_mailbox, validate_reverse_path};
 
 /// Hard cap on a single CRLF-terminated reply line, to bound memory against a
 /// hostile or broken server that never sends a newline.
@@ -133,6 +133,18 @@ fn xtext(s: &str) -> String {
     out
 }
 
+/// Refuse an `EHLO` name that would not stay inside its command line. The name
+/// is operator configuration, not message data, so only control characters
+/// (CR, LF, NUL …) are refused; it is otherwise sent as configured.
+pub(crate) fn check_ehlo_name(name: &str) -> Result<(), SmtpError> {
+    if name.chars().any(char::is_control) {
+        return Err(SmtpError::Protocol(
+            "the configured EHLO name contains a control character".into(),
+        ));
+    }
+    Ok(())
+}
+
 /// An SMTP connection with a small read buffer for line framing.
 pub(crate) struct Connection<S> {
     stream: S,
@@ -219,8 +231,10 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
         }
     }
 
-    /// Send `EHLO` and parse the advertised capabilities.
+    /// Send `EHLO` and parse the advertised capabilities. A name carrying a
+    /// control character is refused before anything is written.
     pub(crate) async fn ehlo(&mut self, name: &str) -> Result<Capabilities, SmtpError> {
+        check_ehlo_name(name)?;
         let reply = self.command(&format!("EHLO {name}\r\n")).await?;
         if reply.code != 250 {
             return Err(SmtpError::Protocol(format!(
@@ -430,7 +444,13 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
     /// `MAIL FROM:<from>` with the negotiated ESMTP parameters. `SIZE=`
     /// (RFC 1870) and `BODY=8BITMIME` (RFC 6152) are emitted first to preserve
     /// the historical ordering; `SMTPUTF8`/`REQUIRETLS`/`RET=`/`ENVID=` follow.
+    ///
+    /// `from` is checked here as well as in `Submitter::submit_with`: this is
+    /// where it becomes part of a command, so no caller can reach the write
+    /// with a value that ends the path or the line. The parameters need no
+    /// check — they are numbers, fixed keywords, or xtext-encoded (`ENVID`).
     pub(crate) async fn mail_from(&mut self, from: &str, p: &MailParams) -> Result<(), SmtpError> {
+        validate_reverse_path(from)?;
         let mut cmd = format!("MAIL FROM:<{from}>");
         if let Some(sz) = p.size {
             cmd.push_str(&format!(" SIZE={sz}"));
@@ -466,12 +486,17 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
     /// `RCPT TO:<addr>` with optional DSN `NOTIFY=`/`ORCPT=` (RFC 3461). A
     /// rejection is returned as data, not an error, so the caller can record
     /// per-recipient outcomes and still deliver to the rest.
+    ///
+    /// A malformed `addr` is different: it is an `Err`, checked here before the
+    /// command is built (and earlier, in `Submitter::submit_with`). `NOTIFY=` is
+    /// built from an enum and `ORCPT=` is the same address xtext-encoded.
     pub(crate) async fn rcpt_to(
         &mut self,
         addr: &str,
         notify: &[DsnNotify],
         orcpt: bool,
     ) -> Result<RcptOutcome, SmtpError> {
+        validate_mailbox(addr)?;
         let mut cmd = format!("RCPT TO:<{addr}>");
         if !notify.is_empty() {
             let joined = notify
@@ -599,6 +624,129 @@ pub(crate) fn dot_stuff(raw: &[u8], out: &mut Vec<u8>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- the command writers refuse a malformed argument (26.20 t27-e2) ----
+    //
+    // `Submitter::submit_with` validates before it connects; these drive the
+    // writers directly, as a caller that skipped that check would, over an
+    // in-memory pipe whose far end records what was written.
+
+    /// Run `f` against a `Connection` whose peer answers every line with
+    /// `250 OK` and return what the peer received.
+    async fn written_by<F, Fut, T>(f: F) -> (T, String)
+    where
+        F: FnOnce(Connection<tokio::io::DuplexStream>) -> Fut,
+        Fut: std::future::Future<Output = T>,
+    {
+        let (client, mut server) = tokio::io::duplex(4096);
+        let peer = tokio::spawn(async move {
+            let mut seen = Vec::new();
+            let mut tmp = [0u8; 512];
+            loop {
+                let n = server.read(&mut tmp).await.unwrap();
+                if n == 0 {
+                    break;
+                }
+                seen.extend_from_slice(&tmp[..n]);
+                let lines = tmp[..n].iter().filter(|&&b| b == b'\n').count();
+                for _ in 0..lines {
+                    server.write_all(b"250 OK\r\n").await.unwrap();
+                }
+            }
+            String::from_utf8_lossy(&seen).into_owned()
+        });
+        // `f` owns the connection, so it is dropped (EOF for the peer) when
+        // `f` returns.
+        let out = f(Connection::new(client)).await;
+        (out, peer.await.unwrap())
+    }
+
+    const HOSTILE: &[&str] = &[
+        "x@example.com>\r\nRCPT TO:<victim@example.com",
+        "x@example.com\nRSET",
+        "x@example.com\rRSET",
+        "x@example.\0com",
+        "x @example.com",
+        "x@example.com> SIZE=1",
+        "a@b>",
+    ];
+
+    #[tokio::test]
+    async fn rcpt_to_writes_a_valid_address_and_nothing_for_a_malformed_one() {
+        // Control: the pipe does record a command.
+        let (out, wire) = written_by(|mut c| async move {
+            c.rcpt_to("good@example.com", &[DsnNotify::Success], true)
+                .await
+        })
+        .await;
+        assert!(matches!(out, Ok(RcptOutcome::Accepted)));
+        assert_eq!(
+            wire,
+            "RCPT TO:<good@example.com> NOTIFY=SUCCESS ORCPT=rfc822;good@example.com\r\n"
+        );
+
+        for bad in HOSTILE.iter().copied().chain([""]) {
+            // With and without the DSN parameters: ORCPT repeats the address.
+            for orcpt in [false, true] {
+                let (out, wire) = written_by(|mut c| async move {
+                    c.rcpt_to(bad, &[DsnNotify::Success], orcpt).await
+                })
+                .await;
+                assert!(
+                    matches!(out, Err(SmtpError::InvalidAddress(_))),
+                    "{bad:?} was not refused"
+                );
+                assert_eq!(wire, "", "{bad:?} reached the wire");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn mail_from_writes_a_valid_sender_and_nothing_for_a_malformed_one() {
+        let params = MailParams {
+            size: Some(10),
+            ret: Some(DsnRet::Hdrs),
+            envid: Some("id\r\nRSET".into()),
+            ..MailParams::default()
+        };
+        // Control. The ENVID value is hostile on purpose: xtext encodes it.
+        let p = params.clone();
+        let (out, wire) =
+            written_by(|mut c| async move { c.mail_from("sender@example.com", &p).await }).await;
+        assert!(out.is_ok());
+        assert_eq!(
+            wire,
+            "MAIL FROM:<sender@example.com> SIZE=10 RET=HDRS ENVID=id+0D+0ARSET\r\n"
+        );
+        // The null reverse-path is a valid sender.
+        let (out, wire) =
+            written_by(|mut c| async move { c.mail_from("", &MailParams::default()).await }).await;
+        assert!(out.is_ok());
+        assert_eq!(wire, "MAIL FROM:<>\r\n");
+
+        for bad in HOSTILE.iter().copied() {
+            let p = params.clone();
+            let (out, wire) = written_by(|mut c| async move { c.mail_from(bad, &p).await }).await;
+            assert!(
+                matches!(out, Err(SmtpError::InvalidAddress(_))),
+                "{bad:?} was not refused"
+            );
+            assert_eq!(wire, "", "{bad:?} reached the wire");
+        }
+    }
+
+    #[tokio::test]
+    async fn ehlo_writes_a_plain_name_and_nothing_for_one_with_a_line_break() {
+        let (out, wire) = written_by(|mut c| async move { c.ehlo("client.test").await }).await;
+        assert!(out.is_ok());
+        assert_eq!(wire, "EHLO client.test\r\n");
+
+        for bad in ["client.test\r\nRSET", "client.test\nRSET", "client\0.test"] {
+            let (out, wire) = written_by(|mut c| async move { c.ehlo(bad).await }).await;
+            assert!(matches!(out, Err(SmtpError::Protocol(_))), "{bad:?}");
+            assert_eq!(wire, "", "{bad:?} reached the wire");
+        }
+    }
 
     #[test]
     fn parse_gmail_style_capabilities() {

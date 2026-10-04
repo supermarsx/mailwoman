@@ -4,6 +4,7 @@
 //! over a cleartext socket (plan §3 e4 acceptance).
 
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -14,6 +15,7 @@ use tokio::task::JoinHandle;
 pub struct Mock {
     pub addr: SocketAddr,
     captured: Arc<Mutex<Vec<String>>>,
+    connections: Arc<AtomicUsize>,
     handle: JoinHandle<()>,
 }
 
@@ -22,6 +24,12 @@ impl Mock {
     /// CRLF stripped).
     pub fn captured(&self) -> Vec<String> {
         self.captured.lock().unwrap().clone()
+    }
+
+    /// How many connections the server has accepted. It accepts at most one.
+    #[allow(dead_code)] // not every test binary that includes this module reads it
+    pub fn connections(&self) -> usize {
+        self.connections.load(Ordering::SeqCst)
     }
 
     /// Wait for the server task to finish handling the connection.
@@ -39,14 +47,18 @@ pub async fn start(script: Vec<String>) -> Mock {
     let addr = listener.local_addr().unwrap();
     let captured = Arc::new(Mutex::new(Vec::new()));
     let cap = captured.clone();
+    let connections = Arc::new(AtomicUsize::new(0));
+    let conns = connections.clone();
     let handle = tokio::spawn(async move {
         if let Ok((mut sock, _)) = listener.accept().await {
+            conns.fetch_add(1, Ordering::SeqCst);
             run(&mut sock, script, cap).await;
         }
     });
     Mock {
         addr,
         captured,
+        connections,
         handle,
     }
 }
