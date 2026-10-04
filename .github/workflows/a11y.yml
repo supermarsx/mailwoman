@@ -8,8 +8,9 @@ name: a11y
 #                      screens (login/consent, admin gate, mailbox+Ribbon, Settings
 #                      dialog, Calendar grid, Security panel). FAILS on any WCAG 2.2 AA
 #                      violation. Also runs the pseudolocale + RTL layout smoke.
-#   • i18n-catalogs  — catalog completeness (every static t() id resolves in `en`; per-
-#                      locale coverage vs `en` for all 12 locales) + no-hardcoded-string
+#   • i18n-catalogs  — catalog completeness (every static t() id resolves in `en`; the
+#                      locales in src/i18n/locales.ts match the catalog dirs; per-locale
+#                      coverage vs `en` is printed, not enforced) + no-hardcoded-string
 #                      scan (fails on a NEW un-t()'d user-facing JSX literal).
 #
 # A SEPARATE workflow (not ci.yml) to avoid the single-file ci.yml collision. The
@@ -47,7 +48,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: catalog completeness (every t() id resolves in en; 12-locale coverage)
+      - name: catalog completeness (every t() id resolves in en; locale set matches; coverage report)
         run: node scripts/i18n/check-catalog.mjs
       - name: no new hardcoded user-facing JSX literals
         run: node scripts/i18n/no-hardcoded-strings.mjs

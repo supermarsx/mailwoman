@@ -5,18 +5,23 @@
 //      app must resolve to a message id defined in the `en` source catalog.
 //      A `t('mail-foo')` with no `mail-foo =` in locales/en/*.ftl is a bug that
 //      ships a raw id to the user — this FAILS the build.
-//   2. COVERAGE REPORT (informational): for each of the 12 shipped locales, how
-//      many of the `en` message ids it defines. Non-`en` catalogs are populated
-//      by human translators via Weblate (out of autonomous scope), so a partial
-//      or empty non-`en` catalog is EXPECTED and never fails — missing keys fall
-//      back to `en` at runtime. This is a visibility signal for translators, not
-//      a gate.
+//   2. LOCALE-SET GATE (hard-fail): the locales this script reports on are read
+//      from `src/i18n/locales.ts` LOCALES — the list the app negotiates against —
+//      and must be exactly the directories under `apps/web/locales/`. A locale
+//      registered without a catalog dir, or a catalog dir the app never offers,
+//      FAILS.
+//   3. COVERAGE REPORT (informational): for each shipped locale, how many of the
+//      `en` message ids it defines. Non-`en` catalogs are populated by human
+//      translators via Weblate (out of autonomous scope), so a partial or empty
+//      non-`en` catalog is EXPECTED and never fails — missing keys fall back to
+//      `en` at runtime. This is a visibility signal for translators, not a gate.
 //
 // `en` is the single source of truth. The runtime (`src/i18n/registry.ts`)
 // returns the id itself when a key is missing, so an unresolved id is silent at
 // runtime — this gate makes it loud at build time.
 //
-// Usage: `node scripts/i18n/check-catalog.mjs` (exit non-zero on unresolved id).
+// Usage: `node scripts/i18n/check-catalog.mjs` (exit non-zero on an unresolved id
+// or a locale-set mismatch).
 
 import { readdir, readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
@@ -26,9 +31,26 @@ const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
 const localesDir = join(repoRoot, 'apps/web/locales');
 const srcDir = join(repoRoot, 'apps/web/src');
 
-// The 12 shipped locales (mirror of src/i18n/locales.ts LOCALES). `en` is source.
-const LOCALES = ['en', 'de', 'fr', 'es', 'pt-BR', 'nl', 'it', 'pl', 'ru', 'uk', 'zh', 'ja'];
+const localesTs = join(srcDir, 'i18n/locales.ts');
 const SOURCE = 'en';
+
+/**
+ * The shipped locales, read out of the `export const LOCALES = [...]` literal in
+ * src/i18n/locales.ts rather than copied here, so this script cannot report on a
+ * different set from the one the app ships.
+ */
+async function shippedLocales() {
+  const src = await readFile(localesTs, 'utf8');
+  const decl = src.match(/export const LOCALES\s*=\s*\[([^\]]*)\]/);
+  const locales = decl ? [...decl[1].matchAll(/(['"])([^'"]+)\1/g)].map((m) => m[2]) : [];
+  if (locales.length === 0 || !locales.includes(SOURCE)) {
+    console.error(
+      `check-catalog: could not read a LOCALES array containing '${SOURCE}' from ${relative(repoRoot, localesTs)}`,
+    );
+    process.exit(1);
+  }
+  return locales;
+}
 
 /** Recursively list files under `dir` matching `filter`. */
 async function walk(dir, filter, out = []) {
@@ -130,6 +152,14 @@ for (const [id, sites] of used) {
 }
 console.log(`check-catalog: app uses ${used.size} distinct static t() ids.`);
 
+// --- gate: the registered locales are exactly the catalog directories -------
+const LOCALES = await shippedLocales();
+const localeDirs = (await readdir(localesDir, { withFileTypes: true }))
+  .filter((d) => d.isDirectory())
+  .map((d) => d.name);
+const withoutDir = LOCALES.filter((l) => !localeDirs.includes(l));
+const unregistered = localeDirs.filter((l) => !LOCALES.includes(l));
+
 // --- coverage report (informational) ---------------------------------------
 console.log('\ncheck-catalog: per-locale coverage vs en (translated via Weblate; non-en is informational):');
 const enList = [...enIds];
@@ -142,6 +172,12 @@ for (const locale of LOCALES) {
 }
 
 // --- verdict ---------------------------------------------------------------
+if (withoutDir.length > 0 || unregistered.length > 0) {
+  console.error('\ncheck-catalog: FAIL — src/i18n/locales.ts LOCALES and apps/web/locales/ disagree:');
+  for (const l of withoutDir) console.error(`  • '${l}' is in LOCALES but has no apps/web/locales/${l}/ directory`);
+  for (const l of unregistered) console.error(`  • apps/web/locales/${l}/ exists but '${l}' is not in LOCALES`);
+  process.exit(1);
+}
 if (unresolved.length > 0) {
   console.error(`\ncheck-catalog: FAIL — ${unresolved.length} t() id(s) do not resolve in the en catalog:`);
   for (const { id, sites } of unresolved) {
@@ -152,4 +188,7 @@ if (unresolved.length > 0) {
   process.exit(1);
 }
 
-console.log('\ncheck-catalog: OK — every static t() id resolves in the en source catalog.');
+console.log(
+  `\ncheck-catalog: OK — every static t() id resolves in the en source catalog; ` +
+    `all ${LOCALES.length} registered locales have a catalog directory.`,
+);
