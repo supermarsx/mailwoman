@@ -6,22 +6,48 @@
 // `EditorView` lives in `RichTextEditor.tsx`.
 //
 // The schema is deliberately email-safe and small: paragraphs, headings,
-// blockquote, ordered/bulleted lists, hard breaks, and the inline marks bold /
-// italic / underline / strikethrough / link. No images, tables, or arbitrary
-// HTML — the outgoing body stays a compact, predictable subset that the reader
-// pane's sanitizer already understands.
+// blockquote, code blocks, horizontal rules, ordered/bulleted lists, hard
+// breaks, and the inline marks bold / italic / code / underline /
+// strikethrough / link (http, https and mailto targets only). There is no
+// image node, no table, and no attribute other than a link's `href`/`title`,
+// so `htmlFromDoc(docFromHtml(x))` reduces any HTML to that subset: an `<img>`
+// is dropped, a `javascript:` link keeps its text and loses the link, and
+// `style`/`on*` attributes do not survive. The composer relies on this for
+// HTML it did not author (an identity's stored signature).
 
-import { Schema, DOMParser, DOMSerializer, type Node as PMNode } from 'prosemirror-model';
+import { Schema, DOMParser, DOMSerializer, type MarkSpec, type Node as PMNode } from 'prosemirror-model';
 import { schema as basicSchema } from 'prosemirror-schema-basic';
 import { addListNodes } from 'prosemirror-schema-list';
 
-// paragraph + heading + blockquote + code_block + lists over the basic nodes.
-const nodes = addListNodes(basicSchema.spec.nodes, 'paragraph block*', 'block');
+// paragraph + heading + blockquote + code_block + horizontal_rule + lists: the
+// basic nodes without `image`, which would let parsed HTML carry a remote
+// `<img src>` into the outgoing body.
+const nodes = addListNodes(basicSchema.spec.nodes.remove('image'), 'paragraph block*', 'block');
+
+/** Link targets a parsed `<a href>` may keep. Anything else (`javascript:`,
+ *  `data:`, a relative path) is not a link the recipient can use. */
+const LINK_HREF = /^(https?:|mailto:)/i;
+
+// The basic link mark, except that parsing refuses an href outside LINK_HREF:
+// `false` means "this rule does not match", so the text stays and the mark is
+// not applied.
+const link: MarkSpec = {
+  ...basicSchema.spec.marks.get('link'),
+  parseDOM: [
+    {
+      tag: 'a[href]',
+      getAttrs(dom: HTMLElement) {
+        const href = (dom.getAttribute('href') ?? '').trim();
+        return LINK_HREF.test(href) ? { href, title: dom.getAttribute('title') } : false;
+      },
+    },
+  ],
+};
 
 /** The composer's rich-text schema (basic block/inline set + underline + strike). */
 export const richSchema = new Schema({
   nodes,
-  marks: basicSchema.spec.marks.append({
+  marks: basicSchema.spec.marks.update('link', link).append({
     underline: {
       parseDOM: [{ tag: 'u' }, { style: 'text-decoration=underline' }],
       toDOM(): ['u', 0] {
