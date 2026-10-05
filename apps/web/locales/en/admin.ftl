@@ -192,44 +192,6 @@ admin-allowlist-uninstall-title = Uninstall this plugin?
 admin-allowlist-uninstall-detail = Uninstalling deletes the plugin's stored key/value data for every account, removes its allowlist pins, and disables it. The component file on disk is not deleted; it can be re-approved later.
 admin-allowlist-uninstall-confirm = Uninstall plugin
 
-# -- Assist governance (§14/§19) ---------------------------------------------
-admin-assist-title = Assist
-admin-assist-intro = Assist proxies selected message text to an AI endpoint you configure. It never sends, deletes, or accepts mail on a user's behalf — those always require a person. End-to-end-encrypted content and attachments are withheld unless you explicitly allow them below.
-admin-assist-enable = Enable Assist tenant-wide
-admin-assist-enabled = Assist enabled tenant-wide
-admin-assist-off-note = Assist is off. The kill switch reports the gateway as disabled to every user.
-admin-assist-allowlist = Endpoint allowlist
-admin-assist-allowlist-note = Only these hosts may receive proxied requests. Anything else is refused.
-admin-assist-host = Endpoint host
-admin-assist-host-placeholder = api.openai.com
-admin-assist-add-host = Add host
-admin-assist-hosts-empty = No hosts yet.
-admin-assist-remove-host = Remove { $host }
-admin-assist-locks = Capability locks
-admin-assist-locks-note = A locked capability is never offered, regardless of per-user grants.
-admin-assist-locked = Locked
-admin-assist-ceilings = Data-class ceilings
-admin-assist-ceilings-note = These are hard limits. Even a granted capability cannot exceed them. Both are off by default.
-admin-assist-allow-e2ee = Allow end-to-end-encrypted content to leave the deployment
-admin-assist-allow-e2ee-label = Allow end-to-end-encrypted content to be sent
-admin-assist-allow-attachments = Allow attachments to leave the deployment
-admin-assist-allow-attachments-label = Allow attachments to be sent
-admin-assist-save = Save policy
-admin-assist-enabled-status = Assist enabled.
-admin-assist-disabled-status = Assist disabled tenant-wide (kill switch).
-admin-assist-kill-error = Could not change the kill switch.
-admin-assist-save-error = Save failed.
-admin-assist-load-error = Could not load Assist policy.
-# Capability labels
-admin-assist-cap-summarize = Summarize
-admin-assist-cap-draft = Draft & rewrite
-admin-assist-cap-grammar = Grammar
-admin-assist-cap-dictation = Dictation
-admin-assist-cap-search-semantic = Semantic search
-admin-assist-cap-auto-tag = Auto-tag
-admin-assist-cap-recap = Recap
-admin-assist-cap-assistant = Assistant (chat)
-
 # -- Single sign-on: OIDC + SAML login backends (t9, §18.3) -------------------
 admin-sso-title = Single sign-on
 admin-sso-intro = Configure OIDC and SAML 2.0 login backends. Enabled backends appear as "Sign in with…" buttons on the mailbox login, scoped deployment-wide or to one domain.
