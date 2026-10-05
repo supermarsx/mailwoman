@@ -102,6 +102,58 @@ describe('outboundToRequest', () => {
     const names = req.methodCalls.map((c) => c[0]);
     expect(names).toEqual(['Email/set', 'EmailSubmission/set']);
   });
+
+  it('a queued reply replays with its Cc, Bcc and thread ids, as a draft and as a send', () => {
+    const reply = {
+      accountId: 'acct1',
+      draft: {
+        from: { name: null, email: 'me@example.org' },
+        to: 'alice@example.org',
+        cc: 'bob@example.org',
+        bcc: 'carol@example.org',
+        inReplyTo: ['orig@example.org'],
+        references: ['root@example.org', 'orig@example.org'],
+        subject: 'Re: Hi',
+        htmlBody: '<p>x</p>',
+        draftMailboxId: 'drafts',
+      },
+    };
+    const created = {
+      mailboxIds: { drafts: true },
+      keywords: { $draft: true, $seen: true },
+      from: [{ name: null, email: 'me@example.org' }],
+      to: [{ name: null, email: 'alice@example.org' }],
+      cc: [{ name: null, email: 'bob@example.org' }],
+      bcc: [{ name: null, email: 'carol@example.org' }],
+      inReplyTo: ['orig@example.org'],
+      references: ['root@example.org', 'orig@example.org'],
+      subject: 'Re: Hi',
+      htmlBody: [{ partId: 'body', type: 'text/html' }],
+      bodyValues: { body: { value: '<p>x</p>' } },
+    };
+    expect(outboundToRequest(item('draft', reply)).methodCalls).toEqual([
+      ['Email/set', { accountId: 'acct1', create: { draft: created } }, 'set'],
+    ]);
+    expect(outboundToRequest(item('send', reply)).methodCalls).toEqual([
+      ['Email/set', { accountId: 'acct1', create: { draft: created } }, 'set'],
+      [
+        'EmailSubmission/set',
+        {
+          accountId: 'acct1',
+          create: {
+            send: {
+              emailId: '#draft',
+              envelope: {
+                mailFrom: { email: 'me@example.org' },
+                rcptTo: [{ email: 'alice@example.org' }, { email: 'bob@example.org' }, { email: 'carol@example.org' }],
+              },
+            },
+          },
+        },
+        'submit',
+      ],
+    ]);
+  });
 });
 
 describe('outboundApplied', () => {

@@ -1,11 +1,14 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
+  draftCreateSpec,
   emailGetFull,
+  fetchThreadingHeaders,
   invalidRecipients,
   isMailbox,
   listMailbox,
   mailboxGet,
   parseRecipients,
+  parseThreadingHeaders,
   responseFor,
   sendEnvelope,
   uploadBlob,
@@ -232,6 +235,159 @@ describe('sendEnvelope', () => {
         ],
       ],
     });
+  });
+});
+
+describe('sendEnvelope: Cc, Bcc and reply threading', () => {
+  it('puts cc, bcc, inReplyTo and references on the draft and every recipient once in rcptTo', () => {
+    const r = sendEnvelope('acct1', {
+      from: { name: 'Me', email: 'me@example.org' },
+      to: 'Alice <alice@example.org>',
+      cc: 'bob@example.org, ALICE@example.org',
+      bcc: 'Carol <carol@example.org>',
+      inReplyTo: ['orig@example.org'],
+      references: ['root@example.org', 'orig@example.org'],
+      subject: 'Re: Hi',
+      htmlBody: '<p>hello</p>',
+      draftMailboxId: 'drafts1',
+      holdSeconds: 10,
+    });
+    expect(r).toEqual({
+      using: ['urn:ietf:params:jmap:core', CAP_MAIL, CAP_SUBMISSION],
+      methodCalls: [
+        [
+          'Email/set',
+          {
+            accountId: 'acct1',
+            create: {
+              draft: {
+                mailboxIds: { drafts1: true },
+                keywords: { $draft: true, $seen: true },
+                from: [{ name: 'Me', email: 'me@example.org' }],
+                to: [{ name: 'Alice', email: 'alice@example.org' }],
+                cc: [
+                  { name: null, email: 'bob@example.org' },
+                  { name: null, email: 'ALICE@example.org' },
+                ],
+                bcc: [{ name: 'Carol', email: 'carol@example.org' }],
+                inReplyTo: ['orig@example.org'],
+                references: ['root@example.org', 'orig@example.org'],
+                subject: 'Re: Hi',
+                htmlBody: [{ partId: 'body', type: 'text/html' }],
+                bodyValues: { body: { value: '<p>hello</p>' } },
+              },
+            },
+          },
+          'set',
+        ],
+        [
+          'EmailSubmission/set',
+          {
+            accountId: 'acct1',
+            create: {
+              send: {
+                emailId: '#draft',
+                envelope: {
+                  mailFrom: { email: 'me@example.org' },
+                  rcptTo: [
+                    { email: 'alice@example.org' },
+                    { email: 'bob@example.org' },
+                    { email: 'carol@example.org' },
+                  ],
+                },
+                mailwomanHoldSeconds: 10,
+              },
+            },
+          },
+          'submit',
+        ],
+      ],
+    });
+  });
+
+  it('adds none of the four properties when they are empty', () => {
+    const spec = draftCreateSpec({
+      from: { name: null, email: 'me@example.org' },
+      to: 'you@example.org',
+      cc: ' ',
+      bcc: '',
+      inReplyTo: [],
+      references: [],
+      subject: 'Hi',
+      htmlBody: '<p>x</p>',
+      draftMailboxId: 'drafts1',
+    });
+    expect(spec).toEqual({
+      mailboxIds: { drafts1: true },
+      keywords: { $draft: true, $seen: true },
+      from: [{ name: null, email: 'me@example.org' }],
+      to: [{ name: null, email: 'you@example.org' }],
+      subject: 'Hi',
+      htmlBody: [{ partId: 'body', type: 'text/html' }],
+      bodyValues: { body: { value: '<p>x</p>' } },
+    });
+  });
+});
+
+describe('threading headers of a raw message', () => {
+  const RAW =
+    'Received: by mx.example.org; Mon, 1 Jan 2026 00:00:00 +0000\r\n' +
+    'Message-ID: <orig@example.org>\r\n' +
+    'References: <root@example.org>\r\n <mid@example.org>\r\n' +
+    'In-Reply-To: <mid@example.org>\r\n' +
+    'Subject: hello\r\n' +
+    '\r\n' +
+    'Message-ID: <in-the-body@example.org>\r\nReferences: <body-ref@example.org>\r\n';
+
+  it('reads Message-ID and the folded References, and nothing from the body', () => {
+    expect(parseThreadingHeaders(RAW)).toEqual({
+      messageId: 'orig@example.org',
+      references: ['root@example.org', 'mid@example.org'],
+    });
+  });
+
+  it('falls back to In-Reply-To when there is no References header', () => {
+    expect(parseThreadingHeaders('message-id: <b@x>\nIn-Reply-To: <a@x> (their note)\n\nbody')).toEqual({
+      messageId: 'b@x',
+      references: ['a@x'],
+    });
+  });
+
+  it('reports no id for a message without a Message-ID', () => {
+    expect(parseThreadingHeaders('Subject: x\r\nX-Message-ID: <not-this@x>\r\n\r\n')).toEqual({
+      messageId: null,
+      references: [],
+    });
+  });
+
+  it('stops reading the download once the header block has ended', async () => {
+    const enc = new TextEncoder();
+    const chunks = [RAW.slice(0, 40), RAW.slice(40), 'x'.repeat(1000), 'y'.repeat(1000)];
+    let pulled = 0;
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        const next = chunks[pulled];
+        pulled += 1;
+        if (next === undefined) controller.close();
+        else controller.enqueue(enc.encode(next));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    }, { highWaterMark: 0 });
+    const fetcher = vi.fn(async (_url: string, _init?: RequestInit) => new Response(body, { status: 200 }));
+    const out = await fetchThreadingHeaders('/jmap/download/acct1/m1/message.eml', fetcher);
+    expect(fetcher).toHaveBeenCalledWith('/jmap/download/acct1/m1/message.eml');
+    expect(out).toEqual({ messageId: 'orig@example.org', references: ['root@example.org', 'mid@example.org'] });
+    expect(cancelled).toBe(true);
+    // The two body chunks after the header block were never asked for.
+    expect(pulled).toBeLessThanOrEqual(3);
+  });
+
+  it('throws on a refused download', async () => {
+    const fetcher = vi.fn(async (_url: string, _init?: RequestInit) => new Response('no', { status: 404 }));
+    await expect(fetchThreadingHeaders('/x', fetcher)).rejects.toThrow('message download failed with 404');
   });
 });
 

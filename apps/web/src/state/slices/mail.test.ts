@@ -438,6 +438,88 @@ describe('mail slice — what a send puts on the wire', () => {
     });
   });
 
+  it('carries Cc, Bcc and the reply thread ids: on the draft, and every recipient in rcptTo', async () => {
+    await withInbox([email('a')], async (mail, { jmap }) => {
+      jmap.mockClear();
+      await mail.sendMessage({
+        to: 'alice@example.org',
+        cc: 'Bob <bob@example.org>',
+        bcc: 'carol@example.org',
+        inReplyTo: ['orig@example.org'],
+        references: ['root@example.org', 'orig@example.org'],
+        subject: 'Hi',
+        htmlBody: '<p>x</p>',
+      });
+      const sends = sendRequests(jmap);
+      expect(sends).toHaveLength(1);
+      const expected = expectedSend({
+        to: [{ name: null, email: 'alice@example.org' }],
+        rcptTo: [{ email: 'alice@example.org' }, { email: 'bob@example.org' }, { email: 'carol@example.org' }],
+      });
+      const draft = (expected[0]![1]['create'] as Record<string, Record<string, unknown>>)['draft']!;
+      draft['cc'] = [{ name: 'Bob', email: 'bob@example.org' }];
+      draft['bcc'] = [{ name: null, email: 'carol@example.org' }];
+      draft['inReplyTo'] = ['orig@example.org'];
+      draft['references'] = ['root@example.org', 'orig@example.org'];
+      expect(sends[0]!.methodCalls).toEqual(expected);
+    });
+  });
+
+  it('sends a message whose only recipient is in Bcc', async () => {
+    await withInbox([email('a')], async (mail, { jmap }) => {
+      jmap.mockClear();
+      await mail.sendMessage({ to: '', bcc: 'carol@example.org', subject: 'Hi', htmlBody: '<p>x</p>' });
+      const sends = sendRequests(jmap);
+      expect(sends).toHaveLength(1);
+      const expected = expectedSend({ to: [], rcptTo: [{ email: 'carol@example.org' }] });
+      (expected[0]![1]['create'] as Record<string, Record<string, unknown>>)['draft']!['bcc'] = [
+        { name: null, email: 'carol@example.org' },
+      ];
+      expect(sends[0]!.methodCalls).toEqual(expected);
+    });
+  });
+
+  it('refuses a Cc or Bcc entry that is not an address, names it, and makes no request', async () => {
+    await withInbox([email('a')], async (mail, { jmap }) => {
+      jmap.mockClear();
+      await expect(
+        mail.sendMessage({ to: 'you@example.org', cc: 'bob', bcc: 'carol@', subject: 'Hi', htmlBody: '<p>x</p>' }),
+      ).rejects.toThrow(`These are not email addresses: ${isolate('bob, carol@')}`);
+      expect(jmap).not.toHaveBeenCalled();
+    });
+  });
+
+  it('queues an offline reply with its Cc, Bcc and thread ids', async () => {
+    const enqueueOffline = vi.fn(async () => undefined);
+    await withDeps([email('a')], { online: () => false, enqueueOffline }, async (mail) => {
+      await mail.sendMessage({
+        to: 'alice@example.org',
+        cc: 'bob@example.org',
+        bcc: 'carol@example.org',
+        inReplyTo: ['orig@example.org'],
+        references: ['orig@example.org'],
+        subject: 'Re: Hi',
+        htmlBody: '<p>x</p>',
+      });
+      expect(enqueueOffline).toHaveBeenCalledTimes(1);
+      expect(enqueueOffline).toHaveBeenCalledWith('send', {
+        accountId: 'acct1',
+        draft: {
+          from: { name: null, email: 'me@example.org' },
+          draftMailboxId: 'inbox',
+          to: 'alice@example.org',
+          cc: 'bob@example.org',
+          bcc: 'carol@example.org',
+          inReplyTo: ['orig@example.org'],
+          references: ['orig@example.org'],
+          subject: 'Re: Hi',
+          htmlBody: '<p>x</p>',
+          holdSeconds: 10,
+        },
+      });
+    });
+  });
+
   it('refuses an entry that is not an address, names it, and makes no request', async () => {
     await withInbox([email('a')], async (mail, { jmap }) => {
       jmap.mockClear();

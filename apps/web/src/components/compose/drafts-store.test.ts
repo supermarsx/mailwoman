@@ -54,6 +54,31 @@ describe('drafts-store (W9)', () => {
     expect(listDrafts().map((d) => d.id)).toEqual(['d1']);
   });
 
+  it('keeps a draft stored before Cc, Bcc and replies existed, and stores the new fields', () => {
+    const old = { id: 'old', to: 'a@x.org', subject: 's', bodyHtml: '<p>b</p>', bodyText: 'b', savedAt: 1 };
+    localStorage.setItem('mw.compose.drafts.v1', JSON.stringify([old]));
+    expect(listDrafts()).toEqual([old]);
+
+    const reply = { ...old, id: 'new', savedAt: 2, cc: 'c@x.org', bcc: 'd@x.org', inReplyTo: ['o@x'], references: ['r@x', 'o@x'] };
+    saveDraft(reply);
+    expect(listDrafts()).toEqual([reply, old]);
+  });
+
+  it('a draft whose only content is a Cc or Bcc recipient is saved', () => {
+    saveDraft(draft('cc-only', { to: '', subject: '', bodyText: '', cc: 'c@x.org' }));
+    saveDraft(draft('bcc-only', { to: '', subject: '', bodyText: '', bcc: 'd@x.org' }));
+    expect(listDrafts().map((d) => d.id).sort()).toEqual(['bcc-only', 'cc-only']);
+  });
+
+  it('drops a stored entry whose Cc or thread ids are not the expected type', () => {
+    const ok = { id: 'ok', to: 'a@x.org', subject: 's', bodyHtml: '', bodyText: 'b', savedAt: 1 };
+    localStorage.setItem(
+      'mw.compose.drafts.v1',
+      JSON.stringify([ok, { ...ok, id: 'bad-cc', cc: 5 }, { ...ok, id: 'bad-refs', references: ['a', 1] }]),
+    );
+    expect(listDrafts().map((d) => d.id)).toEqual(['ok']);
+  });
+
   it('mints distinct draft ids', () => {
     expect(newDraftId()).not.toBe(newDraftId());
   });

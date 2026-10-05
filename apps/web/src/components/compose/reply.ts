@@ -124,9 +124,11 @@ export function replyRecipients(
 }
 
 /** One address in the composer's field syntax. A display name holding a
- *  character the field parser treats as structure is double-quoted. */
+ *  character the field parser treats as structure is double-quoted; angle
+ *  brackets are dropped from it, because the parser reads `<`…`>` as the
+ *  address even inside quotes. */
 export function formatAddress(a: EmailAddress): string {
-  const name = (a.name ?? '').trim();
+  const name = (a.name ?? '').replace(/[<>]/g, '').trim();
   if (name === '') return a.email;
   const shown = /[,;<>"\\()]/.test(name) ? `"${name.replace(/(["\\])/g, '\\$1')}"` : name;
   return `${shown} <${a.email}>`;
