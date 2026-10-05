@@ -121,9 +121,13 @@ impl Engine {
             let mut args = arr[1].clone();
             resolve_references(&mut args, &responses);
 
+            // The implicit `Email/set` response of an `EmailSubmission/set`
+            // whose `onSuccess*` arguments changed an Email in this call
+            // (RFC 8621 §7.5). It follows the method's own response.
+            let mut implicit: Option<Value> = None;
             let resp = match &rt {
                 Some(rt) => {
-                    self.dispatch(account_id, rt, name, &args, &mut created_ids)
+                    self.dispatch(account_id, rt, name, &args, &mut created_ids, &mut implicit)
                         .await
                 }
                 None => json!({
@@ -132,6 +136,9 @@ impl Engine {
                 }),
             };
             responses.push(json!([name, resp, call_id]));
+            if let Some(email_set) = implicit {
+                responses.push(json!(["Email/set", email_set, call_id]));
+            }
         }
 
         json!({
@@ -148,6 +155,7 @@ impl Engine {
         name: &str,
         args: &Value,
         created_ids: &mut HashMap<String, String>,
+        implicit: &mut Option<Value>,
     ) -> Value {
         match name {
             "Mailbox/get" => self.mailbox_get(account_id, args).await,
@@ -160,7 +168,10 @@ impl Engine {
             "Email/get" => self.email_get(account_id, args).await,
             "Email/changes" => self.type_changes(account_id, ChangeType::Email, args).await,
             "Email/set" => self.email_set(account_id, rt, args, created_ids).await,
-            "EmailSubmission/set" => self.submission_set(account_id, rt, args, created_ids).await,
+            "EmailSubmission/set" => {
+                self.submission_set(account_id, rt, args, created_ids, implicit)
+                    .await
+            }
             "EmailSubmission/get" => self.submission_get(account_id, args).await,
             "EmailSubmission/query" => self.submission_query(account_id, args).await,
             "EmailSubmission/changes" => {
@@ -1596,74 +1607,90 @@ impl Engine {
         Ok(())
     }
 
-    // ---- EmailSubmission (queue: undo-send / send-later / Outbox) -------
+    // ---- EmailSubmission (queue: undo-send / send-later / hold / Outbox) --
 
-    /// `EmailSubmission/set` (plan §1.3): create **enqueues** a submission
-    /// (`undoStatus:pending`) with an optional hold window / `sendAt`; a
-    /// submission with no hold and no future `sendAt` fires inline (the V1
-    /// synchronous send shape). update `{undoStatus:"canceled"}` cancels a
-    /// still-pending submission before its window elapses.
+    /// `EmailSubmission/set` (plan §1.3).
+    ///
+    /// **create** enqueues a submission (`undoStatus: pending`). It is sent
+    /// inline, before this method returns, when nothing delays it: no
+    /// `mailwomanHoldSeconds`, no future `sendAt`, no `mailwomanHold`.
+    /// `mailwomanHold: "manual"` holds it until an update releases it; the
+    /// dispatcher never sends such a row, however old it is.
+    ///
+    /// **update** does one of two things and refuses a patch that is neither
+    /// (see [`submission_update_action`]):
+    /// * `{undoStatus: "canceled"}` cancels a still-pending submission;
+    /// * `{sendAt: null, mailwomanHoldSeconds: 0}` or `{mailwomanHold: null}`
+    ///   releases one — a manual hold, a schedule and an undo window alike —
+    ///   and sends it now.
+    ///
+    /// **`onSuccessUpdateEmail` / `onSuccessDestroyEmail`** (RFC 8621 §7.5) are
+    /// kept on the submission row and applied when SMTP accepts the message,
+    /// which for a held or delayed submission is later than this call. When that
+    /// happens inside this call, `implicit` receives the `Email/set` response
+    /// the RFC has follow this one. An entry keyed by an id that this call
+    /// neither creates nor releases is not applied.
     async fn submission_set(
         &self,
         account_id: &str,
         rt: &AccountRuntime,
         args: &Value,
         created_ids: &HashMap<String, String>,
+        implicit: &mut Option<Value>,
     ) -> Value {
         let old_state = self
             .type_state(account_id, ChangeType::EmailSubmission)
+            .await
+            .unwrap_or_default();
+        let old_email_state = self
+            .type_state(account_id, ChangeType::Email)
             .await
             .unwrap_or_default();
         let mut created = Map::new();
         let mut not_created = Map::new();
         let mut updated = Map::new();
         let mut not_updated = Map::new();
+        // Emails an `onSuccess*` argument changed before this method returned.
+        let mut emails_updated = Map::new();
+        let mut emails_destroyed: Vec<Value> = Vec::new();
+        let mut note_filed = |filed: Option<Filed>, email_id: &str| match filed {
+            Some(Filed::Patched) => {
+                emails_updated.insert(email_id.to_string(), Value::Null);
+            }
+            // `SentCopy` here means the patch could not be applied and the
+            // default filing ran instead, which removes the draft.
+            Some(Filed::Destroyed | Filed::SentCopy) => emails_destroyed.push(json!(email_id)),
+            None => {}
+        };
 
         if let Some(creates) = args.get("create").and_then(Value::as_object) {
             for (client_id, spec) in creates {
                 let email_ref = spec.get("emailId").and_then(Value::as_str).unwrap_or("");
                 let real_id = resolve_email_id(email_ref, created_ids);
-                let identity_id = spec
-                    .get("identityId")
-                    .and_then(Value::as_str)
-                    .map(String::from);
-                // A `sendAt` that is not a time, or is already in the past, fails
-                // the create (26.20 t28-e1). Both used to count as "not a future
-                // send", which with no hold window meant the message went out at
-                // once.
-                let send_at = match checked_send_at(spec, chrono::Utc::now()) {
-                    Ok(send_at) => send_at,
+                let on_success = match on_success_for(args, &format!("#{client_id}")) {
+                    Ok(on_success) => on_success,
                     Err(invalid) => {
                         not_created.insert(client_id.clone(), invalid);
                         continue;
                     }
                 };
-                let hold = spec
-                    .get("mailwomanHoldSeconds")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0) as u32;
-                // V4 DLP gate (plan §1.8): evaluate outbound rules at create time
-                // (covers both the inline and the deferred send paths) BEFORE the
-                // submission is enqueued. A `block` verdict fails this create with
-                // a structured `dlpBlocked` error and the message is never queued;
-                // the redacted audit row is written by `evaluate`.
-                let dlp_verdicts = crate::security::dlp::evaluate(self, account_id, &real_id).await;
-                if let Some(err) = dlp_block_error(&dlp_verdicts) {
-                    not_created.insert(client_id.clone(), err);
-                    continue;
-                }
                 match self
-                    .enqueue_submission(account_id, rt, &real_id, identity_id, send_at, hold)
+                    .create_submission(account_id, rt, &real_id, spec, None, on_success.as_ref())
                     .await
                 {
-                    Ok((sub_id, undo_status)) => {
+                    Ok(sub) => {
+                        note_filed(sub.filed.filter(|_| on_success.is_some()), &real_id);
                         created.insert(
                             client_id.clone(),
-                            json!({ "id": sub_id, "undoStatus": undo_status }),
+                            json!({
+                                "id": sub.id,
+                                "undoStatus": sub.undo_status,
+                                "mailwomanHold": sub.hold,
+                            }),
                         );
                     }
                     Err(e) => {
-                        not_created.insert(client_id.clone(), set_error(&e));
+                        not_created.insert(client_id.clone(), e);
                     }
                 }
             }
@@ -1671,16 +1698,54 @@ impl Engine {
 
         if let Some(updates) = args.get("update").and_then(Value::as_object) {
             for (id, patch) in updates {
-                let cancel = patch.get("undoStatus").and_then(Value::as_str) == Some("canceled");
-                match self.cancel_submission(account_id, id, cancel).await {
-                    Ok(()) => {
-                        updated.insert(id.clone(), Value::Null);
+                let outcome = match (submission_update_action(patch), on_success_for(args, id)) {
+                    (Err(invalid), _) | (_, Err(invalid)) => Err(invalid),
+                    (Ok(SubmissionUpdate::Cancel), Ok(Some(_))) => Err(json!({
+                        "type": "invalidArguments",
+                        "description": "onSuccessUpdateEmail / onSuccessDestroyEmail are applied \
+                                        when a submission is sent; they cannot be given for a cancel",
+                    })),
+                    (Ok(SubmissionUpdate::Cancel), Ok(None)) => self
+                        .cancel_submission(account_id, id)
+                        .await
+                        .map(|()| Value::Null)
+                        .map_err(|e| set_error(&e)),
+                    (Ok(SubmissionUpdate::Release), Ok(on_success)) => {
+                        match self
+                            .release_submission(account_id, id, on_success.as_ref())
+                            .await
+                        {
+                            Ok((changed, filed, email_id)) => {
+                                note_filed(filed, &email_id);
+                                Ok(changed)
+                            }
+                            Err(e) => Err(set_error(&e)),
+                        }
+                    }
+                };
+                match outcome {
+                    Ok(changed) => {
+                        updated.insert(id.clone(), changed);
                     }
                     Err(e) => {
-                        not_updated.insert(id.clone(), set_error(&e));
+                        not_updated.insert(id.clone(), e);
                     }
                 }
             }
+        }
+
+        if !emails_updated.is_empty() || !emails_destroyed.is_empty() {
+            *implicit = Some(json!({
+                "accountId": account_id,
+                "oldState": old_email_state,
+                "newState": self
+                    .type_state(account_id, ChangeType::Email)
+                    .await
+                    .unwrap_or_default(),
+                "created": {},
+                "updated": emails_updated,
+                "destroyed": emails_destroyed,
+            }));
         }
 
         let new_state = self
@@ -1704,22 +1769,140 @@ impl Engine {
         resp
     }
 
-    /// Persist a submission row, then fire it inline when it is due immediately
-    /// (no hold, no future `sendAt`); otherwise leave it for the dispatcher.
-    /// Returns `(submissionId, undoStatus)`.
-    async fn enqueue_submission(
+    /// Create a submission for `email_id` that is **held until the mailbox
+    /// owner releases it**, recording who asked for it. Nothing is handed to
+    /// SMTP by this call or by the dispatcher; only
+    /// [`Engine::release_submission`] (an `EmailSubmission/set` update) sends
+    /// it. Returns the submission id.
+    ///
+    /// This is the entry point for a caller that acts for the owner without
+    /// being the owner — the MCP `mail.send` tool. The origin is taken here,
+    /// as arguments, and not from the JMAP create spec, so a JMAP client cannot
+    /// write one. The same checks as a JMAP create apply (DLP included).
+    pub async fn submit_held(
+        &self,
+        account_id: &str,
+        email_id: &str,
+        origin_kind: &str,
+        origin_name: &str,
+    ) -> Result<String> {
+        let rt = self.runtime(account_id).ok_or_else(|| {
+            EngineError::Protocol("account is not connected in engine mode".into())
+        })?;
+        let origin = json!({ "kind": origin_kind, "name": origin_name }).to_string();
+        let spec = json!({ "mailwomanHold": HOLD_MANUAL });
+        let sub = self
+            .create_submission(account_id, &rt, email_id, &spec, Some(&origin), None)
+            .await
+            .map_err(|e| {
+                EngineError::Protocol(
+                    e.get("description")
+                        .and_then(Value::as_str)
+                        .or_else(|| e.get("type").and_then(Value::as_str))
+                        .unwrap_or("submission was not accepted")
+                        .to_string(),
+                )
+            })?;
+        self.broadcast_state(account_id).await;
+        Ok(sub.id)
+    }
+
+    /// One `EmailSubmission/set` create: check the spec, run the DLP gate, then
+    /// enqueue. `Err` is the SetError for the create's `notCreated` entry.
+    async fn create_submission(
         &self,
         account_id: &str,
         rt: &AccountRuntime,
         email_id: &str,
-        identity_id: Option<String>,
-        send_at: Option<String>,
-        hold_seconds: u32,
-    ) -> Result<(String, &'static str)> {
-        // `submission_set` has checked `send_at`. Parsing it again before the
+        spec: &Value,
+        origin: Option<&str>,
+        on_success: Option<&OnSuccess>,
+    ) -> std::result::Result<CreatedSubmission, Value> {
+        let identity_id = spec
+            .get("identityId")
+            .and_then(Value::as_str)
+            .map(String::from);
+        // A `sendAt` that is not a time, or is already in the past, fails the
+        // create (26.20 t28-e1). Both used to count as "not a future send",
+        // which with no hold window meant the message went out at once.
+        let send_at = checked_send_at(spec, chrono::Utc::now())?;
+        let hold_seconds = spec
+            .get("mailwomanHoldSeconds")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as u32;
+        let hold = checked_hold(spec)?;
+        // A message of another account is not this account's to send. A
+        // message that does not exist is left to the send itself, which
+        // reports it as it always has.
+        if let Ok(msg) = self.store().get_message(email_id).await
+            && msg.account_id != account_id
+        {
+            return Err(json!({
+                "type": "invalidProperties",
+                "properties": ["emailId"],
+                "description": format!("email {email_id} not found"),
+            }));
+        }
+        // The mailbox an `onSuccessUpdateEmail` patch files the message into
+        // must be one of this account's, checked now so the refusal reaches
+        // the caller instead of surfacing after the message has gone.
+        if let Some(mailboxes) = on_success
+            .and_then(|o| o.update.as_ref())
+            .and_then(|patch| patch.get("mailboxIds"))
+            .and_then(Value::as_object)
+        {
+            for mailbox_id in mailboxes.keys() {
+                match self.store().get_mailbox(mailbox_id).await {
+                    Ok(m) if m.account_id == account_id => {}
+                    _ => {
+                        return Err(json!({
+                            "type": "invalidProperties",
+                            "properties": ["onSuccessUpdateEmail"],
+                            "description": format!("mailbox {mailbox_id} not found"),
+                        }));
+                    }
+                }
+            }
+        }
+        // V4 DLP gate (plan §1.8): evaluate outbound rules at create time
+        // (covers the inline, the deferred and the held send paths) BEFORE the
+        // submission is enqueued. A `block` verdict fails this create with a
+        // structured `dlpBlocked` error and the message is never queued; the
+        // redacted audit row is written by `evaluate`.
+        let dlp_verdicts = crate::security::dlp::evaluate(self, account_id, email_id).await;
+        if let Some(err) = dlp_block_error(&dlp_verdicts) {
+            return Err(err);
+        }
+        self.enqueue_submission(
+            account_id,
+            rt,
+            NewSubmission {
+                email_id,
+                identity_id,
+                send_at,
+                hold_seconds,
+                hold,
+                origin,
+                on_success: on_success.map(OnSuccess::to_json),
+            },
+        )
+        .await
+        .map_err(|e| set_error(&e))
+    }
+
+    /// Persist a submission row, then fire it inline when it is due immediately
+    /// (no hold of either kind, no future `sendAt`); otherwise leave it for the
+    /// dispatcher, or — for a manual hold — for a release.
+    async fn enqueue_submission(
+        &self,
+        account_id: &str,
+        rt: &AccountRuntime,
+        new: NewSubmission<'_>,
+    ) -> Result<CreatedSubmission> {
+        // `create_submission` has checked `send_at`. Parsing it again before the
         // row exists means a value that is not a time can only be an error here,
         // never the "not in the future" that sends inline below.
-        let send_time = match send_at.as_deref() {
+        let send_time = match new.send_at.as_deref() {
             Some(s) => Some(
                 chrono::DateTime::parse_from_rfc3339(s)
                     .map_err(|e| EngineError::Protocol(format!("sendAt {s:?}: {e}")))?
@@ -1732,14 +1915,22 @@ impl Engine {
         let row = SubmissionRow {
             id: sub_id.clone(),
             account_id: account_id.to_string(),
-            email_id: email_id.to_string(),
-            identity_id,
-            send_at,
+            email_id: new.email_id.to_string(),
+            identity_id: new.identity_id,
+            send_at: new.send_at,
             undo_status: "pending".to_string(),
-            hold_seconds,
+            hold_seconds: new.hold_seconds,
             created_at,
         };
-        self.store().insert_submission(&row).await?;
+        let future_send = send_time.is_some_and(|at| at > chrono::Utc::now());
+        let inline = new.hold.is_none() && new.hold_seconds == 0 && !future_send;
+        // An inline send claims the row before the row exists. Without the
+        // claim the dispatcher, scanning while SMTP is still in flight here,
+        // reads a `pending` row that is due and transmits it a second time.
+        let claim = if inline { claim_send(&sub_id) } else { None };
+        self.store()
+            .insert_submission_with(&row, new.hold, new.origin, new.on_success.as_deref())
+            .await?;
         self.record_change(
             account_id,
             ChangeType::EmailSubmission,
@@ -1748,55 +1939,69 @@ impl Engine {
         )
         .await?;
 
-        let future_send = send_time.is_some_and(|at| at > chrono::Utc::now());
-        if hold_seconds == 0 && !future_send {
-            // Fire now (preserves the V1 synchronous send shape). The status follows
-            // what SMTP did: `send_submission` has already recorded `final` if the
-            // message was accepted, whatever happened to the Sent copy afterwards.
-            match self
-                .send_submission(&sub_id, account_id, rt, email_id)
-                .await
-            {
-                Ok(()) => Ok((sub_id, "final")),
-                Err(not_sent) => {
-                    // Nothing was delivered. The caller is told synchronously and
-                    // can send again, so this path does not also retry on its own —
-                    // two independent retries of one message is how copies multiply.
-                    self.store()
-                        .record_submission_failure(
-                            &sub_id,
-                            &not_sent.error.to_string(),
-                            None,
-                            SUBMISSION_FAILED,
-                        )
-                        .await?;
-                    self.record_change(
-                        account_id,
-                        ChangeType::EmailSubmission,
+        if !inline {
+            // Deferred: the dispatcher fires it when the window elapses. Held:
+            // nothing fires it until it is released.
+            return Ok(CreatedSubmission {
+                id: sub_id,
+                undo_status: "pending",
+                hold: new.hold.map(String::from),
+                filed: None,
+            });
+        }
+        // Fire now (preserves the V1 synchronous send shape). The status follows
+        // what SMTP did: `send_submission` has already recorded `final` if the
+        // message was accepted, whatever happened to the Sent copy afterwards.
+        let sent = self
+            .send_submission(&sub_id, account_id, rt, new.email_id)
+            .await;
+        drop(claim);
+        match sent {
+            Ok(filed) => Ok(CreatedSubmission {
+                id: sub_id,
+                undo_status: "final",
+                hold: None,
+                filed: Some(filed),
+            }),
+            Err(not_sent) => {
+                // Nothing was delivered. The caller is told synchronously and
+                // can send again, so this path does not also retry on its own —
+                // two independent retries of one message is how copies multiply.
+                self.store()
+                    .record_submission_failure(
                         &sub_id,
-                        ChangeOp::Updated,
+                        &not_sent.error.to_string(),
+                        None,
+                        SUBMISSION_FAILED,
                     )
                     .await?;
-                    Err(not_sent.error)
-                }
+                self.record_change(
+                    account_id,
+                    ChangeType::EmailSubmission,
+                    &sub_id,
+                    ChangeOp::Updated,
+                )
+                .await?;
+                Err(not_sent.error)
             }
-        } else {
-            // Deferred: the dispatcher fires it when the window elapses.
-            Ok((sub_id, "pending"))
         }
     }
 
-    /// Cancel a still-pending submission (the undo-send action). Errors if the
-    /// submission is unknown or already `final`/`canceled`.
-    async fn cancel_submission(&self, account_id: &str, id: &str, cancel: bool) -> Result<()> {
-        if !cancel {
-            return Ok(()); // update touched nothing we act on
-        }
-        let row = self
-            .store()
+    /// A submission of this account by id. One that belongs to another account
+    /// is reported exactly like one that does not exist.
+    async fn owned_submission(&self, account_id: &str, id: &str) -> Result<SubmissionRow> {
+        self.store()
             .get_submission(id)
             .await?
-            .ok_or_else(|| EngineError::Protocol(format!("unknown submission {id}")))?;
+            .filter(|row| row.account_id == account_id)
+            .ok_or_else(|| EngineError::Protocol(format!("unknown submission {id}")))
+    }
+
+    /// Cancel a still-pending submission (the undo-send action, and "Discard"
+    /// on a held one). Errors if the submission is unknown or already
+    /// `final`/`canceled`.
+    async fn cancel_submission(&self, account_id: &str, id: &str) -> Result<()> {
+        let row = self.owned_submission(account_id, id).await?;
         // Compare-and-set: a send that completed after the read above has already
         // made the row `final`, and a cancel must not overwrite that.
         if row.undo_status != SUBMISSION_PENDING
@@ -1832,6 +2037,102 @@ impl Engine {
         Ok(())
     }
 
+    /// Release a pending submission and send it now: the action behind the
+    /// Outbox "Send now" / "Release". Clears a manual hold, a `sendAt` and an
+    /// undo window alike, so one action means the same thing on every kind of
+    /// waiting row. Errors if the submission is unknown or no longer pending.
+    ///
+    /// Returns the properties the release and the send changed (the `updated`
+    /// entry), what filing did if the message was sent inside this call under
+    /// `onSuccess*` instructions, and the submission's email id. A send that SMTP does not accept is not an
+    /// error of the release: the row stays `pending` with a retry scheduled, or
+    /// becomes `failed`, exactly as it would from the dispatcher, and the
+    /// returned properties say which.
+    async fn release_submission(
+        &self,
+        account_id: &str,
+        id: &str,
+        on_success: Option<&OnSuccess>,
+    ) -> Result<(Value, Option<Filed>, String)> {
+        let row = self.owned_submission(account_id, id).await?;
+        let refused = |status: &str| {
+            EngineError::Protocol(format!(
+                "submission {id} is {} and cannot be released",
+                public_undo_status(status)
+            ))
+        };
+        if row.undo_status != SUBMISSION_PENDING {
+            return Err(refused(&row.undo_status));
+        }
+        if let Some(on_success) = on_success {
+            self.store()
+                .set_submission_on_success(id, Some(&on_success.to_json()))
+                .await?;
+        }
+        let held = self.store().get_submission_hold(id).await?;
+        // Whether the row carries `onSuccess*` instructions, from this call or
+        // from the one that created it.
+        let instructed = held.as_ref().is_some_and(|h| h.on_success.is_some());
+        // Compare-and-set on `pending`: a cancel that landed since the read
+        // above wins, and nothing is sent.
+        if !self.store().release_submission(id).await? {
+            let now = self
+                .store()
+                .get_submission(id)
+                .await?
+                .map_or(row.undo_status, |r| r.undo_status);
+            return Err(refused(&now));
+        }
+        self.record_change(
+            account_id,
+            ChangeType::EmailSubmission,
+            id,
+            ChangeOp::Updated,
+        )
+        .await?;
+        // Metadata only: which submission, which message, who had created it.
+        self.emit_audit(crate::v6::AuditEvent {
+            account_id: account_id.to_string(),
+            action: "submission.released".into(),
+            target: Some(id.to_string()),
+            detail: serde_json::json!({
+                "emailId": row.email_id,
+                "origin": held
+                    .and_then(|h| h.origin)
+                    .and_then(|o| serde_json::from_str::<Value>(&o).ok()),
+            }),
+        });
+
+        let filed = self
+            .attempt_submission(id, chrono::Utc::now())
+            .await?
+            .filter(|_| instructed);
+        let status = self
+            .store()
+            .get_submission(id)
+            .await?
+            .map_or_else(|| SUBMISSION_PENDING.to_string(), |r| r.undo_status);
+        let attempts = self
+            .store()
+            .get_submission_attempts(id)
+            .await?
+            .unwrap_or_default();
+        Ok((
+            json!({
+                "undoStatus": public_undo_status(&status),
+                "sendAt": null,
+                "mailwomanHoldSeconds": 0,
+                "mailwomanHold": null,
+                "mailwomanFailed": status == SUBMISSION_FAILED,
+                "mailwomanAttempts": attempts.attempts,
+                "mailwomanLastError": attempts.last_error,
+                "mailwomanNextAttemptAt": attempts.next_attempt_at,
+            }),
+            filed,
+            row.email_id,
+        ))
+    }
+
     /// `EmailSubmission/get` — fetch submissions by id (Outbox item detail).
     async fn submission_get(&self, account_id: &str, args: &Value) -> Value {
         let wanted: Option<Vec<String>> = args.get("ids").and_then(Value::as_array).map(|a| {
@@ -1848,6 +2149,10 @@ impl Engine {
             Ok(v) => v,
             Err(e) => return server_fail(&e),
         };
+        let holds = match self.store().list_submission_holds(account_id).await {
+            Ok(v) => v,
+            Err(e) => return server_fail(&e),
+        };
         let mut list = Vec::new();
         let mut found = Vec::new();
         for row in &rows {
@@ -1858,11 +2163,14 @@ impl Engine {
             }
             found.push(row.id.clone());
             let a = attempts.get(&row.id).cloned().unwrap_or_default();
+            let h = holds.get(&row.id).cloned().unwrap_or_default();
             list.push(submission_json(
                 row,
                 a.attempts,
                 a.last_error.as_deref(),
                 a.next_attempt_at.as_deref(),
+                h.hold.as_deref(),
+                h.origin.as_deref(),
             ));
         }
         let not_found: Vec<Value> = match &wanted {
@@ -2044,21 +2352,27 @@ impl Engine {
     ///
     /// 1. hand the draft to SMTP ([`Engine::transmit_draft`]);
     /// 2. the moment SMTP accepts it, record the submission `final`;
-    /// 3. only then file the Sent copy and remove the draft.
+    /// 3. only then file the message ([`Engine::file_after_send`]): apply the
+    ///    submission's `onSuccess*` instructions if it has any, else file a
+    ///    copy into Sent and remove the draft.
     ///
     /// `Err` means SMTP accepted nothing, so sending again cannot duplicate the
-    /// message; the caller decides whether to retry. `Ok` means it was delivered.
-    /// Step 3 is best-effort: a failure there is logged and kept on the row as
-    /// `last_error`, and never reaches the caller, because the only thing a
-    /// caller could do with it — treat the submission as unsent — is what used to
-    /// send the message again on every dispatcher pass.
+    /// message; the caller decides whether to retry. `Ok` means it was delivered,
+    /// and says what step 3 did. Step 3 is best-effort: a failure there is logged
+    /// and kept on the row as `last_error`, and never reaches the caller as an
+    /// error, because the only thing a caller could do with it — treat the
+    /// submission as unsent — is what used to send the message again on every
+    /// dispatcher pass.
+    ///
+    /// A caller must hold the submission's [`claim_send`] claim, so that the
+    /// inline path, a release and the dispatcher cannot each transmit one row.
     pub(crate) async fn send_submission(
         &self,
         sub_id: &str,
         account_id: &str,
         rt: &AccountRuntime,
         email_id: &str,
-    ) -> std::result::Result<(), NotSent> {
+    ) -> std::result::Result<Filed, NotSent> {
         let sent = self.transmit_draft(rt, email_id).await?;
         self.record_delivered(sub_id).await;
         if let Err(e) = self
@@ -2072,12 +2386,25 @@ impl Engine {
         {
             tracing::warn!("submission {sub_id} was sent; recording the change failed: {e}");
         }
-        if let Err(e) = self.file_sent_copy(account_id, rt, email_id, sent).await {
-            tracing::warn!(
-                "submission {sub_id} was sent; filing the Sent copy failed and will not be \
-                 retried: {e}"
-            );
-            let note = format!("sent, but filing the copy into Sent failed: {e}");
+        // The instructions are read only now: they describe what to do with a
+        // message that has been sent, and until this point it had not been.
+        let on_success = match self.store().get_submission_hold(sub_id).await {
+            Ok(held) => held
+                .and_then(|h| h.on_success)
+                .and_then(|json| OnSuccess::from_json(&json)),
+            Err(e) => {
+                tracing::warn!(
+                    "submission {sub_id} was sent; its onSuccess instructions could not be \
+                     read ({e}), filing a copy into Sent instead"
+                );
+                None
+            }
+        };
+        let (filed, problem) = self
+            .file_after_send(account_id, rt, email_id, sent, on_success.as_ref())
+            .await;
+        if let Some(note) = problem {
+            tracing::warn!("submission {sub_id} was {note}; filing will not be retried");
             if let Err(e) = self
                 .store()
                 .record_submission_filing_error(sub_id, &note)
@@ -2086,7 +2413,193 @@ impl Engine {
                 tracing::warn!("submission {sub_id}: could not record the filing error: {e}");
             }
         }
-        Ok(())
+        Ok(filed)
+    }
+
+    /// What happens to a message once SMTP has accepted it. Returns what was
+    /// done and, if any step failed, the note for the submission's
+    /// `last_error` (it always starts "sent, but"). Nothing here can cause the
+    /// message to be sent again.
+    ///
+    /// * `onSuccessDestroyEmail` — the Email is removed; no copy is kept.
+    /// * `onSuccessUpdateEmail` — the patch is applied to the Email itself,
+    ///   which keeps its id ([`Engine::apply_success_patch`]). If that fails,
+    ///   the default below runs instead, so a sent message is not left in
+    ///   Drafts looking unsent.
+    /// * neither — a copy is filed into Sent and the draft is removed
+    ///   ([`Engine::file_sent_copy`]).
+    async fn file_after_send(
+        &self,
+        account_id: &str,
+        rt: &AccountRuntime,
+        email_id: &str,
+        sent: Transmitted,
+        on_success: Option<&OnSuccess>,
+    ) -> (Filed, Option<String>) {
+        match on_success {
+            Some(OnSuccess { destroy: true, .. }) => (
+                Filed::Destroyed,
+                self.remove_local_email(account_id, email_id, &sent.draft_mailbox)
+                    .await
+                    .err()
+                    .map(|e| format!("sent, but removing the message afterwards failed: {e}")),
+            ),
+            Some(OnSuccess {
+                update: Some(patch),
+                ..
+            }) => match self
+                .apply_success_patch(account_id, rt, email_id, patch, &sent)
+                .await
+            {
+                Ok(None) => (Filed::Patched, None),
+                Ok(Some(upstream)) => (
+                    Filed::Patched,
+                    Some(format!(
+                        "sent, but filing the copy on the mail server failed: {upstream}"
+                    )),
+                ),
+                Err(e) => {
+                    let fallback = self.file_sent_copy(account_id, rt, email_id, sent).await;
+                    let mut note = format!(
+                        "sent, but onSuccessUpdateEmail could not be applied ({e}); a copy \
+                         was filed into Sent instead"
+                    );
+                    if let Err(e) = fallback {
+                        note = format!("{note}, and that failed too: {e}");
+                    }
+                    (Filed::SentCopy, Some(note))
+                }
+            },
+            _ => (
+                Filed::SentCopy,
+                self.file_sent_copy(account_id, rt, email_id, sent)
+                    .await
+                    .err()
+                    .map(|e| format!("sent, but filing the copy into Sent failed: {e}")),
+            ),
+        }
+    }
+
+    /// Apply an `onSuccessUpdateEmail` patch to a message SMTP has accepted.
+    /// The Email keeps its id: its keywords and engine-local metadata change
+    /// through [`Engine::update_email`], and a `mailboxIds` that names another
+    /// mailbox moves it there.
+    ///
+    /// A draft composed here is engine-local (`uidvalidity` 0): it is moved in
+    /// the cache without being given server coordinates it does not have, and
+    /// the sent bytes are then APPENDed to the destination folder upstream —
+    /// what [`Engine::file_sent_copy`] does for Sent — except on a
+    /// plugin-backed account, whose provider files its own copy. A message
+    /// that does exist upstream is moved there with [`Engine::move_email`].
+    ///
+    /// `Err` means the patch was not (fully) applied locally. `Ok(Some(e))`
+    /// means it was, and the upstream APPEND failed with `e`.
+    async fn apply_success_patch(
+        &self,
+        account_id: &str,
+        rt: &AccountRuntime,
+        email_id: &str,
+        patch: &Value,
+        sent: &Transmitted,
+    ) -> Result<Option<EngineError>> {
+        check_update_patch(patch).map_err(|e| EngineError::Protocol(e.to_string()))?;
+        let msg = self
+            .store()
+            .get_message(email_id)
+            .await
+            .map_err(EngineError::Store)?;
+        let (source_mailbox, uid, local) = (msg.mailbox_id.clone(), msg.uid, msg.uidvalidity == 0);
+        let dest = match move_target(patch, &msg.mailbox_id) {
+            Some(id) => Some(
+                self.store()
+                    .get_mailbox(&id)
+                    .await
+                    .ok()
+                    .filter(|m| m.account_id == account_id)
+                    .ok_or_else(|| EngineError::Protocol(format!("mailbox {id} not found")))?,
+            ),
+            None => None,
+        };
+
+        // Everything but the move goes through the ordinary update path, and
+        // its flags are on disk before the move: the unread counters are
+        // adjusted against the mailbox the message is in when they are written.
+        let mut rest = patch.clone();
+        if let Some(fields) = rest.as_object_mut() {
+            fields.remove("mailboxIds");
+        }
+        let mut index_patch = None;
+        if rest.as_object().is_some_and(|fields| !fields.is_empty()) {
+            let mut names = HashMap::new();
+            let mut pending_flags = Vec::new();
+            index_patch = self
+                .update_email(
+                    rt,
+                    email_id,
+                    &rest,
+                    Some(msg),
+                    &mut names,
+                    &mut pending_flags,
+                )
+                .await?;
+            let written = self.store().set_flags_batch(&pending_flags).await?;
+            if written.contains(&false) {
+                return Err(EngineError::Store(mw_store::StoreError::NotFound));
+            }
+        }
+
+        let mut recorded = false;
+        if let Some(dest) = &dest {
+            if local {
+                self.store()
+                    .relocate_message(email_id, &dest.id, uid, 0)
+                    .await?;
+                let _ = self.search().relocate(email_id, &dest.id);
+            } else {
+                // Records the Email and both Mailbox changes itself.
+                self.move_email(rt, email_id, &dest.id).await?;
+                recorded = true;
+            }
+        }
+        if let Some(mut index_patch) = index_patch {
+            index_patch.moved = dest.is_some();
+            self.reindex_messages(&[index_patch]).await;
+        }
+        if !recorded {
+            self.record_change(account_id, ChangeType::Email, email_id, ChangeOp::Updated)
+                .await?;
+            if let Some(dest) = &dest {
+                for mailbox_id in [source_mailbox.as_str(), dest.id.as_str()] {
+                    self.record_change(
+                        account_id,
+                        ChangeType::Mailbox,
+                        mailbox_id,
+                        ChangeOp::Updated,
+                    )
+                    .await?;
+                }
+            }
+        }
+
+        let Some(dest) = dest.filter(|_| local && !self.is_plugin_backed(account_id)) else {
+            return Ok(None);
+        };
+        let flags: Vec<Flag> = flags_from_json(
+            &self
+                .store()
+                .get_message(email_id)
+                .await
+                .map_err(EngineError::Store)?
+                .flags_json,
+        )
+        .into_iter()
+        .filter(|f| !matches!(f, Flag::Draft | Flag::Deleted | Flag::Recent))
+        .collect();
+        let folder = RawMailboxRef {
+            name: dest.name,
+            uidvalidity: 0,
+        };
+        Ok(tolerant(rt.backend.append(&folder, &sent.raw, &flags).await).err())
     }
 
     /// Record `final` for a submission SMTP has accepted.
@@ -2269,9 +2782,29 @@ impl Engine {
             Err(e) => keep(Err(e)),
         }
 
-        // Remove the original draft: drop it from the cache + index and record the
-        // Email destroyed change. A delivered message left sitting in Drafts
+        // Remove the original draft. A delivered message left sitting in Drafts
         // invites the user to send it again, so this runs however filing went.
+        keep(
+            self.remove_local_email(account_id, email_id, &sent.draft_mailbox)
+                .await,
+        );
+        first_err.map_or(Ok(()), Err)
+    }
+
+    /// Drop a message from the cache and the index and record the Email
+    /// destroyed change. Every step is attempted; the first error is returned.
+    async fn remove_local_email(
+        &self,
+        account_id: &str,
+        email_id: &str,
+        mailbox_id: &str,
+    ) -> Result<()> {
+        let mut first_err: Option<EngineError> = None;
+        let mut keep = |r: Result<()>| {
+            if let Err(e) = r {
+                first_err.get_or_insert(e);
+            }
+        };
         keep(
             self.store()
                 .delete_message(email_id)
@@ -2288,7 +2821,7 @@ impl Engine {
             self.record_change(
                 account_id,
                 ChangeType::Mailbox,
-                &sent.draft_mailbox,
+                mailbox_id,
                 ChangeOp::Updated,
             )
             .await
@@ -2925,6 +3458,205 @@ pub(crate) const SUBMISSION_PENDING: &str = "pending";
 /// Stored only; RFC 8621 clients see `canceled` (see [`public_undo_status`]).
 pub(crate) const SUBMISSION_FAILED: &str = "failed";
 
+/// The one value of a submission's `hold` column the engine writes: held until
+/// [`Engine::release_submission`]. Reading is stricter than writing — any
+/// non-null `hold` keeps a row from being sent (see `dispatcher.rs`).
+pub(crate) const HOLD_MANUAL: &str = "manual";
+
+/// What filing did with a message SMTP accepted ([`Engine::file_after_send`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Filed {
+    /// The default: a copy went into Sent and the draft was removed.
+    SentCopy,
+    /// `onSuccessUpdateEmail` was applied to the Email, which keeps its id.
+    Patched,
+    /// `onSuccessDestroyEmail`: the Email was removed.
+    Destroyed,
+}
+
+/// A created submission, as `EmailSubmission/set` reports it.
+struct CreatedSubmission {
+    id: String,
+    undo_status: &'static str,
+    /// The hold it was created with, if any (`"manual"`).
+    hold: Option<String>,
+    /// What filing did, when the message was sent inside the create.
+    filed: Option<Filed>,
+}
+
+/// The checked parts of a submission about to be enqueued.
+struct NewSubmission<'a> {
+    email_id: &'a str,
+    identity_id: Option<String>,
+    send_at: Option<String>,
+    hold_seconds: u32,
+    hold: Option<&'a str>,
+    origin: Option<&'a str>,
+    /// [`OnSuccess::to_json`].
+    on_success: Option<String>,
+}
+
+/// The RFC 8621 §7.5 `onSuccess*` instructions for one submission, as kept in
+/// the row's `on_success` column until the message is sent.
+#[derive(Debug, Clone, PartialEq)]
+struct OnSuccess {
+    /// The `onSuccessUpdateEmail` patch; [`check_update_patch`] accepted it.
+    update: Option<Value>,
+    /// Whether `onSuccessDestroyEmail` lists the submission.
+    destroy: bool,
+}
+
+impl OnSuccess {
+    fn to_json(&self) -> String {
+        json!({ "update": self.update, "destroy": self.destroy }).to_string()
+    }
+
+    fn from_json(stored: &str) -> Option<Self> {
+        let v: Value = serde_json::from_str(stored).ok()?;
+        let update = v.get("update").filter(|u| !u.is_null()).cloned();
+        let destroy = v.get("destroy").and_then(Value::as_bool).unwrap_or(false);
+        (update.is_some() || destroy).then_some(Self { update, destroy })
+    }
+}
+
+/// The `onSuccess*` instructions an `EmailSubmission/set` call gives for the
+/// submission it names `key` — `#<creationId>` for a create, the id for an
+/// update. `Ok(None)` when it gives none. `Err` is the SetError for that
+/// submission: a patch `Email/set` could not apply would otherwise be found
+/// out only after the message had been sent.
+fn on_success_for(args: &Value, key: &str) -> std::result::Result<Option<OnSuccess>, Value> {
+    let update = args
+        .get("onSuccessUpdateEmail")
+        .and_then(|m| m.get(key))
+        .filter(|patch| !patch.is_null())
+        .cloned();
+    let destroy = args
+        .get("onSuccessDestroyEmail")
+        .and_then(Value::as_array)
+        .is_some_and(|ids| ids.iter().any(|id| id.as_str() == Some(key)));
+    let invalid = |why: &str| {
+        json!({
+            "type": "invalidProperties",
+            "properties": ["onSuccessUpdateEmail"],
+            "description": format!("onSuccessUpdateEmail[{key:?}]: {why}"),
+        })
+    };
+    if let Some(patch) = &update {
+        if destroy {
+            return Err(invalid(
+                "the same submission is also listed in onSuccessDestroyEmail",
+            ));
+        }
+        check_update_patch(patch).map_err(|e| {
+            invalid(&format!(
+                "{} {}",
+                e.get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default(),
+                e.get("properties").unwrap_or(&Value::Null)
+            ))
+        })?;
+    }
+    Ok((update.is_some() || destroy).then_some(OnSuccess { update, destroy }))
+}
+
+/// The `mailwomanHold` of an `EmailSubmission/set` create spec: absent or
+/// `null` is no hold, `"manual"` is [`HOLD_MANUAL`], anything else is `Err`
+/// with the `invalidProperties` SetError. An unknown hold is refused, never
+/// read as "no hold", which would send the message.
+fn checked_hold(spec: &Value) -> std::result::Result<Option<&'static str>, Value> {
+    match spec.get("mailwomanHold") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(s)) if s == HOLD_MANUAL => Ok(Some(HOLD_MANUAL)),
+        Some(other) => Err(json!({
+            "type": "invalidProperties",
+            "properties": ["mailwomanHold"],
+            "description": format!("mailwomanHold: {other} is not a hold; the only one is \"manual\""),
+        })),
+    }
+}
+
+/// What an `EmailSubmission/set` update asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SubmissionUpdate {
+    /// `{undoStatus: "canceled"}`.
+    Cancel,
+    /// `{sendAt: null, mailwomanHoldSeconds: 0}` and/or `{mailwomanHold: null}`.
+    Release,
+}
+
+/// Read an `EmailSubmission/set` update patch. `Err` is the SetError for the
+/// id's `notUpdated` entry.
+///
+/// An update can cancel a submission or release it, and nothing else: it
+/// cannot reschedule one, put a hold on one, or change its message. A patch
+/// that asks for anything else is refused by name. Before 26.20 only
+/// `undoStatus: "canceled"` was read and every other patch was reported as
+/// `updated` with nothing done — which is what the Outbox "Send now" got.
+fn submission_update_action(patch: &Value) -> std::result::Result<SubmissionUpdate, Value> {
+    let invalid = |properties: Vec<&str>, why: &str| {
+        json!({
+            "type": "invalidProperties",
+            "properties": properties,
+            "description": why,
+        })
+    };
+    let Some(fields) = patch.as_object().filter(|o| !o.is_empty()) else {
+        return Err(json!({
+            "type": "invalidPatch",
+            "description": "the update names no property to change",
+        }));
+    };
+    let unknown: Vec<&str> = fields
+        .keys()
+        .map(String::as_str)
+        .filter(|k| {
+            !matches!(
+                *k,
+                "undoStatus" | "sendAt" | "mailwomanHoldSeconds" | "mailwomanHold"
+            )
+        })
+        .collect();
+    if !unknown.is_empty() {
+        return Err(invalid(
+            unknown,
+            "EmailSubmission/set update cannot apply these properties",
+        ));
+    }
+    if let Some(status) = fields.get("undoStatus") {
+        if status.as_str() == Some("canceled") && fields.len() == 1 {
+            return Ok(SubmissionUpdate::Cancel);
+        }
+        return Err(invalid(
+            vec!["undoStatus"],
+            "the only undoStatus an update can set is \"canceled\", and a cancel changes nothing else",
+        ));
+    }
+    let not_a_release: Vec<&str> = fields
+        .iter()
+        .filter(|(k, v)| match k.as_str() {
+            "mailwomanHoldSeconds" => v.as_u64() != Some(0),
+            _ => !v.is_null(),
+        })
+        .map(|(k, _)| k.as_str())
+        .collect();
+    if !not_a_release.is_empty() {
+        return Err(invalid(
+            not_a_release,
+            "an update can release a submission (sendAt: null with mailwomanHoldSeconds: 0, or \
+             mailwomanHold: null); it cannot reschedule it or put a hold on it",
+        ));
+    }
+    let timers = fields.contains_key("sendAt") && fields.contains_key("mailwomanHoldSeconds");
+    if timers || fields.contains_key("mailwomanHold") {
+        return Ok(SubmissionUpdate::Release);
+    }
+    Err(invalid(
+        fields.keys().map(String::as_str).collect(),
+        "a release names sendAt: null together with mailwomanHoldSeconds: 0, or mailwomanHold: null",
+    ))
+}
+
 /// Why a dispatch attempt delivered nothing. Only this outcome may lead to the
 /// message being handed to SMTP again.
 #[derive(Debug)]
@@ -2966,6 +3698,40 @@ pub(crate) fn accepted_unrecorded() -> &'static std::sync::Mutex<std::collection
     static SET: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> =
         std::sync::OnceLock::new();
     SET.get_or_init(Default::default)
+}
+
+/// The right to hand one submission to SMTP, held for as long as the value
+/// lives. See [`claim_send`].
+pub(crate) struct SendClaim(String);
+
+impl Drop for SendClaim {
+    fn drop(&mut self) {
+        sends_in_flight()
+            .lock()
+            .expect("sends-in-flight lock")
+            .remove(&self.0);
+    }
+}
+
+fn sends_in_flight() -> &'static std::sync::Mutex<std::collections::HashSet<String>> {
+    static SET: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+        std::sync::OnceLock::new();
+    SET.get_or_init(Default::default)
+}
+
+/// Claim the right to transmit submission `id`, or `None` if another task in
+/// this process holds it. Three paths can reach SMTP for one row — the inline
+/// send of a create, a release, and the dispatcher scan — and the row stays
+/// `pending` for as long as SMTP is in flight, so the status alone cannot keep
+/// two of them apart. Each claims first; the loser skips, and finds the row
+/// `final` (or backed off) when it next looks. Keyed by submission id, which is
+/// random per row. In-process only, like [`accepted_unrecorded`].
+pub(crate) fn claim_send(id: &str) -> Option<SendClaim> {
+    sends_in_flight()
+        .lock()
+        .expect("sends-in-flight lock")
+        .insert(id.to_string())
+        .then(|| SendClaim(id.to_string()))
 }
 
 fn tolerant<T>(res: Result<T>) -> Result<Option<T>> {
@@ -3073,11 +3839,22 @@ fn now_rfc3339() -> String {
 ///   SMTP accepted nothing, and when the next one is due.
 /// * `mailwomanLastError` — the latest failure. On a `final` row the message WAS
 ///   delivered and this names what went wrong filing the Sent copy.
+///
+/// and its hold (0031):
+///
+/// * `mailwomanHold` — `"manual"` while the submission waits for a release;
+///   `null` otherwise, including once it has been released, sent or canceled.
+/// * `mailwomanOrigin` — `{kind, name}` when something other than the owner's
+///   own client created it (`kind: "apiKey"`, `name`: the key's prefix), else
+///   `null`. Kept after a release, so the Outbox can still say where a sent
+///   message came from.
 fn submission_json(
     row: &SubmissionRow,
     attempts: u32,
     last_error: Option<&str>,
     next_attempt_at: Option<&str>,
+    hold: Option<&str>,
+    origin: Option<&str>,
 ) -> Value {
     json!({
         "id": row.id,
@@ -3086,6 +3863,8 @@ fn submission_json(
         "sendAt": row.send_at,
         "undoStatus": public_undo_status(&row.undo_status),
         "mailwomanHoldSeconds": row.hold_seconds,
+        "mailwomanHold": hold.filter(|_| row.undo_status == SUBMISSION_PENDING),
+        "mailwomanOrigin": origin.and_then(|o| serde_json::from_str::<Value>(o).ok()),
         "mailwomanFailed": row.undo_status == SUBMISSION_FAILED,
         "mailwomanAttempts": attempts,
         "mailwomanLastError": last_error,
