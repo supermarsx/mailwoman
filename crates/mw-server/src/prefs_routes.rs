@@ -27,6 +27,9 @@
 //!   account on the EXISTING `settings` key/value store — no table, no migration
 //!   (t19 DQ-4). See the appearance section below for why the server keeps the
 //!   payload opaque.
+//! * The read-receipt policy (t29-e9) is one word per account on the same
+//!   `settings` store, under the key the engine reads when `MDN/send` is asked
+//!   to send without the user's confirmation.
 
 use axum::Json;
 use axum::Router;
@@ -471,6 +474,79 @@ fn serialized_len(v: &serde_json::Value) -> usize {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Read-receipt policy (t29-e9)
+//
+// `ask` (the default), `never` or `always`: what the account wants done when a
+// message it opens asks for a read receipt. The reader is the engine
+// (`mw_engine::Engine::mdn_policy`, consulted by `MDN/send`): only `always`
+// lets a receipt go without the user confirming it, and then only for a
+// request that names the message's own return path and is not list mail.
+// `never` and `ask` differ for the client alone (whether it shows the request
+// as a prompt); neither stops a receipt the user asks for by hand.
+//
+// The key and the accepted words are the engine's (`Engine::mdn_policy_key`,
+// `Engine::MDN_POLICIES`), so the route cannot store a word the reader does not
+// know. A proxy-mode server has no engine and no `MDN/send` of this kind:
+// there the route answers 404 rather than store a preference nothing reads.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `GET`/`PUT /api/account/mdn-policy` body.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct MdnPolicyDto {
+    policy: String,
+}
+
+/// The 404 a server without an engine answers the policy routes with.
+fn no_mdn_policy() -> Response {
+    not_found("read receipts are not available: this server relays another JMAP server")
+}
+
+async fn mdn_policy_get(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let account = match account_id(&state, &headers).await {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    let Some(engine) = &state.engine else {
+        return no_mdn_policy();
+    };
+    match engine.mdn_policy(&account).await {
+        Ok(policy) => Json(MdnPolicyDto {
+            policy: policy.to_string(),
+        })
+        .into_response(),
+        Err(e) => {
+            tracing::error!("prefs: get mdn policy failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "server error").into_response()
+        }
+    }
+}
+
+async fn mdn_policy_put(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<MdnPolicyDto>,
+) -> Response {
+    let account = match account_id(&state, &headers).await {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    if state.engine.is_none() {
+        return no_mdn_policy();
+    }
+    if !mw_engine::Engine::MDN_POLICIES.contains(&body.policy.as_str()) {
+        return bad_request("policy must be one of: ask, never, always");
+    }
+    match state
+        .store
+        .set_setting(&mw_engine::Engine::mdn_policy_key(&account), &body.policy)
+        .await
+    {
+        Ok(()) => Json(json!({ "ok": true, "policy": body.policy })).into_response(),
+        Err(e) => server_error("put mdn policy", e),
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Store-scoped operations (account id is authoritative; unit-tested directly)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -763,6 +839,11 @@ pub(crate) fn prefs_router() -> Router<AppState> {
             get(appearance_get)
                 .put(appearance_put)
                 .delete(appearance_delete),
+        )
+        // t29-e9: the read-receipt policy `MDN/send` reads (engine mode only).
+        .route(
+            "/api/account/mdn-policy",
+            get(mdn_policy_get).put(mdn_policy_put),
         )
 }
 
