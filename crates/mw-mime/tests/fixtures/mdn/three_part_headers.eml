@@ -1,0 +1,40 @@
+Return-Path: <>
+Message-ID: <5f0c1c9e-7d0e-4c51-9d0b-2f1c6a1b7e11@example.net>
+Date: Mon, 5 Oct 2026 09:12:44 +0200
+From: Bob Example <bob@example.net>
+To: alice@example.org
+Subject: Return Receipt (displayed) - Lunch on Friday
+MIME-Version: 1.0
+Content-Type: multipart/report; report-type=disposition-notification;
+ boundary="------------mdn030905060108000407020309"
+
+--------------mdn030905060108000407020309
+Content-Type: text/plain; charset=UTF-8; format=flowed
+Content-Transfer-Encoding: 8bit
+
+This is a Return Receipt for the mail that you sent to bob@example.net.
+
+Note: This Return Receipt only acknowledges that the message was displayed on the recipient's computer. There is no guarantee that the recipient has read or understood the message contents.
+
+--------------mdn030905060108000407020309
+Content-Type: message/disposition-notification; name="MDNPart2.txt"
+Content-Disposition: inline
+Content-Transfer-Encoding: 7bit
+
+Reporting-UA: Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Thunderbird/128.3.0
+Final-Recipient: rfc822;bob@example.net
+Original-Message-ID: <compose-77@example.org>
+Disposition: manual-action/MDN-sent-manually; displayed
+
+--------------mdn030905060108000407020309
+Content-Type: text/rfc822-headers; name="MDNPart3.txt"
+Content-Transfer-Encoding: 7bit
+Content-Disposition: inline
+
+Message-ID: <compose-77@example.org>
+From: alice@example.org
+To: bob@example.net
+Subject: Lunch on Friday
+Disposition-Notification-To: alice@example.org
+
+--------------mdn030905060108000407020309--

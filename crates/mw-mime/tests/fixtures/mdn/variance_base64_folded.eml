@@ -1,0 +1,26 @@
+From: "Carol (Sales)" <carol@corp.example>
+To: <alice@example.org>
+Subject: Read: Quarterly numbers
+Thread-Topic: Quarterly numbers
+Date: Mon, 5 Oct 2026 07:01:02 +0000
+Message-ID: <DB7PR0101MB1234.eurprd01.prod.example.com>
+Content-Type: multipart/report;
+	boundary="_000_DB7PR0101MB1234eurprd01prodexamplecom_";
+	report-type=disposition-notification
+MIME-Version: 1.0
+
+--_000_DB7PR0101MB1234eurprd01prodexamplecom_
+Content-Type: text/plain; charset="us-ascii"
+
+Your message was read on Monday, October 5, 2026 7:01:02 AM UTC.
+
+--_000_DB7PR0101MB1234eurprd01prodexamplecom_
+Content-Type: message/disposition-notification
+Content-Transfer-Encoding: base64
+
+RmluYWwtcmVjaXBpZW50OiBSRkM4MjI7IGNhcm9sQGNvcnAuZXhhbXBsZQ0KRGlzcG9zaXRpb246
+IGF1dG9tYXRpYy1hY3Rpb24vTUROLXNlbnQtYXV0b21hdGljYWxseTsNCiBkaXNwbGF5ZWQNClgt
+TVNFeGNoLUNvcnJlbGF0aW9uLUtleTogQUJDREVGPT0NCk9yaWdpbmFsLU1lc3NhZ2UtSUQ6DQog
+PGNvbXBvc2UtOTFAZXhhbXBsZS5vcmc+DQpYLURpc3BsYXktTmFtZTogQ2Fyb2wNCg==
+
+--_000_DB7PR0101MB1234eurprd01prodexamplecom_--
