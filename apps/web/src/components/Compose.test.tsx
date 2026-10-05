@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@solidjs/testing-library';
+import { Suspense } from 'solid-js';
 import { Compose } from './Compose.tsx';
 import { renderWithApp, makeClient } from './appHarness.tsx';
 import { createAppState } from '../state/store.ts';
@@ -583,6 +584,33 @@ describe('Compose', () => {
   });
 
   // ── W9 / W10 / W12: drawers + signature picker ───────────────────────────────
+
+  it('typing in the body does not suspend anything outside the crypto panel', async () => {
+    // The shell renders the mailbox under a Suspense boundary (LazyRoute in
+    // App.tsx). The crypto panel's DLP scan goes pending on every body change;
+    // if that reached the outer boundary, the composer would leave the document
+    // mid-keystroke and the field being typed in would lose focus.
+    const app = createAppState(makeClient());
+    render(() => (
+      <AppContext.Provider value={app}>
+        <Suspense fallback={<p data-testid="outer-fallback" />}>
+          <Compose onClose={() => undefined} />
+        </Suspense>
+      </AppContext.Provider>
+    ));
+    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    fireEvent.click(screen.getByTestId('format-toggle')); // plain text
+    const body = screen.getByLabelText('Body');
+    expect(screen.queryByTestId('outer-fallback')).toBeNull();
+
+    fireEvent.input(body, { target: { value: 'h' } });
+    // Checked at once: the scan is pending right now.
+    expect(screen.queryByTestId('outer-fallback')).toBeNull();
+    expect(body.isConnected).toBe(true);
+    fireEvent.input(screen.getByLabelText('To'), { target: { value: 'you@example.org' } });
+    expect(screen.queryByTestId('outer-fallback')).toBeNull();
+    expect(body.isConnected).toBe(true);
+  });
 
   it('opens the Drafts drawer from the header', () => {
     renderWithApp(() => <Compose onClose={() => undefined} />);
