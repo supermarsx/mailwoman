@@ -19,7 +19,7 @@
 
 use sha2::{Digest, Sha256};
 
-use crate::backend::{Dialect, q};
+use crate::backend::q;
 use crate::{Store, StoreError};
 
 fn unix_now() -> i64 {
@@ -689,35 +689,252 @@ impl Store {
         Ok(n)
     }
 
-    /// Delete every stored session whose login `username` equals `username`,
-    /// compared with ASCII case folded, together with the `native_sessions` marker
-    /// of each. Returns the number of `sessions` rows removed.
+    /// The one folding of an account name used wherever two spellings of a name
+    /// must compare equal — the admin flag key, the names an account is known by,
+    /// and the session revoke: surrounding whitespace removed, lowercased.
+    pub fn fold_account_name(name: &str) -> String {
+        name.trim().to_lowercase()
+    }
+
+    /// Write `value` under `key` only if the stored value is still `expected`
+    /// (`None`: only if the key is absent). Returns whether the write happened.
+    ///
+    /// Each arm is one statement, so the comparison and the write cannot be
+    /// separated by another writer on either backend. This is what a
+    /// read-modify-write of a `settings` record loops on instead of holding a
+    /// transaction across the read (see [`record_change`](Self::record_change) for
+    /// why a read-then-upgrade transaction is avoided on SQLite).
+    pub async fn compare_and_set_setting(
+        &self,
+        key: &str,
+        expected: Option<&str>,
+        value: &str,
+    ) -> Result<bool, StoreError> {
+        let n = match expected {
+            Some(old) => {
+                q("UPDATE settings SET value = ?3 WHERE key = ?1 AND value = ?2")
+                    .bind(key)
+                    .bind(old)
+                    .bind(value)
+                    .execute(&self.backend)
+                    .await?
+            }
+            None => {
+                q("INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO NOTHING")
+                    .bind(key)
+                    .bind(value)
+                    .execute(&self.backend)
+                    .await?
+            }
+        };
+        Ok(n == 1)
+    }
+
+    /// Record that the account `account_id` is known by each of `names` (folded
+    /// with [`fold_account_name`](Self::fold_account_name)). Names already recorded
+    /// are kept; the record holds at most [`ACCOUNT_NAMES_MAX`] names and further
+    /// ones are not added.
+    ///
+    /// A session row carries the name the upstream reported and, sealed, the name
+    /// the credentials were presented under, but it is deleted at logout and on
+    /// revoke. This record outlives the sessions, so a credential that carries
+    /// only the account id (an API key, an OAuth token) can still be matched to
+    /// the names an admin may have flagged. It lives in `settings`; no table of
+    /// its own.
+    pub async fn remember_account_names(
+        &self,
+        account_id: &str,
+        names: &[&str],
+    ) -> Result<(), StoreError> {
+        if account_id.is_empty() {
+            return Ok(());
+        }
+        let key = account_names_key(account_id);
+        for _ in 0..SETTING_SWAP_ATTEMPTS {
+            let current = self.get_setting(&key).await?;
+            let mut known = match &current {
+                Some(raw) => parse_account_names(raw)?,
+                None => Vec::new(),
+            };
+            let before = known.len();
+            for name in names {
+                let folded = Self::fold_account_name(name);
+                if !folded.is_empty() && !known.contains(&folded) && known.len() < ACCOUNT_NAMES_MAX
+                {
+                    known.push(folded);
+                }
+            }
+            if known.len() == before {
+                return Ok(());
+            }
+            let json = serde_json::to_string(&known)
+                .map_err(|e| StoreError::Corrupt(format!("account names: {e}")))?;
+            if self
+                .compare_and_set_setting(&key, current.as_deref(), &json)
+                .await?
+            {
+                return Ok(());
+            }
+        }
+        Err(StoreError::Corrupt(format!(
+            "account names record changed under {SETTING_SWAP_ATTEMPTS} successive writes"
+        )))
+    }
+
+    /// The folded names recorded for `account_id` by
+    /// [`remember_account_names`](Self::remember_account_names). Empty when none.
+    pub async fn account_names(&self, account_id: &str) -> Result<Vec<String>, StoreError> {
+        if account_id.is_empty() {
+            return Ok(Vec::new());
+        }
+        match self.get_setting(&account_names_key(account_id)).await? {
+            Some(raw) => parse_account_names(&raw),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    /// The ids of the accounts known by `name`, compared after
+    /// [`fold_account_name`](Self::fold_account_name). An account is known by:
+    ///
+    /// * its id,
+    /// * the `username` of an `accounts` row (engine mode),
+    /// * a name recorded with [`remember_account_names`](Self::remember_account_names),
+    /// * the `username` of one of its sessions, and
+    /// * the name its session's credentials were presented under (sealed in the
+    ///   session row; a row that does not open under this key is skipped — it
+    ///   cannot be used as a session either).
+    ///
+    /// Reads every `accounts` and `sessions` row and every names record, so it is
+    /// for the admin's disable and revoke, not for a request path.
+    pub async fn account_ids_known_by(&self, name: &str) -> Result<Vec<String>, StoreError> {
+        let wanted = Self::fold_account_name(name);
+        let mut ids: Vec<String> = Vec::new();
+        if wanted.is_empty() {
+            return Ok(ids);
+        }
+        let mut add = |id: String| {
+            if !id.is_empty() && !ids.contains(&id) {
+                ids.push(id);
+            }
+        };
+        for row in q("SELECT id, username FROM accounts")
+            .fetch_all(&self.backend)
+            .await?
+        {
+            let id = row.get_string("id");
+            if Self::fold_account_name(&row.get_string("username")) == wanted
+                || Self::fold_account_name(&id) == wanted
+            {
+                add(id);
+            }
+        }
+        let like = format!("{ACCOUNT_NAMES_PREFIX}%");
+        for row in q("SELECT key, value FROM settings WHERE key LIKE ?1")
+            .bind(like.as_str())
+            .fetch_all(&self.backend)
+            .await?
+        {
+            let key = row.get_string("key");
+            let Some(id) = key.strip_prefix(ACCOUNT_NAMES_PREFIX) else {
+                continue;
+            };
+            if parse_account_names(&row.get_string("value"))?.contains(&wanted) {
+                add(id.to_string());
+            }
+        }
+        for row in q("SELECT account_id, username, sealed_creds FROM sessions")
+            .fetch_all(&self.backend)
+            .await?
+        {
+            let account_id = row.get_string("account_id");
+            let presented = self
+                .key
+                .open(&row.get_blob("sealed_creds"))
+                .ok()
+                .and_then(|bytes| crate::decode_creds(&bytes).ok())
+                .map(|c| c.username);
+            if Self::fold_account_name(&row.get_string("username")) == wanted
+                || Self::fold_account_name(&account_id) == wanted
+                || presented.is_some_and(|p| Self::fold_account_name(&p) == wanted)
+            {
+                add(account_id);
+            }
+        }
+        Ok(ids)
+    }
+
+    /// Delete every stored session of every account known by `username` (see
+    /// [`account_ids_known_by`](Self::account_ids_known_by)), together with the
+    /// `native_sessions` marker of each, and every session that has no account id
+    /// and carries the name itself. Returns the number of `sessions` rows removed.
     ///
     /// The admin surface names an account as `username@domain`, while
     /// `sessions.account_id` is a store-generated id (engine mode) or the upstream's
     /// account id (proxy mode), so [`delete_sessions_for_account`](Self::delete_sessions_for_account)
-    /// given the admin's name matches nothing in those modes. The login name is the
-    /// one column the two share.
+    /// given the admin's name matches nothing in those modes.
     ///
-    /// The case fold is spelled the same way as in
-    /// [`account_id_by_identity`](Self::account_id_by_identity), for the same reason:
-    /// SQLite's `lower()` folds ASCII only and Postgres' folds by locale.
+    /// Matching the session's own `username` column is not enough either: in proxy
+    /// mode that column holds the name the upstream reported, which can differ
+    /// from the one the user typed and the admin knows. So the name is resolved to
+    /// account ids first and every session of those accounts goes, whatever name
+    /// it was opened under. The names on the deleted rows are recorded against the
+    /// account ([`remember_account_names`](Self::remember_account_names)) before
+    /// the rows go.
     ///
     /// A native marker is keyed by the lowercase hex SHA-256 of the session id (the
     /// bearer token), which is what `mw-server` writes into `native_sessions.token_hash`.
     pub async fn delete_sessions_for_username(&self, username: &str) -> Result<u64, StoreError> {
-        let select = match self.backend.dialect() {
-            Dialect::Sqlite => "SELECT id FROM sessions WHERE lower(username) = lower(?1)",
-            Dialect::Postgres => {
-                "SELECT id FROM sessions
-                 WHERE translate(username, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')
-                     = translate(?1, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')"
+        let wanted = Self::fold_account_name(username);
+        if wanted.is_empty() {
+            return Ok(0);
+        }
+        let accounts = self.account_ids_known_by(username).await?;
+        let mut doomed: Vec<String> = Vec::new();
+        // The names on the rows that are about to go, per account. A session
+        // opened before names were recorded keeps its two names nowhere else, so
+        // they are recorded first: the account's keys and tokens can then still
+        // be matched to the name the admin used.
+        let mut names: Vec<(String, Vec<String>)> = Vec::new();
+        for row in q("SELECT id, account_id, username, sealed_creds FROM sessions")
+            .fetch_all(&self.backend)
+            .await?
+        {
+            let account_id = row.get_string("account_id");
+            let reported = row.get_string("username");
+            let presented = self
+                .key
+                .open(&row.get_blob("sealed_creds"))
+                .ok()
+                .and_then(|bytes| crate::decode_creds(&bytes).ok())
+                .map(|c| c.username);
+            // A session without an account id belongs to no account in
+            // `accounts`; it is matched on its own two names.
+            let named = Self::fold_account_name(&reported) == wanted
+                || presented
+                    .as_deref()
+                    .is_some_and(|p| Self::fold_account_name(p) == wanted);
+            if !(named || accounts.contains(&account_id)) {
+                continue;
             }
-        };
-        let rows = q(select).bind(username).fetch_all(&self.backend).await?;
+            doomed.push(row.get_string("id"));
+            if !account_id.is_empty() {
+                let at = match names.iter().position(|(id, _)| *id == account_id) {
+                    Some(at) => at,
+                    None => {
+                        names.push((account_id, Vec::new()));
+                        names.len() - 1
+                    }
+                };
+                names[at].1.push(reported);
+                names[at].1.extend(presented);
+            }
+        }
+        for (account_id, known) in &names {
+            let known: Vec<&str> = known.iter().map(String::as_str).collect();
+            self.remember_account_names(account_id, &known).await?;
+        }
         let mut removed = 0u64;
-        for row in rows {
-            let id = row.get_string("id");
+        for id in doomed {
             let token_hash: String = Sha256::digest(id.as_bytes())
                 .iter()
                 .map(|b| format!("{b:02x}"))
@@ -822,6 +1039,27 @@ impl Store {
             })
             .collect())
     }
+}
+
+/// The `settings` key prefix of the names an account is known by.
+const ACCOUNT_NAMES_PREFIX: &str = "v6:account:names:";
+
+/// The most names one account's record holds. A mail server that accepts any
+/// number of spellings for one mailbox must not be able to grow the record
+/// without bound.
+pub const ACCOUNT_NAMES_MAX: usize = 32;
+
+/// How many times a compare-and-set of a `settings` record is retried when
+/// another writer got in between the read and the write.
+const SETTING_SWAP_ATTEMPTS: usize = 16;
+
+fn account_names_key(account_id: &str) -> String {
+    format!("{ACCOUNT_NAMES_PREFIX}{account_id}")
+}
+
+fn parse_account_names(raw: &str) -> Result<Vec<String>, StoreError> {
+    serde_json::from_str(raw)
+        .map_err(|e| StoreError::Corrupt(format!("account names are not valid JSON: {e}")))
 }
 
 fn webhook_from_row(r: &crate::backend::Row) -> WebhookRow {
@@ -1018,8 +1256,16 @@ mod tests {
             s.delete_sessions_for_username(&alice_lower).await.unwrap(),
             0
         );
-        // Leave a shared database as it was found.
+        // Leave a shared database as it was found: the sessions, and the names
+        // the revoke recorded for the two accounts.
         assert_eq!(s.delete_sessions_for_username(&bob_name).await.unwrap(), 1);
+        for acct in [&alice_acct, &bob_acct] {
+            q("DELETE FROM settings WHERE key = ?1")
+                .bind(account_names_key(acct))
+                .execute(&s.backend)
+                .await
+                .unwrap();
+        }
     }
 
     #[tokio::test]
@@ -1048,6 +1294,143 @@ mod tests {
             .await
             .expect("DATABASE_URL_PG is set but Postgres is not reachable");
         assert_delete_by_username(&s).await;
+    }
+
+    /// O1 (t27-f1): the admin's name for an account may be the one the user typed,
+    /// which a proxy-mode session keeps only inside its sealed credentials. The
+    /// revoke must find the account through it and take every session of that
+    /// account, including one opened under another name.
+    #[tokio::test]
+    async fn revoke_by_the_presented_name_takes_every_session_of_the_account() {
+        use crate::Credentials;
+        let s = store().await;
+        let creds = |name: &str| Credentials {
+            username: name.into(),
+            password: "p".into(),
+        };
+        // The upstream reports `alice@example.org`; the user typed `Alice`.
+        let typed = s
+            .create_session("up-1", "alice@example.org", "u", "u", &creds("Alice"))
+            .await
+            .unwrap();
+        // A second session of the same account, opened under the reported name.
+        let other = s
+            .create_session(
+                "up-1",
+                "alice@example.org",
+                "u",
+                "u",
+                &creds("alice@example.org"),
+            )
+            .await
+            .unwrap();
+        let bob = s
+            .create_session("up-2", "bob@example.org", "u", "u", &creds("bob"))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            s.account_ids_known_by(" ALICE ").await.unwrap(),
+            vec!["up-1".to_string()]
+        );
+        assert_eq!(s.delete_sessions_for_username("alice").await.unwrap(), 2);
+        assert!(s.get_session(&typed).await.is_err());
+        assert!(s.get_session(&other).await.is_err());
+        assert!(s.get_session(&bob).await.is_ok(), "another account is kept");
+        // The deleted sessions' names were recorded, so the account is still
+        // found by either after its sessions are gone.
+        assert_eq!(
+            s.account_names("up-1").await.unwrap(),
+            vec!["alice@example.org".to_string(), "alice".to_string()]
+        );
+        assert_eq!(
+            s.account_ids_known_by("alice").await.unwrap(),
+            vec!["up-1".to_string()]
+        );
+        assert!(s.account_names("up-2").await.unwrap().is_empty());
+
+        // A session with no account id (an upstream that names no mail account)
+        // is matched on its own names and is not one account with the others.
+        let carol = s
+            .create_session("", "carol@example.org", "u", "u", &creds("carol"))
+            .await
+            .unwrap();
+        let dave = s
+            .create_session("", "dave@example.org", "u", "u", &creds("dave"))
+            .await
+            .unwrap();
+        assert_eq!(s.delete_sessions_for_username("CAROL").await.unwrap(), 1);
+        assert!(s.get_session(&carol).await.is_err());
+        assert!(s.get_session(&dave).await.is_ok());
+    }
+
+    /// The names record outlives the sessions and resolves a name back to the
+    /// account; it is folded, de-duplicated and capped.
+    #[tokio::test]
+    async fn account_names_are_merged_folded_and_capped() {
+        let s = store().await;
+        assert!(s.account_names("up-1").await.unwrap().is_empty());
+        s.remember_account_names("up-1", &["Alice", " alice@Example.org ", ""])
+            .await
+            .unwrap();
+        s.remember_account_names("up-1", &["ALICE", "al"])
+            .await
+            .unwrap();
+        assert_eq!(
+            s.account_names("up-1").await.unwrap(),
+            vec![
+                "alice".to_string(),
+                "alice@example.org".to_string(),
+                "al".to_string()
+            ]
+        );
+        // No session and no `accounts` row exists: the record alone resolves it.
+        assert_eq!(
+            s.account_ids_known_by("Alice@example.org").await.unwrap(),
+            vec!["up-1".to_string()]
+        );
+        assert!(s.account_ids_known_by("bob").await.unwrap().is_empty());
+        // An empty account id records nothing.
+        s.remember_account_names("", &["ghost"]).await.unwrap();
+        assert!(s.account_ids_known_by("ghost").await.unwrap().is_empty());
+
+        let many: Vec<String> = (0..ACCOUNT_NAMES_MAX + 8)
+            .map(|i| format!("n{i}"))
+            .collect();
+        let many: Vec<&str> = many.iter().map(String::as_str).collect();
+        s.remember_account_names("up-1", &many).await.unwrap();
+        let kept = s.account_names("up-1").await.unwrap();
+        assert_eq!(kept.len(), ACCOUNT_NAMES_MAX);
+        assert_eq!(kept[0], "alice", "earlier names are not displaced");
+    }
+
+    /// O5 (t27-f1): the write happens only over the value the caller read.
+    #[tokio::test]
+    async fn compare_and_set_setting_refuses_a_stale_expectation() {
+        let s = store().await;
+        assert!(s.compare_and_set_setting("k", None, "v1").await.unwrap());
+        assert!(
+            !s.compare_and_set_setting("k", None, "v2").await.unwrap(),
+            "absent was expected, a value is stored"
+        );
+        assert!(
+            !s.compare_and_set_setting("k", Some("stale"), "v2")
+                .await
+                .unwrap()
+        );
+        assert_eq!(s.get_setting("k").await.unwrap().as_deref(), Some("v1"));
+        assert!(
+            s.compare_and_set_setting("k", Some("v1"), "v2")
+                .await
+                .unwrap()
+        );
+        assert_eq!(s.get_setting("k").await.unwrap().as_deref(), Some("v2"));
+        assert!(
+            !s.compare_and_set_setting("absent", Some("x"), "y")
+                .await
+                .unwrap()
+        );
+        assert_eq!(s.get_setting("absent").await.unwrap(), None);
     }
 
     /// The deadlines of one admin session row: `(expires_at, absolute_expires_at)`.
