@@ -14,7 +14,7 @@ admin-nav-plugins = Plugins
 admin-nav-assist = Assist
 admin-nav-sso = Single sign-on
 admin-nav-servermeta = Server metadata
-admin-nav-rethread = Re-thread mailbox
+admin-nav-rethread = Maintenance
 admin-nav-2fa = Require two-factor
 
 # Shared admin actions / states
@@ -327,6 +327,22 @@ admin-rethread-running = Re-threading…
 admin-rethread-cancel = Cancel
 admin-rethread-summary = Re-threaded { $messages } message(s) into { $threads } thread(s) across { $accounts } account(s); { $reassigned } message(s) moved to a different thread.
 admin-rethread-error = The re-thread action failed. No thread grouping was changed if the server rejected the request; check the server logs and try again.
+
+# -- Search index: status and rebuild (t28-e13) --------------------------------
+# GET /admin/maintenance/search-index and POST /admin/maintenance/reindex.
+admin-searchindex-title = Search index
+admin-searchindex-intro = Search reads an index built from stored mail. The server rebuilds it at start when it does not match the stored mail. Mail of zero-access accounts is not indexed, so search finds nothing for those accounts.
+admin-searchindex-count = { $documents } of { $messages } stored message(s) are indexed.
+admin-searchindex-on-disk = The index is kept on disk.
+admin-searchindex-in-memory = The index is kept in memory and is rebuilt each time the server starts.
+admin-searchindex-progress = A rebuild is running: { $done } of { $total } message(s) done.
+admin-searchindex-run = Rebuild search index
+admin-searchindex-running = Rebuilding…
+admin-searchindex-summary = Read { $messages } stored message(s) in { $accounts } account(s): { $indexed } indexed, { $removed } removed from the index, { $failed } could not be read. { $zeroAccess } zero-access account(s) left unindexed.
+admin-searchindex-busy = A rebuild is already running. Wait for it to finish.
+admin-searchindex-error = The rebuild failed. The index keeps what it held; check the server logs and try again.
+admin-searchindex-status-error = Could not read the search index status.
+admin-searchindex-unavailable = This server runs in proxy mode and has no search index.
 
 # -- Require two-factor policy (DQ2, t16 26.16) ------------------------------
 # The require-2FA policy (global / per-domain). Any user may enrol a factor on
