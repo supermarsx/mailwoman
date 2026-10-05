@@ -1007,7 +1007,8 @@ jobs:
       - name: the rebuilt guests still behave (the half a toolchain bump survives)
         run: |
           pnpm -C apps/web exec vitest run \
-            src/crypto/sanitize.test.ts src/crypto/wasm-crypto.test.ts
+            src/crypto/sanitize.test.ts src/crypto/wasm-crypto.test.ts \
+            src/crypto/wasm-smime.test.ts
 
   # crypto-interop — decrypt/verify GnuPG- and openssl(Outlook-style)-GENERATED
   # recorded fixtures (fixtures/crypto/**, no live keyserver/DNS — §6#6 / §25). The
