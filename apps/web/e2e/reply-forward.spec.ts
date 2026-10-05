@@ -58,10 +58,15 @@ function smtpDeliver(mailFrom: string, rcpt: string[], raw: string): Promise<voi
 
 /**
  * The raw source of every INBOX message of `login` whose Subject contains
- * `subject`. An account that does not exist yet (nothing was delivered to it)
- * reads as no messages.
+ * `subject` — or, with `what: 'FLAGS'`, each such message's FETCH FLAGS reply.
+ * An account that does not exist yet (nothing was delivered to it) reads as no
+ * messages.
  */
-function imapFetch(login: { user: string; pass: string }, subject: string): Promise<string[]> {
+function imapFetch(
+  login: { user: string; pass: string },
+  subject: string,
+  what: 'BODY.PEEK[]' | 'FLAGS' = 'BODY.PEEK[]',
+): Promise<string[]> {
   return new Promise<string[]>((resolve, reject) => {
     const sock = net.createConnection({ host: IMAP_HOST, port: IMAP_PORT });
     sock.setEncoding('latin1');
@@ -104,10 +109,11 @@ function imapFetch(login: { user: string; pass: string }, subject: string): Prom
         ids = (/\* SEARCH([^\r\n]*)/.exec(reply)?.[1] ?? '').trim().split(/\s+/).filter((s) => s.length > 0);
       } else {
         const lit = /\{(\d+)\}\r\n/.exec(reply);
-        if (lit !== null) out.push(reply.slice(lit.index + lit[0].length, lit.index + lit[0].length + Number(lit[1])));
+        if (what === 'FLAGS') out.push(/FLAGS \(([^)]*)\)/.exec(reply)?.[1] ?? '');
+        else if (lit !== null) out.push(reply.slice(lit.index + lit[0].length, lit.index + lit[0].length + Number(lit[1])));
       }
       const next = ids[step - 3];
-      if (next !== undefined) return send(`FETCH ${next} BODY.PEEK[]`);
+      if (next !== undefined) return send(`FETCH ${next} ${what}`);
       sock.end();
       resolve(out);
     });
@@ -235,7 +241,24 @@ test.describe('reply, reply all, forward, Bcc (engine mode)', () => {
     ].join('\r\n'));
 
     await engineLogin(page);
+    const self = { user: ENGINE_CREDS.username, pass: ENGINE_CREDS.password };
+    // Precondition for the answered mark below: the original is not marked yet.
+    await waitForInboxMessage(page, subject);
+    expect((await imapFetch(self, subject, 'FLAGS')).join(' ')).not.toContain('\\Answered');
+    await expect(messageRow(page, subject).getByTestId('row-answered')).toHaveCount(0);
+
+    // Opening the message does not take the mailbox screen out of the document
+    // while the reader's own requests are out: nothing is removed from the app
+    // root between here and the reader being up.
+    await page.evaluate(() => {
+      const w = window as unknown as { __rootRemovals: number };
+      w.__rootRemovals = 0;
+      new MutationObserver((records) => {
+        for (const r of records) w.__rootRemovals += r.removedNodes.length;
+      }).observe(document.getElementById('root')!, { childList: true });
+    });
     const toolbar = await openInReader(page, subject);
+    expect(await page.evaluate(() => (window as unknown as { __rootRemovals: number }).__rootRemovals)).toBe(0);
     const dialog = await act(page, toolbar, 'Reply');
     await expect(dialog.getByLabel('To', { exact: true })).toHaveValue(`Alice Example <${alice}>`);
     await expect(dialog.getByLabel('Subject', { exact: true })).toHaveValue(`Re: ${subject}`);
@@ -257,6 +280,15 @@ test.describe('reply, reply all, forward, Bcc (engine mode)', () => {
     expect(delivered.text).not.toMatch(/<img/i);
     expect(delivered.text).not.toContain('tracker.e2e.example');
     expect(delivered.text).not.toMatch(/url\(/i);
+
+    // The original is marked answered: on the IMAP server, and on its row.
+    await expect(async () => {
+      expect((await imapFetch(self, subject, 'FLAGS')).join(' ')).toContain('\\Answered');
+    }).toPass({ timeout: 30_000 });
+    await expect(async () => {
+      await waitForInboxMessage(page, subject, 5_000);
+      await expect(messageRow(page, subject).getByTestId('row-answered')).toBeVisible({ timeout: 3_000 });
+    }).toPass({ timeout: 45_000 });
 
     // The second reply to the same message does not stack the prefix.
     const again = await act(page, await openInReader(page, subject), 'Reply');
