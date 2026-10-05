@@ -92,6 +92,14 @@ fn kind_from_str(s: &str) -> TokenKind {
     }
 }
 
+/// The row for a key as its owner minted it.
+///
+/// `api_keys.unattended_send` is the admin countersign, not the owner's request.
+/// The request travels in `scopes` (`Scope::unattended_send`); the column starts
+/// clear and only `PUT /admin/api-keys/{id}/unattended-send` sets it. Until 26.20
+/// this copied the request into the column, so a key was "countersigned" by the
+/// user who minted it. `Store::put_api_key` ignores the field when the prefix
+/// already exists, so writing a key back does not clear a countersign either.
 fn api_key_to_row(key: &ApiKey) -> Result<ApiKeyRow, OAuthError> {
     Ok(ApiKeyRow {
         id: key.prefix.clone(),
@@ -99,7 +107,7 @@ fn api_key_to_row(key: &ApiKey) -> Result<ApiKeyRow, OAuthError> {
         key_hash: key.hash.clone(),
         account_id: key.account_id.clone(),
         scopes_json: serde_json::to_string(&key.scope).map_err(oauth_err)?,
-        unattended_send: key.scope.unattended_send,
+        unattended_send: false,
         created_at: key.created_at.clone(),
         last_used_at: key.last_used_at.clone(),
         revoked_at: key.revoked_at.clone(),

@@ -9,7 +9,7 @@ use axum::Router;
 use axum::extract::{Path as UrlPath, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use base64::Engine as _;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -28,6 +28,10 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/oauth/revoke", post(revoke))
         .route("/api/keys", get(list_keys).post(create_key))
         .route("/api/keys/{prefix}/revoke", post(revoke_key))
+        .route(
+            "/admin/api-keys/{id}/unattended-send",
+            put(set_key_unattended_send),
+        )
         .route("/api/zeroaccess", get(zeroaccess_status))
         .route("/api/zeroaccess/enable", post(zeroaccess_enable))
         .route("/api/zeroaccess/disable", post(zeroaccess_disable))
@@ -270,6 +274,10 @@ async fn create_key(
         Err(resp) => return resp,
     };
     // The key is always scoped to the requesting session's own account.
+    //
+    // `scope.unattended_send` is taken as given: it is the owner's *request* to
+    // send without the Outbox, and on its own it grants nothing — the store
+    // adapter never writes the countersign from it (`stores_v6::api_key_to_row`).
     let account_id = body
         .account_id
         .unwrap_or_else(|| session.account_id.clone());
@@ -290,6 +298,7 @@ async fn create_key(
     {
         return server_error(e);
     }
+    // A key is never countersigned at mint; the label is echoed, not stored.
     let record = key_record_camel(&minted.record, &body.label, false);
     Json(json!({ "displayToken": minted.display_token, "record": record })).into_response()
 }
@@ -317,6 +326,7 @@ async fn list_keys(State(state): State<AppState>, headers: axum::http::HeaderMap
                 last_used_at: r.last_used_at,
                 revoked_at: r.revoked_at,
             };
+            // `api_keys` has no label column, so a listed key has no label.
             Some(key_record_camel(&key, "", r.unattended_send))
         })
         .collect();
@@ -328,13 +338,126 @@ async fn revoke_key(
     headers: axum::http::HeaderMap,
     UrlPath(prefix): UrlPath<String>,
 ) -> Response {
-    if let Err(resp) = crate::authed(&state, &headers).await {
-        return resp;
+    let session = match crate::authed(&state, &headers).await {
+        Ok(s) => s,
+        Err(resp) => return resp,
+    };
+    // Only the key's owner revokes it here (an admin uses
+    // `/admin/api-keys/{id}/revoke`). Someone else's prefix is answered exactly
+    // like one that does not exist, so the route does not confirm a guess.
+    match state.store.get_api_key(&prefix).await {
+        Ok(Some(row)) if row.account_id == session.account_id => {}
+        Ok(_) => return key_not_found(),
+        Err(e) => return server_error(e),
     }
     match state.v6.auth.store().revoke_api_key(&prefix).await {
         Ok(()) => Json(json!({ "ok": true })).into_response(),
         Err(e) => server_error(e),
     }
+}
+
+fn key_not_found() -> Response {
+    (
+        StatusCode::NOT_FOUND,
+        Json(json!({ "error": "no such API key" })),
+    )
+        .into_response()
+}
+
+// ─── the admin countersign for unattended send ────────────────────────────────
+
+/// The `audit_log.action` values for the countersign. `mw_admin::AuditKind` has no
+/// variant for it, so the entries are built here.
+const AUDIT_UNATTENDED_APPROVED: &str = "api-key-unattended-send-approved";
+const AUDIT_UNATTENDED_WITHDRAWN: &str = "api-key-unattended-send-withdrawn";
+
+#[derive(Deserialize)]
+struct UnattendedSendReq {
+    approved: bool,
+}
+
+/// `PUT /admin/api-keys/{id}/unattended-send` — set or withdraw the admin
+/// countersign (`api_keys.unattended_send`) on one key. Admin session only; this is
+/// the only route that writes the column.
+///
+/// `id` is the key's row id as `GET /admin/api-keys` lists it. Approving needs a
+/// live key whose owner asked for unattended send (`409` otherwise): the
+/// countersign is a second signature on that request, not a way to add it.
+/// Withdrawing always succeeds on a known key. Either change is audited, and an
+/// approval that cannot be audited is undone.
+///
+/// The `/mcp` resolver reads the countersigned prefixes once, when the server
+/// starts (`v7_mount::load_countersigned_prefixes`), so a change made here reaches
+/// MCP sends at the next start — an approval and a withdrawal alike.
+async fn set_key_unattended_send(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    UrlPath(id): UrlPath<String>,
+    Json(body): Json<UnattendedSendReq>,
+) -> Response {
+    let actor = match dcr::require_admin(&state, &headers).await {
+        Ok(a) => a,
+        Err(resp) => return resp,
+    };
+    let key = match state.store.list_api_keys().await {
+        Ok(rows) => rows.into_iter().find(|r| r.id == id),
+        Err(e) => return server_error(e),
+    };
+    let Some(key) = key else {
+        return key_not_found();
+    };
+    if body.approved {
+        let requested = serde_json::from_str::<Scope>(&key.scopes_json)
+            .map(|s| s.unattended_send)
+            .unwrap_or(false);
+        if !requested || key.revoked_at.is_some() {
+            return (
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "error": "the key is revoked or does not request unattended send",
+                })),
+            )
+                .into_response();
+        }
+    }
+    match state
+        .store
+        .set_api_key_unattended_send(&id, body.approved)
+        .await
+    {
+        Ok(true) => {}
+        // Revoked between the read above and the write.
+        Ok(false) => return key_not_found(),
+        Err(e) => return server_error(e),
+    }
+    let entry = mw_admin::AuditLogEntry {
+        id: uuid::Uuid::new_v4().to_string(),
+        ts: chrono::Utc::now().to_rfc3339(),
+        actor,
+        actor_kind: mw_admin::ActorKind::Admin,
+        action: if body.approved {
+            AUDIT_UNATTENDED_APPROVED
+        } else {
+            AUDIT_UNATTENDED_WITHDRAWN
+        }
+        .to_string(),
+        target: Some(id.clone()),
+        detail_json: "{}".to_string(),
+        ip: None,
+    };
+    if let Err(e) = state.v6.admin.audit(entry).await {
+        if body.approved {
+            let _ = state.store.set_api_key_unattended_send(&id, false).await;
+        }
+        return server_error(e);
+    }
+    Json(json!({
+        "id": id,
+        "prefix": key.key_prefix,
+        "accountId": key.account_id,
+        "unattendedSendApproved": body.approved,
+    }))
+    .into_response()
 }
 
 /// Build the camelCase `ApiKeyRecord` the web `apikeys/types.ts` expects.
@@ -969,7 +1092,7 @@ mod dcr {
 
     /// Resolve the authenticated admin id, or a `401`. Enforces the `admin.enabled`
     /// gate (disabled panel ⇒ every admin route is `401`). Mirrors admin_sso.rs.
-    async fn require_admin(
+    pub(super) async fn require_admin(
         state: &AppState,
         headers: &axum::http::HeaderMap,
     ) -> Result<String, Response> {

@@ -145,12 +145,16 @@ impl Store {
     // ── api_keys ─────────────────────────────────────────────────────────────
 
     /// Insert (or replace by prefix) a scoped API key.
+    ///
+    /// `unattended_send` is written on insert only. Replacing an existing key
+    /// leaves the stored value alone: the column is the admin countersign, and
+    /// [`Self::set_api_key_unattended_send`] is the one statement that changes it.
     pub async fn put_api_key(&self, row: &ApiKeyRow) -> Result<(), StoreError> {
         q("INSERT INTO api_keys (id, key_prefix, key_hash, account_id, scopes, unattended_send, created_at, last_used_at, revoked_at)
            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
            ON CONFLICT(key_prefix) DO UPDATE SET
              key_hash = excluded.key_hash, account_id = excluded.account_id,
-             scopes = excluded.scopes, unattended_send = excluded.unattended_send,
+             scopes = excluded.scopes,
              created_at = excluded.created_at, last_used_at = excluded.last_used_at,
              revoked_at = excluded.revoked_at")
             .bind(&row.id)
@@ -227,6 +231,22 @@ impl Store {
             .execute(&self.backend)
             .await?;
         Ok(())
+    }
+
+    /// Set or clear the admin countersign on an API key, by its opaque row id.
+    /// Returns whether a row was updated: `false` for an unknown id, and — when
+    /// setting — for a revoked key, which is never countersigned.
+    pub async fn set_api_key_unattended_send(
+        &self,
+        id: &str,
+        on: bool,
+    ) -> Result<bool, StoreError> {
+        let sql = if on {
+            "UPDATE api_keys SET unattended_send = 1 WHERE id = ?1 AND revoked_at IS NULL"
+        } else {
+            "UPDATE api_keys SET unattended_send = 0 WHERE id = ?1"
+        };
+        Ok(q(sql).bind(id).execute(&self.backend).await? > 0)
     }
 
     /// Revoke an API key by its opaque row id (admin oversight).
@@ -853,6 +873,64 @@ mod tests {
                 .unwrap()
                 .revoked_at
                 .is_some()
+        );
+    }
+
+    /// Replacing a key by prefix carries the row's other columns and leaves the
+    /// countersign where it was, in both directions; only the setter moves it, and
+    /// it does not set it on a revoked key.
+    #[tokio::test]
+    async fn api_key_upsert_does_not_move_the_countersign() {
+        let s = store().await;
+        let row = |prefix: &str, unattended_send: bool| ApiKeyRow {
+            id: prefix.into(),
+            key_prefix: prefix.into(),
+            key_hash: "hash".into(),
+            account_id: "a@x".into(),
+            scopes_json: "{}".into(),
+            unattended_send,
+            created_at: "2026-01-01T00:00:00Z".into(),
+            last_used_at: None,
+            revoked_at: None,
+        };
+        let flag = |s: &Store, prefix: &'static str| {
+            let s = s.clone();
+            async move {
+                s.get_api_key(prefix)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .unattended_send
+            }
+        };
+
+        s.put_api_key(&row("plain", false)).await.unwrap();
+        let mut again = row("plain", true);
+        again.key_hash = "hash-2".into();
+        s.put_api_key(&again).await.unwrap();
+        assert_eq!(
+            s.get_api_key("plain").await.unwrap().unwrap().key_hash,
+            "hash-2",
+            "control: the upsert did replace the row"
+        );
+        assert!(!flag(&s, "plain").await, "an upsert does not set it");
+
+        assert!(s.set_api_key_unattended_send("plain", true).await.unwrap());
+        assert!(flag(&s, "plain").await, "control: the setter sets it");
+        s.put_api_key(&row("plain", false)).await.unwrap();
+        assert!(flag(&s, "plain").await, "an upsert does not clear it");
+        assert!(s.set_api_key_unattended_send("plain", false).await.unwrap());
+        assert!(!flag(&s, "plain").await);
+
+        assert!(!s.set_api_key_unattended_send("nope", true).await.unwrap());
+        s.put_api_key(&row("gone", false)).await.unwrap();
+        s.revoke_api_key("gone", "2026-01-02T00:00:00Z")
+            .await
+            .unwrap();
+        assert!(!s.set_api_key_unattended_send("gone", true).await.unwrap());
+        assert!(
+            !flag(&s, "gone").await,
+            "a revoked key is not countersigned"
         );
     }
 
