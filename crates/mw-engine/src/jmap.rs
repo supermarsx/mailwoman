@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use mw_mime::{Attachment, ComposeRequest, EmailAddress};
+use mw_mime::{Attachment, ComposeExtras, ComposeRequest, EmailAddress, InlinePart};
 use mw_store::{IdentityRow, StoredMeta, SubmissionRow};
 use serde_json::{Map, Value, json};
 
@@ -943,7 +943,22 @@ impl Engine {
                 .any(|p| THREADING_PROPERTIES.contains(&p)),
             None => true,
         };
-        let assembled = match self.build_emails(&requested, wants_threading).await {
+        // The properties read from the raw message on every request are filled
+        // only when the request names one of them. See `build_emails`.
+        let wants_raw_derived = args
+            .get("properties")
+            .and_then(Value::as_array)
+            .is_some_and(|named| {
+                named
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .any(|p| RAW_DERIVED_PROPERTIES.contains(&p))
+            });
+        let fill = EmailFill {
+            threading: wants_threading,
+            raw_derived: wants_raw_derived,
+        };
+        let assembled = match self.build_emails(&requested, fill).await {
             Ok(v) => v,
             Err(e) => return server_fail(&e),
         };
@@ -989,10 +1004,19 @@ impl Engine {
     /// names its properties and none of the three is among them — which is how
     /// a message-list page avoids the cost. A row with no stored body keeps the
     /// keys absent: their values are not known.
+    ///
+    /// **Receipt and inline-part properties (t29-e9).** `mailwomanMdn`,
+    /// `mailwomanMdnReport` and `mailwomanInlineParts` are not in the stored
+    /// envelope at all: with `fill.raw_derived` they are read from the stored
+    /// raw message, one body read and parse per row on every such request, plus
+    /// one `settings` read for a row that carries a receipt request without the
+    /// `$mdnsent` keyword. The caller sets it only when the request names one of
+    /// them, so a request with no property list does not get them. A row with
+    /// no stored body keeps the three keys absent.
     async fn build_emails(
         &self,
         stable_ids: &[&str],
-        fill_threading: bool,
+        fill: EmailFill,
     ) -> Result<Vec<Option<Value>>> {
         if stable_ids.is_empty() {
             return Ok(Vec::new());
@@ -1049,7 +1073,7 @@ impl Engine {
                     None => json!({}),
                 },
             };
-            if fill_threading
+            if fill.threading
                 && email
                     .as_object()
                     .is_some_and(|stored| !stored.contains_key("messageId"))
@@ -1060,6 +1084,22 @@ impl Engine {
                 email["messageId"] = json!(parsed.email.message_id);
                 email["inReplyTo"] = json!(parsed.email.in_reply_to);
                 email["references"] = json!(parsed.email.references);
+            }
+            if fill.raw_derived
+                && let Some(blob) = &msg.blob_ref
+                && let Some(raw) = self.cached_body(&msg.account_id, id, blob).await?
+            {
+                let (request, report) = mail_ext::mdn::email_properties(&raw);
+                email["mailwomanMdn"] = match request {
+                    Some(mut request) => {
+                        request["sent"] =
+                            json!(self.mdn_sent(&msg.account_id, id, &msg.flags_json).await?);
+                        request
+                    }
+                    None => Value::Null,
+                };
+                email["mailwomanMdnReport"] = report;
+                email["mailwomanInlineParts"] = inline_parts_json(&raw, id);
             }
             built.push(Some(patch_engine_fields(
                 email,
@@ -1103,7 +1143,22 @@ impl Engine {
                     not_created.insert(client_id.clone(), invalid.set_error());
                     continue;
                 }
-                match self.create_draft(account_id, rt, spec).await {
+                // The receipt request and the inline parts (t29-e9). A request
+                // the sender's address cannot carry, an inline part the HTML
+                // does not refer to (or the reverse), or a blob that is not
+                // this account's fails the create the same way.
+                let extras = match self.compose_extras(account_id, spec, &rt.identity).await {
+                    Ok(extras) => extras,
+                    Err(ComposeRefusal::Invalid(invalid)) => {
+                        not_created.insert(client_id.clone(), invalid.set_error());
+                        continue;
+                    }
+                    Err(ComposeRefusal::Engine(e)) => {
+                        not_created.insert(client_id.clone(), set_error(&e));
+                        continue;
+                    }
+                };
+                match self.create_draft(account_id, rt, spec, &extras).await {
                     Ok((sid, blob)) => {
                         created_ids.insert(client_id.clone(), sid.clone());
                         created.insert(client_id.clone(), json!({ "id": sid, "blobId": blob }));
@@ -1280,17 +1335,39 @@ impl Engine {
 
     /// Create a draft: compose MIME, best-effort `APPEND` it to the upstream
     /// Drafts folder, and ingest it locally so it is immediately queryable.
+    ///
+    /// `extras` is what [`Engine::compose_extras`] made of the same spec. The
+    /// message is written by `mw_mime::build_with`, which checks every value
+    /// again, with one exception: a `From` that is a bare login name (which
+    /// [`check_compose_spec`] admits as a reverse path, and `build_with` does
+    /// not as a mailbox) is written by `mw_mime::build` as before.
+    /// [`check_compose_extras`] has refused extras for such a sender, so
+    /// nothing is dropped by taking that path.
     async fn create_draft(
         &self,
         account_id: &str,
         rt: &AccountRuntime,
         spec: &Value,
+        extras: &ComposeExtras,
     ) -> Result<(String, Option<String>)> {
         let message_id = gen_message_id();
         let req = self
             .compose_from_spec(account_id, spec, &rt.identity, &message_id)
             .await?;
-        let raw = mw_mime::build(&req).map_err(|e| EngineError::Protocol(e.to_string()))?;
+        let from_is_mailbox = req
+            .from
+            .as_ref()
+            .is_none_or(|from| mw_smtp::validate_mailbox(&from.email).is_ok());
+        let raw = if from_is_mailbox {
+            mw_mime::build_with(&req, extras)
+        } else if extras.inline_parts.is_empty() && extras.receipt_to.is_none() {
+            mw_mime::build(&req)
+        } else {
+            return Err(EngineError::Protocol(
+                "a receipt request or an inline part needs a From address with a domain".into(),
+            ));
+        }
+        .map_err(|e| EngineError::Protocol(e.to_string()))?;
 
         let (mailbox_id, imap_name) = self
             .ensure_role_mailbox(account_id, "drafts", "Drafts")
@@ -1348,6 +1425,11 @@ impl Engine {
         let mut req = compose_base_from_spec(spec, identity, message_id);
         if let Some(atts) = spec.get("attachments").and_then(Value::as_array) {
             for att in atts {
+                // An inline part is not a file in the attachment list;
+                // `compose_extras` resolves it.
+                if inline_cid(att).is_some() {
+                    continue;
+                }
                 // An attachment entry without a blobId (e.g. an inline body-part
                 // reference) is not a stored-blob attachment; skip it.
                 let Some(blob_id) = att.get("blobId").and_then(Value::as_str) else {
@@ -1386,6 +1468,78 @@ impl Engine {
             }
         }
         Ok(req)
+    }
+
+    /// What an `Email/set` create spec asks for beyond a [`ComposeRequest`]:
+    /// the read-receipt request and the inline parts.
+    ///
+    /// - `mailwomanRequestReadReceipt: true` asks for a receipt to the sender:
+    ///   the `From` address the message is composed with (the first `from`
+    ///   entry, else the account's identity), which must be a mailbox. No
+    ///   property of the spec can name another address.
+    /// - An `attachments` entry with `disposition: "inline"` and a `cid` is an
+    ///   inline part: its bytes come from `blobId` through
+    ///   [`Engine::fetch_blob`], which resolves only blobs of this account, and
+    ///   its type (declared, else the blob's) must be `image/*`.
+    ///
+    /// [`check_compose_extras`] is applied first.
+    async fn compose_extras(
+        &self,
+        account_id: &str,
+        spec: &Value,
+        identity: &str,
+    ) -> std::result::Result<ComposeExtras, ComposeRefusal> {
+        check_compose_extras(spec, identity).map_err(ComposeRefusal::Invalid)?;
+        let invalid = |why: String| {
+            ComposeRefusal::Invalid(InvalidProperty {
+                property: "attachments",
+                why,
+            })
+        };
+        let mut extras = ComposeExtras {
+            inline_parts: Vec::new(),
+            receipt_to: wants_receipt(spec).then(|| compose_from_address(spec, identity)),
+        };
+        let atts = spec.get("attachments").and_then(Value::as_array);
+        for att in atts.into_iter().flatten() {
+            let Some(cid) = inline_cid(att) else { continue };
+            // `check_compose_extras` has required the blobId.
+            let blob_id = att
+                .get("blobId")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let blob = self
+                .fetch_blob(account_id, blob_id)
+                .await
+                .map_err(ComposeRefusal::Engine)?
+                .ok_or_else(|| {
+                    invalid(format!(
+                        "inline part blobId {blob_id:?} does not resolve to a blob of this account"
+                    ))
+                })?;
+            let content_type = att
+                .get("type")
+                .and_then(Value::as_str)
+                .map(String::from)
+                .unwrap_or(blob.content_type)
+                .to_ascii_lowercase();
+            if !is_inline_image_type(&content_type) {
+                return Err(invalid(format!(
+                    "inline part {cid:?} has type {content_type:?}; only image types can be inline"
+                )));
+            }
+            extras.inline_parts.push(InlinePart {
+                cid: cid.to_string(),
+                content_type,
+                filename: att
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .map(header_text)
+                    .filter(|name| !name.is_empty()),
+                bytes: blob.bytes,
+            });
+        }
+        Ok(extras)
     }
 
     /// Apply an Email/set update: keyword changes, engine-local meta
@@ -3378,6 +3532,203 @@ fn check_compose_spec(spec: &Value) -> std::result::Result<(), InvalidProperty> 
     Ok(())
 }
 
+/// The `Email/set` create property that asks for a read receipt.
+const REQUEST_READ_RECEIPT: &str = "mailwomanRequestReadReceipt";
+
+/// Why [`Engine::compose_extras`] did not produce extras.
+enum ComposeRefusal {
+    /// The spec is at fault: `invalidProperties`.
+    Invalid(InvalidProperty),
+    /// A blob could not be read.
+    Engine(EngineError),
+}
+
+/// Whether a create spec asks for a read receipt. Only `true` does.
+fn wants_receipt(spec: &Value) -> bool {
+    spec.get(REQUEST_READ_RECEIPT).and_then(Value::as_bool) == Some(true)
+}
+
+/// The `From` address a create spec is composed with: its first `from` entry,
+/// else the account's identity — the choice [`compose_base_from_spec`] makes.
+fn compose_from_address(spec: &Value, identity: &str) -> String {
+    parse_addrs(spec.get("from"))
+        .into_iter()
+        .next()
+        .map_or_else(|| identity.to_string(), |from| from.email)
+}
+
+/// The `cid` of an `attachments` entry that is an inline part: one with
+/// `disposition: "inline"` (any case) and a `cid` string. An entry with only
+/// one of the two is an ordinary attachment, as it was before inline parts
+/// existed.
+fn inline_cid(att: &Value) -> Option<&str> {
+    att.get("disposition")
+        .and_then(Value::as_str)
+        .filter(|d| d.eq_ignore_ascii_case("inline"))?;
+    att.get("cid").and_then(Value::as_str)
+}
+
+/// Whether `content_type` (lower-case) is a bare `image/<subtype>`.
+fn is_inline_image_type(content_type: &str) -> bool {
+    content_type.strip_prefix("image/").is_some_and(|sub| {
+        !sub.is_empty()
+            && sub
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"+-.".contains(&b))
+    })
+}
+
+/// Check the parts of a create spec that become [`ComposeExtras`], before any
+/// blob is read:
+///
+/// - `mailwomanRequestReadReceipt` is `true`, `false` or `null`; when `true`
+///   the `From` address the message is composed with must be a mailbox
+///   (`mw_smtp::validate_mailbox`), because a bare login name cannot receive a
+///   receipt;
+/// - each inline part ([`inline_cid`]) has a `blobId`, a `cid` that passes
+///   `mw_mime::validate_content_id`, a `cid` no other inline part uses, and, if
+///   it declares a `type`, an `image/*` one;
+/// - with inline parts there is an HTML body and the sender is a mailbox;
+/// - the HTML body's `cid:` references (`mw_mime::html_cid_references`, a
+///   lexical scan) and the inline parts' `cid`s are the same set: a reference
+///   without a part is a broken image for the recipient, and a part without a
+///   reference is a file the recipient's program may not show.
+fn check_compose_extras(spec: &Value, identity: &str) -> std::result::Result<(), InvalidProperty> {
+    let invalid = |property: &'static str, why: String| InvalidProperty { property, why };
+    let from = compose_from_address(spec, identity);
+    let from_problem = mw_smtp::validate_mailbox(&from).err();
+    match spec.get(REQUEST_READ_RECEIPT) {
+        None | Some(Value::Null | Value::Bool(false)) => {}
+        Some(Value::Bool(true)) => {
+            if let Some(e) = &from_problem {
+                return Err(invalid(
+                    REQUEST_READ_RECEIPT,
+                    format!("the sender cannot receive a receipt: {e}"),
+                ));
+            }
+        }
+        Some(_) => {
+            return Err(invalid(
+                REQUEST_READ_RECEIPT,
+                "must be true or false".to_string(),
+            ));
+        }
+    }
+
+    let mut cids: Vec<&str> = Vec::new();
+    let atts = spec.get("attachments").and_then(Value::as_array);
+    for att in atts.into_iter().flatten() {
+        let Some(cid) = inline_cid(att) else { continue };
+        mw_mime::validate_content_id(cid).map_err(|e| invalid("attachments", e.to_string()))?;
+        if cids.contains(&cid) {
+            return Err(invalid(
+                "attachments",
+                format!("two inline parts share the cid {cid:?}"),
+            ));
+        }
+        if att.get("blobId").and_then(Value::as_str).is_none() {
+            return Err(invalid(
+                "attachments",
+                format!("inline part {cid:?} has no blobId"),
+            ));
+        }
+        if let Some(declared) = att.get("type").and_then(Value::as_str)
+            && !is_inline_image_type(&declared.to_ascii_lowercase())
+        {
+            return Err(invalid(
+                "attachments",
+                format!(
+                    "inline part {cid:?} has type {declared:?}; only image types can be inline"
+                ),
+            ));
+        }
+        cids.push(cid);
+    }
+
+    let (_, html) = extract_bodies(spec);
+    let references = html
+        .as_deref()
+        .map(mw_mime::html_cid_references)
+        .unwrap_or_default();
+    if let Some(dangling) = references.iter().find(|r| !cids.contains(&r.as_str())) {
+        return Err(invalid(
+            "htmlBody",
+            format!("refers to cid:{dangling:?}, which no inline part of this message carries"),
+        ));
+    }
+    if cids.is_empty() {
+        return Ok(());
+    }
+    if html.is_none() {
+        return Err(invalid(
+            "attachments",
+            "an inline part needs an HTML body that refers to it".to_string(),
+        ));
+    }
+    if let Some(unused) = cids.iter().find(|c| !references.iter().any(|r| r == *c)) {
+        return Err(invalid(
+            "attachments",
+            format!("the HTML body does not refer to inline part {unused:?}"),
+        ));
+    }
+    if let Some(e) = from_problem {
+        return Err(invalid(
+            "from",
+            format!("a message with inline parts needs a sender address with a domain: {e}"),
+        ));
+    }
+    Ok(())
+}
+
+/// Most entries `mailwomanInlineParts` lists for one message.
+const MAX_INLINE_PARTS: usize = 100;
+
+/// The `mailwomanInlineParts` value of `Email/get`: the parts of a stored
+/// message that carry a `Content-ID` and binary content, which is what an HTML
+/// body refers to by `cid:`. `mw-mime` leaves these out of `attachments`.
+///
+/// Each entry is `{ partId, blobId, cid, type, name, size }`. `blobId` is the
+/// `<stableId>.<partId>` form [`Engine::fetch_blob`] serves; `cid` has no angle
+/// brackets; `type` is lower-case `type/subtype` and is whatever the message
+/// declares, so a reader decides which types it shows. At most
+/// [`MAX_INLINE_PARTS`] entries are listed.
+fn inline_parts_json(raw: &[u8], stable_id: &str) -> Value {
+    use mail_parser::{MessageParser, MimeHeaders, PartType};
+    let Some(message) = MessageParser::default().parse(raw) else {
+        return json!([]);
+    };
+    let parts: Vec<Value> = message
+        .parts
+        .iter()
+        .enumerate()
+        .filter(|(_, part)| matches!(part.body, PartType::Binary(_) | PartType::InlineBinary(_)))
+        .filter_map(|(index, part)| {
+            let cid = part.content_id()?.trim();
+            let cid = cid
+                .strip_prefix('<')
+                .and_then(|c| c.strip_suffix('>'))
+                .unwrap_or(cid);
+            let content_type = part.content_type().map_or_else(
+                || "application/octet-stream".to_string(),
+                |ct| match ct.subtype() {
+                    Some(sub) => format!("{}/{}", ct.ctype(), sub).to_ascii_lowercase(),
+                    None => ct.ctype().to_ascii_lowercase(),
+                },
+            );
+            Some(json!({
+                "partId": index.to_string(),
+                "blobId": format!("{stable_id}.{index}"),
+                "cid": cid,
+                "type": content_type,
+                "name": part.attachment_name(),
+                "size": part.len(),
+            }))
+        })
+        .take(MAX_INLINE_PARTS)
+        .collect();
+    Value::Array(parts)
+}
+
 /// Parse a JMAP address list (`[{name?, email}]`) into [`EmailAddress`]es.
 /// Display names are reduced to header text; the addresses are returned as
 /// given (see [`check_compose_spec`]).
@@ -3576,6 +3927,20 @@ struct NewSubmission<'a> {
 /// The `Email` properties that carry a message's threading headers
 /// (RFC 8621 §4.1.2.3).
 const THREADING_PROPERTIES: [&str; 3] = ["messageId", "inReplyTo", "references"];
+
+/// The `Email/get` properties read from the stored raw message on request:
+/// the receipt request, a received receipt, and the inline parts (t29-e9).
+const RAW_DERIVED_PROPERTIES: [&str; 3] =
+    ["mailwomanMdn", "mailwomanMdnReport", "mailwomanInlineParts"];
+
+/// What [`Engine::build_emails`] adds to the stored envelope.
+#[derive(Debug, Clone, Copy)]
+struct EmailFill {
+    /// Complete the threading properties of a row stored before they existed.
+    threading: bool,
+    /// Add [`RAW_DERIVED_PROPERTIES`].
+    raw_derived: bool,
+}
 
 /// The sender a message is submitted under: the first address of its `From`,
 /// else the name the account connected with.
@@ -4039,7 +4404,7 @@ fn gen_token() -> String {
     format!("{t:x}{n:x}")
 }
 
-fn gen_message_id() -> String {
+pub(crate) fn gen_message_id() -> String {
     format!("<{}@mailwoman.local>", gen_token())
 }
 

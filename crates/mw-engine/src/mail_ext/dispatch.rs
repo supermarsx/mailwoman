@@ -1,4 +1,4 @@
-//! Mail-family method dispatch (t16 J1–J5). Reached from `handle_jmap`'s core
+//! Mail-family method dispatch (t16 J1–J5, and `MDN/send` since 26.20). Reached from `handle_jmap`'s core
 //! dispatch (`jmap.rs`) for any mail-ext method, after the explicit `Email/*`
 //! arms so `Email/get`/`set`/`query` still win over the `Email/copy|import|parse`
 //! additions here (mirrors `pim/dispatch.rs` / `security/dispatch.rs`).
@@ -9,14 +9,20 @@ use crate::engine::Engine;
 
 /// The whole-family prefixes routed to [`Engine::dispatch_mail_ext`]: every
 /// method under these belongs to the mail-ext surface.
-const MAIL_EXT_FAMILIES: &[&str] = &["Thread/", "SearchSnippet/", "VacationResponse/", "Quota/"];
+const MAIL_EXT_FAMILIES: &[&str] = &[
+    "Thread/",
+    "SearchSnippet/",
+    "VacationResponse/",
+    "Quota/",
+    "MDN/",
+];
 
 /// The individual `Email/*` methods the mail-ext surface adds (the rest of the
 /// `Email/` family is handled explicitly in the core dispatch and must NOT route
 /// here).
 const EMAIL_EXT_METHODS: &[&str] = &["Email/copy", "Email/import", "Email/parse"];
 
-/// Whether `method` is answered by the mail-ext dispatch (t16 J1–J5).
+/// Whether `method` is answered by the mail-ext dispatch.
 pub fn is_mail_ext_method(method: &str) -> bool {
     EMAIL_EXT_METHODS.contains(&method)
         || MAIL_EXT_FAMILIES.iter().any(|fam| method.starts_with(fam))
@@ -46,6 +52,8 @@ impl Engine {
             "Email/copy" => self.email_copy(account_id, args).await,
             "Email/import" => self.email_import(account_id, args).await,
             "Email/parse" => self.email_parse(account_id, args).await,
+            // ── Read receipts (RFC 8098; rules in `mdn.rs`) ──
+            "MDN/send" => self.mdn_send(account_id, args).await,
             other => json!({
                 "type": "unknownMethod",
                 "description": format!("engine does not implement mail method {other}")
