@@ -11,7 +11,8 @@
 #   job, not cargo-deny.
 #
 # V3 (26.4) new dependencies — all confirmed MIT OR Apache-2.0 (plan §1.2/§1.10):
-#   icalendar, vcard4, rrule, chrono-tz (all MIT/Apache-2.0), quick-xml (MIT).
+#   icalendar, rrule, chrono-tz (all MIT/Apache-2.0), quick-xml (MIT).
+#   (`vcard4` came in with them and was dropped in 26.20.)
 #   They are covered by the existing MIT/Apache-2.0 allow entries below.
 #
 # V4 (26.5) new dependencies — all confirmed MIT OR Apache-2.0 / BSD / ISC (plan

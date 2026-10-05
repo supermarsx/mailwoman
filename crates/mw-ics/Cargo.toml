@@ -8,10 +8,11 @@ repository.workspace = true
 
 [dependencies]
 # The serialization stack (plan §1.2 — all MIT OR Apache-2.0). `mw-ics` wraps
-# these behind a small stable API (Mailwoman types ⇄ iCal/vCard bytes) and
-# hand-rolls the iTIP METHOD framing, `.hol` parse/emit, and VFREEBUSY on top.
+# `icalendar` and `rrule` behind a small stable API (Mailwoman types ⇄ iCal
+# bytes) and hand-rolls the iTIP METHOD framing, `.hol` parse/emit, and
+# VFREEBUSY on top. vCard has no dependency: `src/vcard.rs` reads and writes the
+# RFC 6350 content lines itself.
 icalendar = { workspace = true }
-vcard4 = { workspace = true }
 rrule = { workspace = true }
 chrono = { workspace = true }
 chrono-tz = { workspace = true }
