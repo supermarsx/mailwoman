@@ -58,6 +58,9 @@ rsa = { workspace = true, features = ["sha2"] }
 p256 = { workspace = true, features = ["ecdh", "ecdsa", "pem", "pkcs8"] }
 sha2 = { workspace = true }
 sha1 = { workspace = true }
+# PKCS#12 export writes the integrity MAC (RFC 7292 §4, HMAC-SHA-256) and import
+# checks one when present. Same RustCrypto generation as sha2/sha1 (digest 0.11).
+hmac = { workspace = true }
 der = { version = "0.8", features = ["oid", "std", "alloc", "pem", "derive"] }
 spki = { version = "0.8", features = ["alloc"] }
 const-oid = { version = "0.10", features = ["db"] }
