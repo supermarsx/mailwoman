@@ -23,6 +23,7 @@ mod tls;
 use tokio::net::TcpStream;
 
 pub use addr::{validate_mailbox, validate_reverse_path};
+pub use tls::{MIN_TLS_REFUSED, MinTls, min_tls, set_min_tls};
 use conn::{Connection, MailParams, RcptOutcome};
 
 /// A message ready for submission: envelope + already-serialized MIME bytes.

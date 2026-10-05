@@ -3,8 +3,9 @@
 //!
 //! Inbound: a real [`TlsListener`] served by `axum::serve`, and rustls clients
 //! pinned to one protocol version each. Outbound: a rustls **server** pinned to
-//! TLS 1.2, reached through the public entry points of the connector crates that
-//! `apply_min_tls` sets (`mw_pop3`, `mw_egress`). Each case asserts first that the
+//! TLS 1.2, reached through the public entry point of each of the five connector
+//! crates `apply_min_tls` sets (`mw_imap`, `mw_smtp`, `mw_pop3`, `mw_sieve`,
+//! `mw_egress`). Each case asserts first that the
 //! TLS 1.2 peer gets through with the floor at 1.2, then that it is refused once
 //! the floor is 1.3, then that lowering the floor lets it through again.
 //!
@@ -264,6 +265,76 @@ async fn pop3_error(addr: SocketAddr) -> String {
     }
 }
 
+/// Open an implicit-TLS IMAP transport to `addr` through the public entry point
+/// and return the error text.
+async fn imap_error(addr: SocketAddr) -> String {
+    match mw_imap::ImapStream::connect("localhost", addr.port(), mw_imap::TlsMode::Implicit).await {
+        Ok(_) => panic!("the test upstream's certificate must not be trusted"),
+        Err(e) => e.to_string(),
+    }
+}
+
+/// Submit a message over implicit TLS to `addr` through the public submitter and
+/// return the error text.
+async fn smtp_error(addr: SocketAddr) -> String {
+    let submitter = mw_smtp::Submitter::new(mw_smtp::SubmitConfig {
+        host: "localhost".into(),
+        port: addr.port(),
+        security: mw_smtp::Security::ImplicitTls,
+        ..Default::default()
+    });
+    let message = mw_smtp::Outgoing {
+        mail_from: "sender@example.org".into(),
+        rcpt_to: vec!["rcpt@example.org".into()],
+        raw: b"Subject: floor\r\n\r\nbody\r\n".to_vec(),
+    };
+    match submitter.submit(message).await {
+        Ok(_) => panic!("the test upstream's certificate must not be trusted"),
+        Err(e) => e.to_string(),
+    }
+}
+
+/// Open an implicit-TLS ManageSieve transport to `addr` through the public entry
+/// point and return the error text.
+async fn sieve_error(addr: SocketAddr) -> String {
+    match mw_sieve::SieveStream::connect("localhost", addr.port(), mw_sieve::TlsMode::Implicit)
+        .await
+    {
+        Ok(_) => panic!("the test upstream's certificate must not be trusted"),
+        Err(e) => e.to_string(),
+    }
+}
+
+/// The error each of the five connectors reports for `addr`, by connector name.
+async fn connector_errors(addr: SocketAddr) -> [(&'static str, String); 5] {
+    [
+        ("imap", imap_error(addr).await),
+        ("smtp", smtp_error(addr).await),
+        ("pop3", pop3_error(addr).await),
+        ("sieve", sieve_error(addr).await),
+        ("egress", egress_error(addr).await),
+    ]
+}
+
+/// Whether all six floors (the listener's and the five connectors') read 1.3.
+/// Panics if they disagree with each other.
+fn all_floors_are_13() -> bool {
+    let floors = [
+        tls::min_tls() == MinTls::V13,
+        mw_imap::min_tls() == mw_imap::MinTls::V13,
+        mw_smtp::min_tls() == mw_smtp::MinTls::V13,
+        mw_pop3::conn::min_tls() == mw_pop3::conn::MinTls::V13,
+        mw_sieve::min_tls() == mw_sieve::MinTls::V13,
+        mw_egress::proxy::stream::min_tls() == mw_egress::proxy::stream::MinTls::V13,
+    ];
+    assert!(
+        floors.iter().all(|f| *f == floors[0]),
+        "apply_min_tls left the floors disagreeing (listener, imap, smtp, pop3, sieve, egress): \
+         {floors:?}"
+    );
+    floors[0]
+}
+
 /// Wrap a tunnel to `addr` in origin TLS through the public egress entry point
 /// and return the refusal text.
 async fn egress_error(addr: SocketAddr) -> String {
@@ -276,7 +347,7 @@ async fn egress_error(addr: SocketAddr) -> String {
 }
 
 #[tokio::test]
-async fn apply_min_tls_reaches_the_listener_pop3_and_the_egress_tunnel() {
+async fn apply_min_tls_reaches_the_listener_and_all_five_connectors() {
     let _turn = FLOOR.lock().await;
     tls::apply_min_tls(MinTls::V12);
     let upstream = tls12_only_upstream().await;
@@ -284,43 +355,31 @@ async fn apply_min_tls_reaches_the_listener_pop3_and_the_egress_tunnel() {
     // Precondition: at 1.2 every floor reads 1.2, and the TLS 1.2 upstream is
     // reached as far as certificate verification — the version was agreed and
     // the failure is about the certificate, not about the floor.
-    assert_eq!(tls::min_tls(), MinTls::V12);
-    assert_eq!(mw_pop3::conn::min_tls(), mw_pop3::conn::MinTls::V12);
-    assert_eq!(
-        mw_egress::proxy::stream::min_tls(),
-        mw_egress::proxy::stream::MinTls::V12
-    );
-    for before in [pop3_error(upstream).await, egress_error(upstream).await] {
+    assert!(!all_floors_are_13());
+    for (connector, before) in connector_errors(upstream).await {
         assert!(
-            before.contains("certificate") && !before.contains(REFUSED),
-            "at the 1.2 floor the handshake reaches certificate verification: {before}"
+            before.to_lowercase().contains("certificate") && !before.contains(REFUSED),
+            "{connector}: at the 1.2 floor the handshake reaches certificate verification: \
+             {before}"
         );
     }
 
     tls::apply_min_tls(MinTls::V13);
-    assert_eq!(tls::min_tls(), MinTls::V13);
-    assert_eq!(mw_pop3::conn::min_tls(), mw_pop3::conn::MinTls::V13);
-    assert_eq!(
-        mw_egress::proxy::stream::min_tls(),
-        mw_egress::proxy::stream::MinTls::V13
-    );
-    let pop3 = pop3_error(upstream).await;
-    assert!(
-        pop3.contains(REFUSED),
-        "POP3 names the floor as the reason: {pop3}"
-    );
-    let egress = egress_error(upstream).await;
-    assert!(
-        egress.starts_with(REFUSED),
-        "the egress tunnel names the floor as the reason: {egress}"
-    );
+    assert!(all_floors_are_13());
+    for (connector, refused) in connector_errors(upstream).await {
+        assert!(
+            refused.contains(REFUSED),
+            "{connector}: the error names the floor as the reason: {refused}"
+        );
+    }
 
     // Undo: the same upstream is reached as far as its certificate again.
     tls::apply_min_tls(MinTls::V12);
-    for after in [pop3_error(upstream).await, egress_error(upstream).await] {
+    assert!(!all_floors_are_13());
+    for (connector, after) in connector_errors(upstream).await {
         assert!(
-            after.contains("certificate") && !after.contains(REFUSED),
-            "lowering the floor restores the connection attempt: {after}"
+            after.to_lowercase().contains("certificate") && !after.contains(REFUSED),
+            "{connector}: lowering the floor restores the connection attempt: {after}"
         );
     }
 }

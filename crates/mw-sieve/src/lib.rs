@@ -37,6 +37,7 @@ pub use eval::{evaluate, evaluate_all};
 pub use lint::lint;
 pub use managesieve::{Capabilities, Connection, Credentials, ScriptInfo};
 pub use parse::parse;
+pub use tls::{MIN_TLS_REFUSED, MinTls, min_tls, set_min_tls};
 pub use transport::{SieveStream, TlsMode};
 
 /// A GUI rule: when ALL (or ANY) conditions match, run the actions in order.

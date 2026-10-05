@@ -31,6 +31,7 @@ pub mod transport;
 pub use backend::{ImapBackend, ImapConfig};
 pub use error::{ImapError, ImapResult};
 pub use session::{Credentials, FetchItem, SelectMode, SelectResult, Session};
+pub use tls::{MIN_TLS_REFUSED, MinTls, min_tls, set_min_tls};
 pub use transport::{ImapStream, TlsMode};
 
 /// Fuzz/robustness entry point: repeatedly parse a byte buffer as a stream of

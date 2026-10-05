@@ -37,11 +37,6 @@ static MIN_TLS: AtomicU8 = AtomicU8::new(0);
 
 /// Set the floor for every IMAP TLS connection opened from now on (implicit TLS
 /// and STARTTLS alike). Connections already established are not touched.
-///
-/// Not callable from another crate yet: this module is private and `lib.rs`
-/// does not re-export it, so today only this module's tests call it and the
-/// floor of a running server stays at [`MinTls::V12`]. Hence the `allow`.
-#[allow(dead_code)]
 pub fn set_min_tls(v: MinTls) {
     MIN_TLS.store(matches!(v, MinTls::V13) as u8, Ordering::SeqCst);
 }

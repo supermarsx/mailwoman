@@ -12,7 +12,7 @@
 //!
 //! # Minimum TLS version
 //! [`set_min_tls`] sets the lowest TLS version this listener accepts, and
-//! [`apply_min_tls`] sets it together with the outbound connectors it can reach.
+//! [`apply_min_tls`] sets it together with the five outbound TLS connectors.
 //! rustls 0.23 speaks TLS 1.2 and 1.3 only, so the floor is a two-value choice
 //! ([`MinTls`]); unset, it is 1.2, which is the configuration the listener had
 //! before the floor existed.
@@ -118,30 +118,40 @@ pub fn min_tls() -> MinTls {
     }
 }
 
-/// Set the floor on the inbound listener and on the outbound TLS connectors
-/// listed here, for connections opened from now on:
+/// Set the floor on the inbound listener and on every outbound TLS connector
+/// that has one, for connections opened from now on:
 ///
 /// * the HTTPS listener ([`set_min_tls`]);
+/// * IMAP, implicit TLS and STARTTLS (`mw_imap::set_min_tls`);
+/// * SMTP submission, implicit TLS and STARTTLS (`mw_smtp::set_min_tls`);
 /// * POP3, implicit TLS and STLS (`mw_pop3::conn::set_min_tls`);
+/// * ManageSieve, implicit TLS and STARTTLS (`mw_sieve::set_min_tls`);
 /// * the origin TLS inside an egress proxy tunnel
 ///   (`mw_egress::proxy::stream::set_min_tls`).
-///
-/// **Not reached by this function today:** IMAP, SMTP submission and
-/// ManageSieve. Each of those crates has the same floor (`set_min_tls` in its
-/// `tls.rs`, tested there), but the module is private and not re-exported, so
-/// this crate cannot call it; they stay at 1.2 whatever is passed here.
 ///
 /// Not covered by any floor in this tree: the `reqwest` HTTP clients, and the
 /// TLS inside `ldap3` (LDAP), `fred` (Redis) and `sqlx` (Postgres).
 ///
 /// Raising the floor to 1.3 makes every upstream that only speaks TLS 1.2
-/// unreachable through the connectors above; their errors then start with "the
+/// unreachable through the connectors above; their errors then contain "the
 /// minimum TLS version is set to 1.3". Passing [`MinTls::V12`] undoes it.
 pub fn apply_min_tls(v: MinTls) {
     set_min_tls(v);
+    mw_imap::set_min_tls(match v {
+        MinTls::V12 => mw_imap::MinTls::V12,
+        MinTls::V13 => mw_imap::MinTls::V13,
+    });
+    mw_smtp::set_min_tls(match v {
+        MinTls::V12 => mw_smtp::MinTls::V12,
+        MinTls::V13 => mw_smtp::MinTls::V13,
+    });
     mw_pop3::conn::set_min_tls(match v {
         MinTls::V12 => mw_pop3::conn::MinTls::V12,
         MinTls::V13 => mw_pop3::conn::MinTls::V13,
+    });
+    mw_sieve::set_min_tls(match v {
+        MinTls::V12 => mw_sieve::MinTls::V12,
+        MinTls::V13 => mw_sieve::MinTls::V13,
     });
     mw_egress::proxy::stream::set_min_tls(match v {
         MinTls::V12 => mw_egress::proxy::stream::MinTls::V12,
