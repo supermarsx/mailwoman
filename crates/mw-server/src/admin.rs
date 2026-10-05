@@ -609,6 +609,11 @@ async fn list_webhooks(State(state): State<AppState>, headers: HeaderMap) -> Res
     }
 }
 
+/// `GET /admin/api-keys` — every key row, live and revoked; never a key hash.
+///
+/// `unattendedSendRequested` is the owner's request in the key's scope;
+/// `unattendedSendApproved` is the `api_keys.unattended_send` column, which only
+/// `PUT /admin/api-keys/{id}/unattended-send` (`oauth.rs`) writes.
 async fn list_api_keys(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Err(r) = admin_authed(&state, &headers).await {
         return r;
@@ -627,6 +632,9 @@ async fn list_api_keys(State(state): State<AppState>, headers: HeaderMap) -> Res
                         "lastUsedAt": k.last_used_at,
                         "expiresAt": scope.get("expires_at").cloned().unwrap_or(Value::Null),
                         "revokedAt": k.revoked_at,
+                        "unattendedSendRequested": scope.get("unattended_send")
+                            == Some(&Value::Bool(true)),
+                        "unattendedSendApproved": k.unattended_send,
                     })
                 })
                 .collect::<Vec<_>>(),
