@@ -247,16 +247,30 @@ async fn v7_admin_routes_are_wired() {
 
     let put = a
         .put(format!("{server}/admin/assist"))
+        // The admin wire shape (t28-e7): every key, camelCase. The contract itself
+        // is pinned in `t28_assist_admin.rs`; this only shows the route is mounted.
         .json(&json!({
             "enabled": true,
-            "adapters": { "OpenAiCompatible": { "base_url": "http://mock", "chat_model": "m", "embed_model": "e", "api_key": "k" } },
+            "adapter": {
+                "kind": "open-ai-compatible",
+                "baseUrl": "http://mock",
+                "apiKey": "k",
+                "chatModel": "m",
+                "embedModel": "e",
+                "sttModel": "s",
+            },
             "capabilityGrants": ["summarize"],
-            "dataCeilings": { "accounts": ["acct"] }
+            "dataCeilings": {
+                "accounts": ["acct"],
+                "folders": [],
+                "includeE2ee": false,
+                "includeAttachments": false,
+            },
         }))
         .send()
         .await
         .unwrap();
-    assert_eq!(put.status(), 204, "assist admin PUT persists");
+    assert_eq!(put.status(), 200, "assist admin PUT persists");
 
     let get2 = a
         .get(format!("{server}/admin/assist"))
@@ -271,11 +285,12 @@ async fn v7_admin_routes_are_wired() {
 
     let kill = a
         .post(format!("{server}/admin/assist/kill"))
+        .json(&json!({ "on": true }))
         .send()
         .await
         .unwrap();
     assert_eq!(kill.status(), 200, "assist kill switch mounted");
-    assert_eq!(kill.json::<Value>().await.unwrap()["killed"], json!(true));
+    assert_eq!(kill.json::<Value>().await.unwrap()["enabled"], json!(false));
     let get3 = a
         .get(format!("{server}/admin/assist"))
         .send()

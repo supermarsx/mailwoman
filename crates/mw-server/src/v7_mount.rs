@@ -11,9 +11,11 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, Weak};
 
 use async_trait::async_trait;
+use axum::extract::rejection::JsonRejection;
 use axum::extract::{Extension, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
@@ -25,13 +27,14 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 
 use mw_assist::{
-    AdapterConfig, AssistAudit, AssistAuditSink, AssistCapability, AssistConfig, AssistGateway,
-    DataScope,
+    AdapterConfig, AssistAudit, AssistAuditSink, AssistCapability, AssistConfig, AssistError,
+    AssistGateway, ChatPayload, ChatStream, DataScope, EndpointAdapter,
 };
 use mw_directory::{AttrMap, Directory, DirectoryConfig, LdapEndpoint, LdapTls};
 use mw_passwd::{
-    Ctx, Ldap3062, LdapExopTransport, Local, LocalCredentialStore, PasswordChangeBackend,
-    PasswordPolicy, Result as PwResult, Secret,
+    Ctx, DovecotConfig, DovecotHttp, Ldap3062, LdapExopTransport, Local, LocalCredentialStore,
+    PasswordChangeBackend, PasswordPolicy, Poppassd, PoppassdConfig, Result as PwResult, Secret,
+    WebhookConfig, WebhookHmac,
 };
 use mw_plugin::{
     BasicCredentialProvider, BasicCredentials, Clock, Grant, HostServices, HttpFetcher, HttpReq,
@@ -461,29 +464,252 @@ fn exop_outcome(rc: u32, text: &str, val: Option<Vec<u8>>) -> PwResult<Vec<u8>> 
     Ok(val.unwrap_or_default())
 }
 
-/// Build the password-change backend e14 injects, selected by `MW_PASSWD_BACKEND`
-/// (`local` default | `ldap3062`). Other backends (dovecot/poppassd/webhook) are
-/// constructed the same way when configured; `local` is the safe default and the
-/// smoke/e16 path.
-pub fn build_passwd_backend(store: &Store) -> Arc<dyn PasswordChangeBackend> {
-    let policy = PasswordPolicy::default();
-    match env("MW_PASSWD_BACKEND").as_deref() {
-        Some("ldap3062") => {
-            let transport = Ldap3062Transport {
-                url: env("MW_PASSWD_LDAP_URL").unwrap_or_default(),
-                starttls: env("MW_PASSWD_LDAP_STARTTLS").as_deref() == Some("1"),
-                bind_dn: env("MW_PASSWD_LDAP_BIND_DN"),
-                bind_pw: env("MW_PASSWD_LDAP_BIND_PW"),
-            };
-            Arc::new(Ldap3062::new(transport, policy))
+/// The variable that selects the password-change backend.
+const PASSWD_BACKEND_ENV: &str = "MW_PASSWD_BACKEND";
+
+/// A password-backend setting that cannot be used. Each variant names the variable
+/// so the operator can fix it from the message alone; none carries the value of a
+/// backend setting, because two of those variables hold secrets.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PasswdBackendConfigError {
+    /// `MW_PASSWD_BACKEND` is set to something that is not a backend name.
+    UnknownBackend(String),
+    /// The selected backend needs this variable and it is unset or empty.
+    Missing {
+        backend: &'static str,
+        var: &'static str,
+    },
+    /// This variable is set but cannot be used; `reason` says why.
+    Invalid {
+        var: &'static str,
+        reason: &'static str,
+    },
+}
+
+impl std::fmt::Display for PasswdBackendConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownBackend(name) => write!(
+                f,
+                "{PASSWD_BACKEND_ENV}={name:?} is not a password backend \
+                 (expected local, ldap3062, dovecot, poppassd or webhook)"
+            ),
+            Self::Missing { backend, var } => {
+                write!(f, "{PASSWD_BACKEND_ENV}={backend} requires {var}")
+            }
+            Self::Invalid { var, reason } => write!(f, "{var} {reason}"),
         }
-        _ => Arc::new(Local::new(
+    }
+}
+
+impl std::error::Error for PasswdBackendConfigError {}
+
+/// The shortest HMAC secret the webhook backend accepts, in bytes.
+const WEBHOOK_SECRET_MIN_BYTES: usize = 16;
+
+/// The poppassd port when `MW_PASSWD_POPPASSD_PORT` is unset (the port poppassd
+/// conventionally listens on).
+const POPPASSD_DEFAULT_PORT: u16 = 106;
+
+/// Require an `http://` or `https://` URL with a host. A plain-HTTP URL is accepted
+/// (doveadm and in-cluster webhooks are commonly reached that way) and logged, since
+/// the request body carries the new password.
+fn passwd_http_url(
+    backend: &'static str,
+    var: &'static str,
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Result<String, PasswdBackendConfigError> {
+    let url = lookup(var).ok_or(PasswdBackendConfigError::Missing { backend, var })?;
+    let is_http = url.starts_with("http://") || url.starts_with("https://");
+    if !is_http || host_of(&url).is_none_or(|h| h.is_empty()) {
+        return Err(PasswdBackendConfigError::Invalid {
+            var,
+            reason: "must be an http:// or https:// URL with a host",
+        });
+    }
+    if url.starts_with("http://") {
+        tracing::warn!("{var} is plain HTTP: new passwords travel to it unencrypted");
+    }
+    Ok(url)
+}
+
+/// A backend that checks the caller's current password before delegating.
+///
+/// The doveadm and webhook backends change a password with an administrative
+/// credential and never look at the old one (`mw_passwd::DovecotHttp::change` and
+/// `WebhookHmac::change` both ignore it). Behind `POST /api/password` that would let
+/// anyone holding a session cookie replace the password without knowing it. The
+/// login that created a session stored the password it verified upstream as that
+/// session's sealed credentials, so the current password is checked against those.
+///
+/// An account with no stored session cannot be a `POST /api/password` caller (the
+/// handler resolved one to get here); that case is the operator's
+/// `mailwoman password` command, which runs on the host and is let through.
+struct CurrentPasswordCheck<B> {
+    inner: B,
+    store: Store,
+}
+
+#[async_trait]
+impl<B: PasswordChangeBackend> PasswordChangeBackend for CurrentPasswordCheck<B> {
+    async fn change(
+        &self,
+        ctx: &Ctx,
+        old: Secret,
+        new: Secret,
+    ) -> PwResult<mw_passwd::PasswordChangeOutcome> {
+        let sessions = self
+            .store
+            .sessions_by_account(&ctx.account_id)
+            .await
+            .map_err(|e| mw_passwd::PasswordError::Transport(e.to_string()))?;
+        // Compared as digests so the comparison time does not depend on how much of
+        // the stored password the guess matched.
+        let given = Sha256::digest(old.expose().as_bytes());
+        let matches =
+            |s: &mw_store::Session| Sha256::digest(s.credentials.password.as_bytes()) == given;
+        if !sessions.is_empty() && !sessions.iter().any(matches) {
+            return Err(mw_passwd::PasswordError::WrongCurrent);
+        }
+        self.inner.change(ctx, old, new).await
+    }
+
+    fn policy(&self) -> PasswordPolicy {
+        self.inner.policy()
+    }
+
+    fn kind(&self) -> mw_passwd::BackendKind {
+        self.inner.kind()
+    }
+}
+
+/// Build the password-change backend from `lookup`, which reads one setting by its
+/// environment-variable name. `MW_PASSWD_BACKEND` selects it:
+///
+/// | value | backend | settings |
+/// |---|---|---|
+/// | unset, `local` | Argon2id hash in the store | none |
+/// | `ldap3062` | RFC 3062 PasswordModify | `MW_PASSWD_LDAP_URL` (required), `MW_PASSWD_LDAP_STARTTLS=1`, `MW_PASSWD_LDAP_BIND_DN`, `MW_PASSWD_LDAP_BIND_PW` |
+/// | `dovecot` | doveadm HTTP API | `MW_PASSWD_DOVECOT_URL`, `MW_PASSWD_DOVECOT_API_KEY` (both required), `MW_PASSWD_DOVECOT_COMMAND` (default `pw`) |
+/// | `poppassd` | poppassd line protocol | `MW_PASSWD_POPPASSD_HOST` (required), `MW_PASSWD_POPPASSD_PORT` (default 106) |
+/// | `webhook` | HMAC-SHA256-signed POST | `MW_PASSWD_WEBHOOK_URL`, `MW_PASSWD_WEBHOOK_SECRET` (both required; the secret is at least 16 bytes) |
+///
+/// Any other value, a missing required setting or an unusable one is an error
+/// naming the variable. Nothing falls back to `local`: a change reported as done
+/// against a local hash that no mail server reads would be a false success.
+///
+/// # Errors
+/// [`PasswdBackendConfigError`] as described above.
+pub fn passwd_backend_from(
+    store: &Store,
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Result<Arc<dyn PasswordChangeBackend>, PasswdBackendConfigError> {
+    use PasswdBackendConfigError::{Invalid, Missing, UnknownBackend};
+    let policy = PasswordPolicy::default();
+    let lookup = |key: &str| lookup(key).filter(|v| !v.is_empty());
+    let selected = lookup(PASSWD_BACKEND_ENV);
+    match selected.as_deref() {
+        None | Some("local") => Ok(Arc::new(Local::new(
             StoreCredStore {
                 store: store.clone(),
             },
             policy,
-        )),
+        ))),
+        Some("ldap3062") => {
+            let transport = Ldap3062Transport {
+                url: lookup("MW_PASSWD_LDAP_URL").ok_or(Missing {
+                    backend: "ldap3062",
+                    var: "MW_PASSWD_LDAP_URL",
+                })?,
+                starttls: lookup("MW_PASSWD_LDAP_STARTTLS").as_deref() == Some("1"),
+                bind_dn: lookup("MW_PASSWD_LDAP_BIND_DN"),
+                bind_pw: lookup("MW_PASSWD_LDAP_BIND_PW"),
+            };
+            Ok(Arc::new(Ldap3062::new(transport, policy)))
+        }
+        Some("dovecot") => {
+            let url = passwd_http_url("dovecot", "MW_PASSWD_DOVECOT_URL", &lookup)?;
+            let api_key = lookup("MW_PASSWD_DOVECOT_API_KEY").ok_or(Missing {
+                backend: "dovecot",
+                var: "MW_PASSWD_DOVECOT_API_KEY",
+            })?;
+            let mut config = DovecotConfig::new(url, api_key);
+            if let Some(command) = lookup("MW_PASSWD_DOVECOT_COMMAND") {
+                config.command = command;
+            }
+            config.policy = policy;
+            Ok(Arc::new(CurrentPasswordCheck {
+                inner: DovecotHttp::new(config),
+                store: store.clone(),
+            }))
+        }
+        Some("poppassd") => {
+            let host = lookup("MW_PASSWD_POPPASSD_HOST").ok_or(Missing {
+                backend: "poppassd",
+                var: "MW_PASSWD_POPPASSD_HOST",
+            })?;
+            let port = match lookup("MW_PASSWD_POPPASSD_PORT") {
+                None => POPPASSD_DEFAULT_PORT,
+                Some(raw) => match raw.trim().parse::<u16>() {
+                    Ok(p) if p != 0 => p,
+                    _ => {
+                        return Err(Invalid {
+                            var: "MW_PASSWD_POPPASSD_PORT",
+                            reason: "must be a TCP port from 1 to 65535",
+                        });
+                    }
+                },
+            };
+            let mut config = PoppassdConfig::new(host, port);
+            config.policy = policy;
+            // No `CurrentPasswordCheck`: in the protocol's `pass` step the server
+            // verifies the current password itself.
+            Ok(Arc::new(Poppassd::new(config)))
+        }
+        Some("webhook") => {
+            let url = passwd_http_url("webhook", "MW_PASSWD_WEBHOOK_URL", &lookup)?;
+            let secret = lookup("MW_PASSWD_WEBHOOK_SECRET").ok_or(Missing {
+                backend: "webhook",
+                var: "MW_PASSWD_WEBHOOK_SECRET",
+            })?;
+            if secret.len() < WEBHOOK_SECRET_MIN_BYTES {
+                return Err(Invalid {
+                    var: "MW_PASSWD_WEBHOOK_SECRET",
+                    reason: "must be at least 16 bytes",
+                });
+            }
+            let mut config = WebhookConfig::new(url, secret.into_bytes());
+            config.policy = policy;
+            Ok(Arc::new(CurrentPasswordCheck {
+                inner: WebhookHmac::new(config),
+                store: store.clone(),
+            }))
+        }
+        Some(other) => Err(UnknownBackend(other.to_string())),
     }
+}
+
+/// [`passwd_backend_from`] over the process environment.
+///
+/// # Errors
+/// [`PasswdBackendConfigError`] when the selected backend is misconfigured.
+pub fn try_build_passwd_backend(
+    store: &Store,
+) -> Result<Arc<dyn PasswordChangeBackend>, PasswdBackendConfigError> {
+    passwd_backend_from(store, &env)
+}
+
+/// The password-change backend the mount injects into `POST /api/password` and the
+/// `mailwoman password` command uses, built by [`try_build_passwd_backend`].
+///
+/// # Panics
+/// When the configured backend cannot be built. Both callers run this during
+/// start-up, before the server accepts a connection, so the process stops with the
+/// [`PasswdBackendConfigError`] message instead of serving a backend other than the
+/// one the operator selected.
+pub fn build_passwd_backend(store: &Store) -> Arc<dyn PasswordChangeBackend> {
+    try_build_passwd_backend(store)
+        .unwrap_or_else(|e| panic!("password backend configuration: {e}"))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -496,10 +722,17 @@ pub fn build_passwd_backend(store: &Store) -> Arc<dyn PasswordChangeBackend> {
 /// stream).
 struct StoreAssistAudit {
     store: Store,
+    live: Arc<AssistLive>,
 }
 
 impl AssistAuditSink for StoreAssistAudit {
     fn record(&self, row: AssistAudit) {
+        // The gateway audits before it dispatches, and a stopped gateway refuses at
+        // dispatch ([`StoppableAdapter`]). A row written here would say content
+        // reached the endpoint when nothing left.
+        if self.live.is_stopped() {
+            return;
+        }
         let store = self.store.clone();
         let cap = capability_wire(row.capability);
         tokio::spawn(async move {
@@ -601,24 +834,132 @@ fn parse_rate_limit(raw: Option<&str>) -> Option<u32> {
 /// disabled ⇒ `AssistConfig::default()` (the gateway reports `Disabled` and the web
 /// hides all Assist UI).
 pub(crate) async fn build_assist(store: &Store) -> (AssistHandle, Vec<AssistCapability>) {
-    let config = match store.get_assist_config("deployment").await.ok().flatten() {
+    let row = store.get_assist_config("deployment").await.ok().flatten();
+    let mut config = stored_assist_config(row.as_ref());
+    config.rate_limit_per_min = assist_rate_limit();
+    if let Ok(mut w) = EMBED_MODEL.write() {
+        *w = embed_model_of(config.adapter.as_ref());
+    }
+    let granted = config.capability_grants.clone();
+    let live = Arc::new(AssistLive {
+        stopped: AtomicBool::new(false),
+        booted: assist_admin_wire(&config),
+    });
+    // The gateway's own adapter is replaced by the same adapter behind the stop
+    // check, so every dispatch path (chat, embed, transcribe) passes through it.
+    let adapter = config.adapter.as_ref().and_then(AdapterConfig::build);
+    let mut gateway = AssistGateway::new(config).with_audit(Arc::new(StoreAssistAudit {
+        store: store.clone(),
+        live: Arc::clone(&live),
+    }));
+    if let Some(inner) = adapter {
+        gateway = gateway.with_adapter(Arc::new(StoppableAdapter {
+            inner,
+            live: Arc::clone(&live),
+        }));
+    }
+    let gateway = Arc::new(gateway);
+    register_assist_live(&gateway, live);
+    (gateway, granted)
+}
+
+/// The [`AssistConfig`] a stored `assist_config` row describes (`None` ⇒ the
+/// default: off, no adapter, no grants, the deny ceiling). A column that does not
+/// parse reads as its default. [`build_assist`] and `GET /admin/assist` both read
+/// the row through this, so the panel shows what the gateway would be built from.
+/// `rate_limit_per_min` is not in the row; the caller sets it.
+fn stored_assist_config(row: Option<&mw_store::AssistConfigRow>) -> AssistConfig {
+    match row {
         Some(r) => AssistConfig {
             enabled: r.enabled,
             capability_grants: serde_json::from_str(&r.capability_grants_json).unwrap_or_default(),
             data_ceiling: serde_json::from_str(&r.data_ceilings_json).unwrap_or_default(),
             adapter: parse_adapter(&r.adapters_json),
-            rate_limit_per_min: assist_rate_limit(),
+            rate_limit_per_min: None,
         },
         None => AssistConfig::default(),
-    };
-    if let Ok(mut w) = EMBED_MODEL.write() {
-        *w = embed_model_of(config.adapter.as_ref());
     }
-    let granted = config.capability_grants.clone();
-    let gateway = AssistGateway::new(config).with_audit(Arc::new(StoreAssistAudit {
-        store: store.clone(),
-    }));
-    (Arc::new(gateway), granted)
+}
+
+/// What the admin routes need to know about one running gateway.
+struct AssistLive {
+    /// Set when an administrator turns Assist off. Checked on every dispatch.
+    stopped: AtomicBool,
+    /// The configuration the gateway was built from, in the admin wire shape.
+    booted: serde_json::Value,
+}
+
+impl AssistLive {
+    fn is_stopped(&self) -> bool {
+        self.stopped.load(Ordering::SeqCst)
+    }
+}
+
+/// The [`AssistLive`] of every gateway [`build_assist`] has built and that is still
+/// alive, keyed by the gateway itself.
+///
+/// A side table because the gateway type belongs to `mw-assist` and the handle type
+/// to `assist.rs`, and the admin handlers receive only that handle. Keyed per
+/// gateway rather than one process-wide flag so that two apps in one process (the
+/// integration tests) do not stop each other.
+static ASSIST_LIVE: Mutex<Vec<(Weak<AssistGateway>, Arc<AssistLive>)>> = Mutex::new(Vec::new());
+
+fn register_assist_live(gateway: &AssistHandle, live: Arc<AssistLive>) {
+    if let Ok(mut table) = ASSIST_LIVE.lock() {
+        table.retain(|(g, _)| g.strong_count() > 0);
+        table.push((Arc::downgrade(gateway), live));
+    }
+}
+
+fn assist_live(gateway: &AssistHandle) -> Option<Arc<AssistLive>> {
+    let table = ASSIST_LIVE.lock().ok()?;
+    table
+        .iter()
+        .find(|(g, _)| std::ptr::eq(g.as_ptr(), Arc::as_ptr(gateway)))
+        .map(|(_, live)| Arc::clone(live))
+}
+
+/// Whether this gateway answers Assist requests right now: built enabled with an
+/// adapter, and not stopped since.
+pub(crate) fn assist_running(gateway: &AssistHandle) -> bool {
+    gateway.is_enabled() && !assist_live(gateway).is_some_and(|l| l.is_stopped())
+}
+
+/// The configured adapter behind the stop check. A stopped gateway answers
+/// [`AssistError::Disabled`] — the same refusal as one built disabled — before
+/// anything is sent.
+struct StoppableAdapter {
+    inner: Arc<dyn EndpointAdapter>,
+    live: Arc<AssistLive>,
+}
+
+impl StoppableAdapter {
+    fn check(&self) -> mw_assist::Result<()> {
+        if self.live.is_stopped() {
+            Err(AssistError::Disabled)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[async_trait]
+impl EndpointAdapter for StoppableAdapter {
+    async fn chat(&self, payload: &ChatPayload) -> mw_assist::Result<ChatStream> {
+        self.check()?;
+        self.inner.chat(payload).await
+    }
+    async fn embed(&self, input: &str) -> mw_assist::Result<Vec<f32>> {
+        self.check()?;
+        self.inner.embed(input).await
+    }
+    async fn transcribe(&self, audio: &[u8], mime: &str) -> mw_assist::Result<String> {
+        self.check()?;
+        self.inner.transcribe(audio, mime).await
+    }
+    fn host(&self) -> String {
+        self.inner.host()
+    }
 }
 
 /// The engine-side Assist hook adapter (content-free posture only, §21.1). Captures
@@ -626,6 +967,9 @@ pub(crate) async fn build_assist(store: &Store) -> (AssistHandle, Vec<AssistCapa
 /// gate which Assist affordances the UI shows without a cycle onto `mw-assist`.
 pub(crate) struct AssistHookAdapter {
     enabled: bool,
+    /// The gateway's stop flag, so the engine stops offering Assist when an
+    /// administrator turns it off. `None` for a gateway `build_assist` did not build.
+    live: Option<Arc<AssistLive>>,
     granted: Vec<String>,
     /// A8 (26.19): the gateway itself, kept so the hook can hand the engine an
     /// embedding provider. `None` unless Assist is enabled AND `search-semantic` is
@@ -642,6 +986,7 @@ impl AssistHookAdapter {
         let semantic = gateway.is_enabled() && granted.contains(&AssistCapability::SearchSemantic);
         Self {
             enabled: gateway.is_enabled(),
+            live: assist_live(gateway),
             granted: granted.iter().map(|c| capability_wire(*c)).collect(),
             embeddings: semantic.then(|| {
                 Arc::new(GatewayEmbeddings {
@@ -653,14 +998,26 @@ impl AssistHookAdapter {
     }
 }
 
+impl AssistHookAdapter {
+    fn is_stopped(&self) -> bool {
+        self.live.as_ref().is_some_and(|l| l.is_stopped())
+    }
+}
+
 impl mw_engine::AssistHook for AssistHookAdapter {
     fn is_enabled(&self) -> bool {
-        self.enabled
+        self.enabled && !self.is_stopped()
     }
     fn granted_capabilities(&self) -> Vec<String> {
+        if self.is_stopped() {
+            return Vec::new();
+        }
         self.granted.clone()
     }
     fn embedding_provider(&self) -> Option<Arc<dyn mw_engine::EmbeddingProvider>> {
+        if self.is_stopped() {
+            return None;
+        }
         self.embeddings
             .as_ref()
             .map(|e| Arc::clone(e) as Arc<dyn mw_engine::EmbeddingProvider>)
@@ -1881,13 +2238,14 @@ pub(crate) async fn load_countersigned_prefixes(store: &Store) -> HashSet<String
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// The additive routes e14 owns: `POST /api/assist/transcribe`, `/admin/assist/*`
-/// (GET/PUT + kill), `GET /api/nextcloud/list`, `POST /admin/plugins/{id}/allow-unsigned`.
+/// (GET/PUT + status + kill), `GET /api/nextcloud/list`, `POST /admin/plugins/{id}/allow-unsigned`.
 /// e14 merges this into `router()` alongside the e9 factories and layers the same
 /// injected extensions.
 pub(crate) fn extra_v7_router() -> Router<AppState> {
     Router::new()
         .route("/api/assist/transcribe", post(assist_transcribe))
         .route("/admin/assist", get(assist_admin_get).put(assist_admin_put))
+        .route("/admin/assist/status", get(assist_admin_status))
         .route("/admin/assist/kill", post(assist_admin_kill))
         .route("/api/nextcloud/list", get(nextcloud_list))
         .route(
@@ -1980,109 +2338,385 @@ fn admin_cookie(headers: &HeaderMap) -> Option<String> {
     None
 }
 
-/// `GET /admin/assist` — the current deployment Assist config (adapters/locks/ceilings).
+// The admin wire shape of the deployment Assist configuration. `GET /admin/assist`
+// returns exactly this object and `PUT /admin/assist` accepts exactly this object;
+// `apps/web/src/screens/Admin/Assist/service.ts` is its only client.
+//
+//   {
+//     "enabled": bool,
+//     "adapter": null | { "kind": "open-ai-compatible" | "anthropic" | "local-process", … },
+//     "capabilityGrants": [ "summarize", … ],
+//     "dataCeilings": { "accounts": [], "folders": [], "includeE2ee": bool, "includeAttachments": bool }
+//   }
+//
+// Every key is camelCase. The `adapter` and `dataCeilings` objects are
+// `mw_assist::AdapterConfig` and `mw_assist::DataScope` with their keys renamed, so
+// a field added to either type appears on the wire without an edit here.
+
+/// `snake_case` → `camelCase`, for one object key.
+fn snake_to_camel(key: &str) -> String {
+    let mut out = String::with_capacity(key.len());
+    let mut upper = false;
+    for c in key.chars() {
+        if c == '_' {
+            upper = true;
+        } else if upper {
+            out.extend(c.to_uppercase());
+            upper = false;
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// `camelCase` → `snake_case`, for one object key.
+fn camel_to_snake(key: &str) -> String {
+    let mut out = String::with_capacity(key.len() + 4);
+    for c in key.chars() {
+        if c.is_ascii_uppercase() {
+            out.push('_');
+            out.push(c.to_ascii_lowercase());
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// A serialised `mw-assist` value with its top-level keys renamed to camelCase.
+fn to_wire_object<T: serde::Serialize>(value: &T) -> serde_json::Value {
+    match serde_json::to_value(value) {
+        Ok(serde_json::Value::Object(map)) => serde_json::Value::Object(
+            map.into_iter()
+                .map(|(k, v)| (snake_to_camel(&k), v))
+                .collect(),
+        ),
+        Ok(other) => other,
+        Err(_) => serde_json::Value::Null,
+    }
+}
+
+/// Parse one camelCase wire object into the `mw-assist` type it renames.
+///
+/// Refuses a key that is not camelCase and a key the type does not have — the
+/// types themselves ignore unknown keys, which is how a client speaking another
+/// shape used to have its whole payload dropped and the row overwritten with
+/// defaults. With `require_all`, also refuses an object that leaves a key out.
+fn from_wire_object<T>(
+    what: &str,
+    value: &serde_json::Value,
+    require_all: bool,
+) -> Result<T, String>
+where
+    T: serde::de::DeserializeOwned + serde::Serialize,
+{
+    let serde_json::Value::Object(wire) = value else {
+        return Err(format!("{what} must be an object"));
+    };
+    let mut snake = serde_json::Map::new();
+    for (key, v) in wire {
+        let renamed = camel_to_snake(key);
+        if snake_to_camel(&renamed) != *key {
+            return Err(format!("{what}.{key}: keys are camelCase"));
+        }
+        snake.insert(renamed, v.clone());
+    }
+    let parsed: T = serde_json::from_value(serde_json::Value::Object(snake.clone()))
+        .map_err(|e| format!("{what}: {e}"))?;
+    let canonical = match serde_json::to_value(&parsed) {
+        Ok(serde_json::Value::Object(map)) => map,
+        _ => return Err(format!("{what} must be an object")),
+    };
+    if let Some(unknown) = snake.keys().find(|k| !canonical.contains_key(*k)) {
+        return Err(format!("{what}.{}: unknown field", snake_to_camel(unknown)));
+    }
+    if require_all && let Some(missing) = canonical.keys().find(|k| !snake.contains_key(*k)) {
+        return Err(format!("{what}.{}: missing field", snake_to_camel(missing)));
+    }
+    Ok(parsed)
+}
+
+/// An [`AssistConfig`] in the admin wire shape. Every key is always present.
+fn assist_admin_wire(config: &AssistConfig) -> serde_json::Value {
+    json!({
+        "enabled": config.enabled,
+        "adapter": config.adapter.as_ref().map(to_wire_object),
+        "capabilityGrants": config.capability_grants,
+        "dataCeilings": to_wire_object(&config.data_ceiling),
+    })
+}
+
+/// The body of `PUT /admin/assist`. All four keys are required and no other key is
+/// accepted, so a request can neither erase a setting by omitting it nor have a
+/// setting ignored by misnaming it.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AssistAdminReq {
+    enabled: bool,
+    /// `null` (no endpoint) or an adapter object.
+    adapter: serde_json::Value,
+    capability_grants: Vec<AssistCapability>,
+    data_ceilings: serde_json::Value,
+}
+
+impl AssistAdminReq {
+    fn into_config(self) -> Result<AssistConfig, String> {
+        let adapter = if self.adapter.is_null() {
+            None
+        } else {
+            let adapter: AdapterConfig = from_wire_object("adapter", &self.adapter, false)?;
+            check_adapter(&adapter)?;
+            Some(adapter)
+        };
+        for (i, cap) in self.capability_grants.iter().enumerate() {
+            if self.capability_grants[..i].contains(cap) {
+                return Err(format!(
+                    "capabilityGrants: {} is listed twice",
+                    capability_wire(*cap)
+                ));
+            }
+        }
+        Ok(AssistConfig {
+            enabled: self.enabled,
+            capability_grants: self.capability_grants,
+            data_ceiling: from_wire_object("dataCeilings", &self.data_ceilings, true)?,
+            adapter,
+            rate_limit_per_min: None,
+        })
+    }
+}
+
+/// Refuse an adapter the gateway could be built from but could never reach.
+fn check_adapter(adapter: &AdapterConfig) -> Result<(), String> {
+    match adapter {
+        AdapterConfig::OpenAiCompatible { base_url, .. }
+        | AdapterConfig::Anthropic { base_url, .. } => {
+            let is_http = base_url.starts_with("http://") || base_url.starts_with("https://");
+            if !is_http || host_of(base_url).is_none_or(|h| h.is_empty()) {
+                return Err(
+                    "adapter.baseUrl must be an http:// or https:// URL with a host".into(),
+                );
+            }
+        }
+        AdapterConfig::LocalProcess { program, .. } => {
+            if program.trim().is_empty() {
+                return Err("adapter.program must not be empty".into());
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The `assist_config` row for a configuration. The columns hold the `mw-assist`
+/// types' own serialisation, which is what [`stored_assist_config`] reads back.
+fn assist_row(config: &AssistConfig) -> mw_store::AssistConfigRow {
+    let text = |v: serde_json::Result<String>, empty: &str| v.unwrap_or_else(|_| empty.into());
+    mw_store::AssistConfigRow {
+        scope: "deployment".into(),
+        adapters_json: text(serde_json::to_string(&config.adapter), "null"),
+        capability_grants_json: text(serde_json::to_string(&config.capability_grants), "[]"),
+        data_ceilings_json: text(serde_json::to_string(&config.data_ceiling), "{}"),
+        enabled: config.enabled,
+    }
+}
+
+/// What the running gateway is doing, next to what is stored:
+///
+/// - `enabled`: the stored setting.
+/// - `running`: the gateway in this process answers Assist requests.
+/// - `endpointHost`: where it sends them, or `null` when it is not running.
+/// - `restartPending`: the stored configuration is not the one in effect. Turning
+///   Assist off takes effect at once, so it never leaves this set; every other
+///   change is read when the gateway is built, at start-up.
+fn assist_status(gateway: &AssistHandle, stored: &AssistConfig) -> serde_json::Value {
+    let running = assist_running(gateway);
+    let restart_pending = match assist_live(gateway) {
+        Some(_) if !stored.enabled => false,
+        Some(live) => assist_admin_wire(stored) != live.booted,
+        // Not a gateway `build_assist` built, so there is nothing to compare with
+        // and no stop flag to have applied the stored setting.
+        None => stored.enabled || gateway.is_enabled(),
+    };
+    json!({
+        "enabled": stored.enabled,
+        "running": running,
+        "endpointHost": if running { gateway.endpoint_host() } else { None },
+        "restartPending": restart_pending,
+    })
+}
+
+/// Persist `config`, apply its on/off setting to the running gateway, audit the
+/// change, and answer with [`assist_status`].
+async fn store_assist_config(
+    state: &AppState,
+    gateway: &AssistHandle,
+    admin: &str,
+    config: &AssistConfig,
+) -> Response {
+    if let Err(e) = state.store.put_assist_config(&assist_row(config)).await {
+        tracing::error!("assist config write failed: {e}");
+        return (StatusCode::INTERNAL_SERVER_ERROR, "store error").into_response();
+    }
+    // Off stops the running gateway now; on lifts that stop. Lifting it does not
+    // start a gateway that was built disabled — `assist_status` reports that case
+    // as `restartPending`.
+    if let Some(live) = assist_live(gateway) {
+        live.stopped.store(!config.enabled, Ordering::SeqCst);
+    }
+    append_assist_audit(state, admin, config).await;
+    Json(assist_status(gateway, config)).into_response()
+}
+
+/// Append an audit row for an Assist configuration change. The detail names the
+/// adapter kind and endpoint host, never the API key. Best-effort, as in
+/// `egress_admin::append_egress_audit`, whose choice of audit kind this follows.
+async fn append_assist_audit(state: &AppState, admin: &str, config: &AssistConfig) {
+    let (kind, host) = match &config.adapter {
+        Some(AdapterConfig::OpenAiCompatible { base_url, .. }) => {
+            ("open-ai-compatible", host_of(base_url))
+        }
+        Some(AdapterConfig::Anthropic { base_url, .. }) => ("anthropic", host_of(base_url)),
+        Some(AdapterConfig::LocalProcess { .. }) => ("local-process", None),
+        None => ("none", None),
+    };
+    let entry = mw_admin::AuditEvent::new(
+        admin,
+        mw_admin::ActorKind::Admin,
+        mw_admin::AuditKind::SecurityPolicyChanged,
+    )
+    .target("assist")
+    .detail(json!({
+        "enabled": config.enabled,
+        "adapterKind": kind,
+        "endpointHost": host,
+        "capabilityGrants": config.capability_grants,
+        "includeE2ee": config.data_ceiling.include_e2ee,
+        "includeAttachments": config.data_ceiling.include_attachments,
+        "accounts": config.data_ceiling.accounts.len(),
+        "folders": config.data_ceiling.folders.len(),
+    }))
+    .into_entry();
+    let row = mw_store::AuditRow {
+        id: entry.id,
+        ts: entry.ts,
+        actor: entry.actor,
+        actor_kind: "admin".to_string(),
+        action: entry.action,
+        target: entry.target,
+        detail_json: entry.detail_json,
+        ip: entry.ip,
+    };
+    if let Err(e) = state.store.append_audit(&row).await {
+        tracing::warn!("assist audit append failed ({}): {e}", row.action);
+    }
+}
+
+/// Read the stored deployment configuration, or the `500` to answer with.
+async fn read_assist_config(state: &AppState) -> Result<AssistConfig, Response> {
+    match state.store.get_assist_config("deployment").await {
+        Ok(row) => Ok(stored_assist_config(row.as_ref())),
+        Err(e) => {
+            tracing::error!("assist config read failed: {e}");
+            Err((StatusCode::INTERNAL_SERVER_ERROR, "store error").into_response())
+        }
+    }
+}
+
+fn bad_request(message: impl Into<String>) -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({ "error": message.into() })),
+    )
+        .into_response()
+}
+
+/// `GET /admin/assist` — the stored deployment Assist configuration in the admin
+/// wire shape. With no row stored it is the default configuration, every key
+/// present.
 async fn assist_admin_get(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Err(resp) = require_admin(&state, &headers).await {
         return resp;
     }
-    match state.store.get_assist_config("deployment").await {
-        Ok(Some(r)) => Json(json!({
-            "enabled": r.enabled,
-            "adapters": serde_json::from_str::<serde_json::Value>(&r.adapters_json).unwrap_or(json!(null)),
-            "capabilityGrants": serde_json::from_str::<serde_json::Value>(&r.capability_grants_json).unwrap_or(json!([])),
-            "dataCeilings": serde_json::from_str::<serde_json::Value>(&r.data_ceilings_json).unwrap_or(json!({})),
-        }))
-        .into_response(),
-        Ok(None) => Json(json!({ "enabled": false })).into_response(),
-        Err(e) => {
-            tracing::error!("assist config read failed: {e}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "store error").into_response()
-        }
+    match read_assist_config(&state).await {
+        Ok(config) => Json(assist_admin_wire(&config)).into_response(),
+        Err(resp) => resp,
     }
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AssistAdminReq {
-    #[serde(default)]
-    enabled: bool,
-    #[serde(default = "empty_obj")]
-    adapters: serde_json::Value,
-    #[serde(default = "empty_arr")]
-    capability_grants: serde_json::Value,
-    #[serde(default = "empty_obj")]
-    data_ceilings: serde_json::Value,
-}
-
-fn empty_obj() -> serde_json::Value {
-    json!({})
-}
-fn empty_arr() -> serde_json::Value {
-    json!([])
-}
-
-/// `PUT /admin/assist` — persist the deployment Assist config (0008 `assist_config`).
-async fn assist_admin_put(
+/// `GET /admin/assist/status` — [`assist_status`] for the stored configuration.
+async fn assist_admin_status(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(body): Json<AssistAdminReq>,
+    Extension(gateway): Extension<AssistHandle>,
 ) -> Response {
     if let Err(resp) = require_admin(&state, &headers).await {
         return resp;
     }
-    let row = mw_store::AssistConfigRow {
-        scope: "deployment".into(),
-        adapters_json: body.adapters.to_string(),
-        capability_grants_json: body.capability_grants.to_string(),
-        data_ceilings_json: body.data_ceilings.to_string(),
-        enabled: body.enabled,
-    };
-    match state.store.put_assist_config(&row).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => {
-            tracing::error!("assist config write failed: {e}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "store error").into_response()
-        }
+    match read_assist_config(&state).await {
+        Ok(config) => Json(assist_status(&gateway, &config)).into_response(),
+        Err(resp) => resp,
     }
 }
 
-/// `POST /admin/assist/kill` — the tenant-wide Assist kill switch (§14/§19): flip
-/// `enabled=false` in the persisted config. New gateways build Disabled on restart;
-/// the running gateway is reconstructed on the next boot (documented — a live
-/// hot-kill of the in-memory gateway is an e16 follow-up).
-async fn assist_admin_kill(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(resp) = require_admin(&state, &headers).await {
-        return resp;
-    }
-    let existing = state
-        .store
-        .get_assist_config("deployment")
-        .await
-        .ok()
-        .flatten();
-    let row = mw_store::AssistConfigRow {
-        scope: "deployment".into(),
-        adapters_json: existing
-            .as_ref()
-            .map(|r| r.adapters_json.clone())
-            .unwrap_or_else(|| "{}".into()),
-        capability_grants_json: existing
-            .as_ref()
-            .map(|r| r.capability_grants_json.clone())
-            .unwrap_or_else(|| "[]".into()),
-        data_ceilings_json: existing
-            .as_ref()
-            .map(|r| r.data_ceilings_json.clone())
-            .unwrap_or_else(|| "{}".into()),
-        enabled: false,
+/// `PUT /admin/assist` — replace the deployment Assist configuration (0008
+/// `assist_config`). The body is the admin wire shape, whole; anything else is a
+/// `400` naming the problem and nothing is written. Answers with [`assist_status`].
+async fn assist_admin_put(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Extension(gateway): Extension<AssistHandle>,
+    body: Result<Json<AssistAdminReq>, JsonRejection>,
+) -> Response {
+    let admin = match require_admin(&state, &headers).await {
+        Ok(a) => a,
+        Err(resp) => return resp,
     };
-    match state.store.put_assist_config(&row).await {
-        Ok(()) => Json(json!({ "killed": true })).into_response(),
-        Err(e) => {
-            tracing::error!("assist kill write failed: {e}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "store error").into_response()
-        }
-    }
+    let config = match body {
+        Ok(Json(req)) => match req.into_config() {
+            Ok(c) => c,
+            Err(message) => return bad_request(message),
+        },
+        Err(rejection) => return bad_request(rejection.body_text()),
+    };
+    store_assist_config(&state, &gateway, &admin, &config).await
+}
+
+/// The body of `POST /admin/assist/kill`: `on: true` turns Assist off.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AssistKillReq {
+    on: bool,
+}
+
+/// `POST /admin/assist/kill` — the tenant-wide Assist kill switch (§14/§19).
+///
+/// `{"on": true}` stores `enabled = false` and stops the gateway running in this
+/// process: from the next request on, every chat, embedding and transcription is
+/// refused before anything is sent, and no audit row is written for it.
+/// `{"on": false}` stores `enabled = true` and lifts the stop; a gateway that was
+/// built disabled stays off until the server restarts, which the [`assist_status`]
+/// answer reports as `restartPending`. The rest of the configuration is kept.
+async fn assist_admin_kill(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Extension(gateway): Extension<AssistHandle>,
+    body: Result<Json<AssistKillReq>, JsonRejection>,
+) -> Response {
+    let admin = match require_admin(&state, &headers).await {
+        Ok(a) => a,
+        Err(resp) => return resp,
+    };
+    let on = match body {
+        Ok(Json(req)) => req.on,
+        Err(rejection) => return bad_request(rejection.body_text()),
+    };
+    let mut config = match read_assist_config(&state).await {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+    config.enabled = !on;
+    store_assist_config(&state, &gateway, &admin, &config).await
 }
 
 // ── Nextcloud: WebDAV PROPFIND directory listing ─────────────────────────────
