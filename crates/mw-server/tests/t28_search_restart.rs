@@ -41,13 +41,16 @@ const ADMIN_PASS: &str = "hunter2";
 
 // ── scripted POP3 maildrop ───────────────────────────────────────────────────
 
+/// One message in the maildrop: its UIDL and its bytes.
+type Message = (String, Vec<u8>);
+
 /// A POP3 server over a maildrop the test can add to. It counts accepted logins
 /// and `RETR` commands, which is how a test shows that a message was, or was not,
 /// fetched again.
 #[derive(Clone)]
 struct Maildrop {
     addr: SocketAddr,
-    messages: Arc<Mutex<Vec<(String, Vec<u8>)>>>,
+    messages: Arc<Mutex<Vec<Message>>>,
     logins: Arc<AtomicUsize>,
     retrs: Arc<AtomicUsize>,
 }
