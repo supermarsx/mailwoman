@@ -90,6 +90,11 @@ impl MailStore {
                     "from": [{ "name": name, "email": addr }],
                     "to": [{ "name": "Test User", "email": USER }],
                     "subject": subject,
+                    // RFC 8621 §4.1.2.3: ids without angle brackets, `null`
+                    // for a header the message does not carry.
+                    "messageId": [format!("{id}@mock.example")],
+                    "inReplyTo": null,
+                    "references": null,
                     "receivedAt": "2026-07-12T09:00:00Z",
                     "sentAt": "2026-07-12T09:00:00Z",
                     "preview": "…",

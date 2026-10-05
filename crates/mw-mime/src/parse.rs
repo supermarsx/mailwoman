@@ -3,7 +3,8 @@
 //! The mapping targets exactly the `Email` properties the V0 web UI reads back
 //! from `Email/get`: `subject`, address lists, `sentAt`/`receivedAt`, `preview`,
 //! `hasAttachment`, `size`, `textBody`/`htmlBody` part metadata and the decoded
-//! `bodyValues`. Ids, `mailboxIds`, `keywords` and `threadId` are the engine's
+//! `bodyValues`, plus the threading properties `messageId`, `inReplyTo` and
+//! `references` a client needs to write the headers of a reply. Ids, `mailboxIds`, `keywords` and `threadId` are the engine's
 //! job — they are left at their defaults here.
 
 use std::collections::HashMap;
@@ -108,6 +109,9 @@ fn map_email(message: &Message<'_>, raw: &[u8]) -> Email {
         cc: map_addresses(message.cc()),
         bcc: map_addresses(message.bcc()),
         reply_to: map_addresses(message.reply_to()),
+        message_id: message_ids_header(message, raw, "Message-ID"),
+        in_reply_to: message_ids_header(message, raw, "In-Reply-To"),
+        references: message_ids_header(message, raw, "References"),
         sent_at,
         received_at,
         preview: message
@@ -122,6 +126,76 @@ fn map_email(message: &Message<'_>, raw: &[u8]) -> Email {
         attachments: collect_attachments(message),
         ..Email::default()
     }
+}
+
+/// The RFC 8621 §4.1.2.3 `MessageIds` form of the header `name`: the ids it
+/// lists, in order, without their angle brackets.
+///
+/// Read from the header's raw text, not from `mail-parser`'s decoded value,
+/// which returns whatever text the header holds when it is not a list of ids.
+/// When the header appears more than once the last instance is the one read
+/// (RFC 8621 §4.1.3). `None` when the header is absent, is not UTF-8, or
+/// [`message_ids`] refuses it.
+fn message_ids_header(message: &Message<'_>, raw: &[u8], name: &str) -> Option<Vec<String>> {
+    let header = message
+        .headers()
+        .iter()
+        .rfind(|h| h.name.as_str().eq_ignore_ascii_case(name))?;
+    let value = raw.get(header.offset_start as usize..header.offset_end as usize)?;
+    message_ids(std::str::from_utf8(value).ok()?)
+}
+
+/// The ids in a header value that is nothing but `<id>`s.
+///
+/// Between ids: spaces, tabs, line folds, comments (nested, with `\` quoting
+/// the next character) and commas, which some senders write in `References`.
+/// An id is the text between `<` and `>`; it has to be non-empty and hold no
+/// whitespace, no control character and no `<`, so an id folded across two
+/// lines is refused, and so is the obsolete quoted form with a space in it.
+/// An id is not required to contain `@`: ids without one are common in real
+/// mail, and a reply has to be able to name them.
+///
+/// Anything else — text outside brackets and comments, an unclosed `<` or
+/// comment, a value with no id in it — makes the whole value `None`. One bad
+/// id does not leave the others standing: a partial `References` chain reads
+/// as a different thread, not as a shorter one.
+fn message_ids(value: &str) -> Option<Vec<String>> {
+    let mut ids = Vec::new();
+    let mut chars = value.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            ' ' | '\t' | '\r' | '\n' | ',' => {}
+            '(' => {
+                let mut depth = 1;
+                while depth > 0 {
+                    match chars.next()? {
+                        '\\' => {
+                            chars.next()?;
+                        }
+                        '(' => depth += 1,
+                        ')' => depth -= 1,
+                        _ => {}
+                    }
+                }
+            }
+            '<' => {
+                let mut id = String::new();
+                loop {
+                    match chars.next()? {
+                        '>' => break,
+                        c if c == '<' || c.is_whitespace() || c.is_control() => return None,
+                        c => id.push(c),
+                    }
+                }
+                if id.is_empty() {
+                    return None;
+                }
+                ids.push(id);
+            }
+            _ => return None,
+        }
+    }
+    (!ids.is_empty()).then_some(ids)
 }
 
 /// Build [`EmailBodyPart`] metadata for the message's non-inline attachment

@@ -198,6 +198,20 @@ pub struct Email {
     pub bcc: Option<Vec<EmailAddress>>,
     #[serde(default)]
     pub reply_to: Option<Vec<EmailAddress>>,
+    /// RFC 8621 §4.1.2.3 — the ids in `Message-ID`, each without its angle
+    /// brackets; `null` when the header is absent or does not parse as a list
+    /// of message ids. Serialised as `null` rather than left out, so an object
+    /// without the key is one stored before the property existed, not a
+    /// message without the header.
+    #[serde(default)]
+    pub message_id: Option<Vec<String>>,
+    /// The ids in `In-Reply-To`, in the same form as `messageId`.
+    #[serde(default)]
+    pub in_reply_to: Option<Vec<String>>,
+    /// The ids in `References`, in header order, in the same form as
+    /// `messageId`.
+    #[serde(default)]
+    pub references: Option<Vec<String>>,
     #[serde(default)]
     pub subject: Option<String>,
     #[serde(default)]
