@@ -55,6 +55,7 @@ export function AllowlistPanel(props: AllowlistPanelProps): JSX.Element {
   const slice = props.slice ?? createPluginsSlice(props.api ?? createHttpPluginsApi());
 
   onMount(() => void loadCatalog('admin'));
+  onMount(() => void loadCatalog('plugins'));
   createEffect(() => {
     void slice.loadAllowlist();
   });
@@ -90,7 +91,7 @@ export function AllowlistPanel(props: AllowlistPanelProps): JSX.Element {
         <p class={css.prose}>{t('admin-allowlist-intro')}</p>
       </div>
 
-      <Show when={failed()}>
+      <Show when={failed() || slice.allowlistLoadFailed()}>
         <p class={css.error} role="alert" data-testid="allowlist-error">
           {t('admin-allowlist-load-error')}
         </p>
@@ -285,8 +286,8 @@ function ConfirmDialog(props: {
     p().kind === 'approve'
       ? 'admin-allowlist-approve-detail'
       : p().kind === 'revoke'
-        ? 'admin-allowlist-revoke-detail'
-        : 'admin-allowlist-uninstall-detail';
+        ? 'plugins-admin-revoke-detail'
+        : 'plugins-admin-uninstall-detail';
   const confirmKey = (): string =>
     p().kind === 'approve'
       ? 'admin-allowlist-approve-confirm'

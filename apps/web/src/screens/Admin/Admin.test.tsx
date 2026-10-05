@@ -14,7 +14,7 @@ describe('AdminScreen (gate + nav)', () => {
     render(() => <AdminScreen api={mockAdminApi()} />);
     // Default section (Domains) is shown; every section nav entry is present.
     expect(await screen.findByRole('button', { name: 'Domains' })).toBeInTheDocument();
-    for (const label of ['Users', 'Integrations', 'Observability', 'Require two-factor', 'Egress']) {
+    for (const label of ['Users', 'Integrations', 'Observability', 'Require two-factor', 'Egress', 'UI plugins']) {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
     }
   });
@@ -41,6 +41,17 @@ describe('AdminScreen (gate + nav)', () => {
     render(() => <AdminScreen api={mockAdminApi()} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Observability' }));
     expect(await screen.findByRole('region', { name: 'Observability' })).toBeInTheDocument();
+  });
+
+  it('the UI plugins entry shows that screen in place of the section that was open', async () => {
+    render(() => <AdminScreen api={mockAdminApi()} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'UI plugins' }));
+    expect(await screen.findByRole('region', { name: 'UI plugins' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Domains' })).toBeNull();
+    // Leaving it brings the chosen section back and takes the screen away.
+    fireEvent.click(screen.getByRole('button', { name: 'Observability' }));
+    expect(await screen.findByRole('region', { name: 'Observability' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'UI plugins' })).toBeNull();
   });
 
   it('the section nav is keyboard operable via arrow keys (roving tabindex)', async () => {

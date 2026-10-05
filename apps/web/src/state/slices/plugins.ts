@@ -1,16 +1,26 @@
-// Plugin-registry admin client + slice (SPEC §22, plan §2.6 / §3 e7). Owns the typed
-// `/admin/plugins/*` surface (the contract e9 fills + e14 mounts over the `mw-plugin`
-// host + the 0008 `plugins`/`plugin_grants` tables) plus the reactive slice the Admin
-// → Plugins screen consumes. Same-origin, cookie-authed against the admin session
-// domain (like admin.ts) — it shares nothing with the JMAP client, so the mailbox path
-// is byte-unchanged. Disjoint file — no `store.ts` collision.
+// Engine-plugin registry admin client and slice (SPEC §22). The wire shapes are the
+// server's and this file follows them:
+//
+//   crates/mw-server/src/plugins.rs       — `plugins_router` (routes), `plugin_view`
+//                                           (the plugin object every answer carries),
+//                                           `RegisterReq`, `GrantReq`,
+//                                           `AllowUnsignedReq`, `SettingsReq`,
+//                                           `test_classifier`, `refuse` (the error body)
+//   crates/mw-server/src/v7_mount.rs      — `NotLoaded::wire`, `TrustPolicy::wire`,
+//                                           `FIRST_PARTY_MANIFESTS`,
+//                                           `HIGH_POWER_CAPABILITIES`
+//   crates/mw-server/src/admin_plugins.rs — the `/admin/plugins/allowlist` routes and
+//                                           `uninstall_plugin`
+//
+// Same-origin, cookie-authed against the admin session (like admin.ts). It shares
+// nothing with the JMAP client.
 
 import { createSignal, type Accessor } from 'solid-js';
 import { basePath } from '../../api/basePath.ts';
 
-// ── Wire DTOs (the frozen `/admin/plugins/*` JSON contract e9 satisfies) ──────────
+// ── Wire DTOs ────────────────────────────────────────────────────────────────
 
-/** The capabilities a plugin may declare (mirrors `mw_plugin::Capability`, kebab). */
+/** `mw_plugin::Capability`, kebab-case (crates/mw-plugin/src/lib.rs). */
 export type PluginCapability =
   | 'account-backend'
   | 'net'
@@ -21,75 +31,134 @@ export type PluginCapability =
   | 'message-pipeline'
   | 'store-kv-scoped';
 
+/** Every capability, in the enum's order. */
+export const PLUGIN_CAPABILITIES: readonly PluginCapability[] = [
+  'account-backend',
+  'net',
+  'dlp-detector',
+  'spam-action',
+  'addrbook-source',
+  'autoconfig-source',
+  'message-pipeline',
+  'store-kv-scoped',
+];
+
 /**
- * The high-power capability set (the account-backend / send-as-user class). The server
- * REFUSES any of these at grant time to a third-party (non-first-party) plugin — the
- * gate is provenance-based and cannot be overridden by admin action (26.15 t15 e6:
- * `HIGH_POWER_CAPABILITIES = [Capability::AccountBackend]`). The web surface mirrors the
- * list so it can show these as not-grantable-to-third-party rather than letting an admin
- * attempt a grant the server will reject.
+ * The capabilities reserved to first-party components (v7_mount.rs
+ * `HIGH_POWER_CAPABILITIES`). The server refuses one in a third-party registration
+ * or grant, so the forms do not offer it there.
  */
 export const HIGH_POWER_CAPABILITIES: readonly PluginCapability[] = ['account-backend'];
 
-/** Whether a capability is high-power (first-party-only; never grantable to third-party). */
+/** Whether a capability is reserved to first-party components. */
 export function isHighPowerCapability(cap: PluginCapability): boolean {
   return HIGH_POWER_CAPABILITIES.includes(cap);
 }
 
-/** Resource limits declared in a plugin manifest (mirrors `mw_plugin::PluginLimits`). */
+/** The ids of the first-party components (v7_mount.rs `FIRST_PARTY_MANIFESTS`). */
+export const FIRST_PARTY_PLUGIN_IDS: readonly string[] = [
+  'bridge-graph',
+  'bridge-ews',
+  'bridge-gmail',
+  'languagetool',
+  'nextcloud',
+  'spam-rspamd',
+  'spam-spamassassin',
+];
+
+/** `limits` in `plugin_view`. */
 export interface PluginLimits {
   readonly memoryMb: number;
   readonly deadlineMs: number;
   readonly fuel: number | null;
 }
 
-/** A registry plugin row (mirrors the server projection of the 0008 `plugins` table). */
+/** `TrustPolicy::wire`. */
+export type PluginTrust = 'first-party-digest' | 'admin-pinned-digest';
+
+/** `role` in `plugin_view`. */
+export type PluginRole = 'account-backend' | 'spam-classifier' | 'none';
+
+/** `NotLoaded::wire`. */
+export type NotLoadedReason =
+  | 'not-approved'
+  | 'disabled'
+  | 'unsigned-not-allowed'
+  | 'no-grant'
+  | 'component-unavailable'
+  | 'load-failed'
+  | 'proxy-mode'
+  | 'no-account-binding'
+  | 'no-host-caller'
+  | 'another-classifier-active';
+
+/** One registered plugin: the object `plugin_view` builds. Every key is always present. */
 export interface PluginInfo {
   readonly id: string;
   readonly name: string;
   readonly version: string;
-  /** Whether the component carries a valid detached signature over its bytes. An
-   *  unsigned plugin can only run under `allowUnsigned` and raises a permanent banner. */
+  readonly firstParty: boolean;
+  readonly trust: PluginTrust;
+  /** The manifest carries a signature. */
   readonly signed: boolean;
-  /** Admin approval state (approve gate before it can be enabled). */
-  readonly approved: boolean;
-  readonly enabled: boolean;
-  /** Whether the admin has opted this unsigned plugin in (`allow_unsigned` policy). */
+  /** The stored allow-unsigned flag. Always false for a first-party component. */
   readonly allowUnsigned: boolean;
+  readonly approved: boolean;
+  readonly approvedBy: string | null;
+  /** The stored setting. Whether it runs is `loaded`. */
+  readonly enabled: boolean;
+  readonly role: PluginRole;
+  /** What the manifest declares. */
   readonly capabilities: PluginCapability[];
+  /** What a deployment-wide instance would run with. */
+  readonly granted: PluginCapability[];
   readonly netAllowlist: string[];
   readonly limits: PluginLimits;
+  /** A spam classifier's daemon address; null when unset or not a classifier. */
+  readonly endpoint: string | null;
+  /** An instance is running in the server process. */
+  readonly loaded: boolean;
+  readonly loadedCapabilities: PluginCapability[];
+  /** The stored state differs from what runs and only a restart applies it. */
+  readonly restartRequired: boolean;
+  readonly notLoadedReason: NotLoadedReason | null;
 }
 
-/** A per-account capability grant for a plugin (`plugin_grants`). */
+/** `RegisterReq`. A first-party id takes `id` and optionally `netAllowlist` only. */
+export interface RegisterInput {
+  readonly id: string;
+  readonly name?: string;
+  readonly version?: string;
+  readonly capabilities?: PluginCapability[];
+  readonly netAllowlist?: string[];
+}
+
+/** `GrantReq`: the complete capability set for one scope. */
 export interface GrantInput {
-  /** Omit / null ⇒ a deployment-wide grant; else scope to one account. */
+  /** null ⇒ the deployment-wide scope. */
   readonly accountId: string | null;
-  readonly capability: PluginCapability;
+  readonly capabilities: PluginCapability[];
 }
 
-// ── Third-party allowlist DTOs (the `/admin/plugins/allowlist` contract, e6) ──────
-//
-// The trust surface for the ONLY security-core loosening in 26.15: `resolve_component`
-// loads a NON-first-party component only if its exact on-disk SHA-256 matches a
-// non-revoked admin-approved pin. This client feeds the admin review panel — the digest
-// shown here is the digest the admin is approving, computed by the server over the exact
-// on-disk bytes.
+/** The answer of `POST /admin/plugins/{id}/test`. */
+export interface ClassifierTest {
+  readonly verdict: 'spam' | 'ham' | 'unknown';
+  /** The component's own answer. */
+  readonly detail: unknown;
+}
 
-/** A third-party component present on disk in `MW_THIRDPARTY_PLUGIN_DIR`, with the digest
- *  the server computed over its exact bytes (the value the admin approves). `firstParty`
- *  flags an id that collides with a first-party component — the first-party pin always
- *  takes precedence and such an id can never be third-party-approved. */
+// ── Third-party allowlist DTOs (admin_plugins.rs `list_allowlist`) ───────────
+
+/** A third-party component file on disk, with the digest the server computed. */
 export interface AllowlistPresent {
   readonly pluginId: string;
   readonly computedDigest: string;
   readonly firstParty: boolean;
-  /** True when a non-revoked pin already matches this exact computed digest. */
+  /** A non-revoked pin already matches this digest. */
   readonly approved: boolean;
 }
 
-/** A stored allowlist pin (an admin-approved byte-exact identity + its provenance). A
- *  revoked pin is retained for oversight; it no longer admits the component. */
+/** A stored allowlist pin. A revoked pin is kept for oversight. */
 export interface AllowlistPin {
   readonly pluginId: string;
   readonly digestHex: string;
@@ -102,8 +171,7 @@ export interface AllowlistPin {
   readonly revoked: boolean;
 }
 
-/** The `GET /admin/plugins/allowlist` projection: present-on-disk components joined with
- *  the stored pins (including revoked rows, for oversight). */
+/** The body of `GET /admin/plugins/allowlist`. */
 export interface AllowlistView {
   readonly present: AllowlistPresent[];
   readonly pins: AllowlistPin[];
@@ -112,113 +180,135 @@ export interface AllowlistView {
 /** The empty allowlist view (initial slice state before the first load). */
 export const EMPTY_ALLOWLIST: AllowlistView = { present: [], pins: [] };
 
-/** Raised when an `/admin/plugins/*` request fails. */
+/** A refused or failed `/admin/plugins/*` request. `code` is the server's (`refuse`). */
 export class PluginsApiError extends Error {
   readonly status: number;
-  constructor(status: number, message: string) {
+  readonly code: string;
+  constructor(status: number, code: string, message: string) {
     super(message);
     this.name = 'PluginsApiError';
     this.status = status;
+    this.code = code;
   }
 }
 
-/**
- * The plugin-registry admin client. Component tests supply a mock; `createHttpPluginsApi`
- * is the production `fetch` impl. Endpoints (e9 to satisfy, e14 to mount):
- *   GET  /admin/plugins                    → PluginInfo[]
- *   POST /admin/plugins/{id}/approve
- *   POST /admin/plugins/{id}/enable
- *   POST /admin/plugins/{id}/disable
- *   POST /admin/plugins/{id}/grant  (GrantInput)
- */
+/** The plugin-registry admin client. Component tests supply a mock. */
 export interface PluginsApi {
+  /** GET /admin/plugins → `{ plugins }`. */
   list(): Promise<PluginInfo[]>;
-  approve(id: string): Promise<void>;
-  enable(id: string): Promise<void>;
-  disable(id: string): Promise<void>;
-  grant(id: string, input: GrantInput): Promise<void>;
-  /** Toggle the `allow_unsigned` policy for an unsigned plugin. */
-  setAllowUnsigned(id: string, allow: boolean): Promise<void>;
-  /** GET /admin/plugins/allowlist — present-on-disk third-party components + stored pins. */
+  /** POST /admin/plugins. */
+  register(input: RegisterInput): Promise<PluginInfo>;
+  approve(id: string): Promise<PluginInfo>;
+  enable(id: string): Promise<PluginInfo>;
+  disable(id: string): Promise<PluginInfo>;
+  /** POST /admin/plugins/{id}/grant — replaces the scope's grants. */
+  grant(id: string, input: GrantInput): Promise<PluginInfo>;
+  /** POST /admin/plugins/{id}/allow-unsigned `{ allow }`. */
+  setAllowUnsigned(id: string, allow: boolean): Promise<PluginInfo>;
+  /** POST /admin/plugins/{id}/settings `{ endpoint }`. */
+  setEndpoint(id: string, endpoint: string | null): Promise<PluginInfo>;
+  /** POST /admin/plugins/{id}/test. */
+  testClassifier(id: string): Promise<ClassifierTest>;
+  /** GET /admin/plugins/allowlist. */
   listAllowlist(): Promise<AllowlistView>;
-  /** POST /admin/plugins/allowlist — pin the exact `(pluginId, digestHex)` shown for review. */
+  /** POST /admin/plugins/allowlist — pin the exact `(pluginId, digestHex)`. */
   approveDigest(pluginId: string, digestHex: string): Promise<void>;
-  /** POST /admin/plugins/allowlist/{pluginId}/{digestHex}/revoke — revoke the pin + disable. */
+  /** POST /admin/plugins/allowlist/{pluginId}/{digestHex}/revoke. */
   revokeDigest(pluginId: string, digestHex: string): Promise<void>;
-  /** POST /admin/plugins/{id}/uninstall — purge the plugin's KV, delete its pins, disable it. */
+  /** POST /admin/plugins/{id}/uninstall. */
   uninstall(id: string): Promise<void>;
 }
 
-/** The production HTTP client. Same-origin, cookie-authed against the admin domain.
- *  `base` defaults to the deploy prefix (`''` at the origin root). */
+/** The production HTTP client. `base` defaults to the deploy prefix. */
 export function createHttpPluginsApi(base = basePath()): PluginsApi {
-  async function raw(path: string, init?: RequestInit): Promise<Response> {
-    return fetch(`${base}/admin/plugins${path}`, { credentials: 'same-origin', ...init });
-  }
-  async function send(path: string, method: string, body?: unknown): Promise<void> {
-    const init: RequestInit = { method };
+  async function call(path: string, method: string, body?: unknown): Promise<unknown> {
+    const init: RequestInit = { method, credentials: 'same-origin' };
     if (body !== undefined) {
       init.headers = { 'content-type': 'application/json' };
       init.body = JSON.stringify(body);
     }
-    const res = await raw(path, init);
-    if (!res.ok) throw new PluginsApiError(res.status, `${method} ${path} failed (${res.status})`);
+    const res = await fetch(`${base}/admin/plugins${path}`, init);
+    const answer: unknown = await res.json().catch(() => null);
+    if (!res.ok) {
+      const fields = (answer ?? {}) as { error?: unknown; code?: unknown };
+      throw new PluginsApiError(
+        res.status,
+        typeof fields.code === 'string' ? fields.code : 'http-error',
+        typeof fields.error === 'string' ? fields.error : `${method} ${path} (${res.status})`,
+      );
+    }
+    return answer;
   }
+  const plugin = async (path: string, body?: unknown): Promise<PluginInfo> =>
+    ((await call(path, 'POST', body)) as { plugin: PluginInfo }).plugin;
+  const at = (id: string, action: string): string => `/${encodeURIComponent(id)}/${action}`;
   return {
-    async list() {
-      const res = await raw('');
-      if (!res.ok) throw new PluginsApiError(res.status, `list plugins failed (${res.status})`);
-      return (await res.json()) as PluginInfo[];
+    list: async () => ((await call('', 'GET')) as { plugins: PluginInfo[] }).plugins,
+    register: (input) => plugin('', input),
+    approve: (id) => plugin(at(id, 'approve')),
+    enable: (id) => plugin(at(id, 'enable')),
+    disable: (id) => plugin(at(id, 'disable')),
+    grant: (id, input) => plugin(at(id, 'grant'), input),
+    setAllowUnsigned: (id, allow) => plugin(at(id, 'allow-unsigned'), { allow }),
+    setEndpoint: (id, endpoint) => plugin(at(id, 'settings'), { endpoint }),
+    testClassifier: async (id) => (await call(at(id, 'test'), 'POST')) as ClassifierTest,
+    listAllowlist: async () => (await call('/allowlist', 'GET')) as AllowlistView,
+    approveDigest: async (pluginId, digestHex) => {
+      await call('/allowlist', 'POST', { pluginId, digestHex });
     },
-    approve: (id) => send(`/${encodeURIComponent(id)}/approve`, 'POST'),
-    enable: (id) => send(`/${encodeURIComponent(id)}/enable`, 'POST'),
-    disable: (id) => send(`/${encodeURIComponent(id)}/disable`, 'POST'),
-    grant: (id, input) => send(`/${encodeURIComponent(id)}/grant`, 'POST', input),
-    setAllowUnsigned: (id, allow) => send(`/${encodeURIComponent(id)}/allow-unsigned`, 'POST', { allow }),
-    async listAllowlist() {
-      const res = await raw('/allowlist');
-      if (!res.ok) throw new PluginsApiError(res.status, `list allowlist failed (${res.status})`);
-      return (await res.json()) as AllowlistView;
+    revokeDigest: async (pluginId, digestHex) => {
+      await call(`/allowlist/${encodeURIComponent(pluginId)}/${encodeURIComponent(digestHex)}/revoke`, 'POST');
     },
-    approveDigest: (pluginId, digestHex) => send('/allowlist', 'POST', { pluginId, digestHex }),
-    revokeDigest: (pluginId, digestHex) =>
-      send(`/allowlist/${encodeURIComponent(pluginId)}/${encodeURIComponent(digestHex)}/revoke`, 'POST'),
-    uninstall: (id) => send(`/${encodeURIComponent(id)}/uninstall`, 'POST'),
+    uninstall: async (id) => {
+      await call(at(id, 'uninstall'), 'POST');
+    },
   };
 }
 
-// ── The reactive slice ─────────────────────────────────────────────────────────
+// ── The reactive slice ───────────────────────────────────────────────────────
 
 export interface PluginsSlice {
   readonly api: PluginsApi;
   plugins: Accessor<PluginInfo[]>;
   loading: Accessor<boolean>;
-  /** True when any ENABLED plugin is running unsigned (drives the permanent banner). */
-  hasUnsignedEnabled: Accessor<boolean>;
+  /** The last read of the registry failed; the list shown is the one before it. */
+  loadFailed: Accessor<boolean>;
+  /** The last refused or failed change, until the next change succeeds. */
+  lastError: Accessor<PluginsApiError | null>;
+  /** A third-party plugin without a signature is loaded (drives the banner). */
+  hasUnsignedLoaded: Accessor<boolean>;
   load(): Promise<void>;
-  approve(id: string): Promise<void>;
-  enable(id: string): Promise<void>;
-  disable(id: string): Promise<void>;
-  grant(id: string, input: GrantInput): Promise<void>;
-  setAllowUnsigned(id: string, allow: boolean): Promise<void>;
+  /** Each change resolves to whether the server accepted it. */
+  register(input: RegisterInput): Promise<boolean>;
+  approve(id: string): Promise<boolean>;
+  enable(id: string): Promise<boolean>;
+  disable(id: string): Promise<boolean>;
+  grant(id: string, input: GrantInput): Promise<boolean>;
+  setAllowUnsigned(id: string, allow: boolean): Promise<boolean>;
+  setEndpoint(id: string, endpoint: string | null): Promise<boolean>;
   // ── Third-party allowlist ──────────────────────────────────────────────────
   allowlist: Accessor<AllowlistView>;
   allowlistLoading: Accessor<boolean>;
+  /** The last read of the allowlist failed. */
+  allowlistLoadFailed: Accessor<boolean>;
   loadAllowlist(): Promise<void>;
   approveDigest(pluginId: string, digestHex: string): Promise<void>;
   revokeDigest(pluginId: string, digestHex: string): Promise<void>;
   uninstall(id: string): Promise<void>;
 }
 
-/** Whether the given set of plugins includes an enabled, unsigned one. */
-export function anyUnsignedEnabled(plugins: PluginInfo[]): boolean {
-  return plugins.some((p) => p.enabled && !p.signed);
+/** Whether any third-party plugin without a signature is loaded. */
+export function anyUnsignedLoaded(plugins: PluginInfo[]): boolean {
+  return plugins.some((p) => p.loaded && !p.signed && !p.firstParty);
 }
 
 /** Build the plugins slice over a client (mockable). */
 export function createPluginsSlice(api: PluginsApi): PluginsSlice {
   const [plugins, setPlugins] = createSignal<PluginInfo[]>([]);
   const [loading, setLoading] = createSignal(false);
+  const [loadFailed, setLoadFailed] = createSignal(false);
+  const [allowlistLoadFailed, setAllowlistLoadFailed] = createSignal(false);
+  const [lastError, setLastError] = createSignal<PluginsApiError | null>(null);
   const [allowlist, setAllowlist] = createSignal<AllowlistView>(EMPTY_ALLOWLIST);
   const [allowlistLoading, setAllowlistLoading] = createSignal(false);
 
@@ -226,6 +316,9 @@ export function createPluginsSlice(api: PluginsApi): PluginsSlice {
     setLoading(true);
     try {
       setPlugins(await api.list());
+      setLoadFailed(false);
+    } catch {
+      setLoadFailed(true);
     } finally {
       setLoading(false);
     }
@@ -235,39 +328,56 @@ export function createPluginsSlice(api: PluginsApi): PluginsSlice {
     setAllowlistLoading(true);
     try {
       setAllowlist(await api.listAllowlist());
+      setAllowlistLoadFailed(false);
+    } catch {
+      setAllowlistLoadFailed(true);
     } finally {
       setAllowlistLoading(false);
     }
   }
 
-  async function mutate(fn: () => Promise<void>): Promise<void> {
-    await fn();
-    await load();
+  // A change to one plugin can change another's state (one classifier seat), so the
+  // whole list is read again rather than patched with the answer.
+  async function change(fn: () => Promise<unknown>): Promise<boolean> {
+    try {
+      await fn();
+      setLastError(null);
+      await load();
+      return true;
+    } catch (e) {
+      if (!(e instanceof PluginsApiError)) throw e;
+      setLastError(e);
+      return false;
+    }
   }
 
-  // Allowlist mutations re-read the allowlist (and the registry, since revoke/uninstall
-  // also disable the plugin, which the registry list reflects).
-  async function mutateAllowlist(fn: () => Promise<void>): Promise<void> {
+  // Revoke and uninstall also change the registry (disable / remove the plugin).
+  async function changeAllowlist(fn: () => Promise<void>): Promise<void> {
     await fn();
-    await loadAllowlist();
+    await Promise.all([loadAllowlist(), load()]);
   }
 
   return {
     api,
     plugins,
     loading,
-    hasUnsignedEnabled: () => anyUnsignedEnabled(plugins()),
+    loadFailed,
+    lastError,
+    hasUnsignedLoaded: () => anyUnsignedLoaded(plugins()),
     load,
-    approve: (id) => mutate(() => api.approve(id)),
-    enable: (id) => mutate(() => api.enable(id)),
-    disable: (id) => mutate(() => api.disable(id)),
-    grant: (id, input) => mutate(() => api.grant(id, input)),
-    setAllowUnsigned: (id, allow) => mutate(() => api.setAllowUnsigned(id, allow)),
+    register: (input) => change(() => api.register(input)),
+    approve: (id) => change(() => api.approve(id)),
+    enable: (id) => change(() => api.enable(id)),
+    disable: (id) => change(() => api.disable(id)),
+    grant: (id, input) => change(() => api.grant(id, input)),
+    setAllowUnsigned: (id, allow) => change(() => api.setAllowUnsigned(id, allow)),
+    setEndpoint: (id, endpoint) => change(() => api.setEndpoint(id, endpoint)),
     allowlist,
     allowlistLoading,
+    allowlistLoadFailed,
     loadAllowlist,
-    approveDigest: (pluginId, digestHex) => mutateAllowlist(() => api.approveDigest(pluginId, digestHex)),
-    revokeDigest: (pluginId, digestHex) => mutateAllowlist(() => api.revokeDigest(pluginId, digestHex)),
-    uninstall: (id) => mutateAllowlist(() => api.uninstall(id)),
+    approveDigest: (pluginId, digestHex) => changeAllowlist(() => api.approveDigest(pluginId, digestHex)),
+    revokeDigest: (pluginId, digestHex) => changeAllowlist(() => api.revokeDigest(pluginId, digestHex)),
+    uninstall: (id) => changeAllowlist(() => api.uninstall(id)),
   };
 }

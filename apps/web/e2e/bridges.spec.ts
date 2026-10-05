@@ -15,29 +15,35 @@ import { adminLogin, expectMounted } from './v7-helpers.ts';
  */
 
 test.describe('Bridges (V7) — registry surface on the real server', () => {
-  test('bridge plugins surface in the registry as account-backend plugins', async ({ request }) => {
+  test('the three bridges register as account-backend plugins and are not reported as running', async ({
+    request,
+  }) => {
     await adminLogin(request);
+    const bridges = ['bridge-ews', 'bridge-gmail', 'bridge-graph'];
+    for (const id of bridges) await request.post(`/admin/plugins/${id}/uninstall`);
+
+    for (const id of bridges) {
+      const registered = await request.post('/admin/plugins', { data: { id } });
+      expectMounted(registered, 'POST /admin/plugins');
+      expect(registered.status(), `${id} registers`).toBe(201);
+      const plugin = (await registered.json()).plugin as Record<string, unknown>;
+      expect(plugin.role).toBe('account-backend');
+      expect(plugin.capabilities as string[]).toContain('account-backend');
+      // Registration grants nothing and loads nothing.
+      expect(plugin.granted).toEqual([]);
+      expect(plugin.loaded).toBe(false);
+    }
 
     const list = await request.get('/admin/plugins');
-    expectMounted(list, 'GET /admin/plugins');
     expect(list.status()).toBe(200);
-    const plugins = (await list.json()).plugins as Array<Record<string, unknown>>;
-    expect(Array.isArray(plugins)).toBe(true);
-
-    // When bridge components are registered (seeded via `plugins`/`bridge_accounts`,
-    // 0008), each advertises the `account-backend` capability the engine needs to serve
-    // it as an account. Absent a seeded row the registry is simply empty — the mount
-    // contract still holds (proven above), and the account-backend proof lives in the
-    // Rust harness.
-    const bridges = plugins.filter((p) =>
-      String(p.id ?? '').startsWith('bridge-'),
+    const listed = ((await list.json()).plugins as Array<Record<string, unknown>>).filter((p) =>
+      String(p.id).startsWith('bridge-'),
     );
-    for (const b of bridges) {
-      const caps = (b.capabilities ?? []) as string[];
-      expect(
-        caps.includes('account-backend'),
-        `${b.id} advertises the account-backend capability`,
-      ).toBe(true);
+    expect(listed.map((p) => p.id)).toEqual(bridges);
+
+    for (const id of bridges) {
+      const removed = await request.post(`/admin/plugins/${id}/uninstall`);
+      expect(removed.status()).toBe(200);
     }
   });
 });

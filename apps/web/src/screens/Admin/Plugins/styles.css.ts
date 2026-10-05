@@ -137,3 +137,49 @@ export const infoNote = style({
 
 /** A revoked pin, visually de-emphasised in the oversight list. */
 export const revokedRow = style({ opacity: 0.6 });
+
+// -- Registration form, grants, status (26.20) --------------------------------
+
+export const form = style({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: vars.space[3],
+  padding: vars.space[4],
+  borderRadius: vars.radius.lg,
+  border: `1px solid ${vars.color.border}`,
+  background: vars.color.surface,
+});
+
+export const field = style({ display: 'flex', flexDirection: 'column', gap: vars.space[1], fontSize: '0.84rem' });
+
+export const input = style({
+  font: 'inherit',
+  fontSize: '0.86rem',
+  padding: `${vars.space[1]} ${vars.space[2]}`,
+  borderRadius: vars.radius.md,
+  border: `1px solid ${vars.color.border}`,
+  background: vars.color.bg,
+  color: vars.color.text,
+  minWidth: 0,
+});
+
+export const subheading = style({ fontSize: '0.86rem', fontWeight: 600, margin: 0 });
+
+/** The loaded / not loaded / restart required chip. */
+export const loadedChip = style({ background: vars.color.bgSink, color: vars.color.success });
+export const restartChip = style({ background: vars.color.bgSink, color: vars.color.danger });
+
+/** The line that says why a plugin is not running, or that a restart is needed. */
+export const statusLine = style({ fontSize: '0.84rem', lineHeight: 1.5, margin: 0 });
+
+/** A component's own answer (the classifier test), shown verbatim. */
+export const detail = style({
+  fontFamily: vars.font.mono,
+  fontSize: '0.76rem',
+  wordBreak: 'break-word',
+  whiteSpace: 'pre-wrap',
+  margin: 0,
+  padding: vars.space[2],
+  borderRadius: vars.radius.md,
+  background: vars.color.bgSink,
+});

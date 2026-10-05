@@ -29,6 +29,7 @@ import { Users } from './Users.tsx';
 import { Integrations } from './Integrations.tsx';
 import { Observability } from './Observability.tsx';
 import { AdminPlugins } from './Plugins/index.tsx';
+import { AdminUiPlugins } from './UiPlugins/index.tsx';
 import { AdminAssist } from './Assist/index.tsx';
 import { AdminSso } from './Sso/index.tsx';
 import { AdminEgress } from './Egress.tsx';
@@ -93,8 +94,13 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
   // Mutually exclusive with the others (each click resets the rest); the frozen
   // union in `state/slices/admin.ts` stays untouched.
   const [egressActive, setEgressActive] = createSignal(false);
+  // t28 UI plugins (26.20): a sixth local section, mirroring `egressActive` — the
+  // `/admin/ui-plugins` registry. Mutually exclusive with the others; its nav label
+  // is in the `plugins` catalog.
+  const [uiPluginsActive, setUiPluginsActive] = createSignal(false);
   onMount(() => void admin.loadSession());
   onMount(() => void loadCatalog('admin'));
+  onMount(() => void loadCatalog('plugins'));
   // Roving-tabindex nav: one Tab lands on the current section, arrows move
   // between sections (WAI-ARIA vertical nav pattern).
   createRovingTabindex(navEl, { orientation: 'vertical' });
@@ -113,13 +119,20 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
                     class={css.navItem}
                     data-roving-item
                     aria-current={
-                      !ssoActive() && !metaActive() && !rethreadActive() && !twofaActive() && !egressActive() && admin.section() === s
+                      !ssoActive() &&
+                      !metaActive() &&
+                      !rethreadActive() &&
+                      !twofaActive() &&
+                      !egressActive() &&
+                      !uiPluginsActive() &&
+                      admin.section() === s
                     }
                     onClick={() => {
                       setSsoActive(false);
                       setMetaActive(false);
                       setRethreadActive(false);
                       setTwofaActive(false);
+                      setUiPluginsActive(false);
                   setEgressActive(false);
                       setEgressActive(false);
                       admin.setSection(s);
@@ -138,6 +151,7 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
                   setMetaActive(false);
                   setRethreadActive(false);
                   setTwofaActive(false);
+                  setUiPluginsActive(false);
                   setEgressActive(false);
                   setSsoActive(true);
                 }}
@@ -153,6 +167,7 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
                   setSsoActive(false);
                   setRethreadActive(false);
                   setTwofaActive(false);
+                  setUiPluginsActive(false);
                   setEgressActive(false);
                   setMetaActive(true);
                 }}
@@ -168,6 +183,7 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
                   setSsoActive(false);
                   setMetaActive(false);
                   setTwofaActive(false);
+                  setUiPluginsActive(false);
                   setEgressActive(false);
                   setRethreadActive(true);
                 }}
@@ -184,6 +200,7 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
                   setMetaActive(false);
                   setRethreadActive(false);
                   setEgressActive(false);
+                  setUiPluginsActive(false);
                   setTwofaActive(true);
                 }}
               >
@@ -200,10 +217,28 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
                   setMetaActive(false);
                   setRethreadActive(false);
                   setTwofaActive(false);
+                  setUiPluginsActive(false);
                   setEgressActive(true);
                 }}
               >
                 {t('admin-nav-egress')}
+              </button>
+              <button
+                type="button"
+                class={css.navItem}
+                data-roving-item
+                aria-current={uiPluginsActive()}
+                data-testid="admin-nav-ui-plugins"
+                onClick={() => {
+                  setSsoActive(false);
+                  setMetaActive(false);
+                  setRethreadActive(false);
+                  setTwofaActive(false);
+                  setEgressActive(false);
+                  setUiPluginsActive(true);
+                }}
+              >
+                {t('plugins-admin-ui-nav')}
               </button>
               <button type="button" class="btn btn--ghost" onClick={() => void admin.logout()}>
                 {t('admin-sign-out')}
@@ -211,9 +246,13 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
             </nav>
             <main class={css.main}>
               <Suspense fallback={<div class={css.note}>{t('common-loading')}</div>}>
+                <Show when={uiPluginsActive()}>
+                  <AdminUiPlugins />
+                </Show>
                 <Show
-                  when={egressActive()}
+                  when={!uiPluginsActive() && egressActive()}
                   fallback={
+                    <Show when={!uiPluginsActive()}>
                 <Show
                   when={twofaActive()}
                   fallback={
@@ -238,6 +277,7 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
                 >
                   <TwoFactorPolicy api={admin.api} />
                 </Show>
+                    </Show>
                   }
                 >
                   <AdminEgress />

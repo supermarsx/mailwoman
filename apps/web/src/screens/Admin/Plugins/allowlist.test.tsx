@@ -6,51 +6,13 @@ import {
   EMPTY_ALLOWLIST,
   HIGH_POWER_CAPABILITIES,
   type AllowlistView,
-  type PluginInfo,
-  type PluginsApi,
 } from '../../../state/slices/plugins.ts';
+import { mockPluginsApi, type MockPluginsApi } from './testkit.ts';
 
 const DIGEST_A = 'a'.repeat(64);
 const DIGEST_B = 'b'.repeat(64);
 
-/** A PluginsApi over a mutable allowlist view; records every allowlist mutation. */
-function mockApi(initial: AllowlistView): PluginsApi & { calls: string[] } {
-  const calls: string[] = [];
-  let view = initial;
-  return {
-    calls,
-    async list(): Promise<PluginInfo[]> {
-      return [];
-    },
-    async approve() {},
-    async enable() {},
-    async disable() {},
-    async grant() {},
-    async setAllowUnsigned() {},
-    async listAllowlist() {
-      return view;
-    },
-    async approveDigest(pluginId, digestHex) {
-      calls.push(`approveDigest:${pluginId}:${digestHex}`);
-      view = {
-        present: view.present.map((p) =>
-          p.pluginId === pluginId && p.computedDigest === digestHex ? { ...p, approved: true } : p,
-        ),
-        pins: view.pins,
-      };
-    },
-    async revokeDigest(pluginId, digestHex) {
-      calls.push(`revokeDigest:${pluginId}:${digestHex}`);
-      view = {
-        present: view.present.map((p) => (p.pluginId === pluginId ? { ...p, approved: false } : p)),
-        pins: view.pins,
-      };
-    },
-    async uninstall(id) {
-      calls.push(`uninstall:${id}`);
-    },
-  };
-}
+const mockApi = (initial: AllowlistView): MockPluginsApi => mockPluginsApi([], initial);
 
 describe('Admin → Plugins allowlist: slice methods', () => {
   it('approveDigest / revokeDigest / uninstall call the API and reload the allowlist', async () => {
