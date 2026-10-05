@@ -296,7 +296,7 @@ pub struct SendOutcome {
 }
 
 /// What a held `mail.send` tells the calling agent.
-pub const HELD_NOTE: &str = "Not sent. The message is held in the account's Outbox and is      transmitted only if the mailbox owner releases it in Mailwoman; they may discard it instead.";
+pub const HELD_NOTE: &str = "Not sent. The message is held in the account's Outbox and is transmitted only if the mailbox owner releases it in Mailwoman; they may discard it instead.";
 
 /// Errors surfaced by the tool layer. These map to JSON-RPC error codes at the
 /// transport boundary.

@@ -733,6 +733,11 @@ fn provenance_and_outcome_types_serialize_as_the_wire_expects() {
         serde_json::to_value(&outcome).unwrap(),
         json!({ "queued": true, "sent": false, "outboxId": "outbox-1", "note": mw_mcp::HELD_NOTE })
     );
+    // The note is prose an agent repeats to a person: pin what it says, since
+    // comparing it with itself above cannot.
+    assert!(mw_mcp::HELD_NOTE.starts_with("Not sent. "));
+    assert!(mw_mcp::HELD_NOTE.contains("only if the mailbox owner releases it"));
+    assert!(!mw_mcp::HELD_NOTE.contains("  "), "{:?}", mw_mcp::HELD_NOTE);
 }
 
 #[test]
