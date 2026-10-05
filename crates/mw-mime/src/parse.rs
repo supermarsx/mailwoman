@@ -25,6 +25,28 @@ pub struct Parsed {
     pub email: Email,
     /// Threading headers the engine's JWZ pass consumes.
     pub envelope: ParsedEnvelope,
+    /// What decides whether, and to whom, a read receipt may be sent.
+    pub receipt: ReceiptHeaders,
+}
+
+/// The headers of a received message that bear on a read receipt (RFC 8098
+/// §2.1): who asked for one, where the message says it came from, and whether
+/// it is list or bulk mail.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReceiptHeaders {
+    /// The mailbox in `Disposition-Notification-To`, without display name or
+    /// angle brackets. `None` when the header is absent, appears more than
+    /// once, names more than one address or a group, or names an address that
+    /// fails [`validate_mailbox`](crate::validate_mailbox) — a request this
+    /// crate would refuse to answer is reported as no request.
+    pub disposition_notification_to: Option<String>,
+    /// The first `Return-Path` header, angle brackets stripped. The null path
+    /// `<>` is `Some("")`; `None` when the header is absent or is not one
+    /// path without whitespace or control characters.
+    pub return_path: Option<String>,
+    /// Whether the message carries `List-Id`, or `Precedence` with the value
+    /// `bulk`, `list` or `junk`.
+    pub from_list: bool,
 }
 
 /// Threading-relevant headers extracted alongside the [`Email`].
@@ -54,6 +76,7 @@ pub fn parse(raw: &[u8]) -> Result<Parsed, MimeError> {
     Ok(Parsed {
         email: map_email(&message, raw),
         envelope: map_envelope(&message),
+        receipt: map_receipt(&message),
     })
 }
 
@@ -170,6 +193,111 @@ fn map_envelope(message: &Message<'_>) -> ParsedEnvelope {
         in_reply_to: header_ids(message.in_reply_to()).into_iter().next(),
         references: header_ids(message.references()),
     }
+}
+
+fn map_receipt(message: &Message<'_>) -> ReceiptHeaders {
+    let mut requests = Vec::new();
+    let mut return_path = None;
+    let mut from_list = false;
+    for (name, value) in message.headers_raw() {
+        if name.eq_ignore_ascii_case("Disposition-Notification-To") {
+            requests.push(value);
+        } else if name.eq_ignore_ascii_case("Return-Path") {
+            return_path.get_or_insert(value);
+        } else if name.eq_ignore_ascii_case("List-Id") {
+            from_list = true;
+        } else if name.eq_ignore_ascii_case("Precedence") {
+            let value = value.trim();
+            from_list |= ["bulk", "list", "junk"]
+                .iter()
+                .any(|p| value.eq_ignore_ascii_case(p));
+        }
+    }
+    ReceiptHeaders {
+        disposition_notification_to: match requests.as_slice() {
+            [one] => single_mailbox(one),
+            _ => None,
+        },
+        return_path: return_path.and_then(path_of),
+        from_list,
+    }
+}
+
+/// The one mailbox a header value names, or `None`.
+///
+/// Accepts `local@domain`, `<local@domain>` and either with a display name
+/// (quoted or not) and comments. Quoted strings and comments are skipped, so a
+/// comma inside a display name does not count as a second address; a comma,
+/// semicolon or colon outside them (an address list or a group) yields `None`,
+/// as does a second `<…>`, text after it, or an address that fails
+/// [`validate_mailbox`](crate::validate_mailbox).
+fn single_mailbox(value: &str) -> Option<String> {
+    let mut bare = String::new();
+    let mut angle: Option<String> = None;
+    let mut chars = value.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => loop {
+                match chars.next()? {
+                    '\\' => {
+                        chars.next()?;
+                    }
+                    '"' => break,
+                    _ => {}
+                }
+            },
+            '(' => {
+                let mut depth = 1;
+                while depth > 0 {
+                    match chars.next()? {
+                        '\\' => {
+                            chars.next()?;
+                        }
+                        '(' => depth += 1,
+                        ')' => depth -= 1,
+                        _ => {}
+                    }
+                }
+            }
+            '<' => {
+                if angle.is_some() {
+                    return None;
+                }
+                let mut inner = String::new();
+                loop {
+                    match chars.next()? {
+                        '>' => break,
+                        c => inner.push(c),
+                    }
+                }
+                angle = Some(inner);
+                bare.clear();
+            }
+            ',' | ';' | ':' | '>' | ')' => return None,
+            c if angle.is_some() && !c.is_whitespace() => return None,
+            c => bare.push(c),
+        }
+    }
+    let addr = match angle {
+        Some(inner) => inner,
+        None => bare,
+    };
+    let addr = addr.trim();
+    crate::check::mailbox_problem(addr)
+        .is_none()
+        .then(|| addr.to_string())
+}
+
+/// A `Return-Path` value as a bare path: `<a@b>` → `a@b`, `<>` → the empty
+/// string. `None` for a value holding whitespace or a control character once
+/// the brackets are off.
+fn path_of(value: &str) -> Option<String> {
+    let value = value.trim();
+    let path = value
+        .strip_prefix('<')
+        .and_then(|v| v.strip_suffix('>'))
+        .unwrap_or(value);
+    (!path.chars().any(|c| c.is_control() || c.is_whitespace())).then(|| path.to_string())
 }
 
 /// Build [`EmailBodyPart`] metadata for `ids`, accumulating decoded text parts
