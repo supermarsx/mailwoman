@@ -22,10 +22,16 @@
 //!   * SSO callback (mock IdP)
 //!   * engine-mode password login; API key on `/api/v1`, API key and OAuth access
 //!     token on `/mcp`, the OAuth refresh grant and introspection (engine mode)
-//!   * API key in proxy mode (the account id does not map back to a login name
-//!     once the sessions are gone; the key must read nothing)
+//!   * API key in proxy mode (refused by name with no session left: 401)
+//!   * t27-f1: a flag under the name typed at login when the upstream reports
+//!     another (key, sessions, both login names, the hold)
+//!   * t27-f1: the per-request gate alone, on a session that appears after the
+//!     revoke (cookie and native bearer)
+//!   * t27-f1: a second factor presented for an account disabled since the
+//!     password step is answered as a wrong factor
 //!   * `force_password_change`: the hold, its allow-list, and its release
-//!     (session, API key and OAuth token)
+//!     (session, API key and OAuth token); "changing" to the same password is
+//!     refused and does not release (t27-f1)
 //!
 //! Run:
 //!   cargo test -p mw-server --test t27_account_flags --locked -- --test-threads=1
@@ -168,9 +174,54 @@ async fn spawn_mock_jmap() -> String {
     format!("http://{addr}")
 }
 
+/// A second login name the alias upstream accepts for the mock's one mailbox.
+const ALIAS: &str = "tester";
+
+fn basic(user: &str, pass: &str) -> String {
+    use base64::Engine as _;
+    format!(
+        "Basic {}",
+        base64::engine::general_purpose::STANDARD.encode(format!("{user}:{pass}"))
+    )
+}
+
+/// The mock JMAP upstream behind a front that also accepts the login name
+/// [`ALIAS`] for its one mailbox. Like a mail server with aliases, it reports the
+/// mailbox's canonical name (`mw_mock_jmap::USER`) whichever name was used.
+async fn spawn_alias_jmap() -> String {
+    let front = mw_mock_jmap::router().layer(axum::middleware::from_fn(
+        |mut req: axum::extract::Request, next: axum::middleware::Next| async move {
+            let presented = req
+                .headers()
+                .get("authorization")
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_string);
+            if presented.as_deref() == Some(basic(ALIAS, mw_mock_jmap::PASS).as_str()) {
+                req.headers_mut().insert(
+                    "authorization",
+                    basic(mw_mock_jmap::USER, mw_mock_jmap::PASS)
+                        .parse()
+                        .unwrap(),
+                );
+            }
+            next.run(req).await
+        },
+    ));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, front).await.unwrap();
+    });
+    format!("http://{addr}")
+}
+
 /// A proxy-mode server in front of a fresh mock JMAP upstream.
 async fn spawn_proxy() -> (Server, String) {
-    let mock = spawn_mock_jmap().await;
+    spawn_proxy_on(spawn_mock_jmap().await).await
+}
+
+/// A proxy-mode server in front of the upstream at `mock`.
+async fn spawn_proxy_on(mock: String) -> (Server, String) {
     let (config, db) = app_config(ServerMode::Proxy, vec![mock.clone()]);
     let app = mw_server::build_app_full(config, admin_v6())
         .await
@@ -530,6 +581,36 @@ async fn disabled_account_gets_no_second_factor_challenge_and_no_session() {
     );
     assert!(sets_session_cookie(&done));
 
+    // What a wrong factor looks like for an account that is not disabled.
+    let wrong_code = |token: String| {
+        let url = format!("{base}/api/login/2fa");
+        // Not the code of any step near now: the right code with one digit moved.
+        let right = totp::totp_at(&secret, now_unix(), &TotpParams::default());
+        let mut digits: Vec<u8> = right.into_bytes();
+        digits[0] = b'0' + (digits[0] - b'0' + 5) % 10;
+        let code = String::from_utf8(digits).unwrap();
+        async move {
+            bare()
+                .post(url)
+                .json(&json!({ "pendingToken": token, "method": "totp", "code": code }))
+                .send()
+                .await
+                .unwrap()
+        }
+    };
+    let enabled: Value = proxy_login(&browser(), base, &mock, user, pass)
+        .await
+        .json()
+        .await
+        .unwrap();
+    let enabled_wrong = wrong_code(enabled["pendingToken"].as_str().unwrap().to_string()).await;
+    assert_eq!(enabled_wrong.status(), 401, "control: a wrong factor");
+    let wrong_factor_body: Value = enabled_wrong.json().await.unwrap();
+    assert_eq!(
+        wrong_factor_body,
+        json!({ "error": "second factor required" })
+    );
+
     // A login that is pending when the account is disabled must not complete.
     let c2 = browser();
     let pending: Value = proxy_login(&c2, base, &mock, user, pass)
@@ -541,6 +622,12 @@ async fn disabled_account_gets_no_second_factor_challenge_and_no_session() {
 
     set_flags(&admin, base, user, true, false).await;
 
+    // O6 (t27-f1): with the account disabled, the right factor and a wrong one
+    // get the answer a wrong factor gets on an account that is not disabled, so
+    // holding both factors does not reveal the flag.
+    let late_wrong = wrong_code(pending_token.clone()).await;
+    assert_eq!(late_wrong.status(), 401);
+    assert_eq!(late_wrong.json::<Value>().await.unwrap(), wrong_factor_body);
     let late = verify(c2.clone(), pending_token, now_unix()).await;
     assert_eq!(
         late.status(),
@@ -548,6 +635,11 @@ async fn disabled_account_gets_no_second_factor_challenge_and_no_session() {
         "a challenge issued before the flag was set does not yield a session"
     );
     assert!(!sets_session_cookie(&late));
+    assert_eq!(
+        late.json::<Value>().await.unwrap(),
+        wrong_factor_body,
+        "the right factor for a disabled account is answered as a wrong factor"
+    );
     assert_eq!(me(&c2, base).await.status(), 401);
 
     // A fresh login is refused outright — no challenge, no pending token.
@@ -1092,18 +1184,257 @@ async fn proxy_mode_key_of_a_disabled_account_reads_nothing() {
 
     set_flags(&admin, base, user, true, false).await;
 
-    // In proxy mode a key's account id is the upstream's, which maps to a login
-    // name only through a live session — and disabling deleted those. Whether the
-    // key is refused by name or simply has no upstream credentials left, it must
-    // not return mailbox data.
+    // In proxy mode a key's account id is the upstream's. Disabling deleted the
+    // account's sessions, so the key is matched to the flagged name through the
+    // names recorded at login, and refused as an invalid key — not left to fail
+    // upstream for want of credentials (a 502 before t27-f1).
+    assert_eq!(
+        srv.store()
+            .await
+            .sessions_by_account(&account_id)
+            .await
+            .unwrap()
+            .len(),
+        0,
+        "the premise: no session is left to resolve the key through"
+    );
     let after = read().await;
-    let status = after.status().as_u16();
-    let body = after.text().await.unwrap_or_default();
-    eprintln!("[t27-e3] proxy-mode key after disable → {status} {body}");
-    assert_ne!(status, 200, "the key reads nothing after disable: {body}");
+    assert_eq!(after.status(), 401, "the key is refused by name");
+    assert_eq!(
+        after.json::<Value>().await.unwrap(),
+        json!({ "error": "invalid api key" })
+    );
+
+    // Re-enabled, the same key reads again once the account has a session.
+    set_flags(&admin, base, user, false, false).await;
+    assert_eq!(
+        proxy_login(&browser(), base, &mock, user, pass)
+            .await
+            .status(),
+        200
+    );
+    assert_eq!(read().await.status(), 200, "the refusal was the flag");
+}
+
+// ── 8b. a flag under the name typed at login (t27-f1, O1) ────────────────────
+
+/// The upstream accepts `tester` for the mailbox and reports
+/// `testuser@example.org`. The admin knows the user as `tester` and flags that.
+/// Before t27-f1 the session row carried only the reported name in the column the
+/// revoke and the key lookup matched on, so the sessions survived the revoke and a
+/// key kept reading mail through them.
+#[tokio::test]
+async fn a_flag_under_the_typed_name_refuses_every_credential_of_the_account() {
+    let _g = serial().await;
+    let (srv, mock) = spawn_proxy_on(spawn_alias_jmap().await).await;
+    let base = &srv.base;
+    let (user, pass) = (mw_mock_jmap::USER, mw_mock_jmap::PASS);
+    let store = srv.store().await;
+    let admin = admin(base).await;
+
+    // Controls: both names log in to the same account; the key reads mail.
+    let c_alias = browser();
+    let login = proxy_login(&c_alias, base, &mock, ALIAS, pass).await;
+    assert_eq!(login.status(), 200, "control: the alias logs in");
+    let body: Value = login.json().await.unwrap();
+    assert_eq!(
+        body["username"],
+        json!(user),
+        "the premise: the upstream reports another name than the one typed"
+    );
+    let account_id = body["accountId"].as_str().unwrap().to_string();
+    let c_canon = browser();
+    let canon: Value = proxy_login(&c_canon, base, &mock, user, pass)
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(canon["accountId"], json!(account_id), "one account");
+    let key = mint_api_key(&c_alias, base, &account_id).await;
+    let read = || async {
+        bare()
+            .get(format!("{base}/api/v1/messages?limit=5"))
+            .bearer_auth(&key)
+            .send()
+            .await
+            .unwrap()
+    };
+    let before = read().await;
+    assert_eq!(before.status(), 200, "control: the key reads the mailbox");
+    assert!(before.json::<Value>().await.unwrap()["messages"].is_array());
+    assert_eq!(me(&c_alias, base).await.status(), 200);
+    assert_eq!(me(&c_canon, base).await.status(), 200);
+    let wrong_body: Value = proxy_login(&browser(), base, &mock, ALIAS, "not-the-password")
+        .await
+        .json()
+        .await
+        .unwrap();
+
+    // The hold, set under the typed name, reaches the key and both sessions.
+    set_flags(&admin, base, ALIAS, false, true).await;
+    let held = read().await;
+    assert_eq!(held.status(), 403, "the key is held");
+    assert_eq!(held.json::<Value>().await.unwrap(), held_body());
+    for c in [&c_alias, &c_canon] {
+        let held_me: Value = me(c, base).await.json().await.unwrap();
+        assert_eq!(held_me["passwordChangeRequired"], json!(true), "{held_me}");
+    }
+    set_flags(&admin, base, ALIAS, false, false).await;
+    assert_eq!(read().await.status(), 200, "released");
+
+    set_flags(&admin, base, ALIAS, true, false).await;
+
+    let after = read().await;
+    assert_eq!(
+        after.status(),
+        401,
+        "the key of an account disabled under its typed name is refused"
+    );
+    assert_eq!(
+        after.json::<Value>().await.unwrap(),
+        json!({ "error": "invalid api key" })
+    );
+    assert_eq!(
+        store.sessions_by_account(&account_id).await.unwrap().len(),
+        0,
+        "disabling deletes every session of the account, under either name"
+    );
+    assert_eq!(me(&c_alias, base).await.status(), 401);
+    assert_eq!(me(&c_canon, base).await.status(), 401);
+    for name in [ALIAS, user] {
+        let refused = proxy_login(&browser(), base, &mock, name, pass).await;
+        assert_eq!(refused.status(), 401, "no login as {name}");
+        assert!(!sets_session_cookie(&refused));
+        assert_eq!(refused.json::<Value>().await.unwrap(), wrong_body);
+    }
+    assert_eq!(
+        store.sessions_by_account(&account_id).await.unwrap().len(),
+        0
+    );
+
+    // Re-enabled under the same name: logins and the key work again.
+    set_flags(&admin, base, ALIAS, false, false).await;
+    let c = browser();
+    assert_eq!(proxy_login(&c, base, &mock, user, pass).await.status(), 200);
+    assert_eq!(me(&c, base).await.status(), 200);
+    assert_eq!(read().await.status(), 200);
+}
+
+// ── 8c. the per-request gate on its own (t27-f1, O3) ─────────────────────────
+
+/// Disabling an account deletes its sessions, so a test that only disables never
+/// reaches the check each request makes. This one puts a session back after the
+/// revoke — what a login racing the flag, or a second server process, leaves
+/// behind — and the gate itself must refuse it and delete it.
+#[tokio::test]
+async fn the_request_gate_refuses_a_session_that_appears_after_the_revoke() {
+    let _g = serial().await;
+    let (srv, mock) = spawn_proxy().await;
+    let base = &srv.base;
+    let (user, pass) = (mw_mock_jmap::USER, mw_mock_jmap::PASS);
+    let store = srv.store().await;
+    let admin = admin(base).await;
+
+    let login: Value = proxy_login(&browser(), base, &mock, user, pass)
+        .await
+        .json()
+        .await
+        .unwrap();
+    let account_id = login["accountId"].as_str().unwrap().to_string();
+    let creds = Credentials {
+        username: user.into(),
+        password: pass.into(),
+    };
+    let insert_session = || async {
+        store
+            .create_session(&account_id, user, &mock, &mock, &creds)
+            .await
+            .unwrap()
+    };
+    let cookie_get = |path: &'static str, id: String| async move {
+        bare()
+            .get(format!("{base}{path}"))
+            .header("cookie", format!("mw_session={id}"))
+            .send()
+            .await
+            .unwrap()
+    };
+    let bearer_me = |id: String| async move {
+        bare()
+            .get(format!("{base}/api/me"))
+            .bearer_auth(id)
+            .send()
+            .await
+            .unwrap()
+    };
+    let native_marker = |id: &str| mw_store::NativeSessionRow {
+        token_hash: sha256_hex(id),
+        account_id: account_id.clone(),
+        client_type: "native".into(),
+        created_at: "2026-01-01T00:00:00Z".into(),
+        last_seen: "2026-01-01T00:00:00Z".into(),
+        rotated_from: None,
+    };
+
+    // Controls: a session row inserted this way is a working session, as a
+    // cookie and (with its marker) as a native bearer.
+    let control = insert_session().await;
+    assert_eq!(cookie_get("/api/me", control.clone()).await.status(), 200);
+    assert_eq!(
+        cookie_get("/jmap/session", control.clone()).await.status(),
+        200
+    );
+    let control_native = insert_session().await;
+    store
+        .create_native_session(&native_marker(&control_native))
+        .await
+        .unwrap();
+    assert_eq!(bearer_me(control_native.clone()).await.status(), 200);
+
+    set_flags(&admin, base, user, true, false).await;
+    assert_eq!(
+        store.sessions_by_account(&account_id).await.unwrap().len(),
+        0,
+        "the revoke took every session"
+    );
+
+    // Sessions that appear after the revoke.
+    let late = insert_session().await;
+    let late_native = insert_session().await;
+    store
+        .create_native_session(&native_marker(&late_native))
+        .await
+        .unwrap();
+    assert_eq!(
+        store.sessions_by_account(&account_id).await.unwrap().len(),
+        2
+    );
+
+    let refused = cookie_get("/api/me", late.clone()).await;
+    assert_eq!(refused.status(), 401, "the gate refuses the cookie session");
+    assert_eq!(
+        refused.json::<Value>().await.unwrap(),
+        json!({ "error": "invalid credentials" })
+    );
     assert!(
-        !body.contains("\"messages\""),
-        "no mailbox data in the refusal: {body}"
+        store.get_session(&late).await.is_err(),
+        "and deletes its row"
+    );
+    assert_eq!(cookie_get("/jmap/session", late).await.status(), 401);
+
+    assert_eq!(
+        bearer_me(late_native.clone()).await.status(),
+        401,
+        "the gate refuses the native bearer"
+    );
+    assert!(store.get_session(&late_native).await.is_err());
+    assert!(
+        store
+            .get_native_session(&sha256_hex(&late_native))
+            .await
+            .unwrap()
+            .is_none(),
+        "and deletes its marker"
     );
 }
 
@@ -1117,6 +1448,12 @@ fn argon2_hash(pw: &str) -> String {
         .hash_password(pw.as_bytes(), &salt)
         .unwrap()
         .to_string()
+}
+
+/// The body `POST /api/password` answers a new password equal to the current one
+/// with (status 400).
+fn same_password_body() -> Value {
+    json!({ "error": "the new password must differ from the current password" })
 }
 
 /// The `forcePasswordChange` flag as the admin panel's user list reports it.
@@ -1231,6 +1568,10 @@ async fn forced_password_change_holds_the_account_until_the_password_is_changed(
         panel_force_flag(&admin, base, ENGINE_USER).await,
         json!(false)
     );
+    // O2 (t27-f1): the ordinary path refuses a "change" to the same password.
+    let same = change(ENGINE_PASS, ENGINE_PASS).await;
+    assert_eq!(same.status(), 400, "not a change");
+    assert_eq!(same.json::<Value>().await.unwrap(), same_password_body());
 
     set_flags(&admin, base, ENGINE_USER, false, true).await;
 
@@ -1307,6 +1648,13 @@ async fn forced_password_change_holds_the_account_until_the_password_is_changed(
     );
     let weak = change(ENGINE_PASS, "short").await;
     assert_eq!(weak.status(), 400, "policy violation");
+    // O2 (t27-f1): a held account cannot release itself with the password it is
+    // held for.
+    let same = change(ENGINE_PASS, ENGINE_PASS).await;
+    assert_eq!(same.status(), 400, "the same password is not a change");
+    let same: Value = same.json().await.unwrap();
+    assert_eq!(same, same_password_body());
+    assert!(same.get("passwordChangeRequired").is_none());
     assert_eq!(jmap(&c, base).await.status(), 403, "still held");
     assert_eq!(
         panel_force_flag(&admin, base, ENGINE_USER).await,
