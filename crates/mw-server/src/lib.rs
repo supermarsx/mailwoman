@@ -65,7 +65,7 @@ pub mod nextcloud;
 pub mod passwd;
 pub mod plugins;
 // V7 MOUNT/WIRE (plan §3 e14): builds + injects the five V7 extensions, backs the
-// host-service seams, the extra endpoints, and the countersign snapshot. Owned by e14.
+// host-service seams, and the extra endpoints. Owned by e14.
 pub mod v7_mount;
 // V8 SSO (26.9, t9-e3): the `/api/sso/*` login routes over the frozen `mw-sso`
 // `SsoLogin` trait + the `/admin/sso` config CRUD. Additive; the password `/api/login`
@@ -1138,8 +1138,10 @@ async fn build_app_inner(
         // bridge PIM capability source, gated on each bridge's honest `supports-*`
         // (Graph = all six, EWS = calendar+tasks, Gmail = none). t10-e13.
         let (n, bridge_caps) = v7_mount::load_plugin_backends(engine, &plugin_host, &store).await;
-        // The §10.8 spam-classification hook from the first approved+enabled
-        // `spam-action` plugin (rspamd/SpamAssassin); `None` ⇒ ingest byte-unchanged.
+        // The §10.8 spam-classification hook: the plugin host's classifier seat,
+        // always handed over. It is filled by the first approved+enabled
+        // `spam-action` plugin (rspamd/SpamAssassin); an empty seat answers
+        // `Unknown`, which ingest treats like `Ham`.
         let spam_hook = v7_mount::build_spam_hook(&plugin_host, &store).await;
 
         let mut hooks = mw_engine::V7Hooks::new()
@@ -1165,8 +1167,9 @@ async fn build_app_inner(
     }
 
     // The `/mcp` Streamable-HTTP router over the REAL engine. The countersign
-    // resolver reads the REAL admin `unattended_send` flag from the 0007 `api_keys`
-    // table (folded V6 follow-up b) — no longer an empty stub.
+    // resolver (`mcp::StoreCountersign`) reads the admin `unattended_send` flag from
+    // the 0007 `api_keys` row on each call, so an approval or a withdrawal applies
+    // to the next send without a restart.
     //
     // **`/mcp` exists in engine mode only, and its absence in proxy mode is
     // deliberate** (t24-e14). This comment used to promise "a no-op mount in proxy
@@ -1180,10 +1183,9 @@ async fn build_app_inner(
     // route gives — which `static_handler` now actually returns, instead of the SPA
     // shell it used to hand back with a 200 (see [`wants_spa_shell`]).
     // `apps/web/e2e/mcp.spec.ts:21` was already written to skip loudly on that 404.
-    let countersigned = v7_mount::load_countersigned_prefixes(&store).await;
     let mcp_router = engine.as_ref().map(|engine| {
         let audit = stores_v6::AdminOAuthAudit::new(admin.clone());
-        mcp::build_mcp_router(engine.clone(), auth.clone(), audit, countersigned.clone())
+        mcp::build_mcp_router(engine.clone(), auth.clone(), audit)
     });
 
     let v6 = Arc::new(V6State {

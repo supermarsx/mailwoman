@@ -27,7 +27,6 @@
 //! or cleared while the server runs applies to the next call, and revoking a key
 //! clears it. This module does not decide who may set that column.
 
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -517,15 +516,10 @@ impl CountersignSource for StoreCountersign {
 /// Build the `/mcp` router: the real engine backend + an `OAuthAuthorizer` over the
 /// mounted `AuthServer` + audit sink, with the countersign flag read from the
 /// engine's store on each call.
-///
-/// `_countersigned_prefixes` is not read. It is the boot-time snapshot this
-/// function used to decide from, and the parameter stays only until the caller in
-/// `lib.rs` stops computing it (`v7_mount::load_countersigned_prefixes`).
 pub fn build_mcp_router(
     engine: Arc<Engine>,
     auth: Arc<Auth>,
     audit: Arc<AdminOAuthAudit>,
-    _countersigned_prefixes: HashSet<String>,
 ) -> axum::Router {
     let countersign = Arc::new(StoreCountersign {
         engine: engine.clone(),

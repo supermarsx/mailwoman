@@ -2,8 +2,8 @@
 //! and a key belongs to its owner.
 //!
 //! `api_keys.unattended_send` is what the `/mcp` send gate reads as "an admin
-//! countersigned this key" (`v7_mount::load_countersigned_prefixes`: the column,
-//! on a key that is not revoked). Until 26.20 the column was a copy of the
+//! countersigned this key" (`mcp::StoreCountersign`: the column, on a key that is
+//! not revoked). Until 26.20 the column was a copy of the
 //! `unattended_send` box in the scope the key's own creator posted to
 //! `POST /api/keys`, no admin route wrote it, and `POST /api/keys/{prefix}/revoke`
 //! revoked any key for any logged-in user.
@@ -236,8 +236,8 @@ async fn stored(store: &Store, prefix: &str) -> ApiKeyRow {
         .unwrap_or_else(|| panic!("no api_keys row for {prefix}"))
 }
 
-/// The prefixes the `/mcp` send gate would treat as countersigned if the server
-/// started now — the predicate of `v7_mount::load_countersigned_prefixes`.
+/// The prefixes the `/mcp` send gate treats as countersigned now — the predicate
+/// of `mcp::StoreCountersign`, applied to every key.
 async fn countersigned(store: &Store) -> Vec<String> {
     store
         .list_api_keys()
@@ -333,7 +333,7 @@ async fn minting_with_unattended_send_ticked_does_not_countersign_the_key() {
     assert_eq!(
         countersigned(&store).await,
         Vec::<String>::new(),
-        "no key would be countersigned at the next start"
+        "no key is countersigned"
     );
     let row = listed(base, &alice, &key.prefix).await.expect("listed");
     assert_eq!(row["scope"]["unattendedSend"], true);

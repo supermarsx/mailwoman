@@ -1,6 +1,6 @@
 //! V7 MOUNT/WIRE (plan §3 e14): construct + inject the five V7 request extensions,
-//! back the host-service seams, add the extra endpoints e0's stubs lacked, and load
-//! the countersign snapshot. `lib.rs` (`build_app_full` / `router`) calls into here;
+//! back the host-service seams, and add the extra endpoints e0's stubs lacked.
+//! `lib.rs` (`build_app_full` / `router`) calls into here;
 //! this module owns everything additive the mount needs so the router file stays
 //! readable.
 //!
@@ -9,7 +9,7 @@
 //! "off/empty" when unconfigured — a deployment that configures none behaves exactly
 //! as before.
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -3069,28 +3069,6 @@ pub(crate) fn build_nextcloud() -> Option<Arc<dyn NextcloudGateway>> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 7. Folded V6 follow-up (b): the REAL MCP unattended-send countersign resolver
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Load the set of API-key prefixes whose admin `unattended_send` countersign flag is
-/// set, read from the 0007 `api_keys` table at mount. `mcp.rs`'s resolver checks a key
-/// against this snapshot; a key without the flag falls back to Outbox/403 (the R4
-/// default). This replaces the empty-stub `mcp_countersigned_prefixes`.
-pub(crate) async fn load_countersigned_prefixes(store: &Store) -> HashSet<String> {
-    match store.list_api_keys().await {
-        Ok(keys) => keys
-            .into_iter()
-            .filter(|k| k.unattended_send && k.revoked_at.is_none())
-            .map(|k| k.key_prefix)
-            .collect(),
-        Err(e) => {
-            tracing::warn!("countersign prefix load failed: {e}");
-            HashSet::new()
-        }
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // 8. Extra endpoints the UI calls that e0's stubs lacked (plan §3 e14)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -3698,42 +3676,6 @@ mod tests {
             Some("cloud.example.org")
         );
         assert_eq!(host_of("http://h:8080").as_deref(), Some("h"));
-    }
-
-    #[tokio::test]
-    async fn countersign_prefixes_read_the_flag() {
-        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
-        store
-            .put_api_key(&mw_store::ApiKeyRow {
-                id: "1".into(),
-                key_prefix: "aaaa".into(),
-                key_hash: "h".into(),
-                account_id: "acct".into(),
-                scopes_json: "{}".into(),
-                unattended_send: true,
-                created_at: "2026-07-14T00:00:00Z".into(),
-                last_used_at: None,
-                revoked_at: None,
-            })
-            .await
-            .unwrap();
-        store
-            .put_api_key(&mw_store::ApiKeyRow {
-                id: "2".into(),
-                key_prefix: "bbbb".into(),
-                key_hash: "h".into(),
-                account_id: "acct".into(),
-                scopes_json: "{}".into(),
-                unattended_send: false,
-                created_at: "2026-07-14T00:00:00Z".into(),
-                last_used_at: None,
-                revoked_at: None,
-            })
-            .await
-            .unwrap();
-        let set = load_countersigned_prefixes(&store).await;
-        assert!(set.contains("aaaa"), "countersigned key is present");
-        assert!(!set.contains("bbbb"), "non-countersigned key is absent");
     }
 
     #[tokio::test]
