@@ -66,8 +66,21 @@ export interface Email {
   mailboxIds: Record<Id, boolean>;
   from: EmailAddress[] | null;
   to: EmailAddress[] | null;
+  /** `Cc`, `Bcc` and `Reply-To` of the message. Fetched for the open message
+   *  only (`BODY_PROPERTIES`), so absent on a list row. */
+  cc?: EmailAddress[] | null;
+  bcc?: EmailAddress[] | null;
+  replyTo?: EmailAddress[] | null;
   subject: string | null;
   receivedAt: UtcDate;
+  /** The `Date` header, when the message has a readable one. */
+  sentAt?: UtcDate | null;
+  /** `Message-ID`, `In-Reply-To` and `References` as lists of ids without
+   *  angle brackets (RFC 8621 §4.1.2.3). Mailwoman's own engine does not return
+   *  them; an upstream JMAP server reached in proxy mode can. */
+  messageId?: string[] | null;
+  inReplyTo?: string[] | null;
+  references?: string[] | null;
   preview: string;
   htmlBody?: EmailBodyPart[];
   textBody?: EmailBodyPart[];
@@ -191,6 +204,11 @@ export interface EmailCreate {
   mailboxIds: Record<Id, boolean>;
   from?: EmailAddress[];
   to?: EmailAddress[];
+  cc?: EmailAddress[];
+  bcc?: EmailAddress[];
+  /** Message ids without angle brackets (RFC 8621 §4.1.2.3). */
+  inReplyTo?: string[];
+  references?: string[];
   subject?: string;
   htmlBody?: Array<{ partId: string; type: string }>;
   bodyValues?: Record<string, { value: string }>;

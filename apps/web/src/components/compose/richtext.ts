@@ -78,11 +78,24 @@ export function htmlFromDoc(doc: PMNode): string {
   return container.innerHTML;
 }
 
+/**
+ * Parse `html` into the body of a document of its own. That document has no
+ * browsing context, so nothing in it runs or loads: assigning the same markup
+ * to `innerHTML` of an element of the page would start fetching every
+ * `<img src>` in it, attached or not.
+ */
+export function inertBody(html: string): HTMLElement {
+  return new window.DOMParser().parseFromString(html, 'text/html').body;
+}
+
+/** Parse an element's content into a ProseMirror document under the composer schema. */
+export function docFromElement(root: HTMLElement): PMNode {
+  return DOMParser.fromSchema(richSchema).parse(root);
+}
+
 /** Parse an HTML string into a ProseMirror document under the composer schema. */
 export function docFromHtml(html: string): PMNode {
-  const container = document.createElement('div');
-  container.innerHTML = html;
-  return DOMParser.fromSchema(richSchema).parse(container);
+  return docFromElement(inertBody(html));
 }
 
 /** Plain-text projection of a document: blocks joined by blank lines, hard breaks

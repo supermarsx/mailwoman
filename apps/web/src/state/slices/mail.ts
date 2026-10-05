@@ -96,6 +96,13 @@ export type InboxTab = 'focused' | 'other';
 export interface SendInput {
   /** The recipient field as typed: `addr` or `Name <addr>` entries, `,`/`;`-separated. */
   to: string;
+  /** `Cc` and `Bcc` recipient fields, in the same syntax as `to`. */
+  cc?: string;
+  bcc?: string;
+  /** Threading of a reply: the answered message's id, and the thread's ids
+   *  oldest first — both without angle brackets. */
+  inReplyTo?: string[];
+  references?: string[];
   subject: string;
   /** The body, sent exactly as given. Nothing is appended here — the composer
    *  adds the identity's signature itself, because only it knows whether the
@@ -992,10 +999,14 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const sent = roleOf(mailboxes(), 'sent');
 
     // Refuse what the server would refuse (`Email/set` rejects a draft whose
-    // `to` holds anything but mailboxes), naming the entries, before a request
-    // is made or — offline — before the send is queued to fail on reconnect.
-    if (parseRecipients(input.to).length === 0) throw new Error(t('mail-send-no-recipient'));
-    const bad = invalidRecipients(input.to);
+    // `to`, `cc` or `bcc` holds anything but mailboxes, and a submission with
+    // no recipient at all), naming the entries, before a request is made or —
+    // offline — before the send is queued to fail on reconnect.
+    const cc = input.cc ?? '';
+    const bcc = input.bcc ?? '';
+    const everyone = [input.to, cc, bcc].join(',');
+    if (parseRecipients(everyone).length === 0) throw new Error(t('mail-send-no-recipient'));
+    const bad = invalidRecipients(everyone);
     if (bad.length > 0) {
       throw new Error(t('mail-send-bad-recipient', { count: bad.length, addresses: isolate(bad.join(', ')) }));
     }
@@ -1019,6 +1030,10 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       from: { name: fromName, email: fromEmail },
       draftMailboxId: drafts,
       to: input.to,
+      ...(cc.trim() !== '' ? { cc } : {}),
+      ...(bcc.trim() !== '' ? { bcc } : {}),
+      ...(input.inReplyTo !== undefined && input.inReplyTo.length > 0 ? { inReplyTo: input.inReplyTo } : {}),
+      ...(input.references !== undefined && input.references.length > 0 ? { references: input.references } : {}),
       subject: input.subject,
       htmlBody: input.htmlBody,
       holdSeconds,

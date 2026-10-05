@@ -96,7 +96,13 @@ mail-reader-empty = Select a message to read
 mail-back = Back
 mail-reader-from = From: { $addr }
 mail-reader-to = To: { $addr }
+mail-reader-cc = Cc: { $addr }
 mail-reader-actions = Message actions
+mail-reply = Reply
+mail-reply-all = Reply all
+mail-forward = Forward
+mail-reply-failed = The message could not be prepared. Try again.
+mail-reply-unthreaded = The ID of the original message could not be read. This reply will not be threaded with it.
 mail-spam = Spam
 mail-export = Export
 mail-sweep-sender = Sweep sender
@@ -118,15 +124,38 @@ mail-decrypting = Decrypting…
 mail-decrypt-no-key = No private key is available to decrypt this message.
 mail-decrypt-failed = Decryption failed
 
+# -- Reply and forward: text written into the outgoing message --------------
+# The line above the quoted original of a reply.
+mail-quote-attribution = On { $date }, { $name } wrote:
+mail-quote-attribution-undated = { $name } wrote:
+# The header block above a forwarded original.
+mail-forward-heading = ---------- Forwarded message ----------
+mail-forward-from = From: { $addr }
+mail-forward-date = Date: { $date }
+mail-forward-subject = Subject: { $subject }
+mail-forward-to = To: { $addr }
+mail-forward-cc = Cc: { $addr }
+
 # -- Composer ----------------------------------------------------------------
 mail-compose-label = Compose message
 mail-compose-title = New message
+mail-compose-title-reply = Reply
+mail-compose-title-reply-all = Reply all
+mail-compose-title-forward = Forward
 mail-compose-close = Close
 mail-compose-from = From
 mail-compose-from-default = Default
 mail-compose-to = To
 mail-compose-to-placeholder = someone@example.org
 mail-compose-contact-suggestions = Contact suggestions
+mail-compose-cc = Cc
+mail-compose-bcc = Bcc
+mail-compose-show-cc-bcc = Add Cc or Bcc
+mail-compose-bcc-encrypted = An encrypted message lists the key of every recipient, so a Bcc recipient would be visible to the others. Remove the Bcc recipients or turn encryption off.
+mail-compose-plaintext-confirm-title = Send decrypted text without encryption?
+mail-compose-plaintext-confirm-body = This message quotes text from an encrypted message. It is not set to be encrypted, so the quoted text would be sent unprotected.
+mail-compose-plaintext-confirm-send = Send unencrypted
+mail-compose-plaintext-confirm-cancel = Go back
 mail-compose-subject = Subject
 mail-compose-body = Body
 mail-compose-attachments = Attachments

@@ -8,6 +8,7 @@ import { MessageList } from '../components/MessageList.tsx';
 import { Reader } from '../components/Reader.tsx';
 import { createNarrowViewport } from '../components/narrowViewport.ts';
 import { Compose } from '../components/Compose.tsx';
+import type { ComposeInitial } from '../components/compose/reply.ts';
 import { Outbox } from '../components/Outbox.tsx';
 import { InboxTabs } from '../components/InboxTabs.tsx';
 import { UndoToast } from '../components/UndoToast.tsx';
@@ -88,6 +89,23 @@ export function MailboxScreen(): JSX.Element {
   const app = useApp();
   const { subTabs } = useRealtime();
   const [composing, setComposing] = createSignal(false);
+  // What the open composer was started from: a reply or forward built by the
+  // reader, or `null` for a new message. Compose reads it once, when it mounts.
+  const [composeInitial, setComposeInitial] = createSignal<ComposeInitial | null>(null);
+  function openNewMessage(): void {
+    setComposeInitial(null);
+    setComposing(true);
+  }
+  function openReply(initial: ComposeInitial): void {
+    // One composer at a time: a reply does not replace one that is open.
+    if (composing()) return;
+    setComposeInitial(initial);
+    setComposing(true);
+  }
+  function closeCompose(): void {
+    setComposing(false);
+    setComposeInitial(null);
+  }
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   // t13 26.13 (E9 mount): the mailbox ACL editor, reachable from the mailbox
   // context. Open for the currently-selected mailbox; only meaningful once a
@@ -219,7 +237,7 @@ export function MailboxScreen(): JSX.Element {
   return (
     <div class="shell">
       <Show when={app.layout() === 'ribbon'}>
-        <Ribbon onCompose={() => setComposing(true)} onOpenSettings={() => setSettingsOpen(true)} />
+        <Ribbon onCompose={openNewMessage} onOpenSettings={() => setSettingsOpen(true)} />
       </Show>
       <Show when={narrow()}>
         <header class="shell__bar">
@@ -373,7 +391,7 @@ export function MailboxScreen(): JSX.Element {
           <InboxTabs />
           <MessageList />
         </div>
-        <Reader />
+        <Reader onCompose={openReply} />
         {/* V7 Assist chat panel (§14.3): reasons over the open thread; proposed
             actions route to review (composer), never auto-sent. Renders NOTHING when
             the assistant capability is absent / the gateway is disabled. */}
@@ -426,7 +444,7 @@ export function MailboxScreen(): JSX.Element {
       </For>
 
       <Show when={composing()}>
-        <Compose onClose={() => setComposing(false)} />
+        <Compose onClose={closeCompose} {...(composeInitial() !== null ? { initial: composeInitial()! } : {})} />
       </Show>
       <Show when={settingsOpen()}>
         <Settings onClose={() => setSettingsOpen(false)} />

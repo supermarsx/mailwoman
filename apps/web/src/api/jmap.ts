@@ -36,8 +36,15 @@ export const BODY_PROPERTIES = [
   'blobId',
   'from',
   'to',
+  'cc',
+  'bcc',
+  'replyTo',
   'subject',
   'receivedAt',
+  'sentAt',
+  'messageId',
+  'inReplyTo',
+  'references',
   'preview',
   'htmlBody',
   'textBody',
@@ -187,6 +194,16 @@ export function emailGetFull(accountId: Id, id: Id, maxBodyValueBytes = 1_000_00
 export interface DraftInput {
   from: EmailAddress;
   to: string;
+  /** `Cc` recipients, in the same field syntax as `to`. */
+  cc?: string;
+  /** `Bcc` recipients, in the same field syntax as `to`. They are set on the
+   *  draft's `bcc` and added to the envelope; keeping the `Bcc` header out of
+   *  what the other recipients receive is the server's part (RFC 8621 §7.5). */
+  bcc?: string;
+  /** The message ids this one answers, without angle brackets. */
+  inReplyTo?: string[];
+  /** The thread's message ids, oldest first, without angle brackets. */
+  references?: string[];
   subject: string;
   htmlBody: string;
   draftMailboxId: Id;
@@ -206,22 +223,53 @@ export interface DraftInput {
   holdSeconds?: number;
 }
 
+/** Every recipient of a draft, once each (first spelling wins), in To, Cc, Bcc
+ *  order: the submission's `rcptTo`. */
+function envelopeRecipients(input: DraftInput): { email: string }[] {
+  const seen = new Set<string>();
+  const out: { email: string }[] = [];
+  for (const field of [input.to, input.cc ?? '', input.bcc ?? '']) {
+    for (const r of parseRecipients(field)) {
+      const key = r.email.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ email: r.email });
+    }
+  }
+  return out;
+}
+
+/**
+ * The `Email/set` create object for a composition. `cc`, `bcc`, `inReplyTo`
+ * and `references` are added only when they hold something, so a message
+ * without them is the same object it was before they existed.
+ */
+export function draftCreateSpec(input: DraftInput): Record<string, unknown> {
+  const spec: Record<string, unknown> = {
+    mailboxIds: { [input.draftMailboxId]: true },
+    keywords: { $draft: true, $seen: true },
+    from: [input.from],
+    to: parseRecipients(input.to),
+  };
+  const cc = parseRecipients(input.cc ?? '');
+  if (cc.length > 0) spec['cc'] = cc;
+  const bcc = parseRecipients(input.bcc ?? '');
+  if (bcc.length > 0) spec['bcc'] = bcc;
+  if (input.inReplyTo !== undefined && input.inReplyTo.length > 0) spec['inReplyTo'] = [...input.inReplyTo];
+  if (input.references !== undefined && input.references.length > 0) spec['references'] = [...input.references];
+  spec['subject'] = input.subject;
+  spec['htmlBody'] = [{ partId: 'body', type: 'text/html' }];
+  spec['bodyValues'] = { body: { value: input.htmlBody } };
+  return spec;
+}
+
 /**
  * Compose + send in ONE request using creation-id back-references:
  * Email/set creates the draft under key `draft`; EmailSubmission/set references
  * it as `#draft`; on success the email is moved out of Drafts into Sent.
  */
 export function sendEnvelope(accountId: Id, input: DraftInput): JmapRequest {
-  const mailboxIds: Record<Id, boolean> = { [input.draftMailboxId]: true };
-  const draftCreate: Record<string, unknown> = {
-    mailboxIds,
-    keywords: { $draft: true, $seen: true },
-    from: [input.from],
-    to: parseRecipients(input.to),
-    subject: input.subject,
-    htmlBody: [{ partId: 'body', type: 'text/html' }],
-    bodyValues: { body: { value: input.htmlBody } },
-  };
+  const draftCreate = draftCreateSpec(input);
   // V7 (§18.4): server-materialised blob attachments (e.g. from Nextcloud) ride the
   // draft create as standard RFC 8621 `attachments` blob references. Added only when
   // present, so an ordinary send is byte-identical to before.
@@ -252,7 +300,7 @@ export function sendEnvelope(accountId: Id, input: DraftInput): JmapRequest {
     emailId: '#draft',
     envelope: {
       mailFrom: { email: input.from.email },
-      rcptTo: parseRecipients(input.to).map((r) => ({ email: r.email })),
+      rcptTo: envelopeRecipients(input),
     },
   };
   if (input.identityId !== undefined) sendCreate['identityId'] = input.identityId;
@@ -405,6 +453,79 @@ export async function uploadBlob(
     throw new Error(`upload failed with ${res.status}`);
   }
   return (await res.json()) as UploadResponse;
+}
+
+// ── Threading headers of a stored message ───────────────────────────────────
+// `Email/get` on this server returns no `messageId`, `inReplyTo` or
+// `references`, so a reply reads them from the message itself: the header block
+// of the raw RFC 5322 blob behind the session `downloadUrl`.
+
+/** The ids a reply needs from the message it answers, without angle brackets. */
+export interface ThreadingHeaders {
+  /** The message's own `Message-ID`, or `null` when it has none. */
+  messageId: string | null;
+  /** Its `References`, oldest first; when that header is absent, its
+   *  `In-Reply-To` ids instead (RFC 5322 §3.6.4). */
+  references: string[];
+}
+
+/** Every `<id>` of a header value, without the brackets. Comments and anything
+ *  else outside angle brackets are skipped. */
+function messageIds(value: string | undefined): string[] {
+  if (value === undefined) return [];
+  return [...value.matchAll(/<([^<>\s]+)>/g)].map((m) => m[1]!);
+}
+
+/**
+ * Read `Message-ID`, `References` and `In-Reply-To` out of a raw message (or
+ * just its header block). Only the text before the first blank line is read.
+ */
+export function parseThreadingHeaders(raw: string): ThreadingHeaders {
+  const end = /\r?\n\r?\n/.exec(raw);
+  const block = (end === null ? raw : raw.slice(0, end.index)).replace(/\r?\n[ \t]+/g, ' ');
+  const field = (name: string): string | undefined => {
+    const m = new RegExp(`^${name}:(.*)$`, 'im').exec(block);
+    return m === null ? undefined : m[1]!;
+  };
+  const references = messageIds(field('References'));
+  return {
+    messageId: messageIds(field('Message-ID'))[0] ?? null,
+    references: references.length > 0 ? references : messageIds(field('In-Reply-To')),
+  };
+}
+
+/** The most header text `fetchThreadingHeaders` reads before giving up on
+ *  finding the end of the header block. */
+const MAX_HEADER_BYTES = 256 * 1024;
+
+/**
+ * Fetch the header block of the raw message at `url` (a substituted session
+ * `downloadUrl` for the message's own blob) and parse its threading headers.
+ * The body is not downloaded where the response can be read as a stream: the
+ * read stops at the first blank line. A non-2xx response throws.
+ */
+export async function fetchThreadingHeaders(
+  url: string,
+  fetcher: UploadFetcher = defaultUploadFetcher,
+): Promise<ThreadingHeaders> {
+  const res = await fetcher(url);
+  if (!res.ok) throw new Error(`message download failed with ${res.status}`);
+  const reader = res.body?.getReader();
+  if (reader === undefined) return parseThreadingHeaders(await res.text());
+  // latin1 keeps one character per byte, so a multi-byte sequence split across
+  // two chunks cannot be mangled; the ids read here are ASCII.
+  const decoder = new TextDecoder('latin1');
+  let head = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (value !== undefined) head += decoder.decode(value, { stream: true });
+    if (done) break;
+    if (/\r?\n\r?\n/.test(head) || head.length > MAX_HEADER_BYTES) {
+      await reader.cancel();
+      break;
+    }
+  }
+  return parseThreadingHeaders(head);
 }
 
 // ── V2 modern-mail operations (plan §1.5, §2.1) ─────────────────────────────

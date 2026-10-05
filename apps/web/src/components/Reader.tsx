@@ -31,7 +31,7 @@ import { bodyFrameDoc, withImageLoadingHints } from '../viewers/sandbox.ts';
 import { createObjectUrlOwner } from '../viewers/objectUrl.ts';
 import { getCryptoWorker } from '../crypto/index.ts';
 import { createConfiguredClient } from '../api/transport.ts';
-import { responseFor } from '../api/jmap.ts';
+import { fetchThreadingHeaders, responseFor, type ThreadingHeaders } from '../api/jmap.ts';
 import { CAP_CORE } from '../api/jmap-types.ts';
 import { CAP_CRYPTO, CAP_SECURITY, type CryptoKey } from '../api/crypto-types.ts';
 import type { Email, EmailAddress } from '../api/jmap-types.ts';
@@ -46,6 +46,18 @@ import {
 } from '../api/remote-images.ts';
 import { extractHtmlBody } from '../state/slices/mail.ts';
 import { RemoteContentBar } from './RemoteContentBar.tsx';
+import {
+  formatAddressList,
+  forwardSubject,
+  replyRecipients,
+  replySubject,
+  replyThreading,
+  type ComposeInitial,
+  type ReplyMode,
+} from './compose/reply.ts';
+import type { QuoteSource } from './compose/quote.ts';
+import { stripIsolates } from '../i18n/index.ts';
+import * as toolbarCss from './readerToolbar.css.ts';
 
 // The crypto/security JMAP surface (`SecurityVerdict/get`, `SenderControl/set`)
 // is not exposed on `AppState`, so this component drives it over its own client
@@ -122,7 +134,22 @@ function addressList(addrs: EmailAddress[] | null): string {
   return addrs.map((a) => (a.name && a.name.length > 0 ? `${a.name} <${a.email}>` : a.email)).join(', ');
 }
 
-function ReaderToolbar(props: { email: Email }): JSX.Element {
+/** A message date as the attribution line and the forwarded header show it,
+ *  in the browser's locale like the message list's dates. Empty when unreadable. */
+function quoteDate(iso: string | null | undefined): string {
+  if (iso === null || iso === undefined) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function ReaderToolbar(props: {
+  email: Email;
+  /** Open a composer answering or forwarding this message. */
+  onReply: (mode: ReplyMode) => void;
+  /** True while a reply is being prepared; the three buttons are disabled. */
+  preparing: boolean;
+}): JSX.Element {
   const app = useApp();
   const [sweeping, setSweeping] = createSignal(false);
   const id = () => props.email.id;
@@ -131,6 +158,35 @@ function ReaderToolbar(props: { email: Email }): JSX.Element {
 
   return (
     <div class="reader__toolbar" role="toolbar" aria-label={t('mail-reader-actions')}>
+      <span class={toolbarCss.replyGroup}>
+        <button
+          type="button"
+          class={`btn btn--ghost ${a11y.focusable}`}
+          data-testid="reader-reply"
+          disabled={props.preparing}
+          onClick={() => props.onReply('reply')}
+        >
+          {t('mail-reply')}
+        </button>
+        <button
+          type="button"
+          class={`btn btn--ghost ${a11y.focusable}`}
+          data-testid="reader-reply-all"
+          disabled={props.preparing}
+          onClick={() => props.onReply('reply-all')}
+        >
+          {t('mail-reply-all')}
+        </button>
+        <button
+          type="button"
+          class={`btn btn--ghost ${a11y.focusable}`}
+          data-testid="reader-forward"
+          disabled={props.preparing}
+          onClick={() => props.onReply('forward')}
+        >
+          {t('mail-forward')}
+        </button>
+      </span>
       <button
         type="button"
         class={`btn btn--ghost ${a11y.focusable}`}
@@ -474,7 +530,11 @@ function AutoTagSection(props: { email: Email }): JSX.Element {
   );
 }
 
-export function Reader(): JSX.Element {
+export function Reader(props: {
+  /** Open a composer seeded for a reply or a forward (the mailbox screen owns
+   *  the composer). Without it the three toolbar buttons do nothing. */
+  onCompose?: (initial: ComposeInitial) => void;
+}): JSX.Element {
   const app = useApp();
   onMount(() => void loadCatalog('remote-images'));
 
@@ -609,6 +669,134 @@ export function Reader(): JSX.Element {
     );
   });
 
+  // ── Reply / Reply all / Forward ────────────────────────────────────────────
+  /** What the reader is showing of the open message, which is all a quote may
+   *  hold: the decrypted content of an encrypted message once it has been
+   *  unlocked (and nothing before that), the plain text in plain-text mode, and
+   *  otherwise the sanitised HTML. `decrypted` marks the first case. */
+  function displayedContent(email: Email): { source: QuoteSource; decrypted: boolean } {
+    const decHtml = decryptedHtml();
+    if (decHtml !== null) return { source: { html: decHtml }, decrypted: true };
+    const decText = decryptedText();
+    if (decText !== null) return { source: { text: decText }, decrypted: true };
+    if (armor() !== null) return { source: {}, decrypted: false };
+    if (maxsec.effectiveMode(sender()) === 'plain-text') {
+      return { source: { text: plainTextOf(email) }, decrypted: false };
+    }
+    const html = app.sanitizedHtml();
+    return { source: html !== null ? { html } : { text: plainTextOf(email) }, decrypted: false };
+  }
+
+  /** The open message's `Message-ID` and `References`: from `Email/get` when
+   *  the server returned them, otherwise from the header block of the raw
+   *  message. `null` when neither could be had. */
+  async function threadingHeaders(email: Email): Promise<ThreadingHeaders | null> {
+    const id = email.messageId?.[0];
+    if (id !== undefined) {
+      const refs = email.references ?? [];
+      return { messageId: id, references: refs.length > 0 ? refs : (email.inReplyTo ?? []) };
+    }
+    const url = app.downloadUrl();
+    const acct = app.accountId();
+    const blobId = email.blobId;
+    if (url === null || acct === null || blobId === undefined || blobId === '') return null;
+    try {
+      return await fetchThreadingHeaders(
+        buildDownloadUrl(url, { accountId: acct, blobId, name: 'message.eml', mime: 'message/rfc822' }),
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  const [preparing, setPreparing] = createSignal(false);
+
+  async function composeFrom(email: Email, mode: ReplyMode): Promise<ComposeInitial> {
+    const { quoteForReply, quoteForForward } = await import('./compose/quote.ts');
+    const shown = displayedContent(email);
+    const author = email.from?.[0];
+    const authorName = stripIsolates((author?.name ?? '').trim() !== '' ? author!.name! : (author?.email ?? ''));
+    const date = quoteDate(email.sentAt ?? email.receivedAt);
+
+    if (mode === 'forward') {
+      const lines = [
+        t('mail-forward-heading'),
+        t('mail-forward-from', { addr: stripIsolates(addressList(email.from)) }),
+        ...(date !== '' ? [t('mail-forward-date', { date })] : []),
+        t('mail-forward-subject', { subject: stripIsolates(email.subject ?? '') }),
+        t('mail-forward-to', { addr: stripIsolates(addressList(email.to)) }),
+        ...((email.cc ?? []).length > 0
+          ? [t('mail-forward-cc', { addr: stripIsolates(addressList(email.cc ?? null)) })]
+          : []),
+      ];
+      const quote = await quoteForForward(shown.source, lines);
+      const parts = (email as { attachments?: AttachmentPart[] }).attachments ?? [];
+      return {
+        mode,
+        to: '',
+        cc: '',
+        subject: forwardSubject(email.subject),
+        bodyHtml: quote.html,
+        bodyText: quote.text,
+        inReplyTo: [],
+        references: [],
+        attachments: parts
+          .filter((a) => a.blobId !== null && a.blobId !== undefined && a.blobId !== '')
+          .map((a) => ({
+            name: a.name !== null && a.name !== undefined && a.name.length > 0 ? a.name : t('mail-attachment-unnamed'),
+            blobId: a.blobId as string,
+            size: a.size,
+            contentType: a.type.length > 0 ? a.type : null,
+          })),
+        quotesDecrypted: shown.decrypted && quote.html !== '',
+      };
+    }
+
+    const headers = await threadingHeaders(email);
+    if (headers === null || headers.messageId === null) app.showToast('info', t('mail-reply-unthreaded'), 6000);
+    const own = {
+      addresses: [...app.identities().map((i) => i.email), ...(app.me() !== null ? [app.me()!.username] : [])],
+    };
+    const recipients = replyRecipients(email, mode, own);
+    const attribution =
+      date !== ''
+        ? t('mail-quote-attribution', { date, name: authorName })
+        : t('mail-quote-attribution-undated', { name: authorName });
+    const quote = await quoteForReply(shown.source, attribution);
+    return {
+      mode,
+      to: formatAddressList(recipients.to),
+      cc: formatAddressList(recipients.cc),
+      subject: replySubject(email.subject),
+      bodyHtml: quote.html,
+      bodyText: quote.text,
+      ...replyThreading(headers),
+      attachments: [],
+      quotesDecrypted: shown.decrypted && quote.html !== '',
+    };
+  }
+
+  /** Toolbar entry point. One preparation at a time; a failure (the quote's
+   *  chunk could not be loaded) is reported and opens nothing. */
+  async function startReply(mode: ReplyMode): Promise<void> {
+    const email = app.openEmail();
+    if (email === null || preparing() || props.onCompose === undefined) return;
+    setPreparing(true);
+    try {
+      // The identities decide which addresses a reply-all leaves out.
+      if (mode === 'reply-all' && app.identities().length === 0) await app.loadIdentities();
+      const initial = await composeFrom(email, mode);
+      // The reader moved on while this was prepared: do not open a composer
+      // about a message that is no longer the one on screen.
+      if (app.openEmail()?.id !== email.id) return;
+      props.onCompose(initial);
+    } catch {
+      app.showToast('error', t('mail-reply-failed'));
+    } finally {
+      setPreparing(false);
+    }
+  }
+
   async function onSenderControl(req: SenderControlRequest): Promise<SenderControlResult> {
     const acct = app.accountId();
     const id = emailId();
@@ -675,6 +863,9 @@ export function Reader(): JSX.Element {
               <div class="reader__meta">
                 <span>{t('mail-reader-from', { addr: isolate(addressList(email().from)) })}</span>
                 <span>{t('mail-reader-to', { addr: isolate(addressList(email().to)) })}</span>
+                <Show when={(email().cc ?? []).length > 0}>
+                  <span>{t('mail-reader-cc', { addr: isolate(addressList(email().cc ?? null)) })}</span>
+                </Show>
               </div>
               {/* Security chip → expandable panel (plan §7.3): server verdict merged
                   with the client decrypt/verify result. */}
@@ -691,7 +882,7 @@ export function Reader(): JSX.Element {
                   );
                 }}
               </Show>
-              <ReaderToolbar email={email()} />
+              <ReaderToolbar email={email()} onReply={(mode) => void startReply(mode)} preparing={preparing()} />
               <AutoTagSection email={email()} />
             </header>
             <AttachmentsPane email={email()} />

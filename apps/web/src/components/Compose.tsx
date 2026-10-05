@@ -41,6 +41,7 @@ import {
   type ContactSuggestion,
 } from '../modules/contacts/autocomplete.ts';
 import { ComposeCrypto, type ComposeCryptoState } from './compose-crypto.tsx';
+import type { ComposeInitial } from './compose/reply.ts';
 import {
   clearSignBody,
   createJmapDlpScan,
@@ -85,10 +86,34 @@ function nextLocalMinute(now: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function Compose(props: { onClose: () => void }): JSX.Element {
+/** The dialog heading for each way a composer can be opened. */
+const TITLE_KEY = {
+  reply: 'mail-compose-title-reply',
+  'reply-all': 'mail-compose-title-reply-all',
+  forward: 'mail-compose-title-forward',
+} as const;
+
+export function Compose(props: {
+  onClose: () => void;
+  /** Reply / Reply all / Forward: what the composer starts with. Read once,
+   *  when the composer mounts. */
+  initial?: ComposeInitial;
+}): JSX.Element {
   const app = useApp();
-  const [to, setTo] = createSignal('');
-  const [subject, setSubject] = createSignal('');
+  const initial = props.initial;
+  const [to, setTo] = createSignal(initial?.to ?? '');
+  const [cc, setCc] = createSignal(initial?.cc ?? '');
+  const [bcc, setBcc] = createSignal('');
+  // The Cc and Bcc fields stay folded away until asked for, or until one of
+  // them holds something (a reply-all, a resumed draft).
+  const [ccBccOpen, setCcBccOpen] = createSignal((initial?.cc ?? '') !== '');
+  // The ids a reply carries (`In-Reply-To`, `References`). Not editable; a
+  // resumed draft brings its own.
+  const [threading, setThreading] = createSignal<{ inReplyTo: string[]; references: string[] }>({
+    inReplyTo: initial?.inReplyTo ?? [],
+    references: initial?.references ?? [],
+  });
+  const [subject, setSubject] = createSignal(initial?.subject ?? '');
   // `body` stays the PLAIN-TEXT source of truth (crypto/DLP/dictation read it).
   // `bodyHtml` carries the rich-text HTML, and is what the normal send path
   // sends ONLY while the rich editor is mounted (`editorApi() !== null`); the
@@ -96,8 +121,8 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
   // mode, its chunk still loading, its chunk failed — the send is built from
   // `body`. `richMode` toggles the ProseMirror editor vs a plain-text textarea;
   // the toggle round-trips the text.
-  const [body, setBody] = createSignal('');
-  const [bodyHtml, setBodyHtml] = createSignal('');
+  const [body, setBody] = createSignal(initial?.bodyText ?? '');
+  const [bodyHtml, setBodyHtml] = createSignal(initial?.bodyHtml ?? '');
 
   /** The plain-text Body field. It is the fallback for all three ways the rich
    *  editor can be absent — plain-text mode, the chunk still loading, and the
@@ -141,7 +166,7 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
   const [galToken, setGalToken] = createSignal('');
   const [pickedGroup, setPickedGroup] = createSignal<GalEntry | null>(null);
   // V7 Nextcloud attach (plan §18.4): materialised attachments + the picker toggle.
-  const [attachments, setAttachments] = createSignal<AttachedFile[]>([]);
+  const [attachments, setAttachments] = createSignal<AttachedFile[]>(initial?.attachments ?? []);
   const [ncOpen, setNcOpen] = createSignal(false);
   // New-file blob upload (26.15 §1): the per-account upload endpoint + size limit
   // are pulled from the JMAP session; a local file is POSTed to `uploadUrl` and
@@ -166,6 +191,12 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
   const [unlockPass, setUnlockPass] = createSignal('');
   const [unlockError, setUnlockError] = createSignal<string | null>(null);
   const [unlocking, setUnlocking] = createSignal(false);
+  // A reply or forward that quotes the decrypted text of an encrypted message
+  // is not sent unencrypted until the user has said so, in the dialog below,
+  // for this composer.
+  const quotesDecrypted = initial?.quotesDecrypted === true;
+  const [plaintextConfirmOpen, setPlaintextConfirmOpen] = createSignal(false);
+  const [plaintextConfirmed, setPlaintextConfirmed] = createSignal(false);
 
   // Client-backed key lookup + DLP scan for <ComposeCrypto> (real engine). Read
   // the account id at call time (it is null until the session loads). A lookup /
@@ -259,6 +290,19 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
       })
       .catch(() => undefined);
   });
+
+  // A reply is answered above the quote: once the editor is there, the caret
+  // goes to its first (empty) paragraph. A forward still needs its recipient,
+  // so focus stays in To.
+  if (initial !== undefined && initial.mode !== 'forward') {
+    let moved = false;
+    createEffect(() => {
+      const api = editorApi();
+      if (api === null || moved) return;
+      moved = true;
+      api.focus();
+    });
+  }
 
   onCleanup(() => {
     previouslyFocused?.focus();
@@ -385,6 +429,10 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
   /** Resume a locally auto-saved draft (W9) into this composer. */
   function resumeDraft(d: StoredDraft): void {
     setTo(d.to);
+    setCc(d.cc ?? '');
+    setBcc(d.bcc ?? '');
+    setCcBccOpen((d.cc ?? '') !== '' || (d.bcc ?? '') !== '');
+    setThreading({ inReplyTo: d.inReplyTo ?? [], references: d.references ?? [] });
     setSubject(d.subject);
     setBody(d.bodyText);
     setBodyHtml(d.bodyHtml);
@@ -418,13 +466,19 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
 
   // W9 auto-save: debounce a snapshot of the composition to local storage so a
   // closed / refreshed composer can be resumed. Empty compositions are skipped
-  // (see `draftHasContent`).
+  // (see `draftHasContent`). A composition quoting decrypted text is never
+  // saved: local storage is plaintext, and the original was not.
   onMount(() => setDrafts(listDrafts()));
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   createEffect(() => {
+    if (quotesDecrypted) return;
     const snapshot: StoredDraft = {
       id: draftId,
       to: to(),
+      ...(cc().trim() !== '' ? { cc: cc() } : {}),
+      ...(bcc().trim() !== '' ? { bcc: bcc() } : {}),
+      ...(threading().inReplyTo.length > 0 ? { inReplyTo: threading().inReplyTo } : {}),
+      ...(threading().references.length > 0 ? { references: threading().references } : {}),
       subject: subject(),
       bodyHtml: richMode() && editorApi() !== null ? bodyHtml() : plainToHtml(body()),
       bodyText: body(),
@@ -550,6 +604,19 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
       }
       sendAtIso = at.toISOString();
     }
+    const willEncrypt = cs !== null && cs.encrypt && cs.encryptedDraft !== null;
+    // An encrypted message names every key it is encrypted to, so a Bcc
+    // recipient of one is visible to the others. Refused rather than sent.
+    if (cs !== null && cs.encrypt && parseRecipients(bcc()).length > 0) {
+      setError(t('mail-compose-bcc-encrypted'));
+      return;
+    }
+    // Quoted plaintext of an encrypted original leaves unencrypted only after
+    // an explicit confirmation (the dialog re-submits with it given).
+    if (quotesDecrypted && !willEncrypt && !plaintextConfirmed()) {
+      setPlaintextConfirmOpen(true);
+      return;
+    }
     setBusy(true);
     try {
       // Encrypt-on-send (plan §2.5): when encryption is on the worker has already
@@ -585,6 +652,10 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
       const attached = attachments();
       await app.sendMessage({
         to: to(),
+        cc: cc(),
+        bcc: bcc(),
+        inReplyTo: threading().inReplyTo,
+        references: threading().references,
         subject: subjectToSend,
         htmlBody,
         identity: identity(),
@@ -622,7 +693,7 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
     >
       <form class="compose" onSubmit={(e) => void onSubmit(e)}>
         <header class="compose__header">
-          <h2>{t('mail-compose-title')}</h2>
+          <h2>{t(initial !== undefined ? TITLE_KEY[initial.mode] : 'mail-compose-title')}</h2>
           <div class="compose__header-actions">
             <button
               type="button"
@@ -679,7 +750,6 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
           <span>{t('mail-compose-to')}</span>
           <input
             type="text"
-            required
             ref={toInputEl}
             placeholder={t('mail-compose-to-placeholder')}
             autocomplete="off"
@@ -738,6 +808,29 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
               onExpand={(members) => expandGroupInTo(group(), members)}
             />
           )}
+        </Show>
+
+        <Show
+          when={ccBccOpen()}
+          fallback={
+            <button
+              type="button"
+              class={`btn btn--ghost ${a11y.focusable}`}
+              data-testid="compose-show-cc-bcc"
+              onClick={() => setCcBccOpen(true)}
+            >
+              {t('mail-compose-show-cc-bcc')}
+            </button>
+          }
+        >
+          <label class="field">
+            <span>{t('mail-compose-cc')}</span>
+            <input type="text" autocomplete="off" value={cc()} onInput={(e) => setCc(e.currentTarget.value)} />
+          </label>
+          <label class="field">
+            <span>{t('mail-compose-bcc')}</span>
+            <input type="text" autocomplete="off" value={bcc()} onInput={(e) => setBcc(e.currentTarget.value)} />
+          </label>
         </Show>
 
         <label class="field">
@@ -910,7 +1003,7 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
             banner from real per-recipient CryptoKey/lookup, and the Dlp/scan
             pre-send warnings. Reports state up via onChange for the send path. */}
         <ComposeCrypto
-          recipients={() => parseRecipients(to()).map((r) => r.email)}
+          recipients={() => parseRecipients([to(), cc(), bcc()].join(',')).map((r) => r.email)}
           subject={() => subject()}
           bodyText={() => body()}
           lookupKeys={lookupKeys}
@@ -987,6 +1080,46 @@ export function Compose(props: { onClose: () => void }): JSX.Element {
             onInvalid={() => setError(t('mail-compose-send-later-past'))}
           />
         </label>
+
+        {/* Asked once per composer, when a send would put the decrypted text of
+            an encrypted original on the wire unencrypted. Confirming sends. */}
+        <Show when={plaintextConfirmOpen()}>
+          <section
+            class="compose__sign-unlock"
+            role="alertdialog"
+            aria-labelledby="compose-plaintext-confirm-title"
+            aria-describedby="compose-plaintext-confirm-body"
+            data-testid="compose-plaintext-confirm"
+          >
+            <p id="compose-plaintext-confirm-title" class="compose__sign-unlock-note">
+              <strong>{t('mail-compose-plaintext-confirm-title')}</strong>
+            </p>
+            <p id="compose-plaintext-confirm-body" class="compose__sign-unlock-note">
+              {t('mail-compose-plaintext-confirm-body')}
+            </p>
+            <div class="compose__sign-unlock-row">
+              <button
+                type="button"
+                class={`btn btn--ghost ${a11y.focusable}`}
+                onClick={() => setPlaintextConfirmOpen(false)}
+              >
+                {t('mail-compose-plaintext-confirm-cancel')}
+              </button>
+              <button
+                type="button"
+                class={`btn btn--primary ${a11y.focusable}`}
+                data-testid="compose-plaintext-confirm-send"
+                onClick={(e) => {
+                  setPlaintextConfirmed(true);
+                  setPlaintextConfirmOpen(false);
+                  void onSubmit(e);
+                }}
+              >
+                {t('mail-compose-plaintext-confirm-send')}
+              </button>
+            </div>
+          </section>
+        </Show>
 
         <Show when={error()}>
           <p class="login__error" role="alert">

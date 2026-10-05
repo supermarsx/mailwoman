@@ -24,7 +24,7 @@
 // `offlineQueuePending` (this) vs the submission Outbox size (e7).
 
 import { NetworkError, type Client } from '../api/client.ts';
-import { parseRecipients, request, responseFor, type DraftInput } from '../api/jmap.ts';
+import { draftCreateSpec, request, responseFor, type DraftInput } from '../api/jmap.ts';
 import { sendEnvelope } from '../api/jmap.ts';
 import {
   CAP_CORE,
@@ -157,15 +157,7 @@ export function outboundToRequest(item: OutboundItem): JmapRequest {
           {
             accountId: p.accountId,
             create: {
-              draft: {
-                mailboxIds: { [p.draft.draftMailboxId]: true },
-                keywords: { $draft: true, $seen: true },
-                from: [p.draft.from],
-                to: parseRecipients(p.draft.to),
-                subject: p.draft.subject,
-                htmlBody: [{ partId: 'body', type: 'text/html' }],
-                bodyValues: { body: { value: p.draft.htmlBody } },
-              },
+              draft: draftCreateSpec(p.draft),
             },
           },
           'set',

@@ -14,6 +14,11 @@ const MAX_DRAFTS = 25;
 export interface StoredDraft {
   id: string;
   to: string;
+  /** Absent on a draft stored before Cc/Bcc and replies existed. */
+  cc?: string;
+  bcc?: string;
+  inReplyTo?: string[];
+  references?: string[];
   subject: string;
   bodyHtml: string;
   bodyText: string;
@@ -32,6 +37,10 @@ function read(): StoredDraft[] {
   }
 }
 
+const isString = (v: unknown): boolean => typeof v === 'string';
+const isStringList = (v: unknown): boolean => Array.isArray(v) && v.every(isString);
+const optional = (v: unknown, ok: (v: unknown) => boolean): boolean => v === undefined || ok(v);
+
 function isDraft(d: unknown): d is StoredDraft {
   if (typeof d !== 'object' || d === null) return false;
   const r = d as Record<string, unknown>;
@@ -41,7 +50,11 @@ function isDraft(d: unknown): d is StoredDraft {
     typeof r.subject === 'string' &&
     typeof r.bodyHtml === 'string' &&
     typeof r.bodyText === 'string' &&
-    typeof r.savedAt === 'number'
+    typeof r.savedAt === 'number' &&
+    optional(r.cc, isString) &&
+    optional(r.bcc, isString) &&
+    optional(r.inReplyTo, isStringList) &&
+    optional(r.references, isStringList)
   );
 }
 
@@ -59,8 +72,8 @@ export function listDrafts(): StoredDraft[] {
 }
 
 /** A draft is worth saving only once it has some recipient / subject / body. */
-export function draftHasContent(d: Pick<StoredDraft, 'to' | 'subject' | 'bodyText'>): boolean {
-  return d.to.trim() !== '' || d.subject.trim() !== '' || d.bodyText.trim() !== '';
+export function draftHasContent(d: Pick<StoredDraft, 'to' | 'cc' | 'bcc' | 'subject' | 'bodyText'>): boolean {
+  return [d.to, d.cc ?? '', d.bcc ?? '', d.subject, d.bodyText].some((v) => v.trim() !== '');
 }
 
 /** Insert or update a draft by id (no-op when it has no content yet). */
