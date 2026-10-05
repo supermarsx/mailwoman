@@ -16,10 +16,14 @@
 //! right home for it anyway).
 //!
 //! [`AuthorizedCall::admin_countersigned`] carries the second half of the
-//! send-gate. `mw_oauth::Scope` has no countersign field, so the [`Authorizer`]
-//! resolves it: e11 reads it from the `api_keys` row; [`OAuthAuthorizer`] takes a
-//! resolver closure keyed on the presented credential (OAuth tokens are never
-//! countersigned).
+//! send-gate. `mw_oauth::Scope` has no countersign field and neither has
+//! `mw_oauth::ApiKey`, so the [`Authorizer`] resolves it: [`OAuthAuthorizer`]
+//! asks a [`CountersignSource`] **on every call**, by key prefix, after the key
+//! has verified. There is no cached answer, so a flag set or cleared while the
+//! server runs applies to the next call. OAuth tokens are never countersigned.
+//!
+//! [`AuthorizedCall::caller`] names the key or OAuth client, so a backend can
+//! record who asked for a held send.
 
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -44,13 +48,59 @@ pub struct Credential<'a> {
     pub resource: Option<&'a str>,
 }
 
-/// A successfully authorized call: the effective scope + the countersign bit.
+/// What kind of credential made a call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallerKind {
+    /// An `mwk_` API key; [`Caller::name`] is its public prefix.
+    ApiKey,
+    /// An OAuth access token; [`Caller::name`] is the client id it was issued to.
+    OAuthClient,
+}
+
+impl CallerKind {
+    /// The spelling a backend stores (`apiKey` / `oauthClient`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CallerKind::ApiKey => "apiKey",
+            CallerKind::OAuthClient => "oauthClient",
+        }
+    }
+}
+
+/// Who made a call, as far as the credential says. Never a secret: a key's
+/// prefix is its public half.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Caller {
+    pub kind: CallerKind,
+    pub name: String,
+}
+
+impl Caller {
+    pub fn api_key(prefix: impl Into<String>) -> Self {
+        Self {
+            kind: CallerKind::ApiKey,
+            name: prefix.into(),
+        }
+    }
+
+    pub fn oauth_client(client_id: impl Into<String>) -> Self {
+        Self {
+            kind: CallerKind::OAuthClient,
+            name: client_id.into(),
+        }
+    }
+}
+
+/// A successfully authorized call: the effective scope, the countersign bit and
+/// the caller.
 #[derive(Debug, Clone)]
 pub struct AuthorizedCall {
     pub account_id: String,
     pub scope: Scope,
-    /// Whether the key bears the admin countersignature for unattended send.
+    /// Whether the key's countersign flag for unattended send is set.
     pub admin_countersigned: bool,
+    /// The key or OAuth client that made the call.
+    pub caller: Caller,
 }
 
 /// Resolves + authorizes a tool call against its required scope.
@@ -65,24 +115,38 @@ pub trait Authorizer: Send + Sync {
     ) -> Result<AuthorizedCall, McpError>;
 }
 
-/// Resolver for a key's admin-countersign flag, keyed on the presented credential
-/// token. e11 parses the key prefix and reads the `api_keys` row; tests supply a
-/// closure. OAuth access tokens are never countersigned.
-pub type CountersignResolver = Arc<dyn Fn(&str) -> bool + Send + Sync>;
+/// Where a key's countersign flag for unattended send is read from. Asked once
+/// per authorized API-key call with the key's public prefix; an implementation
+/// that reads a store answers with what the store holds at that moment. An
+/// implementation that cannot tell must answer `false`.
+#[async_trait]
+pub trait CountersignSource: Send + Sync {
+    async fn is_countersigned(&self, key_prefix: &str) -> bool;
+}
+
+/// A [`CountersignSource`] under which no key is countersigned.
+struct NoCountersign;
+
+#[async_trait]
+impl CountersignSource for NoCountersign {
+    async fn is_countersigned(&self, _key_prefix: &str) -> bool {
+        false
+    }
+}
 
 /// The production [`Authorizer`], over an `mw_oauth::AuthServer` + audit sink.
 pub struct OAuthAuthorizer<S: OAuthStore, A: AuditSink + Send + Sync> {
     server: Arc<AuthServer<S>>,
     audit: Arc<A>,
-    countersign: CountersignResolver,
+    countersign: Arc<dyn CountersignSource>,
 }
 
 impl<S: OAuthStore, A: AuditSink + Send + Sync> OAuthAuthorizer<S, A> {
-    /// Build over an `AuthServer`, an audit sink, and a countersign resolver.
+    /// Build over an `AuthServer`, an audit sink, and a countersign source.
     pub fn new(
         server: Arc<AuthServer<S>>,
         audit: Arc<A>,
-        countersign: CountersignResolver,
+        countersign: Arc<dyn CountersignSource>,
     ) -> Self {
         Self {
             server,
@@ -91,9 +155,10 @@ impl<S: OAuthStore, A: AuditSink + Send + Sync> OAuthAuthorizer<S, A> {
         }
     }
 
-    /// Convenience: no key is countersigned (unattended send always → Outbox/403).
+    /// Convenience: no key is countersigned, so a key with `unattended_send` is
+    /// refused (403) and every other send is held in the Outbox.
     pub fn without_countersign(server: Arc<AuthServer<S>>, audit: Arc<A>) -> Self {
-        Self::new(server, audit, Arc::new(|_| false))
+        Self::new(server, audit, Arc::new(NoCountersign))
     }
 
     fn emit(&self, actor: &str, actor_kind: &'static str, allowed: bool, reason: Option<String>) {
@@ -132,7 +197,8 @@ impl<S: OAuthStore, A: AuditSink + Send + Sync> Authorizer for OAuthAuthorizer<S
         // 1. Resolve the credential to (actor, account, scope, bound-resource) via
         //    mw-oauth. `token_resource` is the RFC 8707 audience the token was issued
         //    for (OAuth tokens only; API keys are not resource-bound, so `None`).
-        let (actor, account_id, scope, token_resource) = if cred.token.starts_with(KEY_SCHEME) {
+        let is_api_key = cred.token.starts_with(KEY_SCHEME);
+        let (actor, account_id, scope, token_resource) = if is_api_key {
             let Some(prefix) = key_prefix(cred.token) else {
                 self.emit("unknown", "api-key", false, Some("malformed key".into()));
                 return Err(McpError::ScopeDenied);
@@ -178,11 +244,7 @@ impl<S: OAuthStore, A: AuditSink + Send + Sync> Authorizer for OAuthAuthorizer<S
                 intro.resource,
             )
         };
-        let actor_kind: &'static str = if cred.token.starts_with(KEY_SCHEME) {
-            "api-key"
-        } else {
-            "oauth-token"
-        };
+        let actor_kind: &'static str = if is_api_key { "api-key" } else { "oauth-token" };
 
         // 2. Expiry (API-key scope expiry; OAuth token expiry already covered above).
         if let Some(exp) = &scope.expires_at
@@ -211,7 +273,6 @@ impl<S: OAuthStore, A: AuditSink + Send + Sync> Authorizer for OAuthAuthorizer<S
         //        always `None` for them) and stay EXEMPT, consistent with
         //        `mw_oauth::require_scope`.
         if let Some(want) = cred.resource {
-            let is_api_key = cred.token.starts_with(KEY_SCHEME);
             match &token_resource {
                 Some(bound) if bound != want => {
                     self.emit(&actor, actor_kind, false, Some("audience mismatch".into()));
@@ -232,11 +293,18 @@ impl<S: OAuthStore, A: AuditSink + Send + Sync> Authorizer for OAuthAuthorizer<S
         }
 
         self.emit(&actor, actor_kind, true, None);
-        let admin_countersigned = (self.countersign)(cred.token);
+        // Read now, for this call: `actor` is the verified key's prefix.
+        let admin_countersigned = is_api_key && self.countersign.is_countersigned(&actor).await;
+        let caller = if is_api_key {
+            Caller::api_key(actor)
+        } else {
+            Caller::oauth_client(actor)
+        };
         Ok(AuthorizedCall {
             account_id,
             scope,
             admin_countersigned,
+            caller,
         })
     }
 }

@@ -5,14 +5,27 @@
 //! Per-call scope enforcement uses [`mw_mcp::OAuthAuthorizer`] (verify + expiry +
 //! `Scope::allows` + audit) — NOT `mw_oauth::require_scope`, whose future is
 //! non-`Send` (it borrows a `&dyn AuditSink` across an await) and so cannot sit in
-//! the axum `Send` path. Send is split (`enqueue_outbox` vs `send_now`) so
-//! `mw_mcp::gate_send` owns the safety-critical decision.
+//! the axum `Send` path.
 //!
-//! **Countersign resolver.** `unattended_send` may only transmit with an admin
-//! countersignature (the `api_keys.unattended_send` flag). The resolver is a *sync*
-//! `Fn(&str) -> bool`, so it reads a snapshot of countersigned key prefixes loaded
-//! at mount time; a key minted after boot is treated as NOT countersigned (the safe
-//! default — unattended send falls back to the Outbox / 403) until the next reload.
+//! **The two sends are different operations** (26.20 t28-e12). `mw_mcp::gate_send`
+//! picks one; what each does is decided here:
+//!
+//! * [`McpBackend::enqueue_outbox`] — every key without unattended send. It creates
+//!   the draft and a submission **held until the mailbox owner releases it**
+//!   ([`Engine::submit_held`]). Nothing is handed to SMTP by the call, and the
+//!   dispatcher never sends a held row. The owner sees it in the Outbox, with the
+//!   key that created it, and releases or discards it there.
+//! * [`McpBackend::send_now`] — a key with unattended send and its countersign
+//!   flag. It creates the draft and an ordinary submission, which the engine
+//!   transmits before the call returns.
+//!
+//! Until 26.20 the two had the same body, so both transmitted, while the tool
+//! description said the first waited for a person (t26 audit OH-5).
+//!
+//! **Countersign.** The flag is the `api_keys.unattended_send` column, read from
+//! the store on each call ([`StoreCountersign`]). There is no snapshot: a flag set
+//! or cleared while the server runs applies to the next call, and revoking a key
+//! clears it. This module does not decide who may set that column.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -22,12 +35,9 @@ use serde_json::{Value, json};
 
 use mw_engine::Engine;
 use mw_mcp::{
-    BackendError, DraftInput, DraftRef, Folder, MailBody, McpBackend, McpServer, OAuthAuthorizer,
-    SearchHit, mcp_router,
+    BackendError, Caller, CountersignSource, DraftInput, DraftRef, Folder, MailBody, McpBackend,
+    McpServer, OAuthAuthorizer, SearchHit, mcp_router,
 };
-
-/// The sync countersign resolver signature `mw_mcp::OAuthAuthorizer::new` expects.
-type CountersignResolver = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
 use crate::stores_v6::{AdminOAuthAudit, OAuthStoreAdapter};
 
@@ -254,17 +264,24 @@ impl McpBackend for McpEngineBackend {
         &self,
         account: &str,
         draft: DraftInput,
+        caller: &Caller,
     ) -> Result<String, BackendError> {
-        // Create the draft, then an EmailSubmission that lands in the V2 Outbox
-        // (pending in-app confirmation) — the default, human-in-the-loop path.
+        // Create the draft, then a submission that is held: not sent by this
+        // call, not sent by the dispatcher, sent only when the mailbox owner
+        // releases it (`EmailSubmission/set` update). The caller is recorded on
+        // the row so the Outbox can say which key asked. If the hold cannot be
+        // created the draft stays in Drafts, unsent.
         let draft_id = self.create_draft(account, &draft).await?;
-        self.submit(account, &draft_id).await
+        self.engine
+            .submit_held(account, &draft_id, caller.kind.as_str(), &caller.name)
+            .await
+            .map_err(|e| BackendError::new(format!("the message was not queued: {e}")))
     }
 
     async fn send_now(&self, account: &str, draft: DraftInput) -> Result<String, BackendError> {
-        // Reached ONLY for an admin-countersigned unattended-send key. The engine's
-        // submission path is the same; the human-confirmation gate is what the
-        // countersign bypasses (enforced upstream by `gate_send`).
+        // Reached only when `gate_send` answered `SendNow`: the key's scope has
+        // unattended send and its countersign flag is set. A submission with no
+        // hold and no `sendAt` is transmitted by the engine inside the call.
         let draft_id = self.create_draft(account, &draft).await?;
         self.submit(account, &draft_id).await
     }
@@ -437,6 +454,10 @@ impl McpEngineBackend {
             .ok_or_else(|| BackendError::new("draft creation was not accepted by the engine"))
     }
 
+    /// Submit `email_id` with nothing to delay it and return the submission id
+    /// once the engine reports it `final`, i.e. SMTP accepted the message. A
+    /// create the engine refused, or one that did not end `final`, is an error:
+    /// the tool layer reports `sent: true` for an `Ok` here.
     async fn submit(&self, account: &str, email_id: &str) -> Result<String, BackendError> {
         let req = json!({
             "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:submission"],
@@ -446,43 +467,72 @@ impl McpEngineBackend {
             }, "sub"]],
         });
         let resp = self.jmap(account, req).await?;
-        method_args(&resp, "sub")
+        let args = method_args(&resp, "sub");
+        let created = args
             .and_then(|a| a.get("created"))
-            .and_then(|c| c.get("sub0"))
-            .and_then(|e| e.get("id"))
-            .and_then(Value::as_str)
-            .map(String::from)
-            .ok_or_else(|| BackendError::new("submission was not accepted by the engine"))
+            .and_then(|c| c.get("sub0"));
+        match created.and_then(|e| e.get("id")).and_then(Value::as_str) {
+            Some(id) if created.and_then(|e| e.get("undoStatus")) == Some(&json!("final")) => {
+                Ok(id.to_string())
+            }
+            Some(id) => Err(BackendError::new(format!(
+                "submission {id} was created but has not been sent"
+            ))),
+            None => Err(BackendError::new(format!(
+                "the message was not sent: {}",
+                args.and_then(|a| a.get("notCreated"))
+                    .and_then(|n| n.get("sub0"))
+                    .and_then(|e| e.get("description"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("the engine did not accept the submission")
+            ))),
+        }
     }
 }
 
 /// The concrete MCP server type mounted at `/mcp`.
 type Server = McpServer<McpEngineBackend, OAuthAuthorizer<OAuthStoreAdapter, AdminOAuthAudit>>;
 
-/// Build a countersign resolver from a snapshot of countersigned key prefixes.
-fn countersign_resolver(prefixes: HashSet<String>) -> CountersignResolver {
-    let set = Arc::new(prefixes);
-    Arc::new(move |token: &str| {
-        token
-            .strip_prefix("mwk_")
-            .and_then(|r| r.split('.').next())
-            .map(|p| set.contains(p))
-            .unwrap_or(false)
-    })
+/// The countersign flag of an API key, read from the `api_keys` row (0007) each
+/// time it is asked for. A revoked key, an unknown prefix and a store error all
+/// answer `false`.
+struct StoreCountersign {
+    engine: Arc<Engine>,
+}
+
+#[async_trait]
+impl CountersignSource for StoreCountersign {
+    async fn is_countersigned(&self, key_prefix: &str) -> bool {
+        match self.engine.store().get_api_key(key_prefix).await {
+            Ok(Some(key)) => key.unattended_send && key.revoked_at.is_none(),
+            Ok(None) => false,
+            Err(e) => {
+                tracing::warn!("countersign read for key {key_prefix} failed: {e}");
+                false
+            }
+        }
+    }
 }
 
 /// Build the `/mcp` router: the real engine backend + an `OAuthAuthorizer` over the
-/// mounted `AuthServer` + audit sink + countersign snapshot.
+/// mounted `AuthServer` + audit sink, with the countersign flag read from the
+/// engine's store on each call.
+///
+/// `_countersigned_prefixes` is not read. It is the boot-time snapshot this
+/// function used to decide from, and the parameter stays only until the caller in
+/// `lib.rs` stops computing it (`v7_mount::load_countersigned_prefixes`).
 pub fn build_mcp_router(
     engine: Arc<Engine>,
     auth: Arc<Auth>,
     audit: Arc<AdminOAuthAudit>,
-    countersigned_prefixes: HashSet<String>,
+    _countersigned_prefixes: HashSet<String>,
 ) -> axum::Router {
+    let countersign = Arc::new(StoreCountersign {
+        engine: engine.clone(),
+    });
     let backend = Arc::new(McpEngineBackend::new(engine));
-    let authorizer: Arc<OAuthAuthorizer<OAuthStoreAdapter, AdminOAuthAudit>> = Arc::new(
-        OAuthAuthorizer::new(auth, audit, countersign_resolver(countersigned_prefixes)),
-    );
+    let authorizer: Arc<OAuthAuthorizer<OAuthStoreAdapter, AdminOAuthAudit>> =
+        Arc::new(OAuthAuthorizer::new(auth, audit, countersign));
     let server: Arc<Server> = Arc::new(McpServer::new(backend, authorizer));
     // RFC 8707 (A3 / L6): this endpoint's canonical resource identifier — the
     // audience a bearer token must be bound to. Audience enforcement is now ON BY

@@ -303,9 +303,23 @@ async fn send_without_unattended_goes_to_outbox_never_transmits() {
     let sc = &resp["result"]["structuredContent"];
     assert_eq!(sc["queued"], true, "must queue to Outbox: {resp}");
     assert_eq!(sc["outboxId"], "outbox-1");
-    // HARD safety assertion: the Outbox path must never transmit.
-    assert_eq!(backend.transmitted(), 0, "Outbox path must NOT transmit");
+    // The result must not let an agent conclude the message went out.
+    assert_eq!(sc["sent"], false, "a held send is not a sent one: {resp}");
+    assert_eq!(sc["note"], mw_mcp::HELD_NOTE);
+    // The gate routed to the held call and not to the transmitting one. This is
+    // a mock: that the held call really transmits nothing is proven against the
+    // engine in mw-server's `t28_mcp_hold`.
+    assert_eq!(
+        backend.transmitted(),
+        0,
+        "Outbox path must NOT call send_now"
+    );
     assert_eq!(backend.enqueued(), 1);
+    assert_eq!(
+        *backend.last_caller.lock().unwrap(),
+        Some(mw_mcp::Caller::api_key("mock")),
+        "the held call is told who asked"
+    );
 }
 
 #[tokio::test]
@@ -354,7 +368,8 @@ async fn unattended_with_countersign_transmits() {
         sc["sent"], true,
         "countersigned unattended send transmits: {resp}"
     );
-    assert_eq!(sc["messageId"], "sent-1");
+    assert_eq!(sc["queued"], false);
+    assert_eq!(sc["submissionId"], "sent-1");
     assert_eq!(backend.transmitted(), 1);
     assert_eq!(backend.enqueued(), 0);
 }

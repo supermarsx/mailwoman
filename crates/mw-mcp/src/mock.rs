@@ -10,7 +10,7 @@ use mw_oauth::Scope;
 use serde_json::{Value, json};
 
 use crate::McpError;
-use crate::auth::{AuthorizedCall, Authorizer, Credential};
+use crate::auth::{AuthorizedCall, Authorizer, Caller, Credential};
 use crate::backend::{BackendError, DraftInput, DraftRef, Folder, MailBody, McpBackend, SearchHit};
 
 /// A deterministic [`Authorizer`] for tests: it grants a fixed [`Scope`] to a
@@ -51,6 +51,7 @@ impl Authorizer for MockAuthorizer {
                 account_id: self.account_id.clone(),
                 scope: self.granted.clone(),
                 admin_countersigned: self.admin_countersigned,
+                caller: Caller::api_key("mock"),
             })
         } else {
             Err(McpError::ScopeDenied)
@@ -58,16 +59,20 @@ impl Authorizer for MockAuthorizer {
     }
 }
 
-/// A deterministic in-memory backend.
+/// A deterministic in-memory backend. It has no SMTP and no Outbox: it counts
+/// which of the two send methods the tool layer called. That proves the gate's
+/// routing and nothing about what a real backend does with either call.
 #[derive(Default)]
 pub struct MockBackend {
-    /// Count of messages queued to the Outbox (the human-in-the-loop path).
+    /// Count of `enqueue_outbox` calls (the held path).
     pub enqueued: AtomicUsize,
     /// Count of messages transmitted directly (the unattended path). A test asserts
     /// this stays 0 on the Outbox/denied paths.
     pub transmitted: AtomicUsize,
     /// The last draft handed to a send call (for assertions).
     pub last_draft: Mutex<Option<DraftInput>>,
+    /// The caller the last `enqueue_outbox` was made for.
+    pub last_caller: Mutex<Option<Caller>>,
 }
 
 impl MockBackend {
@@ -172,8 +177,10 @@ impl McpBackend for MockBackend {
         &self,
         _account: &str,
         draft: DraftInput,
+        caller: &Caller,
     ) -> Result<String, BackendError> {
         *self.last_draft.lock().expect("lock") = Some(draft);
+        *self.last_caller.lock().expect("lock") = Some(caller.clone());
         self.enqueued.fetch_add(1, Ordering::SeqCst);
         Ok("outbox-1".into())
     }

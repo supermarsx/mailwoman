@@ -278,3 +278,132 @@ async fn every_attempt_is_audited_exactly_once_under_one_action_name() {
         "a denial without a reason is not actionable: {events:?}"
     );
 }
+
+// ── the countersign flag is read on every call (26.20 t28-e12) ───────────────
+
+/// A countersign source a test can flip, which records every prefix it is asked
+/// about.
+#[derive(Default)]
+struct Switch {
+    on: std::sync::atomic::AtomicBool,
+    asked: std::sync::Mutex<Vec<String>>,
+}
+
+#[async_trait::async_trait]
+impl mw_mcp::CountersignSource for Switch {
+    async fn is_countersigned(&self, key_prefix: &str) -> bool {
+        self.asked.lock().unwrap().push(key_prefix.to_string());
+        self.on.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+fn send(token: &str) -> (Credential<'_>, Value) {
+    (
+        Credential {
+            token,
+            source_ip: None,
+            resource: None,
+        },
+        json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": { "name": "mail.send",
+                            "arguments": { "account": "acct1", "to": ["x@example.com"] } } }),
+    )
+}
+
+/// The authorizer used to be handed a set of countersigned prefixes fixed when it
+/// was built. It now asks its source for each call, so the answer can change
+/// under a running server — in both directions — and it asks about the verified
+/// key's prefix, not about whatever the token text claims.
+#[tokio::test]
+async fn the_countersign_flag_is_asked_for_on_every_call() {
+    let mut scope = Scope::read_only("acct1");
+    scope.send = true;
+    scope.mail = true;
+    scope.unattended_send = true;
+    scope.mcp_tools = vec!["mail.send".to_string()];
+    let minted = mint_api_key("acct1", scope);
+    let auth_server = Arc::new(AuthServer::new(InMemoryOAuthStore::new()));
+    auth_server
+        .store()
+        .put_api_key(minted.record.clone())
+        .await
+        .expect("store the key");
+    let switch = Arc::new(Switch::default());
+    let backend = Arc::new(MockBackend::new());
+    let server = McpServer::new(
+        backend.clone(),
+        Arc::new(OAuthAuthorizer::new(
+            auth_server,
+            Arc::new(CollectingAudit::new()),
+            switch.clone(),
+        )),
+    );
+
+    // Off: an unattended-send key without the flag is refused, nothing is called.
+    let (cred, req) = send(&minted.display_token);
+    let resp = server.handle_rpc(&cred, req).await.expect("response");
+    assert_eq!(resp["error"]["code"], json!(-32002), "{resp}");
+    assert_eq!((backend.transmitted(), backend.enqueued()), (0, 0));
+
+    // On, same server, same authorizer: the next call transmits.
+    switch.on.store(true, std::sync::atomic::Ordering::SeqCst);
+    let (cred, req) = send(&minted.display_token);
+    let resp = server.handle_rpc(&cred, req).await.expect("response");
+    assert_eq!(resp["result"]["structuredContent"]["sent"], true, "{resp}");
+    assert_eq!(backend.transmitted(), 1);
+
+    // Off again: withdrawn for the call after.
+    switch.on.store(false, std::sync::atomic::Ordering::SeqCst);
+    let (cred, req) = send(&minted.display_token);
+    let resp = server.handle_rpc(&cred, req).await.expect("response");
+    assert_eq!(resp["error"]["code"], json!(-32002), "{resp}");
+    assert_eq!(backend.transmitted(), 1);
+
+    assert_eq!(
+        *switch.asked.lock().unwrap(),
+        vec![minted.record.prefix.clone(); 3],
+        "asked once per call, about the key's own prefix"
+    );
+
+    // A token that only looks like that key is never asked about: it fails the
+    // secret check first.
+    let forged = format!("mwk_{}.wrong", minted.record.prefix);
+    switch.on.store(true, std::sync::atomic::Ordering::SeqCst);
+    let (cred, req) = send(&forged);
+    let resp = server.handle_rpc(&cred, req).await.expect("response");
+    assert_eq!(resp["error"]["code"], json!(-32001), "{resp}");
+    assert_eq!(switch.asked.lock().unwrap().len(), 3);
+    assert_eq!(backend.transmitted(), 1);
+}
+
+/// What `tools/list` tells every MCP client about `mail.send` has to match what
+/// the tool layer returns for a held send.
+#[tokio::test]
+async fn the_send_tool_says_a_held_message_is_not_sent() {
+    let (server, minted, _audit) = fixture(search_scope()).await;
+    let cred = Credential {
+        token: &minted.display_token,
+        source_ip: None,
+        resource: None,
+    };
+    let list = server
+        .handle_rpc(
+            &cred,
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
+        )
+        .await
+        .expect("response");
+    let desc = list["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "mail.send")
+        .and_then(|t| t["description"].as_str())
+        .expect("mail.send is listed")
+        .to_string();
+    assert!(desc.contains("does NOT send"), "{desc}");
+    assert!(desc.contains("sent: false"), "{desc}");
+    assert!(desc.contains("releases it"), "{desc}");
+    // The claim the audit found shipped while the message had already gone.
+    assert!(!desc.contains("confirm in-app"), "{desc}");
+}

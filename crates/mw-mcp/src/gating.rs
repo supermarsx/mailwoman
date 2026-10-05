@@ -4,37 +4,38 @@
 //! By the time this runs, the caller's scope has already been authorized to hold
 //! `send` + the `mail.send` tool grant. This gate decides *how* the send happens:
 //!
-//! | `unattended_send` | admin countersign | decision            |
+//! | `unattended_send` | countersign flag  | decision            |
 //! |-------------------|-------------------|---------------------|
-//! | false             | (ignored)         | [`SendDecision::Queue`]   (→ Outbox) |
+//! | false             | (ignored)         | [`SendDecision::Queue`]   (→ held in the Outbox) |
 //! | true              | false             | [`SendDecision::Deny`]    (→ 403)    |
 //! | true              | true              | [`SendDecision::SendNow`] (transmit) |
 //!
-//! The default (`unattended_send=false`) is always the human-in-the-loop Outbox.
+//! The default (`unattended_send=false`) is always the Outbox hold: the message
+//! waits for the mailbox owner to release it. This function picks the branch;
+//! [`crate::McpBackend::enqueue_outbox`] is what must not transmit.
 
 use mw_oauth::Scope;
 
 /// What to do with an authorized `mail.send`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SendDecision {
-    /// Place in the V2 Outbox for in-app human confirmation (the default).
+    /// Hold in the Outbox until the mailbox owner releases it (the default).
     Queue,
-    /// Transmit immediately — only for `unattended_send` + admin countersign.
+    /// Transmit immediately — only for `unattended_send` + the countersign flag.
     SendNow,
-    /// Refuse: `unattended_send` requested without the required admin
-    /// countersignature (→ 403).
+    /// Refuse: `unattended_send` requested without the countersign flag (→ 403).
     Deny,
 }
 
 /// Decide the fate of an authorized `mail.send` from the *granted* scope and the
-/// key's admin-countersign flag. Pure + total — the single source of truth for the
+/// key's countersign flag. Pure + total — the single source of truth for the
 /// three send paths.
 pub fn gate_send(granted: &Scope, admin_countersigned: bool) -> SendDecision {
     if !granted.unattended_send {
-        // Default & only safe automation path: human confirms in the Outbox.
+        // Default & only safe automation path: held for the owner's release.
         SendDecision::Queue
     } else if admin_countersigned {
-        // Explicitly opted in AND countersigned by an admin: may transmit.
+        // Opted in on the scope AND the countersign flag is set: may transmit.
         SendDecision::SendNow
     } else {
         // Unattended requested but not countersigned — refuse.

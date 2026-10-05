@@ -6,10 +6,14 @@
 //! Send is split into two backend calls, [`McpBackend::enqueue_outbox`] and
 //! [`McpBackend::send_now`], so the safety-critical gate ([`crate::gate_send`])
 //! lives in `mw-mcp` and a test can assert `send_now` is never reached on the
-//! Outbox path.
+//! Outbox path. The split is only worth something if the two do different
+//! things: `enqueue_outbox` must leave the message unsent. A test of an
+//! implementation has to count what reaches SMTP, not which method was called.
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+
+use crate::auth::Caller;
 
 /// A backend failure (engine/JMAP error). Wrapped as [`crate::McpError::Engine`].
 #[derive(Debug, thiserror::Error)]
@@ -90,17 +94,23 @@ pub trait McpBackend: Send + Sync {
         draft: DraftInput,
     ) -> Result<DraftRef, BackendError>;
 
-    /// Queue an outbound message into the V2 Outbox (human confirms in-app).
-    /// Returns the outbox id. This is the DEFAULT send path.
+    /// Store an outbound message as a **held** Outbox item on behalf of
+    /// `caller` and return the submission's id. This is the DEFAULT send path.
+    ///
+    /// The implementation MUST NOT transmit the message, now or on a timer: it
+    /// stays unsent until the mailbox owner releases it in the app. The tool
+    /// layer tells the calling agent exactly that ([`crate::HELD_NOTE`]).
     async fn enqueue_outbox(
         &self,
         account: &str,
         draft: DraftInput,
+        caller: &Caller,
     ) -> Result<String, BackendError>;
 
-    /// Transmit immediately. ONLY reachable for a key with `unattended_send` AND an
-    /// admin countersignature ([`crate::gate_send`]); never on the default path.
-    /// Returns the sent message id.
+    /// Transmit during the call. ONLY reachable for a key with `unattended_send`
+    /// AND its countersign flag ([`crate::gate_send`]); never on the default
+    /// path. Returns the submission's id, and `Ok` only if the message was
+    /// accepted for delivery.
     async fn send_now(&self, account: &str, draft: DraftInput) -> Result<String, BackendError>;
 
     async fn calendar_read(

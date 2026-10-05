@@ -90,6 +90,7 @@ impl Authorizer for TokenAuthorizer {
                 account_id: "acct1".into(),
                 scope: full_scope(),
                 admin_countersigned: false,
+                caller: mw_mcp::Caller::api_key("good"),
             })
         } else {
             Err(mw_mcp::McpError::ScopeDenied)
@@ -619,8 +620,13 @@ impl McpBackend for LimitSpy {
     async fn drafts_create(&self, a: &str, d: DraftInput) -> Result<DraftRef, BackendError> {
         self.inner.drafts_create(a, d).await
     }
-    async fn enqueue_outbox(&self, a: &str, d: DraftInput) -> Result<String, BackendError> {
-        self.inner.enqueue_outbox(a, d).await
+    async fn enqueue_outbox(
+        &self,
+        a: &str,
+        d: DraftInput,
+        c: &mw_mcp::Caller,
+    ) -> Result<String, BackendError> {
+        self.inner.enqueue_outbox(a, d, c).await
     }
     async fn send_now(&self, a: &str, d: DraftInput) -> Result<String, BackendError> {
         self.inner.send_now(a, d).await
@@ -719,11 +725,13 @@ fn provenance_and_outcome_types_serialize_as_the_wire_expects() {
     // camelCase on the wire: a client reading `outbox_id` would find nothing.
     let outcome = SendOutcome {
         queued: true,
+        sent: false,
         outbox_id: "outbox-1".into(),
+        note: mw_mcp::HELD_NOTE.into(),
     };
     assert_eq!(
         serde_json::to_value(&outcome).unwrap(),
-        json!({ "queued": true, "outboxId": "outbox-1" })
+        json!({ "queued": true, "sent": false, "outboxId": "outbox-1", "note": mw_mcp::HELD_NOTE })
     );
 }
 

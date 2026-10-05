@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 use crate::auth::{AuthorizedCall, Authorizer, Credential};
 use crate::backend::{DraftInput, McpBackend};
 use crate::gating::{SendDecision, gate_send};
-use crate::{ALL_TOOLS, McpError, McpTool, SendOutcome, untrusted_envelope};
+use crate::{ALL_TOOLS, HELD_NOTE, McpError, McpTool, SendOutcome, untrusted_envelope};
 
 /// Protocol version this server speaks (MCP revision).
 const PROTOCOL_VERSION: &str = "2025-06-18";
@@ -205,22 +205,24 @@ impl<B: McpBackend, A: Authorizer> McpServer<B, A> {
             SendDecision::Queue => {
                 let outbox_id = self
                     .backend
-                    .enqueue_outbox(&authed.account_id, draft)
+                    .enqueue_outbox(&authed.account_id, draft, &authed.caller)
                     .await
                     .map_err(engine)?;
                 let outcome = SendOutcome {
                     queued: true,
+                    sent: false,
                     outbox_id,
+                    note: HELD_NOTE.to_string(),
                 };
                 Ok(serde_json::to_value(outcome).unwrap_or(Value::Null))
             }
             SendDecision::SendNow => {
-                let message_id = self
+                let submission_id = self
                     .backend
                     .send_now(&authed.account_id, draft)
                     .await
                     .map_err(engine)?;
-                Ok(json!({ "queued": false, "sent": true, "messageId": message_id }))
+                Ok(json!({ "queued": false, "sent": true, "submissionId": submission_id }))
             }
             SendDecision::Deny => Err(McpError::CountersignRequired),
         }
