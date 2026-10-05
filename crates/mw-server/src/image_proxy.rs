@@ -332,6 +332,44 @@ pub(crate) async fn active_route(store: &mw_store::Store) -> Result<Option<Proxy
     }
 }
 
+/// One stored route by id, mapped for the transport, or `Ok(None)` when no row has
+/// that id. For the admin "test this route" endpoint
+/// (`egress_admin::test_proxy`), which probes a named route that is usually not the
+/// active one.
+///
+/// `id` is request-shaped, and this is the one factory allowed to take such a
+/// parameter: it only **selects among rows the operator created** through the admin
+/// API, so the `host` that reaches [`ProxyRoute::host`] is operator configuration
+/// whichever row is chosen. It cannot introduce a host. That argument is recorded
+/// as the named `fn route_by_id` exception in
+/// `crates/mw-egress/tests/route_construction_sites.rs`; the literal is still built
+/// only by [`proxy_route`].
+///
+/// Nothing that serves mail traffic may call this — those paths take
+/// [`active_route`], which has no parameter to steer. `Err(())` has the meaning it
+/// has there: the route could not be loaded or mapped, so do not fetch.
+#[rustfmt::skip] // one line: `route_construction_sites.rs` reads a signature per line
+pub(crate) async fn route_by_id(store: &mw_store::Store, id: &str) -> Result<Option<ProxyRoute>, ()> {
+    match store.get_egress_proxy(id).await {
+        Ok(None) => Ok(None),
+        Ok(Some(row)) => match proxy_route(&row) {
+            Some(route) => Ok(Some(route)),
+            None => {
+                tracing::warn!(
+                    "egress route {} has scheme {:?}, which this build cannot speak",
+                    row.id,
+                    row.scheme
+                );
+                Err(())
+            }
+        },
+        Err(e) => {
+            tracing::warn!("egress route lookup failed: {e}");
+            Err(())
+        }
+    }
+}
+
 /// The last `(configured route, actually traversed)` pair this replica observed, so
 /// an audit row is written when egress **changes** rather than once per image.
 static LAST_EGRESS: OnceLock<Mutex<Option<(String, bool)>>> = OnceLock::new();

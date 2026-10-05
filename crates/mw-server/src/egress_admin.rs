@@ -18,8 +18,8 @@
 //!   * `POST /admin/egress/proxies/{id}/delete` — remove a route.
 //!   * `POST /admin/egress/proxies/{id}/activate` — make this the one live route.
 //!   * `POST /admin/egress/proxies/deactivate` — return egress to direct.
-//!   * `POST /admin/egress/proxies/{id}/test` — fetch the probe URL through the
-//!     active route and report how far it got. See [`test_proxy`].
+//!   * `POST /admin/egress/proxies/{id}/test` — fetch the probe URL through one
+//!     route and report how far it got. See [`test_proxy`].
 //!
 //! Configuring a route does **not** make it live: activation is a separate,
 //! deliberate act (0027), so adding a route can never silently reroute traffic.
@@ -497,18 +497,12 @@ fn classify(
 ///
 /// **The status says whether the test ran; the verdict is in the body.** `200`
 /// carries a [`TestVerdict`] for every outcome, the failures included; `404` means
-/// there is no such route; `409` the route is not the active one; `401` not an
-/// admin; `500` the route could not be loaded.
+/// there is no such route; `401` not an admin; `500` the route could not be loaded.
 ///
-/// **Only the active route can be tested.** The one mapping from a stored row to
-/// the transport's `ProxyRoute` is private to `image_proxy.rs`, and the only
-/// accessor it shares is `active_route`, which returns the live route. A route
-/// that exists but is not active answers `409` and is not probed. Testing a staged
-/// route before switching to it needs a by-id accessor in that module
-/// (`route_by_id`, for which `mw-egress/tests/route_construction_sites.rs` already
-/// carries a named exception); until it exists this endpoint cannot do it.
-///
-/// Testing changes nothing — it does not go through the image proxy's cache or its
+/// The route tested is the one named, which is usually **not** the active one:
+/// testing a replacement before switching to it is the reason the button exists.
+/// It is loaded with `image_proxy::route_by_id`. Testing changes nothing — it does
+/// not activate the route and does not go through the image proxy's cache or its
 /// transition audit.
 ///
 /// Three stages, so the answer says where to look:
@@ -529,35 +523,23 @@ async fn test_proxy(
         Ok(a) => a,
         Err(resp) => return resp,
     };
+    let not_found = || {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "no such egress route" })),
+        )
+            .into_response()
+    };
+    // The row gives the display form of the endpoint; the route is what is dialled.
     let row = match state.store.get_egress_proxy(&id).await {
         Ok(Some(row)) => row,
-        Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({ "error": "no such egress route" })),
-            )
-                .into_response();
-        }
+        Ok(None) => return not_found(),
         Err(e) => return store_failed("test lookup", &e),
     };
-    if !row.active {
-        return (
-            StatusCode::CONFLICT,
-            Json(json!({ "error": "only the active egress route can be tested" })),
-        )
-            .into_response();
-    }
-    // `active_route` takes no id, so check it returned the row that was asked
-    // about: another admin may have switched routes since the lookup above.
-    let route = match crate::image_proxy::active_route(&state.store).await {
-        Ok(Some(route)) if route.id == id => route,
-        Ok(_) => {
-            return (
-                StatusCode::CONFLICT,
-                Json(json!({ "error": "only the active egress route can be tested" })),
-            )
-                .into_response();
-        }
+    let route = match crate::image_proxy::route_by_id(&state.store, &id).await {
+        Ok(Some(route)) => route,
+        // Deleted between the two reads.
+        Ok(None) => return not_found(),
         Err(()) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,

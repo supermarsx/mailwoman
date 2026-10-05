@@ -10,7 +10,7 @@
 //!   `Store::get_admin_session` has besides the wall clock, so a deadline in the
 //!   past is exactly what a session left idle looks like.
 //! * **Egress.** `POST /admin/egress/proxies/{id}/test` against a stand-in CONNECT
-//!   proxy; the origin is a public literal address that nothing dials, because the
+//!   proxy, for active and staged routes alike; the origin is a public literal address that nothing dials, because the
 //!   stand-in answers the tunnelled request itself (the `t22_egress_fetch_no_leak`
 //!   arrangement). Activation is then shown to change what the image proxy does.
 //! * **Shapes.** Security policy, domains and integrations return what
@@ -483,8 +483,8 @@ async fn run_test(c: &reqwest::Client, base: &str, cookie: &str, id: &str) -> (u
 }
 
 #[tokio::test]
-async fn the_route_test_is_admin_gated_and_answers_404_and_409_before_probing() {
-    let probe = use_test_probe_url();
+async fn the_route_test_is_admin_gated_and_answers_404_for_an_unknown_route() {
+    use_test_probe_url();
     let db = new_db("mw-t28e8-test-gate");
     let base = spawn_server(&db).await;
     let c = client();
@@ -509,22 +509,86 @@ async fn the_route_test_is_admin_gated_and_answers_404_and_409_before_probing() 
     let (status, body) = run_test(&c, &base, &login.cookie, "no-such-route").await;
     assert_eq!(status, 404, "{body}");
     assert_eq!(body["error"], "no such egress route");
-
-    // A route that exists but is not the active one is not probed.
-    let (status, body) = run_test(&c, &base, &login.cookie, "staged").await;
-    assert_eq!(status, 409, "{body}");
-    assert_eq!(body["error"], "only the active egress route can be tested");
     assert!(
         log.lock().unwrap().is_empty(),
-        "none of the refusals sent anything to the proxy: {:?}",
+        "neither refusal sent anything to the proxy: {:?}",
         log.lock().unwrap()
     );
+}
 
-    // Control: the same route, once active, is probed and answers 200.
-    activate(&c, &base, &login.cookie, "staged").await;
-    let (status, body) = run_test(&c, &base, &login.cookie, "staged").await;
-    assert_eq!(status, 200, "{body}");
-    assert_eq!(body["probeUrl"], probe);
+/// The reason the button exists: a replacement route is tested before it is
+/// switched to. The verdict must describe the route that was named, not the one
+/// that happens to be live, and testing must not change which route is live.
+#[tokio::test]
+async fn a_staged_route_is_tested_without_being_activated_and_the_verdict_is_its_own() {
+    let probe = use_test_probe_url();
+    let db = new_db("mw-t28e8-test-staged");
+    let base = spawn_server(&db).await;
+    let c = client();
+    let login = admin_login(&c, &base).await;
+
+    // The live route points at a port nothing listens on; the staged one works.
+    let closed = {
+        let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        l.local_addr().unwrap().port()
+    };
+    let (good, good_log) = stand_in_proxy(false).await;
+    put_route(&c, &base, &login.cookie, "live", "127.0.0.1", closed, true).await;
+    put_route(
+        &c,
+        &base,
+        &login.cookie,
+        "staged",
+        "127.0.0.1",
+        good.port(),
+        true,
+    )
+    .await;
+    activate(&c, &base, &login.cookie, "live").await;
+
+    // Precondition: the two routes test differently, so a verdict cannot be right
+    // for both by accident.
+    let (status, live) = run_test(&c, &base, &login.cookie, "live").await;
+    assert_eq!(status, 200, "{live}");
+    assert_eq!(live["outcome"], "unreachable", "{live}");
+    assert_eq!(live["endpoint"], format!("http://127.0.0.1:{closed}"));
+    assert!(
+        connects(&good_log).is_empty(),
+        "nothing has used the staged proxy"
+    );
+
+    // The staged, non-active route is probed and reports itself.
+    let (status, staged) = run_test(&c, &base, &login.cookie, "staged").await;
+    assert_eq!(status, 200, "a non-active route can be tested: {staged}");
+    assert_eq!(staged["outcome"], "connected", "{staged}");
+    assert_eq!(staged["traversedProxy"], true, "{staged}");
+    assert_eq!(
+        staged["endpoint"],
+        format!("http://127.0.0.1:{}", good.port()),
+        "the verdict names the staged route's endpoint: {staged}"
+    );
+    assert_eq!(staged["probeUrl"], probe);
+    let seen = connects(&good_log);
+    assert_eq!(
+        seen.len(),
+        1,
+        "the staged proxy received the tunnel: {seen:?}"
+    );
+
+    // Testing activated nothing: `live` is still the route in use.
+    let list: Value = get(&c, format!("{base}/admin/egress/proxies"), &login.cookie)
+        .await
+        .json()
+        .await
+        .unwrap();
+    let active: Vec<&str> = list["proxies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|p| p["active"] == true)
+        .map(|p| p["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(active, ["live"], "{list}");
 }
 
 #[tokio::test]
