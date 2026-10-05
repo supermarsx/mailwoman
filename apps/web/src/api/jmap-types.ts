@@ -256,11 +256,27 @@ export interface EmailSubmissionSetResponse {
   accountId: Id;
   created: Record<string, { id: Id }> | null;
   notCreated: Record<string, SetError> | null;
+  /** The server-set properties of each updated id (`null` when none). Present
+   *  when the call carried an `update` (RFC 8620 §5.3). */
+  updated?: Record<Id, Partial<EmailSubmission> | null> | null;
+  notUpdated?: Record<Id, SetError> | null;
 }
 
 // ── V2: the real, persisted EmailSubmission (§2.1) — undo-send / send-later /
 //    the visible Outbox (`EmailSubmission/query`). ──
 export type UndoStatus = 'pending' | 'final' | 'canceled';
+/** What created a submission, when it was not the owner's own client. */
+export interface SubmissionOrigin {
+  /** `apiKey` (name = the key's prefix) or `oauthClient` (name = the client id). */
+  kind: string;
+  name: string;
+}
+/**
+ * A submission as `EmailSubmission/get` returns it. The `mailwoman*` fields
+ * after `mailwomanHoldSeconds` are the engine's hold and retry state
+ * (`crates/mw-engine/src/jmap.rs`, `submission_json`); they are optional because
+ * a JMAP server that is not the engine (proxy mode) does not send them.
+ */
 export interface EmailSubmission {
   id: Id;
   emailId: Id;
@@ -270,6 +286,16 @@ export interface EmailSubmission {
   undoStatus: UndoStatus;
   /** Engine-held delay before SMTP dispatch (the undo-send window), in seconds. */
   mailwomanHoldSeconds: number;
+  /** `"manual"` while the submission waits for the owner to release it. */
+  mailwomanHold?: 'manual' | null;
+  mailwomanOrigin?: SubmissionOrigin | null;
+  /** The engine stopped trying; nothing was delivered. Reported with `canceled`. */
+  mailwomanFailed?: boolean;
+  /** Attempts in which the mail server accepted nothing. */
+  mailwomanAttempts?: number;
+  /** The latest failure. On a sent row: what went wrong filing the copy. */
+  mailwomanLastError?: string | null;
+  mailwomanNextAttemptAt?: string | null;
 }
 export interface EmailSubmissionGetResponse {
   accountId: Id;

@@ -30,40 +30,20 @@ import {
   type EmailAddress,
   type EmailSubmission,
   type EmailSubmissionGetResponse,
+  type EmailSubmissionSetResponse,
   type Id,
   type Identity,
   type IdentityGetResponse,
   type JmapResponse,
-  type SetError,
 } from '../../api/jmap-types.ts';
 import { t } from '../../i18n/index.ts';
 import type { SliceContext } from './context.ts';
 
-/** What created a submission, when it was not the owner's own client. */
-export interface SubmissionOrigin {
-  /** `apiKey` (name = the key's prefix) or `oauthClient` (name = the client id). */
-  kind: string;
-  name: string;
-}
+export type { SubmissionOrigin } from '../../api/jmap-types.ts';
 
-/**
- * A submission as the engine returns it from `EmailSubmission/get`
- * (`crates/mw-engine/src/jmap.rs`, `submission_json`): the RFC 8621 object plus
- * the engine's hold and retry fields. They are optional here because a JMAP
- * server that is not the engine (proxy mode) does not send them.
- */
-export interface OutboxSubmission extends EmailSubmission {
-  /** `"manual"` while the submission waits for the owner to release it. */
-  mailwomanHold?: 'manual' | null;
-  mailwomanOrigin?: SubmissionOrigin | null;
-  /** The engine stopped trying; nothing was delivered. Reported with `canceled`. */
-  mailwomanFailed?: boolean;
-  /** Attempts in which the mail server accepted nothing. */
-  mailwomanAttempts?: number;
-  /** The latest failure. On a sent row: what went wrong filing the copy. */
-  mailwomanLastError?: string | null;
-  mailwomanNextAttemptAt?: string | null;
-}
+/** A row of the Outbox: the shared `EmailSubmission`, which carries the
+ *  engine's hold and retry fields (`api/jmap-types.ts`). */
+export type OutboxSubmission = EmailSubmission;
 
 /** The message behind a waiting submission, enough to recognise it by. */
 export interface OutboxMessage {
@@ -92,20 +72,13 @@ function isWaiting(sub: OutboxSubmission): boolean {
   return st === 'held' || st === 'scheduled' || st === 'holding';
 }
 
-/** The `EmailSubmission/set` update result (RFC 8620 §5.3). */
-interface SubmissionUpdateResponse {
-  /** The server-set properties of each updated id (`null` when none). */
-  updated?: Record<Id, Partial<OutboxSubmission> | null> | null;
-  notUpdated?: Record<Id, SetError> | null;
-}
-
 /** What one update did: the server-set properties, or why it was refused. */
 type UpdateOutcome =
   | { ok: true; changed: Partial<OutboxSubmission> }
   | { ok: false; reason: string };
 
 function updateOutcome(res: JmapResponse, id: Id): UpdateOutcome {
-  const set = responseFor<SubmissionUpdateResponse>(res, 'set');
+  const set = responseFor<EmailSubmissionSetResponse>(res, 'set');
   const refused = set.notUpdated?.[id];
   if (refused !== undefined) {
     return { ok: false, reason: refused.description ?? refused.type };
