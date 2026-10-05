@@ -82,6 +82,20 @@ pub struct SubmissionAttempts {
     pub next_attempt_at: Option<String>,
 }
 
+/// What holds a submission back, who made it, and what to do once it is sent
+/// (0031). Kept apart from [`SubmissionRow`] like [`SubmissionAttempts`]: an
+/// ordinary enqueue has none of the three.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SubmissionHold {
+    /// `None` = due by time. `Some("manual")` = not sent until
+    /// [`Store::release_submission`]. Opaque to the store.
+    pub hold: Option<String>,
+    /// JSON naming a creator other than the mailbox owner's own client.
+    pub origin: Option<String>,
+    /// JSON: the RFC 8621 §7.5 `onSuccess*` instructions to apply at send time.
+    pub on_success: Option<String>,
+}
+
 /// A sending identity (plan §0.7): configured or server-pulled allowed-from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IdentityRow {
@@ -327,12 +341,28 @@ impl Store {
 
     // ---- submissions -------------------------------------------------------
 
-    /// Enqueue a submission (undo-send / send-later).
+    /// Enqueue a submission (undo-send / send-later) with no hold, no origin
+    /// and no `onSuccess*` instructions.
     pub async fn insert_submission(&self, s: &SubmissionRow) -> Result<(), StoreError> {
+        self.insert_submission_with(s, None, None, None).await
+    }
+
+    /// Enqueue a submission together with its 0031 columns, in one statement:
+    /// a held row is never visible without its hold, so the dispatcher cannot
+    /// read it as due in between. The three are [`SubmissionHold`]'s fields,
+    /// taken apart so a caller need not name that type.
+    pub async fn insert_submission_with(
+        &self,
+        s: &SubmissionRow,
+        hold: Option<&str>,
+        origin: Option<&str>,
+        on_success: Option<&str>,
+    ) -> Result<(), StoreError> {
         q(
             "INSERT INTO submissions
-                 (id, account_id, email_id, identity_id, send_at, undo_status, hold_seconds, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                 (id, account_id, email_id, identity_id, send_at, undo_status, hold_seconds, created_at,
+                  hold, origin, on_success)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         )
         .bind(&s.id)
         .bind(&s.account_id)
@@ -342,8 +372,69 @@ impl Store {
         .bind(&s.undo_status)
         .bind(s.hold_seconds as i64)
         .bind(&s.created_at)
+        .bind(hold)
+        .bind(origin)
+        .bind(on_success)
         .execute(&self.backend)
         .await?;
+        Ok(())
+    }
+
+    /// A submission's hold, origin and `onSuccess*` instructions, or `None` for
+    /// an unknown id.
+    pub async fn get_submission_hold(
+        &self,
+        id: &str,
+    ) -> Result<Option<SubmissionHold>, StoreError> {
+        let row = q("SELECT hold, origin, on_success FROM submissions WHERE id = ?1")
+            .bind(id)
+            .fetch_optional(&self.backend)
+            .await?;
+        Ok(row.as_ref().map(hold_from_row))
+    }
+
+    /// The 0031 columns for every submission of an account, keyed by id (the
+    /// Outbox read, alongside [`Store::list_submissions`]).
+    pub async fn list_submission_holds(
+        &self,
+        account_id: &str,
+    ) -> Result<HashMap<String, SubmissionHold>, StoreError> {
+        let rows = q("SELECT id, hold, origin, on_success FROM submissions WHERE account_id = ?1")
+            .bind(account_id)
+            .fetch_all(&self.backend)
+            .await?;
+        Ok(rows
+            .iter()
+            .map(|r| (r.get_string("id"), hold_from_row(r)))
+            .collect())
+    }
+
+    /// Release a submission: clear its hold, its `send_at`, its undo window and
+    /// any retry backoff, so it is due now. Applies only while the row is
+    /// `pending`; returns `true` iff this call changed a row. A row that is not
+    /// held is released the same way, which is what "send now" on a scheduled or
+    /// undo-window submission means.
+    pub async fn release_submission(&self, id: &str) -> Result<bool, StoreError> {
+        let affected = q("UPDATE submissions
+             SET hold = NULL, send_at = NULL, hold_seconds = 0, next_attempt_at = NULL
+             WHERE id = ?1 AND undo_status = 'pending'")
+        .bind(id)
+        .execute(&self.backend)
+        .await?;
+        Ok(affected == 1)
+    }
+
+    /// Replace a submission's `onSuccess*` instructions (`None` clears them).
+    pub async fn set_submission_on_success(
+        &self,
+        id: &str,
+        on_success: Option<&str>,
+    ) -> Result<(), StoreError> {
+        q("UPDATE submissions SET on_success = ?2 WHERE id = ?1")
+            .bind(id)
+            .bind(on_success)
+            .execute(&self.backend)
+            .await?;
         Ok(())
     }
 
@@ -483,7 +574,9 @@ impl Store {
             .collect())
     }
 
-    /// Every still-`pending` submission across all accounts (the dispatcher scan).
+    /// Every still-`pending` submission across all accounts (the dispatcher
+    /// scan). Held rows are included: `pending` is the status, and whether a row
+    /// may be sent is [`Store::get_submission_hold`]'s answer, not this one's.
     pub async fn pending_submissions(&self) -> Result<Vec<SubmissionRow>, StoreError> {
         let rows = q(
             "SELECT id, account_id, email_id, identity_id, send_at, undo_status, hold_seconds, created_at
@@ -779,6 +872,14 @@ fn submission_from_row(r: &Row) -> SubmissionRow {
         undo_status: r.get_string("undo_status"),
         hold_seconds: u32_col(r, "hold_seconds"),
         created_at: r.get_string("created_at"),
+    }
+}
+
+fn hold_from_row(r: &Row) -> SubmissionHold {
+    SubmissionHold {
+        hold: r.get_opt_string("hold"),
+        origin: r.get_opt_string("origin"),
+        on_success: r.get_opt_string("on_success"),
     }
 }
 
@@ -1395,6 +1496,127 @@ mod tests {
         assert_eq!(all[&dead].attempts, 1);
         assert_eq!(all[&raced].attempts, 0);
         assert!(s.get_submission_attempts("nope").await.unwrap().is_none());
+    }
+
+    /// 0031: a held row keeps its three columns, stays `pending`, and
+    /// `release_submission` is what makes it due. On whichever backend `s` is.
+    async fn assert_submission_hold(s: &Store) {
+        let (account_id, _m, sid) = seed_msg(s).await;
+        // Ids unique to this run: the Postgres leg shares a database.
+        let held = format!("held-{account_id}");
+        let plain = format!("plain-{account_id}");
+        let row = |id: &str| SubmissionRow {
+            id: id.to_string(),
+            account_id: account_id.clone(),
+            email_id: sid.clone(),
+            identity_id: None,
+            send_at: Some("2999-01-01T00:00:00Z".into()),
+            undo_status: "pending".into(),
+            hold_seconds: 30,
+            created_at: "2026-07-01T10:00:00Z".into(),
+        };
+        let hold = SubmissionHold {
+            hold: Some("manual".into()),
+            origin: Some(r#"{"kind":"apiKey","name":"abcd"}"#.into()),
+            on_success: Some(r#"{"update":{"keywords/$draft":null}}"#.into()),
+        };
+        s.insert_submission_with(
+            &row(&held),
+            hold.hold.as_deref(),
+            hold.origin.as_deref(),
+            hold.on_success.as_deref(),
+        )
+        .await
+        .unwrap();
+        s.insert_submission(&row(&plain)).await.unwrap();
+
+        assert_eq!(
+            s.get_submission_hold(&held).await.unwrap().unwrap(),
+            hold,
+            "the held row reads back what was written"
+        );
+        assert_eq!(
+            s.get_submission_hold(&plain).await.unwrap().unwrap(),
+            SubmissionHold::default(),
+            "an ordinary enqueue has no hold, origin or onSuccess"
+        );
+        assert!(s.get_submission_hold("nope").await.unwrap().is_none());
+        let all = s.list_submission_holds(&account_id).await.unwrap();
+        assert_eq!(all.get(&held), Some(&hold));
+        assert_eq!(all.get(&plain), Some(&SubmissionHold::default()));
+
+        // A failure recorded against the held row gives it a backoff to clear.
+        assert!(
+            s.record_submission_failure(&held, "x", Some("2999-01-01T00:00:00Z"), "pending")
+                .await
+                .unwrap()
+        );
+        assert!(s.release_submission(&held).await.unwrap());
+        let released = s.get_submission(&held).await.unwrap().unwrap();
+        assert_eq!(
+            (
+                released.send_at,
+                released.hold_seconds,
+                released.undo_status.as_str()
+            ),
+            (None, 0, "pending"),
+            "release clears the timers and leaves the status"
+        );
+        let after = s.get_submission_hold(&held).await.unwrap().unwrap();
+        assert_eq!(after.hold, None, "release clears the hold");
+        assert_eq!(after.origin, hold.origin, "release keeps the origin");
+        assert_eq!(after.on_success, hold.on_success, "release keeps onSuccess");
+        assert_eq!(
+            s.get_submission_attempts(&held)
+                .await
+                .unwrap()
+                .unwrap()
+                .next_attempt_at,
+            None,
+            "release clears the backoff"
+        );
+
+        s.set_submission_on_success(&held, None).await.unwrap();
+        assert_eq!(
+            s.get_submission_hold(&held)
+                .await
+                .unwrap()
+                .unwrap()
+                .on_success,
+            None
+        );
+
+        // Only a pending row can be released.
+        assert!(
+            s.transition_submission(&plain, "pending", "canceled")
+                .await
+                .unwrap()
+        );
+        assert!(!s.release_submission(&plain).await.unwrap());
+        assert_eq!(
+            s.get_submission(&plain).await.unwrap().unwrap().send_at,
+            Some("2999-01-01T00:00:00Z".into()),
+            "a refused release changes nothing"
+        );
+        assert!(!s.release_submission("nope").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn submission_hold_and_release() {
+        assert_submission_hold(&store().await).await;
+    }
+
+    /// The Postgres half, env-gated like the other legs in this module.
+    #[tokio::test]
+    async fn postgres_submission_hold_and_release() {
+        let Some(dsn) = pg_dsn() else {
+            skip("t28-e12 submission hold and release: Postgres path");
+            return;
+        };
+        let s = crate::Store::open_postgres(&dsn, crate::ServerKey::generate())
+            .await
+            .expect("DATABASE_URL_PG is set but Postgres is not reachable");
+        assert_submission_hold(&s).await;
     }
 
     #[tokio::test]

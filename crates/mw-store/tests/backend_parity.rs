@@ -274,6 +274,35 @@ async fn run_ops(s: &Store) -> Vec<String> {
         "pending_subs={}",
         s.pending_submissions().await.unwrap().len()
     ));
+    // 0031: a held submission keeps its hold, origin and onSuccess columns, and
+    // a release clears the hold and the timers.
+    s.insert_submission_with(
+        &SubmissionRow {
+            id: "sub-held".into(),
+            account_id: account.clone(),
+            email_id: sid.clone(),
+            identity_id: None,
+            send_at: Some("2999-01-01T00:00:00Z".into()),
+            undo_status: "pending".into(),
+            hold_seconds: 0,
+            created_at: "2026-07-01T10:00:01Z".into(),
+        },
+        Some("manual"),
+        Some(r#"{"kind":"apiKey","name":"abcd"}"#),
+        Some(r#"{"update":{"keywords/$draft":null}}"#),
+    )
+    .await
+    .unwrap();
+    out.push(format!(
+        "held_sub={:?}",
+        s.get_submission_hold("sub-held").await.unwrap()
+    ));
+    out.push(format!(
+        "released={}:{:?}:{:?}",
+        s.release_submission("sub-held").await.unwrap(),
+        s.get_submission_hold("sub-held").await.unwrap(),
+        s.get_submission("sub-held").await.unwrap().map(|r| r.send_at)
+    ));
 
     // ---- V3: calendar / event range / note seal / contact autocomplete ----
     s.upsert_calendar(&CalendarRow {

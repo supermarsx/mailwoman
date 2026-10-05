@@ -9,7 +9,7 @@
 //! validated at commit.
 //!
 //! **The copy is not the whole schema, but it is now nearly all of it.** `TABLES`
-//! below is the complete list of what is copied: as of migration 0030 that is 59
+//! below is the complete list of what is copied: as of migration 0031 that is 59
 //! tables out of the 76 the migrations create. The other 17 are left behind
 //! deliberately, each with its reason recorded at its entry in
 //! `NOT_MIGRATED_DELIBERATELY` in `tests/backend_parity.rs`: the admin panel's
@@ -569,8 +569,11 @@ const TABLES: &[TableSpec] = &[
         // dispatch would cross a `migrate-store` having forgotten how many times it
         // has already failed and how long it agreed to wait — the retry budget
         // resets to zero and the backoff is dropped.
-        select: "SELECT id, account_id, email_id, identity_id, send_at, undo_status, hold_seconds, created_at, attempts, last_error, next_attempt_at FROM submissions",
-        insert: "INSERT INTO submissions (id, account_id, email_id, identity_id, send_at, undo_status, hold_seconds, created_at, attempts, last_error, next_attempt_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+        // 0031 (26.20): `hold` / `origin` / `on_success` are copied too. Dropping
+        // `hold` would turn a submission that waits for its owner's release into
+        // one that is due at once: the copy would send mail nobody approved.
+        select: "SELECT id, account_id, email_id, identity_id, send_at, undo_status, hold_seconds, created_at, attempts, last_error, next_attempt_at, hold, origin, on_success FROM submissions",
+        insert: "INSERT INTO submissions (id, account_id, email_id, identity_id, send_at, undo_status, hold_seconds, created_at, attempts, last_error, next_attempt_at, hold, origin, on_success) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
         map: |r| {
             vec![
                 t(r, "id"),
@@ -584,6 +587,9 @@ const TABLES: &[TableSpec] = &[
                 i(r, "attempts"),
                 ot(r, "last_error"),
                 ot(r, "next_attempt_at"),
+                ot(r, "hold"),
+                ot(r, "origin"),
+                ot(r, "on_success"),
             ]
         },
     },
