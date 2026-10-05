@@ -73,10 +73,20 @@ export function createRealtimeSlice(
   wireServiceWorkerWake(controller);
 
   // Bridge the fetch layer's network signal into the connection model: a dropped
-  // request marks the push connection offline before the socket layer notices.
+  // request marks the push connection offline before the socket layer notices,
+  // and the next request that gets through takes that mark back off. Without
+  // the second half a socket that stayed open left "You are offline" up for
+  // good, because only a push report cleared it.
   ctx.client.onNetwork((up) => {
-    if (!up) controller.connection.setOffline();
+    if (up) controller.connection.setReachable();
+    else controller.connection.setOffline();
   });
+
+  // A 401 on an authenticated request means the session ended under the user
+  // (expired, revoked, or the account was disabled). The socket layer cannot
+  // see that — a refused WebSocket/EventSource is just a drop — so the fetch
+  // layer reports it. The model ignores it unless a session's transport is up.
+  ctx.client.onUnauthenticated?.(() => controller.connection.setAuthExpired());
 
   return {
     connectionState: controller.connection.state,

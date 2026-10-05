@@ -4,13 +4,18 @@
 // reads `useRealtime()` so it works with the app singleton or a test-provided
 // controller, and offers a Reconnect action for the recoverable states.
 //
+// An ended session (auth-expired) offers "Sign in again" instead: reconnecting
+// cannot revive it. The action is the store's `logout()`, which clears the
+// session and so returns the shell to the login screen.
+//
 // It is mounted outside the signed-in branch of App.tsx, so it also renders on
 // the login screen. There the model is `idle` (no push transport is wanted) and
 // the banner shows nothing: it reports on a session's connection, not on the
 // browser. The copy is in the `common` catalog, which ships in the entry chunk.
 
-import { Show, createEffect, createSignal, onCleanup, type JSX } from 'solid-js';
+import { Show, createEffect, createSignal, onCleanup, useContext, type JSX } from 'solid-js';
 import { useRealtime } from './context.ts';
+import { AppContext } from '../state/context.ts';
 import type { ConnectionState } from './connection.ts';
 import { t } from '../i18n/index.ts';
 
@@ -30,10 +35,19 @@ function isBannerState(s: ConnectionState): s is BannerState {
 }
 
 /** These states offer a manual "Reconnect" action from the top of the ladder. */
-const RECOVERABLE = new Set<ConnectionState>(['degraded', 'auth-expired']);
+const RECOVERABLE = new Set<ConnectionState>(['degraded']);
 
 export function ConnectionToast(): JSX.Element {
   const rt = useRealtime();
+  // Read directly rather than through `useApp()`, which throws without a
+  // provider: the banner is also rendered on its own against a bare controller.
+  const app = useContext(AppContext);
+
+  function signInAgain(): void {
+    // The server may refuse the logout request of a session it already ended;
+    // `logout()` clears the local session either way, which is the point here.
+    void app?.logout().catch(() => undefined);
+  }
   const state = rt.connection.state;
 
   const [reconnected, setReconnected] = createSignal(false);
@@ -87,6 +101,11 @@ export function ConnectionToast(): JSX.Element {
               <Show when={RECOVERABLE.has(s)}>
                 <button type="button" class="connection-toast__action" onClick={() => rt.reconnect()}>
                   {t('common-conn-reconnect')}
+                </button>
+              </Show>
+              <Show when={s === 'auth-expired' && app !== undefined}>
+                <button type="button" class="connection-toast__action" onClick={signInAgain}>
+                  {t('common-conn-sign-in-again')}
                 </button>
               </Show>
             </div>

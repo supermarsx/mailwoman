@@ -2,6 +2,8 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, fireEvent, screen } from '@solidjs/testing-library';
 import { ConnectionToast } from './ConnectionToast.tsx';
 import { RealtimeContext } from './context.ts';
+import { AppContext } from '../state/context.ts';
+import type { AppState } from '../state/store.ts';
 import { createConnection } from './connection.ts';
 import { createSubTabs } from './subTabs.ts';
 import { createChangeReconciler } from './changes.ts';
@@ -66,12 +68,34 @@ describe('ConnectionToast', () => {
     expect(reconnect).toHaveBeenCalledTimes(1);
   });
 
-  it('surfaces an auth-expired banner with a reconnect action', () => {
+  it('offers "Sign in again" for an ended session, which signs the dead session out', () => {
+    const logout = vi.fn(async () => undefined);
+    const reconnect = vi.fn();
+    const controller = makeController({ reconnect });
+    controller.connection.report('open', 'ws');
+    controller.connection.setAuthExpired();
+    render(() => (
+      <AppContext.Provider value={{ logout } as unknown as AppState}>
+        <RealtimeContext.Provider value={controller}>
+          <ConnectionToast />
+        </RealtimeContext.Provider>
+      </AppContext.Provider>
+    ));
+    expect(screen.getByRole('status')).toHaveTextContent(/session expired/i);
+    // Reconnecting cannot revive an ended session, so it is not offered.
+    expect(screen.queryByRole('button', { name: 'Reconnect' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in again' }));
+    expect(logout).toHaveBeenCalledTimes(1);
+    expect(reconnect).not.toHaveBeenCalled();
+  });
+
+  it('shows the ended-session banner without an action when no store is in scope', () => {
     const controller = makeController();
+    controller.connection.report('open', 'ws');
     controller.connection.setAuthExpired();
     renderToast(controller);
     expect(screen.getByRole('status')).toHaveTextContent(/session expired/i);
-    expect(screen.getByRole('button', { name: 'Reconnect' })).toBeInTheDocument();
+    expect(screen.queryByRole('button')).toBeNull();
   });
 });
 

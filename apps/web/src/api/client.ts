@@ -66,6 +66,8 @@ export class PasswordChangeRequired extends ApiError {
 
 export type PasswordChangeRequiredListener = () => void;
 
+export type UnauthenticatedListener = () => void;
+
 /** Is `res` the forced-password-change refusal (see {@link PasswordChangeRequired})? */
 async function isPasswordChangeGate(res: Response): Promise<boolean> {
   if (res.status !== 403) return false;
@@ -203,6 +205,15 @@ export interface Client {
    * client need not provide it.
    */
   onPasswordChangeRequired?(listener: PasswordChangeRequiredListener): () => void;
+  /**
+   * Subscribe to 401s from the endpoints that need a session (`/api/me`,
+   * `/jmap/session`, `/jmap/api`, `/api/sanitize`). `/api/login`'s 401 is a
+   * refused credential and is not reported. The client cannot tell "the session
+   * ended" from "there never was one" — `/api/me` answers 401 at every
+   * signed-out boot — so the listener decides. Optional so a hand-built client
+   * need not provide it.
+   */
+  onUnauthenticated?(listener: UnauthenticatedListener): () => void;
 }
 
 /**
@@ -214,9 +225,15 @@ export interface Client {
 export function createClient(base = basePath(), auth?: ClientAuth): Client {
   const listeners = new Set<NetworkListener>();
   const gateListeners = new Set<PasswordChangeRequiredListener>();
+  const unauthListeners = new Set<UnauthenticatedListener>();
 
-  /** `jsonOrThrow`, with the forced-password-change refusal told apart first. */
+  /** `jsonOrThrow`, with a 401 and the forced-password-change refusal told
+   *  apart first. */
   async function jsonOrGate<T>(res: Response): Promise<T> {
+    if (res.status === 401) {
+      for (const l of unauthListeners) l();
+      throw new ApiError(401, 'not authenticated');
+    }
     if (await isPasswordChangeGate(res)) {
       for (const l of gateListeners) l();
       throw new PasswordChangeRequired();
@@ -302,14 +319,12 @@ export function createClient(base = basePath(), auth?: ClientAuth): Client {
     me() {
       return guarded(async () => {
         const res = await req(`${base}/api/me`);
-        if (res.status === 401) throw new ApiError(401, 'not authenticated');
         return jsonOrGate<Me>(res);
       });
     },
     session() {
       return guarded(async () => {
         const res = await req(`${base}/jmap/session`);
-        if (res.status === 401) throw new ApiError(401, 'not authenticated');
         return jsonOrGate<JmapSession>(res);
       });
     },
@@ -321,7 +336,6 @@ export function createClient(base = basePath(), auth?: ClientAuth): Client {
           body: JSON.stringify(body),
           ...(opts?.signal !== undefined ? { signal: opts.signal } : {}),
         });
-        if (res.status === 401) throw new ApiError(401, 'not authenticated');
         return jsonOrGate<JmapResponse>(res);
       });
     },
@@ -353,6 +367,10 @@ export function createClient(base = basePath(), auth?: ClientAuth): Client {
     onPasswordChangeRequired(listener) {
       gateListeners.add(listener);
       return () => gateListeners.delete(listener);
+    },
+    onUnauthenticated(listener) {
+      unauthListeners.add(listener);
+      return () => unauthListeners.delete(listener);
     },
   };
 }

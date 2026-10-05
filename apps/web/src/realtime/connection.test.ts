@@ -66,4 +66,60 @@ describe('createConnection', () => {
     c.setOffline();
     expect(c.state()).toBe('auth-expired');
   });
+
+  it('setReachable undoes setOffline by returning to the last push report', () => {
+    const c = createConnection();
+    c.report('open', 'ws');
+    c.setOffline();
+    expect(c.state()).toBe('offline');
+    c.setReachable();
+    expect(c.state()).toBe('online');
+    expect(c.transport()).toBe('ws');
+  });
+
+  it('setReachable does not promote a socket that is itself down', () => {
+    const c = createConnection();
+    c.report('open', 'ws');
+    c.report('reconnecting', 'ws');
+    c.setReachable();
+    expect(c.state()).toBe('connecting');
+
+    // Network down, then the socket drops too: the drop is what stands.
+    c.report('open', 'ws');
+    c.setOffline();
+    c.report('degraded', 'poll');
+    c.setReachable();
+    expect(c.state()).toBe('degraded');
+    expect(c.transport()).toBe('poll');
+
+    // Marked offline while degraded: reachable goes back to degraded, not online.
+    c.setOffline();
+    expect(c.state()).toBe('offline');
+    c.setReachable();
+    expect(c.state()).toBe('degraded');
+  });
+
+  it('setReachable does not lift auth-expired', () => {
+    const c = createConnection();
+    c.report('open', 'ws');
+    c.setOffline();
+    c.setAuthExpired();
+    c.setReachable();
+    expect(c.state()).toBe('auth-expired');
+  });
+
+  it('ignores setAuthExpired while idle, and a close ends an expiry', () => {
+    const c = createConnection();
+    c.setAuthExpired();
+    expect(c.state()).toBe('idle');
+
+    c.report('open', 'ws');
+    c.setAuthExpired();
+    expect(c.state()).toBe('auth-expired');
+    c.report('closed', 'offline');
+    expect(c.state()).toBe('idle');
+    // The next session starts clean.
+    c.report('connecting', 'ws');
+    expect(c.state()).toBe('connecting');
+  });
 });
