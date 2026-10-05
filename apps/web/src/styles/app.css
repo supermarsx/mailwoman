@@ -138,6 +138,18 @@ body {
 }
 .login__card .btn--primary {
   width: 100%;
+  margin-top: 0.8rem;
+}
+/* The "Enter server details manually" / "Look up my server" toggle under the
+   submit button, and the single-sign-on links, which share the class. */
+.login__card .btn--ghost {
+  width: 100%;
+  margin-top: 0.5rem;
+}
+/* The lookup result: its hint lines sit closer together than free-standing
+   hints, and an empty status region takes no room. */
+.login__card [role='status'] > .login__hint {
+  margin-top: 0.4rem;
 }
 
 /* ── Shell layout ─────────────────────────────────────────────── */
