@@ -51,21 +51,40 @@ pub(crate) enum SearchIndexPlace {
 /// The value of `MW_SEARCH_DIR` that keeps the index in RAM.
 const SEARCH_DIR_MEMORY: &str = "memory";
 
+/// Whether a deployment that does not set `MW_SEARCH_DIR` gets an on-disk index
+/// when its database path names a directory to put one in. `false` makes RAM
+/// the default everywhere; `MW_SEARCH_DIR=<dir>` then remains the way to opt in
+/// to a persistent index.
+const SEARCH_INDEX_ON_DISK_BY_DEFAULT: bool = true;
+
 /// Decide where the search index goes, from `MW_SEARCH_DIR` if it is set and
 /// otherwise from the database path:
 ///
 /// * `MW_SEARCH_DIR=memory`: RAM.
 /// * `MW_SEARCH_DIR=<dir>`: that directory.
-/// * a SQLite file `<path>`: the directory `<path>.search-index` beside it.
+/// * a SQLite file `<path>`: the directory `<path>.search-index` beside it,
+///   while [`SEARCH_INDEX_ON_DISK_BY_DEFAULT`] is `true`.
 /// * an in-memory SQLite database, or a Postgres DSN: RAM, because neither
 ///   names a local directory.
 pub(crate) fn search_index_place(db_path: &str, search_dir: Option<&str>) -> SearchIndexPlace {
+    place_with_default(db_path, search_dir, SEARCH_INDEX_ON_DISK_BY_DEFAULT)
+}
+
+/// [`search_index_place`] with the default stated by the caller.
+fn place_with_default(
+    db_path: &str,
+    search_dir: Option<&str>,
+    on_disk_by_default: bool,
+) -> SearchIndexPlace {
     match search_dir.map(str::trim).filter(|s| !s.is_empty()) {
         Some(v) if v.eq_ignore_ascii_case(SEARCH_DIR_MEMORY) => {
             return SearchIndexPlace::Memory("MW_SEARCH_DIR=memory");
         }
         Some(dir) => return SearchIndexPlace::Disk(PathBuf::from(dir)),
         None => {}
+    }
+    if !on_disk_by_default {
+        return SearchIndexPlace::Memory("MW_SEARCH_DIR names no directory");
     }
     if db_path.starts_with("postgres://") || db_path.starts_with("postgresql://") {
         return SearchIndexPlace::Memory(
@@ -92,10 +111,12 @@ pub(crate) fn search_index_place(db_path: &str, search_dir: Option<&str>) -> Sea
 pub(crate) fn build_engine(store: &mw_store::Store, db_path: &str) -> Arc<Engine> {
     let search_dir = std::env::var("MW_SEARCH_DIR").ok();
     match search_index_place(db_path, search_dir.as_deref()) {
-        SearchIndexPlace::Disk(dir) => match Engine::open_with_search(store.clone(), &dir) {
+        SearchIndexPlace::Disk(dir) => match open_index_dir(store, &dir) {
             Ok(engine) => {
-                tracing::info!(
-                    "search index: on disk at {} (holds message text unsealed; set MW_SEARCH_DIR=memory to keep it in RAM)",
+                // A warning, at every start: this is the one place the data
+                // directory holds mail text that is not sealed.
+                tracing::warn!(
+                    "search index: on disk at {}. It holds the text of every indexed message (sender, recipients, subject, body, attachment text) UNSEALED, unlike the database, which seals message bodies under the server key. Protect this directory like the key itself, or set MW_SEARCH_DIR=memory to keep the index in RAM and rebuild it from the database at each start.",
                     dir.display()
                 );
                 Arc::new(engine)
@@ -115,6 +136,34 @@ pub(crate) fn build_engine(store: &mw_store::Store, db_path: &str) -> Arc<Engine
             Arc::new(Engine::new(store.clone()))
         }
     }
+}
+
+/// Create `dir` readable by its owner only, where the platform has such a mode,
+/// and open the index in it.
+///
+/// On Unix the directory is created with mode `0700`, and an existing directory
+/// is set to `0700`; index files Tantivy creates inside keep the process umask,
+/// which does not matter while the directory itself admits nobody else. On
+/// other platforms (Windows) the directory inherits its parent's access control
+/// list and nothing is changed here.
+fn open_index_dir(store: &mw_store::Store, dir: &std::path::Path) -> Result<Engine, String> {
+    restrict_to_owner(dir).map_err(|e| format!("create or restrict the directory: {e}"))?;
+    Engine::open_with_search(store.clone(), dir).map_err(|e| e.to_string())
+}
+
+#[cfg(unix)]
+fn restrict_to_owner(dir: &std::path::Path) -> std::io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(dir)?;
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+}
+
+#[cfg(not(unix))]
+fn restrict_to_owner(dir: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)
 }
 
 /// Start the engine's background work for a server process: the delayed
@@ -628,5 +677,41 @@ mod tests {
             search_index_place("/data/mailwoman.db", Some("Memory")),
             SearchIndexPlace::Memory(_)
         ));
+    }
+
+    #[test]
+    fn with_the_default_off_only_an_explicit_directory_puts_the_index_on_disk() {
+        assert!(matches!(
+            place_with_default("/data/mailwoman.db", None, false),
+            SearchIndexPlace::Memory(_)
+        ));
+        assert_eq!(
+            place_with_default("/data/mailwoman.db", Some("/var/lib/mw/idx"), false),
+            SearchIndexPlace::Disk(PathBuf::from("/var/lib/mw/idx"))
+        );
+        // The same path with the default on, so the flag is what decided it.
+        assert!(matches!(
+            place_with_default("/data/mailwoman.db", None, true),
+            SearchIndexPlace::Disk(_)
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_index_directory_admits_its_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = std::env::temp_dir().join(format!("mw-e13-perm-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let dir = base.join("idx");
+        // Created with the mode.
+        restrict_to_owner(&dir).unwrap();
+        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&dir), 0o700);
+        // An existing, wider directory is narrowed.
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(mode(&dir), 0o755);
+        restrict_to_owner(&dir).unwrap();
+        assert_eq!(mode(&dir), 0o700);
+        let _ = std::fs::remove_dir_all(&base);
     }
 }
