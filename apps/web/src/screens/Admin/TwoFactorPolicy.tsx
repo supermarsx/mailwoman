@@ -1,6 +1,7 @@
 // Admin › Require two-factor (26.16, plan §3 e16 — DQ2).
 //
-// A require-2FA policy panel beside `SecurityPolicy.tsx`. DQ2: any user may enrol a
+// The require-2FA policy panel, a section of its own in the admin nav
+// (`index.tsx`). DQ2: any user may enrol a
 // factor (opt-in); an admin may additionally REQUIRE a second factor org-wide
 // (global) or for one mail domain. An enrolled user is always required regardless
 // — this panel governs the org/domain *requirement*, which forces enrolment on
