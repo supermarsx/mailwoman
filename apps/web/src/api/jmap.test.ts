@@ -353,6 +353,13 @@ describe('threading headers of a raw message', () => {
     });
   });
 
+  it('does not take several In-Reply-To ids for a reference chain', () => {
+    expect(parseThreadingHeaders('Message-ID: <c@x>\nIn-Reply-To: <a@x> <b@x>\n\n')).toEqual({
+      messageId: 'c@x',
+      references: [],
+    });
+  });
+
   it('reports no id for a message without a Message-ID', () => {
     expect(parseThreadingHeaders('Subject: x\r\nX-Message-ID: <not-this@x>\r\n\r\n')).toEqual({
       messageId: null,

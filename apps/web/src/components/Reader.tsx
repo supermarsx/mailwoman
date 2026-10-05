@@ -31,7 +31,7 @@ import { bodyFrameDoc, withImageLoadingHints } from '../viewers/sandbox.ts';
 import { createObjectUrlOwner } from '../viewers/objectUrl.ts';
 import { getCryptoWorker } from '../crypto/index.ts';
 import { createConfiguredClient } from '../api/transport.ts';
-import { fetchThreadingHeaders, responseFor, type ThreadingHeaders } from '../api/jmap.ts';
+import { fetchThreadingHeaders, parentReferences, responseFor, type ThreadingHeaders } from '../api/jmap.ts';
 import { CAP_CORE } from '../api/jmap-types.ts';
 import { CAP_CRYPTO, CAP_SECURITY, type CryptoKey } from '../api/crypto-types.ts';
 import type { Email, EmailAddress } from '../api/jmap-types.ts';
@@ -688,13 +688,14 @@ export function Reader(props: {
   }
 
   /** The open message's `Message-ID` and `References`: from `Email/get` when
-   *  the server returned them, otherwise from the header block of the raw
-   *  message. `null` when neither could be had. */
+   *  it returned an id, otherwise from the header block of the raw message —
+   *  the engine returns the properties only for mail it ingested since it
+   *  learned to (the key is absent on older rows), and `null` for a header it
+   *  could not read as an id list. `null` here when neither source has an id. */
   async function threadingHeaders(email: Email): Promise<ThreadingHeaders | null> {
     const id = email.messageId?.[0];
     if (id !== undefined) {
-      const refs = email.references ?? [];
-      return { messageId: id, references: refs.length > 0 ? refs : (email.inReplyTo ?? []) };
+      return { messageId: id, references: parentReferences(email.references ?? [], email.inReplyTo ?? []) };
     }
     const url = app.downloadUrl();
     const acct = app.accountId();

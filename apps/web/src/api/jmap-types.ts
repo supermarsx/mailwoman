@@ -76,8 +76,9 @@ export interface Email {
   /** The `Date` header, when the message has a readable one. */
   sentAt?: UtcDate | null;
   /** `Message-ID`, `In-Reply-To` and `References` as lists of ids without
-   *  angle brackets (RFC 8621 §4.1.2.3). Mailwoman's own engine does not return
-   *  them; an upstream JMAP server reached in proxy mode can. */
+   *  angle brackets (RFC 8621 §4.1.2.3). `null` when the header is absent or
+   *  is not a list of ids; the key itself is absent on a message the engine
+   *  stored before it returned these. */
   messageId?: string[] | null;
   inReplyTo?: string[] | null;
   references?: string[] | null;

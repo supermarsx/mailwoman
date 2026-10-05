@@ -465,7 +465,7 @@ export interface ThreadingHeaders {
   /** The message's own `Message-ID`, or `null` when it has none. */
   messageId: string | null;
   /** Its `References`, oldest first; when that header is absent, its
-   *  `In-Reply-To` ids instead (RFC 5322 §3.6.4). */
+   *  `In-Reply-To` if that names exactly one message (RFC 5322 §3.6.4). */
   references: string[];
 }
 
@@ -474,6 +474,17 @@ export interface ThreadingHeaders {
 function messageIds(value: string | undefined): string[] {
   if (value === undefined) return [];
   return [...value.matchAll(/<([^<>\s]+)>/g)].map((m) => m[1]!);
+}
+
+/**
+ * The reference chain of a message, given its `References` and `In-Reply-To`
+ * ids: the former when there are any; otherwise the latter when it is a single
+ * id. Several `In-Reply-To` ids say nothing about their order in the thread, so
+ * they are not used.
+ */
+export function parentReferences(references: string[], inReplyTo: string[]): string[] {
+  if (references.length > 0) return references;
+  return inReplyTo.length === 1 ? inReplyTo : [];
 }
 
 /**
@@ -487,10 +498,9 @@ export function parseThreadingHeaders(raw: string): ThreadingHeaders {
     const m = new RegExp(`^${name}:(.*)$`, 'im').exec(block);
     return m === null ? undefined : m[1]!;
   };
-  const references = messageIds(field('References'));
   return {
     messageId: messageIds(field('Message-ID'))[0] ?? null,
-    references: references.length > 0 ? references : messageIds(field('In-Reply-To')),
+    references: parentReferences(messageIds(field('References')), messageIds(field('In-Reply-To'))),
   };
 }
 

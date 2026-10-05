@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@solidjs/testing-library';
+import { cleanup, render, screen, fireEvent, waitFor, within } from '@solidjs/testing-library';
 import { Reader } from './Reader.tsx';
 import { makeClient, mkEmail } from './appHarness.tsx';
 import { createAppState, type AppState } from '../state/store.ts';
@@ -168,6 +168,21 @@ describe('Reader: Reply, Reply all, Forward', () => {
       inReplyTo: ['from-get@example.org'],
       references: ['r1@example.org', 'from-get@example.org'],
     });
+  });
+
+  it('reads the raw message when Email/get returned the properties as null', async () => {
+    const { onCompose } = await openReader({ ...ORIGINAL, messageId: null, inReplyTo: null, references: null });
+    const initial = await click('Reply', onCompose);
+    expect(downloads).toHaveLength(1);
+    expect(initial.inReplyTo).toEqual(['orig@example.org']);
+  });
+
+  it('with no References, a single In-Reply-To id is the chain and several are not', async () => {
+    const one = await openReader({ ...ORIGINAL, messageId: ['m@x'], references: null, inReplyTo: ['p@x'] });
+    expect((await click('Reply', one.onCompose)).references).toEqual(['p@x', 'm@x']);
+    cleanup();
+    const two = await openReader({ ...ORIGINAL, messageId: ['m@x'], references: null, inReplyTo: ['p@x', 'q@x'] });
+    expect((await click('Reply', two.onCompose)).references).toEqual(['m@x']);
   });
 
   it('when the original id cannot be read, the reply opens without thread ids and says so', async () => {
