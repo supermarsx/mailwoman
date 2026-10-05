@@ -56,3 +56,26 @@ describe('MessageList — the sender cell', () => {
     expect(cells).toEqual(['Your Bank <x@evil.example>', 'y@evil.example (security@bank.example)']);
   });
 });
+
+describe('MessageList — answered and forwarded marks', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('shows each mark on the rows that carry the keyword, and on no other', async () => {
+    const { app, result } = renderWithApp(() => <MessageList />, {
+      emails: [
+        mkEmail('plain'),
+        mkEmail('answered', { keywords: { $seen: true, $answered: true } }),
+        mkEmail('forwarded', { keywords: { $forwarded: true } }),
+        mkEmail('both', { keywords: { $answered: true, $forwarded: true } }),
+      ],
+    });
+    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await waitFor(() => expect(app.messages().length).toBe(4));
+    const marks = [...result.container.querySelectorAll('.list__row')].map((row) =>
+      [...row.querySelectorAll('[data-testid="row-answered"], [data-testid="row-forwarded"]')].map((el) =>
+        el.getAttribute('aria-label'),
+      ),
+    );
+    expect(marks).toEqual([[], ['Answered'], ['Forwarded'], ['Answered', 'Forwarded']]);
+  });
+});

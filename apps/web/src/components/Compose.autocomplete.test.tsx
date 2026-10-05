@@ -104,6 +104,37 @@ describe('Compose contacts autocomplete', () => {
     expect(screen.queryByTestId('contact-suggestion')).toBeNull();
   });
 
+  it('suggests contacts in Cc and Bcc too, and inserts the pick into the field being typed in', async () => {
+    const app = createAppState(contactsClient());
+    render(() => (
+      <AppContext.Provider value={app}>
+        <Compose onClose={() => undefined} />
+      </AppContext.Provider>
+    ));
+    await app.loadContacts();
+    fireEvent.click(screen.getByTestId('compose-show-cc-bcc'));
+
+    const cc = screen.getByLabelText('Cc') as HTMLInputElement;
+    fireEvent.input(cc, { target: { value: 'x@example.org, bo' } });
+    const forCc = await screen.findByTestId('contact-suggestion');
+    expect(forCc).toHaveTextContent('Bob');
+    // The list is the Cc field's, not To's.
+    expect(cc.closest('label')!.contains(forCc)).toBe(true);
+    fireEvent.mouseDown(forCc);
+    expect(cc.value).toBe('x@example.org, Bob Brown <bob@work.example>, ');
+    expect(screen.queryByTestId('contact-suggestion')).toBeNull();
+
+    const bcc = screen.getByLabelText('Bcc') as HTMLInputElement;
+    fireEvent.input(bcc, { target: { value: 'ali' } });
+    const forBcc = await screen.findByTestId('contact-suggestion');
+    expect(bcc.closest('label')!.contains(forBcc)).toBe(true);
+    fireEvent.mouseDown(forBcc);
+    expect(bcc.value).toBe('Alice Adams <alice@example.org>, ');
+    // Neither pick went into To, and Cc kept its own.
+    expect((screen.getByLabelText('To') as HTMLInputElement).value).toBe('');
+    expect(cc.value).toBe('x@example.org, Bob Brown <bob@work.example>, ');
+  });
+
   it('shows no dropdown until the user types', async () => {
     const app = createAppState(contactsClient());
     render(() => (

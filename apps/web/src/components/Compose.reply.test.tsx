@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@solidjs/testing-library';
+import { cleanup, render, screen, fireEvent, waitFor } from '@solidjs/testing-library';
 import { onMount, type JSX } from 'solid-js';
 import { Compose } from './Compose.tsx';
 import { makeClient } from './appHarness.tsx';
@@ -221,6 +221,32 @@ describe('Compose opened as a reply or a forward', () => {
         ['alice@example.org', 'bob@example.org'],
       ),
     );
+  });
+
+  it('a sent reply marks the message it answers; a new message marks nothing', async () => {
+    const marks = (client: ReturnType<typeof makeClient>): unknown[] =>
+      vi
+        .mocked(client.jmap)
+        .mock.calls.map((c) => c[0].methodCalls)
+        .filter((calls) => calls.length === 1 && calls[0]![0] === 'Email/set' && 'update' in calls[0]![1]);
+
+    const replied = await open(reply({ cc: '', source: { emailId: 'm1', keyword: '$answered' } }));
+    await screen.findByTestId('compose-richtext');
+    // Precondition: nothing is marked before the send.
+    expect(marks(replied.client)).toEqual([]);
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(replied.onClose).toHaveBeenCalledTimes(1));
+    expect(marks(replied.client)).toEqual([
+      [['Email/set', { accountId: 'acct1', update: { m1: { 'keywords/$answered': true } } }, 'set']],
+    ]);
+    cleanup();
+
+    const fresh = await open();
+    fireEvent.click(screen.getByTestId('format-toggle'));
+    fireEvent.input(screen.getByLabelText('To'), { target: { value: 'you@example.org' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(fresh.onClose).toHaveBeenCalledTimes(1));
+    expect(marks(fresh.client)).toEqual([]);
   });
 
   it('seeded HTML goes through the schema again in the editor: an image in it is not sent', async () => {

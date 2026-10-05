@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@solidjs/testing-library';
-import { createSignal } from 'solid-js';
+import { createSignal, Suspense } from 'solid-js';
 import {
   CapabilityBanner,
   ComposeCrypto,
@@ -224,6 +224,47 @@ describe('DlpWarnings', () => {
 
 describe('ComposeCrypto (container)', () => {
   const noDlp = vi.fn(async (): Promise<DlpVerdict[]> => []);
+
+  it('never suspends a boundary above it: lookups and scans in flight show the previous result', async () => {
+    let fallbacks = 0;
+    const Fallback = () => {
+      fallbacks += 1;
+      return <p data-testid="outer-fallback" />;
+    };
+    // Both requests stay out until released.
+    const release: Array<() => void> = [];
+    const slowLookup = vi.fn(
+      (): Promise<CryptoKey[]> => new Promise((resolve) => release.push(() => resolve([pgpKey()]))),
+    );
+    const slowScan = vi.fn((): Promise<DlpVerdict[]> => new Promise((resolve) => release.push(() => resolve([]))));
+    const [recipients, setRecipients] = createSignal<string[]>([]);
+    const [body, setBody] = createSignal('');
+    render(() => (
+      <Suspense fallback={<Fallback />}>
+        <ComposeCrypto recipients={recipients} bodyText={body} lookupKeys={slowLookup} scanDlp={slowScan} />
+      </Suspense>
+    ));
+    const toggle = screen.getByTestId('encrypt-toggle');
+
+    setRecipients(['a@example.org']);
+    setBody('h');
+    await waitFor(() => expect(slowLookup).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(slowScan).toHaveBeenCalledTimes(1));
+    // In flight right now, and the panel is still the same node in the document.
+    expect(fallbacks).toBe(0);
+    expect(screen.getByTestId('encrypt-toggle')).toBe(toggle);
+    expect(toggle.isConnected).toBe(true);
+
+    for (const go of release.splice(0)) go();
+    await waitFor(() =>
+      expect(screen.getByTestId('compose-crypto-banner')).toHaveAttribute('data-capability', 'e2ee'),
+    );
+    // A second round, now refetching resources that already have a value.
+    setBody('he');
+    await waitFor(() => expect(slowScan).toHaveBeenCalledTimes(2));
+    expect(fallbacks).toBe(0);
+    expect(toggle.isConnected).toBe(true);
+  });
 
   it('banner reads E2EE when every recipient has a key', async () => {
     const [recipients] = createSignal(['a@example.org', 'b@example.org']);

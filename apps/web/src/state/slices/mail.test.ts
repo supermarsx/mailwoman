@@ -465,6 +465,61 @@ describe('mail slice — what a send puts on the wire', () => {
     });
   });
 
+  it('marks the original $answered once the reply is accepted, and unmarks it when the send is cancelled', async () => {
+    await withInbox([email('orig')], async (mail, { jmap }) => {
+      jmap.mockClear();
+      await mail.sendMessage({
+        to: 'you@example.org',
+        subject: 'Re: Hi',
+        htmlBody: '<p>x</p>',
+        source: { emailId: 'orig', keyword: '$answered' },
+      });
+      const requests = jmap.mock.calls.map((c) => c[0] as JmapRequest);
+      // The send first, then the mark.
+      expect(requests[0]!.methodCalls.map((c) => c[0])).toEqual(['Email/set', 'EmailSubmission/set']);
+      expect(requests[1]!.methodCalls).toEqual([
+        ['Email/set', { accountId: 'acct1', update: { orig: { 'keywords/$answered': true } } }, 'set'],
+      ]);
+
+      jmap.mockClear();
+      await mail.undoNow();
+      const after = jmap.mock.calls.map((c) => (c[0] as JmapRequest).methodCalls);
+      expect(after).toEqual([
+        [['EmailSubmission/set', { accountId: 'acct1', update: { sub1: { undoStatus: 'canceled' } } }, 'set']],
+        [['Email/set', { accountId: 'acct1', update: { orig: { 'keywords/$answered': null } } }, 'set']],
+      ]);
+    });
+  });
+
+  it('marks a forwarded original $forwarded', async () => {
+    await withInbox([email('orig')], async (mail, { jmap }) => {
+      jmap.mockClear();
+      await mail.sendMessage({
+        to: 'you@example.org',
+        subject: 'Fwd: Hi',
+        htmlBody: '<p>x</p>',
+        source: { emailId: 'orig', keyword: '$forwarded' },
+      });
+      const marks = jmap.mock.calls
+        .map((c) => (c[0] as JmapRequest).methodCalls)
+        .filter((calls) => calls.length === 1 && calls[0]![0] === 'Email/set' && 'update' in calls[0]![1]);
+      expect(marks).toEqual([
+        [['Email/set', { accountId: 'acct1', update: { orig: { 'keywords/$forwarded': true } } }, 'set']],
+      ]);
+    });
+  });
+
+  it('a send without a source marks nothing', async () => {
+    await withInbox([email('orig')], async (mail, { jmap }) => {
+      jmap.mockClear();
+      await mail.sendMessage({ to: 'you@example.org', subject: 'Hi', htmlBody: '<p>x</p>' });
+      const updates = jmap.mock.calls
+        .map((c) => (c[0] as JmapRequest).methodCalls)
+        .filter((calls) => calls.some((c) => c[0] === 'Email/set' && 'update' in c[1]));
+      expect(updates).toEqual([]);
+    });
+  });
+
   it('sends a message whose only recipient is in Bcc', async () => {
     await withInbox([email('a')], async (mail, { jmap }) => {
       jmap.mockClear();

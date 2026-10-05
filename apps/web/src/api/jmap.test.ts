@@ -305,6 +305,33 @@ describe('sendEnvelope: Cc, Bcc and reply threading', () => {
     });
   });
 
+  it('the Bcc contract with the server: on the draft as `bcc`, in `rcptTo`, and nowhere else', () => {
+    // The engine sends to the To, Cc and Bcc of the STORED draft and does not
+    // read the envelope, so a Bcc recipient left off the draft receives
+    // nothing. Keeping the header out of the delivered copies is the server's
+    // part (RFC 8621 §7.5); e2e/reply-forward.spec.ts holds it to that.
+    const r = sendEnvelope('acct1', {
+      from: { name: null, email: 'me@example.org' },
+      to: 'frank@example.org',
+      bcc: 'grace@example.org',
+      subject: 'Quiet copy',
+      htmlBody: '<p>x</p>',
+      draftMailboxId: 'drafts1',
+    });
+    const [emailSet, submissionSet] = r.methodCalls as [Invocation, Invocation];
+    const draft = (emailSet[1]['create'] as Record<string, Record<string, unknown>>)['draft']!;
+    expect(draft['bcc']).toEqual([{ name: null, email: 'grace@example.org' }]);
+    expect(draft['to']).toEqual([{ name: null, email: 'frank@example.org' }]);
+    expect('cc' in draft).toBe(false);
+    const send = (submissionSet[1]['create'] as Record<string, Record<string, unknown>>)['send']!;
+    expect(send['envelope']).toEqual({
+      mailFrom: { email: 'me@example.org' },
+      rcptTo: [{ email: 'frank@example.org' }, { email: 'grace@example.org' }],
+    });
+    // The Bcc address is in exactly those two places of the whole request.
+    expect(JSON.stringify(r).split('grace@example.org')).toHaveLength(3);
+  });
+
   it('adds none of the four properties when they are empty', () => {
     const spec = draftCreateSpec({
       from: { name: null, email: 'me@example.org' },
@@ -385,7 +412,10 @@ describe('threading headers of a raw message', () => {
     }, { highWaterMark: 0 });
     const fetcher = vi.fn(async (_url: string, _init?: RequestInit) => new Response(body, { status: 200 }));
     const out = await fetchThreadingHeaders('/jmap/download/acct1/m1/message.eml', fetcher);
-    expect(fetcher).toHaveBeenCalledWith('/jmap/download/acct1/m1/message.eml');
+    // Only the head of the message is asked for.
+    expect(fetcher).toHaveBeenCalledWith('/jmap/download/acct1/m1/message.eml', {
+      headers: { range: 'bytes=0-262143' },
+    });
     expect(out).toEqual({ messageId: 'orig@example.org', references: ['root@example.org', 'mid@example.org'] });
     expect(cancelled).toBe(true);
     // The two body chunks after the header block were never asked for.

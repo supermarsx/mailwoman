@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { cleanup, render, screen, fireEvent, waitFor, within } from '@solidjs/testing-library';
+import { Suspense } from 'solid-js';
 import { Reader } from './Reader.tsx';
 import { makeClient, mkEmail } from './appHarness.tsx';
 import { createAppState, type AppState } from '../state/store.ts';
@@ -88,6 +89,56 @@ async function click(name: 'Reply' | 'Reply all' | 'Forward', onCompose: ReturnT
   return onCompose.mock.calls[0]![0] as ComposeInitial;
 }
 
+describe('Reader: opening a message suspends nothing around it', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('the list beside the reader stays the same mounted node while the verdict and grants load', async () => {
+    // Every request the reader makes outside the app client is held open, so
+    // its resources are pending for as long as this test looks.
+    const held: Array<(r: Response) => void> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise<Response>((resolve) => held.push(resolve))),
+    );
+    let fallbacks = 0;
+    const Fallback = () => {
+      fallbacks += 1;
+      return <p data-testid="screen-pending" />;
+    };
+    const client = makeClient({ emails: [ORIGINAL], identities: IDENTITIES });
+    const app = createAppState(client);
+    // The mailbox screen as App.tsx mounts it: one Suspense boundary (LazyRoute)
+    // around the list and the reader.
+    render(() => (
+      <AppContext.Provider value={app}>
+        <Suspense fallback={<Fallback />}>
+          <ul data-testid="list-stand-in">
+            <li>row</li>
+          </ul>
+          <Reader />
+        </Suspense>
+      </AppContext.Provider>
+    ));
+    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    const list = screen.getByTestId('list-stand-in');
+
+    await app.openMessage('m1');
+    await screen.findByRole('toolbar', { name: 'Message actions' });
+    // Precondition: the reader did start its own requests and they are still out.
+    expect(held.length).toBeGreaterThan(0);
+    expect(fallbacks).toBe(0);
+    expect(screen.queryByTestId('screen-pending')).toBeNull();
+    expect(screen.getByTestId('list-stand-in')).toBe(list);
+    expect(list.isConnected).toBe(true);
+
+    // And nothing is swapped when they come back.
+    for (const resolve of held.splice(0)) resolve(new Response('[]', { status: 200 }));
+    await waitFor(() => expect(screen.getByTitle('Message body')).toBeInTheDocument());
+    expect(fallbacks).toBe(0);
+    expect(screen.getByTestId('list-stand-in')).toBe(list);
+  });
+});
+
 describe('Reader: Reply, Reply all, Forward', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -134,6 +185,7 @@ describe('Reader: Reply, Reply all, Forward', () => {
       references: ['root@example.org', 'orig@example.org'],
       attachments: [],
       quotesDecrypted: false,
+      source: { emailId: 'm1', keyword: '$answered' },
     });
   });
 
@@ -170,11 +222,14 @@ describe('Reader: Reply, Reply all, Forward', () => {
     });
   });
 
-  it('reads the raw message when Email/get returned the properties as null', async () => {
-    const { onCompose } = await openReader({ ...ORIGINAL, messageId: null, inReplyTo: null, references: null });
+  it('takes null from Email/get as the answer: no download, no thread ids, and it says so', async () => {
+    const { app, onCompose } = await openReader({ ...ORIGINAL, messageId: null, inReplyTo: null, references: null });
     const initial = await click('Reply', onCompose);
-    expect(downloads).toHaveLength(1);
-    expect(initial.inReplyTo).toEqual(['orig@example.org']);
+    expect(downloads).toEqual([]);
+    expect({ inReplyTo: initial.inReplyTo, references: initial.references }).toEqual({ inReplyTo: [], references: [] });
+    expect(app.toast()?.message).toBe(
+      'The ID of the original message could not be read. This reply will not be threaded with it.',
+    );
   });
 
   it('with no References, a single In-Reply-To id is the chain and several are not', async () => {
@@ -236,6 +291,7 @@ describe('Reader: Reply, Reply all, Forward', () => {
         { name: '(unnamed)', blobId: 'm1.3', size: 9, contentType: null },
       ],
       quotesDecrypted: false,
+      source: { emailId: 'm1', keyword: '$forwarded' },
     });
   });
 
