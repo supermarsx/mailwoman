@@ -115,7 +115,14 @@ export function makeKeysClient(seed: KeysSeed = {}): Client {
           keys.push({ ...(payload as unknown as CryptoKey), id });
           created[key] = { id };
         }
-        return ['CryptoKey/set', { accountId: 'acct1', oldState: 's', newState: 's2', created, updated: {}, destroyed: [] }, callId];
+        const destroyed: string[] = [];
+        for (const id of (args['destroy'] as string[] | undefined) ?? []) {
+          const idx = keys.findIndex((k) => k.id === id);
+          if (idx < 0) continue;
+          keys.splice(idx, 1);
+          destroyed.push(id);
+        }
+        return ['CryptoKey/set', { accountId: 'acct1', oldState: 's', newState: 's2', created, updated: {}, destroyed }, callId];
       }
       case 'CryptoKey/setTrust': {
         const id = args['id'] as string;

@@ -8,6 +8,51 @@ export function __init() {
 }
 
 /**
+ * `attachIssuedCert({certBytes, encryptedPrivateBundle, passphrase})` →
+ * `{ certPem, fingerprint, addresses, algorithm, expiresAt, selfIssued }`. Throws
+ * when the certificate's public key is not the key in the bundle.
+ * @param {any} options
+ * @returns {any}
+ */
+export function attachIssuedCert(options) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.attachIssuedCert(retptr, addHeapObject(options));
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * `certificateRequest({certPem, encryptedPrivateBundle, passphrase})` →
+ * `{ csrPem }` — a PKCS#10 request a certificate authority can issue from.
+ * @param {any} options
+ * @returns {any}
+ */
+export function certificateRequest(options) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.certificateRequest(retptr, addHeapObject(options));
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
  * `decrypt({kind, ciphertext, encryptedPrivateBundle, passphrase})` →
  * `{ plaintextText, subject?, signature }`. (In-worker mw-sanitize wasm sanitizes
  * HTML before it reaches the iframe — plan §1.3, wired by e8.)
@@ -53,7 +98,9 @@ export function encrypt(options) {
 }
 
 /**
- * `exportBackup({encryptedPrivateBundle, kind})` → `{ autocryptSetupMessage }`.
+ * `exportBackup({encryptedPrivateBundle, kind:"pgp"})` → `{ autocryptSetupMessage }`.
+ * An Autocrypt Setup Message is an OpenPGP format, so any other kind is refused
+ * (an S/MIME key leaves through `exportPkcs12`).
  * @param {any} options
  * @returns {any}
  */
@@ -61,6 +108,31 @@ export function exportBackup(options) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
         wasm.exportBackup(retptr, addHeapObject(options));
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * `exportPkcs12({certPem, encryptedPrivateBundle, passphrase})` →
+ * `{ p12Base64 }` — the certificate and key as a PKCS#12 file protected by the
+ * same passphrase (see [`smime::export_pkcs12`] for what the file does and does
+ * not contain). Base64, so the result is a plain string on its way out of the
+ * worker.
+ * @param {any} options
+ * @returns {any}
+ */
+export function exportPkcs12(options) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.exportPkcs12(retptr, addHeapObject(options));
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
@@ -96,8 +168,14 @@ export function exportPublic(options) {
 }
 
 /**
- * `generateKey({kind:"pgp", userId, passphrase})` → `{ publicKeyArmored,
- * fingerprint, keyId, encryptedPrivateBundle }` — v6 Ed25519/X25519.
+ * `generateKey({kind, userId, passphrase})`.
+ *
+ * - `kind:"pgp"` → `{ publicKeyArmored, fingerprint, keyId,
+ *   encryptedPrivateBundle }` — v6 Ed25519/X25519.
+ * - `kind:"smime"` → `{ certPem, fingerprint, keyId, encryptedPrivateBundle,
+ *   addresses, algorithm, expiresAt }` — an RSA key and an X.509 certificate for
+ *   the address in `userId`, signed by that key itself (see [`smime::generate`]).
+ *   `addresses`, `algorithm` and `expiresAt` are read back from the certificate.
  * @param {any} options
  * @returns {any}
  */
@@ -141,7 +219,8 @@ export function importArmored(options) {
 
 /**
  * `importPkcs12({p12Bytes, password})` → `{ certPem, fingerprint,
- * encryptedPrivateBundle }` — S/MIME private-key material, client-side only.
+ * encryptedPrivateBundle, addresses, algorithm, expiresAt }` — S/MIME private-key
+ * material, client-side only. The last three are read from the certificate.
  * @param {any} options
  * @returns {any}
  */
@@ -588,6 +667,12 @@ function __wbg_get_imports() {
             getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
             getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
         },
+        __wbg___wbindgen_bigint_get_as_i64_d968e41184ae354f: function(arg0, arg1) {
+            const v = getObject(arg1);
+            const ret = typeof(v) === 'bigint' ? v : undefined;
+            getDataViewMemory0().setBigInt64(arg0 + 8 * 1, isLikeNone(ret) ? BigInt(0) : ret, true);
+            getDataViewMemory0().setInt32(arg0 + 4 * 0, !isLikeNone(ret), true);
+        },
         __wbg___wbindgen_boolean_get_fa956cfa2d1bd751: function(arg0) {
             const v = getObject(arg0);
             const ret = typeof(v) === 'boolean' ? v : undefined;
@@ -602,6 +687,10 @@ function __wbg_get_imports() {
         },
         __wbg___wbindgen_in_aca499c5de7ff5e5: function(arg0, arg1) {
             const ret = getObject(arg0) in getObject(arg1);
+            return ret;
+        },
+        __wbg___wbindgen_is_bigint_2f76dc55065b4273: function(arg0) {
+            const ret = typeof(getObject(arg0)) === 'bigint';
             return ret;
         },
         __wbg___wbindgen_is_function_1ff95bcc5517c252: function(arg0) {
@@ -619,6 +708,10 @@ function __wbg_get_imports() {
         },
         __wbg___wbindgen_is_undefined_c05833b95a3cf397: function(arg0) {
             const ret = getObject(arg0) === undefined;
+            return ret;
+        },
+        __wbg___wbindgen_jsval_eq_e659fcf7b0e32763: function(arg0, arg1) {
+            const ret = getObject(arg0) === getObject(arg1);
             return ret;
         },
         __wbg___wbindgen_jsval_loose_eq_db4c3b15f63fc170: function(arg0, arg1) {
@@ -835,6 +928,11 @@ function __wbg_get_imports() {
         __wbindgen_cast_0000000000000002: function(arg0, arg1) {
             // Cast intrinsic for `Ref(String) -> Externref`.
             const ret = getStringFromWasm0(arg0, arg1);
+            return addHeapObject(ret);
+        },
+        __wbindgen_cast_0000000000000003: function(arg0) {
+            // Cast intrinsic for `U64 -> Externref`.
+            const ret = BigInt.asUintN(64, arg0);
             return addHeapObject(ret);
         },
         __wbindgen_object_clone_ref: function(arg0) {

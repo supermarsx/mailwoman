@@ -1,6 +1,8 @@
 // Key-management module (plan §2.5, §3 e2). The Settings/Security surface for
-// OpenPGP + S/MIME keys: own-key generation and import (armored + PKCS#12) with a
-// preview step, an Autocrypt-Setup-Message backup, the contact/harvested key list
+// OpenPGP + S/MIME keys: own-key generation (OpenPGP, or an S/MIME key with a
+// self-signed certificate) and import (armored + PKCS#12) with a preview step, an
+// Autocrypt-Setup-Message backup, for an own S/MIME key the PKCS#12 export, the
+// certification request and the issued-certificate import, the contact/harvested key list
 // with consent-gated WKD/VKS/harvest lookup, trust/verify (fingerprint safe-words
 // + a scannable QR), Autocrypt status, and per-contact key association (writing the
 // V3 `ContactCard.pgpKey`/`smimeCert` fields). Mock-backed via the keys store slice
@@ -22,6 +24,23 @@ import * as css from './keys.css.ts';
 
 const TRUST_OPTIONS: KeyTrust[] = ['unverified', 'tofu', 'verified', 'revoked'];
 const LOOKUP_SOURCES: KeyLookupSource[] = ['wkd', 'vks', 'autocrypt', 'harvested'];
+
+/** Trigger a client-side download of `data` as `filename`. */
+function download(filename: string, data: string | Uint8Array, mime: string): void {
+  const blob = new Blob([data as BlobPart], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/** A file name stem from a key's first address (`alice@example.org` → `alice_example.org`). */
+function fileStem(key: CryptoKey): string {
+  const stem = (key.addresses[0] ?? 'smime-key').replace(/[^A-Za-z0-9._-]+/g, '_');
+  return stem === '' ? 'smime-key' : stem;
+}
 
 /** A short one-line label for a key row. */
 function keyTitle(key: CryptoKey): string {
@@ -245,7 +264,9 @@ function KeyDetail(props: { key: CryptoKey }): JSX.Element {
   const [backup, setBackup] = createSignal<string | null>(null);
   const [associateContact, setAssociateContact] = createSignal<Id>('');
 
-  const canBackup = createMemo(() => key().isOwn && app.hasVaultedKey(key().fingerprint));
+  // An Autocrypt Setup Message is an OpenPGP format; an S/MIME key leaves as PKCS#12.
+  const canBackup = createMemo(() => key().kind === 'pgp' && key().isOwn && app.hasVaultedKey(key().fingerprint));
+  const ownSmime = createMemo(() => key().kind === 'smime' && key().isOwn && key().hasPrivate && key().certPem !== null);
 
   async function onExportBackup(): Promise<void> {
     try {
@@ -345,7 +366,114 @@ function KeyDetail(props: { key: CryptoKey }): JSX.Element {
           </Show>
         </div>
       </Show>
+
+      <Show when={ownSmime()}>
+        <SmimeCertificateSection key={key()} />
+      </Show>
     </article>
+  );
+}
+
+// ── Own S/MIME key: certificate facts, PKCS#12 export, request, issued certificate ──
+
+function SmimeCertificateSection(props: { key: CryptoKey }): JSX.Element {
+  const app = useApp();
+  const [passphrase, setPassphrase] = createSignal('');
+  const [issued, setIssued] = createSignal<Uint8Array | null>(null);
+  const [busy, setBusy] = createSignal(false);
+  const [error, setError] = createSignal<string | null>(null);
+
+  const ready = createMemo(() => passphrase() !== '' && !busy());
+  const expires = createMemo(() => {
+    const at = props.key.expiresAt;
+    return at === null ? null : at.slice(0, 10);
+  });
+
+  /** Run one passphrase-gated action; a failure is shown here, never thrown away. */
+  async function run(action: () => Promise<void>, failure: string): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      await action();
+    } catch {
+      // The worker's message can name internals; the catalog string says what to check.
+      setError(failure);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const onExport = (): Promise<void> =>
+    run(async () => {
+      const bytes = await app.exportSmimePkcs12(props.key.id, passphrase());
+      download(`${fileStem(props.key)}.p12`, bytes, 'application/x-pkcs12');
+    }, t('keys-smime-failed'));
+
+  const onRequest = (): Promise<void> =>
+    run(async () => {
+      const csr = await app.smimeCertificateRequest(props.key.id, passphrase());
+      download(`${fileStem(props.key)}.csr`, csr, 'application/pkcs10');
+    }, t('keys-smime-failed'));
+
+  const onAttach = (): Promise<void> =>
+    run(async () => {
+      const bytes = issued();
+      if (bytes === null) return;
+      await app.attachIssuedCertificate(props.key.id, bytes, passphrase());
+    }, t('keys-smime-attach-failed'));
+
+  async function onIssuedFile(file: File | undefined): Promise<void> {
+    setIssued(file === undefined ? null : new Uint8Array(await file.arrayBuffer()));
+  }
+
+  return (
+    <div class={css.fieldGroup} role="group" aria-label={t('keys-smime-section')}>
+      <span class={css.fieldLabel}>{t('keys-smime-section')}</span>
+      <Show when={props.key.source === 'generated'}>
+        <p class={css.cardSub}>{t('keys-smime-self-signed')}</p>
+      </Show>
+      <Show when={expires()}>{(date) => <p class={css.cardSub}>{t('keys-smime-valid-until', { date: date() })}</p>}</Show>
+      <p class={css.cardSub}>{t('keys-smime-not-in-app')}</p>
+
+      <label class={css.label}>
+        {t('keys-key-passphrase')}
+        <input
+          type="password"
+          class={css.input}
+          aria-label={t('keys-smime-passphrase')}
+          autocomplete="off"
+          value={passphrase()}
+          onInput={(e) => setPassphrase(e.currentTarget.value)}
+        />
+      </label>
+
+      <p class={css.cardSub}>{t('keys-smime-export-help')}</p>
+      <div class={css.actions}>
+        <button type="button" class={css.buttonGhost} disabled={!ready()} onClick={() => void onExport()}>
+          {t('keys-smime-export')}
+        </button>
+        <button type="button" class={css.buttonGhost} disabled={!ready()} onClick={() => void onRequest()}>
+          {t('keys-smime-request')}
+        </button>
+      </div>
+
+      <label class={css.label}>
+        {t('keys-smime-issued-label')}
+        <input
+          type="file"
+          accept=".pem,.crt,.cer,.der"
+          aria-label={t('keys-smime-issued-file')}
+          onChange={(e) => void onIssuedFile(e.currentTarget.files?.[0])}
+        />
+      </label>
+      <p class={css.cardSub}>{t('keys-smime-issued-help')}</p>
+      <div class={css.actions}>
+        <button type="button" class={css.buttonGhost} disabled={!ready() || issued() === null} onClick={() => void onAttach()}>
+          {t('keys-smime-attach')}
+        </button>
+      </div>
+      <Show when={error()}>{(msg) => <p class={css.cardSub} role="alert">{msg()}</p>}</Show>
+    </div>
   );
 }
 
@@ -443,19 +571,21 @@ function GenerateDialog(props: { onClose: () => void; onGenerated: (id: Id) => v
   const [name, setName] = createSignal('');
   const [email, setEmail] = createSignal('');
   const [passphrase, setPassphrase] = createSignal('');
+  const [kind, setKind] = createSignal<KeyKind>('pgp');
   const [busy, setBusy] = createSignal(false);
+  const [failed, setFailed] = createSignal(false);
 
   const canGenerate = createMemo(() => email().trim() !== '' && passphrase() !== '' && !busy());
 
   async function onGenerate(): Promise<void> {
     setBusy(true);
+    setFailed(false);
     try {
       const userId = name().trim() === '' ? email().trim() : `${name().trim()} <${email().trim()}>`;
-      // OpenPGP only: the crypto worker has no S/MIME key generation (a
-      // certificate comes from a certificate authority and is imported as
-      // PKCS#12), so the dialog does not offer it.
-      const key = await app.generateOwnKey({ kind: 'pgp', userId, passphrase: passphrase() });
+      const key = await app.generateOwnKey({ kind: kind(), userId, passphrase: passphrase() });
       props.onGenerated(key.id);
+    } catch {
+      setFailed(true);
     } finally {
       setBusy(false);
     }
@@ -467,11 +597,19 @@ function GenerateDialog(props: { onClose: () => void; onGenerated: (id: Id) => v
       <div class={css.fieldStack}>
         <label class={css.label}>
           {t('keys-type')}
-          <select class={css.select} aria-label={t('keys-key-type')} value="pgp">
+          <select
+            class={css.select}
+            aria-label={t('keys-key-type')}
+            value={kind()}
+            onChange={(e) => setKind(e.currentTarget.value === 'smime' ? 'smime' : 'pgp')}
+          >
             <option value="pgp">{t('keys-openpgp')}</option>
+            <option value="smime">{t('keys-smime')}</option>
           </select>
         </label>
-        <p class={css.cardSub}>{t('keys-generate-smime-note')}</p>
+        <Show when={kind() === 'smime'}>
+          <p class={css.cardSub}>{t('keys-generate-smime-note')}</p>
+        </Show>
         <label class={css.label}>
           {t('keys-name')}
           <input class={css.input} aria-label={t('keys-name')} value={name()} onInput={(e) => setName(e.currentTarget.value)} />
@@ -491,6 +629,14 @@ function GenerateDialog(props: { onClose: () => void; onGenerated: (id: Id) => v
           />
         </label>
         <p class={css.cardSub}>{t('keys-passphrase-help')}</p>
+        <Show when={busy() && kind() === 'smime'}>
+          <p class={css.cardSub} role="status">{t('keys-generating-smime')}</p>
+        </Show>
+        <Show when={failed()}>
+          <p class={css.cardSub} role="alert">
+            {kind() === 'smime' ? t('keys-generate-failed-smime') : t('keys-generate-failed')}
+          </p>
+        </Show>
       </div>
       <div class={css.actions}>
         <button type="button" class={css.buttonGhost} onClick={props.onClose}>

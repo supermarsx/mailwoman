@@ -1,6 +1,8 @@
 // Keys store slice (plan §2.5, §3 e0 stub → e2 fills). Owns the `CryptoKey/*`
-// surface for the web client: the own + contact/harvested key list, generate,
-// import (armored + PKCS#12), backup (Autocrypt Setup Message), trust/verify,
+// surface for the web client: the own + contact/harvested key list, generate
+// (OpenPGP, or an S/MIME key with a self-signed certificate), import (armored +
+// PKCS#12), backup (Autocrypt Setup Message; PKCS#12 export, certification
+// request and issued-certificate replacement for S/MIME), trust/verify,
 // WKD/VKS/harvest lookup, and per-contact key association. Disjoint file — no
 // `store.ts` collision with the other slices (same discipline as the V2/V3 slices).
 //
@@ -32,12 +34,14 @@ const KEYS_USING = [CAP_CORE, CAP_CRYPTO, CAP_SECURITY];
 export type KeyLookupSource = 'wkd' | 'vks' | 'autocrypt' | 'harvested';
 
 /**
- * The fields a new own-key generation collects from the UI. Only OpenPGP keys
- * are generated: an S/MIME certificate is issued by a certificate authority and
- * arrives through the PKCS#12 import (`previewPkcs12Key` → `commitImport`).
+ * The fields a new own-key generation collects from the UI. `'pgp'` makes an
+ * OpenPGP key. `'smime'` makes an RSA key and an X.509 certificate signed by that
+ * key itself — a real certificate, but one no certificate authority vouches for
+ * (`smimeCertificateRequest` produces the file an authority issues from, and
+ * `attachIssuedCertificate` stores what it sends back).
  */
 export interface OwnKeyDraft {
-  kind: 'pgp';
+  kind: KeyKind;
   /** A user id (`Name <email>` or a bare address). */
   userId: string;
   passphrase: string;
@@ -133,6 +137,18 @@ export interface KeysSlice {
   commitImport(preview: ImportPreview): Promise<CryptoKey>;
   /** Export an own key as an Autocrypt Setup Message (needs the vaulted bundle). */
   exportKeyBackup(fingerprint: string): Promise<string>;
+  /**
+   * An own S/MIME key and its certificate as PKCS#12 (`.p12`) bytes, protected by
+   * the key's passphrase — the form other mail programs import.
+   */
+  exportSmimePkcs12(id: Id, passphrase: string): Promise<Uint8Array>;
+  /** A PKCS#10 certification request (PEM) for an own S/MIME key. */
+  smimeCertificateRequest(id: Id, passphrase: string): Promise<string>;
+  /**
+   * Replace an own S/MIME key's certificate with one issued for the same key
+   * (PEM or DER). Rejects, storing nothing, when the certificate is for another key.
+   */
+  attachIssuedCertificate(id: Id, certBytes: Uint8Array, passphrase: string): Promise<CryptoKey>;
   /** Look a contact key up over WKD/VKS/autocrypt/harvest (consent-gated in UI). */
   lookupContactKey(address: string, sources: KeyLookupSource[]): Promise<CryptoKey[]>;
   /** Write a key onto a V3 contact card (`pgpKey`/`smimeCert`), populating it. */
@@ -235,10 +251,16 @@ export function createKeysSlice(ctx: SliceContext): KeysSlice {
   async function generateOwnKey(draft: OwnKeyDraft): Promise<CryptoKey> {
     const acct = await resolveAccount();
     if (acct === null) throw new Error('no account available for keys');
-    // The type already says 'pgp'; this refuses a caller that got past it (a cast,
-    // plain JS) before anything reaches the worker, the vault or the server.
-    if ((draft.kind as KeyKind) !== 'pgp') throw new Error('only OpenPGP keys can be generated');
+    // Refuse a kind this slice does not generate (a cast, plain JS) before
+    // anything reaches the worker, the vault or the server.
+    if (draft.kind !== 'pgp' && draft.kind !== 'smime') throw new Error('unknown key kind');
+    if (draft.kind === 'smime') return generateSmimeKey(acct, draft);
     const gen = await worker.generateKey({ kind: 'pgp', userId: draft.userId, passphrase: draft.passphrase });
+    // An OpenPGP result carries armor and no certificate; anything else is not
+    // filed as an OpenPGP key.
+    if (gen.publicKeyArmored === undefined || gen.certPem !== undefined) {
+      throw new Error('the crypto worker did not return an OpenPGP key');
+    }
     const address = addressOf(draft.userId);
     const now = new Date().toISOString();
     await vault.put({
@@ -276,6 +298,62 @@ export function createKeysSlice(ctx: SliceContext): KeysSlice {
     return stored;
   }
 
+  /**
+   * Generate an S/MIME key. Everything the row says about the certificate —
+   * addresses, algorithm, expiry — is what the worker read back from the
+   * certificate it made, not what this function assumes it asked for.
+   */
+  async function generateSmimeKey(acct: string, draft: OwnKeyDraft): Promise<CryptoKey> {
+    const gen = await worker.generateKey({ kind: 'smime', userId: draft.userId, passphrase: draft.passphrase });
+    // An S/MIME result is a certificate and no OpenPGP armor. Checked before
+    // anything is stored, so one kind is never filed as the other.
+    if (
+      gen.certPem === undefined ||
+      !gen.certPem.includes('-----BEGIN CERTIFICATE-----') ||
+      gen.publicKeyArmored !== undefined ||
+      gen.algorithm === undefined ||
+      gen.addresses === undefined ||
+      gen.expiresAt === undefined
+    ) {
+      throw new Error('the crypto worker did not return an S/MIME certificate');
+    }
+    const now = new Date().toISOString();
+    await vault.put({
+      fingerprint: gen.fingerprint,
+      kind: 'smime',
+      encryptedPrivateBundle: gen.encryptedPrivateBundle,
+      addresses: gen.addresses,
+    });
+    setVaulted((s) => new Set(s).add(gen.fingerprint));
+    const key: CryptoKey = {
+      id: `own-${gen.fingerprint}`,
+      kind: 'smime',
+      isOwn: true,
+      addresses: gen.addresses,
+      fingerprint: gen.fingerprint,
+      keyId: gen.keyId,
+      algorithm: gen.algorithm,
+      createdAt: now,
+      expiresAt: gen.expiresAt,
+      publicKeyArmored: null,
+      certPem: gen.certPem,
+      // "verified" here means what it means for every own key: we hold the
+      // private half. It says nothing about a certificate authority.
+      trust: 'verified',
+      autocrypt: false,
+      source: 'generated',
+      hasPrivate: true,
+      encryptedPrivateBackup: gen.encryptedPrivateBundle,
+      verifiedAt: now,
+      keyHistory: [{ fingerprint: gen.fingerprint, seenAt: now }],
+    };
+    const stored = await persistKey(acct, key);
+    upsert(stored);
+    ctx.broadcastChange?.();
+    ctx.showToast('success', 'S/MIME key and self-signed certificate generated');
+    return stored;
+  }
+
   async function previewArmoredKey(armored: string, passphrase?: string): Promise<ImportPreview> {
     const res = await worker.importArmored(passphrase === undefined ? { armored } : { armored, passphrase });
     return { key: res.key, encryptedPrivateBundle: res.encryptedPrivateBundle ?? null };
@@ -288,12 +366,12 @@ export function createKeysSlice(ctx: SliceContext): KeysSlice {
       id: `imported-${res.fingerprint}`,
       kind: 'smime',
       isOwn: true,
-      addresses: [],
+      addresses: res.addresses,
       fingerprint: res.fingerprint,
       keyId: res.fingerprint.slice(0, 16),
-      algorithm: 'rsa',
+      algorithm: res.algorithm,
       createdAt: now,
-      expiresAt: null,
+      expiresAt: res.expiresAt,
       publicKeyArmored: null,
       certPem: res.certPem,
       trust: 'verified',
@@ -312,6 +390,13 @@ export function createKeysSlice(ctx: SliceContext): KeysSlice {
     if (acct === null) throw new Error('no account available for keys');
     const { key, encryptedPrivateBundle } = preview;
     const hasPrivate = encryptedPrivateBundle !== null;
+    // The same key again (for instance a PKCS#12 exported from here): keep the
+    // row that exists instead of storing a second one for one fingerprint.
+    const held = keys().find((k) => k.fingerprint === key.fingerprint && k.kind === key.kind && k.hasPrivate);
+    if (held !== undefined) {
+      ctx.showToast('info', 'This key is already in your keys; nothing was added');
+      return held;
+    }
     if (encryptedPrivateBundle !== null) {
       await vault.put({
         fingerprint: key.fingerprint,
@@ -335,6 +420,79 @@ export function createKeysSlice(ctx: SliceContext): KeysSlice {
     if (entry === null) throw new Error('no private key held for this fingerprint');
     const res = await worker.exportBackup({ encryptedPrivateBundle: entry.encryptedPrivateBundle, kind: entry.kind });
     return res.autocryptSetupMessage;
+  }
+
+  /** An own S/MIME key with its certificate and wrapped private key, or a throw. */
+  async function ownSmimeKey(id: Id): Promise<{ key: CryptoKey; certPem: string; bundle: string }> {
+    const key = keys().find((k) => k.id === id);
+    if (key === undefined || key.kind !== 'smime' || !key.isOwn || key.certPem === null) {
+      throw new Error('not an own S/MIME key');
+    }
+    // The vault is per-session; after a reload the same wrapped bundle is the
+    // row's opaque backup.
+    const bundle = (await vault.get(key.fingerprint))?.encryptedPrivateBundle ?? key.encryptedPrivateBackup;
+    if (bundle === null) throw new Error('no private key held for this certificate');
+    return { key, certPem: key.certPem, bundle };
+  }
+
+  async function exportSmimePkcs12(id: Id, passphrase: string): Promise<Uint8Array> {
+    const { certPem, bundle } = await ownSmimeKey(id);
+    const res = await worker.exportPkcs12({ certPem, encryptedPrivateBundle: bundle, passphrase });
+    return Uint8Array.from(atob(res.p12Base64), (c) => c.charCodeAt(0));
+  }
+
+  async function smimeCertificateRequest(id: Id, passphrase: string): Promise<string> {
+    const { certPem, bundle } = await ownSmimeKey(id);
+    const res = await worker.certificateRequest({ certPem, encryptedPrivateBundle: bundle, passphrase });
+    return res.csrPem;
+  }
+
+  async function attachIssuedCertificate(id: Id, certBytes: Uint8Array, passphrase: string): Promise<CryptoKey> {
+    const acct = await resolveAccount();
+    if (acct === null) throw new Error('no account available for keys');
+    const { key: old, bundle } = await ownSmimeKey(id);
+    // The worker rejects a certificate whose public key is not this key's.
+    const res = await worker.attachIssuedCert({ certBytes, encryptedPrivateBundle: bundle, passphrase });
+    if (res.fingerprint === old.fingerprint) throw new Error('this is the certificate already held for the key');
+    const now = new Date().toISOString();
+    await vault.put({
+      fingerprint: res.fingerprint,
+      kind: 'smime',
+      encryptedPrivateBundle: bundle,
+      addresses: res.addresses,
+    });
+    setVaulted((s) => new Set(s).add(res.fingerprint));
+    // A key's fingerprint is its certificate's, so a new certificate is a new
+    // row; the old row is removed once the new one is stored.
+    const row: CryptoKey = {
+      ...old,
+      id: `own-${res.fingerprint}`,
+      addresses: res.addresses,
+      fingerprint: res.fingerprint,
+      keyId: res.fingerprint.slice(0, 16),
+      algorithm: res.algorithm,
+      expiresAt: res.expiresAt,
+      certPem: res.certPem,
+      source: 'imported',
+      encryptedPrivateBackup: bundle,
+      keyHistory: [...old.keyHistory, { fingerprint: res.fingerprint, seenAt: now }],
+    };
+    const stored = await persistKey(acct, row);
+    await client.jmap({
+      using: KEYS_USING,
+      methodCalls: [['CryptoKey/set', { accountId: acct, destroy: [old.id] }, 'd']],
+    });
+    await vault.remove(old.fingerprint);
+    setVaulted((s) => {
+      const next = new Set(s);
+      next.delete(old.fingerprint);
+      return next;
+    });
+    setKeys((cur) => cur.filter((k) => k.id !== old.id));
+    upsert(stored);
+    ctx.broadcastChange?.();
+    ctx.showToast('success', 'Certificate replaced');
+    return stored;
   }
 
   async function lookupContactKey(address: string, sources: KeyLookupSource[]): Promise<CryptoKey[]> {
@@ -378,6 +536,9 @@ export function createKeysSlice(ctx: SliceContext): KeysSlice {
     previewPkcs12Key,
     commitImport,
     exportKeyBackup,
+    exportSmimePkcs12,
+    smimeCertificateRequest,
+    attachIssuedCertificate,
     lookupContactKey,
     associateKeyWithContact,
     hasVaultedKey,

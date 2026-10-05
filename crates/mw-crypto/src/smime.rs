@@ -24,16 +24,26 @@ use cms::signed_data::{
 };
 use const_oid::ObjectIdentifier;
 use const_oid::db::rfc5911::{ID_DATA, ID_ENCRYPTED_DATA, ID_ENVELOPED_DATA, ID_SIGNED_DATA};
-use der::asn1::{OctetString, SetOfVec};
-use der::{Any, Decode, DecodePem, Encode, Tag};
+use der::asn1::{BitString, GeneralizedTime, Ia5String, OctetString, SetOfVec, UtcTime};
+use der::{Any, Decode, DecodePem, Encode, EncodePem, Tag};
 use rsa::pkcs1v15;
-use rsa::pkcs8::DecodePrivateKey;
+use rsa::pkcs8::{DecodePrivateKey, EncodePublicKey};
+use rsa::traits::PublicKeyParts;
 use rsa::{Pkcs1v15Encrypt, RsaPrivateKey, RsaPublicKey};
 use sha2::{Digest, Sha256};
 use signature::{SignatureEncoding, Signer, Verifier};
-use spki::{AlgorithmIdentifierOwned, DecodePublicKey};
+use spki::{AlgorithmIdentifierOwned, DecodePublicKey, SubjectPublicKeyInfoOwned};
 use x509_cert::Certificate;
-use x509_cert::attr::Attribute;
+use x509_cert::attr::{Attribute, AttributeTypeAndValue};
+use x509_cert::ext::Extension;
+use x509_cert::ext::pkix::name::GeneralName;
+use x509_cert::ext::pkix::{
+    BasicConstraints, ExtendedKeyUsage, KeyUsage, KeyUsages, SubjectAltName, SubjectKeyIdentifier,
+};
+use x509_cert::name::Name;
+use x509_cert::request::{CertReq, CertReqInfo, ExtensionReq};
+use x509_cert::serial_number::SerialNumber;
+use x509_cert::time::{Time, Validity};
 
 use crate::error::{CryptoError, Result};
 use crate::rng;
@@ -53,10 +63,53 @@ const OID_AES_256_GCM: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.16.840
 #[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
 const GCM_TAG_LEN: usize = 16;
 
+/// `sha256WithRSAEncryption` (RFC 8017) — the signature on generated certificates
+/// and certification requests.
+const OID_SHA256_WITH_RSA: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.11");
+/// `id-at-commonName` (X.520).
+const OID_COMMON_NAME: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.5.4.3");
+/// PKCS#9 `emailAddress` — an address carried in a distinguished name.
+const OID_EMAIL_ADDRESS: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.9.1");
+/// `id-kp-emailProtection` (RFC 5280 §4.2.1.12).
+const OID_KP_EMAIL_PROTECTION: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.6.1.5.5.7.3.4");
+/// `id-ce-subjectAltName` (RFC 5280 §4.2.1.6).
+const OID_SUBJECT_ALT_NAME: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.5.29.17");
+
 /// Result of [`import_pkcs12`].
 pub struct Pkcs12Import {
     pub cert_pem: String,
     pub fingerprint: String,
+    pub encrypted_private_bundle: String,
+    /// The addresses the certificate names (subject alternative name, then subject).
+    pub addresses: Vec<String>,
+    /// The certificate's public-key algorithm, read from the certificate.
+    pub algorithm: String,
+    /// The certificate's `notAfter`, RFC 3339.
+    pub not_after: String,
+}
+
+/// What a certificate says about itself — read back from its DER, never from the
+/// arguments it was made with.
+#[derive(Debug, Clone)]
+pub struct CertSummary {
+    pub cert_pem: String,
+    /// SHA-256 over the certificate DER, upper-case hex.
+    pub fingerprint: String,
+    pub addresses: Vec<String>,
+    /// `rsa-<modulus bits>`, `ecdsa-p256`, or the public-key algorithm OID.
+    pub algorithm: String,
+    /// RFC 3339.
+    pub not_before: String,
+    /// RFC 3339.
+    pub not_after: String,
+    /// Issuer and subject are the same name: no certificate authority is behind it.
+    pub self_issued: bool,
+}
+
+/// Result of [`generate`]: a new RSA key (passphrase-wrapped) and a certificate for
+/// it signed by that same key.
+pub struct GeneratedSmime {
+    pub cert: CertSummary,
     pub encrypted_private_bundle: String,
 }
 
@@ -549,18 +602,21 @@ pub fn import_pkcs12(p12_bytes: &[u8], password: &str) -> Result<Pkcs12Import> {
     let key_pkcs8 =
         key_pkcs8.ok_or_else(|| CryptoError::Pkcs12("no private key in bundle".into()))?;
 
-    let cert_pem = der::pem::encode_string("CERTIFICATE", der::pem::LineEnding::LF, &cert_der)
-        .map_err(parse)?;
-    let fingerprint = hex::encode(Sha256::digest(&cert_der)).to_uppercase();
+    let cert = Certificate::from_der(&cert_der)
+        .map_err(|e| CryptoError::Pkcs12(format!("certificate: {e}")))?;
+    let summary = summarize(&cert)?;
 
     let rsa = RsaPrivateKey::from_pkcs8_der(&key_pkcs8)
         .map_err(|e| CryptoError::Pkcs12(format!("key parse: {e}")))?;
     let encrypted_private_bundle = wrap_private_key(&rsa, password)?;
 
     Ok(Pkcs12Import {
-        cert_pem,
-        fingerprint,
+        cert_pem: summary.cert_pem,
+        fingerprint: summary.fingerprint,
         encrypted_private_bundle,
+        addresses: summary.addresses,
+        algorithm: summary.algorithm,
+        not_after: summary.not_after,
     })
 }
 
@@ -606,23 +662,20 @@ pub fn harvest_certs(cms_der: &[u8]) -> Result<Vec<CryptoKey>> {
 }
 
 fn cert_to_crypto_key(cert: &Certificate) -> Result<CryptoKey> {
-    let der = cert.to_der().map_err(parse)?;
-    let fingerprint = hex::encode(Sha256::digest(&der)).to_uppercase();
-    let addresses = cert_email_addresses(cert);
-    let cert_pem =
-        der::pem::encode_string("CERTIFICATE", der::pem::LineEnding::LF, &der).map_err(parse)?;
+    let summary = summarize(cert)?;
+    let fingerprint = summary.fingerprint;
     Ok(CryptoKey {
         id: format!("smime:{fingerprint}"),
         kind: "smime".into(),
         is_own: false,
-        addresses,
+        addresses: summary.addresses,
         fingerprint: fingerprint.clone(),
         key_id: fingerprint[..16.min(fingerprint.len())].to_string(),
-        algorithm: "rsa".into(),
+        algorithm: summary.algorithm,
         created_at: chrono::Utc::now().to_rfc3339(),
-        expires_at: None,
+        expires_at: Some(summary.not_after),
         public_key_armored: None,
-        cert_pem: Some(cert_pem),
+        cert_pem: Some(summary.cert_pem),
         trust: "unverified".into(),
         autocrypt: false,
         source: "harvested".into(),
@@ -636,22 +689,496 @@ fn cert_to_crypto_key(cert: &Certificate) -> Result<CryptoKey> {
     })
 }
 
-/// Extract email addresses from a certificate's subject DN (`emailAddress=` / `E=`).
+/// Read a certificate's own account of itself (see [`CertSummary`]).
+fn summarize(cert: &Certificate) -> Result<CertSummary> {
+    let der = cert.to_der().map_err(parse)?;
+    let tbs = cert.tbs_certificate();
+    let cert_pem =
+        der::pem::encode_string("CERTIFICATE", der::pem::LineEnding::LF, &der).map_err(parse)?;
+    Ok(CertSummary {
+        cert_pem,
+        fingerprint: hex::encode(Sha256::digest(&der)).to_uppercase(),
+        addresses: cert_email_addresses(cert),
+        algorithm: cert_algorithm(cert)?,
+        not_before: rfc3339(tbs.validity().not_before)?,
+        not_after: rfc3339(tbs.validity().not_after)?,
+        self_issued: tbs.issuer() == tbs.subject(),
+    })
+}
+
+/// Parse one certificate (PEM text or DER bytes) and summarise it.
+pub fn describe_certificate(cert: &[u8]) -> Result<CertSummary> {
+    summarize(&parse_certificate(cert)?)
+}
+
+/// One certificate from PEM text or DER bytes.
+fn parse_certificate(bytes: &[u8]) -> Result<Certificate> {
+    let trimmed = bytes.trim_ascii_start();
+    if trimmed.starts_with(b"-----BEGIN") {
+        Certificate::from_pem(trimmed).map_err(parse)
+    } else {
+        Certificate::from_der(bytes).map_err(parse)
+    }
+}
+
+fn rfc3339(time: Time) -> Result<String> {
+    let out_of_range = || CryptoError::Parse("certificate time out of range".into());
+    let secs = i64::try_from(time.to_unix_duration().as_secs()).map_err(|_| out_of_range())?;
+    chrono::DateTime::<chrono::Utc>::from_timestamp(secs, 0)
+        .map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+        .ok_or_else(out_of_range)
+}
+
+/// The public-key algorithm of a certificate, from its SubjectPublicKeyInfo:
+/// `rsa-<modulus bits>`, `ecdsa-p256`, or the algorithm OID for anything else.
+fn cert_algorithm(cert: &Certificate) -> Result<String> {
+    let spki = cert.tbs_certificate().subject_public_key_info();
+    let spki_der = spki.to_der().map_err(parse)?;
+    if let Ok(rsa_pub) = RsaPublicKey::from_public_key_der(&spki_der) {
+        return Ok(format!("rsa-{}", rsa_pub.n().bits()));
+    }
+    if p256::ecdsa::VerifyingKey::from_public_key_der(&spki_der).is_ok() {
+        return Ok("ecdsa-p256".into());
+    }
+    Ok(spki.algorithm.oid.to_string())
+}
+
+/// Email addresses a certificate names: the subject alternative name's
+/// `rfc822Name` entries first (where RFC 8550 §4.4.3 puts them), then any PKCS#9
+/// `emailAddress` in the subject DN. Duplicates differing only in case are dropped.
 fn cert_email_addresses(cert: &Certificate) -> Vec<String> {
-    let mut out = Vec::new();
-    let subject = cert.tbs_certificate().subject().to_string();
-    for part in subject.split([',', '+']) {
-        let part = part.trim();
-        if let Some(v) = part
-            .strip_prefix("emailAddress=")
-            .or_else(|| part.strip_prefix("E="))
-            // RFC 4514 has no short name for pkcs-9 emailAddress, so it renders as the OID.
-            .or_else(|| part.strip_prefix("1.2.840.113549.1.9.1="))
-        {
-            out.push(v.trim().to_string());
+    let mut out: Vec<String> = Vec::new();
+    let mut push = |addr: &str| {
+        let addr = addr.trim();
+        if !addr.is_empty() && !out.iter().any(|a| a.eq_ignore_ascii_case(addr)) {
+            out.push(addr.to_string());
+        }
+    };
+    for ext in cert.tbs_certificate().extensions().into_iter().flatten() {
+        if ext.extn_id != OID_SUBJECT_ALT_NAME {
+            continue;
+        }
+        if let Ok(san) = SubjectAltName::from_der(ext.extn_value.as_bytes()) {
+            for name in &san.0 {
+                if let GeneralName::Rfc822Name(addr) = name {
+                    push(addr.as_str());
+                }
+            }
+        }
+    }
+    for rdn in cert.tbs_certificate().subject().iter_rdn() {
+        for atv in rdn.iter() {
+            if atv.oid != OID_EMAIL_ADDRESS {
+                continue;
+            }
+            if let Ok(addr) = core::str::from_utf8(atv.value.value()) {
+                push(addr);
+            }
         }
     }
     out
+}
+
+// ── Key + certificate generation, certification request, PKCS#12 export ───────
+//
+// The certificate and the request are assembled here from `x509-cert`'s component
+// types and encoded with `der`: `x509-cert` 0.3 keeps `TbsCertificate`'s fields
+// private and builds one only through its `builder` feature, which is off (it adds
+// dependency edges this crate does not have). Only the SEQUENCE layout is ours —
+// the RSA key generation, the SHA-256/PKCS#1 v1.5 signature and every component
+// encoder are the libraries'. Every certificate is parsed back with
+// `x509_cert::Certificate` and its signature checked before it is returned, and
+// `tests/smime.rs` hands the output to `openssl`.
+
+/// Modulus size of a generated key, in bits.
+pub const GENERATED_RSA_BITS: usize = 3072;
+/// Lifetime of a generated certificate.
+pub const GENERATED_VALIDITY_DAYS: u64 = 730;
+/// `notBefore` is set this far before the given time, so a recipient whose clock
+/// runs slightly behind does not see a certificate that is "not yet valid".
+const NOT_BEFORE_SKEW_SECS: u64 = 300;
+/// PBKDF2 rounds for the key inside an exported PKCS#12. Lower than the vault's
+/// own wrap ([`wrap_private_key`]): Windows refuses a PKCS#12 whose iteration
+/// counts sum past 600 000, and other importers apply similar limits.
+const PKCS12_PBKDF2_ROUNDS: u32 = 210_000;
+
+/// `TBSCertificate` (RFC 5280 §4.1), the v3 fields this module writes.
+#[derive(der::Sequence)]
+struct TbsCertificateOut {
+    #[asn1(context_specific = "0", tag_mode = "EXPLICIT")]
+    version: u8,
+    serial_number: SerialNumber,
+    signature: AlgorithmIdentifierOwned,
+    issuer: Name,
+    validity: Validity,
+    subject: Name,
+    subject_public_key_info: SubjectPublicKeyInfoOwned,
+    #[asn1(context_specific = "3", tag_mode = "EXPLICIT")]
+    extensions: Vec<Extension>,
+}
+
+/// `Certificate ::= SEQUENCE { tbsCertificate, signatureAlgorithm, signatureValue }`.
+#[derive(der::Sequence)]
+struct CertificateOut {
+    tbs_certificate: TbsCertificateOut,
+    signature_algorithm: AlgorithmIdentifierOwned,
+    signature: BitString,
+}
+
+/// Generate an RSA key ([`GENERATED_RSA_BITS`]) and a certificate for `email`
+/// signed by that key itself, valid for [`GENERATED_VALIDITY_DAYS`] from
+/// `now_unix` (seconds since the epoch; the caller supplies the clock because
+/// `wasm32-unknown-unknown` has none).
+///
+/// The certificate is self-signed: no certificate authority vouches for it, so
+/// another mail program trusts it only if its user accepts it by hand. Use
+/// [`certificate_request`] to ask an authority for one over the same key.
+pub fn generate(
+    name: &str,
+    email: &str,
+    passphrase: &str,
+    now_unix: u64,
+) -> Result<GeneratedSmime> {
+    generate_with_bits(name, email, passphrase, now_unix, GENERATED_RSA_BITS)
+}
+
+/// [`generate`] with an explicit modulus size (2048, 3072 or 4096 bits).
+pub fn generate_with_bits(
+    name: &str,
+    email: &str,
+    passphrase: &str,
+    now_unix: u64,
+    bits: usize,
+) -> Result<GeneratedSmime> {
+    if !matches!(bits, 2048 | 3072 | 4096) {
+        return Err(CryptoError::Input(format!(
+            "unsupported RSA key size: {bits}"
+        )));
+    }
+    if passphrase.is_empty() {
+        return Err(CryptoError::Input("a passphrase is required".into()));
+    }
+    let email = checked_email(email)?;
+    let subject = subject_name(name, &email)?;
+
+    let key = RsaPrivateKey::new(&mut rng::rc10(), bits)
+        .map_err(|e| CryptoError::Sign(format!("key generation: {e}")))?;
+    let spki = public_key_info(&key)?;
+
+    let mut serial = [0u8; 16];
+    rng::fill_random(&mut serial);
+    // A serial number is a positive INTEGER (RFC 5280 §4.1.2.2): clear the sign
+    // bit, and set the next one so the encoding keeps all 16 octets.
+    serial[0] = (serial[0] & 0x7f) | 0x40;
+
+    let not_before = now_unix.saturating_sub(NOT_BEFORE_SKEW_SECS);
+    let not_after = now_unix + GENERATED_VALIDITY_DAYS * 86_400;
+
+    let tbs = TbsCertificateOut {
+        version: 2, // v3
+        serial_number: SerialNumber::new(&serial).map_err(parse)?,
+        signature: alg(OID_SHA256_WITH_RSA, Some(Any::null())),
+        issuer: subject.clone(),
+        validity: Validity::new(x509_time(not_before)?, x509_time(not_after)?),
+        subject,
+        subject_public_key_info: spki.clone(),
+        extensions: vec![
+            extension(
+                &BasicConstraints {
+                    ca: false,
+                    path_len_constraint: None,
+                },
+                true,
+            )?,
+            extension(&email_key_usage(), true)?,
+            extension(&ExtendedKeyUsage(vec![OID_KP_EMAIL_PROTECTION]), false)?,
+            extension(&subject_alt_name(core::slice::from_ref(&email))?, false)?,
+            extension(&subject_key_identifier(&spki)?, false)?,
+        ],
+    };
+    let signature = rsa_sha256_sign(&key, &tbs.to_der().map_err(parse)?)?;
+    let cert_der = CertificateOut {
+        tbs_certificate: tbs,
+        signature_algorithm: alg(OID_SHA256_WITH_RSA, Some(Any::null())),
+        signature: BitString::from_bytes(&signature).map_err(parse)?,
+    }
+    .to_der()
+    .map_err(parse)?;
+
+    // Read our own output back the way a recipient would, and refuse to hand out
+    // anything that does not parse, does not verify, or is not for this key.
+    let cert = Certificate::from_der(&cert_der)
+        .map_err(|e| CryptoError::Sign(format!("generated certificate does not parse: {e}")))?;
+    let tbs_der = cert.tbs_certificate().to_der().map_err(parse)?;
+    let spki_der = spki.to_der().map_err(parse)?;
+    if verify_signature(&spki_der, &tbs_der, cert.signature().raw_bytes()) != "verified" {
+        return Err(CryptoError::Sign(
+            "generated certificate does not verify".into(),
+        ));
+    }
+    ensure_key_matches(&key, &cert)?;
+
+    Ok(GeneratedSmime {
+        cert: summarize(&cert)?,
+        encrypted_private_bundle: wrap_private_key(&key, passphrase)?,
+    })
+}
+
+/// A PKCS#10 certification request (PEM) for the key in `bundle`, asking for the
+/// subject and addresses of `cert_pem` (the certificate currently held for that
+/// key). This is the file a certificate authority takes to issue a certificate
+/// other mail programs will trust. Refused when the certificate is not for the key.
+pub fn certificate_request(
+    cert_pem: &str,
+    encrypted_private_bundle: &str,
+    passphrase: &str,
+) -> Result<String> {
+    let cert = Certificate::from_pem(cert_pem).map_err(parse)?;
+    let key = load_rsa(encrypted_private_bundle, Some(passphrase))?;
+    ensure_key_matches(&key, &cert)?;
+
+    let mut requested = vec![
+        extension(&email_key_usage(), true)?,
+        extension(&ExtendedKeyUsage(vec![OID_KP_EMAIL_PROTECTION]), false)?,
+    ];
+    let addresses = cert_email_addresses(&cert);
+    if !addresses.is_empty() {
+        requested.push(extension(&subject_alt_name(&addresses)?, false)?);
+    }
+    let info = CertReqInfo {
+        version: x509_cert::request::Version::V1,
+        subject: cert.tbs_certificate().subject().clone(),
+        public_key: public_key_info(&key)?,
+        attributes: SetOfVec::try_from(vec![
+            Attribute::try_from(ExtensionReq(requested)).map_err(parse)?,
+        ])
+        .map_err(parse)?,
+    };
+    let signature = rsa_sha256_sign(&key, &info.to_der().map_err(parse)?)?;
+    CertReq {
+        info,
+        algorithm: alg(OID_SHA256_WITH_RSA, Some(Any::null())),
+        signature: BitString::from_bytes(&signature).map_err(parse)?,
+    }
+    .to_pem(der::pem::LineEnding::LF)
+    .map_err(parse)
+}
+
+/// Check a certificate issued for the key in `bundle` (PEM text or DER bytes, one
+/// certificate) and return its summary so the caller can store it in place of the
+/// self-signed one. Refused when its public key is not the stored key's — a
+/// certificate for some other key cannot be used with this one.
+pub fn attach_issued_cert(
+    issued_cert: &[u8],
+    encrypted_private_bundle: &str,
+    passphrase: &str,
+) -> Result<CertSummary> {
+    let cert = parse_certificate(issued_cert)?;
+    let key = load_rsa(encrypted_private_bundle, Some(passphrase))?;
+    ensure_key_matches(&key, &cert)?;
+    summarize(&cert)
+}
+
+/// Write `cert_pem` and the key in `bundle` as a PKCS#12 (`.p12`) file protected by
+/// `passphrase` — the reverse of [`import_pkcs12`], and the form other mail
+/// programs import. Refused when the certificate is not for the key.
+///
+/// Layout: an unencrypted certificate bag and a PKCS#8-shrouded key bag (PBES2:
+/// PBKDF2-HMAC-SHA256 + AES-256-CBC), each in its own `data` content. **No
+/// `macData` is written**: the integrity MAC needs HMAC, which this crate cannot
+/// reach without a new dependency edge. The private key is still encrypted, but a
+/// program that insists on the MAC will refuse the file.
+pub fn export_pkcs12(
+    cert_pem: &str,
+    encrypted_private_bundle: &str,
+    passphrase: &str,
+) -> Result<Vec<u8>> {
+    use rsa::pkcs8::EncodePrivateKey;
+
+    if passphrase.is_empty() {
+        return Err(CryptoError::Input("a passphrase is required".into()));
+    }
+    let cert = Certificate::from_pem(cert_pem).map_err(parse)?;
+    let key = load_rsa(encrypted_private_bundle, Some(passphrase))?;
+    ensure_key_matches(&key, &cert)?;
+    let cert_der = cert.to_der().map_err(parse)?;
+
+    // `localKeyId` ties the key bag to its certificate bag for importers that
+    // pair them by attribute (the SHA-1 of the certificate, as OpenSSL writes it).
+    let local_key_id = attribute(
+        OID_LOCAL_KEY_ID,
+        Any::new(Tag::OctetString, sha1::Sha1::digest(&cert_der).as_slice()).map_err(parse)?,
+    )?;
+    let bag_attributes = || -> Result<Option<SetOfVec<Any>>> {
+        let any = Any::encode_from(&local_key_id).map_err(parse)?;
+        Ok(Some(SetOfVec::try_from(vec![any]).map_err(parse)?))
+    };
+
+    let cert_bag = SafeBag {
+        bag_id: OID_CERT_BAG,
+        bag_value: Any::encode_from(&CertBag {
+            cert_id: OID_X509_CERTIFICATE,
+            cert_value: OctetString::new(cert_der).map_err(parse)?,
+        })
+        .map_err(parse)?,
+        bag_attributes: bag_attributes()?,
+    };
+
+    let pkcs8 = key
+        .to_pkcs8_der()
+        .map_err(|e| CryptoError::Pkcs12(e.to_string()))?;
+    let shrouded = encrypt_pkcs8(pkcs8.as_bytes(), passphrase, PKCS12_PBKDF2_ROUNDS)?;
+    let key_bag = SafeBag {
+        bag_id: OID_PKCS8_SHROUDED_KEY_BAG,
+        bag_value: Any::from_der(&shrouded).map_err(parse)?,
+        bag_attributes: bag_attributes()?,
+    };
+
+    let data_content = |bags: Vec<SafeBag>| -> Result<ContentInfo> {
+        let safe_contents = bags.to_der().map_err(parse)?;
+        Ok(ContentInfo {
+            content_type: ID_DATA,
+            content: Any::new(Tag::OctetString, safe_contents).map_err(parse)?,
+        })
+    };
+    let authenticated_safe = vec![data_content(vec![cert_bag])?, data_content(vec![key_bag])?]
+        .to_der()
+        .map_err(parse)?;
+
+    Pfx {
+        version: 3,
+        auth_safe: ContentInfo {
+            content_type: ID_DATA,
+            content: Any::new(Tag::OctetString, authenticated_safe).map_err(parse)?,
+        },
+        mac_data: None,
+    }
+    .to_der()
+    .map_err(parse)
+}
+
+/// An address this module will put in a certificate: one `local@domain`, ASCII
+/// (an `rfc822Name` is an IA5String; an internationalised address needs a
+/// different name form, which is not written here), no whitespace or brackets.
+fn checked_email(email: &str) -> Result<String> {
+    let email = email.trim();
+    let ok = email.is_ascii()
+        && email.len() <= 254
+        && !email
+            .bytes()
+            .any(|b| b.is_ascii_control() || b.is_ascii_whitespace() || matches!(b, b'<' | b'>'))
+        && matches!(email.split_once('@'), Some((l, d)) if !l.is_empty() && !d.is_empty() && !d.contains('@'));
+    if ok {
+        Ok(email.to_string())
+    } else {
+        Err(CryptoError::Input(
+            "the email address is not one a certificate can carry (ASCII local@domain)".into(),
+        ))
+    }
+}
+
+/// `CN=<name>` (when given) followed by `emailAddress=<email>`, one attribute per
+/// RDN. Built from values, never by formatting and re-parsing a DN string, so a
+/// name containing `,` `+` or `=` cannot change the structure.
+fn subject_name(name: &str, email: &str) -> Result<Name> {
+    let name = name.trim();
+    // `ub-common-name` (RFC 5280 appendix A.1) is 64 characters.
+    if name.chars().count() > 64 || name.chars().any(char::is_control) {
+        return Err(CryptoError::Input(
+            "the name must be at most 64 characters, with no control characters".into(),
+        ));
+    }
+    let mut rdns: Vec<SetOfVec<AttributeTypeAndValue>> = Vec::new();
+    let mut push = |oid: ObjectIdentifier, tag: Tag, value: &str| -> Result<()> {
+        let atv = AttributeTypeAndValue {
+            oid,
+            value: Any::new(tag, value.as_bytes()).map_err(parse)?,
+        };
+        rdns.push(SetOfVec::try_from(vec![atv]).map_err(parse)?);
+        Ok(())
+    };
+    if !name.is_empty() {
+        push(OID_COMMON_NAME, Tag::Utf8String, name)?;
+    }
+    push(OID_EMAIL_ADDRESS, Tag::Ia5String, email)?;
+    Name::from_der(&rdns.to_der().map_err(parse)?).map_err(parse)
+}
+
+fn public_key_info(key: &RsaPrivateKey) -> Result<SubjectPublicKeyInfoOwned> {
+    let der = key
+        .to_public_key()
+        .to_public_key_der()
+        .map_err(|e| CryptoError::Sign(e.to_string()))?;
+    SubjectPublicKeyInfoOwned::from_der(der.as_bytes()).map_err(parse)
+}
+
+/// `Time` for a Unix timestamp: UTCTime through 2049, GeneralizedTime from 2050
+/// (RFC 5280 §4.1.2.5).
+fn x509_time(unix_secs: u64) -> Result<Time> {
+    const YEAR_2050: u64 = 2_524_608_000;
+    let d = core::time::Duration::from_secs(unix_secs);
+    if unix_secs < YEAR_2050 {
+        Ok(Time::UtcTime(
+            UtcTime::from_unix_duration(d).map_err(parse)?,
+        ))
+    } else {
+        Ok(Time::GeneralTime(
+            GeneralizedTime::from_unix_duration(d).map_err(parse)?,
+        ))
+    }
+}
+
+fn extension<T: Encode + const_oid::AssociatedOid>(value: &T, critical: bool) -> Result<Extension> {
+    Ok(Extension {
+        extn_id: T::OID,
+        critical,
+        extn_value: OctetString::new(value.to_der().map_err(parse)?).map_err(parse)?,
+    })
+}
+
+/// What an RSA S/MIME key does: sign (digitalSignature) and receive an encrypted
+/// content key (keyEncipherment).
+fn email_key_usage() -> KeyUsage {
+    KeyUsage(KeyUsages::DigitalSignature | KeyUsages::KeyEncipherment)
+}
+
+fn subject_alt_name(addresses: &[String]) -> Result<SubjectAltName> {
+    let names = addresses
+        .iter()
+        .map(|a| Ok(GeneralName::Rfc822Name(Ia5String::new(a).map_err(parse)?)))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(SubjectAltName(names))
+}
+
+/// RFC 5280 §4.2.1.2 method 1: SHA-1 over the subjectPublicKey bits. An
+/// identifier, not a security property.
+fn subject_key_identifier(spki: &SubjectPublicKeyInfoOwned) -> Result<SubjectKeyIdentifier> {
+    let digest = sha1::Sha1::digest(spki.subject_public_key.raw_bytes());
+    Ok(SubjectKeyIdentifier(
+        OctetString::new(digest.as_slice()).map_err(parse)?,
+    ))
+}
+
+fn rsa_sha256_sign(key: &RsaPrivateKey, message: &[u8]) -> Result<Vec<u8>> {
+    let signature = pkcs1v15::SigningKey::<Sha256>::new(key.clone())
+        .try_sign(message)
+        .map_err(|e| CryptoError::Sign(e.to_string()))?;
+    Ok(signature.to_bytes().as_ref().to_vec())
+}
+
+/// The certificate's public key is this private key's.
+fn ensure_key_matches(key: &RsaPrivateKey, cert: &Certificate) -> Result<()> {
+    let spki_der = cert
+        .tbs_certificate()
+        .subject_public_key_info()
+        .to_der()
+        .map_err(parse)?;
+    match RsaPublicKey::from_public_key_der(&spki_der) {
+        Ok(public) if public.n() == key.n() && public.e() == key.e() => Ok(()),
+        _ => Err(CryptoError::Input(
+            "the certificate is not for this private key".into(),
+        )),
+    }
 }
 
 // ── private-key bundle helpers ────────────────────────────────────────────────
@@ -664,22 +1191,28 @@ pub fn wrap_private_key(key: &RsaPrivateKey, passphrase: &str) -> Result<String>
     let pkcs8 = key
         .to_pkcs8_der()
         .map_err(|e| CryptoError::Sign(e.to_string()))?;
+    let der = encrypt_pkcs8(pkcs8.as_bytes(), passphrase, 600_000)?;
+    der::pem::encode_string("ENCRYPTED PRIVATE KEY", der::pem::LineEnding::LF, &der).map_err(parse)
+}
+
+/// A PKCS#8 `PrivateKeyInfo` as a DER `EncryptedPrivateKeyInfo` (PBES2:
+/// PBKDF2-HMAC-SHA256 with `rounds` iterations + AES-256-CBC), fresh salt and IV.
+fn encrypt_pkcs8(pkcs8_der: &[u8], passphrase: &str, rounds: u32) -> Result<Vec<u8>> {
     let mut salt = [0u8; 16];
     let mut iv = [0u8; 16];
     rng::fill_random(&mut salt);
     rng::fill_random(&mut iv);
-    let params = pkcs5::pbes2::Parameters::generate_pbkdf2_sha256_aes256cbc(600_000, &salt, iv)
+    let params = pkcs5::pbes2::Parameters::generate_pbkdf2_sha256_aes256cbc(rounds, &salt, iv)
         .map_err(|e| CryptoError::Sign(format!("pbes2 params: {e:?}")))?;
     let scheme = pkcs5::EncryptionScheme::Pbes2(params);
     let ciphertext = scheme
-        .encrypt(passphrase, pkcs8.as_bytes())
+        .encrypt(passphrase, pkcs8_der)
         .map_err(|e| CryptoError::Sign(format!("pbes2 encrypt: {e:?}")))?;
     let epki: pkcs8::EncryptedPrivateKeyInfoOwned = pkcs8::EncryptedPrivateKeyInfo {
         encryption_algorithm: scheme,
         encrypted_data: OctetString::new(ciphertext).map_err(parse)?,
     };
-    let der = epki.to_der().map_err(parse)?;
-    der::pem::encode_string("ENCRYPTED PRIVATE KEY", der::pem::LineEnding::LF, &der).map_err(parse)
+    epki.to_der().map_err(parse)
 }
 
 /// Load an RSA private key from an encrypted (PBES2) or cleartext PKCS#8 PEM bundle.
@@ -754,6 +1287,11 @@ const OID_KEY_BAG: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.1135
 const OID_PKCS8_SHROUDED_KEY_BAG: ObjectIdentifier =
     ObjectIdentifier::new_unwrap("1.2.840.113549.1.12.10.1.2");
 const OID_CERT_BAG: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.12.10.1.3");
+/// PKCS#9 `x509Certificate` — the certificate type inside a `CertBag`.
+const OID_X509_CERTIFICATE: ObjectIdentifier =
+    ObjectIdentifier::new_unwrap("1.2.840.113549.1.9.22.1");
+/// PKCS#9 `localKeyId` — the bag attribute pairing a key with its certificate.
+const OID_LOCAL_KEY_ID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.9.21");
 
 /// `PFX ::= SEQUENCE { version INTEGER, authSafe ContentInfo, macData MacData OPTIONAL }`.
 #[derive(der::Sequence)]

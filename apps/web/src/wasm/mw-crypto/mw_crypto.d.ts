@@ -7,6 +7,19 @@
 export function __init(): void;
 
 /**
+ * `attachIssuedCert({certBytes, encryptedPrivateBundle, passphrase})` →
+ * `{ certPem, fingerprint, addresses, algorithm, expiresAt, selfIssued }`. Throws
+ * when the certificate's public key is not the key in the bundle.
+ */
+export function attachIssuedCert(options: any): any;
+
+/**
+ * `certificateRequest({certPem, encryptedPrivateBundle, passphrase})` →
+ * `{ csrPem }` — a PKCS#10 request a certificate authority can issue from.
+ */
+export function certificateRequest(options: any): any;
+
+/**
  * `decrypt({kind, ciphertext, encryptedPrivateBundle, passphrase})` →
  * `{ plaintextText, subject?, signature }`. (In-worker mw-sanitize wasm sanitizes
  * HTML before it reaches the iframe — plan §1.3, wired by e8.)
@@ -20,9 +33,20 @@ export function decrypt(options: any): any;
 export function encrypt(options: any): any;
 
 /**
- * `exportBackup({encryptedPrivateBundle, kind})` → `{ autocryptSetupMessage }`.
+ * `exportBackup({encryptedPrivateBundle, kind:"pgp"})` → `{ autocryptSetupMessage }`.
+ * An Autocrypt Setup Message is an OpenPGP format, so any other kind is refused
+ * (an S/MIME key leaves through `exportPkcs12`).
  */
 export function exportBackup(options: any): any;
+
+/**
+ * `exportPkcs12({certPem, encryptedPrivateBundle, passphrase})` →
+ * `{ p12Base64 }` — the certificate and key as a PKCS#12 file protected by the
+ * same passphrase (see [`smime::export_pkcs12`] for what the file does and does
+ * not contain). Base64, so the result is a plain string on its way out of the
+ * worker.
+ */
+export function exportPkcs12(options: any): any;
 
 /**
  * `exportPublic({keyRef})` → armored public key string. `keyRef` may be a session
@@ -31,8 +55,14 @@ export function exportBackup(options: any): any;
 export function exportPublic(options: any): any;
 
 /**
- * `generateKey({kind:"pgp", userId, passphrase})` → `{ publicKeyArmored,
- * fingerprint, keyId, encryptedPrivateBundle }` — v6 Ed25519/X25519.
+ * `generateKey({kind, userId, passphrase})`.
+ *
+ * - `kind:"pgp"` → `{ publicKeyArmored, fingerprint, keyId,
+ *   encryptedPrivateBundle }` — v6 Ed25519/X25519.
+ * - `kind:"smime"` → `{ certPem, fingerprint, keyId, encryptedPrivateBundle,
+ *   addresses, algorithm, expiresAt }` — an RSA key and an X.509 certificate for
+ *   the address in `userId`, signed by that key itself (see [`smime::generate`]).
+ *   `addresses`, `algorithm` and `expiresAt` are read back from the certificate.
  */
 export function generateKey(options: any): any;
 
@@ -44,7 +74,8 @@ export function importArmored(options: any): any;
 
 /**
  * `importPkcs12({p12Bytes, password})` → `{ certPem, fingerprint,
- * encryptedPrivateBundle }` — S/MIME private-key material, client-side only.
+ * encryptedPrivateBundle, addresses, algorithm, expiresAt }` — S/MIME private-key
+ * material, client-side only. The last three are read from the certificate.
  */
 export function importPkcs12(options: any): any;
 
@@ -161,18 +192,6 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
-    readonly __init: () => void;
-    readonly decrypt: (a: number, b: number) => void;
-    readonly encrypt: (a: number, b: number) => void;
-    readonly exportBackup: (a: number, b: number) => void;
-    readonly exportPublic: (a: number, b: number) => void;
-    readonly generateKey: (a: number, b: number) => void;
-    readonly importArmored: (a: number, b: number) => void;
-    readonly importPkcs12: (a: number, b: number) => void;
-    readonly lockKey: (a: number, b: number) => void;
-    readonly sign: (a: number, b: number) => void;
-    readonly unlockKey: (a: number, b: number) => void;
-    readonly verify: (a: number, b: number) => void;
     readonly zaDeriveKek: (a: number, b: number) => void;
     readonly zaDeriveRootKey: (a: number, b: number) => void;
     readonly zaDeriveSubkey: (a: number, b: number) => void;
@@ -188,6 +207,21 @@ export interface InitOutput {
     readonly zaSealRow: (a: number, b: number) => void;
     readonly zaUnwrapKey: (a: number, b: number) => void;
     readonly zaWrapKey: (a: number, b: number) => void;
+    readonly __init: () => void;
+    readonly attachIssuedCert: (a: number, b: number) => void;
+    readonly certificateRequest: (a: number, b: number) => void;
+    readonly decrypt: (a: number, b: number) => void;
+    readonly encrypt: (a: number, b: number) => void;
+    readonly exportBackup: (a: number, b: number) => void;
+    readonly exportPkcs12: (a: number, b: number) => void;
+    readonly exportPublic: (a: number, b: number) => void;
+    readonly generateKey: (a: number, b: number) => void;
+    readonly importArmored: (a: number, b: number) => void;
+    readonly importPkcs12: (a: number, b: number) => void;
+    readonly lockKey: (a: number, b: number) => void;
+    readonly sign: (a: number, b: number) => void;
+    readonly unlockKey: (a: number, b: number) => void;
+    readonly verify: (a: number, b: number) => void;
     readonly __wbindgen_export: (a: number, b: number) => number;
     readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_export3: (a: number) => void;

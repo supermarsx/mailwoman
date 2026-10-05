@@ -62,32 +62,92 @@ fn js_err(e: impl std::fmt::Display) -> JsValue {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GenerateKeyIn {
-    #[allow(dead_code)]
     kind: String,
     user_id: String,
     passphrase: String,
+    /// S/MIME only: RSA modulus size (2048, 3072 or 4096). Absent → the crate
+    /// default, [`smime::GENERATED_RSA_BITS`].
+    rsa_bits: Option<usize>,
 }
+/// A field that does not apply to the generated kind is absent, not empty: a PGP
+/// key has no `certPem`, an S/MIME key has no `publicKeyArmored`.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GenerateKeyOut {
-    public_key_armored: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    public_key_armored: Option<String>,
     fingerprint: String,
     key_id: String,
     encrypted_private_bundle: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cert_pem: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    addresses: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    algorithm: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expires_at: Option<String>,
 }
 
-/// `generateKey({kind:"pgp", userId, passphrase})` → `{ publicKeyArmored,
-/// fingerprint, keyId, encryptedPrivateBundle }` — v6 Ed25519/X25519.
+/// `generateKey({kind, userId, passphrase})`.
+///
+/// - `kind:"pgp"` → `{ publicKeyArmored, fingerprint, keyId,
+///   encryptedPrivateBundle }` — v6 Ed25519/X25519.
+/// - `kind:"smime"` → `{ certPem, fingerprint, keyId, encryptedPrivateBundle,
+///   addresses, algorithm, expiresAt }` — an RSA key and an X.509 certificate for
+///   the address in `userId`, signed by that key itself (see [`smime::generate`]).
+///   `addresses`, `algorithm` and `expiresAt` are read back from the certificate.
 #[wasm_bindgen(js_name = generateKey)]
 pub fn generate_key(options: JsValue) -> Result<JsValue, JsValue> {
     let i: GenerateKeyIn = from_js(options)?;
-    let k = pgp::generate_key(&i.user_id, &i.passphrase).map_err(js_err)?;
-    to_js(&GenerateKeyOut {
-        public_key_armored: k.public_key_armored,
-        fingerprint: k.fingerprint,
-        key_id: k.key_id,
-        encrypted_private_bundle: k.encrypted_private_bundle,
-    })
+    match i.kind.as_str() {
+        "pgp" => {
+            let k = pgp::generate_key(&i.user_id, &i.passphrase).map_err(js_err)?;
+            to_js(&GenerateKeyOut {
+                public_key_armored: Some(k.public_key_armored),
+                fingerprint: k.fingerprint,
+                key_id: k.key_id,
+                encrypted_private_bundle: k.encrypted_private_bundle,
+                cert_pem: None,
+                addresses: None,
+                algorithm: None,
+                expires_at: None,
+            })
+        }
+        "smime" => {
+            let (name, email) = split_user_id(&i.user_id);
+            let bits = i.rsa_bits.unwrap_or(smime::GENERATED_RSA_BITS);
+            let g = smime::generate_with_bits(name, email, &i.passphrase, unix_now(), bits)
+                .map_err(js_err)?;
+            to_js(&GenerateKeyOut {
+                public_key_armored: None,
+                key_id: g.cert.fingerprint[..16.min(g.cert.fingerprint.len())].to_string(),
+                fingerprint: g.cert.fingerprint,
+                encrypted_private_bundle: g.encrypted_private_bundle,
+                cert_pem: Some(g.cert.cert_pem),
+                addresses: Some(g.cert.addresses),
+                algorithm: Some(g.cert.algorithm),
+                expires_at: Some(g.cert.not_after),
+            })
+        }
+        other => Err(js_err(format!("unknown kind: {other}"))),
+    }
+}
+
+/// `Name <email>` → `(name, email)`; a bare address → `("", address)`.
+fn split_user_id(user_id: &str) -> (&str, &str) {
+    match (user_id.rfind('<'), user_id.rfind('>')) {
+        (Some(open), Some(close)) if open < close => {
+            (user_id[..open].trim(), user_id[open + 1..close].trim())
+        }
+        _ => ("", user_id.trim()),
+    }
+}
+
+/// Seconds since the Unix epoch from the JS clock (`std::time` has no clock on
+/// `wasm32-unknown-unknown`).
+fn unix_now() -> u64 {
+    (js_sys::Date::now() / 1000.0) as u64
 }
 
 // ── encrypt ──────────────────────────────────────────────────────────────────
@@ -304,10 +364,14 @@ struct ImportPkcs12Out {
     cert_pem: String,
     fingerprint: String,
     encrypted_private_bundle: String,
+    addresses: Vec<String>,
+    algorithm: String,
+    expires_at: String,
 }
 
 /// `importPkcs12({p12Bytes, password})` → `{ certPem, fingerprint,
-/// encryptedPrivateBundle }` — S/MIME private-key material, client-side only.
+/// encryptedPrivateBundle, addresses, algorithm, expiresAt }` — S/MIME private-key
+/// material, client-side only. The last three are read from the certificate.
 #[wasm_bindgen(js_name = importPkcs12)]
 pub fn import_pkcs12(options: JsValue) -> Result<JsValue, JsValue> {
     let i: ImportPkcs12In = from_js(options)?;
@@ -316,6 +380,94 @@ pub fn import_pkcs12(options: JsValue) -> Result<JsValue, JsValue> {
         cert_pem: r.cert_pem,
         fingerprint: r.fingerprint,
         encrypted_private_bundle: r.encrypted_private_bundle,
+        addresses: r.addresses,
+        algorithm: r.algorithm,
+        expires_at: r.not_after,
+    })
+}
+
+// ── exportPkcs12 / certificateRequest / attachIssuedCert (S/MIME own keys) ───
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SmimeKeyIn {
+    cert_pem: String,
+    encrypted_private_bundle: String,
+    passphrase: String,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExportPkcs12Out {
+    p12_base64: String,
+}
+
+/// `exportPkcs12({certPem, encryptedPrivateBundle, passphrase})` →
+/// `{ p12Base64 }` — the certificate and key as a PKCS#12 file protected by the
+/// same passphrase (see [`smime::export_pkcs12`] for what the file does and does
+/// not contain). Base64, so the result is a plain string on its way out of the
+/// worker.
+#[wasm_bindgen(js_name = exportPkcs12)]
+pub fn export_pkcs12(options: JsValue) -> Result<JsValue, JsValue> {
+    use base64::Engine;
+    let i: SmimeKeyIn = from_js(options)?;
+    let der = smime::export_pkcs12(&i.cert_pem, &i.encrypted_private_bundle, &i.passphrase)
+        .map_err(js_err)?;
+    to_js(&ExportPkcs12Out {
+        p12_base64: base64::engine::general_purpose::STANDARD.encode(der),
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CertificateRequestOut {
+    csr_pem: String,
+}
+
+/// `certificateRequest({certPem, encryptedPrivateBundle, passphrase})` →
+/// `{ csrPem }` — a PKCS#10 request a certificate authority can issue from.
+#[wasm_bindgen(js_name = certificateRequest)]
+pub fn certificate_request(options: JsValue) -> Result<JsValue, JsValue> {
+    let i: SmimeKeyIn = from_js(options)?;
+    let csr_pem =
+        smime::certificate_request(&i.cert_pem, &i.encrypted_private_bundle, &i.passphrase)
+            .map_err(js_err)?;
+    to_js(&CertificateRequestOut { csr_pem })
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AttachIssuedCertIn {
+    /// One certificate, PEM text or DER.
+    cert_bytes: Vec<u8>,
+    encrypted_private_bundle: String,
+    passphrase: String,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AttachIssuedCertOut {
+    cert_pem: String,
+    fingerprint: String,
+    addresses: Vec<String>,
+    algorithm: String,
+    expires_at: String,
+    self_issued: bool,
+}
+
+/// `attachIssuedCert({certBytes, encryptedPrivateBundle, passphrase})` →
+/// `{ certPem, fingerprint, addresses, algorithm, expiresAt, selfIssued }`. Throws
+/// when the certificate's public key is not the key in the bundle.
+#[wasm_bindgen(js_name = attachIssuedCert)]
+pub fn attach_issued_cert(options: JsValue) -> Result<JsValue, JsValue> {
+    let i: AttachIssuedCertIn = from_js(options)?;
+    let c = smime::attach_issued_cert(&i.cert_bytes, &i.encrypted_private_bundle, &i.passphrase)
+        .map_err(js_err)?;
+    to_js(&AttachIssuedCertOut {
+        cert_pem: c.cert_pem,
+        fingerprint: c.fingerprint,
+        addresses: c.addresses,
+        algorithm: c.algorithm,
+        expires_at: c.not_after,
+        self_issued: c.self_issued,
     })
 }
 
@@ -373,7 +525,6 @@ pub fn export_public(options: JsValue) -> Result<JsValue, JsValue> {
 #[serde(rename_all = "camelCase")]
 struct ExportBackupIn {
     encrypted_private_bundle: String,
-    #[allow(dead_code)]
     kind: String,
 }
 #[derive(Serialize)]
@@ -382,10 +533,18 @@ struct ExportBackupOut {
     autocrypt_setup_message: String,
 }
 
-/// `exportBackup({encryptedPrivateBundle, kind})` → `{ autocryptSetupMessage }`.
+/// `exportBackup({encryptedPrivateBundle, kind:"pgp"})` → `{ autocryptSetupMessage }`.
+/// An Autocrypt Setup Message is an OpenPGP format, so any other kind is refused
+/// (an S/MIME key leaves through `exportPkcs12`).
 #[wasm_bindgen(js_name = exportBackup)]
 pub fn export_backup(options: JsValue) -> Result<JsValue, JsValue> {
     let i: ExportBackupIn = from_js(options)?;
+    if i.kind != "pgp" {
+        return Err(js_err(format!(
+            "exportBackup: an Autocrypt Setup Message holds an OpenPGP key, not a {} key",
+            i.kind
+        )));
+    }
     let asm = pgp::autocrypt_setup_message(&i.encrypted_private_bundle).map_err(js_err)?;
     to_js(&ExportBackupOut {
         autocrypt_setup_message: asm,

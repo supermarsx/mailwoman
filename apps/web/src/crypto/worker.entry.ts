@@ -1,7 +1,7 @@
 // The crypto Web Worker entry (plan §2.3 / §2.5). Hosts the wasm-pack `mw-crypto`
 // module and runs the RPC loop for `worker.ts`'s `spawnCryptoWorker` proxy. ALL
-// private-key operations (keygen / decrypt / private sign / PKCS#12 import /
-// unlock) run HERE, off the main thread; plaintext + private material never enter
+// private-key operations (keygen / decrypt / private sign / PKCS#12 import and
+// export / certification request / unlock) run HERE, off the main thread; plaintext + private material never enter
 // the main app state or the server in plaintext (plan §1.2 / risk #4). Errors are
 // marshalled back as strings and re-thrown on the app side.
 //
@@ -35,6 +35,16 @@ const METHODS: Record<string, WasmFn> = {
   exportBackup: mw.exportBackup,
   unlockKey: mw.unlockKey,
   lockKey: mw.lockKey,
+};
+
+// The S/MIME own-key operations. They arrive as an `exportBackup` RPC carrying
+// `smimeOp` (see `createLazyCryptoWorker` in `index.ts` for why), never under
+// their own method name, so they are a separate table: a request can reach one of
+// these only by naming it in `smimeOp`, and `smimeOp` can name nothing else.
+const SMIME_OPS: Record<string, WasmFn> = {
+  exportPkcs12: mw.exportPkcs12,
+  certificateRequest: mw.certificateRequest,
+  attachIssuedCert: mw.attachIssuedCert,
 };
 
 // Each wasm module loads exactly once, lazily, on first use. `mw-crypto` inits on the
@@ -83,9 +93,15 @@ function normalizeResult(method: string, value: unknown): unknown {
 // plaintext through the in-worker mw-sanitize wasm (HTML sanitized before it leaves
 // the worker; non-HTML kept as escaped text). See `sanitize.ts` (plan §1.3).
 async function runMethod(method: string, rawArgs: unknown): Promise<unknown> {
+  const args = normalizeArgs(method, (rawArgs ?? {}) as Record<string, unknown>);
+  const smimeOp = method === 'exportBackup' ? args['smimeOp'] : undefined;
+  if (smimeOp !== undefined) {
+    const op = typeof smimeOp === 'string' && Object.hasOwn(SMIME_OPS, smimeOp) ? SMIME_OPS[smimeOp] : undefined;
+    if (op === undefined) throw new Error('unknown S/MIME key operation');
+    return op(args);
+  }
   const fn = METHODS[method];
   if (fn === undefined) throw new Error(`unknown crypto method: ${method}`);
-  const args = normalizeArgs(method, (rawArgs ?? {}) as Record<string, unknown>);
   const value = fn(args);
   if (method === 'decrypt') {
     await ensureSanitize();

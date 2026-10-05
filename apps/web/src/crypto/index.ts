@@ -9,20 +9,27 @@
 // touches real key material — it exists only to satisfy the interface until e8.
 
 import type {
+  AttachIssuedCertResult,
+  CertificateRequestResult,
+  CryptoApi,
   CryptoWorkerApi,
   DecryptResult,
   EncryptResult,
+  ExportBackupRequest,
   ExportBackupResult,
+  ExportPkcs12Result,
+  GenerateKeyRequest,
   GenerateKeyResult,
   ImportArmoredResult,
   ImportPkcs12Result,
   KeyRef,
   SignResult,
+  SmimeKeyOp,
 } from '../contracts/crypto.ts';
 import type { SignatureVerdict } from '../api/security-types.ts';
 import { spawnCryptoWorker } from './worker.ts';
 
-export type { CryptoWorkerApi } from '../contracts/crypto.ts';
+export type { CryptoApi, CryptoWorkerApi } from '../contracts/crypto.ts';
 export { createInMemoryVault, type KeyVault, type VaultEntry } from './vault.ts';
 
 /** A synthetic "none" signature verdict the stub returns (no real verify). */
@@ -44,10 +51,23 @@ const STUB_SIGNATURE: SignatureVerdict = {
  * replaces this with the wasm-pack-backed worker; the shapes here are the frozen
  * §2.3 contract the replacement must honor.
  */
-export function createStubCryptoWorker(): CryptoWorkerApi {
+export function createStubCryptoWorker(): CryptoApi {
   let refSeq = 0;
   return {
-    async generateKey(): Promise<GenerateKeyResult> {
+    async generateKey(req: GenerateKeyRequest): Promise<GenerateKeyResult> {
+      // Shaped like the real worker's answer for each kind, so a caller that
+      // files one kind's fields under the other is caught against the stub too.
+      if (req.kind === 'smime') {
+        return {
+          certPem: '-----BEGIN CERTIFICATE-----\nSTUB\n-----END CERTIFICATE-----',
+          fingerprint: 'STUBCERTFINGERPRINT000000000000000000000000000000000000000000000',
+          keyId: 'STUBCERTFINGERPR',
+          encryptedPrivateBundle: 'STUB_ENCRYPTED_PRIVATE_BUNDLE',
+          addresses: ['stub@example.invalid'],
+          algorithm: 'rsa-3072',
+          expiresAt: new Date(0).toISOString(),
+        };
+      }
       return {
         publicKeyArmored: '-----BEGIN PGP PUBLIC KEY BLOCK-----\nSTUB\n-----END PGP PUBLIC KEY BLOCK-----',
         fingerprint: 'STUBFINGERPRINT0000000000000000000000000',
@@ -75,6 +95,25 @@ export function createStubCryptoWorker(): CryptoWorkerApi {
         certPem: '-----BEGIN CERTIFICATE-----\nSTUB\n-----END CERTIFICATE-----',
         fingerprint: 'STUBFINGERPRINT0000000000000000000000000',
         encryptedPrivateBundle: 'STUB_ENCRYPTED_PRIVATE_BUNDLE',
+        addresses: ['stub@example.invalid'],
+        algorithm: 'rsa-2048',
+        expiresAt: new Date(0).toISOString(),
+      };
+    },
+    async exportPkcs12(): Promise<ExportPkcs12Result> {
+      return { p12Base64: btoa('STUB PKCS#12') };
+    },
+    async certificateRequest(): Promise<CertificateRequestResult> {
+      return { csrPem: '-----BEGIN CERTIFICATE REQUEST-----\nSTUB\n-----END CERTIFICATE REQUEST-----' };
+    },
+    async attachIssuedCert(): Promise<AttachIssuedCertResult> {
+      return {
+        certPem: '-----BEGIN CERTIFICATE-----\nSTUB ISSUED\n-----END CERTIFICATE-----',
+        fingerprint: 'STUBISSUEDFINGERPRINT0000000000000000000000000000000000000000000',
+        addresses: ['stub@example.invalid'],
+        algorithm: 'rsa-3072',
+        expiresAt: new Date(0).toISOString(),
+        selfIssued: false,
       };
     },
     async importArmored(): Promise<ImportArmoredResult> {
@@ -134,9 +173,16 @@ function useRealWorker(): boolean {
  * app startup by the keys slice, it must not touch the wasm on the login→inbox
  * critical path — so the Worker is spawned on demand, then memoized.
  */
-function createLazyCryptoWorker(): CryptoWorkerApi {
+function createLazyCryptoWorker(): CryptoApi {
   let real: CryptoWorkerApi | null = null;
   const get = (): CryptoWorkerApi => (real ??= spawnCryptoWorker());
+  // `spawnCryptoWorker()` forwards a fixed list of method names, and the three
+  // S/MIME key operations are not on it. They are sent as an `exportBackup` RPC
+  // that carries `smimeOp`; `worker.entry.ts` sees the field and calls that wasm
+  // export instead. The casts are the price of using another method's slot — they
+  // go away when `worker.ts` forwards these three names itself.
+  const smime = <T>(smimeOp: SmimeKeyOp, req: object): Promise<T> =>
+    get().exportBackup({ ...req, smimeOp } as unknown as ExportBackupRequest) as unknown as Promise<T>;
   return {
     generateKey: (r) => get().generateKey(r),
     encrypt: (r) => get().encrypt(r),
@@ -144,6 +190,9 @@ function createLazyCryptoWorker(): CryptoWorkerApi {
     sign: (r) => get().sign(r),
     verify: (r) => get().verify(r),
     importPkcs12: (r) => get().importPkcs12(r),
+    exportPkcs12: (r) => smime('exportPkcs12', r),
+    certificateRequest: (r) => smime('certificateRequest', r),
+    attachIssuedCert: (r) => smime('attachIssuedCert', r),
     importArmored: (r) => get().importArmored(r),
     exportPublic: (r) => get().exportPublic(r),
     exportBackup: (r) => get().exportBackup(r),
@@ -157,8 +206,8 @@ function createLazyCryptoWorker(): CryptoWorkerApi {
  * worker (lazily spawned); unit tests get the deterministic stub. Memoized so the
  * keys slice + compose-crypto share one worker instance.
  */
-let instance: CryptoWorkerApi | null = null;
-export function getCryptoWorker(): CryptoWorkerApi {
+let instance: CryptoApi | null = null;
+export function getCryptoWorker(): CryptoApi {
   instance ??= useRealWorker() ? createLazyCryptoWorker() : createStubCryptoWorker();
   return instance;
 }

@@ -52,6 +52,24 @@ keys-export-backup = Export backup
 keys-asm-label = Autocrypt Setup Message
 keys-no-private-backup = No private key held on this device for backup
 
+# -- Own S/MIME key: certificate, export, request, issued certificate ---------
+keys-smime-section = S/MIME certificate
+# Shown for a key generated here (not for an imported or CA-issued certificate).
+keys-smime-self-signed = This certificate is self-signed: it was signed by its own key, not by a certificate authority. Other people's mail programs will not trust it unless they accept it by hand, or until a certificate authority issues a certificate from the request file below.
+# $date is YYYY-MM-DD, taken from the certificate.
+keys-smime-valid-until = Valid until { $date }.
+keys-smime-not-in-app = Mailwoman does not yet sign or decrypt mail with an S/MIME key. Export the key to use it in another mail program.
+keys-smime-passphrase = Passphrase for this S/MIME key
+keys-smime-export-help = The .p12 file holds the certificate and the private key, encrypted with the passphrase above. It carries no integrity check (MAC): Windows and OpenSSL open it, some other programs refuse a file without one. The .csr file holds no private key.
+keys-smime-export = Export as PKCS#12 (.p12)
+keys-smime-request = Download certificate request (.csr)
+keys-smime-issued-label = Certificate issued for this key (.pem, .crt, .cer)
+keys-smime-issued-file = Issued certificate file
+keys-smime-issued-help = Replaces the certificate held for this key. A certificate made for a different key is refused.
+keys-smime-attach = Import issued certificate
+keys-smime-failed = That did not work. Check the passphrase.
+keys-smime-attach-failed = The certificate was not imported. Check the passphrase, and that the file is one certificate issued for this key.
+
 # -- Consent-gated lookup ----------------------------------------------------
 keys-lookup-form = Look up a contact key
 keys-lookup-heading = Look up a key
@@ -71,8 +89,9 @@ keys-generate-title = Generate a key
 keys-type = Type
 keys-key-type = Key type
 keys-openpgp = OpenPGP
-# Under the type list, which has one entry: S/MIME keys are not generated here.
-keys-generate-smime-note = S/MIME certificates are issued by a certificate authority and cannot be generated here. Import one as a PKCS#12 file with Import key.
+keys-smime = S/MIME
+# Under the type list while S/MIME is chosen: what will be made, and its limits.
+keys-generate-smime-note = Makes an RSA 3072-bit key and a certificate for the address below, valid for two years. The certificate is self-signed: other people's mail programs will not trust it unless they accept it by hand, or until a certificate authority issues one. Mailwoman does not yet sign or decrypt mail with it; afterwards you can export it for another mail program.
 keys-name = Name
 keys-email = Email
 keys-key-passphrase = Key passphrase
@@ -80,6 +99,9 @@ keys-passphrase-help = The passphrase wraps the private key on this device. It n
 keys-cancel = Cancel
 keys-generate-submit = Generate
 keys-generating = Generating…
+keys-generating-smime = Generating an RSA key in this browser. This can take up to a minute.
+keys-generate-failed = No key was generated.
+keys-generate-failed-smime = No key was generated. A certificate can only carry a plain ASCII address (name@domain), and a name of at most 64 characters.
 
 # -- Import dialog -----------------------------------------------------------
 keys-import-title = Import a key

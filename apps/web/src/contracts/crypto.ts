@@ -47,15 +47,34 @@ export type CryptoSecurityMethod = CryptoKeyMethod | SecurityMethod;
 /** `generateKey` argument. */
 export interface GenerateKeyRequest {
   kind: KeyKind;
+  /** `Name <email>` or a bare address. */
   userId: string;
   passphrase: string;
+  /** S/MIME only: RSA modulus size. Absent → the worker's default (3072). */
+  rsaBits?: 2048 | 3072 | 4096;
 }
-/** `generateKey` result — v6 Ed25519/X25519; private key wrapped by `passphrase`. */
+/**
+ * `generateKey` result; the private key is wrapped by `passphrase`.
+ *
+ * - `kind: 'pgp'` → a v6 Ed25519/X25519 key: `publicKeyArmored` is set, the
+ *   certificate fields are absent.
+ * - `kind: 'smime'` → an RSA key and an X.509 certificate signed by that key
+ *   itself: `certPem`, `addresses`, `algorithm` and `expiresAt` are set (the last
+ *   three read back from the certificate), `publicKeyArmored` is absent.
+ *
+ * A field that does not apply is absent, never a placeholder.
+ */
 export interface GenerateKeyResult {
-  publicKeyArmored: string;
+  publicKeyArmored?: string;
   fingerprint: string;
   keyId: string;
   encryptedPrivateBundle: string;
+  certPem?: string;
+  addresses?: string[];
+  /** `rsa-<modulus bits>`. */
+  algorithm?: string;
+  /** The certificate's `notAfter`, RFC 3339. */
+  expiresAt?: string;
 }
 
 /** `encrypt` argument (protected-subject encryption via `protectedSubject`). */
@@ -130,6 +149,44 @@ export interface ImportPkcs12Result {
   certPem: string;
   fingerprint: string;
   encryptedPrivateBundle: string;
+  /** Read from the certificate: its addresses, key algorithm and `notAfter`. */
+  addresses: string[];
+  algorithm: string;
+  expiresAt: string;
+}
+
+/** An own S/MIME key as the worker needs it: certificate, wrapped key, passphrase. */
+export interface SmimeKeyRequest {
+  certPem: string;
+  encryptedPrivateBundle: string;
+  passphrase: string;
+}
+/**
+ * `exportPkcs12` result: the certificate and key as a PKCS#12 (`.p12`) file,
+ * base64, protected by the key's passphrase. The file carries no integrity MAC.
+ */
+export interface ExportPkcs12Result {
+  p12Base64: string;
+}
+/** `certificateRequest` result: a PKCS#10 request (PEM) for a certificate authority. */
+export interface CertificateRequestResult {
+  csrPem: string;
+}
+/** `attachIssuedCert` argument: one certificate (PEM text or DER) for a held key. */
+export interface AttachIssuedCertRequest {
+  certBytes: Uint8Array;
+  encryptedPrivateBundle: string;
+  passphrase: string;
+}
+/** `attachIssuedCert` result, read from the certificate. Rejects if it is for another key. */
+export interface AttachIssuedCertResult {
+  certPem: string;
+  fingerprint: string;
+  addresses: string[];
+  algorithm: string;
+  expiresAt: string;
+  /** Issuer and subject are the same name (no certificate authority behind it). */
+  selfIssued: boolean;
 }
 
 /** `importArmored` argument/result (`encryptedPrivateBundle` set iff a private key). */
@@ -142,7 +199,7 @@ export interface ImportArmoredResult {
   encryptedPrivateBundle?: string;
 }
 
-/** `exportBackup` argument/result (Autocrypt Setup Message). */
+/** `exportBackup` argument/result (Autocrypt Setup Message; OpenPGP keys only). */
 export interface ExportBackupRequest {
   encryptedPrivateBundle: string;
   kind: KeyKind;
@@ -179,3 +236,24 @@ export interface CryptoWorkerApi {
   /** `zeroize` + drop the cached private key for `keyRef` (also on timeout). */
   lockKey(req: { keyRef: KeyRef }): Promise<void>;
 }
+
+/**
+ * The worker operations on an own S/MIME key (t29-e2). Kept beside
+ * [`CryptoWorkerApi`] rather than inside it: `crypto/worker.ts` builds its RPC
+ * proxy from a fixed list of that interface's method names, and adding names
+ * there needs a matching edit to that file. `getCryptoWorker()` returns both.
+ */
+export interface SmimeKeyWorkerApi {
+  /** An own S/MIME key as a PKCS#12 file for another mail program. */
+  exportPkcs12(req: SmimeKeyRequest): Promise<ExportPkcs12Result>;
+  /** A certification request for an own S/MIME key. */
+  certificateRequest(req: SmimeKeyRequest): Promise<CertificateRequestResult>;
+  /** Check a certificate issued for an own S/MIME key before it replaces the held one. */
+  attachIssuedCert(req: AttachIssuedCertRequest): Promise<AttachIssuedCertResult>;
+}
+
+/** The names of [`SmimeKeyWorkerApi`]'s operations, as the worker entry dispatches them. */
+export type SmimeKeyOp = keyof SmimeKeyWorkerApi;
+
+/** Everything the crypto worker does for the app. */
+export type CryptoApi = CryptoWorkerApi & SmimeKeyWorkerApi;
