@@ -23,7 +23,8 @@
 //!
 //! Web host (the SPA sandbox tier):
 //!   * `GET    /api/ui-plugins`                 — approved+enabled registrations + banner.
-//!   * `POST   /api/ui-plugins/{id}/rpc`        — the capability broker (net/store RPC).
+//!   * `POST   /api/ui-plugins/{id}/rpc`        — the capability broker (net/store RPC);
+//!     mailbox-session-authed.
 //!
 //! ## Signed-registry (mirrors §7.5 / [`crate::plugins`])
 //! A signed plugin's detached Ed25519 signature is verified over the exact bundle bytes
@@ -39,7 +40,8 @@
 //! declared caps at grant time), and the `method` must be in that capability's method
 //! allowlist ([`cap_methods`], mirroring the web `CAP_METHOD_ALLOWLIST`). `net:host-allowlist`
 //! egress is additionally checked against the grant's host allowlist; `store:kv-scoped`
-//! is a per-plugin scoped key/value.
+//! is a key/value store scoped to the plugin and the calling account. The route
+//! requires a mailbox session; the registry list beside it does not.
 #![allow(dead_code)]
 
 use std::collections::HashMap;
@@ -608,15 +610,25 @@ struct RpcRequest {
     args: Vec<Value>,
 }
 
-/// `POST /api/ui-plugins/{id}/rpc` — the capability broker. Deny-by-default: the plugin
-/// must be approved+enabled, the `cap` granted, and the `method` allowlisted. Dispatches
+/// `POST /api/ui-plugins/{id}/rpc` — the capability broker. Requires a mailbox
+/// session ([`crate::authed`], so a disabled account and one held for a password
+/// change are refused as on every other session route): the caller is the signed-in
+/// SPA relaying a guest's request, and without the check anyone who could reach the
+/// server could read and overwrite a plugin's stored values and have the server fetch
+/// from the plugin's granted hosts. Then deny-by-default: the plugin must be
+/// approved+enabled, the `cap` granted, and the `method` allowlisted. Dispatches
 /// `net:host-allowlist`/`fetch` (allowlist-checked egress) and `store:kv-scoped`
-/// `get`/`put` (per-plugin scoped KV).
+/// `get`/`put` (KV scoped to the plugin and the session's account).
 async fn broker_rpc(
     State(state): State<AppState>,
+    headers: HeaderMap,
     UrlPath(plugin_id): UrlPath<String>,
     Json(req): Json<RpcRequest>,
 ) -> Response {
+    let session = match crate::authed(&state, &headers).await {
+        Ok(s) => s,
+        Err(resp) => return resp,
+    };
     if req.v != RPC_PROTOCOL_VERSION {
         return rpc_err(&req.id, "bad-request", "unsupported RPC protocol version");
     }
@@ -644,8 +656,8 @@ async fn broker_rpc(
 
     match (req.cap.as_str(), req.method.as_str()) {
         ("net:host-allowlist", "fetch") => broker_fetch(&req, &grants).await,
-        ("store:kv-scoped", "get") => broker_kv_get(&plugin_id, &req),
-        ("store:kv-scoped", "put") => broker_kv_put(&plugin_id, &req),
+        ("store:kv-scoped", "get") => broker_kv_get(&plugin_id, &session.account_id, &req),
+        ("store:kv-scoped", "put") => broker_kv_put(&plugin_id, &session.account_id, &req),
         _ => rpc_err(
             &req.id,
             "not-implemented",
@@ -695,17 +707,18 @@ async fn broker_fetch(req: &RpcRequest, grants: &[UiPluginGrantRow]) -> Response
     }
 }
 
-/// A per-plugin scoped key/value store for the `store:kv-scoped` capability. In-process
-/// (there is no 0010 KV table); keyed by `plugin_id \0 key` so plugins cannot read each
-/// other's namespaces.
+/// The key/value store for the `store:kv-scoped` capability. In-process (there is no
+/// 0010 KV table); keyed by `plugin_id \0 account_id \0 key`, so a plugin cannot read
+/// another plugin's namespace and an account cannot read what the same plugin stored
+/// for another account.
 static UI_KV: LazyLock<Mutex<HashMap<String, Value>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-fn kv_key(plugin_id: &str, key: &str) -> String {
-    format!("{plugin_id}\u{0}{key}")
+fn kv_key(plugin_id: &str, account_id: &str, key: &str) -> String {
+    format!("{plugin_id}\u{0}{account_id}\u{0}{key}")
 }
 
-fn broker_kv_get(plugin_id: &str, req: &RpcRequest) -> Response {
+fn broker_kv_get(plugin_id: &str, account_id: &str, req: &RpcRequest) -> Response {
     let key = match req.args.first().and_then(Value::as_str) {
         Some(k) => k,
         None => return rpc_err(&req.id, "bad-request", "get requires a key argument"),
@@ -713,13 +726,13 @@ fn broker_kv_get(plugin_id: &str, req: &RpcRequest) -> Response {
     let value = UI_KV
         .lock()
         .expect("ui kv lock")
-        .get(&kv_key(plugin_id, key))
+        .get(&kv_key(plugin_id, account_id, key))
         .cloned()
         .unwrap_or(Value::Null);
     rpc_ok(&req.id, value)
 }
 
-fn broker_kv_put(plugin_id: &str, req: &RpcRequest) -> Response {
+fn broker_kv_put(plugin_id: &str, account_id: &str, req: &RpcRequest) -> Response {
     let key = match req.args.first().and_then(Value::as_str) {
         Some(k) => k.to_string(),
         None => return rpc_err(&req.id, "bad-request", "put requires a key argument"),
@@ -728,7 +741,7 @@ fn broker_kv_put(plugin_id: &str, req: &RpcRequest) -> Response {
     UI_KV
         .lock()
         .expect("ui kv lock")
-        .insert(kv_key(plugin_id, &key), value);
+        .insert(kv_key(plugin_id, account_id, &key), value);
     rpc_ok(&req.id, json!({ "ok": true }))
 }
 
@@ -1002,24 +1015,21 @@ mod tests {
             method: "put".into(),
             args: vec![json!("k"), json!("v-a")],
         };
-        broker_kv_put("plugin-a", &put);
+        broker_kv_put("plugin-a", "acct-1", &put);
         // Plugin B cannot read plugin A's namespace.
-        let resp_b = broker_kv_get("plugin-b", &get);
+        let resp_b = broker_kv_get("plugin-b", "acct-1", &get);
         assert_eq!(resp_b.status(), StatusCode::OK);
         // (namespaced key ensures isolation; direct map check)
-        assert!(
+        let stored = |plugin: &str, account: &str| {
             UI_KV
                 .lock()
                 .unwrap()
-                .get(&kv_key("plugin-a", "k"))
+                .get(&kv_key(plugin, account, "k"))
                 .is_some()
-        );
-        assert!(
-            UI_KV
-                .lock()
-                .unwrap()
-                .get(&kv_key("plugin-b", "k"))
-                .is_none()
-        );
+        };
+        assert!(stored("plugin-a", "acct-1"));
+        assert!(!stored("plugin-b", "acct-1"));
+        // Nor can another account read what plugin A stored for this one.
+        assert!(!stored("plugin-a", "acct-2"));
     }
 }
