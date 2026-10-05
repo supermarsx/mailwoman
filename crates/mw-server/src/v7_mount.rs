@@ -9,7 +9,8 @@
 //! "off/empty" when unconfigured — a deployment that configures none behaves exactly
 //! as before.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -37,9 +38,9 @@ use mw_passwd::{
     WebhookConfig, WebhookHmac,
 };
 use mw_plugin::{
-    BasicCredentialProvider, BasicCredentials, Clock, Grant, HostServices, HttpFetcher, HttpReq,
-    HttpResp, KvStore, OAuthTokenProvider, PluginHandle, PluginHost, PluginLimits, PluginManifest,
-    Rng,
+    BasicCredentialProvider, BasicCredentials, Capability, Clock, Grant, HostServices, HttpFetcher,
+    HttpReq, HttpResp, KvStore, OAuthTokenProvider, PluginHandle, PluginHost, PluginLimits,
+    PluginManifest, Rng,
 };
 use mw_store::{PluginKvLimits, PluginRow, Store};
 
@@ -81,19 +82,42 @@ fn env(key: &str) -> Option<String> {
 // 1. Host services (plan §2.1 §e1 injection seam) — reqwest HTTP + OAuth + KV/clock/rng
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// The host `http-fetch` impl: the in-tree `reqwest`/rustls client. `mw-plugin`
-/// enforces the plugin's `net_allowlist` **before** calling this, so an
-/// implementation only ever sees an already-authorized request. For a guest that
-/// carries no credentials of its own (the Nextcloud plugin — plan note), the host
-/// attaches the linked account's Basic auth for the matching host.
+/// The host `http-fetch` impl over `reqwest`/rustls. `mw-plugin` checks the `net`
+/// capability and the plugin's `net_allowlist` **before** calling this, so the URL's
+/// host is one the administrator listed. What is checked here is where that name
+/// leads:
+///
+/// - [`plugin_fetch_addrs`]: http(s) only, no credentials in the URL, and the host
+///   is resolved once; the connection is pinned to the addresses of that one answer
+///   which the policy allows (a second DNS answer is never used), and refused when
+///   there is none;
+/// - the address policy is [`mw_egress::on_prem_allowed`]: private ranges are
+///   reachable, because rspamd, SpamAssassin, LanguageTool and Nextcloud are usually
+///   on them; link-local (which includes the `169.254.169.254` metadata address),
+///   unspecified and multicast addresses never are;
+/// - loopback is reachable only when the URL names it (`localhost` or a loopback
+///   literal), which the administrator must have listed for the gate to pass it. A
+///   name that merely resolves to loopback is refused;
+/// - a redirect is followed only to the same host, never from https to http, at most
+///   [`PLUGIN_FETCH_MAX_REDIRECTS`] times. Any other redirect is returned to the guest
+///   as the `3xx` it is; a guest that follows it calls `http-fetch` again and meets
+///   the allowlist again.
+///
+/// No proxy is used and the operator's egress route (`/admin/egress`) is not applied:
+/// that route is read by the image proxy and the calendar-subscription fetch only.
+///
+/// For a guest that carries no credentials of its own (the Nextcloud plugin), the
+/// host attaches the linked account's Basic auth for the matching host.
 pub(crate) struct ReqwestFetcher {
-    client: reqwest::Client,
     /// host → (username, password) Basic-auth injection for credential-less guests.
     host_auth: Vec<(String, (String, String))>,
 }
 
+/// How many same-host redirects one plugin `http-fetch` follows.
+const PLUGIN_FETCH_MAX_REDIRECTS: usize = 5;
+
 impl ReqwestFetcher {
-    fn from_env(client: reqwest::Client) -> Self {
+    fn from_env() -> Self {
         let mut host_auth = Vec::new();
         // The Nextcloud plugin (host-attaches-auth) — same linked-account secret as
         // the native OcsNextcloud gateway.
@@ -105,7 +129,7 @@ impl ReqwestFetcher {
         {
             host_auth.push((host, (user, pw)));
         }
-        Self { client, host_auth }
+        Self { host_auth }
     }
 }
 
@@ -117,19 +141,108 @@ fn host_of(url: &str) -> Option<String> {
         .map(|h| h.split(':').next().unwrap_or(h).to_lowercase())
 }
 
+/// Whether a URL host names loopback itself: `localhost`, or a loopback address
+/// literal (`host` is `Url::host_str`, so an IPv6 literal is in brackets).
+fn names_loopback(host: &str) -> bool {
+    let bare = host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(host);
+    bare.eq_ignore_ascii_case("localhost")
+        || bare.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
+}
+
+/// [`mw_egress::on_prem_allowed`] plus loopback, for a URL that [`names_loopback`].
+fn on_prem_or_loopback(ip: &IpAddr) -> bool {
+    ip.is_loopback() || mw_egress::on_prem_allowed(ip)
+}
+
+/// The address policy for one plugin fetch, chosen from the host the URL names.
+fn plugin_fetch_policy(host: &str) -> fn(&IpAddr) -> bool {
+    if names_loopback(host) {
+        on_prem_or_loopback
+    } else {
+        mw_egress::on_prem_allowed
+    }
+}
+
+/// Check a plugin fetch URL and resolve its host, once, to the addresses the request
+/// may connect to: every address of the answer that [`plugin_fetch_policy`] allows.
+/// An IP literal is its own answer and never goes to the resolver. Unlike
+/// [`mw_egress::validate_and_resolve_with`], which keeps the first allowed address,
+/// this keeps them all, so a dual-stack name whose service listens on one family
+/// (`localhost`, most often) still connects.
+async fn plugin_fetch_addrs(url: &reqwest::Url) -> Result<Vec<std::net::SocketAddr>, &'static str> {
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err("only http and https URLs are fetched");
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err("credentials in the URL are not allowed");
+    }
+    let host = url
+        .host_str()
+        .filter(|h| !h.is_empty())
+        .ok_or("the URL has no host")?;
+    let port = url.port_or_known_default().ok_or("the URL has no port")?;
+    let bare = host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(host);
+    let resolved: Vec<std::net::SocketAddr> = match bare.parse::<IpAddr>() {
+        Ok(ip) => vec![std::net::SocketAddr::new(ip, port)],
+        Err(_) => tokio::net::lookup_host((host, port))
+            .await
+            .map_err(|_| "the host does not resolve")?
+            .collect(),
+    };
+    let policy = plugin_fetch_policy(host);
+    let allowed: Vec<_> = resolved.into_iter().filter(|a| policy(&a.ip())).collect();
+    if allowed.is_empty() {
+        return Err("the host has no address this server may connect to");
+    }
+    Ok(allowed)
+}
+
+/// Whether a redirect from `from` to `to` stays on the same host without dropping
+/// from https to http.
+fn same_host_redirect(from: &reqwest::Url, to: &reqwest::Url) -> bool {
+    from.host_str() == to.host_str() && (to.scheme() == "https" || from.scheme() == to.scheme())
+}
+
 #[async_trait]
 impl HttpFetcher for ReqwestFetcher {
     async fn fetch(&self, req: HttpReq) -> std::result::Result<HttpResp, String> {
         let method = reqwest::Method::from_bytes(req.method.as_bytes())
             .map_err(|_| format!("bad method {}", req.method))?;
-        let mut rb = self.client.request(method, &req.url);
+        let url = reqwest::Url::parse(&req.url).map_err(|_| "malformed url".to_string())?;
+        let addrs = plugin_fetch_addrs(&url)
+            .await
+            .map_err(|why| format!("refused by the host address policy: {why}"))?;
+        let host = url.host_str().unwrap_or_default().to_lowercase();
+        // `.no_proxy()`: an ambient `HTTP_PROXY` would resolve the name itself, so the
+        // pin below would not be what the request reaches. See `mw_egress::harden_client`.
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .resolve_to_addrs(&host, &addrs)
+            .redirect(reqwest::redirect::Policy::custom(|attempt| {
+                let stays = attempt
+                    .previous()
+                    .last()
+                    .is_some_and(|from| same_host_redirect(from, attempt.url()));
+                if stays && attempt.previous().len() <= PLUGIN_FETCH_MAX_REDIRECTS {
+                    attempt.follow()
+                } else {
+                    attempt.stop()
+                }
+            }))
+            .build()
+            .map_err(|e| e.to_string())?;
+        let mut rb = client.request(method, url);
         for (k, v) in &req.headers {
             rb = rb.header(k.as_str(), v.as_str());
         }
         // Inject the linked-account auth for a credential-less allowlisted guest.
-        if let Some(host) = host_of(&req.url)
-            && let Some((_, (user, pw))) = self.host_auth.iter().find(|(h, _)| *h == host)
-        {
+        if let Some((_, (user, pw))) = self.host_auth.iter().find(|(h, _)| *h == host) {
             rb = rb.basic_auth(user, Some(pw));
         }
         if let Some(body) = req.body {
@@ -276,7 +389,7 @@ impl KvStore for StorePluginKv {
 
 /// Build the plugin-KV quota ceilings, deployment-configurable via env with the
 /// advertised defaults (256 B key, 64 KiB value, 5 MiB total, 1000 keys per namespace).
-fn plugin_kv_limits() -> PluginKvLimits {
+pub(crate) fn plugin_kv_limits() -> PluginKvLimits {
     let mut l = PluginKvLimits::default();
     if let Some(v) = env("MW_PLUGIN_KV_MAX_KEY_BYTES").and_then(|s| s.parse().ok()) {
         l.max_key_bytes = v;
@@ -313,26 +426,22 @@ impl Rng for HostRng {
     }
 }
 
-/// Build the host-service bundle e14 injects: reqwest(rustls) HTTP (defaults deny at
-/// the allowlist boundary in `mw-plugin`), the store-backed bridge OAuth provider (B1 —
+/// Build the host-service bundle e14 injects: the [`ReqwestFetcher`] (behind the
+/// allowlist check in `mw-plugin`), the store-backed bridge OAuth provider (B1 —
 /// cached-or-refreshed 0018 tokens over the host reqwest/rustls client), the
 /// store-backed EWS per-account basic-credential provider, and scoped KV/clock/rng.
 pub(crate) fn host_services(store: &Store) -> HostServices {
-    // `.no_proxy()`: plugin egress is gated by the `mw-plugin` host allowlist and the
-    // OAuth poster carries bridge refresh tokens. An ambient `HTTP_PROXY` would
-    // resolve the allowlisted host itself and see the token exchange.
-    // See `mw_egress::harden_client`.
-    let http_client = || {
-        reqwest::Client::builder()
-            .no_proxy()
-            .build()
-            .expect("reqwest client builds")
-    };
+    // `.no_proxy()`: the OAuth poster carries bridge refresh tokens, and an ambient
+    // `HTTP_PROXY` would see the token exchange. See `mw_egress::harden_client`.
+    let oauth_http = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("reqwest client builds");
     HostServices {
-        http: Arc::new(ReqwestFetcher::from_env(http_client())),
+        http: Arc::new(ReqwestFetcher::from_env()),
         oauth: Arc::new(StoreOAuthProvider {
             store: store.clone(),
-            poster: Arc::new(oauth_client::ReqwestPoster::new(http_client())),
+            poster: Arc::new(oauth_client::ReqwestPoster::new(oauth_http)),
             client_secret: env("MW_BRIDGE_OAUTH_CLIENT_SECRET"),
         }),
         basic_creds: Arc::new(StoreEwsCredProvider {
@@ -1085,7 +1194,7 @@ impl mw_engine::EmbeddingProvider for GatewayEmbeddings {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Map a 0008 [`PluginRow`] to a [`PluginManifest`] for the in-process host.
-fn manifest_of(row: &PluginRow) -> PluginManifest {
+pub(crate) fn manifest_of(row: &PluginRow) -> PluginManifest {
     PluginManifest {
         id: row.id.clone(),
         name: row.name.clone(),
@@ -1188,6 +1297,130 @@ const FIRST_PARTY_DIGESTS: &[(&str, [u8; 32])] = &[
     ),
 ];
 
+/// The manifest of one first-party component, compiled in beside its digest pin.
+///
+/// A component's bytes do not carry their manifest, so for a first-party id this
+/// table is the manifest: an administrator registers the id and cannot declare a
+/// capability the component was not built to use. `net_allowlist` is the default;
+/// registration may replace it with the deployment's own hosts.
+/// `first_party_manifests_match_the_plugin_toml_files` holds the table to
+/// `plugins/<id>/plugin.toml`.
+struct FirstPartyManifest {
+    id: &'static str,
+    name: &'static str,
+    version: &'static str,
+    capabilities: &'static [Capability],
+    net_allowlist: &'static [&'static str],
+    memory_mb: u32,
+    deadline_ms: u64,
+}
+
+const FIRST_PARTY_MANIFESTS: &[FirstPartyManifest] = &[
+    FirstPartyManifest {
+        id: "bridge-graph",
+        name: "Microsoft Graph bridge",
+        version: "26.8.0",
+        capabilities: &[
+            Capability::AccountBackend,
+            Capability::Net,
+            Capability::AddrbookSource,
+            Capability::StoreKvScoped,
+        ],
+        net_allowlist: &["graph.microsoft.com", "login.microsoftonline.com"],
+        memory_mb: 64,
+        deadline_ms: 15_000,
+    },
+    FirstPartyManifest {
+        id: "bridge-ews",
+        name: "Exchange EWS bridge",
+        version: "26.8.0",
+        capabilities: &[
+            Capability::AccountBackend,
+            Capability::Net,
+            Capability::AddrbookSource,
+        ],
+        // `plugin.toml` lists the fixture host `ews.example.com`. An Exchange server
+        // is per deployment: `load_plugin_backends` adds each bound account's
+        // `ews_account_cred.endpoint_host`, and registration may list hosts too.
+        net_allowlist: &[],
+        memory_mb: 128,
+        deadline_ms: 10_000,
+    },
+    FirstPartyManifest {
+        id: "bridge-gmail",
+        name: "Gmail API bridge",
+        version: "26.8.0",
+        capabilities: &[Capability::AccountBackend, Capability::Net],
+        net_allowlist: &["gmail.googleapis.com", "oauth2.googleapis.com"],
+        memory_mb: 64,
+        deadline_ms: 15_000,
+    },
+    FirstPartyManifest {
+        id: "languagetool",
+        name: "LanguageTool grammar",
+        version: "26.8.0",
+        capabilities: &[Capability::DlpDetector, Capability::Net],
+        net_allowlist: &["api.languagetool.org"],
+        memory_mb: 32,
+        deadline_ms: 10_000,
+    },
+    FirstPartyManifest {
+        id: "nextcloud",
+        name: "Nextcloud share links",
+        version: "26.8.0",
+        capabilities: &[Capability::MessagePipeline, Capability::Net],
+        net_allowlist: &[],
+        memory_mb: 32,
+        deadline_ms: 15_000,
+    },
+    FirstPartyManifest {
+        id: "spam-rspamd",
+        name: "Rspamd spam classifier",
+        version: "26.10.0",
+        capabilities: &[
+            Capability::SpamAction,
+            Capability::Net,
+            Capability::StoreKvScoped,
+        ],
+        net_allowlist: &["rspamd"],
+        memory_mb: 32,
+        deadline_ms: 10_000,
+    },
+    FirstPartyManifest {
+        id: "spam-spamassassin",
+        name: "SpamAssassin spam classifier",
+        version: "26.10.0",
+        capabilities: &[
+            Capability::SpamAction,
+            Capability::Net,
+            Capability::StoreKvScoped,
+        ],
+        net_allowlist: &["spamassassin"],
+        memory_mb: 32,
+        deadline_ms: 10_000,
+    },
+];
+
+/// The compiled-in manifest for a first-party id, unsigned, with its default
+/// `net_allowlist`. `None` for any other id, and for the `nextcloud-plugin` alias:
+/// a component is registered under its own id.
+pub(crate) fn first_party_manifest(plugin_id: &str) -> Option<PluginManifest> {
+    let m = FIRST_PARTY_MANIFESTS.iter().find(|m| m.id == plugin_id)?;
+    Some(PluginManifest {
+        id: m.id.to_string(),
+        name: m.name.to_string(),
+        version: m.version.to_string(),
+        signature: None,
+        capabilities: m.capabilities.to_vec(),
+        net_allowlist: m.net_allowlist.iter().map(|h| h.to_string()).collect(),
+        limits: PluginLimits {
+            memory_mb: m.memory_mb,
+            deadline_ms: m.deadline_ms,
+            fuel: None,
+        },
+    })
+}
+
 /// The expected SHA-256 for a first-party component id. `nextcloud-plugin` is an
 /// alias for the `nextcloud` component (both 0008 ids map to the same bytes).
 fn first_party_digest(plugin_id: &str) -> Option<(&'static str, [u8; 32])> {
@@ -1255,10 +1488,15 @@ fn hex32(b: &[u8; 32]) -> String {
 ///
 /// Every skip is `tracing::warn`-logged (never silent).
 fn first_party_component(plugin_id: &str) -> Option<Vec<u8>> {
+    first_party_component_in(plugin_id, &plugin_dirs())
+}
+
+/// [`first_party_component`] over an explicit directory list.
+fn first_party_component_in(plugin_id: &str, dirs: &[PathBuf]) -> Option<Vec<u8>> {
     let (id, expected) = first_party_digest(plugin_id)?;
     let file = format!("{id}.wasm");
     let mut tried = Vec::new();
-    for dir in plugin_dirs() {
+    for dir in dirs {
         let path = dir.join(&file);
         let Ok(bytes) = std::fs::read(&path) else {
             continue;
@@ -1319,12 +1557,11 @@ pub(crate) fn first_party_ids() -> Vec<&'static str> {
 ///      [`resolve_third_party_component`], which admits bytes ONLY on a byte-exact SHA-256
 ///      match to a non-revoked admin-approved pin and audits every refusal.
 ///
-/// The digest pin alone is sufficient to admit bytes here (⇒ an `UnsignedAllowed`
-/// indication + audit at load). The EXISTING `PluginHost::load` signature path
-/// (`signature::decide`) still runs on top: if a `TrustRoot` + manifest signature are
-/// configured it ALSO verifies them — a defense-in-depth layer that reuses the vendored
-/// `ed25519-dalek`, adding no dependency and never weakening the digest gate.
-async fn resolve_component(plugin_id: &str, store: &Store) -> Option<Vec<u8>> {
+/// This gate decides which BYTES may be handed to `PluginHost::load`. Whether a
+/// component without a signature may then load is [`TrustPolicy`]'s decision, and
+/// `PluginHost::load` verifies a signature the manifest does carry against the host
+/// trust root — which is empty in this server, so a signed manifest fails closed.
+pub(crate) async fn resolve_component(plugin_id: &str, store: &Store) -> Option<Vec<u8>> {
     if first_party_digest(plugin_id).is_some() {
         // First-party: frozen, authoritative, TERMINAL — no fall-through to the allowlist.
         return first_party_component(plugin_id);
@@ -1461,7 +1698,7 @@ fn is_high_power(cap: mw_plugin::Capability) -> bool {
 
 /// Whether `plugin_id` is a pinned first-party component — the ONLY provenance permitted a
 /// HIGH_POWER capability.
-fn is_first_party_plugin(plugin_id: &str) -> bool {
+pub(crate) fn is_first_party_plugin(plugin_id: &str) -> bool {
     first_party_digest(plugin_id).is_some()
 }
 
@@ -1470,7 +1707,7 @@ fn is_first_party_plugin(plugin_id: &str) -> bool {
 /// `refused`). Returns `(kept, refused)`. This is the provenance gate; it runs where the
 /// runtime [`Grant`] is built, so a third-party plugin never receives a HIGH_POWER
 /// capability at runtime regardless of what an admin persisted.
-fn provenance_filtered_grant(
+pub(crate) fn provenance_filtered_grant(
     plugin_id: &str,
     requested: &[mw_plugin::Capability],
 ) -> (Vec<mw_plugin::Capability>, Vec<mw_plugin::Capability>) {
@@ -1487,6 +1724,602 @@ fn provenance_filtered_grant(
         }
     }
     (kept, refused)
+}
+
+// ── Trust policy, grant computation and the load plan ──────────────────────────────────
+
+/// Why a component's bytes are trusted to run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TrustPolicy {
+    /// A first-party id. [`first_party_component`] returns bytes only when they hash
+    /// to the SHA-256 compiled into this binary ([`FIRST_PARTY_DIGESTS`]); that match
+    /// is the trust decision. No administrator flag takes part in it and the stored
+    /// allow-unsigned flag is not read for these ids.
+    FirstPartyDigestPin,
+    /// Any other id. Its bytes are admitted only when they hash to a digest an
+    /// administrator pinned in the 0014 allowlist
+    /// ([`resolve_third_party_component`]); a component whose manifest carries no
+    /// signature additionally needs the stored per-plugin allow-unsigned flag
+    /// (`Store::plugin_allow_unsigned`).
+    AdminPinnedDigest { allow_unsigned: bool },
+}
+
+impl TrustPolicy {
+    /// The policy for `plugin_id`. A store error reading the flag reads as "not
+    /// allowed".
+    pub(crate) async fn of(store: &Store, plugin_id: &str) -> Self {
+        if is_first_party_plugin(plugin_id) {
+            return Self::FirstPartyDigestPin;
+        }
+        let allow_unsigned = store
+            .plugin_allow_unsigned(plugin_id)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!("allow-unsigned flag read failed for '{plugin_id}': {e}");
+                false
+            });
+        Self::AdminPinnedDigest { allow_unsigned }
+    }
+
+    /// The name of this policy in the admin API.
+    pub(crate) fn wire(self) -> &'static str {
+        match self {
+            Self::FirstPartyDigestPin => "first-party-digest",
+            Self::AdminPinnedDigest { .. } => "admin-pinned-digest",
+        }
+    }
+
+    /// Whether a component whose manifest carries no signature may load.
+    ///
+    /// This is the value [`plan_load`] passes as `mw_plugin::Grant::allow_unsigned`,
+    /// the one switch `PluginHost::load` has for such a component. For a first-party
+    /// id it is `true` because of the digest pin, not because anyone allowed it.
+    pub(crate) fn admits_unsigned(self) -> bool {
+        match self {
+            Self::FirstPartyDigestPin => true,
+            Self::AdminPinnedDigest { allow_unsigned } => allow_unsigned,
+        }
+    }
+}
+
+/// The kebab-case name of a capability, as stored in `plugin_grants.capability` and
+/// used by the admin API.
+pub(crate) fn capability_name(cap: Capability) -> String {
+    serde_json::to_value(cap)
+        .ok()
+        .and_then(|v| v.as_str().map(String::from))
+        .unwrap_or_default()
+}
+
+/// The capabilities one load of `manifest` runs with, as `(granted, refused)`:
+/// the stored `plugin_grants` rows for this scope (`Store::plugin_grants_scoped`:
+/// deployment-wide rows, plus `account`'s own when the instance backs an account)
+/// ∩ the manifest's declared capabilities, then through [`provenance_filtered_grant`]
+/// (`refused` is what that removed). With no grant row the result is empty. A row
+/// naming a capability the manifest does not declare contributes nothing, and a
+/// store error reads as no grant.
+pub(crate) async fn effective_capabilities(
+    store: &Store,
+    manifest: &PluginManifest,
+    account: Option<&str>,
+) -> (Vec<Capability>, Vec<Capability>) {
+    let stored = store
+        .plugin_grants_scoped(&manifest.id, account)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!("plugin_grants read failed for '{}': {e}", manifest.id);
+            Vec::new()
+        });
+    let granted: Vec<Capability> = manifest
+        .capabilities
+        .iter()
+        .copied()
+        .filter(|c| stored.contains(&capability_name(*c)))
+        .collect();
+    provenance_filtered_grant(&manifest.id, &granted)
+}
+
+/// Why a registered plugin is not running in this process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NotLoaded {
+    /// No administrator has approved it.
+    NotApproved,
+    /// It is approved but not enabled.
+    Disabled,
+    /// It carries no signature and its [`TrustPolicy`] does not admit that.
+    UnsignedNotAllowed,
+    /// No stored grant gives it a capability it can run with.
+    NoGrant,
+    /// No component file passed the digest gate ([`resolve_component`]).
+    ComponentUnavailable,
+    /// `PluginHost::load` refused the component.
+    LoadFailed,
+    /// This server runs in proxy mode: it has no engine, so nothing calls a plugin.
+    NoEngine,
+    /// It is an account backend and no account is bound to it (`bridge_accounts`).
+    NoAccountBinding,
+    /// Nothing in this server calls the hooks it implements.
+    NoHostCaller,
+    /// Another spam classifier holds the one classifier seat.
+    Superseded,
+}
+
+impl NotLoaded {
+    /// The name of this reason in the admin API.
+    pub(crate) fn wire(self) -> &'static str {
+        match self {
+            Self::NotApproved => "not-approved",
+            Self::Disabled => "disabled",
+            Self::UnsignedNotAllowed => "unsigned-not-allowed",
+            Self::NoGrant => "no-grant",
+            Self::ComponentUnavailable => "component-unavailable",
+            Self::LoadFailed => "load-failed",
+            Self::NoEngine => "proxy-mode",
+            Self::NoAccountBinding => "no-account-binding",
+            Self::NoHostCaller => "no-host-caller",
+            Self::Superseded => "another-classifier-active",
+        }
+    }
+}
+
+/// What a plugin is loaded as. Decided from the manifest's declared capabilities.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PluginRole {
+    /// Declares `account-backend`: loaded per `bridge_accounts` binding by
+    /// [`load_plugin_backends`], at start-up.
+    Bridge,
+    /// Declares `spam-action`: loaded into the classifier seat by
+    /// [`sync_spam_classifier`], at start-up and after every registry change.
+    Spam,
+    /// Anything else (`dlp-detector`, `message-pipeline`, `addrbook-source`,
+    /// `autoconfig-source` on their own). The server has no caller for these hooks,
+    /// so such a plugin is never loaded.
+    Other,
+}
+
+impl PluginRole {
+    pub(crate) fn of(manifest: &PluginManifest) -> Self {
+        if manifest.capabilities.contains(&Capability::AccountBackend) {
+            Self::Bridge
+        } else if manifest.capabilities.contains(&Capability::SpamAction) {
+            Self::Spam
+        } else {
+            Self::Other
+        }
+    }
+}
+
+/// A load that the registry state permits: the manifest and the grant to hand to
+/// `PluginHost::load`.
+pub(crate) struct LoadPlan {
+    manifest: PluginManifest,
+    grant: Grant,
+    /// HIGH_POWER capabilities a stored grant named and provenance removed.
+    refused: Vec<Capability>,
+}
+
+/// Decide whether `row` may load for `account` (`None` ⇒ an instance bound to no
+/// account) and with what. Reads only the store; no component file is opened.
+pub(crate) async fn plan_load(
+    store: &Store,
+    row: &PluginRow,
+    account: Option<&str>,
+) -> Result<LoadPlan, NotLoaded> {
+    if row.approved_by.is_none() {
+        return Err(NotLoaded::NotApproved);
+    }
+    if !row.enabled {
+        return Err(NotLoaded::Disabled);
+    }
+    let manifest = manifest_of(row);
+    let trust = TrustPolicy::of(store, &row.id).await;
+    if manifest.signature.is_none() && !trust.admits_unsigned() {
+        return Err(NotLoaded::UnsignedNotAllowed);
+    }
+    let (capabilities, refused) = effective_capabilities(store, &manifest, account).await;
+    if capabilities.is_empty() {
+        return Err(NotLoaded::NoGrant);
+    }
+    let grant = Grant {
+        plugin_id: row.id.clone(),
+        capabilities,
+        granted_by: row.approved_by.clone().unwrap_or_default(),
+        allow_unsigned: trust.admits_unsigned(),
+    };
+    Ok(LoadPlan {
+        manifest,
+        grant,
+        refused,
+    })
+}
+
+/// Carry out a [`LoadPlan`]: pass the component through the digest gate and load it
+/// under the plan's grant, bound to `account` when given.
+async fn load_planned(
+    host: &PluginRegistry,
+    store: &Store,
+    plan: &LoadPlan,
+    account: Option<&str>,
+) -> Result<PluginHandle, NotLoaded> {
+    let id = &plan.manifest.id;
+    if !plan.refused.is_empty() {
+        tracing::warn!(
+            "third-party plugin '{id}' refused HIGH_POWER capability(ies) {:?} (first-party only)",
+            plan.refused
+        );
+        audit_plugin_event(
+            store,
+            mw_admin::AuditKind::PluginLoadRefused,
+            id,
+            json!({ "reason": "high-power-cap-refused", "caps": format!("{:?}", plan.refused) }),
+        )
+        .await;
+    }
+    // Deny-by-default code load: first-party bytes must match the compiled-in pin,
+    // any other bytes an active admin-approved pin. A missing, tampered, unapproved
+    // or revoked component fails closed (and audits).
+    let Some(bytes) = resolve_component(id, store).await else {
+        return Err(NotLoaded::ComponentUnavailable);
+    };
+    let host = host.lock().expect("plugin registry lock");
+    let loaded = match account {
+        // Bind the account to the instance so the guest's per-account host imports
+        // (`basic-credentials`/`oauth-token`), which pass an empty handle, resolve to
+        // this account's sealed credentials host-side.
+        Some(account) => host.load_for_account(&bytes, &plan.manifest, &plan.grant, account),
+        None => host.load(&bytes, &plan.manifest, &plan.grant),
+    };
+    loaded.map_err(|e| {
+        tracing::error!("plugin '{id}' load failed: {e}");
+        NotLoaded::LoadFailed
+    })
+}
+
+// ── What is loaded in this process ─────────────────────────────────────────────────────
+
+/// One plugin as loaded: per instance, the capabilities it runs with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LoadedPlugin {
+    /// Account id (`""` for an instance bound to no account) → that instance's
+    /// effective capabilities, as `PluginHandle::granted` reports them.
+    instances: BTreeMap<String, Vec<Capability>>,
+    /// The registry row's `net_allowlist` when it was loaded.
+    net_allowlist: Vec<String>,
+}
+
+/// The engine's spam classifier seat. [`build_spam_hook`] hands this to the engine
+/// once; [`sync_spam_classifier`] fills, replaces and empties it afterwards, so a
+/// registry change reaches ingest without a restart. Empty, it answers `Unknown`,
+/// on which ingest does nothing.
+pub(crate) struct SpamSeat {
+    current: std::sync::RwLock<Option<Arc<SpamPluginHook>>>,
+}
+
+impl SpamSeat {
+    fn get(&self) -> Option<Arc<SpamPluginHook>> {
+        self.current.read().expect("spam seat lock").clone()
+    }
+
+    fn set(&self, hook: Option<Arc<SpamPluginHook>>) {
+        *self.current.write().expect("spam seat lock") = hook;
+    }
+}
+
+#[async_trait]
+impl mw_engine::SpamHook for SpamSeat {
+    async fn classify(&self, raw: &[u8]) -> mw_engine::SpamVerdict {
+        match self.get() {
+            Some(hook) => hook.classify(raw).await,
+            None => mw_engine::SpamVerdict::Unknown,
+        }
+    }
+}
+
+/// What the plugin admin routes need to know about one plugin host: what is loaded
+/// in it and the classifier seat the engine holds.
+pub(crate) struct PluginRuntime {
+    spam: Arc<SpamSeat>,
+    /// Set by [`build_spam_hook`] and [`load_plugin_backends`], which the mount
+    /// calls in engine mode only. Unset ⇒ proxy mode: nothing would call a plugin,
+    /// so none is loaded.
+    engine_mode: AtomicBool,
+    loaded: Mutex<BTreeMap<String, LoadedPlugin>>,
+    /// The reason the last load attempt of a plugin failed after planning.
+    failed: Mutex<BTreeMap<String, NotLoaded>>,
+}
+
+impl PluginRuntime {
+    fn loaded(&self, plugin_id: &str) -> Option<LoadedPlugin> {
+        self.loaded
+            .lock()
+            .expect("plugin runtime lock")
+            .get(plugin_id)
+            .cloned()
+    }
+
+    fn failure(&self, plugin_id: &str) -> Option<NotLoaded> {
+        self.failed
+            .lock()
+            .expect("plugin runtime lock")
+            .get(plugin_id)
+            .copied()
+    }
+
+    fn note_failure(&self, plugin_id: &str, why: NotLoaded) {
+        self.failed
+            .lock()
+            .expect("plugin runtime lock")
+            .insert(plugin_id.to_string(), why);
+    }
+
+    /// Record a loaded instance of `row` (bound to `account`, `""` for none).
+    fn note_loaded(&self, row: &PluginRow, account: &str, handle: &PluginHandle) {
+        let mut loaded = self.loaded.lock().expect("plugin runtime lock");
+        let entry = loaded
+            .entry(row.id.clone())
+            .or_insert_with(|| LoadedPlugin {
+                instances: BTreeMap::new(),
+                net_allowlist: manifest_of(row).net_allowlist,
+            });
+        entry
+            .instances
+            .insert(account.to_string(), handle.granted());
+        self.failed
+            .lock()
+            .expect("plugin runtime lock")
+            .remove(&row.id);
+    }
+
+    fn forget(&self, plugin_id: &str) {
+        self.loaded
+            .lock()
+            .expect("plugin runtime lock")
+            .remove(plugin_id);
+    }
+}
+
+/// The [`PluginRuntime`] of every plugin host that is still alive, keyed by the
+/// host. A side table for the reason [`ASSIST_LIVE`] is one: the handlers receive
+/// only the `PluginRegistry` extension, and two apps in one process (the integration
+/// tests) must not share state.
+static PLUGIN_RUNTIMES: Mutex<Vec<RuntimeEntry>> = Mutex::new(Vec::new());
+
+/// One [`PLUGIN_RUNTIMES`] entry: a plugin host and its runtime record.
+type RuntimeEntry = (Weak<Mutex<PluginHost>>, Arc<PluginRuntime>);
+
+/// The runtime record for `reg`, created on first use.
+pub(crate) fn plugin_runtime(reg: &PluginRegistry) -> Arc<PluginRuntime> {
+    let mut table = PLUGIN_RUNTIMES.lock().expect("plugin runtime table lock");
+    table.retain(|(host, _)| host.strong_count() > 0);
+    if let Some((_, runtime)) = table
+        .iter()
+        .find(|(host, _)| std::ptr::eq(host.as_ptr(), Arc::as_ptr(reg)))
+    {
+        return Arc::clone(runtime);
+    }
+    let runtime = Arc::new(PluginRuntime {
+        spam: Arc::new(SpamSeat {
+            current: std::sync::RwLock::new(None),
+        }),
+        engine_mode: AtomicBool::new(false),
+        loaded: Mutex::new(BTreeMap::new()),
+        failed: Mutex::new(BTreeMap::new()),
+    });
+    table.push((Arc::downgrade(reg), Arc::clone(&runtime)));
+    runtime
+}
+
+/// [`plan_load`] for a spam classifier: the grant must include `spam-action`.
+async fn plan_spam_load(store: &Store, row: &PluginRow) -> Result<LoadPlan, NotLoaded> {
+    let plan = plan_load(store, row, None).await?;
+    if plan.grant.capabilities.contains(&Capability::SpamAction) {
+        Ok(plan)
+    } else {
+        Err(NotLoaded::NoGrant)
+    }
+}
+
+/// Make the classifier seat match the registry: the first plugin, in id order, whose
+/// role is [`PluginRole::Spam`] and whose [`plan_spam_load`] succeeds and loads, is
+/// seated; with none, the seat is emptied. A seated plugin whose plan is unchanged is
+/// kept without being loaded again. The admin routes call this after every change,
+/// so approve, enable, disable, grant, allow-unsigned, uninstall and a digest
+/// revocation all take effect on the next message. Does nothing in proxy mode.
+pub(crate) async fn sync_spam_classifier(reg: &PluginRegistry, store: &Store) {
+    let runtime = plugin_runtime(reg);
+    if !runtime.engine_mode.load(Ordering::SeqCst) {
+        return;
+    }
+    let rows = match store.list_plugins().await {
+        Ok(rows) => rows,
+        Err(e) => {
+            // The registry cannot be read, so nothing is known to be permitted.
+            tracing::error!("plugin registry read failed; spam classifier unloaded: {e}");
+            Vec::new()
+        }
+    };
+    let seated = runtime.spam.get();
+    let mut chosen: Option<String> = None;
+    for row in &rows {
+        if PluginRole::of(&manifest_of(row)) != PluginRole::Spam {
+            continue;
+        }
+        runtime
+            .failed
+            .lock()
+            .expect("plugin runtime lock")
+            .remove(&row.id);
+        if chosen.is_some() {
+            continue;
+        }
+        let Ok(plan) = plan_spam_load(store, row).await else {
+            continue;
+        };
+        let planned: BTreeSet<Capability> = plan.grant.capabilities.iter().copied().collect();
+        let unchanged = seated.as_ref().is_some_and(|s| s.plugin_id == row.id)
+            && runtime.loaded(&row.id).is_some_and(|l| {
+                l.net_allowlist == plan.manifest.net_allowlist
+                    && l.instances.get("").is_some_and(|caps| {
+                        caps.iter().copied().collect::<BTreeSet<_>>() == planned
+                    })
+            });
+        if unchanged {
+            chosen = Some(row.id.clone());
+            continue;
+        }
+        match load_planned(reg, store, &plan, None).await {
+            Ok(handle) => {
+                runtime.forget(&row.id);
+                runtime.note_loaded(row, "", &handle);
+                runtime.spam.set(Some(Arc::new(SpamPluginHook {
+                    handle,
+                    plugin_id: row.id.clone(),
+                })));
+                tracing::info!(
+                    "spam classifier plugin '{}' loaded (§10.8 delivery-filter hook)",
+                    row.id
+                );
+                chosen = Some(row.id.clone());
+            }
+            Err(why) => runtime.note_failure(&row.id, why),
+        }
+    }
+    if chosen.is_none() && seated.is_some() {
+        runtime.spam.set(None);
+        tracing::info!("spam classifier unloaded: no approved, enabled and granted plugin");
+    }
+    // Drop the record of any classifier that is no longer the seated one.
+    let spam_ids: Vec<&str> = rows
+        .iter()
+        .filter(|r| PluginRole::of(&manifest_of(r)) == PluginRole::Spam)
+        .map(|r| r.id.as_str())
+        .collect();
+    if let Some(old) = seated
+        && chosen.as_deref() != Some(old.plugin_id.as_str())
+    {
+        runtime.forget(&old.plugin_id);
+    }
+    for id in spam_ids {
+        if chosen.as_deref() != Some(id) {
+            runtime.forget(id);
+        }
+    }
+}
+
+/// Run the seated spam classifier on `raw` if it is `plugin_id`, and return the
+/// guest's verdict envelope (or the host's error). `None` when `plugin_id` is not the
+/// seated classifier. This is the call ingest makes, without the ingest around it.
+pub(crate) async fn probe_spam_classifier(
+    reg: &PluginRegistry,
+    plugin_id: &str,
+    raw: Vec<u8>,
+) -> Option<Result<String, String>> {
+    let hook = plugin_runtime(reg).spam.get()?;
+    if hook.plugin_id != plugin_id {
+        return None;
+    }
+    Some(
+        hook.handle
+            .call_spam_action(raw)
+            .await
+            .map_err(|e| e.to_string()),
+    )
+}
+
+/// The bridge instances the registry state asks for: per bound account, the
+/// capabilities its instance would run with. An account whose plan fails, or whose
+/// grant lacks `account-backend`, is left out; the first such reason is returned too.
+async fn wanted_bridge_instances(
+    store: &Store,
+    row: &PluginRow,
+) -> (BTreeMap<String, Vec<Capability>>, usize, Option<NotLoaded>) {
+    let bindings = store.list_bridge_accounts().await.unwrap_or_default();
+    let mut wanted = BTreeMap::new();
+    let mut bound = 0usize;
+    let mut refusal = None;
+    for b in bindings.iter().filter(|b| b.bridge_id == row.id) {
+        bound += 1;
+        match plan_load(store, row, Some(&b.account_id)).await {
+            Ok(plan)
+                if plan
+                    .grant
+                    .capabilities
+                    .contains(&Capability::AccountBackend) =>
+            {
+                let caps: BTreeSet<Capability> = plan.grant.capabilities.iter().copied().collect();
+                wanted.insert(b.account_id.clone(), caps.into_iter().collect());
+            }
+            Ok(_) => refusal = refusal.or(Some(NotLoaded::NoGrant)),
+            Err(why) => refusal = refusal.or(Some(why)),
+        }
+    }
+    (wanted, bound, refusal)
+}
+
+/// What the admin API reports about one registered plugin in this process.
+pub(crate) struct PluginStatus {
+    /// An instance of it is loaded and something in this server calls it.
+    pub(crate) loaded: bool,
+    /// The capabilities the loaded instance(s) run with.
+    pub(crate) loaded_capabilities: Vec<Capability>,
+    /// The registry state differs from what is loaded and only a restart applies it.
+    pub(crate) restart_required: bool,
+    /// Why it is not loaded, when a restart alone would not load it.
+    pub(crate) not_loaded: Option<NotLoaded>,
+}
+
+/// [`PluginStatus`] for `row`.
+pub(crate) async fn plugin_status(
+    store: &Store,
+    reg: &PluginRegistry,
+    row: &PluginRow,
+) -> PluginStatus {
+    let runtime = plugin_runtime(reg);
+    let manifest = manifest_of(row);
+    let loaded = runtime.loaded(&row.id);
+    let loaded_capabilities: Vec<Capability> = loaded
+        .iter()
+        .flat_map(|l| l.instances.values().flatten().copied())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let (restart_required, not_loaded) = match PluginRole::of(&manifest) {
+        PluginRole::Other => (false, Some(NotLoaded::NoHostCaller)),
+        _ if !runtime.engine_mode.load(Ordering::SeqCst) => (false, Some(NotLoaded::NoEngine)),
+        // `sync_spam_classifier` applies every change, so there is nothing a restart
+        // would add.
+        PluginRole::Spam if loaded.is_some() => (false, None),
+        PluginRole::Spam => {
+            let why = match plan_spam_load(store, row).await {
+                Err(why) => why,
+                Ok(_) => runtime.failure(&row.id).unwrap_or(NotLoaded::Superseded),
+            };
+            (false, Some(why))
+        }
+        // Bridges are loaded by `load_plugin_backends` at start-up only.
+        PluginRole::Bridge => {
+            let (wanted, bound, refusal) = wanted_bridge_instances(store, row).await;
+            let failure = runtime.failure(&row.id);
+            let differs = match &loaded {
+                Some(l) => l.instances != wanted || l.net_allowlist != manifest.net_allowlist,
+                None => !wanted.is_empty(),
+            };
+            let why = if loaded.is_some() {
+                None
+            } else if bound == 0 {
+                Some(refusal.unwrap_or(NotLoaded::NoAccountBinding))
+            } else {
+                refusal.or(failure)
+            };
+            (differs && failure.is_none(), why)
+        }
+    };
+    PluginStatus {
+        loaded: loaded.is_some(),
+        loaded_capabilities,
+        restart_required,
+        not_loaded,
+    }
 }
 
 // ── Content-free audit for plugin load / allowlist events ──────────────────────────────
@@ -1927,91 +2760,48 @@ fn parse_spam_verdict(json: &str) -> mw_engine::SpamVerdict {
     }
 }
 
-/// Build the spam-classification hook from the 0008 registry: the FIRST approved +
-/// enabled plugin that declares the `spam-action` capability AND resolves to a
-/// digest-verified first-party component. `None` ⇒ no classifier configured (ingest is
-/// byte-unchanged). Deny-by-default: an unapproved/disabled/unpinned plugin loads nothing.
+/// The engine's spam-classification hook: the classifier seat of this plugin host,
+/// filled from the registry by [`sync_spam_classifier`] (the first approved, enabled
+/// plugin, in id order, with a stored `spam-action` grant and a component that passes
+/// the digest gate). Always `Some`: the seat is handed over even when empty so that a
+/// plugin registered later is called without a restart. An empty seat answers
+/// `Unknown`, which `apply_spam_at_ingest` treats like `Ham`.
 pub(crate) async fn build_spam_hook(
     host: &PluginRegistry,
     store: &Store,
 ) -> Option<Arc<dyn mw_engine::SpamHook>> {
-    let plugins = store.list_plugins().await.unwrap_or_default();
-    let row = plugins.iter().find(|p| {
-        p.approved_by.is_some()
-            && p.enabled
-            && serde_json::from_str::<Vec<mw_plugin::Capability>>(&p.capabilities_json)
-                .map(|caps| caps.contains(&mw_plugin::Capability::SpamAction))
-                .unwrap_or(false)
-    })?;
-    let bytes = resolve_component(&row.id, store).await?;
-    let manifest = manifest_of(row);
-    // Provenance gate: a third-party spam plugin keeps its `spam-action` (and other
-    // non-HIGH_POWER) caps, but any HIGH_POWER cap it declared is stripped here — never
-    // granted to a non-first-party plugin (the user's 26.15 decision).
-    let (granted_caps, refused_caps) = provenance_filtered_grant(&row.id, &manifest.capabilities);
-    if !refused_caps.is_empty() {
-        tracing::warn!(
-            "third-party plugin '{}' refused HIGH_POWER capability(ies) {:?} (first-party only)",
-            row.id,
-            refused_caps
-        );
-        audit_plugin_event(
-            store,
-            mw_admin::AuditKind::PluginLoadRefused,
-            &row.id,
-            json!({ "reason": "high-power-cap-refused", "caps": format!("{refused_caps:?}") }),
-        )
-        .await;
-    }
-    let grant = Grant {
-        plugin_id: row.id.clone(),
-        capabilities: granted_caps,
-        granted_by: row.approved_by.clone().unwrap_or_default(),
-        allow_unsigned: true,
-    };
-    let handle = {
-        let host = host.lock().expect("plugin registry lock");
-        match host.load(&bytes, &manifest, &grant) {
-            Ok(h) => h,
-            Err(e) => {
-                tracing::error!("spam plugin '{}' load failed: {e}", row.id);
-                return None;
-            }
-        }
-    };
-    tracing::info!(
-        "spam classifier plugin '{}' loaded (§10.8 delivery-filter hook)",
-        row.id
-    );
-    Some(Arc::new(SpamPluginHook {
-        handle,
-        plugin_id: row.id.clone(),
-    }))
+    let runtime = plugin_runtime(host);
+    runtime.engine_mode.store(true, Ordering::SeqCst);
+    sync_spam_classifier(host, store).await;
+    Some(Arc::clone(&runtime.spam) as Arc<dyn mw_engine::SpamHook>)
 }
 
 /// Boot-load the approved bridge/plugin account backends from the 0008 registry
-/// (plan §6.5). For every `bridge_accounts` binding whose bound plugin is an
-/// **approved + enabled** `plugins` row *and* resolves to a digest-verified
-/// first-party component, this obtains the component bytes from the external plugins
-/// dir ([`resolve_component`]), `PluginHost::load`s them under the plugin's manifest +
-/// a boot grant (host services already injected via [`build_plugin_host`]), takes
-/// `as_account_backend()`, and registers it on the engine via `register_plugin_backend`
-/// — after which the account is served by the SAME sync/JMAP dispatch as an IMAP
-/// account. Additionally probes each loaded bridge's HONEST per-interface PIM support
+/// (plan §6.5). For every `bridge_accounts` binding whose bound plugin passes
+/// [`plan_load`] for that account (approved, enabled, trust policy satisfied, at
+/// least one stored grant), this passes the component through the digest gate and
+/// loads it under the plan's grant ([`load_planned`]; host services already injected
+/// via [`build_plugin_host`]), takes `as_account_backend()` — present only when the
+/// grant includes `account-backend` — and registers it on the engine via
+/// `register_plugin_backend`, after which the account is served by the SAME sync/JMAP
+/// dispatch as an IMAP account. Additionally probes each loaded bridge's HONEST per-interface PIM support
 /// and, when advertised, binds its calendar/tasks/reactions/voting/recall/focused-sync
 /// trait objects into a per-account [`BridgePimSource`] (returned for e13 to attach via
 /// [`mw_engine::V7Hooks::with_bridge_caps`]). Returns `(loaded_count, bridge_pim_source)`
 /// — the source is `None` when no account bound any PIM interface.
 ///
-/// Deny-by-default: an unbound, unapproved, disabled, or third-party (unpinned) plugin
+/// Deny-by-default: an unbound, unapproved, disabled, ungranted or unpinned plugin
 /// loads nothing, a component whose on-disk bytes fail the digest pin fails closed, and
 /// an account with no binding is byte-unchanged from the non-plugin path. Every skip is
-/// logged (never silent).
+/// logged (never silent). Runs once, at start-up: a later registry change to a bridge
+/// is reported by [`plugin_status`] as needing a restart.
 pub async fn load_plugin_backends(
     engine: &Arc<mw_engine::Engine>,
     host: &PluginRegistry,
     store: &Store,
 ) -> (usize, Option<Arc<dyn mw_engine::BridgeCapabilitySource>>) {
+    let runtime = plugin_runtime(host);
+    runtime.engine_mode.store(true, Ordering::SeqCst);
     let bindings = match store.list_bridge_accounts().await {
         Ok(b) => b,
         Err(e) => {
@@ -2037,106 +2827,58 @@ pub async fn load_plugin_backends(
             );
             continue;
         };
-        if row.approved_by.is_none() || !row.enabled {
-            tracing::warn!(
-                "bridge plugin '{}' is not approved+enabled; account {} not loaded",
-                b.bridge_id,
-                b.account_id
-            );
-            continue;
-        }
-        // Deny-by-default code load. `resolve_component` admits bytes ONLY if they are a
-        // digest-verified FIRST-PARTY component (frozen compiled-in pin, checked first and
-        // terminally) OR a non-first-party component whose exact SHA-256 is an active
-        // admin-approved pin in the 0014 allowlist (TQ1/TQ2/TQ4). A missing/tampered/
-        // unapproved/revoked component fails closed (and audits).
-        let Some(bytes) = resolve_component(&b.bridge_id, store).await else {
-            tracing::warn!(
-                "no digest-verified or admin-pinned component for plugin '{}'; \
-                 account {} not loaded",
-                b.bridge_id,
-                b.account_id
-            );
-            continue;
+        let mut plan = match plan_load(store, row, Some(&b.account_id)).await {
+            Ok(plan) => plan,
+            Err(why) => {
+                tracing::warn!(
+                    "bridge plugin '{}' not loaded for account {}: {}",
+                    b.bridge_id,
+                    b.account_id,
+                    why.wire()
+                );
+                continue;
+            }
         };
-
-        let mut manifest = manifest_of(row);
         // EWS (password-auth bridge): the account's real Exchange host is provisioned
-        // per-account in the sealed 0011 `ews_account_cred` row, not in the committed
-        // fixture `plugin.toml` allowlist. Mirror its `endpoint_host` into the manifest
-        // `net_allowlist` at mount so the jailed guest's host-mediated `http-fetch` to
-        // the account's endpoint is admitted through the gate (deny-by-default holds for
+        // per-account in the sealed 0011 `ews_account_cred` row, not in the registry
+        // row's allowlist. Mirror its `endpoint_host` into this instance's manifest
+        // `net_allowlist` so the jailed guest's host-mediated `http-fetch` to the
+        // account's endpoint is admitted through the gate (deny-by-default holds for
         // every other host). Absent/disabled row ⇒ no rewrite (the guest then has no
         // reachable endpoint and fails auth via the credential provider above).
         if let Ok(Some(cred)) = store.get_ews_account_cred(&b.account_id).await
             && !cred.endpoint_host.is_empty()
-            && !manifest
+            && !plan
+                .manifest
                 .net_allowlist
                 .iter()
                 .any(|h| h.eq_ignore_ascii_case(&cred.endpoint_host))
         {
-            manifest.net_allowlist.push(cred.endpoint_host);
+            plan.manifest.net_allowlist.push(cred.endpoint_host);
         }
-        // Provenance gate (the user's 26.15 decision): a first-party plugin keeps every
-        // declared capability; a THIRD-PARTY plugin has every HIGH_POWER
-        // (account-backend / send-as-user class) capability stripped here — the point the
-        // runtime grant is built — so it can never act as an account backend even if an
-        // admin persisted such a grant. A third-party bridge thus stripped will fail
-        // `as_account_backend()` below and not load as a backend (fail-closed, as intended).
-        let (granted_caps, refused_caps) =
-            provenance_filtered_grant(&row.id, &manifest.capabilities);
-        if !refused_caps.is_empty() {
-            tracing::warn!(
-                "third-party plugin '{}' refused HIGH_POWER capability(ies) {:?} for account {} \
-                 (first-party only)",
-                b.bridge_id,
-                refused_caps,
-                b.account_id
-            );
-            audit_plugin_event(
-                store,
-                mw_admin::AuditKind::PluginLoadRefused,
-                &row.id,
-                json!({ "reason": "high-power-cap-refused", "caps": format!("{refused_caps:?}") }),
-            )
-            .await;
-        }
-        let grant = Grant {
-            plugin_id: row.id.clone(),
-            capabilities: granted_caps,
-            granted_by: row.approved_by.clone().unwrap_or_default(),
-            // A digest-verified first-party component is trusted by virtue of matching
-            // the compiled-in SHA-256 pin; a third-party component is trusted by an
-            // admin-approved allowlist pin. The boot host carries an empty trust root,
-            // which can't verify a detached signature, so the boot grant allows unsigned
-            // — surfacing the persistent unsigned banner + audit until a signing trust
-            // root is configured. Deny-by-default still holds: it took an approved+enabled
-            // row + a binding + a passing digest pin (first-party OR admin allowlist) to
-            // reach here, and HIGH_POWER caps are already stripped for third-party above.
-            allow_unsigned: true,
-        };
-
-        let handle = {
-            let host = host.lock().expect("plugin registry lock");
-            // Bind THIS account to the instance so the guest's per-account host imports
-            // (`basic-credentials`/`oauth-token`) — which pass an EMPTY handle per the
-            // "one instance backs one account" contract — resolve to this account's
-            // sealed creds host-side (fixes the EWS empty-handle bug; latent OAuth too).
-            match host.load_for_account(&bytes, &manifest, &grant, &b.account_id) {
-                Ok(h) => h,
-                Err(e) => {
-                    tracing::error!("plugin '{}' load failed: {e}", b.bridge_id);
-                    continue;
-                }
+        // The grant is `plan_load`'s: stored grants ∩ manifest, with every HIGH_POWER
+        // capability removed for a third-party plugin (the user's 26.15 decision), so
+        // such a plugin fails `as_account_backend()` below and is not registered.
+        let handle = match load_planned(host, store, &plan, Some(&b.account_id)).await {
+            Ok(handle) => handle,
+            Err(why) => {
+                tracing::warn!(
+                    "bridge plugin '{}' not loaded for account {}: {}",
+                    b.bridge_id,
+                    b.account_id,
+                    why.wire()
+                );
+                runtime.note_failure(&row.id, why);
+                continue;
             }
         };
         let Some(backend) = handle.as_account_backend() else {
             tracing::warn!(
-                "plugin '{}' does not advertise the account-backend capability; \
-                 account {} not loaded",
+                "plugin '{}' holds no account-backend grant; account {} not loaded",
                 b.bridge_id,
                 b.account_id
             );
+            runtime.note_failure(&row.id, NotLoaded::NoGrant);
             continue;
         };
 
@@ -2146,7 +2888,7 @@ pub async fn load_plugin_backends(
             .await
             .map(|a| a.username)
             .unwrap_or_else(|_| b.account_id.clone());
-        let runtime = mw_engine::account::AccountRuntime::new(
+        let account_runtime = mw_engine::account::AccountRuntime::new(
             backend.clone(),
             Arc::new(BridgeSubmitter {
                 backend,
@@ -2154,7 +2896,8 @@ pub async fn load_plugin_backends(
             }) as Arc<dyn mw_engine::account::MailSubmitter>,
             identity,
         );
-        engine.register_plugin_backend(b.account_id.clone(), b.bridge_id.clone(), runtime);
+        engine.register_plugin_backend(b.account_id.clone(), b.bridge_id.clone(), account_runtime);
+        runtime.note_loaded(row, &b.account_id, &handle);
         loaded += 1;
         tracing::info!(
             "boot-loaded bridge '{}' backing account {}",
@@ -2238,7 +2981,8 @@ pub(crate) async fn load_countersigned_prefixes(store: &Store) -> HashSet<String
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// The additive routes e14 owns: `POST /api/assist/transcribe`, `/admin/assist/*`
-/// (GET/PUT + status + kill), `GET /api/nextcloud/list`, `POST /admin/plugins/{id}/allow-unsigned`.
+/// (GET/PUT + status + kill), `GET /api/nextcloud/list`, and the allowlist and egress
+/// admin routers.
 /// e14 merges this into `router()` alongside the e9 factories and layers the same
 /// injected extensions.
 pub(crate) fn extra_v7_router() -> Router<AppState> {
@@ -2248,10 +2992,6 @@ pub(crate) fn extra_v7_router() -> Router<AppState> {
         .route("/admin/assist/status", get(assist_admin_status))
         .route("/admin/assist/kill", post(assist_admin_kill))
         .route("/api/nextcloud/list", get(nextcloud_list))
-        .route(
-            "/admin/plugins/{id}/allow-unsigned",
-            post(plugin_allow_unsigned),
-        )
         // The third-party allowlist admin API (approve/revoke/list-pending/uninstall),
         // admin-session-gated + audited. Registered on this already-mounted router so no
         // `lib.rs` mount edit is needed this wave.
@@ -2757,33 +3497,6 @@ async fn nextcloud_list(
     }
 }
 
-// ── Plugins: allow-unsigned (enable an unsigned component under policy) ───────
-
-/// `POST /admin/plugins/{id}/allow-unsigned` — enable an unsigned component with the
-/// explicit unsigned override (⇒ the persistent banner). Persists `enabled` to 0008.
-async fn plugin_allow_unsigned(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Extension(reg): Extension<PluginRegistry>,
-    axum::extract::Path(id): axum::extract::Path<String>,
-) -> Response {
-    if let Err(resp) = require_admin(&state, &headers).await {
-        return resp;
-    }
-    {
-        let mut host = reg.lock().expect("plugin registry lock");
-        if let Err(e) = host.enable(&id) {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    }
-    let _ = state.store.set_plugin_enabled(&id, true).await;
-    Json(json!({ "enabled": true, "signed": false, "allowUnsigned": true })).into_response()
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // 9. CLI helpers (main.rs `plugin` / `password` subcommands)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3240,6 +3953,395 @@ mod tests {
         );
         assert!(is_high_power(AccountBackend));
         assert!(!is_high_power(SpamAction));
+    }
+
+    // ── 26.20 (t28-e14): first-party manifests, trust policy, grant computation ──
+
+    /// The uncommented lines of `plugins/<id>/plugin.toml`.
+    fn plugin_toml(id: &str) -> String {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../plugins")
+            .join(id)
+            .join("plugin.toml");
+        std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+            .lines()
+            .filter(|l| !l.trim_start().starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn toml_value<'a>(body: &'a str, key: &str) -> &'a str {
+        let at = body
+            .find(&format!("{key} = "))
+            .unwrap_or_else(|| panic!("no `{key}` in plugin.toml"));
+        let rest = &body[at + key.len() + 3..];
+        match rest.strip_prefix('[') {
+            Some(list) => &list[..list.find(']').expect("closing bracket")],
+            None => rest.lines().next().unwrap_or_default(),
+        }
+    }
+
+    fn toml_list(body: &str, key: &str) -> Vec<String> {
+        toml_value(body, key)
+            .split(',')
+            .map(|s| s.trim().trim_matches('"').to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    }
+
+    /// The compiled-in manifest table says what each `plugin.toml` says. The one
+    /// stated difference is `bridge-ews`, whose file lists a fixture host.
+    #[test]
+    fn first_party_manifests_match_the_plugin_toml_files() {
+        assert_eq!(
+            FIRST_PARTY_MANIFESTS
+                .iter()
+                .map(|m| m.id)
+                .collect::<Vec<_>>(),
+            FIRST_PARTY_DIGESTS
+                .iter()
+                .map(|(id, _)| *id)
+                .collect::<Vec<_>>(),
+            "one manifest per pinned component, same order"
+        );
+        for m in FIRST_PARTY_MANIFESTS {
+            let body = plugin_toml(m.id);
+            let text = |key: &str| toml_value(&body, key).trim().trim_matches('"').to_string();
+            assert_eq!(text("id"), m.id);
+            assert_eq!(text("name"), m.name, "{}: name", m.id);
+            assert_eq!(text("version"), m.version, "{}: version", m.id);
+            assert_eq!(
+                toml_list(&body, "capabilities"),
+                m.capabilities
+                    .iter()
+                    .map(|c| capability_name(*c))
+                    .collect::<Vec<_>>(),
+                "{}: capabilities",
+                m.id
+            );
+            let hosts = toml_list(&body, "net_allowlist");
+            if m.id == "bridge-ews" {
+                assert_eq!(hosts, vec!["ews.example.com".to_string()]);
+                assert!(m.net_allowlist.is_empty());
+            } else {
+                assert_eq!(hosts, m.net_allowlist, "{}: net_allowlist", m.id);
+            }
+            assert_eq!(
+                text("memory_mb"),
+                m.memory_mb.to_string(),
+                "{}: memory_mb",
+                m.id
+            );
+            assert_eq!(
+                text("deadline_ms"),
+                m.deadline_ms.to_string(),
+                "{}: deadline_ms",
+                m.id
+            );
+        }
+        assert!(first_party_manifest("nextcloud-plugin").is_none());
+        assert!(first_party_manifest("acme").is_none());
+    }
+
+    /// A first-party component file whose bytes do not hash to the compiled-in digest
+    /// is not returned, wherever it is found; the genuine file next to it is.
+    #[test]
+    fn a_tampered_first_party_component_is_refused_by_the_digest() {
+        let good = first_party_component("spam-rspamd").expect("shipped bytes");
+        let tampered_dir = temp_dir();
+        let mut tampered = good.clone();
+        let last = tampered.len() - 1;
+        tampered[last] ^= 0x01;
+        std::fs::write(tampered_dir.join("spam-rspamd.wasm"), &tampered).unwrap();
+        assert!(
+            first_party_component_in("spam-rspamd", std::slice::from_ref(&tampered_dir)).is_none(),
+            "a one-bit change must fail the pin"
+        );
+
+        let good_dir = temp_dir();
+        std::fs::write(good_dir.join("spam-rspamd.wasm"), &good).unwrap();
+        assert_eq!(
+            first_party_component_in("spam-rspamd", &[tampered_dir.clone(), good_dir.clone()]),
+            Some(good),
+            "the tampered file is skipped, not loaded, and the verified one is used"
+        );
+        let _ = std::fs::remove_dir_all(&tampered_dir);
+        let _ = std::fs::remove_dir_all(&good_dir);
+    }
+
+    fn registry_row(manifest: &PluginManifest) -> PluginRow {
+        PluginRow {
+            id: manifest.id.clone(),
+            name: manifest.name.clone(),
+            version: manifest.version.clone(),
+            signature_hex: manifest.signature.clone(),
+            approved_by: Some("admin".into()),
+            enabled: true,
+            capabilities_json: serde_json::to_string(&manifest.capabilities).unwrap(),
+            net_allowlist_json: serde_json::to_string(&manifest.net_allowlist).unwrap(),
+            limits_json: serde_json::to_string(&manifest.limits).unwrap(),
+            created_at: "2026-10-05T00:00:00Z".into(),
+        }
+    }
+
+    async fn grant_caps(store: &Store, id: &str, account: &str, caps: &[Capability]) {
+        let names: Vec<String> = caps.iter().map(|c| capability_name(*c)).collect();
+        store
+            .replace_plugin_grants(id, account, &names, "admin")
+            .await
+            .unwrap();
+    }
+
+    /// The grant a load runs with is the stored rows ∩ the manifest ∩ provenance.
+    /// Before 26.20 the loader passed the manifest's whole capability list, so the
+    /// first assertion — no row, no capability — is the one that failed.
+    #[tokio::test]
+    async fn the_effective_grant_is_the_stored_grant_within_the_manifest() {
+        use Capability::{AccountBackend, Net, SpamAction, StoreKvScoped};
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let rspamd = first_party_manifest("spam-rspamd").unwrap();
+        assert_eq!(rspamd.capabilities, vec![SpamAction, Net, StoreKvScoped]);
+
+        let (granted, _) = effective_capabilities(&store, &rspamd, None).await;
+        assert!(
+            granted.is_empty(),
+            "no grant row means no capability, got {granted:?}"
+        );
+        assert_eq!(
+            plan_load(&store, &registry_row(&rspamd), None).await.err(),
+            Some(NotLoaded::NoGrant)
+        );
+
+        grant_caps(&store, "spam-rspamd", "", &[SpamAction]).await;
+        let (granted, _) = effective_capabilities(&store, &rspamd, None).await;
+        assert_eq!(granted, vec![SpamAction], "net was not granted");
+
+        // A row for a capability the manifest does not declare adds nothing.
+        grant_caps(&store, "spam-rspamd", "", &[SpamAction, AccountBackend]).await;
+        let (granted, _) = effective_capabilities(&store, &rspamd, None).await;
+        assert_eq!(granted, vec![SpamAction]);
+
+        // A grant scoped to one account reaches that account's instance only.
+        grant_caps(&store, "spam-rspamd", "acct-a", &[Net]).await;
+        let (granted, _) = effective_capabilities(&store, &rspamd, None).await;
+        assert_eq!(granted, vec![SpamAction]);
+        let (granted, _) = effective_capabilities(&store, &rspamd, Some("acct-a")).await;
+        assert_eq!(granted, vec![SpamAction, Net]);
+        let (granted, _) = effective_capabilities(&store, &rspamd, Some("acct-b")).await;
+        assert_eq!(granted, vec![SpamAction]);
+
+        // Provenance: a stored HIGH_POWER grant never reaches a third-party plugin.
+        let third = PluginManifest {
+            id: "acme".into(),
+            name: "Acme".into(),
+            version: "1".into(),
+            signature: None,
+            capabilities: vec![AccountBackend, Net],
+            net_allowlist: Vec::new(),
+            limits: PluginLimits::default(),
+        };
+        grant_caps(&store, "acme", "", &[AccountBackend, Net]).await;
+        let (granted, refused) = effective_capabilities(&store, &third, None).await;
+        assert_eq!(granted, vec![Net]);
+        assert_eq!(refused, vec![AccountBackend]);
+    }
+
+    /// First-party trust is the digest pin and ignores the stored flag; a third-party
+    /// plugin without a signature needs the flag before a load is planned.
+    #[tokio::test]
+    async fn the_trust_policy_reads_the_stored_flag_for_third_party_ids_only() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        assert_eq!(
+            TrustPolicy::of(&store, "spam-rspamd").await,
+            TrustPolicy::FirstPartyDigestPin
+        );
+        assert!(TrustPolicy::FirstPartyDigestPin.admits_unsigned());
+        // A flag stored against a first-party id changes nothing.
+        store
+            .set_plugin_allow_unsigned("spam-rspamd", false)
+            .await
+            .unwrap();
+        assert!(
+            TrustPolicy::of(&store, "spam-rspamd")
+                .await
+                .admits_unsigned()
+        );
+
+        let third = PluginManifest {
+            id: "acme".into(),
+            name: "Acme".into(),
+            version: "1".into(),
+            signature: None,
+            capabilities: vec![Capability::Net],
+            net_allowlist: Vec::new(),
+            limits: PluginLimits::default(),
+        };
+        grant_caps(&store, "acme", "", &[Capability::Net]).await;
+        let row = registry_row(&third);
+        assert_eq!(
+            TrustPolicy::of(&store, "acme").await,
+            TrustPolicy::AdminPinnedDigest {
+                allow_unsigned: false
+            }
+        );
+        assert_eq!(
+            plan_load(&store, &row, None).await.err(),
+            Some(NotLoaded::UnsignedNotAllowed)
+        );
+        store.set_plugin_allow_unsigned("acme", true).await.unwrap();
+        let plan = plan_load(&store, &row, None).await.expect("planned");
+        assert!(plan.grant.allow_unsigned);
+        assert_eq!(plan.grant.capabilities, vec![Capability::Net]);
+
+        // Approval and enablement come first.
+        let mut unapproved = row.clone();
+        unapproved.approved_by = None;
+        assert_eq!(
+            plan_load(&store, &unapproved, None).await.err(),
+            Some(NotLoaded::NotApproved)
+        );
+        let mut disabled = row.clone();
+        disabled.enabled = false;
+        assert_eq!(
+            plan_load(&store, &disabled, None).await.err(),
+            Some(NotLoaded::Disabled)
+        );
+    }
+
+    // ── 26.20 (t28-e14): the plugin `http-fetch` address policy ──────────────────
+
+    #[test]
+    fn loopback_is_reachable_only_when_the_url_names_it() {
+        let loopback: IpAddr = "127.0.0.1".parse().unwrap();
+        let private: IpAddr = "10.1.2.3".parse().unwrap();
+        let metadata: IpAddr = "169.254.169.254".parse().unwrap();
+        for host in ["localhost", "LOCALHOST", "127.0.0.1", "127.9.9.9", "[::1]"] {
+            assert!(names_loopback(host), "{host}");
+            assert!(plugin_fetch_policy(host)(&loopback), "{host}");
+            assert!(!plugin_fetch_policy(host)(&metadata), "{host}");
+        }
+        for host in [
+            "rspamd",
+            "rspamd.internal",
+            "10.1.2.3",
+            "localhost.example.org",
+        ] {
+            assert!(!names_loopback(host), "{host}");
+            let policy = plugin_fetch_policy(host);
+            assert!(!policy(&loopback), "{host} must not reach loopback");
+            assert!(policy(&private), "{host} may reach a private address");
+            assert!(!policy(&metadata), "{host} must not reach link-local");
+        }
+    }
+
+    #[test]
+    fn only_a_same_host_redirect_is_followed() {
+        let url = |s: &str| reqwest::Url::parse(s).unwrap();
+        assert!(same_host_redirect(
+            &url("http://a.test/x"),
+            &url("http://a.test/y")
+        ));
+        assert!(same_host_redirect(
+            &url("http://a.test/x"),
+            &url("https://a.test/y")
+        ));
+        assert!(!same_host_redirect(
+            &url("https://a.test/x"),
+            &url("http://a.test/y")
+        ));
+        assert!(!same_host_redirect(
+            &url("http://a.test/x"),
+            &url("http://b.test/y")
+        ));
+        assert!(!same_host_redirect(
+            &url("http://a.test/x"),
+            &url("http://169.254.169.254/latest/meta-data")
+        ));
+    }
+
+    /// Answer every connection on a fresh loopback port with `response`, counting
+    /// the requests that arrive.
+    async fn count_requests(response: String) -> (u16, Arc<std::sync::atomic::AtomicUsize>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let hits = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let seen = Arc::clone(&hits);
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut sock, _)) = listener.accept().await else {
+                    return;
+                };
+                seen.fetch_add(1, Ordering::SeqCst);
+                let mut buf = [0u8; 2048];
+                let _ = sock.read(&mut buf).await;
+                let _ = sock.write_all(response.as_bytes()).await;
+                let _ = sock.shutdown().await;
+            }
+        });
+        (port, hits)
+    }
+
+    fn plugin_get(url: String) -> HttpReq {
+        HttpReq {
+            method: "GET".into(),
+            url,
+            headers: Vec::new(),
+            body: None,
+        }
+    }
+
+    /// The fetcher itself, over real sockets: a link-local address and a URL with
+    /// credentials are refused before any connection; a redirect to another host is
+    /// handed back as the `302` and that host is never contacted. Before 26.20 the
+    /// fetcher was a default `reqwest` client, which follows such a redirect.
+    #[tokio::test]
+    async fn the_plugin_fetcher_applies_the_address_policy_and_keeps_redirects_on_host() {
+        let fetcher = ReqwestFetcher {
+            host_auth: Vec::new(),
+        };
+
+        let err = fetcher
+            .fetch(plugin_get("http://169.254.169.254/latest/meta-data".into()))
+            .await
+            .unwrap_err();
+        assert!(err.contains("address policy"), "{err}");
+        let err = fetcher
+            .fetch(plugin_get("http://user:pw@127.0.0.1:9/".into()))
+            .await
+            .unwrap_err();
+        assert!(err.contains("address policy"), "{err}");
+
+        let ok = "HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nhi".to_string();
+        let (other_port, other_hits) = count_requests(ok.clone()).await;
+        // `localhost` and `127.0.0.1` are different hosts to the redirect rule.
+        let (first_port, first_hits) = count_requests(format!(
+            "HTTP/1.1 302 Found\r\nlocation: http://localhost:{other_port}/elsewhere\r\n\
+             content-length: 0\r\nconnection: close\r\n\r\n"
+        ))
+        .await;
+        let resp = fetcher
+            .fetch(plugin_get(format!("http://127.0.0.1:{first_port}/start")))
+            .await
+            .expect("the 302 itself is the answer");
+        assert_eq!(resp.status, 302);
+        assert_eq!(first_hits.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            other_hits.load(Ordering::SeqCst),
+            0,
+            "the redirect target on another host must not be contacted"
+        );
+
+        // Positive control: the same target is reachable when asked for directly.
+        let resp = fetcher
+            .fetch(plugin_get(format!(
+                "http://localhost:{other_port}/elsewhere"
+            )))
+            .await
+            .expect("a named loopback host is reachable");
+        assert_eq!((resp.status, resp.body), (200, b"hi".to_vec()));
+        assert_eq!(other_hits.load(Ordering::SeqCst), 1);
     }
 
     // ── 26.19 (t19-e16): S1(a) payload clamp + S2 operator-reachable rate limit ──

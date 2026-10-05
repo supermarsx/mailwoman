@@ -302,16 +302,24 @@ async fn v7_admin_routes_are_wired() {
         "kill disabled it"
     );
 
-    // allow-unsigned on an unknown plugin → 400 (the handler ran, not the SPA).
-    let unsigned = a
+    // allow-unsigned takes `{allow}`: without a body it is a 400, and for an
+    // unknown plugin a JSON 404 from the handler (not the SPA).
+    let bodiless = a
         .post(format!("{server}/admin/plugins/ghost/allow-unsigned"))
         .send()
         .await
         .unwrap();
+    assert_eq!(bodiless.status(), 400, "allow-unsigned needs {{allow}}");
+    let unsigned = a
+        .post(format!("{server}/admin/plugins/ghost/allow-unsigned"))
+        .json(&json!({ "allow": true }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unsigned.status(), 404, "unknown id ⇒ the handler's 404");
     assert_eq!(
-        unsigned.status(),
-        400,
-        "allow-unsigned mounted (unknown id ⇒ 400)"
+        unsigned.json::<Value>().await.unwrap()["code"],
+        json!("unknown-plugin")
     );
 }
 

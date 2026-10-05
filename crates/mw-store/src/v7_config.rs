@@ -237,6 +237,91 @@ impl Store {
         Ok(rows.iter().map(|r| r.get_string("capability")).collect())
     }
 
+    /// The capabilities granted to a plugin for one load: the deployment-wide rows
+    /// (`account_id = ''`) plus, when `account_id` is given, the rows scoped to that
+    /// account. A grant scoped to another account is not included. Sorted, distinct.
+    pub async fn plugin_grants_scoped(
+        &self,
+        plugin_id: &str,
+        account_id: Option<&str>,
+    ) -> Result<Vec<String>, StoreError> {
+        let rows = q("SELECT DISTINCT capability FROM plugin_grants
+                      WHERE plugin_id = ?1 AND (account_id = '' OR account_id = ?2)
+                      ORDER BY capability ASC")
+        .bind(plugin_id)
+        .bind(account_id.unwrap_or(""))
+        .fetch_all(&self.backend)
+        .await?;
+        Ok(rows.iter().map(|r| r.get_string("capability")).collect())
+    }
+
+    /// Replace a plugin's grant rows for one scope (`account_id` empty ⇒ the
+    /// deployment-wide scope) with exactly `capabilities`. The old rows are deleted
+    /// before the new ones are written, so an interruption leaves fewer grants than
+    /// asked for, never more.
+    pub async fn replace_plugin_grants(
+        &self,
+        plugin_id: &str,
+        account_id: &str,
+        capabilities: &[String],
+        granted_by: &str,
+    ) -> Result<(), StoreError> {
+        q("DELETE FROM plugin_grants WHERE plugin_id = ?1 AND account_id = ?2")
+            .bind(plugin_id)
+            .bind(account_id)
+            .execute(&self.backend)
+            .await?;
+        let now = Utc::now().to_rfc3339();
+        for capability in capabilities {
+            self.put_plugin_grant(&PluginGrantRow {
+                plugin_id: plugin_id.to_string(),
+                account_id: account_id.to_string(),
+                capability: capability.clone(),
+                granted_by: granted_by.to_string(),
+                created_at: now.clone(),
+            })
+            .await?;
+        }
+        Ok(())
+    }
+
+    /// Read one plugin registry row.
+    pub async fn get_plugin(&self, id: &str) -> Result<Option<PluginRow>, StoreError> {
+        Ok(self.list_plugins().await?.into_iter().find(|p| p.id == id))
+    }
+
+    /// Remove a plugin from the registry: its row, every grant row and its
+    /// allow-unsigned flag. Returns whether a registry row existed.
+    pub async fn delete_plugin(&self, id: &str) -> Result<bool, StoreError> {
+        q("DELETE FROM plugin_grants WHERE plugin_id = ?1")
+            .bind(id)
+            .execute(&self.backend)
+            .await?;
+        q("DELETE FROM settings WHERE key = ?1")
+            .bind(allow_unsigned_key(id))
+            .execute(&self.backend)
+            .await?;
+        let existed = self.get_plugin(id).await?.is_some();
+        q("DELETE FROM plugins WHERE id = ?1")
+            .bind(id)
+            .execute(&self.backend)
+            .await?;
+        Ok(existed)
+    }
+
+    /// Whether an administrator has allowed this plugin to load without a signature.
+    /// Stored as a `settings` row (the 0008 `plugins` table has no column for it);
+    /// absent ⇒ `false`.
+    pub async fn plugin_allow_unsigned(&self, id: &str) -> Result<bool, StoreError> {
+        Ok(self.get_setting(&allow_unsigned_key(id)).await?.as_deref() == Some("1"))
+    }
+
+    /// Set or clear a plugin's allow-unsigned flag.
+    pub async fn set_plugin_allow_unsigned(&self, id: &str, allow: bool) -> Result<(), StoreError> {
+        self.set_setting(&allow_unsigned_key(id), if allow { "1" } else { "0" })
+            .await
+    }
+
     // ── bridge_accounts ──────────────────────────────────────────────────────
 
     /// Read every bridge-account binding (account ↔ bridge plugin, §6.5),
@@ -342,10 +427,113 @@ impl Store {
     }
 }
 
+/// The `settings` key holding a plugin's allow-unsigned flag.
+fn allow_unsigned_key(plugin_id: &str) -> String {
+    format!("plugin_allow_unsigned:{plugin_id}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ServerKey;
+
+    fn caps(v: &[&str]) -> Vec<String> {
+        v.iter().map(|c| c.to_string()).collect()
+    }
+
+    #[tokio::test]
+    async fn scoped_grants_exclude_other_accounts_and_replace_can_revoke() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        assert!(
+            store
+                .plugin_grants_scoped("p", None)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        store
+            .replace_plugin_grants("p", "", &caps(&["spam-action"]), "admin")
+            .await
+            .unwrap();
+        store
+            .replace_plugin_grants("p", "acct-a", &caps(&["net"]), "admin")
+            .await
+            .unwrap();
+        // A deployment-wide load sees only the deployment-wide rows.
+        assert_eq!(
+            store.plugin_grants_scoped("p", None).await.unwrap(),
+            caps(&["spam-action"])
+        );
+        // Account A adds its own row; account B does not inherit A's.
+        assert_eq!(
+            store
+                .plugin_grants_scoped("p", Some("acct-a"))
+                .await
+                .unwrap(),
+            caps(&["net", "spam-action"])
+        );
+        assert_eq!(
+            store
+                .plugin_grants_scoped("p", Some("acct-b"))
+                .await
+                .unwrap(),
+            caps(&["spam-action"])
+        );
+        // Replacing a scope with a smaller set revokes what was left out.
+        store
+            .replace_plugin_grants("p", "", &[], "admin")
+            .await
+            .unwrap();
+        assert!(
+            store
+                .plugin_grants_scoped("p", None)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            store
+                .plugin_grants_scoped("p", Some("acct-a"))
+                .await
+                .unwrap(),
+            caps(&["net"])
+        );
+    }
+
+    #[tokio::test]
+    async fn allow_unsigned_flag_defaults_off_and_delete_plugin_clears_everything() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        store
+            .put_plugin(&PluginRow {
+                id: "p".into(),
+                name: "P".into(),
+                version: "1".into(),
+                signature_hex: None,
+                approved_by: None,
+                enabled: false,
+                capabilities_json: "[]".into(),
+                net_allowlist_json: "[]".into(),
+                limits_json: "{}".into(),
+                created_at: "2026-10-05T00:00:00Z".into(),
+            })
+            .await
+            .unwrap();
+        assert!(!store.plugin_allow_unsigned("p").await.unwrap());
+        store.set_plugin_allow_unsigned("p", true).await.unwrap();
+        assert!(store.plugin_allow_unsigned("p").await.unwrap());
+        assert!(!store.plugin_allow_unsigned("other").await.unwrap());
+        store
+            .replace_plugin_grants("p", "", &caps(&["net"]), "admin")
+            .await
+            .unwrap();
+
+        assert!(store.delete_plugin("p").await.unwrap());
+        assert!(store.get_plugin("p").await.unwrap().is_none());
+        assert!(store.plugin_grants("p").await.unwrap().is_empty());
+        // A plugin registered again under the same id does not inherit the flag.
+        assert!(!store.plugin_allow_unsigned("p").await.unwrap());
+        assert!(!store.delete_plugin("p").await.unwrap());
+    }
 
     #[tokio::test]
     async fn directory_config_round_trips_priority_ordered() {

@@ -213,6 +213,22 @@ async fn seed_bridge_account(store: &Store) -> String {
         })
         .await
         .unwrap();
+
+    // 26.20: the loader runs a plugin with its stored grants and nothing else. This
+    // grant is scoped to the bound account, which is the instance that needs it.
+    store
+        .replace_plugin_grants(
+            "bridge-graph",
+            &account_id,
+            &[
+                "account-backend".to_string(),
+                "net".to_string(),
+                "addrbook-source".to_string(),
+            ],
+            "admin@vogue-homes.com",
+        )
+        .await
+        .unwrap();
     store
         .put_bridge_account(&BridgeAccountRow {
             account_id: account_id.clone(),

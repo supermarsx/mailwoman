@@ -180,9 +180,9 @@ async fn boot_loaded_bridge_serves_mailbox_get_through_the_engine() {
         .await
         .unwrap();
 
-    // The signed-registry row: APPROVED + ENABLED, advertising the account-backend
-    // (+ net/addrbook) capabilities. Unsigned (committed fixture) — the boot grant
-    // allows unsigned for a bundled first-party component.
+    // The registry row: APPROVED + ENABLED, declaring the account-backend
+    // (+ net/addrbook) capabilities. Unsigned (committed fixture) — a first-party
+    // component is trusted by its compiled-in digest.
     store
         .put_plugin(&PluginRow {
             id: "bridge-graph".into(),
@@ -215,6 +215,28 @@ async fn boot_loaded_bridge_serves_mailbox_get_through_the_engine() {
     let http = Arc::new(GraphFixtureHttp::load());
     let registry = fixture_registry(http.clone());
     let engine = Arc::new(Engine::new(store.clone()));
+
+    // Approved, enabled and bound, but nothing granted: the loader loads nothing.
+    // (Before 26.20 it ran the bridge with every capability the row declares.)
+    let (loaded, _bridge_caps) =
+        mw_server::v7_mount::load_plugin_backends(&engine, &registry, &store).await;
+    assert_eq!(loaded, 0, "a bridge with no stored grant must not load");
+    assert!(!engine.is_plugin_backed(&account_id));
+
+    // 26.20: the loader runs a plugin with its stored grants and nothing else.
+    store
+        .replace_plugin_grants(
+            "bridge-graph",
+            "",
+            &[
+                "account-backend".to_string(),
+                "net".to_string(),
+                "addrbook-source".to_string(),
+            ],
+            "admin@vogue-homes.com",
+        )
+        .await
+        .unwrap();
 
     let (loaded, _bridge_caps) =
         mw_server::v7_mount::load_plugin_backends(&engine, &registry, &store).await;
