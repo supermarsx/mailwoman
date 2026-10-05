@@ -43,6 +43,15 @@ common-error = Something went wrong
 common-error-network = Can’t reach the server. Check your connection and try again.
 common-offline = You’re offline
 
+# -- Connection banner (realtime/ConnectionToast.tsx). Shown for a signed-in
+#    session only; mounted in the app shell, so it rides the entry bundle. ------
+common-conn-connecting = Connecting…
+common-conn-degraded = Realtime updates paused — reconnecting
+common-conn-offline = You are offline — changes sync when you reconnect
+common-conn-auth-expired = Your session expired — please sign in again
+common-conn-reconnect = Reconnect
+common-conn-reconnected = Reconnected
+
 # -- Generic labels ----------------------------------------------------------
 common-required = Required
 common-optional = Optional
