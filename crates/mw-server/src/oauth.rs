@@ -435,9 +435,9 @@ struct UnattendedSendReq {
 /// Withdrawing always succeeds on a known key. Either change is audited, and an
 /// approval that cannot be audited is undone.
 ///
-/// The `/mcp` resolver reads the countersigned prefixes once, when the server
-/// starts (`v7_mount::load_countersigned_prefixes`), so a change made here reaches
-/// MCP sends at the next start — an approval and a withdrawal alike.
+/// The `/mcp` resolver reads the column on each call (`mcp::StoreCountersign`),
+/// so a change made here applies to the key's next MCP send — an approval and a
+/// withdrawal alike — with no restart.
 async fn set_key_unattended_send(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
