@@ -399,3 +399,333 @@ async fn a_control_character_in_the_ehlo_name_is_refused_before_connecting() {
     assert_eq!(connections, 1);
     assert_eq!(sent, benign_transcript());
 }
+
+// ── line ends in DATA and SMTPUTF8 (26.20 t27-f2, SEC-2 residuals) ──────────
+
+/// A server that keeps every byte the client sends, as sent.
+///
+/// It reads the way RFC 5321 says to: a command ends at CRLF, and the message
+/// ends at `<CRLF>.<CRLF>` and nowhere else. `EHLO` is answered with
+/// `extensions`; everything else is accepted. The task's result is the whole
+/// client side of the connection.
+async fn recording_server(
+    extensions: &'static [&'static str],
+) -> (std::net::SocketAddr, tokio::task::JoinHandle<Vec<u8>>) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let handle = tokio::spawn(async move {
+        let (mut sock, _) = listener.accept().await.unwrap();
+        let mut seen: Vec<u8> = Vec::new();
+        // Everything before `done` has been acted on.
+        let mut done = 0;
+        let mut in_data = false;
+        sock.write_all(b"220 recorder ESMTP\r\n").await.unwrap();
+        loop {
+            let end = if in_data {
+                &b"\r\n.\r\n"[..]
+            } else {
+                &b"\r\n"[..]
+            };
+            // The CRLF that ended `DATA` also begins `<CRLF>.<CRLF>`.
+            let from = if in_data { done - 2 } else { done };
+            let found = seen[from..]
+                .windows(end.len())
+                .position(|w| w == end)
+                .map(|p| from + p + end.len());
+            let Some(next) = found else {
+                let mut tmp = [0u8; 4096];
+                match sock.read(&mut tmp).await {
+                    Ok(n) if n > 0 => seen.extend_from_slice(&tmp[..n]),
+                    _ => return seen,
+                }
+                continue;
+            };
+            let unit = seen[done..next].to_vec();
+            done = next;
+            let reply: String = if in_data {
+                in_data = false;
+                "250 2.0.0 queued\r\n".into()
+            } else if unit.starts_with(b"EHLO") {
+                let mut lines = vec!["recorder"];
+                lines.extend(extensions);
+                let last = lines.len() - 1;
+                lines
+                    .iter()
+                    .enumerate()
+                    .map(|(n, l)| format!("250{}{l}\r\n", if n == last { ' ' } else { '-' }))
+                    .collect()
+            } else if unit == b"DATA\r\n" {
+                in_data = true;
+                "354 go ahead\r\n".into()
+            } else if unit == b"QUIT\r\n" {
+                let _ = sock.write_all(b"221 bye\r\n").await;
+                return seen;
+            } else {
+                "250 OK\r\n".into()
+            };
+            if sock.write_all(reply.as_bytes()).await.is_err() {
+                return seen;
+            }
+        }
+    });
+    (addr, handle)
+}
+
+/// Submit `msg` to a [`recording_server`] and return the outcome with every
+/// byte the client wrote.
+async fn submit_recorded(
+    extensions: &'static [&'static str],
+    msg: Outgoing,
+) -> (Result<mw_smtp::SubmissionResult, SmtpError>, Vec<u8>) {
+    let (addr, server) = recording_server(extensions).await;
+    let sub = submitter(addr, Credentials::None);
+    let out = tokio::time::timeout(std::time::Duration::from_secs(10), sub.submit(msg))
+        .await
+        .expect("the submission ends");
+    // The client has dropped its socket by now, so the server task ends too.
+    (out, server.await.unwrap())
+}
+
+const ENVELOPE: &[u8] =
+    b"EHLO client.test\r\nMAIL FROM:<sender@example.com>\r\nRCPT TO:<good@example.com>\r\nDATA\r\n";
+
+/// What the client wrote between `DATA` and `QUIT`, once it is established
+/// that the rest of the connection is exactly the benign envelope and `QUIT`.
+fn data_section(wire: &[u8]) -> &[u8] {
+    let shown = String::from_utf8_lossy(wire);
+    let rest = wire
+        .strip_prefix(ENVELOPE)
+        .unwrap_or_else(|| panic!("unexpected commands before the message:\n{shown}"));
+    rest.strip_suffix(b"QUIT\r\n")
+        .unwrap_or_else(|| panic!("the connection does not end with QUIT:\n{shown}"))
+}
+
+/// Split at every line end a reader might honour: CRLF, a bare LF, a bare CR.
+fn lenient_lines(bytes: &[u8]) -> Vec<Vec<u8>> {
+    let mut lines = vec![];
+    let mut line = vec![];
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\r' | b'\n' => {
+                if bytes[i] == b'\r' && bytes.get(i + 1) == Some(&b'\n') {
+                    i += 1;
+                }
+                lines.push(std::mem::take(&mut line));
+            }
+            b => line.push(b),
+        }
+        i += 1;
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    lines
+}
+
+/// Undo dot-stuffing on the lines of a `DATA` section and drop the final `.`.
+fn unstuffed(mut lines: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
+    assert_eq!(lines.pop().as_deref(), Some(&b"."[..]), "terminator");
+    for l in &mut lines {
+        if l.first() == Some(&b'.') {
+            l.remove(0);
+        }
+    }
+    lines
+}
+
+fn message(body: &[u8]) -> Outgoing {
+    let mut raw = b"Subject: hi\r\n\r\n".to_vec();
+    raw.extend_from_slice(body);
+    Outgoing {
+        mail_from: SENDER.into(),
+        rcpt_to: vec!["good@example.com".into()],
+        raw,
+    }
+}
+
+/// Precondition for the test after it: a message with CRLF line ends, a Base64
+/// part and a quoted-printable part arrives byte for byte, apart from the
+/// doubled leading dot.
+#[tokio::test]
+async fn a_crlf_message_with_base64_and_quoted_printable_parts_arrives_unchanged() {
+    // Every byte value, CR, LF and `.` among them: Base64 text is what crosses.
+    let binary: Vec<u8> = (0..=255u8).chain(*b"\r.\r\n.\n.").collect();
+    let mut b64 = String::new();
+    for chunk in BASE64_STANDARD.encode(&binary).as_bytes().chunks(76) {
+        b64.push_str(std::str::from_utf8(chunk).unwrap());
+        b64.push_str("\r\n");
+    }
+    let body = format!(
+        "--b\r\n\
+         Content-Type: text/plain; charset=utf-8\r\n\
+         Content-Transfer-Encoding: quoted-printable\r\n\
+         \r\n\
+         caf=C3=A9 and a soft line break=\r\n\
+         .a line that starts with a dot\r\n\
+         .\r\n\
+         =2E\r\n\
+         trailing space=20\r\n\
+         --b\r\n\
+         Content-Type: application/octet-stream\r\n\
+         Content-Transfer-Encoding: base64\r\n\
+         \r\n\
+         {b64}\
+         --b--\r\n"
+    );
+    let msg = message(body.as_bytes());
+    let raw = String::from_utf8(msg.raw.clone()).unwrap();
+    let (out, wire) = submit_recorded(&[], msg).await;
+    out.expect("delivered");
+
+    // The two lines that begin with `.` gain one; nothing else differs.
+    let data = data_section(&wire);
+    let expected = format!("{}.\r\n", raw.replace("\r\n.", "\r\n.."));
+    assert_eq!(String::from_utf8_lossy(data), expected);
+
+    // And the Base64 part still decodes to the bytes it was made from.
+    let text = String::from_utf8(data.to_vec()).unwrap();
+    let part = text.split("base64\r\n\r\n").nth(1).unwrap();
+    let encoded: String = part.split("--b--").next().unwrap().split("\r\n").collect();
+    assert_eq!(BASE64_STANDARD.decode(encoded).unwrap(), binary);
+}
+
+/// A body may hold a bare CR or a bare LF. Whatever it holds, the message is
+/// sent with CRLF line ends only, so a server that takes a bare CR or LF for a
+/// line end reads the same lines as one that does not, and the only `.` line is
+/// the one that ends the message.
+#[tokio::test]
+async fn no_body_ends_the_message_early_for_a_strict_or_a_lenient_server() {
+    let bodies: &[&[u8]] = &[
+        // The verifier's reproduction.
+        b"hi\r.\rMAIL FROM:<evil@x.test>\rRCPT TO:<victim@x.test>\rDATA\rx",
+        b"hi\n.\nMAIL FROM:<evil@x.test>\nRCPT TO:<victim@x.test>\nDATA\nx\n.\n",
+        b"hi\r.\nMAIL FROM:<evil@x.test>\r\n",
+        b"hi\n.\rMAIL FROM:<evil@x.test>\r\n",
+        b"hi\r\n.\rMAIL FROM:<evil@x.test>\r\n",
+        b"hi\r.\r\nMAIL FROM:<evil@x.test>\r\n",
+        b"hi\r\r\n.\r\r\nQUIT\r\r\n",
+        b"hi\n\r.\n\rQUIT\n\r",
+        b"lone dot lines\r\n.\r\n.\r\n..\r\nend\r\n",
+        b".\r\n",
+        b".",
+        b"\r.",
+        b"\n.",
+        b"ends in a lone CR\r",
+        b"ends in a lone LF\n",
+        b"ends in a dot after a lone CR\r.\r",
+        b"\r",
+        b"",
+    ];
+    for body in bodies {
+        let shown = String::from_utf8_lossy(body).into_owned();
+        let msg = message(body);
+        let raw = msg.raw.clone();
+        let (out, wire) = submit_recorded(&[], msg).await;
+        let out = out.unwrap_or_else(|e| panic!("{shown:?}: {e}"));
+        assert_eq!(out.accepted, ["good@example.com"], "{shown:?}");
+
+        // `data_section` has checked that nothing but the envelope precedes
+        // the message and nothing but QUIT follows it.
+        let data = data_section(&wire);
+        let seen = String::from_utf8_lossy(data).into_owned();
+        for (i, &b) in data.iter().enumerate() {
+            let paired = match b {
+                b'\r' => data.get(i + 1) == Some(&b'\n'),
+                b'\n' => i > 0 && data[i - 1] == b'\r',
+                _ => true,
+            };
+            assert!(paired, "{shown:?}: a bare CR or LF at byte {i} of {seen:?}");
+        }
+        let lines = lenient_lines(data);
+        let dots = lines.iter().filter(|l| l.as_slice() == b".").count();
+        assert_eq!(dots, 1, "{shown:?}: `.` lines in {seen:?}");
+        // The content is there as data: the same lines, read leniently.
+        assert_eq!(
+            unstuffed(lines),
+            lenient_lines(&raw),
+            "{shown:?}: sent as {seen:?}"
+        );
+    }
+}
+
+const UTF8_ADDRESS: &str = "jörg@example.com";
+
+/// A server that did not offer `SMTPUTF8` is not sent a non-ASCII address, as
+/// sender or as recipient, and the message is not sent to anyone.
+#[tokio::test]
+async fn a_non_ascii_address_is_not_sent_to_a_server_without_smtputf8() {
+    let as_sender = Outgoing {
+        mail_from: UTF8_ADDRESS.into(),
+        ..benign()
+    };
+    let as_recipient = Outgoing {
+        rcpt_to: vec!["good@example.com".into(), UTF8_ADDRESS.into()],
+        ..benign()
+    };
+    for (what, msg) in [("sender", as_sender), ("recipient", as_recipient)] {
+        let (out, wire) = submit_recorded(&["8BITMIME", "SIZE 1000000"], msg).await;
+        let err = out.expect_err(what).to_string();
+        assert!(err.contains("SMTPUTF8"), "{what}: {err}");
+        assert!(err.contains(UTF8_ADDRESS), "{what}: {err}");
+        let shown = String::from_utf8_lossy(&wire);
+        assert!(wire.is_ascii(), "{what}: non-ASCII on the wire:\n{shown}");
+        assert!(!shown.contains("SMTPUTF8"), "{what}:\n{shown}");
+        assert!(
+            !shown.contains("DATA"),
+            "{what}: a message was sent:\n{shown}"
+        );
+    }
+}
+
+/// With `SMTPUTF8` offered, the parameter is on `MAIL FROM` and the addresses
+/// go out as they are (the domain is not converted to A-labels).
+#[tokio::test]
+async fn a_non_ascii_address_is_sent_with_the_smtputf8_parameter_when_offered() {
+    let as_sender = Outgoing {
+        mail_from: UTF8_ADDRESS.into(),
+        ..benign()
+    };
+    let as_recipient = Outgoing {
+        rcpt_to: vec!["good@example.com".into(), "jörg@bücher.example".into()],
+        ..benign()
+    };
+    for (what, msg, mail, rcpt) in [
+        (
+            "sender",
+            as_sender,
+            "MAIL FROM:<jörg@example.com> SMTPUTF8\r\n",
+            "RCPT TO:<good@example.com>\r\n",
+        ),
+        (
+            "recipient",
+            as_recipient,
+            "MAIL FROM:<sender@example.com> SMTPUTF8\r\n",
+            "RCPT TO:<jörg@bücher.example>\r\n",
+        ),
+    ] {
+        let (out, wire) = submit_recorded(&["SMTPUTF8"], msg).await;
+        let shown = String::from_utf8_lossy(&wire).into_owned();
+        out.unwrap_or_else(|e| panic!("{what}: {e}\n{shown}"));
+        assert!(shown.contains(mail), "{what}:\n{shown}");
+        assert!(shown.contains(rcpt), "{what}:\n{shown}");
+        assert!(shown.ends_with("\r\n.\r\nQUIT\r\n"), "{what}:\n{shown}");
+    }
+}
+
+/// An ASCII envelope does not get the parameter, offered or not.
+#[tokio::test]
+async fn an_ascii_envelope_carries_no_smtputf8_parameter() {
+    for extensions in [&["SMTPUTF8"][..], &[][..]] {
+        let (out, wire) = submit_recorded(extensions, benign()).await;
+        out.expect("delivered");
+        let mut expected = ENVELOPE.to_vec();
+        expected.extend_from_slice(b"Subject: hi\r\n\r\nbody\r\n.\r\nQUIT\r\n");
+        assert_eq!(
+            String::from_utf8_lossy(&wire),
+            String::from_utf8_lossy(&expected)
+        );
+    }
+}

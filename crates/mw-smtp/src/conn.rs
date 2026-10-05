@@ -149,6 +149,10 @@ pub(crate) fn check_ehlo_name(name: &str) -> Result<(), SmtpError> {
 pub(crate) struct Connection<S> {
     stream: S,
     rbuf: Vec<u8>,
+    /// The last `EHLO` reply listed `SMTPUTF8`.
+    smtputf8_offered: bool,
+    /// The last `MAIL FROM` carried the `SMTPUTF8` parameter.
+    smtputf8_requested: bool,
 }
 
 impl<S> Connection<S> {
@@ -156,8 +160,18 @@ impl<S> Connection<S> {
         Self {
             stream,
             rbuf: Vec::with_capacity(1024),
+            smtputf8_offered: false,
+            smtputf8_requested: false,
         }
     }
+}
+
+/// The error for a non-ASCII envelope address that cannot be sent as it is.
+/// The address is debug-escaped, as in [`crate::validate_mailbox`]'s errors.
+fn needs_smtputf8(addr: &str, why: &str) -> SmtpError {
+    SmtpError::Protocol(format!(
+        "the address {addr:?} is not ASCII and needs SMTPUTF8, {why}; the message was not sent"
+    ))
 }
 
 impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
@@ -244,7 +258,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
             )));
         }
         // Line 0 is the greeting domain; capabilities follow.
-        Ok(Capabilities::parse(reply.lines.get(1..).unwrap_or(&[])))
+        let caps = Capabilities::parse(reply.lines.get(1..).unwrap_or(&[]));
+        self.smtputf8_offered = caps.smtputf8;
+        Ok(caps)
     }
 
     /// Issue `STARTTLS` and require the `220` that permits the handshake.
@@ -449,8 +465,18 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
     /// where it becomes part of a command, so no caller can reach the write
     /// with a value that ends the path or the line. The parameters need no
     /// check — they are numbers, fixed keywords, or xtext-encoded (`ENVID`).
+    ///
+    /// `SMTPUTF8` (RFC 6531) is sent when `p` asks for it or `from` is not
+    /// ASCII. If the last `EHLO` reply did not list it, that is an error and
+    /// nothing is written: a non-ASCII path is not sent to a server that did
+    /// not offer the extension, and it is not rewritten either.
     pub(crate) async fn mail_from(&mut self, from: &str, p: &MailParams) -> Result<(), SmtpError> {
         validate_reverse_path(from)?;
+        let smtputf8 = p.smtputf8 || !from.is_ascii();
+        if smtputf8 && !self.smtputf8_offered {
+            return Err(needs_smtputf8(from, "which the server does not offer"));
+        }
+        self.smtputf8_requested = smtputf8;
         let mut cmd = format!("MAIL FROM:<{from}>");
         if let Some(sz) = p.size {
             cmd.push_str(&format!(" SIZE={sz}"));
@@ -458,7 +484,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
         if p.body_8bit {
             cmd.push_str(" BODY=8BITMIME");
         }
-        if p.smtputf8 {
+        if smtputf8 {
             cmd.push_str(" SMTPUTF8");
         }
         if p.require_tls {
@@ -490,6 +516,11 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
     /// A malformed `addr` is different: it is an `Err`, checked here before the
     /// command is built (and earlier, in `Submitter::submit_with`). `NOTIFY=` is
     /// built from an enum and `ORCPT=` is the same address xtext-encoded.
+    ///
+    /// A non-ASCII `addr` is an `Err` too, and nothing is written, unless this
+    /// transaction's `MAIL FROM` carried `SMTPUTF8` — which [`Self::mail_from`]
+    /// sends only to a server that offered it. The caller stops at an `Err`,
+    /// so the transaction is abandoned before `DATA`.
     pub(crate) async fn rcpt_to(
         &mut self,
         addr: &str,
@@ -497,6 +528,14 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
         orcpt: bool,
     ) -> Result<RcptOutcome, SmtpError> {
         validate_mailbox(addr)?;
+        if !addr.is_ascii() && !self.smtputf8_requested {
+            let why = if self.smtputf8_offered {
+                "which was not requested on MAIL FROM"
+            } else {
+                "which the server does not offer"
+            };
+            return Err(needs_smtputf8(addr, why));
+        }
         let mut cmd = format!("RCPT TO:<{addr}>");
         if !notify.is_empty() {
             let joined = notify
@@ -520,8 +559,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
         }
     }
 
-    /// `DATA` → dot-stuffed body → `.` terminator. Requires the `354`
-    /// intermediate reply and a `2xx` acceptance of the queued message.
+    /// `DATA` → the message as CRLF-ended, dot-stuffed lines ([`data_lines`])
+    /// → `.` terminator. Requires the `354` intermediate reply and a `2xx`
+    /// acceptance of the queued message.
     pub(crate) async fn data(&mut self, raw: &[u8]) -> Result<(), SmtpError> {
         let reply = self.command("DATA\r\n").await?;
         if reply.code != 354 {
@@ -532,10 +572,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
             )));
         }
         let mut payload = Vec::with_capacity(raw.len() + 32);
-        dot_stuff(raw, &mut payload);
-        if !payload.ends_with(b"\r\n") {
-            payload.extend_from_slice(b"\r\n");
-        }
+        data_lines(raw, true, &mut payload);
         payload.extend_from_slice(b".\r\n");
         self.write_all(&payload).await?;
 
@@ -552,14 +589,18 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
     }
 
     /// `BDAT <n> LAST` (RFC 3030 CHUNKING): submit the whole message as one
-    /// length-framed binary chunk. Unlike `DATA` there is no dot-stuffing and no
+    /// length-framed chunk. Unlike `DATA` there is no dot-stuffing and no
     /// `<CRLF>.<CRLF>` terminator — the byte count is authoritative — so a body
-    /// containing a lone `.` line needs no escaping.
+    /// containing a lone `.` line needs no escaping, and nothing in the chunk
+    /// can end it early.
+    ///
+    /// The line ends are still made CRLF ([`data_lines`]). `BINARYMIME` is not
+    /// negotiated, so the chunk is a message made of lines, and the server may
+    /// pass it on with `DATA`; a bare CR or LF would then be the next hop's to
+    /// interpret.
     pub(crate) async fn bdat(&mut self, raw: &[u8]) -> Result<(), SmtpError> {
-        let mut body = raw.to_vec();
-        if !body.ends_with(b"\r\n") {
-            body.extend_from_slice(b"\r\n");
-        }
+        let mut body = Vec::with_capacity(raw.len() + 32);
+        data_lines(raw, false, &mut body);
         let mut payload = format!("BDAT {} LAST\r\n", body.len()).into_bytes();
         payload.extend_from_slice(&body);
         self.write_all(&payload).await?;
@@ -607,17 +648,45 @@ fn decode_challenge(reply: &Reply) -> Result<String, SmtpError> {
         .map_err(|e| SmtpError::Protocol(format!("non-UTF-8 SASL challenge: {e}")))
 }
 
-/// SMTP dot-stuffing (RFC 5321 §4.5.2): any line beginning with `.` gets an
-/// extra leading `.` so it cannot be mistaken for the `<CRLF>.<CRLF>` end-of-
-/// data marker. Handles both CRLF and bare-LF line endings in the source.
-pub(crate) fn dot_stuff(raw: &[u8], out: &mut Vec<u8>) {
+/// Append `raw` to `out` as the lines of a mail transaction: every line ends
+/// in CRLF, and with `dot_stuff` every line that begins with `.` gets a second
+/// one (RFC 5321 §4.5.2), so that none can be the `<CRLF>.<CRLF>` that ends
+/// `DATA`.
+///
+/// A CRLF, a bare LF and a bare CR in `raw` are each one line end and each
+/// come out as CRLF; a last line with no line end is given one. RFC 5321
+/// §2.3.8 forbids sending a bare CR or LF, because servers differ on whether
+/// one ends a line: sent as it is, `\r.\r` is ordinary text to one server and
+/// the end of the message to another. After this, every reader sees the same
+/// lines.
+///
+/// This rewrites a bare CR or LF in a body that is sent unencoded (`7bit` or
+/// `8bit` text). Base64 and quoted-printable parts hold neither and are not
+/// changed. Raw binary content cannot be sent this way at all; that would take
+/// `BINARYMIME`, which this crate does not negotiate.
+pub(crate) fn data_lines(raw: &[u8], dot_stuff: bool, out: &mut Vec<u8>) {
     let mut at_line_start = true;
-    for &b in raw {
-        if at_line_start && b == b'.' {
-            out.push(b'.');
+    let mut bytes = raw.iter().copied().peekable();
+    while let Some(b) = bytes.next() {
+        match b {
+            b'\r' | b'\n' => {
+                if b == b'\r' {
+                    bytes.next_if_eq(&b'\n');
+                }
+                out.extend_from_slice(b"\r\n");
+                at_line_start = true;
+            }
+            _ => {
+                if at_line_start && b == b'.' && dot_stuff {
+                    out.push(b'.');
+                }
+                out.push(b);
+                at_line_start = false;
+            }
         }
-        out.push(b);
-        at_line_start = b == b'\n';
+    }
+    if !at_line_start {
+        out.extend_from_slice(b"\r\n");
     }
 }
 
@@ -736,6 +805,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_non_ascii_path_is_written_only_after_the_server_offered_smtputf8() {
+        // Not offered (no EHLO at all here): nothing is written.
+        let (out, wire) = written_by(|mut c| async move {
+            c.mail_from("j\u{f6}rg@example.com", &MailParams::default())
+                .await
+        })
+        .await;
+        let err = out.unwrap_err().to_string();
+        assert!(
+            err.contains("SMTPUTF8") && err.contains("j\u{f6}rg@example.com"),
+            "{err}"
+        );
+        assert_eq!(wire, "");
+
+        // An ASCII sender, then a non-ASCII recipient: MAIL FROM went out
+        // without the parameter, so the recipient is refused unwritten.
+        let (out, wire) = written_by(|mut c| async move {
+            c.mail_from("sender@example.com", &MailParams::default())
+                .await
+                .unwrap();
+            c.rcpt_to("j\u{f6}rg@example.com", &[], true).await
+        })
+        .await;
+        assert!(matches!(out, Err(SmtpError::Protocol(_))));
+        assert_eq!(wire, "MAIL FROM:<sender@example.com>\r\n");
+
+        // A caller that asks for the parameter the server did not offer.
+        let (out, wire) = written_by(|mut c| async move {
+            let p = MailParams {
+                smtputf8: true,
+                ..MailParams::default()
+            };
+            c.mail_from("sender@example.com", &p).await
+        })
+        .await;
+        assert!(matches!(out, Err(SmtpError::Protocol(_))));
+        assert_eq!(wire, "");
+    }
+
+    #[tokio::test]
     async fn ehlo_writes_a_plain_name_and_nothing_for_one_with_a_line_break() {
         let (out, wire) = written_by(|mut c| async move { c.ehlo("client.test").await }).await;
         assert!(out.is_ok());
@@ -811,22 +920,35 @@ mod tests {
         assert_eq!(caps.size, Some(0));
     }
 
-    #[test]
-    fn dot_stuffing_escapes_leading_dots() {
-        let raw = b"Subject: hi\r\n\r\n.\r\n..oops\r\nnormal\r\n";
+    fn lines(raw: &[u8], dot_stuff: bool) -> String {
         let mut out = Vec::new();
-        dot_stuff(raw, &mut out);
-        assert_eq!(
-            out,
-            b"Subject: hi\r\n\r\n..\r\n...oops\r\nnormal\r\n".to_vec()
-        );
+        data_lines(raw, dot_stuff, &mut out);
+        String::from_utf8(out).unwrap()
     }
 
     #[test]
-    fn dot_stuffing_handles_bare_lf() {
-        let mut out = Vec::new();
-        dot_stuff(b".x\n.y", &mut out);
-        assert_eq!(out, b"..x\n..y".to_vec());
+    fn dot_stuffing_escapes_leading_dots() {
+        let raw = b"Subject: hi\r\n\r\n.\r\n..oops\r\nnormal\r\n";
+        assert_eq!(
+            lines(raw, true),
+            "Subject: hi\r\n\r\n..\r\n...oops\r\nnormal\r\n"
+        );
+        // Without stuffing (BDAT), CRLF text is not changed at all.
+        assert_eq!(lines(raw, false).as_bytes(), raw);
+    }
+
+    #[test]
+    fn a_bare_lf_or_cr_becomes_crlf_and_starts_a_line() {
+        assert_eq!(lines(b".x\n.y", true), "..x\r\n..y\r\n");
+        assert_eq!(lines(b".x\r.y", true), "..x\r\n..y\r\n");
+        assert_eq!(lines(b"a\r.\rb", true), "a\r\n..\r\nb\r\n");
+        assert_eq!(lines(b"a\n.\nb\n", true), "a\r\n..\r\nb\r\n");
+        // CR CR LF is a bare CR and then a CRLF; LF CR is two line ends.
+        assert_eq!(lines(b"a\r\r\n.", true), "a\r\n\r\n..\r\n");
+        assert_eq!(lines(b"a\n\r.", true), "a\r\n\r\n..\r\n");
+        assert_eq!(lines(b"a\r", true), "a\r\n");
+        assert_eq!(lines(b"", true), "");
+        assert_eq!(lines(b"a\r.\rb", false), "a\r\n.\r\nb\r\n");
     }
 
     // --- STARTTLS framing over a cleartext mock socket -------------------
