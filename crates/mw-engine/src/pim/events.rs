@@ -188,15 +188,17 @@ impl Engine {
     }
 
     /// The `invalidProperties` error for an update whose patch adds a
-    /// participant that is not an address, or `None` when the patch is
-    /// acceptable on that score.
+    /// participant key that is not an address, or gives any participant an
+    /// `email` that is not one, or `None` when the patch is acceptable on that
+    /// score.
     ///
-    /// Only participants the stored event does not already have are checked. An
-    /// event that was imported, or stored before this check existed, can hold a
-    /// key that is not an address (`CalendarEvent/import` does not reject one);
-    /// a client that edits such an event sends the whole map back, and refusing
-    /// that would make the event uneditable without removing anything from the
-    /// store. Those keys are refused where it matters, in [`Engine::send_itip`].
+    /// What the stored event already holds is not checked again: a key it has,
+    /// and an `email` equal to the one it has under that key. An event that
+    /// was imported, or stored before this check existed, can hold either
+    /// (`CalendarEvent/import` does not reject them); a client that edits such
+    /// an event sends the whole map back, and refusing that would make the
+    /// event uneditable without removing anything from the store. Those values
+    /// are refused where it matters, in [`Engine::send_itip`].
     async fn update_participants_error(&self, id: &str, patch: &Value) -> Option<Value> {
         patch.get("participants")?;
         let stored = match self.store().get_event(id).await {
@@ -1016,8 +1018,10 @@ fn extract_components(ical: &str) -> Option<String> {
 /// each key, and each entry's `email` when it has one, must be a mailbox
 /// (`mw_smtp::validate_mailbox`). The key is what an iTIP message is addressed
 /// to; `email` is what `mw-ics` writes into `ATTENDEE`/`ORGANIZER` and what the
-/// stored projection is re-keyed by. Keys present in `already_stored` are
-/// skipped. `Err` is the reason, with the offending value debug-escaped.
+/// stored projection is re-keyed by. A key present in `already_stored` is not
+/// checked, and neither is an `email` equal to the one stored under its key;
+/// an `email` that differs from the stored one is. `Err` is the reason, with
+/// the offending value debug-escaped.
 fn check_participants(
     json: &Value,
     already_stored: Option<&serde_json::Map<String, Value>>,
@@ -1026,12 +1030,14 @@ fn check_participants(
         return Ok(());
     };
     for (key, entry) in participants {
-        if already_stored.is_some_and(|m| m.contains_key(key)) {
-            continue;
+        let stored = already_stored.and_then(|m| m.get(key));
+        if stored.is_none() {
+            mw_smtp::validate_mailbox(key).map_err(|e| format!("participant key: {e}"))?;
         }
-        mw_smtp::validate_mailbox(key).map_err(|e| format!("participant key: {e}"))?;
+        let stored_email = stored.and_then(|s| s.get("email")).and_then(Value::as_str);
         if let Some(email) = entry.get("email").and_then(Value::as_str)
             && !email.is_empty()
+            && stored_email != Some(email)
         {
             mw_smtp::validate_mailbox(email).map_err(|e| format!("participant email: {e}"))?;
         }

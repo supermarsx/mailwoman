@@ -1142,3 +1142,118 @@ async fn an_update_may_resend_a_stored_key_but_not_add_a_bad_one() {
         .await;
     assert_invalid_properties(&upd, "notUpdated", &id, "participants", "new bad key");
 }
+
+// ── an update checks `email` under a stored key too (26.20 t27-f2) ──────────
+
+/// The allowance for a stored key covers the key, not what the patch puts
+/// under it. An update that gave a stored participant a hostile `email` used
+/// to be accepted, and the participant was then left out of the stored event:
+/// with the organizer gone, a later `CalendarEvent/respond` addressed its
+/// REPLY to the user's own address.
+#[tokio::test]
+async fn an_update_cannot_put_a_hostile_email_under_a_stored_key() {
+    let h = setup().await;
+    let set = h
+        .call(
+            "CalendarEvent/set",
+            json!({ "create": { "e": event_with("Review", "bob@example.test") } }),
+        )
+        .await;
+    let id = set["created"]["e"]["id"].as_str().unwrap().to_string();
+    h.take_wire();
+    let before = h.call("CalendarEvent/get", json!({ "ids": [&id] })).await;
+    let before = before["list"][0]["participants"].clone();
+    assert_eq!(before.as_object().map(|m| m.len()), Some(2), "{before}");
+
+    for key in [ME, "bob@example.test"] {
+        for hostile in [
+            "victim@example.test>\r\nRCPT TO:<v2@example.test",
+            CRLF_RCPT,
+            "not an address",
+        ] {
+            let mut participants = event_with("Review", "bob@example.test")["participants"].clone();
+            participants[key]["email"] = json!(hostile);
+            let upd = h
+                .call(
+                    "CalendarEvent/set",
+                    json!({ "update": { &id: { "title": "Renamed", "participants": participants } } }),
+                )
+                .await;
+            let context = format!("{key} <- {hostile:?}");
+            assert!(upd["updated"].get(&id).is_none(), "{context}: {upd}");
+            assert_invalid_properties(&upd, "notUpdated", &id, "participants", &context);
+
+            // Nothing of the refused patch was stored, and nobody was dropped.
+            let got = h.call("CalendarEvent/get", json!({ "ids": [&id] })).await;
+            assert_eq!(got["list"][0]["participants"], before, "{context}");
+            assert_eq!(got["list"][0]["title"], "Review", "{context}");
+        }
+    }
+
+    // Control: the same map with its stored emails is accepted.
+    let same = event_with("Review", "bob@example.test")["participants"].clone();
+    let upd = h
+        .call(
+            "CalendarEvent/set",
+            json!({ "update": { &id: { "title": "Renamed", "participants": same } } }),
+        )
+        .await;
+    assert!(upd["updated"].get(&id).is_some(), "{upd}");
+
+    h.assert_nothing_was_sent_but_the_control("email under a stored key")
+        .await;
+}
+
+/// A stored entry whose `email` is not an address (an imported event) can be
+/// sent back as it is, which keeps the event editable. Changing that `email`
+/// to another value that is not an address is refused.
+#[tokio::test]
+async fn an_update_may_resend_a_stored_email_but_not_change_it_to_a_bad_one() {
+    let h = setup().await;
+    let set = h
+        .call(
+            "CalendarEvent/set",
+            json!({ "create": { "e": {
+                "title": "Imported", "start": "2026-07-20T15:00:00", "timeZone": "UTC",
+                "duration": "PT1H",
+            } } }),
+        )
+        .await;
+    let id = set["created"]["e"]["id"].as_str().unwrap().to_string();
+    let store = h.engine.store();
+    let row = store.get_event(&id).await.unwrap().unwrap();
+    let entry = json!({ "name": "Someone", "role": "attendee", "email": "no address here" });
+    let stored = json!({
+        "id": id, "uid": row.uid,
+        "title": "Imported", "start": "2026-07-20T15:00:00", "timeZone": "UTC",
+        "duration": "PT1H",
+        "participants": { "invalid:nomail": entry },
+    });
+    store
+        .upsert_event(&EventRow {
+            json: Some(serde_json::to_vec(&stored).unwrap()),
+            ..row
+        })
+        .await
+        .unwrap();
+
+    let mut changed = entry.clone();
+    changed["email"] = json!("still no address");
+    let upd = h
+        .call(
+            "CalendarEvent/set",
+            json!({ "update": { &id: { "participants": { "invalid:nomail": changed } } } }),
+        )
+        .await;
+    assert_invalid_properties(&upd, "notUpdated", &id, "participants", "changed email");
+
+    let upd = h
+        .call(
+            "CalendarEvent/set",
+            json!({ "update": { &id: {
+                "title": "Renamed", "participants": { "invalid:nomail": entry },
+            } } }),
+        )
+        .await;
+    assert!(upd["updated"].get(&id).is_some(), "{upd}");
+}
