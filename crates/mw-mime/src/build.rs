@@ -5,7 +5,10 @@
 //! a `Message-ID` when one is not supplied, and picks `text/plain`,
 //! `multipart/alternative`, etc. based on which bodies are present.
 
+use std::fmt::Write as _;
+
 use mail_builder::MessageBuilder;
+use mail_builder::headers::Header;
 use mail_builder::headers::address::Address as BuilderAddress;
 use mail_builder::headers::content_type::ContentType;
 use mail_builder::headers::raw::Raw;
@@ -14,7 +17,8 @@ use mw_jmap::EmailAddress;
 
 use crate::MimeError;
 use crate::check::{
-    file_name_text, mailbox_problem, no_control, random_token, refuse, validate_content_id,
+    file_name_text, has_control, mailbox_problem, no_control, random_token, refuse,
+    validate_content_id,
 };
 
 /// A single binary attachment to emit on the composed message.
@@ -100,8 +104,13 @@ pub struct ComposeExtras {
 /// Serialize a [`ComposeRequest`] into raw RFC822 bytes.
 ///
 /// The values are written as given: this function does not check them, and
-/// `mail-builder` writes addresses, ids, content types, raw headers and a
-/// subject containing CRLF byte for byte. [`build_with`] is the checked form.
+/// `mail-builder` writes ids, content types, raw headers and a subject
+/// containing CRLF byte for byte, as this crate does the address between `<`
+/// and `>`. [`build_with`] is the checked form.
+///
+/// A display name is the exception: whatever it holds, it is written as one
+/// RFC 5322 phrase (a quoted-string or RFC 2047 encoded-words), so it cannot
+/// end its header line or add an address to it.
 pub fn build(req: &ComposeRequest) -> Result<Vec<u8>, MimeError> {
     let mut b = bodies(headers(req), req);
 
@@ -115,8 +124,7 @@ pub fn build(req: &ComposeRequest) -> Result<Vec<u8>, MimeError> {
         );
     }
 
-    b.write_to_vec()
-        .map_err(|e| MimeError::Build(e.to_string()))
+    finish(req, b)
 }
 
 /// Serialize a [`ComposeRequest`] plus [`ComposeExtras`] into raw RFC822 bytes,
@@ -137,7 +145,8 @@ pub fn build(req: &ComposeRequest) -> Result<Vec<u8>, MimeError> {
 ///   and `message/*`.
 ///
 /// File names (attachments and inline parts) are not refused; their control
-/// characters are dropped. Display names are encoded by `mail-builder`.
+/// characters are dropped. Display names are not refused either: each is
+/// written as one RFC 5322 phrase, as in [`build`].
 ///
 /// Layout with inline parts: `multipart/related` holding the HTML body and the
 /// inline parts (each `Content-ID: <cid>`, `Content-Disposition: inline`). A
@@ -197,8 +206,7 @@ pub fn build_with(req: &ComposeRequest, extras: &ComposeExtras) -> Result<Vec<u8
         });
     }
 
-    b.write_to_vec()
-        .map_err(|e| MimeError::Build(e.to_string()))
+    finish(req, b)
 }
 
 /// The `cid:` references inside the tags of `html`, in order, without
@@ -274,25 +282,36 @@ fn percent_decode(raw: &[u8]) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// The header section shared by [`build`] and [`build_with`].
+/// The message: the address headers of `req`, then everything `b` holds.
+///
+/// `b` comes from [`headers`] and so has no address header of its own.
+/// `mail-builder` writes its headers in the order they were added and used to
+/// be given these five first, so they are where they were.
+fn finish(req: &ComposeRequest, b: MessageBuilder<'_>) -> Result<Vec<u8>, MimeError> {
+    let io = |e: std::io::Error| MimeError::Build(e.to_string());
+    let mut out = Vec::new();
+    if let Some(from) = &req.from {
+        address_header(&mut out, "From", std::slice::from_ref(from), false).map_err(io)?;
+    }
+    for (name, list) in [
+        ("To", &req.to),
+        ("Cc", &req.cc),
+        ("Bcc", &req.bcc),
+        ("Reply-To", &req.reply_to),
+    ] {
+        if !list.is_empty() {
+            address_header(&mut out, name, list, true).map_err(io)?;
+        }
+    }
+    b.write_to(&mut out).map_err(io)?;
+    Ok(out)
+}
+
+/// The headers shared by [`build`] and [`build_with`], other than the address
+/// headers, which [`finish`] writes.
 fn headers(req: &ComposeRequest) -> MessageBuilder<'_> {
     let mut b = MessageBuilder::new();
 
-    if let Some(from) = &req.from {
-        b = b.from(builder_addr(from));
-    }
-    if !req.to.is_empty() {
-        b = b.to(builder_list(&req.to));
-    }
-    if !req.cc.is_empty() {
-        b = b.cc(builder_list(&req.cc));
-    }
-    if !req.bcc.is_empty() {
-        b = b.bcc(builder_list(&req.bcc));
-    }
-    if !req.reply_to.is_empty() {
-        b = b.reply_to(builder_list(&req.reply_to));
-    }
     if let Some(subject) = &req.subject {
         b = b.subject(subject.as_str());
     }
@@ -427,12 +446,148 @@ fn is_leaf_media_type(value: &str) -> bool {
     })
 }
 
-fn builder_addr(a: &EmailAddress) -> BuilderAddress<'_> {
-    BuilderAddress::new_address(a.name.as_deref(), a.email.as_str())
+/// The longest name `mail-builder` writes as a quoted-string; a longer one it
+/// encodes.
+const QUOTED_NAME_MAX: usize = 77;
+
+/// The column [`write_phrased`] does not write a word past when it can fold.
+const FOLD_AT: usize = 76;
+
+/// Append the address header `header` (`From`, `To`, …) for `list`, which is
+/// not empty. `as_list` is false for a header that holds one address.
+///
+/// Every display name comes out as one RFC 5322 phrase: nothing in a name can
+/// close it and begin an address, a group or a second list entry. The address
+/// itself is written as given, between `<` and `>`.
+///
+/// `mail-builder` writes the header when all its names pass
+/// [`builder_writes_one_phrase`], which gives the bytes it has always given. A
+/// header with any other name is written by [`write_phrased`].
+pub(crate) fn address_header(
+    out: &mut Vec<u8>,
+    header: &str,
+    list: &[EmailAddress],
+    as_list: bool,
+) -> std::io::Result<()> {
+    let by_builder = |a: &EmailAddress| a.name.as_deref().is_none_or(builder_writes_one_phrase);
+    out.extend_from_slice(header.as_bytes());
+    out.extend_from_slice(b": ");
+    if !list.iter().all(by_builder) {
+        write_phrased(out, header.len() + 2, list);
+        return Ok(());
+    }
+    fn one(a: &EmailAddress) -> BuilderAddress<'_> {
+        BuilderAddress::new_address(a.name.as_deref(), a.email.as_str())
+    }
+    let value = match list {
+        [only] if !as_list => one(only),
+        _ => BuilderAddress::new_list(list.iter().map(one).collect()),
+    };
+    value.write_header(&mut *out, header.len() + 2).map(|_| ())
 }
 
-fn builder_list(list: &[EmailAddress]) -> BuilderAddress<'_> {
-    BuilderAddress::new_list(list.iter().map(builder_addr).collect())
+/// Printable ASCII, space included.
+fn is_printable_ascii(s: &str) -> bool {
+    s.bytes().all(|b| (0x20..=0x7e).contains(&b))
+}
+
+/// Whether `mail-builder` 0.4 writes `name` as a single phrase that reads back
+/// as `name`.
+///
+/// Printable ASCII of up to 77 bytes that does not end in a space it writes as
+/// a quoted-string with `"` and `\` escaped. That is one phrase, but text that
+/// looks like an encoded-word (`=?`) would be decoded by readers that decode
+/// inside quotes. Every other name it writes as `"=?utf-8?…?="`, Base64 or Q,
+/// and its Q form leaves `"` and `\` as they are, so either one ends or
+/// distorts the quoted-string around the encoded-word. A control character it
+/// drops or writes raw, depending on the form.
+fn builder_writes_one_phrase(name: &str) -> bool {
+    if has_control(name) {
+        return false;
+    }
+    let quoted = is_printable_ascii(name) && name.len() <= QUOTED_NAME_MAX && !name.ends_with(' ');
+    if quoted {
+        !name.contains("=?")
+    } else {
+        !name.contains(['"', '\\'])
+    }
+}
+
+/// Write an address list in which every name is a phrase made by [`phrase`],
+/// then the CRLF that ends the header. A fold (CRLF, HTAB) replaces the space
+/// before a word that would otherwise pass column 76. `column` is the width of
+/// what the line already holds.
+fn write_phrased(out: &mut Vec<u8>, mut column: usize, list: &[EmailAddress]) {
+    let mut first = true;
+    let mut put = |word: &str| {
+        if first {
+            first = false;
+        } else if column + 1 + word.len() > FOLD_AT {
+            out.extend_from_slice(b"\r\n\t");
+            column = 1;
+        } else {
+            out.push(b' ');
+            column += 1;
+        }
+        out.extend_from_slice(word.as_bytes());
+        column += word.len();
+    };
+    for (n, a) in list.iter().enumerate() {
+        for word in a.name.as_deref().map(phrase).unwrap_or_default() {
+            put(&word);
+        }
+        let separator = if n + 1 < list.len() { "," } else { "" };
+        put(&format!("<{}>{separator}", a.email));
+    }
+    out.extend_from_slice(b"\r\n");
+}
+
+/// A display name as the words of one RFC 5322 phrase.
+///
+/// Printable ASCII of up to 77 bytes that does not look like an encoded-word
+/// is one quoted-string, with `"` and `\` escaped. Every other name is a run of
+/// RFC 2047 encoded-words (UTF-8, Q), each at most 64 bytes and holding whole
+/// characters. Every byte other than an ASCII letter or digit is encoded (a
+/// space as `_`), so a word holds nothing an address parser acts on.
+fn phrase(name: &str) -> Vec<String> {
+    if is_printable_ascii(name) && name.len() <= QUOTED_NAME_MAX && !name.contains("=?") {
+        let mut quoted = String::with_capacity(name.len() + 2);
+        quoted.push('"');
+        for c in name.chars() {
+            if matches!(c, '"' | '\\') {
+                quoted.push('\\');
+            }
+            quoted.push(c);
+        }
+        quoted.push('"');
+        return vec![quoted];
+    }
+
+    const OPEN: &str = "=?utf-8?Q?";
+    const CLOSE: &str = "?=";
+    // RFC 2047 allows 75 bytes. 64 keeps the first word of the longest header
+    // (`Reply-To: `), which has no fold before it, inside column 76.
+    const MAX_TEXT: usize = 64 - OPEN.len() - CLOSE.len();
+    let mut words = vec![];
+    let mut text = String::new();
+    for c in name.chars() {
+        let mut encoded = String::new();
+        for &b in c.encode_utf8(&mut [0; 4]).as_bytes() {
+            match b {
+                b' ' => encoded.push('_'),
+                b if b.is_ascii_alphanumeric() => encoded.push(char::from(b)),
+                // Writing to a `String` does not fail.
+                b => drop(write!(encoded, "={b:02X}")),
+            }
+        }
+        if text.len() + encoded.len() > MAX_TEXT {
+            words.push(format!("{OPEN}{text}{CLOSE}"));
+            text.clear();
+        }
+        text.push_str(&encoded);
+    }
+    words.push(format!("{OPEN}{text}{CLOSE}"));
+    words
 }
 
 /// Strip surrounding angle brackets — `mail-builder` re-adds them when writing
