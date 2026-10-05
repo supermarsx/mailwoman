@@ -13,6 +13,8 @@
 //!   store at start, again without fetching a message.
 //! * A zero-access account has no text in the index directory: not for mail that
 //!   arrives after the switch, and not for mail indexed before it.
+//! * The text indexed before the switch leaves the directory when zero-access is
+//!   enabled, before anything else happens (t28-c1).
 //! * A submission due after the restart is sent with no HTTP request made.
 //! * An account the admin disabled is not connected at start.
 //!
@@ -784,6 +786,48 @@ async fn a_zero_access_account_has_no_text_in_the_index_directory() {
     assert_eq!(status["documents"], 0, "{status}");
     assert!(!dir_contains(&d.index_dir(), AFTER));
     assert!(!dir_contains(&d.index_dir(), BEFORE));
+}
+
+/// t28-c1: the documents indexed before the switch leave the directory when
+/// zero-access is enabled — before any new mail, login or rebuild request.
+#[tokio::test]
+async fn enabling_zero_access_removes_the_indexed_text_at_once() {
+    const TOKEN: &str = "kvqzjxatonce";
+    let d = Deployment::new("mw-t28-c1-purge").await;
+    d.pop.deliver("m1", TOKEN);
+
+    let server = d.start().await;
+    let c = browser();
+    login(&c, &server.base, &d.pop).await;
+    let account = account_id(&c, &server.base).await;
+    assert_eq!(search(&c, &server.base, &account, TOKEN).await.len(), 1);
+    assert!(
+        dir_contains(&d.index_dir(), TOKEN),
+        "control: the indexed text is found by the scan"
+    );
+
+    let r = c
+        .post(format!("{}/api/zeroaccess/enable", server.base))
+        .json(&json!({
+            "saltB64": "c2FsdA==",
+            "kdfParams": { "alg": "argon2id" },
+            "wrappedDataKeyB64": "d3JhcHBlZA==",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200, "zero-access is enabled");
+
+    // The very next thing: no request, no delivery, no wait in between.
+    assert!(
+        !dir_contains(&d.index_dir(), TOKEN),
+        "the text indexed before the switch is gone when the enable request has been answered"
+    );
+    assert_eq!(d.pop.retrs(), 1, "nothing was fetched to do it");
+    let a = admin(&server.base).await;
+    let status = index_status(&a, &server.base).await;
+    assert_eq!(status["documents"], 0, "{status}");
+    assert!(search(&c, &server.base, &account, TOKEN).await.is_empty());
 }
 
 #[tokio::test]

@@ -612,9 +612,66 @@ async fn zeroaccess_enable(
                 .admin
                 .toggle_zero_access("system", &session.account_id, true)
                 .await;
+            if let Some(engine) = &state.engine {
+                clear_search_index(engine, &session.account_id).await;
+            }
             Json(json!({ "ok": true })).into_response()
         }
         Err(e) => server_error(e),
+    }
+}
+
+/// How long [`clear_search_index`] keeps asking for its rebuild while another
+/// one holds the index, and how often it asks.
+const INDEX_CLEAR_WAIT: std::time::Duration = std::time::Duration::from_secs(600);
+const INDEX_CLEAR_RETRY: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Remove from the search index the documents written for `account_id` before
+/// it became zero-access. The posture guard keeps new text out from the moment
+/// the row is stored; without this the earlier documents would stay until the
+/// account's next index write or the next rebuild.
+///
+/// A rebuild of a zero-access account removes its documents and writes none.
+/// It runs before the enable request is answered. Only one rebuild runs at a
+/// time: when another holds the index this returns and keeps asking in the
+/// background for up to [`INDEX_CLEAR_WAIT`], because a rebuild that read this
+/// account before the switch may have written its documents back.
+async fn clear_search_index(engine: &std::sync::Arc<mw_engine::Engine>, account_id: &str) {
+    use mw_engine::backend::EngineError;
+    match engine.rebuild_search_index(account_id).await {
+        Ok(summary) => {
+            tracing::info!(
+                "zero-access enabled for {account_id}: {} search index document(s) removed",
+                summary.removed
+            );
+        }
+        Err(EngineError::Unsupported(busy)) => {
+            tracing::info!(
+                "zero-access enabled for {account_id}: {busy}; its documents are removed when that finishes"
+            );
+            let engine = std::sync::Arc::clone(engine);
+            let account_id = account_id.to_string();
+            tokio::spawn(async move {
+                let deadline = tokio::time::Instant::now() + INDEX_CLEAR_WAIT;
+                loop {
+                    tokio::time::sleep(INDEX_CLEAR_RETRY).await;
+                    match engine.rebuild_search_index(&account_id).await {
+                        Ok(_) => return,
+                        Err(EngineError::Unsupported(_))
+                            if tokio::time::Instant::now() < deadline => {}
+                        Err(e) => {
+                            tracing::warn!(
+                                "search index documents of zero-access account {account_id} were not removed: {e}"
+                            );
+                            return;
+                        }
+                    }
+                }
+            });
+        }
+        Err(e) => tracing::warn!(
+            "search index documents of zero-access account {account_id} were not removed: {e}"
+        ),
     }
 }
 
