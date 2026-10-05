@@ -984,7 +984,7 @@ async fn build_app_inner(
     let engine = match config.mode {
         ServerMode::Engine => {
             tracing::info!("engine mode: driving IMAP/POP3 accounts behind the JMAP surface");
-            Some(Arc::new(Engine::new(store.clone())))
+            Some(engine_mode::build_engine(&store, &config.db_path))
         }
         ServerMode::Proxy => None,
     };
@@ -1107,7 +1107,7 @@ async fn build_app_inner(
             Some(store.clone()),
         )
         .await;
-        let posture = Arc::new(stores_v6::StorePostureSource::load(&store).await);
+        let posture = stores_v6::StorePostureSource::load(&store).await;
         let feed = Arc::new(stores_v6::AdminAuditFeed::new(admin.clone()));
         engine.attach_v6(
             mw_engine::V6Hooks::new()
@@ -1158,6 +1158,10 @@ async fn build_app_inner(
         if n > 0 {
             tracing::info!("registered {n} plugin/bridge account backend(s)");
         }
+        // The dispatcher, the search-index reconciliation and the connection of
+        // stored accounts, all in the background. Here because they read the
+        // posture source and the bridge registrations attached above.
+        engine_mode::start_background(engine);
     }
 
     // The `/mcp` Streamable-HTTP router over the REAL engine. The countersign

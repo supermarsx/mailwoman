@@ -23,10 +23,18 @@
 //! the value it already holds: a no-op. It reuses the shipped `messages` /
 //! `threads` tables via `set_thread` / `assign_thread`, so **no migration** is
 //! needed.
+//!
+//! ## Search-index rebuild
+//! The second half of this module is unrelated to threading and is **not**
+//! opt-in: [`rebuild_accounts`] rewrites the search index from the store. It
+//! runs at server start when the index and the store disagree
+//! ([`Engine::reconcile_search_index`]) and on demand from the admin surface.
+//! It changes nothing a client can see except which messages search finds.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::Ordering;
 
-use crate::backend::Result;
+use crate::backend::{EngineError, Result};
 use crate::engine::Engine;
 use crate::thread::{self, Message as ThreadMessage, ThreadNode};
 
@@ -227,6 +235,271 @@ fn message_root_candidate(m: &ThreadMessage) -> Option<String> {
         .cloned()
         .or_else(|| m.in_reply_to.clone())
         .or_else(|| m.message_id.clone())
+}
+
+// ── search-index rebuild ─────────────────────────────────────────────────────
+
+/// Documents written per index commit during a rebuild. A commit is the
+/// expensive part of an index write, so the rebuild commits once per chunk.
+const REINDEX_CHUNK: usize = 200;
+
+/// A progress line is logged each time this many more messages are done.
+const REINDEX_LOG_EVERY: u64 = 5_000;
+
+/// What a search-index rebuild did.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReindexSummary {
+    /// Accounts processed.
+    pub accounts: usize,
+    /// Stored messages read.
+    pub messages: usize,
+    /// Index documents written.
+    pub indexed: usize,
+    /// Index documents removed: documents whose message is no longer stored,
+    /// and every document of a zero-access account.
+    pub removed: usize,
+    /// Accounts that are zero-access and therefore have no index documents.
+    pub zero_access: usize,
+    /// Stored messages that could not be read back into a document.
+    pub failed: usize,
+}
+
+impl ReindexSummary {
+    fn merge(&mut self, other: &ReindexSummary) {
+        self.accounts += other.accounts;
+        self.messages += other.messages;
+        self.indexed += other.indexed;
+        self.removed += other.removed;
+        self.zero_access += other.zero_access;
+        self.failed += other.failed;
+    }
+}
+
+/// The search index measured against the store.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SearchIndexStatus {
+    /// Live documents in the index, all accounts.
+    pub documents: u64,
+    /// Stored messages of standard (not zero-access) accounts: the number of
+    /// documents a complete index holds.
+    pub messages: u64,
+    /// Documents the index holds for zero-access accounts. A correct index
+    /// holds none.
+    pub zero_access_documents: u64,
+    /// Whether the index is on disk (`false`: in RAM, rebuilt at every start).
+    pub persistent: bool,
+    /// Whether a rebuild is running now.
+    pub rebuilding: bool,
+    /// Messages processed by the running rebuild, or by the last one.
+    pub rebuild_done: u64,
+    /// Messages the running rebuild set out to process, or the last one did.
+    pub rebuild_total: u64,
+}
+
+fn index_err(e: mw_search::SearchError) -> EngineError {
+    EngineError::Protocol(format!("search index: {e}"))
+}
+
+/// Every account a rebuild has to visit: the accounts table, plus any account
+/// registered in the engine that the table does not list.
+pub(crate) async fn all_account_ids(engine: &Engine) -> Result<Vec<String>> {
+    let mut ids: Vec<String> = engine
+        .store()
+        .list_accounts()
+        .await?
+        .into_iter()
+        .map(|a| a.id)
+        .collect();
+    for id in engine.registered_accounts() {
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    Ok(ids)
+}
+
+/// Stored messages of one account, summed over its mailboxes.
+async fn stored_message_count(engine: &Engine, account_id: &str) -> Result<u64> {
+    let store = engine.store();
+    let mut n = 0u64;
+    for mb in store.list_mailboxes(account_id).await? {
+        n += store.count_messages_in_mailbox(&mb.id).await?;
+    }
+    Ok(n)
+}
+
+pub(crate) async fn search_index_status(engine: &Engine) -> Result<SearchIndexStatus> {
+    let search = engine.search_handle();
+    let mut status = SearchIndexStatus {
+        documents: search.num_docs(),
+        persistent: engine.search_index_dir().is_some(),
+        rebuilding: engine.index_rebuild.running.load(Ordering::SeqCst),
+        rebuild_done: engine.index_rebuild.done.load(Ordering::SeqCst),
+        rebuild_total: engine.index_rebuild.total.load(Ordering::SeqCst),
+        ..Default::default()
+    };
+    for account_id in all_account_ids(engine).await? {
+        if engine.index_allowed(&account_id).await {
+            status.messages += stored_message_count(engine, &account_id).await?;
+        } else {
+            status.zero_access_documents +=
+                search.account_doc_count(&account_id).map_err(index_err)?;
+        }
+    }
+    Ok(status)
+}
+
+/// Rebuild the search index for `accounts`, one after another.
+///
+/// Single-flight: a call made while a rebuild is running is refused with
+/// [`EngineError::Unsupported`] rather than queued, so two rebuilds never
+/// interleave their commits.
+pub(crate) async fn rebuild_accounts(
+    engine: &Engine,
+    accounts: &[String],
+) -> Result<ReindexSummary> {
+    let state = &engine.index_rebuild;
+    let Ok(_guard) = state.lock.try_lock() else {
+        return Err(EngineError::Unsupported(
+            "a search index rebuild is already running".to_string(),
+        ));
+    };
+    let mut total = 0u64;
+    for account_id in accounts {
+        total += stored_message_count(engine, account_id).await?;
+    }
+    state.done.store(0, Ordering::SeqCst);
+    state.total.store(total, Ordering::SeqCst);
+    state.running.store(true, Ordering::SeqCst);
+
+    let started = std::time::Instant::now();
+    let mut summary = ReindexSummary::default();
+    let mut result = Ok(());
+    for account_id in accounts {
+        match rebuild_account(engine, account_id).await {
+            Ok(s) => summary.merge(&s),
+            Err(e) => {
+                result = Err(e);
+                break;
+            }
+        }
+    }
+    state.running.store(false, Ordering::SeqCst);
+    result?;
+    tracing::info!(
+        "search index rebuild finished in {:.1}s: {} account(s), {} message(s) read, {} document(s) written, {} removed, {} zero-access account(s) left unindexed, {} unreadable",
+        started.elapsed().as_secs_f64(),
+        summary.accounts,
+        summary.messages,
+        summary.indexed,
+        summary.removed,
+        summary.zero_access,
+        summary.failed
+    );
+    Ok(summary)
+}
+
+/// Rebuild one account. The caller holds the single-flight lock.
+async fn rebuild_account(engine: &Engine, account_id: &str) -> Result<ReindexSummary> {
+    let store = engine.store();
+    let search = engine.search_handle();
+    let mut summary = ReindexSummary {
+        accounts: 1,
+        ..Default::default()
+    };
+    if !engine.index_allowed(account_id).await {
+        summary.zero_access = 1;
+        summary.removed = search.delete_account(account_id).map_err(index_err)? as usize;
+        return Ok(summary);
+    }
+
+    // The ids indexed BEFORE the store is read. Whatever is in this set and not
+    // in the store afterwards is stale. Taking it first is what keeps a message
+    // ingested during the rebuild from being mistaken for stale: it is in
+    // neither set, or only in the store's.
+    let indexed_before: HashSet<String> = search
+        .account_stable_ids(account_id)
+        .map_err(index_err)?
+        .into_iter()
+        .collect();
+
+    let mut stored: HashSet<String> = HashSet::new();
+    let mut batch: Vec<mw_search::IndexDoc> = Vec::with_capacity(REINDEX_CHUNK);
+    for mb in store.list_mailboxes(account_id).await? {
+        let mut offset = 0i64;
+        loop {
+            let ids = store.list_message_ids(&mb.id, PAGE, offset).await?;
+            let got = ids.len() as i64;
+            for sid in ids {
+                if !stored.insert(sid.clone()) {
+                    continue;
+                }
+                summary.messages += 1;
+                let done = engine.index_rebuild.done.fetch_add(1, Ordering::SeqCst) + 1;
+                if done.is_multiple_of(REINDEX_LOG_EVERY) {
+                    tracing::info!(
+                        "search index rebuild: {done} of {} message(s)",
+                        engine.index_rebuild.total.load(Ordering::SeqCst)
+                    );
+                }
+                match engine.build_index_doc(&sid).await {
+                    Ok(doc) => batch.push(doc),
+                    // Deleted between the listing and the read.
+                    Err(EngineError::Store(mw_store::StoreError::NotFound)) => {
+                        stored.remove(&sid);
+                    }
+                    Err(e) => {
+                        summary.failed += 1;
+                        tracing::warn!("search index rebuild: message {sid} not indexed: {e}");
+                    }
+                }
+                if batch.len() == REINDEX_CHUNK
+                    && !flush(engine, account_id, &mut batch, &mut summary).await?
+                {
+                    return Ok(summary);
+                }
+            }
+            if got < PAGE {
+                break;
+            }
+            offset += PAGE;
+        }
+    }
+    if !flush(engine, account_id, &mut batch, &mut summary).await? {
+        return Ok(summary);
+    }
+
+    let stale: Vec<String> = indexed_before.difference(&stored).cloned().collect();
+    search.delete_batch(&stale).map_err(index_err)?;
+    summary.removed = stale.len();
+    Ok(summary)
+}
+
+/// Commit one chunk of a rebuild. Returns
+/// `false` when the account turned zero-access since the rebuild of it began:
+/// the chunk is discarded, the account's documents are removed, `summary` is
+/// rewritten to say so, and the caller stops.
+async fn flush(
+    engine: &Engine,
+    account_id: &str,
+    batch: &mut Vec<mw_search::IndexDoc>,
+    summary: &mut ReindexSummary,
+) -> Result<bool> {
+    let search = engine.search_handle();
+    if !engine.index_allowed(account_id).await {
+        batch.clear();
+        summary.indexed = 0;
+        summary.zero_access = 1;
+        summary.removed = search.delete_account(account_id).map_err(index_err)? as usize;
+        return Ok(false);
+    }
+    let n = batch.len();
+    if n > 0 {
+        search.upsert_batch(batch).map_err(index_err)?;
+        batch.clear();
+        summary.indexed += n;
+    }
+    Ok(true)
 }
 
 #[cfg(test)]

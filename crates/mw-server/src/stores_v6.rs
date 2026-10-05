@@ -608,32 +608,105 @@ impl WebhookRegistry for WebhookRegistryAdapter {
 // ─── Engine posture source + audit feed ───────────────────────────────────────
 
 /// Backs `mw_engine::AccountPostureSource` with the 0007 `zeroaccess_accounts`
-/// table (a snapshot of enabled accounts, refreshed at build time). Any account
-/// in the set is treated as zero-access so its plaintext-derived cache values are
-/// forced to per-request scope (mw-cache structural exclusion).
+/// table.
+///
+/// The engine asks two questions and they are answered differently:
+///
+/// * [`posture_live`](mw_engine::AccountPostureSource::posture_live), asked before
+///   a search-index document is written, reads the account's row from the store
+///   every time. If the read fails the answer is zero-access.
+/// * [`posture`](mw_engine::AccountPostureSource::posture), asked synchronously on
+///   the cache-aside read paths, answers from the set of enabled accounts as last
+///   read. That set is read at start, re-read every [`POSTURE_REFRESH`], and
+///   corrected for one account by each live read of it. So an account that turns
+///   zero-access can have plaintext-derived values placed in a shared cache tier
+///   for up to that long afterwards.
 pub struct StorePostureSource {
-    zero_access: std::collections::HashSet<String>,
+    store: Store,
+    /// Account ids that were zero-access when last read.
+    zero_access: std::sync::RwLock<std::collections::HashSet<String>>,
 }
 
+/// How often the set behind the synchronous posture answer is re-read.
+const POSTURE_REFRESH: std::time::Duration = std::time::Duration::from_secs(5);
+
 impl StorePostureSource {
-    pub async fn load(store: &Store) -> Self {
-        let zero_access = store
-            .list_zeroaccess_enabled()
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .collect();
-        Self { zero_access }
+    /// Read the enabled set and start the task that keeps it fresh. The task ends
+    /// when the last handle to the source is dropped.
+    pub async fn load(store: &Store) -> Arc<Self> {
+        let source = Arc::new(Self {
+            store: store.clone(),
+            zero_access: std::sync::RwLock::default(),
+        });
+        source.refresh().await;
+        let weak = Arc::downgrade(&source);
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(POSTURE_REFRESH).await;
+                let Some(source) = weak.upgrade() else {
+                    return;
+                };
+                source.refresh().await;
+            }
+        });
+        source
+    }
+
+    /// Replace the enabled set with what the store holds now. A failed read
+    /// leaves the previous set in place.
+    async fn refresh(&self) {
+        match self.store.list_zeroaccess_enabled().await {
+            Ok(ids) => {
+                *self.zero_access.write().expect("posture set lock") = ids.into_iter().collect();
+            }
+            Err(e) => tracing::warn!("zero-access account list could not be read: {e}"),
+        }
     }
 }
 
 impl mw_engine::AccountPostureSource for StorePostureSource {
     fn posture(&self, account_id: &str) -> mw_engine::AccountPosture {
-        if self.zero_access.contains(account_id) {
+        if self
+            .zero_access
+            .read()
+            .expect("posture set lock")
+            .contains(account_id)
+        {
             mw_engine::AccountPosture::ZeroAccess
         } else {
             mw_engine::AccountPosture::Standard
         }
+    }
+
+    fn posture_live<'a>(
+        &'a self,
+        account_id: &'a str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = mw_engine::AccountPosture> + Send + 'a>>
+    {
+        Box::pin(async move {
+            let enabled = match self.store.get_zeroaccess(account_id).await {
+                Ok(row) => row.is_some_and(|r| r.enabled),
+                Err(e) => {
+                    tracing::warn!(
+                        "zero-access state of {account_id} could not be read ({e}); treating it as zero-access"
+                    );
+                    return mw_engine::AccountPosture::ZeroAccess;
+                }
+            };
+            {
+                let mut set = self.zero_access.write().expect("posture set lock");
+                if enabled {
+                    set.insert(account_id.to_string());
+                } else {
+                    set.remove(account_id);
+                }
+            }
+            if enabled {
+                mw_engine::AccountPosture::ZeroAccess
+            } else {
+                mw_engine::AccountPosture::Standard
+            }
+        })
     }
 }
 

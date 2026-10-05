@@ -26,7 +26,7 @@
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -47,7 +47,10 @@ const ADMIN_JMAP_METHODS: &[&str] = &[
 
 /// The `/admin/maintenance/*` router (merged + ridden by `lib.rs`'s middleware).
 pub(crate) fn admin_maintenance_router() -> Router<AppState> {
-    Router::new().route("/admin/maintenance/rethread", post(rethread))
+    Router::new()
+        .route("/admin/maintenance/rethread", post(rethread))
+        .route("/admin/maintenance/reindex", post(reindex))
+        .route("/admin/maintenance/search-index", get(search_index_status))
 }
 
 // ── admin session gate (mirrors admin.rs / admin_sso.rs) ─────────────────────
@@ -156,6 +159,117 @@ async fn rethread(
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": "rethread failed" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+// ── 1b. Search index: status and rebuild ─────────────────────────────────────
+
+fn engine_mode_only(what: &str) -> Response {
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        Json(json!({ "error": format!("{what} requires engine mode") })),
+    )
+        .into_response()
+}
+
+fn search_status_json(s: &mw_engine::maintenance::SearchIndexStatus) -> Value {
+    json!({
+        "documents": s.documents,
+        "messages": s.messages,
+        "zeroAccessDocuments": s.zero_access_documents,
+        "persistent": s.persistent,
+        "rebuilding": s.rebuilding,
+        "rebuildDone": s.rebuild_done,
+        "rebuildTotal": s.rebuild_total,
+    })
+}
+
+/// `GET /admin/maintenance/search-index` — how many documents the search index
+/// holds, how many stored messages it should hold (zero-access accounts are not
+/// indexed and not counted), whether it is on disk, and the progress of a rebuild
+/// if one is running. Admin-session-gated + engine-mode only.
+async fn search_index_status(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if admin_id(&state, &headers).await.is_none() {
+        return unauthorized();
+    }
+    let Some(engine) = &state.engine else {
+        return engine_mode_only("the search index");
+    };
+    match engine.search_index_status().await {
+        Ok(status) => Json(search_status_json(&status)).into_response(),
+        Err(e) => {
+            tracing::warn!("search index status failed: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "search index status failed" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ReindexReq {
+    /// Rebuild this account only; absent ⇒ every account.
+    #[serde(default)]
+    account_id: Option<String>,
+}
+
+/// `POST /admin/maintenance/reindex` `{ "accountId"?: "<id>" }` — rebuild the
+/// search index from the store, for one account or (without `accountId`) for all
+/// of them, and return what was done. The request returns when the rebuild has
+/// finished. `409` while another rebuild (this route's, or the one start-up runs)
+/// is in progress. Admin-session-gated + engine-mode only.
+async fn reindex(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Option<Json<ReindexReq>>,
+) -> Response {
+    let Some(actor) = admin_id(&state, &headers).await else {
+        return unauthorized();
+    };
+    let Some(engine) = &state.engine else {
+        return engine_mode_only("reindex");
+    };
+    let account_id = body
+        .and_then(|Json(b)| b.account_id)
+        .filter(|s| !s.is_empty());
+    let result = match &account_id {
+        Some(id) => engine.rebuild_search_index(id).await,
+        None => engine.rebuild_search_index_all().await,
+    };
+    match result {
+        Ok(summary) => {
+            let detail = json!({
+                "accounts": summary.accounts,
+                "messages": summary.messages,
+                "indexed": summary.indexed,
+                "removed": summary.removed,
+                "zeroAccess": summary.zero_access,
+                "failed": summary.failed,
+            });
+            audit(
+                &state,
+                &actor,
+                "maintenance-reindex",
+                account_id.as_deref().unwrap_or("*"),
+                detail.clone(),
+            )
+            .await;
+            Json(detail).into_response()
+        }
+        Err(mw_engine::backend::EngineError::Unsupported(why)) => {
+            (StatusCode::CONFLICT, Json(json!({ "error": why }))).into_response()
+        }
+        Err(e) => {
+            tracing::warn!("reindex failed: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "reindex failed" })),
             )
                 .into_response()
         }

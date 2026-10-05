@@ -9,8 +9,8 @@
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::path::Path;
-use std::sync::atomic::AtomicBool;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -99,12 +99,31 @@ pub struct Engine {
     /// enters the re-rank path at all, so the search path is byte-identical to
     /// 26.18. `mw-server` injects one at mount via [`Engine::attach_embeddings`].
     embeddings: std::sync::RwLock<Option<Arc<dyn crate::search_semantic::EmbeddingProvider>>>,
+    /// The directory the search index persists to, when it was opened with
+    /// [`Engine::open_with_search`]; `None` for an in-RAM index.
+    search_dir: Option<PathBuf>,
+    /// Single-flight guard and progress counters for a search-index rebuild.
+    pub(crate) index_rebuild: IndexRebuild,
+}
+
+/// State of the one search-index rebuild that may run at a time
+/// ([`crate::maintenance`]).
+#[derive(Default)]
+pub(crate) struct IndexRebuild {
+    /// Held for the length of a rebuild; a second caller is refused.
+    pub(crate) lock: tokio::sync::Mutex<()>,
+    pub(crate) running: AtomicBool,
+    /// Stored messages processed so far by the running (or last) rebuild.
+    pub(crate) done: AtomicU64,
+    /// Stored messages the running (or last) rebuild set out to process.
+    pub(crate) total: AtomicU64,
 }
 
 impl Engine {
     /// Build an engine over an open store with an in-RAM search index. The
-    /// index rebuilds from the store on restart; production uses
-    /// [`Engine::open_with_search`] to persist it under the data dir.
+    /// index starts empty in every process; nothing here fills it from the
+    /// store. A caller that wants existing mail searchable runs
+    /// [`Engine::reconcile_search_index`], as `mw-server` does at start-up.
     pub fn new(store: Store) -> Self {
         let search = Arc::new(
             mw_search::Index::open_in_ram().expect("in-RAM search index construction cannot fail"),
@@ -112,11 +131,14 @@ impl Engine {
         Self::with_search(store, search)
     }
 
-    /// Build an engine over a persistent index rooted at `dir` (server path).
+    /// Build an engine over a persistent index rooted at `dir`. The index holds
+    /// message text unsealed, so `dir` needs the same protection as the store.
     pub fn open_with_search(store: Store, dir: &Path) -> Result<Self> {
         let search = mw_search::Index::open(dir)
             .map_err(|e| EngineError::Protocol(format!("open search index: {e}")))?;
-        Ok(Self::with_search(store, Arc::new(search)))
+        let mut engine = Self::with_search(store, Arc::new(search));
+        engine.search_dir = Some(dir.to_path_buf());
+        Ok(engine)
     }
 
     /// Build an engine over an explicit search index (tests / custom wiring).
@@ -127,6 +149,8 @@ impl Engine {
             accounts: Mutex::new(HashMap::new()),
             changes,
             search,
+            search_dir: None,
+            index_rebuild: IndexRebuild::default(),
             dispatcher_started: AtomicBool::new(false),
             v6: std::sync::RwLock::new(crate::v6::V6Hooks::default()),
             v7: std::sync::RwLock::new(crate::v7::V7Hooks::default()),
@@ -148,6 +172,21 @@ impl Engine {
     /// document text from it inside spawned tasks).
     pub fn search_handle(&self) -> &Arc<mw_search::Index> {
         &self.search
+    }
+
+    /// Where the search index persists, or `None` when it lives in RAM.
+    pub fn search_index_dir(&self) -> Option<&Path> {
+        self.search_dir.as_deref()
+    }
+
+    /// The ids of every account registered in this engine right now.
+    pub(crate) fn registered_accounts(&self) -> Vec<String> {
+        self.accounts
+            .lock()
+            .expect("accounts lock")
+            .keys()
+            .cloned()
+            .collect()
     }
 
     /// Attach (or clear, with `None`) the embedding provider that backs opt-in
@@ -436,23 +475,29 @@ impl Engine {
         // never serve a pre-update copy (plan §3 e10). No-op without a cache.
         self.invalidate_message_cache(&sid).await;
 
-        // Index for search. Keywords + attachment filenames back `tag:`/`is:` and
+        // Index for search, unless the account is zero-access: its mail gets no
+        // index document, and any it had from before the posture changed is
+        // removed. Keywords + attachment filenames back `tag:`/`is:` and
         // `filename:`; pin defaults false on a fresh document.
-        let keywords: Vec<String> = flags_to_keywords(&raw.flags).into_keys().collect();
-        let filenames = search_index::attachment_filenames(&raw.raw);
-        let attachment_text = search_index::attachment_text(&raw.raw);
-        let doc = search_index::build_index_doc(
-            &sid,
-            account_id,
-            mailbox_id,
-            &email,
-            keywords,
-            filenames,
-            attachment_text,
-            false,
-        );
-        if let Err(e) = self.search.upsert(&doc) {
-            tracing::warn!("search index upsert failed for {sid}: {e}");
+        if self.index_allowed(account_id).await {
+            let keywords: Vec<String> = flags_to_keywords(&raw.flags).into_keys().collect();
+            let filenames = search_index::attachment_filenames(&raw.raw);
+            let attachment_text = search_index::attachment_text(&raw.raw);
+            let doc = search_index::build_index_doc(
+                &sid,
+                account_id,
+                mailbox_id,
+                &email,
+                keywords,
+                filenames,
+                attachment_text,
+                false,
+            );
+            if let Err(e) = self.search.upsert(&doc) {
+                tracing::warn!("search index upsert failed for {sid}: {e}");
+            }
+        } else {
+            self.drop_account_from_index(account_id);
         }
 
         // Rules run once, on genuinely new inbox arrivals (never on our own
@@ -534,6 +579,22 @@ impl Engine {
         Ok(thread::thread_root(&target, &ancestors))
     }
 
+    /// Remove every search-index document of `account_id` (one commit; none
+    /// when the account has no document). Called when a write finds the account
+    /// zero-access, so documents indexed before the posture changed do not
+    /// outlive it.
+    pub(crate) fn drop_account_from_index(&self, account_id: &str) {
+        match self.search.delete_account(account_id) {
+            Ok(0) => {}
+            Ok(n) => tracing::info!(
+                "search index: removed {n} document(s) of zero-access account {account_id}"
+            ),
+            Err(e) => tracing::warn!(
+                "search index: removing the documents of zero-access account {account_id} failed: {e}"
+            ),
+        }
+    }
+
     /// Rebuild a message's search-index document from the store (after a flag,
     /// meta, or move change). Best-effort — a failure only degrades search, not
     /// correctness. Loads the sealed body to recover attachment filenames.
@@ -575,18 +636,40 @@ impl Engine {
             return;
         }
         let mut docs: Vec<mw_search::IndexDoc> = Vec::with_capacity(patches.len());
+        // One posture read per account in the batch, not per message.
+        let mut allowed: HashMap<String, bool> = HashMap::new();
         for patch in patches {
-            match self.search.fetch_doc(&patch.stable_id) {
+            let doc = match self.search.fetch_doc(&patch.stable_id) {
                 Ok(Some(mut doc)) => {
                     patch.apply(&mut doc);
-                    docs.push(doc);
+                    doc
                 }
                 // Not indexed under that id — rebuild it from the store.
                 Ok(None) => match self.build_index_doc(&patch.stable_id).await {
-                    Ok(doc) => docs.push(doc),
-                    Err(e) => tracing::warn!("re-index of {} failed: {e}", patch.stable_id),
+                    Ok(doc) => doc,
+                    Err(e) => {
+                        tracing::warn!("re-index of {} failed: {e}", patch.stable_id);
+                        continue;
+                    }
                 },
-                Err(e) => tracing::warn!("index read for {} failed: {e}", patch.stable_id),
+                Err(e) => {
+                    tracing::warn!("index read for {} failed: {e}", patch.stable_id);
+                    continue;
+                }
+            };
+            let ok = match allowed.get(&doc.account_id) {
+                Some(ok) => *ok,
+                None => {
+                    let ok = self.index_allowed(&doc.account_id).await;
+                    if !ok {
+                        self.drop_account_from_index(&doc.account_id);
+                    }
+                    allowed.insert(doc.account_id.clone(), ok);
+                    ok
+                }
+            };
+            if ok {
+                docs.push(doc);
             }
         }
         if docs.is_empty() {
@@ -600,6 +683,10 @@ impl Engine {
 
     async fn try_reindex_message(&self, stable_id: &str) -> Result<()> {
         let doc = self.build_index_doc(stable_id).await?;
+        if !self.index_allowed(&doc.account_id).await {
+            self.drop_account_from_index(&doc.account_id);
+            return Ok(());
+        }
         self.search
             .upsert(&doc)
             .map_err(|e| EngineError::Protocol(format!("index upsert: {e}")))?;
@@ -609,7 +696,7 @@ impl Engine {
     /// Rebuild a message's [`mw_search::IndexDoc`] from the store. Costs four
     /// statements per message (row, envelope, body, meta), which is why the
     /// batched path above avoids it when the index can supply the document.
-    async fn build_index_doc(&self, stable_id: &str) -> Result<mw_search::IndexDoc> {
+    pub(crate) async fn build_index_doc(&self, stable_id: &str) -> Result<mw_search::IndexDoc> {
         let msg = self
             .store
             .get_message(stable_id)
@@ -826,6 +913,51 @@ impl Engine {
         account_id: &str,
     ) -> Result<crate::maintenance::RethreadSummary> {
         crate::maintenance::rethread_account(self, account_id).await
+    }
+
+    /// Rebuild the search index for one account from the store: write a
+    /// document for every stored message and remove documents whose message is
+    /// gone. For a zero-access account it removes the account's documents and
+    /// writes none. See [`crate::maintenance::rebuild_accounts`].
+    ///
+    /// One rebuild runs at a time; a call made while another is running returns
+    /// [`EngineError::Unsupported`].
+    pub async fn rebuild_search_index(
+        &self,
+        account_id: &str,
+    ) -> Result<crate::maintenance::ReindexSummary> {
+        crate::maintenance::rebuild_accounts(self, &[account_id.to_string()]).await
+    }
+
+    /// [`Engine::rebuild_search_index`] for every account in the store.
+    pub async fn rebuild_search_index_all(&self) -> Result<crate::maintenance::ReindexSummary> {
+        let accounts = crate::maintenance::all_account_ids(self).await?;
+        crate::maintenance::rebuild_accounts(self, &accounts).await
+    }
+
+    /// What the search index holds against what the store says it should.
+    pub async fn search_index_status(&self) -> Result<crate::maintenance::SearchIndexStatus> {
+        crate::maintenance::search_index_status(self).await
+    }
+
+    /// Rebuild the search index if it disagrees with the store: the document
+    /// count differs from the number of stored messages of standard accounts,
+    /// or a zero-access account has documents. Returns `None` when they agree
+    /// and nothing was done. `mw-server` runs this once at start-up, in the
+    /// background.
+    pub async fn reconcile_search_index(
+        &self,
+    ) -> Result<Option<crate::maintenance::ReindexSummary>> {
+        let status = self.search_index_status().await?;
+        if status.documents == status.messages && status.zero_access_documents == 0 {
+            return Ok(None);
+        }
+        tracing::info!(
+            "search index holds {} document(s), the store holds {} indexable message(s); rebuilding",
+            status.documents,
+            status.messages
+        );
+        self.rebuild_search_index_all().await.map(Some)
     }
 
     // ---- change ingestion ----------------------------------------------

@@ -26,6 +26,8 @@
 //! (which rule fired, which submission was recalled). The engine builds no
 //! second broadcast channel of its own (plan §3 e10 scope).
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -42,8 +44,23 @@ use crate::engine::Engine;
 /// ([`StandardPosture`]) treats every account as [`AccountPosture::Standard`] so
 /// the existing path is unchanged.
 pub trait AccountPostureSource: Send + Sync {
-    /// The posture the cache-aside helpers apply for `account_id`.
+    /// The posture the cache-aside helpers apply for `account_id`. Synchronous,
+    /// so a source backed by storage answers from what it last read.
     fn posture(&self, account_id: &str) -> AccountPosture;
+
+    /// The posture read from the source's backing storage now. The engine asks
+    /// this before it writes a search-index document, because that write puts
+    /// message text on disk and is not undone by a later posture change.
+    ///
+    /// A source that cannot complete the read must answer
+    /// [`AccountPosture::ZeroAccess`]. The default is for sources with nothing
+    /// to read: it returns [`AccountPostureSource::posture`].
+    fn posture_live<'a>(
+        &'a self,
+        account_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = AccountPosture> + Send + 'a>> {
+        Box::pin(std::future::ready(self.posture(account_id)))
+    }
 }
 
 /// The default posture source: every account is a conventional (standard)
@@ -164,6 +181,22 @@ impl Engine {
             .expect("v6 hooks lock")
             .posture
             .posture(account_id)
+    }
+
+    /// The posture read from the attached source's storage now (see
+    /// [`AccountPostureSource::posture_live`]).
+    pub async fn account_posture_live(&self, account_id: &str) -> AccountPosture {
+        // Clone the handle out so the hooks lock is not held across the read.
+        let source = Arc::clone(&self.v6.read().expect("v6 hooks lock").posture);
+        source.posture_live(account_id).await
+    }
+
+    /// Whether the search index may hold a document for `account_id`: only a
+    /// standard account's mail is indexed. A zero-access account has no index
+    /// document at all, on disk or in RAM, so server-side search returns nothing
+    /// for it.
+    pub(crate) async fn index_allowed(&self, account_id: &str) -> bool {
+        self.account_posture_live(account_id).await == AccountPosture::Standard
     }
 
     /// Whether a cache is currently attached (drives the `mailwoman doctor`

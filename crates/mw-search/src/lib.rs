@@ -31,7 +31,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
-use tantivy::collector::TopDocs;
+use tantivy::collector::{Count, DocSetCollector, TopDocs};
 use tantivy::directory::MmapDirectory;
 use tantivy::query::{
     AllQuery, BooleanQuery, EmptyQuery, FuzzyTermQuery, Occur, PhraseQuery, Query, RangeQuery,
@@ -424,6 +424,85 @@ impl Index {
         }
         self.reader.reload()?;
         Ok(())
+    }
+
+    /// Delete several documents by stable id with a **single** commit and a
+    /// single reader reload. An id that is not indexed is ignored.
+    pub fn delete_batch(&self, stable_ids: &[String]) -> Result<()> {
+        if stable_ids.is_empty() {
+            return Ok(());
+        }
+        {
+            let mut w = self.lock_writer()?;
+            for id in stable_ids {
+                w.delete_term(Term::from_field_text(self.fields.stable_id, id));
+            }
+            self.commit_writer(&mut w)?;
+        }
+        self.reader.reload()?;
+        Ok(())
+    }
+
+    /// Delete every document of one account with a single commit, whichever
+    /// mailbox each was indexed under (including a mailbox that no longer
+    /// exists). Returns how many documents the account had.
+    ///
+    /// A commit only marks documents deleted: their terms and stored text stay
+    /// in the segment files until the segment is merged. This method is for
+    /// removing an account's text from the directory, so after the commit it
+    /// merges every remaining segment into one, which rewrites them without the
+    /// deleted documents, and then has Tantivy delete the files no segment
+    /// uses. That rewrite reads and writes the whole index, every account's
+    /// documents included; it is the cost of the text being gone when this
+    /// returns rather than at some later merge.
+    pub fn delete_account(&self, account_id: &str) -> Result<u64> {
+        let had = self.account_doc_count(account_id)?;
+        if had == 0 {
+            return Ok(0);
+        }
+        let mut w = self.lock_writer()?;
+        w.delete_term(Term::from_field_text(self.fields.account_id, account_id));
+        self.commit_writer(&mut w)?;
+        // Reload before each step that deletes files: the reader maps the
+        // segment files it searches, and a mapped file cannot be removed on
+        // Windows.
+        self.reader.reload()?;
+        let segments = self.inner.searchable_segment_ids()?;
+        if !segments.is_empty() {
+            w.merge(&segments).wait()?;
+            self.reader.reload()?;
+        }
+        w.garbage_collect_files().wait()?;
+        Ok(had)
+    }
+
+    fn account_query(&self, account_id: &str) -> TermQuery {
+        TermQuery::new(
+            Term::from_field_text(self.fields.account_id, account_id),
+            IndexRecordOption::Basic,
+        )
+    }
+
+    /// The number of live documents indexed for one account.
+    pub fn account_doc_count(&self, account_id: &str) -> Result<u64> {
+        let searcher = self.reader.searcher();
+        let n = searcher.search(&self.account_query(account_id), &Count)?;
+        Ok(n as u64)
+    }
+
+    /// The stable ids of every live document indexed for one account, in no
+    /// particular order and without the [`MAX_HITS`] cap `search` applies.
+    pub fn account_stable_ids(&self, account_id: &str) -> Result<Vec<String>> {
+        let searcher = self.reader.searcher();
+        let addrs = searcher.search(&self.account_query(account_id), &DocSetCollector)?;
+        let mut ids = Vec::with_capacity(addrs.len());
+        for addr in addrs {
+            let td: TantivyDocument = searcher.doc(addr)?;
+            if let Some(id) = td.get_first(self.fields.stable_id).and_then(|v| v.as_str()) {
+                ids.push(id.to_string());
+            }
+        }
+        Ok(ids)
     }
 
     /// Re-key a document onto a new mailbox after a stable-id-preserving move
@@ -830,6 +909,117 @@ mod tests {
         ])
         .expect("index");
         idx
+    }
+
+    #[test]
+    fn account_scoped_delete_count_and_listing() {
+        let idx = Index::open_in_ram().expect("open ram index");
+        let of = |id: &str, account: &str, mailbox: &str| IndexDoc {
+            account_id: account.to_string(),
+            mailbox_id: mailbox.to_string(),
+            ..doc(id, "Quarterly report ready", "alice@example.com")
+        };
+        idx.upsert_batch(&[
+            of("a1", "acct-a", "mb1"),
+            of("a2", "acct-a", "mb-gone"),
+            of("b1", "acct-b", "mb1"),
+        ])
+        .expect("index");
+        assert_eq!(idx.account_doc_count("acct-a").unwrap(), 2);
+        assert_eq!(idx.account_doc_count("acct-b").unwrap(), 1);
+        let mut ids = idx.account_stable_ids("acct-a").unwrap();
+        ids.sort();
+        assert_eq!(ids, ["a1", "a2"]);
+
+        // One commit for the whole account, whatever mailbox a document names.
+        let before = commit_count();
+        assert_eq!(idx.delete_account("acct-a").unwrap(), 2);
+        assert_eq!(commit_count() - before, 1);
+        assert_eq!(idx.account_doc_count("acct-a").unwrap(), 0);
+        assert!(idx.fetch_doc("a2").unwrap().is_none());
+        // The other account is untouched, and an absent account commits nothing.
+        assert_eq!(idx.account_doc_count("acct-b").unwrap(), 1);
+        let before = commit_count();
+        assert_eq!(idx.delete_account("acct-a").unwrap(), 0);
+        assert_eq!(commit_count() - before, 0);
+    }
+
+    /// Every byte of every file under `dir`.
+    fn dir_bytes(dir: &std::path::Path) -> Vec<u8> {
+        let mut out = Vec::new();
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_file() {
+                out.extend(std::fs::read(&path).unwrap_or_default());
+            }
+        }
+        out
+    }
+
+    fn has(haystack: &[u8], needle: &str) -> bool {
+        haystack
+            .windows(needle.len())
+            .any(|w| w == needle.as_bytes())
+    }
+
+    #[test]
+    fn delete_account_removes_the_accounts_text_from_the_directory() {
+        let dir = std::env::temp_dir().join(format!(
+            "mw-search-purge-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let idx = Index::open(&dir).expect("open disk index");
+        let of = |id: &str, account: &str, subject: &str| IndexDoc {
+            account_id: account.to_string(),
+            ..doc(id, subject, "alice@example.com")
+        };
+        // Two accounts in one commit, so they share a segment, and the account
+        // being deleted is a small part of it: the case a plain delete leaves on
+        // disk, because one deleted document in twenty-one is below the ratio at
+        // which Tantivy merges a segment on its own.
+        let mut docs = vec![of("a1", "acct-a", "zqxjkvalpha report")];
+        for i in 0..20 {
+            docs.push(of(&format!("b{i}"), "acct-b", "wpfhgybravo report"));
+        }
+        idx.upsert_batch(&docs).expect("index");
+        let before = dir_bytes(&dir);
+        assert!(
+            has(&before, "zqxjkvalpha"),
+            "the scan can find indexed text"
+        );
+        assert!(has(&before, "wpfhgybravo"));
+
+        assert_eq!(idx.delete_account("acct-a").unwrap(), 1);
+
+        let after = dir_bytes(&dir);
+        assert!(
+            !has(&after, "zqxjkvalpha"),
+            "the deleted account's text is gone"
+        );
+        assert!(has(&after, "wpfhgybravo"), "the other account's is not");
+        assert_eq!(idx.account_doc_count("acct-b").unwrap(), 20);
+        assert!(idx.fetch_doc("b1").unwrap().is_some());
+
+        drop(idx);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn delete_batch_commits_once() {
+        let idx = seeded();
+        let before = commit_count();
+        idx.delete_batch(&["m1".to_string(), "m3".to_string(), "absent".to_string()])
+            .unwrap();
+        assert_eq!(commit_count() - before, 1);
+        assert_eq!(idx.num_docs(), 1);
+        assert!(idx.fetch_doc("m2").unwrap().is_some());
+        let before = commit_count();
+        idx.delete_batch(&[]).unwrap();
+        assert_eq!(commit_count() - before, 0);
     }
 
     fn find(idx: &Index, q: &str) -> Vec<String> {
