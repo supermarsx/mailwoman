@@ -100,6 +100,11 @@ export interface ApiKeyInfo {
   lastUsedAt: string | null;
   expiresAt: string | null;
   revokedAt: string | null;
+  /** The key's owner asked for unattended send when minting it (in the scope). */
+  unattendedSendRequested: boolean;
+  /** An admin approved that request (`api_keys.unattended_send`). Only an
+   *  approved, unrevoked key sends through MCP without the Outbox. */
+  unattendedSendApproved: boolean;
 }
 
 /** The stored telemetry record (`GET /admin/observability`). Stored, not applied:
@@ -213,6 +218,11 @@ export interface AdminApi {
   listApiKeys(): Promise<ApiKeyInfo[]>;
   /** `POST /admin/api-keys/{id}/revoke`. */
   revokeApiKey(id: string): Promise<void>;
+  /** `PUT /admin/api-keys/{id}/unattended-send` — approve or withdraw the admin
+   *  approval of a key's unattended send. Rejects with {@link AdminApiError}:
+   *  `404` for an id that is not a key (or, when approving, a key revoked in the
+   *  meantime), `409` when approving a revoked key or one that did not ask. */
+  setApiKeyUnattendedSend(id: string, approved: boolean): Promise<void>;
 
   /** `GET /admin/observability`. No screen calls this — see {@link ObservabilityConfig}. */
   getObservability(): Promise<ObservabilityConfig>;
@@ -335,6 +345,9 @@ export function createHttpAdminApi(base = basePath()): AdminApi {
     listApiKeys: () => getJson<ApiKeyInfo[]>('/api-keys'),
     async revokeApiKey(id) {
       await send(`/api-keys/${encodeURIComponent(id)}/revoke`, 'POST');
+    },
+    async setApiKeyUnattendedSend(id, approved) {
+      await send(`/api-keys/${encodeURIComponent(id)}/unattended-send`, 'PUT', { approved });
     },
 
     getObservability: () => getJson<ObservabilityConfig>('/observability'),

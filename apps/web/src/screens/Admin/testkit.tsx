@@ -52,6 +52,9 @@ export function mockAdminApi(overrides: Partial<AdminApi> = {}): AdminApi {
     listWebhooks: vi.fn(async () => []),
     listApiKeys: vi.fn(async () => []),
     revokeApiKey: vi.fn(async () => undefined),
+    // `set_key_unattended_send` (crates/mw-server/src/oauth.rs:441) answers 200
+    // with a body the panel does not read.
+    setApiKeyUnattendedSend: vi.fn(async () => undefined),
     // `get_obs` (crates/mw-server/src/admin.rs). No screen calls this.
     getObservability: vi.fn(async () => ({
       logLevel: 'info',

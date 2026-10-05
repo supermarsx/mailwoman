@@ -57,6 +57,29 @@ describe('createHttpAdminApi', () => {
     expect(JSON.parse(init?.body as string)).toMatchObject({ username: 'u' });
   });
 
+  it('setApiKeyUnattendedSend PUTs {approved} to /admin/api-keys/{id}/unattended-send', async () => {
+    // `set_key_unattended_send` (crates/mw-server/src/oauth.rs:441) reads
+    // `{"approved": bool}` and answers 200 with the key's id, prefix and state.
+    const fetchMock = vi.fn(
+      async (_url: string, _init?: RequestInit): Promise<Response> =>
+        jsonResponse({ id: 'k 1', prefix: 'mwk_a', accountId: 'a@example.com', unattendedSendApproved: true }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    await createHttpAdminApi().setApiKeyUnattendedSend('k 1', true);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('/admin/api-keys/k%201/unattended-send');
+    expect(init?.method).toBe('PUT');
+    expect(JSON.parse(init?.body as string)).toEqual({ approved: true });
+  });
+
+  it.each([404, 409])('setApiKeyUnattendedSend rejects with the status of a %i refusal', async (status) => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: 'refused' }, status)));
+    await expect(createHttpAdminApi().setApiKeyUnattendedSend('k1', true)).rejects.toMatchObject({
+      name: 'AdminApiError',
+      status,
+    });
+  });
+
   it('throws AdminApiError on a non-2xx GET', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 500 })));
     const api = createHttpAdminApi();
