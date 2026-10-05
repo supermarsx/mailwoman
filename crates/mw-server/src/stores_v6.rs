@@ -463,6 +463,22 @@ impl AdminBackend for AdminBackendAdapter {
             .map_err(admin_err)
     }
 
+    /// One field, written with a compare-and-set on the stored record
+    /// (`account_gate::update_flags`), so two toggles racing each other, or one
+    /// racing the panel's save, cannot put back a field as it was read. No
+    /// [`mw_admin::FlagUpdate`] touches `disabled`, so there is nothing to revoke
+    /// or stop here.
+    async fn update_flags(
+        &self,
+        account_id: &str,
+        update: mw_admin::FlagUpdate,
+    ) -> Result<UserFeatureFlags, AdminError> {
+        account_gate::update_flags(&self.store, account_id, |flags| update.apply(flags))
+            .await
+            .map(|(_before, after)| after)
+            .map_err(admin_err)
+    }
+
     /// Delete the account's sessions. `account_id` is the admin surface's name for
     /// the account — a login name — which is not what `sessions.account_id` holds
     /// in proxy or engine mode, so the rows are matched on the login name as well

@@ -20,6 +20,27 @@ pub struct UserFeatureFlags {
     pub disabled: bool,
 }
 
+/// A change to one field of an account's [`UserFeatureFlags`], for a writer that
+/// means that field and no other (`AdminBackend::update_flags`). `disabled` has no
+/// variant: it is set by saving the whole record, which also revokes sessions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FlagUpdate {
+    ZeroAccess(bool),
+    ForcePasswordChange(bool),
+    RemoteCacheWipe(bool),
+}
+
+impl FlagUpdate {
+    /// Set this update's field in `flags`, leaving the others as they are.
+    pub fn apply(self, flags: &mut UserFeatureFlags) {
+        match self {
+            Self::ZeroAccess(on) => flags.zero_access = on,
+            Self::ForcePasswordChange(on) => flags.force_password_change = on,
+            Self::RemoteCacheWipe(on) => flags.remote_cache_wipe = on,
+        }
+    }
+}
+
 impl Quota {
     /// An unlimited quota (a non-positive limit means "no limit").
     pub const UNLIMITED: Quota = Quota {

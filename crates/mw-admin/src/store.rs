@@ -17,8 +17,8 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 
 use crate::{
-    AdminError, AuditLogEntry, BanEntry, CacheScopeRow, Domain, ObservabilityConfig, Quota,
-    SecurityPolicy, UserFeatureFlags,
+    AdminError, AuditLogEntry, BanEntry, CacheScopeRow, Domain, FlagUpdate, ObservabilityConfig,
+    Quota, SecurityPolicy, UserFeatureFlags,
 };
 
 /// A provisioned mail user (`admin_users`/`quotas`, 0007). `password_hash` is
@@ -55,6 +55,23 @@ pub trait AdminBackend: Send + Sync {
     async fn get_quota(&self, account_id: &str) -> Result<Option<Quota>, AdminError>;
     async fn set_flags(&self, account_id: &str, flags: UserFeatureFlags) -> Result<(), AdminError>;
     async fn get_flags(&self, account_id: &str) -> Result<UserFeatureFlags, AdminError>;
+    /// Change one field of the account's flags and return the record as written.
+    ///
+    /// A backend whose record can be written by more than one caller at a time
+    /// must override this so that the change is applied to the record as stored
+    /// and a concurrent change to another field is kept. The default reads,
+    /// changes and writes the whole record with [`Self::set_flags`]; between its
+    /// read and its write another writer's change can be lost.
+    async fn update_flags(
+        &self,
+        account_id: &str,
+        update: FlagUpdate,
+    ) -> Result<UserFeatureFlags, AdminError> {
+        let mut flags = self.get_flags(account_id).await?;
+        update.apply(&mut flags);
+        self.set_flags(account_id, flags).await?;
+        Ok(flags)
+    }
     /// Revoke all sessions for an account; returns the number revoked. The
     /// concrete adapter deletes the account's `sessions`/`native_sessions` rows.
     async fn revoke_sessions(&self, account_id: &str) -> Result<u64, AdminError>;
@@ -183,6 +200,18 @@ impl AdminBackend for InMemoryBackend {
             .get(account_id)
             .copied()
             .unwrap_or_default())
+    }
+
+    /// Read, change and write under one hold of the lock.
+    async fn update_flags(
+        &self,
+        account_id: &str,
+        update: FlagUpdate,
+    ) -> Result<UserFeatureFlags, AdminError> {
+        let mut inner = self.lock();
+        let flags = inner.flags.entry(account_id.to_string()).or_default();
+        update.apply(flags);
+        Ok(*flags)
     }
 
     async fn revoke_sessions(&self, account_id: &str) -> Result<u64, AdminError> {

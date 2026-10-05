@@ -43,7 +43,7 @@ pub mod store;
 pub use audit::{AuditEvent, AuditKind, export_jsonl, redact_detail};
 pub use banlist::{FAIL2BAN_FAILREGEX, LoginMonitor, LoginVerdict, fail2ban_line};
 pub use config::{AdminConfig, Appearance};
-pub use provisioning::{IntegrationStatus, IntegrationsConfig, UserFeatureFlags};
+pub use provisioning::{FlagUpdate, IntegrationStatus, IntegrationsConfig, UserFeatureFlags};
 pub use store::{AdminBackend, InMemoryBackend, UserRecord};
 
 /// A managed mail domain (`domains` table, 0007).
@@ -258,12 +258,6 @@ impl Admin {
         Self::new(Arc::new(InMemoryBackend::new()), AdminConfig::default())
     }
 
-    /// The `enabled` value held in this process's config. Informational: the gate
-    /// on `/admin/*` is `mw-server`'s `V6Config::admin_enabled`, not this.
-    pub fn panel_enabled(&self) -> bool {
-        self.config.lock().expect("config poisoned").enabled
-    }
-
     /// A snapshot of the current config.
     pub fn config(&self) -> AdminConfig {
         self.config.lock().expect("config poisoned").clone()
@@ -471,15 +465,19 @@ impl Admin {
     }
 
     /// Toggle the per-account zero-access storage flag (§9).
+    ///
+    /// This and the two methods below each change one field through
+    /// [`AdminBackend::update_flags`], so two of them racing on one account both
+    /// take effect. [`Self::set_feature_flags`] replaces the whole record.
     pub async fn toggle_zero_access(
         &self,
         actor: &str,
         account_id: &str,
         on: bool,
     ) -> Result<(), AdminError> {
-        let mut flags = self.backend.get_flags(account_id).await?;
-        flags.zero_access = on;
-        self.backend.set_flags(account_id, flags).await?;
+        self.backend
+            .update_flags(account_id, FlagUpdate::ZeroAccess(on))
+            .await?;
         self.emit(
             actor,
             ActorKind::Admin,
@@ -497,9 +495,9 @@ impl Admin {
         account_id: &str,
         on: bool,
     ) -> Result<(), AdminError> {
-        let mut flags = self.backend.get_flags(account_id).await?;
-        flags.force_password_change = on;
-        self.backend.set_flags(account_id, flags).await?;
+        self.backend
+            .update_flags(account_id, FlagUpdate::ForcePasswordChange(on))
+            .await?;
         self.emit(
             actor,
             ActorKind::Admin,
@@ -517,9 +515,9 @@ impl Admin {
         actor: &str,
         account_id: &str,
     ) -> Result<(), AdminError> {
-        let mut flags = self.backend.get_flags(account_id).await?;
-        flags.remote_cache_wipe = true;
-        self.backend.set_flags(account_id, flags).await?;
+        self.backend
+            .update_flags(account_id, FlagUpdate::RemoteCacheWipe(true))
+            .await?;
         self.emit(
             actor,
             ActorKind::Admin,
@@ -629,7 +627,7 @@ impl Admin {
         self.backend.list_cache_scope().await
     }
 
-    // ── Appearance / enabled ─────────────────────────────────────────────────
+    // ── Appearance ───────────────────────────────────────────────────────────
 
     /// Replace the deployment-default appearance **in this process's memory**.
     ///
@@ -649,24 +647,6 @@ impl Admin {
             AuditKind::AppearanceChanged,
             None,
             serde_json::json!({ "theme": appearance.theme, "brand_name": appearance.brand_name }),
-        )
-        .await
-    }
-
-    /// Record `admin.enabled` in this process's config and audit it.
-    ///
-    /// This does not gate anything: `mw-server` decides whether `/admin/*` answers
-    /// from its own `V6Config::admin_enabled`, and nothing reads
-    /// [`Self::panel_enabled`]. The one caller is `mw-server`'s boot, which mirrors
-    /// `MW_ADMIN_ENABLED=false` here.
-    pub async fn set_enabled(&self, actor: &str, enabled: bool) -> Result<(), AdminError> {
-        self.config.lock().expect("config poisoned").enabled = enabled;
-        self.emit(
-            actor,
-            ActorKind::Admin,
-            AuditKind::ConfigReloaded,
-            None,
-            serde_json::json!({ "enabled": enabled }),
         )
         .await
     }
@@ -1133,12 +1113,33 @@ mod tests {
         assert!(fresh.allowlist.is_empty() && fresh.blocklist.is_empty());
         assert_eq!(admin.list_audit(10).await.unwrap().len(), 2);
     }
-
     #[tokio::test]
-    async fn the_enabled_flag_is_recorded() {
+    async fn a_one_field_toggle_keeps_the_other_fields() {
         let admin = Admin::in_memory();
-        assert!(admin.panel_enabled());
-        admin.set_enabled("root", false).await.unwrap();
-        assert!(!admin.panel_enabled());
+        let id = "alice@example.com";
+        admin
+            .set_feature_flags(
+                "root",
+                id,
+                UserFeatureFlags {
+                    disabled: true,
+                    ..UserFeatureFlags::default()
+                },
+            )
+            .await
+            .unwrap();
+        admin.toggle_zero_access("root", id, true).await.unwrap();
+        admin.force_password_change("root", id, true).await.unwrap();
+        admin.request_remote_cache_wipe("root", id).await.unwrap();
+        admin.toggle_zero_access("root", id, false).await.unwrap();
+        assert_eq!(
+            admin.get_feature_flags(id).await.unwrap(),
+            UserFeatureFlags {
+                zero_access: false,
+                force_password_change: true,
+                remote_cache_wipe: true,
+                disabled: true,
+            }
+        );
     }
 }
