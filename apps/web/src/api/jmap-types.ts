@@ -199,6 +199,8 @@ export interface EmailCreate {
 export interface SetError {
   type: string;
   description?: string | null;
+  /** RFC 8620 §5.3: the properties at fault, sent with `invalidProperties`. */
+  properties?: string[];
 }
 export interface EmailSetArgs {
   accountId: Id;

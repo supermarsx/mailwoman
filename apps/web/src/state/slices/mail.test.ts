@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRoot } from 'solid-js';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { createMailSlice, extractHtmlBody, type MailSlice, type OfflineUndoSeams } from './mail.ts';
+import { createMailSlice, extractHtmlBody, type MailSlice } from './mail.ts';
 import type { SliceContext } from './context.ts';
 import { isolate } from '../../i18n/index.ts';
 import { listDrafts, saveDraft } from '../../components/compose/drafts-store.ts';
@@ -946,10 +946,9 @@ describe('mail slice — offline mutation queue', () => {
   it('undoing an offline move takes it out of the queue: nothing is sent, the row returns', async () => {
     const enqueueOffline = vi.fn(async () => 'q1');
     const dequeueOffline = vi.fn(async () => true);
-    const seams: OfflineUndoSeams = { enqueueOffline, dequeueOffline };
     await withDeps(
       [email('a'), email('b')],
-      { online: () => false, ...(seams as Pick<SliceContext, 'enqueueOffline'>) },
+      { online: () => false, enqueueOffline, dequeueOffline },
       async (mail, { jmap, toast }) => {
         jmap.mockClear();
         await mail.archiveMessage('a');
@@ -971,10 +970,9 @@ describe('mail slice — offline mutation queue', () => {
   it('undoing an offline move that was already replayed queues the reverse move', async () => {
     const enqueueOffline = vi.fn(async () => 'q1');
     const dequeueOffline = vi.fn(async () => false);
-    const seams: OfflineUndoSeams = { enqueueOffline, dequeueOffline };
     await withDeps(
       [email('a'), email('b')],
-      { online: () => false, ...(seams as Pick<SliceContext, 'enqueueOffline'>) },
+      { online: () => false, enqueueOffline, dequeueOffline },
       async (mail, { jmap }) => {
         jmap.mockClear();
         await mail.archiveMessage('a');

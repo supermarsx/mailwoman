@@ -24,8 +24,12 @@ export interface SliceContext {
   // online path, so the frozen per-slice behaviour is unchanged. ──
   /** Live network status; when `false`, mutating slices queue instead of calling. */
   online?(): boolean;
-  /** Queue a mutation for offline replay (offline slice; drained on reconnect). */
-  enqueueOffline?(type: OutboundType, payload: unknown): Promise<void>;
+  /** Queue a mutation for offline replay (offline slice; drained on reconnect).
+   *  Resolves to the queued item id where the queue reports one. */
+  enqueueOffline?(type: OutboundType, payload: unknown): Promise<string | void>;
+  /** Take a still-queued mutation back out (offline undo). Resolves `false` if
+   *  it has already been replayed. */
+  dequeueOffline?(id: string): Promise<boolean>;
   /** Reduced offline search over the cached header slice (offline slice). */
   searchOffline?(query: OfflineQuery): Email[];
   /** Notify peer tabs a mutation happened so they refetch (multi-window sync). */

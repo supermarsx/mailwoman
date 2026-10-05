@@ -236,20 +236,6 @@ export interface MailSlice {
   sendMessage(input: SendInput): Promise<void>;
 }
 
-/**
- * The offline-queue seams as the relocation undo uses them. `SliceContext`
- * declares `enqueueOffline` as resolving to nothing and has no way to take an
- * item back out; a context that resolves to the queued item's id and provides
- * `dequeueOffline` lets an offline undo remove the move before it is ever
- * sent. With the plain context the undo still works: it queues the reverse
- * move behind the original.
- */
-export interface OfflineUndoSeams {
-  enqueueOffline?(type: 'move', payload: unknown): Promise<string | void>;
-  /** Remove a still-queued item; resolves `false` if it has already been replayed. */
-  dequeueOffline?(id: string): Promise<boolean>;
-}
-
 /** What a refused create says about itself: the server's description when it
  *  gave one (`to: "bob": no @`), otherwise the bare error type. */
 function refusalReason(err: SetError): string {
@@ -507,9 +493,9 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const taken = takeFromList(id);
     if (taken === null) return;
     const priorMailboxIds = taken.email.mailboxIds;
-    const queue: OfflineUndoSeams = ctx;
+    const queue = ctx;
     // The id of the queued move, when the move was queued and the queue says
-    // which item it became.
+    // which item it became (a context without the offline slice says nothing).
     let queuedId: string | null = null;
     if (isOffline() && queue.enqueueOffline) {
       const queued = await queue.enqueueOffline('move', {

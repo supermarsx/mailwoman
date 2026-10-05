@@ -9,6 +9,7 @@
 
 import { createSignal, type Accessor } from 'solid-js';
 import type { Client } from '../api/client.ts';
+import { t, loadCatalog } from '../i18n/index.ts';
 import type { SliceContext } from './slices/context.ts';
 import { createMailSlice, type MailSlice } from './slices/mail.ts';
 import { createTagsSlice, type TagsSlice } from './slices/tags.ts';
@@ -83,6 +84,10 @@ export interface AppStateDeps {
 }
 
 function createStoreCore(client: Client): StoreCoreApi {
+  // The network toasts below are `mail` catalog strings and can be raised
+  // before any mail screen has mounted (a failed request on the login screen),
+  // so the catalog is requested here rather than left to the first screen.
+  void loadCatalog('mail');
   const [online, setOnline] = createSignal(true);
   const [toast, setToast] = createSignal<Toast | null>(null);
 
@@ -98,10 +103,10 @@ function createStoreCore(client: Client): StoreCoreApi {
     setOnline(up);
     if (!up) {
       wasOffline = true;
-      setToast({ kind: 'error', message: 'Connection lost — retrying…' });
+      setToast({ kind: 'error', message: t('mail-net-lost') });
     } else if (wasOffline) {
       wasOffline = false;
-      showToast('success', 'Back online', 2500);
+      showToast('success', t('mail-net-back'), 2500);
     }
   });
 
@@ -168,6 +173,7 @@ export function createAppState(client: Client, deps: AppStateDeps = {}): AppStat
     ...ctx,
     online: core.online,
     enqueueOffline: offline.enqueueOffline,
+    dequeueOffline: offline.dequeueOffline,
     searchOffline: offline.searchOffline,
     broadcastChange: () => publishPeerSync(),
   };

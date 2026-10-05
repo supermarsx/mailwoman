@@ -4,6 +4,7 @@ import { t, isolate } from '../i18n/index.ts';
 import { computeWindow, projectedRowCount, sameWindow, splitWindow } from './virtual.ts';
 import { TagChips } from './TagChips.tsx';
 import { MessageActions } from './MessageActions.tsx';
+import { OfflineQueueNotice } from './OfflineQueueNotice.tsx';
 import * as a11y from './mailA11y.css.ts';
 import * as thread from './threadList.css.ts';
 import * as rowCss from './messageRow.css.ts';
@@ -412,6 +413,7 @@ export function MessageList(): JSX.Element {
   return (
     <section class="list" aria-label={t('mail-list-label')} style={{ display: 'flex', 'flex-direction': 'column' }}>
       <ListToolbar />
+      <OfflineQueueNotice />
       <Show when={!app.listLoading()} fallback={<p class="list__empty">{t('mail-loading')}</p>}>
         <Show when={rows().length > 0} fallback={<p class="list__empty">{t('mail-empty')}</p>}>
           <div
