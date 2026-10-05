@@ -28,10 +28,8 @@ function makePolicy(
   return { api, set, rows };
 }
 
-const DOMAINS: Domain[] = [
-  { name: 'example.com', upstreamJson: '{}', allowlist: [], blocklist: [] },
-  { name: 'example.org', upstreamJson: '{}', allowlist: [], blocklist: [] },
-];
+// `DomainDto` (crates/mw-server/src/admin.rs:856): a domain is its name.
+const DOMAINS: Domain[] = [{ name: 'example.com' }, { name: 'example.org' }];
 
 describe('admin require-two-factor policy (DQ2)', () => {
   it('reflects the loaded global + per-domain rows', async () => {

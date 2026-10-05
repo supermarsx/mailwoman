@@ -10,13 +10,31 @@ describe('AdminScreen (gate + nav)', () => {
     expect(await screen.findByRole('form', { name: 'Admin sign in' })).toBeInTheDocument();
   });
 
-  it('renders the panel with all §19 sections when a session exists', async () => {
+  it('renders the panel with its sections when a session exists', async () => {
     render(() => <AdminScreen api={mockAdminApi()} />);
     // Default section (Domains) is shown; every section nav entry is present.
     expect(await screen.findByRole('button', { name: 'Domains' })).toBeInTheDocument();
-    for (const label of ['Users', 'Security policy', 'Integrations', 'Observability', 'Appearance']) {
+    for (const label of ['Users', 'Integrations', 'Observability', 'Require two-factor', 'Egress']) {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
     }
+  });
+
+  // Both screens held only controls that saved a value nothing applied; with the
+  // controls removed there was nothing left to navigate to (26.20, t28-e8).
+  it('has no Security policy or Appearance section', async () => {
+    const api = mockAdminApi();
+    render(() => <AdminScreen api={api} />);
+    await screen.findByRole('button', { name: 'Domains' });
+    expect(screen.queryByRole('button', { name: 'Security policy' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Appearance' })).toBeNull();
+    // Visiting every section reads neither stored record.
+    for (const b of screen.getAllByRole('button')) {
+      if (b.closest('nav') && b.textContent !== 'Sign out') fireEvent.click(b);
+    }
+    await Promise.resolve();
+    expect(api.getSecurityPolicy).not.toHaveBeenCalled();
+    expect(api.getAppearance).not.toHaveBeenCalled();
+    expect(api.getObservability).not.toHaveBeenCalled();
   });
 
   it('switching the nav changes the visible section', async () => {

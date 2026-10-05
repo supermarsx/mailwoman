@@ -49,7 +49,3 @@ appearance-sync-error = Could not reach the server. Saved on this device; it wil
 appearance-sync-reset = Forget the appearance saved for my account
 appearance-sync-reset-done = Removed from your account. This device keeps what it is showing now.
 appearance-sync-deployment = This server's default is { $theme }.
-
-## Admin › Appearance
-
-appearance-admin-default-note = This is the default for users who have not chosen an appearance of their own. Users who have keep theirs, and changing this does not move them.

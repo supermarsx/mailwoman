@@ -8,10 +8,8 @@ admin-nav = Admin sections
 admin-sign-out = Sign out
 admin-nav-domains = Domains
 admin-nav-users = Users
-admin-nav-security = Security policy
 admin-nav-integrations = Integrations
 admin-nav-observability = Observability
-admin-nav-appearance = Appearance
 admin-nav-plugins = Plugins
 admin-nav-assist = Assist
 admin-nav-sso = Single sign-on
@@ -77,13 +75,6 @@ admin-users-force-change = force change
 admin-users-force-change-help = The user is held at a password-change screen, at the next sign-in and in sessions already open, and cannot reach mail until the change succeeds. This needs a working password-change backend (MW_PASSWD_BACKEND). Without one the change cannot succeed and the user stays at that screen until you clear this box.
 admin-users-revoke-for = Revoke sessions for { $account }
 
-# -- Security policy ---------------------------------------------------------
-admin-security-title = Security policy
-admin-security-none = There are no settings on this screen. The values it used to hold (minimum TLS, capture policy, Argon2 parameters, Require 2FA, DLP rules, maximum-security floor) were saved and never applied, so the controls were removed.
-admin-security-where-2fa = Two-factor requirements are set on the Require two-factor screen, for the whole deployment or per domain. Those are enforced at sign-in.
-admin-security-where-dlp = The outbound DLP rules that are applied are read from the MW_DLP_RULES environment variable when the server starts.
-admin-security-where-tls = The TLS versions the server accepts are fixed in the server build. There is no setting for them.
-
 # -- Integrations ------------------------------------------------------------
 admin-integrations-title = Integrations
 admin-integrations-load-error = Could not load integrations
@@ -130,10 +121,6 @@ admin-obs-ban-btn = Ban IP
 admin-obs-bans-empty = No active bans.
 admin-obs-unban-for = Unban { $ip }
 admin-obs-unban-btn = Unban
-
-# -- Appearance (deployment default) -----------------------------------------
-admin-appearance-title = Appearance
-admin-appearance-none = There are no settings on this screen. The deployment-wide brand name, default theme and accent were kept only in the server's memory and reset at every restart, so the controls were removed. Each user's own appearance, chosen in their settings, is stored and is not affected.
 
 # -- Plugins (§22) -----------------------------------------------------------
 # NB: the unsigned-plugin banner copy is a FROZEN, exported const (UNSIGNED_BANNER
@@ -351,9 +338,7 @@ admin-rethread-error = The re-thread action failed. No thread grouping was chang
 # -- Require two-factor policy (DQ2, t16 26.16) ------------------------------
 # The require-2FA policy (global / per-domain). Any user may enrol a factor on
 # their own; this panel governs where a second factor is REQUIRED. A required but
-# not-yet-enrolled account is prompted to enrol on its next sign-in. Keys are
-# disjoint from admin-security-* (SecurityPolicy has its own global require2fa
-# checkbox; this panel adds the per-domain policy and shares the same intent).
+# not-yet-enrolled account is prompted to enrol on its next sign-in.
 admin-2fa-title = Require two-factor
 admin-2fa-intro = Require a second factor (passkey or authenticator app) for sign-in. Any user may enrol a factor on their own; requiring it here forces accounts in scope to enrol on their next sign-in.
 admin-2fa-load-error = Could not load the two-factor policy.

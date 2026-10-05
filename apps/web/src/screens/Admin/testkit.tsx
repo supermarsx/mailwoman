@@ -31,28 +31,28 @@ export function mockAdminApi(overrides: Partial<AdminApi> = {}): AdminApi {
     setFlags: vi.fn(async () => undefined),
     toggleZeroAccess: vi.fn(async () => undefined),
     revokeSessions: vi.fn(async () => 0),
+    // `SecurityPolicyDto` (crates/mw-server/src/admin.rs:939): two fields, with
+    // `mw_admin::SecurityPolicy::default()`'s values (crates/mw-admin/src/lib.rs).
     getSecurityPolicy: vi.fn(async () => ({
-      minTls: '1.2',
-      require2fa: false,
-      argon2MCost: 19_456,
-      argon2TCost: 2,
-      argon2PCost: 1,
       dlpRulesJson: '[]',
       maxSecurityFloor: false,
-      capturePolicy: 'off',
     })),
     setSecurityPolicy: vi.fn(async () => undefined),
+    // `get_integrations` (crates/mw-server/src/admin.rs:561) for a deployment with
+    // no enabled `directory_config` row and no `MW_NEXTCLOUD_*`; the strings are
+    // `IntegrationStatus::as_str` (crates/mw-admin/src/provisioning.rs).
     getIntegrations: vi.fn(
       async (): Promise<IntegrationsConfig> => ({
         webhooks: 'active',
         apiKeyOversight: 'active',
-        ldap: 'deferred',
-        nextcloud: 'deferred',
+        ldap: 'not-configured',
+        nextcloud: 'not-configured',
       }),
     ),
     listWebhooks: vi.fn(async () => []),
     listApiKeys: vi.fn(async () => []),
     revokeApiKey: vi.fn(async () => undefined),
+    // `get_obs` (crates/mw-server/src/admin.rs). No screen calls this.
     getObservability: vi.fn(async () => ({
       logLevel: 'info',
       otlpDsn: null,
@@ -65,7 +65,9 @@ export function mockAdminApi(overrides: Partial<AdminApi> = {}): AdminApi {
     listBans: vi.fn(async () => []),
     addBan: vi.fn(async () => undefined),
     removeBan: vi.fn(async () => undefined),
-    getAppearance: vi.fn(async () => ({ theme: 'light', brandName: 'Mailwoman', accent: null })),
+    // `get_appearance` (crates/mw-server/src/admin.rs) with
+    // `Appearance::default()` (crates/mw-admin/src/config.rs). No screen calls this.
+    getAppearance: vi.fn(async () => ({ theme: 'grove-light', brandName: 'Mailwoman', accent: null })),
     setAppearance: vi.fn(async () => undefined),
   };
   return { ...base, ...overrides };

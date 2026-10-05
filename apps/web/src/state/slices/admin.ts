@@ -26,17 +26,6 @@ export interface AdminSession {
  *  not part of the wire shape. */
 export interface Domain {
   name: string;
-  /**
-   * @deprecated The server neither sends nor accepts these three. They are
-   * declared optional only so the fixtures in `TwoFactorPolicy.test.tsx` (which
-   * still set them, and which t28-e8 did not own) type-check; delete them together
-   * with those fixture fields. No code reads them.
-   */
-  upstreamJson?: string;
-  /** @deprecated See `upstreamJson`. */
-  allowlist?: string[];
-  /** @deprecated See `upstreamJson`. */
-  blocklist?: string[];
 }
 
 /** A per-account quota (`quotas`, 0007). A non-positive limit means "no limit". */
@@ -376,14 +365,19 @@ export function createHttpAdminApi(base = basePath()): AdminApi {
 
 // ── The reactive slice (session gate + shared api handle) ──────────────────────
 
-/** The admin panel sections (§19), in nav order. */
+/**
+ * The admin panel sections, in nav order.
+ *
+ * There is no `security` or `appearance` section: every control either screen
+ * carried saved a value nothing applied, and with the controls gone the screens
+ * had nothing left to do (26.20, t28-e8). Two-factor requirements are on the
+ * Require two-factor screen; a user's own appearance is in their settings.
+ */
 export const ADMIN_SECTIONS = [
   'domains',
   'users',
-  'security',
   'integrations',
   'observability',
-  'appearance',
   // V7 (plan §3 e14): the plugin registry + Assist governance sections.
   'plugins',
   'assist',
@@ -395,10 +389,8 @@ export type AdminSection = (typeof ADMIN_SECTIONS)[number];
 export const ADMIN_SECTION_LABELS: Record<AdminSection, string> = {
   domains: 'Domains',
   users: 'Users',
-  security: 'Security policy',
   integrations: 'Integrations',
   observability: 'Observability',
-  appearance: 'Appearance',
   plugins: 'Plugins',
   assist: 'Assist',
 };

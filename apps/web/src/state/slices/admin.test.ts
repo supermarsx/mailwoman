@@ -18,15 +18,30 @@ describe('createHttpAdminApi', () => {
   it('GET domains hits /admin/domains same-origin', async () => {
     const fetchMock = vi.fn(
       async (_url: string, _init?: RequestInit): Promise<Response> =>
-        jsonResponse([{ name: 'x', upstreamJson: '{}', allowlist: [], blocklist: [] }]),
+        // `list_domains` sends `DomainDto` (crates/mw-server/src/admin.rs:856): a name.
+        jsonResponse([{ name: 'x' }]),
     );
     vi.stubGlobal('fetch', fetchMock);
     const api = createHttpAdminApi();
     const out = await api.listDomains();
-    expect(out[0]!.name).toBe('x');
+    expect(out).toEqual([{ name: 'x' }]);
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe('/admin/domains');
     expect(init?.credentials).toBe('same-origin');
+  });
+
+  it('saveDomain PUTs to /admin/domains/{name} with no body', async () => {
+    // `save_domain` (crates/mw-server/src/admin.rs) takes the name from the path
+    // and reads no body; it answers 204.
+    const fetchMock = vi.fn(
+      async (_url: string, _init?: RequestInit): Promise<Response> => new Response(null, { status: 204 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    await createHttpAdminApi().saveDomain('new.example');
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('/admin/domains/new.example');
+    expect(init?.method).toBe('PUT');
+    expect(init?.body).toBeUndefined();
   });
 
   it('provisionUser POSTs JSON to /admin/users', async () => {

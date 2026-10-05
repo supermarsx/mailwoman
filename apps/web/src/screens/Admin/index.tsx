@@ -7,8 +7,8 @@
 //
 // It is gated on a SEPARATE admin session (plan §2.5): the root probes
 // `/admin/session`; with no session it renders the [`AdminLogin`] gate, otherwise
-// the §19 panel (Domains / Users / Security-policy / Integrations / Observability /
-// Appearance). Component tests inject a mock `AdminApi` via the `api` prop; the
+// the panel (Domains / Users / Integrations / Observability, plus the sections
+// layered below). Component tests inject a mock `AdminApi` via the `api` prop; the
 // production default is the same-origin HTTP client.
 
 import { createSignal, For, Show, Suspense, onMount, type JSX } from 'solid-js';
@@ -26,10 +26,8 @@ import { AdminContext } from './context.ts';
 import { AdminLogin } from './AdminLogin.tsx';
 import { Domains } from './Domains.tsx';
 import { Users } from './Users.tsx';
-import { SecurityPolicy } from './SecurityPolicy.tsx';
 import { Integrations } from './Integrations.tsx';
 import { Observability } from './Observability.tsx';
-import { Appearance } from './Appearance.tsx';
 import { AdminPlugins } from './Plugins/index.tsx';
 import { AdminAssist } from './Assist/index.tsx';
 import { AdminSso } from './Sso/index.tsx';
@@ -43,10 +41,8 @@ import * as css from './admin.css.ts';
 const NAV_LABEL: Record<AdminSection, () => string> = {
   domains: () => t('admin-nav-domains'),
   users: () => t('admin-nav-users'),
-  security: () => t('admin-nav-security'),
   integrations: () => t('admin-nav-integrations'),
   observability: () => t('admin-nav-observability'),
-  appearance: () => t('admin-nav-appearance'),
   plugins: () => t('admin-nav-plugins'),
   assist: () => t('admin-nav-assist'),
 };
@@ -55,10 +51,8 @@ const NAV_LABEL: Record<AdminSection, () => string> = {
 const SECTION_VIEWS: Record<AdminSection, () => JSX.Element> = {
   domains: Domains,
   users: Users,
-  security: SecurityPolicy,
   integrations: Integrations,
   observability: Observability,
-  appearance: Appearance,
   // Wrapped so their optional props default to the production HTTP clients.
   plugins: () => <AdminPlugins />,
   assist: () => <AdminAssist />,
