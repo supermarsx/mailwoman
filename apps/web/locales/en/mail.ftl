@@ -209,6 +209,29 @@ mail-outbox-scheduled = Scheduled
 mail-outbox-holding = Sending soon
 mail-outbox-sent = Sent
 mail-outbox-canceled = Canceled
+# A held submission is one the server will not send until the mailbox owner
+# releases it here (EmailSubmission `mailwomanHold: "manual"`). $name is the
+# API key's prefix, or the connected app's client id.
+mail-outbox-held = Held
+mail-outbox-failed = Not sent
+mail-outbox-release = Release
+mail-outbox-discard = Discard
+mail-outbox-held-note = Held. Not sent until released.
+mail-outbox-held-note-api-key = Held — created by API key { $name }. Not sent until released.
+mail-outbox-held-note-oauth = Held — created by the connected app { $name }. Not sent until released.
+mail-outbox-origin-api-key = Created by API key { $name }
+mail-outbox-origin-oauth = Created by the connected app { $name }
+mail-outbox-to = To { $recipients }
+mail-outbox-no-subject = (no subject)
+mail-outbox-attempts = Tried { $count } times. Last error: { $error }
+mail-outbox-error = Error: { $error }
+mail-outbox-toast-canceled = Send canceled
+mail-outbox-toast-discarded = Discarded. The message was not sent.
+mail-outbox-toast-sent = Sent
+mail-outbox-toast-retrying = Not sent yet: { $error }. It will be tried again.
+mail-outbox-toast-failed = Not sent: { $error }
+mail-outbox-toast-not-released = Could not send: { $error }
+mail-outbox-toast-not-canceled = Could not cancel: { $error }
 
 # -- Network status and the offline queue ------------------------------------
 # Raised by the store (state/store.ts, state/slices/offline.ts) and listed by
