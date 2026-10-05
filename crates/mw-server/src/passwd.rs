@@ -1,7 +1,10 @@
 //! Password-change route (plan §3 e9/e14, SPEC §18.3). Filled by e9; MOUNTED by e14.
 //!
 //! `POST /api/password` — change the mailbox account's password through the
-//! configured [`mw_passwd::PasswordChangeBackend`], then on success:
+//! configured [`mw_passwd::PasswordChangeBackend`]. A new password equal to the
+//! current one in the request is refused with a 400 before any backend is asked:
+//! it is not a change, and it must not release an account held for one. On
+//! success:
 //!   1. write a **content-free** audit row (0008 `password_change_audit`),
 //!   2. re-seal the account's stored upstream credentials under the same
 //!      `ServerKey` when the outcome sets `reencrypt_credentials`
@@ -38,6 +41,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::json;
+use sha2::{Digest, Sha256};
 
 use mw_passwd::{
     AuditEvent, AuditOutcome, AuditSink, BackendKind, Ctx, PasswordChangeBackend, PasswordError,
@@ -106,6 +110,17 @@ async fn change_password(
     let new = Secret::new(&body.new_password);
     if let Err(e) = backend.policy().validate(&new) {
         return password_error(&e);
+    }
+    // "Changing" to the same password is not a change. Without this an account
+    // held for a password change could release itself with the password it was
+    // held for. The backend verifies `old_password` against the real one, so a
+    // request that gets past here and succeeds has set a different password.
+    if same_secret(&body.old_password, &body.new_password) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": SAME_PASSWORD })),
+        )
+            .into_response();
     }
 
     // Account posture drives the outcome flags: proxy/engine mode stores sealed
@@ -187,10 +202,13 @@ async fn change_password(
     }
     // The admin panel's `force_password_change` flag is a separate record, and it
     // is the one the session gate reads (`account_gate`). Clear it too, or the
-    // account stays held after a change that succeeded. A failure here is logged,
-    // not returned: the password did change, and the client finds out it is still
+    // account stays held after a change that succeeded — but only when the backend
+    // reports that it changed the password. A failure here is logged, not
+    // returned: the password did change, and the client finds out it is still
     // held from the next `GET /api/me`.
-    if let Err(e) = crate::account_gate::clear_password_change(&state, &session).await {
+    if outcome.changed
+        && let Err(e) = crate::account_gate::clear_password_change(&state, &session).await
+    {
         tracing::error!(
             "password changed for {} but clearing force_password_change failed: {e}",
             session.username
@@ -203,6 +221,20 @@ async fn change_password(
         "zeroaccessRewrapRequired": outcome.zeroaccess_rewrap_required,
     }))
     .into_response()
+}
+
+/// The 400 body for a new password equal to the current one.
+const SAME_PASSWORD: &str = "the new password must differ from the current password";
+
+/// Whether two secrets are equal, compared without an early exit: each is hashed
+/// (SHA-256) and every byte of the two digests is compared, so the time taken
+/// does not depend on where, or whether, they differ. Neither value is logged.
+fn same_secret(a: &str, b: &str) -> bool {
+    let (a, b) = (Sha256::digest(a.as_bytes()), Sha256::digest(b.as_bytes()));
+    a.iter()
+        .zip(b.iter())
+        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+        == 0
 }
 
 /// Map a [`PasswordError`] to an HTTP response. The `Display` carries no password
@@ -288,6 +320,15 @@ mod tests {
             password_error(&PasswordError::PolicyViolation("x".into())).status(),
             StatusCode::BAD_REQUEST
         );
+    }
+
+    #[test]
+    fn same_secret_is_exact_equality() {
+        assert!(same_secret("Old-Passw0rd!", "Old-Passw0rd!"));
+        assert!(same_secret("", ""));
+        assert!(!same_secret("Old-Passw0rd!", "old-passw0rd!"));
+        assert!(!same_secret("Old-Passw0rd!", "Old-Passw0rd! "));
+        assert!(!same_secret("a", ""));
     }
 
     /// The store-backed audit sink writes exactly one content-free row per event.
