@@ -13,8 +13,8 @@ import {
  * MW_MODE=engine over Greenmail, :8090 — the `engine` project). These drive the
  * genuinely-wired UX surface through the unmodified UI: the per-row action
  * cluster (tag/pin/snooze/follow-up), pinned ordering, the shared 10-second undo
- * toast, undo-send cancel, send-later + the visible Outbox, and the focused/
- * unified inbox tabs. Nothing is stubbed — each mutation goes through the store
+ * toast, undo-send cancel, send-later + the visible Outbox, and the focused
+ * inbox tabs. Nothing is stubbed — each mutation goes through the store
  * to the engine (keywords over IMAP, meta via message_meta, submissions via the
  * engine's delayed dispatcher).
  *
@@ -45,12 +45,13 @@ test.describe('V2 modern mail UX (engine mode)', () => {
     await waitForInboxMessage(page, older);
     await waitForInboxMessage(page, newer);
 
-    // The per-row action cluster + submenus have NO CSS in this build (no
-    // `.msg-actions`/`.msg-menu` rules), so they render inline and overlap the
-    // row; a real pointer click is intercepted by the row and the virtualized
-    // list remounts mid-click. We fire the button handlers via `dispatchEvent`
-    // — this still runs the GENUINE store action (applyTag/pinMessage/... → JMAP
-    // to the engine), only bypassing the broken visual hit-testing.
+    // The per-row action cluster sits over the bottom-right of its row and is
+    // transparent until the row is hovered or focused (messageRow.css.ts); it is
+    // in the accessibility tree throughout, so role queries find its buttons.
+    // The handlers are fired with `dispatchEvent` rather than a pointer click:
+    // the engine's sync can refresh the list between a hover and the click,
+    // which remounts the row. This still runs the GENUINE store action
+    // (applyTag/pinMessage/... → JMAP to the engine).
     const olderSlot = messageSlot(page, older);
 
     // ── Tag: open the row's Label menu and apply "Work"; a colored chip renders.
@@ -133,7 +134,7 @@ test.describe('V2 modern mail UX (engine mode)', () => {
     await expect(outbox.getByText('Scheduled', { exact: true }).first()).toBeVisible();
   });
 
-  test('focused inbox exposes the two-tab split and unified toggle', async ({ page }) => {
+  test('focused inbox exposes the two-tab split', async ({ page }) => {
     await engineLogin(page);
 
     // Focused inbox is opt-in: enabling it reveals the Focused/Other tablist.
@@ -147,9 +148,7 @@ test.describe('V2 modern mail UX (engine mode)', () => {
     await tablist.getByRole('tab', { name: /Other/ }).click();
     await expect(tablist.getByRole('tab', { name: /Other/ })).toHaveAttribute('aria-selected', 'true');
 
-    // The unified-inbox toggle is present and flips.
-    const unified = page.getByRole('checkbox', { name: 'Unified inbox' });
-    await unified.check();
-    await expect(unified).toBeChecked();
+    // There is no unified-inbox control: a session holds one account (t28-D8).
+    await expect(page.getByRole('checkbox', { name: 'Unified inbox' })).toHaveCount(0);
   });
 });
