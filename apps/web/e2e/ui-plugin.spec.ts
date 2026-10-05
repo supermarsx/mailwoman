@@ -9,7 +9,8 @@ import {
 } from '../src/plugins-ui/host.ts';
 import { classifyMessage } from '../src/plugins-ui/broker.ts';
 import { RPC_PROTOCOL_VERSION, type UiPluginGrant, type UiPluginManifest } from '../src/plugins-ui/types.ts';
-import { adminLogin, expectMounted } from './v7-helpers.ts';
+import { adminLogin, expectMounted, mailboxLogin } from './v7-helpers.ts';
+import { signInManually } from './helpers.ts';
 
 /**
  * t10 §11 HEADLINE — the security-critical UI-plugin sandbox-escape gate, proven in a
@@ -199,6 +200,17 @@ test.describe('UI-plugin registry + admin approval + broker on the real server',
   });
 
   test('the web registry + broker endpoints are mounted (deny-by-default) and admin-gated', async ({ request }) => {
+    // Both web-facing routes need a mailbox session (t28-e7): without one they are
+    // mounted and refuse.
+    const anonReg = await request.get('/api/ui-plugins');
+    expectMounted(anonReg, 'GET /api/ui-plugins');
+    expect(anonReg.status(), 'the registry needs a mailbox session').toBe(401);
+    const anonRpc = await request.post('/api/ui-plugins/does-not-exist/rpc', {
+      data: { v: RPC_PROTOCOL_VERSION, id: 'x:0', cap: 'net:host-allowlist', method: 'fetch', args: [] },
+    });
+    expect(anonRpc.status(), 'the broker needs a mailbox session').toBe(401);
+    await mailboxLogin(request);
+
     // Web-facing registry: mounted, fail-soft shape the SPA tier consumes.
     const reg = await request.get('/api/ui-plugins');
     expect(reg.status()).toBe(200);
@@ -221,6 +233,8 @@ test.describe('UI-plugin registry + admin approval + broker on the real server',
 
   test('unsigned upload → approve → grant → registry surfaces the banner; broker is deny-by-default', async ({ request }) => {
     await adminLogin(request);
+    // The registry and the broker are read as the signed-in SPA reads them.
+    await mailboxLogin(request);
 
     // Unsigned upload WITHOUT allowUnsigned fails closed (403) — never silently trusted.
     const closed = await request.post('/admin/ui-plugins', {
@@ -332,8 +346,8 @@ test.describe('Baseline renders unchanged in the real SPA (additive invariant)',
   test('the login screen renders with no UI-plugin tier or banner leaking in', async ({ page }) => {
     await page.goto('/');
     // Baseline login controls render exactly as before the tail landed.
-    await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
-    await expect(page.getByLabel('JMAP server URL')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
+    await expect(page.getByLabel('Email address')).toBeVisible();
     // No UI-plugin surface bleeds into the unauthenticated baseline.
     await expect(page.getByTestId('ui-plugin-tier')).toHaveCount(0);
     await expect(page.getByTestId('ui-plugin-unsigned-banner')).toHaveCount(0);
@@ -343,12 +357,12 @@ test.describe('Baseline renders unchanged in the real SPA (additive invariant)',
 /** Log into the real SPA via the UI against the JMAP mock the server proxies to. */
 async function uiLogin(page: Page): Promise<void> {
   const jmapUrl = process.env['MW_E2E_JMAP_URL'] ?? 'http://127.0.0.1:8181/.well-known/jmap';
-  await page.goto('/');
-  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
-  await page.getByLabel('JMAP server URL').fill(jmapUrl);
-  await page.getByLabel('Username', { exact: true }).fill(process.env['MW_E2E_USERNAME'] ?? 'testuser@example.org');
-  await page.getByLabel('Password', { exact: true }).fill(process.env['MW_E2E_PASSWORD'] ?? 'testpass');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  // The server URL field is behind "Enter server details manually" (helpers.ts).
+  await signInManually(page, {
+    serverUrl: jmapUrl,
+    username: process.env['MW_E2E_USERNAME'] ?? 'testuser@example.org',
+    password: process.env['MW_E2E_PASSWORD'] ?? 'testpass',
+  });
   await expect(page.getByRole('button', { name: 'Compose' })).toBeVisible();
 }
 

@@ -1,11 +1,13 @@
-//! t28-e7 — `POST /api/ui-plugins/{id}/rpc` requires a mailbox session.
+//! t28-e7 — `POST /api/ui-plugins/{id}/rpc` and `GET /api/ui-plugins` require a
+//! mailbox session.
 //!
 //! The broker had no session check: it gated on the plugin being approved and on
 //! its grants, both properties of the plugin, and on nothing about the caller. So
 //! anyone who could reach the server could read and overwrite the values a plugin
 //! had stored and, for a plugin granted `net:host-allowlist`, have the server fetch
-//! from the granted hosts. The plugin ids needed for that are listed, without a
-//! session, by `GET /api/ui-plugins`.
+//! from the granted hosts. The plugin ids needed for that, and each grant's
+//! parameters, were listed without a session by `GET /api/ui-plugins`, which the SPA
+//! only requests from the signed-in mailbox.
 //!
 //! Driven over HTTP against the real router. The refusals are preceded by the same
 //! request succeeding for the same plugin, and the anonymous write is shown not to
@@ -178,6 +180,13 @@ async fn the_rpc_broker_serves_a_session_and_refuses_everyone_else() {
         .await
         .unwrap();
     assert_eq!(get["ok"], json!("written by the session"), "{get}");
+    // The registry list, as the signed-in SPA reads it.
+    let registry = |c: &reqwest::Client| c.get(format!("{base}/api/ui-plugins")).send();
+    let listed = registry(&c).await.unwrap();
+    assert_eq!(listed.status(), 200, "the registry list inside a session");
+    let listed: Value = listed.json().await.unwrap();
+    assert_eq!(listed["plugins"][0]["manifest"]["id"], json!(PLUGIN));
+    assert_eq!(listed["unsignedBanner"], json!([PLUGIN]));
     // The broker's own deny-by-default still answers inside a session.
     let denied: Value = rpc(&c, &base, "delete", json!(["note"]))
         .await
@@ -200,6 +209,16 @@ async fn the_rpc_broker_serves_a_session_and_refuses_everyone_else() {
             "the refusal carries no stored value: {body}"
         );
     }
+    let anon_list = registry(&anon).await.unwrap();
+    assert_eq!(
+        anon_list.status(),
+        401,
+        "the registry list without a session"
+    );
+    assert!(
+        !anon_list.text().await.unwrap().contains(PLUGIN),
+        "the refusal names no plugin"
+    );
     // A cookie that names no session is no better.
     let forged = reqwest::Client::new()
         .post(format!("{base}/api/ui-plugins/{PLUGIN}/rpc"))
@@ -230,11 +249,18 @@ async fn the_rpc_broker_serves_a_session_and_refuses_everyone_else() {
         held.json::<Value>().await.unwrap(),
         json!({ "error": "password change required", "passwordChangeRequired": true })
     );
+    assert_eq!(registry(&c).await.unwrap().status(), 403, "held: the list");
     set_flags(&admin, &base, user, false, false).await;
     assert_eq!(rpc(&c, &base, "get", json!(["note"])).await.status(), 200);
+    assert_eq!(registry(&c).await.unwrap().status(), 200);
 
     // Disabled: the cookie that worked a moment ago is refused.
     set_flags(&admin, &base, user, true, false).await;
     let disabled = rpc(&c, &base, "get", json!(["note"])).await;
     assert_eq!(disabled.status(), 401, "a disabled account");
+    assert_eq!(
+        registry(&c).await.unwrap().status(),
+        401,
+        "disabled: the list"
+    );
 }

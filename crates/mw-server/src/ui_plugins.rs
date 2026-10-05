@@ -22,7 +22,8 @@
 //!   * `DELETE /admin/ui-plugins/{id}`          — delete (cascades grants).
 //!
 //! Web host (the SPA sandbox tier):
-//!   * `GET    /api/ui-plugins`                 — approved+enabled registrations + banner.
+//!   * `GET    /api/ui-plugins`                 — approved+enabled registrations + banner;
+//!     mailbox-session-authed.
 //!   * `POST   /api/ui-plugins/{id}/rpc`        — the capability broker (net/store RPC);
 //!     mailbox-session-authed.
 //!
@@ -40,8 +41,8 @@
 //! declared caps at grant time), and the `method` must be in that capability's method
 //! allowlist ([`cap_methods`], mirroring the web `CAP_METHOD_ALLOWLIST`). `net:host-allowlist`
 //! egress is additionally checked against the grant's host allowlist; `store:kv-scoped`
-//! is a key/value store scoped to the plugin and the calling account. The route
-//! requires a mailbox session; the registry list beside it does not.
+//! is a key/value store scoped to the plugin and the calling account. Both web-host
+//! routes require a mailbox session.
 #![allow(dead_code)]
 
 use std::collections::HashMap;
@@ -561,7 +562,16 @@ async fn remove(
 /// `GET /api/ui-plugins` — the approved+enabled tier the SPA loads, as
 /// `UiPluginRegistration[]` (manifest + grants + flags). `unsignedBanner` lists any
 /// approved-but-unsigned plugin ids so the SPA raises the persistent banner.
-async fn list_public(State(state): State<AppState>) -> Response {
+///
+/// Requires a mailbox session ([`crate::authed`]). The body names every approved
+/// plugin and its grant parameters, including the hosts a `net:host-allowlist` grant
+/// may reach, and the SPA only asks for it from the signed-in mailbox
+/// (`apps/web/src/App.tsx` mounts the tier in the `inMail()` branch); the login
+/// screen does not use it.
+async fn list_public(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(resp) = crate::authed(&state, &headers).await {
+        return resp;
+    }
     let rows = match state.store.list_ui_plugins().await {
         Ok(r) => r,
         Err(e) => return store_error(&e),
