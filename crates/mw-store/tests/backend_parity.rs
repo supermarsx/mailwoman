@@ -301,7 +301,10 @@ async fn run_ops(s: &Store) -> Vec<String> {
         "released={}:{:?}:{:?}",
         s.release_submission("sub-held").await.unwrap(),
         s.get_submission_hold("sub-held").await.unwrap(),
-        s.get_submission("sub-held").await.unwrap().map(|r| r.send_at)
+        s.get_submission("sub-held")
+            .await
+            .unwrap()
+            .map(|r| r.send_at)
     ));
 
     // ---- V3: calendar / event range / note seal / contact autocomplete ----
