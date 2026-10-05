@@ -729,3 +729,70 @@ async fn an_ascii_envelope_carries_no_smtputf8_parameter() {
         );
     }
 }
+
+/// The refusal comes before `MAIL FROM`, wherever the non-ASCII address is:
+/// the client says `EHLO`, learns that `SMTPUTF8` is not offered, and leaves.
+/// The error is its own variant, so a caller can tell that a retry will not
+/// help.
+#[tokio::test]
+async fn a_message_that_needs_smtputf8_is_refused_before_mail_from() {
+    let last_recipient = Outgoing {
+        rcpt_to: vec![
+            "good@example.com".into(),
+            "other@example.com".into(),
+            UTF8_ADDRESS.into(),
+        ],
+        ..benign()
+    };
+    let sender = Outgoing {
+        mail_from: UTF8_ADDRESS.into(),
+        ..benign()
+    };
+    for (what, msg) in [("recipient", last_recipient), ("sender", sender)] {
+        let (out, wire) = submit_recorded(&["SIZE 1000000"], msg).await;
+        match out {
+            Err(SmtpError::SmtpUtf8Required(addr)) => assert!(addr.contains(UTF8_ADDRESS)),
+            other => panic!("{what}: expected SmtpUtf8Required, got {other:?}"),
+        }
+        assert_eq!(
+            String::from_utf8_lossy(&wire),
+            "EHLO client.test\r\nQUIT\r\n",
+            "{what}"
+        );
+    }
+}
+
+/// `SIZE=` declares the message as it is transmitted (RFC 1870 §5): every line
+/// end counted as CRLF, without the dots added by stuffing and without the
+/// final `.` line.
+#[tokio::test]
+async fn the_declared_size_is_the_size_of_what_is_transmitted() {
+    let bodies: &[&[u8]] = &[
+        b"body\r\n",
+        b"bare\nline\nfeeds\n",
+        b"bare\rcarriage\rreturns",
+        b".dots\r\n.\r\n..\r\nand\na\rmix\r\n.",
+        b"",
+    ];
+    for body in bodies {
+        let shown = String::from_utf8_lossy(body).into_owned();
+        let (out, wire) = submit_recorded(&["SIZE 1000000"], message(body)).await;
+        out.unwrap_or_else(|e| panic!("{shown:?}: {e}"));
+
+        let text = String::from_utf8(wire).unwrap();
+        let (envelope, data) = text.split_once("\r\nDATA\r\n").expect("a DATA command");
+        let declared: usize = envelope
+            .lines()
+            .find_map(|l| l.strip_prefix("MAIL FROM:<sender@example.com> SIZE="))
+            .unwrap_or_else(|| panic!("{shown:?}: no SIZE on MAIL FROM:\n{envelope}"))
+            .parse()
+            .expect("a number");
+
+        let data = data
+            .strip_suffix(".\r\nQUIT\r\n")
+            .expect("terminator, QUIT");
+        // Every line that begins with `.` carries one dot that is not content.
+        let stuffed = data.split("\r\n").filter(|l| l.starts_with('.')).count();
+        assert_eq!(declared, data.len() - stuffed, "{shown:?}: sent {data:?}");
+    }
+}

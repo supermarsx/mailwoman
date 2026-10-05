@@ -166,12 +166,11 @@ impl<S> Connection<S> {
     }
 }
 
-/// The error for a non-ASCII envelope address that cannot be sent as it is.
-/// The address is debug-escaped, as in [`crate::validate_mailbox`]'s errors.
-fn needs_smtputf8(addr: &str, why: &str) -> SmtpError {
-    SmtpError::Protocol(format!(
-        "the address {addr:?} is not ASCII and needs SMTPUTF8, {why}; the message was not sent"
-    ))
+/// The error for a non-ASCII envelope address when the server did not offer
+/// `SMTPUTF8`. The address is debug-escaped, as in
+/// [`crate::validate_mailbox`]'s errors.
+fn smtputf8_not_offered(addr: &str) -> SmtpError {
+    SmtpError::SmtpUtf8Required(format!("{addr:?}"))
 }
 
 impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
@@ -474,7 +473,12 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
         validate_reverse_path(from)?;
         let smtputf8 = p.smtputf8 || !from.is_ascii();
         if smtputf8 && !self.smtputf8_offered {
-            return Err(needs_smtputf8(from, "which the server does not offer"));
+            return Err(if from.is_ascii() {
+                // Asked for by the caller for the sake of a recipient.
+                SmtpError::Protocol("server does not advertise SMTPUTF8".into())
+            } else {
+                smtputf8_not_offered(from)
+            });
         }
         self.smtputf8_requested = smtputf8;
         let mut cmd = format!("MAIL FROM:<{from}>");
@@ -529,12 +533,13 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
     ) -> Result<RcptOutcome, SmtpError> {
         validate_mailbox(addr)?;
         if !addr.is_ascii() && !self.smtputf8_requested {
-            let why = if self.smtputf8_offered {
-                "which was not requested on MAIL FROM"
-            } else {
-                "which the server does not offer"
-            };
-            return Err(needs_smtputf8(addr, why));
+            if !self.smtputf8_offered {
+                return Err(smtputf8_not_offered(addr));
+            }
+            // Offered, but the caller's MAIL FROM did not ask for it.
+            return Err(SmtpError::Protocol(format!(
+                "the address {addr:?} is not ASCII and SMTPUTF8 was not requested on MAIL FROM"
+            )));
         }
         let mut cmd = format!("RCPT TO:<{addr}>");
         if !notify.is_empty() {
@@ -665,6 +670,21 @@ fn decode_challenge(reply: &Reply) -> Result<String, SmtpError> {
 /// changed. Raw binary content cannot be sent this way at all; that would take
 /// `BINARYMIME`, which this crate does not negotiate.
 pub(crate) fn data_lines(raw: &[u8], dot_stuff: bool, out: &mut Vec<u8>) {
+    lines(raw, dot_stuff, |bytes| out.extend_from_slice(bytes));
+}
+
+/// The number of bytes [`data_lines`] makes of `raw` without dot-stuffing:
+/// the message size RFC 1870 §5 has the client declare in `SIZE=`, which
+/// counts every line end as CRLF and leaves out the stuffed dots and the
+/// final `.` line.
+pub(crate) fn transmitted_len(raw: &[u8]) -> usize {
+    let mut len = 0;
+    lines(raw, false, |bytes| len += bytes.len());
+    len
+}
+
+/// [`data_lines`], handing each piece of the output to `put`.
+fn lines(raw: &[u8], dot_stuff: bool, mut put: impl FnMut(&[u8])) {
     let mut at_line_start = true;
     let mut bytes = raw.iter().copied().peekable();
     while let Some(b) = bytes.next() {
@@ -673,20 +693,20 @@ pub(crate) fn data_lines(raw: &[u8], dot_stuff: bool, out: &mut Vec<u8>) {
                 if b == b'\r' {
                     bytes.next_if_eq(&b'\n');
                 }
-                out.extend_from_slice(b"\r\n");
+                put(b"\r\n");
                 at_line_start = true;
             }
             _ => {
                 if at_line_start && b == b'.' && dot_stuff {
-                    out.push(b'.');
+                    put(b".");
                 }
-                out.push(b);
+                put(&[b]);
                 at_line_start = false;
             }
         }
     }
     if !at_line_start {
-        out.extend_from_slice(b"\r\n");
+        put(b"\r\n");
     }
 }
 
@@ -828,7 +848,7 @@ mod tests {
             c.rcpt_to("j\u{f6}rg@example.com", &[], true).await
         })
         .await;
-        assert!(matches!(out, Err(SmtpError::Protocol(_))));
+        assert!(matches!(out, Err(SmtpError::SmtpUtf8Required(_))));
         assert_eq!(wire, "MAIL FROM:<sender@example.com>\r\n");
 
         // A caller that asks for the parameter the server did not offer.

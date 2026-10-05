@@ -29,9 +29,12 @@ use conn::{Connection, MailParams, RcptOutcome};
 /// A message ready for submission: envelope + already-serialized MIME bytes.
 ///
 /// The `raw` bytes are produced by `mw-mime` (mail-builder); this crate never
-/// parses or re-encodes them, it only frames them into the `DATA` phase with
-/// dot-stuffing. Header content inside `raw` is therefore the caller's to get
-/// right; the envelope fields are checked here (see [`Outgoing::validate`]).
+/// parses or re-encodes them. It sends them as lines: every line end in `raw`
+/// (CRLF, a bare LF or a bare CR) goes out as CRLF, and in the `DATA` phase a
+/// line that begins with `.` is dot-stuffed. Bytes that already have CRLF line
+/// ends are otherwise sent as they are. Header content inside `raw` is
+/// therefore the caller's to get right; the envelope fields are checked here
+/// (see [`Outgoing::validate`]).
 #[derive(Debug, Clone)]
 pub struct Outgoing {
     /// Envelope sender (`MAIL FROM`).
@@ -83,6 +86,14 @@ pub enum SmtpError {
     /// truncated, never raw.
     #[error("invalid envelope address {0}")]
     InvalidAddress(String),
+    /// An envelope address is not ASCII and the server did not offer
+    /// `SMTPUTF8` (RFC 6531), so the message was not sent to anyone. The text
+    /// is that address, debug-escaped. The same message to the same server
+    /// fails the same way again: this is not worth a retry.
+    #[error(
+        "the server does not offer SMTPUTF8, which the non-ASCII address {0} needs; the message was not sent"
+    )]
+    SmtpUtf8Required(String),
 }
 
 impl From<std::io::Error> for SmtpError {
@@ -319,6 +330,20 @@ impl Submitter {
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
     {
         let caps = conn.ehlo(&self.config.ehlo_name).await?;
+
+        // A non-ASCII envelope address needs SMTPUTF8 (RFC 6531). Without it
+        // the message cannot be sent to this server, so stop here, before
+        // AUTH and MAIL FROM, rather than part-way through the recipients.
+        let needs_utf8 = std::iter::once(&msg.mail_from)
+            .chain(&msg.rcpt_to)
+            .find(|a| !a.is_ascii());
+        if let Some(addr) = needs_utf8
+            && !caps.smtputf8
+        {
+            conn.quit().await;
+            return Err(SmtpError::SmtpUtf8Required(format!("{addr:?}")));
+        }
+
         conn.authenticate(&self.config.credentials, &caps, channel_binding)
             .await?;
 
@@ -333,17 +358,17 @@ impl Submitter {
             return Err(SmtpError::Protocol("server does not advertise DSN".into()));
         }
 
-        // SMTPUTF8 is auto-negotiated: send it when the envelope needs UTF-8 and
-        // the server supports it. SIZE only when advertised; BODY=8BITMIME only
+        // SMTPUTF8 is sent when the envelope needs it; the server offers it,
+        // or this point is not reached. SIZE only when advertised, and it is
+        // the size of what is transmitted, not of `raw`. BODY=8BITMIME only
         // when the raw MIME needs it and the server supports it.
-        let smtputf8 = caps.smtputf8
-            && (!msg.mail_from.is_ascii() || msg.rcpt_to.iter().any(|r| !r.is_ascii()));
+        let smtputf8 = needs_utf8.is_some();
         let (ret, envid) = match &opts.dsn {
             Some(d) => (d.ret, d.envid.clone()),
             None => (None, None),
         };
         let params = MailParams {
-            size: caps.size.map(|_| msg.raw.len()),
+            size: caps.size.map(|_| conn::transmitted_len(&msg.raw)),
             body_8bit: caps.eightbitmime && msg.raw.iter().any(|&b| b >= 0x80),
             smtputf8,
             require_tls: opts.require_tls,

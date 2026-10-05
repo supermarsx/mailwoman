@@ -1257,3 +1257,56 @@ async fn an_update_may_resend_a_stored_email_but_not_change_it_to_a_bad_one() {
         .await;
     assert!(upd["updated"].get(&id).is_some(), "{upd}");
 }
+
+// ── a non-ASCII address and a server without SMTPUTF8 (26.20 t27-f2) ────────
+
+/// The recorder answers `EHLO` with a bare `250 OK`, so it offers no
+/// `SMTPUTF8`. A draft to a non-ASCII address cannot be sent through it, now
+/// or on a retry: no `MAIL FROM` is written, nothing non-ASCII reaches the
+/// wire, and the dispatcher gives the submission up on its first pass.
+#[tokio::test]
+async fn a_non_ascii_recipient_without_smtputf8_is_not_sent_and_not_retried() {
+    let h = setup().await;
+    let set = h
+        .call(
+            "Email/set",
+            json!({ "create": { "draft": draft(json!({
+                "to": [{ "email": "friend@example.org" }, { "email": "jörg@example.test" }],
+            })) } }),
+        )
+        .await;
+    let id = set["created"]["draft"]["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("a non-ASCII address is a valid draft address: {set}"))
+        .to_string();
+
+    let store = h.engine.store();
+    store
+        .insert_submission(&SubmissionRow {
+            id: "sub-utf8".into(),
+            account_id: h.account_id.clone(),
+            email_id: id.clone(),
+            identity_id: None,
+            send_at: None,
+            undo_status: "pending".into(),
+            hold_seconds: 10,
+            created_at: "2000-01-01T00:00:00Z".into(),
+        })
+        .await
+        .unwrap();
+    h.engine.dispatch_tick().await.unwrap();
+
+    let wire = h.take_wire();
+    assert_eq!(wire.connections, 1, "{:?}", wire.lines);
+    assert!(wire.starting("MAIL FROM:").is_empty(), "{:?}", wire.lines);
+    assert!(wire.starting("RCPT TO:").is_empty(), "{:?}", wire.lines);
+    assert_eq!(wire.count("DATA"), 0, "{:?}", wire.lines);
+    assert!(wire.lines.iter().all(|l| l.is_ascii()), "{:?}", wire.lines);
+
+    let row = store.get_submission("sub-utf8").await.unwrap().unwrap();
+    assert_eq!(row.undo_status, "failed", "given up after one pass");
+
+    // Control: the same server still takes an ASCII message.
+    h.assert_nothing_was_sent_but_the_control("after the SMTPUTF8 refusal")
+        .await;
+}

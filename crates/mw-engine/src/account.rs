@@ -40,6 +40,9 @@ impl MailSubmitter for Submitter {
             mw_smtp::SmtpError::Transport(m) => EngineError::Transport(m),
             mw_smtp::SmtpError::Protocol(m) => EngineError::Protocol(m),
             e @ mw_smtp::SmtpError::InvalidAddress(_) => EngineError::Protocol(e.to_string()),
+            // The server lacks an extension the message cannot do without.
+            // `Unsupported` is what `transmit_draft` does not retry.
+            e @ mw_smtp::SmtpError::SmtpUtf8Required(_) => EngineError::Unsupported(e.to_string()),
         })
     }
 }
