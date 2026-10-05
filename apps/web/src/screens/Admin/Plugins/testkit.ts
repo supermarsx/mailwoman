@@ -7,16 +7,16 @@
 // router in `crates/mw-server/tests/t28_plugin_register.rs`. Shapes and rules come
 // from:
 //
-//   `plugin_view`       crates/mw-server/src/plugins.rs:164   the plugin object
-//   `register`          crates/mw-server/src/plugins.rs:494   409 `already-registered`
-//   `enable`            crates/mw-server/src/plugins.rs:615   400 `not-approved`,
+//   `plugin_view`       crates/mw-server/src/plugins.rs:165   the plugin object
+//   `register`          crates/mw-server/src/plugins.rs:495   409 `already-registered`
+//   `enable`            crates/mw-server/src/plugins.rs:616   400 `not-approved`,
 //                                                             403 `unsigned-not-allowed`
-//   `grantable`         crates/mw-server/src/plugins.rs:695   400 for an undeclared capability
-//   `allow_unsigned`    crates/mw-server/src/plugins.rs:784   400 `first-party`
-//   `test_classifier`   crates/mw-server/src/plugins.rs:905   409 `not-loaded`
-//   `refuse`            crates/mw-server/src/plugins.rs:115   the `{ error, code }` body
-//   `plugin_status`     crates/mw-server/src/v7_mount.rs:2272 loaded / notLoadedReason
-//   `uninstall_plugin`  crates/mw-server/src/admin_plugins.rs:270
+//   `grantable`         crates/mw-server/src/plugins.rs:696   400 for an undeclared capability
+//   `allow_unsigned`    crates/mw-server/src/plugins.rs:785   400 `first-party`
+//   `test_classifier`   crates/mw-server/src/plugins.rs:906   409 `not-loaded`
+//   `refuse`            crates/mw-server/src/plugins.rs:116   the `{ error, code }` body
+//   `plugin_status`     crates/mw-server/src/v7_mount.rs:2366 loaded / notLoadedReason
+//   `uninstall_plugin`  crates/mw-server/src/admin_plugins.rs:267
 
 import {
   EMPTY_ALLOWLIST,
