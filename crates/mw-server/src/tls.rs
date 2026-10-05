@@ -9,10 +9,18 @@
 //! endpoint, so it is exercised manually/nightly (plan §6 risk 10); the
 //! external-cert reload path is what the integration tests drive with a
 //! self-signed pair.
+//!
+//! # Minimum TLS version
+//! [`set_min_tls`] sets the lowest TLS version this listener accepts, and
+//! [`apply_min_tls`] sets it together with the outbound connectors it can reach.
+//! rustls 0.23 speaks TLS 1.2 and 1.3 only, so the floor is a two-value choice
+//! ([`MinTls`]); unset, it is 1.2, which is the configuration the listener had
+//! before the floor existed.
 
 use std::io;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, RwLock};
 
 use anyhow::{Context, anyhow};
@@ -51,6 +59,94 @@ pub enum TlsConfig {
     },
     /// An operator-provided cert/key pair, reloadable on SIGHUP.
     External { cert: PathBuf, key: PathBuf },
+}
+
+// ---------------------------------------------------------------------------
+// Minimum TLS version
+// ---------------------------------------------------------------------------
+
+/// The lowest TLS version a connection may negotiate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MinTls {
+    /// TLS 1.2 or 1.3 (the default; rustls offers nothing older).
+    V12,
+    /// TLS 1.3 only. A peer limited to TLS 1.2 is refused at the handshake.
+    V13,
+}
+
+impl MinTls {
+    /// Parse the stored or configured form: `"1.2"` or `"1.3"`, surrounding
+    /// whitespace ignored. Anything else is `None` — including `"1.0"` and
+    /// `"1.1"`, which rustls cannot speak.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim() {
+            "1.2" => Some(MinTls::V12),
+            "1.3" => Some(MinTls::V13),
+            _ => None,
+        }
+    }
+
+    /// The form [`MinTls::parse`] reads back.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MinTls::V12 => "1.2",
+            MinTls::V13 => "1.3",
+        }
+    }
+}
+
+static LISTENER_MIN_TLS: AtomicU8 = AtomicU8::new(0);
+
+/// Set the floor for the inbound HTTPS listener only (see [`apply_min_tls`] for
+/// the outbound connectors as well). Every [`TlsListener`] in the process reads
+/// it at the start of each handshake, so it applies to the next connection
+/// without rebinding. Connections that have already completed a handshake are
+/// not dropped and keep the version they negotiated.
+///
+/// In ACME mode the `tls-alpn-01` validation handshake is served inside
+/// `tokio-rustls-acme` with its own configuration and is not subject to the floor.
+pub fn set_min_tls(v: MinTls) {
+    LISTENER_MIN_TLS.store(matches!(v, MinTls::V13) as u8, Ordering::SeqCst);
+}
+
+/// The listener floor currently in force.
+pub fn min_tls() -> MinTls {
+    if LISTENER_MIN_TLS.load(Ordering::SeqCst) == 0 {
+        MinTls::V12
+    } else {
+        MinTls::V13
+    }
+}
+
+/// Set the floor on the inbound listener and on the outbound TLS connectors
+/// listed here, for connections opened from now on:
+///
+/// * the HTTPS listener ([`set_min_tls`]);
+/// * POP3, implicit TLS and STLS (`mw_pop3::conn::set_min_tls`);
+/// * the origin TLS inside an egress proxy tunnel
+///   (`mw_egress::proxy::stream::set_min_tls`).
+///
+/// **Not reached by this function today:** IMAP, SMTP submission and
+/// ManageSieve. Each of those crates has the same floor (`set_min_tls` in its
+/// `tls.rs`, tested there), but the module is private and not re-exported, so
+/// this crate cannot call it; they stay at 1.2 whatever is passed here.
+///
+/// Not covered by any floor in this tree: the `reqwest` HTTP clients, and the
+/// TLS inside `ldap3` (LDAP), `fred` (Redis) and `sqlx` (Postgres).
+///
+/// Raising the floor to 1.3 makes every upstream that only speaks TLS 1.2
+/// unreachable through the connectors above; their errors then start with "the
+/// minimum TLS version is set to 1.3". Passing [`MinTls::V12`] undoes it.
+pub fn apply_min_tls(v: MinTls) {
+    set_min_tls(v);
+    mw_pop3::conn::set_min_tls(match v {
+        MinTls::V12 => mw_pop3::conn::MinTls::V12,
+        MinTls::V13 => mw_pop3::conn::MinTls::V13,
+    });
+    mw_egress::proxy::stream::set_min_tls(match v {
+        MinTls::V12 => mw_egress::proxy::stream::MinTls::V12,
+        MinTls::V13 => mw_egress::proxy::stream::MinTls::V13,
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -168,11 +264,8 @@ fn pem_blocks(pem: &str, tag: &str) -> Vec<Vec<u8>> {
 // ---------------------------------------------------------------------------
 
 enum Acceptor {
-    External(tokio_rustls::TlsAcceptor),
-    Acme {
-        acceptor: AcmeAcceptor,
-        config: Arc<ServerConfig>,
-    },
+    External,
+    Acme(AcmeAcceptor),
 }
 
 /// A TCP listener that terminates TLS before handing streams to axum.
@@ -182,9 +275,16 @@ enum Acceptor {
 /// it can be, since it precedes the ClientHello on the wire. This is the shape that
 /// matters for TLS passthrough behind an L4 balancer, where the app terminates TLS
 /// itself (built-in ACME) and would otherwise see the balancer as every client.
+///
+/// The rustls configuration is rebuilt when the floor ([`set_min_tls`]) differs
+/// from the one it was built for, which is checked before each handshake.
 pub struct TlsListener {
     tcp: ProxyAcceptor,
     acceptor: Acceptor,
+    /// Where certificates come from; kept so the configuration can be rebuilt.
+    resolver: Arc<dyn ResolvesServerCert>,
+    /// The configuration in use and the floor it was built for.
+    config: (MinTls, Arc<ServerConfig>),
 }
 
 impl TlsListener {
@@ -216,12 +316,14 @@ impl TlsListener {
         match tls {
             TlsConfig::External { cert, key } => {
                 let resolver = ReloadableResolver::load(cert.clone(), key.clone())?;
-                let config = server_config(resolver.clone());
-                let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
+                let floor = min_tls();
+                let config = server_config(resolver.clone(), floor);
                 Ok((
                     Self {
                         tcp,
-                        acceptor: Acceptor::External(acceptor),
+                        acceptor: Acceptor::External,
+                        resolver: resolver.clone(),
+                        config: (floor, Arc::new(config)),
                     },
                     Some(resolver),
                 ))
@@ -239,7 +341,9 @@ impl TlsListener {
                     cfg = cfg.contact_push(format!("mailto:{contact}"));
                 }
                 let mut state = cfg.state();
-                let config = server_config(state.resolver());
+                let resolver: Arc<dyn ResolvesServerCert> = state.resolver();
+                let floor = min_tls();
+                let config = server_config(resolver.clone(), floor);
                 let acceptor = state.acceptor();
                 // Drive certificate acquisition/renewal for the process lifetime.
                 tokio::spawn(async move {
@@ -254,15 +358,24 @@ impl TlsListener {
                 Ok((
                     Self {
                         tcp,
-                        acceptor: Acceptor::Acme {
-                            acceptor,
-                            config: Arc::new(config),
-                        },
+                        acceptor: Acceptor::Acme(acceptor),
+                        resolver,
+                        config: (floor, Arc::new(config)),
                     },
                     None,
                 ))
             }
         }
+    }
+
+    /// The configuration for the floor in force, rebuilt if the floor has changed
+    /// since the last handshake.
+    fn current_config(&mut self) -> Arc<ServerConfig> {
+        let floor = min_tls();
+        if self.config.0 != floor {
+            self.config = (floor, Arc::new(server_config(self.resolver.clone(), floor)));
+        }
+        self.config.1.clone()
     }
 }
 
@@ -315,14 +428,34 @@ pub fn validate_acme_domains(domains: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// A rustls server config that resolves certs through `resolver` and offers
-/// HTTP/1.1 + HTTP/2 over ALPN.
-fn server_config(resolver: Arc<dyn ResolvesServerCert>) -> ServerConfig {
-    let mut config = ServerConfig::builder()
-        .with_no_client_auth()
-        .with_cert_resolver(resolver);
+/// A rustls server config that resolves certs through `resolver`, offers
+/// HTTP/1.1 + HTTP/2 over ALPN, and accepts the protocol versions `floor` allows:
+/// the rustls defaults (1.2 and 1.3) for [`MinTls::V12`], 1.3 alone for
+/// [`MinTls::V13`].
+fn server_config(resolver: Arc<dyn ResolvesServerCert>, floor: MinTls) -> ServerConfig {
+    let builder = match floor {
+        MinTls::V12 => ServerConfig::builder(),
+        MinTls::V13 => ServerConfig::builder_with_protocol_versions(&[&rustls::version::TLS13]),
+    };
+    let mut config = builder.with_no_client_auth().with_cert_resolver(resolver);
     config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
     config
+}
+
+/// Describe a failed inbound handshake for the log, naming the floor when it is
+/// 1.3 and rustls found nothing in common with the client — which is what a
+/// client limited to TLS 1.2 produces.
+fn describe_handshake_failure(e: &io::Error, floor: MinTls) -> String {
+    let incompatible = matches!(
+        e.get_ref()
+            .and_then(|inner| inner.downcast_ref::<rustls::Error>()),
+        Some(rustls::Error::PeerIncompatible(_))
+    );
+    if floor == MinTls::V13 && incompatible {
+        format!("the minimum TLS version is set to 1.3 and the client did not offer it ({e})")
+    } else {
+        e.to_string()
+    }
 }
 
 impl axum::serve::Listener for TlsListener {
@@ -335,15 +468,27 @@ impl axum::serve::Listener for TlsListener {
             // and believed, and the socket peer otherwise. Transient accept errors
             // are handled inside the acceptor (contract: this method cannot fail).
             let (tcp, addr) = self.tcp.next_conn().await;
+            // Read the floor once per connection: a change made by `set_min_tls`
+            // takes effect here, for this and every later handshake.
+            let config = self.current_config();
+            let floor = self.config.0;
             match &self.acceptor {
-                Acceptor::External(acc) => match acc.accept(tcp).await {
-                    Ok(tls) => return (tls, addr),
-                    Err(e) => tracing::debug!("tls handshake from {addr} failed: {e}"),
-                },
-                Acceptor::Acme { acceptor, config } => match acceptor.accept(tcp).await {
-                    Ok(Some(start)) => match start.into_stream(config.clone()).await {
+                Acceptor::External => {
+                    match tokio_rustls::TlsAcceptor::from(config).accept(tcp).await {
                         Ok(tls) => return (tls, addr),
-                        Err(e) => tracing::debug!("acme handshake from {addr} failed: {e}"),
+                        Err(e) => tracing::debug!(
+                            "tls handshake from {addr} failed: {}",
+                            describe_handshake_failure(&e, floor)
+                        ),
+                    }
+                }
+                Acceptor::Acme(acceptor) => match acceptor.accept(tcp).await {
+                    Ok(Some(start)) => match start.into_stream(config).await {
+                        Ok(tls) => return (tls, addr),
+                        Err(e) => tracing::debug!(
+                            "acme handshake from {addr} failed: {}",
+                            describe_handshake_failure(&e, floor)
+                        ),
                     },
                     // tls-alpn-01 validation request: served internally, no app stream.
                     Ok(None) => {}
@@ -410,6 +555,38 @@ mod tests {
         assert!(acme(&["mail.example.org", "off"]).is_err());
         assert!(acme(&["mail.example.org", ""]).is_err());
         assert!(acme(&[]).is_err());
+    }
+
+    #[test]
+    fn min_tls_parses_the_two_versions_rustls_speaks_and_nothing_else() {
+        assert_eq!(MinTls::parse("1.2"), Some(MinTls::V12));
+        assert_eq!(MinTls::parse(" 1.3\n"), Some(MinTls::V13));
+        for bad in ["", "1.0", "1.1", "1.4", "13", "TLSv1.3", "tls1.2", "v1.3"] {
+            assert_eq!(MinTls::parse(bad), None, "{bad:?}");
+        }
+        for v in [MinTls::V12, MinTls::V13] {
+            assert_eq!(MinTls::parse(v.as_str()), Some(v));
+        }
+    }
+
+    #[test]
+    fn a_handshake_failure_names_the_floor_only_when_the_floor_explains_it() {
+        let incompatible = || {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                rustls::Error::PeerIncompatible(rustls::PeerIncompatible::Tls13RequiredForQuic),
+            )
+        };
+        assert!(
+            describe_handshake_failure(&incompatible(), MinTls::V13)
+                .starts_with("the minimum TLS version is set to 1.3")
+        );
+        assert_eq!(
+            describe_handshake_failure(&incompatible(), MinTls::V12),
+            incompatible().to_string()
+        );
+        let reset = io::Error::new(io::ErrorKind::ConnectionReset, "reset");
+        assert_eq!(describe_handshake_failure(&reset, MinTls::V13), "reset");
     }
 
     #[test]

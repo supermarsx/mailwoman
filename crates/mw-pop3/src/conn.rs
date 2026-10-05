@@ -7,6 +7,7 @@
 //! sequencing.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as B64;
@@ -447,23 +448,106 @@ fn decode_b64_utf8(s: &str) -> Result<String> {
     String::from_utf8(bytes).map_err(|e| EngineError::Protocol(format!("non-UTF-8 SASL blob: {e}")))
 }
 
+// ---------------------------------------------------------------------------
+// Minimum TLS version
+//
+// One process-wide floor. rustls 0.23 speaks TLS 1.2 and 1.3 only, so it is a
+// two-value choice. It defaults to `MinTls::V12`, which builds exactly the
+// configuration this crate built before the floor existed. The floor is read each
+// time a connection is wrapped, so a change applies to the next connection; a
+// session already open keeps the version it negotiated.
+// ---------------------------------------------------------------------------
+
+/// The lowest TLS version an outbound POP3 connection may negotiate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MinTls {
+    /// TLS 1.2 or 1.3 (the default; rustls offers nothing older).
+    V12,
+    /// TLS 1.3 only. A server limited to TLS 1.2 is refused at the handshake.
+    V13,
+}
+
+static MIN_TLS: AtomicU8 = AtomicU8::new(0);
+
+/// Set the floor for every POP3 TLS connection opened from now on (implicit TLS
+/// and STLS alike). Connections already established are not touched.
+pub fn set_min_tls(v: MinTls) {
+    MIN_TLS.store(matches!(v, MinTls::V13) as u8, Ordering::SeqCst);
+}
+
+/// The floor currently in force.
+pub fn min_tls() -> MinTls {
+    if MIN_TLS.load(Ordering::SeqCst) == 0 {
+        MinTls::V12
+    } else {
+        MinTls::V13
+    }
+}
+
+/// The start of the error text produced when a handshake fails because the peer
+/// did not offer TLS 1.3 while the floor is [`MinTls::V13`]. It reaches the caller
+/// as
+/// `EngineError::Transport`.
+pub const MIN_TLS_REFUSED: &str = "the minimum TLS version is set to 1.3";
+
+/// Rewrite a handshake error that the floor explains. Under a 1.3 floor the
+/// client offers TLS 1.3 only; a peer without it answers with a
+/// `protocol_version` alert, or with a ServerHello rustls rejects as
+/// incompatible. Every other error, and every error under the 1.2 floor, is
+/// returned unchanged.
+fn explain(e: std::io::Error, floor: MinTls) -> std::io::Error {
+    if floor != MinTls::V13 {
+        return e;
+    }
+    let caused_by_floor = matches!(
+        e.get_ref()
+            .and_then(|inner| inner.downcast_ref::<rustls::Error>()),
+        Some(
+            rustls::Error::AlertReceived(rustls::AlertDescription::ProtocolVersion)
+                | rustls::Error::PeerIncompatible(_)
+        )
+    );
+    if !caused_by_floor {
+        return e;
+    }
+    std::io::Error::new(
+        e.kind(),
+        format!("{MIN_TLS_REFUSED} and the server did not offer it ({e})"),
+    )
+}
+
 /// Run the TLS handshake and, **while the stream is still typed**, compute the
 /// SCRAM channel binding — this is the one moment the negotiated
 /// [`rustls::ClientConnection`] is reachable, before the stream is erased into
 /// `Box<dyn AsyncStream>`. Returns the boxed stream alongside the
-/// `(cb-name, bytes)` binding (see [`channel_binding`]).
+/// `(cb-name, bytes)` binding (see [`channel_binding`]). The server is verified
+/// against the Mozilla webpki root set, at the floor currently in force
+/// ([`min_tls`]).
 async fn tls_connect(
     io: Box<dyn AsyncStream>,
     host: &str,
 ) -> Result<(Box<dyn AsyncStream>, Option<(&'static str, Vec<u8>)>)> {
-    let config = tls_client_config()?;
+    let mut roots = rustls::RootCertStore::empty();
+    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    tls_connect_with_roots(io, host, roots).await
+}
+
+/// [`tls_connect`] with the trust anchors supplied. Private: the only caller
+/// outside this module's tests is [`tls_connect`], which passes the webpki roots.
+async fn tls_connect_with_roots(
+    io: Box<dyn AsyncStream>,
+    host: &str,
+    roots: rustls::RootCertStore,
+) -> Result<(Box<dyn AsyncStream>, Option<(&'static str, Vec<u8>)>)> {
+    let floor = min_tls();
+    let config = tls_client_config(roots, floor)?;
     let connector = TlsConnector::from(config);
     let server_name = rustls_pki_types::ServerName::try_from(host.to_string())
         .map_err(|_| EngineError::Transport(format!("invalid TLS server name: {host}")))?;
     let tls = connector
         .connect(server_name, io)
         .await
-        .map_err(transport)?;
+        .map_err(|e| transport(explain(e, floor)))?;
     let binding = {
         let (_, conn) = tls.get_ref();
         channel_binding(conn)
@@ -475,8 +559,9 @@ async fn tls_connect(
 /// preferring `tls-exporter` (RFC 9266) on **TLS 1.3** and falling back to
 /// `tls-server-end-point` (RFC 5929) on **TLS 1.2** — matching the reality of
 /// current servers (Dovecot 2.4.x implements only `tls-unique`/`tls-exporter`)
-/// and RFC 9266's TLS-1.3 scope. There is no config knob: the type follows the
-/// negotiated protocol version.
+/// and RFC 9266's TLS-1.3 scope. The type is not configured separately: it
+/// follows the negotiated protocol version, so under a [`MinTls::V13`] floor it
+/// is always `tls-exporter`.
 ///
 /// On TLS 1.3 the binding is a 32-byte exporter keyed on the RFC 9266 label
 /// `EXPORTER-Channel-Binding` with an empty context. On TLS 1.2 it is the
@@ -504,15 +589,20 @@ fn channel_binding(conn: &rustls::ClientConnection) -> Option<(&'static str, Vec
     }
 }
 
-fn tls_client_config() -> Result<Arc<rustls::ClientConfig>> {
-    let mut roots = rustls::RootCertStore::empty();
-    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+/// The client configuration for `roots` at `floor`: explicit `ring` provider, no
+/// client certificate. `MinTls::V12` is the rustls safe default (1.2 and 1.3).
+fn tls_client_config(
+    roots: rustls::RootCertStore,
+    floor: MinTls,
+) -> Result<Arc<rustls::ClientConfig>> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
-    let config = rustls::ClientConfig::builder_with_provider(provider)
-        .with_safe_default_protocol_versions()
-        .map_err(|e| EngineError::Transport(e.to_string()))?
-        .with_root_certificates(roots)
-        .with_no_client_auth();
+    let builder = rustls::ClientConfig::builder_with_provider(provider);
+    let builder = match floor {
+        MinTls::V12 => builder.with_safe_default_protocol_versions(),
+        MinTls::V13 => builder.with_protocol_versions(&[&rustls::version::TLS13]),
+    }
+    .map_err(|e| EngineError::Transport(e.to_string()))?;
+    let config = builder.with_root_certificates(roots).with_no_client_auth();
     Ok(Arc::new(config))
 }
 
@@ -729,5 +819,164 @@ mod tests {
             .await
             .expect("OAUTHBEARER authentication succeeds");
         server.await.unwrap();
+    }
+
+    /// A self-signed certificate for `localhost` (P-256, valid to 2126), used only
+    /// as the test peer's identity and as the single trust anchor of the test
+    /// client. Not a secret.
+    const CERT_PEM: &str = "-----BEGIN CERTIFICATE-----
+MIIBojCCAUigAwIBAgIUXZfggy7a6Ac70pTuOuVMCuNzsNEwCgYIKoZIzj0EAwIw
+HDEaMBgGA1UEAwwRbXctdGxzLWZsb29yLXRlc3QwIBcNMjYxMDA1MDAzMDA1WhgP
+MjEyNjA5MTEwMDMwMDVaMBwxGjAYBgNVBAMMEW13LXRscy1mbG9vci10ZXN0MFkw
+EwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAECjpBfVlabTNR7L8L59lw7vc/NaVVGmKn
+1tAX8qOht2J5VmI1K0rbmOUevAO5cYmc52ATirpamxCpmne9BQExZaNmMGQwHQYD
+VR0OBBYEFBFUy5FE3DLSfLMO3C8ZIQKQS736MB8GA1UdIwQYMBaAFBFUy5FE3DLS
+fLMO3C8ZIQKQS736MBQGA1UdEQQNMAuCCWxvY2FsaG9zdDAMBgNVHRMBAf8EAjAA
+MAoGCCqGSM49BAMCA0gAMEUCICMiQGvni0u2s5i7LpPBCkPD5bdvJuRtdareNrwa
+QNGgAiEAoA+Jfh/SX0fNzYyti/9S7+BJ+t9hS1MrxabN7QUlVaA=
+-----END CERTIFICATE-----
+";
+    const KEY_PEM: &str = "-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg9JIIL1eAr3QLu3pR
+51s9cIWRVry46AolZDGxmGbZs3OhRANCAAQKOkF9WVptM1Hsvwvn2XDu9z81pVUa
+YqfW0Bfyo6G3YnlWYjUrStuY5R68A7lxiZznYBOKulqbEKmad70FATFl
+-----END PRIVATE KEY-----
+";
+
+    fn test_roots() -> rustls::RootCertStore {
+        use rustls_pki_types::pem::PemObject;
+        let mut roots = rustls::RootCertStore::empty();
+        roots
+            .add(rustls_pki_types::CertificateDer::from_pem_slice(CERT_PEM.as_bytes()).unwrap())
+            .unwrap();
+        roots
+    }
+
+    /// The protocol versions of a peer that has not been upgraded past TLS 1.2.
+    static ONLY_TLS12: &[&rustls::SupportedProtocolVersion] = &[&rustls::version::TLS12];
+
+    /// A loopback TLS server that accepts only the given protocol versions. After
+    /// each handshake it sends its own RFC 9266 exporter value (32 bytes; zeros
+    /// when the session is not TLS 1.3) so the client's binding can be compared
+    /// with what the server derived.
+    async fn tls_peer(
+        versions: &'static [&'static rustls::SupportedProtocolVersion],
+    ) -> std::net::SocketAddr {
+        use rustls_pki_types::pem::PemObject;
+        use tokio::io::AsyncReadExt;
+        let cert = rustls_pki_types::CertificateDer::from_pem_slice(CERT_PEM.as_bytes()).unwrap();
+        let key = rustls_pki_types::PrivateKeyDer::from_pem_slice(KEY_PEM.as_bytes()).unwrap();
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let config = rustls::ServerConfig::builder_with_provider(provider)
+            .with_protocol_versions(versions)
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(vec![cert], key)
+            .unwrap();
+        let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            while let Ok((tcp, _)) = listener.accept().await {
+                let acceptor = acceptor.clone();
+                tokio::spawn(async move {
+                    if let Ok(mut tls) = acceptor.accept(tcp).await {
+                        let mut exported = [0u8; 32];
+                        let conn = tls.get_ref().1;
+                        if conn.protocol_version() == Some(rustls::ProtocolVersion::TLSv1_3) {
+                            exported = conn
+                                .export_keying_material(
+                                    exported,
+                                    b"EXPORTER-Channel-Binding",
+                                    Some(&[]),
+                                )
+                                .unwrap();
+                        }
+                        let _ = tls.write_all(&exported).await;
+                        let mut sink = Vec::new();
+                        let _ = tls.read_to_end(&mut sink).await;
+                    }
+                });
+            }
+        });
+        addr
+    }
+
+    /// The channel binding of a session, and the exporter value its server sent.
+    type Bound = (Option<(&'static str, Vec<u8>)>, [u8; 32]);
+
+    /// One handshake through this module's `tls_connect` path at the floor in
+    /// force.
+    async fn upgrade(addr: std::net::SocketAddr) -> Result<Bound> {
+        use tokio::io::AsyncReadExt;
+        let tcp = TcpStream::connect(addr).await.unwrap();
+        let (mut tls, binding) =
+            tls_connect_with_roots(Box::new(tcp), "localhost", test_roots()).await?;
+        let mut server_exported = [0u8; 32];
+        tls.read_exact(&mut server_exported).await.unwrap();
+        Ok((binding, server_exported))
+    }
+
+    /// The floor is process-wide, so every assertion that moves it lives in this
+    /// one test.
+    #[tokio::test]
+    async fn a_tls13_floor_refuses_a_tls12_only_server_and_scram_plus_still_binds() {
+        use rustls_pki_types::pem::PemObject;
+        let only12 = tls_peer(ONLY_TLS12).await;
+        let both = tls_peer(rustls::ALL_VERSIONS).await;
+        let leaf = rustls_pki_types::CertificateDer::from_pem_slice(CERT_PEM.as_bytes()).unwrap();
+        let end_point = sasl::tls_server_end_point(leaf.as_ref());
+
+        // Precondition: unset, the floor is 1.2 and the 1.2-only peer is reachable
+        // through this harness, binding to the certificate hash.
+        assert_eq!(min_tls(), MinTls::V12);
+        let (binding, _) = upgrade(only12).await.unwrap();
+        assert_eq!(binding, Some(("tls-server-end-point", end_point.clone())));
+
+        set_min_tls(MinTls::V13);
+        assert_eq!(min_tls(), MinTls::V13);
+        let Err(err) = upgrade(only12).await else {
+            panic!("a 1.2-only server must be refused under a 1.3 floor");
+        };
+        let EngineError::Transport(text) = &err else {
+            panic!("expected a transport error, got {err:?}");
+        };
+        assert!(
+            text.starts_with(MIN_TLS_REFUSED),
+            "the error names the floor: {text}"
+        );
+
+        // The floor refuses a version, not every server; and under it the
+        // SCRAM-SHA-256-PLUS binding is the exporter value the server derived too.
+        let (binding, server_exported) = upgrade(both).await.unwrap();
+        assert_ne!(server_exported, [0u8; 32], "the peer negotiated TLS 1.3");
+        assert_eq!(binding, Some(("tls-exporter", server_exported.to_vec())));
+
+        // Lowering it again restores the connection.
+        set_min_tls(MinTls::V12);
+        let (binding, _) = upgrade(only12).await.unwrap();
+        assert_eq!(binding, Some(("tls-server-end-point", end_point)));
+    }
+
+    #[test]
+    fn an_unrelated_handshake_error_is_not_blamed_on_the_floor() {
+        let cert_error = || {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                rustls::Error::InvalidCertificate(rustls::CertificateError::UnknownIssuer),
+            )
+        };
+        let before = cert_error().to_string();
+        assert_eq!(explain(cert_error(), MinTls::V13).to_string(), before);
+        // Under the 1.2 floor nothing is rewritten, whatever the cause.
+        let alert = std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            rustls::Error::AlertReceived(rustls::AlertDescription::ProtocolVersion),
+        );
+        assert!(
+            !explain(alert, MinTls::V12)
+                .to_string()
+                .starts_with(MIN_TLS_REFUSED)
+        );
     }
 }
