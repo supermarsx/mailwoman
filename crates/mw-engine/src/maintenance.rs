@@ -300,8 +300,11 @@ fn index_err(e: mw_search::SearchError) -> EngineError {
     EngineError::Protocol(format!("search index: {e}"))
 }
 
-/// Every account a rebuild has to visit: the accounts table, plus any account
-/// registered in the engine that the table does not list.
+/// Every account a rebuild has to visit: the accounts table, any account
+/// registered in the engine that the table does not list, and any account the
+/// index holds documents for. The last group is what removes the documents of
+/// an account that has since been deleted from the store: it has no stored
+/// messages, so all of its documents are stale.
 pub(crate) async fn all_account_ids(engine: &Engine) -> Result<Vec<String>> {
     let mut ids: Vec<String> = engine
         .store()
@@ -310,7 +313,11 @@ pub(crate) async fn all_account_ids(engine: &Engine) -> Result<Vec<String>> {
         .into_iter()
         .map(|a| a.id)
         .collect();
-    for id in engine.registered_accounts() {
+    let indexed = engine
+        .search_handle()
+        .indexed_account_ids()
+        .map_err(index_err)?;
+    for id in engine.registered_accounts().into_iter().chain(indexed) {
         if !ids.contains(&id) {
             ids.push(id);
         }
@@ -697,6 +704,169 @@ mod tests {
         assert_eq!(tid(&b).await, tb);
         assert_eq!(tid(&c).await, tc);
         assert_eq!(tid(&other).await, tother);
+    }
+
+    /// A fresh account with an inbox.
+    async fn account_with_inbox(store: &Store, username: &str) -> (String, String) {
+        let account = store
+            .create_account(
+                &NewAccount {
+                    kind: AccountKind::Imap,
+                    host: "imap.example.org",
+                    port: 993,
+                    tls: "implicit",
+                    username,
+                    sync_policy_json: "{}",
+                },
+                &Credentials {
+                    username: username.into(),
+                    password: "pw".into(),
+                },
+            )
+            .await
+            .unwrap();
+        let mailbox = store
+            .upsert_mailbox(&MailboxUpsert {
+                account_id: &account,
+                name: "INBOX",
+                role: Some("inbox"),
+                uidvalidity: 1,
+                uidnext: 100,
+                highestmodseq: 0,
+                total: 0,
+                unread: 0,
+                parent_id: None,
+            })
+            .await
+            .unwrap();
+        (account, mailbox)
+    }
+
+    fn index_doc(stable_id: &str, account_id: &str) -> mw_search::IndexDoc {
+        mw_search::IndexDoc {
+            stable_id: stable_id.to_string(),
+            account_id: account_id.to_string(),
+            mailbox_id: "elsewhere".to_string(),
+            subject: "left over".to_string(),
+            ..Default::default()
+        }
+    }
+
+    /// The reconcile pass fills an index that is missing stored mail, and drops
+    /// documents the store has no message for: one of a live account, and one of
+    /// an account the store no longer has. A second pass finds nothing to do.
+    #[tokio::test]
+    async fn reconcile_indexes_stored_mail_and_drops_documents_without_a_message() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let (account, mailbox) = account_with_inbox(&store, "me@x").await;
+        let mut ids = Vec::new();
+        for (uid, mid) in [(1, "a@x"), (2, "b@x"), (3, "c@x")] {
+            let raw = raw_msg(mid, &[], None, "Quarterly plan");
+            ids.push(seed(&store, &account, &mailbox, uid, mid, &raw).await);
+        }
+        let engine = Engine::new(store);
+        engine
+            .search()
+            .upsert_batch(&[
+                index_doc("gone", &account),
+                index_doc("orphan", "deleted-account"),
+            ])
+            .unwrap();
+
+        let before = engine.search_index_status().await.unwrap();
+        assert_eq!(before.documents, 2, "precondition: only the two leftovers");
+        assert_eq!(before.messages, 3);
+        assert!(!before.persistent);
+
+        let summary = engine
+            .reconcile_search_index()
+            .await
+            .unwrap()
+            .expect("the counts differ, so a rebuild runs");
+        assert_eq!(summary.accounts, 2, "the live account and the deleted one");
+        assert_eq!(summary.messages, 3);
+        assert_eq!(summary.indexed, 3);
+        assert_eq!(summary.removed, 2);
+        assert_eq!(summary.failed, 0);
+        for id in &ids {
+            assert!(engine.search().fetch_doc(id).unwrap().is_some());
+        }
+        assert!(engine.search().fetch_doc("gone").unwrap().is_none());
+        assert!(engine.search().fetch_doc("orphan").unwrap().is_none());
+
+        let after = engine.search_index_status().await.unwrap();
+        assert_eq!((after.documents, after.messages), (3, 3));
+        assert_eq!((after.rebuild_done, after.rebuild_total), (3, 3));
+        assert!(!after.rebuilding);
+        assert_eq!(engine.reconcile_search_index().await.unwrap(), None);
+    }
+
+    /// A posture source the test can switch.
+    struct Switchable(std::sync::atomic::AtomicBool);
+
+    impl crate::v6::AccountPostureSource for Switchable {
+        fn posture(&self, _account_id: &str) -> crate::v6::AccountPosture {
+            if self.0.load(Ordering::SeqCst) {
+                crate::v6::AccountPosture::ZeroAccess
+            } else {
+                crate::v6::AccountPosture::Standard
+            }
+        }
+    }
+
+    /// A rebuild writes documents for a standard account and, once the account
+    /// is zero-access, removes them and writes none. The account's mail then no
+    /// longer counts towards what the index should hold.
+    #[tokio::test]
+    async fn rebuild_leaves_a_zero_access_account_without_documents() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let (account, mailbox) = account_with_inbox(&store, "me@x").await;
+        for (uid, mid) in [(1, "a@x"), (2, "b@x")] {
+            let raw = raw_msg(mid, &[], None, "Quarterly plan");
+            seed(&store, &account, &mailbox, uid, mid, &raw).await;
+        }
+        let engine = Engine::new(store);
+        let posture = std::sync::Arc::new(Switchable(false.into()));
+        engine.attach_v6(crate::v6::V6Hooks::new().with_posture_source(posture.clone()));
+
+        let standard = engine.rebuild_search_index(&account).await.unwrap();
+        assert_eq!((standard.indexed, standard.zero_access), (2, 0));
+        assert_eq!(
+            engine.search().num_docs(),
+            2,
+            "precondition: indexed while standard"
+        );
+
+        posture.0.store(true, Ordering::SeqCst);
+        let status = engine.search_index_status().await.unwrap();
+        assert_eq!(status.zero_access_documents, 2);
+        assert_eq!(status.messages, 0);
+        let sealed = engine
+            .reconcile_search_index()
+            .await
+            .unwrap()
+            .expect("zero-access documents make the index disagree");
+        assert_eq!(sealed.zero_access, 1);
+        assert_eq!(sealed.indexed, 0);
+        assert_eq!(sealed.removed, 2);
+        assert_eq!(engine.search().num_docs(), 0);
+        assert_eq!(engine.reconcile_search_index().await.unwrap(), None);
+    }
+
+    /// One rebuild at a time: a second request is refused, not queued.
+    #[tokio::test]
+    async fn a_rebuild_is_refused_while_another_runs() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let (account, _mailbox) = account_with_inbox(&store, "me@x").await;
+        let engine = Engine::new(store);
+        {
+            let _running = engine.index_rebuild.lock.lock().await;
+            assert!(matches!(
+                engine.rebuild_search_index(&account).await,
+                Err(EngineError::Unsupported(_))
+            ));
+        }
+        assert!(engine.rebuild_search_index(&account).await.is_ok());
     }
 
     #[test]

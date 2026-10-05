@@ -490,6 +490,31 @@ impl Index {
         Ok(n as u64)
     }
 
+    /// Every account id that has at least one live document, sorted.
+    ///
+    /// Read from the `account_id` term dictionary of each segment. A dictionary
+    /// keeps a term until its segment is merged, even when every document
+    /// carrying it has been deleted, so each candidate is confirmed with
+    /// [`Index::account_doc_count`].
+    pub fn indexed_account_ids(&self) -> Result<Vec<String>> {
+        let searcher = self.reader.searcher();
+        let mut candidates = std::collections::BTreeSet::new();
+        for segment in searcher.segment_readers() {
+            let inverted = segment.inverted_index(self.fields.account_id)?;
+            let mut terms = inverted.terms().stream()?;
+            while terms.advance() {
+                candidates.insert(String::from_utf8_lossy(terms.key()).into_owned());
+            }
+        }
+        let mut ids = Vec::with_capacity(candidates.len());
+        for id in candidates {
+            if self.account_doc_count(&id)? > 0 {
+                ids.push(id);
+            }
+        }
+        Ok(ids)
+    }
+
     /// The stable ids of every live document indexed for one account, in no
     /// particular order and without the [`MAX_HITS`] cap `search` applies.
     pub fn account_stable_ids(&self, account_id: &str) -> Result<Vec<String>> {
@@ -927,6 +952,7 @@ mod tests {
         .expect("index");
         assert_eq!(idx.account_doc_count("acct-a").unwrap(), 2);
         assert_eq!(idx.account_doc_count("acct-b").unwrap(), 1);
+        assert_eq!(idx.indexed_account_ids().unwrap(), ["acct-a", "acct-b"]);
         let mut ids = idx.account_stable_ids("acct-a").unwrap();
         ids.sort();
         assert_eq!(ids, ["a1", "a2"]);
@@ -939,6 +965,13 @@ mod tests {
         assert!(idx.fetch_doc("a2").unwrap().is_none());
         // The other account is untouched, and an absent account commits nothing.
         assert_eq!(idx.account_doc_count("acct-b").unwrap(), 1);
+        assert_eq!(idx.indexed_account_ids().unwrap(), ["acct-b"]);
+        // An account whose documents are deleted without a merge is not listed
+        // either, though its term is still in the segment's dictionary.
+        idx.delete_batch(&["b1".to_string()]).unwrap();
+        assert!(idx.indexed_account_ids().unwrap().is_empty());
+        idx.upsert(&of("b2", "acct-b", "mb1")).unwrap();
+        assert_eq!(idx.indexed_account_ids().unwrap(), ["acct-b"]);
         let before = commit_count();
         assert_eq!(idx.delete_account("acct-a").unwrap(), 0);
         assert_eq!(commit_count() - before, 0);
