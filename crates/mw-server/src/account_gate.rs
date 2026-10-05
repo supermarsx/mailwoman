@@ -304,9 +304,11 @@ pub(crate) async fn for_account(
 /// Stop the engine's work for a disabled account: drop its runtime, which ends its
 /// watch loop and background sync. Proxy mode has no engine and nothing to stop.
 ///
-/// Called where this module's callers refuse a disabled account. The account is
-/// connected again by the first request after it is re-enabled
-/// (`engine_mode::ensure_account`) or at the next start.
+/// Called where this module's callers refuse a disabled account; the panel's
+/// flag write stops the same work when it sets the flag
+/// (`stores_v6::AdminBackendAdapter::set_flags`). The account is connected again
+/// by the first request after it is re-enabled (`engine_mode::ensure_account`)
+/// or at the next start.
 pub(crate) fn stop_engine_work(state: &AppState, account_id: &str) {
     if let Some(engine) = &state.engine
         && engine.unregister(account_id).is_some()

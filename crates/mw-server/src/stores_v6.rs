@@ -249,11 +249,45 @@ impl OAuthStore for OAuthStoreAdapter {
 #[derive(Clone)]
 pub struct AdminBackendAdapter {
     store: Store,
+    /// The engine whose account runtimes a disable stops. `None` in proxy mode
+    /// and for the `mailwoman admin` CLI, which run no engine in their process.
+    engine: Option<Arc<mw_engine::Engine>>,
 }
 
 impl AdminBackendAdapter {
     pub fn new(store: Store) -> Self {
-        Self { store }
+        Self {
+            store,
+            engine: None,
+        }
+    }
+
+    /// Give the adapter the running engine, so that disabling an account drops
+    /// its runtime at the moment the flag is written.
+    pub fn with_engine(mut self, engine: Option<Arc<mw_engine::Engine>>) -> Self {
+        self.engine = engine;
+        self
+    }
+
+    /// Drop the engine runtime of every account id `name` is known by, which
+    /// ends its watch loop and background sync; the dispatcher sends nothing
+    /// for an account with no runtime. Call before the account's sessions are
+    /// deleted: a session is one of the places a name is read from.
+    async fn stop_engine_work(&self, name: &str) -> Result<(), AdminError> {
+        let Some(engine) = &self.engine else {
+            return Ok(());
+        };
+        for id in self
+            .store
+            .account_ids_known_by(name)
+            .await
+            .map_err(admin_err)?
+        {
+            if engine.unregister(&id).is_some() {
+                tracing::info!("account {id} disabled; its engine runtime was dropped");
+            }
+        }
+        Ok(())
     }
 }
 
@@ -404,7 +438,8 @@ impl AdminBackend for AdminBackendAdapter {
             }))
     }
 
-    /// Store the flags and, when they disable the account, delete its sessions.
+    /// Store the flags and, when they disable the account, stop its engine work
+    /// and delete its sessions.
     ///
     /// The revoke lives here rather than in the HTTP handler so that every writer
     /// gets it: the panel (`PUT /admin/users/{id}/flags`) and the `mailwoman admin`
@@ -415,6 +450,7 @@ impl AdminBackend for AdminBackendAdapter {
             .await
             .map_err(admin_err)?;
         if flags.disabled {
+            self.stop_engine_work(account_id).await?;
             let n = self.revoke_sessions(account_id).await?;
             tracing::info!("account {account_id} disabled; {n} session(s) deleted");
         }

@@ -1047,7 +1047,7 @@ async fn build_app_inner(
     ));
     // Admin domain logic (audit log + provisioning) over the 0007 tables.
     let admin = mw_admin::Admin::new(
-        Arc::new(stores_v6::AdminBackendAdapter::new(store.clone())),
+        Arc::new(stores_v6::AdminBackendAdapter::new(store.clone()).with_engine(engine.clone())),
         mw_admin::AdminConfig::default(),
     );
 
@@ -4514,6 +4514,7 @@ pub(crate) async fn authed_with_gate(
                 .await;
         }
         state.sessions.forget(&session.id);
+        account_gate::stop_engine_work(state, &session.account_id);
         return Err(unauthorized());
     }
     Ok((session, gate))

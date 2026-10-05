@@ -537,6 +537,32 @@ pub async fn engine_login(
     .await?;
     backend.list_mailboxes().await.map_err(|e| e.to_string())?;
 
+    // An account the admin has disabled stops here. The password has been
+    // checked, so the refusal takes as long as one for a wrong password and the
+    // name alone does not show the flag; nothing below runs, so the refused
+    // login writes no row, re-seals no credentials and leaves no connection to
+    // the mail server. The lookup is read-only: an identity with no account row
+    // yet is checked under the name it was typed as.
+    let known = engine
+        .store()
+        .account_id_by_identity(url.kind, &url.host, url.port, username)
+        .await
+        .map_err(|e| e.to_string())?;
+    let gate = crate::account_gate::for_login(
+        engine.store(),
+        known.as_deref().unwrap_or(""),
+        username,
+        username,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    if gate.disabled {
+        if let Some(id) = &known {
+            engine.unregister(id);
+        }
+        return Err(format!("account {username} is disabled"));
+    }
+
     // Find the account this identity logged in as before, or create it. The id
     // must be stable across logins: second factors, and everything else the
     // account owns, are keyed by it.
@@ -571,7 +597,7 @@ pub async fn engine_login(
 
 /// Ensure a stored account is connected in the engine, reconnecting it from its
 /// sealed credentials if this process has not registered it yet (e.g. after a
-/// restart). Idempotent.
+/// restart). Idempotent. A disabled account is refused and not dialled.
 pub async fn ensure_account(engine: &Arc<Engine>, account_id: &str) -> Result<(), String> {
     if engine.is_registered(account_id) {
         return Ok(());
@@ -581,6 +607,15 @@ pub async fn ensure_account(engine: &Arc<Engine>, account_id: &str) -> Result<()
     // Whoever held the lock may have just registered it.
     if engine.is_registered(account_id) {
         return Ok(());
+    }
+    // A disabled account is not connected, whoever asks: a caller with no
+    // session behind it (the admin metadata passthrough, start-up registration)
+    // reaches this too. Unreadable flags refuse.
+    let gate = crate::account_gate::for_account(engine.store(), account_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    if gate.disabled {
+        return Err(format!("account {account_id} is disabled"));
     }
     let account = engine
         .store()
