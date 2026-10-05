@@ -133,6 +133,12 @@ function MessageRow(props: {
           <Show when={email().hasAttachment === true}>
             <span class="list__attach" aria-label={t('mail-has-attachment')}>📎</span>
           </Show>
+          <Show when={email().keywords?.['$answered'] === true}>
+            <span class="list__attach" data-testid="row-answered" aria-label={t('mail-answered')}>↩</span>
+          </Show>
+          <Show when={email().keywords?.['$forwarded'] === true}>
+            <span class="list__attach" data-testid="row-forwarded" aria-label={t('mail-forwarded')}>↪</span>
+          </Show>
           <span class={`list__date ${rowCss.date}`}>{formatDate(email().receivedAt)}</span>
         </span>
         <span class="list__subject">{email().subject ?? t('mail-no-subject')}</span>

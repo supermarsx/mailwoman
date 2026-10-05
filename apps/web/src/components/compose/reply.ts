@@ -29,6 +29,9 @@ export interface ComposeInitial {
    *  message. The composer then asks before sending it unencrypted, and does
    *  not auto-save it to local storage. */
   quotesDecrypted: boolean;
+  /** The message this one answers or forwards, and the keyword it gets once
+   *  the send has been accepted (`$answered` / `$forwarded`, RFC 8621 §4.1.1). */
+  source?: { emailId: string; keyword: '$answered' | '$forwarded' };
 }
 
 /** The addresses that are the user's own, for leaving them out of a reply-all. */

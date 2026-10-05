@@ -7,6 +7,7 @@ import {
   onMount,
   Show,
   type JSX,
+  type Resource,
 } from 'solid-js';
 import { useApp } from '../state/context.ts';
 import { t, isolate, loadCatalog } from '../i18n/index.ts';
@@ -72,6 +73,21 @@ const maxsec = createMaxSecurityStore();
 const remoteImages = createRemoteImageApi();
 
 const SECURITY_USING = [CAP_CORE, CAP_CRYPTO, CAP_SECURITY];
+
+/**
+ * A resource's value once it has one for its CURRENT source, else `undefined`.
+ *
+ * Calling a resource while it is loading suspends the nearest Suspense
+ * boundary, and the nearest one above the reader is the one around the whole
+ * mailbox screen (`LazyRoute`, App.tsx): every message open took the list, the
+ * sidebar and the reader out of the document until the verdict and the grants
+ * had loaded. `state` does not suspend, and `latest` does not once the resource
+ * is ready. A refetch for another message reads as `undefined` here rather
+ * than as the previous message's value.
+ */
+function settled<T>(resource: Resource<T>): T | undefined {
+  return resource.state === 'ready' ? resource.latest : undefined;
+}
 
 /** Regex-extract a PGP MESSAGE armor block from a body value (encrypted mail). */
 const PGP_MESSAGE_RE = /-----BEGIN PGP MESSAGE-----[\s\S]*?-----END PGP MESSAGE-----/;
@@ -324,7 +340,7 @@ export function AttachmentsPane(props: { email: Email }): JSX.Element {
                   ✕
                 </button>
               </div>
-              <Show when={blobUrl()} fallback={<p class="attachment-modal__loading">{t('mail-attachment-loading')}</p>}>
+              <Show when={settled(blobUrl)} fallback={<p class="attachment-modal__loading">{t('mail-attachment-loading')}</p>}>
                 {(url) => (
                   <AttachmentViewer
                     part={{ partId: null, blobId: item().blobId, size: item().size, type: item().mime }}
@@ -520,7 +536,7 @@ function AutoTagSection(props: { email: Email }): JSX.Element {
     <AutoTag
       config={app.assist.config()}
       messageId={props.email.id}
-      suggestions={suggestions() ?? []}
+      suggestions={settled(suggestions) ?? []}
       mode={app.assist.autoTagMode()}
       onModeChange={app.assist.setAutoTagMode}
       onApply={(kw) => void app.applyTag(props.email.id, kw)}
@@ -590,7 +606,7 @@ export function Reader(props: {
   });
 
   const verdict = createMemo<SecurityVerdict | null>(() => {
-    const v = serverVerdict();
+    const v = settled(serverVerdict);
     if (v === undefined || v === null) return null;
     const sig = clientSig();
     if (sig === null) return v;
@@ -625,7 +641,7 @@ export function Reader(props: {
   const activeGrant = createMemo(() => {
     const id = emailId();
     if (id === null) return null;
-    return coveringGrant(grants() ?? [], { emailId: id, sender: sender() });
+    return coveringGrant(settled(grants) ?? [], { emailId: id, sender: sender() });
   });
 
   // The message-body `srcdoc`, honoring the max-security mode + the decrypt path.
@@ -652,6 +668,10 @@ export function Reader(props: {
     if (mode === 'plain-text') return bodyFrameDoc('plain-text', { text: plainTextOf(email) });
     const html = app.sanitizedHtml();
     if (html === null) return null;
+    // The grants decide whether this body's remote images are repointed at the
+    // proxy. Until they are known the body is not drawn, rather than drawn
+    // blocked and then drawn again.
+    if (mode === 'full-sanitized' && grants.loading) return null;
     // no-media: reuse the server-sanitized HTML but pin a media-free CSP so no
     // image/media loads (belt-and-braces). full: the sanitized fragment, with the
     // open message's remote images repointed at the proxy when a grant covers it
@@ -687,14 +707,17 @@ export function Reader(props: {
     return { source: html !== null ? { html } : { text: plainTextOf(email) }, decrypted: false };
   }
 
-  /** The open message's `Message-ID` and `References`: from `Email/get` when
-   *  it returned an id, otherwise from the header block of the raw message —
-   *  the engine returns the properties only for mail it ingested since it
-   *  learned to (the key is absent on older rows), and `null` for a header it
-   *  could not read as an id list. `null` here when neither source has an id. */
+  /** The open message's `Message-ID` and `References`. From `Email/get` when
+   *  it has the `messageId` property at all — `null` there means the server
+   *  found no usable id. The header block of the raw message is read only when
+   *  the property is absent: the engine returns it for mail ingested since it
+   *  learned to, and not for rows stored before. `null` when there is no id. */
   async function threadingHeaders(email: Email): Promise<ThreadingHeaders | null> {
-    const id = email.messageId?.[0];
-    if (id !== undefined) {
+    if ('messageId' in email) {
+      // The server read the headers: `null` is its answer (no id, or not an
+      // id list), not a reason to read them again here.
+      const id = email.messageId?.[0];
+      if (id === undefined) return null;
       return { messageId: id, references: parentReferences(email.references ?? [], email.inReplyTo ?? []) };
     }
     const url = app.downloadUrl();
@@ -750,6 +773,7 @@ export function Reader(props: {
             contentType: a.type.length > 0 ? a.type : null,
           })),
         quotesDecrypted: shown.decrypted && quote.html !== '',
+        source: { emailId: email.id, keyword: '$forwarded' },
       };
     }
 
@@ -774,6 +798,7 @@ export function Reader(props: {
       ...replyThreading(headers),
       attachments: [],
       quotesDecrypted: shown.decrypted && quote.html !== '',
+      source: { emailId: email.id, keyword: '$answered' },
     };
   }
 

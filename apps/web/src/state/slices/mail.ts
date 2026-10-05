@@ -117,6 +117,10 @@ export interface SendInput {
   holdSeconds?: number;
   /** V7 (§18.4): server-materialised blob attachments (e.g. from Nextcloud). */
   attachments?: { blobId: Id; name: string; type: string; size?: number }[];
+  /** The message this send answers or forwards. Once the server has accepted
+   *  the submission it is given `keyword`; cancelling the send within the undo
+   *  window takes the keyword off again. */
+  source?: { emailId: Id; keyword: '$answered' | '$forwarded' };
 }
 
 /** The mail/session portion of `AppState` (accessors + actions). */
@@ -1067,6 +1071,21 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     }
     const submissionId = subRes.created?.['send']?.id ?? null;
 
+    // Mark the original answered / forwarded. This is done when the submission
+    // is accepted, not when SMTP has taken the message: the engine holds every
+    // send for the undo window (or until its scheduled time), and nothing tells
+    // the client when it leaves. A send cancelled from the toast below clears
+    // the mark; a scheduled send cancelled later from the Outbox does not.
+    // The send itself has succeeded, so a failure here is not reported as one.
+    const source = input.source;
+    if (source !== undefined) {
+      try {
+        await rawKeyword(source.emailId, source.keyword, true);
+      } catch {
+        // The message went out; only the mark is missing.
+      }
+    }
+
     if (scheduled) {
       showToast('success', t('mail-toast-send-scheduled'));
     } else if (submissionId !== null) {
@@ -1076,6 +1095,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
         t('mail-toast-sent'),
         async () => {
           await client.jmap(cancelSubmission(acct, submissionId));
+          if (source !== undefined) await rawKeyword(source.emailId, source.keyword, false).catch(() => undefined);
           showToast('info', t('mail-toast-send-canceled'));
         },
         holdSeconds * 1000,

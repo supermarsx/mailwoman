@@ -518,7 +518,9 @@ export async function fetchThreadingHeaders(
   url: string,
   fetcher: UploadFetcher = defaultUploadFetcher,
 ): Promise<ThreadingHeaders> {
-  const res = await fetcher(url);
+  // Ask for the head of the message only. A server without range support
+  // answers 200 with the whole message; the read below stops either way.
+  const res = await fetcher(url, { headers: { range: `bytes=0-${MAX_HEADER_BYTES - 1}` } });
   if (!res.ok) throw new Error(`message download failed with ${res.status}`);
   const reader = res.body?.getReader();
   if (reader === undefined) return parseThreadingHeaders(await res.text());

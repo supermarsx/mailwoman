@@ -33,6 +33,8 @@ mail-unknown-sender = (unknown sender)
 mail-no-subject = (no subject)
 mail-pinned = Pinned
 mail-has-attachment = Has attachment
+mail-answered = Answered
+mail-forwarded = Forwarded
 mail-unread = Unread
 # Announced row summary for screen readers (position within the whole list).
 mail-row-position = Message { $pos } of { $total }

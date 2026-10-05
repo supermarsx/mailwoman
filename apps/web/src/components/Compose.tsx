@@ -86,6 +86,8 @@ function nextLocalMinute(now: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+type RecipientField = 'to' | 'cc' | 'bcc';
+
 /** The dialog heading for each way a composer can be opened. */
 const TITLE_KEY = {
   reply: 'mail-compose-title-reply',
@@ -159,7 +161,9 @@ export function Compose(props: {
   const [insertedSignatures, setInsertedSignatures] = createSignal<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
-  const [acOpen, setAcOpen] = createSignal(false);
+  // The recipient field whose in-progress token the contact suggestions are
+  // for, or `null` when no list is open.
+  const [acField, setAcField] = createSignal<RecipientField | null>(null);
   // V7 GAL (plan §2.7): the in-progress recipient token also drives a directory
   // autocomplete as an ADDITIONAL source beside contacts. `pickedGroup` holds a
   // distribution group the sender may expand-before-send into its leaf recipients.
@@ -490,34 +494,69 @@ export function Compose(props: {
   });
   onCleanup(() => clearTimeout(saveTimer));
 
-  function onToInput(value: string): void {
-    setTo(value);
+  const recipientFields = {
+    to: [to, setTo],
+    cc: [cc, setCc],
+    bcc: [bcc, setBcc],
+  } as const;
+
+  /** Typing in To, Cc or Bcc: the token after the last separator drives the
+   *  contact suggestions for that field. The directory lookup stays on To. */
+  function onRecipientInput(field: RecipientField, value: string): void {
+    recipientFields[field][1](value);
     const token = value.slice(tokenBoundary(value) + 1).trim();
     contactAc.setQuery(token);
-    setGalToken(token);
-    setAcOpen(token.length > 0);
+    if (field === 'to') setGalToken(token);
+    setAcField(token.length > 0 ? field : null);
   }
 
-  /** Replace the in-progress recipient token with a resolved address (`, `-joined). */
-  function insertRecipient(address: string): void {
-    const value = to();
-    const cut = tokenBoundary(value);
-    const head = cut >= 0 ? `${value.slice(0, cut + 1)} ` : '';
-    setTo(`${head}${address}, `);
+  /** Replace the in-progress recipient token of `field` with a resolved
+   *  address (`, `-joined). */
+  function insertRecipient(field: RecipientField, address: string): void {
+    const [value, setValue] = recipientFields[field];
+    const cut = tokenBoundary(value());
+    const head = cut >= 0 ? `${value().slice(0, cut + 1)} ` : '';
+    setValue(`${head}${address}, `);
     contactAc.reset();
-    setGalToken('');
-    setAcOpen(false);
+    if (field === 'to') setGalToken('');
+    setAcField(null);
   }
 
-  /** Replace the in-progress recipient token with the picked contact. */
-  function pickSuggestion(s: ContactSuggestion): void {
-    insertRecipient(s.display);
-  }
+  /** The contact suggestions under `field`, while it is the one being typed in. */
+  const suggestionList = (field: RecipientField): JSX.Element => (
+    <Show when={acField() === field && contactAc.suggestions().length > 0}>
+      <ul class="compose__ac" role="listbox" aria-label={t('mail-compose-contact-suggestions')}>
+        <For each={contactAc.suggestions()}>
+          {(s: ContactSuggestion) => (
+            <li>
+              <button
+                type="button"
+                role="option"
+                aria-selected={false}
+                class="compose__ac-item"
+                data-testid="contact-suggestion"
+                // mousedown (not click) so the pick lands before the input's blur.
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  insertRecipient(field, s.display);
+                }}
+              >
+                <span class="compose__ac-name">{s.name.length > 0 ? s.name : s.email}</span>
+                <Show when={s.name.length > 0}>
+                  <span class="compose__ac-email">{s.email}</span>
+                </Show>
+              </button>
+            </li>
+          )}
+        </For>
+      </ul>
+    </Show>
+  );
 
   /** Pick a GAL entry (plan §2.7). A person is inserted as a recipient; a
    *  distribution group is inserted AND offered for expand-before-send. */
   function pickGalEntry(entry: GalEntry): void {
-    insertRecipient(entry.mail);
+    insertRecipient('to', entry.mail);
     setPickedGroup(entry.isGroup ? entry : null);
   }
 
@@ -657,6 +696,7 @@ export function Compose(props: {
         bcc: bcc(),
         inReplyTo: threading().inReplyTo,
         references: threading().references,
+        ...(initial?.source !== undefined ? { source: initial.source } : {}),
         subject: subjectToSend,
         htmlBody,
         identity: identity(),
@@ -755,36 +795,10 @@ export function Compose(props: {
             placeholder={t('mail-compose-to-placeholder')}
             autocomplete="off"
             value={to()}
-            onInput={(e) => onToInput(e.currentTarget.value)}
-            onBlur={() => setAcOpen(false)}
+            onInput={(e) => onRecipientInput('to', e.currentTarget.value)}
+            onBlur={() => setAcField(null)}
           />
-          <Show when={acOpen() && contactAc.suggestions().length > 0}>
-            <ul class="compose__ac" role="listbox" aria-label={t('mail-compose-contact-suggestions')}>
-              <For each={contactAc.suggestions()}>
-                {(s) => (
-                  <li>
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={false}
-                      class="compose__ac-item"
-                      data-testid="contact-suggestion"
-                      // mousedown (not click) so the pick lands before the input's blur.
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        pickSuggestion(s);
-                      }}
-                    >
-                      <span class="compose__ac-name">{s.name.length > 0 ? s.name : s.email}</span>
-                      <Show when={s.name.length > 0}>
-                        <span class="compose__ac-email">{s.email}</span>
-                      </Show>
-                    </button>
-                  </li>
-                )}
-              </For>
-            </ul>
-          </Show>
+          {suggestionList('to')}
         </label>
 
         {/* V7 GAL autocomplete (plan §2.7): an ADDITIONAL recipient source beside
@@ -824,13 +838,27 @@ export function Compose(props: {
             </button>
           }
         >
-          <label class="field">
+          <label class="field compose__to">
             <span>{t('mail-compose-cc')}</span>
-            <input type="text" autocomplete="off" value={cc()} onInput={(e) => setCc(e.currentTarget.value)} />
+            <input
+              type="text"
+              autocomplete="off"
+              value={cc()}
+              onInput={(e) => onRecipientInput('cc', e.currentTarget.value)}
+              onBlur={() => setAcField(null)}
+            />
+            {suggestionList('cc')}
           </label>
-          <label class="field">
+          <label class="field compose__to">
             <span>{t('mail-compose-bcc')}</span>
-            <input type="text" autocomplete="off" value={bcc()} onInput={(e) => setBcc(e.currentTarget.value)} />
+            <input
+              type="text"
+              autocomplete="off"
+              value={bcc()}
+              onInput={(e) => onRecipientInput('bcc', e.currentTarget.value)}
+              onBlur={() => setAcField(null)}
+            />
+            {suggestionList('bcc')}
           </label>
         </Show>
 

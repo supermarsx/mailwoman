@@ -288,14 +288,23 @@ export function ComposeCrypto(props: ComposeCryptoProps): JSX.Element {
   // Probe each recipient's keys via `lookupKeys`. Keyed on the joined address
   // list so it re-runs only when the recipient set actually changes; the
   // resource takes the latest result, so out-of-order lookups can't race.
-  const [capsData] = createResource(recipientKey, async (key): Promise<RecipientCapability[]> => {
-    if (key.length === 0) return [];
-    const addrs = key.split(',');
-    return Promise.all(
-      addrs.map(async (addr) => chooseRecipientKey(addr, await props.lookupKeys(addr))),
-    );
-  });
-  const recipientCaps = (): RecipientCapability[] => capsData() ?? [];
+  //
+  // Both resources here start with a value and are read through `.latest`, so
+  // reading them never suspends: a lookup or a scan in flight shows the result
+  // before it (and `loading`), instead of taking whatever Suspense boundary is
+  // above the composer out of the document on every keystroke.
+  const [capsData] = createResource(
+    recipientKey,
+    async (key): Promise<RecipientCapability[]> => {
+      if (key.length === 0) return [];
+      const addrs = key.split(',');
+      return Promise.all(
+        addrs.map(async (addr) => chooseRecipientKey(addr, await props.lookupKeys(addr))),
+      );
+    },
+    { initialValue: [] },
+  );
+  const recipientCaps = (): RecipientCapability[] => capsData.latest;
   const capability = createMemo<TransportCapability>(() => computeCapability(recipientCaps()));
   const encryptDisabled = (): boolean => normalized().length === 0 || capability() === 'tls';
 
@@ -312,8 +321,10 @@ export function ComposeCrypto(props: ComposeCryptoProps): JSX.Element {
     if (d.bodyText.length === 0 && d.attachments.length === 0) return false;
     return JSON.stringify(d);
   });
-  const [dlpData] = createResource(dlpKey, async (): Promise<DlpVerdict[]> => props.scanDlp(draft()));
-  const verdicts = (): DlpVerdict[] => dlpData() ?? [];
+  const [dlpData] = createResource(dlpKey, async (): Promise<DlpVerdict[]> => props.scanDlp(draft()), {
+    initialValue: [],
+  });
+  const verdicts = (): DlpVerdict[] => dlpData.latest;
   const canSend = createMemo(() => !verdicts().some((v) => v.action === 'block'));
 
   /** Encrypt the current draft body via the worker; folds in a signature via
