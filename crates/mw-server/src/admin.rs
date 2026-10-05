@@ -513,7 +513,6 @@ async fn get_policy(State(state): State<AppState>, headers: HeaderMap) -> Respon
 /// `PUT /admin/security-policy` — store the two fields of [`SecurityPolicyDto`].
 /// The stored record's other fields are carried forward as they are. A body naming
 /// any other field is refused (`422`) rather than accepted and dropped.
-
 async fn set_policy(
     State(state): State<AppState>,
     headers: HeaderMap,
