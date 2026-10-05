@@ -172,7 +172,9 @@ describe('Admin › Integrations', () => {
       expect(dialog).toHaveTextContent(
         'Messages sent with this key through MCP are transmitted without a person releasing them.',
       );
-      expect(dialog).toHaveTextContent('The approval takes effect when the server restarts.');
+      expect(dialog).toHaveTextContent(
+        "The approval takes effect immediately, from the key's next send. No restart is needed.",
+      );
 
       fireEvent.click(screen.getByTestId('admin-unattended-confirm'));
       await waitFor(() => expect(screen.getByTestId('unattended-state-k2')).toHaveTextContent('Approved'));
@@ -180,7 +182,7 @@ describe('Admin › Integrations', () => {
       expect(setApiKeyUnattendedSend).toHaveBeenCalledWith('k2', true);
       expect(screen.queryByRole('dialog')).toBeNull();
       expect(screen.getByRole('status')).toHaveTextContent(
-        'Unattended send approved for key mwk_req456. It takes effect when the server restarts.',
+        'Unattended send approved for key mwk_req456. It is in effect now.',
       );
     });
 
@@ -197,7 +199,7 @@ describe('Admin › Integrations', () => {
       expect(screen.getByTestId('unattended-state-k2')).toHaveTextContent('Requested, not approved');
     });
 
-    it('withdrawing asks first and says the key keeps sending until the restart', async () => {
+    it('withdrawing asks first and says the key stops sending unattended at once', async () => {
       const setApiKeyUnattendedSend = vi.fn(async () => undefined);
       const listApiKeys = vi
         .fn<() => Promise<ApiKeyInfo[]>>()
@@ -211,10 +213,10 @@ describe('Admin › Integrations', () => {
       const dialog = screen.getByRole('dialog');
       expect(dialog).toHaveTextContent('Withdraw the approval for this key?');
       expect(dialog).toHaveTextContent(
-        "Messages sent with this key through MCP wait in the owner's Outbox until a person releases them.",
+        "A send made with this key through MCP is refused until the key is approved again. The message is not transmitted and is not placed in the owner's Outbox.",
       );
       expect(dialog).toHaveTextContent(
-        'The withdrawal takes effect when the server restarts. Until then this key still sends without release.',
+        'The withdrawal takes effect immediately: the key stops sending unattended from its next send. No restart is needed.',
       );
 
       fireEvent.click(screen.getByTestId('admin-unattended-confirm'));
@@ -222,7 +224,9 @@ describe('Admin › Integrations', () => {
         expect(screen.getByTestId('unattended-state-k3')).toHaveTextContent('Requested, not approved'),
       );
       expect(setApiKeyUnattendedSend).toHaveBeenCalledWith('k3', false);
-      expect(screen.getByRole('status')).toHaveTextContent('Approval withdrawn for key mwk_app789.');
+      expect(screen.getByRole('status')).toHaveTextContent(
+        'Approval withdrawn for key mwk_app789. This key no longer sends unattended.',
+      );
     });
 
     // The refusals of `set_key_unattended_send` (crates/mw-server/src/oauth.rs:441).
