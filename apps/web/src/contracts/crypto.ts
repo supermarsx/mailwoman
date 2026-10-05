@@ -163,7 +163,8 @@ export interface SmimeKeyRequest {
 }
 /**
  * `exportPkcs12` result: the certificate and key as a PKCS#12 (`.p12`) file,
- * base64, protected by the key's passphrase. The file carries no integrity MAC.
+ * base64. The key bag is encrypted with the key's passphrase and the file carries
+ * a password-integrity MAC (HMAC-SHA-256) under the same passphrase.
  */
 export interface ExportPkcs12Result {
   p12Base64: string;
@@ -228,6 +229,12 @@ export interface CryptoWorkerApi {
   sign(req: SignRequest): Promise<SignResult>;
   verify(req: VerifyRequest): Promise<SignatureVerdict>;
   importPkcs12(req: ImportPkcs12Request): Promise<ImportPkcs12Result>;
+  /** An own S/MIME key as a PKCS#12 file for another mail program. */
+  exportPkcs12(req: SmimeKeyRequest): Promise<ExportPkcs12Result>;
+  /** A certification request for an own S/MIME key. */
+  certificateRequest(req: SmimeKeyRequest): Promise<CertificateRequestResult>;
+  /** Check a certificate issued for an own S/MIME key before it replaces the held one. */
+  attachIssuedCert(req: AttachIssuedCertRequest): Promise<AttachIssuedCertResult>;
   importArmored(req: ImportArmoredRequest): Promise<ImportArmoredResult>;
   exportPublic(req: { keyRef: KeyRef }): Promise<string>;
   exportBackup(req: ExportBackupRequest): Promise<ExportBackupResult>;
@@ -236,24 +243,3 @@ export interface CryptoWorkerApi {
   /** `zeroize` + drop the cached private key for `keyRef` (also on timeout). */
   lockKey(req: { keyRef: KeyRef }): Promise<void>;
 }
-
-/**
- * The worker operations on an own S/MIME key (t29-e2). Kept beside
- * [`CryptoWorkerApi`] rather than inside it: `crypto/worker.ts` builds its RPC
- * proxy from a fixed list of that interface's method names, and adding names
- * there needs a matching edit to that file. `getCryptoWorker()` returns both.
- */
-export interface SmimeKeyWorkerApi {
-  /** An own S/MIME key as a PKCS#12 file for another mail program. */
-  exportPkcs12(req: SmimeKeyRequest): Promise<ExportPkcs12Result>;
-  /** A certification request for an own S/MIME key. */
-  certificateRequest(req: SmimeKeyRequest): Promise<CertificateRequestResult>;
-  /** Check a certificate issued for an own S/MIME key before it replaces the held one. */
-  attachIssuedCert(req: AttachIssuedCertRequest): Promise<AttachIssuedCertResult>;
-}
-
-/** The names of [`SmimeKeyWorkerApi`]'s operations, as the worker entry dispatches them. */
-export type SmimeKeyOp = keyof SmimeKeyWorkerApi;
-
-/** Everything the crypto worker does for the app. */
-export type CryptoApi = CryptoWorkerApi & SmimeKeyWorkerApi;

@@ -9,8 +9,12 @@
 //! and a certificate a CA issues from the request is accepted while one for a
 //! different key is refused.
 //!
-//! These tests need the `openssl` command (3.x). They FAIL when it is missing
-//! rather than skip: a skipped interop test proves nothing.
+//! These tests need the `openssl` command (3.x). Where it is not installed they
+//! skip the way the repo's other tool-dependent legs do (`mw-test-gate`): a
+//! `SKIPPED` line on stderr that survives libtest's capture, and a FAILURE instead
+//! when the job says it has the tool —
+//! `MW_CRYPTO_OPENSSL=openssl MW_REQUIRE_LIVE=MW_CRYPTO_OPENSSL`. The variable is
+//! also the command to run, for a machine whose `openssl` is not the one wanted.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -18,6 +22,47 @@ use std::sync::OnceLock;
 
 use base64::Engine;
 use mw_crypto::smime::{self, GeneratedSmime};
+
+// The gate is a std-only crate; it is included by path rather than added as a
+// dev-dependency so this test adds no edge to Cargo.lock.
+#[allow(dead_code)]
+#[path = "../../mw-test-gate/src/lib.rs"]
+mod gate;
+
+/// Names the `openssl` command these tests run; see the module docs.
+const OPENSSL_VAR: &str = "MW_CRYPTO_OPENSSL";
+
+fn openssl_command() -> String {
+    std::env::var(OPENSSL_VAR)
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "openssl".into())
+}
+
+fn have_openssl() -> bool {
+    static HAVE: OnceLock<bool> = OnceLock::new();
+    *HAVE.get_or_init(|| {
+        Command::new(openssl_command())
+            .arg("version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    })
+}
+
+/// Start of every test that hands its output to openssl.
+macro_rules! need_openssl {
+    () => {
+        if !have_openssl() {
+            gate::skip(format_args!(
+                "{OPENSSL_VAR}: `{}` could not be run, so nothing here was judged by an \
+                 independent parser",
+                openssl_command()
+            ));
+            return;
+        }
+    };
+}
 
 const PASSPHRASE: &str = "correct horse battery staple";
 const EMAIL: &str = "alice@example.org";
@@ -72,12 +117,12 @@ struct Ran {
     stderr: String,
 }
 
-/// Run `openssl <args>`; a missing binary is a test failure, not a skip.
+/// Run `openssl <args>`. Callers have passed [`need_openssl!`], so it exists.
 fn openssl(args: &[&str]) -> Ran {
-    let out = Command::new("openssl")
+    let out = Command::new(openssl_command())
         .args(args)
         .output()
-        .expect("the `openssl` command is required by these tests and was not found on PATH");
+        .expect("openssl ran a moment ago");
     Ran {
         ok: out.status.success(),
         stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -106,6 +151,7 @@ fn modulus(ran: &Ran) -> String {
 
 #[test]
 fn the_certificate_is_x509_and_says_what_we_say_about_it() {
+    need_openssl!();
     let s = Scratch::new("cert");
     let made = alice();
     let cert = s.write("alice.pem", &made.cert.cert_pem);
@@ -195,6 +241,7 @@ fn the_certificate_is_x509_and_says_what_we_say_about_it() {
 
 #[test]
 fn the_private_bundle_is_an_encrypted_pkcs8_key_for_that_certificate() {
+    need_openssl!();
     let s = Scratch::new("bundle");
     let made = alice();
     assert!(
@@ -235,6 +282,7 @@ fn the_private_bundle_is_an_encrypted_pkcs8_key_for_that_certificate() {
 
 #[test]
 fn a_signature_made_with_the_key_verifies_against_the_certificate() {
+    need_openssl!();
     let s = Scratch::new("sign");
     let made = alice();
     let body = b"signed with a generated key";
@@ -291,6 +339,7 @@ fn a_signature_made_with_the_key_verifies_against_the_certificate() {
 
 #[test]
 fn a_message_openssl_encrypts_to_the_certificate_decrypts_with_the_key() {
+    need_openssl!();
     let s = Scratch::new("encrypt");
     let made = alice();
     let body = b"encrypted to a generated certificate";
@@ -323,6 +372,7 @@ fn a_message_openssl_encrypts_to_the_certificate_decrypts_with_the_key() {
 
 #[test]
 fn the_certificate_request_verifies_and_asks_for_the_same_identity() {
+    need_openssl!();
     let s = Scratch::new("csr");
     let made = alice();
     let csr_pem = smime::certificate_request(
@@ -365,6 +415,7 @@ fn the_certificate_request_verifies_and_asks_for_the_same_identity() {
 
 #[test]
 fn the_pkcs12_export_opens_with_the_passphrase_and_not_with_another() {
+    need_openssl!();
     let s = Scratch::new("p12");
     let made = alice();
     let p12 = smime::export_pkcs12(
@@ -416,9 +467,8 @@ fn the_pkcs12_export_opens_with_the_passphrase_and_not_with_another() {
         made.cert.fingerprint
     );
 
-    // What the file is, as openssl describes it. The MAC line is pinned on
-    // purpose: this export carries none (see `export_pkcs12`), and the day it
-    // gains one this assertion is the reminder to update the product copy.
+    // What the file is, as openssl describes it: the key bag's encryption and
+    // the integrity MAC, which openssl has just verified (a bad MAC is exit 1).
     let info = openssl_ok(&[
         "pkcs12",
         "-in",
@@ -433,7 +483,57 @@ fn the_pkcs12_export_opens_with_the_passphrase_and_not_with_another() {
         "{}",
         info.stderr
     );
-    assert!(info.stderr.contains("MAC is absent"), "{}", info.stderr);
+    assert!(
+        info.stderr.contains("MAC: sha256, Iteration 210000"),
+        "{}",
+        info.stderr
+    );
+    assert!(
+        info.stderr.contains("MAC length: 32, salt length: 16"),
+        "{}",
+        info.stderr
+    );
+    assert!(!info.stderr.contains("MAC is absent"), "{}", info.stderr);
+    let wrong = openssl(&[
+        "pkcs12",
+        "-in",
+        p(&file),
+        "-passin",
+        "pass:wrong",
+        "-info",
+        "-noout",
+    ]);
+    assert!(!wrong.ok, "the MAC verified under a wrong passphrase");
+    assert!(
+        wrong.stderr.contains("Mac verify error"),
+        "{}",
+        wrong.stderr
+    );
+
+    // One altered octet inside the certificate bag (which is not encrypted, so
+    // only the MAC can notice): openssl and our importer both refuse the file.
+    let mut altered = p12.clone();
+    let at = altered
+        .windows(EMAIL.len())
+        .position(|w| w == EMAIL.as_bytes())
+        .expect("the address is readable in the certificate bag");
+    altered[at] ^= 0x01;
+    let altered_file = s.write("altered.p12", &altered);
+    let ran = openssl(&[
+        "pkcs12",
+        "-in",
+        p(&altered_file),
+        "-passin",
+        &pass,
+        "-info",
+        "-noout",
+    ]);
+    assert!(!ran.ok, "openssl accepted an altered file");
+    assert!(ran.stderr.contains("Mac verify error"), "{}", ran.stderr);
+    let err = smime::import_pkcs12(&altered, PASSPHRASE)
+        .err()
+        .expect("we imported an altered file");
+    assert!(err.to_string().contains("integrity check failed"), "{err}");
 
     assert!(
         !openssl(&[
@@ -475,6 +575,7 @@ fn the_pkcs12_export_opens_with_the_passphrase_and_not_with_another() {
 
 #[test]
 fn a_ca_issued_certificate_is_attached_and_one_for_another_key_is_refused() {
+    need_openssl!();
     let s = Scratch::new("attach");
     let made = alice();
     let csr = s.write(
@@ -607,10 +708,150 @@ fn a_ca_issued_certificate_is_attached_and_one_for_another_key_is_refused() {
     );
 }
 
+/// The integrity MAC in both directions and for awkward passwords: openssl
+/// verifies the MAC we write, and we verify the MAC openssl writes — for an ASCII
+/// passphrase, one outside ASCII and the Basic Multilingual Plane (a PKCS#12
+/// password is hashed as UTF-16), and the empty one; and for each digest openssl
+/// can be asked to MAC with.
+#[test]
+fn the_pkcs12_mac_agrees_with_openssl_in_both_directions() {
+    need_openssl!();
+    let s = Scratch::new("mac");
+    let fixtures =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/crypto/smime");
+    let key = fixtures.join("alice.key.pem");
+    let crt = fixtures.join("alice.crt.pem");
+
+    for (n, password) in [
+        "plain ascii",
+        "p\u{e4}ssw\u{f6}rd-\u{5bc6}\u{7801}-\u{1f511}",
+        "",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        // A password file, not an argument: the bytes openssl reads are then
+        // exactly this UTF-8, whatever the platform does to a command line.
+        let pass_arg = if password.is_empty() {
+            "pass:".to_string()
+        } else {
+            format!("file:{}", p(&s.write(&format!("pw{n}.txt"), password)))
+        };
+
+        for macalg in ["sha256", "sha1", "sha512"] {
+            // openssl writes, we verify.
+            let theirs = s.path(&format!("theirs-{n}-{macalg}.p12"));
+            openssl_ok(&[
+                "pkcs12",
+                "-export",
+                "-inkey",
+                p(&key),
+                "-in",
+                p(&crt),
+                "-out",
+                p(&theirs),
+                "-passout",
+                &pass_arg,
+                "-macalg",
+                macalg,
+            ]);
+            let bytes = std::fs::read(&theirs).unwrap();
+            let imported = smime::import_pkcs12(&bytes, password)
+                .unwrap_or_else(|e| panic!("openssl {macalg} MAC, password #{n}: {e}"));
+            let wrong = smime::import_pkcs12(&bytes, &format!("{password}x"))
+                .err()
+                .expect("a wrong password passed the MAC");
+            assert!(
+                wrong.to_string().contains("integrity check failed"),
+                "{wrong}"
+            );
+            // The MAC covers the bags: change one octet of the (encrypted) content.
+            let mut altered = bytes.clone();
+            let mid = altered.len() / 2;
+            altered[mid] ^= 0x01;
+            assert!(smime::import_pkcs12(&altered, password).is_err());
+
+            if macalg != "sha256" {
+                continue;
+            }
+            // We write, openssl verifies.
+            let ours = smime::export_pkcs12(
+                &imported.cert_pem,
+                &imported.encrypted_private_bundle,
+                password,
+            )
+            .unwrap_or_else(|e| panic!("export, password #{n}: {e}"));
+            let ours_file = s.write(&format!("ours-{n}.p12"), &ours);
+            let info = openssl_ok(&[
+                "pkcs12",
+                "-in",
+                p(&ours_file),
+                "-passin",
+                &pass_arg,
+                "-info",
+                "-noout",
+            ]);
+            assert!(
+                info.stderr.contains("MAC: sha256, Iteration 210000"),
+                "{}",
+                info.stderr
+            );
+            let bad = openssl(&[
+                "pkcs12",
+                "-in",
+                p(&ours_file),
+                "-passin",
+                "pass:not-the-password",
+                "-info",
+                "-noout",
+            ]);
+            assert!(
+                !bad.ok,
+                "password #{n}: openssl verified our MAC with a wrong password"
+            );
+            assert!(bad.stderr.contains("Mac verify error"), "{}", bad.stderr);
+            // And the key openssl takes out of our file is the certificate's.
+            let key_out = s.path(&format!("ours-{n}.key.pem"));
+            openssl_ok(&[
+                "pkcs12",
+                "-in",
+                p(&ours_file),
+                "-passin",
+                &pass_arg,
+                "-nocerts",
+                "-noenc",
+                "-out",
+                p(&key_out),
+            ]);
+            let k = openssl_ok(&["rsa", "-in", p(&key_out), "-noout", "-modulus"]);
+            let c = openssl_ok(&["x509", "-in", p(&crt), "-noout", "-modulus"]);
+            assert_eq!(modulus(&k), modulus(&c));
+        }
+    }
+
+    // A file with no MAC at all is still read (the key bag is encrypted), as before.
+    let nomac = s.path("nomac.p12");
+    openssl_ok(&[
+        "pkcs12",
+        "-export",
+        "-inkey",
+        p(&key),
+        "-in",
+        p(&crt),
+        "-out",
+        p(&nomac),
+        "-passout",
+        "pass:pw",
+        "-nomac",
+    ]);
+    smime::import_pkcs12(&std::fs::read(&nomac).unwrap(), "pw").expect("a MAC-less file");
+}
+
 /// Certificates this crate did not make: the address may be only in the subject
 /// alternative name, and the key may not be RSA.
 #[test]
 fn a_foreign_certificate_is_described_from_its_own_contents() {
+    need_openssl!();
     let s = Scratch::new("foreign");
     let key = s.path("ec.key");
     let crt = s.path("ec.pem");
@@ -683,6 +924,7 @@ fn generation_refuses_what_it_cannot_certify() {
 /// The size `generate` uses when the caller does not choose, with no name given.
 #[test]
 fn the_default_key_size_is_the_documented_one() {
+    need_openssl!();
     let s = Scratch::new("default");
     let made = smime::generate("", EMAIL, PASSPHRASE, NOW).expect("generate");
     let cert = s.write("default.pem", &made.cert.cert_pem);

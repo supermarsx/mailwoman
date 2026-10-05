@@ -17,6 +17,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { X509Certificate, createPrivateKey, createPublicKey } from 'node:crypto';
+import { createSecureContext } from 'node:tls';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   initSync,
@@ -166,6 +167,22 @@ describe('what the generated key can be used for', () => {
     }) as { p12Base64: string };
     const p12Bytes = Uint8Array.from(Buffer.from(p12Base64, 'base64'));
     expect(p12Bytes[0]).toBe(0x30); // a DER SEQUENCE
+
+    // Node (OpenSSL) opens the file with the passphrase — which includes checking
+    // its integrity MAC — and refuses it with another, and after one altered octet
+    // in the certificate bag, which is not encrypted and so is protected by the
+    // MAC alone.
+    const pfx = Buffer.from(p12Bytes);
+    expect(() => createSecureContext({ pfx, passphrase: PASSPHRASE })).not.toThrow();
+    expect(() => createSecureContext({ pfx, passphrase: 'wrong' })).toThrow(/mac verify failure/i);
+    const altered = Buffer.from(pfx);
+    const at = altered.indexOf(EMAIL);
+    expect(at).toBeGreaterThan(0);
+    altered[at] = altered[at]! ^ 0x01;
+    expect(() => createSecureContext({ pfx: altered, passphrase: PASSPHRASE })).toThrow(/mac verify failure/i);
+    expect(() => importPkcs12({ p12Bytes: Uint8Array.from(altered), password: PASSPHRASE })).toThrow(
+      /integrity check failed/,
+    );
 
     const back = importPkcs12({ p12Bytes, password: PASSPHRASE }) as {
       certPem: string;

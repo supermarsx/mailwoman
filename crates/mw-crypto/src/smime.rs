@@ -557,6 +557,11 @@ pub fn import_pkcs12(p12_bytes: &[u8], password: &str) -> Result<Pkcs12Import> {
         .content
         .decode_as::<OctetString>()
         .map_err(|e| CryptoError::Pkcs12(format!("auth_safe: {e}")))?;
+    // A file that carries an integrity MAC must pass it before anything in it is
+    // used. A file without one is still read: the key bag is encrypted either way.
+    if let Some(mac) = &pfx.mac_data {
+        verify_pkcs12_mac(mac, auth_safe_bytes.as_bytes(), password)?;
+    }
     let safes = SafesSeq::from_der(auth_safe_bytes.as_bytes())
         .map_err(|e| CryptoError::Pkcs12(format!("authenticated safe: {e}")))?;
 
@@ -798,9 +803,16 @@ pub const GENERATED_VALIDITY_DAYS: u64 = 730;
 /// runs slightly behind does not see a certificate that is "not yet valid".
 const NOT_BEFORE_SKEW_SECS: u64 = 300;
 /// PBKDF2 rounds for the key inside an exported PKCS#12. Lower than the vault's
-/// own wrap ([`wrap_private_key`]): Windows refuses a PKCS#12 whose iteration
-/// counts sum past 600 000, and other importers apply similar limits.
+/// own wrap ([`wrap_private_key`]): Windows refuses a PKCS#12 with an iteration
+/// count past 600 000, and other importers apply similar limits.
 const PKCS12_PBKDF2_ROUNDS: u32 = 210_000;
+/// Rounds of the PKCS#12 key derivation for the integrity MAC of an export. With
+/// the key's rounds this stays under the 600 000 that Windows accepts even if an
+/// importer adds the two counts together.
+const PKCS12_MAC_ROUNDS: u32 = 210_000;
+/// The most MAC rounds [`import_pkcs12`] will run for a file: a count beyond this
+/// is a way to make the importer spin, not a security setting.
+const PKCS12_MAC_ROUNDS_MAX: u32 = 10_000_000;
 
 /// `TBSCertificate` (RFC 5280 §4.1), the v3 fields this module writes.
 #[derive(der::Sequence)]
@@ -984,10 +996,10 @@ pub fn attach_issued_cert(
 /// programs import. Refused when the certificate is not for the key.
 ///
 /// Layout: an unencrypted certificate bag and a PKCS#8-shrouded key bag (PBES2:
-/// PBKDF2-HMAC-SHA256 + AES-256-CBC), each in its own `data` content. **No
-/// `macData` is written**: the integrity MAC needs HMAC, which this crate cannot
-/// reach without a new dependency edge. The private key is still encrypted, but a
-/// program that insists on the MAC will refuse the file.
+/// PBKDF2-HMAC-SHA256 + AES-256-CBC), each in its own `data` content, and a
+/// `macData` over both (RFC 7292 §4: HMAC-SHA-256, key from the appendix B.2
+/// derivation with [`PKCS12_MAC_ROUNDS`] rounds) — the password-integrity mode
+/// OpenSSL 3 writes by default.
 pub fn export_pkcs12(
     cert_pem: &str,
     encrypted_private_bundle: &str,
@@ -995,9 +1007,6 @@ pub fn export_pkcs12(
 ) -> Result<Vec<u8>> {
     use rsa::pkcs8::EncodePrivateKey;
 
-    if passphrase.is_empty() {
-        return Err(CryptoError::Input("a passphrase is required".into()));
-    }
     let cert = Certificate::from_pem(cert_pem).map_err(parse)?;
     let key = load_rsa(encrypted_private_bundle, Some(passphrase))?;
     ensure_key_matches(&key, &cert)?;
@@ -1045,16 +1054,165 @@ pub fn export_pkcs12(
         .to_der()
         .map_err(parse)?;
 
+    let mut mac_salt = [0u8; 16];
+    rng::fill_random(&mut mac_salt);
+    let mac = pkcs12_mac::<Sha256>(
+        passphrase,
+        &mac_salt,
+        PKCS12_MAC_ROUNDS,
+        &authenticated_safe,
+    )?;
+
     Pfx {
         version: 3,
         auth_safe: ContentInfo {
             content_type: ID_DATA,
             content: Any::new(Tag::OctetString, authenticated_safe).map_err(parse)?,
         },
-        mac_data: None,
+        mac_data: Some(MacData {
+            mac: DigestInfo {
+                algorithm: alg(OID_SHA_256, Some(Any::null())),
+                digest: OctetString::new(mac).map_err(parse)?,
+            },
+            mac_salt: OctetString::new(&mac_salt[..]).map_err(parse)?,
+            iterations: PKCS12_MAC_ROUNDS,
+        }),
     }
     .to_der()
     .map_err(parse)
+}
+
+// ── PKCS#12 password integrity (RFC 7292 §4 + appendix B) ─────────────────────
+
+/// A hash the PKCS#12 MAC can be built on. `BLOCK` is the hash's input block
+/// size in octets — `v` in RFC 7292 appendix B.2.
+trait Pkcs12Hash: Digest {
+    const BLOCK: usize;
+    fn hmac(key: &[u8], message: &[u8]) -> Result<Vec<u8>>;
+    fn hmac_matches(key: &[u8], message: &[u8], expected: &[u8]) -> Result<bool>;
+}
+
+macro_rules! pkcs12_hash {
+    ($hash:ty, $block:expr) => {
+        impl Pkcs12Hash for $hash {
+            const BLOCK: usize = $block;
+            fn hmac(key: &[u8], message: &[u8]) -> Result<Vec<u8>> {
+                use hmac::{KeyInit, Mac};
+                let mut mac = hmac::Hmac::<$hash>::new_from_slice(key)
+                    .map_err(|e| CryptoError::Pkcs12(e.to_string()))?;
+                mac.update(message);
+                Ok(mac.finalize().into_bytes().to_vec())
+            }
+            fn hmac_matches(key: &[u8], message: &[u8], expected: &[u8]) -> Result<bool> {
+                use hmac::{KeyInit, Mac};
+                let mut mac = hmac::Hmac::<$hash>::new_from_slice(key)
+                    .map_err(|e| CryptoError::Pkcs12(e.to_string()))?;
+                mac.update(message);
+                // Constant-time comparison.
+                Ok(mac.verify_slice(expected).is_ok())
+            }
+        }
+    };
+}
+pkcs12_hash!(sha1::Sha1, 64);
+pkcs12_hash!(Sha256, 64);
+pkcs12_hash!(sha2::Sha384, 128);
+pkcs12_hash!(sha2::Sha512, 128);
+
+/// A PKCS#12 password as the key derivation takes it: a BMPString — UTF-16,
+/// big-endian — with a terminating NUL (RFC 7292 appendix B.1). An empty
+/// password is the terminator alone.
+fn pkcs12_password(password: &str) -> Vec<u8> {
+    password
+        .encode_utf16()
+        .chain(core::iter::once(0))
+        .flat_map(u16::to_be_bytes)
+        .collect()
+}
+
+/// The MAC key of RFC 7292 appendix B.2 (`ID` = 3), one hash output long.
+///
+/// This is the appendix's derivation restricted to the case this module needs:
+/// the wanted key is exactly one hash output, so step 6's single block `A_1` is
+/// the whole result and the carry step that prepares further blocks never runs.
+/// It is not a primitive of ours — it only arranges calls to the hash — and it
+/// is pinned from outside: `tests/smime_generate.rs` has `openssl` verify MACs
+/// made with it and has it verify MACs `openssl` made.
+fn pkcs12_mac_key<H: Pkcs12Hash>(password: &[u8], salt: &[u8], rounds: u32) -> Vec<u8> {
+    // Steps 2-3: salt and password, each repeated to a whole number of blocks.
+    let fill = |x: &[u8]| -> Vec<u8> {
+        let len = H::BLOCK * x.len().div_ceil(H::BLOCK);
+        x.iter().copied().cycle().take(len).collect()
+    };
+    let mut h = H::new();
+    h.update(vec![3u8; H::BLOCK]); // step 1: the diversifier D
+    h.update(fill(salt));
+    h.update(fill(password));
+    let mut a = h.finalize().to_vec();
+    for _ in 1..rounds {
+        a = H::digest(&a).to_vec();
+    }
+    a
+}
+
+/// `HMAC(key = B.2(password, salt, rounds), message)`.
+fn pkcs12_mac<H: Pkcs12Hash>(
+    password: &str,
+    salt: &[u8],
+    rounds: u32,
+    message: &[u8],
+) -> Result<Vec<u8>> {
+    H::hmac(
+        &pkcs12_mac_key::<H>(&pkcs12_password(password), salt, rounds),
+        message,
+    )
+}
+
+/// Check a file's `macData` against its authenticated safe.
+fn verify_pkcs12_mac(mac: &MacData, authenticated_safe: &[u8], password: &str) -> Result<()> {
+    fn check<H: Pkcs12Hash>(mac: &MacData, message: &[u8], password: &str) -> Result<bool> {
+        let derive = |pw: &[u8]| pkcs12_mac_key::<H>(pw, mac.mac_salt.as_bytes(), mac.iterations);
+        if H::hmac_matches(
+            &derive(&pkcs12_password(password)),
+            message,
+            mac.mac.digest.as_bytes(),
+        )? {
+            return Ok(true);
+        }
+        // "No password" is written two ways in the wild: the terminator alone
+        // (above) or no octets at all. Accept either for an empty password.
+        Ok(password.is_empty()
+            && H::hmac_matches(&derive(&[]), message, mac.mac.digest.as_bytes())?)
+    }
+
+    if mac.iterations == 0 || mac.iterations > PKCS12_MAC_ROUNDS_MAX {
+        return Err(CryptoError::Pkcs12(format!(
+            "integrity MAC iteration count {} is out of range",
+            mac.iterations
+        )));
+    }
+    let oid = mac.mac.algorithm.oid;
+    let ok = if oid == OID_SHA_256 {
+        check::<Sha256>(mac, authenticated_safe, password)?
+    } else if oid == OID_SHA_1 {
+        check::<sha1::Sha1>(mac, authenticated_safe, password)?
+    } else if oid == OID_SHA_384 {
+        check::<sha2::Sha384>(mac, authenticated_safe, password)?
+    } else if oid == OID_SHA_512 {
+        check::<sha2::Sha512>(mac, authenticated_safe, password)?
+    } else {
+        // PBMAC1 (RFC 9579) and anything newer: not checked here, so not accepted.
+        return Err(CryptoError::Pkcs12(format!(
+            "integrity MAC algorithm {oid} is not supported"
+        )));
+    };
+    if ok {
+        Ok(())
+    } else {
+        Err(CryptoError::Pkcs12(
+            "integrity check failed: wrong password, or the file was altered".into(),
+        ))
+    }
 }
 
 /// An address this module will put in a certificate: one `local@domain`, ASCII
@@ -1293,15 +1451,38 @@ const OID_X509_CERTIFICATE: ObjectIdentifier =
 /// PKCS#9 `localKeyId` — the bag attribute pairing a key with its certificate.
 const OID_LOCAL_KEY_ID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.9.21");
 
+/// `id-sha1`, `id-sha384`, `id-sha512` — the other digests a PKCS#12 MAC may name.
+const OID_SHA_1: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.14.3.2.26");
+const OID_SHA_384: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.16.840.1.101.3.4.2.2");
+const OID_SHA_512: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.16.840.1.101.3.4.2.3");
+
 /// `PFX ::= SEQUENCE { version INTEGER, authSafe ContentInfo, macData MacData OPTIONAL }`.
 #[derive(der::Sequence)]
 struct Pfx {
-    #[allow(dead_code)]
     version: u8,
     auth_safe: ContentInfo,
     #[asn1(optional = "true")]
-    #[allow(dead_code)]
-    mac_data: Option<Any>,
+    mac_data: Option<MacData>,
+}
+
+/// `MacData ::= SEQUENCE { mac DigestInfo, macSalt OCTET STRING, iterations INTEGER DEFAULT 1 }`.
+#[derive(der::Sequence)]
+struct MacData {
+    mac: DigestInfo,
+    mac_salt: OctetString,
+    #[asn1(default = "one_iteration")]
+    iterations: u32,
+}
+
+fn one_iteration() -> u32 {
+    1
+}
+
+/// `DigestInfo ::= SEQUENCE { digestAlgorithm AlgorithmIdentifier, digest OCTET STRING }`.
+#[derive(der::Sequence)]
+struct DigestInfo {
+    algorithm: AlgorithmIdentifierOwned,
+    digest: OctetString,
 }
 
 /// `SafeBag ::= SEQUENCE { bagId OID, bagValue [0] EXPLICIT ANY, bagAttributes SET OPTIONAL }`.

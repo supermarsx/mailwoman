@@ -30,21 +30,14 @@ const METHODS: Record<string, WasmFn> = {
   sign: mw.sign,
   verify: mw.verify,
   importPkcs12: mw.importPkcs12,
+  exportPkcs12: mw.exportPkcs12,
+  certificateRequest: mw.certificateRequest,
+  attachIssuedCert: mw.attachIssuedCert,
   importArmored: mw.importArmored,
   exportPublic: mw.exportPublic,
   exportBackup: mw.exportBackup,
   unlockKey: mw.unlockKey,
   lockKey: mw.lockKey,
-};
-
-// The S/MIME own-key operations. They arrive as an `exportBackup` RPC carrying
-// `smimeOp` (see `createLazyCryptoWorker` in `index.ts` for why), never under
-// their own method name, so they are a separate table: a request can reach one of
-// these only by naming it in `smimeOp`, and `smimeOp` can name nothing else.
-const SMIME_OPS: Record<string, WasmFn> = {
-  exportPkcs12: mw.exportPkcs12,
-  certificateRequest: mw.certificateRequest,
-  attachIssuedCert: mw.attachIssuedCert,
 };
 
 // Each wasm module loads exactly once, lazily, on first use. `mw-crypto` inits on the
@@ -93,15 +86,9 @@ function normalizeResult(method: string, value: unknown): unknown {
 // plaintext through the in-worker mw-sanitize wasm (HTML sanitized before it leaves
 // the worker; non-HTML kept as escaped text). See `sanitize.ts` (plan §1.3).
 async function runMethod(method: string, rawArgs: unknown): Promise<unknown> {
-  const args = normalizeArgs(method, (rawArgs ?? {}) as Record<string, unknown>);
-  const smimeOp = method === 'exportBackup' ? args['smimeOp'] : undefined;
-  if (smimeOp !== undefined) {
-    const op = typeof smimeOp === 'string' && Object.hasOwn(SMIME_OPS, smimeOp) ? SMIME_OPS[smimeOp] : undefined;
-    if (op === undefined) throw new Error('unknown S/MIME key operation');
-    return op(args);
-  }
   const fn = METHODS[method];
   if (fn === undefined) throw new Error(`unknown crypto method: ${method}`);
+  const args = normalizeArgs(method, (rawArgs ?? {}) as Record<string, unknown>);
   const value = fn(args);
   if (method === 'decrypt') {
     await ensureSanitize();

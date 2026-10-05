@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { X509Certificate } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { cryptoAccountId, engineLogin, gotoKeys, jmapCall, uid } from './crypto-helpers.ts';
@@ -8,12 +10,15 @@ import { cryptoAccountId, engineLogin, gotoKeys, jmapCall, uid } from './crypto-
  * S/MIME key management, live: the REAL UI and the REAL WASM worker against the
  * engine-mode server.
  *
- * What these two tests cover, and nothing more:
+ * What these tests cover, and nothing more:
  *  1. importing a PKCS#12 bundle (`importPkcs12` in the worker) yields an own
  *     S/MIME key row;
  *  2. generating an S/MIME key in the dialog yields a real X.509 certificate
  *     (parsed here by Node's `X509Certificate`, not by the app), which exports as
- *     a `.p12` file that the import dialog reads back as the same certificate.
+ *     a `.p12` file that the import dialog reads back as the same certificate;
+ *  3. a certificate that a certificate authority (openssl here) issues from the
+ *     downloaded request replaces the self-signed one, and one for another key
+ *     is refused.
  *
  * What they do NOT cover: signing, verifying, encrypting or decrypting S/MIME
  * mail in the app. Compose and the reader use OpenPGP keys only; there is no
@@ -157,7 +162,6 @@ test('S/MIME: a generated key is a real certificate, exports as .p12 and imports
   expect(csr.suggestedFilename()).toMatch(/\.csr$/);
   const csrPath = testInfo.outputPath('generated.csr');
   await csr.saveAs(csrPath);
-  const { readFileSync } = await import('node:fs');
   expect(readFileSync(csrPath, 'utf8')).toMatch(/^-----BEGIN CERTIFICATE REQUEST-----\n/);
 
   // Import the exported file back through the existing import dialog.
@@ -186,4 +190,121 @@ test('S/MIME: a generated key is a real certificate, exports as .p12 and imports
   expect(after).toHaveLength(1);
   expect(after[0]!.id).toBe(row.id);
   expect(after[0]!.fingerprint).toBe(row.fingerprint);
+});
+
+/** Whether the `openssl` command can be run (it plays the certificate authority below). */
+function haveOpenssl(): boolean {
+  try {
+    execFileSync('openssl', ['version'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+test('S/MIME: a certificate a CA issues from the request replaces the self-signed one', async ({ page }, testInfo) => {
+  // The authority is openssl. Without it this case cannot run; on CI that is a
+  // failure, not a skip.
+  if (!haveOpenssl()) {
+    expect(process.env['CI'], 'openssl is required on CI').toBeUndefined();
+    test.skip(true, 'the openssl command is not on PATH');
+  }
+  test.setTimeout(300_000);
+  const address = `smime-ca-${uid()}@example.org`;
+  const passphrase = `pw-${uid()}`;
+
+  await engineLogin(page);
+  await gotoKeys(page);
+  await page.getByRole('button', { name: 'Generate key', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Generate a key' });
+  await dialog.getByLabel('Key type').selectOption('smime');
+  await dialog.getByLabel('Email', { exact: true }).fill(address);
+  await dialog.getByLabel('Key passphrase', { exact: true }).fill(passphrase);
+  await dialog.getByRole('button', { name: 'Generate', exact: true }).click();
+  await expect(dialog).toBeHidden({ timeout: 240_000 });
+
+  const accountId = await cryptoAccountId(page.request);
+  const listStored = async (): Promise<StoredKey[]> => {
+    const got = await jmapCall<{ list: StoredKey[] }>(
+      page.request,
+      [
+        ['CryptoKey/query', { accountId }, 'q'],
+        ['CryptoKey/get', { accountId, '#ids': { resultOf: 'q', name: 'CryptoKey/query', path: '/ids' } }, 'g'],
+      ],
+      'g',
+    );
+    return got.list.filter((k) => k.addresses.includes(address));
+  };
+  const before = await listStored();
+  expect(before).toHaveLength(1);
+  const selfSigned = new X509Certificate(before[0]!.certPem!);
+  expect(selfSigned.issuer).toBe(selfSigned.subject);
+
+  // Download the request from the key's detail pane.
+  const ownKeys = page.getByRole('list', { name: 'Your keys' });
+  await ownKeys.getByText(address).click();
+  const section = page.getByRole('group', { name: 'S/MIME certificate' });
+  await section.getByLabel('Passphrase for this S/MIME key').fill(passphrase);
+  const csrDownload = page.waitForEvent('download');
+  await section.getByRole('button', { name: 'Download certificate request (.csr)' }).click();
+  const csrPath = testInfo.outputPath('request.csr');
+  await (await csrDownload).saveAs(csrPath);
+
+  // A throwaway certificate authority checks the request's own signature and issues from it.
+  const caKey = testInfo.outputPath('ca.key');
+  const caCert = testInfo.outputPath('ca.pem');
+  const issued = testInfo.outputPath('issued.pem');
+  const run = (args: string[]): void => void execFileSync('openssl', args, { stdio: 'pipe' });
+  run(['req', '-in', csrPath, '-noout', '-verify']);
+  run(['req', '-x509', '-newkey', 'rsa:2048', '-noenc', '-keyout', caKey, '-out', caCert, '-days', '30', '-subj', '/CN=E2E Test CA']);
+  run(['x509', '-req', '-in', csrPath, '-CA', caCert, '-CAkey', caKey, '-CAcreateserial', '-copy_extensions', 'copy', '-days', '30', '-out', issued]);
+  const ca = new X509Certificate(readFileSync(caCert));
+
+  // A certificate for a DIFFERENT key (the authority's own) is refused in place,
+  // and nothing changes on the server.
+  const attach = section.getByRole('button', { name: 'Import issued certificate' });
+  await section.getByLabel('Issued certificate file').setInputFiles(caCert);
+  await attach.click();
+  await expect(section.getByRole('alert')).toContainText('The certificate was not imported');
+  expect((await listStored()).map((k) => k.fingerprint)).toEqual([before[0]!.fingerprint]);
+
+  // The one issued for this key is taken.
+  await section.getByLabel('Issued certificate file').setInputFiles(issued);
+  await attach.click();
+  await expect(page.getByText('Certificate replaced')).toBeVisible({ timeout: 60_000 });
+
+  // One row for the address, now holding the authority's certificate over the same key.
+  await expect(ownKeys.getByText(address)).toHaveCount(1);
+  await expect.poll(async () => (await listStored()).map((k) => k.fingerprint), { timeout: 30_000 }).not.toContain(
+    before[0]!.fingerprint,
+  );
+  const after = await listStored();
+  expect(after).toHaveLength(1);
+  const row = after[0]!;
+  const cert = new X509Certificate(row.certPem!);
+  expect(cert.issuer).toContain('CN=E2E Test CA');
+  expect(cert.checkIssued(ca)).toBe(true);
+  expect(cert.verify(ca.publicKey)).toBe(true);
+  expect(cert.subjectAltName).toBe(`email:${address}`);
+  expect(Buffer.compare(
+    cert.publicKey.export({ type: 'spki', format: 'der' }),
+    selfSigned.publicKey.export({ type: 'spki', format: 'der' }),
+  )).toBe(0);
+  expect(row.fingerprint).toBe(cert.fingerprint256.replaceAll(':', ''));
+  expect(row.kind).toBe('smime');
+  expect(row.source).toBe('imported');
+
+  // The private key is still held under the new certificate: it exports as PKCS#12.
+  await ownKeys.getByText(address).click();
+  const after2 = page.getByRole('group', { name: 'S/MIME certificate' });
+  await expect(after2.getByText(/This certificate is self-signed/)).toHaveCount(0);
+  await after2.getByLabel('Passphrase for this S/MIME key').fill(passphrase);
+  const p12Download = page.waitForEvent('download');
+  await after2.getByRole('button', { name: 'Export as PKCS#12 (.p12)' }).click();
+  const p12Path = testInfo.outputPath('issued.p12');
+  await (await p12Download).saveAs(p12Path);
+  // openssl opens it (MAC included) and finds the issued certificate inside.
+  const out = execFileSync('openssl', ['pkcs12', '-in', p12Path, '-passin', `pass:${passphrase}`, '-nokeys'], { stdio: 'pipe' }).toString();
+  expect(new X509Certificate(out.slice(out.indexOf('-----BEGIN CERTIFICATE-----'))).fingerprint256).toBe(cert.fingerprint256);
+  expect(() => execFileSync('openssl', ['pkcs12', '-in', p12Path, '-passin', 'pass:wrong', '-nokeys'], { stdio: 'pipe' })).toThrow();
 });
