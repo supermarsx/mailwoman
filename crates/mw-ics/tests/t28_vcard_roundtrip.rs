@@ -570,3 +570,161 @@ fn awkward_values_are_stable_wherever_they_sit() {
         );
     }
 }
+
+// ── the t27 verifier's reproduction (26.20 t27-f2) ──────────────────────────
+
+/// The t27 verification report's S4, run against the reader and emitter in
+/// this file's crate as they are now. Before the hand-rolled reader and
+/// `param_value`, this context gave
+/// `EMAIL;TYPE=work;PREF=1;X-EVIL="a:b":evil@e.testEMAIL:real@example.com`
+/// and `parse_vcard` panicked on that line inside `uriparse`.
+#[test]
+fn the_t27_context_reproduction_stays_one_parameter_and_is_read_back() {
+    let hostile = "work;PREF=1;X-EVIL=\"a:b\":evil@e.test\r\nEMAIL";
+    let mut c = plain();
+    c["emails"][0] = json!({ "context": hostile, "value": "real@example.com" });
+    let emitted = emit_vcard(&c).unwrap();
+
+    let email_lines: Vec<String> = lines(&emitted)
+        .into_iter()
+        .filter(|l| l.to_ascii_uppercase().starts_with("EMAIL"))
+        .collect();
+    assert_eq!(
+        email_lines,
+        ["EMAIL;TYPE=\"work;PREF=1;X-EVIL='a:b':evil@e.testEMAIL\":real@example.com"],
+        "{emitted}"
+    );
+    assert_eq!(shape(&emitted), shape(&emit_vcard(&plain()).unwrap()));
+
+    // `one` panics on an unreadable card, and a panic in the reader fails the
+    // test by itself.
+    let got = one(&emitted);
+    assert_eq!(
+        got["emails"],
+        json!([{
+            "context": "work;pref=1;x-evil='a:b':evil@e.testemail",
+            "value": "real@example.com",
+            "pref": 0,
+        }])
+    );
+    assert_eq!(one(&emit_vcard(&got).unwrap()), got);
+}
+
+/// Every pairing of a head, a parameter section and a value from the lists
+/// below, as one content line of a card. The lists hold the characters the
+/// reader splits on, unbalanced quotes, escapes cut short, multi-byte
+/// characters next to each of them, and the date shapes `read_date` and the
+/// emitter slice by position. The reader returns for each, and what it
+/// returns can be written and read again.
+#[test]
+fn no_content_line_makes_the_reader_or_the_emitter_panic() {
+    let heads = [
+        "EMAIL",
+        "TEL",
+        "IMPP",
+        "ADR",
+        "N",
+        "ORG",
+        "NICKNAME",
+        "BDAY",
+        "ANNIVERSARY",
+        "UID",
+        "KEY",
+        "KIND",
+        "MEMBER",
+        "NOTE",
+        "FN",
+        "TITLE",
+        "X-É",
+        "item1.EMAIL",
+        ".EMAIL",
+        "a.b.TEL",
+        "é.TEL",
+        "",
+        "PHOTO",
+        "X-A",
+    ];
+    let params = [
+        "",
+        ";",
+        ";;",
+        ";TYPE=",
+        ";TYPE=\"",
+        ";TYPE=\"a:b",
+        ";TYPE=\"a\";PREF=\"",
+        ";TYPE=é,\"é;:\",",
+        ";=",
+        ";=;=,",
+        ";PREF=-1;PREF=101;PREF=é",
+        ";VALUE=text",
+        ";VALUE=\"TEXT\";TYPE=pref,internet",
+        ";WORK;é",
+        ";TYPE=work;PREF=1;X-EVIL=\"a:b\"",
+    ];
+    let values = [
+        "",
+        ":",
+        "\\",
+        "é\\",
+        "\\é",
+        ";;;;;;;;;",
+        ",,,",
+        "\\;\\,\\\\\\n\\N\\x",
+        "a@b:c",
+        "http://u:p:q@[::1",
+        "18151210",
+        "1815121é",
+        "é8151210",
+        // Eight bytes, with a two-byte character across the fourth.
+        "181é210",
+        "1815-12-10",
+        "1815-12-1é",
+        "é815-12-10",
+        "--1210",
+        "ééééé",
+        "éé-éé-éé",
+        "\u{feff}\u{2028}\u{85}",
+        "\"",
+        "x\ty",
+    ];
+    let mut cards = 0;
+    for head in heads {
+        for param in params {
+            for value in values {
+                let vcf =
+                    format!("BEGIN:VCARD\r\nVERSION:4.0\r\n{head}{param}:{value}\r\nEND:VCARD\r\n");
+                let parsed = parse_vcard(vcf.as_bytes())
+                    .unwrap_or_else(|e| panic!("a delimited card is not an error: {e}\n{vcf}"));
+                for card in parsed {
+                    let emitted = emit_vcard(&card.json).unwrap();
+                    let again = one(&emitted);
+                    assert_eq!(one(&emit_vcard(&again).unwrap()), again, "{vcf}");
+                    cards += 1;
+                }
+            }
+        }
+    }
+    assert_eq!(cards, heads.len() * params.len() * values.len());
+
+    // The same values arriving through the projection instead of a document.
+    for value in values.iter().chain(&params).chain(&heads) {
+        let mut c = plain();
+        for field in ["emails", "phones", "onlineServices", "addresses"] {
+            c[field][0]["context"] = json!(value);
+            c[field][0]["value"] = json!(value);
+        }
+        c["addresses"][0]["street"] = json!(value);
+        c["anniversaries"] = json!([
+            { "kind": "birthday", "date": value },
+            { "kind": "anniversary", "date": value },
+        ]);
+        c["uid"] = json!(value);
+        c["kind"] = json!(value);
+        c["pgpKey"] = json!(value);
+        c["members"] = json!([value]);
+        c["vcardExtra"] = json!([value, format!("X-A{value}:{value}")]);
+        let emitted = emit_vcard(&c).unwrap();
+        let again = one(&emitted);
+        assert_eq!(one(&emit_vcard(&again).unwrap()), again, "{value:?}");
+    }
+}
