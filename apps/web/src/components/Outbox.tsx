@@ -2,6 +2,7 @@ import { For, Show, onMount, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
 import { isolate, t } from '../i18n/index.ts';
 import * as a11y from './mailA11y.css.ts';
+import * as css from './outbox.css.ts';
 import {
   outboxStateOf,
   type OutboxState,
@@ -64,15 +65,15 @@ export function Outbox(): JSX.Element {
   onMount(() => void app.refreshOutbox());
 
   return (
-    <section class="outbox" aria-label={t('mail-outbox-label')}>
-      <header class="outbox__header">
-        <h2>{t('mail-outbox-label')}</h2>
+    <section class={`outbox ${css.root}`} aria-label={t('mail-outbox-label')}>
+      <header class={`outbox__header ${css.header}`}>
+        <h2 class={css.title}>{t('mail-outbox-label')}</h2>
         <button type="button" class={`btn btn--ghost ${a11y.focusable}`} onClick={() => void app.refreshOutbox()}>
           {t('mail-outbox-refresh')}
         </button>
       </header>
-      <Show when={app.outbox().length > 0} fallback={<p class="outbox__empty">{t('mail-outbox-empty')}</p>}>
-        <ul class="outbox__items">
+      <Show when={app.outbox().length > 0} fallback={<p class={`outbox__empty ${css.empty}`}>{t('mail-outbox-empty')}</p>}>
+        <ul class={`outbox__items ${css.items}`}>
           <For each={app.outbox()}>
             {(sub) => {
               const state = () => outboxStateOf(sub);
@@ -82,37 +83,37 @@ export function Outbox(): JSX.Element {
               const recipients = () =>
                 (message()?.to ?? []).map((a) => isolate(a.email)).join(', ');
               return (
-                <li class="outbox__row" data-state={state()}>
-                  <span class="outbox__state" classList={{ [`outbox__state--${state()}`]: true }}>
+                <li class={`outbox__row ${css.row}`} data-state={state()}>
+                  <span class={`outbox__state outbox__state--${state()} ${css.state} ${css.stateOf[state()]}`}>
                     {t(STATE_LABEL[state()])}
                   </span>
-                  <span class="outbox__when">{whenText(sub)}</span>
+                  <span class={`outbox__when ${css.when}`}>{whenText(sub)}</span>
                   <Show when={message() !== undefined}>
-                    <span class="outbox__subject">
+                    <span class={`outbox__subject ${css.subject}`}>
                       {message()?.subject !== null && message()?.subject !== ''
                         ? isolate(message()?.subject ?? '')
                         : t('mail-outbox-no-subject')}
                     </span>
                     <Show when={recipients() !== ''}>
-                      <span class="outbox__to">{t('mail-outbox-to', { recipients: recipients() })}</span>
+                      <span class={`outbox__to ${css.to}`}>{t('mail-outbox-to', { recipients: recipients() })}</span>
                     </Show>
                   </Show>
                   <Show when={held()}>
-                    <p class="outbox__note">{heldNote(sub.mailwomanOrigin)}</p>
+                    <p class={`outbox__note ${css.note}`}>{heldNote(sub.mailwomanOrigin)}</p>
                   </Show>
                   <Show when={!held() && sub.mailwomanOrigin}>
-                    {(origin) => <p class="outbox__note">{originText(origin())}</p>}
+                    {(origin) => <p class={`outbox__note ${css.note}`}>{originText(origin())}</p>}
                   </Show>
                   <Show when={errorText(sub) !== ''}>
-                    <p class="outbox__error" role="status">
+                    <p class={`outbox__error ${css.error}`} role="status">
                       {errorText(sub)}
                     </p>
                   </Show>
                   <Show when={waiting()}>
-                    <span class="outbox__actions">
+                    <span class={`outbox__actions ${css.actions}`}>
                       <button
                         type="button"
-                        class={`btn btn--ghost ${a11y.focusable}`}
+                        class={`btn btn--ghost ${a11y.focusable} ${css.action}`}
                         data-action="release"
                         onClick={() => void app.sendOutboxNow(sub.id)}
                       >
@@ -120,7 +121,7 @@ export function Outbox(): JSX.Element {
                       </button>
                       <button
                         type="button"
-                        class={`btn btn--ghost ${a11y.focusable}`}
+                        class={`btn btn--ghost ${a11y.focusable} ${css.action}`}
                         data-action="cancel"
                         onClick={() => void app.cancelOutbox(sub.id)}
                       >
