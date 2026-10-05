@@ -233,6 +233,7 @@ export function Compose(props: {
   // closes; Tab is trapped inside the dialog.
   let backdropEl: HTMLDivElement | undefined;
   let toInputEl: HTMLInputElement | undefined;
+  let cryptoBoxEl: HTMLDivElement | undefined;
   let previouslyFocused: HTMLElement | null = null;
 
   function focusableIn(root: HTMLElement): HTMLElement[] {
@@ -1002,16 +1003,31 @@ export function Compose(props: {
         {/* Crypto + DLP (plan §2.5): encrypt/sign toggles, the live E2EE/TLS/mixed
             banner from real per-recipient CryptoKey/lookup, and the Dlp/scan
             pre-send warnings. Reports state up via onChange for the send path. */}
-        <ComposeCrypto
-          recipients={() => parseRecipients([to(), cc(), bcc()].join(',')).map((r) => r.email)}
-          subject={() => subject()}
-          bodyText={() => body()}
-          lookupKeys={lookupKeys}
-          scanDlp={scanDlp}
-          signingKeyRef={() => signingSession()?.keyRef ?? null}
-          onRequestSigningKey={() => setUnlockOpen(true)}
-          onChange={setCryptoState}
-        />
+        {/* A boundary of its own, because the panel reads two resources (the
+            per-recipient key lookup and the DLP scan) that go pending every time
+            a recipient or the body changes. Without it the nearest boundary is
+            the one around the whole signed-in shell (`LazyRoute` in App.tsx):
+            each keystroke in the body detached the entire shell for the length
+            of a DLP request, and the editor lost focus after one character.
+            With it only this panel is held back while a request is out, and
+            the placeholder keeps the panel's height so the fields below it do
+            not move. */}
+        <div ref={cryptoBoxEl}>
+          <Suspense
+            fallback={<div aria-hidden="true" style={{ height: `${cryptoBoxEl?.offsetHeight ?? 0}px` }} />}
+          >
+            <ComposeCrypto
+              recipients={() => parseRecipients([to(), cc(), bcc()].join(',')).map((r) => r.email)}
+              subject={() => subject()}
+              bodyText={() => body()}
+              lookupKeys={lookupKeys}
+              scanDlp={scanDlp}
+              signingKeyRef={() => signingSession()?.keyRef ?? null}
+              onRequestSigningKey={() => setUnlockOpen(true)}
+              onChange={setCryptoState}
+            />
+          </Suspense>
+        </div>
 
         {/* Signing-key unlock (plan §2.5, decision flag 2): opens when the sign
             toggle is switched on while the key is locked, or on a signed send with
