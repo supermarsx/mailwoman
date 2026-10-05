@@ -83,6 +83,53 @@ describe('MessageActions', () => {
     expect(cluster).not.toHaveClass(css.actionsOpen);
   });
 
+  it('opening from the toggle puts focus on the first action; Escape hands it back', () => {
+    const { toggle, cluster } = mount();
+    toggle.focus();
+    fireEvent.click(toggle);
+    expect(cluster).toHaveClass(css.actionsOpen);
+    expect(document.activeElement).toBe(within(cluster).getByRole('button', { name: 'Pin' }));
+
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    expect(cluster).not.toHaveClass(css.actionsOpen);
+    expect(document.activeElement).toBe(toggle);
+  });
+
+  it('a menu opened without the toggle does not move focus to the first action', () => {
+    const { cluster } = mount();
+    const snooze = within(cluster).getByRole('button', { name: 'Snooze' });
+    snooze.focus();
+    fireEvent.click(snooze);
+    expect(document.activeElement).toBe(snooze);
+  });
+
+  it('a message without a follow-up carries no mark', () => {
+    const { cluster } = mount();
+    expect(screen.queryByTestId('msg-followup-mark')).toBeNull();
+    const flag = within(cluster).getByRole('button', { name: 'Flag for follow-up' });
+    expect(flag).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('shows the mark, outside the cluster, for a message that has a follow-up', () => {
+    renderWithApp(() => <MessageActions email={{ ...mkEmail('b'), followUpAt: '2030-01-01T09:00:00.000Z' }} />);
+    const cluster = screen.getByRole('group', { name: 'More actions' });
+    const mark = screen.getByTestId('msg-followup-mark');
+    expect(mark).toHaveAttribute('role', 'img');
+    expect(mark).toHaveAccessibleName('Flag for follow-up');
+    expect(cluster.contains(mark)).toBe(false);
+    expect(within(cluster).getByRole('button', { name: 'Clear follow-up' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('flagging from the toggled cluster closes it and hands focus back to the toggle', async () => {
+    const { app, toggle, cluster } = mount();
+    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    fireEvent.click(toggle);
+    fireEvent.click(within(cluster).getByRole('button', { name: 'Flag for follow-up' }));
+    expect(cluster).not.toHaveClass(css.actionsOpen);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(document.activeElement).toBe(toggle);
+  });
+
   it('picking a snooze preset snoozes the message and closes everything', async () => {
     const { app, toggle, cluster } = mount();
     await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });

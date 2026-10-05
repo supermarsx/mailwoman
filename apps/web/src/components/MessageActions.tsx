@@ -13,8 +13,11 @@ import type { Email } from '../api/jmap-types.ts';
 // Layout is in messageRow.css.ts. With a hovering pointer the cluster appears
 // over the row on hover or focus; without one (touch, the phone layout) it is
 // opened and closed by the "More actions" button, which is why that button is
-// a sibling of `.msg-actions` and not inside it. The "follow-up" button sets a
-// reminder for 24 hours from now (`followUpAt`); it does not set `$flagged`.
+// a sibling of `.msg-actions` and not inside it. Opening it that way moves
+// focus to the first action; closing it hands focus back to the button.
+// The "follow-up" button sets a reminder for 24 hours from now (`followUpAt`);
+// it does not set `$flagged`. A message with a follow-up carries a small mark
+// on its row, outside the cluster, so the state shows while the cluster is shut.
 
 /** Snooze presets → absolute ISO times, computed at click. The `labelId` is a
  *  mail catalog id resolved with `t()` at render (kept out of the pure time math
@@ -56,6 +59,21 @@ export function MessageActions(props: { email: Email }): JSX.Element {
 
   let wrapper: HTMLDivElement | undefined;
   let toggleEl: HTMLButtonElement | undefined;
+  let clusterEl: HTMLDivElement | undefined;
+
+  /** Open the cluster from its toggle and put focus on its first action. */
+  function openFromToggle(): void {
+    setOpen(true);
+    clusterEl?.querySelector<HTMLElement>('button')?.focus();
+  }
+
+  /** After an action taken from the toggled cluster: close it and hand focus
+   *  back to the toggle. Does nothing when the cluster was shown by hover. */
+  function closeToToggle(): void {
+    if (!open()) return;
+    closeAll();
+    toggleEl?.focus();
+  }
 
   /** Escape closes an open menu first, then the cluster, and puts focus back on
    *  the control that opened it. Not handled (so not swallowed) when nothing here
@@ -98,12 +116,24 @@ export function MessageActions(props: { email: Email }): JSX.Element {
         aria-label={t('mail-more-actions')}
         aria-expanded={open()}
         data-testid="msg-more-toggle"
-        onClick={() => (open() ? closeAll() : setOpen(true))}
+        onClick={() => (open() ? closeAll() : openFromToggle())}
       >
         {open() ? '✕' : '⋯'}
       </button>
 
+      <Show when={hasFollowUp()}>
+        <span
+          class={`msg-followup ${css.followUpMark}`}
+          role="img"
+          aria-label={t('mail-flag')}
+          data-testid="msg-followup-mark"
+        >
+          🚩
+        </span>
+      </Show>
+
       <div
+        ref={clusterEl}
         class={`msg-actions ${css.actions}`}
         classList={{ [css.actionsOpen]: open() || menu() !== 'none' }}
         role="group"
@@ -208,9 +238,11 @@ export function MessageActions(props: { email: Email }): JSX.Element {
           class={`msg-actions__btn ${css.actionBtn} ${a11y.iconButton}`}
           aria-label={hasFollowUp() ? t('mail-clear-flag') : t('mail-flag')}
           aria-pressed={hasFollowUp()}
-          onClick={() =>
-            void app.setFollowUp(id(), hasFollowUp() ? null : new Date(Date.now() + 86_400_000).toISOString())
-          }
+          onClick={() => {
+            const at = hasFollowUp() ? null : new Date(Date.now() + 86_400_000).toISOString();
+            closeToToggle();
+            void app.setFollowUp(id(), at);
+          }}
         >
           🚩
         </button>

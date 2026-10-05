@@ -117,6 +117,22 @@ export const moreToggle = style({
   },
 });
 
+/** The follow-up mark: on the row whenever the message has a follow-up, so the
+ *  state shows without opening the cluster. Beside the toggle where there is
+ *  one; in the row's corner otherwise, under the cluster when that appears.
+ *  Taps and clicks pass through it to the row. */
+export const followUpMark = style({
+  position: 'absolute',
+  bottom: '0.45rem',
+  fontSize: '0.85rem',
+  lineHeight: 1,
+  pointerEvents: 'none',
+  '@media': {
+    [HOVERED]: { right: '0.5rem' },
+    [TOGGLED]: { right: '3.4rem' },
+  },
+});
+
 /** The cluster of action buttons. */
 export const actions = style({
   position: 'absolute',

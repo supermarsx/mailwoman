@@ -459,57 +459,61 @@ test.describe('row actions at phone width (phone project)', () => {
     }
   });
 
-  test('Follow-up: the flag is set by a tap, is still set on a second device, and is cleared by another tap', async ({
+  test('Follow-up: a tap marks the row, the mark is there on a second device, and another tap clears it', async ({
     page,
     browser,
   }) => {
     test.slow(); // two sign-ins and a reload, each waiting on the engine's sync.
-    const { target } = await seedPair(page, 'followup');
+    const { target, neighbour } = await seedPair(page, 'followup');
     const slot = messageSlot(page, target);
+    const mark = (p: Page): Locator => messageSlot(p, target).getByTestId('msg-followup-mark');
+
+    // Precondition: no mark.
+    await expect(mark(page)).toHaveCount(0);
 
     await openActions(page, slot);
     await expect(action(slot, NAMES.flag)).toHaveAttribute('aria-pressed', 'false');
     await action(slot, NAMES.flag).tap();
 
-    // The control now offers the opposite action and reports itself as on. The
-    // row has no follow-up mark of its own, so the cluster is where it shows;
-    // setting the flag rewrites the list, which may have closed the cluster.
-    const expectFlagged = async (p: Page): Promise<void> => {
-      const s = messageSlot(p, target);
-      await expect(async () => {
-        if ((await moreToggle(s).getAttribute('aria-expanded')) !== 'true') await moreToggle(s).tap();
-        await expect(action(s, NAMES.clearFlag)).toHaveAttribute('aria-pressed', 'true', { timeout: 2_000 });
-      }).toPass({ timeout: 10_000 });
-      await expect(action(s, NAMES.flag)).toHaveCount(0);
-    };
-    await expectFlagged(page);
+    // The cluster closes behind the choice, and the row — this row only — now
+    // carries the follow-up mark, readable with the cluster shut.
+    await expect(actionCluster(slot)).toBeHidden();
+    await expect(mark(page)).toBeVisible();
+    await expectInsideViewport(page, mark(page), 'the follow-up mark');
+    await expect(messageSlot(page, neighbour).getByTestId('msg-followup-mark')).toHaveCount(0);
     await expect(page.locator('.reader')).toBeHidden();
+    // The mark sits on the row without taking its taps: the opener beside it
+    // is still the element under its own centre.
+    await expectTapTarget(page, moreToggle(slot), 'the More actions button beside the mark', { withinRow: slot });
 
-    // Reload.
+    // Reload: the mark is still there, and the control offers the opposite action.
     await page.reload();
     await expect(menuButton(page)).toBeVisible();
     await waitForRowViaDrawer(page, target);
-    await expectFlagged(page);
+    await expect(mark(page)).toBeVisible();
+    await openActions(page, slot);
+    await expect(action(slot, NAMES.clearFlag)).toHaveAttribute('aria-pressed', 'true');
+    await expect(action(slot, NAMES.flag)).toHaveCount(0);
 
     // A device with nothing stored on it.
     const other = await secondPhone(browser);
     try {
       await waitForRowViaDrawer(other, target);
-      await expectFlagged(other);
+      await expect(mark(other)).toBeVisible();
     } finally {
       await other.context().close();
     }
 
-    // And off again, from the first phone.
+    // And off again, from the first phone (its cluster is still open).
     await expectTapTarget(page, action(slot, NAMES.clearFlag), 'the Clear follow-up button', { withinRow: slot });
     await action(slot, NAMES.clearFlag).tap();
-    await expect(async () => {
-      if ((await moreToggle(slot).getAttribute('aria-expanded')) !== 'true') await moreToggle(slot).tap();
-      await expect(action(slot, NAMES.flag)).toHaveAttribute('aria-pressed', 'false', { timeout: 2_000 });
-    }).toPass({ timeout: 10_000 });
+    await expect(mark(page)).toHaveCount(0);
+    await expect(actionCluster(slot)).toBeHidden();
+    await openActions(page, slot);
+    await expect(action(slot, NAMES.flag)).toHaveAttribute('aria-pressed', 'false');
   });
 
-  test('keyboard: Enter opens the cluster, Tab walks it, Escape closes a menu and then the cluster', async ({
+  test('keyboard: Enter opens the cluster onto its first action, Tab walks it, Escape closes a menu and then the cluster', async ({
     page,
   }) => {
     const { target } = await seedPair(page, 'keys');
@@ -522,13 +526,20 @@ test.describe('row actions at phone width (phone project)', () => {
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
     await expect(actionCluster(slot)).toBeVisible();
 
-    // The cluster's buttons are the next tab stops, in reading order; walking
-    // them does not close the cluster.
-    await page.keyboard.press('Tab');
-    expect(await focusInCluster(slot), 'Tab from the opener lands in the cluster').toBe(true);
+    // Focus went to the first action; the rest are the next tab stops, in
+    // reading order, and walking them does not close the cluster.
+    await expect(actionCluster(slot).getByRole('button').first()).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(action(slot, NAMES.snooze)).toBeFocused();
     await expect(actionCluster(slot)).toBeVisible();
+    // Shift+Tab from the first action is the opener, and the cluster stays open.
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Shift+Tab');
+    await expect(toggle).toBeFocused();
+    await expect(actionCluster(slot)).toBeVisible();
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Tab');
+    await expect(action(slot, NAMES.snooze)).toBeFocused();
 
     // Enter on Snooze opens its menu; Escape closes the menu only and hands
     // focus back to Snooze.
@@ -550,15 +561,7 @@ test.describe('row actions at phone width (phone project)', () => {
     await expect(page.getByRole('navigation', { name: 'Mailboxes' })).toBeHidden();
   });
 
-  // DEFECT (components/MessageActions.tsx:101): the opener's handler is
-  // `open() ? closeAll() : setOpen(true)` and nothing else, so after "More
-  // actions" opens the cluster, focus is still on the opener. The cluster is the
-  // next element in the DOM, so Tab (and a screen reader's next-item gesture)
-  // reaches it, which the keyboard case above pins; what does not happen is
-  // focus moving INTO the cluster on open. Seen failing on 2026-10-05 against
-  // the current tree: `focusInCluster` is false after the tap. Remove `fixme`
-  // when the handler focuses the first cluster button after opening.
-  test.fixme('opening the cluster moves focus into it', async ({ page }) => {
+  test('a tap on More actions moves focus into the cluster, and closing it hands focus back', async ({ page }) => {
     const { target } = await seedPair(page, 'focus');
     const slot = messageSlot(page, target);
 
@@ -566,6 +569,11 @@ test.describe('row actions at phone width (phone project)', () => {
     expect(await focusInCluster(slot), 'focus is on one of the cluster buttons once More actions has opened it').toBe(
       true,
     );
+    await expect(actionCluster(slot).getByRole('button').first()).toBeFocused();
+
+    await page.keyboard.press('Escape');
+    await expect(actionCluster(slot)).toBeHidden();
+    await expect(moreToggle(slot)).toBeFocused();
   });
 });
 
