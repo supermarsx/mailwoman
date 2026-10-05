@@ -90,6 +90,35 @@ impl AuthorizeParams {
     }
 }
 
+/// The most `client_id` may be granted by consent, if it has a ceiling.
+///
+/// A self-registered (DCR) client is registered with the DCR policy's
+/// `default_scope` (`mw_oauth::dcr::validate_metadata`). Neither `oauth_clients`
+/// nor `oauth_client_meta` has a scope column, so that grant is not kept per
+/// client: the ceiling is the policy row's `default_scope` as it reads when the
+/// user consents, and the scope that grants nothing if the row is missing or does
+/// not parse. A client an operator put in the registry has no registered scope
+/// and so no ceiling here.
+async fn client_scope_ceiling(
+    state: &AppState,
+    client_id: &str,
+) -> Result<Option<Scope>, Response> {
+    let self_registered = match state.store.get_oauth_client_meta(client_id).await {
+        Ok(meta) => meta.is_some_and(|m| m.created_via == mw_oauth::dcr::DCR_CREATED_VIA),
+        Err(e) => return Err(server_error(e)),
+    };
+    if !self_registered {
+        return Ok(None);
+    }
+    let ceiling = match state.store.get_oauth_dcr_policy().await {
+        Ok(row) => row
+            .and_then(|r| serde_json::from_str::<Scope>(&r.default_scope_json).ok())
+            .unwrap_or_else(mw_oauth::dcr::no_scope),
+        Err(e) => return Err(server_error(e)),
+    };
+    Ok(Some(ceiling))
+}
+
 // ─── /oauth/consent — validate + display ──────────────────────────────────────
 
 async fn consent(
@@ -112,7 +141,16 @@ async fn consent(
         Ok(Some(c)) => (c.name, true),
         _ => (params.client_id.clone(), false),
     };
-    let requested = params.scope_or_default(&session.account_id);
+    // What approving would grant — the request cut down exactly as
+    // `/oauth/decision` cuts it — so the screen does not list more than that.
+    let ceiling = match client_scope_ceiling(&state, &params.client_id).await {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+    let requested = mw_oauth::consent_scope(
+        &params.scope_or_default(&session.account_id),
+        ceiling.as_ref(),
+    );
     Json(json!({
         "clientId": params.client_id,
         "clientName": client_name,
@@ -149,6 +187,10 @@ async fn decision(
         }
         return Json(json!({ "redirectUri": url })).into_response();
     }
+    let ceiling = match client_scope_ceiling(&state, &p.client_id).await {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
     let req = AuthorizeRequest {
         response_type: p.response_type.clone(),
         client_id: p.client_id.clone(),
@@ -159,7 +201,14 @@ async fn decision(
         code_challenge_method: p.code_challenge_method.clone(),
         resource: p.resource.clone(),
     };
-    match state.v6.auth.authorize(&req, &session.account_id).await {
+    // The code carries the requested scope narrowed to the client's ceiling, and
+    // never `unattended_send` (`mw_oauth::consent_scope`).
+    match state
+        .v6
+        .auth
+        .authorize_within(&req, &session.account_id, ceiling.as_ref())
+        .await
+    {
         Ok(res) => {
             let mut url = format!("{}?code={}", res.redirect_uri, urlencode(&res.code));
             if let Some(s) = res.state {

@@ -664,3 +664,222 @@ async fn require_scope_oauth_token_and_resource_audience() {
         .await;
     assert!(matches!(refused, Err(OAuthError::InvalidGrant)));
 }
+
+// ── Scope ceiling on the consent flow (t28-e12c) ─────────────────────────────
+
+/// A client's ceiling: read mail in `inbox` and `archive`, one MCP tool.
+fn ceiling_scope() -> Scope {
+    Scope {
+        folders: ScopeSelector::Subset(vec!["inbox".into(), "archive".into()]),
+        mcp_tools: vec!["mail.search".into()],
+        ..base_scope()
+    }
+}
+
+/// `ceiling_scope()` plus everything it does not hold.
+fn over_broad_scope() -> Scope {
+    Scope {
+        read: true,
+        send: true,
+        delete: true,
+        accounts: ScopeSelector::All,
+        folders: ScopeSelector::All,
+        mail: true,
+        pim: true,
+        ip_allowlist: Vec::new(),
+        expires_at: None,
+        rate_limit: None,
+        mcp_tools: vec!["mail.search".into(), "mail.send".into()],
+        unattended_send: true,
+    }
+}
+
+async fn exchange(
+    server: &AuthServer<InMemoryOAuthStore>,
+    req: &AuthorizeRequest,
+    ceiling: Option<&Scope>,
+    verifier: &str,
+) -> mw_oauth::TokenResponse {
+    let auth = server
+        .authorize_within(req, "acct-9", ceiling)
+        .await
+        .unwrap();
+    server
+        .token(&TokenRequest::AuthorizationCode {
+            code: auth.code,
+            redirect_uri: req.redirect_uri.clone(),
+            client_id: req.client_id.clone(),
+            code_verifier: verifier.into(),
+            resource: req.resource.clone(),
+        })
+        .await
+        .unwrap()
+}
+
+#[test]
+fn scope_intersect_is_field_by_field() {
+    let got = over_broad_scope().intersect(&ceiling_scope());
+    assert_eq!(got, ceiling_scope());
+    // Nothing the intersection holds is missing from either side.
+    assert!(ceiling_scope().allows(&got));
+    assert!(over_broad_scope().allows(&got));
+
+    // Two subsets keep only the ids in both.
+    let mut a = ceiling_scope();
+    a.folders = ScopeSelector::Subset(vec!["inbox".into(), "drafts".into()]);
+    a.mcp_tools = vec!["mail.send".into()];
+    let got = a.intersect(&ceiling_scope());
+    assert_eq!(got.folders, ScopeSelector::Subset(vec!["inbox".into()]));
+    assert!(got.mcp_tools.is_empty());
+}
+
+#[test]
+fn scope_intersect_keeps_the_tighter_restriction() {
+    let early = "2030-01-01T00:00:00+00:00";
+    let late = "2031-01-01T00:00:00+00:00";
+    let mut ceiling = base_scope();
+    ceiling.expires_at = Some(early.into());
+    ceiling.rate_limit = Some(10);
+    ceiling.ip_allowlist = vec!["10.0.0.0/8".into(), "192.0.2.7".into()];
+
+    // A request with no restrictions inherits the ceiling's.
+    let got = base_scope().intersect(&ceiling);
+    assert_eq!(got.expires_at.as_deref(), Some(early));
+    assert_eq!(got.rate_limit, Some(10));
+    assert_eq!(got.ip_allowlist, ceiling.ip_allowlist);
+
+    // A looser request does not lift them; an address outside the ceiling's list
+    // never yields an empty ("any address") list.
+    let mut loose = base_scope();
+    loose.expires_at = Some(late.into());
+    loose.rate_limit = Some(1000);
+    loose.ip_allowlist = vec!["203.0.113.9".into()];
+    let got = loose.intersect(&ceiling);
+    assert_eq!(got.expires_at.as_deref(), Some(early));
+    assert_eq!(got.rate_limit, Some(10));
+    assert_eq!(got.ip_allowlist, ceiling.ip_allowlist);
+
+    // A tighter request is kept.
+    let mut tight = base_scope();
+    tight.expires_at = Some("2029-01-01T00:00:00+00:00".into());
+    tight.rate_limit = Some(2);
+    tight.ip_allowlist = vec!["192.0.2.7".into()];
+    let got = tight.intersect(&ceiling);
+    assert_eq!(got.expires_at, tight.expires_at);
+    assert_eq!(got.rate_limit, Some(2));
+    assert_eq!(got.ip_allowlist, tight.ip_allowlist);
+
+    // An unreadable requested expiry does not replace a ceiling's.
+    let mut junk = base_scope();
+    junk.expires_at = Some("never".into());
+    assert_eq!(junk.intersect(&ceiling).expires_at.as_deref(), Some(early));
+}
+
+#[tokio::test]
+async fn a_request_for_exactly_the_ceiling_is_granted_in_full() {
+    let server = server_with_client(AuthServerConfig::default()).await;
+    let verifier = "ceiling-exact-verifier-abcdefghijklmnopq";
+    let mut req = authorize_req(&challenge_s256(verifier), "https://api.example/mail");
+    req.scope = ceiling_scope();
+    let tokens = exchange(&server, &req, Some(&ceiling_scope()), verifier).await;
+    assert_eq!(tokens.scope, ceiling_scope());
+}
+
+#[tokio::test]
+async fn an_over_broad_request_is_narrowed_to_the_ceiling() {
+    let server = server_with_client(AuthServerConfig::default()).await;
+    let verifier = "ceiling-broad-verifier-abcdefghijklmnopq";
+    let mut req = authorize_req(&challenge_s256(verifier), "https://api.example/mail");
+    req.scope = over_broad_scope();
+    let tokens = exchange(&server, &req, Some(&ceiling_scope()), verifier).await;
+    assert_eq!(tokens.scope, ceiling_scope());
+
+    // What enforcement and introspection see is the same narrowed scope.
+    let info = server.introspect(&tokens.access_token).await.unwrap();
+    assert_eq!(info.scope, Some(ceiling_scope()));
+    let ctx = RequestContext {
+        credential: &tokens.access_token,
+        source_ip: None,
+        resource: None,
+    };
+    let granted = server
+        .require_scope(&ctx, &ceiling_scope(), &NoopAudit)
+        .await
+        .unwrap();
+    assert_eq!(granted.scope, ceiling_scope());
+    let mut wants_send = ceiling_scope();
+    wants_send.send = true;
+    assert!(matches!(
+        server.require_scope(&ctx, &wants_send, &NoopAudit).await,
+        Err(OAuthError::InvalidScope)
+    ));
+    let mut wants_folder = ceiling_scope();
+    wants_folder.folders = ScopeSelector::Subset(vec!["drafts".into()]);
+    assert!(matches!(
+        server.require_scope(&ctx, &wants_folder, &NoopAudit).await,
+        Err(OAuthError::InvalidScope)
+    ));
+}
+
+#[tokio::test]
+async fn unattended_send_is_never_granted_by_consent() {
+    let server = server_with_client(AuthServerConfig::default()).await;
+    let resource = "https://api.example/mail";
+
+    // No ceiling at all, and a ceiling that itself carries the flag.
+    let generous = over_broad_scope();
+    for (verifier, ceiling) in [
+        ("unattended-none-verifier-abcdefghijklmnop", None),
+        ("unattended-ceil-verifier-abcdefghijklmnop", Some(&generous)),
+    ] {
+        let mut req = authorize_req(&challenge_s256(verifier), resource);
+        req.scope = over_broad_scope();
+        let tokens = exchange(&server, &req, ceiling, verifier).await;
+        // Everything else the request asked for is still there.
+        let mut expected = over_broad_scope();
+        expected.unattended_send = false;
+        assert_eq!(tokens.scope, expected);
+
+        let info = server.introspect(&tokens.access_token).await.unwrap();
+        assert_eq!(info.scope, Some(expected));
+        let mut wants = base_scope();
+        wants.unattended_send = true;
+        let refused = server
+            .require_scope(
+                &RequestContext {
+                    credential: &tokens.access_token,
+                    source_ip: None,
+                    resource: None,
+                },
+                &wants,
+                &NoopAudit,
+            )
+            .await;
+        assert!(matches!(refused, Err(OAuthError::InvalidScope)));
+    }
+}
+
+#[tokio::test]
+async fn refresh_does_not_widen_the_scope() {
+    let server = server_with_client(AuthServerConfig::default()).await;
+    let verifier = "ceiling-refresh-verifier-abcdefghijklmno";
+    let mut req = authorize_req(&challenge_s256(verifier), "https://api.example/mail");
+    req.scope = over_broad_scope();
+    let first = exchange(&server, &req, Some(&ceiling_scope()), verifier).await;
+
+    let mut refresh = first.refresh_token.unwrap();
+    for _ in 0..2 {
+        let next = server
+            .token(&TokenRequest::RefreshToken {
+                refresh_token: refresh,
+                client_id: "client-1".into(),
+                resource: None,
+            })
+            .await
+            .unwrap();
+        assert_eq!(next.scope, ceiling_scope());
+        let info = server.introspect(&next.access_token).await.unwrap();
+        assert_eq!(info.scope, Some(ceiling_scope()));
+        refresh = next.refresh_token.unwrap();
+    }
+}

@@ -316,7 +316,7 @@ impl<S: OAuthStore> AuthServer<S> {
                 account_id: token.account_id,
                 expires_at: Some(token.expires_at),
                 resource: token.resource,
-                scope: token.scope,
+                scope: crate::oauth::token_scope(token.scope),
             })
         }
     }

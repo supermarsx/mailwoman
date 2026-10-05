@@ -38,7 +38,7 @@ pub use enforce::{
 };
 pub use oauth::{
     AuthServer, AuthServerConfig, AuthorizeRequest, AuthorizeResponse, Introspection, TokenRequest,
-    TokenResponse,
+    TokenResponse, consent_scope,
 };
 pub use pkce::challenge_s256;
 pub use store::{InMemoryOAuthStore, OAuthStore};
@@ -145,6 +145,85 @@ impl Scope {
             return false;
         }
         true
+    }
+
+    /// The part of this scope that `ceiling` also grants — the intersection, field
+    /// by field. The result never authorizes anything `ceiling` does not.
+    ///
+    /// - `read`/`send`/`delete`/`mail`/`pim`/`unattended_send`: held only if both
+    ///   hold it.
+    /// - `accounts`/`folders`/`mcp_tools`: the ids in both (`All` on one side
+    ///   leaves the other side's selection).
+    /// - `ip_allowlist`, `expires_at`, `rate_limit` restrict a scope instead of
+    ///   granting, so the tighter one wins: the earlier expiry, the lower rate
+    ///   limit, and — when `ceiling` has an allowlist — this scope's entries that
+    ///   appear in it verbatim, or the whole of `ceiling`'s list if none do (an
+    ///   empty list would mean "any address").
+    pub fn intersect(&self, ceiling: &Scope) -> Scope {
+        Scope {
+            read: self.read && ceiling.read,
+            send: self.send && ceiling.send,
+            delete: self.delete && ceiling.delete,
+            accounts: selector_intersect(&self.accounts, &ceiling.accounts),
+            folders: selector_intersect(&self.folders, &ceiling.folders),
+            mail: self.mail && ceiling.mail,
+            pim: self.pim && ceiling.pim,
+            ip_allowlist: ip_allowlist_intersect(&self.ip_allowlist, &ceiling.ip_allowlist),
+            expires_at: earlier_expiry(self.expires_at.as_deref(), ceiling.expires_at.as_deref()),
+            rate_limit: match (self.rate_limit, ceiling.rate_limit) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            },
+            mcp_tools: self
+                .mcp_tools
+                .iter()
+                .filter(|t| ceiling.mcp_tools.contains(t))
+                .cloned()
+                .collect(),
+            unattended_send: self.unattended_send && ceiling.unattended_send,
+        }
+    }
+}
+
+/// The ids selected by both `a` and `b`.
+fn selector_intersect(a: &ScopeSelector, b: &ScopeSelector) -> ScopeSelector {
+    match (a, b) {
+        (ScopeSelector::All, other) | (other, ScopeSelector::All) => other.clone(),
+        (ScopeSelector::Subset(x), ScopeSelector::Subset(y)) => {
+            ScopeSelector::Subset(x.iter().filter(|id| y.contains(id)).cloned().collect())
+        }
+    }
+}
+
+/// See [`Scope::intersect`]. An empty allowlist means "any source address".
+fn ip_allowlist_intersect(requested: &[String], ceiling: &[String]) -> Vec<String> {
+    if ceiling.is_empty() {
+        return requested.to_vec();
+    }
+    let common: Vec<String> = requested
+        .iter()
+        .filter(|e| ceiling.contains(e))
+        .cloned()
+        .collect();
+    if common.is_empty() {
+        ceiling.to_vec()
+    } else {
+        common
+    }
+}
+
+/// The earlier of two optional RFC 3339 expiries (`None` = no expiry). A
+/// `requested` value that does not parse is kept only when `ceiling` sets none:
+/// enforcement treats an unreadable expiry as already expired.
+fn earlier_expiry(requested: Option<&str>, ceiling: Option<&str>) -> Option<String> {
+    let parse = |s: &str| chrono::DateTime::parse_from_rfc3339(s).ok();
+    match (requested, ceiling) {
+        (None, c) => c.map(str::to_string),
+        (r, None) => r.map(str::to_string),
+        (Some(r), Some(c)) => match (parse(r), parse(c)) {
+            (Some(rt), Some(ct)) if rt <= ct => Some(r.to_string()),
+            _ => Some(c.to_string()),
+        },
     }
 }
 

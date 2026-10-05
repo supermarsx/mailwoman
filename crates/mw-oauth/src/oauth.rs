@@ -107,6 +107,34 @@ pub struct Introspection {
     pub expires_at: Option<String>,
 }
 
+/// The scope a consented authorization may carry: `requested`, cut down to
+/// `ceiling` when the client has one ([`Scope::intersect`]), and never with
+/// `unattended_send`.
+///
+/// Unattended send is an API-key privilege that an administrator countersigns per
+/// key; the consent flow has no such second signature, so it cannot be granted
+/// here whatever the request or the ceiling says.
+///
+/// A request for more than the ceiling is narrowed, not refused (RFC 6749 §3.3
+/// lets the server ignore part of a requested scope; the token response always
+/// states the scope that was issued).
+pub fn consent_scope(requested: &Scope, ceiling: Option<&Scope>) -> Scope {
+    let mut scope = match ceiling {
+        Some(c) => requested.intersect(c),
+        None => requested.clone(),
+    };
+    scope.unattended_send = false;
+    scope
+}
+
+/// A stored OAuth token's scope as it is honoured: without `unattended_send`.
+/// [`AuthServer::authorize_within`] never stores it; this covers rows written
+/// before that was so.
+pub(crate) fn token_scope(mut scope: Scope) -> Scope {
+    scope.unattended_send = false;
+    scope
+}
+
 /// True if an RFC 3339 timestamp is in the past (malformed → treated as expired).
 pub(crate) fn is_expired(rfc3339: &str) -> bool {
     match DateTime::parse_from_rfc3339(rfc3339) {
@@ -132,14 +160,30 @@ impl<S: OAuthStore> AuthServer<S> {
         &self.store
     }
 
-    /// Handle a consented authorization request → mint a one-time auth code.
-    ///
-    /// Enforces: `response_type=code`, **PKCE S256 present**, **resource present**,
-    /// client registered + approved, `redirect_uri` registered.
+    /// Handle a consented authorization request → mint a one-time auth code, for
+    /// a client that has no scope ceiling. See [`Self::authorize_within`].
     pub async fn authorize(
         &self,
         req: &AuthorizeRequest,
         account_id: &str,
+    ) -> Result<AuthorizeResponse, OAuthError> {
+        self.authorize_within(req, account_id, None).await
+    }
+
+    /// Handle a consented authorization request → mint a one-time auth code.
+    ///
+    /// Enforces: `response_type=code`, **PKCE S256 present**, **resource present**,
+    /// client registered + approved, `redirect_uri` registered.
+    ///
+    /// The code — and every token later issued from it — carries
+    /// [`consent_scope`]`(&req.scope, ceiling)`: at most `ceiling`, and never
+    /// `unattended_send`. `ceiling` is the most the client may be granted; the
+    /// client registry row holds no scope, so the caller supplies it.
+    pub async fn authorize_within(
+        &self,
+        req: &AuthorizeRequest,
+        account_id: &str,
+        ceiling: Option<&Scope>,
     ) -> Result<AuthorizeResponse, OAuthError> {
         if req.response_type != "code" {
             return Err(OAuthError::InvalidGrant);
@@ -167,7 +211,7 @@ impl<S: OAuthStore> AuthServer<S> {
             token_hash: sha256_hex(&code),
             client_id: req.client_id.clone(),
             account_id: account_id.to_string(),
-            scope: req.scope.clone(),
+            scope: consent_scope(&req.scope, ceiling),
             resource: Some(req.resource.clone()),
             kind: TokenKind::AuthCode,
             expires_at: (now + self.config.auth_code_ttl).to_rfc3339(),
@@ -283,7 +327,10 @@ impl<S: OAuthStore> AuthServer<S> {
     }
 
     /// Mint an access + refresh pair inheriting `src`'s scope/resource/identity.
+    /// Neither grant takes a scope parameter, so the pair can only carry what
+    /// `src` does (less `unattended_send`, see [`token_scope`]).
     async fn issue_pair(&self, src: &OAuthToken) -> Result<TokenResponse, OAuthError> {
+        let scope = token_scope(src.scope.clone());
         let now = Utc::now();
         let access = b64url(&random_bytes::<32>());
         let refresh = b64url(&random_bytes::<32>());
@@ -292,7 +339,7 @@ impl<S: OAuthStore> AuthServer<S> {
             token_hash: sha256_hex(&access),
             client_id: src.client_id.clone(),
             account_id: src.account_id.clone(),
-            scope: src.scope.clone(),
+            scope: scope.clone(),
             resource: src.resource.clone(),
             kind: TokenKind::Access,
             expires_at: (now + self.config.access_ttl).to_rfc3339(),
@@ -314,7 +361,7 @@ impl<S: OAuthStore> AuthServer<S> {
             refresh_token: Some(refresh),
             token_type: "Bearer".to_string(),
             expires_in: self.config.access_ttl.num_seconds(),
-            scope: src.scope.clone(),
+            scope,
             resource: src.resource.clone(),
         })
     }
@@ -334,7 +381,7 @@ impl<S: OAuthStore> AuthServer<S> {
         }
         Ok(Introspection {
             active: true,
-            scope: Some(t.scope),
+            scope: Some(token_scope(t.scope)),
             resource: t.resource,
             client_id: Some(t.client_id),
             account_id: Some(t.account_id),
@@ -347,5 +394,74 @@ impl<S: OAuthStore> AuthServer<S> {
     /// succeeds silently, as the RFC requires.
     pub async fn revoke(&self, token: &str) -> Result<(), OAuthError> {
         self.store.revoke_token(&sha256_hex(token)).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::enforce::{NoopAudit, RequestContext};
+    use crate::{InMemoryOAuthStore, ScopeSelector};
+
+    /// Token rows written before the consent flow stopped storing the flag: an
+    /// access and a refresh token whose stored scope has `unattended_send`.
+    #[tokio::test]
+    async fn a_stored_token_carrying_unattended_send_is_not_honoured_for_it() {
+        let server = AuthServer::new(InMemoryOAuthStore::new());
+        let mut scope = Scope::read_only("acct-9");
+        scope.send = true;
+        scope.accounts = ScopeSelector::All;
+        scope.unattended_send = true;
+        let row = |token: &str, kind: TokenKind| OAuthToken {
+            token_hash: sha256_hex(token),
+            client_id: "client-1".into(),
+            account_id: "acct-9".into(),
+            scope: scope.clone(),
+            resource: None,
+            kind,
+            expires_at: (Utc::now() + Duration::hours(1)).to_rfc3339(),
+            created_at: Utc::now().to_rfc3339(),
+            revoked_at: None,
+            pkce_challenge: None,
+        };
+        for (token, kind) in [
+            ("old-access", TokenKind::Access),
+            ("old-refresh", TokenKind::Refresh),
+        ] {
+            server.store().put_token(row(token, kind)).await.unwrap();
+        }
+        let mut expected = scope.clone();
+        expected.unattended_send = false;
+
+        let info = server.introspect("old-access").await.unwrap();
+        assert!(info.active);
+        assert_eq!(info.scope, Some(expected.clone()));
+
+        let ctx = RequestContext {
+            credential: "old-access",
+            source_ip: None,
+            resource: None,
+        };
+        let granted = server
+            .require_scope(&ctx, &expected, &NoopAudit)
+            .await
+            .unwrap();
+        assert_eq!(granted.scope, expected);
+        assert!(matches!(
+            server.require_scope(&ctx, &scope, &NoopAudit).await,
+            Err(OAuthError::InvalidScope)
+        ));
+
+        let next = server
+            .token(&TokenRequest::RefreshToken {
+                refresh_token: "old-refresh".into(),
+                client_id: "client-1".into(),
+                resource: None,
+            })
+            .await
+            .unwrap();
+        assert_eq!(next.scope, expected);
+        let info = server.introspect(&next.access_token).await.unwrap();
+        assert_eq!(info.scope, Some(expected));
     }
 }
