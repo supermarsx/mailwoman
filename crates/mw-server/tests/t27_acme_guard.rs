@@ -52,6 +52,20 @@ async fn bind_refuses_a_non_hostname_and_leaves_the_port_unbound() {
         .expect("a hostname is accepted");
     assert!(resolver.is_none(), "ACME mode has no reloadable resolver");
     assert!(is_listening(addr), "control: bind() bound the port");
+    assert_eq!(listener.acme_domains(), ["mail.example.org"]);
+    drop(listener);
+
+    // An entry written with padding or capitals is accepted, and what ACME is
+    // configured with is the name that was checked, not the string as written
+    // (`MW_ACME="a.example.org, B.example.org"` splits into a padded entry).
+    let addr = free_port();
+    let (listener, _) = TlsListener::bind(
+        &addr.to_string(),
+        &acme(&["a.example.org", " B.Example.org "]),
+    )
+    .await
+    .expect("padded and mixed-case hostnames are accepted");
+    assert_eq!(listener.acme_domains(), ["a.example.org", "b.example.org"]);
     drop(listener);
 
     for bad in [
@@ -60,6 +74,11 @@ async fn bind_refuses_a_non_hostname_and_leaves_the_port_unbound() {
         vec!["false"],
         vec![""],
         vec!["localhost"],
+        // IP literals: a public CA does not issue for them through this flow.
+        vec!["192.0.2.1"],
+        vec!["::1"],
+        vec!["[2001:db8::1]"],
+        vec!["mail.example.org", " 192.0.2.1 "],
         vec!["mail.example.org", "off"],
         vec![],
     ] {
@@ -93,4 +112,21 @@ fn the_error_names_the_value_and_how_to_disable_acme() {
         "says how to run without ACME: {err}"
     );
     assert!(validate_acme_domains(&["mail.example.org".to_string()]).is_ok());
+}
+
+#[test]
+fn an_ip_address_is_refused_as_an_ip_address() {
+    for bad in ["192.0.2.1", "::1", "[2001:db8::1]"] {
+        let err = validate_acme_domains(&[bad.to_string()])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains(&format!("{bad:?}")) && err.contains("is an IP address"),
+            "{bad}: names the value and says why: {err}"
+        );
+        assert!(
+            err.contains("leave MW_ACME unset"),
+            "{bad}: says how to run without ACME: {err}"
+        );
+    }
 }

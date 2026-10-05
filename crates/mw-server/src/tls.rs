@@ -295,6 +295,8 @@ pub struct TlsListener {
     resolver: Arc<dyn ResolvesServerCert>,
     /// The configuration in use and the floor it was built for.
     config: (MinTls, Arc<ServerConfig>),
+    /// The domain names handed to ACME; empty in external-cert mode.
+    acme_domains: Vec<String>,
 }
 
 impl TlsListener {
@@ -303,7 +305,9 @@ impl TlsListener {
     /// pokes to hot-reload.
     ///
     /// In ACME mode the domain list is checked first ([`validate_acme_domains`]);
-    /// a list that fails is an error and `addr` is never bound.
+    /// a list that fails is an error and `addr` is never bound. The names ACME is
+    /// then configured with are the ones that function returns — trimmed and
+    /// lowercased, as they were checked — not the strings as written.
     pub async fn bind(
         addr: &str,
         tls: &TlsConfig,
@@ -311,9 +315,10 @@ impl TlsListener {
         // Refuse an ACME domain list that cannot be one before anything is bound:
         // `--acme off` would otherwise start an HTTPS listener and ask Let's
         // Encrypt for a certificate for a host named `off`.
-        if let TlsConfig::Acme { domains, .. } = tls {
-            validate_acme_domains(domains)?;
-        }
+        let acme_domains = match tls {
+            TlsConfig::Acme { domains, .. } => validate_acme_domains(domains)?,
+            TlsConfig::External { .. } => Vec::new(),
+        };
         // `ServerConfig::builder()` (here and inside rustls-acme) needs a
         // process-wide crypto provider. Install ring's once; ignore if another
         // component already did.
@@ -334,17 +339,19 @@ impl TlsListener {
                         acceptor: Acceptor::External,
                         resolver: resolver.clone(),
                         config: (floor, Arc::new(config)),
+                        acme_domains,
                     },
                     Some(resolver),
                 ))
             }
             TlsConfig::Acme {
-                domains,
                 contact,
                 cache_dir,
                 staging,
+                ..
             } => {
-                let mut cfg = AcmeConfig::new(domains.clone())
+                // The validated names, not `TlsConfig::Acme::domains` as written.
+                let mut cfg = AcmeConfig::new(acme_domains.clone())
                     .cache(DirCache::new(cache_dir.clone()))
                     .directory_lets_encrypt(!staging);
                 if let Some(contact) = contact {
@@ -371,11 +378,18 @@ impl TlsListener {
                         acceptor: Acceptor::Acme(acceptor),
                         resolver,
                         config: (floor, Arc::new(config)),
+                        acme_domains,
                     },
                     None,
                 ))
             }
         }
+    }
+
+    /// The domain names this listener asks ACME to issue for: exactly the list
+    /// passed to `AcmeConfig`. Empty in external-cert mode.
+    pub fn acme_domains(&self) -> &[String] {
+        &self.acme_domains
     }
 
     /// The configuration for the floor in force, rebuilt if the floor has changed
@@ -395,21 +409,26 @@ impl TlsListener {
 const ACME_NOT_A_DOMAIN: &[&str] = &["off", "no", "none", "false", "disabled", "0"];
 
 /// Check that every `--acme` / `MW_ACME` entry could be a DNS name a public CA
-/// would issue for. Called by [`TlsListener::bind`] before the socket is bound.
+/// would issue for, and return the names in the form that was checked: trimmed
+/// and lowercased, in the order given. Called by [`TlsListener::bind`] before the
+/// socket is bound; what it returns is what ACME is configured with.
 ///
 /// An entry is refused when, after trimming and lowercasing, it is empty, is one of
-/// the "off" spellings above, has no dot, has a character outside `[a-z0-9.-]`, or
-/// has a label that is empty or starts or ends with `-`. This is a plausibility
-/// check, not DNS validation: it exists to turn `--acme off` (which the deploy
-/// docs once recommended) and `MW_ACME=""` into a startup error rather than an
-/// HTTPS listener with no certificate behind what the operator meant to be plain
-/// HTTP.
-pub fn validate_acme_domains(domains: &[String]) -> anyhow::Result<()> {
+/// the "off" spellings above, is an IP address (IPv4, or IPv6 with or without
+/// brackets), has no dot, has a character outside `[a-z0-9.-]`, has a label that
+/// is empty or starts or ends with `-`, or ends in an all-digit label (no
+/// top-level domain is numeric, and forms such as `10.1` are read as addresses by
+/// some resolvers). This is a plausibility check, not DNS validation: it exists to
+/// turn `--acme off` (which the deploy docs once recommended) and `MW_ACME=""`
+/// into a startup error rather than an HTTPS listener with no certificate behind
+/// what the operator meant to be plain HTTP.
+pub fn validate_acme_domains(domains: &[String]) -> anyhow::Result<Vec<String>> {
     const HOW_TO_DISABLE: &str = "to run without built-in ACME, do not pass --acme and leave \
                                   MW_ACME unset (an empty MW_ACME counts as set)";
     if domains.is_empty() {
         return Err(anyhow!("ACME needs at least one domain; {HOW_TO_DISABLE}"));
     }
+    let mut checked = Vec::with_capacity(domains.len());
     for raw in domains {
         let d = raw.trim().to_ascii_lowercase();
         if d.is_empty() {
@@ -423,19 +442,33 @@ pub fn validate_acme_domains(domains: &[String]) -> anyhow::Result<()> {
                  request a certificate for a host named {raw:?}; {HOW_TO_DISABLE}"
             ));
         }
+        let unbracketed = d
+            .strip_prefix('[')
+            .and_then(|rest| rest.strip_suffix(']'))
+            .unwrap_or(&d);
+        if unbracketed.parse::<std::net::IpAddr>().is_ok() {
+            return Err(anyhow!(
+                "--acme / MW_ACME entry {raw:?} is an IP address, not a domain name: built-in \
+                 ACME requests certificates for domain names only; {HOW_TO_DISABLE}"
+            ));
+        }
         let plausible = d.contains('.')
             && d.bytes()
                 .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'-')
             && d.split('.')
-                .all(|label| !label.is_empty() && !label.starts_with('-') && !label.ends_with('-'));
+                .all(|label| !label.is_empty() && !label.starts_with('-') && !label.ends_with('-'))
+            && d.rsplit('.')
+                .next()
+                .is_some_and(|tld| !tld.bytes().all(|b| b.is_ascii_digit()));
         if !plausible {
             return Err(anyhow!(
                 "--acme / MW_ACME entry {raw:?} is not a fully-qualified domain name; \
                  {HOW_TO_DISABLE}"
             ));
         }
+        checked.push(d);
     }
-    Ok(())
+    Ok(checked)
 }
 
 /// A rustls server config that resolves certs through `resolver`, offers
@@ -524,6 +557,11 @@ mod tests {
     }
 
     fn acme(domains: &[&str]) -> Result<(), String> {
+        acme_names(domains).map(|_| ())
+    }
+
+    /// The names the guard hands on to ACME for `domains`.
+    fn acme_names(domains: &[&str]) -> Result<Vec<String>, String> {
         let owned: Vec<String> = domains.iter().map(|d| d.to_string()).collect();
         validate_acme_domains(&owned).map_err(|e| e.to_string())
     }
@@ -534,6 +572,44 @@ mod tests {
         assert_eq!(acme(&["mail.example.org", "Webmail.Example.ORG"]), Ok(()));
         assert_eq!(acme(&[" mail-2.example.org "]), Ok(()));
         assert_eq!(acme(&["xn--mnchen-3ya.example"]), Ok(()));
+    }
+
+    #[test]
+    fn acme_domains_are_handed_on_as_they_were_checked() {
+        assert_eq!(
+            acme_names(&["a.example.org", " B.Example.ORG\t"]),
+            Ok(vec![
+                "a.example.org".to_string(),
+                "b.example.org".to_string()
+            ])
+        );
+    }
+
+    #[test]
+    fn acme_domains_refuses_ip_addresses_by_name() {
+        for bad in [
+            "192.0.2.1",
+            " 192.0.2.1 ",
+            "::1",
+            "2001:db8::1",
+            "2001:DB8::1",
+            "[::1]",
+            "[2001:db8::1]",
+            "::ffff:192.0.2.1",
+        ] {
+            let err = acme(&[bad]).expect_err(bad);
+            assert!(
+                err.contains("is an IP address") && err.contains("leave MW_ACME unset"),
+                "{bad:?}: the error says it is an address and how to disable ACME: {err}"
+            );
+        }
+        // Not parseable as an address, but no name ends in a numeric label either.
+        for bad in ["10.1", "192.0.2", "1.2.3.4.5", "mail.example.123"] {
+            assert!(acme(&[bad]).is_err(), "{bad:?} must be refused");
+        }
+        // Digits elsewhere in a name are fine.
+        assert_eq!(acme(&["192.0.2.1.example.org"]), Ok(()));
+        assert_eq!(acme(&["1.example.org", "mail.3com.example"]), Ok(()));
     }
 
     #[test]
