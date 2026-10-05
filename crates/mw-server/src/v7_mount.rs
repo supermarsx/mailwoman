@@ -1866,7 +1866,8 @@ impl NotLoaded {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PluginRole {
     /// Declares `account-backend`: loaded per `bridge_accounts` binding by
-    /// [`load_plugin_backends`], at start-up.
+    /// [`load_plugin_backends`], at start-up; stopped by [`unload_unwanted_bridges`]
+    /// after any registry change that no longer permits the loaded instance.
     Bridge,
     /// Declares `spam-action`: loaded into the classifier seat by
     /// [`sync_spam_classifier`], at start-up and after every registry change.
@@ -1980,6 +1981,7 @@ async fn load_planned(
 /// One plugin as loaded: per instance, the capabilities it runs with.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct LoadedPlugin {
+    role: PluginRole,
     /// Account id (`""` for an instance bound to no account) → that instance's
     /// effective capabilities, as `PluginHandle::granted` reports them.
     instances: BTreeMap<String, Vec<Capability>>,
@@ -2026,6 +2028,8 @@ pub(crate) struct PluginRuntime {
     loaded: Mutex<BTreeMap<String, LoadedPlugin>>,
     /// The reason the last load attempt of a plugin failed after planning.
     failed: Mutex<BTreeMap<String, NotLoaded>>,
+    /// The PIM source [`load_plugin_backends`] handed to the engine, if it bound any.
+    bridge_pim: Mutex<Option<Arc<BridgePimSource>>>,
 }
 
 impl PluginRuntime {
@@ -2055,12 +2059,14 @@ impl PluginRuntime {
     /// Record a loaded instance of `row` (bound to `account`, `""` for none).
     fn note_loaded(&self, row: &PluginRow, account: &str, handle: &PluginHandle) {
         let mut loaded = self.loaded.lock().expect("plugin runtime lock");
-        let entry = loaded
-            .entry(row.id.clone())
-            .or_insert_with(|| LoadedPlugin {
+        let entry = loaded.entry(row.id.clone()).or_insert_with(|| {
+            let manifest = manifest_of(row);
+            LoadedPlugin {
+                role: PluginRole::of(&manifest),
                 instances: BTreeMap::new(),
-                net_allowlist: manifest_of(row).net_allowlist,
-            });
+                net_allowlist: manifest.net_allowlist,
+            }
+        });
         entry
             .instances
             .insert(account.to_string(), handle.granted());
@@ -2075,6 +2081,17 @@ impl PluginRuntime {
             .lock()
             .expect("plugin runtime lock")
             .remove(plugin_id);
+    }
+
+    /// Drop the record of one instance; the plugin's record goes with its last one.
+    fn forget_instance(&self, plugin_id: &str, account: &str) {
+        let mut loaded = self.loaded.lock().expect("plugin runtime lock");
+        if let Some(entry) = loaded.get_mut(plugin_id) {
+            entry.instances.remove(account);
+            if entry.instances.is_empty() {
+                loaded.remove(plugin_id);
+            }
+        }
     }
 }
 
@@ -2104,6 +2121,7 @@ pub(crate) fn plugin_runtime(reg: &PluginRegistry) -> Arc<PluginRuntime> {
         engine_mode: AtomicBool::new(false),
         loaded: Mutex::new(BTreeMap::new()),
         failed: Mutex::new(BTreeMap::new()),
+        bridge_pim: Mutex::new(None),
     });
     table.push((Arc::downgrade(reg), Arc::clone(&runtime)));
     runtime
@@ -2256,6 +2274,82 @@ async fn wanted_bridge_instances(
     (wanted, bound, refusal)
 }
 
+/// Stop every loaded bridge instance the registry no longer asks for as it is: its
+/// plugin was uninstalled, disabled, lost its digest pin's enablement or its
+/// allow-unsigned flag, or the instance's grant or host list changed. The account's
+/// backend is unregistered from the engine and its PIM slots are dropped, so nothing
+/// routes to the instance any more. Nothing is loaded here: an instance the registry
+/// asks for that is not running, including one stopped because its grant changed,
+/// starts at the next start-up, which [`plugin_status`] reports.
+pub(crate) async fn unload_unwanted_bridges(
+    engine: Option<&Arc<mw_engine::Engine>>,
+    reg: &PluginRegistry,
+    store: &Store,
+) {
+    let Some(engine) = engine else {
+        return;
+    };
+    let runtime = plugin_runtime(reg);
+    let bridges: Vec<(String, LoadedPlugin)> = runtime
+        .loaded
+        .lock()
+        .expect("plugin runtime lock")
+        .iter()
+        .filter(|(_, l)| l.role == PluginRole::Bridge)
+        .map(|(id, l)| (id.clone(), l.clone()))
+        .collect();
+    if bridges.is_empty() {
+        return;
+    }
+    let rows = match store.list_plugins().await {
+        Ok(rows) => rows,
+        Err(e) => {
+            // The registry cannot be read, so nothing is known to be permitted.
+            tracing::error!("plugin registry read failed; loaded bridges unloaded: {e}");
+            Vec::new()
+        }
+    };
+    let pim = runtime
+        .bridge_pim
+        .lock()
+        .expect("plugin runtime lock")
+        .clone();
+    for (id, loaded) in bridges {
+        let row = rows.iter().find(|r| r.id == id);
+        let wanted = match row {
+            Some(row) if manifest_of(row).net_allowlist == loaded.net_allowlist => {
+                wanted_bridge_instances(store, row).await.0
+            }
+            _ => BTreeMap::new(),
+        };
+        for (account, caps) in &loaded.instances {
+            if wanted.get(account) == Some(caps) {
+                continue;
+            }
+            engine.unregister(account);
+            if let Some(pim) = &pim {
+                pim.drop_account(account);
+            }
+            runtime.forget_instance(&id, account);
+            tracing::info!(
+                "bridge '{id}' unloaded for account {account}: the registry no longer permits it as loaded"
+            );
+        }
+    }
+}
+
+/// Apply the registry to what is running, as far as it can be applied without a
+/// restart: [`sync_spam_classifier`] and [`unload_unwanted_bridges`]. Every admin
+/// route that changes the registry calls this before it answers.
+pub(crate) async fn sync_plugins(
+    engine: Option<&Arc<mw_engine::Engine>>,
+    reg: &PluginRegistry,
+    store: &Store,
+) {
+    sync_spam_classifier(reg, store).await;
+    unload_unwanted_bridges(engine, reg, store).await;
+}
+
 /// What the admin API reports about one registered plugin in this process.
 pub(crate) struct PluginStatus {
     /// An instance of it is loaded and something in this server calls it.
@@ -2296,7 +2390,8 @@ pub(crate) async fn plugin_status(
             };
             (false, Some(why))
         }
-        // Bridges are loaded by `load_plugin_backends` at start-up only.
+        // Bridges are loaded by `load_plugin_backends` at start-up only, and stopped
+        // by `unload_unwanted_bridges` at any time.
         PluginRole::Bridge => {
             let (wanted, bound, refusal) = wanted_bridge_instances(store, row).await;
             let failure = runtime.failure(&row.id);
@@ -2307,7 +2402,13 @@ pub(crate) async fn plugin_status(
             let why = if loaded.is_some() {
                 None
             } else if bound == 0 {
-                Some(refusal.unwrap_or(NotLoaded::NoAccountBinding))
+                // What stands in the way besides the missing binding comes first.
+                Some(
+                    plan_load(store, row, None)
+                        .await
+                        .err()
+                        .unwrap_or(NotLoaded::NoAccountBinding),
+                )
             } else {
                 refusal.or(failure)
             };
@@ -2677,41 +2778,50 @@ pub(crate) async fn probe_bridge_pim(handle: &PluginHandle) -> BridgePimSlots {
 
 /// The `BridgeCapabilitySource` e13 attaches: a per-account map of the precomputed
 /// (boot-probed) PIM slots. A non-bridge account (absent from the map) yields `None`
-/// for every accessor ⇒ the engine's byte-unchanged standards fallback.
+/// for every accessor ⇒ the engine's byte-unchanged standards fallback. An account is
+/// removed when its bridge instance is unloaded ([`unload_unwanted_bridges`]).
 pub(crate) struct BridgePimSource {
-    accounts: std::collections::HashMap<String, BridgePimSlots>,
+    accounts: std::sync::RwLock<std::collections::HashMap<String, BridgePimSlots>>,
+}
+
+impl BridgePimSource {
+    fn slots(&self, account_id: &str) -> Option<BridgePimSlots> {
+        self.accounts
+            .read()
+            .expect("bridge pim lock")
+            .get(account_id)
+            .cloned()
+    }
+
+    fn drop_account(&self, account_id: &str) {
+        self.accounts
+            .write()
+            .expect("bridge pim lock")
+            .remove(account_id);
+    }
 }
 
 impl mw_engine::BridgeCapabilitySource for BridgePimSource {
     fn caps(&self, account_id: &str) -> mw_engine::BridgeCaps {
-        self.accounts
-            .get(account_id)
-            .map(|s| s.caps)
-            .unwrap_or_default()
+        self.slots(account_id).map(|s| s.caps).unwrap_or_default()
     }
     fn reactions(&self, account_id: &str) -> Option<Arc<dyn mw_engine::BridgeReactions>> {
-        self.accounts
-            .get(account_id)
-            .and_then(|s| s.reactions.clone())
+        self.slots(account_id).and_then(|s| s.reactions)
     }
     fn voting(&self, account_id: &str) -> Option<Arc<dyn mw_engine::BridgeVoting>> {
-        self.accounts.get(account_id).and_then(|s| s.voting.clone())
+        self.slots(account_id).and_then(|s| s.voting)
     }
     fn recall(&self, account_id: &str) -> Option<Arc<dyn mw_engine::BridgeRecall>> {
-        self.accounts.get(account_id).and_then(|s| s.recall.clone())
+        self.slots(account_id).and_then(|s| s.recall)
     }
     fn focused_sync(&self, account_id: &str) -> Option<Arc<dyn mw_engine::BridgeFocusedSync>> {
-        self.accounts
-            .get(account_id)
-            .and_then(|s| s.focused.clone())
+        self.slots(account_id).and_then(|s| s.focused)
     }
     fn calendar(&self, account_id: &str) -> Option<Arc<dyn mw_engine::BridgeCalendar>> {
-        self.accounts
-            .get(account_id)
-            .and_then(|s| s.calendar.clone())
+        self.slots(account_id).and_then(|s| s.calendar)
     }
     fn tasks(&self, account_id: &str) -> Option<Arc<dyn mw_engine::BridgeTasks>> {
-        self.accounts.get(account_id).and_then(|s| s.tasks.clone())
+        self.slots(account_id).and_then(|s| s.tasks)
     }
 }
 
@@ -2793,8 +2903,9 @@ pub(crate) async fn build_spam_hook(
 /// Deny-by-default: an unbound, unapproved, disabled, ungranted or unpinned plugin
 /// loads nothing, a component whose on-disk bytes fail the digest pin fails closed, and
 /// an account with no binding is byte-unchanged from the non-plugin path. Every skip is
-/// logged (never silent). Runs once, at start-up: a later registry change to a bridge
-/// is reported by [`plugin_status`] as needing a restart.
+/// logged (never silent). Runs once, at start-up. A later registry change stops an
+/// instance it no longer permits ([`unload_unwanted_bridges`]); one that would start
+/// an instance is reported by [`plugin_status`] as needing a restart.
 pub async fn load_plugin_backends(
     engine: &Arc<mw_engine::Engine>,
     host: &PluginRegistry,
@@ -2922,9 +3033,12 @@ pub async fn load_plugin_backends(
     let source: Option<Arc<dyn mw_engine::BridgeCapabilitySource>> = if pim_slots.is_empty() {
         None
     } else {
-        Some(Arc::new(BridgePimSource {
-            accounts: pim_slots,
-        }))
+        let source = Arc::new(BridgePimSource {
+            accounts: std::sync::RwLock::new(pim_slots),
+        });
+        // Kept so that unloading an instance also takes its PIM slots away.
+        *runtime.bridge_pim.lock().expect("plugin runtime lock") = Some(Arc::clone(&source));
+        Some(source)
     };
     (loaded, source)
 }
@@ -4207,6 +4321,94 @@ mod tests {
             plan_load(&store, &disabled, None).await.err(),
             Some(NotLoaded::Disabled)
         );
+    }
+
+    /// A loaded bridge is stopped as soon as the registry no longer permits it:
+    /// narrowing its grant, then disabling it, each unregister the account's backend
+    /// from the engine and drop its PIM slots. Before 26.20 nothing stopped a loaded
+    /// instance short of a restart.
+    #[tokio::test]
+    async fn a_loaded_bridge_is_unloaded_when_the_registry_stops_permitting_it() {
+        use Capability::{AccountBackend, AddrbookSource, Net, StoreKvScoped};
+
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let graph = first_party_manifest("bridge-graph").unwrap();
+        store.put_plugin(&registry_row(&graph)).await.unwrap();
+        for account in ["acct-a", "acct-b"] {
+            store
+                .put_bridge_account(&mw_store::BridgeAccountRow {
+                    account_id: account.into(),
+                    bridge_id: "bridge-graph".into(),
+                    oauth_ref: None,
+                    extra_json: "{}".into(),
+                })
+                .await
+                .unwrap();
+        }
+        let all = [AccountBackend, Net, AddrbookSource, StoreKvScoped];
+        grant_caps(&store, "bridge-graph", "", &all).await;
+
+        let reg = build_plugin_host(&store).await;
+        let engine = Arc::new(mw_engine::Engine::new(store.clone()));
+        let (loaded, pim) = load_plugin_backends(&engine, &reg, &store).await;
+        let pim = pim.expect("graph binds PIM slots");
+        assert_eq!(loaded, 2);
+        let row = store.get_plugin("bridge-graph").await.unwrap().unwrap();
+        for account in ["acct-a", "acct-b"] {
+            assert!(engine.is_registered(account), "{account} is served");
+            assert!(pim.calendar(account).is_some(), "{account} has PIM slots");
+        }
+        let status = plugin_status(&store, &reg, &row).await;
+        assert!(status.loaded && !status.restart_required);
+
+        // Nothing changed: a sync leaves both instances running.
+        sync_plugins(Some(&engine), &reg, &store).await;
+        assert!(engine.is_registered("acct-a") && engine.is_registered("acct-b"));
+
+        // Narrow the grant for everyone, keep the full one for account A only: B's
+        // instance would now run with less than it was loaded with, so it is stopped.
+        grant_caps(&store, "bridge-graph", "", &[AccountBackend, Net]).await;
+        grant_caps(&store, "bridge-graph", "acct-a", &all).await;
+        sync_plugins(Some(&engine), &reg, &store).await;
+        assert!(engine.is_registered("acct-a"), "A's grant is unchanged");
+        assert!(
+            !engine.is_registered("acct-b"),
+            "B must not keep its old grant"
+        );
+        assert!(pim.calendar("acct-a").is_some());
+        assert!(pim.calendar("acct-b").is_none(), "B's PIM slots are gone");
+        assert!(!pim.caps("acct-b").reactions);
+        let status = plugin_status(&store, &reg, &row).await;
+        assert!(status.loaded, "A's instance still runs");
+        assert!(
+            status.restart_required,
+            "B's instance with the narrower grant starts at the next start-up"
+        );
+
+        // Disable the plugin: the last instance stops too.
+        store
+            .set_plugin_enabled("bridge-graph", false)
+            .await
+            .unwrap();
+        sync_plugins(Some(&engine), &reg, &store).await;
+        assert!(!engine.is_registered("acct-a"));
+        assert!(pim.calendar("acct-a").is_none());
+        let row = store.get_plugin("bridge-graph").await.unwrap().unwrap();
+        let status = plugin_status(&store, &reg, &row).await;
+        assert!(!status.loaded && !status.restart_required);
+        assert_eq!(status.not_loaded, Some(NotLoaded::Disabled));
+
+        // Enabling it again does not start it: that needs a restart, and says so.
+        store
+            .set_plugin_enabled("bridge-graph", true)
+            .await
+            .unwrap();
+        sync_plugins(Some(&engine), &reg, &store).await;
+        assert!(!engine.is_registered("acct-a"));
+        let row = store.get_plugin("bridge-graph").await.unwrap().unwrap();
+        let status = plugin_status(&store, &reg, &row).await;
+        assert!(!status.loaded && status.restart_required);
+        assert_eq!(status.not_loaded, None);
     }
 
     // ── 26.20 (t28-e14): the plugin `http-fetch` address policy ──────────────────

@@ -17,8 +17,7 @@
 //!   * `POST /admin/plugins/allowlist` — approve an exact `(pluginId, digestHex)` pin
 //!     (rejects a first-party-colliding id and a malformed digest).
 //!   * `POST /admin/plugins/allowlist/{plugin_id}/{digest_hex}/revoke` — revoke a pin AND
-//!     disable the plugin. A loaded spam classifier is unloaded at once; a loaded account
-//!     backend keeps running until the server restarts.
+//!     disable the plugin. A loaded instance is unloaded at once.
 //!   * `POST /admin/plugins/{id}/uninstall` — remove the plugin: purge its KV namespace,
 //!     delete its allowlist rows, and delete its registry row, grants and allow-unsigned
 //!     flag.
@@ -212,9 +211,8 @@ async fn approve_digest(
 
 /// `POST /admin/plugins/allowlist/{plugin_id}/{digest_hex}/revoke` — revoke a pin AND
 /// disable the plugin so it will not load again (TQ6; `resolve_component` reads the
-/// allowlist fresh each load). A loaded spam classifier is unloaded before this
-/// answers; a loaded account backend keeps running until the server restarts, which
-/// `GET /admin/plugins` reports as `restartRequired`. Audited.
+/// allowlist fresh each load). A loaded spam classifier or account backend is
+/// unloaded before this answers. Audited.
 async fn revoke_digest(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -242,14 +240,13 @@ async fn revoke_digest(
             return (StatusCode::INTERNAL_SERVER_ERROR, "store error").into_response();
         }
     };
-    // Disable the plugin so it is not loaded again, and apply that to the classifier
-    // seat now.
+    // Disable the plugin so it is not loaded again, and stop it now if it is running.
     let _ = state.store.set_plugin_enabled(&plugin_id, false).await;
     {
         let mut host = reg.lock().expect("plugin registry lock");
         let _ = host.disable(&plugin_id);
     }
-    super::sync_spam_classifier(&reg, &state.store).await;
+    super::sync_plugins(state.engine.as_ref(), &reg, &state.store).await;
     super::append_plugin_audit(
         &state.store,
         &admin,
@@ -265,8 +262,8 @@ async fn revoke_digest(
 /// `POST /admin/plugins/{id}/uninstall` — remove a plugin entirely: purge its KV
 /// namespace (all accounts, PQ6), delete its allowlist rows, and delete its registry
 /// row with its grants and allow-unsigned flag, so the id can be registered again from
-/// nothing. A loaded spam classifier is unloaded before this answers; a loaded account
-/// backend keeps running until the server restarts. Audited.
+/// nothing. A loaded spam classifier or account backend is unloaded before this
+/// answers. Audited.
 async fn uninstall_plugin(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -298,7 +295,7 @@ async fn uninstall_plugin(
         let mut host = reg.lock().expect("plugin registry lock");
         let _ = host.disable(&id);
     }
-    super::sync_spam_classifier(&reg, &state.store).await;
+    super::sync_plugins(state.engine.as_ref(), &reg, &state.store).await;
     super::append_plugin_audit(
         &state.store,
         &admin,

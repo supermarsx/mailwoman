@@ -16,11 +16,12 @@
 //!   * **Grants.** A load runs with the stored grant rows ∩ the manifest ∩ the
 //!     provenance filter (`v7_mount::effective_capabilities`). No grant row, no
 //!     capability. `grant` refuses a capability the manifest does not declare.
-//!   * **Effect.** A spam classifier is loaded, replaced and unloaded by
-//!     `v7_mount::sync_spam_classifier`, which every handler here calls after its
-//!     change. An account backend is loaded at start-up only; a hook the server
-//!     never calls is never loaded. [`plugin_view`] reports `loaded`,
-//!     `restartRequired` and `notLoadedReason` accordingly.
+//!   * **Effect.** Every handler here calls `v7_mount::sync_plugins` after its
+//!     change. A spam classifier is loaded, replaced and unloaded by it at once. An
+//!     account backend is stopped by it at once when the registry no longer permits
+//!     the loaded instance, but is started at start-up only. A hook the server never
+//!     calls is never loaded. [`plugin_view`] reports `loaded`, `restartRequired`
+//!     and `notLoadedReason` accordingly.
 //!
 //! The in-process `mw_plugin::PluginHost` registry (`PluginHost::register` /
 //! `approve` / `enable`) is kept in step where its API allows; nothing reads it. It
@@ -219,7 +220,7 @@ fn takes_endpoint(manifest: &PluginManifest) -> bool {
 
 /// Apply a registry change to what is running, then answer with the plugin's view.
 async fn applied(state: &AppState, reg: &PluginRegistry, id: &str, status: StatusCode) -> Response {
-    v7_mount::sync_spam_classifier(reg, &state.store).await;
+    v7_mount::sync_plugins(state.engine.as_ref(), reg, &state.store).await;
     match row_of(state, id).await {
         Ok(row) => (
             status,
@@ -657,7 +658,7 @@ async fn enable(
 }
 
 /// `POST /admin/plugins/{id}/disable` — disable a plugin. A loaded spam classifier
-/// is unloaded before this answers.
+/// or account backend is unloaded before this answers.
 async fn disable(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -755,7 +756,7 @@ async fn grant(
         json!({ "capabilities": names, "accountScoped": !account_id.is_empty() }),
     )
     .await;
-    v7_mount::sync_spam_classifier(&reg, &state.store).await;
+    v7_mount::sync_plugins(state.engine.as_ref(), &reg, &state.store).await;
     let row = match row_of(&state, &id).await {
         Ok(row) => row,
         Err(resp) => return resp,
