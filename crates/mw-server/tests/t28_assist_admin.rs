@@ -392,6 +392,17 @@ async fn transcribe(c: &reqwest::Client, base: &str) -> reqwest::Response {
         .unwrap()
 }
 
+/// `GET /api/assist/config`, what the web reads to decide whether to show Assist.
+async fn user_config(c: &reqwest::Client, base: &str) -> Value {
+    let r = c
+        .get(format!("{base}/api/assist/config"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200, "GET /api/assist/config");
+    r.json().await.unwrap()
+}
+
 async fn kill(admin: &reqwest::Client, base: &str, body: &Value) -> reqwest::Response {
     admin
         .post(format!("{base}/admin/assist/kill"))
@@ -492,6 +503,15 @@ async fn the_kill_switch_stops_the_running_gateway_and_releasing_it_resumes() {
     assert_eq!(hits.load(Ordering::SeqCst), 1, "it reached the endpoint");
     assert_eq!(settled_audit_rows(&dir, 1).await, 1, "and was audited");
 
+    let shown = user_config(&user, &base).await;
+    assert_eq!(shown["availability"], json!("enabled"), "{shown}");
+    assert_eq!(shown["enabled"], json!(true));
+    assert_eq!(
+        shown["capabilities"],
+        json!(["summarize", "dictation", "search-semantic"])
+    );
+    assert_eq!(shown["endpoint_host"], json!(endpoint_host));
+
     // A kill request that does not say which way is refused, and changes nothing.
     for (what, r) in [
         (
@@ -539,6 +559,12 @@ async fn the_kill_switch_stops_the_running_gateway_and_releasing_it_resumes() {
         1,
         "no audit row claims a refused request left"
     );
+    // And users are told so: the web hides Assist on this body.
+    let hidden = user_config(&user, &base).await;
+    assert_eq!(hidden["availability"], json!("disabled"), "{hidden}");
+    assert_eq!(hidden["enabled"], json!(false));
+    assert_eq!(hidden["capabilities"], json!([]));
+    assert_eq!(hidden["endpoint_host"], json!(null));
     // The kill kept the rest of the configuration.
     let mut expected = config.clone();
     expected["enabled"] = json!(false);
@@ -553,6 +579,10 @@ async fn the_kill_switch_stops_the_running_gateway_and_releasing_it_resumes() {
     );
     assert_eq!(transcribe(&user, &base).await.status(), 200);
     assert_eq!(hits.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        user_config(&user, &base).await["availability"],
+        json!("enabled")
+    );
 
     // Saving `enabled: false` is the same stop, through the other route.
     let mut off = config.clone();

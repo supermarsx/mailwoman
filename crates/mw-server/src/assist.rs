@@ -70,19 +70,24 @@ async fn config(
     if let Err(resp) = crate::authed(&state, &headers).await {
         return resp;
     }
-    Json(config_body(&gateway)).into_response()
+    // `assist_running`, not `gateway.is_enabled()`: a gateway an administrator has
+    // stopped since it was built refuses every request, and must read as disabled
+    // here too or the web keeps offering controls that can only fail.
+    let running = crate::v7_mount::assist_running(&gateway);
+    Json(config_body(&gateway, running)).into_response()
 }
 
-/// Build the `/api/assist/config` body. Split out so the shape is unit-testable
-/// without a live router.
-fn config_body(gateway: &AssistGateway) -> serde_json::Value {
-    let enabled = gateway.is_enabled();
+/// Build the `/api/assist/config` body. `enabled` is whether the gateway answers
+/// requests right now; when it is false the body is the disabled shape whatever
+/// the gateway was built with. Split out so the shape is unit-testable without a
+/// live router.
+fn config_body(gateway: &AssistGateway, enabled: bool) -> serde_json::Value {
     let ceiling = gateway.data_ceiling();
     json!({
         "enabled": enabled,
         "availability": if enabled { "enabled" } else { "disabled" },
-        "capabilities": gateway.granted_capabilities(),
-        "endpoint_host": gateway.endpoint_host(),
+        "capabilities": if enabled { gateway.granted_capabilities() } else { Vec::new() },
+        "endpoint_host": if enabled { gateway.endpoint_host() } else { None },
         // The admin ceiling, reported as the web's flags. Both are false unless an
         // admin explicitly opted in — and always false while the gateway is off.
         "include_e2ee": enabled && ceiling.include_e2ee,
@@ -416,7 +421,7 @@ mod tests {
     #[test]
     fn config_body_hides_everything_when_disabled() {
         let gateway = AssistGateway::new(AssistConfig::default());
-        let body = config_body(&gateway);
+        let body = config_body(&gateway, gateway.is_enabled());
         assert_eq!(body["availability"], json!("disabled"));
         assert_eq!(body["capabilities"], json!([]));
         assert_eq!(body["endpoint_host"], json!(null));
@@ -441,7 +446,7 @@ mod tests {
         .with_adapter(Arc::new(SpyAdapter {
             seen: Arc::new(Mutex::new(Vec::new())),
         }));
-        let body = config_body(&gateway);
+        let body = config_body(&gateway, gateway.is_enabled());
         assert_eq!(body["availability"], json!("enabled"));
         assert_eq!(
             body["capabilities"],

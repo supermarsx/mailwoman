@@ -64,32 +64,44 @@ test.describe('Assist (V7) — web-facing contract on the real server', () => {
     expectMounted(get, 'GET /admin/assist');
     expect(get.status()).toBe(200);
 
-    // Persist an endpoint allowlist + capability grants, then flip the kill switch.
-    const put = await request.put('/admin/assist', {
-      data: {
-        enabled: true,
-        adapters: {
-          OpenAiCompatible: {
-            base_url: process.env['MW_E2E_ASSIST_URL'] ?? 'http://mock-assist:8199',
-            chat_model: 'mock',
-            embed_model: 'mock',
-            api_key: 'k',
-          },
-        },
-        capabilityGrants: ['summarize'],
-        dataCeilings: { accounts: [] },
+    // Persist an endpoint + capability grants, then flip the kill switch. The body is
+    // the admin wire shape, whole (crates/mw-server/src/v7_mount.rs `AssistAdminReq`;
+    // pinned by crates/mw-server/tests/t28_assist_admin.rs).
+    const config = {
+      enabled: true,
+      adapter: {
+        kind: 'open-ai-compatible',
+        baseUrl: process.env['MW_E2E_ASSIST_URL'] ?? 'http://mock-assist:8199',
+        apiKey: 'k',
+        chatModel: 'mock',
+        embedModel: 'mock',
+        sttModel: 'mock',
       },
-    });
-    expect([200, 204]).toContain(put.status());
+      capabilityGrants: ['summarize'],
+      dataCeilings: { accounts: [], folders: [], includeE2ee: false, includeAttachments: false },
+    };
+    const put = await request.put('/admin/assist', { data: config });
+    expect(put.status()).toBe(200);
+    // What was saved is what is read back.
+    expect(await (await request.get('/admin/assist')).json()).toEqual(config);
 
-    const kill = await request.post('/admin/assist/kill');
+    // The shape the screen sent before 26.20 is refused, and erases nothing.
+    const old = await request.put('/admin/assist', {
+      data: { enabled: true, endpoint_allowlist: [], capability_locks: {}, data_ceilings: {} },
+    });
+    expect(old.status()).toBe(400);
+    expect(await (await request.get('/admin/assist')).json()).toEqual(config);
+
+    const kill = await request.post('/admin/assist/kill', { data: { on: true } });
     expectMounted(kill, 'POST /admin/assist/kill');
     expect(kill.status()).toBe(200);
-    expect((await kill.json()).killed).toBe(true);
+    const killed = await kill.json();
+    expect(killed.enabled).toBe(false);
+    expect(killed.running).toBe(false);
 
-    // After the kill switch, the gateway is Disabled again.
+    // After the kill switch, the gateway is Disabled again, and the rest is kept.
     const after = await request.get('/admin/assist');
-    expect((await after.json()).enabled).toBe(false);
+    expect(await after.json()).toEqual({ ...config, enabled: false });
   });
 });
 
