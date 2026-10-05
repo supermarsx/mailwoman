@@ -12,7 +12,6 @@
 //! `MDN-Gateway` and `Error` fields on build.
 
 use mail_builder::MessageBuilder;
-use mail_builder::headers::address::Address as BuilderAddress;
 use mail_builder::headers::content_type::ContentType;
 use mail_builder::headers::raw::Raw;
 use mail_builder::mime::{BodyPart, MimePart};
@@ -20,6 +19,7 @@ use mail_parser::{MessageParser, MimeHeaders};
 use mw_jmap::EmailAddress;
 
 use crate::MimeError;
+use crate::build::address_header;
 use crate::check::{line_text, mailbox_problem, no_control, random_token, refuse};
 
 /// Longest `Original-Message-ID` written (without angle brackets); with the
@@ -253,13 +253,18 @@ pub fn build_mdn(input: &MdnInput) -> Result<Vec<u8>, MimeError> {
     });
     text.push_str("\r\n");
 
-    let mut b = MessageBuilder::new()
-        .from(BuilderAddress::new_address(
-            input.from.name.as_deref(),
-            input.from.email.as_str(),
-        ))
-        .to(BuilderAddress::new_address(None::<&str>, input.to.as_str()))
-        .subject(headline);
+    // `From` and `To` are written by `address_header`, ahead of what the
+    // builder writes, so the display name is one phrase whatever it holds.
+    let to = EmailAddress {
+        name: None,
+        email: input.to.clone(),
+    };
+    let io = |e: std::io::Error| MimeError::Build(e.to_string());
+    let mut out = Vec::new();
+    address_header(&mut out, "From", std::slice::from_ref(&input.from), false).map_err(io)?;
+    address_header(&mut out, "To", std::slice::from_ref(&to), false).map_err(io)?;
+
+    let mut b = MessageBuilder::new().subject(headline);
     if let Some(id) = &input.message_id {
         no_control("message id", id)?;
         b = b.message_id(
@@ -291,8 +296,9 @@ pub fn build_mdn(input: &MdnInput) -> Result<Vec<u8>, MimeError> {
             notification,
         ],
     ))
-    .write_to_vec()
-    .map_err(|e| MimeError::Build(e.to_string()))
+    .write_to(&mut out)
+    .map_err(io)?;
+    Ok(out)
 }
 
 /// One `<name>: rfc822; <addr>` line, or the refusal.

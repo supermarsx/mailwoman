@@ -14,7 +14,10 @@
 
 use mail_builder::headers::Header;
 use mail_builder::headers::address::Address;
-use mw_mime::{ComposeExtras, ComposeRequest, EmailAddress, build, build_with, parse};
+use mw_mime::{
+    ComposeExtras, ComposeRequest, EmailAddress, MdnActionMode, MdnDisposition, MdnInput,
+    MdnSendingMode, build, build_mdn, build_with, parse,
+};
 
 const FIELDS: [&str; 5] = ["From", "To", "Cc", "Bcc", "Reply-To"];
 
@@ -477,4 +480,82 @@ fn the_names_written_differently_and_how() {
         header_bytes(&raw, "To"),
         "To: =?utf-8?Q?=C3=A9=22?= <friend@example.org>, \"Pat \\\"P\\\" O\\\\Brien\"\r\n\t<to2@example.org>\r\n"
     );
+}
+
+// ── the same for a disposition notification ─────────────────────────────────
+
+fn mdn_input(name: Option<&str>) -> MdnInput {
+    MdnInput {
+        from: addr(name, "bob@example.net"),
+        to: "alice@example.org".into(),
+        final_recipient: "bob@example.net".into(),
+        original_recipient: None,
+        original_message_id: Some("<compose-1@example.org>".into()),
+        original_subject: Some("Lunch on Friday".into()),
+        action_mode: MdnActionMode::Manual,
+        sending_mode: MdnSendingMode::Manual,
+        disposition: MdnDisposition::Displayed,
+        message_id: Some("mdn-1@example.net".into()),
+    }
+}
+
+/// The `From` of a report carries the reporting user's own display name. It is
+/// one phrase there as well: the report goes to exactly the one address it was
+/// built for, and says it is from exactly one.
+#[test]
+fn no_display_name_adds_an_address_to_a_disposition_notification() {
+    let control = build_mdn(&mdn_input(Some("Bob Example"))).expect("control builds");
+    assert_eq!(
+        header_bytes(&control, "From"),
+        "From: \"Bob Example\" <bob@example.net>\r\n"
+    );
+    let mut names = awkward_names();
+    names.push("é\r\nBcc: victim@example.test".into());
+    names.push("x\" <victim@example.test>,\r\n \"y".into());
+    for name in names {
+        let raw = build_mdn(&mdn_input(Some(&name))).unwrap_or_else(|e| panic!("{name:?}: {e}"));
+        let shown = String::from_utf8_lossy(&raw);
+        assert_eq!(
+            header_names(&raw),
+            header_names(&control),
+            "{name:?}\n{shown}"
+        );
+        assert_eq!(
+            strict_mailboxes(&header_value(&raw, "From")),
+            ["bob@example.net"],
+            "{name:?}\n{shown}"
+        );
+        assert_eq!(
+            strict_mailboxes(&header_value(&raw, "To")),
+            ["alice@example.org"],
+            "{name:?}\n{shown}"
+        );
+        let parsed = parse(&raw).unwrap_or_else(|e| panic!("{name:?}: {e}"));
+        let from = parsed.email.from.unwrap_or_default();
+        assert_eq!(from.len(), 1, "{name:?}\n{shown}");
+        assert_eq!(from[0].email, "bob@example.net", "{name:?}\n{shown}");
+        if !name.chars().any(char::is_control) {
+            assert_eq!(from[0].name.as_deref(), Some(name.as_str()), "{shown}");
+        }
+    }
+}
+
+/// A report whose name `mail-builder` already writes as one phrase has the
+/// `From` and `To` bytes it wrote.
+#[test]
+fn an_ordinary_name_on_a_disposition_notification_is_written_as_before() {
+    for name in [
+        None,
+        Some("Bob Example"),
+        Some("Jörg Müller"),
+        Some("O'Brien, Pat"),
+    ] {
+        let raw = build_mdn(&mdn_input(name)).expect("builds");
+        assert_eq!(
+            header_bytes(&raw, "From"),
+            mail_builder_header("From", &[addr(name, "bob@example.net")])
+        );
+        assert_eq!(header_bytes(&raw, "To"), "To: <alice@example.org>\r\n");
+        assert_eq!(header_names(&raw)[..3], ["From", "To", "Subject"]);
+    }
 }
