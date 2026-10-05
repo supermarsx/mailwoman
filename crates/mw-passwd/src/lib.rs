@@ -44,7 +44,11 @@ pub use ldap3062::{
     Ldap3062, LdapExopTransport, RFC3062_PASSWD_MODIFY_OID, encode_passwd_modify_request,
     parse_passwd_modify_response,
 };
-pub use local::{Local, LocalCredentialStore};
+pub use local::{
+    ArgonCost, ArgonCostError, Local, LocalCredentialStore, LocalVerify, VerifyOutcome,
+    cost as argon_cost, hash_password_with, phc_cost, set_cost as set_argon_cost,
+    verify_and_upgrade,
+};
 pub use policy::{PasswdConfig, PasswordPolicy};
 pub use poppassd::{LineTransport, Poppassd, PoppassdConfig, TcpLineTransport};
 pub use secret::Secret;
