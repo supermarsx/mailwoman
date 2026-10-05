@@ -442,38 +442,134 @@ async fn a_reply_draft_reads_back_the_headers_it_was_composed_with() {
     assert!(!own.is_empty() && !own.contains(['<', '>']), "{own:?}");
 }
 
-#[tokio::test]
-async fn a_row_stored_before_the_properties_existed_has_no_such_keys() {
-    let h = setup().await;
-    h.engine.resync(&h.account_id).await.unwrap();
-    let inbox = inbox_id(&h).await;
-    // What ingest wrote before 26.20: an envelope with no threading keys.
-    let old = h
-        .engine
+/// Store a row the way ingest wrote one before 26.20: an envelope with no
+/// threading keys. `raw` is its stored message, if it has one.
+async fn store_old_row(h: &Harness, uid: u32, raw: Option<&[u8]>) -> String {
+    let inbox = inbox_id(h).await;
+    let blob = match raw {
+        Some(raw) => Some(h.engine.store().put_body(&h.account_id, raw).await.unwrap()),
+        None => None,
+    };
+    h.engine
         .store()
         .upsert_message(&MessageUpsert {
             account_id: &h.account_id,
             mailbox_id: &inbox,
-            uid: 50,
+            uid,
             uidvalidity: UIDVALIDITY,
-            message_id: Some("old@example.org"),
+            message_id: Some(&format!("old-{uid}@example.org")),
             thread_id: None,
             internaldate: Some("2026-06-01T09:00:00Z"),
             size: 3,
             flags_json: "[]",
             envelope: Some(br#"{"subject":"Old","size":3}"#),
-            blob_ref: None,
+            blob_ref: blob.as_deref(),
         })
         .await
-        .unwrap();
+        .unwrap()
+}
 
-    let g = jmap(&h, json!([["Email/get", { "ids": [old] }, "g"]])).await;
-    let email = result(&g, "g")["list"][0].as_object().expect("found");
+/// 26.20 t28-e12. This case used to pin the opposite: a row stored before the
+/// properties existed came back without the three keys, and a client had to
+/// parse the raw headers itself. `Email/get` now completes such a row from its
+/// stored message when the request reads the properties.
+#[tokio::test]
+async fn a_row_stored_before_the_properties_existed_is_completed_from_its_message() {
+    let h = setup().await;
+    h.engine.resync(&h.account_id).await.unwrap();
+    let with_ids = store_old_row(&h, 50, Some(&reply_msg())).await;
+    let without = store_old_row(&h, 51, Some(&odd_msg())).await;
+
+    // Precondition: the stored envelope really has none of the keys.
+    let stored: Value = serde_json::from_slice(
+        &h.engine
+            .store()
+            .get_envelope(&with_ids)
+            .await
+            .unwrap()
+            .expect("a stored envelope"),
+    )
+    .unwrap();
+    assert_eq!(stored, json!({ "subject": "Old", "size": 3 }));
+
+    for properties in [
+        json!(null),
+        json!(["id", "subject", "messageId"]),
+        json!(["references"]),
+    ] {
+        let g = jmap(
+            &h,
+            json!([["Email/get", { "ids": [with_ids, without], "properties": properties }, "g"]]),
+        )
+        .await;
+        let list = result(&g, "g")["list"].as_array().expect("list").clone();
+        // The same values, in the same form, as for newly synced mail.
+        assert_eq!(
+            list[0]["subject"], "Old",
+            "the stored envelope is still served"
+        );
+        assert_eq!(list[0]["messageId"], json!(["reply@example.org"]));
+        assert_eq!(list[0]["inReplyTo"], json!(["middle@example.org"]));
+        assert_eq!(
+            list[0]["references"],
+            json!(["root@example.org", "middle@example.org"])
+        );
+        // Present and null where the header is absent or not a clean id list.
+        let odd = list[1].as_object().expect("found");
+        for key in ["messageId", "inReplyTo", "references"] {
+            assert_eq!(odd.get(key), Some(&Value::Null), "{key} with {properties}");
+        }
+    }
+
+    // Nothing was written back: the row is completed on each request.
+    let after: Value = serde_json::from_slice(
+        &h.engine
+            .store()
+            .get_envelope(&with_ids)
+            .await
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(after, stored);
+}
+
+/// A request that names its properties and none of the three is not charged
+/// the body read: the keys stay absent, as stored.
+#[tokio::test]
+async fn an_old_row_is_not_completed_for_a_request_that_does_not_read_the_properties() {
+    let h = setup().await;
+    h.engine.resync(&h.account_id).await.unwrap();
+    let old = store_old_row(&h, 50, Some(&reply_msg())).await;
+    let g = jmap(
+        &h,
+        json!([["Email/get", { "ids": [old], "properties": ["id", "subject", "from"] }, "g"]]),
+    )
+    .await;
+    let email = result(&g, "g")["list"][0]
+        .as_object()
+        .expect("found")
+        .clone();
     assert_eq!(email["subject"], "Old");
-    // Absent, not null: the engine serves the stored JSON as it is and does
-    // not re-parse the message, so a client has to treat a missing key as
-    // "not known" and read the headers itself.
     for key in ["messageId", "inReplyTo", "references"] {
-        assert!(!email.contains_key(key), "{key} on a pre-26.20 row");
+        assert!(!email.contains_key(key), "{key} was not asked for");
+    }
+}
+
+/// A row with no stored message has nothing to read them from: the keys stay
+/// absent, which is the engine saying it does not know, not that there are none.
+#[tokio::test]
+async fn an_old_row_without_a_stored_message_still_has_no_such_keys() {
+    let h = setup().await;
+    h.engine.resync(&h.account_id).await.unwrap();
+    let old = store_old_row(&h, 50, None).await;
+    let g = jmap(&h, json!([["Email/get", { "ids": [old] }, "g"]])).await;
+    let email = result(&g, "g")["list"][0]
+        .as_object()
+        .expect("found")
+        .clone();
+    assert_eq!(email["subject"], "Old");
+    for key in ["messageId", "inReplyTo", "references"] {
+        assert!(!email.contains_key(key), "{key} on a row with no body");
     }
 }

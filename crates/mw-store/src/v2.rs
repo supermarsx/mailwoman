@@ -92,7 +92,10 @@ pub struct SubmissionHold {
     pub hold: Option<String>,
     /// JSON naming a creator other than the mailbox owner's own client.
     pub origin: Option<String>,
-    /// JSON: the RFC 8621 §7.5 `onSuccess*` instructions to apply at send time.
+    /// JSON: what the create asked to happen when the message is sent — the
+    /// RFC 8621 §7.5 `onSuccess*` instructions and, since the engine began to
+    /// honour `envelope`, its `rcptTo`. Opaque to the store; the engine owns
+    /// the shape. The column keeps its first name.
     pub on_success: Option<String>,
 }
 

@@ -933,7 +933,17 @@ impl Engine {
             .filter_map(Value::as_str)
             .collect();
 
-        let assembled = match self.build_emails(&requested).await {
+        // Whether the request reads the threading properties: it names one of
+        // them, or names no properties at all. See `build_emails` for what that
+        // costs on a row stored before they existed.
+        let wants_threading = match args.get("properties").and_then(Value::as_array) {
+            Some(named) => named
+                .iter()
+                .filter_map(Value::as_str)
+                .any(|p| THREADING_PROPERTIES.contains(&p)),
+            None => true,
+        };
+        let assembled = match self.build_emails(&requested, wants_threading).await {
             Ok(v) => v,
             Err(e) => return server_fail(&e),
         };
@@ -966,7 +976,24 @@ impl Engine {
     /// the de-duplicated set and projected back positionally, so `["a", "a"]`
     /// reads `a` once and answers twice. Left un-deduplicated, a client could
     /// turn a 50-id page into fifty copies of one id and pay for all of them.
-    async fn build_emails(&self, stable_ids: &[&str]) -> Result<Vec<Option<Value>>> {
+    ///
+    /// **Threading properties on rows stored before 26.20.** `messageId`,
+    /// `inReplyTo` and `references` are written into the stored envelope at
+    /// ingest since t28-e11b; an envelope from before has none of the three
+    /// keys. With `fill_threading`, such a row is completed from its stored raw
+    /// message with the parser ingest uses, so the values and the
+    /// null-for-absent rule are the same as for new mail. That is one body read
+    /// and one parse per such row, **on every request that asks**: the result is
+    /// not written back, because the store's only envelope writer is the
+    /// whole-row message upsert. So the caller passes `false` when the request
+    /// names its properties and none of the three is among them — which is how
+    /// a message-list page avoids the cost. A row with no stored body keeps the
+    /// keys absent: their values are not known.
+    async fn build_emails(
+        &self,
+        stable_ids: &[&str],
+        fill_threading: bool,
+    ) -> Result<Vec<Option<Value>>> {
         if stable_ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -1009,7 +1036,7 @@ impl Engine {
                 continue;
             };
             // Only an envelope-less message reaches the body, one read each.
-            let email = match envelope {
+            let mut email = match envelope {
                 Some(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({})),
                 None => match &msg.blob_ref {
                     Some(blob) => match self.cached_body(&msg.account_id, id, blob).await? {
@@ -1022,6 +1049,18 @@ impl Engine {
                     None => json!({}),
                 },
             };
+            if fill_threading
+                && email
+                    .as_object()
+                    .is_some_and(|stored| !stored.contains_key("messageId"))
+                && let Some(blob) = &msg.blob_ref
+                && let Some(raw) = self.cached_body(&msg.account_id, id, blob).await?
+                && let Ok(parsed) = mw_mime::parse(&raw)
+            {
+                email["messageId"] = json!(parsed.email.message_id);
+                email["inReplyTo"] = json!(parsed.email.in_reply_to);
+                email["references"] = json!(parsed.email.references);
+            }
             built.push(Some(patch_engine_fields(
                 email,
                 id,
@@ -1843,6 +1882,29 @@ impl Engine {
                 "description": format!("email {email_id} not found"),
             }));
         }
+        // `envelope` (RFC 8621 §7.5). Its recipients are kept on the row and
+        // are who the message goes to, in place of the To/Cc/Bcc of the
+        // message. Its sender is not taken: the engine has no record of which
+        // other senders an account may use, so an envelope may only repeat
+        // the sender the engine would use anyway, and one that names another
+        // is refused rather than ignored.
+        let envelope = checked_envelope(spec)?;
+        if let Some(asked) = envelope.as_ref().and_then(|e| e.mail_from.as_deref())
+            && let Ok(Some(bytes)) = self.store().get_envelope(email_id).await
+        {
+            let email: mw_jmap::Email = serde_json::from_slice(&bytes).unwrap_or_default();
+            let used = sender_of(&email, rt);
+            if !asked.eq_ignore_ascii_case(&used) {
+                return Err(json!({
+                    "type": "invalidProperties",
+                    "properties": ["envelope"],
+                    "description": format!(
+                        "envelope.mailFrom {asked:?} is not the sender of this message ({used:?})"
+                    ),
+                }));
+            }
+        }
+        let rcpt_to = envelope.map(|e| e.rcpt_to);
         // The mailbox an `onSuccessUpdateEmail` patch files the message into
         // must be one of this account's, checked now so the refusal reaches
         // the caller instead of surfacing after the message has gone.
@@ -1883,7 +1945,7 @@ impl Engine {
                 hold_seconds,
                 hold,
                 origin,
-                on_success: on_success.map(OnSuccess::to_json),
+                at_send: at_send_json(on_success, rcpt_to.as_deref()),
             },
         )
         .await
@@ -1929,7 +1991,7 @@ impl Engine {
         // reads a `pending` row that is due and transmits it a second time.
         let claim = if inline { claim_send(&sub_id) } else { None };
         self.store()
-            .insert_submission_with(&row, new.hold, new.origin, new.on_success.as_deref())
+            .insert_submission_with(&row, new.hold, new.origin, new.at_send.as_deref())
             .await?;
         self.record_change(
             account_id,
@@ -2065,14 +2127,27 @@ impl Engine {
             return Err(refused(&row.undo_status));
         }
         if let Some(on_success) = on_success {
+            // Replace the instructions; the recipients the create fixed stay.
+            let rcpt_to = self
+                .store()
+                .get_submission_hold(id)
+                .await?
+                .and_then(|h| h.on_success)
+                .and_then(|stored| stored_rcpt_to(&stored));
             self.store()
-                .set_submission_on_success(id, Some(&on_success.to_json()))
+                .set_submission_on_success(
+                    id,
+                    at_send_json(Some(on_success), rcpt_to.as_deref()).as_deref(),
+                )
                 .await?;
         }
         let held = self.store().get_submission_hold(id).await?;
         // Whether the row carries `onSuccess*` instructions, from this call or
         // from the one that created it.
-        let instructed = held.as_ref().is_some_and(|h| h.on_success.is_some());
+        let instructed = held
+            .as_ref()
+            .and_then(|h| h.on_success.as_deref())
+            .is_some_and(|stored| OnSuccess::from_json(stored).is_some());
         // Compare-and-set on `pending`: a cancel that landed since the read
         // above wins, and nothing is sent.
         if !self.store().release_submission(id).await? {
@@ -2373,7 +2448,19 @@ impl Engine {
         rt: &AccountRuntime,
         email_id: &str,
     ) -> std::result::Result<Filed, NotSent> {
-        let sent = self.transmit_draft(rt, email_id).await?;
+        // What the submission's create asked for at send time: its envelope
+        // recipients, and its `onSuccess*` instructions. Read before anything
+        // is sent, because the recipients decide who it is sent to: a read
+        // that fails is a send that did not happen.
+        let stored = self
+            .store()
+            .get_submission_hold(sub_id)
+            .await
+            .map_err(|e| NotSent::transient(e.into()))?
+            .and_then(|h| h.on_success);
+        let rcpt_to = stored.as_deref().and_then(stored_rcpt_to);
+        let on_success = stored.as_deref().and_then(OnSuccess::from_json);
+        let sent = self.transmit_draft(rt, email_id, rcpt_to).await?;
         self.record_delivered(sub_id).await;
         if let Err(e) = self
             .record_change(
@@ -2386,20 +2473,6 @@ impl Engine {
         {
             tracing::warn!("submission {sub_id} was sent; recording the change failed: {e}");
         }
-        // The instructions are read only now: they describe what to do with a
-        // message that has been sent, and until this point it had not been.
-        let on_success = match self.store().get_submission_hold(sub_id).await {
-            Ok(held) => held
-                .and_then(|h| h.on_success)
-                .and_then(|json| OnSuccess::from_json(&json)),
-            Err(e) => {
-                tracing::warn!(
-                    "submission {sub_id} was sent; its onSuccess instructions could not be \
-                     read ({e}), filing a copy into Sent instead"
-                );
-                None
-            }
-        };
         let (filed, problem) = self
             .file_after_send(account_id, rt, email_id, sent, on_success.as_ref())
             .await;
@@ -2636,10 +2709,20 @@ impl Engine {
 
     /// Load a draft and hand it to the account submitter. Returns what filing
     /// needs once SMTP has accepted the message, or why nothing was sent.
+    ///
+    /// `envelope_rcpt` is the submission's `envelope.rcptTo` when its create
+    /// gave one; otherwise the recipients are the message's To, Cc and Bcc.
+    ///
+    /// The bytes handed to the submitter are the stored message **without its
+    /// `Bcc` header field** ([`without_bcc`]). The stored message keeps it,
+    /// and so does the copy filed afterwards: that is the sender's record of
+    /// who was blind-copied. Every send of a submission comes through here —
+    /// inline, delayed, released.
     async fn transmit_draft(
         &self,
         rt: &AccountRuntime,
         email_id: &str,
+        envelope_rcpt: Option<Vec<String>>,
     ) -> std::result::Result<Transmitted, NotSent> {
         let msg = self
             .store()
@@ -2673,14 +2756,8 @@ impl Engine {
             Some(bytes) => serde_json::from_slice(&bytes).unwrap_or_default(),
             None => mw_mime::parse(&raw).map(|p| p.email).unwrap_or_default(),
         };
-        let mail_from = email
-            .from
-            .as_ref()
-            .and_then(|f| f.first())
-            .map(|a| a.email.clone())
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| rt.identity.clone());
-        let rcpt_to = recipients(&email);
+        let mail_from = sender_of(&email, rt);
+        let rcpt_to = envelope_rcpt.unwrap_or_else(|| recipients(&email));
         if rcpt_to.is_empty() {
             return Err(NotSent::permanent(EngineError::Protocol(
                 "no recipients".into(),
@@ -2694,7 +2771,7 @@ impl Engine {
         let outgoing = mw_smtp::Outgoing {
             mail_from,
             rcpt_to,
-            raw: raw.clone(),
+            raw: without_bcc(&raw),
         };
         if let Err(e) = outgoing.validate() {
             return Err(NotSent::permanent(EngineError::Protocol(e.to_string())));
@@ -3492,12 +3569,160 @@ struct NewSubmission<'a> {
     hold_seconds: u32,
     hold: Option<&'a str>,
     origin: Option<&'a str>,
-    /// [`OnSuccess::to_json`].
-    on_success: Option<String>,
+    /// [`at_send_json`]: what to do when the message is sent.
+    at_send: Option<String>,
+}
+
+/// The `Email` properties that carry a message's threading headers
+/// (RFC 8621 §4.1.2.3).
+const THREADING_PROPERTIES: [&str; 3] = ["messageId", "inReplyTo", "references"];
+
+/// The sender a message is submitted under: the first address of its `From`,
+/// else the name the account connected with.
+fn sender_of(email: &mw_jmap::Email, rt: &AccountRuntime) -> String {
+    email
+        .from
+        .as_ref()
+        .and_then(|f| f.first())
+        .map(|a| a.email.clone())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| rt.identity.clone())
+}
+
+/// A message as it is handed to SMTP: `raw` with every `Bcc` and `Resent-Bcc`
+/// header field removed (RFC 5322 §3.6.3 — the recipients of a message must
+/// not learn who was blind-copied from the message itself).
+///
+/// Only the header section is read: everything from the first empty line on
+/// is copied untouched, so a body line that begins `Bcc:` stays. A field is
+/// its first line and every continuation line after it (one that begins with
+/// a space or a tab), so a folded `Bcc:\r\n x@y` goes whole. The name is
+/// matched without regard to case, and with the optional blanks before the
+/// colon that the obsolete syntax allows. Lines are told apart by LF, so a
+/// message with bare-LF line ends is handled the same way; no other byte of
+/// the message is changed.
+fn without_bcc(raw: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(raw.len());
+    let mut rest = raw;
+    let mut dropping = false;
+    while !rest.is_empty() {
+        let end = rest
+            .iter()
+            .position(|b| *b == b'\n')
+            .map_or(rest.len(), |i| i + 1);
+        let (line, tail) = rest.split_at(end);
+        // The empty line that ends the header section: the rest is body.
+        if line == b"\r\n" || line == b"\n" {
+            out.extend_from_slice(rest);
+            return out;
+        }
+        if !matches!(line.first(), Some(b' ' | b'\t')) {
+            let name = line
+                .iter()
+                .position(|b| *b == b':')
+                .map(|colon| line[..colon].trim_ascii_end());
+            dropping = name.is_some_and(|n| {
+                n.eq_ignore_ascii_case(b"bcc") || n.eq_ignore_ascii_case(b"resent-bcc")
+            });
+        }
+        if !dropping {
+            out.extend_from_slice(line);
+        }
+        rest = tail;
+    }
+    out
+}
+
+/// The `envelope` of an `EmailSubmission/set` create, once checked.
+struct CheckedEnvelope {
+    /// `envelope.mailFrom.email`, if the envelope names a sender.
+    mail_from: Option<String>,
+    /// `envelope.rcptTo[].email`: at least one, each a valid mailbox.
+    rcpt_to: Vec<String>,
+}
+
+/// The `envelope` of an `EmailSubmission/set` create spec. Absent or `null`
+/// is `Ok(None)`: the recipients are then read from the message. `Err` is the
+/// `invalidProperties` SetError. Addresses are checked with the rules
+/// `mw-smtp` applies before it writes them into `MAIL FROM` / `RCPT TO`.
+fn checked_envelope(spec: &Value) -> std::result::Result<Option<CheckedEnvelope>, Value> {
+    let invalid = |why: String| {
+        json!({
+            "type": "invalidProperties",
+            "properties": ["envelope"],
+            "description": format!("envelope: {why}"),
+        })
+    };
+    let envelope = match spec.get("envelope") {
+        None | Some(Value::Null) => return Ok(None),
+        Some(Value::Object(envelope)) => envelope,
+        Some(_) => return Err(invalid("must be an object".into())),
+    };
+    let mail_from = match envelope.get("mailFrom") {
+        None | Some(Value::Null) => None,
+        Some(from) => {
+            let email = from
+                .get("email")
+                .and_then(Value::as_str)
+                .ok_or_else(|| invalid("mailFrom.email must be a string".into()))?;
+            mw_smtp::validate_reverse_path(email).map_err(|e| invalid(e.to_string()))?;
+            Some(email.to_string())
+        }
+    };
+    let rcpt_to = envelope
+        .get("rcptTo")
+        .and_then(Value::as_array)
+        .filter(|list| !list.is_empty())
+        .ok_or_else(|| invalid("rcptTo must list at least one recipient".into()))?
+        .iter()
+        .map(|rcpt| {
+            let email = rcpt
+                .get("email")
+                .and_then(Value::as_str)
+                .ok_or_else(|| invalid("each rcptTo entry needs an email string".into()))?;
+            mw_smtp::validate_mailbox(email).map_err(|e| invalid(e.to_string()))?;
+            Ok(email.to_string())
+        })
+        .collect::<std::result::Result<Vec<String>, Value>>()?;
+    Ok(Some(CheckedEnvelope { mail_from, rcpt_to }))
+}
+
+/// What a submission's create asked to happen when the message is sent, as
+/// one JSON object for the row: `rcptTo` (the envelope recipients) beside the
+/// `onSuccess*` instructions. `None` when there is neither.
+///
+/// The column it is stored in is named `on_success` (0031), after the first
+/// thing kept there; the envelope recipients joined it rather than take
+/// another migration.
+fn at_send_json(on_success: Option<&OnSuccess>, rcpt_to: Option<&[String]>) -> Option<String> {
+    if on_success.is_none() && rcpt_to.is_none() {
+        return None;
+    }
+    Some(
+        json!({
+            "update": on_success.and_then(|o| o.update.as_ref()),
+            "destroy": on_success.is_some_and(|o| o.destroy),
+            "rcptTo": rcpt_to,
+        })
+        .to_string(),
+    )
+}
+
+/// The envelope recipients in a stored [`at_send_json`] object, if it has any.
+fn stored_rcpt_to(stored: &str) -> Option<Vec<String>> {
+    let v: Value = serde_json::from_str(stored).ok()?;
+    let list: Vec<String> = v
+        .get("rcptTo")?
+        .as_array()?
+        .iter()
+        .filter_map(|r| r.as_str().map(String::from))
+        .collect();
+    (!list.is_empty()).then_some(list)
 }
 
 /// The RFC 8621 §7.5 `onSuccess*` instructions for one submission, as kept in
-/// the row's `on_success` column until the message is sent.
+/// the row's `on_success` column (inside [`at_send_json`]) until the message
+/// is sent.
 #[derive(Debug, Clone, PartialEq)]
 struct OnSuccess {
     /// The `onSuccessUpdateEmail` patch; [`check_update_patch`] accepted it.
@@ -3507,10 +3732,6 @@ struct OnSuccess {
 }
 
 impl OnSuccess {
-    fn to_json(&self) -> String {
-        json!({ "update": self.update, "destroy": self.destroy }).to_string()
-    }
-
     fn from_json(stored: &str) -> Option<Self> {
         let v: Value = serde_json::from_str(stored).ok()?;
         let update = v.get("update").filter(|u| !u.is_null()).cloned();
