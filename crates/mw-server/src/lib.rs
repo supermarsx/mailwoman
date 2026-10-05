@@ -926,6 +926,13 @@ async fn build_app_inner(
     v6config: V6Config,
     sso_source: sso::SsoProviderSource,
 ) -> anyhow::Result<(Router, PushHandle)> {
+    // The ten `MW_ADMIN_*` variables in `mw_admin::config::UNSUPPORTED_ENV` are read
+    // by nothing. Say so for each one that is set, and start anyway.
+    for (name, instead) in mw_admin::config::UNSUPPORTED_ENV {
+        if std::env::var_os(name).is_some() {
+            tracing::warn!("{name} is set but currently has no effect: {instead}");
+        }
+    }
     let key = match &config.server_key_hex {
         Some(h) => ServerKey::from_hex(h).map_err(|_| anyhow!("MW_SERVER_KEY is not valid hex"))?,
         None => {
@@ -1043,9 +1050,6 @@ async fn build_app_inner(
         Arc::new(stores_v6::AdminBackendAdapter::new(store.clone())),
         mw_admin::AdminConfig::default(),
     );
-    if !v6config.admin_enabled {
-        let _ = admin.set_enabled("system", false).await;
-    }
 
     // Outbound webhooks: a second consumer of the StateChange broadcast, backed by
     // the sealed-secret 0007 `webhooks` table (unseal via the store key).
@@ -1117,7 +1121,10 @@ async fn build_app_inner(
     // Build the five injected extensions from the 0008 admin-config rows (all
     // "off/empty" when unconfigured → the non-V7 path is byte-unchanged).
     let directory = v7_mount::build_directory(&store).await;
-    let passwd_backend = v7_mount::build_passwd_backend(&store);
+    // A misconfigured `MW_PASSWD_*` selection stops start-up with the error that
+    // names it, before anything is bound.
+    let passwd_backend = v7_mount::try_build_passwd_backend(&store)
+        .map_err(|e| anyhow!("password backend configuration: {e}"))?;
     let (assist, assist_granted) = v7_mount::build_assist(&store).await;
     let plugin_host = v7_mount::build_plugin_host(&store).await;
     let nextcloud = v7_mount::build_nextcloud();
