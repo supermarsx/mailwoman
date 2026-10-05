@@ -210,6 +210,38 @@ mail-outbox-holding = Sending soon
 mail-outbox-sent = Sent
 mail-outbox-canceled = Canceled
 
+# -- Network status and the offline queue ------------------------------------
+# Raised by the store (state/store.ts, state/slices/offline.ts) and listed by
+# the notice above the message list (components/OfflineQueueNotice.tsx).
+mail-net-lost = Connection lost — retrying…
+mail-net-back = Back online
+mail-queue-sent = { $count ->
+    [one] Sent { $count } queued change
+   *[other] Sent { $count } queued changes
+}
+mail-queue-failed = { $count ->
+    [one] { $count } queued change failed
+   *[other] { $count } queued changes failed
+}
+mail-queue-notice-label = Changes that could not be applied
+mail-queue-notice-title = { $count ->
+    [one] { $count } change made offline could not be applied
+   *[other] { $count } changes made offline could not be applied
+}
+mail-queue-kind-send = Send “{ $subject }”
+mail-queue-kind-send-untitled = Send a message with no subject
+mail-queue-kind-move = Move a message
+mail-queue-kind-flag = Change a label or flag
+mail-queue-kind-draft = Save a draft
+mail-queue-kind-pim = Calendar, task, note or contact change
+mail-queue-reason = Reason: { $reason }
+mail-queue-reason-unknown = The server did not say why.
+mail-queue-retry = Retry
+mail-queue-discard = Discard
+mail-queue-retry-item = Retry: { $what }
+mail-queue-discard-item = Discard: { $what }
+mail-queue-discarded = Discarded. The change was not applied.
+
 # -- Sweep dialog ------------------------------------------------------------
 mail-sweep-label = Sweep messages
 mail-sweep-title = Sweep { $sender }
