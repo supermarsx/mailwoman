@@ -22,14 +22,31 @@
 //! flags are stored and looked up under [`flag_subject`] of it: trimmed and
 //! lowercased, the same on the writing and the reading side.
 //!
-//! ## What this cannot see
+//! ## Every name of a principal
 //!
 //! A mail server may accept more than one login name for one mailbox (`alice` and
-//! `alice@example.org`, or an alias). Mailwoman cannot know two names are one
-//! mailbox, so a flag set for one does not apply to the other; the name typed at
-//! login and the name the upstream reports are both checked, which covers the case
-//! where they differ within one login. Disabling an account here also does not
-//! disable the mailbox on the mail server.
+//! `alice@example.org`, or an alias), and may report yet another. The principal is
+//! the account id; a flag set under any name that account id is known by applies
+//! to every credential of it. The names are:
+//!
+//! * the account id itself,
+//! * the engine account's `username`,
+//! * every name recorded at a login whose credentials were accepted — the name
+//!   typed and the name the upstream reported ([`remember_login`], kept in the
+//!   store by `Store::remember_account_names`), and
+//! * for a key or token, the two names on each live session of the account (which
+//!   covers sessions opened before 26.20 started recording names).
+//!
+//! The record outlives the sessions, so a key or token of a disabled account is
+//! refused by name after its sessions are gone.
+//!
+//! ## What this cannot see
+//!
+//! A name the mail server would accept for the mailbox but that nobody has logged
+//! in with here is unknown: a flag set under it applies from the first login that
+//! uses it. Two upstream servers that hand out the same account id are one
+//! principal to this server (as they are to its keys and second factors).
+//! Disabling an account here does not disable the mailbox on the mail server.
 //!
 //! ## Failing closed
 //!
@@ -42,7 +59,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde_json::json;
 
-use mw_admin::UserFeatureFlags;
+use mw_admin::{ActorKind, AuditEvent, AuditKind, UserFeatureFlags};
 use mw_store::{Session, Store, StoreError};
 
 use crate::AppState;
@@ -51,9 +68,10 @@ use crate::AppState;
 const FLAGS_PREFIX: &str = "v6:admin:flags:";
 
 /// The one normalisation of an account's name used by the flag writer and every
-/// reader: surrounding whitespace removed, lowercased.
+/// reader: surrounding whitespace removed, lowercased. The store folds the names
+/// it records for an account the same way, so this is that function.
 pub(crate) fn flag_subject(username: &str) -> String {
-    username.trim().to_lowercase()
+    Store::fold_account_name(username)
 }
 
 fn flags_key(id: &str) -> String {
@@ -105,6 +123,58 @@ pub(crate) async fn write_flags(
     Ok(())
 }
 
+/// How many times [`update_flags`] re-reads and retries when another writer
+/// changed the record between its read and its write.
+const UPDATE_ATTEMPTS: usize = 16;
+
+/// Change part of the flags stored for `account_id` without losing a concurrent
+/// change to another part: `change` is applied to the record as stored, and the
+/// result is written only if the record is still the one that was read
+/// (`Store::compare_and_set_setting`); otherwise it is read again and `change`
+/// re-applied. Returns the flags before and after.
+///
+/// [`write_flags`] replaces the whole record, which is what the panel's "save"
+/// means. A writer that means one field — clearing `force_password_change` after
+/// a password change — must use this instead: read-then-[`write_flags`] would put
+/// back a stale `disabled: false` over an admin's `disabled: true` written in
+/// between.
+pub(crate) async fn update_flags(
+    store: &Store,
+    account_id: &str,
+    change: impl Fn(&mut UserFeatureFlags),
+) -> Result<(UserFeatureFlags, UserFeatureFlags), StoreError> {
+    let subject = flag_subject(account_id);
+    let key = flags_key(&subject);
+    for _ in 0..UPDATE_ATTEMPTS {
+        let stored = store.get_setting(&key).await?;
+        let before = match &stored {
+            Some(raw) => parse_flags(raw)?,
+            // No record under the normalised key: start from a pre-26.20 record
+            // under the exact spelling, if there is one.
+            None => read_flags(store, account_id).await?,
+        };
+        let mut after = before;
+        change(&mut after);
+        if after == before {
+            return Ok((before, after));
+        }
+        let json = serde_json::to_string(&after)
+            .map_err(|e| StoreError::Corrupt(format!("account flags did not serialise: {e}")))?;
+        if store
+            .compare_and_set_setting(&key, stored.as_deref(), &json)
+            .await?
+        {
+            if account_id != subject && store.get_setting(&flags_key(account_id)).await?.is_some() {
+                store.set_setting(&flags_key(account_id), &json).await?;
+            }
+            return Ok((before, after));
+        }
+    }
+    Err(StoreError::Corrupt(format!(
+        "account flags changed under {UPDATE_ATTEMPTS} successive updates"
+    )))
+}
+
 /// What the flags mean for one principal.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct AccountGate {
@@ -139,15 +209,47 @@ async fn gate_for(store: &Store, names: &[&str]) -> Result<AccountGate, StoreErr
     Ok(gate)
 }
 
-/// The gate for a login in progress: `username` is the name the session will carry
-/// (what the upstream reported, or the asserted identity), `login_name` the name
-/// the credentials were presented under.
+/// Record the names a login was made under against its account id, so that a flag
+/// set under either applies to every credential of the account from now on (see
+/// the module docs). Call once the credentials have been accepted and before the
+/// gate is read.
+pub(crate) async fn remember_login(
+    store: &Store,
+    account_id: &str,
+    username: &str,
+    login_name: &str,
+) -> Result<(), StoreError> {
+    store
+        .remember_account_names(account_id, &[username, login_name])
+        .await
+}
+
+/// The gate for a login in progress: `account_id` is the principal, `username` the
+/// name the session will carry (what the upstream reported, or the asserted
+/// identity), `login_name` the name the credentials were presented under. A flag
+/// under any name the account is known by applies, not only under these two.
 pub(crate) async fn for_login(
     store: &Store,
+    account_id: &str,
     username: &str,
     login_name: &str,
 ) -> Result<AccountGate, StoreError> {
-    gate_for(store, &[username, login_name]).await
+    let mut names = principal_names(store, account_id).await?;
+    names.push(username.to_string());
+    names.push(login_name.to_string());
+    gate_for_names(store, &names).await
+}
+
+/// The names an established session is gated under: its own two, its account id,
+/// and the names recorded for that account.
+async fn session_names(store: &Store, session: &Session) -> Result<Vec<String>, StoreError> {
+    let mut names = vec![
+        session.username.clone(),
+        session.credentials.username.clone(),
+        session.account_id.clone(),
+    ];
+    names.extend(store.account_names(&session.account_id).await?);
+    Ok(names)
 }
 
 /// The gate for an established session.
@@ -155,63 +257,96 @@ pub(crate) async fn for_session(
     store: &Store,
     session: &Session,
 ) -> Result<AccountGate, StoreError> {
-    gate_for(store, &[&session.username, &session.credentials.username]).await
+    gate_for_names(store, &session_names(store, session).await?).await
 }
 
-/// The login name behind an account id, for principals that carry only the id (an
-/// API key, an OAuth token): the engine account's `username`, else the name on a
-/// live session for that account. `None` when neither exists.
-pub(crate) async fn username_for_account(
+/// Every name the account `account_id` is known by (module docs, "Every name of a
+/// principal"), for principals that carry only the id (an API key, an OAuth
+/// token). Holds the id itself; an empty id is no principal and has no names (a
+/// proxy-mode upstream that names no mail account leaves sessions with an empty
+/// account id, and those must not be read as one account).
+pub(crate) async fn principal_names(
     store: &Store,
     account_id: &str,
-) -> Result<Option<String>, StoreError> {
+) -> Result<Vec<String>, StoreError> {
+    if account_id.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut names = vec![account_id.to_string()];
     match store.get_account(account_id).await {
-        Ok(account) => return Ok(Some(account.username)),
+        Ok(account) => names.push(account.username),
         Err(StoreError::NotFound) => {}
         Err(e) => return Err(e),
     }
-    Ok(store
-        .sessions_by_account(account_id)
-        .await?
-        .into_iter()
-        .next()
-        .map(|s| s.username))
+    names.extend(store.account_names(account_id).await?);
+    for session in store.sessions_by_account(account_id).await? {
+        names.push(session.username);
+        names.push(session.credentials.username);
+    }
+    Ok(names)
 }
 
-/// The gate for a key or token principal.
-///
-/// The account id itself is also tried as a name: under header-auth the two are the
-/// same string. In proxy mode an account id maps to a login name only through a
-/// live session, so once a disabled account's sessions are deleted its keys resolve
-/// to no name and are not refused here — they have no upstream credentials left to
-/// read with (`scope_mw::rest_session`).
+async fn gate_for_names(store: &Store, names: &[String]) -> Result<AccountGate, StoreError> {
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    gate_for(store, &names).await
+}
+
+/// The gate for a key or token principal: a flag under any name the account is
+/// known by applies. This does not depend on a live session, so a disabled
+/// account's key is refused by name after its sessions have been deleted.
 pub(crate) async fn for_account(
     store: &Store,
     account_id: &str,
 ) -> Result<AccountGate, StoreError> {
-    let username = username_for_account(store, account_id).await?;
-    gate_for(store, &[username.as_deref().unwrap_or(""), account_id]).await
+    gate_for_names(store, &principal_names(store, account_id).await?).await
+}
+
+/// Stop the engine's work for a disabled account: drop its runtime, which ends its
+/// watch loop and background sync. Proxy mode has no engine and nothing to stop.
+///
+/// Called where this module's callers refuse a disabled account. The account is
+/// connected again by the first request after it is re-enabled
+/// (`engine_mode::ensure_account`) or at the next start.
+pub(crate) fn stop_engine_work(state: &AppState, account_id: &str) {
+    if let Some(engine) = &state.engine
+        && engine.unregister(account_id).is_some()
+    {
+        tracing::info!("account {account_id} is disabled; its engine runtime was dropped");
+    }
 }
 
 /// Clear `force_password_change` for the account behind `session`, after it has
-/// changed its password. Goes through [`mw_admin::Admin`] so the change is audited
-/// like the panel's own.
+/// changed its password: under every name the session is gated under, since the
+/// hold may come from any of them.
+///
+/// Only that one field is changed ([`update_flags`]); a `disabled` the admin set
+/// while the password change was in flight is kept. Each record that was changed
+/// gets the audit entry the panel's own "force password change" toggle writes,
+/// with `system` as the actor.
 pub(crate) async fn clear_password_change(
     state: &AppState,
     session: &Session,
 ) -> Result<(), mw_admin::AdminError> {
-    for subject in subjects(&[&session.username, &session.credentials.username]) {
-        let flagged = state
-            .v6
-            .admin
-            .get_feature_flags(&subject)
-            .await?
-            .force_password_change;
-        if flagged {
+    let store_err = |e: StoreError| mw_admin::AdminError::Store(e.to_string());
+    let names = session_names(&state.store, session)
+        .await
+        .map_err(store_err)?;
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    for subject in subjects(&names) {
+        let (before, _) = update_flags(&state.store, &subject, |f| {
+            f.force_password_change = false;
+        })
+        .await
+        .map_err(store_err)?;
+        if before.force_password_change {
             state
                 .v6
                 .admin
-                .force_password_change("system", &subject, false)
+                .record(
+                    AuditEvent::new("system", ActorKind::Admin, AuditKind::ForcePasswordChange)
+                        .detail(json!({ "enabled": false }))
+                        .target(subject),
+                )
                 .await?;
         }
     }
@@ -273,7 +408,7 @@ mod tests {
             .unwrap();
         assert!(read_flags(&s, "ALICE@example.org").await.unwrap().disabled);
         assert!(
-            for_login(&s, "alice@example.org", "alice@example.org")
+            for_login(&s, "acct", "alice@example.org", "alice@example.org")
                 .await
                 .unwrap()
                 .disabled
@@ -343,6 +478,13 @@ mod tests {
         assert!(for_account(&s, "dave@example.org").await.is_err());
     }
 
+    fn creds(name: &str) -> Credentials {
+        Credentials {
+            username: name.into(),
+            password: "p".into(),
+        }
+    }
+
     /// A key principal carries an account id; it is gated through the login name
     /// of a live session for that account.
     #[tokio::test]
@@ -353,22 +495,195 @@ mod tests {
             "erin@example.org",
             "http://u",
             "http://u",
-            &Credentials {
-                username: "erin@example.org".into(),
-                password: "p".into(),
-            },
+            &creds("erin@example.org"),
         )
         .await
         .unwrap();
-        assert_eq!(
-            username_for_account(&s, "upstream-17").await.unwrap(),
-            Some("erin@example.org".to_string())
+        assert!(
+            principal_names(&s, "upstream-17")
+                .await
+                .unwrap()
+                .contains(&"erin@example.org".to_string())
         );
         assert!(!for_account(&s, "upstream-17").await.unwrap().disabled);
         write_flags(&s, "erin@example.org", disabled())
             .await
             .unwrap();
         assert!(for_account(&s, "upstream-17").await.unwrap().disabled);
-        assert_eq!(username_for_account(&s, "nobody").await.unwrap(), None);
+        assert_eq!(
+            principal_names(&s, "nobody").await.unwrap(),
+            vec!["nobody".to_string()]
+        );
+        // Sessions without an account id are not one principal.
+        s.create_session("", "zed@example.org", "http://u", "http://u", &creds("zed"))
+            .await
+            .unwrap();
+        assert!(principal_names(&s, "").await.unwrap().is_empty());
+    }
+
+    /// O1 (t27-f1): the admin flags the name the user typed; the upstream reports
+    /// another. A key carries only the account id, and must be refused both while
+    /// the session lives (through the name sealed in its credentials) and after
+    /// it is gone (through the names recorded at login).
+    #[tokio::test]
+    async fn a_key_is_gated_under_the_name_typed_at_login() {
+        let s = store().await;
+        remember_login(&s, "upstream-9", "frank@example.org", "Frank")
+            .await
+            .unwrap();
+        let id = s
+            .create_session(
+                "upstream-9",
+                "frank@example.org",
+                "http://u",
+                "http://u",
+                &creds("Frank"),
+            )
+            .await
+            .unwrap();
+        assert!(!for_account(&s, "upstream-9").await.unwrap().disabled);
+        write_flags(&s, "frank", disabled()).await.unwrap();
+        assert!(
+            for_account(&s, "upstream-9").await.unwrap().disabled,
+            "refused while the session lives"
+        );
+        s.delete_session(&id).await.unwrap();
+        assert!(
+            for_account(&s, "upstream-9").await.unwrap().disabled,
+            "and after it is gone"
+        );
+        assert!(!for_account(&s, "upstream-10").await.unwrap().disabled);
+    }
+
+    /// A session opened before names were recorded has only its own row to go by:
+    /// the name sealed in a live session's credentials still gates a key.
+    #[tokio::test]
+    async fn a_key_is_gated_through_a_live_sessions_presented_name() {
+        let s = store().await;
+        s.create_session(
+            "upstream-11",
+            "gina@example.org",
+            "http://u",
+            "http://u",
+            &creds("gina"),
+        )
+        .await
+        .unwrap();
+        write_flags(&s, "GINA", disabled()).await.unwrap();
+        assert!(for_account(&s, "upstream-11").await.unwrap().disabled);
+    }
+
+    /// A flag under one name of a principal applies to a session and to a login
+    /// made under another of its names, and to its account id.
+    #[tokio::test]
+    async fn every_credential_of_a_principal_is_gated_under_any_of_its_names() {
+        let s = store().await;
+        remember_login(&s, "upstream-12", "hal@example.org", "hal")
+            .await
+            .unwrap();
+        // This session was opened under the reported name only.
+        let other = Session {
+            id: String::new(),
+            account_id: "upstream-12".into(),
+            username: "hal@example.org".into(),
+            jmap_url: String::new(),
+            api_url: String::new(),
+            credentials: creds("hal@example.org"),
+        };
+        assert!(!for_session(&s, &other).await.unwrap().disabled);
+        write_flags(&s, "hal", disabled()).await.unwrap();
+        assert!(for_session(&s, &other).await.unwrap().disabled);
+        assert!(
+            for_login(&s, "upstream-12", "hal@example.org", "hal@example.org")
+                .await
+                .unwrap()
+                .disabled
+        );
+        write_flags(&s, "hal", UserFeatureFlags::default())
+            .await
+            .unwrap();
+        assert!(!for_session(&s, &other).await.unwrap().disabled);
+        // The account id, in another case.
+        write_flags(&s, "UPSTREAM-12", disabled()).await.unwrap();
+        assert!(for_session(&s, &other).await.unwrap().disabled);
+        assert!(for_account(&s, "upstream-12").await.unwrap().disabled);
+    }
+
+    /// O5 (t27-f1): an admin's `disabled: true` written between the read and the
+    /// write of a one-field update is kept. `change` runs once per attempt, so the
+    /// competing write is made from inside its first call.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_one_field_update_keeps_a_concurrent_change_to_another_field() {
+        let s = store().await;
+        write_flags(
+            &s,
+            "ivy@example.org",
+            UserFeatureFlags {
+                force_password_change: true,
+                ..UserFeatureFlags::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let (before, after) = update_flags(&s, "Ivy@example.org", |f| {
+            if calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                // The admin disables the account after this update read the record.
+                let s = s.clone();
+                tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        write_flags(
+                            &s,
+                            "ivy@example.org",
+                            UserFeatureFlags {
+                                force_password_change: true,
+                                disabled: true,
+                                ..UserFeatureFlags::default()
+                            },
+                        )
+                        .await
+                        .unwrap();
+                    });
+                });
+            }
+            f.force_password_change = false;
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(
+            calls.load(std::sync::atomic::Ordering::SeqCst),
+            2,
+            "the first write was refused and the update re-read"
+        );
+        assert!(before.disabled && before.force_password_change);
+        assert!(after.disabled && !after.force_password_change);
+        let stored = read_flags(&s, "ivy@example.org").await.unwrap();
+        assert!(stored.disabled, "the admin's disable survived");
+        assert!(!stored.force_password_change);
+    }
+
+    /// An update that changes nothing writes nothing, and one on an account with
+    /// no record creates it.
+    #[tokio::test]
+    async fn update_flags_on_absent_and_unchanged_records() {
+        let s = store().await;
+        let (before, after) = update_flags(&s, "jo@example.org", |f| {
+            f.force_password_change = false;
+        })
+        .await
+        .unwrap();
+        assert_eq!(before, after);
+        assert_eq!(
+            s.get_setting("v6:admin:flags:jo@example.org")
+                .await
+                .unwrap(),
+            None
+        );
+        update_flags(&s, "jo@example.org", |f| f.disabled = true)
+            .await
+            .unwrap();
+        assert!(read_flags(&s, "JO@example.org").await.unwrap().disabled);
     }
 }

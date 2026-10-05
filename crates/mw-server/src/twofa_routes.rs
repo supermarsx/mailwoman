@@ -197,6 +197,11 @@ pub(crate) struct SessionArgs {
 /// looked up, so it is never issued a challenge or a pending token. Every caller
 /// has already validated the credentials, so the refusal costs what a successful
 /// login costs up to this point, and its body is the wrong-password body.
+///
+/// The two names of this login are recorded against the account first
+/// (`account_gate::remember_login`), so a flag under either reaches the account's
+/// keys and tokens, and a flag under a name used at an earlier login reaches this
+/// one.
 pub(crate) async fn gate_login(
     state: &AppState,
     headers: &HeaderMap,
@@ -204,8 +209,23 @@ pub(crate) async fn gate_login(
 ) -> Response {
     let store = &state.store;
 
-    match account_gate::for_login(store, &args.username, &args.creds.username).await {
-        Ok(gate) if gate.disabled => return disabled_response(&args.username),
+    if let Err(e) = account_gate::remember_login(
+        store,
+        &args.account_id,
+        &args.username,
+        &args.creds.username,
+    )
+    .await
+    {
+        return account_gate::unavailable("login", e);
+    }
+    match login_gate(state, &args).await {
+        Ok(gate) if gate.disabled => {
+            // Engine mode connected the account to validate the password; a
+            // disabled account must not be left syncing.
+            account_gate::stop_engine_work(state, &args.account_id);
+            return disabled_response(&args.username);
+        }
         Ok(_) => {}
         Err(e) => return account_gate::unavailable("login", e),
     }
@@ -232,7 +252,7 @@ pub(crate) async fn gate_login(
 
     // Opt-in user with no factor and no policy requiring one → unchanged path.
     if !enrolled && !required {
-        return complete_login(state, &args, json!({})).await;
+        return complete_login(state, &args, json!({}), Stage::Password).await;
     }
 
     let (origin, rp_id) = derive_rp(state.cookie_secure, headers);
@@ -324,6 +344,50 @@ fn disabled_response(username: &str) -> Response {
     crate::unauthorized()
 }
 
+/// The account flags for the login `args` describes.
+async fn login_gate(
+    state: &AppState,
+    args: &SessionArgs,
+) -> Result<account_gate::AccountGate, mw_store::StoreError> {
+    account_gate::for_login(
+        &state.store,
+        &args.account_id,
+        &args.username,
+        &args.creds.username,
+    )
+    .await
+}
+
+/// Which step of a login is being completed, which decides what a refusal looks
+/// like: the wrong-password answer after the password step, the wrong-factor
+/// answer after a second-factor or forced-enrolment step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stage {
+    Password,
+    SecondFactor,
+}
+
+/// Whether the account of a pending login has been disabled since the password
+/// step. The second-factor handler and the two enrolment-completing handlers ask
+/// before they look at what was presented and answer [`twofa_unauthorized`] if so,
+/// so a correct factor and a wrong one get the same answer and neither is
+/// consumed. `Err` is the response for flags that cannot be read.
+async fn pending_disabled(state: &AppState, pending: &PendingLogin) -> Result<bool, Response> {
+    match login_gate(state, &pending.args).await {
+        Ok(gate) => {
+            if gate.disabled {
+                tracing::info!(
+                    "second-factor step refused: account {} is disabled",
+                    pending.args.username
+                );
+                account_gate::stop_engine_work(state, &pending.args.account_id);
+            }
+            Ok(gate.disabled)
+        }
+        Err(e) => Err(account_gate::unavailable("login", e)),
+    }
+}
+
 /// Create the session and finish the login, merging `extra` (e.g. one-time recovery
 /// codes) into the success body.
 ///
@@ -335,14 +399,21 @@ async fn complete_login(
     state: &AppState,
     args: &SessionArgs,
     mut extra: serde_json::Value,
+    stage: Stage,
 ) -> Response {
-    let gate =
-        match account_gate::for_login(&state.store, &args.username, &args.creds.username).await {
-            Ok(gate) => gate,
-            Err(e) => return account_gate::unavailable("login", e),
-        };
+    let gate = match login_gate(state, args).await {
+        Ok(gate) => gate,
+        Err(e) => return account_gate::unavailable("login", e),
+    };
     if gate.disabled {
-        return disabled_response(&args.username);
+        account_gate::stop_engine_work(state, &args.account_id);
+        return match stage {
+            Stage::Password => disabled_response(&args.username),
+            Stage::SecondFactor => {
+                tracing::info!("login refused: account {} is disabled", args.username);
+                twofa_unauthorized()
+            }
+        };
     }
     if gate.password_change_required
         && let Some(obj) = extra.as_object_mut()
@@ -401,12 +472,24 @@ struct VerifyReq {
 /// Verify the presented second factor for a pending login and, on success, issue the
 /// session. A wrong factor returns a uniform 401 and (except after the attempt cap)
 /// keeps the pending token live so the user can retry.
+///
+/// An account disabled since the password step is treated as a wrong factor
+/// whatever was presented: the same 401, the same count against the attempt cap,
+/// and the factor is not looked at (no TOTP step or recovery code is spent).
 async fn verify_2fa(State(state): State<AppState>, Json(body): Json<VerifyReq>) -> Response {
     let Some(pending) = state.twofa.peek_pending(&body.pending_token) else {
         return twofa_unauthorized();
     };
     if pending.kind != PendingKind::Verify {
         return twofa_unauthorized();
+    }
+    match pending_disabled(&state, &pending).await {
+        Ok(false) => {}
+        Ok(true) => {
+            state.twofa.note_failure(&body.pending_token);
+            return twofa_unauthorized();
+        }
+        Err(resp) => return resp,
     }
     let account_id = &pending.args.account_id;
 
@@ -420,7 +503,7 @@ async fn verify_2fa(State(state): State<AppState>, Json(body): Json<VerifyReq>) 
         Ok(true) => {
             // Redeem the pending login exactly once (burns the challenge).
             match state.twofa.take_pending(&body.pending_token) {
-                Some(p) => complete_login(&state, &p.args, json!({})).await,
+                Some(p) => complete_login(&state, &p.args, json!({}), Stage::SecondFactor).await,
                 None => twofa_unauthorized(),
             }
         }
@@ -565,10 +648,23 @@ async fn login_enroll_totp_confirm(
     let Some(p) = enroll_pending(&state, &body.pending_token) else {
         return twofa_unauthorized();
     };
+    // Disabled since the password step: answered as a code or attestation that
+    // did not verify, and nothing is enrolled.
+    match pending_disabled(&state, &p).await {
+        Ok(false) => {}
+        Ok(true) => return twofa_unauthorized(),
+        Err(resp) => return resp,
+    }
     match confirm_totp_and_seed_recovery(&state, &p.args.account_id, &body.code).await {
         Ok(Some(codes)) => {
             state.twofa.take_pending(&body.pending_token);
-            complete_login(&state, &p.args, json!({ "recoveryCodes": codes })).await
+            complete_login(
+                &state,
+                &p.args,
+                json!({ "recoveryCodes": codes }),
+                Stage::SecondFactor,
+            )
+            .await
         }
         Ok(None) => twofa_unauthorized(),
         Err(e) => server_error("confirm totp", e),
@@ -595,6 +691,13 @@ async fn login_enroll_passkey_finish(
     let Some(p) = enroll_pending(&state, &body.pending_token) else {
         return twofa_unauthorized();
     };
+    // Disabled since the password step: answered as a code or attestation that
+    // did not verify, and nothing is enrolled.
+    match pending_disabled(&state, &p).await {
+        Ok(false) => {}
+        Ok(true) => return twofa_unauthorized(),
+        Err(resp) => return resp,
+    }
     match register_passkey(
         &state,
         &p.args.account_id,
@@ -611,7 +714,13 @@ async fn login_enroll_passkey_finish(
                 Err(e) => return server_error("seed recovery", e),
             };
             state.twofa.take_pending(&body.pending_token);
-            complete_login(&state, &p.args, json!({ "recoveryCodes": codes })).await
+            complete_login(
+                &state,
+                &p.args,
+                json!({ "recoveryCodes": codes }),
+                Stage::SecondFactor,
+            )
+            .await
         }
         Ok(false) => twofa_unauthorized(),
         Err(e) => server_error("register passkey", e),
@@ -619,6 +728,11 @@ async fn login_enroll_passkey_finish(
 }
 
 /// A live Enroll-state pending login for `token`, or `None`.
+///
+/// The two "begin" steps do not read the account's flags: they answer with a
+/// fresh secret or challenge for any pending enrolment, so an account disabled
+/// since the password step looks the same there. It is refused at the "confirm" /
+/// "finish" step ([`pending_disabled`]), as a code that did not verify.
 fn enroll_pending(state: &AppState, token: &str) -> Option<PendingLogin> {
     let p = state.twofa.peek_pending(token)?;
     (p.kind == PendingKind::Enroll).then_some(p)

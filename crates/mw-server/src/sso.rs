@@ -431,12 +431,32 @@ async fn complete_flow(
     // An administratively disabled account gets no session, whatever the IdP says
     // about the user (t27-e3). Same uniform 401 and the same audit trail as any
     // other refused SSO login.
-    match crate::account_gate::for_login(&state.store, &account.username, &account.username).await {
+    let gate = match crate::account_gate::remember_login(
+        &state.store,
+        &account.id,
+        &account.username,
+        &account.username,
+    )
+    .await
+    {
+        Ok(()) => {
+            crate::account_gate::for_login(
+                &state.store,
+                &account.id,
+                &account.username,
+                &account.username,
+            )
+            .await
+        }
+        Err(e) => Err(e),
+    };
+    match gate {
         Ok(gate) if gate.disabled => {
             tracing::info!(
                 "sso login refused: account {} is disabled",
                 account.username
             );
+            crate::account_gate::stop_engine_work(state, &account.id);
             return audit_and_401(
                 state,
                 id,
