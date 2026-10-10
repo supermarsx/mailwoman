@@ -4,6 +4,7 @@
 
 # Rust
 /target
+/target-*
 **/target
 
 # Node / web

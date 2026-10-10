@@ -16,3 +16,7 @@ playwright-report/
 #   gen/ holds the Tauri-generated Android/iOS projects + capability schemas.
 apps/*/src-tauri/bundle-hash.json
 apps/*/src-tauri/gen/
+/.claude
+/target-t27-e2
+/target-t28-e8
+__pycache__/
