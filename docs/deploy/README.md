@@ -157,8 +157,16 @@ public or not.
 
 ## Docker
 
+For a complete single-host deployment with configuration, persistent data,
+optional automatic HTTPS, health checks, backups and recovery, use the root
+[`deploy.sh`](../../deploy.sh). See the [script guide](script.md).
+
 ```sh
-docker build -t mailwoman:local .
+bash deploy.sh --domain mail.example.org --mode engine
+```
+
+```sh
+docker build --target runtime -t mailwoman:local .
 docker run --rm -p 8080:8080 \
   -e MW_SERVER_KEY="$(openssl rand -hex 32)" \
   -e MW_COOKIE_SECURE=true \

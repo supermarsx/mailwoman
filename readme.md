@@ -36,6 +36,19 @@ thin desktop & mobile clients around a web-first core.
   your own keys); permission-scoped, audited, invisible until configured.
 - **MIT licensed** — permissive-only dependency tree, enforced in CI.
 
+## Deploy
+
+With Docker and Compose installed, deploy the web app with automatic HTTPS:
+
+```sh
+bash deploy.sh --domain mail.example.org --mode engine
+```
+
+Point the domain at your host and allow ports 80/443 first. Omit `--domain` for
+localhost HTTP, or omit `--mode engine` to use JMAP proxy mode. The script builds
+the app, preserves data and secrets, and supports updates, backups and rollback.
+See the [deployment guide](docs/deploy/script.md) and `bash deploy.sh --help`.
+
 ## License
 
 [MIT](license.md)
