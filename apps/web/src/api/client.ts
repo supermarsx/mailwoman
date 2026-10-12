@@ -12,6 +12,7 @@
 
 import type { JmapRequest, JmapResponse, JmapSession } from './jmap-types.ts';
 import { basePath } from './basePath.ts';
+import { apiFetch } from './http.ts';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -258,7 +259,7 @@ export function createClient(base = basePath(), auth?: ClientAuth): Client {
     }
     let res: Response;
     try {
-      res = await fetch(input, finalInit);
+      res = await apiFetch(input, finalInit);
     } catch (cause) {
       // A DELIBERATE cancellation is not a network failure, and must not be
       // reported as one: `guarded` turns a NetworkError into `notify(false)`,

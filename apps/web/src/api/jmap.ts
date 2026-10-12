@@ -12,6 +12,7 @@ import {
   type JmapRequest,
   type JmapResponse,
 } from './jmap-types.ts';
+import { apiFetch } from './http.ts';
 
 // V2 (§2.1): the list view now fetches the modern-mail props so tags, pins,
 // snooze, follow-up and the attachment indicator render straight off Email/get.
@@ -424,7 +425,7 @@ export interface UploadResponse {
 export type UploadFetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
 const defaultUploadFetcher: UploadFetcher = (input, init) =>
-  fetch(input, { credentials: 'same-origin', ...init });
+  apiFetch(input, { credentials: 'same-origin', ...init });
 
 /**
  * Upload one file's bytes to the session `uploadUrl` for `accountId` and return

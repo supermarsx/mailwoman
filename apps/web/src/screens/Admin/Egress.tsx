@@ -48,6 +48,7 @@
 
 import { createSignal, For, onMount, Show, type JSX } from 'solid-js';
 import { basePath } from '../../api/basePath.ts';
+import { apiFetch } from '../../api/http.ts';
 import { t } from '../../i18n/index.ts';
 import * as a11y from '../../components/mailA11y.css.ts';
 import * as css from './admin.css.ts';
@@ -176,11 +177,11 @@ export function createHttpEgressAdminApi(base = basePath()): EgressAdminApi {
       init.headers = { 'content-type': 'application/json' };
       init.body = JSON.stringify(body);
     }
-    return fetch(url, init);
+    return apiFetch(url, init);
   }
   return {
     async list() {
-      const res = await fetch(root, { credentials: 'same-origin' });
+      const res = await apiFetch(root, { credentials: 'same-origin' });
       if (!res.ok) throw new EgressApiError(res.status, `list egress proxies failed (${res.status})`);
       const body = (await res.json()) as { proxies?: EgressProxyView[] };
       return body.proxies ?? [];

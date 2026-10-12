@@ -9,6 +9,7 @@
 //     the account-prefs contract the web drives (see the DONE report's backend note).
 
 import { withBase } from '../../api/basePath.ts';
+import { apiFetch } from '../../api/http.ts';
 import type {
   Identity,
   NotificationConfig,
@@ -23,7 +24,7 @@ import type {
 
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
-const defaultFetcher: Fetcher = (input, init) => fetch(input, { credentials: 'same-origin', ...init });
+const defaultFetcher: Fetcher = (input, init) => apiFetch(input, { credentials: 'same-origin', ...init });
 
 /** Raised on a non-2xx settings request. `status` lets callers special-case 409. */
 export class SettingsError extends Error {

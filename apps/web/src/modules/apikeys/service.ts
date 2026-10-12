@@ -3,11 +3,12 @@
 // response carries the shown-ONCE display token — it is never re-fetchable.
 
 import { withBase } from '../../api/basePath.ts';
+import { apiFetch } from '../../api/http.ts';
 import { scopeToWire, type ApiKeyRecord, type ApiKeyScope, type MintedKey } from './types.ts';
 
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
-const defaultFetcher: Fetcher = (input, init) => fetch(input, { credentials: 'same-origin', ...init });
+const defaultFetcher: Fetcher = (input, init) => apiFetch(input, { credentials: 'same-origin', ...init });
 
 async function jsonOrThrow<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error(`api-key request failed: ${res.status}`);

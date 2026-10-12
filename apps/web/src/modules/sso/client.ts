@@ -13,6 +13,7 @@
 // consumed-endpoint list.
 
 import { basePath } from '../../api/basePath.ts';
+import { apiFetch } from '../../api/http.ts';
 import type { SsoBackendInput, SsoBackendRow, SsoProviderSummary } from './types.ts';
 
 // ── Public login surface ───────────────────────────────────────────────────────
@@ -38,7 +39,7 @@ export function ssoMetadataPath(id: string, base = basePath()): string {
 export async function listSsoProviders(base = basePath()): Promise<SsoProviderSummary[]> {
   if (typeof fetch === 'undefined') return [];
   try {
-    const res = await fetch(`${base}/api/sso/providers`, { credentials: 'same-origin' });
+    const res = await apiFetch(`${base}/api/sso/providers`, { credentials: 'same-origin' });
     if (!res.ok) return [];
     const body = (await res.json()) as unknown;
     // The server returns `{ providers: [...] }` (mw-server sso.rs GET /api/sso/providers);
@@ -82,12 +83,12 @@ export interface SsoAdminApi {
 export function createHttpSsoAdminApi(base = basePath()): SsoAdminApi {
   return {
     async list() {
-      const res = await fetch(`${base}/admin/sso`, { credentials: 'same-origin' });
+      const res = await apiFetch(`${base}/admin/sso`, { credentials: 'same-origin' });
       if (!res.ok) throw new SsoAdminError(res.status, `GET /admin/sso failed (${res.status})`);
       return (await res.json()) as SsoBackendRow[];
     },
     async save(input) {
-      const res = await fetch(`${base}/admin/sso`, {
+      const res = await apiFetch(`${base}/admin/sso`, {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },
@@ -96,7 +97,7 @@ export function createHttpSsoAdminApi(base = basePath()): SsoAdminApi {
       if (!res.ok) throw new SsoAdminError(res.status, `POST /admin/sso failed (${res.status})`);
     },
     async remove(id) {
-      const res = await fetch(`${base}/admin/sso/${encodeURIComponent(id)}`, {
+      const res = await apiFetch(`${base}/admin/sso/${encodeURIComponent(id)}`, {
         method: 'DELETE',
         credentials: 'same-origin',
       });

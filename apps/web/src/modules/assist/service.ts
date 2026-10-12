@@ -9,6 +9,7 @@
 // confirmation via the Outbox — never executed here. Do not add a send method.
 
 import { withBase } from '../../api/basePath.ts';
+import { apiFetch } from '../../api/http.ts';
 import {
   configFromWire,
   DISABLED_CONFIG,
@@ -22,7 +23,7 @@ import {
 
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
-const defaultFetcher: Fetcher = (input, init) => fetch(input, { credentials: 'same-origin', ...init });
+const defaultFetcher: Fetcher = (input, init) => apiFetch(input, { credentials: 'same-origin', ...init });
 
 /** A proposed tool action as the server reports it. */
 interface WireProposedAction {

@@ -18,12 +18,13 @@
 // Transport injectable so the controller unit-tests without a live server.
 
 import { withBase } from '../../api/basePath.ts';
+import { apiFetch } from '../../api/http.ts';
 import type { Id } from '../../api/jmap-types.ts';
 import type { CalendarRefreshResponse, CalendarSubscribeResponse } from './api.ts';
 
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
-const defaultFetcher: Fetcher = (input, init) => fetch(input, { credentials: 'same-origin', ...init });
+const defaultFetcher: Fetcher = (input, init) => apiFetch(input, { credentials: 'same-origin', ...init });
 
 /** A feed request the server refused or could not complete. */
 export class FeedError extends Error {

@@ -6,12 +6,13 @@
 // pre-prompt). No plaintext key ever leaves the client — only wrapped material.
 
 import { withBase } from '../../api/basePath.ts';
+import { apiFetch } from '../../api/http.ts';
 import type { ZaKdfParams } from '../zeroaccess/crypto.ts';
 import { t } from '../../i18n';
 
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
-const defaultFetcher: Fetcher = (input, init) => fetch(input, { credentials: 'same-origin', ...init });
+const defaultFetcher: Fetcher = (input, init) => apiFetch(input, { credentials: 'same-origin', ...init });
 
 /**
  * A non-2xx answer from `/api/password[/policy]`. mw-server sends

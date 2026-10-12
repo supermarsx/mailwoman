@@ -17,6 +17,7 @@ import {
   type ZeroAccessCrypto,
 } from './crypto.ts';
 import { withBase } from '../../api/basePath.ts';
+import { apiFetch } from '../../api/http.ts';
 
 /** A device paired to a zero-access account (opaque to the server; §9.1). */
 export interface PairedDevice {
@@ -45,7 +46,7 @@ export interface ZeroAccessEnablePayload {
 /** Injected transport (default = same-origin cookie fetch). */
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
-const defaultFetcher: Fetcher = (input, init) => fetch(input, { credentials: 'same-origin', ...init });
+const defaultFetcher: Fetcher = (input, init) => apiFetch(input, { credentials: 'same-origin', ...init });
 
 async function jsonOrThrow<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error(`zero-access request failed: ${res.status}`);

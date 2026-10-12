@@ -10,8 +10,9 @@
 import type { Fetcher } from './service.ts';
 import type { ZeroAccessCrypto, ZaKeyRef } from './crypto.ts';
 import { withBase } from '../../api/basePath.ts';
+import { apiFetch } from '../../api/http.ts';
 
-const defaultFetcher: Fetcher = (input, init) => fetch(input, { credentials: 'same-origin', ...init });
+const defaultFetcher: Fetcher = (input, init) => apiFetch(input, { credentials: 'same-origin', ...init });
 
 /** New-device state after generating its QR: waits for the sealed envelope. */
 export interface PairingOffer {

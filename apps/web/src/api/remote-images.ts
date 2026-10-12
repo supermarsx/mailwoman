@@ -31,6 +31,7 @@
 // the report is empty and the bar stays hidden — honest by construction.
 
 import { withBase } from './basePath.ts';
+import { apiFetch } from './http.ts';
 
 /** The 4 grant scopes (0016 `scope_kind`). */
 export type GrantScopeKind = 'single' | 'all' | 'per-sender' | 'per-domain';
@@ -78,7 +79,7 @@ export interface RemoteImageApi {
  *  service (`screens/Settings/service.ts`). */
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
-const defaultFetcher: Fetcher = (input, init) => fetch(input, { credentials: 'same-origin', ...init });
+const defaultFetcher: Fetcher = (input, init) => apiFetch(input, { credentials: 'same-origin', ...init });
 
 // Sub-path hosting (t20 B4): the REST paths below are root-absolute in source and
 // acquire the deploy prefix at call time. `withBase` is the identity function at

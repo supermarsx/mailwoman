@@ -13,6 +13,7 @@
 
 import { createSignal, type Accessor } from 'solid-js';
 import { basePath } from '../../api/basePath.ts';
+import { apiFetch } from '../../api/http.ts';
 
 // ── Wire DTOs (the frozen `/admin/*` JSON contract e11 satisfies) ──────────────
 
@@ -265,7 +266,7 @@ export class AdminApiError extends Error {
  */
 export function createHttpAdminApi(base = basePath()): AdminApi {
   async function raw(path: string, init?: RequestInit): Promise<Response> {
-    const res = await fetch(`${base}/admin${path}`, { credentials: 'same-origin', ...init });
+    const res = await apiFetch(`${base}/admin${path}`, { credentials: 'same-origin', ...init });
     // `/session` answers 401 for "not signed in" and `/login` for a wrong password;
     // on every other route a 401 means a session that existed has ended.
     if (res.status === 401 && path !== '/session' && path !== '/login') api.onSessionEnded?.();

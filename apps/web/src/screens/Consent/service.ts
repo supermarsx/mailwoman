@@ -5,11 +5,12 @@
 // never from the client (matching `mw-oauth::AuthorizeRequest`).
 
 import { withBase } from '../../api/basePath.ts';
+import { apiFetch } from '../../api/http.ts';
 import type { WireScope } from '../../modules/apikeys/index.ts';
 
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
-const defaultFetcher: Fetcher = (input, init) => fetch(input, { credentials: 'same-origin', ...init });
+const defaultFetcher: Fetcher = (input, init) => apiFetch(input, { credentials: 'same-origin', ...init });
 
 /** The raw OAuth 2.1 authorize params (from the redirect query). */
 export interface AuthorizeParams {

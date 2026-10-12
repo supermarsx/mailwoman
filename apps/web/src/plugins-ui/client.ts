@@ -27,13 +27,14 @@ import {
 } from './types';
 import { rpcError, rpcErrorResponse } from './host';
 import { basePath } from '../api/basePath.ts';
+import { apiFetch } from '../api/http.ts';
 
 /// Fetch the approved+enabled UI-plugin tier (`GET /api/ui-plugins`). Fail-soft: resolves
 /// to `EMPTY_REGISTRY` on ANY error, so no-plugins-configured renders the baseline.
 export async function listUiPlugins(base = basePath()): Promise<UiPluginRegistry> {
   if (typeof fetch === 'undefined') return EMPTY_REGISTRY;
   try {
-    const res = await fetch(`${base}/api/ui-plugins`, { credentials: 'same-origin' });
+    const res = await apiFetch(`${base}/api/ui-plugins`, { credentials: 'same-origin' });
     if (!res.ok) return EMPTY_REGISTRY;
     const body = (await res.json()) as unknown;
     return normalizeRegistry(body);
@@ -55,7 +56,7 @@ export async function callUiPluginRpc(
     return rpcErrorResponse(request.id, rpcError('internal', 'fetch unavailable'));
   }
   try {
-    const res = await fetch(`${base}/api/ui-plugins/${encodeURIComponent(pluginId)}/rpc`, {
+    const res = await apiFetch(`${base}/api/ui-plugins/${encodeURIComponent(pluginId)}/rpc`, {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'content-type': 'application/json' },

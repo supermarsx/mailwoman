@@ -15,6 +15,8 @@
 // Contract (E-mount, Wave B): `POST /admin/maintenance/rethread`, admin-session
 // cookie gated, body `{ "accountId": "<id>" }` → 200 JSON RethreadSummary.
 
+import { apiFetch } from './http.ts';
+
 /**
  * The summary the backfill returns: how much of the corpus it touched and how many
  * messages ended up in a DIFFERENT thread than before (`reassigned` — the visible
@@ -59,7 +61,7 @@ export interface MaintenanceApi {
 export function createHttpMaintenanceApi(base = ''): MaintenanceApi {
   return {
     async rethread(accountId) {
-      const res = await fetch(`${base}/admin/maintenance/rethread`, {
+      const res = await apiFetch(`${base}/admin/maintenance/rethread`, {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },
@@ -127,7 +129,7 @@ export interface SearchIndexApi {
 export function createHttpSearchIndexApi(base = ''): SearchIndexApi {
   return {
     async status() {
-      const res = await fetch(`${base}/admin/maintenance/search-index`, {
+      const res = await apiFetch(`${base}/admin/maintenance/search-index`, {
         credentials: 'same-origin',
       });
       if (!res.ok) {
@@ -136,7 +138,7 @@ export function createHttpSearchIndexApi(base = ''): SearchIndexApi {
       return (await res.json()) as SearchIndexStatus;
     },
     async reindexAll() {
-      const res = await fetch(`${base}/admin/maintenance/reindex`, {
+      const res = await apiFetch(`${base}/admin/maintenance/reindex`, {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },

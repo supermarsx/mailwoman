@@ -50,6 +50,7 @@
 // device-local preferences.
 
 import { withBase } from './basePath.ts';
+import { apiFetch } from './http.ts';
 import type { AppearancePrefs } from '../theme/appearance.ts';
 
 /** The subset of the theme slice this module drives (t19-e6's sync seam). */
@@ -78,7 +79,7 @@ export interface StoredAppearance {
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
 const defaultFetcher: Fetcher = (input, init) =>
-  fetch(input, { credentials: 'same-origin', ...init });
+  apiFetch(input, { credentials: 'same-origin', ...init });
 
 /** Raised on a non-2xx appearance request; `status` separates 401 from failure. */
 export class AppearanceSyncError extends Error {

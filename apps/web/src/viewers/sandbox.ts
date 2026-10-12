@@ -13,6 +13,8 @@
 // Text is inlined directly (escaped) — no external fetch at all. This keeps the
 // "no transcode" rule (native <img>/<audio>/<video>) while staying script-free.
 
+import { apiFetch } from '../api/http.ts';
+
 /** The frozen sandbox token set: no scripts, no same-origin, opaque frame. */
 export const SANDBOX_TOKENS = '';
 
@@ -182,7 +184,7 @@ export function bodyFrameDoc(
 
 /** Read an already-fetched `blob:` object URL back into a `data:` URL. */
 export async function blobUrlToDataUrl(blobUrl: string): Promise<string> {
-  const blob = await (await fetch(blobUrl)).blob();
+  const blob = await (await apiFetch(blobUrl)).blob();
   return await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as string);
@@ -193,5 +195,5 @@ export async function blobUrlToDataUrl(blobUrl: string): Promise<string> {
 
 /** Read a `blob:` object URL as decoded text (for the text viewer). */
 export async function blobUrlToText(blobUrl: string): Promise<string> {
-  return await (await fetch(blobUrl)).text();
+  return await (await apiFetch(blobUrl)).text();
 }

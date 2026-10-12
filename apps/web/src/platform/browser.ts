@@ -34,6 +34,7 @@ import {
   type BlobBackend,
 } from '../offline/index.ts';
 import { basePath, shellBase } from '../api/basePath.ts';
+import { apiFetch } from '../api/http.ts';
 
 /** Prefix for the localStorage-backed secure-store fallback (below OPFS). */
 const SECURE_PREFIX = 'mw.secure.';
@@ -284,7 +285,7 @@ export function createBrowserPlatform(): Platform {
       try {
         const reg = await navigator_.serviceWorker.getRegistration();
         if (reg?.pushManager === undefined) return null; // e7 registers the SW.
-        const res = await fetch(`${serverBase()}/api/push/vapid`);
+        const res = await apiFetch(`${serverBase()}/api/push/vapid`);
         if (!res.ok) return null;
         const { publicKey } = (await res.json()) as { publicKey: string };
         const sub = await reg.pushManager.subscribe({

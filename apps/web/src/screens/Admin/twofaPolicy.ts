@@ -12,6 +12,8 @@
 // A `global` scope pins `scopeValue` to ''. There is no DELETE: a scope is disabled
 // by upserting it with `require2fa: false`.
 
+import { apiFetch } from '../../api/http.ts';
+
 /** One require-2FA policy row (global, or per-domain). */
 export interface TwofaPolicyRow {
   /** `'global'` (whole deployment) or `'domain'` (one mail domain). */
@@ -60,13 +62,13 @@ export interface TwofaPolicyApi {
 export function createHttpTwofaPolicyApi(base = ''): TwofaPolicyApi {
   return {
     async list() {
-      const res = await fetch(`${base}/admin/2fa/policy`, { credentials: 'same-origin' });
+      const res = await apiFetch(`${base}/admin/2fa/policy`, { credentials: 'same-origin' });
       if (!res.ok) throw new TwofaPolicyApiError(res.status, `list 2fa policy failed (${res.status})`);
       const body = (await res.json()) as { policies?: TwofaPolicyRow[] };
       return body.policies ?? [];
     },
     async set(input) {
-      const res = await fetch(`${base}/admin/2fa/policy`, {
+      const res = await apiFetch(`${base}/admin/2fa/policy`, {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },

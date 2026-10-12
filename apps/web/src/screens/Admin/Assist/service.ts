@@ -12,6 +12,7 @@
 // `/admin/*`). The transport is injectable so the screen is tested without a server.
 
 import { withBase } from '../../../api/basePath.ts';
+import { apiFetch } from '../../../api/http.ts';
 import { ASSIST_CAPABILITIES, type AssistCapability } from '../../../modules/assist/types.ts';
 
 /** `mw_assist::AdapterConfig`, keys camelCased. Fields the server defaults are optional on write. */
@@ -139,7 +140,7 @@ function parseStatus(body: unknown): AdminAssistStatus {
 }
 
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
-const defaultFetcher: Fetcher = (input, init) => fetch(input, { credentials: 'same-origin', ...init });
+const defaultFetcher: Fetcher = (input, init) => apiFetch(input, { credentials: 'same-origin', ...init });
 
 /**
  * The Assist admin client.

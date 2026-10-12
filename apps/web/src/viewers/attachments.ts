@@ -20,6 +20,7 @@ import {
   type JmapRequest,
 } from '../api/jmap-types.ts';
 import { viewerKindFor } from '../contracts/viewer.ts';
+import { apiFetch } from '../api/http.ts';
 
 /** JMAP `attachments` parts carry a filename/disposition beyond the body-part core. */
 export interface AttachmentPart extends EmailBodyPart {
@@ -125,7 +126,7 @@ export function buildDownloadUrl(template: string, ref: BlobRef): string {
 
 /** Fetch a blob (cookie-authed, same-origin) and wrap it in an object URL. */
 export async function fetchObjectUrl(url: string): Promise<string> {
-  const res = await fetch(url, { credentials: 'same-origin' });
+  const res = await apiFetch(url, { credentials: 'same-origin' });
   if (!res.ok) throw new Error(`attachment download failed: ${res.status}`);
   return URL.createObjectURL(await res.blob());
 }
