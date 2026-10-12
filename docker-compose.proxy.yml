@@ -18,8 +18,12 @@
 #   #    (Host openssl; certs are gitignored and never committed.)
 #   sh docs/deploy/proxy/tls/gen-certs.sh
 #
-#   # 2. Boot one cell.
-#   docker compose -f docker-compose.proxy.yml --profile nginx up -d --wait
+#   # 2. Boot one cell, then wait for its probes. Two commands because the
+#   #    haproxy-l4 cell has a service (app-tls) that cannot carry a probe, and
+#   #    Compose 2.38.2 refuses `--wait` with such a service in the wait set.
+#   #    The service that fronts the app is named after its profile.
+#   docker compose -f docker-compose.proxy.yml --profile nginx up -d
+#   docker compose -f docker-compose.proxy.yml --profile nginx up -d #     --no-deps --wait --wait-timeout 300 mock app nginx
 #
 #   # 3. Drive it.
 #   MW_T20_PROXY=1 \
@@ -225,17 +229,29 @@ services:
     depends_on:
       mock:
         condition: service_healthy
-    # `mailwoman healthcheck` speaks plain HTTP to MW_BIND, and this listener is
-    # TLS-only AND demands a PROXY protocol header before the TLS ClientHello, so
-    # every probe shape available inside this image reports a false red.
+    # No probe run inside this container can pass. The image holds two binaries
+    # and no shell. `mailwoman healthcheck` is an HTTP client with the public CA
+    # set compiled in, and this listener is TLS-only, presents a self-signed
+    # leaf, and drops any connection that does not start with a PROXY header
+    # from a peer in MW_TRUSTED_PROXIES. Measured on a booted cell (t30-e5): the
+    # default probe, `--url https://127.0.0.1:8443/healthz` and
+    # `--url https://haproxy-l4:8443/healthz` all exit 1.
     #
     # `disable: true` is required and OMITTING the key is not enough: the
     # Dockerfile bakes a HEALTHCHECK into the image, so a service that declares
-    # none INHERITS it. That inherited probe can never pass here, the container
-    # never becomes healthy, and `up -d --wait` fails with "container ... is
-    # unhealthy" — which reads exactly like "PROXY protocol is broken" and is
-    # not. Readiness for this cell is asserted at the haproxy-l4 listener, and
-    # then end to end by the conformance suite.
+    # none INHERITS it, never becomes healthy, and `up -d --wait` fails with
+    # "container ... is unhealthy".
+    #
+    # Readiness of this service is asserted by the `haproxy-l4` healthcheck
+    # below, which requests /healthz through the balancer and so through this
+    # listener.
+    #
+    # Consequence for `--wait`: Compose 2.38.2 (the ubuntu-24.04 runner image)
+    # exits 1 with "container ... has no healthcheck configured" when a service
+    # in the wait set has a disabled healthcheck; Compose 5.1.3 treats it as
+    # running. So this cell is started with `up -d` and then waited on by
+    # service name with `--no-deps`, leaving this service out of the wait set.
+    # See the boot step in .github/workflows/proxy-conformance.yml.
     healthcheck:
       disable: true
 
@@ -351,9 +367,14 @@ services:
       app-tls:
         condition: service_started
     healthcheck:
-      # TCP-level only: an HTTP probe would have to speak TLS, and busybox wget's
-      # TLS support in this image is not dependable enough to gate CI on.
-      test: ["CMD-SHELL", "nc -z 127.0.0.1 8443 || exit 1"]
+      # Probes the FULL chain: this listener -> PROXY v2 header -> app-tls's own
+      # TLS listener -> /healthz. It is the only readiness check app-tls has (see
+      # that service). `--no-check-certificate` because the leaf is self-signed;
+      # the property probed is that the app answers through the balancer.
+      # The earlier `nc -z 127.0.0.1 8443` passed with app-tls stopped.
+      # Needs busybox wget with the `ssl_client` helper, which this image ships;
+      # an image without it makes the probe fail and the cell go unhealthy.
+      test: ["CMD-SHELL", "wget -q --no-check-certificate -O /dev/null https://127.0.0.1:8443/healthz || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 20
