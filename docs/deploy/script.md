@@ -30,6 +30,11 @@ bash deploy.sh                       # http://localhost:8080; JMAP proxy mode
 bash deploy.sh --mode engine --port 8081
 ```
 
+Without `--port`, a first installation uses 8080, or the next free port up to
+8099 when 8080 is taken; the script prints the port and keeps it in `deploy.env`.
+Later deploys stop before building if a published port is held by another
+service, and name the setting to change.
+
 These examples describe separate first installations. Once configuration exists,
 edit it instead of passing setup flags again. All commands accept `--state-dir`
 and can be invoked from any working directory by passing the path to `deploy.sh`.

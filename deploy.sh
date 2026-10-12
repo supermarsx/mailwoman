@@ -14,6 +14,7 @@ EXPOSURE=local
 DOMAIN=
 PUBLIC_URL=
 PORT=8080
+PORT_SET=false
 MODE=proxy
 PROXY_PREFIX=172.30.70
 IMAGE_ID=
@@ -55,7 +56,8 @@ Options:
   --project NAME     Isolated Compose project name (init/first deploy only)
   --domain HOST     Publish through Caddy with automatic HTTPS (init only)
   --public-url URL  Existing HTTPS reverse proxy; bind app to localhost (init only)
-  --port NUMBER     Localhost HTTP port, default 8080 (init only)
+  --port NUMBER     Localhost HTTP port (init only; default: the first free
+                    port from 8080 to 8099)
   --mode MODE       proxy for JMAP; engine for IMAP/POP3 + SMTP (init only)
   --proxy-prefix IP First 3 octets of a private /24 for Caddy, e.g. 172.30.71
                     (init only; default 172.30.70; choose an unused subnet)
@@ -74,7 +76,8 @@ Examples:
   bash deploy.sh backup
   bash deploy.sh restore .deploy.local/backups/20261006T120000Z-1234
 
-No domain means a local HTTP installation at http://localhost:8080.
+No domain means a local HTTP installation at http://localhost:8080, or the
+next free port; the chosen URL is printed and kept in deploy.env.
 For public HTTPS, point DNS to this host and allow TCP ports 80 and 443.
 The script deploys the webmail app; mailbox/SMTP servers remain external.
 Restore/rollback reverts data to the snapshot time (including configuration).
@@ -87,6 +90,8 @@ log() { printf '[deploy] %s\n' "$*" >&2; }
 die() { log "ERROR: $*"; exit 1; }
 need_value() { [[ $# -ge 2 && -n $2 && $2 != --* ]] || die "$1 needs a value"; }
 need() { command -v "$1" >/dev/null 2>&1 || die "Required command missing: $1"; }
+# True when something on this host accepts connections on the given TCP port.
+port_in_use() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 
 while (($#)); do
     case "$1" in
@@ -98,7 +103,7 @@ while (($#)); do
         --project) need_value "$@"; PROJECT=$2; INIT_OPTIONS=true; shift ;;
         --domain) need_value "$@"; DOMAIN=$2; INIT_OPTIONS=true; shift ;;
         --public-url) need_value "$@"; PUBLIC_URL=$2; INIT_OPTIONS=true; shift ;;
-        --port) need_value "$@"; PORT=$2; INIT_OPTIONS=true; shift ;;
+        --port) need_value "$@"; PORT=$2; PORT_SET=true; INIT_OPTIONS=true; shift ;;
         --mode) need_value "$@"; MODE=$2; INIT_OPTIONS=true; shift ;;
         --proxy-prefix) need_value "$@"; PROXY_PREFIX=$2; INIT_OPTIONS=true; shift ;;
         --image) need_value "$@"; IMAGE=$2; shift ;;
@@ -229,8 +234,19 @@ if [[ -f $STATE/deploy.env ]]; then
 else
     [[ -z $DOMAIN || -z $PUBLIC_URL ]] || die "Choose --domain OR --public-url"
     if [[ -n $DOMAIN ]]; then EXPOSURE=caddy; PUBLIC_URL=https://$DOMAIN
-    elif [[ -n $PUBLIC_URL ]]; then EXPOSURE=external
-    else PUBLIC_URL=http://localhost:$PORT; fi
+    else
+        # A new install without --port takes the first free port; deploy.env then keeps it.
+        if ! $PORT_SET && port_in_use "$PORT"; then
+            for candidate in {8081..8099}; do
+                if ! port_in_use "$candidate"; then
+                    log "Port $PORT is in use; using $candidate instead"
+                    PORT=$candidate
+                    break
+                fi
+            done
+        fi
+        if [[ -n $PUBLIC_URL ]]; then EXPOSURE=external; else PUBLIC_URL=http://localhost:$PORT; fi
+    fi
 fi
 validate_config
 if $DRY_RUN; then
@@ -316,6 +332,23 @@ compose() {
     # from the caller's .env / COMPOSE_FILE / COMPOSE_PROFILES settings.
     COMPOSE_PROFILES='' docker compose --project-name "$PROJECT" --env-file /dev/null \
         --project-directory "$directory" -f "$directory/compose.yaml" "$@"
+}
+
+# Fail before any build, snapshot or container change when a host port this
+# deployment publishes is held by something other than its own running service.
+require_free_ports() {
+    local service=mailwoman port cid own=
+    local -a ports=("$PORT")
+    if [[ $EXPOSURE == caddy ]]; then service=caddy; ports=(80 443); fi
+    if [[ -f $ACTIVE/compose.yaml ]]; then
+        cid=$(compose "$ACTIVE" ps -q "$service")
+        if [[ -n $cid ]]; then own=$(docker port "$cid"); fi
+    fi
+    for port in "${ports[@]}"; do
+        if grep -q ":$port\$" <<< "$own" || ! port_in_use "$port"; then continue; fi
+        if [[ $EXPOSURE == caddy ]]; then die "Port $port is already in use on this host; Caddy needs ports 80 and 443. Stop the service holding it, then deploy again"; fi
+        die "Port $port is already in use on this host. Stop the service holding it, or set PORT$([[ $EXPOSURE != local ]] || printf ' and PUBLIC_URL') in $STATE/deploy.env to a free port, then deploy again"
+    done
 }
 
 load_active() {
@@ -502,8 +535,8 @@ case "$ACTION" in
     status) load_active; compose "$ACTIVE" ps -a; log "URL: $PUBLIC_URL; data volume: $DATA_VOLUME" ;;
     logs) load_active; compose "$ACTIVE" logs --tail 100 --follow ;;
     stop) load_active; compose "$ACTIVE" stop --timeout 60; log "Stopped; data retained" ;;
-    start) load_active; compose "$ACTIVE" up -d --wait --wait-timeout "$TIMEOUT"; verify ;;
-    restart) load_active; compose "$ACTIVE" restart; compose "$ACTIVE" start --wait --wait-timeout "$TIMEOUT"; verify ;;
+    start) load_active; require_free_ports; compose "$ACTIVE" up -d --wait --wait-timeout "$TIMEOUT"; verify ;;
+    restart) load_active; require_free_ports; compose "$ACTIVE" restart; compose "$ACTIVE" start --wait --wait-timeout "$TIMEOUT"; verify ;;
     backup) load_active; snapshot ;;
     deploy)
         WORK=$(mktemp -d "$STATE/.work.XXXXXX")
@@ -529,6 +562,7 @@ case "$ACTION" in
                 die "Compose project $PROJECT already exists; use its original state directory or choose another project"
             fi
         fi
+        require_free_ports
         if ! $NO_BUILD; then
             if [[ -n $IMAGE ]]; then
                 if $PULL || ! docker image inspect "$IMAGE" >/dev/null 2>&1; then docker pull "$IMAGE"; fi
