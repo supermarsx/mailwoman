@@ -1,0 +1,25 @@
+// Styles of the holiday-pack location picker (`HolLocationPicker.tsx`). The
+// dialog frame, buttons and inputs are the calendar module's (`calendar.css.ts`).
+
+import { style } from '@vanilla-extract/css';
+import { vars } from '../../theme/contract.css.ts';
+
+export const heading = style({ margin: 0, fontSize: '1.1rem' });
+
+// Outlook's own pack has 116 locations: the list scrolls inside the dialog.
+export const list = style({
+  listStyle: 'none',
+  margin: 0,
+  padding: 0,
+  maxHeight: '45vh',
+  overflowY: 'auto',
+  border: `1px solid ${vars.color.border}`,
+  borderRadius: vars.radius.sm,
+});
+
+export const item = style({
+  display: 'flex',
+  alignItems: 'center',
+  gap: vars.space[2],
+  padding: `${vars.space[1]} ${vars.space[2]}`,
+});

@@ -47,6 +47,25 @@ function localDateTimeValue(d: Date): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+/**
+ * `text` as Outlook stores a `.hol`: CRLF line ends, UTF-16, byte order mark
+ * first. An installed OUTLOOK.HOL (Office 16) starts `FF FE 5B 00`, which is
+ * little-endian; `bigEndian` gives the other order with its own mark.
+ */
+function utf16WithBom(text: string, bigEndian = false): Buffer {
+  const units = Buffer.from(text.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n'), 'utf16le');
+  if (bigEndian) units.swap16();
+  return Buffer.concat([Buffer.from(bigEndian ? [0xfe, 0xff] : [0xff, 0xfe]), units]);
+}
+
+/** Export every event through the toolbar and return the downloaded document. */
+async function exportedIcs(page: Page): Promise<string> {
+  const downloadPromise = page.waitForEvent('download');
+  await calendar(page).getByRole('button', { name: 'Export', exact: true }).click();
+  const download = await downloadPromise;
+  return readFile(await download.path(), 'utf8');
+}
+
 async function createEvent(page: Page, title: string, opts: { daily?: boolean } = {}): Promise<void> {
   await page.getByRole('button', { name: 'New event' }).click();
   const dialog = page.getByRole('dialog', { name: 'New event' });
@@ -197,6 +216,118 @@ test.describe('Calendar module through the real UI (engine mode)', () => {
     const feedback = calendar(page).getByTestId('calendar-feedback');
     await expect(feedback).toHaveAttribute('role', 'alert');
     await expect(feedback).toContainText('Nothing was imported');
+  });
+
+  // What this can and cannot catch: `File.text()` reads a UTF-16 file by its
+  // byte order mark in Chromium and WebKit, and as UTF-8 in Firefox. The `pim`
+  // project is Chromium, where this test passed before the client decoded the
+  // bytes itself (`modules/calendar/decode.ts`); run in Firefox it failed with
+  // "Nothing was imported". So here it guards the import of such a file, not the
+  // decode: `decode.test.ts` and `HolLocationPicker.test.tsx` do that.
+  test('a .hol file in UTF-16, the encoding Outlook writes, imports its holidays', async ({ page }) => {
+    await engineLogin(page);
+    await openCalendar(page);
+    const input = calendar(page).getByLabel('Import calendar file');
+    const feedback = calendar(page).getByTestId('calendar-feedback');
+
+    // The repository's fixture, re-encoded by `utf16WithBom`: one location, three
+    // holidays.
+    const fixture = await readFile(new URL('../../../fixtures/ics/holidays.hol', import.meta.url), 'utf8');
+    const le = utf16WithBom(fixture);
+    // Precondition: these are UTF-16LE bytes, not the UTF-8 file under another name.
+    expect([...le.subarray(0, 6)]).toEqual([0xff, 0xfe, 0x5b, 0x00, 0x54, 0x00]);
+
+    await input.setInputFiles({ name: 'holidays.hol', mimeType: 'application/octet-stream', buffer: le });
+    await expect(feedback).toHaveText('Imported 3 events.');
+    await expect(feedback).toHaveAttribute('role', 'status');
+
+    // Big-endian with its mark is read the same way. (Two holidays, so this
+    // message is not the one already on screen.)
+    const be = utf16WithBom('[Holidays] 2\r\nNew Year,2027/01/01\r\nMay Day,2027/05/01\r\n', true);
+    expect([...be.subarray(0, 4)]).toEqual([0xfe, 0xff, 0x00, 0x5b]);
+    await input.setInputFiles({ name: 'holidays-be.hol', mimeType: 'application/octet-stream', buffer: be });
+    await expect(feedback).toHaveText('Imported 2 events.');
+
+    // Names outside ASCII arrive whole: the export holds the title as written.
+    const title = `São João ${uid()}`;
+    await input.setInputFiles({
+      name: 'porto.hol',
+      mimeType: 'application/octet-stream',
+      buffer: utf16WithBom(`[Porto] 1\r\n${title},2026/6/24\r\n`),
+    });
+    await expect(feedback).toHaveText('Imported 1 event.');
+    expect(await exportedIcs(page)).toContain(`SUMMARY:${title}`);
+  });
+
+  test('UTF-16 text that is not a calendar is still refused', async ({ page }) => {
+    await engineLogin(page);
+    await openCalendar(page);
+
+    await calendar(page)
+      .getByLabel('Import calendar file')
+      .setInputFiles({ name: 'notes.hol', mimeType: 'application/octet-stream', buffer: utf16WithBom('not a calendar') });
+
+    const feedback = calendar(page).getByTestId('calendar-feedback');
+    await expect(feedback).toHaveAttribute('role', 'alert');
+    await expect(feedback).toContainText('Nothing was imported');
+  });
+
+  test('a .hol file with several locations asks which to import and imports only those', async ({ page }) => {
+    await engineLogin(page);
+    await openCalendar(page);
+    const input = calendar(page).getByLabel('Import calendar file');
+    const feedback = calendar(page).getByTestId('calendar-feedback');
+
+    // Lines in the layout of Outlook's own file: `[Name] n` sections, unpadded
+    // dates, and a line with a calendar-type id (a Hijri date), which the engine
+    // does not read. The titles are unique to this run.
+    const tag = uid();
+    const pack = [
+      '[Argentina] 3',
+      `San Martín Day ${tag},2026/8/17`,
+      `Eid al Adha ${tag},1447/12/10,6`,
+      `Año Nuevo ${tag},2026/1/1`,
+      '[Portugal] 1',
+      `Dia de Portugal ${tag},2026/6/10`,
+      '[Japan] 1',
+      `Shōwa Day ${tag},2026/4/29`,
+      '',
+    ].join('\r\n');
+    await input.setInputFiles({ name: 'three-locations.hol', mimeType: 'application/octet-stream', buffer: utf16WithBom(pack) });
+
+    // Nothing is imported until a location is chosen.
+    const picker = page.getByRole('dialog', { name: 'Choose locations to import' });
+    await expect(picker).toBeVisible();
+    await expect(picker.getByRole('checkbox')).toHaveCount(3);
+    await expect(picker.getByRole('checkbox', { checked: true })).toHaveCount(0);
+    await expect(picker.getByRole('button', { name: 'Import selected' })).toBeDisabled();
+    await expect(feedback).toHaveCount(0);
+
+    // Cancelling imports nothing.
+    await picker.getByRole('button', { name: 'Cancel' }).click();
+    await expect(picker).toBeHidden();
+    await expect(feedback).toHaveCount(0);
+    expect(await exportedIcs(page)).not.toContain(tag);
+
+    // The filter narrows the list; the choice is what gets imported.
+    await input.setInputFiles({ name: 'three-locations.hol', mimeType: 'application/octet-stream', buffer: utf16WithBom(pack) });
+    await expect(picker).toBeVisible();
+    await picker.getByLabel('Filter locations').fill('arg');
+    await expect(picker.getByRole('checkbox')).toHaveCount(1);
+    await picker.getByLabel('Argentina').check();
+    await picker.getByLabel('Filter locations').fill('');
+    await picker.getByLabel('Japan').check();
+    await picker.getByRole('button', { name: 'Import selected' }).click();
+    await expect(picker).toBeHidden();
+    // Argentina's two Gregorian lines and Japan's one; not the Hijri line.
+    await expect(feedback).toHaveText('Imported 3 events.');
+
+    const ics = await exportedIcs(page);
+    expect(ics).toContain(`SUMMARY:San Martín Day ${tag}`);
+    expect(ics).toContain(`SUMMARY:Año Nuevo ${tag}`);
+    expect(ics).toContain(`SUMMARY:Shōwa Day ${tag}`);
+    expect(ics).not.toContain(`Dia de Portugal ${tag}`);
+    expect(ics).not.toContain(`Eid al Adha ${tag}`);
   });
 
   test('export downloads an .ics document containing a created event', async ({ page }) => {

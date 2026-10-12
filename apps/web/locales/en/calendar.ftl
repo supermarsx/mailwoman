@@ -213,6 +213,17 @@ calendar-import-done = { $count ->
     [one] Imported 1 event.
    *[other] Imported { $count } events.
 }
+# The location choice shown for a .hol holiday file with more than one location.
+calendar-import-locations-title = Choose locations to import
+calendar-import-locations-intro = This file holds holidays for { $count } locations. Only the locations you select are imported.
+calendar-import-locations-filter = Filter locations
+calendar-import-locations-list = Locations in the file
+calendar-import-locations-none = No location matches the filter.
+calendar-import-locations-picked = { $count ->
+    [one] 1 location selected.
+   *[other] { $count } locations selected.
+}
+calendar-import-locations-import = Import selected
 calendar-export-failed = The calendar could not be exported.
 calendar-quick-add-failed = That event could not be added.
 calendar-attachment-uri-placeholder = https://example.com/file

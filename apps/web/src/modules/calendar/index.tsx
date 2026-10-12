@@ -18,7 +18,10 @@ import { ActiveView } from './views.tsx';
 import { EventEditor } from './EventEditor.tsx';
 import { ShareDialog } from './ShareDialog.tsx';
 import { ConflictResolver } from './ConflictResolver.tsx';
+import { HolLocationPicker } from './HolLocationPicker.tsx';
 import { formatFull, formatMonth, formatMonthYear } from './datetime.ts';
+import { readCalendarFile } from './decode.ts';
+import { holLocations, holPack, type HolLocation } from './hol-locations.ts';
 import { HOLIDAY_PACKS } from './holidays.ts';
 import * as css from './calendar.css.ts';
 
@@ -74,6 +77,9 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
   // The outcome of the last import / export / subscribe / quick-add, shown in the
   // sidebar: a failed engine call is reported rather than dropped.
   const [feedback, setFeedback] = createSignal<{ kind: 'error' | 'info'; text: string } | null>(null);
+  // The locations of a picked `.hol` file that has more than one, while the user
+  // chooses among them. Such a file is never imported whole.
+  const [locationChoice, setLocationChoice] = createSignal<HolLocation[] | null>(null);
 
   /** Run a user action; on failure show `failKey`'s message instead of throwing. */
   async function attempt(failKey: string, fn: () => Promise<void>): Promise<void> {
@@ -119,9 +125,26 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
     const input = e.target as HTMLInputElement;
     const file = input.files?.[0];
     if (file === undefined) return;
-    const text = await file.text();
-    await importInto(text);
-    input.value = '';
+    setFeedback(null);
+    let text: string;
+    try {
+      // Outlook's `.hol` is UTF-16, which `file.text()` reads in some browsers
+      // and not in others; `readCalendarFile` goes by the byte order mark.
+      text = await readCalendarFile(file);
+    } catch {
+      setFeedback({ kind: 'error', text: t('calendar-import-failed') });
+      return;
+    } finally {
+      input.value = '';
+    }
+    const locations = holLocations(text);
+    if (locations.length > 1) setLocationChoice(locations);
+    else await importInto(text);
+  }
+
+  async function onLocationsChosen(chosen: HolLocation[]): Promise<void> {
+    setLocationChoice(null);
+    await importInto(holPack(chosen));
   }
 
   async function onExport(): Promise<void> {
@@ -341,6 +364,16 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
 
       <Show when={sharing()}>
         {(cal) => <ShareDialog controller={c} calendar={cal()} onClose={() => setSharing(null)} />}
+      </Show>
+
+      <Show when={locationChoice()}>
+        {(locations) => (
+          <HolLocationPicker
+            locations={locations()}
+            onImport={(chosen) => void onLocationsChosen(chosen)}
+            onClose={() => setLocationChoice(null)}
+          />
+        )}
       </Show>
     </section>
   );
