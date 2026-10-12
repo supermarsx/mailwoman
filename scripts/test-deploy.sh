@@ -2,6 +2,9 @@
 # Real Docker lifecycle test. Never touches the normal mailwoman deployment.
 # Usage: bash scripts/test-deploy.sh mailwoman:deploy-verify
 # Build the supplied image with: docker build --target runtime -t mailwoman:deploy-verify .
+# With pnpm on PATH it also drives the admin panel in a browser (Playwright project
+# `deploy`; needs apps/web/node_modules and Playwright's chromium). Without pnpm that
+# step is skipped; DEPLOY_TEST_REQUIRE=all turns the skip into a failure.
 # shellcheck disable=SC2016 # Dollar signs below deliberately test literal env values.
 set -Eeuo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
@@ -72,6 +75,50 @@ grep -qi '<!doctype html' "$STATE/index.html" || fail 'missing embedded SPA'
 docker cp "$CID:/data/mailwoman.db" "$STATE/first.db"
 [[ -s $STATE/first.db ]] || fail 'database not persisted'
 
+# The admin panel of a default installation, which runs with MW_CSRF_STRICT=true.
+# With curl first: the generated password signs in and the answer sets mw_csrf; a
+# write without X-CSRF-Token is refused, which shows strict mode is on in the
+# deployed app whatever the web client does; the same write with the header is
+# accepted; a wrong password is 401, not the guard's 403.
+ADMIN_USER=$(awk -F= '$1 == "MW_ADMIN_USER" {print $2}' "$STATE/app.env")
+ADMIN_PASSWORD=$(awk -F= '$1 == "MW_ADMIN_PASSWORD" {print $2}' "$STATE/app.env")
+ADMIN_URL="http://localhost:$PORT/admin"
+JAR="$STATE/admin.cookies"
+BAN='{"ip":"203.0.113.250","reason":"deploy test"}'
+admin() { curl --silent --output "$STATE/admin.body" --write-out '%{http_code}' --cookie "$JAR" --cookie-jar "$JAR" "$@"; }
+admin_json() { admin --header 'content-type: application/json' "$@"; }
+CODE=$(admin_json --data "{\"username\":\"$ADMIN_USER\",\"password\":\"not-$ADMIN_PASSWORD\"}" "$ADMIN_URL/login")
+[[ $CODE == 401 ]] || fail "a wrong admin password answered $CODE, expected 401"
+CODE=$(admin_json --data "{\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PASSWORD\"}" "$ADMIN_URL/login")
+[[ $CODE == 200 ]] || fail "admin login with the generated password answered $CODE: $(cat "$STATE/admin.body")"
+CSRF=$(awk '$6 == "mw_csrf" {print $7}' "$JAR")
+[[ -n $CSRF ]] || fail 'admin login set no mw_csrf cookie'
+CODE=$(admin_json --data "$BAN" "$ADMIN_URL/bans")
+[[ $CODE == 403 ]] || fail "an admin write without X-CSRF-Token answered $CODE, expected 403: strict CSRF is not on in the deployed app"
+grep -F 'missing or invalid CSRF token' "$STATE/admin.body" >/dev/null || fail "unexpected refusal: $(cat "$STATE/admin.body")"
+CODE=$(admin_json --header "x-csrf-token: $CSRF" --data "$BAN" "$ADMIN_URL/bans")
+[[ $CODE == 2?? ]] || fail "an admin write with X-CSRF-Token answered $CODE: $(cat "$STATE/admin.body")"
+CODE=$(admin --request DELETE --header "x-csrf-token: $CSRF" "$ADMIN_URL/bans/203.0.113.250")
+[[ $CODE == 2?? ]] || fail "removing the test ban answered $CODE: $(cat "$STATE/admin.body")"
+
+# The same panel in a browser, where the web client has to send the token itself
+# (apps/web/e2e/deploy-admin.spec.ts). Needs pnpm, apps/web/node_modules and
+# Playwright's chromium. Without pnpm this step is skipped and the PASS line says
+# so; DEPLOY_TEST_REQUIRE=all makes a missing pnpm a failure instead.
+BROWSER='admin panel in a browser'
+if command -v pnpm >/dev/null 2>&1; then
+    # Run from apps/web: corepack picks the pinned pnpm from the working directory.
+    (cd "$ROOT/apps/web" && MW_DEPLOY_BASE_URL="http://localhost:$PORT" MW_ADMIN_USER="$ADMIN_USER" MW_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
+        pnpm exec playwright test --project=deploy --reporter=list --output "$STATE/playwright" > "$STATE/playwright.log" 2>&1) \
+        || { cat "$STATE/playwright.log" >&2; fail 'the admin panel browser test failed'; }
+    grep -E '^ +1 passed' "$STATE/playwright.log" >/dev/null || { cat "$STATE/playwright.log" >&2; fail 'the admin panel browser test did not run'; }
+elif [[ ${DEPLOY_TEST_REQUIRE:-} == all ]]; then
+    fail 'pnpm is not on PATH and DEPLOY_TEST_REQUIRE=all: the admin panel browser test cannot run'
+else
+    BROWSER='admin panel in a browser SKIPPED (pnpm is not on PATH)'
+    printf 'SKIP: pnpm is not on PATH; the admin panel browser test did not run. Set DEPLOY_TEST_REQUIRE=all to make this a failure.\n' >&2
+fi
+
 # Seed an opaque upload-tree object to verify full-volume backup and ownership.
 mkdir "$STATE/uploads"
 printf 'before-snapshot\n' > "$STATE/uploads/deploy-test-object"
@@ -138,4 +185,4 @@ net deploy --no-build
 [[ $(awk -F= '$1 == "DATA_VOLUME" {print $2}' "$NET_STATE/active/release.env") == "$NET_VOLUME" ]] || fail 'update replaced the data volume'
 docker network inspect "$NETWORK" >/dev/null || fail 'update removed the proxy network'
 PASSED=true
-printf 'PASS: deployment, literal secrets, health, persistent data, backup, rollback, corruption refusal, copy-failure recovery, repeated setup options and a proxy-network installation\n'
+printf 'PASS: deployment, literal secrets, health, persistent data, admin login and writes under strict CSRF (curl), %s, backup, rollback, corruption refusal, copy-failure recovery, repeated setup options and a proxy-network installation\n' "$BROWSER"
