@@ -9,7 +9,7 @@ import { defineConfig, devices } from '@playwright/test';
  * server — it assumes the app is already reachable at the project's `baseURL`.
  *
  * The projects below `phone` in the `projects` array (crypto, push, v6, v7, t12,
- * t10) are described where they are defined. The first four:
+ * t10, deploy) are described where they are defined. The first four:
  *   - `mock`   — the V0 in-repo JMAP mock (proxy mode) on :8080. Runs the
  *                original happy-path + sanitizer specs.
  *   - `engine` — V1 engine mode: mw-server driving a REAL IMAP/SMTP account
@@ -57,6 +57,12 @@ const v6BaseURL = process.env['MW_E2E_BASE_URL'] ?? 'http://localhost:8090';
 // runs alongside. Reuses MW_E2E_BASE_URL (the e2e-v7 job runs standalone). Defaults to
 // :8090 for local runs.
 const v7BaseURL = process.env['MW_E2E_BASE_URL'] ?? 'http://localhost:8090';
+// The `deploy` project (t30-e2): the admin panel of an installation made by
+// `deploy.sh`, driven in a browser. `scripts/test-deploy.sh` sets
+// `MW_DEPLOY_BASE_URL` to the installation it has just deployed, with
+// `MW_ADMIN_USER` / `MW_ADMIN_PASSWORD` read from that installation's `app.env`.
+// There is no default: with the variable unset the spec skips itself.
+const deployBaseURL = process.env['MW_DEPLOY_BASE_URL'];
 
 export default defineConfig({
   testDir: './e2e',
@@ -224,6 +230,20 @@ export default defineConfig({
       // config edit.
       testMatch: ['ui-plugin.spec.ts', 'masked.spec.ts', 'dcr.spec.ts'],
       use: { ...devices['Desktop Chrome'], baseURL: v7BaseURL },
+    },
+    {
+      name: 'deploy',
+      // The admin panel on a `deploy.sh` installation (t30-e2). `deploy.sh` writes
+      // `MW_CSRF_STRICT=true`, so the spec first shows that the installation refuses
+      // an admin write without `X-CSRF-Token`, then signs in, adds and removes a ban
+      // and signs out through the UI — writes that succeed only if the web client
+      // sends the token. Run by `scripts/test-deploy.sh` after its first deploy; it
+      // covers the admin panel and none of the mailbox app.
+      testMatch: ['deploy-admin.spec.ts'],
+      use: {
+        ...devices['Desktop Chrome'],
+        ...(deployBaseURL !== undefined ? { baseURL: deployBaseURL } : {}),
+      },
     },
   ],
 });
