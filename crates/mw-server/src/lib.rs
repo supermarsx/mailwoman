@@ -1781,16 +1781,13 @@ async fn state_change_guard(State(state): State<AppState>, req: Request, next: N
                 )
                     .into_response();
             }
-            // Pre-auth bootstrap routes have no prior token to double-submit; they
-            // are covered by the Origin check + SameSite=Strict cookie instead. The
-            // 2FA login step + forced-enrolment routes (t16 e3) are the same kind of
-            // pre-auth bootstrap: authority is the unguessable one-shot pending token
-            // in the body, not an ambient cookie, and no session cookie exists yet.
-            let path = req.uri().path();
-            let csrf_exempt = matches!(path, "/api/login" | "/api/discover")
-                || path.starts_with("/api/login/2fa");
+            // Strict mode: a write must repeat the `mw_csrf` cookie in
+            // `X-CSRF-Token`. Sign-in routes (no token exists yet) and routes no
+            // cookie authorises are not asked for it; the list, with the reason
+            // for each entry, is `hardening::csrf_token_exempt`. They have passed
+            // the Origin check above like every other write.
             if state.hardening.csrf_strict
-                && !csrf_exempt
+                && !hardening::csrf_token_exempt(req.uri().path())
                 && !hardening::csrf_double_submit_ok(req.headers())
             {
                 return (
@@ -2259,7 +2256,7 @@ fn authenticated_response(state: &AppState, id: &str, mut body: serde_json::Valu
 }
 
 /// A random, unguessable double-submit CSRF token.
-fn new_csrf_token() -> String {
+pub(crate) fn new_csrf_token() -> String {
     let mut bytes = [0u8; 24];
     rand::thread_rng().fill_bytes(&mut bytes);
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
@@ -4579,7 +4576,7 @@ fn session_expired() -> Response {
 
 /// The readable double-submit CSRF cookie (NOT HttpOnly — the SPA must read it
 /// to echo it back; SameSite=Strict keeps it same-origin).
-fn csrf_cookie(token: &str, secure: bool) -> HeaderValue {
+pub(crate) fn csrf_cookie(token: &str, secure: bool) -> HeaderValue {
     let mut c = format!("{CSRF_COOKIE}={token}; SameSite=Strict; Path=/");
     if secure {
         c.push_str("; Secure");

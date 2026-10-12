@@ -274,15 +274,26 @@ async fn login(
     {
         tracing::warn!("admin login-success not recorded: {e}");
     }
+    // A new double-submit token with every login, as `/api/login` issues
+    // (`authenticated_response`). The panel and the mailbox app share the one
+    // `mw_csrf` cookie and each reads it when it sends a request, so replacing it
+    // here does not strand an open mailbox tab.
+    let csrf_token = crate::new_csrf_token();
     let mut resp = Json(AdminSessionDto {
         username: body.username,
+        csrf_token: csrf_token.clone(),
     })
     .into_response();
+    // The admin cookie stays the first `Set-Cookie`.
     resp.headers_mut().append(
         header::SET_COOKIE,
         set_admin_cookie(&token, state.cookie_secure)
             .parse()
             .unwrap(),
+    );
+    resp.headers_mut().append(
+        header::SET_COOKIE,
+        crate::csrf_cookie(&csrf_token, state.cookie_secure),
     );
     resp
 }
@@ -300,11 +311,29 @@ async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
     resp
 }
 
+/// `GET /admin/session` — who is signed in. Also makes sure the panel holds a
+/// CSRF token without replacing one it has (as `GET /api/me` does): a session
+/// that has no `mw_csrf` cookie beside it gets one here, which is where the web
+/// client asks after a write is refused for its token.
 async fn session(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    match admin_authed(&state, &headers).await {
-        Ok(username) => Json(AdminSessionDto { username }).into_response(),
-        Err(resp) => resp,
+    let username = match admin_authed(&state, &headers).await {
+        Ok(username) => username,
+        Err(resp) => return resp,
+    };
+    let existing = crate::hardening::cookie(&headers, crate::hardening::CSRF_COOKIE);
+    let csrf_token = existing.clone().unwrap_or_else(crate::new_csrf_token);
+    let mut resp = Json(AdminSessionDto {
+        username,
+        csrf_token: csrf_token.clone(),
+    })
+    .into_response();
+    if existing.is_none() {
+        resp.headers_mut().append(
+            header::SET_COOKIE,
+            crate::csrf_cookie(&csrf_token, state.cookie_secure),
+        );
     }
+    resp
 }
 
 // ─── domains ──────────────────────────────────────────────────────────────────
@@ -852,9 +881,13 @@ async fn set_appearance(
 
 // ─── camelCase DTOs (match state/slices/admin.ts) ─────────────────────────────
 
+/// The answer of `POST /admin/login` and `GET /admin/session`. `csrfToken` is the
+/// value of the `mw_csrf` cookie, for a client that cannot read cookies.
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct AdminSessionDto {
     username: String,
+    csrf_token: String,
 }
 
 /// A domain as the panel sees it: its name. The stored `upstream_json`,

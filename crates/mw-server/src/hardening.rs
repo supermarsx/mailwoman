@@ -6,8 +6,11 @@
 //! * an **Origin/Referer check** on state-changing requests (effective CSRF
 //!   defense that needs no client change — browsers always send `Origin` on
 //!   cross-site writes; native clients that send neither are allowed);
-//! * an optional **double-submit CSRF token** (`mw_csrf` cookie ↔ `X-CSRF-Token`
-//!   header), enforced only when `csrf_strict` is on so V1 clients keep working;
+//! * a **double-submit CSRF token** (`mw_csrf` cookie ↔ `X-CSRF-Token` header),
+//!   enforced when `csrf_strict` is on. The web client sends it on every write
+//!   (`apps/web/src/api/http.ts`); a client that authenticates with a cookie and
+//!   does not send it is refused in that mode. [`csrf_token_exempt`] lists the
+//!   routes that are not asked for it;
 //! * in-process **idle / absolute session timeouts** and **rotation** helpers
 //!   (the store does not expose session timestamps and is owned by e9, so timing
 //!   is tracked here for the process lifetime).
@@ -34,7 +37,8 @@ const PERMISSIONS_POLICY: &str = "accelerometer=(), autoplay=(), camera=(), \
 pub struct HardeningConfig {
     /// Emit `Cross-Origin-Embedder-Policy: require-corp` (crossOriginIsolated).
     pub coep: bool,
-    /// Enforce the double-submit CSRF token (needs the SPA to send the header).
+    /// Enforce the double-submit CSRF token on every cookie-authorised write
+    /// except the routes in [`csrf_token_exempt`].
     pub csrf_strict: bool,
     /// No activity for this long invalidates the session.
     pub idle_timeout: Duration,
@@ -128,6 +132,62 @@ pub fn csrf_double_submit_ok(headers: &HeaderMap) -> bool {
         (Some(h), Some(c)) => !h.is_empty() && h == c,
         _ => false,
     }
+}
+
+/// The state-changing routes that `csrf_strict` does not ask for the double-submit
+/// token. `path` is the request path with any `MW_BASE_PATH` prefix already
+/// removed, as `state_change_guard` sees it.
+///
+/// Two kinds of route belong here and nothing else does:
+///
+/// * **Sign-in routes.** A client has no token before it signs in; the answer is
+///   what issues one.
+/// * **Routes no cookie authorises.** Their handlers take their authority from a
+///   secret in the body or in a header and never read a session cookie, so the
+///   cookies a browser attaches to a forged request gain the forger nothing. Their
+///   callers are other programs, which hold no `mw_csrf` cookie to repeat.
+///
+/// The list is explicit on purpose. "Exempt when the request carries no cookie"
+/// would let a route that later starts reading a cookie skip the check without
+/// anyone deciding it should. Before adding a route, confirm its handler calls none
+/// of `authed`, `authed_with_gate` and the admin-session gates (`admin_authed`,
+/// `require_admin`, `admin_id`, `admin_actor`), and add it to the matching list in
+/// `tests/t30_csrf_strict.rs`.
+///
+/// Not here, and checked before this is consulted: the SSO callback and ACS
+/// landings (`is_sso_idp_callback`), which skip the Origin check as well, and any
+/// request with an `Authorization: Bearer` header. Every route listed here is
+/// still Origin-checked.
+pub fn csrf_token_exempt(path: &str) -> bool {
+    // Mailbox sign-in. No session exists yet.
+    path == "/api/login"
+        // Second-factor step and forced enrolment of a sign-in: authority is the
+        // one-shot pending token in the body; still no session.
+        || path.starts_with("/api/login/2fa")
+        // Mail-server lookup on the sign-in screen: unauthenticated, rate-limited.
+        || path == "/api/discover"
+        // Admin panel sign-in. No admin session exists yet.
+        || path == "/admin/login"
+        // OAuth token endpoint: authorisation code with its PKCE verifier, or a
+        // refresh token, in the body.
+        || path == "/oauth/token"
+        // Token introspection and revocation: the token itself, in the body.
+        || path == "/oauth/introspect"
+        || path == "/oauth/revoke"
+        // Dynamic client registration (RFC 7591) and client configuration
+        // (RFC 7592): the admin policy plus an initial or registration access
+        // token in `Authorization`; a request without one is answered by the
+        // handler.
+        || path == "/oauth/register"
+        || path.starts_with("/oauth/register/")
+        // Inbound webhook: an HMAC of the body in `x-mailwoman-signature`.
+        || path == "/api/webhooks/inbound"
+        // Browser error report: unauthenticated; the handler reads no cookie.
+        || path == "/errors"
+        // MCP: an API key or OAuth access token in `Authorization` per call;
+        // `initialize` and `tools/list` need none.
+        || path == "/mcp"
+        || path.starts_with("/mcp/")
 }
 
 /// Pull one cookie value out of the `Cookie` header.
@@ -355,6 +415,53 @@ mod tests {
             ("cookie", "mw_csrf=zzz"),
         ])));
         assert!(!csrf_double_submit_ok(&h(&[("cookie", "mw_csrf=abc")])));
+    }
+
+    #[test]
+    fn csrf_token_exempt_is_an_exact_list() {
+        for path in [
+            "/api/login",
+            "/api/login/2fa",
+            "/api/login/2fa/enroll/totp/begin",
+            "/api/discover",
+            "/admin/login",
+            "/oauth/token",
+            "/oauth/introspect",
+            "/oauth/revoke",
+            "/oauth/register",
+            "/oauth/register/client-1",
+            "/api/webhooks/inbound",
+            "/errors",
+            "/mcp",
+            "/mcp/",
+        ] {
+            assert!(csrf_token_exempt(path), "{path} should be exempt");
+        }
+        // Neighbours of the entries above that a cookie authorises, and a prefix
+        // match that must not happen.
+        for path in [
+            "/api/logout",
+            "/api/login2",
+            "/api/me",
+            "/admin/logout",
+            "/admin/login/",
+            "/admin/users",
+            "/admin/oauth-dcr",
+            "/oauth/consent",
+            "/oauth/decision",
+            "/oauth/registered",
+            "/api/keys",
+            "/api/webhooks",
+            "/api/push/subscribe",
+            "/api/push/unsubscribe",
+            "/api/sso/logout",
+            "/errors/x",
+            "/mcpx",
+            "/jmap/api",
+            "/",
+        ] {
+            assert!(!csrf_token_exempt(path), "{path} must not be exempt");
+        }
     }
 
     #[test]
