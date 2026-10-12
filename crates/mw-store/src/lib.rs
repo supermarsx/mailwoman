@@ -433,13 +433,19 @@ impl Store {
         Ok(())
     }
 
-    /// All sessions for an account, most-recently-seen first (V7 §2.7, folded V6
+    /// The sessions of an account, most-recently-seen first (V7 §2.7, folded V6
     /// follow-up (a)). Lets **proxy-mode headless scoped-key REST reads** resolve a
     /// session by `account_id` when there is no cookie (a scoped `mwk_…` Bearer key
     /// authorizes, but the data path needs the account's sealed upstream creds).
     /// Backed by the additive `idx_sessions_account` index (0008); no schema change
     /// to 0001. Sealed credentials open under the same `ServerKey` as
     /// [`get_session`](Self::get_session).
+    ///
+    /// A row that does not open under this key is left out: it is not a session
+    /// (see [`session_names_by_account`](Self::session_names_by_account), "A row
+    /// that does not open"), and its credentials are what every caller of this
+    /// wants. One such row therefore does not hide the account's other sessions;
+    /// until t30 it failed the whole listing. A database error is still an error.
     pub async fn sessions_by_account(&self, account_id: &str) -> Result<Vec<Session>, StoreError> {
         let rows = q(
             "SELECT id, account_id, username, jmap_url, api_url, sealed_creds
@@ -449,19 +455,19 @@ impl Store {
         .fetch_all(&self.backend)
         .await?;
 
-        let mut out = Vec::with_capacity(rows.len());
-        for row in rows {
-            let creds = decode_creds(&self.key.open(&row.get_blob("sealed_creds"))?)?;
-            out.push(Session {
-                id: row.get_string("id"),
-                account_id: row.get_string("account_id"),
-                username: row.get_string("username"),
-                jmap_url: row.get_string("jmap_url"),
-                api_url: row.get_string("api_url"),
-                credentials: creds,
-            });
-        }
-        Ok(out)
+        Ok(rows
+            .iter()
+            .filter_map(|row| {
+                Some(Session {
+                    credentials: self.open_session_creds(&row.get_blob("sealed_creds"))?,
+                    id: row.get_string("id"),
+                    account_id: row.get_string("account_id"),
+                    username: row.get_string("username"),
+                    jmap_url: row.get_string("jmap_url"),
+                    api_url: row.get_string("api_url"),
+                })
+            })
+            .collect())
     }
 
     /// The names on every session row of an account, most-recently-seen first,
@@ -715,6 +721,67 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    /// The listing with credentials holds the sessions that open. A row sealed
+    /// under another key is left out and does not fail it, and the re-seal after
+    /// a password change covers the rows that open.
+    #[tokio::test]
+    async fn sessions_by_account_leaves_out_a_row_that_does_not_open() {
+        let old = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let new = rekeyed(&old);
+        let sealed_old = old
+            .create_session(
+                "a1",
+                "amy@example.org",
+                "http://u",
+                "http://u",
+                &named("Amy"),
+            )
+            .await
+            .unwrap();
+        let sealed_new = new
+            .create_session(
+                "a1",
+                "amy@example.org",
+                "http://u",
+                "http://u",
+                &named("amy2"),
+            )
+            .await
+            .unwrap();
+        assert!(new.get_session(&sealed_old).await.is_err(), "the premise");
+
+        let sessions = new.sessions_by_account("a1").await.unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, sealed_new);
+        assert_eq!(sessions[0].credentials, named("amy2"));
+        // Under the other key it is the other row.
+        let sessions = old.sessions_by_account("a1").await.unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, sealed_old);
+
+        assert_eq!(
+            new.reseal_account_credentials("a1", "next").await.unwrap(),
+            1,
+            "the one row that opens is re-sealed"
+        );
+        assert_eq!(
+            new.get_session(&sealed_new)
+                .await
+                .unwrap()
+                .credentials
+                .password,
+            "next"
+        );
+        assert_eq!(
+            old.get_session(&sealed_old).await.unwrap().credentials,
+            named("Amy"),
+            "the row sealed under the other key is left as it was"
+        );
+        // The row is still in the table, and still goes with the account's sessions.
+        assert_eq!(new.session_names_by_account("a1").await.unwrap().len(), 2);
+        assert_eq!(new.delete_sessions_for_account("a1").await.unwrap(), 2);
     }
 
     /// A database error is an error from the session readers, not an empty
