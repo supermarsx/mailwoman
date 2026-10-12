@@ -51,6 +51,22 @@ bash deploy.sh doctor
 bash deploy.sh deploy
 ```
 
+For a proxy that runs as a container on the same host, such as Nginx Proxy
+Manager, share a Docker network with it instead of publishing a host port:
+
+```sh
+bash deploy.sh --public-url https://mail.example.org --proxy-network proxy
+```
+
+The app joins the network `proxy` under its project name (default `mailwoman`)
+and publishes nothing on the host. The script creates the network when it does
+not exist and never removes it; name your proxy's existing network to reuse it.
+Attach the proxy to that network (`docker network connect proxy <container>`, or
+an `external: true` network in its own Compose file), then add a proxy host for
+`mail.example.org` forwarding to `http://mailwoman:8080` with WebSocket support
+and a certificate. Until that proxy host exists, `deploy` reports the app as
+healthy on the network and notes that the public URL does not answer yet.
+
 `init` generates configuration without Docker access. `doctor` checks prerequisites,
 application configuration and the generated Compose model without starting services.
 `--dry-run` describes any operation without writing files or contacting Docker.
@@ -63,7 +79,8 @@ directories inside the repository must also sit beneath a top-level `*.local`
 directory; directories outside the repository are supported. Files use mode `0600`
 and the state directory uses `0700` on filesystems supporting Unix permissions.
 
-- `deploy.env`: project, mode, URL, port, exposure and Caddy image/network settings.
+- `deploy.env`: project, mode, URL, port, exposure, proxy network and Caddy
+  image/network settings.
 - `app.env`: persistent random `MW_SERVER_KEY`, random admin password, and optional
   application environment variables. Values are **literal, unquoted** text; dollar
   signs and spaces are preserved. Do not add `export`, quotes or shell commands.
@@ -92,7 +109,12 @@ for forwarded headers. Caddy certificates persist in separate named volumes.
 
 With an external proxy, configure `MW_TRUSTED_PROXIES` and `MW_FORWARDED_MODE` in
 `app.env` using the proxy's actual source address as seen by the container. See
-[reverse-proxy.md](reverse-proxy.md). Project, exposure and proxy subnet are fixed
+[reverse-proxy.md](reverse-proxy.md). With `--proxy-network`, the script sets
+`MW_TRUSTED_PROXIES` to that network's subnets and `MW_FORWARDED_MODE=xff` unless
+`app.env` sets either one. Every container on that network can then state a
+client address, so keep the network to the proxy and the apps behind it, or pin
+the proxy's own address in `app.env`. `PROXY_NETWORK` in `deploy.env` may be
+changed later; the next `deploy` moves the app to the named network. Project, exposure and proxy subnet are fixed
 after the first deployment; create another deployment for a topology change.
 Changing the public URL can invalidate passkeys bound to the previous origin.
 
@@ -191,9 +213,10 @@ docker build --target runtime -t mailwoman:deploy-verify .
 bash scripts/test-deploy.sh mailwoman:deploy-verify
 ```
 
-It uses a random test project and localhost port 18089 (override with
-`DEPLOY_TEST_PORT`), exercises backup/rollback and failure recovery, and removes
-its test containers and volumes afterward. Failed runs retain local diagnostics.
+It uses random test projects and localhost port 18089 (override with
+`DEPLOY_TEST_PORT`), exercises backup/rollback, failure recovery and a
+proxy-network installation, and removes its test containers, volumes and network
+afterward. Failed runs retain local diagnostics.
 
 Implementation references: [Compose raw environment files](https://docs.docker.com/reference/compose-file/services/#env_file),
 [Compose health waiting](https://docs.docker.com/reference/cli/docker/compose/up/),

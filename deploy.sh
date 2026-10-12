@@ -17,6 +17,8 @@ PORT=8080
 PORT_SET=false
 MODE=proxy
 PROXY_PREFIX=172.30.70
+PROXY_NETWORK=
+PROXY_SUBNETS=
 IMAGE_ID=
 DATA_VOLUME=
 CADDY_IMAGE=caddy:2-alpine
@@ -57,6 +59,10 @@ Options:
   --project NAME     Isolated Compose project name (init/first deploy only)
   --domain HOST     Publish through Caddy with automatic HTTPS (init only)
   --public-url URL  Existing HTTPS reverse proxy; bind app to localhost (init only)
+  --proxy-network NAME
+                    With --public-url: publish no host port; join Docker network
+                    NAME (created if missing) so a proxy container on it, such as
+                    Nginx Proxy Manager, reaches http://<project>:8080 (init only)
   --port NUMBER     Localhost HTTP port (init only; default: the first free
                     port from 8080 to 8099)
   --mode MODE       proxy for JMAP; engine for IMAP/POP3 + SMTP (init only)
@@ -71,6 +77,7 @@ Options:
 
 Examples:
   bash deploy.sh --domain mail.example.org --mode engine
+  bash deploy.sh --public-url https://mail.example.org --proxy-network proxy
   bash deploy.sh init --public-url https://mail.example.org
   # Edit .deploy.local/app.env and deploy.env, then:
   bash deploy.sh deploy
@@ -109,6 +116,7 @@ while (($#)); do
         --domain) need_value "$@"; DOMAIN=$2; REQUESTED[DOMAIN]=$2; INIT_OPTIONS=true; shift ;;
         --public-url) need_value "$@"; PUBLIC_URL=$2; REQUESTED[PUBLIC_URL]=$2; INIT_OPTIONS=true; shift ;;
         --port) need_value "$@"; PORT=$2; REQUESTED[PORT]=$2; PORT_SET=true; INIT_OPTIONS=true; shift ;;
+        --proxy-network) need_value "$@"; PROXY_NETWORK=$2; REQUESTED[PROXY_NETWORK]=$2; INIT_OPTIONS=true; shift ;;
         --mode) need_value "$@"; MODE=$2; REQUESTED[MODE]=$2; INIT_OPTIONS=true; shift ;;
         --proxy-prefix) need_value "$@"; PROXY_PREFIX=$2; REQUESTED[PROXY_PREFIX]=$2; INIT_OPTIONS=true; shift ;;
         --image) need_value "$@"; IMAGE=$2; shift ;;
@@ -142,7 +150,7 @@ read_config() {
         [[ $seen != *"|$key|"* ]] || die "Duplicate $key in $file"
         seen+="$key|"
         case "$key" in
-            PROJECT|EXPOSURE|DOMAIN|PUBLIC_URL|PORT|MODE|PROXY_PREFIX|CADDY_IMAGE|IMAGE_ID|DATA_VOLUME|CADDY_ID)
+            PROJECT|EXPOSURE|DOMAIN|PUBLIC_URL|PORT|MODE|PROXY_PREFIX|PROXY_NETWORK|CADDY_IMAGE|IMAGE_ID|DATA_VOLUME|CADDY_ID)
                 printf -v "$key" '%s' "$value" ;;
             *) die "Unknown setting $key in $file" ;;
         esac
@@ -172,9 +180,12 @@ validate_config() {
                 [[ $label =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$ ]] || die "Invalid domain name"
             done
             [[ $PUBLIC_URL == "https://$DOMAIN" ]] || die "Caddy URL must match the domain" ;;
-        external) [[ -z $DOMAIN && $PUBLIC_URL =~ ^https://[a-zA-Z0-9][a-zA-Z0-9.-]*(:[0-9]{1,5})?$ ]] || die "Public URL must be an HTTPS origin without a trailing slash/path" ;;
-        *) die "EXPOSURE must be local, caddy or external" ;;
+        external|network)
+            [[ -z $DOMAIN && $PUBLIC_URL =~ ^https://[a-zA-Z0-9][a-zA-Z0-9.-]*(:[0-9]{1,5})?$ ]] || die "Public URL must be an HTTPS origin without a trailing slash/path"
+            [[ $EXPOSURE == external || $PROXY_NETWORK =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]+$ ]] || die "Invalid proxy network name" ;;
+        *) die "EXPOSURE must be local, caddy, external or network" ;;
     esac
+    [[ $EXPOSURE == network || -z $PROXY_NETWORK ]] || die "PROXY_NETWORK applies only to EXPOSURE=network"
 }
 
 write_config() {
@@ -187,6 +198,7 @@ PUBLIC_URL=$PUBLIC_URL
 PORT=$PORT
 MODE=$MODE
 PROXY_PREFIX=$PROXY_PREFIX
+PROXY_NETWORK=$PROXY_NETWORK
 CADDY_IMAGE=$CADDY_IMAGE
 EOF
 }
@@ -233,6 +245,7 @@ trap 'exit 143' TERM
 
 # Dry-run must work even on a machine without Docker and must not mkdir/chmod.
 if [[ -f $STATE/deploy.env ]]; then
+    PROXY_NETWORK=
     read_config "$STATE/deploy.env"
     # Repeating the original setup command is an update. A different value is
     # never applied from the command line; deploy.env is the one place to change it.
@@ -241,7 +254,9 @@ if [[ -f $STATE/deploy.env ]]; then
     done
 else
     [[ -z $DOMAIN || -z $PUBLIC_URL ]] || die "Choose --domain OR --public-url"
+    [[ -z $PROXY_NETWORK || -n $PUBLIC_URL ]] || die "--proxy-network needs --public-url (the HTTPS address your proxy serves)"
     if [[ -n $DOMAIN ]]; then EXPOSURE=caddy; PUBLIC_URL=https://$DOMAIN
+    elif [[ -n $PROXY_NETWORK ]]; then EXPOSURE=network
     else
         # A new install without --port takes the first free port; deploy.env then keeps it.
         if ! $PORT_SET && port_in_use "$PORT"; then
@@ -347,6 +362,7 @@ compose() {
 require_free_ports() {
     local service=mailwoman port cid own=
     local -a ports=("$PORT")
+    [[ $EXPOSURE != network ]] || return 0
     if [[ $EXPOSURE == caddy ]]; then service=caddy; ports=(80 443); fi
     if [[ -f $ACTIVE/compose.yaml ]]; then
         cid=$(compose "$ACTIVE" ps -q "$service")
@@ -359,6 +375,19 @@ require_free_ports() {
     done
 }
 
+# The proxy network outlives this deployment and may belong to the proxy's own
+# stack, so it is created when missing and never removed.
+ensure_proxy_network() {
+    [[ $EXPOSURE == network ]] || return 0
+    if ! docker network inspect "$PROXY_NETWORK" >/dev/null 2>&1; then
+        log "Creating Docker network $PROXY_NETWORK for the reverse proxy"
+        docker network create --label "mailwoman.deploy.project=$PROJECT" "$PROXY_NETWORK" >/dev/null
+    fi
+    PROXY_SUBNETS=$(docker network inspect --format '{{range .IPAM.Config}}{{.Subnet}},{{end}}' "$PROXY_NETWORK")
+    PROXY_SUBNETS=${PROXY_SUBNETS%,}
+    [[ $PROXY_SUBNETS =~ ^[0-9a-fA-F:./,]*$ ]] || die "Cannot read the subnets of network $PROXY_NETWORK"
+}
+
 load_active() {
     [[ -f $ACTIVE/release.env ]] || die "No applied deployment. Run deploy first"
     read_config "$ACTIVE/deploy.env"
@@ -367,8 +396,12 @@ load_active() {
 }
 
 render() {
-    local directory=$1 secure=true
+    local directory=$1 secure=true trust=
     [[ $EXPOSURE != local ]] || secure=false
+    # Client addresses come from the proxy network's peers unless app.env says otherwise.
+    if [[ $EXPOSURE == network && -n $PROXY_SUBNETS ]] && ! grep -Eq '^MW_(TRUSTED_PROXIES|FORWARDED_MODE)=' "$directory/app.env"; then
+        trust=$'\n'"      MW_TRUSTED_PROXIES: '$PROXY_SUBNETS'"$'\n'"      MW_FORWARDED_MODE: xff"
+    fi
     [[ $IMAGE_ID =~ ^sha256:[0-9a-f]{64}$ ]] || die "Invalid image ID"
     [[ $DATA_VOLUME =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]+$ ]] || die "Invalid volume name"
     write_config > "$directory/deploy.env"
@@ -401,7 +434,7 @@ services:
       MW_PLUGIN_DIR: /usr/lib/mailwoman/plugins
       MW_MODE: '$MODE'
       MW_PUBLIC_URL: '$PUBLIC_URL'
-      MW_COOKIE_SECURE: '$secure'
+      MW_COOKIE_SECURE: '$secure'$trust
     volumes: ['app_data:/data']
     healthcheck:
       test: [CMD, /usr/local/bin/mailwoman, healthcheck, --url, 'http://127.0.0.1:8080/healthz']
@@ -458,6 +491,16 @@ networks:
         - subnet: $PROXY_PREFIX.0/24
 EOF
         printf '\nMW_TRUSTED_PROXIES=%s.2\nMW_FORWARDED_MODE=xff\n' "$PROXY_PREFIX" >> "$directory/app.env"
+    elif [[ $EXPOSURE == network ]]; then
+        cat >> "$directory/compose.yaml" <<EOF
+    networks:
+      proxy:
+        aliases: ['$PROJECT']
+networks:
+  proxy:
+    external: true
+    name: $PROXY_NETWORK
+EOF
     else
         printf "    ports: ['127.0.0.1:%s:8080']\n" "$PORT" >> "$directory/compose.yaml"
     fi
@@ -474,11 +517,14 @@ EOF
 }
 
 verify() {
-    local cid deadline=$((SECONDS + TIMEOUT)) url=$PUBLIC_URL
+    local cid wait=$TIMEOUT deadline url=$PUBLIC_URL
+    # Behind a separately managed proxy the public URL may not be routed yet.
+    if [[ $EXPOSURE == network ]] && ((wait > 15)); then wait=15; fi
+    deadline=$((SECONDS + wait))
     cid=$(compose "$ACTIVE" ps -q mailwoman)
     [[ -n $cid ]] || die "App container is missing"
     MSYS_NO_PATHCONV=1 docker exec "$cid" /usr/local/bin/mailwoman healthcheck --url http://127.0.0.1:8080/healthz || die "App health check failed"
-    log "Verifying $url/healthz and the web UI (up to ${TIMEOUT}s)"
+    log "Verifying $url/healthz and the web UI (up to ${wait}s)"
     while ((SECONDS < deadline)); do
         if curl --fail --silent --show-error --connect-timeout 3 --max-time 5 "$url/healthz" -o /dev/null 2>/dev/null &&
            curl --fail --silent --show-error --connect-timeout 3 --max-time 5 "$url/" -o /dev/null 2>/dev/null; then
@@ -487,6 +533,11 @@ verify() {
         fi
         sleep 2
     done
+    if [[ $EXPOSURE == network ]]; then
+        log "App is healthy on Docker network $PROXY_NETWORK, but $url does not answer yet."
+        log "Attach your proxy to that network and forward ${url#https://} to http://$PROJECT:8080 with WebSocket support."
+        return 0
+    fi
     die "App is healthy internally, but $url is not reachable with valid HTTP(S). Check DNS, firewall, proxy and service logs; containers remain available."
 }
 
@@ -501,7 +552,7 @@ snapshot() {
     running=$(docker inspect --format '{{.State.Running}}' "$cid")
     if [[ $running == true ]]; then
         RESUME_CONTAINER=$cid
-        docker stop --time 60 "$cid" >/dev/null
+        docker stop -t 60 "$cid" >/dev/null
     fi
     log "Snapshotting /data to $destination"
     docker cp -a "$cid:/data/." - > "$destination/data.tar"
@@ -529,7 +580,6 @@ activate() {
 preflight
 case "$ACTION" in
     doctor)
-        validate_app_env "$STATE/app.env"
         if [[ -f $ACTIVE/release.env ]]; then read_config "$ACTIVE/release.env"; fi
         # Compose config validates references without needing to build/pull images.
         IMAGE_ID=${IMAGE_ID:-sha256:0000000000000000000000000000000000000000000000000000000000000000}
@@ -540,11 +590,11 @@ case "$ACTION" in
         render "$WORK"
         compose "$WORK" config --quiet
         log "Prerequisites and configuration OK. App mode: $MODE; URL: $PUBLIC_URL" ;;
-    status) load_active; compose "$ACTIVE" ps -a; log "URL: $PUBLIC_URL; data volume: $DATA_VOLUME" ;;
+    status) load_active; compose "$ACTIVE" ps -a; log "URL: $PUBLIC_URL; data volume: $DATA_VOLUME${PROXY_NETWORK:+; proxy network: $PROXY_NETWORK (http://$PROJECT:8080)}" ;;
     logs) load_active; compose "$ACTIVE" logs --tail 100 --follow ;;
     stop) load_active; compose "$ACTIVE" stop --timeout 60; log "Stopped; data retained" ;;
-    start) load_active; require_free_ports; compose "$ACTIVE" up -d --wait --wait-timeout "$TIMEOUT"; verify ;;
-    restart) load_active; require_free_ports; compose "$ACTIVE" restart; compose "$ACTIVE" start --wait --wait-timeout "$TIMEOUT"; verify ;;
+    start) load_active; require_free_ports; ensure_proxy_network; compose "$ACTIVE" up -d --wait --wait-timeout "$TIMEOUT"; verify ;;
+    restart) load_active; require_free_ports; ensure_proxy_network; compose "$ACTIVE" restart; compose "$ACTIVE" start --wait --wait-timeout "$TIMEOUT"; verify ;;
     backup) load_active; snapshot ;;
     deploy)
         WORK=$(mktemp -d "$STATE/.work.XXXXXX")
@@ -585,6 +635,7 @@ case "$ACTION" in
             if ! docker image inspect "$CADDY_IMAGE" >/dev/null 2>&1; then docker pull "$CADDY_IMAGE"; fi
             CADDY_ID=$(docker image inspect --format '{{.Id}}' "$CADDY_IMAGE")
         fi
+        ensure_proxy_network
         cp "$STATE/app.env" "$WORK/app.env"
         render "$WORK"
         compose "$WORK" config --quiet
@@ -608,9 +659,7 @@ case "$ACTION" in
             [[ -f $SNAPSHOT/$file && ! -L $SNAPSHOT/$file ]] || die "Missing or symlinked snapshot file: $file"
         done
         # Check the fixed expected set, ignoring any extra manifest paths.
-        (cd "$SNAPSHOT" && sha256sum data.tar compose.yaml app.env deploy.env release.env) > "$STATE/.verify-snapshot"
-        cmp -s "$STATE/.verify-snapshot" "$SNAPSHOT/SHA256SUMS" || die "Snapshot checksum mismatch"
-        rm "$STATE/.verify-snapshot"
+        cmp -s <(cd "$SNAPSHOT" && sha256sum data.tar compose.yaml app.env deploy.env release.env) "$SNAPSHOT/SHA256SUMS" || die "Snapshot checksum mismatch"
         target_project=$PROJECT
         read_config "$SNAPSHOT/deploy.env"
         read_config "$SNAPSHOT/release.env"
@@ -630,6 +679,7 @@ case "$ACTION" in
         fi
         validate_app_env "$WORK/app.env"
         DATA_VOLUME="${PROJECT}_restore_$(date -u +%Y%m%dT%H%M%SZ)_$$_${RANDOM}"
+        ensure_proxy_network
         render "$WORK"
         compose "$WORK" config --quiet
         # Extract only into a fresh Docker volume. No host tar extraction or volume deletion.

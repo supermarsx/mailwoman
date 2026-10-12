@@ -9,6 +9,9 @@ IMAGE=${1:?Pass a built Mailwoman runtime image}
 PROJECT="mw-deploy-test-$$-$RANDOM"
 STATE=$(mktemp -d "$ROOT/.deploy-test-XXXXXX.local")
 PORT=${DEPLOY_TEST_PORT:-18089}
+NET_PROJECT="$PROJECT-net"
+NET_STATE=$(mktemp -d "$ROOT/.deploy-test-XXXXXX.local")
+NETWORK="$PROJECT-proxy"
 SERVER_KEY=
 PASSED=false
 
@@ -21,14 +24,18 @@ cleanup() {
     trap - EXIT
     # Exact random test project and explicit label checks protect unrelated data.
     if [[ -f $STATE/active/compose.yaml ]]; then dc down --timeout 10 >/dev/null 2>&1 || true; fi
+    if [[ -f $NET_STATE/active/compose.yaml ]]; then
+        docker compose --project-name "$NET_PROJECT" --env-file /dev/null -f "$NET_STATE/active/compose.yaml" down --timeout 10 >/dev/null 2>&1 || true
+    fi
     while IFS= read -r volume; do
-        [[ -n $volume && $volume == "${PROJECT}_"* ]] || continue
+        [[ -n $volume && $volume == "${PROJECT}"[_-]* ]] || continue
         docker volume rm "$volume" >/dev/null || true
-    done < <(docker volume ls -q --filter "label=mailwoman.deploy.project=$PROJECT")
-    if $PASSED && [[ $STATE == "$ROOT"/.deploy-test-*.local ]]; then
-        rm -rf -- "$STATE"
+    done < <(docker volume ls -q --filter "label=mailwoman.deploy.project=$PROJECT"; docker volume ls -q --filter "label=mailwoman.deploy.project=$NET_PROJECT")
+    docker network rm "$NETWORK" >/dev/null 2>&1 || true
+    if $PASSED && [[ $STATE == "$ROOT"/.deploy-test-*.local && $NET_STATE == "$ROOT"/.deploy-test-*.local ]]; then
+        rm -rf -- "$STATE" "$NET_STATE"
     else
-        printf 'Test diagnostics retained at %s\n' "$STATE" >&2
+        printf 'Test diagnostics retained at %s and %s\n' "$STATE" "$NET_STATE" >&2
     fi
     exit "$result"
 }
@@ -113,5 +120,22 @@ run start
 run stop
 run start
 run status
+
+# A second installation on a dedicated proxy network publishes no host port,
+# answers a peer on that network by project name, and trusts that network's
+# peers for forwarded headers. Its public URL is unroutable here by design.
+net() { bash "$ROOT/deploy.sh" "$@" --project "$NET_PROJECT" --public-url https://mail.example.test --proxy-network "$NETWORK" --timeout 10 --state-dir "$NET_STATE"; }
+net deploy --image "$IMAGE"
+NET_CID=$(docker ps -q --filter "label=com.docker.compose.project=$NET_PROJECT")
+[[ -n $NET_CID && -z $(docker port "$NET_CID") ]] || fail 'proxy-network install published a host port'
+MSYS_NO_PATHCONV=1 docker run --rm --network "$NETWORK" "$IMAGE" healthcheck --url "http://$NET_PROJECT:8080/healthz" || fail 'app not reachable by name on the proxy network'
+docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$NET_CID" > "$NET_STATE/env"
+grep -Fx 'MW_FORWARDED_MODE=xff' "$NET_STATE/env" >/dev/null || fail 'proxy network peers are not trusted'
+grep -E '^MW_TRUSTED_PROXIES=[0-9a-f:./,]+$' "$NET_STATE/env" >/dev/null || fail 'proxy network subnet is missing'
+# The same command again is an update of the same installation.
+NET_VOLUME=$(awk -F= '$1 == "DATA_VOLUME" {print $2}' "$NET_STATE/active/release.env")
+net deploy --no-build
+[[ $(awk -F= '$1 == "DATA_VOLUME" {print $2}' "$NET_STATE/active/release.env") == "$NET_VOLUME" ]] || fail 'update replaced the data volume'
+docker network inspect "$NETWORK" >/dev/null || fail 'update removed the proxy network'
 PASSED=true
-printf 'PASS: deployment, literal secrets, health, persistent data, backup, rollback, corruption refusal, copy-failure recovery and repeated setup options\n'
+printf 'PASS: deployment, literal secrets, health, persistent data, backup, rollback, corruption refusal, copy-failure recovery, repeated setup options and a proxy-network installation\n'
