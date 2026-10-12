@@ -10,16 +10,36 @@
 //!
 //! ```text
 //! sh docs/deploy/proxy/tls/gen-certs.sh
-//! docker compose -f docker-compose.proxy.yml --profile nginx up -d --wait
+//! docker compose -f docker-compose.proxy.yml --profile nginx up -d
+//! docker compose -f docker-compose.proxy.yml --profile nginx up -d \
+//!   --no-deps --wait --wait-timeout 300 mock app nginx
 //! MW_T20_PROXY=1 MW_T20_PROXY_KIND=nginx MW_T20_PROXY_BASE=http://127.0.0.1:8601 \
 //!   cargo test -p mw-server --test t20_proxy_conformance -- --nocapture --test-threads=1
 //! docker compose -f docker-compose.proxy.yml --profile nginx down -v
 //! ```
 //!
 //! `.github/workflows/proxy-conformance.yml` (t20-e14) runs exactly that across the
-//! six tier-1 cells. **With `MW_T20_PROXY` unset every test loud-skips**, so the
-//! binary is harmless in the ordinary workspace gate — and says so on stderr rather
-//! than reporting a silent pass.
+//! six tier-1 cells, and across `envoy` as a seventh, non-blocking cell. **With
+//! `MW_T20_PROXY` unset every test loud-skips**, so the binary is harmless in the
+//! ordinary workspace gate — and says so on stderr rather than reporting a silent
+//! pass.
+//!
+//! # What does not run in a tier-1 cell
+//!
+//! Two tests skip in every tier-1 cell of that workflow, each with a `SKIPPED` line:
+//!
+//! * `an_appending_proxy_still_resolves_the_real_client` — every tier-1 config
+//!   overwrites `X-Forwarded-For`. It runs in the `envoy` cell, the one profile
+//!   that appends.
+//! * `sub_path_api_routes_return_json_not_the_spa_shell` — no sub-path proxy
+//!   config is shipped, so nothing sets `MW_T20_PROXY_PREFIX`. It runs in no cell.
+//!
+//! The workflow therefore sets `MW_REQUIRE_LIVE` to a **list** of the variables it
+//! exports for every cell, not to `all`. A skip whose reason cites one of them fails
+//! the test; these two cite `MW_T20_XFF_APPENDS` and `MW_T20_PROXY_PREFIX`, which are
+//! not on the list. The list is matched by substring, so `MW_T20_PROXY` itself cannot
+//! be on it (it would match `MW_T20_PROXY_PREFIX`); the "no cell booted" reason cites
+//! `MW_T20_PROXY_KIND` so that it is still fatal there.
 //!
 //! # Environment contract (t20-e14, `678d3d1`)
 //!
@@ -34,6 +54,7 @@
 //! | `MW_T20_EXPECT_CLIENT_IP` | the address the app must attribute the request to |
 //! | `MW_T20_JMAP_URL` / `MW_T20_USER` / `MW_T20_PASS` | upstream login |
 //! | `MW_T20_PROXY_PREFIX` | sub-path base; unset in every cell today |
+//! | `MW_T20_XFF_APPENDS` | `1` for a cell whose proxy appends to `X-Forwarded-For`; unset in every tier-1 cell |
 //!
 //! An **empty** value is treated exactly like an absent one. GitHub Actions cannot
 //! omit a key from a step's `env:` map, so `MW_T20_PROXY_BASE` arrives as `""` on
@@ -76,6 +97,9 @@ fn var(key: &str) -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
+// `#[track_caller]` so the `SKIPPED` line carries the test's own line. Without it
+// every skip in this file reported the line of the call below.
+#[track_caller]
 fn skip(reason: &str) {
     common::gate::skip(format_args!("[t20-e11] {reason}"));
 }
@@ -101,8 +125,9 @@ impl Cell {
         if var("MW_T20_PROXY").as_deref() != Some("1") {
             skip(
                 "MW_T20_PROXY!=1 — no proxy cell is booted, so nothing here ran. \
+                 A booted cell exports MW_T20_PROXY=1 and MW_T20_PROXY_KIND=<cell>. \
                  Bring one up with `docker compose -f docker-compose.proxy.yml \
-                 --profile <cell> up -d --wait` and see the module header.",
+                 --profile <cell> up -d` and see the module header.",
             );
             return None;
         }
@@ -358,14 +383,14 @@ async fn a_client_supplied_forwarded_header_is_not_honoured() {
 /// overwriting proxy the forged hop never reaches the app at all — that assertion
 /// tests the proxy's config, this one tests the app's walk.
 ///
-/// **Coverage gap, stated plainly:** among the eight shipped configs only Envoy
-/// appends (`use_remote_address: true`, `xff_num_trusted_hops: 0`), and Envoy is
-/// tier 2 and out of the CI matrix. Every tier-1 cell overwrites, so on a normal CI
-/// run this leg skips and the multi-hop walk is covered only by the in-process
-/// `t20_forwarded_spoof.rs`. Closing it in CI means adding an appending location to
-/// a tier-1 config (`$proxy_add_x_forwarded_for` on nginx) — those files are
-/// `t20-e7`'s locks, not this lane's, so it is reported rather than taken. Run
-/// `--profile envoy` (port 8606) to exercise it today.
+/// **Where this runs:** among the eight shipped configs only Envoy appends
+/// (`use_remote_address: true`, `xff_num_trusted_hops: 0`). Every tier-1 cell
+/// overwrites, so this test skips in all six and runs in the `envoy` cell alone,
+/// which the workflow boots as a non-blocking seventh cell for this test. A failure
+/// here therefore does not fail the tier-1 gate, and outside that cell the multi-hop
+/// walk is covered only by the in-process `t20_forwarded_spoof.rs`. Covering it in a
+/// blocking cell would mean an appending location in a tier-1 config
+/// (`$proxy_add_x_forwarded_for` on nginx), which none ships.
 #[tokio::test]
 async fn an_appending_proxy_still_resolves_the_real_client() {
     let Some(cell) = Cell::from_env() else { return };
@@ -632,12 +657,26 @@ async fn the_assist_invoke_route_reaches_the_app_not_the_proxys_error_page() {
          fix the body here, it is not a proxy fault",
         cell.kind
     );
-    skip(&format!(
-        "cell `{}`: the /api/assist/invoke SSE STREAM was not driven — no cell \
-         configures an Assist gateway, so the route answers {status} before \
-         streaming. Reachability and the JSON content-type ARE asserted.",
+    // The handler's own answer, not merely "some JSON". An unauthenticated POST gets
+    // `401 application/json` from the session layer, which the two assertions above
+    // accept; only the route's handler answers 404 in JSON (the static fallback's 404
+    // is `text/plain`).
+    assert_eq!(
+        status, 404,
+        "[{}] /api/assist/invoke answered {status} {content_type}. With no Assist \
+         gateway configured the route's handler answers 404 `assist disabled`; any \
+         other JSON status was produced in front of the handler, so the route was \
+         not reached",
         cell.kind
-    ));
+    );
+    // A note, not a skip: everything this test asserts has run by this point. The
+    // part it does not cover is stated in the doc comment above and has no test.
+    eprintln!(
+        "[t20-e11] cell `{}`: note — the /api/assist/invoke SSE stream is not driven \
+         by any test here. No cell configures an Assist gateway, so the route answers \
+         {status} before streaming. Reachability and the JSON content-type are asserted.",
+        cell.kind
+    );
 }
 
 /// The WebSocket upgrade survives the proxy, the RFC 8887 `jmap` subprotocol is
@@ -671,8 +710,9 @@ async fn the_websocket_upgrades_and_echoes_the_jmap_subprotocol() {
 
     let Some((tls, host, port)) = split_base(&base) else {
         skip(&format!(
-            "cell `{}`: could not parse a host:port out of {base:?}, so the \
-             WebSocket leg did not run.",
+            "cell `{}`: could not parse a host:port out of {base:?} (from \
+             MW_T20_PROXY_BASE / MW_T20_PROXY_TLS_BASE), so the WebSocket leg did \
+             not run.",
             cell.kind
         ));
         return;

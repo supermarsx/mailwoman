@@ -46,7 +46,7 @@
 #   haproxy-l7     8604    8644    1      mode http
 #   haproxy-l4      --     8645    1      mode tcp + send-proxy-v2, TLS PASSTHROUGH
 #   traefik        8605    8646    1
-#   envoy          8606    8647    2      config shipped, NOT in the CI matrix
+#   envoy          8606    8647    2      non-blocking CI cell; appends to XFF
 #   (direct)       8607     --     --     the app itself, no proxy — baseline
 #
 # The `app` service publishes 8607 in every profile so a test can compare the
@@ -405,17 +405,18 @@ services:
       start_period: 3s
 
   # =========================================================================
-  # Tier 2 — config shipped and runnable on demand, NOT in the CI matrix
+  # Tier 2 — config shipped; not part of the tier-1 CI gate
   # =========================================================================
 
-  # Envoy. Cut from the default matrix because its behaviour overlaps
-  # haproxy-l7 + traefik. Boot it by hand with:
+  # Envoy. Not tier 1: its behaviour overlaps haproxy-l7 + traefik, with one
+  # exception. It APPENDS to X-Forwarded-For, where every tier-1 config hands
+  # the app a single hop, so it is the only cell in which the suite's
+  # appending-proxy test can run. The workflow boots it as a non-blocking
+  # seventh cell for that test (t30); a red envoy cell does not fail the gate.
+  # Boot it by hand with:
   #   docker compose -f docker-compose.proxy.yml --profile envoy up -d
-  # No healthcheck. The other cells probe the full proxy->app chain with busybox
-  # wget, which their Alpine base provides; the envoyproxy image is not
-  # Alpine-based and I did not confirm what HTTP client it ships, so rather than
-  # guess at a probe that would report a false red, this cell has none. Envoy is
-  # tier 2 and outside the CI matrix, so nothing gates on it.
+  # Its probe is on the admin listener, not through the proxy->app chain; see
+  # the healthcheck below.
   envoy:
     image: envoyproxy/envoy:v1.32-latest
     profiles: ["envoy"]

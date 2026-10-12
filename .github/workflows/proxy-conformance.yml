@@ -8,7 +8,7 @@
 # Shape:
 #   1. `build-images` builds the two images from the repo Dockerfile ONCE
 #      (`runtime` + `mock`), `docker save`s them into a single artifact.
-#   2. `cell` fans out over the six TIER-1 proxies, each loading that artifact
+#   2. `cell` fans out over the six TIER-1 proxies and envoy, each loading that artifact
 #      rather than rebuilding, booting exactly one profile from
 #      `docker-compose.proxy.yml`, and running the conformance suite against it.
 #
@@ -21,26 +21,25 @@
 #
 # CI-tested (tier 1): nginx, apache, caddy, haproxy-l7, haproxy-l4, traefik.
 #
-# NOT CI-tested: Envoy and IIS. Configs for both are shipped under
-# `docs/deploy/proxy/`, and that is all. Envoy can be booted on demand with
+# Envoy (tier 2) is booted as a seventh cell since t30, NON-BLOCKING, for one
+# reason: it is the only shipped config that appends to X-Forwarded-For, so it
+# is the only cell in which `an_appending_proxy_still_resolves_the_real_client`
+# can run. The cell runs the whole suite, but it is not part of the tier-1 gate:
+# a red envoy cell does not fail this workflow. No runner has executed it yet;
+# the suite passed against the envoy profile on a developer host (t30-e5).
+# Its presence here does not make Envoy a supported proxy, and no prose anywhere
+# may say "supports" Envoy on the strength of this workflow.
 #
-#   sh docs/deploy/proxy/tls/gen-certs.sh
-#   docker compose -f docker-compose.proxy.yml --profile envoy up -d
-#
-# but no job here does so and no result here covers it. IIS has no cell at all.
-# Anything outside the six-cell matrix is "documented, not CI-tested" — that is
-# the exact wording `docs/deploy/reverse-proxy.md` must use, and no prose
-# anywhere may say "supports" Envoy or IIS on the strength of this workflow.
+# NOT CI-tested: IIS. Its config is shipped under `docs/deploy/proxy/`, and that
+# is all; it has no cell. IIS is "documented, not CI-tested" — the exact wording
+# `docs/deploy/reverse-proxy.md` must use.
 #
 # ---------------------------------------------------------------------------
 # The suite this drives
 # ---------------------------------------------------------------------------
 #
-# `crates/mw-server/tests/t20_proxy_conformance.rs` (t20-e11, WAVE 3). It does
-# not exist yet; this workflow is written against the agreed target name and env
-# contract so the two land pre-agreed rather than negotiated after the fact.
-# Until e11 commits, every cell fails at the `--no-run` compile step — which is
-# the honest signal, not a green run that proved nothing.
+# `crates/mw-server/tests/t20_proxy_conformance.rs` (t20-e11): twelve tests,
+# each driven through the cell's published port.
 #
 # Env contract handed to t20-e11 (all `MW_T20_*`; the suite LOUD-SKIPS a leg
 # whose variable is absent, and never silently passes):
@@ -69,16 +68,49 @@
 #   MW_T20_JMAP_URL         upstream for login — resolved by the APP inside the
 #   MW_T20_USER             compose network, not by the runner. The mock is not
 #   MW_T20_PASS             published on the host.
-#   MW_T20_PROXY_PREFIX     sub-path base. Left UNSET here on purpose: no cell
-#                           ships a sub-path config yet (blocked on t20-e12 +
-#                           t20-e13). Those legs must loud-skip, not pass.
+#   MW_T20_PROXY_PREFIX     sub-path base. Left UNSET here on purpose: no
+#                           sub-path proxy config is shipped under
+#                           docs/deploy/proxy/. That test loud-skips.
+#   MW_T20_XFF_APPENDS      "1" for a cell whose proxy appends to
+#                           X-Forwarded-For. Set on NO cell: nginx
+#                           (`$remote_addr`), apache (`RequestHeader unset` before
+#                           mod_proxy adds one hop), caddy (`header_up ...
+#                           {remote_host}`), haproxy-l7 (`del-header` then
+#                           `set-header`) and traefik (no trustedIPs) each hand
+#                           the app a single hop, and haproxy-l4 sets no header.
+#                           The envoy cell appends; the suite recognises it by
+#                           MW_T20_PROXY_KIND and needs no variable for it.
+#
+# ---------------------------------------------------------------------------
+# What runs in no cell
+# ---------------------------------------------------------------------------
+#
+# One of the twelve tests skips in every cell, with a SKIPPED line:
+#
+#   sub_path_api_routes_return_json_not_the_spa_shell
+#       needs a cell hosted under a path prefix. None is shipped.
+#
+# One runs in the envoy cell only, and skips in the six tier-1 cells:
+#
+#   an_appending_proxy_still_resolves_the_real_client
+#       needs a proxy that appends to X-Forwarded-For. Outside that cell the
+#       right-to-left walk it checks is covered in-process only, by
+#       t20_forwarded_spoof.rs. The envoy cell is non-blocking, so a failure of
+#       this test there does not fail the gate.
+#
+# The step "tests that did not run in this cell" copies every SKIPPED line to
+# the run summary, so a green run still shows them.
+#
+# One behaviour has no test at all: the SSE stream of POST /api/assist/invoke
+# through a proxy. No cell configures an Assist gateway, so the route answers
+# 404 before streaming; the suite asserts that 404 and prints a note.
 #
 # ---------------------------------------------------------------------------
 # Cost note
 # ---------------------------------------------------------------------------
 #
 # Each cell compiles the test binary itself, sharing one `Swatinem/rust-cache`
-# key across all six legs (first run is six cold compiles in parallel; every run
+# key across all legs (first run is seven cold compiles in parallel; every run
 # after is warm). Building the binary once and shipping it as an artifact would
 # be cheaper still and is the obvious upgrade if this ever gets slow.
 
@@ -123,8 +155,8 @@ env:
 
 jobs:
   # ===========================================================================
-  # Build the two images ONCE. Six cells booting the same commit have no reason
-  # to build it six times, and a per-cell build would also let two cells run
+  # Build the two images ONCE. Seven cells booting the same commit have no reason
+  # to build it seven times, and a per-cell build would also let two cells run
   # against subtly different layers.
   #
   # `mock` reuses the `build` stage of `runtime`, so with the shared gha cache
@@ -201,36 +233,50 @@ jobs:
             http_port: 8601
             https_port: 8641
             nonblocking: false
+            may_skip: an_appending_proxy_still_resolves_the_real_client sub_path_api_routes_return_json_not_the_spa_shell
           - profile: apache
             http_port: 8602
             https_port: 8642
             nonblocking: false
+            may_skip: an_appending_proxy_still_resolves_the_real_client sub_path_api_routes_return_json_not_the_spa_shell
           - profile: caddy
             http_port: 8603
             https_port: 8643
             nonblocking: false
+            may_skip: an_appending_proxy_still_resolves_the_real_client sub_path_api_routes_return_json_not_the_spa_shell
           - profile: haproxy-l7
             http_port: 8604
             https_port: 8644
             nonblocking: false
+            may_skip: an_appending_proxy_still_resolves_the_real_client sub_path_api_routes_return_json_not_the_spa_shell
           # TLS passthrough: no HTTP listener at all, hence the empty http_port.
           # See the continue-on-error note above for why this one is nonblocking.
           - profile: haproxy-l4
             http_port: ""
             https_port: 8645
             nonblocking: true
+            may_skip: an_appending_proxy_still_resolves_the_real_client sub_path_api_routes_return_json_not_the_spa_shell
           - profile: traefik
             http_port: 8605
             https_port: 8646
             nonblocking: false
+            may_skip: an_appending_proxy_still_resolves_the_real_client sub_path_api_routes_return_json_not_the_spa_shell
+          # Tier 2, not part of the gate. Here because it is the only shipped
+          # config that appends to X-Forwarded-For, so the appending test runs
+          # in this cell and in no other. See the header.
+          - profile: envoy
+            http_port: 8606
+            https_port: 8647
+            nonblocking: true
+            may_skip: sub_path_api_routes_return_json_not_the_spa_shell
 
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
         with:
-          # One cache for all six legs — they compile identical artifacts.
-          # Only one leg writes it, so the other five do not race to save.
+          # One cache for all legs — they compile identical artifacts.
+          # Only one leg writes it, so the others do not race to save.
           shared-key: t20-proxy-conformance
           save-if: ${{ matrix.profile == 'nginx' }}
 
@@ -306,6 +352,7 @@ jobs:
             --no-deps --wait --wait-timeout 300 mock app "$PROFILE"
 
       - name: conformance suite — ${{ matrix.profile }}
+        id: suite
         env:
           MW_T20_PROXY: "1"
           MW_T20_PROXY_KIND: ${{ matrix.profile }}
@@ -317,17 +364,72 @@ jobs:
           MW_T20_JMAP_URL: http://mock:8181/.well-known/jmap
           MW_T20_USER: testuser@example.org
           MW_T20_PASS: testpass
-          # `all`, not a list: t20_proxy_conformance:80 builds its skip reason at
-          # runtime, so a comma list could not match it and would require nothing.
-          # The cell is booted and waited on above, so any skip here means the
-          # proxy under test was never actually driven.
+          # A list, not `all`. Two tests skip by design in the tier-1 cells, one
+          # of them in every cell (header, "What runs in no cell"). With `all`
+          # both failed in every cell (run 37440560835: 9 passed, 3 failed, the
+          # third being a note that called skip() and is now an eprintln!).
+          #
+          # A skip fails the test when its reason cites a variable named here,
+          # and every name here must be set, or any skip fails. The names are
+          # the variables this step sets for every cell, so "no cell booted",
+          # no TLS base, no direct baseline, no expected client address and an
+          # unusable CA are all still failures. The two by-design skips cite
+          # MW_T20_XFF_APPENDS and MW_T20_PROXY_PREFIX, which are not here.
+          #
+          # MW_T20_PROXY is not listed although it is the master gate: the match
+          # is by substring, and it would also match MW_T20_PROXY_PREFIX in the
+          # sub-path skip. The "no cell booted" reason cites MW_T20_PROXY_KIND
+          # so that it fails here; with the reason as it was before t30, a run
+          # with MW_T20_PROXY unset reported 12 passed under this list.
           # (The `--no-run` step earlier only compiles the suite; it executes no
           # tests, so it has nothing to assert and is deliberately left alone.)
-          MW_REQUIRE_LIVE: "all"
-          # MW_T20_PROXY_PREFIX intentionally unset — see the header. Sub-path
-          # legs must loud-skip until t20-e12 + t20-e13 land.
+          MW_REQUIRE_LIVE: "MW_T20_PROXY_KIND,MW_T20_PROXY_TLS_BASE,MW_T20_PROXY_CA,MW_T20_DIRECT_BASE,MW_T20_EXPECT_CLIENT_IP"
+          # One SKIPPED or UNMATCHED line per skip, read by the next step.
+          MW_TEST_SKIP_LOG: ${{ runner.temp }}/t20-skips.log
+          # MW_T20_PROXY_PREFIX and MW_T20_XFF_APPENDS intentionally unset — see
+          # the header.
         run: |
           cargo test -p mw-server --test t20_proxy_conformance -- --nocapture --test-threads=1
+
+      # The list above lets a skip pass when its reason cites no listed variable.
+      # This step is what keeps that from hiding anything: it writes every skip
+      # to the run summary, and it fails on a SKIPPED line for any test other
+      # than the two named in ALLOWED and on any UNMATCHED line (a skip whose
+      # reason names no gate variable at all).
+      - name: tests that did not run in this cell
+        if: ${{ always() && steps.suite.outcome != 'skipped' }}
+        env:
+          PROFILE: ${{ matrix.profile }}
+          SKIP_LOG: ${{ runner.temp }}/t20-skips.log
+          ALLOWED: ${{ matrix.may_skip }}
+        run: |
+          set -eu
+          touch "$SKIP_LOG"
+          {
+            echo "### $PROFILE: tests that did not run"
+            echo
+            if [ -s "$SKIP_LOG" ]; then
+              sed 's/^/- /' "$SKIP_LOG"
+            else
+              echo "None."
+            fi
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          bad=0
+          while IFS= read -r line; do
+            tag=${line%% *}
+            rest=${line#* }
+            name=${rest%% *}
+            case "$tag" in
+              SKIPPED)
+                case " $ALLOWED " in
+                  *" $name "*) echo "skipped by design: $name" ;;
+                  *) echo "::error::unexpected skip in the $PROFILE cell: $line"; bad=1 ;;
+                esac ;;
+              *) echo "::error::$PROFILE: $line"; bad=1 ;;
+            esac
+          done < "$SKIP_LOG"
+          exit "$bad"
 
       # Always, and before teardown — a cell that failed to come up leaves its
       # only explanation in the container logs.
@@ -368,4 +470,4 @@ jobs:
             echo "tier-1 proxy conformance FAILED" >&2
             exit 1
           fi
-          echo "tier-1 proxy conformance passed (haproxy-l4 non-blocking this wave)"
+          echo "tier-1 proxy conformance passed (haproxy-l4 and envoy are non-blocking)"
