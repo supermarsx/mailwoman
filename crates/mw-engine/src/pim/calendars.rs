@@ -228,7 +228,8 @@ impl Engine {
     /// Subscribe to a remote iCalendar feed (P6). `{url, name?, blob?}`: registers a
     /// read-only overlay calendar for `url` (a `webcal://` URL is normalized to
     /// `https://`) and, when a `blob` (the fetched `.ics` body) is supplied,
-    /// imports it immediately. The network fetch itself is performed by the caller /
+    /// imports it immediately; a `blob` that does not parse registers nothing.
+    /// The network fetch itself is performed by the caller /
     /// a sync driver (the engine holds no general HTTP client); a subsequent
     /// `Calendar/refreshSubscription {calendarId, blob}` re-imports fresh contents.
     pub(crate) async fn calendar_subscribe(&self, account_id: &str, args: &Value) -> Value {
@@ -239,6 +240,15 @@ impl Engine {
             return server_fail("Calendar/subscribe requires a non-empty url");
         }
         let normalized = normalize_webcal(url);
+        // Read the fetched feed body, when there is one, before anything is
+        // stored: a body that is refused must not leave an empty overlay.
+        let events = match args.get("blob").and_then(Value::as_str) {
+            Some(blob) => match self.parse_calendar_document(blob) {
+                Ok(events) => Some(events),
+                Err(e) => return server_fail(e),
+            },
+            None => None,
+        };
         let name = args
             .get("name")
             .and_then(Value::as_str)
@@ -276,16 +286,11 @@ impl Engine {
 
         // Optional immediate import of the fetched feed body.
         let mut imported = 0usize;
-        if let Some(blob) = args.get("blob").and_then(Value::as_str) {
-            match self.parse_calendar_document(blob) {
-                Ok(events) => {
-                    imported = self
-                        .persist_parsed_events(account_id, &id, events, None)
-                        .await
-                        .len();
-                }
-                Err(e) => return server_fail(e),
-            }
+        if let Some(events) = events {
+            imported = self
+                .persist_parsed_events(account_id, &id, events, None)
+                .await
+                .len();
         }
         self.broadcast_state(account_id).await;
         json!({
@@ -298,6 +303,7 @@ impl Engine {
 
     /// Re-import a subscription overlay from a freshly-fetched feed body (P6).
     /// `{calendarId, blob}`: replaces the overlay's events with the parsed contents.
+    /// A `blob` that does not parse leaves the overlay's events in place.
     pub(crate) async fn calendar_refresh_subscription(
         &self,
         account_id: &str,
@@ -317,6 +323,12 @@ impl Engine {
             Ok(None) => return server_fail(format!("unknown calendar {calendar_id}")),
             Err(e) => return server_fail(e),
         }
+        // Read the new body before the old events go: a body that is refused
+        // leaves the overlay as it was.
+        let events = match self.parse_calendar_document(blob) {
+            Ok(v) => v,
+            Err(e) => return server_fail(e),
+        };
         // Clear existing overlay events, then re-import.
         match self.store().list_events(calendar_id).await {
             Ok(existing) => {
@@ -336,10 +348,6 @@ impl Engine {
             }
             Err(e) => return server_fail(e),
         }
-        let events = match self.parse_calendar_document(blob) {
-            Ok(v) => v,
-            Err(e) => return server_fail(e),
-        };
         let imported = self
             .persist_parsed_events(account_id, calendar_id, events, None)
             .await

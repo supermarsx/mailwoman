@@ -9,6 +9,10 @@
 //! Every test drives `Engine::handle_jmap` — the envelope the web client's
 //! Calendar → Import sends — and then reads the stored events back with
 //! `CalendarEvent/get`, so a refusal that persisted something anyway is seen.
+//!
+//! `Calendar/subscribe` and `Calendar/refreshSubscription` read the fetched
+//! feed body with the same parser. The last section checks that a refused body
+//! leaves no calendar behind and removes no event.
 
 use std::sync::Arc;
 
@@ -140,6 +144,38 @@ impl Harness {
         out.sort();
         out
     }
+
+    /// The id of every stored event of the account, sorted.
+    async fn event_ids(&self) -> Vec<String> {
+        let got = self.call("CalendarEvent/get", json!({ "ids": null })).await;
+        let mut out: Vec<String> = got["list"]
+            .as_array()
+            .unwrap_or_else(|| panic!("CalendarEvent/get has no list: {got}"))
+            .iter()
+            .map(|e| e["id"].as_str().unwrap_or_default().to_string())
+            .collect();
+        out.sort();
+        out
+    }
+
+    /// The `Calendar` state and the `(id, name)` of every calendar, sorted.
+    /// The first call seeds the default collections.
+    async fn calendars(&self) -> (String, Vec<(String, String)>) {
+        let got = self.call("Calendar/get", json!({ "ids": null })).await;
+        let mut list: Vec<(String, String)> = got["list"]
+            .as_array()
+            .unwrap_or_else(|| panic!("Calendar/get has no list: {got}"))
+            .iter()
+            .map(|c| {
+                (
+                    c["id"].as_str().unwrap_or_default().to_string(),
+                    c["name"].as_str().unwrap_or_default().to_string(),
+                )
+            })
+            .collect();
+        list.sort();
+        (got["state"].as_str().unwrap_or_default().to_string(), list)
+    }
 }
 
 /// What is wrong with `resp` as a refusal, if anything. A refusal is a
@@ -221,6 +257,31 @@ async fn inputs_that_are_not_a_holiday_pack_are_refused_and_store_nothing() {
         }
     }
     assert!(wrong.is_empty(), "\n{}", wrong.join("\n"));
+}
+
+/// Not covered, and now said: Outlook writes `.hol` as UTF-16. The import reads
+/// the file as UTF-8 (`file.text()` in the web client, `from_utf8_lossy` here),
+/// which leaves a NUL beside every character, so no section header and no date
+/// is found. This used to be a success with zero holidays.
+#[tokio::test]
+async fn a_utf16_pack_read_as_utf8_is_refused_rather_than_imported_empty() {
+    let pack = "[Portugal] 2\r\nAno Novo,2026/1/1\r\nDia da Liberdade,2026/4/25\r\n";
+    let mut utf16 = vec![0xFF, 0xFE];
+    for unit in pack.encode_utf16() {
+        utf16.extend_from_slice(&unit.to_le_bytes());
+    }
+    let as_read = String::from_utf8_lossy(&utf16).into_owned();
+
+    let h = setup().await;
+    // The same text in UTF-8 is a pack, so the refusal below is the encoding.
+    let utf8 = h.call("CalendarEvent/parse", json!({ "blob": pack })).await;
+    assert_eq!(utf8["parsed"].as_array().unwrap().len(), 2, "{utf8}");
+
+    let resp = h
+        .call("CalendarEvent/import", json!({ "blob": as_read }))
+        .await;
+    assert_refused(&resp, "UTF-16 read as UTF-8");
+    assert!(h.stored().await.is_empty());
 }
 
 /// `event_import` reads a missing `blob` as the empty string.
@@ -319,6 +380,139 @@ async fn parse_still_reads_both_fixtures() {
         h.stored().await.is_empty(),
         "CalendarEvent/parse stored events"
     );
+}
+
+// ── subscriptions: the same parser, and a store change around it ─────────────
+//
+// `Calendar/subscribe` and `Calendar/refreshSubscription` take the feed body the
+// server fetched (`POST /api/calendar/subscribe`, `/api/calendar/refresh`) and
+// read it with the same `parse_calendar_blob`. Both changed the store before
+// they parsed, so a refused body was an error with a side effect.
+
+/// What a feed URL answers when it is not a feed.
+const NOT_A_FEED: &str = "<!doctype html>\r\n<html><body><p>Sign in</p></body></html>\r\n";
+
+#[tokio::test]
+async fn subscribing_with_a_body_that_is_not_a_calendar_adds_no_calendar() {
+    let h = setup().await;
+    let before = h.calendars().await;
+    assert!(
+        !before.1.is_empty(),
+        "precondition: the default calendars are seeded"
+    );
+
+    let cases: &[(&str, &str, &str)] = &[
+        ("an HTML page", NOT_A_FEED, NOT_A_CALENDAR),
+        (
+            "a VCALENDAR that does not parse",
+            "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:cut off\r\n",
+            "backend protocol error: ics: iCalendar parse error",
+        ),
+    ];
+    let mut wrong = Vec::new();
+    for (what, blob, description) in cases {
+        let resp = h
+            .call(
+                "Calendar/subscribe",
+                json!({ "url": "https://feeds.example.org/team.ics", "name": "Team feed", "blob": blob }),
+            )
+            .await;
+        let refused = resp["type"] == "serverFail"
+            && resp["description"]
+                .as_str()
+                .is_some_and(|d| d.starts_with(description))
+            && resp.get("created").is_none();
+        if !refused {
+            wrong.push(format!("{what}: not refused: {resp}"));
+        }
+        let after = h.calendars().await;
+        if after != before {
+            wrong.push(format!(
+                "{what}: calendars changed from {before:?} to {after:?}"
+            ));
+        }
+    }
+    assert!(wrong.is_empty(), "\n{}", wrong.join("\n"));
+}
+
+/// The body is optional: a subscription registered without one is an empty
+/// overlay, and that stays so.
+#[tokio::test]
+async fn a_subscription_with_a_calendar_body_or_with_none_is_still_created() {
+    let h = setup().await;
+    let with_ics = h
+        .call(
+            "Calendar/subscribe",
+            json!({ "url": "webcal://feeds.example.org/a.ics", "name": "With ics", "blob": EVENT_ICS }),
+        )
+        .await;
+    assert_eq!(with_ics["imported"], 1, "{with_ics}");
+    assert_eq!(with_ics["url"], "https://feeds.example.org/a.ics");
+
+    let with_hol = h
+        .call(
+            "Calendar/subscribe",
+            json!({ "url": "https://feeds.example.org/b.hol", "name": "With hol", "blob": HOLIDAYS_HOL }),
+        )
+        .await;
+    assert_eq!(with_hol["imported"], 3, "{with_hol}");
+
+    let without = h
+        .call(
+            "Calendar/subscribe",
+            json!({ "url": "https://feeds.example.org/c.ics", "name": "No body" }),
+        )
+        .await;
+    assert_eq!(without["imported"], 0, "{without}");
+    assert!(without["created"]["id"].is_string(), "{without}");
+
+    let names: Vec<String> = h.calendars().await.1.into_iter().map(|c| c.1).collect();
+    for name in ["With ics", "With hol", "No body"] {
+        assert!(names.iter().any(|n| n == name), "{name} missing: {names:?}");
+    }
+    assert_eq!(h.stored().await.len(), 4);
+}
+
+#[tokio::test]
+async fn a_refresh_with_a_body_that_is_not_a_calendar_keeps_the_overlay_events() {
+    let h = setup().await;
+    let sub = h
+        .call(
+            "Calendar/subscribe",
+            json!({ "url": "https://feeds.example.org/team.ics", "name": "Team feed", "blob": EVENT_ICS }),
+        )
+        .await;
+    let calendar_id = sub["created"]["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("subscribe failed: {sub}"))
+        .to_string();
+    let before = h.event_ids().await;
+    assert_eq!(before.len(), 1, "precondition: the overlay holds one event");
+
+    let resp = h
+        .call(
+            "Calendar/refreshSubscription",
+            json!({ "calendarId": calendar_id, "blob": NOT_A_FEED }),
+        )
+        .await;
+    assert_eq!(resp["type"], "serverFail", "{resp}");
+    assert_eq!(resp["description"], NOT_A_CALENDAR, "{resp}");
+    assert_eq!(
+        h.event_ids().await,
+        before,
+        "a refused refresh removed the overlay's events"
+    );
+
+    // A body that is a calendar still replaces the overlay's contents.
+    let ok = h
+        .call(
+            "Calendar/refreshSubscription",
+            json!({ "calendarId": calendar_id, "blob": HOLIDAYS_HOL }),
+        )
+        .await;
+    assert_eq!(ok["imported"], 3, "{ok}");
+    let titles: Vec<String> = h.stored().await.into_iter().map(|e| e.0).collect();
+    assert_eq!(titles, ["Christmas Day", "May Day", "New Year"]);
 }
 
 // ── the rule itself, at the parser ───────────────────────────────────────────
