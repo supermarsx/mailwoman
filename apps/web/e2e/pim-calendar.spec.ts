@@ -208,7 +208,9 @@ test.describe('Calendar module through the real UI (engine mode)', () => {
     await expect(calendar(page).getByText(title).first()).toBeVisible();
 
     const downloadPromise = page.waitForEvent('download');
-    await calendar(page).getByRole('button', { name: 'Export' }).click();
+    // `exact`: the chip of the event created above is a button named
+    // "… Exported <uid>", which a substring match on "Export" also selects.
+    await calendar(page).getByRole('button', { name: 'Export', exact: true }).click();
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toBe('mailwoman-calendar.ics');
     const path = await download.path();

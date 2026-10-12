@@ -501,12 +501,19 @@ function dispatch(store: MockStore, call: Invocation): Invocation {
       return ok(callId, name, res);
     }
     case 'CalendarEvent/import': {
-      // `event_import` (`events.rs:494-517`): the document is read from `blob`;
+      // `event_import` (`events.rs:529-552`): the document is read from `blob`;
       // the target defaults to the default event calendar; the result is
-      // `{imported: [ids], count}`. A blob that is neither a VCALENDAR nor a
-      // `.hol` pack is a parse failure (`parse_calendar_blob`, `events.rs:938-955`).
+      // `{imported: [ids], count}`. A blob with no `BEGIN:VCALENDAR` that is not
+      // a `.hol` holiday pack either is refused with this description:
+      // `parse_calendar_blob` (`events.rs:1000-1005`) on the error `parse_hol`
+      // returns (`crates/mw-ics/src/hol.rs:122-127`), prefixed by
+      // `EngineError::Protocol` (`crates/mw-engine/src/backend.rs:33`). Asserted
+      // in `crates/mw-engine/tests/t30_calendar_import.rs`. The mock reads no
+      // `.hol`: it refuses a holiday pack too, which the engine imports.
       const blob = typeof args['blob'] === 'string' ? args['blob'] : '';
-      if (!blob.includes('BEGIN:VCALENDAR')) return fail(callId, name, 'ics: not a calendar document');
+      if (!blob.includes('BEGIN:VCALENDAR')) {
+        return fail(callId, name, 'backend protocol error: ics: not a calendar document');
+      }
       const calendarId = (args['calendarId'] as string | undefined) ?? eventCalendarIds(store)[0]!;
       const imported = persistParsed(store, calendarId, blob);
       const res: EventImportResponse = { accountId: ACCOUNT, imported, count: imported.length };
