@@ -43,6 +43,9 @@ reject --domain 'mail.example.org;touch bad'
 run init --project "$PROJECT" --port "$PORT"
 SERVER_KEY=$(awk -F= '$1 == "MW_SERVER_KEY" {print $2}' "$STATE/app.env")
 run init
+# Repeating the setup options unchanged is accepted; a different value is refused.
+run init --project "$PROJECT" --port "$PORT"
+reject init --port $((PORT + 1))
 [[ $(awk -F= '$1 == "MW_SERVER_KEY" {print $2}' "$STATE/app.env") == "$SERVER_KEY" ]] || fail 'init rotated key'
 printf 'DEPLOY_LITERAL_TEST=dollar$sign with spaces and "quotes"\n' >> "$STATE/app.env"
 run doctor
@@ -111,4 +114,4 @@ run stop
 run start
 run status
 PASSED=true
-printf 'PASS: deployment, literal secrets, health, persistent data, backup, rollback, corruption refusal and copy-failure recovery\n'
+printf 'PASS: deployment, literal secrets, health, persistent data, backup, rollback, corruption refusal, copy-failure recovery and repeated setup options\n'

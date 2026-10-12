@@ -40,7 +40,8 @@ Usage: bash deploy.sh [command] [options]
 
 Commands (default: deploy):
   init              Generate private, editable configuration; do not start Docker
-  deploy            Build/pull, back up an existing install, start, verify health
+  deploy            First run: set up and start. Later runs: update in place
+                    (build/pull, back up the existing install, start, verify)
   doctor            Check prerequisites, configuration, and Compose syntax
   status            Show containers and the configured public URL
   logs              Follow the last 100 lines of service logs (Ctrl-C to leave)
@@ -76,7 +77,8 @@ Examples:
   bash deploy.sh backup
   bash deploy.sh restore .deploy.local/backups/20261006T120000Z-1234
 
-No domain means a local HTTP installation at http://localhost:8080, or the
+Running the same command again updates the installation; setup options may be
+repeated unchanged or left out. No domain means a local HTTP installation at http://localhost:8080, or the
 next free port; the chosen URL is printed and kept in deploy.env.
 For public HTTPS, point DNS to this host and allow TCP ports 80 and 443.
 The script deploys the webmail app; mailbox/SMTP servers remain external.
@@ -93,6 +95,9 @@ need() { command -v "$1" >/dev/null 2>&1 || die "Required command missing: $1"; 
 # True when something on this host accepts connections on the given TCP port.
 port_in_use() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 
+[[ ${BASH_VERSINFO[0]} -ge 4 ]] || die "Bash 4 or newer is required"
+# Setup options as given on this command line, by deploy.env key.
+declare -A REQUESTED=()
 while (($#)); do
     case "$1" in
         init|deploy|doctor|status|logs|stop|start|restart|backup|rollback|restore)
@@ -100,12 +105,12 @@ while (($#)); do
             ACTION=$1; ACTION_SET=true
             if [[ $ACTION == restore ]]; then need_value "$@"; SNAPSHOT=$2; shift; fi ;;
         --state-dir) need_value "$@"; STATE=$2; shift ;;
-        --project) need_value "$@"; PROJECT=$2; INIT_OPTIONS=true; shift ;;
-        --domain) need_value "$@"; DOMAIN=$2; INIT_OPTIONS=true; shift ;;
-        --public-url) need_value "$@"; PUBLIC_URL=$2; INIT_OPTIONS=true; shift ;;
-        --port) need_value "$@"; PORT=$2; PORT_SET=true; INIT_OPTIONS=true; shift ;;
-        --mode) need_value "$@"; MODE=$2; INIT_OPTIONS=true; shift ;;
-        --proxy-prefix) need_value "$@"; PROXY_PREFIX=$2; INIT_OPTIONS=true; shift ;;
+        --project) need_value "$@"; PROJECT=$2; REQUESTED[PROJECT]=$2; INIT_OPTIONS=true; shift ;;
+        --domain) need_value "$@"; DOMAIN=$2; REQUESTED[DOMAIN]=$2; INIT_OPTIONS=true; shift ;;
+        --public-url) need_value "$@"; PUBLIC_URL=$2; REQUESTED[PUBLIC_URL]=$2; INIT_OPTIONS=true; shift ;;
+        --port) need_value "$@"; PORT=$2; REQUESTED[PORT]=$2; PORT_SET=true; INIT_OPTIONS=true; shift ;;
+        --mode) need_value "$@"; MODE=$2; REQUESTED[MODE]=$2; INIT_OPTIONS=true; shift ;;
+        --proxy-prefix) need_value "$@"; PROXY_PREFIX=$2; REQUESTED[PROXY_PREFIX]=$2; INIT_OPTIONS=true; shift ;;
         --image) need_value "$@"; IMAGE=$2; shift ;;
         --timeout) need_value "$@"; TIMEOUT=$2; shift ;;
         --pull) PULL=true ;;
@@ -117,7 +122,6 @@ while (($#)); do
     shift
 done
 
-[[ ${BASH_VERSINFO[0]} -ge 4 ]] || die "Bash 4 or newer is required"
 if [[ ! $TIMEOUT =~ ^[0-9]{2,4}$ ]] || ((10#$TIMEOUT < 10 || 10#$TIMEOUT > 3600)); then die "Invalid timeout"; fi
 TIMEOUT=$((10#$TIMEOUT))
 [[ -z $IMAGE || $IMAGE != -* && $IMAGE != *[[:space:]]* ]] || die "Invalid image reference"
@@ -229,8 +233,12 @@ trap 'exit 143' TERM
 
 # Dry-run must work even on a machine without Docker and must not mkdir/chmod.
 if [[ -f $STATE/deploy.env ]]; then
-    $INIT_OPTIONS && die "Configuration exists; edit $STATE/deploy.env instead of passing setup options"
     read_config "$STATE/deploy.env"
+    # Repeating the original setup command is an update. A different value is
+    # never applied from the command line; deploy.env is the one place to change it.
+    for key in "${!REQUESTED[@]}"; do
+        [[ ${REQUESTED[$key]} == "${!key}" ]] || die "$key is '${!key}' in $STATE/deploy.env, not '${REQUESTED[$key]}'; edit that file to change it"
+    done
 else
     [[ -z $DOMAIN || -z $PUBLIC_URL ]] || die "Choose --domain OR --public-url"
     if [[ -n $DOMAIN ]]; then EXPOSURE=caddy; PUBLIC_URL=https://$DOMAIN

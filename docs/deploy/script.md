@@ -35,8 +35,10 @@ Without `--port`, a first installation uses 8080, or the next free port up to
 Later deploys stop before building if a published port is held by another
 service, and name the setting to change.
 
-These examples describe separate first installations. Once configuration exists,
-edit it instead of passing setup flags again. All commands accept `--state-dir`
+These examples describe separate first installations. The first `deploy` sets
+up and starts the app; every later `deploy` updates the same installation. Setup
+flags may be repeated unchanged or left out on later runs; a different value is
+refused, and `deploy.env` is the place to change it. All commands accept `--state-dir`
 and can be invoked from any working directory by passing the path to `deploy.sh`.
 
 For an existing TLS reverse proxy:
