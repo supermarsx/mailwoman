@@ -392,6 +392,11 @@ async fn parse_still_reads_both_fixtures() {
 /// What a feed URL answers when it is not a feed.
 const NOT_A_FEED: &str = "<!doctype html>\r\n<html><body><p>Sign in</p></body></html>\r\n";
 
+/// A VCALENDAR that ends inside its event: `parse_ical` refuses it. This was an
+/// error before `parse_hol` refused anything, and had the same side effects.
+const CUT_OFF_VCALENDAR: &str = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:cut off\r\n";
+const ICAL_PARSE_ERROR: &str = "backend protocol error: ics: iCalendar parse error";
+
 #[tokio::test]
 async fn subscribing_with_a_body_that_is_not_a_calendar_adds_no_calendar() {
     let h = setup().await;
@@ -405,8 +410,8 @@ async fn subscribing_with_a_body_that_is_not_a_calendar_adds_no_calendar() {
         ("an HTML page", NOT_A_FEED, NOT_A_CALENDAR),
         (
             "a VCALENDAR that does not parse",
-            "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:cut off\r\n",
-            "backend protocol error: ics: iCalendar parse error",
+            CUT_OFF_VCALENDAR,
+            ICAL_PARSE_ERROR,
         ),
     ];
     let mut wrong = Vec::new();
@@ -489,19 +494,33 @@ async fn a_refresh_with_a_body_that_is_not_a_calendar_keeps_the_overlay_events()
     let before = h.event_ids().await;
     assert_eq!(before.len(), 1, "precondition: the overlay holds one event");
 
-    let resp = h
-        .call(
-            "Calendar/refreshSubscription",
-            json!({ "calendarId": calendar_id, "blob": NOT_A_FEED }),
-        )
-        .await;
-    assert_eq!(resp["type"], "serverFail", "{resp}");
-    assert_eq!(resp["description"], NOT_A_CALENDAR, "{resp}");
-    assert_eq!(
-        h.event_ids().await,
-        before,
-        "a refused refresh removed the overlay's events"
-    );
+    for (what, blob, description) in [
+        ("an HTML page", NOT_A_FEED, NOT_A_CALENDAR),
+        (
+            "a VCALENDAR that does not parse",
+            CUT_OFF_VCALENDAR,
+            ICAL_PARSE_ERROR,
+        ),
+    ] {
+        let resp = h
+            .call(
+                "Calendar/refreshSubscription",
+                json!({ "calendarId": calendar_id, "blob": blob }),
+            )
+            .await;
+        assert_eq!(resp["type"], "serverFail", "{what}: {resp}");
+        assert!(
+            resp["description"]
+                .as_str()
+                .is_some_and(|d| d.starts_with(description)),
+            "{what}: {resp}"
+        );
+        assert_eq!(
+            h.event_ids().await,
+            before,
+            "{what}: a refused refresh removed the overlay's events"
+        );
+    }
 
     // A body that is a calendar still replaces the overlay's contents.
     let ok = h
