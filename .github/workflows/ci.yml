@@ -1420,14 +1420,24 @@ jobs:
       #   SHELL STILL RUNNING after 20s (pid 2156).
       #   [mailwoman] UI-bundle integrity OK: 254/254 files match (bundleHash 859c1ca0…)
       #
-      # So the app starts, stays up, AND passes its own §7.4 integrity gate — which
-      # also retires the "the shell refuses to boot" hypothesis. Every candidate on
-      # our side of the line is now eliminated, and what remains is the
-      # tauri-driver <-> WebView2 <-> msedgedriver debug-port handshake: a
-      # dependency seam, not a workflow or shell defect. Reported rather than
-      # worked around; the next move belongs to whoever owns that seam, and the
-      # useful next datum is msedgedriver's own verbose log, which this job cannot
-      # obtain because tauri-driver owns the driver process.
+      # So the process starts, stays up, AND passes its own §7.4 integrity gate —
+      # which retires the "the shell refuses to boot" hypothesis and nothing more.
+      #
+      # CORRECTED by t30-e6. An earlier version of this comment concluded from those
+      # two lines that every candidate on our side was eliminated and that only the
+      # tauri-driver <-> WebView2 <-> msedgedriver debug-port handshake remained.
+      # That did not follow: a shell that cannot create its WebView prints the same
+      # two lines, because Tauri then shows a modal dialog titled "Error" and the
+      # process stays alive behind it. "The shell creates no WebView" was therefore
+      # NOT eliminated. The step now also prints how many WebView2 browser processes
+      # the shell started and its main window title, which tells the two states
+      # apart. The cause is not established.
+      #
+      # It also said msedgedriver's own verbose log could not be obtained because
+      # tauri-driver owns the driver process. It can: wdio.conf.mjs hands
+      # tauri-driver a wrapper script as the native driver, which writes
+      # apps/desktop/e2e/logs/msedgedriver.log, and prints that log with a session
+      # snapshot when the run fails. The logs directory is uploaded below.
       #
       # KEPT now that it has answered, on purpose: if the shell ever stops starting,
       # this names that immediately instead of letting it surface as the same
@@ -1448,9 +1458,10 @@ jobs:
             Write-Host "for a process that is no longer running. Owner: the desktop shell."
           } else {
             Write-Host "SHELL STILL RUNNING after 20s (pid $($p.Id))."
-            Write-Host "So the app starts and stays up, and the failure is in the"
-            Write-Host "WebView2/msedgedriver debug-port handshake, not the app. Owner:"
-            Write-Host "the tauri-driver / WebView2 seam."
+            $wv = @(Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" |
+                    Where-Object { $_.CommandLine -like '*--webview-exe-name=mailwoman-desktop.exe*' -and $_.CommandLine -notlike '*--type=*' })
+            Write-Host "WebView2 browser processes started by the shell: $($wv.Count)"
+            Write-Host "Main window title: '$((Get-Process -Id $p.Id).MainWindowTitle)' ('Error' is Tauri's WebView2 dialog)"
             Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
           }
           foreach ($f in @($out, $err)) {
@@ -1458,10 +1469,39 @@ jobs:
               Write-Host "--- $f ---"; Get-Content $f -TotalCount 40
             }
           }
+      # CANDIDATE FIX, NOT YET CONFIRMED BY A REAL RUN (t30-e6): the reading it rests on
+      # was taken from the two reports below, not observed, and no run has shown this
+      # step making the session open. The job stays continue-on-error.
+      #
+      # The hosted runner runs every step elevated. From WebView2 Runtime 150 an elevated
+      # host ignores the WEBVIEW2_* environment variables, which is how msedgedriver passes
+      # the debug port and the user data folder (MicrosoftEdge/WebView2Feedback#5640; the
+      # same DevToolsActivePort failure on windows-2025 is actions/runner-images#14738).
+      # HKLM policy is still read, so the port is given there and the driver is told to
+      # read it from the shell's own user data folder through the harness option
+      # MW_E2E_WEBVIEW_USER_DATA_FOLDER (apps/desktop/e2e/README.md, "When the session
+      # does not open"). After the diagnostic step on purpose: that launch stays plain.
+      - name: give the elevated shell a debug port through machine policy
+        shell: pwsh
+        run: |
+          $key = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
+          New-Item -Path $key -Force | Out-Null
+          foreach ($appId in 'mailwoman-desktop.exe', 'com.mailwoman.desktop') {
+            New-ItemProperty -Path $key -Name $appId -PropertyType String -Value '--remote-debugging-port=0' -Force | Out-Null
+          }
+          "MW_E2E_WEBVIEW_USER_DATA_FOLDER=$env:LOCALAPPDATA\com.mailwoman.desktop" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       # wdio.conf.mjs auto-resolves target/release/mailwoman-desktop.exe (repo-root
       # relative) and reads MSEDGEDRIVER from the env set above.
       - name: run desktop live E2E (tauri-driver + WebdriverIO)
         run: pnpm -C apps/desktop/e2e test
+      - name: upload desktop E2E driver log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-e2e-logs
+          path: apps/desktop/e2e/logs/
+          if-no-files-found: ignore
+          retention-days: 7
 
   # ===========================================================================
   # V6 (26.7.0) CI jobs — plan §3 e12/e13. SCAFFOLDED (commented) by e0; each is
