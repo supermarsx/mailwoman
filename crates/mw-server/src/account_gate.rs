@@ -40,6 +40,27 @@
 //! The record outlives the sessions, so a key or token of a disabled account is
 //! refused by name after its sessions are gone.
 //!
+//! ## A session row that does not open
+//!
+//! A session row sealed under another server key (the server was started with a
+//! different `MW_SERVER_KEY`, or with none) cannot be opened. It can never
+//! authenticate again: `Store::get_session` fails for it, so its cookie is
+//! refused. It is not an unreadable store and it does not refuse the account.
+//! [`principal_names`] reads the rows with `Store::session_names_by_account`,
+//! which reports such a row with the name stored in the clear and without the
+//! name sealed in it.
+//!
+//! That sealed name — what was typed at the login that wrote the row — is still a
+//! name of the principal when it is in the record of names, which is not sealed
+//! and is written by every login since 26.20. A name held only in a row that
+//! does not open is unknown here, like any name under "What this cannot see",
+//! until a login uses it again.
+//!
+//! Until t30 the gate unsealed every session row of the account and treated one
+//! that did not open as unreadable flags: every login to the account, and every
+//! request of its keys and tokens, was answered 503 for as long as the row
+//! existed.
+//!
 //! ## What this cannot see
 //!
 //! A name the mail server would accept for the mailbox but that nobody has logged
@@ -52,7 +73,9 @@
 //!
 //! Every function returns `Err` when the store cannot be read, and every caller
 //! treats `Err` as a refusal. A store outage fails logins and requests; it does not
-//! let them through unchecked.
+//! let them through unchecked. That covers a database error on any read here —
+//! the flags, the record of names, the session rows — and a flag or names record
+//! that does not parse.
 
 use axum::Json;
 use axum::http::StatusCode;
@@ -279,9 +302,12 @@ pub(crate) async fn principal_names(
         Err(e) => return Err(e),
     }
     names.extend(store.account_names(account_id).await?);
-    for session in store.sessions_by_account(account_id).await? {
+    // The names, not the credentials: a row that does not open under this key
+    // still gives the name stored in the clear, and is not an error (module
+    // docs, "A session row that does not open").
+    for session in store.session_names_by_account(account_id).await? {
         names.push(session.username);
-        names.push(session.credentials.username);
+        names.extend(session.login_name);
     }
     Ok(names)
 }
@@ -555,6 +581,111 @@ mod tests {
             "and after it is gone"
         );
         assert!(!for_account(&s, "upstream-10").await.unwrap().disabled);
+    }
+
+    /// Two stores over one database file that hold different keys: what the
+    /// server sees after it was started with another `MW_SERVER_KEY`. Returns
+    /// the store under the old key and the store under the new one.
+    async fn rekeyed() -> (Store, Store) {
+        static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "mw-t30-gate-{}-{}.sqlite",
+            std::process::id(),
+            N.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        ));
+        let _ = std::fs::remove_file(&path);
+        let path = path.to_string_lossy().into_owned();
+        let old = Store::open(&path, ServerKey::generate()).await.unwrap();
+        let new = Store::open(&path, ServerKey::generate()).await.unwrap();
+        (old, new)
+    }
+
+    /// t30: a session row sealed under another key is not unreadable flags. The
+    /// gate answers, and a flag under the name typed at the login that wrote the
+    /// row still applies, through the record of names.
+    #[tokio::test]
+    async fn a_session_row_that_does_not_open_does_not_refuse_the_account() {
+        let (old, new) = rekeyed().await;
+        remember_login(&old, "upstream-20", "kim@example.org", "Kim")
+            .await
+            .unwrap();
+        let id = old
+            .create_session(
+                "upstream-20",
+                "kim@example.org",
+                "http://u",
+                "http://u",
+                &creds("Kim"),
+            )
+            .await
+            .unwrap();
+        // The premise: the row is there and does not open under the new key.
+        assert!(old.get_session(&id).await.is_ok());
+        assert!(new.get_session(&id).await.is_err());
+
+        let login = for_login(&new, "upstream-20", "kim@example.org", "kim@example.org").await;
+        assert_eq!(
+            login.expect("a row that does not open is not an unreadable store"),
+            AccountGate::default()
+        );
+        assert_eq!(
+            for_account(&new, "upstream-20").await.unwrap(),
+            AccountGate::default()
+        );
+
+        // "Kim" was typed under the old key; the new key cannot read it from the
+        // row, and reads it from the record.
+        write_flags(&new, "kim", disabled()).await.unwrap();
+        assert!(for_account(&new, "upstream-20").await.unwrap().disabled);
+        assert!(
+            for_login(&new, "upstream-20", "kim@example.org", "kim@example.org")
+                .await
+                .unwrap()
+                .disabled
+        );
+        // Unreadable flags still refuse, with the row present.
+        new.set_setting("v6:admin:flags:kim", "{not json")
+            .await
+            .unwrap();
+        assert!(for_account(&new, "upstream-20").await.is_err());
+        assert!(
+            for_login(&new, "upstream-20", "kim@example.org", "kim@example.org")
+                .await
+                .is_err()
+        );
+    }
+
+    /// The limit of the above: a session opened before names were recorded keeps
+    /// the typed name only inside its sealed row. Under another key that name is
+    /// unknown; the name stored in the clear on the same row is still read.
+    #[tokio::test]
+    async fn a_name_held_only_in_a_row_that_does_not_open_is_unknown() {
+        let (old, new) = rekeyed().await;
+        old.create_session(
+            "upstream-21",
+            "lee@example.org",
+            "http://u",
+            "http://u",
+            &creds("lee-alias"),
+        )
+        .await
+        .unwrap();
+        write_flags(&new, "lee-alias", disabled()).await.unwrap();
+        assert!(
+            for_account(&old, "upstream-21").await.unwrap().disabled,
+            "control: where the row opens, the sealed name gates the account"
+        );
+        assert!(
+            !for_account(&new, "upstream-21").await.unwrap().disabled,
+            "where it does not, the sealed name is not known"
+        );
+        write_flags(&new, "lee@example.org", disabled())
+            .await
+            .unwrap();
+        assert!(
+            for_account(&new, "upstream-21").await.unwrap().disabled,
+            "the name in the clear on that row is read under any key"
+        );
     }
 
     /// A session opened before names were recorded has only its own row to go by:

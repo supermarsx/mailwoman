@@ -198,6 +198,19 @@ pub struct Session {
     pub credentials: Credentials,
 }
 
+/// The names on one session row, as [`Store::session_names_by_account`] reports
+/// them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionNames {
+    /// The `username` column: the name the upstream reported for the session (or
+    /// the asserted identity). Stored in the clear.
+    pub username: String,
+    /// The name the credentials were presented under, which is sealed together
+    /// with the password. `None` for a row that does not open under this server
+    /// key.
+    pub login_name: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct Store {
     backend: Backend,
@@ -451,6 +464,55 @@ impl Store {
         Ok(out)
     }
 
+    /// The names on every session row of an account, most-recently-seen first,
+    /// for a reader that needs the names and not the credentials (the account
+    /// gate in `mw-server`).
+    ///
+    /// # A row that does not open
+    ///
+    /// A session row whose credentials do not open under this server key was
+    /// sealed under another key (the server was started with a different
+    /// `MW_SERVER_KEY`, or with none and generated one, or shares its database
+    /// with a server that holds another key), or its sealed bytes are damaged. It
+    /// can never authenticate again — [`get_session`](Self::get_session) fails for
+    /// it, so its cookie is refused — which makes it not a session. It stays in
+    /// the table until the account's sessions are deleted
+    /// ([`delete_sessions_for_account`](Self::delete_sessions_for_account),
+    /// [`delete_sessions_for_username`](Self::delete_sessions_for_username)).
+    ///
+    /// Such a row is reported here like any other: its
+    /// [`username`](SessionNames::username) is stored in the clear, and its
+    /// [`login_name`](SessionNames::login_name) is `None`. It is not an error. A
+    /// database error is.
+    pub async fn session_names_by_account(
+        &self,
+        account_id: &str,
+    ) -> Result<Vec<SessionNames>, StoreError> {
+        let rows = q("SELECT username, sealed_creds
+             FROM sessions WHERE account_id = ?1 ORDER BY last_seen DESC")
+        .bind(account_id)
+        .fetch_all(&self.backend)
+        .await?;
+
+        Ok(rows
+            .iter()
+            .map(|row| SessionNames {
+                username: row.get_string("username"),
+                login_name: self
+                    .open_session_creds(&row.get_blob("sealed_creds"))
+                    .map(|c| c.username),
+            })
+            .collect())
+    }
+
+    /// The credentials sealed in a session row, or `None` for a row that does
+    /// not open under this key (see
+    /// [`session_names_by_account`](Self::session_names_by_account)).
+    fn open_session_creds(&self, sealed: &[u8]) -> Option<Credentials> {
+        let bytes = self.key.open(sealed).ok()?;
+        decode_creds(&bytes).ok()
+    }
+
     pub async fn set_setting(&self, key: &str, value: &str) -> Result<(), StoreError> {
         q("INSERT INTO settings (key, value) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value")
@@ -573,6 +635,109 @@ mod tests {
             uploads: store.uploads.clone(),
         };
         assert!(other.get_session(&id).await.is_err());
+    }
+
+    /// A second handle on `store`'s database that holds another key: what a
+    /// server started with a different `MW_SERVER_KEY` sees.
+    fn rekeyed(store: &Store) -> Store {
+        Store {
+            backend: store.backend().clone(),
+            key: ServerKey::generate(),
+            uploads: store.uploads.clone(),
+        }
+    }
+
+    fn named(login: &str) -> Credentials {
+        Credentials {
+            username: login.into(),
+            password: "p".into(),
+        }
+    }
+
+    /// The names reader reports every row of the account. A row sealed under
+    /// another key has its clear name and no login name; it is not an error.
+    #[tokio::test]
+    async fn session_names_report_a_row_that_does_not_open() {
+        let old = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let new = rekeyed(&old);
+        let sealed_old = old
+            .create_session(
+                "a1",
+                "amy@example.org",
+                "http://u",
+                "http://u",
+                &named("Amy"),
+            )
+            .await
+            .unwrap();
+        new.create_session(
+            "a1",
+            "amy@example.org",
+            "http://u",
+            "http://u",
+            &named("amy2"),
+        )
+        .await
+        .unwrap();
+        new.create_session("a2", "bo@example.org", "http://u", "http://u", &named("bo"))
+            .await
+            .unwrap();
+        // The premise: the first row is there and does not open under the new key.
+        assert!(old.get_session(&sealed_old).await.is_ok());
+        assert!(matches!(
+            new.get_session(&sealed_old).await,
+            Err(StoreError::Seal(_))
+        ));
+
+        let mut names = new.session_names_by_account("a1").await.unwrap();
+        names.sort_by(|a, b| a.login_name.cmp(&b.login_name));
+        assert_eq!(
+            names,
+            vec![
+                SessionNames {
+                    username: "amy@example.org".into(),
+                    login_name: None,
+                },
+                SessionNames {
+                    username: "amy@example.org".into(),
+                    login_name: Some("amy2".into()),
+                },
+            ]
+        );
+        // Under the key the first row was sealed with, it is the other way round.
+        let mut names = old.session_names_by_account("a1").await.unwrap();
+        names.sort_by(|a, b| a.login_name.cmp(&b.login_name));
+        assert_eq!(names[0].login_name, None);
+        assert_eq!(names[1].login_name.as_deref(), Some("Amy"));
+        assert!(
+            new.session_names_by_account("nope")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    /// A database error is an error from the session readers, not an empty
+    /// list: the account gate refuses on it.
+    #[tokio::test]
+    async fn session_readers_report_a_database_error() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        store
+            .create_session("a1", "u", "http://u", "http://u", &creds())
+            .await
+            .unwrap();
+        q("DROP TABLE sessions")
+            .execute(store.backend())
+            .await
+            .unwrap();
+        assert!(matches!(
+            store.session_names_by_account("a1").await,
+            Err(StoreError::Db(_))
+        ));
+        assert!(matches!(
+            store.sessions_by_account("a1").await,
+            Err(StoreError::Db(_))
+        ));
     }
 
     #[tokio::test]
