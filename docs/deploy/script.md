@@ -114,9 +114,22 @@ With an external proxy, configure `MW_TRUSTED_PROXIES` and `MW_FORWARDED_MODE` i
 `app.env` sets either one. Every container on that network can then state a
 client address, so keep the network to the proxy and the apps behind it, or pin
 the proxy's own address in `app.env`. `PROXY_NETWORK` in `deploy.env` may be
-changed later; the next `deploy` moves the app to the named network. Project, exposure and proxy subnet are fixed
-after the first deployment; create another deployment for a topology change.
+changed later; the next `deploy` moves the app to the named network.
+
+An applied installation may move among local, external-proxy and proxy-network
+exposure: edit `EXPOSURE` (`local`, `external` or `network`), `PUBLIC_URL`, `PORT`
+and `PROXY_NETWORK` in `deploy.env`, then run `deploy`. The project name and the
+Caddy subnet are fixed after the first deployment, and an installation cannot
+move to or from Caddy mode; create another deployment for those changes.
 Changing the public URL can invalidate passkeys bound to the previous origin.
+
+To put an existing installation on a reverse proxy's Docker network:
+
+1. In `.deploy.local/deploy.env` set `EXPOSURE=network`, `PROXY_NETWORK=<name>`
+   and `PUBLIC_URL` to the `https://` address the proxy serves.
+2. Run `bash deploy.sh deploy --no-build`.
+3. Point the proxy at `http://<project>:8080` (web UI and API; WebSocket support
+   is needed). The app is no longer published on the host port.
 
 Set `MW_JMAP_UPSTREAMS` for private/internal JMAP origins (or to restrict allowed
 public providers). In engine mode, use `MW_SMTP_HOST`, `MW_SMTP_PORT`, and

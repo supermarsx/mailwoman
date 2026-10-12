@@ -600,13 +600,21 @@ case "$ACTION" in
         WORK=$(mktemp -d "$STATE/.work.XXXXXX")
         if [[ -f $ACTIVE/release.env ]]; then
             read_config "$ACTIVE/release.env"
-            # Project and network identity cannot change in place; create a new state
+            # Project and Caddy subnet cannot change in place; create a new state
             # directory for another install. Otherwise Compose could orphan its data.
+            # local, external and network render the same single service and differ
+            # only in its ports, networks and environment, so those three may change.
             configured_project=$PROJECT; configured_exposure=$EXPOSURE; configured_prefix=$PROXY_PREFIX
             read_config "$ACTIVE/deploy.env"
-            [[ $PROJECT == "$configured_project" && $EXPOSURE == "$configured_exposure" && $PROXY_PREFIX == "$configured_prefix" ]] || die "Project, exposure and proxy subnet are immutable; use a new state directory"
+            applied_exposure=$EXPOSURE
+            [[ $PROJECT == "$configured_project" && $PROXY_PREFIX == "$configured_prefix" ]] || die "Project and proxy subnet are fixed after the first deployment; use a new state directory"
+            if [[ $applied_exposure != "$configured_exposure" && ($applied_exposure == caddy || $configured_exposure == caddy) ]]; then
+                die "EXPOSURE cannot change from $applied_exposure to $configured_exposure: an installation cannot move to or from caddy. local, external and network may be exchanged; use a new state directory for caddy"
+            fi
+            PROXY_NETWORK=
             read_config "$STATE/deploy.env"
             validate_config
+            [[ $EXPOSURE == "$applied_exposure" ]] || log "Changing exposure from $applied_exposure to $EXPOSURE"
             old_key=$(awk -F= '$1 == "MW_SERVER_KEY" {print $2}' "$ACTIVE/app.env")
             new_key=$(awk -F= '$1 == "MW_SERVER_KEY" {print $2}' "$STATE/app.env")
             [[ $old_key == "$new_key" ]] || die "MW_SERVER_KEY changed; retain the original key to keep stored credentials and uploads readable"
