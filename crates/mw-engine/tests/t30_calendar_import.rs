@@ -259,28 +259,58 @@ async fn inputs_that_are_not_a_holiday_pack_are_refused_and_store_nothing() {
     assert!(wrong.is_empty(), "\n{}", wrong.join("\n"));
 }
 
-/// Not covered, and now said: Outlook writes `.hol` as UTF-16. The import reads
-/// the file as UTF-8 (`file.text()` in the web client, `from_utf8_lossy` here),
-/// which leaves a NUL beside every character, so no section header and no date
-/// is found. This used to be a success with zero holidays.
-#[tokio::test]
-async fn a_utf16_pack_read_as_utf8_is_refused_rather_than_imported_empty() {
-    let pack = "[Portugal] 2\r\nAno Novo,2026/1/1\r\nDia da Liberdade,2026/4/25\r\n";
-    let mut utf16 = vec![0xFF, 0xFE];
-    for unit in pack.encode_utf16() {
-        utf16.extend_from_slice(&unit.to_le_bytes());
+/// `text` as Outlook stores a `.hol`: CRLF line ends, UTF-16, byte order mark
+/// first.
+fn utf16_with_bom(text: &str, big_endian: bool) -> Vec<u8> {
+    let crlf = text.replace("\r\n", "\n").replace('\n', "\r\n");
+    let mut out = if big_endian {
+        vec![0xFE, 0xFF]
+    } else {
+        vec![0xFF, 0xFE]
+    };
+    for unit in crlf.encode_utf16() {
+        out.extend_from_slice(&if big_endian {
+            unit.to_be_bytes()
+        } else {
+            unit.to_le_bytes()
+        });
     }
-    let as_read = String::from_utf8_lossy(&utf16).into_owned();
+    out
+}
+
+/// The engine is given text, not bytes: `blob` is a JSON string. A reader that
+/// took a UTF-16 file for UTF-8 (`File.text()` in Firefox, which decodes UTF-8
+/// as that method is specified; `from_utf8_lossy` here) has already replaced
+/// the byte order mark, left a NUL beside every character and destroyed the
+/// characters outside ASCII, so there is nothing left to decode from. Such a
+/// blob is refused; it used to be a success with zero holidays. Reading the
+/// bytes is the job of whoever has them: the web client decodes a picked file
+/// by its mark (`apps/web/src/modules/calendar/decode.ts`).
+#[tokio::test]
+async fn a_utf16_file_read_as_utf8_is_refused_rather_than_imported_empty() {
+    let pack = "[Portugal] 2\r\nAno Novo,2026/1/1\r\nDia da Regi\u{e3}o,2026/7/1\r\n";
+    let as_read = String::from_utf8_lossy(&utf16_with_bom(pack, false)).into_owned();
+    // Precondition: the damage is real. No byte order mark and no `ã` is left.
+    assert!(as_read.starts_with("\u{fffd}\u{fffd}[\0P\0"), "{as_read:?}");
+    assert!(as_read.contains("R\0e\0g\0i\0\u{fffd}\0o\0"), "{as_read:?}");
 
     let h = setup().await;
-    // The same text in UTF-8 is a pack, so the refusal below is the encoding.
+    // The same text read correctly is a pack, so the refusal is the reading.
     let utf8 = h.call("CalendarEvent/parse", json!({ "blob": pack })).await;
     assert_eq!(utf8["parsed"].as_array().unwrap().len(), 2, "{utf8}");
 
     let resp = h
         .call("CalendarEvent/import", json!({ "blob": as_read }))
         .await;
-    assert_refused(&resp, "UTF-16 read as UTF-8");
+    assert_refused(&resp, "a UTF-16 .hol read as UTF-8");
+
+    // A UTF-16 `.ics` read the same way has no `BEGIN:VCALENDAR` left in it.
+    let ics_as_read = String::from_utf8_lossy(&utf16_with_bom(EVENT_ICS, false)).into_owned();
+    assert!(!ics_as_read.contains("BEGIN:VCALENDAR"));
+    let resp = h
+        .call("CalendarEvent/import", json!({ "blob": ics_as_read }))
+        .await;
+    assert_refused(&resp, "a UTF-16 .ics read as UTF-8");
     assert!(h.stored().await.is_empty());
 }
 
@@ -557,4 +587,61 @@ fn parse_hol_names_what_is_missing() {
     // What the writer produces for at least one event is read back.
     let pack = mw_ics::write_hol(&[json!({ "title": "New Year", "start": "2026-01-01" })]).unwrap();
     assert_eq!(mw_ics::parse_hol(pack.as_bytes()).unwrap().len(), 1);
+}
+
+// ── the layout of Outlook's own file ─────────────────────────────────────────
+//
+// An installed `OUTLOOK.HOL` (Office 16, 1,524,020 bytes) is UTF-16LE with a
+// byte order mark and CRLF line ends, and has 116 `[Name] n` sections. 22,951
+// of its lines are `Description,YYYY/M/D` (Gregorian, unpadded); 3,471 carry a
+// third field, a calendar-type id, after a date in that calendar; 404 have a
+// character outside ASCII. The text below has lines of each shape; nothing is
+// copied from that file.
+
+const OUTLOOK_SHAPED: &str = "[Argentina] 3\r\n\
+     San Mart\u{ed}n National Patriot Day,2026/8/17\r\n\
+     Eid al Adha,1447/12/10,6\r\n\
+     New Year's Day,2026/1/1\r\n\
+     [Portugal] 1\r\n\
+     Dia de Portugal,2026/6/10\r\n";
+
+/// The engine imports every section of the text it is given: choosing among
+/// locations is done before the request (the web client asks). A line with a
+/// calendar-type id is not read. Its last field is not a date, and its second
+/// would put the holiday in the year 1447 of the Gregorian calendar.
+#[tokio::test]
+async fn a_pack_in_the_layout_of_outlooks_file_imports_its_gregorian_lines() {
+    let h = setup().await;
+    let resp = h
+        .call("CalendarEvent/import", json!({ "blob": OUTLOOK_SHAPED }))
+        .await;
+    assert_eq!(resp["count"], 3, "{resp}");
+    assert_eq!(
+        h.stored().await,
+        vec![
+            ("Dia de Portugal".to_string(), "2026-06-10".to_string()),
+            ("New Year's Day".to_string(), "2026-01-01".to_string()),
+            (
+                "San Mart\u{ed}n National Patriot Day".to_string(),
+                "2026-08-17".to_string()
+            ),
+        ]
+    );
+}
+
+/// `parse_hol` takes bytes and reads them as UTF-8. It is not where a UTF-16
+/// file is decoded: its one caller outside tests, `parse_calendar_blob`, has
+/// the bytes of a JSON string. Given the file's own bytes it finds no pack.
+#[test]
+fn parse_hol_does_not_decode_utf16() {
+    let bytes = utf16_with_bom(OUTLOOK_SHAPED, false);
+    assert_eq!(bytes[..6], [0xFF, 0xFE, b'[', 0, b'A', 0]);
+    assert_eq!(
+        mw_ics::parse_hol(&bytes).err().map(|e| e.to_string()),
+        Some("holiday pack (.hol) error: no [section] line".to_string())
+    );
+    assert_eq!(
+        mw_ics::parse_hol(OUTLOOK_SHAPED.as_bytes()).unwrap().len(),
+        3
+    );
 }
