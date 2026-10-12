@@ -318,18 +318,46 @@ async fn register_one(
     }
 }
 
-/// One lock per account id, so that two callers of [`ensure_account`] for the
-/// same account (a request and the start-up registration, or two requests) do
-/// not both dial the server and both start a watch loop.
+/// One lock per account id. Whoever connects an account ([`ensure_account`], the
+/// login in [`engine_login`]) holds it from before the backend is registered with
+/// the engine until the account's first sync has finished
+/// ([`register_and_sync`]), and whoever asks whether an account is connected
+/// takes it before looking. That gives two things:
+///
+/// * two callers for the same account (a request and the start-up registration,
+///   a request and a login, or two requests) do not both register a backend and
+///   both start a watch loop, and
+/// * a caller never finds an account registered while its first sync is still in
+///   flight: it waits for the lock, and by then the sync has either finished or
+///   failed and taken the registration with it.
+///
+/// ## Why a request cannot deadlock against the start-up registration
+///
+/// This is the only lock either of them waits for while connecting, and nothing
+/// that runs under it (the flag read, the dial, the sync, starting the watch
+/// loop) calls back into [`ensure_account`]. The start-up task also holds one
+/// of its own concurrency slots, which no request ever takes. So there is no
+/// second lock to form a cycle with: a request can only wait for the holder to
+/// finish, and the holder always lets go — on success, on an error, and when
+/// its future is dropped (the start-up attempt is cut off after
+/// [`BOOT_REGISTER_TIMEOUT`]; a request's future is dropped when its client
+/// goes away). The wait is not new either: a request for an account that was not
+/// registered yet already waited here for the start-up task's dial.
+///
+/// An account a bridge serves is registered by `v7_mount::load_plugin_backends`
+/// and not under this lock; nothing here says when its first sync has run.
 fn connect_lock(account_id: &str) -> Arc<tokio::sync::Mutex<()>> {
     static LOCKS: OnceLock<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> = OnceLock::new();
-    LOCKS
+    let mut locks = LOCKS
         .get_or_init(Default::default)
         .lock()
-        .expect("connect locks")
-        .entry(account_id.to_string())
-        .or_default()
-        .clone()
+        .expect("connect locks");
+    // Every request for the account comes through here, so the common case
+    // (the lock exists) does not allocate a key.
+    if let Some(lock) = locks.get(account_id) {
+        return lock.clone();
+    }
+    locks.entry(account_id.to_string()).or_default().clone()
 }
 
 /// A parsed mail server URL from the login form's `jmapUrl` field.
@@ -503,6 +531,52 @@ async fn register(
     engine.register_backend(account_id.to_string(), runtime);
 }
 
+/// Takes an account's registration back out of the engine unless its first sync
+/// finished: on a sync error, and when the future running the sync is dropped.
+struct FirstSync<'a> {
+    engine: &'a Engine,
+    account_id: &'a str,
+    finished: bool,
+}
+
+impl Drop for FirstSync<'_> {
+    fn drop(&mut self) {
+        if !self.finished {
+            self.engine.unregister(self.account_id);
+        }
+    }
+}
+
+/// Register a connected backend for `account_id`, run the account's first sync
+/// and start its watch loop. The caller holds the account's [`connect_lock`].
+///
+/// The account stays registered only if the sync finished. The first sync is
+/// what writes the account's mailboxes, so an account left registered without
+/// it would answer every later request from a cache nothing has filled, and
+/// nothing would dial the mail server again: [`ensure_account`] returns early
+/// for a registered account. Unregistered, the next request or login connects
+/// it again, and the start-up registration retries it
+/// ([`BOOT_REGISTER_RETRY`]).
+async fn register_and_sync(
+    engine: &Arc<Engine>,
+    account_id: &str,
+    backend: Arc<dyn AccountBackend>,
+    submitter: mw_smtp::Submitter,
+    identity: &str,
+) -> Result<(), String> {
+    register(engine, account_id, backend, submitter, identity).await;
+    let mut first_sync = FirstSync {
+        engine,
+        account_id,
+        finished: false,
+    };
+    engine.resync(account_id).await.map_err(|e| e.to_string())?;
+    first_sync.finished = true;
+    // Change ingestion keeps the cache fresh for the next browser poll.
+    let _ = engine.start_watch(account_id).await;
+    Ok(())
+}
+
 /// Log in an IMAP/POP3 account: parse the URL, dial and authenticate the
 /// backend, find or create the account, register it, and run an initial sync. Returns `(account_id,
 /// username)` for the session cookie. Any failure is a uniform login error.
@@ -583,14 +657,12 @@ pub async fn engine_login(
         .map_err(|e| e.to_string())?;
 
     let submitter = build_submitter(&policy, username, password);
-    register(engine, &account_id, backend, submitter, username).await;
-
-    engine
-        .resync(&account_id)
-        .await
-        .map_err(|e| e.to_string())?;
-    // Change ingestion keeps the cache fresh for the next browser poll.
-    let _ = engine.start_watch(&account_id).await;
+    // Under the account's connect lock, so that a request for the account made
+    // meanwhile (another session of it, after a restart) waits for this sync
+    // instead of reading while it runs. The dial above is outside the lock.
+    let lock = connect_lock(&account_id);
+    let _connecting = lock.lock().await;
+    register_and_sync(engine, &account_id, backend, submitter, username).await?;
 
     Ok((account_id, username.to_string()))
 }
@@ -598,13 +670,19 @@ pub async fn engine_login(
 /// Ensure a stored account is connected in the engine, reconnecting it from its
 /// sealed credentials if this process has not registered it yet (e.g. after a
 /// restart). Idempotent. A disabled account is refused and not dialled.
+///
+/// `Ok` means the account is registered and, for an account connected by this
+/// module, that its first sync has finished. A caller that arrives while
+/// another one is connecting the account (the start-up registration, a login,
+/// another request) waits for it; see [`connect_lock`] for why that wait cannot
+/// deadlock.
 pub async fn ensure_account(engine: &Arc<Engine>, account_id: &str) -> Result<(), String> {
-    if engine.is_registered(account_id) {
-        return Ok(());
-    }
+    // The lock is taken before the account is looked up, not only when it is
+    // missing. Until t30 a registered account returned from here without it,
+    // and the backend is registered before the first sync runs: a request made
+    // in between read an empty mailbox list.
     let lock = connect_lock(account_id);
     let _connecting = lock.lock().await;
-    // Whoever held the lock may have just registered it.
     if engine.is_registered(account_id) {
         return Ok(());
     }
@@ -640,10 +718,7 @@ pub async fn ensure_account(engine: &Arc<Engine>, account_id: &str) -> Result<()
     )
     .await?;
     let submitter = build_submitter(&policy, &creds.username, &creds.password);
-    register(engine, account_id, backend, submitter, &account.username).await;
-    engine.resync(account_id).await.map_err(|e| e.to_string())?;
-    let _ = engine.start_watch(account_id).await;
-    Ok(())
+    register_and_sync(engine, account_id, backend, submitter, &account.username).await
 }
 
 #[cfg(test)]
