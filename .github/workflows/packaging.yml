@@ -291,9 +291,32 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+      # Same provisioning as ci.yml's `android-apk`; the reasons are recorded there.
+      # `packages` drops the action's default `tools` entry: it is the retired SDK
+      # Tools package, sdkmanager cannot resolve it and exits 1 inside the action.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      # NDK_HOME is derived from the version installed here, asserted to exist and
+      # written to $GITHUB_ENV. This job used `NDK_HOME: ${{ env.ANDROID_NDK_ROOT }}`
+      # on the build step; `env.X` sees only workflow-level `env:` and $GITHUB_ENV,
+      # setup-android publishes neither NDK variable, and the expression rendered
+      # empty in ci.yml run 36258183808 (`Android NDK invalid`).
       - name: install Android NDK
-        run: sdkmanager "ndk;27.0.12077973"
+        run: |
+          set -euo pipefail
+          ndk_version=27.0.12077973
+          sdkmanager "ndk;${ndk_version}"
+          ndk_home="${ANDROID_HOME:?ANDROID_HOME not set by setup-android}/ndk/${ndk_version}"
+          if [ ! -d "$ndk_home" ]; then
+            echo "NDK not found at $ndk_home after installing ndk;${ndk_version}." >&2
+            echo "Contents of ${ANDROID_HOME}/ndk:" >&2
+            ls -1 "${ANDROID_HOME}/ndk" >&2 || echo "  (no ndk directory at all)" >&2
+            exit 1
+          fi
+          echo "NDK_HOME=$ndk_home" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ndk_home" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$ndk_home"
       - uses: pnpm/action-setup@v4
         with:
           version: 11.12.0
@@ -307,9 +330,8 @@ jobs:
           pnpm -C apps/web install --frozen-lockfile
           pnpm -C apps/web build
           node scripts/emit-bundle-hash.mjs
+      # No step-level NDK_HOME: the install step exported it to $GITHUB_ENV.
       - name: tauri android build (unsigned APK)
-        env:
-          NDK_HOME: ${{ env.ANDROID_NDK_ROOT }}
         run: |
           pnpm -C apps/mobile install
           pnpm -C apps/mobile exec tauri android init --ci
