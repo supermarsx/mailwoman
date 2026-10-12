@@ -357,9 +357,17 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
     return out.sort((a, b) => a.start.getTime() - b.start.getTime());
   }
 
+  // Each `load()` takes a ticket. Calls overlap (a write made while the calendar
+  // is loading starts another), and one that started earlier can answer last;
+  // only the call holding the latest ticket writes state, so the older answer
+  // is dropped instead of replacing the newer one.
+  let loadTicket = 0;
+
   async function load(): Promise<void> {
     const acct = await backend.resolveAccount();
     if (acct === null) return;
+    const ticket = ++loadTicket;
+    const stale = (): boolean => ticket !== loadTicket;
     setLoading(true);
     setError(null);
     try {
@@ -367,6 +375,7 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
         setIdentity(await backend.resolveIdentity());
       }
       const calRes = await backend.jmap(calendarsGet(acct));
+      if (stale()) return;
       // `Calendar/get` lists the account's task lists next to its event
       // calendars; only the latter belong in this module (see `CalendarRow`).
       const cals = pimResponse<CalendarGetResponse>(calRes, 'cals').list.filter(
@@ -397,6 +406,7 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
         instanceRows = expanded.filter((i) => matched.has(i.eventId));
       }
 
+      if (stale()) return;
       batch(() => {
         setMasters(masterList);
         setInstances(buildInstances(masterList, instanceRows, w));
@@ -409,9 +419,10 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
         setConflicts(conflicts);
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'failed to load calendar');
+      if (!stale()) setError(err instanceof Error ? err.message : 'failed to load calendar');
     } finally {
-      setLoading(false);
+      // The latest call ends the loading state; a dropped one leaves it alone.
+      if (!stale()) setLoading(false);
     }
   }
 
