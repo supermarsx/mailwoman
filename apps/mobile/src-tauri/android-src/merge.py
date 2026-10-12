@@ -14,7 +14,8 @@ Steps:
   2. add the Gradle deps (UnifiedPush connector + androidx.security-crypto),
   3. merge AndroidManifest.xml (share/file-handler/deep-link <intent-filter>s into
      <activity>, the UnifiedPush <receiver> into <application>, the runtime
-     <uses-permission>s into <manifest>).
+     <uses-permission>s into <manifest>),
+  4. write the R8 rules the added Gradle deps need for the minified release build.
 
 The injected manifest/Gradle snippets are kept in sync with the human-readable source
 of truth `manifest-intents.xml` + `README.md` in this directory.
@@ -33,6 +34,7 @@ GEN = SRC.parent / "gen" / "android"
 JAVA_DIR = GEN / "app" / "src" / "main" / "java" / "com" / "mailwoman" / "mobile"
 MANIFEST = GEN / "app" / "src" / "main" / "AndroidManifest.xml"
 GRADLE = GEN / "app" / "build.gradle.kts"
+PROGUARD = GEN / "app" / "proguard-mailwoman.pro"
 
 KOTLIN_FILES = [
     "MailwomanMobilePlugin.kt",
@@ -98,6 +100,15 @@ MANIFEST_PERMISSIONS = """
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 """
 
+# The release build type runs R8, and the generated build.gradle.kts applies every
+# `*.pro` file under app/. security-crypto brings in Tink, which refers to two
+# JSR-305 annotations that are not on the classpath; without these rules the build
+# stops at `minify…ReleaseWithR8` with "Missing class javax.annotation.Nullable".
+PROGUARD_RULES = """# R8 rules for the Gradle deps added by android-src/merge.py.
+-dontwarn javax.annotation.Nullable
+-dontwarn javax.annotation.concurrent.GuardedBy
+"""
+
 # A stable marker so every injection is idempotent across re-runs.
 MARKER = "android-src/merge.py"
 
@@ -108,7 +119,7 @@ def fail(msg: str) -> None:
 
 
 def copy_kotlin() -> None:
-    print("[android-merge] 1/3 copying custom Kotlin plugins…")
+    print("[android-merge] 1/4 copying custom Kotlin plugins…")
     JAVA_DIR.mkdir(parents=True, exist_ok=True)
     for name in KOTLIN_FILES:
         src = SRC / name
@@ -119,7 +130,7 @@ def copy_kotlin() -> None:
 
 
 def add_gradle_deps() -> None:
-    print("[android-merge] 2/3 adding Gradle dependencies…")
+    print("[android-merge] 2/4 adding Gradle dependencies…")
     if not GRADLE.exists():
         fail(f"{GRADLE} not found — did 'tauri android init' run?")
     text = GRADLE.read_text(encoding="utf-8")
@@ -146,7 +157,7 @@ def _inject_before(text: str, closing_tag: str, snippet: str, what: str) -> str:
 
 
 def merge_manifest() -> None:
-    print("[android-merge] 3/3 merging AndroidManifest.xml…")
+    print("[android-merge] 3/4 merging AndroidManifest.xml…")
     if not MANIFEST.exists():
         fail(f"{MANIFEST} not found — did 'tauri android init' run?")
     text = MANIFEST.read_text(encoding="utf-8")
@@ -164,12 +175,19 @@ def merge_manifest() -> None:
     MANIFEST.write_text(text, encoding="utf-8")
 
 
+def write_proguard_rules() -> None:
+    print("[android-merge] 4/4 writing R8 rules for the added dependencies…")
+    PROGUARD.write_text(PROGUARD_RULES, encoding="utf-8")
+    print(f"    wrote {PROGUARD.name}")
+
+
 def main() -> None:
     if not GEN.exists():
         fail(f"{GEN} not found — run `tauri android init` before this script")
     copy_kotlin()
     add_gradle_deps()
     merge_manifest()
+    write_proguard_rules()
     print("[android-merge] done — the tracked Kotlin + manifest + Gradle deps are merged.")
 
 
