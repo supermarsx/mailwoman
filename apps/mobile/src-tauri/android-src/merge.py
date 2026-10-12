@@ -40,8 +40,12 @@ KOTLIN_FILES = [
     "FlagSecurePlugin.kt",
 ]
 
+# The generated project declares only google() and mavenCentral(). Maven Central
+# carries `org.unifiedpush.android:connector` from 2.5.0 on; 2.4.0 and earlier
+# exist only on JitPack as `com.github.UnifiedPush:android-connector`. 2.5.0 is
+# the one 2.x release there and has the 2.x API the tracked Kotlin calls.
 GRADLE_DEPS = [
-    'implementation("org.unifiedpush.android:connector:2.4.0")',
+    'implementation("org.unifiedpush.android:connector:2.5.0")',
     'implementation("androidx.security:security-crypto:1.1.0-alpha06")',
 ]
 
