@@ -2358,6 +2358,17 @@ jobs:
           MW_ADMIN_PASSWORD: "hunter2"
           MW_COOKIE_SECURE: "false"
           MW_WEB_DIR: "apps/web/dist"
+          # The committed first-party components. A release build looks for them
+          # in MW_PLUGIN_DIR, <exe-dir>/plugins and /usr/lib/mailwoman/plugins;
+          # the in-repo `plugins/dist` candidate is compiled in for debug builds
+          # only (v7_mount.rs `plugin_dirs`). Without this line none of the three
+          # exists on the runner, no component matches its compiled-in digest,
+          # and `POST /admin/plugins` answers 409 `component-unavailable`
+          # (bridges.spec.ts:18, plugins.spec.ts:51 and :137).
+          # The "build plugin components" step above writes to
+          # plugins/<name>/tests/fixtures/, never to plugins/dist, so this
+          # directory holds the committed bytes the digests were generated from.
+          MW_PLUGIN_DIR: "${{ github.workspace }}/plugins/dist"
           MW_DIRECTORY_BIND_DN: "cn=admin,dc=example,dc=com"
           MW_DIRECTORY_BIND_PW: "adminpassword"
           RUST_LOG: "info"
