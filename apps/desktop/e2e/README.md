@@ -67,6 +67,75 @@ All six steps pass against `target/release/mailwoman-desktop.exe` (production
 `146.0.3856.84`. The self-contained step spawned the bundled `mw-server` live on a
 loopback ephemeral port and shut it down cleanly.
 
+Re-run on 2026-10-12 (same machine, not elevated, tauri-driver `2.0.5`, shell built with
+`tauri build --no-bundle` and no bundled server): steps 1-5 pass and step 6 skips, on
+the Evergreen runtime `146.0.3856.84` and on a Fixed Version runtime `153.0.4234.48`,
+each with the MSEdgeDriver of the same version. The `desktop-e2e` CI job has not passed
+yet; the next section is what is known about that.
+
+## When the session does not open (Windows)
+
+How a session starts: `tauri-driver` forwards the request to `msedgedriver` with
+`browserName: "webview2"` and the shell as `binary`. `msedgedriver` starts the shell
+with no arguments and hands it everything else in two environment variables:
+`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` (among others `--remote-debugging-port=0`) and
+`WEBVIEW2_USER_DATA_FOLDER` (a temporary `scoped_dir…` folder, or
+`webviewOptions.userDataFolder` when one is given). It then waits up to 60 s for
+`<user data folder>\EBWebView\DevToolsActivePort`, which the WebView2 browser process
+writes once its debug port is open.
+
+What the driver's error says about the shell:
+
+| `session not created: …` | Meaning |
+|---|---|
+| `DevToolsActivePort file doesn't exist`, after 60 s | The shell process stayed alive, and no WebView2 browser process wrote a debug port into the folder the driver watches. |
+| `Chrome instance exited…` or `Microsoft Edge failed to start: was killed`, at once | The shell process exited. |
+
+Two ways to reach the first row:
+
+- **The shell cannot create its WebView.** Tauri then shows a dialog titled "Error"
+  ("Could not find the WebView2 Runtime…") and the process stays alive behind it. A
+  check that only asks whether the process is still running cannot tell this from a
+  working shell. To reproduce, run with `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER` set to a
+  folder that does not exist.
+- **The shell runs elevated.** From WebView2 Runtime 150 an elevated (high-integrity)
+  host ignores the `WEBVIEW2_*` environment variables and `HKCU` policy; only `HKLM`
+  policy and arguments passed in code are honoured (Microsoft's statement in
+  `MicrosoftEdge/WebView2Feedback#5640`). The shell then opens its WebView in its own
+  user data folder with no debug port. GitHub-hosted Windows runners run every step as
+  an elevated administrator. This case was not reproduced on a developer machine: it
+  needs an elevated session.
+
+  For an elevated run, supply the debug port through machine policy and tell the driver
+  which folder the shell uses:
+
+  ```pwsh
+  $key = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
+  New-Item -Path $key -Force | Out-Null
+  New-ItemProperty -Path $key -Name 'mailwoman-desktop.exe' -PropertyType String `
+    -Value '--remote-debugging-port=0' -Force | Out-Null
+  $env:MW_E2E_WEBVIEW_USER_DATA_FOLDER = "$env:LOCALAPPDATA\com.mailwoman.desktop"
+  ```
+
+  Verified without elevation: `MW_E2E_WEBVIEW_USER_DATA_FOLDER` reaches `msedgedriver`
+  as `webviewOptions.userDataFolder`, the driver reads the port from that folder, and a
+  stale `DevToolsActivePort` left there does not break the next session. Not verified:
+  the policy half, and the two together on an elevated machine. The policy makes every
+  launch of `mailwoman-desktop.exe` on that machine open a debug port, so it belongs on
+  throw-away CI machines only.
+
+What a failed run prints: when `MSEDGEDRIVER` is set, `wdio.conf.mjs` starts the driver
+through a wrapper script with `--verbose` and writes `logs/msedgedriver.log`. 25 s after
+start it runs `diagnostics/session-snapshot.ps1`, which records whether the run is
+elevated, the shell's windows and any dialog text, and the shell's WebView2 browser
+process with its user data folder and whether `--remote-debugging-port` reached it. Both
+are printed under `---- session diagnostics ----` when the run fails, and not when it
+passes.
+
+To run against another WebView2 Runtime without installing it, extract a Fixed Version
+runtime, point `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER` at it, and put the `msedgedriver` of
+the same version in `MSEDGEDRIVER`.
+
 ## CI / driver notes for e8
 
 - The `desktop-e2e` job must install `tauri-driver` and a WebView2-matched

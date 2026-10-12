@@ -21,9 +21,13 @@
 //
 // tauri-driver is spawned once in onPrepare and torn down in onComplete; it
 // launches/quits a fresh app process per WebDriver session.
+//
+// OPTIONAL (Windows; README "When the session does not open"):
+//   MW_E2E_WEBVIEW_USER_DATA_FOLDER  the WebView2 user data folder msedgedriver reads the
+//                                    shell's debug port from, in place of a temporary one.
 
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -60,8 +64,74 @@ const tauriDriverBin = resolveTauriDriver();
 // MSEDGEDRIVER (Windows) -> tauri-driver `--native-driver`. On Linux the native
 // WebKitWebDriver is found on PATH, so this stays empty.
 const nativeDriver = process.env.MSEDGEDRIVER;
+// msedgedriver `webviewOptions.userDataFolder`. Unset, the driver creates a temporary
+// folder and hands it to the shell through WEBVIEW2_USER_DATA_FOLDER.
+const webviewUserDataFolder = process.env.MW_E2E_WEBVIEW_USER_DATA_FOLDER;
+
+// Session-start diagnostics (Windows). `logs/` is git-ignored.
+const verbose = isWin && Boolean(nativeDriver);
+const logsDir = path.join(__dirname, 'logs');
+const driverLog = path.join(logsDir, 'msedgedriver.log');
+const snapshotScript = path.join(__dirname, 'diagnostics', 'session-snapshot.ps1');
+// msedgedriver waits 60 s for the shell's debug port; a healthy session opens in a few
+// seconds. One snapshot inside that wait shows what the shell is doing instead.
+const SNAPSHOT_DELAY_MS = 25_000;
+const CRLF = String.fromCharCode(13, 10);
 
 let tauriDriver;
+let snapshotTimer;
+let snapshot = '';
+
+/**
+ * tauri-driver owns the msedgedriver process, so msedgedriver's verbose log is obtained
+ * by handing tauri-driver a wrapper script as the native driver.
+ */
+function verboseNativeDriver(driver) {
+  mkdirSync(logsDir, { recursive: true });
+  const wrapper = path.join(logsDir, 'msedgedriver-verbose.cmd');
+  const run = `"${driver}" --verbose --readable-timestamp --log-path="${driverLog}" %*`;
+  writeFileSync(wrapper, ['@echo off', run, ''].join(CRLF));
+  return wrapper;
+}
+
+/** Record the shell's processes, windows and WebView2 state (diagnostics/session-snapshot.ps1). */
+function takeSnapshot() {
+  const ps = spawn(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', snapshotScript, '-ExeName', exeName],
+    { stdio: ['ignore', 'pipe', 'pipe'] },
+  );
+  ps.stdout.on('data', (chunk) => (snapshot += chunk));
+  ps.stderr.on('data', (chunk) => (snapshot += chunk));
+  ps.on('error', (err) => (snapshot += `snapshot failed to start: ${err.message}`));
+}
+
+/** Print what a failed run recorded about session start. Quiet on a passing run. */
+function printSessionDiagnostics() {
+  const seconds = SNAPSHOT_DELAY_MS / 1000;
+  const out = ['---- session diagnostics (README: "When the session does not open") ----'];
+  if (snapshot) {
+    out.push(`${seconds} s after tauri-driver started:`);
+    out.push(...snapshot.trimEnd().split(/\r?\n/).map((line) => `  ${line}`));
+  } else {
+    out.push(`no snapshot: the run ended within ${seconds} s of tauri-driver starting`);
+  }
+  if (verbose && existsSync(driverLog)) {
+    // Top-level entries only; request and response bodies are the indented lines.
+    const entries = readFileSync(driverLog, 'utf8')
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith('[') && !line.includes('Populating '));
+    const shown = entries.slice(0, 30);
+    out.push(`msedgedriver log, first ${shown.length} of ${entries.length} entries (${driverLog}):`);
+    out.push(...shown.map((line) => `  ${line.slice(0, 600)}`));
+  } else {
+    out.push('no msedgedriver log: it is written only when MSEDGEDRIVER names the driver');
+  }
+  for (const line of out) {
+    // eslint-disable-next-line no-console
+    console.log(`[e2e] ${line}`);
+  }
+}
 
 export const config = {
   runner: 'local',
@@ -77,6 +147,10 @@ export const config = {
       // tauri-driver reads `tauri:options.application` to launch the shell.
       'tauri:options': {
         application,
+        // tauri-driver forwards this as msedgedriver's `ms:edgeOptions.webviewOptions`.
+        ...(webviewUserDataFolder
+          ? { webviewOptions: { userDataFolder: webviewUserDataFolder } }
+          : {}),
       },
     },
   ],
@@ -99,7 +173,17 @@ export const config = {
   // Spawn tauri-driver once for the run; it manages the app process per session.
   onPrepare() {
     const args = [];
-    if (nativeDriver) args.push('--native-driver', nativeDriver);
+    if (nativeDriver) {
+      args.push('--native-driver', verbose ? verboseNativeDriver(nativeDriver) : nativeDriver);
+    }
+    if (verbose) {
+      // eslint-disable-next-line no-console
+      console.log(`[e2e] msedgedriver verbose log: ${driverLog}`);
+    }
+    if (webviewUserDataFolder) {
+      // eslint-disable-next-line no-console
+      console.log(`[e2e] WebView2 user data folder: ${webviewUserDataFolder}`);
+    }
     // eslint-disable-next-line no-console
     console.log(
       `[e2e] launching tauri-driver (${tauriDriverBin})` +
@@ -114,11 +198,14 @@ export const config = {
       console.error('[e2e] tauri-driver failed to start:', err);
       process.exit(1);
     });
+    if (isWin) snapshotTimer = setTimeout(takeSnapshot, SNAPSHOT_DELAY_MS);
     // Give tauri-driver a moment to bind :4444 before the session connects.
     return new Promise((resolve) => setTimeout(resolve, 2_000));
   },
 
-  onComplete() {
+  onComplete(exitCode) {
+    clearTimeout(snapshotTimer);
     if (tauriDriver) tauriDriver.kill();
+    if (isWin && exitCode !== 0) printSessionDiagnostics();
   },
 };
