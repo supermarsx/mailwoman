@@ -37,15 +37,21 @@ for reference / local runs.
    - the `<receiver>` block goes as a direct child of `<application>`;
    - uncomment the `<uses-permission>` lines under `<manifest>`.
 3. **Add the Gradle dependencies** in `gen/android/app/build.gradle.kts`:
-   - `implementation("org.unifiedpush.android:connector:2.4.0")` — UnifiedPush
-     (Apache-2.0). The Kotlin targets the connector **2.x** API (`UnifiedPush.registerApp/
+   - `implementation("org.unifiedpush.android:connector:2.5.0")` — UnifiedPush
+     (Apache-2.0), from Maven Central, which carries this coordinate from 2.5.0 on
+     (2.4.0 and earlier exist only on JitPack, as
+     `com.github.UnifiedPush:android-connector`). The Kotlin targets the connector **2.x** API (`UnifiedPush.registerApp/
      getDistributor/getDistributors/saveDistributor/unregisterApp`, `MessagingReceiver`
      with `String` endpoints). If CI pins connector 3.x, adjust the receiver overrides
      (`PushEndpoint`/`PushMessage`) accordingly.
    - `implementation("androidx.security:security-crypto:1.1.0-alpha06")` —
      `EncryptedSharedPreferences` / `MasterKey`, backing the `keychain*` secure-store
      commands (Apache-2.0). Both clear the §3 license floor; record them in the
-     JS/native license gate.
+     JS/native license gate. It brings in Tink, which refers to two JSR-305
+     annotations that are on no classpath, so `merge.py` also writes
+     `gen/android/app/proguard-mailwoman.pro` with `-dontwarn javax.annotation.Nullable`
+     and `-dontwarn javax.annotation.concurrent.GuardedBy`; without them the minified
+     release build stops in R8.
 4. **Register the Rust native-bridge plugin** (`src/lib.rs` `run()`):
    `.plugin(commands::init())` — a SETUP-ONLY plugin that registers the
    `MobileBridge` (MailwomanMobilePlugin) and `CaptureBridge` (FlagSecurePlugin)
