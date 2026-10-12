@@ -13,6 +13,10 @@
 //!   mode off;
 //! * the Origin check is unchanged: a cross-origin request to an exempt route is
 //!   still refused.
+//! * an `Authorization: Bearer` header excuses a request from both checks only
+//!   when no session cookie comes with it. The admin gates authorise by cookie and
+//!   never read that header, so until 26.20 any bearer header beside the admin
+//!   cookie switched both checks off.
 //!
 //! Every refusal is paired with the same request succeeding, so a test cannot pass
 //! because a route was unreachable. The client keeps no cookie jar: each request
@@ -216,7 +220,23 @@ async fn send(
     token: Option<&str>,
     origin: Option<&str>,
 ) -> (u16, String) {
+    send_with(c, base, call, cookies, token, origin, None).await
+}
+
+/// [`send`], plus an `Authorization` header when `authorization` is `Some`.
+async fn send_with(
+    c: &reqwest::Client,
+    base: &str,
+    call: &Call,
+    cookies: Option<&str>,
+    token: Option<&str>,
+    origin: Option<&str>,
+    authorization: Option<&str>,
+) -> (u16, String) {
     let mut req = c.request(call.method.clone(), format!("{base}{}", call.path));
+    if let Some(authorization) = authorization {
+        req = req.header(reqwest::header::AUTHORIZATION, authorization);
+    }
     if let Some(cookies) = cookies {
         req = req.header(reqwest::header::COOKIE, cookies);
     }
@@ -591,6 +611,165 @@ async fn routes_a_cookie_authorises_are_not_exempt() {
             );
         }
     }
+}
+
+// ── a bearer header beside a session cookie ────────────────────────────────────
+
+const FOREIGN: &str = "https://evil.example";
+
+/// A bearer header does not switch the guard off for a request a cookie can
+/// authorise. The admin gates read only the `mw_admin_session` cookie, so before
+/// 26.20 `Authorization: Bearer anything` beside that cookie got a write past both
+/// the Origin check and the token check.
+#[tokio::test]
+async fn a_bearer_header_does_not_excuse_a_request_with_a_session_cookie() {
+    for strict in [true, false] {
+        let mock = spawn_mock().await;
+        let base = spawn_server(ServerMode::Proxy, strict, Some(&mock)).await;
+        let c = client();
+        let admin = admin_login(&c, &base).await;
+        let user = mailbox_login(&c, &base, &mock).await;
+        let bearer = Some("Bearer anything");
+        let add = call(
+            "POST",
+            "/admin/bans",
+            Some(json!({ "ip": "203.0.113.80", "reason": "t30-e2" })),
+        );
+        let jmap = call(
+            "POST",
+            "/jmap/api",
+            Some(json!({ "using": ["urn:ietf:params:jmap:core"], "methodCalls": [] })),
+        );
+
+        // Origin check, in both modes: admin cookie, mailbox cookie.
+        for (who, call) in [(&admin, &add), (&user, &jmap)] {
+            let cookies = who.cookies();
+            let foreign = send_with(
+                &c,
+                &base,
+                call,
+                Some(&cookies),
+                Some(&who.token),
+                Some(FOREIGN),
+                bearer,
+            )
+            .await;
+            assert_eq!(
+                foreign.0, 403,
+                "strict={strict}: {} from another origin, cookie + bearer: {foreign:?}",
+                call.path
+            );
+            assert!(foreign.1.contains(ORIGIN_REFUSAL), "{foreign:?}");
+        }
+        assert!(
+            !ban_listed(&c, &base, &admin, "203.0.113.80").await,
+            "strict={strict}: the cross-origin write stored nothing"
+        );
+
+        // Token check, strict mode only.
+        let cookies = admin.cookies();
+        let no_token = send_with(&c, &base, &add, Some(&cookies), None, None, bearer).await;
+        if strict {
+            assert!(
+                is_token_refusal(&no_token),
+                "admin cookie + bearer, no token: {no_token:?}"
+            );
+            assert!(!ban_listed(&c, &base, &admin, "203.0.113.80").await);
+            let cookies = user.cookies();
+            let no_token = send_with(&c, &base, &jmap, Some(&cookies), None, None, bearer).await;
+            assert!(
+                is_token_refusal(&no_token),
+                "mailbox cookie + bearer, no token: {no_token:?}"
+            );
+        } else {
+            assert_eq!(no_token.0, 204, "not strict: no token needed: {no_token:?}");
+        }
+
+        // Control: the same admin write, same origin, with its token, is accepted
+        // with the bearer header still on it — the header itself is not refused.
+        let cookies = admin.cookies();
+        let ok = send_with(
+            &c,
+            &base,
+            &add,
+            Some(&cookies),
+            Some(&admin.token),
+            None,
+            bearer,
+        )
+        .await;
+        assert_eq!(ok.0, 204, "strict={strict}: {ok:?}");
+        assert!(ban_listed(&c, &base, &admin, "203.0.113.80").await);
+    }
+}
+
+/// The other direction: a request whose only authority is its bearer token is
+/// still excused from both checks — the native shells' path. They send
+/// `Authorization: Bearer <session token>` with no cookie, from another origin,
+/// and hold no CSRF token.
+#[tokio::test]
+async fn a_bearer_request_without_a_session_cookie_is_not_checked() {
+    let mock = spawn_mock().await;
+    let base = spawn_server(ServerMode::Proxy, true, Some(&mock)).await;
+    let c = client();
+
+    // A native login: the token comes back in the body and no cookie is set.
+    let resp = c
+        .post(format!("{base}/api/login"))
+        .json(&json!({
+            "jmapUrl": mock,
+            "username": mw_mock_jmap::USER,
+            "password": mw_mock_jmap::PASS,
+            "clientType": "native",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "native login");
+    assert!(
+        set_cookies(&resp).is_empty(),
+        "a native login sets no cookie"
+    );
+    let body: Value = resp.json().await.unwrap();
+    let bearer = format!("Bearer {}", body["token"].as_str().expect("token in body"));
+    let jmap = call(
+        "POST",
+        "/jmap/api",
+        Some(json!({ "using": ["urn:ietf:params:jmap:core"], "methodCalls": [] })),
+    );
+
+    // No cookie at all, another origin, no CSRF token: accepted.
+    let ok = send_with(&c, &base, &jmap, None, None, Some(FOREIGN), Some(&bearer)).await;
+    assert_eq!(ok.0, 200, "bearer only: {ok:?}");
+
+    // A cookie that authorises nothing (a stray `mw_csrf`) changes nothing.
+    let ok = send_with(
+        &c,
+        &base,
+        &jmap,
+        Some("mw_csrf=stray; theme=dark"),
+        None,
+        Some(FOREIGN),
+        Some(&bearer),
+    )
+    .await;
+    assert_eq!(ok.0, 200, "bearer + a non-session cookie: {ok:?}");
+
+    // Control for the two above: the same request with a session cookie beside the
+    // bearer is checked, and refused for its origin.
+    let user = mailbox_login(&c, &base, &mock).await;
+    let checked = send_with(
+        &c,
+        &base,
+        &jmap,
+        Some(&user.session),
+        None,
+        Some(FOREIGN),
+        Some(&bearer),
+    )
+    .await;
+    assert_eq!(checked.0, 403, "{checked:?}");
+    assert!(checked.1.contains(ORIGIN_REFUSAL), "{checked:?}");
 }
 
 // ── routes no cookie authorises ────────────────────────────────────────────────

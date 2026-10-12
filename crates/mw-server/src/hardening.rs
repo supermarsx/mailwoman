@@ -154,10 +154,11 @@ pub fn csrf_double_submit_ok(headers: &HeaderMap) -> bool {
 /// `require_admin`, `admin_id`, `admin_actor`), and add it to the matching list in
 /// `tests/t30_csrf_strict.rs`.
 ///
-/// Not here, and checked before this is consulted: the SSO callback and ACS
-/// landings (`is_sso_idp_callback`), which skip the Origin check as well, and any
-/// request with an `Authorization: Bearer` header. Every route listed here is
-/// still Origin-checked.
+/// Not here, and decided before this is consulted: the SSO callback and ACS
+/// landings (`is_sso_idp_callback`), which skip the Origin check as well, and a
+/// request whose only authority is an `Authorization: Bearer` header
+/// ([`has_auth_cookie`] is false). Every route listed here is still
+/// Origin-checked.
 pub fn csrf_token_exempt(path: &str) -> bool {
     // Mailbox sign-in. No session exists yet.
     path == "/api/login"
@@ -188,6 +189,39 @@ pub fn csrf_token_exempt(path: &str) -> bool {
         // `initialize` and `tools/list` need none.
         || path == "/mcp"
         || path.starts_with("/mcp/")
+}
+
+/// The cookies that authorise a request on their own: the mailbox session and the
+/// admin session. `mw_csrf` is not one of them — it authorises nothing.
+///
+/// This is the one place that names them for the guard. A new cookie that a
+/// handler accepts as proof of who is calling must be added here, or a request
+/// carrying it beside an `Authorization: Bearer` header would skip the Origin and
+/// CSRF-token checks ([`has_auth_cookie`]). `tests/t30_csrf_strict.rs` signs in
+/// through the real routes, sends back the cookies those logins set, and expects
+/// the checks to apply, so a rename of either cookie that is not made here fails
+/// there.
+pub const AUTH_COOKIES: [&str; 2] = ["mw_session", "mw_admin_session"];
+
+/// Whether the request carries one of [`AUTH_COOKIES`] with a non-empty value.
+///
+/// `state_change_guard` excuses a bearer request from its checks only when this
+/// is false: the bearer token is then the request's only authority. With a
+/// session cookie beside it the handler may authorise by the cookie instead — the
+/// admin gates never read `Authorization` — so the request is checked like any
+/// other a cookie authorises.
+///
+/// Every `Cookie` header field is read, not just the first: HTTP/2 may split
+/// cookies over several fields, and the answer here must not be "no" for a cookie
+/// some handler could still see.
+pub fn has_auth_cookie(headers: &HeaderMap) -> bool {
+    headers
+        .get_all(header::COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|raw| raw.split(';'))
+        .filter_map(|part| part.trim().split_once('='))
+        .any(|(name, value)| !value.is_empty() && AUTH_COOKIES.contains(&name))
 }
 
 /// Pull one cookie value out of the `Cookie` header.
@@ -415,6 +449,37 @@ mod tests {
             ("cookie", "mw_csrf=zzz"),
         ])));
         assert!(!csrf_double_submit_ok(&h(&[("cookie", "mw_csrf=abc")])));
+    }
+
+    #[test]
+    fn has_auth_cookie_sees_session_cookies_only() {
+        for cookies in [
+            "mw_session=abc",
+            "mw_admin_session=abc",
+            "theme=dark; mw_session=abc; mw_csrf=t",
+            "mw_csrf=t;mw_admin_session=abc",
+        ] {
+            assert!(has_auth_cookie(&h(&[("cookie", cookies)])), "{cookies}");
+        }
+        for cookies in [
+            "mw_csrf=t",
+            "theme=dark",
+            // An empty value authorises nothing (a cleared cookie).
+            "mw_session=",
+            "mw_admin_session=; mw_csrf=t",
+            // Not the same cookie.
+            "xmw_session=abc",
+            "mw_session_old=abc",
+        ] {
+            assert!(!has_auth_cookie(&h(&[("cookie", cookies)])), "{cookies}");
+        }
+        assert!(!has_auth_cookie(&h(&[])));
+
+        // A session cookie in a second `Cookie` field (HTTP/2 may split them).
+        let mut split = HeaderMap::new();
+        split.append(header::COOKIE, HeaderValue::from_static("mw_csrf=t"));
+        split.append(header::COOKIE, HeaderValue::from_static("mw_session=abc"));
+        assert!(has_auth_cookie(&split));
     }
 
     #[test]

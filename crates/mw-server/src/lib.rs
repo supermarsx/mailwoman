@@ -1761,11 +1761,16 @@ async fn state_change_guard(State(state): State<AppState>, req: Request, next: N
         if is_sso_idp_callback(req.uri().path()) {
             return next.run(req).await;
         }
-        // V5 (plan §2.2): a native bearer request carries no ambient cookie
-        // authority (origin-agnostic, no cookie) → it is not a CSRF vector, so the
-        // cookie-only Origin/double-submit guard is skipped for it. Cookie/browser
-        // requests are handled byte-identically below.
-        if push_relay::bearer_token(req.headers()).is_none() {
+        // V5 (plan §2.2): a request whose only authority is its bearer token (the
+        // native shells: no cookie, any origin) is not a CSRF vector, so the
+        // Origin/double-submit guard is skipped for it. A bearer header beside a
+        // session cookie does not qualify: a handler may authorise such a request by
+        // the cookie — the admin gates never read `Authorization` — so it is
+        // checked like every other cookie request (26.20; before that any bearer
+        // header switched both checks off).
+        let bearer_only = push_relay::bearer_token(req.headers()).is_some()
+            && !hardening::has_auth_cookie(req.headers());
+        if !bearer_only {
             // The URI authority is where HTTP/2 puts `:authority`; hyper does not
             // synthesise a `Host` header for it, and `origin_ok` now refuses a
             // request with neither rather than waving it through (t20 B8).
