@@ -24,6 +24,8 @@
 //!   * the gate is not weakened: a name recorded at a login on the first server is
 //!     still read, so a flag under it refuses the account (t27-f1 O1); a flag
 //!     record that cannot be read still refuses with 503
+//!   * a database error on the read of the session rows is not a row that does
+//!     not open: the gate still refuses the login with 503
 //!   * a key reads mail and the password is changed through the rows that open;
 //!     the current-password check still refuses a wrong password
 //!
@@ -457,6 +459,52 @@ async fn an_account_disabled_under_a_name_recorded_before_the_key_change_is_refu
         login(&browser(), &k.b, &k.mock, user, pass).await.status(),
         200,
         "the record is valid again"
+    );
+}
+
+/// A row that does not open is one thing; a read of the session rows that fails
+/// in the database is another, and the gate must still refuse on it. The table is
+/// renamed away, which no route can do, so the gate's read of the account's
+/// session rows is the first statement of the login to fail. 503 is the gate's
+/// own refusal (`account_gate::unavailable`); a login that got past the gate
+/// would fail later, writing its session, with 500.
+#[tokio::test]
+async fn a_database_error_on_the_session_rows_still_refuses_the_login() {
+    let k = key_change(spawn_mock_jmap().await, mw_mock_jmap::USER).await;
+    let (user, pass) = (mw_mock_jmap::USER, mw_mock_jmap::PASS);
+    assert_eq!(
+        login(&browser(), &k.b, &k.mock, user, pass).await.status(),
+        200,
+        "control: the login is accepted with the row that does not open present"
+    );
+
+    let raw = sqlx::SqlitePool::connect_with(
+        sqlx::sqlite::SqliteConnectOptions::new().filename(&k.dep.db),
+    )
+    .await
+    .unwrap();
+    sqlx::query("ALTER TABLE sessions RENAME TO sessions_away")
+        .execute(&raw)
+        .await
+        .unwrap();
+    let refused = login(&browser(), &k.b, &k.mock, user, pass).await;
+    let status = refused.status();
+    assert!(session_cookie(&refused).is_none(), "no session is issued");
+    let body = refused.text().await.unwrap();
+    assert_eq!(
+        status, 503,
+        "a database error reading the session rows refuses the login at the gate: {body}"
+    );
+
+    // With the table back the login is accepted again: the refusal was the
+    // database error.
+    sqlx::query("ALTER TABLE sessions_away RENAME TO sessions")
+        .execute(&raw)
+        .await
+        .unwrap();
+    assert_eq!(
+        login(&browser(), &k.b, &k.mock, user, pass).await.status(),
+        200
     );
 }
 
