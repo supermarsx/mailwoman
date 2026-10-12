@@ -674,7 +674,7 @@ pub async fn engine_login(
 /// `Ok` means the account is registered and, for an account connected by this
 /// module, that its first sync has finished. A caller that arrives while
 /// another one is connecting the account (the start-up registration, a login,
-/// another request) waits for it; see [`connect_lock`] for why that wait cannot
+/// another request) waits for it; see `connect_lock` for why that wait cannot
 /// deadlock.
 pub async fn ensure_account(engine: &Arc<Engine>, account_id: &str) -> Result<(), String> {
     // The lock is taken before the account is looked up, not only when it is
