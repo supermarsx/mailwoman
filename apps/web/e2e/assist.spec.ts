@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './csrf.ts';
 import { V7, mailboxLogin, adminLogin, expectMounted } from './v7-helpers.ts';
 
 /**

@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext } from '@playwright/test';
+import { test, expect, type APIRequestContext } from './csrf.ts';
 import { V7, adminLogin, expectMounted } from './v7-helpers.ts';
 
 /**

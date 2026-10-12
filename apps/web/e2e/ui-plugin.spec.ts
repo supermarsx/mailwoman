@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './csrf.ts';
 import {
   PLUGIN_IFRAME_SANDBOX,
   LOCKED_PLUGIN_CSP,

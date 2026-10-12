@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './csrf.ts';
 import { engineLogin, resetAccountAppearance } from './helpers.ts';
 import { THEME_LIST } from '../src/theme/registry.ts';
 

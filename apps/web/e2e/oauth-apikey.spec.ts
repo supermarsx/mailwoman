@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './csrf.ts';
 import { mailboxLogin, mintKey, scope } from './v6-helpers.ts';
 
 /**
