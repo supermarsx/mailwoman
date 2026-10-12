@@ -582,7 +582,9 @@ mailwoman (supervisor, no network)
 
 - Base: `FROM scratch` (fully static musl binary) — no shell, no package
   manager, no libc. Health checks via `mailwoman healthcheck` subcommand.
-- Fixed non-root UID/GID (10001), `readOnlyRootFilesystem`, writable state
+- Fixed non-root UID/GID (65532:65532, the id distroless images name
+  `nonroot`; the Dockerfile, the compose file `deploy.sh` writes and the Helm
+  values all set it), `readOnlyRootFilesystem`, writable state
   only on an explicit volume, scratch on `tmpfs`.
 - Shipped compose/Helm defaults encode: `cap_drop: [ALL]`,
   `no-new-privileges:true`, shipped custom seccomp + AppArmor profiles,
@@ -600,7 +602,10 @@ Shipped unit file (CI-tested): `ProtectSystem=strict`, `ProtectHome=yes`,
 `PrivateTmp`, `PrivateDevices`, `NoNewPrivileges`, `CapabilityBoundingSet=`,
 `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX`,
 `SystemCallFilter=@system-service`, `ProtectKernel*`, `LockPersonality`,
-`UMask=0077`, socket activation. `MemoryDenyWriteExecute` everywhere except
+`UMask=0077`. It is a plain `Type=simple` service unit, not a socket-activated
+one: no `.socket` unit is shipped, and the server binds its own listen address
+(`MW_BIND`, set to `127.0.0.1:8080` in the unit).
+`MemoryDenyWriteExecute` everywhere except
 render workers when wasmtime JIT needs W^X pages; a `pure-interpreter` build
 flag (wasmtime Pulley) exists for MDWE-everywhere at a throughput cost.
 

@@ -113,7 +113,7 @@ conformance suite through it.
 | **Traefik** | ✅ | ✅ | ✅ developer host | 11/12, sole failure since fixed app-side |
 | **Apache httpd** | ✅ | ✅ | ✅ developer host | **10/12** — see §4.2 |
 | **HAProxy (L4, PROXY protocol)** | ✅ | ✅ | ✅ developer host | **9/12** — see §4.3 |
-| **Envoy** | ✅ | ❌ | once, off-matrix | see §4.4 |
+| **Envoy** | ✅ | non-blocking cell, not in the tier-1 gate | developer host; no CI runner yet | 11 of 12 run and pass, the sub-path test skips — see §4.4 |
 | **IIS** | ✅ | ❌ **cannot be** | ❌ **never** | see §4.4 |
 
 ### 4.1 What "in the CI matrix" does and does not mean
@@ -180,13 +180,16 @@ TLS-only listener — `healthcheck: disable: true` is required).
 Neither is supported. Ship-and-document is not the same as tested, and the
 difference is stated here rather than left to the reader.
 
-- **Envoy** is out of the CI matrix because it overlaps HAProxy L7 and Traefik.
-  It has one genuinely distinct behaviour: it **appends** to `X-Forwarded-For`
-  rather than overwriting, so it is the only configuration that depends on the
-  application's right-to-left hop walk being correct. It has been booted **once**,
-  on a developer host, specifically to prove that walk against a real appending
-  proxy — that one property is earned. Nothing else about the Envoy configuration
-  is.
+- **Envoy** is not a tier-1 (gating) proxy, because it overlaps HAProxy L7 and
+  Traefik. It is in the CI matrix as a **non-blocking** cell: a red Envoy cell
+  does not fail the gate. It is there for one test. Envoy **appends** to
+  `X-Forwarded-For` rather than overwriting, so it is the only shipped
+  configuration that depends on the application's right-to-left hop walk being
+  correct, and the only cell in which
+  `an_appending_proxy_still_resolves_the_real_client` runs instead of skipping.
+  The suite has passed against it on a developer host (11 of 12 tests run, the
+  sub-path test skips); no CI runner has executed the cell yet. That one
+  property is earned. Nothing else about the Envoy configuration is.
 - **IIS** cannot be tested in CI at all and **has never been booted by anyone**.
   The `web.config` and its runbook are a starting point written from the
   documentation, not a verified recipe. See

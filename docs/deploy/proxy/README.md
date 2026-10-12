@@ -22,7 +22,7 @@ conformance suite through it.
 | `haproxy-l7` | `haproxy:3.0-alpine` | 1 | yes | ✅ developer host — 11/12 |
 | `haproxy-l4` | `haproxy:3.0-alpine` | 1 | yes | ✅ developer host — 9/12 |
 | `traefik` | `traefik:v3.3` | 1 | yes | ✅ developer host — 11/12 |
-| `envoy` | `envoyproxy/envoy:v1.32` | 2 | no — on-demand profile only | once, off-matrix, for the appending-XFF walk only |
+| `envoy` | `envoyproxy/envoy:v1.32` | 2 | yes, non-blocking — not part of the tier-1 gate; a red envoy cell does not fail it | developer host — 11 of 12 run and pass, the sub-path test skips; no CI runner has run the cell yet |
 | `iis` | — | 2 | **cannot be** | ❌ never; see `iis/README.md` |
 
 **Updated in 26.19.** This table used to say "intended" in both columns, which
@@ -124,12 +124,14 @@ exercises PROXY protocol.
 chart needs, and it splits configuration into static and dynamic halves in a way
 that makes it easy to put a timeout in the file where it is ignored.
 
-**envoy** overlaps haproxy-l7 and traefik closely enough that it was cut from the
-default matrix, but it has one genuinely distinct behaviour worth reading:
+**envoy** overlaps haproxy-l7 and traefik closely enough that it is not a tier-1
+(gating) proxy. It runs in the matrix as a non-blocking cell for one test,
+`an_appending_proxy_still_resolves_the_real_client`:
 unlike every other cell it *appends* to `X-Forwarded-For` rather than
 overwriting, which means it is the one configuration that depends on the
-application's right-to-left walk being correct. See the comments in
-`envoy/envoy.yaml`.
+application's right-to-left walk being correct, and the one cell in which that
+test runs instead of skipping. A red envoy cell does not fail the gate. See the
+comments in `envoy/envoy.yaml`.
 
 **iis** cannot be tested in CI at all, and has never been booted by anyone. See
 `iis/README.md`, which is explicit about what has and has not been verified.
