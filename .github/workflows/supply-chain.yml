@@ -214,6 +214,21 @@ jobs:
           workspaces: fuzz
       - name: install cargo-fuzz
         run: cargo install cargo-fuzz --locked
+      # fuzz/ is its own workspace with its own committed Cargo.lock. Until t30 the
+      # file was git-ignored, every run resolved fresh, and the resolver took
+      # pkcs1 0.8.0-rc.5 under the pinned rsa 0.10.0-rc.18, which does not compile
+      # against it (E0107).
+      #
+      # cargo-fuzz 0.13 accepts no --locked on `build` or `run`, so this step is
+      # the lock: `cargo metadata --locked` exits 101 when the lock file is absent
+      # or would have to change. To refresh it after a dependency change, from the
+      # repository root:
+      #   cp Cargo.lock fuzz/Cargo.lock
+      #   cargo metadata --manifest-path fuzz/Cargo.toml --format-version 1 >/dev/null
+      # That keeps every package the two workspaces share at the root lock's version.
+      - name: fuzz/Cargo.lock is present and current
+        working-directory: fuzz
+        run: cargo +nightly metadata --locked --format-version 1 > /dev/null
       - name: build + smoke each target
         working-directory: fuzz
         run: |
@@ -224,3 +239,5 @@ jobs:
             cargo +nightly fuzz run "$t" -- -max_total_time=45 -runs=200000
             echo "::endgroup::"
           done
+          # The builds above ran without --locked; fail if one of them rewrote the lock.
+          git diff --exit-code -- Cargo.lock

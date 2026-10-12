@@ -2,4 +2,6 @@
 /target
 /corpus
 /artifacts
-Cargo.lock
+# Cargo.lock is committed and CI builds with it (supply-chain.yml, fuzz-smoke).
+# Unlocked, the resolver took pkcs1 0.8.0-rc.5, which the pinned rsa 0.10.0-rc.18
+# does not compile against (E0107).
