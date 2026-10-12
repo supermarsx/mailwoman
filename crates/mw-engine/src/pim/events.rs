@@ -982,7 +982,8 @@ fn organizer_email(json: &Value) -> Option<String> {
 }
 
 /// Parse an ICS / iTIP / `.hol` blob into event projections, feature-detecting
-/// the format (plan §2.6 iMIP + §11 .hol import).
+/// the format (plan §2.6 iMIP + §11 .hol import). A blob that is none of the
+/// three is an error, not an empty list.
 fn parse_calendar_blob(blob: &str) -> Result<Vec<Value>> {
     let bytes = blob.as_bytes();
     if blob.contains("METHOD:") && blob.contains("BEGIN:VCALENDAR") {
@@ -996,10 +997,12 @@ fn parse_calendar_blob(blob: &str) -> Result<Vec<Value>> {
             .map(|v| v.into_iter().map(|p| p.json).collect())
             .map_err(ics_err);
     }
-    // Fall back to an Outlook `.hol` holiday pack.
+    // Fall back to an Outlook `.hol` holiday pack. `parse_hol` refuses a text
+    // that is not one, and a blob that is neither format is not a calendar: the
+    // answer says that, not which `.hol` part was missing.
     mw_ics::parse_hol(bytes)
         .map(|v| v.into_iter().map(|p| p.json).collect())
-        .map_err(ics_err)
+        .map_err(|_| EngineError::Protocol("ics: not a calendar document".into()))
 }
 
 /// Extract the inner components (VEVENT…END:VEVENT) of a single-component

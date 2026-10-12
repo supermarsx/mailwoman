@@ -2,14 +2,19 @@
 //!
 //! The `.hol` format is an INI-like text file: section headers `[Region] <n>`
 //! introduce `<n>` `Description,YYYY/MM/DD` holiday lines (plan §11, the bundled
-//! / subscribable holiday feed). We parse tolerantly — any line with a trailing
-//! parseable date is a holiday, section headers are skipped — and emit one
-//! all-day event per holiday.
+//! / subscribable holiday feed). We parse tolerantly — inside a section, any
+//! line with a trailing parseable date is a holiday and any other line is
+//! skipped — and emit one all-day event per holiday.
+//!
+//! The section header is what tells a holiday pack from other text: a
+//! comma-separated file whose last column is a date has the same lines. A text
+//! with no section header, or with no holiday line inside a section, is not a
+//! holiday pack and is an error, not a pack of zero holidays.
 
 use serde_json::{Value, json};
 
-use crate::Result;
 use crate::ical::{ParsedIcal, to_component, wrap_calendar};
+use crate::{IcsError, Result};
 
 fn parse_hol_date(raw: &str) -> Option<String> {
     let t = raw.trim();
@@ -48,13 +53,33 @@ fn slug(s: &str) -> String {
         .collect()
 }
 
+/// A `[Region] <n>` section header: a line opening with a bracketed, non-empty
+/// name. The count after it is not read.
+fn is_section_header(line: &str) -> bool {
+    line.strip_prefix('[')
+        .and_then(|rest| rest.split_once(']'))
+        .is_some_and(|(name, _)| !name.trim().is_empty())
+}
+
 /// Parse a `.hol` holiday pack into all-day VEVENT projections.
+///
+/// `Err(IcsError::Hol)` when the text is not a holiday pack: it has no section
+/// header, or no section holds a holiday line. Lines before the first section
+/// header are not read.
 pub fn parse_hol(bytes: &[u8]) -> Result<Vec<ParsedIcal>> {
     let text = String::from_utf8_lossy(bytes);
+    // `trim` does not take a UTF-8 byte order mark for whitespace, and one
+    // would hide the first section header.
+    let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
+    let mut in_section = false;
     let mut out = vec![];
     for raw in text.lines() {
         let l = raw.trim();
-        if l.is_empty() || l.starts_with('[') || l.starts_with(';') {
+        if is_section_header(l) {
+            in_section = true;
+            continue;
+        }
+        if !in_section || l.is_empty() || l.starts_with('[') || l.starts_with(';') {
             continue;
         }
         let Some((desc, date_part)) = l.rsplit_once(',') else {
@@ -93,6 +118,12 @@ pub fn parse_hol(bytes: &[u8]) -> Result<Vec<ParsedIcal>> {
             json,
             component: "VEVENT".into(),
         });
+    }
+    if !in_section {
+        return Err(IcsError::Hol("no [section] line".into()));
+    }
+    if out.is_empty() {
+        return Err(IcsError::Hol("no holiday lines".into()));
     }
     Ok(out)
 }
