@@ -88,12 +88,21 @@ describe('apiFetch', () => {
     expect(fetchMock.mock.calls[0]?.[1]).toBe(init);
   });
 
-  it('does not add the token, or retry, on a request with an Authorization header', async () => {
+  it('sends the token on a request with an Authorization header too', async () => {
+    // The server checks a bearer request that comes with a session cookie, so a
+    // bearer header is no reason to leave the token out.
     document.cookie = 'mw_csrf=tok-1; Path=/';
-    fetchMock.mockImplementation(async () => refusal());
-    const init = { method: 'POST', headers: { Authorization: 'Bearer abc' } };
-    const res = await apiFetch('https://mail.example.org/jmap/api', init);
-    expect(res.status).toBe(403);
+    fetchMock.mockImplementation(async () => json(200, {}));
+    await apiFetch('/jmap/api', { method: 'POST', headers: { Authorization: 'Bearer abc' } });
+    const sent = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
+    expect(sent.get('x-csrf-token')).toBe('tok-1');
+    expect(sent.get('authorization')).toBe('Bearer abc');
+  });
+
+  it('sends a bearer request as built when no cookie can be read (a native shell)', async () => {
+    fetchMock.mockImplementation(async () => json(200, {}));
+    const init = { method: 'POST', credentials: 'omit', headers: { Authorization: 'Bearer abc' } } as const;
+    await apiFetch('https://mail.example.org/jmap/api', init);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0]?.[1]).toBe(init);
   });

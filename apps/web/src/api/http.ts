@@ -11,9 +11,13 @@
 // (`state_change_guard`, `crates/mw-server/src/lib.rs`).
 //
 // What it does not do: it sets no `credentials` mode, no base path and no
-// content type — those stay with the caller. A request that carries an
-// `Authorization` header (the native shells' bearer path) is passed to `fetch`
-// unchanged: the server skips the cookie guard for it.
+// content type — those stay with the caller.
+//
+// A request with an `Authorization` header is treated like any other. The server
+// excuses a bearer request from the check only when no session cookie comes with
+// it, so the token is sent whenever the cookie can be read. In a native shell the
+// server is another origin, its cookies are not in `document.cookie`, and the
+// bearer request goes out exactly as the caller built it.
 //
 // Imports: `basePath.ts` only, which has none of its own, so `platform/browser.ts`
 // can import this module without closing the `transport.ts` cycle it avoids.
@@ -108,9 +112,8 @@ function refreshToken(source: string): Promise<string | null> {
 /**
  * `fetch`, plus the CSRF token on a write.
  *
- * For a method other than GET/HEAD/OPTIONS, when the request has no
- * `Authorization` header, the value of the `mw_csrf` cookie is sent as
- * `X-CSRF-Token`. With no such cookie the request is sent as given.
+ * For a method other than GET/HEAD/OPTIONS the value of the `mw_csrf` cookie is
+ * sent as `X-CSRF-Token`. With no such cookie the request is sent as given.
  *
  * If the server refuses the write for its token, a token is requested once
  * (see `tokenSource`) and the write is sent once more. The guard refuses before
@@ -119,9 +122,7 @@ function refreshToken(source: string): Promise<string | null> {
  */
 export async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
   const method = (init?.method ?? 'GET').toUpperCase();
-  if (SAFE_METHODS.has(method) || new Headers(init?.headers).has('authorization')) {
-    return send(input, init);
-  }
+  if (SAFE_METHODS.has(method)) return send(input, init);
   const token = csrfToken();
   const res = await send(input, token === null ? init : withToken(init, token));
   if (!(await isCsrfRefusal(res))) return res;
