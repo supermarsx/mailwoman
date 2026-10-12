@@ -28,6 +28,12 @@ import { defineConfig, devices } from '@playwright/test';
  *   - `phone`  — the same engine-mode server (:8090) at a phone viewport: the
  *                narrow single-pane layout (narrow.spec.ts).
  *
+ * Strict CSRF: every stack these projects run against is started with
+ * `MW_CSRF_STRICT=true`. `csrf-strict.spec.ts` is in the `testMatch` of each project
+ * that has a server of its own (all but `phone`, `t10` and `deploy`) and fails when
+ * the stack is not strict. A spec that writes through a request context instead of
+ * the UI imports `test` from `./csrf.ts` (see that file).
+ *
  * Select one with `--project=mock` / `--project=engine` / `--project=pim` /
  * `--project=phone`. Each
  * project's `baseURL` can be overridden for local runs (e.g. `cargo run` / `vite`):
@@ -82,7 +88,7 @@ export default defineConfig({
   projects: [
     {
       name: 'mock',
-      testMatch: ['happy-path.spec.ts', 'sanitizer.spec.ts'],
+      testMatch: ['happy-path.spec.ts', 'sanitizer.spec.ts', 'csrf-strict.spec.ts'],
       use: { ...devices['Desktop Chrome'], baseURL: mockBaseURL },
     },
     {
@@ -107,6 +113,7 @@ export default defineConfig({
         'sw-cache.spec.ts',
         'login-discover.spec.ts',
         'reply-forward.spec.ts',
+        'csrf-strict.spec.ts',
       ],
       use: { ...devices['Desktop Chrome'], baseURL: engineBaseURL },
     },
@@ -128,7 +135,7 @@ export default defineConfig({
       // through the real UI against the engine-mode server (:8090), over its
       // auto-seeded native collections. Adding a `pim-*.spec.ts` slots into the CI
       // `e2e-pim` job (boots greenmail + mailwoman-engine, runs `--project=pim`).
-      testMatch: ['pim-*.spec.ts'],
+      testMatch: ['pim-*.spec.ts', 'csrf-strict.spec.ts'],
       use: { ...devices['Desktop Chrome'], baseURL: engineBaseURL },
     },
     {
@@ -143,7 +150,7 @@ export default defineConfig({
       // `e2e-crypto` job — owned by e9 — sets it on the engine bring-up; locally
       // via the docker-compose.crypto.yml override). Sibling of the `e2e` /
       // `e2e-engine` / `e2e-pim` projects; all must stay green.
-      testMatch: ['crypto-*.spec.ts'],
+      testMatch: ['crypto-*.spec.ts', 'csrf-strict.spec.ts'],
       use: { ...devices['Desktop Chrome'], baseURL: engineBaseURL },
     },
     {
@@ -157,7 +164,7 @@ export default defineConfig({
       // A dedicated project (not folded into `engine`) so its host-networking +
       // longer dispatch timing stay isolated; e8 wires an `e2e-push` job (or adds
       // `--project=push` to the engine job). See apps/web/e2e/README-push.md.
-      testMatch: ['push.spec.ts'],
+      testMatch: ['push.spec.ts', 'csrf-strict.spec.ts'],
       use: { ...devices['Desktop Chrome'], baseURL: engineBaseURL },
     },
     {
@@ -177,6 +184,7 @@ export default defineConfig({
         'mcp.spec.ts',
         'zeroaccess.spec.ts',
         'cache-posture.spec.ts',
+        'csrf-strict.spec.ts',
       ],
       use: { ...devices['Desktop Chrome'], baseURL: v6BaseURL },
     },
@@ -198,6 +206,7 @@ export default defineConfig({
         'passwd.spec.ts',
         'assist.spec.ts',
         'bridges.spec.ts',
+        'csrf-strict.spec.ts',
       ],
       use: { ...devices['Desktop Chrome'], baseURL: v7BaseURL },
     },
@@ -215,7 +224,7 @@ export default defineConfig({
       // Brought up by `docker compose -f docker-compose.dev.yml -f docker-compose.crypto.yml
       // up -d --build --wait greenmail mailwoman-engine`; added to the t12-conformance.yml
       // workflow by e-e2e-backend. Sibling of the other engine projects — all must stay green.
-      testMatch: ['t12-*.spec.ts'],
+      testMatch: ['t12-*.spec.ts', 'csrf-strict.spec.ts'],
       use: { ...devices['Desktop Chrome'], baseURL: engineBaseURL },
     },
     {
