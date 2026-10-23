@@ -15,11 +15,14 @@
 #   - read-only root filesystem (only /data volume + a small /tmp tmpfs writable)
 #   - all Linux capabilities dropped (the server needs none; :8080 is unprivileged)
 #   - no-new-privileges (no setuid escalation from inside the container)
-#   - Docker's default seccomp profile retained (NOT set to unconfined)
-#   - PID cap + memory/CPU-independent (limits left to the deployer's platform)
+#   - the container runtime's default seccomp profile (not set to unconfined)
+#   - PID cap; no memory/CPU limit (left to the deployer's platform)
 #
-# A custom AppArmor profile can be layered per host by uncommenting the
-# `apparmor=` line and installing packaging/apparmor/mailwoman to the host.
+# No custom seccomp or AppArmor profile is shipped. A custom profile would have
+# to admit wasmtime's JIT and the render worker's namespace, Landlock and
+# seccomp calls, and would need a syscall trace on every wasmtime upgrade to
+# stay correct; a call it does not admit makes the server or the render worker
+# fail. The runtime default profile is what is applied.
 
 services:
   mailwoman:
@@ -28,11 +31,7 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
-      # Docker applies its default seccomp profile unless told otherwise; it is
-      # left in place here. To pin an explicit profile instead:
-      #   - seccomp:packaging/seccomp/mailwoman.json
-      # To confine with AppArmor (host must load the profile first):
-      #   - apparmor=mailwoman
+      # No seccomp= entry: Docker applies its default seccomp profile.
     tmpfs:
       # Render worker + rustls scratch space; noexec/nosuid so a dropped file
       # cannot be run or gain privilege.
