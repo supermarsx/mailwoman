@@ -41,6 +41,7 @@ NET_STATE=$(mktemp -d "$ROOT/.deploy-test-XXXXXX.local")
 PICK_STATE=$(mktemp -d "$ROOT/.deploy-test-XXXXXX.local")
 ACME_STATE=$(mktemp -d "$ROOT/.deploy-test-XXXXXX.local")
 NETWORK="$PROJECT-proxy"
+BAD_IMAGE="$PROJECT-unhealthy:test"
 SERVER_KEY=
 PASSED=false
 
@@ -91,6 +92,7 @@ cleanup() {
         docker volume rm "$volume" >/dev/null || true
     done < <(docker volume ls -q --filter "label=mailwoman.deploy.project=$PROJECT"; docker volume ls -q --filter "label=mailwoman.deploy.project=$NET_PROJECT")
     docker network rm "$NETWORK" >/dev/null 2>&1 || true
+    docker image rm "$BAD_IMAGE" >/dev/null 2>&1 || true
     if $PASSED && [[ $STATE == "$ROOT"/.deploy-test-*.local && $NET_STATE == "$ROOT"/.deploy-test-*.local && $PICK_STATE == "$ROOT"/.deploy-test-*.local && $ACME_STATE == "$ROOT"/.deploy-test-*.local ]]; then
         rm -rf -- "$STATE" "$NET_STATE" "$PICK_STATE" "$ACME_STATE"
     else
@@ -380,6 +382,56 @@ moved network
 if port_in_use "$PORT"; then fail "localhost:$PORT still answers after the move to a proxy network"; fi
 MSYS_NO_PATHCONV=1 docker run --rm --network "$NETWORK" "$IMAGE" healthcheck --url "http://$PROJECT:8080/" || fail "http://$PROJECT:8080/ does not answer on the proxy network"
 grep -Fx 'MW_FORWARDED_MODE=xff' "$STATE/env" >/dev/null || fail 'the moved installation does not trust its proxy network'
+
+# An update that never becomes healthy is rolled back: the previous image, the
+# previous exposure (the proxy network, its trust lines, no host port) and a copy
+# of the data saved just before the update come back on a new volume; the failed
+# release's files and volume are kept and the lock is released. The update also
+# moves the installation to local, so a rollback that kept the new Compose file
+# would publish a port. The broken image is the test image with an unknown command.
+BAD_CID=$(docker create --label "mailwoman.deploy.test=$PROJECT" "$IMAGE")
+docker commit --change 'CMD ["no-such-command"]' "$BAD_CID" "$BAD_IMAGE" >/dev/null
+docker rm "$BAD_CID" >/dev/null
+BAD_ID=$(docker image inspect --format '{{.Id}}' "$BAD_IMAGE")
+GOOD_ID=$(awk -F= '$1 == "IMAGE_ID" {print $2}' "$STATE/active/release.env")
+printf 'before-failed-update\n' > "$STATE/uploads/deploy-test-object"
+docker cp "$STATE/uploads" "$CID:/data/"
+# rolled_back WHEN: the network release with the seeded object runs again.
+rolled_back() {
+    [[ ! -d $STATE/.lock ]] || fail "$1: the lock was left behind"
+    [[ $(awk -F= '$1 == "IMAGE_ID" {print $2}' "$STATE/active/release.env") == "$GOOD_ID" ]] || fail "$1: the previous image is not the active one"
+    grep -Fx 'EXPOSURE=network' "$STATE/active/deploy.env" >/dev/null || fail "$1: the previous exposure is not back: $(grep EXPOSURE "$STATE/active/deploy.env")"
+    CID=$(dc ps -q mailwoman)
+    [[ -n $CID && $(docker inspect --format '{{.Image}} {{.State.Health.Status}}' "$CID") == "$GOOD_ID healthy" ]] || fail "$1: the previous image is not running healthy"
+    [[ -z $(docker port "$CID") ]] || fail "$1: the app publishes $(docker port "$CID")"
+    MSYS_NO_PATHCONV=1 docker run --rm --network "$NETWORK" "$IMAGE" healthcheck --url "http://$PROJECT:8080/" || fail "$1: http://$PROJECT:8080/ does not answer on the proxy network"
+    app_env "$CID" | grep -Fx 'MW_FORWARDED_MODE=xff' >/dev/null || fail "$1: the app does not trust its proxy network"
+    docker cp "$CID:/data/uploads/deploy-test-object" "$STATE/restored-object"
+    [[ $(cat "$STATE/restored-object") == before-failed-update ]] || fail "$1: the data saved before the update is not there"
+    ROLLED_VOLUME=$(awk -F= '$1 == "DATA_VOLUME" {print $2}' "$STATE/active/release.env")
+    [[ $ROLLED_VOLUME == "${PROJECT}_restore_"* && $ROLLED_VOLUME != "$PRE_VOLUME" ]] || fail "$1: the data was not restored into a new volume (now $ROLLED_VOLUME, the failed update used $PRE_VOLUME)"
+    docker volume inspect "$PRE_VOLUME" >/dev/null || fail "$1: the volume the failed update used, $PRE_VOLUME, was removed"
+}
+set_config EXPOSURE=local "PUBLIC_URL=http://localhost:$PORT" PROXY_NETWORK=
+PRE_VOLUME=$MOVE_VOLUME
+if run deploy --image "$BAD_IMAGE" --timeout 60 > "$STATE/failed-update.log" 2>&1; then fail 'an update to an image that never becomes healthy succeeded'; fi
+grep -F 'The update was rolled back' "$STATE/failed-update.log" >/dev/null || { cat "$STATE/failed-update.log" >&2; fail 'a failed update was not rolled back'; }
+rolled_back 'after the automatic rollback'
+FAILED_DIR=$(find "$STATE/failed" -mindepth 1 -maxdepth 1 -type d | head -n 1)
+grep -F "127.0.0.1:$PORT:8080" "$FAILED_DIR/compose.yaml" >/dev/null || fail 'the failed release files were not kept'
+grep -Fx "IMAGE_ID=$BAD_ID" "$FAILED_DIR/release.env" >/dev/null || fail 'the kept release files are not those of the failed release'
+grep -Fx 'EXPOSURE=local' "$STATE/deploy.env" >/dev/null || fail 'the automatic rollback rewrote deploy.env'
+printf 'auto-rollback: %s\n' "$(grep -o 'The update was rolled back\. The previous release ([^)]*)' "$STATE/failed-update.log")"
+# With --no-auto-rollback the failed update stays in place; rollback then restores
+# the snapshot taken before it, exposure included, although the failed app cannot
+# become healthy for the snapshot that rollback takes of it first.
+PRE_VOLUME=$ROLLED_VOLUME
+if run deploy --image "$BAD_IMAGE" --timeout 30 --no-auto-rollback > "$STATE/failed-update.log" 2>&1; then fail 'an update to an image that never becomes healthy succeeded'; fi
+if grep -F 'rolled back' "$STATE/failed-update.log" >/dev/null; then fail 'a deploy with --no-auto-rollback rolled back'; fi
+[[ $(awk -F= '$1 == "IMAGE_ID" {print $2}' "$STATE/active/release.env") == "$BAD_ID" ]] || fail 'with --no-auto-rollback the failed release is not the active one'
+run rollback > "$STATE/rollback.log" 2>&1 || { cat "$STATE/rollback.log" >&2; fail 'rollback after a failed update failed'; }
+rolled_back 'after rollback of an update made with --no-auto-rollback'
+MOVE_VOLUME=$(awk -F= '$1 == "DATA_VOLUME" {print $2}' "$STATE/active/release.env")
 # network -> local
 set_config EXPOSURE=local "PUBLIC_URL=http://localhost:$PORT" PROXY_NETWORK=
 run deploy --no-build || fail 'deploy did not move the installation from network to local'
@@ -425,4 +477,4 @@ grep -F 'No memory or CPU limit for the app' "$NET_STATE/limits.log" >/dev/null 
 [[ $(awk -F= '$1 == "DATA_VOLUME" {print $2}' "$NET_STATE/active/release.env") == "$NET_VOLUME" ]] || fail 'update replaced the data volume'
 docker network inspect "$NETWORK" >/dev/null || fail 'update removed the proxy network'
 PASSED=true
-printf 'PASS: dry-run writes nothing (empty and applied state), port auto-pick when 8080 is taken, deployment, literal secrets, health, persistent data, admin login and writes under strict CSRF (curl), %s, refusal of a held port before any change, backup, rollback, corruption refusal, copy-failure recovery, repeated setup options, exposure moves local -> external -> network -> local with the data volume kept, refusal of a move to caddy, a proxy-network installation, the ACME directory settings for Caddy (rendered, and refused when invalid), and memory/CPU limits (defaults for a new installation, edited, lowered to the CPUs Docker has, rolled back, none for an older deploy.env, invalid values refused)\n' "$BROWSER"
+printf 'PASS: dry-run writes nothing (empty and applied state), port auto-pick when 8080 is taken, deployment, literal secrets, health, persistent data, admin login and writes under strict CSRF (curl), %s, refusal of a held port before any change, backup, rollback, corruption refusal, copy-failure recovery, repeated setup options, exposure moves local -> external -> network -> local with the data volume kept, refusal of a move to caddy, a proxy-network installation, the ACME directory settings for Caddy (rendered, and refused when invalid), memory/CPU limits (defaults for a new installation, edited, lowered to the CPUs Docker has, rolled back, none for an older deploy.env, invalid values refused), and the automatic rollback of an update that never becomes healthy (previous image, exposure network with its trust lines, data saved before the update; failed release kept) and rollback after --no-auto-rollback\n' "$BROWSER"

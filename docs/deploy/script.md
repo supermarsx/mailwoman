@@ -194,10 +194,22 @@ waits for the new container's health check, and the script checks `/healthz` and
 extends each startup/public-check deadline. These checks prove app/HTTP readiness,
 not mailbox login, SMTP delivery, external integrations or off-host reachability.
 
-On failure the script exits nonzero and retains data, backups and containers for
-diagnosis. A public check can fail while the app is healthy if DNS/firewall/proxy
-setup is incomplete. Fix that and run `start`. There is no automatic database
-downgrade: inspect `logs` and explicitly restore a snapshot if recovery is needed.
+When an update fails Compose's health wait or the public check, the script rolls
+it back: it keeps the failed release's files and its last 300 log lines in
+`failed/<time>-<pid>/`, stops it, and starts the previous release — its image,
+configuration and exposure (Compose file, port or proxy network, trust settings)
+— on a copy of the snapshot taken just before the update, in a new volume.
+Whatever the failed release wrote, database migrations included, stays in the
+volume it used, which is kept. The command still exits nonzero and names what it
+restored and where. `deploy.env` and `app.env` keep the settings that failed:
+correct them, or the image, and deploy again. Because the public check is part of
+this, an update whose app is healthy but whose public URL does not answer (DNS,
+firewall or proxy not ready) is rolled back too; with `network` exposure an
+unanswered public URL only produces a note. `--no-auto-rollback` leaves a failed
+update in place for diagnosis; `bash deploy.sh rollback` then restores the same
+snapshot. A first installation has nothing to roll back to: on failure it keeps
+its data volume and containers, and after fixing DNS, firewall or proxy, `start`
+checks it again.
 The script never runs `git pull`, installs host packages, prunes images or deletes
 data volumes. A directory lock prevents concurrent mutations; after SIGKILL or a
 host crash, remove a stale `.lock` only after verifying no operation is running.
@@ -217,8 +229,9 @@ configuration, encryption key and exact image IDs. A checksum manifest and a fin
 resumed even if copying fails or the operation receives SIGINT/SIGTERM.
 
 Restore validates the snapshot, populates a **new volume**, snapshots the current
-installation, and starts the saved version/configuration against the recovered
-data. It reverts all writes since the snapshot time. The old volume and the
+installation (which then stays stopped, so a release that cannot become healthy
+can still be replaced), and starts the saved version/configuration against the
+recovered data. It reverts all writes since the snapshot time. The old volume and the
 pre-restore snapshot remain available. `rollback` restores the pre-deployment
 snapshot, including the old image and data; it is not just an image downgrade.
 Snapshots and old volumes are not automatically expired.
@@ -256,7 +269,10 @@ throwaway container holds it for the few seconds of one `init`), the admin panel
 under strict CSRF with curl and, when Playwright can start, in a browser, the
 refusal of a deploy onto a port held by something else, backup/rollback, failure
 recovery, the moves local → external → proxy network → local, the refusal of a move
-to Caddy, a second, proxy-network installation, and the `ACME_CA` / `ACME_CA_ROOT`
+to Caddy, the automatic rollback of an update to an image that never becomes
+healthy (it also changes the exposure, and the previous exposure must come back)
+and `rollback` after an update made with `--no-auto-rollback`, a second,
+proxy-network installation, and the `ACME_CA` / `ACME_CA_ROOT`
 lines in a Caddy installation's generated Compose file (read with `doctor`;
 invalid values refused), and the memory and CPU limits Docker applies (defaults,
 edited values, a CPU limit above the host's lowered, none for a `deploy.env`

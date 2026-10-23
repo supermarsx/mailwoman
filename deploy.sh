@@ -30,6 +30,7 @@ CPU_LIMIT=
 IMAGE=
 PULL=false
 NO_BUILD=false
+AUTO_ROLLBACK=true
 DRY_RUN=false
 TIMEOUT=180
 SNAPSHOT=
@@ -75,6 +76,9 @@ Options:
   --image REF       Use a ready-built Mailwoman image instead of building source
   --pull            Refresh --image from its registry before deploying
   --no-build        Reuse the last applied app image (configuration-only deploy)
+  --no-auto-rollback
+                    Leave a failed update in place instead of restoring the
+                    previous release and its data automatically
   --timeout SECS    Health/startup timeout, 10..3600 (default 180)
   --dry-run         Describe the operation without writing or contacting Docker
   -h, --help        Show this help
@@ -127,6 +131,7 @@ while (($#)); do
         --timeout) need_value "$@"; TIMEOUT=$2; shift ;;
         --pull) PULL=true ;;
         --no-build) NO_BUILD=true ;;
+        --no-auto-rollback) AUTO_ROLLBACK=false ;;
         --dry-run) DRY_RUN=true ;;
         -h|--help) usage; exit 0 ;;
         *) die "Unknown argument: $1 (see --help)" ;;
@@ -139,8 +144,8 @@ TIMEOUT=$((10#$TIMEOUT))
 [[ -z $IMAGE || $IMAGE != -* && $IMAGE != *[[:space:]]* ]] || die "Invalid image reference"
 if $NO_BUILD && { [[ -n $IMAGE ]] || $PULL; }; then die "--no-build cannot be combined with --image/--pull"; fi
 if $PULL && [[ -z $IMAGE ]]; then die "--pull requires --image"; fi
-if [[ $ACTION != deploy ]] && { [[ -n $IMAGE ]] || $NO_BUILD || $PULL; }; then
-    die "Image options apply only to deploy"
+if [[ $ACTION != deploy ]] && { [[ -n $IMAGE ]] || $NO_BUILD || $PULL || ! $AUTO_ROLLBACK; }; then
+    die "Image and rollback options apply only to deploy"
 fi
 if $INIT_OPTIONS && [[ $ACTION != init && $ACTION != deploy ]]; then die "Setup options apply only to init/first deploy"; fi
 
@@ -291,7 +296,7 @@ if $DRY_RUN; then
     log "Dry run: $ACTION; project=$PROJECT; mode=$MODE; exposure=$EXPOSURE"
     log "State: $STATE; URL: $PUBLIC_URL"
     case "$ACTION" in
-        deploy) log "Prepare runtime image (${IMAGE:-$($NO_BUILD && printf 'last applied image' || printf 'build Dockerfile --target runtime')}); snapshot existing data; apply Compose; verify app and public HTTP(S)." ;;
+        deploy) log "Prepare runtime image (${IMAGE:-$($NO_BUILD && printf 'last applied image' || printf 'build Dockerfile --target runtime')}); snapshot existing data; apply Compose; verify app and public HTTP(S)$($AUTO_ROLLBACK && printf '; if an update fails that check, restore the previous release and its data')." ;;
         restore|rollback) log "Validate snapshot checksums; save current installation; restore snapshot to a new volume; apply and verify. Post-snapshot writes will not be in the restored app." ;;
         *) log "Would run $ACTION. No files, containers, networks or volumes changed." ;;
     esac
@@ -595,8 +600,11 @@ verify() {
     die "App is healthy internally, but $url is not reachable with valid HTTP(S). Check DNS, firewall, proxy and service logs; containers remain available."
 }
 
+# snapshot [keep-stopped]: with keep-stopped a running app stays stopped once the
+# copy is complete (restore replaces it next, healthy or not); after a failed copy
+# it is resumed either way.
 snapshot() {
-    local cid running destination
+    local cid running destination keep_stopped=${1:-}
     cid=$(compose "$ACTIVE" ps -a -q mailwoman)
     [[ -n $cid ]] || die "No app container to back up"
     destination="$STATE/backups/$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM}"
@@ -614,7 +622,9 @@ snapshot() {
     (cd "$destination" && sha256sum data.tar compose.yaml app.env deploy.env release.env > SHA256SUMS)
     # A snapshot is usable only once COMPLETE exists; partial backups remain for diagnosis.
     printf 'mailwoman-deploy-snapshot-v1\n' > "$destination/COMPLETE"
-    if [[ -n $RESUME_CONTAINER ]]; then
+    if [[ -n $RESUME_CONTAINER && -n $keep_stopped ]]; then
+        RESUME_CONTAINER=
+    elif [[ -n $RESUME_CONTAINER ]]; then
         docker start "$RESUME_CONTAINER" >/dev/null
         RESUME_CONTAINER=
         compose "$ACTIVE" start --wait --wait-timeout "$TIMEOUT" mailwoman
@@ -629,6 +639,83 @@ activate() {
     cp "$source/"{compose.yaml,app.env,deploy.env,release.env} "$ACTIVE/"
     compose "$ACTIVE" up -d --remove-orphans --wait --wait-timeout "$TIMEOUT"
     verify
+}
+
+# restore_snapshot DIR save|replace-failed: start the release saved in DIR on a
+# copy of its data in a new volume. save first snapshots the current installation
+# and makes DIR's configuration the state directory's; replace-failed is the
+# automatic rollback, which leaves deploy.env and app.env as the user wrote them.
+restore_snapshot() {
+    local from=$1 how=$2 file target_project
+    [[ -d $from && -f $from/COMPLETE ]] || die "Not a complete snapshot: $from"
+    from=$(cd "$from" && pwd -P)
+    [[ $(cat "$from/COMPLETE") == mailwoman-deploy-snapshot-v1 ]] || die "Unknown snapshot format"
+    for file in data.tar compose.yaml app.env deploy.env release.env SHA256SUMS; do
+        [[ -f $from/$file && ! -L $from/$file ]] || die "Missing or symlinked snapshot file: $file"
+    done
+    # Check the fixed expected set, ignoring any extra manifest paths.
+    cmp -s <(cd "$from" && sha256sum data.tar compose.yaml app.env deploy.env release.env) "$from/SHA256SUMS" || die "Snapshot checksum mismatch"
+    target_project=$PROJECT
+    read_config "$from/deploy.env"
+    read_config "$from/release.env"
+    validate_config
+    [[ $PROJECT == "$target_project" ]] || die "Snapshot belongs to project $PROJECT; initialize recovery state with that project name"
+    if [[ ! -f $ACTIVE/release.env && -n $(docker ps -aq --filter "label=com.docker.compose.project=$PROJECT") ]]; then
+        die "Project $PROJECT is already running without this state directory; recover its original state before restoring"
+    fi
+    docker image inspect "$IMAGE_ID" >/dev/null || die "Snapshot image is missing; load the matching saved Docker image before restoring"
+    if [[ $EXPOSURE == caddy ]]; then docker image inspect "$CADDY_ID" >/dev/null; fi
+    WORK=$(mktemp -d "$STATE/.work.XXXXXX")
+    cp "$from/app.env" "$WORK/app.env"
+    # Managed trust lines in the effective backup are regenerated by render.
+    if [[ $EXPOSURE == caddy ]]; then
+        awk '!/^MW_TRUSTED_PROXIES=/ && !/^MW_FORWARDED_MODE=/' "$WORK/app.env" > "$WORK/app.clean"
+        mv "$WORK/app.clean" "$WORK/app.env"
+    fi
+    validate_app_env "$WORK/app.env"
+    DATA_VOLUME="${PROJECT}_restore_$(date -u +%Y%m%dT%H%M%SZ)_$$_${RANDOM}"
+    ensure_proxy_network
+    render "$WORK"
+    compose "$WORK" config --quiet
+    # Extract only into a fresh Docker volume. No host tar extraction or volume deletion.
+    docker volume create --label "mailwoman.deploy.project=$PROJECT" "$DATA_VOLUME" >/dev/null
+    HELPER_CONTAINER=$(MSYS_NO_PATHCONV=1 docker create --network none --mount "type=volume,src=$DATA_VOLUME,dst=/data" "$IMAGE_ID")
+    docker cp -a - "$HELPER_CONTAINER:/data" < "$from/data.tar"
+    docker rm "$HELPER_CONTAINER" >/dev/null
+    HELPER_CONTAINER=
+    if [[ $how == save ]]; then
+        if [[ -f $ACTIVE/release.env ]]; then
+            snapshot keep-stopped
+            log "Saved the replaced installation at $LAST_BACKUP"
+            compose "$ACTIVE" stop --timeout 60
+        fi
+        cp "$WORK/deploy.env" "$STATE/deploy.env"
+        cp "$WORK/app.env" "$STATE/app.env"
+        if [[ $EXPOSURE == caddy ]]; then
+            awk '!/^MW_TRUSTED_PROXIES=/ && !/^MW_FORWARDED_MODE=/' "$STATE/app.env" > "$WORK/app.clean"
+            mv "$WORK/app.clean" "$STATE/app.env"
+        fi
+    fi
+    activate "$WORK"
+}
+
+# An update that did not become healthy: keep its files and logs for diagnosis,
+# stop it, and start the release saved just before it (image, configuration,
+# exposure and data as they were) on a copy of that data. Whatever the failed
+# release wrote, migrations included, stays in its own volume, which is kept.
+auto_rollback() {
+    local failed failed_volume=$DATA_VOLUME saved=$LAST_BACKUP
+    failed="$STATE/failed/$(date -u +%Y%m%dT%H%M%SZ)-$$"
+    mkdir -p "$failed"
+    cp "$WORK/"{compose.yaml,app.env,deploy.env,release.env} "$failed/"
+    compose "$ACTIVE" logs --no-color --tail 300 > "$failed/logs.txt" 2>&1 || true
+    log "The update did not pass its health check; restoring the release saved in $saved"
+    log "Should this rollback fail too, recover with: bash deploy.sh restore $saved --state-dir $STATE"
+    compose "$ACTIVE" stop --timeout 60
+    rm -rf -- "$WORK"
+    WORK=
+    restore_snapshot "$saved" replace-failed
+    die "The update was rolled back. The previous release (exposure $EXPOSURE, image $IMAGE_ID) runs on a copy of the data saved in $saved, in volume $DATA_VOLUME. The failed release's files and logs are in $failed and its data volume $failed_volume is kept; deploy.env and app.env still hold the settings that failed"
 }
 
 preflight
@@ -709,62 +796,26 @@ case "$ACTION" in
             printf '%s\n' "$LAST_BACKUP" > "$STATE/rollback.path"
         else
             docker volume create --label "mailwoman.deploy.project=$PROJECT" "$DATA_VOLUME" >/dev/null
+            AUTO_ROLLBACK=false
         fi
-        activate "$WORK"
+        if $AUTO_ROLLBACK; then
+            # activate runs in a subshell so that a failed start or check returns
+            # here instead of ending the script.
+            set +e
+            (set -e; activate "$WORK")
+            activated=$?
+            set -e
+            ((activated == 0)) || auto_rollback
+        else
+            activate "$WORK"
+        fi
         ;;
     restore|rollback)
         if [[ $ACTION == rollback ]]; then
             [[ -f $STATE/rollback.path ]] || die "No pre-deploy snapshot recorded"
             IFS= read -r SNAPSHOT < "$STATE/rollback.path"
         fi
-        [[ -d $SNAPSHOT && -f $SNAPSHOT/COMPLETE ]] || die "Not a complete snapshot: $SNAPSHOT"
-        SNAPSHOT=$(cd "$SNAPSHOT" && pwd -P)
-        [[ $(cat "$SNAPSHOT/COMPLETE") == mailwoman-deploy-snapshot-v1 ]] || die "Unknown snapshot format"
-        for file in data.tar compose.yaml app.env deploy.env release.env SHA256SUMS; do
-            [[ -f $SNAPSHOT/$file && ! -L $SNAPSHOT/$file ]] || die "Missing or symlinked snapshot file: $file"
-        done
-        # Check the fixed expected set, ignoring any extra manifest paths.
-        cmp -s <(cd "$SNAPSHOT" && sha256sum data.tar compose.yaml app.env deploy.env release.env) "$SNAPSHOT/SHA256SUMS" || die "Snapshot checksum mismatch"
-        target_project=$PROJECT
-        read_config "$SNAPSHOT/deploy.env"
-        read_config "$SNAPSHOT/release.env"
-        validate_config
-        [[ $PROJECT == "$target_project" ]] || die "Snapshot belongs to project $PROJECT; initialize recovery state with that project name"
-        if [[ ! -f $ACTIVE/release.env && -n $(docker ps -aq --filter "label=com.docker.compose.project=$PROJECT") ]]; then
-            die "Project $PROJECT is already running without this state directory; recover its original state before restoring"
-        fi
-        docker image inspect "$IMAGE_ID" >/dev/null || die "Snapshot image is missing; load the matching saved Docker image before restoring"
-        if [[ $EXPOSURE == caddy ]]; then docker image inspect "$CADDY_ID" >/dev/null; fi
-        WORK=$(mktemp -d "$STATE/.work.XXXXXX")
-        cp "$SNAPSHOT/app.env" "$WORK/app.env"
-        # Managed trust lines in the effective backup are regenerated by render.
-        if [[ $EXPOSURE == caddy ]]; then
-            awk '!/^MW_TRUSTED_PROXIES=/ && !/^MW_FORWARDED_MODE=/' "$WORK/app.env" > "$WORK/app.clean"
-            mv "$WORK/app.clean" "$WORK/app.env"
-        fi
-        validate_app_env "$WORK/app.env"
-        DATA_VOLUME="${PROJECT}_restore_$(date -u +%Y%m%dT%H%M%SZ)_$$_${RANDOM}"
-        ensure_proxy_network
-        render "$WORK"
-        compose "$WORK" config --quiet
-        # Extract only into a fresh Docker volume. No host tar extraction or volume deletion.
-        docker volume create --label "mailwoman.deploy.project=$PROJECT" "$DATA_VOLUME" >/dev/null
-        HELPER_CONTAINER=$(MSYS_NO_PATHCONV=1 docker create --network none --mount "type=volume,src=$DATA_VOLUME,dst=/data" "$IMAGE_ID")
-        docker cp -a - "$HELPER_CONTAINER:/data" < "$SNAPSHOT/data.tar"
-        docker rm "$HELPER_CONTAINER" >/dev/null
-        HELPER_CONTAINER=
-        if [[ -f $ACTIVE/release.env ]]; then
-            snapshot
-            log "Saved the replaced installation at $LAST_BACKUP"
-            compose "$ACTIVE" stop --timeout 60
-        fi
-        cp "$WORK/deploy.env" "$STATE/deploy.env"
-        cp "$WORK/app.env" "$STATE/app.env"
-        if [[ $EXPOSURE == caddy ]]; then
-            awk '!/^MW_TRUSTED_PROXIES=/ && !/^MW_FORWARDED_MODE=/' "$STATE/app.env" > "$WORK/app.clean"
-            mv "$WORK/app.clean" "$STATE/app.env"
-        fi
-        activate "$WORK"
+        restore_snapshot "$SNAPSHOT" save
         log "Restored snapshot $SNAPSHOT; replaced volumes and backups remain available"
         ;;
 esac
