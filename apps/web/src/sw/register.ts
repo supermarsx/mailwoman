@@ -3,6 +3,7 @@
 // where the app simply runs online without a SW.
 
 import { withBase, shellBase } from '../api/basePath.ts';
+import { isTauri } from '../platform/index.ts';
 
 /**
  * Register the hand-rolled app-shell SW (`public/sw.js`). No-op when unsupported.
@@ -20,9 +21,25 @@ import { withBase, shellBase } from '../api/basePath.ts';
  *
  * At the origin root `withBase`/`shellBase` yield `/sw.js` and `/`, i.e. exactly
  * the previous call.
+ *
+ * In a Tauri shell nothing is registered and earlier registrations are removed.
  */
 export async function registerServiceWorker(): Promise<void> {
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+  if (isTauri()) {
+    // A shell serves the bundle from its own asset handler, and a worker's fetches
+    // leave the WebView for the network (t31-e7): on Windows `http://tauri.localhost`
+    // is then answered by whatever listens on loopback port 80, with the shell's
+    // IPC. So no worker in a shell, and any registration an earlier build left
+    // behind is removed.
+    try {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+    } catch {
+      // Nothing to remove.
+    }
+    return;
+  }
   try {
     await navigator.serviceWorker.register(withBase('/sw.js'), {
       type: 'classic',
