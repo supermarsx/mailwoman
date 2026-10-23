@@ -13,8 +13,62 @@
 # The ORDER of 1→2→4 matters: the shell compiles the emitted bundle-hash.json into
 # the binary (`include_str!`) AND embeds the same dist, then verifies them at launch
 # (the §7.4 tamper gate). Re-emitting after the web build keeps the two consistent.
+#
+# Per deployment (t32, docs/deploy/shells.md):
+#   MW_SHELL_SERVER_URL    the Mailwoman server the app talks to, compiled in:
+#                          https://host[:port][/path] (http only to localhost,
+#                          127.x or [::1], for testing). Required. The user cannot
+#                          enter or change it. A desktop provisioning file
+#                          (server.json) takes precedence at run time.
+#   MW_SHELL_NO_SERVER_URL=1  build without one instead: the app says it has not
+#                          been set up unless a desktop provisioning file names a
+#                          server (fleets provisioned only by file, CI size checks).
+#   MW_SHELL_PRODUCT_NAME  the app name (window title, bundle name); default
+#                          Mailwoman.
+#   MW_SHELL_IDENTIFIER    the desktop bundle identifier (reverse DNS); default
+#                          com.mailwoman.desktop.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+fail() { echo "[build-shells] $*" >&2; exit 1; }
+
+# A first check before the long SPA build; the shell crates check the value again
+# at compile time and refuse anything else.
+if [ -n "${MW_SHELL_SERVER_URL:-}" ]; then
+  case "$MW_SHELL_SERVER_URL" in
+    *[[:space:]@?#\\]*) fail "MW_SHELL_SERVER_URL must not contain spaces, @, ?, # or a backslash: $MW_SHELL_SERVER_URL" ;;
+    https://[!/:]*) ;;
+    http://localhost | http://localhost[:/]* | http://127.[0-9]* | "http://[::1]" | "http://[::1]"[:/]*) ;;
+    *) fail "MW_SHELL_SERVER_URL must be https://host[:port][/path] (http only to localhost, 127.x or [::1]): $MW_SHELL_SERVER_URL" ;;
+  esac
+  export MW_SHELL_SERVER_URL
+  echo "[build-shells] server address: $MW_SHELL_SERVER_URL"
+elif [ "${MW_SHELL_NO_SERVER_URL:-0}" = "1" ]; then
+  unset MW_SHELL_SERVER_URL
+  echo "[build-shells] no server address (MW_SHELL_NO_SERVER_URL=1): the app needs a provisioning file"
+else
+  fail "set MW_SHELL_SERVER_URL=https://mail.example.org (the server this build talks to), or MW_SHELL_NO_SERVER_URL=1 for a build provisioned only by server.json (docs/deploy/shells.md)"
+fi
+
+# Branding: passed to tauri as a config overlay, and to the shell crates
+# (window title) through the environment.
+TAURI_CONFIG_ARGS=()
+if [ -n "${MW_SHELL_PRODUCT_NAME:-}${MW_SHELL_IDENTIFIER:-}" ]; then
+  if [ -n "${MW_SHELL_PRODUCT_NAME:-}" ]; then
+    if [ "${#MW_SHELL_PRODUCT_NAME}" -gt 64 ] || printf '%s' "$MW_SHELL_PRODUCT_NAME" | LC_ALL=C grep -q '[[:cntrl:]/\]'; then
+      fail "MW_SHELL_PRODUCT_NAME must be at most 64 characters with no control characters, / or a backslash"
+    fi
+    export MW_SHELL_PRODUCT_NAME
+  fi
+  if [ -n "${MW_SHELL_IDENTIFIER:-}" ] && ! printf '%s' "$MW_SHELL_IDENTIFIER" | grep -Eq '^[A-Za-z][A-Za-z0-9-]*(\.[A-Za-z][A-Za-z0-9-]*)+$'; then
+    fail "MW_SHELL_IDENTIFIER must be reverse DNS, such as org.example.mail: $MW_SHELL_IDENTIFIER"
+  fi
+  TAURI_CONFIG_FILE="$(mktemp)"
+  trap 'rm -f "$TAURI_CONFIG_FILE"' EXIT
+  node -e 'const c = {}; if (process.env.MW_SHELL_PRODUCT_NAME) c.productName = process.env.MW_SHELL_PRODUCT_NAME; if (process.env.MW_SHELL_IDENTIFIER) c.identifier = process.env.MW_SHELL_IDENTIFIER; process.stdout.write(JSON.stringify(c));' > "$TAURI_CONFIG_FILE"
+  TAURI_CONFIG_ARGS=(--config "$TAURI_CONFIG_FILE")
+  echo "[build-shells] branding: $(cat "$TAURI_CONFIG_FILE")"
+fi
 
 # Include the self-contained mw-server in the bundle unless MW_SELF_CONTAINED=0.
 SELF_CONTAINED="${MW_SELF_CONTAINED:-1}"
@@ -36,13 +90,16 @@ fi
 echo "[build-shells] 4/5 building desktop shell…"
 pnpm -C apps/desktop install
 # --no-bundle keeps CI fast + avoids installer tooling; e8 flips it on for installers.
-pnpm -C apps/desktop exec tauri build --no-bundle
+# (The ${...+...} form: an empty array is "unbound" under set -u in bash 3.2, macOS.)
+pnpm -C apps/desktop exec tauri build --no-bundle ${TAURI_CONFIG_ARGS[@]+"${TAURI_CONFIG_ARGS[@]}"}
 
 echo "[build-shells] 5/5 checking §16 bundle-size budgets…"
 node scripts/check-bundle-size.mjs
 
 # Android (needs Android SDK+NDK+JDK). This dev/CI machine has the SDK+NDK but no JDK
-# on PATH (plan §1.11 / risk #1), so the APK build is the e8 CI gate, documented here:
+# on PATH (plan §1.11 / risk #1), so the APK build is the e8 CI gate, documented here
+# (MW_SHELL_SERVER_URL and MW_SHELL_PRODUCT_NAME apply the same way; the Android
+# identifier stays com.mailwoman.mobile, see docs/deploy/shells.md):
 #   pnpm -C apps/mobile install
 #   pnpm -C apps/mobile exec tauri android init --ci
 #   pnpm -C apps/mobile exec tauri android build --apk
