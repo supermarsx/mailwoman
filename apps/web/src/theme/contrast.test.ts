@@ -30,12 +30,14 @@ import {
   advisoryFailures,
   checkPalette,
   contrastRatio,
+  failingPairs,
   parseColor,
   relativeLuminance,
+  worstScrimRatio,
   type ContrastLevel,
   type ContrastResult,
 } from './contrast.ts';
-import { ACCENT_PRESETS, THEMES } from './tokens.ts';
+import { ACCENT_PRESETS, BRAND_SLOTS, THEMES } from './tokens.ts';
 import { themeCssVars } from './themeCssVars.ts';
 import { bodyFrameDoc } from '../viewers/sandbox.ts';
 
@@ -63,21 +65,23 @@ describe('WCAG maths — independent cross-check', () => {
   });
 
   it('matches a pair computed by hand from the shipped light palette', () => {
-    // light.text #1c1e21 on light.bg #ffffff, worked through WCAG 2.2 by hand:
-    //   channels 0x1c=28, 0x1e=30, 0x21=33 → s = 0.109804, 0.117647, 0.129412
-    //   each > 0.04045 → ((s + 0.055) / 1.055) ^ 2.4
-    //     R = (0.156212)^2.4 = 0.0116141
-    //     G = (0.163647)^2.4 = 0.0129827
-    //     B = (0.174807)^2.4 = 0.0152087
-    //   L = 0.2126R + 0.7152G + 0.0722B = 0.0128523
-    //   ratio = (1.0 + 0.05) / (0.0128523 + 0.05) = 16.71
-    // White is L = 1 exactly, so the denominator is the only interesting half.
+    // light.text #111111 on light.bg #f4f1ea, worked through WCAG 2.2 step by
+    // step (each power taken on a calculator to 6 places):
+    //   text: 0x11=17 → s = 0.066667 > 0.04045 → ((s + 0.055) / 1.055)^2.4
+    //         = (0.115324)^2.4 = 0.0056054; all three channels are equal, so
+    //         L(text) = 0.0056054
+    //   bg:   0xf4=244 → s = 0.956863 → (0.959112)^2.4 = 0.904661
+    //         0xf1=241 → s = 0.945098 → (0.947960)^2.4 = 0.879622
+    //         0xea=234 → s = 0.917647 → (0.921940)^2.4 = 0.822786
+    //         L(bg) = 0.2126·0.904661 + 0.7152·0.879622 + 0.0722·0.822786
+    //               = 0.880842
+    //   ratio = (0.880842 + 0.05) / (0.0056054 + 0.05) = 16.74
     const light = THEMES.light.color;
-    expect(light.text).toBe('#1c1e21');
-    expect(light.bg).toBe('#ffffff');
-    expect(relativeLuminance([255, 255, 255])).toBe(1);
-    expect(relativeLuminance([28, 30, 33])).toBeCloseTo(0.0128523, 6);
-    expect(contrastRatio(light.text, light.bg)).toBeCloseTo(16.71, 2);
+    expect(light.text).toBe('#111111');
+    expect(light.bg).toBe('#f4f1ea');
+    expect(relativeLuminance([17, 17, 17])).toBeCloseTo(0.0056054, 6);
+    expect(relativeLuminance([244, 241, 234])).toBeCloseTo(0.880842, 5);
+    expect(contrastRatio(light.text, light.bg)).toBeCloseTo(16.74, 2);
   });
 
   it('holds every measured ratio inside the 1..21 range the formula allows', () => {
@@ -103,9 +107,9 @@ describe('the requirement table itself', () => {
   });
 
   it('covers every surface × foreground combination it claims to', () => {
-    // 4 surfaces × (6 text colours + accent + border) + 3 filled-control labels
-    // + text-on-selection.
-    expect(CONTRAST_PAIRS).toHaveLength(4 * 8 + 3 + 1);
+    // 4 surfaces × (6 text colours + accent + borderStrong + focus + border)
+    // + 3 filled-control labels + text-on-selection + signalText-on-signal.
+    expect(CONTRAST_PAIRS).toHaveLength(4 * 10 + 3 + 1 + 1);
     const enforced = CONTRAST_PAIRS.filter((p) => p.level !== 'advisory');
     expect(enforced).toHaveLength(CONTRAST_PAIRS.length - 4);
     // No pair is declared twice — a duplicate would inflate the matrix without
@@ -203,6 +207,86 @@ describe('high-contrast packs', () => {
   });
 });
 
+describe('t32 token additions', () => {
+  // Each new pair is enforced, so a weak value in any pack fails the matrix
+  // above. These seed one weak value at a time to show the table catches it.
+  const base = THEMES.dark.color;
+
+  it.each([
+    ['borderStrong', '#2a2a2a', 'borderStrong on bg'],
+    ['focus', '#222222', 'focus on surface'],
+    ['signalText', '#c9a000', 'signalText on signal'],
+  ] as const)('fails a palette with a weak %s', (key, weak, expected) => {
+    expect(failingPairs(base)).toEqual([]);
+    const seeded = { ...base, [key]: weak };
+    const failed = failingPairs(seeded).map((r) => `${r.pair.fg} on ${r.pair.bg}`);
+    expect(failed).toContain(expected);
+  });
+
+  it('keeps the focus ring colour equal to the focus token in every pack', () => {
+    for (const entry of THEME_LIST) {
+      expect(entry.tokens.a11y.focusRingColor, entry.id).toBe(entry.tokens.color.focus);
+      expect(entry.tokens.a11y.focusRing, entry.id).toContain(entry.tokens.color.focus);
+    }
+  });
+
+  it.each(THEME_LIST.map((e) => [e.id, e] as const))(
+    '%s: scrim text clears 4.5:1 over a white and a black image',
+    (_id, entry) => {
+      const ratio = worstScrimRatio(entry.palette.scrim, entry.palette.scrimText);
+      expect(ratio, `${entry.id}: ${entry.palette.scrim}`).toBeGreaterThanOrEqual(4.5);
+      // A scrim is translucent by design; the ordinary pair table cannot
+      // measure it, which is why it has its own check.
+      expect(parseColor(entry.palette.scrim)).toBeNull();
+    },
+  );
+
+  it('fails a scrim that is too thin to hold text over an image', () => {
+    expect(worstScrimRatio('rgba(17, 17, 17, 0.3)', THEMES.dark.color.text)).toBeLessThan(4.5);
+    expect(worstScrimRatio('rgba(17, 17, 17, 0.8)', THEMES.dark.color.text)).toBeGreaterThan(4.5);
+    // Unreadable input is a failure, never a pass.
+    expect(worstScrimRatio('rgba(17, 17, 17, 1.5)', '#ffffff')).toBe(0);
+    expect(worstScrimRatio('papayawhip', '#ffffff')).toBe(0);
+  });
+
+  it('puts the brand slots in front of each pack value', () => {
+    for (const entry of THEME_LIST) {
+      const c = entry.tokens.color;
+      expect(c.accent).toContain(`var(${BRAND_SLOTS.accent},`);
+      expect(c.danger).toContain(`var(${BRAND_SLOTS.danger},`);
+      expect(c.signal).toContain(`var(${BRAND_SLOTS.signal},`);
+      expect(c.signalText).toContain(`var(${BRAND_SLOTS.signalText},`);
+      // Measured on the pack's own value, not on the wrapper.
+      expect(entry.palette.danger).toMatch(/^#[0-9a-f]{6}$/);
+      expect(entry.palette.signal).toBe('#f5c400');
+    }
+  });
+
+  it('gives every pack the same square, hard-edged structure', () => {
+    for (const entry of THEME_LIST) {
+      const t = entry.tokens;
+      expect(t.radius, entry.id).toEqual({ sm: '0', md: '0', lg: '0', pill: '999px' });
+      expect(t.border).toEqual({ hair: '1px', rule: '2px', heavy: '3px' });
+      expect(t.elevation[0]).toBe('none');
+      for (const level of [1, 2, 3] as const) {
+        // `Xpx Ypx 0 0 colour`: offset only, zero blur, zero spread.
+        expect(t.elevation[level], `${entry.id} elevation ${level}`).toMatch(
+          /^(\d)px \1px 0 0 #(111111|000000)$/,
+        );
+      }
+      expect(t.font.ui.startsWith('"Jost"')).toBe(true);
+      expect(t.lineHeight.ui).toBe('1.2');
+      expect(t.weight).toEqual({ regular: '400', medium: '500', bold: '700', heavy: '800' });
+      expect(t.tracking).toEqual({ none: '0', label: '0.06em' });
+      expect(t.a11y.focusRingWidth).toBe('3px');
+      // No size token moved.
+      expect(t.fontSize.base).toBe('14px');
+      expect(t.density.rowH).toBe('56px');
+      expect(t.a11y.touchTarget).toBe('24px');
+    }
+  });
+});
+
 describe('accent overrides', () => {
   // `ACCENT_PRESETS` is offered in Settings and lands as an inline `--mw-accent`
   // that REPLACES the theme's own accent — so a preset is painted on every
@@ -258,7 +342,8 @@ describe('accent overrides', () => {
     const shortfalls = surfaceShortfalls();
     const offenders = [...new Set(shortfalls.map((s) => s.split('/')[1]))].sort();
     expect(offenders).toEqual(presets.map((p) => p.label).sort());
-    expect(shortfalls).toHaveLength(40);
+    // 38 since the t32 palettes (40 before).
+    expect(shortfalls).toHaveLength(38);
     // Out of 13 themes × 6 presets × 4 surfaces = 312 combinations, so ~13%.
     expect(shortfalls.length / (THEME_LIST.length * presets.length * 4)).toBeLessThan(0.15);
   });

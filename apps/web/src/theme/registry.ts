@@ -33,12 +33,13 @@ export interface ThemeEntry extends ThemeMeta {
   /** The full token set bound to the contract by `themes.css.ts`. */
   readonly tokens: ThemeTokens;
   /**
-   * Palette with `accent` unwrapped from `var(--mw-accent, …)` to the theme's
-   * own colour. This is what contrast is judged on and what previews paint —
-   * the user's accent override is a separate, orthogonal layer.
+   * Palette with every override wrapper (`var(--mw-accent, …)` and the brand
+   * slots in `BRAND_SLOTS`) unwrapped to the theme's own colour. This is what
+   * contrast is judged on and what previews paint — the user's accent and a
+   * deployment's brand colours are separate layers on top.
    */
   readonly palette: ResolvedPalette;
-  /** Ordered preview swatches: page, panel, accent, text, border. */
+  /** Ordered preview swatches: page, panel, accent, text, control border. */
   readonly swatches: readonly string[];
   /**
    * The pack's opposite-appearance sibling, used by the `system` and
@@ -87,7 +88,7 @@ function entryOf(meta: ThemeMeta): ThemeEntry {
     ...meta,
     tokens,
     palette,
-    swatches: [palette.bg, palette.surface, palette.accent, palette.text, palette.border],
+    swatches: [palette.bg, palette.surface, palette.accent, palette.text, palette.borderStrong],
     counterpart: siblingOf(meta),
     highContrast: meta.family === 'contrast',
   };

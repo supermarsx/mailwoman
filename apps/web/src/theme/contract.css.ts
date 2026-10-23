@@ -29,6 +29,19 @@ export const vars = createThemeContract({
     warning: null,
     link: null,
     selection: null,
+    // t32 additions (a deliberate contract broadcast, like every name here).
+    // Control and panel boundaries, enforced at 3:1 (`border` stays the
+    // decorative divider colour).
+    borderStrong: null,
+    // Marker colour (unread square, today, active indicators) and its ink.
+    signal: null,
+    signalText: null,
+    // Focus outline colour; `a11y.focusRingColor` carries the same value.
+    focus: null,
+    // Translucent field behind text laid over a background image, and the
+    // text colour on it.
+    scrim: null,
+    scrimText: null,
   },
   space: {
     0: null,
@@ -53,6 +66,13 @@ export const vars = createThemeContract({
     2: null,
     3: null,
   },
+  // Rule widths (t32): hair = dividers, rule = control and panel boundaries,
+  // heavy = section and top-bar rules.
+  border: {
+    hair: null,
+    rule: null,
+    heavy: null,
+  },
   texture: {
     // `url(...)` for the Grove themes, `none` elsewhere; gated under
     // reduced-transparency / high-contrast by e4.
@@ -66,6 +86,23 @@ export const vars = createThemeContract({
   },
   fontSize: {
     base: null,
+  },
+  // Font weights (t32): headings `heavy`, small labels `bold`.
+  weight: {
+    regular: null,
+    medium: null,
+    bold: null,
+    heavy: null,
+  },
+  // Letter-spacing (t32): `label` for small uppercase labels only.
+  tracking: {
+    none: null,
+    label: null,
+  },
+  // Line height of the UI text (t32), pinned so the bundled face does not
+  // grow line boxes.
+  lineHeight: {
+    ui: null,
   },
   density: {
     // Row height; driven by the `data-density: compact|cozy|relaxed` attribute.

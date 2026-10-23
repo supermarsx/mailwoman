@@ -135,19 +135,34 @@ function pairs(): ContrastPair[] {
       level: 'non-text',
       why: `accent state indicator drawn on ${bg}`,
     });
-    // `border` is ADVISORY, not enforced, and deliberately so: this one token
-    // draws both decorative panel dividers (exempt from §1.4.11) and the
-    // boundaries of real controls (3:1 required). Enforcing 3:1 on the shared
-    // token would darken every divider in the app — the correct fix is a
-    // component-level audit that splits the control boundary onto its own
-    // token. Until that lands, the ratio is MEASURED and REPORTED so the gap
-    // stays visible instead of being quietly dropped from the table.
+    // `borderStrong` is the boundary of real controls and panels (t32), so it
+    // carries the §1.4.11 3:1 that `border` cannot.
+    out.push({
+      fg: 'borderStrong',
+      bg,
+      min: 3,
+      level: 'non-text',
+      why: `control or panel boundary drawn on ${bg}`,
+    });
+    // The focus outline (`a11y.focusRingColor` is the same value) has to be
+    // seen on every surface it can land on.
+    out.push({
+      fg: 'focus',
+      bg,
+      min: 3,
+      level: 'non-text',
+      why: `focus outline drawn on ${bg}`,
+    });
+    // `border` is ADVISORY, not enforced, and deliberately so: since t32 it is
+    // the decorative divider colour only (exempt from §1.4.11); control
+    // boundaries moved to `borderStrong`, enforced above. The ratio is still
+    // MEASURED and REPORTED so a divider that disappears stays visible here.
     out.push({
       fg: 'border',
       bg,
       min: 3,
       level: 'advisory',
-      why: `border drawn on ${bg} (decorative + control boundaries share this token)`,
+      why: `decorative divider drawn on ${bg}`,
     });
   }
   // `accentText` is the label colour for every FILLED control, which in this
@@ -169,6 +184,15 @@ function pairs(): ContrastPair[] {
     min: 4.5,
     level: 'text',
     why: 'text under a selection highlight',
+  });
+  // Markers that carry text (the today date, counts) put `signalText` on a
+  // `signal` fill.
+  out.push({
+    fg: 'signalText',
+    bg: 'signal',
+    min: 4.5,
+    level: 'text',
+    why: 'text on a signal fill',
   });
   return out;
 }
@@ -202,6 +226,42 @@ export function checkPalette(color: ThemeTokens['color']): ContrastResult[] {
  */
 export function failingPairs(color: ThemeTokens['color']): ContrastResult[] {
   return checkPalette(color).filter((r) => !r.ok && r.pair.level !== 'advisory');
+}
+
+/**
+ * Worst contrast of `text` on a translucent `scrim` laid over any image.
+ *
+ * Browsers composite in sRGB, channel by channel: the result is
+ * `a * scrim + (1 - a) * image`, which is monotonic in each image channel, and
+ * relative luminance is monotonic in each channel too. So every composite's
+ * luminance lies between the composites over pure black and pure white, and
+ * the worse of those two ratios bounds the ratio over any image. Returns `0`
+ * when either colour cannot be read (an opaque `scrim` is accepted: it simply
+ * hides the image).
+ */
+export function worstScrimRatio(scrim: string, text: string): number {
+  const fg = parseColor(text);
+  const m = RGB_FN.exec(scrim.trim());
+  let rgb: Rgb | null = null;
+  let alpha = 1;
+  if (m?.[1] !== undefined && m[2] !== undefined && m[3] !== undefined) {
+    rgb = [Number(m[1]), Number(m[2]), Number(m[3])];
+    const a = m[4];
+    if (a !== undefined) alpha = a.endsWith('%') ? Number(a.slice(0, -1)) / 100 : Number(a);
+  } else {
+    rgb = parseColor(scrim);
+  }
+  if (fg === null || rgb === null || !(alpha >= 0 && alpha <= 1)) return 0;
+  const [r, g, b] = rgb;
+  const mix = (c: number, backdrop: number): number => alpha * c + (1 - alpha) * backdrop;
+  const over = (backdrop: number): Rgb => [mix(r, backdrop), mix(g, backdrop), mix(b, backdrop)];
+  const lt = relativeLuminance(fg);
+  const ratio = (bg: Rgb): number => {
+    const lb = relativeLuminance(bg);
+    const [hi, lo] = lt >= lb ? [lt, lb] : [lb, lt];
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  return Math.min(ratio(over(0)), ratio(over(255)));
 }
 
 /** Advisory shortfalls: reported, never fatal. See `ContrastLevel`. */
