@@ -345,16 +345,22 @@ the restart policy set to `no`; the forwarded-address check fails when the app
 is told not to trust the proxy network (`MW_FORWARDED_MODE=off`), and the
 WebSocket checks fail when the proxy host is created without WebSocket support.
 
-**Recorded run:** 2026-10-23, image `mailwoman:t31-w0` built from commit
-`b889b9d`, Docker 29.4.2 (Docker Desktop, WSL2 kernel 6.6.114.1, x86_64):
-case 1 PASS (healthy again 10 s after the kill), case 2 PASS. Case 3 FAIL:
-Compose (5.1.3 here, and 2.38.2) refuses to start the Caddy service that
-`deploy.sh --domain` writes — `cannot create config … in read-only service
-caddy: file is the sole supported option` — because the Caddyfile is an
-inline `configs: content:` on a `read_only: true` container. So a Caddy
-installation made by `deploy.sh` at that commit does not start. With the
-Caddyfile passed as an environment value and written to `/tmp` at start
-instead, case 3 passed (certificate issued by Pebble's intermediate).
+**Recorded run:** 2026-10-23, `deploy.sh` and the script at commit
+`d1a69ef`, image `mailwoman:t31-w0` built from commit `b889b9d`, Docker 29.4.2
+with Compose 5.1.3 (Docker Desktop, WSL2 kernel 6.6.114.1, x86_64), Caddy
+`caddy:2-alpine` (image ID `sha256:eb4d35b7…`, 2.11.7), with
+`DEPLOY_TEST_REQUIRE=all`: case 1 PASS (healthy again 10 s after the kill),
+case 2 PASS, case 3 PASS (certificate issued by Pebble's intermediate); exit 0.
+
+Case 3 found a defect on its first run: before `d1a69ef`, Compose (5.1.3, and
+2.38.2) refused to start the Caddy service that `deploy.sh --domain` wrote —
+`cannot create config … in read-only service caddy: file is the sole supported
+option` — because the Caddyfile was an inline `configs: content:` on a
+`read_only: true` container, so no Caddy installation made by `deploy.sh`
+started. Since `d1a69ef` the Caddyfile and the ACME root are environment values
+that the entrypoint writes to the container's `/tmp`. Case 3 also fails when
+Pebble cannot validate through Caddy (Pebble set to its default validation
+ports): no certificate is issued and `deploy.sh`'s own host check fails.
 
 **Not proven by this script:** issuance by the public Let's Encrypt endpoint
 for a real domain; DNS and inbound reachability on ports 80 and 443;
