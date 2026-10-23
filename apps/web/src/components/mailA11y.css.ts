@@ -12,12 +12,14 @@ import { style } from '@vanilla-extract/css';
 import { vars } from '../theme/contract.css.ts';
 
 /** Visible focus ring for keyboard users (WCAG 2.2 §2.4.11/2.4.13). Applied next
- *  to a component's own class: `class={`btn ${a11y.focusable}`}`. */
+ *  to a component's own class: `class={`btn ${a11y.focusable}`}`. An outline,
+ *  like the global `:focus-visible` rule (themes.css.ts), because forced-colours
+ *  mode keeps outlines and drops box-shadow rings (t32). */
 export const focusable = style({
   selectors: {
     '&:focus-visible': {
-      outline: 'none',
-      boxShadow: vars.a11y.focusRing,
+      outline: `${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`,
+      outlineOffset: '2px',
       // Keep the ring visible above neighbouring rows/controls.
       position: 'relative',
       zIndex: 1,

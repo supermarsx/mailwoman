@@ -1,33 +1,14 @@
 @import './typeface.css';
 
+/* Colours and structural tokens come from theme/themes.css.ts, which binds the
+ * Dark pack to :root before any JS runs (t32: dark by default, whatever the OS
+ * reports) and re-binds them under :root[data-theme]. The legacy names used in
+ * this file (--bg, --text, --border-strong, --radius-md, --border-rule, …) are
+ * the bridge it emits. Its rules come before this file in the built
+ * stylesheet, so a rule here with the same selector wins: do not restate a
+ * property it sets (body font and line height). */
 :root {
-  --bg: #ffffff;
-  --bg-alt: #f4f5f7;
-  --bg-sink: #eceef1;
-  --border: #d8dbe0;
-  --text: #1c1e21;
-  /* WCAG 1.4.3 — ≥4.5:1 on light surfaces (see theme/tokens.ts light.textDim). */
-  --text-dim: #5b6270;
-  --accent: #2563eb;
-  --accent-text: #ffffff;
-  --danger: #b91c1c;
-  --success: #15803d;
-  color-scheme: light dark;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #16181d;
-    --bg-alt: #1e2127;
-    --bg-sink: #12141a;
-    --border: #2c3038;
-    --text: #e6e8eb;
-    --text-dim: #9aa1ab;
-    --accent: #3b82f6;
-    --accent-text: #ffffff;
-    --danger: #f87171;
-    --success: #4ade80;
-  }
+  color-scheme: dark;
 }
 
 * {
@@ -41,13 +22,10 @@ body,
   margin: 0;
 }
 
+/* Font family and line height come from themes.css.ts (the Jost token and the
+ * pinned 1.2). The size stays fixed at 14px as before: the density font sizes
+ * on the token would make "relaxed" text bigger. */
 body {
-  font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    Roboto,
-    sans-serif;
   background: var(--bg);
   color: var(--text);
   font-size: 14px;
@@ -61,26 +39,50 @@ body {
 }
 
 /* ── Buttons / fields ─────────────────────────────────────────── */
+/* Square, flat and outlined (t32 §2.4). Borders went from 1px to the 2px rule,
+ * so each padding gives back 1px and no button grows. Hover lifts a hard
+ * shadow, which changes no box; focus is the global outline. */
 .btn {
-  border: 1px solid transparent;
-  border-radius: 6px;
-  padding: 0.5rem 0.9rem;
+  border: var(--border-rule) solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: calc(0.5rem - 1px) calc(0.9rem - 1px);
   font: inherit;
+  font-weight: var(--weight-medium);
   cursor: pointer;
-  background: var(--bg-alt);
+  background: transparent;
   color: var(--text);
 }
+.btn:hover:not(:disabled) {
+  box-shadow: var(--elevation-1);
+}
+.btn:active:not(:disabled) {
+  box-shadow: none;
+}
+/* Not colour alone: a disabled button also has a dashed border. */
 .btn:disabled {
   opacity: 0.6;
   cursor: default;
+  border-style: dashed;
 }
 .btn--primary {
   background: var(--accent);
+  border-color: var(--accent);
   color: var(--accent-text);
 }
+/* Ghost buttons invert on hover instead of casting a shadow. */
 .btn--ghost {
   background: transparent;
-  border-color: var(--border);
+  border-color: var(--border-strong);
+}
+.btn--ghost:hover:not(:disabled) {
+  background: var(--text);
+  color: var(--bg);
+  box-shadow: none;
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--accent);
 }
 
 .field {
@@ -89,18 +91,27 @@ body {
   gap: 0.3rem;
   margin-bottom: 0.8rem;
 }
+/* Field label: small, uppercase, tracked (0 for ar/ja/zh via the token). */
 .field > span {
   font-size: 0.8rem;
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
   color: var(--text-dim);
 }
 .field input,
 .field textarea {
   font: inherit;
-  padding: 0.5rem 0.6rem;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
+  padding: calc(0.5rem - 1px) calc(0.6rem - 1px);
+  border: var(--border-rule) solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-sink);
   color: var(--text);
+}
+/* A light page puts fields on the brighter surface instead of the sink. */
+:root[data-appearance='light'] .field input,
+:root[data-appearance='light'] .field textarea {
+  background: var(--surface);
 }
 .field--grow {
   flex: 1;
