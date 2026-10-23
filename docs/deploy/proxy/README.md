@@ -35,11 +35,14 @@ a run on a CI runner.
 
 **Updated in 26.19.** This table used to say "intended" in both columns, which
 was the honest word when the directory was written and had stopped being honest
-once the cells were actually booted. Every tier-1 cell has now been started and
-had the conformance suite run through it — on a **developer host with Docker,
-not on a CI runner.** `.github/workflows/proxy-conformance.yml` is committed and
-correctly shaped, and at the time of writing has not been observed to complete a
-run, so **"passes in CI" is still not a thing anyone may say.**
+once the cells were actually booted. Every cell has since had the conformance
+suite run through it on a developer host with Docker, and on a CI runner:
+`.github/workflows/proxy-conformance.yml` run 38312068826 (2026-10-12, `b889b9d`)
+completed with all seven cells and the tier-1 gate green. That run came before
+the strict CSRF test (`a_write_without_the_csrf_token_is_refused`) and the strict
+compose setting existed. The strict suite has so far passed only on a developer
+host (the table above); until a CI run of it is green, **do not write that the
+strict suite passes in CI.**
 
 Booting them found six real defects, two of which meant a cell could not start
 at all (`apache` was missing a `LoadModule`; `haproxy-l4` inherited the image's
