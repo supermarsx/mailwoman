@@ -216,6 +216,9 @@ jobs:
             libayatana-appindicator3-dev librsvg2-dev libssl-dev patchelf
       - name: build thin + self-contained shell + §16 size gate (unsigned)
         shell: bash
+        # A size check only: built without a server address (docs/deploy/shells.md).
+        env:
+          MW_SHELL_NO_SERVER_URL: '1'
         run: |
           if [ "$RUNNER_OS" = "Windows" ]; then pwsh scripts/build-shells.ps1; else bash scripts/build-shells.sh; fi
 
