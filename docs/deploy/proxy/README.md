@@ -22,7 +22,7 @@ conformance suite through it.
 | `haproxy-l7` | `haproxy:3.0-alpine` | 1 | yes | 11 of 13 run and pass, 2 skip by design |
 | `haproxy-l4` | `haproxy:3.0-alpine` | 1 | yes | 11 of 13 run and pass, 2 skip by design |
 | `traefik` | `traefik:v3.3` | 1 | yes | 11 of 13 run and pass, 2 skip by design |
-| `envoy` | `envoyproxy/envoy:v1.32` | 2 | yes, non-blocking — not part of the tier-1 gate; a red envoy cell does not fail it | 12 of 13 run and pass, the sub-path test skips; no CI runner has run the cell yet |
+| `envoy` | `envoyproxy/envoy:v1.32` | 2 | yes, non-blocking — not part of the tier-1 gate; a red envoy cell does not fail it | 12 of 13 run and pass, the sub-path test skips. On a CI runner: run 38312068826 (2026-10-12, `b889b9d`, before the strict test existed) passed the cell, 11 of 12 run, the sub-path test skipped |
 | `iis` | — | 2 | **cannot be** | never; see `iis/README.md` |
 
 The last column is a run of every cell on a developer host with Docker on
