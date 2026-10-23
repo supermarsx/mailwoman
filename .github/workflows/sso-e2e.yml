@@ -117,6 +117,12 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Start the standing SSO-seeded mw-server (:8090)
+        # Strict CSRF, the `deploy.sh` default. The browser specs below pass only
+        # if the web client sends the token after an SSO sign-in. They do not check
+        # that the server is strict, so the last lines here do: a write without
+        # the token must be refused.
+        env:
+          MW_CSRF_STRICT: "true"
         run: |
           ./target/debug/mailwoman serve \
             --db-path "$SSO_DB" --server-key "$MW_SERVER_KEY" \
@@ -125,6 +131,9 @@ jobs:
             curl -sf http://localhost:8090/api/sso/providers && break || sleep 1
           done
           echo; echo "providers advertised:"; curl -s http://localhost:8090/api/sso/providers
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:8090/api/logout)
+          echo "POST /api/logout without X-CSRF-Token: $code (403 expected)"
+          test "$code" = 403
 
       - name: Write the SSO Playwright config
         working-directory: apps/web

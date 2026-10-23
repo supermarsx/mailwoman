@@ -1780,6 +1780,9 @@ jobs:
           MW_ADMIN_USER: "root"
           MW_ADMIN_PASSWORD: "hunter2"
           MW_COOKIE_SECURE: "false"
+          # Strict CSRF, the `deploy.sh` default; `csrf-strict.spec.ts` in the
+          # Playwright project below checks it.
+          MW_CSRF_STRICT: "true"
           MW_WEB_DIR: "apps/web/dist"
           RUST_LOG: "info"
         run: |
@@ -2397,6 +2400,9 @@ jobs:
           MW_ADMIN_USER: "root"
           MW_ADMIN_PASSWORD: "hunter2"
           MW_COOKIE_SECURE: "false"
+          # Strict CSRF, the `deploy.sh` default; `csrf-strict.spec.ts` in the
+          # Playwright project below checks it.
+          MW_CSRF_STRICT: "true"
           MW_WEB_DIR: "apps/web/dist"
           # The committed first-party components. A release build looks for them
           # in MW_PLUGIN_DIR, <exe-dir>/plugins and /usr/lib/mailwoman/plugins;

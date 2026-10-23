@@ -69,6 +69,8 @@ services:
       # perf.yml. Add the stalwart profile's `http://stalwart:8080` here too if a
       # cell ever proxies to it.
       MW_JMAP_UPSTREAMS: "http://mock:8181"
+      # Strict CSRF, the `deploy.sh` default; `apps/web/e2e/csrf-strict.spec.ts` checks it.
+      MW_CSRF_STRICT: "true"
       RUST_LOG: "info"
     ports:
       - "8080:8080"
@@ -239,6 +241,8 @@ services:
       # Fixed dev key so sessions survive restarts. DEV ONLY — never reuse.
       MW_SERVER_KEY: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
       MW_COOKIE_SECURE: "false"
+      # Strict CSRF, the `deploy.sh` default; `apps/web/e2e/csrf-strict.spec.ts` checks it.
+      MW_CSRF_STRICT: "true"
       RUST_LOG: "info"
     ports:
       - "8090:8080"
