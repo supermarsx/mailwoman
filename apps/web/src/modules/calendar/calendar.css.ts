@@ -2,9 +2,35 @@
 // design tokens). New module → references `vars.*` directly (same posture as the
 // V2 Ribbon). Dynamic geometry (event block top/height, grid column counts) is
 // applied inline by the views; everything static lives here.
+//
+// t32 (flat, square, never bigger): 2px control and panel rules in
+// `borderStrong` with 1px less padding wherever a border got thicker, 1px grid
+// lines, focus as an outline, today as a yellow `signal` block. Event colours
+// are the user's (inline) and are not touched.
 
 import { globalStyle, style, styleVariants } from '@vanilla-extract/css';
 import { vars } from '../../theme/contract.css.ts';
+
+/** Ink on a user-chosen event colour. The colour is user data with no theme
+ *  counterpart, so the ink is fixed rather than a token (unchanged by t32). */
+const userColourInk = '#fff';
+
+/** The focus outline (forced-colours mode keeps outlines and drops box-shadows). */
+const focusOutline = { outline: `${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`, outlineOffset: '2px' };
+
+/** The same outline drawn inside the box, for grid cells whose neighbours or
+ *  scrolling parent would cover an outer one. */
+const focusOutlineInset = {
+  outline: `${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`,
+  outlineOffset: `calc(-1 * ${vars.a11y.focusRingWidth})`,
+};
+
+/** Small tracked capitals for headers and labels (t32 P5); the tracking token
+ *  is 0 for ar/ja/zh. */
+const caps = { textTransform: 'uppercase', letterSpacing: vars.tracking.label, fontWeight: vars.weight.bold } as const;
+
+const hair = `${vars.border.hair} solid ${vars.color.border}`;
+const rule = `${vars.border.rule} solid ${vars.color.borderStrong}`;
 
 export const module = style({
   display: 'flex',
@@ -20,8 +46,12 @@ export const toolbar = style({
   display: 'flex',
   alignItems: 'center',
   gap: vars.space[3],
+  // The rule under the toolbar is 1px thicker than before. The padding does not
+  // give it back: each wrapped line of controls is 1px shorter with the pinned
+  // 1.2 line height (25 -> 24px), so the toolbar is no taller with one line and
+  // 1px shorter with two, and the calendar below it does not gain height.
   padding: `${vars.space[2]} ${vars.space[3]}`,
-  borderBottom: `1px solid ${vars.color.border}`,
+  borderBlockEnd: rule,
   flexWrap: 'wrap',
 });
 
@@ -41,7 +71,7 @@ export const srOnly = style({
 
 export const title = style({
   fontSize: '1.1rem',
-  fontWeight: 600,
+  fontWeight: vars.weight.heavy,
   minWidth: '10ch',
 });
 
@@ -49,33 +79,66 @@ export const spacer = style({ flex: 1 });
 
 export const button = style({
   appearance: 'none',
-  border: `1px solid ${vars.color.border}`,
-  background: vars.color.surface,
+  border: rule,
+  background: 'transparent',
   color: vars.color.text,
   borderRadius: vars.radius.md,
-  padding: `${vars.space[1]} ${vars.space[2]}`,
+  padding: `calc(${vars.space[1]} - 1px) calc(${vars.space[2]} - 1px)`,
   // WCAG 2.2 §2.5.8 — interactive controls are at least 24×24 CSS px.
   minHeight: vars.a11y.touchTarget,
   minWidth: vars.a11y.touchTarget,
   cursor: 'pointer',
   font: 'inherit',
-  transitionProperty: 'background',
+  transitionProperty: 'background, color',
   transitionDuration: vars.a11y.motionDuration,
   selectors: {
-    '&:hover': { background: vars.color.bgAlt },
-    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+    // Hover lifts a hard shadow, which changes no box.
+    '&:hover': { background: vars.color.bgAlt, boxShadow: vars.elevation[1] },
+    '&:active': { boxShadow: 'none' },
+    '&:focus-visible': focusOutline,
+    // Not colour alone: a disabled button also has a dashed border.
+    '&:disabled': { opacity: 0.6, cursor: 'default', borderStyle: 'dashed', boxShadow: 'none' },
   },
 });
 
-export const primaryButton = style([button, { background: vars.color.accent, color: vars.color.accentText, borderColor: vars.color.accent }]);
+export const primaryButton = style([
+  button,
+  {
+    background: vars.color.accent,
+    color: vars.color.accentText,
+    borderColor: vars.color.accent,
+    selectors: { '&:hover': { background: vars.color.accent } },
+  },
+]);
 
-export const conflictButton = style([button, { background: vars.color.danger, color: '#fff', borderColor: vars.color.danger }]);
+export const conflictButton = style([
+  button,
+  {
+    background: vars.color.danger,
+    color: vars.color.accentText,
+    borderColor: vars.color.danger,
+    selectors: { '&:hover': { background: vars.color.danger } },
+  },
+]);
 
 export const viewSwitch = style({ display: 'flex', gap: vars.space[1], flexWrap: 'wrap' });
 
+// The active view is an accent fill with a 3px bar along its bottom edge (an
+// inset shadow, so no box changes); the bar stays on hover.
+const activeBar = `inset 0 -3px 0 ${vars.color.accentText}`;
+
 export const viewButton = styleVariants({
   base: [button],
-  active: [button, { background: vars.color.accent, color: vars.color.accentText, borderColor: vars.color.accent }],
+  active: [
+    button,
+    {
+      background: vars.color.accent,
+      color: vars.color.accentText,
+      borderColor: vars.color.accent,
+      boxShadow: activeBar,
+      selectors: { '&:hover': { background: vars.color.accent, boxShadow: activeBar } },
+    },
+  ],
 });
 
 export const body = style({ display: 'flex', flex: 1, minHeight: 0 });
@@ -83,8 +146,9 @@ export const body = style({ display: 'flex', flex: 1, minHeight: 0 });
 export const sidebar = style({
   width: '15rem',
   flexShrink: 0,
-  borderInlineEnd: `1px solid ${vars.color.border}`,
+  borderInlineEnd: rule,
   padding: vars.space[3],
+  paddingInlineEnd: `calc(${vars.space[3]} - 1px)`,
   overflowY: 'auto',
   display: 'flex',
   flexDirection: 'column',
@@ -94,8 +158,8 @@ export const sidebar = style({
 /** The `<h3>` heading above each sidebar group. A class rather than an inline
  *  `style={{…}}`: a fully-static style object is hoisted by Solid's compiler into
  *  the template as a literal `style="…"` attribute, which the shell's
- *  `style-src 'self'` blocks (t24-e13). */
-export const sideHeading = style({ margin: '0 0 0.25rem', fontSize: '0.85rem' });
+ *  `style-src 'self'` blocks (t24-e13). Tracked capitals one step smaller. */
+export const sideHeading = style({ margin: '0 0 0.25rem', fontSize: '0.75rem', ...caps, color: vars.color.textDim });
 
 export const calList = style({ display: 'flex', flexDirection: 'column', gap: vars.space[1], listStyle: 'none', margin: 0, padding: 0 });
 
@@ -112,21 +176,36 @@ export const timeGrid = style({ display: 'grid', gridTemplateColumns: 'auto 1fr'
 export const allDayRow = style({
   display: 'grid',
   gridTemplateColumns: 'auto 1fr',
-  borderBottom: `1px solid ${vars.color.border}`,
+  borderBlockEnd: hair,
   minHeight: '1.5rem',
 });
 
 export const gutter = style({ width: '3.5rem', flexShrink: 0, color: vars.color.textDim, fontSize: '0.75rem' });
 
-export const hourCell = style({ height: '3rem', borderBottom: `1px solid ${vars.color.border}`, textAlign: 'end', paddingInlineEnd: vars.space[1], boxSizing: 'border-box' });
+export const hourCell = style({ height: '3rem', borderBlockEnd: hair, textAlign: 'end', paddingInlineEnd: vars.space[1], boxSizing: 'border-box' });
 
 export const dayColumns = style({ display: 'grid', position: 'relative' });
 
-export const dayColumn = style({ position: 'relative', borderInlineEnd: `1px solid ${vars.color.border}` });
+export const dayColumn = style({ position: 'relative', borderInlineEnd: hair });
 
-export const dayHeader = style({ position: 'sticky', top: 0, textAlign: 'center', padding: vars.space[1], borderBottom: `1px solid ${vars.color.border}`, background: vars.color.bgAlt, fontSize: '0.8rem', zIndex: 2 });
+export const dayHeader = style({
+  position: 'sticky',
+  insetBlockStart: 0,
+  textAlign: 'center',
+  padding: vars.space[1],
+  borderBlockEnd: hair,
+  background: vars.color.bgAlt,
+  fontSize: '0.75rem',
+  ...caps,
+  zIndex: 2,
+  selectors: {
+    // Today: a yellow block with dark ink (filled, so it also reads on light packs).
+    '&[aria-current="date"]': { background: vars.color.signal, color: vars.color.signalText },
+    '&:focus-visible': focusOutlineInset,
+  },
+});
 
-export const hourLine = style({ height: '3rem', borderBottom: `1px solid ${vars.color.border}`, boxSizing: 'border-box' });
+export const hourLine = style({ height: '3rem', borderBlockEnd: hair, boxSizing: 'border-box' });
 
 export const eventBlock = style({
   position: 'absolute',
@@ -135,21 +214,22 @@ export const eventBlock = style({
   borderRadius: vars.radius.sm,
   padding: '1px 4px',
   fontSize: '0.72rem',
-  color: '#fff',
+  color: userColourInk,
   overflow: 'hidden',
   cursor: 'pointer',
   boxSizing: 'border-box',
-  selectors: { '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing } },
+  selectors: { '&:focus-visible': focusOutline },
 });
 
 export const allDayChip = style({
   display: 'inline-block',
-  borderRadius: vars.radius.pill,
+  borderRadius: vars.radius.sm,
   padding: '0 6px',
   margin: '1px',
   fontSize: '0.72rem',
-  color: '#fff',
+  color: userColourInk,
   cursor: 'pointer',
+  selectors: { '&:focus-visible': focusOutline },
 });
 
 // ── month / tri-month ────────────────────────────────────────────────────────
@@ -162,12 +242,12 @@ export const monthGridRows = style({ display: 'flex', flexDirection: 'column', f
 
 export const monthRow = style({ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', flex: 1 });
 
-export const weekdayHead = style({ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: `1px solid ${vars.color.border}`, background: vars.color.bgAlt });
+export const weekdayHead = style({ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBlockEnd: hair, background: vars.color.bgAlt });
 
-export const weekdayCell = style({ padding: vars.space[1], textAlign: 'center', fontSize: '0.75rem', color: vars.color.textDim });
+export const weekdayCell = style({ padding: vars.space[1], textAlign: 'center', fontSize: '0.75rem', ...caps, color: vars.color.textDim });
 
 export const monthCell = style({
-  border: `1px solid ${vars.color.border}`,
+  border: hair,
   padding: '2px',
   minHeight: '4.5rem',
   overflow: 'hidden',
@@ -177,8 +257,8 @@ export const monthCell = style({
   cursor: 'pointer',
   selectors: {
     // Roving-tabindex date cell — a clearly visible focus ring for keyboard nav.
-    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing, position: 'relative', zIndex: 1 },
-    '&[aria-selected="true"]': { outline: `2px solid ${vars.color.accent}`, outlineOffset: '-2px' },
+    '&:focus-visible': { ...focusOutlineInset, position: 'relative', zIndex: 1 },
+    '&[aria-selected="true"]': { outline: `${vars.border.rule} solid ${vars.color.accent}`, outlineOffset: `calc(-1 * ${vars.border.rule})` },
   },
 });
 
@@ -186,9 +266,13 @@ export const monthCellOut = style([monthCell, { background: vars.color.bgSink, c
 
 export const dayNum = style({ fontSize: '0.75rem', alignSelf: 'flex-end' });
 
-export const dayNumToday = style([dayNum, { background: vars.color.accent, color: vars.color.accentText, borderRadius: vars.radius.pill, padding: '0 6px' }]);
+// Today: a square yellow block behind the date number with dark ink.
+export const dayNumToday = style([
+  dayNum,
+  { background: vars.color.signal, color: vars.color.signalText, fontWeight: vars.weight.bold, borderRadius: vars.radius.sm, padding: '0 6px' },
+]);
 
-export const monthEvent = style({ fontSize: '0.7rem', borderRadius: vars.radius.sm, padding: '0 3px', color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer', appearance: 'none', border: 'none', textAlign: 'start', selectors: { '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing } } });
+export const monthEvent = style({ fontSize: '0.7rem', borderRadius: vars.radius.sm, padding: '0 3px', color: userColourInk, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer', appearance: 'none', border: 'none', textAlign: 'start', selectors: { '&:focus-visible': focusOutlineInset } });
 
 export const triMonth = style({ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: vars.space[3], padding: vars.space[3] });
 
@@ -198,37 +282,40 @@ export const agenda = style({ display: 'flex', flexDirection: 'column', padding:
 
 export const agendaDay = style({ display: 'flex', flexDirection: 'column', gap: '2px' });
 
-export const agendaDate = style({ fontWeight: 600, borderBottom: `1px solid ${vars.color.border}`, paddingBottom: '2px', marginBottom: '2px' });
+// Day header of the agenda list: tracked capitals over a 2px rule. The rule is
+// 1px thicker than before, so the space under the text gives back 1px.
+export const agendaDate = style({ ...caps, fontSize: '0.8rem', borderBlockEnd: rule, paddingBlockEnd: '1px', marginBlockEnd: '2px' });
 
-export const agendaRow = style({ display: 'flex', gap: vars.space[3], alignItems: 'center', padding: '2px 0', cursor: 'pointer', appearance: 'none', border: 'none', background: 'none', color: 'inherit', font: 'inherit', width: '100%', textAlign: 'start', minHeight: vars.a11y.touchTarget, selectors: { '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing } } });
+export const agendaRow = style({ display: 'flex', gap: vars.space[3], alignItems: 'center', padding: '2px 0', cursor: 'pointer', appearance: 'none', border: 'none', background: 'none', color: 'inherit', font: 'inherit', width: '100%', textAlign: 'start', minHeight: vars.a11y.touchTarget, selectors: { '&:hover': { background: vars.color.bgAlt }, '&:focus-visible': focusOutline } });
 
 export const agendaTime = style({ width: '9rem', flexShrink: 0, color: vars.color.textDim, fontSize: '0.85rem' });
 
-export const agendaDot = style({ width: '0.6rem', height: '0.6rem', borderRadius: '50%', flexShrink: 0 });
+export const agendaDot = style({ width: '0.6rem', height: '0.6rem', borderRadius: vars.radius.pill, flexShrink: 0 });
 
 // ── year ─────────────────────────────────────────────────────────────────────
 
 export const yearGrid = style({ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: vars.space[3], padding: vars.space[3] });
 
-export const miniMonth = style({ border: `1px solid ${vars.color.border}`, borderRadius: vars.radius.md, padding: vars.space[2] });
+export const miniMonth = style({ border: `${vars.border.hair} solid ${vars.color.borderStrong}`, borderRadius: vars.radius.md, padding: vars.space[2] });
 
-export const miniTitle = style({ textAlign: 'center', fontSize: '0.85rem', fontWeight: 600, marginBottom: '2px' });
+export const miniTitle = style({ textAlign: 'center', fontSize: '0.85rem', fontWeight: vars.weight.heavy, marginBlockEnd: '2px' });
 
 export const miniGrid = style({ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '1px' });
 
-export const miniDay = style({ fontSize: '0.65rem', textAlign: 'center', padding: '1px', cursor: 'pointer', borderRadius: vars.radius.sm, appearance: 'none', border: 'none', background: 'none', color: 'inherit', selectors: { '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing } } });
+export const miniDay = style({ fontSize: '0.65rem', textAlign: 'center', padding: '1px', cursor: 'pointer', borderRadius: vars.radius.sm, appearance: 'none', border: 'none', background: 'none', color: 'inherit', selectors: { '&:focus-visible': focusOutlineInset } });
 
-export const miniDayEvent = style([miniDay, { fontWeight: 700, color: vars.color.accent }]);
+export const miniDayEvent = style([miniDay, { fontWeight: vars.weight.bold, color: vars.color.accent }]);
 
-export const miniDayToday = style([miniDay, { background: vars.color.accent, color: vars.color.accentText }]);
+export const miniDayToday = style([miniDay, { background: vars.color.signal, color: vars.color.signalText, fontWeight: vars.weight.bold }]);
 
 // ── conflict badge / participation ──────────────────────────────────────────
 
 export const conflictBadge = style({
   display: 'inline-block',
   background: vars.color.danger,
-  color: '#fff',
-  borderRadius: vars.radius.pill,
+  color: vars.color.accentText,
+  fontWeight: vars.weight.bold,
+  borderRadius: vars.radius.sm,
   fontSize: '0.6rem',
   padding: '0 4px',
   marginInlineStart: '2px',
@@ -246,11 +333,14 @@ export const dialogBackdrop = style({
   zIndex: 50,
 });
 
+// A 2px frame in `borderStrong` (the hard shadow vanishes under forced
+// colours); the padding gives the 2px back so the dialog keeps its size.
 export const dialog = style({
   background: vars.color.surface,
   color: vars.color.text,
+  border: rule,
   borderRadius: vars.radius.lg,
-  padding: vars.space[4],
+  padding: `calc(${vars.space[4]} - ${vars.border.rule})`,
   width: 'min(32rem, 92vw)',
   maxHeight: '90vh',
   overflowY: 'auto',
@@ -262,21 +352,28 @@ export const dialog = style({
 
 export const field = style({ display: 'flex', flexDirection: 'column', gap: vars.space[1] });
 
-export const label = style({ fontSize: '0.8rem', color: vars.color.textDim });
+export const label = style({ fontSize: '0.8rem', ...caps, color: vars.color.textDim });
 
 export const input = style({
-  border: `1px solid ${vars.color.border}`,
-  background: vars.color.bg,
+  border: rule,
+  background: vars.color.bgSink,
   color: vars.color.text,
   borderRadius: vars.radius.md,
-  padding: `${vars.space[1]} ${vars.space[2]}`,
+  padding: `calc(${vars.space[1]} - 1px) calc(${vars.space[2]} - 1px)`,
+  // The pinned 1.2 line height made these fields 22.8px; they keep the 24px
+  // target floor like the buttons next to them.
+  minHeight: vars.a11y.touchTarget,
   font: 'inherit',
-  selectors: { '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing } },
+  selectors: {
+    // A light page puts fields on the brighter surface instead of the sink.
+    ':root[data-appearance="light"] &': { background: vars.color.surface },
+    '&:focus-visible': focusOutline,
+  },
 });
 
 export const row = style({ display: 'flex', gap: vars.space[2], alignItems: 'center', flexWrap: 'wrap' });
 
-export const dialogActions = style({ display: 'flex', gap: vars.space[2], justifyContent: 'flex-end', marginTop: vars.space[2] });
+export const dialogActions = style({ display: 'flex', gap: vars.space[2], justifyContent: 'flex-end', marginBlockStart: vars.space[2] });
 
 export const inviteBar = style({
   display: 'flex',
@@ -292,8 +389,8 @@ export const chip = style({
   display: 'inline-flex',
   alignItems: 'center',
   gap: vars.space[1],
-  borderRadius: vars.radius.pill,
-  border: `1px solid ${vars.color.border}`,
+  borderRadius: vars.radius.sm,
+  border: hair,
   padding: '0 8px',
   fontSize: '0.8rem',
 });
@@ -306,19 +403,20 @@ export const dimText = style({ color: vars.color.textDim, fontSize: '0.85rem' })
 export const schedule = style({ display: 'flex', flexDirection: 'column', padding: vars.space[3], gap: '2px' });
 
 export const scheduleDay = style({
-  fontWeight: 600,
-  fontSize: '0.9rem',
+  ...caps,
+  fontSize: '0.8rem',
   padding: `${vars.space[2]} 0 ${vars.space[1]}`,
-  borderBottom: `2px solid ${vars.color.border}`,
-  marginTop: vars.space[2],
+  borderBlockEnd: rule,
+  marginBlockStart: vars.space[2],
 });
 
 export const scheduleGap = style({
   color: vars.color.textDim,
   fontSize: '0.75rem',
   fontStyle: 'italic',
-  padding: '1px 0 1px 9rem',
-  borderInlineStart: `2px dashed ${vars.color.border}`,
+  paddingBlock: '1px',
+  paddingInline: '9rem 0',
+  borderInlineStart: `${vars.border.rule} dashed ${vars.color.border}`,
   marginInlineStart: '4.4rem',
 });
 
@@ -339,13 +437,13 @@ export const scheduleRow = style({
   minHeight: vars.a11y.touchTarget,
   selectors: {
     '&:hover': { background: vars.color.bgAlt, borderColor: vars.color.border },
-    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+    '&:focus-visible': focusOutline,
   },
 });
 
 export const scheduleRange = style({ width: '9rem', flexShrink: 0, color: vars.color.textDim, fontSize: '0.85rem', fontVariantNumeric: 'tabular-nums' });
 
-export const scheduleDot = style({ width: '0.6rem', height: '0.6rem', borderRadius: '50%', flexShrink: 0 });
+export const scheduleDot = style({ width: '0.6rem', height: '0.6rem', borderRadius: vars.radius.pill, flexShrink: 0 });
 
 export const scheduleTitle = style({ fontWeight: 500 });
 
@@ -357,11 +455,14 @@ export const attendeeRow = style({ display: 'flex', alignItems: 'center', gap: v
 
 export const attendeeEmail = style({ flex: 1, minWidth: '8rem', fontSize: '0.85rem' });
 
+// Reply status badge: square, always carries its text; tracked capitals one
+// step smaller so the wider capitals do not lengthen the row.
 export const attendeeStatus = style({
-  fontSize: '0.7rem',
-  borderRadius: vars.radius.pill,
+  fontSize: '0.65rem',
+  ...caps,
+  borderRadius: vars.radius.sm,
   padding: '0 6px',
-  border: `1px solid ${vars.color.border}`,
+  border: hair,
   color: vars.color.textDim,
   whiteSpace: 'nowrap',
 });
@@ -378,13 +479,13 @@ export const resolverGridTwo = style({
 });
 
 export const resolverSide = style({
-  border: `1px solid ${vars.color.border}`,
+  border: rule,
   borderRadius: vars.radius.md,
-  padding: vars.space[2],
+  padding: `calc(${vars.space[2]} - 1px)`,
   minWidth: 0,
 });
 
-export const resolverSideTitle = style({ margin: `0 0 ${vars.space[1]}`, fontSize: '0.95rem', overflowWrap: 'anywhere' });
+export const resolverSideTitle = style({ margin: `0 0 ${vars.space[1]}`, fontSize: '0.95rem', fontWeight: vars.weight.heavy, overflowWrap: 'anywhere' });
 
 export const resolverMeta = style({
   display: 'grid',
@@ -396,24 +497,24 @@ export const resolverMeta = style({
 globalStyle(`${resolverMeta} dt`, { color: vars.color.textDim });
 globalStyle(`${resolverMeta} dd`, { margin: 0, overflowWrap: 'anywhere' });
 
-export const resolverActions = style({ display: 'flex', gap: vars.space[2], flexWrap: 'wrap', marginTop: vars.space[2] });
+export const resolverActions = style({ display: 'flex', gap: vars.space[2], flexWrap: 'wrap', marginBlockStart: vars.space[2] });
 
 // ── free/busy grid ──────────────────────────────────────────────────────────
 
-export const fbScroll = style({ overflowX: 'auto', border: `1px solid ${vars.color.border}`, borderRadius: vars.radius.md });
+export const fbScroll = style({ overflowX: 'auto', border: `${vars.border.hair} solid ${vars.color.borderStrong}`, borderRadius: vars.radius.md });
 
 export const fbGrid = style({ borderCollapse: 'collapse', fontSize: '0.7rem', width: '100%' });
 
-export const fbCorner = style({ textAlign: 'start', padding: '2px 6px', position: 'sticky', insetInlineStart: 0, background: vars.color.surface, color: vars.color.textDim, fontWeight: 600 });
+export const fbCorner = style({ textAlign: 'start', padding: '2px 6px', position: 'sticky', insetInlineStart: 0, background: vars.color.surface, color: vars.color.textDim, ...caps });
 
-export const fbHead = style({ padding: '2px 4px', color: vars.color.textDim, fontWeight: 500, textAlign: 'center', fontVariantNumeric: 'tabular-nums' });
+export const fbHead = style({ padding: '2px 4px', color: vars.color.textDim, fontWeight: vars.weight.bold, textAlign: 'center', fontVariantNumeric: 'tabular-nums' });
 
 export const fbRowHead = style({ textAlign: 'start', padding: '2px 6px', position: 'sticky', insetInlineStart: 0, background: vars.color.surface, whiteSpace: 'nowrap', maxWidth: '10rem', overflow: 'hidden', textOverflow: 'ellipsis' });
 
-const fbCellBase = style({ textAlign: 'center', border: `1px solid ${vars.color.border}`, minWidth: '1.4rem', height: '1.4rem', color: vars.color.text });
+const fbCellBase = style({ textAlign: 'center', border: hair, minWidth: '1.4rem', height: '1.4rem', color: vars.color.text });
 
 export const fbCell = styleVariants({
   free: [fbCellBase, { background: vars.color.bg }],
-  busy: [fbCellBase, { background: vars.color.danger, color: '#fff' }],
+  busy: [fbCellBase, { background: vars.color.danger, color: vars.color.accentText }],
   tentative: [fbCellBase, { background: vars.color.bgAlt }],
 });

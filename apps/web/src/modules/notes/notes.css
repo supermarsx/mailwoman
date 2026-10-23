@@ -1,7 +1,12 @@
-/* Notes module styling (plan §3 e6). Themed entirely off the V2 design tokens
-   declared in styles/app.css (--bg / --bg-alt / --border / --text / --accent …)
-   so it tracks light + dark automatically and never hard-codes a chrome color.
-   Note swatch/color values are user data (NOTE_COLORS), rendered inline. */
+/* Notes module styling (plan §3 e6). Themed entirely off the plain-CSS bridge
+   that theme/themes.css.ts emits (--bg / --bg-alt / --border / --border-strong
+   / --text / --accent / --border-rule …) so it tracks every theme and never
+   hard-codes a chrome color. Note swatch/color values are user data
+   (NOTE_COLORS), rendered inline.
+
+   t32 (flat, square, never bigger): 2px control and panel rules in
+   --border-strong with 1px less padding wherever a border got thicker, focus
+   as an outline, the selected note marked by a 4px bar. */
 
 .notes {
   display: grid;
@@ -12,28 +17,41 @@
   color: var(--text);
 }
 
+/* Form controls take the UI face instead of the browser's control font. The
+   size stays the browser's (13.33px; the title field sets its own), and the
+   line height is pinned at 1.15, the line box these controls had with the
+   system face, because Jost's own `normal` is about 1.45 and would make every
+   button and field taller. */
+.notes button,
+.notes input,
+.notes select {
+  font-family: inherit;
+  line-height: 1.15;
+}
+
 /* ── List pane ─────────────────────────────────────────────────────────── */
 
 .notes__list {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-inline-end: 1px solid var(--border);
+  border-inline-end: var(--border-rule) solid var(--border-strong);
   background: var(--bg-alt);
 }
 
+/* The rule under the toolbar is 1px thicker; the bottom padding gives it back. */
 .notes__toolbar {
   display: flex;
   gap: 8px;
-  padding: 10px;
-  border-bottom: 1px solid var(--border);
+  padding: 10px 10px 9px;
+  border-block-end: var(--border-rule) solid var(--border-strong);
 }
 
 .notes__new {
   flex: 0 0 auto;
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  padding: 5px 9px;
+  border: var(--border-rule) solid var(--accent);
+  border-radius: var(--radius-md);
   background: var(--accent);
   color: var(--accent-text);
   cursor: pointer;
@@ -43,10 +61,10 @@
 .notes__search {
   flex: 1 1 auto;
   min-width: 0;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
+  padding: 5px 7px;
+  border: var(--border-rule) solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-sink);
   color: var(--text);
 }
 
@@ -55,13 +73,13 @@
   flex-wrap: wrap;
   gap: 6px;
   padding: 8px 10px;
-  border-bottom: 1px solid var(--border);
+  border-block-end: var(--border-hair) solid var(--border);
 }
 
 .notes__tagchip {
   padding: 2px 8px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
+  border: var(--border-hair) solid var(--border-strong);
+  border-radius: var(--radius-sm);
   background: var(--bg);
   color: var(--text-dim);
   cursor: pointer;
@@ -89,21 +107,33 @@
   width: 100%;
   padding: 10px;
   border: 0;
-  border-bottom: 1px solid var(--border);
+  border-block-end: var(--border-hair) solid var(--border);
   background: transparent;
   color: inherit;
   text-align: start;
   cursor: pointer;
 }
 
-.notes__item--selected {
+.notes__item:hover {
+  background: var(--bg);
+}
+
+/* Not colour alone: the selected note also has a 4px inset bar on its
+   inline-start edge (a shadow, so no box changes). */
+.notes__item--selected,
+.notes__item--selected:hover {
   background: var(--bg-sink);
+  box-shadow: inset 4px 0 0 var(--accent);
+}
+
+[dir='rtl'] .notes__item--selected {
+  box-shadow: inset -4px 0 0 var(--accent);
 }
 
 .notes__swatch {
   flex: 0 0 auto;
   width: 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   align-self: stretch;
 }
 
@@ -133,7 +163,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-top: 2px;
+  margin-block-start: 2px;
 }
 
 .notes__tag {
@@ -174,10 +204,10 @@
 .notes__title-input {
   flex: 1 1 auto;
   min-width: 0;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
+  padding: 7px 9px;
+  border: var(--border-rule) solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-sink);
   color: var(--text);
   font-size: 18px;
   font-weight: 600;
@@ -186,11 +216,19 @@
 .notes__pin-btn,
 .notes__delete {
   flex: 0 0 auto;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
+  padding: 5px 7px;
+  border: var(--border-rule) solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text);
   cursor: pointer;
+}
+
+/* Ghost buttons invert on hover. */
+.notes__pin-btn:hover,
+.notes__delete:hover {
+  background: var(--text);
+  color: var(--bg);
 }
 
 .notes__colors {
@@ -199,11 +237,12 @@
   gap: 6px;
 }
 
+/* Colour swatches stay circles (user colours; the one round shape kept). */
 .notes__color {
   width: 22px;
   height: 22px;
   border: 2px solid transparent;
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
   cursor: pointer;
 }
 
@@ -223,8 +262,8 @@
   align-items: center;
   gap: 4px;
   padding: 2px 6px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
+  border: var(--border-hair) solid var(--border-strong);
+  border-radius: var(--radius-sm);
   font-size: 12px;
 }
 
@@ -237,23 +276,37 @@
   line-height: 1;
 }
 
+/* 1.2 rather than the 1.15 above: at 12px the shorter line box would drop the
+   field below the 20px it had. */
 .notes__tag-add input {
   width: 80px;
-  padding: 2px 6px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg);
+  padding: 1px 5px;
+  line-height: var(--line-height-ui);
+  border: var(--border-rule) solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sink);
   color: var(--text);
   font-size: 12px;
 }
 
+/* A light page puts fields on the brighter surface instead of the sink. */
+:root[data-appearance='light'] .notes__search,
+:root[data-appearance='light'] .notes__title-input,
+:root[data-appearance='light'] .notes__tag-add input,
+:root[data-appearance='light'] .note-linkpicker__type,
+:root[data-appearance='light'] .note-linkpicker__id {
+  background: var(--surface);
+}
+
 /* ── Editor ────────────────────────────────────────────────────────────── */
 
+/* The frame keeps its 1px width (the editor has a fixed minimum height and no
+   padding of its own to give back) and takes the control border colour. */
 .note-editor {
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: var(--border-hair) solid var(--border-strong);
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
@@ -262,7 +315,7 @@
   flex-wrap: wrap;
   gap: 2px;
   padding: 6px;
-  border-bottom: 1px solid var(--border);
+  border-block-end: var(--border-hair) solid var(--border);
   background: var(--bg-alt);
 }
 
@@ -270,7 +323,7 @@
   min-width: 28px;
   padding: 4px 6px;
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text);
   cursor: pointer;
@@ -278,7 +331,7 @@
 }
 
 .note-editor__btn:hover {
-  border-color: var(--border);
+  border-color: var(--border-strong);
   background: var(--bg);
 }
 
@@ -291,15 +344,22 @@
   overflow-y: auto;
 }
 
-.note-editor__surface:focus {
-  box-shadow: inset 0 0 0 2px var(--accent);
+/* Drawn inside the box: the editor frame clips anything outside it. The extra
+   class outranks the module-wide :focus-visible rule below. */
+.note-editor .note-editor__surface:focus {
+  outline: var(--focus-ring-width) solid var(--focus);
+  outline-offset: calc(-1 * var(--focus-ring-width));
 }
 
 /* ── Links ─────────────────────────────────────────────────────────────── */
 
+/* Section header: small tracked capitals one step smaller. */
 .notes__links-head {
   margin: 0 0 6px;
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
   color: var(--text-dim);
 }
 
@@ -317,8 +377,8 @@
   gap: 6px;
   align-items: center;
   padding: 4px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: var(--border-hair) solid var(--border);
+  border-radius: var(--radius-sm);
   font-size: 13px;
 }
 
@@ -337,10 +397,10 @@
 
 .note-linkpicker__type,
 .note-linkpicker__id {
-  padding: 4px 6px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
+  padding: 3px 5px;
+  border: var(--border-rule) solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sink);
   color: var(--text);
 }
 
@@ -350,27 +410,29 @@
 }
 
 .note-linkpicker__add {
-  padding: 4px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  padding: 3px 9px;
+  border: var(--border-rule) solid var(--accent);
+  border-radius: var(--radius-sm);
   background: var(--accent);
   color: var(--accent-text);
   cursor: pointer;
 }
 
+/* Not colour alone: a disabled button also has a dashed border. */
 .note-linkpicker__add:disabled {
   opacity: 0.5;
   cursor: default;
+  border-style: dashed;
 }
 
 /* ── Accessibility: visible focus + WCAG 2.2 touch targets ─────────────────
-   Plain-CSS module (not vanilla-extract), so the shared focus ring is
-   approximated with the themed --accent token. */
+   Plain-CSS module (not vanilla-extract): the shared outline ring through the
+   bridge names (--focus-ring-width, --focus). */
 .notes :focus-visible,
 .note-editor :focus-visible,
 .note-linkpicker :focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline: var(--focus-ring-width) solid var(--focus);
+  outline-offset: 2px;
 }
 
 .notes__new,

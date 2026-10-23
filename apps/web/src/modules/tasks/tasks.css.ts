@@ -1,8 +1,18 @@
 // Tasks module styles (plan §3 e5). Token-native scoped classes — reuses the V2
 // design-token contract so the module themes with the rest of the shell.
+//
+// t32 (flat, square, never bigger): 2px control and panel rules in
+// `borderStrong` with 1px less padding wherever a border got thicker, focus as
+// an outline, the current list marked by a 4px bar.
 
 import { style } from '@vanilla-extract/css';
 import { vars } from '../../theme/contract.css.ts';
+
+/** The focus outline (forced-colours mode keeps outlines and drops box-shadows). */
+const focusOutline = { outline: `${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`, outlineOffset: '2px' };
+
+const hair = `${vars.border.hair} solid ${vars.color.border}`;
+const rule = `${vars.border.rule} solid ${vars.color.borderStrong}`;
 
 export const layout = style({
   display: 'grid',
@@ -18,15 +28,16 @@ export const sidebar = style({
   display: 'flex',
   flexDirection: 'column',
   gap: vars.space[2],
-  borderInlineEnd: `1px solid ${vars.color.border}`,
-  paddingInlineEnd: vars.space[4],
+  borderInlineEnd: rule,
+  paddingInlineEnd: `calc(${vars.space[4]} - 1px)`,
 });
 
+// Small tracked capitals (t32 P5); the tracking token is 0 for ar/ja/zh.
 export const sidebarHeading = style({
   fontSize: '0.72rem',
-  fontWeight: 700,
+  fontWeight: vars.weight.bold,
   textTransform: 'uppercase',
-  letterSpacing: '0.04em',
+  letterSpacing: vars.tracking.label,
   color: vars.color.textDim,
   margin: `${vars.space[3]} 0 ${vars.space[1]}`,
 });
@@ -46,13 +57,18 @@ export const navButton = style({
   minHeight: vars.a11y.touchTarget,
   cursor: 'pointer',
   selectors: {
+    '&:hover': { background: vars.color.bgAlt },
+    // Not colour alone: the current list also has a 4px inset bar on its
+    // inline-start edge (a shadow, so no box changes) and bold text.
+    // The frame takes the control border colour so the boundary reaches 3:1.
     '&[aria-current="true"]': {
       background: vars.color.selection,
-      borderColor: vars.color.border,
+      borderColor: vars.color.borderStrong,
       fontWeight: 600,
+      boxShadow: `inset 4px 0 0 ${vars.color.accent}`,
     },
-    '&:hover': { background: vars.color.bgAlt },
-    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+    '[dir="rtl"] &[aria-current="true"]': { boxShadow: `inset -4px 0 0 ${vars.color.accent}` },
+    '&:focus-visible': focusOutline,
   },
 });
 
@@ -77,32 +93,43 @@ export const addForm = style({
 
 export const input = style({
   flex: '1 1 auto',
-  padding: `${vars.space[2]} ${vars.space[3]}`,
-  border: `1px solid ${vars.color.border}`,
+  padding: `calc(${vars.space[2]} - 1px) calc(${vars.space[3]} - 1px)`,
+  border: rule,
   borderRadius: vars.radius.md,
-  background: vars.color.surface,
+  background: vars.color.bgSink,
   color: vars.color.text,
   font: 'inherit',
   minHeight: vars.a11y.touchTarget,
-  selectors: { '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing } },
+  selectors: {
+    // A light page puts fields on the brighter surface instead of the sink.
+    ':root[data-appearance="light"] &': { background: vars.color.surface },
+    '&:focus-visible': focusOutline,
+  },
 });
 
 export const button = style({
-  padding: `${vars.space[2]} ${vars.space[4]}`,
-  border: `1px solid ${vars.color.border}`,
+  padding: `calc(${vars.space[2]} - 1px) calc(${vars.space[4]} - 1px)`,
+  border: `${vars.border.rule} solid ${vars.color.accent}`,
   borderRadius: vars.radius.md,
   background: vars.color.accent,
   color: vars.color.accentText,
   font: 'inherit',
   minHeight: vars.a11y.touchTarget,
   cursor: 'pointer',
-  selectors: { '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing } },
+  selectors: {
+    // Hover lifts a hard shadow, which changes no box.
+    '&:hover:not(:disabled)': { boxShadow: vars.elevation[1] },
+    '&:active': { boxShadow: 'none' },
+    '&:focus-visible': focusOutline,
+    // Not colour alone: a disabled button also has a dashed border.
+    '&:disabled': { opacity: 0.6, cursor: 'default', borderStyle: 'dashed' },
+  },
 });
 
 /** The confirm step of a destructive action (delete). */
 export const dangerButton = style([
   button,
-  { background: vars.color.danger, color: '#fff', borderColor: vars.color.danger },
+  { background: vars.color.danger, color: vars.color.accentText, borderColor: vars.color.danger },
 ]);
 
 // WCAG 2.2 §2.5.8 — the complete/reopen checkbox is at least 24×24 CSS px.
@@ -110,6 +137,7 @@ export const checkbox = style({
   width: vars.a11y.touchTarget,
   height: vars.a11y.touchTarget,
   cursor: 'pointer',
+  accentColor: vars.color.accent,
 });
 
 export const taskList = style({
@@ -136,19 +164,20 @@ export const row = style({
   alignItems: 'center',
   gap: vars.space[3],
   padding: `${vars.space[2]} ${vars.space[3]}`,
-  border: `1px solid ${vars.color.border}`,
+  border: hair,
   borderRadius: vars.radius.md,
   background: vars.color.surface,
 });
 
-/** The inline edit form that replaces a row while it is being edited. */
+/** The inline edit form that replaces a row while it is being edited: a panel
+ *  with a 2px frame (the padding gives back the extra 1px). */
 export const editForm = style({
   display: 'flex',
   flexWrap: 'wrap',
   alignItems: 'flex-end',
   gap: vars.space[3],
-  padding: `${vars.space[2]} ${vars.space[3]}`,
-  border: `1px solid ${vars.color.border}`,
+  padding: `calc(${vars.space[2]} - 1px) calc(${vars.space[3]} - 1px)`,
+  border: rule,
   borderRadius: vars.radius.md,
   background: vars.color.surface,
 });
@@ -181,16 +210,17 @@ export const meta = style({
   whiteSpace: 'nowrap',
 });
 
-export const priorityHigh = style({ color: vars.color.danger, fontWeight: 700 });
+export const priorityHigh = style({ color: vars.color.danger, fontWeight: vars.weight.bold });
 
+// Separated from the list by a 2px rule; the top padding gives back the extra 1px.
 export const convert = style({
   display: 'flex',
   flexWrap: 'wrap',
   gap: vars.space[2],
   alignItems: 'center',
-  marginTop: 'auto',
-  paddingTop: vars.space[3],
-  borderTop: `1px solid ${vars.color.border}`,
+  marginBlockStart: 'auto',
+  paddingBlockStart: `calc(${vars.space[3]} - 1px)`,
+  borderBlockStart: rule,
 });
 
 export const empty = style({
