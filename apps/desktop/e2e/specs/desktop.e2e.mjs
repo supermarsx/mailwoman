@@ -49,17 +49,98 @@ async function invoke(command, args = {}) {
   throw new Error(`invoke(${command}) failed: ${result ? result.__err : 'no result'}`);
 }
 
+/** True once the SPA has rendered into #root. */
+async function spaMounted() {
+  return browser.execute(() => {
+    const root = document.getElementById('root');
+    return !!root && root.children.length > 0;
+  });
+}
+
+/**
+ * What the WebView is showing instead of the SPA. CI run 39895491554 committed
+ * `http://tauri.localhost/` as an empty-looking `text/plain` document while a service
+ * worker from an earlier launch was registered; the driver log cannot say who answered.
+ * This records it: the HTTP status and delivery of the navigation (`responseStatus` 400
+ * with no body is wry rejecting the request; 200 is the shell's asset handler), the
+ * document's MIME type and start, and the service worker in control.
+ */
+async function documentState() {
+  return browser.executeAsync((done) => {
+    const nav = performance.getEntriesByType('navigation')[0];
+    const sw = navigator.serviceWorker;
+    const state = {
+      url: location.href,
+      contentType: document.contentType,
+      readyState: document.readyState,
+      title: document.title,
+      rootPresent: !!document.getElementById('root'),
+      html: document.documentElement ? document.documentElement.outerHTML.slice(0, 400) : null,
+      navigation: nav
+        ? {
+            responseStatus: nav.responseStatus,
+            deliveryType: nav.deliveryType,
+            workerStart: nav.workerStart,
+            transferSize: nav.transferSize,
+            encodedBodySize: nav.encodedBodySize,
+            decodedBodySize: nav.decodedBodySize,
+          }
+        : null,
+      serviceWorkerController: sw && sw.controller ? sw.controller.scriptURL : null,
+    };
+    if (!sw) {
+      done(state);
+      return;
+    }
+    sw.getRegistrations().then(
+      (regs) => done({ ...state, serviceWorkerRegistrations: regs.map((r) => r.scope) }),
+      (err) => done({ ...state, serviceWorkerRegistrations: `error: ${err}` }),
+    );
+  });
+}
+
+/**
+ * Separates "the service worker's answer is wrong" from "the shell's answer is wrong":
+ * unregister every worker, reload, and report whether the SPA mounts without one. The
+ * test still fails afterwards; this only prints the result.
+ */
+async function mountsWithoutServiceWorker() {
+  const removed = await browser.executeAsync((done) => {
+    const sw = navigator.serviceWorker;
+    if (!sw) {
+      done(0);
+      return;
+    }
+    sw.getRegistrations()
+      .then((regs) => Promise.all(regs.map((r) => r.unregister())).then(() => regs.length))
+      .then(done, () => done(-1));
+  });
+  if (removed <= 0) return { removed, mounted: null };
+  await browser.execute(() => location.reload());
+  const mounted = await browser
+    .waitUntil(spaMounted, { timeout: 15_000 })
+    .then(() => true, () => false);
+  const after = await documentState().catch((e) => `unavailable: ${e.message}`);
+  return { removed, mounted, after };
+}
+
 describe('Mailwoman desktop shell — live (tauri-driver / WebView2)', () => {
   before(async () => {
     // The SPA mounts into #root; wait for it to render before driving anything.
-    await browser.waitUntil(
-      async () =>
-        browser.execute(() => {
-          const root = document.getElementById('root');
-          return !!root && root.children.length > 0;
-        }),
-      { timeout: 30_000, timeoutMsg: 'SPA did not mount into #root' },
-    );
+    try {
+      await browser.waitUntil(spaMounted, {
+        timeout: 30_000,
+        timeoutMsg: 'SPA did not mount into #root',
+      });
+    } catch (err) {
+      const state = await documentState().catch((e) => `unavailable: ${e.message}`);
+      // eslint-disable-next-line no-console
+      console.log(`[e2e] document instead of the SPA: ${JSON.stringify(state, null, 2)}`);
+      const retry = await mountsWithoutServiceWorker().catch((e) => `unavailable: ${e.message}`);
+      // eslint-disable-next-line no-console
+      console.log(`[e2e] after unregistering service workers: ${JSON.stringify(retry, null, 2)}`);
+      throw err;
+    }
   });
 
   it('boots past the integrity gate, loads the SPA, and injects __MW_CONFIG__', async () => {

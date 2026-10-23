@@ -25,6 +25,8 @@
 // OPTIONAL (Windows; README "When the session does not open"):
 //   MW_E2E_WEBVIEW_USER_DATA_FOLDER  the WebView2 user data folder msedgedriver reads the
 //                                    shell's debug port from, in place of a temporary one.
+//   MW_E2E_DRIVER_PORT               tauri-driver's port (default 4444); the native driver
+//                                    listens on the next one.
 
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -67,6 +69,7 @@ const nativeDriver = process.env.MSEDGEDRIVER;
 // msedgedriver `webviewOptions.userDataFolder`. Unset, the driver creates a temporary
 // folder and hands it to the shell through WEBVIEW2_USER_DATA_FOLDER.
 const webviewUserDataFolder = process.env.MW_E2E_WEBVIEW_USER_DATA_FOLDER;
+const driverPort = Number(process.env.MW_E2E_DRIVER_PORT) || 4444;
 
 // Session-start diagnostics (Windows). `logs/` is git-ignored.
 const verbose = isWin && Boolean(nativeDriver);
@@ -81,6 +84,8 @@ const CRLF = String.fromCharCode(13, 10);
 let tauriDriver;
 let snapshotTimer;
 let snapshot = '';
+// Settles when the snapshot process exits; it can still be running when the run fails.
+let snapshotDone = Promise.resolve();
 
 /**
  * tauri-driver owns the msedgedriver process, so msedgedriver's verbose log is obtained
@@ -103,7 +108,13 @@ function takeSnapshot() {
   );
   ps.stdout.on('data', (chunk) => (snapshot += chunk));
   ps.stderr.on('data', (chunk) => (snapshot += chunk));
-  ps.on('error', (err) => (snapshot += `snapshot failed to start: ${err.message}`));
+  snapshotDone = new Promise((resolve) => {
+    ps.on('error', (err) => {
+      snapshot += `snapshot failed to start: ${err.message}`;
+      resolve();
+    });
+    ps.on('close', resolve);
+  });
 }
 
 /** Print what a failed run recorded about session start. Quiet on a passing run. */
@@ -136,7 +147,7 @@ function printSessionDiagnostics() {
 export const config = {
   runner: 'local',
   hostname: '127.0.0.1',
-  port: 4444,
+  port: driverPort,
   path: '/',
 
   specs: ['./specs/**/*.e2e.mjs'],
@@ -172,7 +183,7 @@ export const config = {
 
   // Spawn tauri-driver once for the run; it manages the app process per session.
   onPrepare() {
-    const args = [];
+    const args = ['--port', String(driverPort), '--native-port', String(driverPort + 1)];
     if (nativeDriver) {
       args.push('--native-driver', verbose ? verboseNativeDriver(nativeDriver) : nativeDriver);
     }
@@ -199,13 +210,16 @@ export const config = {
       process.exit(1);
     });
     if (isWin) snapshotTimer = setTimeout(takeSnapshot, SNAPSHOT_DELAY_MS);
-    // Give tauri-driver a moment to bind :4444 before the session connects.
+    // Give tauri-driver a moment to bind its port before the session connects.
     return new Promise((resolve) => setTimeout(resolve, 2_000));
   },
 
-  onComplete(exitCode) {
+  async onComplete(exitCode) {
     clearTimeout(snapshotTimer);
     if (tauriDriver) tauriDriver.kill();
-    if (isWin && exitCode !== 0) printSessionDiagnostics();
+    if (isWin && exitCode !== 0) {
+      await Promise.race([snapshotDone, new Promise((resolve) => setTimeout(resolve, 30_000))]);
+      printSessionDiagnostics();
+    }
   },
 };
