@@ -191,6 +191,20 @@ pub fn csrf_token_exempt(path: &str) -> bool {
         || path.starts_with("/mcp/")
 }
 
+/// The routes a native shell calls before it holds a bearer token: mailbox sign-in,
+/// its second-factor step, and the mail-server lookup on the sign-in screen.
+/// `state_change_guard` lets a request to one of these through the Origin check
+/// when it comes from a native shell origin
+/// ([`NativeAuthConfig::allows`](crate::push_relay::NativeAuthConfig::allows)) and
+/// carries no session cookie ([`has_auth_cookie`] is false). Each is in
+/// [`csrf_token_exempt`] for the same reason: no session exists yet.
+///
+/// Nothing else belongs here. After sign-in the shell sends its bearer token, and
+/// a bearer-only request needs no exemption.
+pub fn native_signin_route(path: &str) -> bool {
+    path == "/api/login" || path.starts_with("/api/login/2fa") || path == "/api/discover"
+}
+
 /// The cookies that authorise a request on their own: the mailbox session and the
 /// admin session. `mw_csrf` is not one of them — it authorises nothing.
 ///

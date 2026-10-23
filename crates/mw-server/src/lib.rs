@@ -1415,9 +1415,9 @@ fn router(
             state.clone(),
             state_change_guard,
         ))
-        // V5 (plan §2.2): config-gated CORS/preflight for native shell origins. OFF
-        // by default (`MW_NATIVE_ORIGINS` empty) → passes through untouched, so the
-        // browser path emits no `Access-Control-*` headers.
+        // V5 (plan §2.2; t31 D10): CORS/preflight for the native shell origins
+        // (the Tauri origins plus `MW_NATIVE_ORIGINS`). Any other origin passes
+        // through untouched, so the browser path emits no `Access-Control-*` headers.
         .layer(middleware::from_fn_with_state(state.clone(), native_cors))
         // Outermost: security headers on every response (incl. guard rejections).
         .layer(middleware::from_fn_with_state(
@@ -1770,7 +1770,21 @@ async fn state_change_guard(State(state): State<AppState>, req: Request, next: N
         // header switched both checks off).
         let bearer_only = push_relay::bearer_token(req.headers()).is_some()
             && !hardening::has_auth_cookie(req.headers());
-        if !bearer_only {
+        // t31 (D10): a native shell signing in. The webview sends its fixed Tauri
+        // `Origin` (`push_relay::TAURI_ORIGINS`, plus `MW_NATIVE_ORIGINS`) and, before
+        // sign-in, has no bearer token, so the Origin check below would refuse it.
+        // Excused only on the sign-in routes and only with no session cookie, so a
+        // request a cookie authorises is checked exactly as before. A web page
+        // cannot send a Tauri origin (a browser sets `Origin` from the page's own
+        // scheme and host), so this opens nothing to cross-site requests.
+        let native_signin = hardening::native_signin_route(req.uri().path())
+            && !hardening::has_auth_cookie(req.headers())
+            && req
+                .headers()
+                .get(header::ORIGIN)
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|o| state.native_auth.allows(o));
+        if !bearer_only && !native_signin {
             // The URI authority is where HTTP/2 puts `:authority`; hyper does not
             // synthesise a `Host` header for it, and `origin_ok` now refuses a
             // request with neither rather than waving it through (t20 B8).
@@ -1820,46 +1834,47 @@ fn is_sso_idp_callback(path: &str) -> bool {
     !id.is_empty() && matches!(tail, "callback" | "acs")
 }
 
-/// V5 config-gated CORS (plan §2.2). OFF by default (`native_auth` empty): passes
-/// through untouched so browser deployments see NO `Access-Control-*` headers. When
-/// enabled, an allowed `Origin` is echoed back (bearer auth carries no cookies, so
-/// no credentials mode is needed) and preflight `OPTIONS` is answered directly.
+/// CORS for the native shells (plan §2.2; t31 D10). A request whose `Origin` is a
+/// native shell origin (`push_relay::TAURI_ORIGINS`, plus `MW_NATIVE_ORIGINS`) gets
+/// that origin echoed back, and its preflight (`OPTIONS` with
+/// `Access-Control-Request-Method`) is answered here. Every other request passes
+/// through untouched: a browser origin never gets an `Access-Control-*` header, and
+/// a plain `OPTIONS` (CalDAV/CardDAV discovery) reaches the router.
+///
+/// No `Access-Control-Allow-Credentials`: the shells authenticate with a bearer
+/// header and send no cookies, so a cross-origin request can never carry a session
+/// cookie with the browser's consent.
 async fn native_cors(State(state): State<AppState>, req: Request, next: Next) -> Response {
-    if !state.native_auth.is_enabled() {
-        return next.run(req).await;
-    }
     let origin = req
         .headers()
         .get(header::ORIGIN)
         .and_then(|v| v.to_str().ok())
-        .map(str::to_string);
-    let allowed = origin
-        .as_deref()
-        .map(|o| state.native_auth.allows(o))
-        .unwrap_or(false);
-    if req.method() == axum::http::Method::OPTIONS {
+        .filter(|o| state.native_auth.allows(o))
+        .and_then(|o| HeaderValue::from_str(o).ok());
+    let Some(origin) = origin else {
+        return next.run(req).await;
+    };
+    if req.method() == axum::http::Method::OPTIONS
+        && req
+            .headers()
+            .contains_key(header::ACCESS_CONTROL_REQUEST_METHOD)
+    {
         let mut resp = StatusCode::NO_CONTENT.into_response();
-        if allowed {
-            add_cors_headers(resp.headers_mut(), origin.as_deref());
-        }
+        add_cors_headers(resp.headers_mut(), origin);
         return resp;
     }
     let mut resp = next.run(req).await;
-    if allowed {
-        add_cors_headers(resp.headers_mut(), origin.as_deref());
-    }
+    add_cors_headers(resp.headers_mut(), origin);
     resp
 }
 
 /// Emit the `Access-Control-*` headers for an allowed native shell origin.
-fn add_cors_headers(h: &mut HeaderMap, origin: Option<&str>) {
-    if let Some(value) = origin.and_then(|o| HeaderValue::from_str(o).ok()) {
-        h.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, value);
-    }
-    h.insert(header::VARY, HeaderValue::from_static("Origin"));
+fn add_cors_headers(h: &mut HeaderMap, origin: HeaderValue) {
+    h.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
+    h.append(header::VARY, HeaderValue::from_static("Origin"));
     h.insert(
         header::ACCESS_CONTROL_ALLOW_METHODS,
-        HeaderValue::from_static("GET, POST, OPTIONS"),
+        HeaderValue::from_static("GET, POST, PUT, PATCH, DELETE, OPTIONS"),
     );
     h.insert(
         header::ACCESS_CONTROL_ALLOW_HEADERS,
@@ -2338,6 +2353,17 @@ async fn lookup_jmap_srv(domain: &str) -> Option<(String, u16)> {
 }
 
 async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    // A native shell signs out with its bearer token (t31): end that session and
+    // its `native_sessions` marker, or the token keeps working until it times out.
+    // Only a token that is a native session is acted on, as in `authed_native`.
+    if let Some(token) = push_relay::bearer_token(&headers) {
+        let hash = push_relay::hash_token(&token);
+        if let Ok(Some(_)) = state.store.get_native_session(&hash).await {
+            let _ = state.store.delete_session(&token).await;
+            let _ = state.store.delete_native_session(&hash).await;
+            state.sessions.forget(&token);
+        }
+    }
     if let Some(id) = cookie_value(&headers) {
         let _ = state.store.delete_session(&id).await;
         state.sessions.forget(&id);

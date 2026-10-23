@@ -1,16 +1,17 @@
 //! V5 push relay + native bearer-auth (plan §2.2/§2.3/§3 e5).
 //!
-//! Everything here is ADDITIVE and OFF by default — the browser cookie/same-origin
-//! path is byte-identical, and the native bearer / CORS modes only light up when a
-//! client opts in (bearer token) or the operator sets `MW_NATIVE_ORIGINS`.
+//! Everything here is ADDITIVE — the browser cookie/same-origin path is
+//! byte-identical. The native bearer mode lights up when a client opts in (bearer
+//! token); CORS headers go only to the native shell origins ([`TAURI_ORIGINS`] plus
+//! `MW_NATIVE_ORIGINS`), never to a browser origin.
 //!
 //! Deliverables (plan §3 e5):
 //!   * VAPID keygen on first boot ([`ensure_vapid`]) + `GET /api/push/vapid` serving
 //!     the PUBLIC key (private sealed at rest via `mw_store::Store`),
 //!   * `POST /api/push/subscribe|unsubscribe` over `mw_store::PushSubscriptionRow`,
 //!   * the native bearer-auth helpers (token hashing + the `native_sessions` marker;
-//!     bearer requests skip the cookie-only CSRF guard) + a config-gated CORS/origin
-//!     allowlist,
+//!     bearer requests skip the cookie-only CSRF guard) + the native-origin
+//!     allowlist for CORS and cookie-less sign-in,
 //!   * the push DISPATCHER ([`run_dispatcher`]) = a second consumer of the engine
 //!     `StateChange` broadcast that sends OPAQUE wakes (no message content) —
 //!     WebPush (VAPID, RFC 8188) to browser/desktop endpoints, UnifiedPush (a plain
@@ -41,21 +42,38 @@ const WAKE_MARKER: &[u8] = b"mw-wake";
 /// triggers a refetch.
 const WAKE_TTL: u32 = 2_419_200;
 
-/// The Tauri shell origins the CORS/origin allowlist opts into when configured
-/// (plan §2.2). Threaded from env `MW_NATIVE_ORIGINS` (comma-separated, default
-/// EMPTY → off): with no origins configured, no CORS headers are emitted and
-/// browser deployments see no behavior change.
+/// The origins a Tauri 2 webview loads the SPA from: `http://tauri.localhost` on
+/// Windows and Android, `tauri://localhost` on macOS, iOS and Linux, and
+/// `https://tauri.localhost` when a shell sets `useHttpsScheme`. The native shells
+/// send one of these as `Origin` on every request to the user's server.
+///
+/// They are accepted by default (t31, decision D10) and nothing else is. A web page
+/// cannot send any of them: a browser sets `Origin` from the page's own scheme and
+/// host, and no page is served from `tauri:` or from the `tauri.localhost` host a
+/// webview resolves internally. Accepting them therefore opens nothing to
+/// cross-site requests from the web.
+pub const TAURI_ORIGINS: [&str; 3] = [
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+    "tauri://localhost",
+];
+
+/// The native shell origins the server answers with CORS headers and lets sign in
+/// without a cookie: [`TAURI_ORIGINS`], plus any the operator lists in
+/// `MW_NATIVE_ORIGINS` (comma-separated, e.g. for a shell with another scheme).
+/// A browser deployment is not affected: no browser origin is on the list, so a
+/// browser request never gets an `Access-Control-*` header.
 #[derive(Debug, Clone, Default)]
 pub struct NativeAuthConfig {
-    /// Allowed shell origins (e.g. `tauri://localhost`, `https://tauri.localhost`).
-    /// Empty = the native/CORS mode is OFF (the default).
-    pub origins: Vec<String>,
+    /// Origins `MW_NATIVE_ORIGINS` adds to [`TAURI_ORIGINS`]. Empty by default.
+    pub extra_origins: Vec<String>,
 }
 
 impl NativeAuthConfig {
-    /// Populate from `MW_NATIVE_ORIGINS` (comma-separated). Absent/empty → off.
+    /// Populate from `MW_NATIVE_ORIGINS` (comma-separated). Absent/empty → only
+    /// [`TAURI_ORIGINS`].
     pub fn from_env() -> Self {
-        let origins = std::env::var("MW_NATIVE_ORIGINS")
+        let extra_origins = std::env::var("MW_NATIVE_ORIGINS")
             .ok()
             .filter(|s| !s.is_empty())
             .map(|s| {
@@ -65,17 +83,12 @@ impl NativeAuthConfig {
                     .collect()
             })
             .unwrap_or_default();
-        Self { origins }
+        Self { extra_origins }
     }
 
-    /// Whether the native/CORS mode is enabled (any origin configured).
-    pub fn is_enabled(&self) -> bool {
-        !self.origins.is_empty()
-    }
-
-    /// Whether `origin` is on the allowlist (exact match).
+    /// Whether `origin` is a native shell origin (exact match).
     pub fn allows(&self, origin: &str) -> bool {
-        self.origins.iter().any(|o| o == origin)
+        TAURI_ORIGINS.contains(&origin) || self.extra_origins.iter().any(|o| o == origin)
     }
 }
 
@@ -529,16 +542,29 @@ mod tests {
     }
 
     #[test]
-    fn native_auth_off_by_default() {
-        assert!(!NativeAuthConfig::default().is_enabled());
+    fn native_auth_allows_only_the_tauri_origins_by_default() {
+        let cfg = NativeAuthConfig::default();
+        for origin in TAURI_ORIGINS {
+            assert!(cfg.allows(origin), "{origin}");
+        }
+        for origin in [
+            "https://evil.example",
+            "http://tauri.localhost.evil.example",
+            "http://tauri.localhost:8080",
+            "tauri://evil",
+            "TAURI://LOCALHOST",
+            "",
+        ] {
+            assert!(!cfg.allows(origin), "{origin}");
+        }
     }
 
     #[test]
-    fn native_auth_parses_origins() {
+    fn native_auth_adds_the_configured_origins() {
         let cfg = NativeAuthConfig {
-            origins: vec!["tauri://localhost".into()],
+            extra_origins: vec!["app://mailwoman".into()],
         };
-        assert!(cfg.is_enabled());
+        assert!(cfg.allows("app://mailwoman"));
         assert!(cfg.allows("tauri://localhost"));
         assert!(!cfg.allows("https://evil.example"));
     }

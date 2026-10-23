@@ -342,7 +342,7 @@ async fn state_change_sends_opaque_webpush_with_no_content() {
 }
 
 #[tokio::test]
-async fn cors_is_off_by_default() {
+async fn cors_answers_only_the_native_shell_origins() {
     let (server, _addr, _push) = spawn_server().await;
     let c = client();
 
@@ -355,10 +355,10 @@ async fn cors_is_off_by_default() {
         "browser deployments must see no Access-Control-Allow-Origin"
     );
 
-    // …not even when a shell-like Origin is presented (the allowlist is empty).
+    // …nor for a web page's origin…
     let resp = c
         .get(format!("{server}/healthz"))
-        .header(reqwest::header::ORIGIN, "tauri://localhost")
+        .header(reqwest::header::ORIGIN, "https://evil.example")
         .send()
         .await
         .unwrap();
@@ -366,6 +366,21 @@ async fn cors_is_off_by_default() {
         resp.headers()
             .get(reqwest::header::ACCESS_CONTROL_ALLOW_ORIGIN)
             .is_none()
+    );
+
+    // …but a Tauri shell origin is answered with no `MW_NATIVE_ORIGINS` set (t31
+    // D10: the fixed Tauri origins are native origins by default).
+    let resp = c
+        .get(format!("{server}/healthz"))
+        .header(reqwest::header::ORIGIN, "tauri://localhost")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.headers()
+            .get(reqwest::header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .and_then(|v| v.to_str().ok()),
+        Some("tauri://localhost")
     );
 }
 
