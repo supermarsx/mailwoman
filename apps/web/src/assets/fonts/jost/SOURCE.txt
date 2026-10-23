@@ -1,0 +1,18 @@
+Jost (variable, wght 100-900), upright faces only.
+
+Package:   @fontsource-variable/jost 5.3.0 (npm registry, published 2026-07-19)
+Tarball:   fontsource-variable-jost-5.3.0.tgz, sha1 0b68c88527a4508e69c654acedbb3aa78bf03c12
+Fetched:   2026-10-23 with `npm pack @fontsource-variable/jost@5.3.0` into an empty
+           scratch directory (no install, no package scripts); files copied unchanged
+           from package/files/.
+Upstream:  https://github.com/indestructible-type/Jost (Owen Earl, indestructible type*)
+Licence:   SIL Open Font License 1.1, copied unchanged from the package LICENSE into
+           OFL.txt. The copyright line names no Reserved Font Name.
+
+sha256 of each file:
+7726a5cd6f3c0e876c028ea2a643d45f7aad4b0f164b70966c669f4a4668f4b9  jost-latin-wght-normal.woff2      (26576 bytes)
+312ef2b80cefd8d6fd0e8553536862e7103f80be117a5aeba333dac68e4c0a6a  jost-latin-ext-wght-normal.woff2  (17104 bytes)
+732ac61fdb7b964d3edfe40fe4a96aba1d1e34c349aebf0353118f8bda4aabdb  jost-cyrillic-wght-normal.woff2   (10140 bytes)
+
+The unicode-range of each face in apps/web/src/styles/typeface.css is the one the
+package's wght.css declares for that file.
