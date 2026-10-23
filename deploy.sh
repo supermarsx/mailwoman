@@ -23,6 +23,8 @@ IMAGE_ID=
 DATA_VOLUME=
 CADDY_IMAGE=caddy:2-alpine
 CADDY_ID=
+ACME_CA=
+ACME_CA_ROOT=
 IMAGE=
 PULL=false
 NO_BUILD=false
@@ -143,6 +145,9 @@ if $INIT_OPTIONS && [[ $ACTION != init && $ACTION != deploy ]]; then die "Setup 
 read_config() {
     local file=$1 line key value seen='|'
     [[ -f $file && ! -L $file ]] || die "Missing or symlinked configuration: $file"
+    # Settings a deploy.env may leave out (older files, or ones edited by hand) are
+    # empty unless this file sets them, never left over from a file read earlier.
+    if [[ ${file##*/} == deploy.env ]]; then PROXY_NETWORK=; ACME_CA=; ACME_CA_ROOT=; fi
     while IFS= read -r line || [[ -n $line ]]; do
         [[ -z $line || $line == \#* ]] && continue
         [[ $line != *$'\r'* && $line == *=* ]] || die "Invalid line in $file; use unquoted KEY=value with LF endings"
@@ -150,7 +155,7 @@ read_config() {
         [[ $seen != *"|$key|"* ]] || die "Duplicate $key in $file"
         seen+="$key|"
         case "$key" in
-            PROJECT|EXPOSURE|DOMAIN|PUBLIC_URL|PORT|MODE|PROXY_PREFIX|PROXY_NETWORK|CADDY_IMAGE|IMAGE_ID|DATA_VOLUME|CADDY_ID)
+            PROJECT|EXPOSURE|DOMAIN|PUBLIC_URL|PORT|MODE|PROXY_PREFIX|PROXY_NETWORK|CADDY_IMAGE|ACME_CA|ACME_CA_ROOT|IMAGE_ID|DATA_VOLUME|CADDY_ID)
                 printf -v "$key" '%s' "$value" ;;
             *) die "Unknown setting $key in $file" ;;
         esac
@@ -186,6 +191,9 @@ validate_config() {
         *) die "EXPOSURE must be local, caddy, external or network" ;;
     esac
     [[ $EXPOSURE == network || -z $PROXY_NETWORK ]] || die "PROXY_NETWORK applies only to EXPOSURE=network"
+    [[ $EXPOSURE == caddy || -z $ACME_CA$ACME_CA_ROOT ]] || die "ACME_CA and ACME_CA_ROOT apply only to EXPOSURE=caddy"
+    [[ -z $ACME_CA || $ACME_CA =~ ^https://[a-zA-Z0-9][a-zA-Z0-9.-]*(:[0-9]{1,5})?(/[a-zA-Z0-9._~/-]*)?$ ]] || die "ACME_CA must be the https:// URL of an ACME directory"
+    [[ -z $ACME_CA_ROOT || $ACME_CA_ROOT =~ ^/[a-zA-Z0-9._/+@-]+$ ]] || die "ACME_CA_ROOT must be an absolute path to a PEM file (letters, digits and ._/+@- only)"
 }
 
 write_config() {
@@ -200,6 +208,8 @@ MODE=$MODE
 PROXY_PREFIX=$PROXY_PREFIX
 PROXY_NETWORK=$PROXY_NETWORK
 CADDY_IMAGE=$CADDY_IMAGE
+ACME_CA=$ACME_CA
+ACME_CA_ROOT=$ACME_CA_ROOT
 EOF
 }
 
@@ -245,7 +255,6 @@ trap 'exit 143' TERM
 
 # Dry-run must work even on a machine without Docker and must not mkdir/chmod.
 if [[ -f $STATE/deploy.env ]]; then
-    PROXY_NETWORK=
     read_config "$STATE/deploy.env"
     # Repeating the original setup command is an update. A different value is
     # never applied from the command line; deploy.env is the one place to change it.
@@ -395,8 +404,19 @@ load_active() {
     validate_config
 }
 
+# Prints the certificates of a PEM file, each line indented for a Compose config.
+pem_certificates() {
+    local pem
+    [[ -f $1 && -r $1 ]] || die "ACME_CA_ROOT names no readable file: $1"
+    pem=$(tr -d '\r' < "$1")
+    if ! grep -qx -- '-----BEGIN CERTIFICATE-----' <<< "$pem" || grep -qvxE -- '-----(BEGIN|END) CERTIFICATE-----|[A-Za-z0-9+/=]*' <<< "$pem"; then
+        die "ACME_CA_ROOT must hold PEM certificates only: $1"
+    fi
+    printf '      %s\n' "${pem//$'\n'/$'\n'      }"
+}
+
 render() {
-    local directory=$1 secure=true trust=
+    local directory=$1 secure=true trust='' acme_global='' acme_mount='' acme_config=''
     [[ $EXPOSURE != local ]] || secure=false
     # Client addresses come from the proxy network's peers unless app.env says otherwise.
     if [[ $EXPOSURE == network && -n $PROXY_SUBNETS ]] && ! grep -Eq '^MW_(TRUSTED_PROXIES|FORWARDED_MODE)=' "$directory/app.env"; then
@@ -448,6 +468,19 @@ services:
 EOF
     if [[ $EXPOSURE == caddy ]]; then
         [[ $CADDY_ID =~ ^sha256:[0-9a-f]{64}$ ]] || die "Invalid Caddy image ID"
+        # Another ACME directory (a staging endpoint or a private CA) and the root
+        # that signs its TLS certificate, as Caddy global options. The root's
+        # certificates are written into the Compose file, so a snapshot keeps them.
+        if [[ -n $ACME_CA$ACME_CA_ROOT ]]; then
+            acme_global="      {"$'\n'
+            [[ -z $ACME_CA ]] || acme_global+="          acme_ca $ACME_CA"$'\n'
+            if [[ -n $ACME_CA_ROOT ]]; then
+                acme_global+="          acme_ca_root /etc/caddy/acme-ca-root.pem"$'\n'
+                acme_mount=$'\n'"      - source: acme_ca_root"$'\n'"        target: /etc/caddy/acme-ca-root.pem"
+                acme_config=$'\n'"  acme_ca_root:"$'\n'"    content: |"$'\n'"$(pem_certificates "$ACME_CA_ROOT")"
+            fi
+            acme_global+="      }"$'\n'
+        fi
         cat >> "$directory/compose.yaml" <<EOF
     networks:
       default:
@@ -466,7 +499,7 @@ EOF
     volumes: ['caddy_data:/data', 'caddy_config:/config']
     configs:
       - source: caddyfile
-        target: /etc/caddy/Caddyfile
+        target: /etc/caddy/Caddyfile$acme_mount
     depends_on:
       mailwoman:
         condition: service_healthy
@@ -479,11 +512,11 @@ EOF
 configs:
   caddyfile:
     content: |
-      $DOMAIN {
+${acme_global}      $DOMAIN {
           reverse_proxy mailwoman:8080 {
               flush_interval -1
           }
-      }
+      }$acme_config
 networks:
   default:
     ipam:
@@ -611,7 +644,6 @@ case "$ACTION" in
             if [[ $applied_exposure != "$configured_exposure" && ($applied_exposure == caddy || $configured_exposure == caddy) ]]; then
                 die "EXPOSURE cannot change from $applied_exposure to $configured_exposure: an installation cannot move to or from caddy. local, external and network may be exchanged; use a new state directory for caddy"
             fi
-            PROXY_NETWORK=
             read_config "$STATE/deploy.env"
             validate_config
             [[ $EXPOSURE == "$applied_exposure" ]] || log "Changing exposure from $applied_exposure to $EXPOSURE"

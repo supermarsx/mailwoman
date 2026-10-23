@@ -39,6 +39,7 @@ NEXT_PORT=$((PORT + 1))
 NET_PROJECT="$PROJECT-net"
 NET_STATE=$(mktemp -d "$ROOT/.deploy-test-XXXXXX.local")
 PICK_STATE=$(mktemp -d "$ROOT/.deploy-test-XXXXXX.local")
+ACME_STATE=$(mktemp -d "$ROOT/.deploy-test-XXXXXX.local")
 NETWORK="$PROJECT-proxy"
 SERVER_KEY=
 PASSED=false
@@ -61,15 +62,17 @@ hold() {
     fail "could not hold port $port (attempts: $i)"
 }
 release() { docker rm --force "$PROJECT-hold-$1" >/dev/null 2>&1 || true; }
-# Rewrites KEY=value lines of the first installation's deploy.env, as a user would.
-set_config() {
-    local pair file=$STATE/deploy.env
+# Rewrites KEY=value lines of a deploy.env, as a user would.
+set_in() {
+    local pair file=$1
+    shift
     for pair in "$@"; do
         awk -v key="${pair%%=*}" -v line="$pair" -F= '$1 == key {print line; next} {print}' "$file" > "$file.new"
         cat "$file.new" > "$file"
         rm -- "$file.new"
     done
 }
+set_config() { set_in "$STATE/deploy.env" "$@"; }
 app_env() { docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$1"; }
 state_listing() { (cd "$STATE" && find . -print | sort && find . -type f -exec sha256sum {} + | sort); }
 cleanup() {
@@ -88,10 +91,10 @@ cleanup() {
         docker volume rm "$volume" >/dev/null || true
     done < <(docker volume ls -q --filter "label=mailwoman.deploy.project=$PROJECT"; docker volume ls -q --filter "label=mailwoman.deploy.project=$NET_PROJECT")
     docker network rm "$NETWORK" >/dev/null 2>&1 || true
-    if $PASSED && [[ $STATE == "$ROOT"/.deploy-test-*.local && $NET_STATE == "$ROOT"/.deploy-test-*.local && $PICK_STATE == "$ROOT"/.deploy-test-*.local ]]; then
-        rm -rf -- "$STATE" "$NET_STATE" "$PICK_STATE"
+    if $PASSED && [[ $STATE == "$ROOT"/.deploy-test-*.local && $NET_STATE == "$ROOT"/.deploy-test-*.local && $PICK_STATE == "$ROOT"/.deploy-test-*.local && $ACME_STATE == "$ROOT"/.deploy-test-*.local ]]; then
+        rm -rf -- "$STATE" "$NET_STATE" "$PICK_STATE" "$ACME_STATE"
     else
-        printf 'Test diagnostics retained at %s, %s and %s\n' "$STATE" "$NET_STATE" "$PICK_STATE" >&2
+        printf 'Test diagnostics retained at %s, %s, %s and %s\n' "$STATE" "$NET_STATE" "$PICK_STATE" "$ACME_STATE" >&2
     fi
     exit "$result"
 }
@@ -119,6 +122,57 @@ grep -Fx "PUBLIC_URL=http://localhost:$PICKED" "$PICK_STATE/deploy.env" >/dev/nu
 grep -F "Port 8080 is in use; using $PICKED instead" "$STATE/pick.log" >/dev/null || fail "init did not say which port it chose: $(cat "$STATE/pick.log")"
 printf 'auto-pick: 8080 %s; %s\n' "$($HELD_8080 && echo 'held by this test' || echo 'already in use')" "$(grep -F 'Port 8080 is in use' "$STATE/pick.log")"
 rm -- "$STATE/pick.log"
+
+# A Caddy installation may name another ACME directory and the root that signs its
+# TLS certificate. doctor renders the Compose model without starting anything; a
+# docker wrapper keeps a copy of the file it validates. Caddy itself is not started
+# here (it needs ports 80 and 443): scripts/test-deploy-proxy.sh runs it against Pebble.
+REAL_DOCKER=$(command -v docker)
+DEPLOY_TEST_RENDERED="$ACME_STATE/rendered.yaml"
+export REAL_DOCKER DEPLOY_TEST_RENDERED
+mkdir "$ACME_STATE/bin"
+cat > "$ACME_STATE/bin/docker" <<'WRAPPER'
+#!/usr/bin/env bash
+if [[ ${1:-} == compose && " $* " == *" config --quiet "* ]]; then
+    previous=
+    for arg in "$@"; do
+        if [[ $previous == -f ]]; then cp -- "$arg" "$DEPLOY_TEST_RENDERED"; fi
+        previous=$arg
+    done
+fi
+exec "$REAL_DOCKER" "$@"
+WRAPPER
+chmod +x "$ACME_STATE/bin/docker"
+acme() { PATH="$ACME_STATE/bin:$PATH" bash "$DEPLOY" "$@" --state-dir "$ACME_STATE"; }
+acme_reject() {
+    local expected=$1
+    shift
+    set_in "$ACME_STATE/deploy.env" "$@"
+    if acme doctor > "$ACME_STATE/rejected.log" 2>&1; then fail "doctor accepted $*"; fi
+    grep -F "$expected" "$ACME_STATE/rejected.log" >/dev/null || fail "doctor refused $* for another reason: $(cat "$ACME_STATE/rejected.log")"
+}
+acme init --project "$PROJECT-acme" --domain mail.example.test 2> "$ACME_STATE/doctor.log" || fail "init of a Caddy installation failed: $(cat "$ACME_STATE/doctor.log")"
+acme doctor 2> "$ACME_STATE/doctor.log" || fail "doctor refused a Caddy installation: $(cat "$ACME_STATE/doctor.log")"
+if grep -E '^ +acme_ca(_root)? ' "$DEPLOY_TEST_RENDERED" >/dev/null; then fail 'a Caddy installation without ACME_CA names an ACME directory'; fi
+printf -- '-----BEGIN CERTIFICATE-----\nTWFpbHdvbWFuIGRlcGxveSB0ZXN0IHJvb3Q=\n-----END CERTIFICATE-----\n' > "$ACME_STATE/root.pem"
+set_in "$ACME_STATE/deploy.env" ACME_CA=https://pebble.test:14000/dir "ACME_CA_ROOT=$ACME_STATE/root.pem"
+acme doctor 2> "$ACME_STATE/doctor.log" || fail "doctor refused valid ACME settings: $(cat "$ACME_STATE/doctor.log")"
+# The global options block comes first in the Caddyfile, before the site block.
+ACME_LINES=$(grep -E '^      (\{|mail\.example\.test \{|    acme_ca https://pebble\.test:14000/dir|    acme_ca_root /etc/caddy/acme-ca-root\.pem)$' "$DEPLOY_TEST_RENDERED" | tr -s ' ' | tr '\n' '|')
+[[ $ACME_LINES == ' {| acme_ca https://pebble.test:14000/dir| acme_ca_root /etc/caddy/acme-ca-root.pem| mail.example.test {|' ]] || fail "the Caddyfile does not open with the ACME global options: $ACME_LINES"
+grep -Fx '        target: /etc/caddy/acme-ca-root.pem' "$DEPLOY_TEST_RENDERED" >/dev/null || fail 'the ACME root is not given to the Caddy container'
+grep -Fx '      TWFpbHdvbWFuIGRlcGxveSB0ZXN0IHJvb3Q=' "$DEPLOY_TEST_RENDERED" >/dev/null || fail 'the ACME root certificate is not in the Compose file'
+printf 'acme: %s\n' "$ACME_LINES"
+cp "$ACME_STATE/deploy.env" "$ACME_STATE/deploy.env.good"
+acme_reject 'ACME_CA must be the https:// URL of an ACME directory' ACME_CA=http://pebble.test:14000/dir
+cat "$ACME_STATE/deploy.env.good" > "$ACME_STATE/deploy.env"
+acme_reject 'ACME_CA_ROOT must be an absolute path' ACME_CA_ROOT=root.pem
+acme_reject 'ACME_CA_ROOT names no readable file' "ACME_CA_ROOT=$ACME_STATE/absent.pem"
+printf 'not a certificate\n' > "$ACME_STATE/other.txt"
+acme_reject 'ACME_CA_ROOT must hold PEM certificates only' "ACME_CA_ROOT=$ACME_STATE/other.txt"
+set_in "$PICK_STATE/deploy.env" ACME_CA=https://pebble.test:14000/dir
+if bash "$DEPLOY" doctor --state-dir "$PICK_STATE" > "$ACME_STATE/rejected.log" 2>&1; then fail 'a local installation accepted ACME_CA'; fi
+grep -F 'ACME_CA and ACME_CA_ROOT apply only to EXPOSURE=caddy' "$ACME_STATE/rejected.log" >/dev/null || fail "ACME_CA on a local installation was refused for another reason: $(cat "$ACME_STATE/rejected.log")"
 
 run init --project "$PROJECT" --port "$PORT"
 SERVER_KEY=$(awk -F= '$1 == "MW_SERVER_KEY" {print $2}' "$STATE/app.env")
@@ -236,8 +290,6 @@ reject restore "$SNAPSHOT"
 # Snapshot-copy failure must resume the stopped writer, leave no COMPLETE marker,
 # and release the lock. A small Docker wrapper injects precisely that failure.
 mkdir "$STATE/bin"
-REAL_DOCKER=$(command -v docker)
-export REAL_DOCKER
 cat > "$STATE/bin/docker" <<'WRAPPER'
 #!/usr/bin/env bash
 if [[ ${1:-} == cp && ${2:-} == -a ]]; then exit 42; fi
@@ -336,4 +388,4 @@ net deploy --no-build
 [[ $(awk -F= '$1 == "DATA_VOLUME" {print $2}' "$NET_STATE/active/release.env") == "$NET_VOLUME" ]] || fail 'update replaced the data volume'
 docker network inspect "$NETWORK" >/dev/null || fail 'update removed the proxy network'
 PASSED=true
-printf 'PASS: dry-run writes nothing (empty and applied state), port auto-pick when 8080 is taken, deployment, literal secrets, health, persistent data, admin login and writes under strict CSRF (curl), %s, refusal of a held port before any change, backup, rollback, corruption refusal, copy-failure recovery, repeated setup options, exposure moves local -> external -> network -> local with the data volume kept, refusal of a move to caddy, and a proxy-network installation\n' "$BROWSER"
+printf 'PASS: dry-run writes nothing (empty and applied state), port auto-pick when 8080 is taken, deployment, literal secrets, health, persistent data, admin login and writes under strict CSRF (curl), %s, refusal of a held port before any change, backup, rollback, corruption refusal, copy-failure recovery, repeated setup options, exposure moves local -> external -> network -> local with the data volume kept, refusal of a move to caddy, a proxy-network installation, and the ACME directory settings for Caddy (rendered, and refused when invalid)\n' "$BROWSER"

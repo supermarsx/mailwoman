@@ -80,7 +80,7 @@ directory; directories outside the repository are supported. Files use mode `060
 and the state directory uses `0700` on filesystems supporting Unix permissions.
 
 - `deploy.env`: project, mode, URL, port, exposure, proxy network and Caddy
-  image/network settings.
+  image/network/ACME settings.
 - `app.env`: persistent random `MW_SERVER_KEY`, random admin password, and optional
   application environment variables. Values are **literal, unquoted** text; dollar
   signs and spaces are preserved. Do not add `export`, quotes or shell commands.
@@ -106,6 +106,19 @@ cookies; both HTTPS modes enable Secure cookies. Caddy mode publishes only ports
 network defaults to `172.30.70.0/24`; use `--proxy-prefix 172.30.71` at initialization
 if that subnet overlaps another network. Only Caddy's fixed `.2` address is trusted
 for forwarded headers. Caddy certificates persist in separate named volumes.
+
+In Caddy mode, `ACME_CA` in `deploy.env` names another ACME directory by its
+`https://` URL, for example Let's Encrypt's staging endpoint
+`https://acme-staging-v02.api.letsencrypt.org/directory` or a private CA; empty
+keeps Caddy's default issuers. `ACME_CA_ROOT` is the absolute path of a PEM file
+with the root certificate that signs that directory's own HTTPS certificate, for a
+CA whose root is not in the Caddy image's trust store. The script becomes Caddy's
+`acme_ca` / `acme_ca_root` global options; it copies the certificates from the PEM
+file into the generated Compose file, so snapshots keep them, and Caddy reads them
+as a read-only file. The file must exist whenever `doctor`, `deploy`, `restore` or
+`rollback` renders the configuration. Both keys are refused for the other
+exposures. Browsers do not trust certificates from a staging endpoint or a
+private CA unless their root is installed on the client.
 
 With an external proxy, configure `MW_TRUSTED_PROXIES` and `MW_FORWARDED_MODE` in
 `app.env` using the proxy's actual source address as seen by the container. See
@@ -233,7 +246,9 @@ throwaway container holds it for the few seconds of one `init`), the admin panel
 under strict CSRF with curl and, when Playwright can start, in a browser, the
 refusal of a deploy onto a port held by something else, backup/rollback, failure
 recovery, the moves local → external → proxy network → local, the refusal of a move
-to Caddy, and a second, proxy-network installation. The external step stands in a
+to Caddy, a second, proxy-network installation, and the `ACME_CA` / `ACME_CA_ROOT`
+lines in a Caddy installation's generated Compose file (read with `doctor`;
+invalid values refused). The external step stands in a
 curl wrapper for the host's reverse proxy; nothing in the test reaches the
 Internet or uses ports 80/443. It removes its test containers, volumes and network
 afterward; failed runs retain local diagnostics.
