@@ -14,6 +14,21 @@ export { t, type TArgs } from './registry.ts';
 export { loadCatalog, useCatalog, preloadCatalogs } from './catalog.ts';
 export { isolate, isolateDir, stripIsolates } from './bidi.ts';
 export {
+  formatDate,
+  formatTime,
+  formatDateTime,
+  formatDateWith,
+  formatDateToParts,
+  formatRelative,
+  formatNumber,
+  formatPercent,
+  formatBytes,
+  formatList,
+  pluralCategory,
+  formatLocale,
+  type DateInput,
+} from './format.ts';
+export {
   LOCALES,
   SOURCE_LOCALE,
   negotiateLocale,

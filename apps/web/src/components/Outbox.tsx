@@ -1,6 +1,6 @@
 import { For, Show, onMount, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
-import { isolate, t } from '../i18n/index.ts';
+import { formatDateTime, isolate, t } from '../i18n/index.ts';
 import * as a11y from './mailA11y.css.ts';
 import * as css from './outbox.css.ts';
 import {
@@ -31,8 +31,7 @@ const STATE_LABEL: Record<OutboxState, string> = {
 
 function whenText(sub: OutboxSubmission): string {
   if (sub.sendAt === null) return '';
-  const d = new Date(sub.sendAt);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString();
+  return formatDateTime(sub.sendAt);
 }
 
 /** The line under a held row: that it is held, and who created it. */

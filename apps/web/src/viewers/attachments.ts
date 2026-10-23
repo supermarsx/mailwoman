@@ -21,6 +21,7 @@ import {
 } from '../api/jmap-types.ts';
 import { viewerKindFor } from '../contracts/viewer.ts';
 import { apiFetch } from '../api/http.ts';
+import { formatBytes } from '../i18n/format.ts';
 
 /** JMAP `attachments` parts carry a filename/disposition beyond the body-part core. */
 export interface AttachmentPart extends EmailBodyPart {
@@ -261,15 +262,7 @@ export function parseAttachmentQuery(q: string): AttachmentFilters {
   return f;
 }
 
-/** Human-readable byte size for the grid (e.g. `1.4 MB`). */
+/** Human-readable byte size for the grid (e.g. `1.4 MB`), in the app locale. */
 export function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ['KB', 'MB', 'GB'];
-  let n = bytes / 1024;
-  let i = 0;
-  while (n >= 1024 && i < units.length - 1) {
-    n /= 1024;
-    i++;
-  }
-  return `${n.toFixed(1)} ${units[i]}`;
+  return formatBytes(bytes);
 }

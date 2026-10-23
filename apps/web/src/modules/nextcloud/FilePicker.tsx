@@ -5,7 +5,7 @@
 
 import { createSignal, createResource, onMount, For, Show, type JSX } from 'solid-js';
 import { NextcloudService, type WebDavEntry } from './service.ts';
-import { t, loadCatalog, isolate } from '../../i18n';
+import { t, loadCatalog, isolate, formatBytes } from '../../i18n';
 import * as css from './styles.css.ts';
 
 export interface FilePickerProps {
@@ -19,18 +19,6 @@ export interface FilePickerProps {
   onToggleFile?: (entry: WebDavEntry) => void;
   /** The browsed directory changed (both modes). */
   onDirChange?: (path: string) => void;
-}
-
-function humanSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ['KB', 'MB', 'GB'];
-  let n = bytes / 1024;
-  let i = 0;
-  while (n >= 1024 && i < units.length - 1) {
-    n /= 1024;
-    i += 1;
-  }
-  return `${n.toFixed(1)} ${units[i]}`;
 }
 
 export function FilePicker(props: FilePickerProps): JSX.Element {
@@ -93,7 +81,7 @@ export function FilePicker(props: FilePickerProps): JSX.Element {
                   </span>
                   <span class={css.name}>{entry.name}</span>
                   <Show when={!entry.isDir}>
-                    <span class={css.size}>{humanSize(entry.size)}</span>
+                    <span class={css.size}>{formatBytes(entry.size)}</span>
                   </Show>
                   <Show when={isSelected()}>
                     <span class={css.size} data-testid="nc-selected" aria-hidden="true">

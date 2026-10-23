@@ -170,8 +170,8 @@ describe('buildDownloadUrl', () => {
 
 describe('formatSize', () => {
   it('renders human units', () => {
-    expect(formatSize(512)).toBe('512 B');
-    expect(formatSize(2048)).toBe('2.0 KB');
+    expect(formatSize(512)).toBe('512 byte');
+    expect(formatSize(2048)).toBe('2 kB');
     expect(formatSize(1_500_000)).toBe('1.4 MB');
   });
 });
