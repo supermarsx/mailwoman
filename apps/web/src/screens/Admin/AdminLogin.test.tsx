@@ -1,28 +1,29 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, waitFor } from '@solidjs/testing-library';
+import { render, screen, waitFor, fireEvent } from '@solidjs/testing-library';
 import { AdminScreen } from './index.tsx';
 import { mockAdminApi } from './testkit.tsx';
-import { createHttpAdminApi } from '../../state/slices/admin.ts';
+import { offlineShell } from './shell/testkit.tsx';
+import { AdminApiError, createHttpAdminApi } from '../../state/slices/admin.ts';
 
 describe('Admin sign-in gate — session lifetime', () => {
   it('states how long an admin session lasts', async () => {
-    render(() => <AdminScreen api={mockAdminApi({ session: vi.fn(async () => null) })} />);
+    render(() => <AdminScreen api={mockAdminApi({ session: vi.fn(async () => null) })} {...offlineShell()} />);
     const form = await screen.findByRole('form', { name: 'Admin sign in' });
     expect(form).toHaveTextContent('30 minutes without activity');
     expect(form).toHaveTextContent('12 hours');
   });
 
   it('does not say a session ended when there simply is none', async () => {
-    render(() => <AdminScreen api={mockAdminApi({ session: vi.fn(async () => null) })} />);
+    render(() => <AdminScreen api={mockAdminApi({ session: vi.fn(async () => null) })} {...offlineShell()} />);
     await screen.findByRole('form', { name: 'Admin sign in' });
     expect(screen.queryByTestId('admin-session-ended')).toBeNull();
   });
 
   it('returns to the gate and says so when the server ends a session in use', async () => {
     const api = mockAdminApi();
-    render(() => <AdminScreen api={api} />);
+    render(() => <AdminScreen api={api} {...offlineShell()} />);
     // Control: signed in, the panel is showing.
-    expect(await screen.findByRole('button', { name: 'Domains' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Domains' })).toBeInTheDocument();
     expect(screen.queryByRole('form', { name: 'Admin sign in' })).toBeNull();
 
     // The slice installs the hook; the HTTP client calls it on a 401.
@@ -31,7 +32,86 @@ describe('Admin sign-in gate — session lifetime', () => {
 
     expect(await screen.findByRole('form', { name: 'Admin sign in' })).toBeInTheDocument();
     expect(screen.getByTestId('admin-session-ended')).toHaveTextContent('Your admin session has ended');
-    expect(screen.queryByRole('button', { name: 'Domains' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Domains' })).toBeNull();
+  });
+});
+
+describe('Admin sign-in gate — second step (TOTP)', () => {
+  /** A server whose admin account has TOTP: the password answer is a challenge. */
+  function totpServer(verify: (token: string, code: string) => Promise<{ username: string }>) {
+    let signedIn = false;
+    const api = mockAdminApi({
+      session: vi.fn(async () => (signedIn ? { username: 'ops' } : null)),
+      login: vi.fn(async () => ({ twofaRequired: true, pendingToken: 'pt-1', factors: ['totp'] }) as never),
+    });
+    const verifyTotp = vi.fn(async (token: string, code: string) => {
+      const s = await verify(token, code);
+      signedIn = true;
+      return s;
+    });
+    return { api, verifyTotp };
+  }
+
+  async function signInWithPassword(): Promise<void> {
+    const form = await screen.findByRole('form', { name: 'Admin sign in' });
+    fireEvent.input(screen.getByLabelText('Admin username'), { target: { value: 'ops' } });
+    fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'pw' } });
+    fireEvent.submit(form);
+  }
+
+  it('a challenge does not open the console; it asks for the code', async () => {
+    const { api, verifyTotp } = totpServer(async () => ({ username: 'ops' }));
+    render(() => <AdminScreen api={api} {...offlineShell()} verifyTotp={verifyTotp} />);
+    await signInWithPassword();
+    const step = await screen.findByRole('form', { name: 'Admin sign in, second step' });
+    expect(step).toHaveTextContent('ops');
+    expect(screen.queryByRole('navigation', { name: 'Admin sections' })).toBeNull();
+    expect(screen.getByLabelText('Authentication code')).toHaveAttribute('autocomplete', 'one-time-code');
+  });
+
+  it('a valid code starts the session and opens the console', async () => {
+    const { api, verifyTotp } = totpServer(async () => ({ username: 'ops' }));
+    render(() => <AdminScreen api={api} {...offlineShell()} verifyTotp={verifyTotp} />);
+    await signInWithPassword();
+    const step = await screen.findByRole('form', { name: 'Admin sign in, second step' });
+    fireEvent.input(screen.getByLabelText('Authentication code'), { target: { value: '123 456' } });
+    fireEvent.submit(step);
+    await waitFor(() => expect(verifyTotp).toHaveBeenCalledWith('pt-1', '123456'));
+    expect(await screen.findByRole('navigation', { name: 'Admin sections' })).toBeInTheDocument();
+  });
+
+  it('a wrong code stays on the step and says what to do', async () => {
+    const { api, verifyTotp } = totpServer(async () => {
+      throw new AdminApiError(401, 'bad code');
+    });
+    render(() => <AdminScreen api={api} {...offlineShell()} verifyTotp={verifyTotp} />);
+    await signInWithPassword();
+    const step = await screen.findByRole('form', { name: 'Admin sign in, second step' });
+    fireEvent.input(screen.getByLabelText('Authentication code'), { target: { value: '000000' } });
+    fireEvent.submit(step);
+    expect(await screen.findByRole('alert')).toHaveTextContent('That code is not valid');
+    expect(screen.queryByRole('navigation', { name: 'Admin sections' })).toBeNull();
+  });
+
+  it('Start again returns to the password form', async () => {
+    const { api, verifyTotp } = totpServer(async () => ({ username: 'ops' }));
+    render(() => <AdminScreen api={api} {...offlineShell()} verifyTotp={verifyTotp} />);
+    await signInWithPassword();
+    await screen.findByRole('form', { name: 'Admin sign in, second step' });
+    fireEvent.click(screen.getByRole('button', { name: 'Start again' }));
+    expect(await screen.findByRole('form', { name: 'Admin sign in' })).toBeInTheDocument();
+  });
+
+  it('too many attempts (429) says to wait, not that the password is wrong', async () => {
+    const api = mockAdminApi({
+      session: vi.fn(async () => null),
+      login: vi.fn(async () => {
+        throw new AdminApiError(429, 'slow down');
+      }),
+    });
+    render(() => <AdminScreen api={api} {...offlineShell()} />);
+    await signInWithPassword();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Too many sign-in attempts');
   });
 });
 

@@ -1,293 +1,202 @@
-// V6 Admin panel screen (SPEC §19, plan §2.6, §3 e7).
+// Admin console root (SPEC §19; t32-admin.md §2.1).
 //
 // The default export is the lazily-loadable admin route root — App.tsx reaches it
-// ONLY through `lazy(() => import('./screens/Admin/index.tsx'))`, so the whole
+// ONLY through `() => import('./screens/Admin/index.tsx')`, so the whole
 // `screens/Admin/**` tree is code-split into its own chunk, ABSENT from the
-// login→inbox mailbox bundle (the bundle regression gate, plan §1.7).
+// login→inbox mailbox bundle (the bundle regression gate, plan §1.7). Each
+// section screen is a further lazy chunk (`shell/sections.ts`).
 //
-// It is gated on a SEPARATE admin session (plan §2.5): the root probes
-// `/admin/session`; with no session it renders the [`AdminLogin`] gate, otherwise
-// the panel (Domains / Users / Integrations / Observability, plus the sections
-// layered below). Component tests inject a mock `AdminApi` via the `api` prop; the
-// production default is the same-origin HTTP client.
+// This file is the session gate plus the shell: it probes `/admin/session` and
+// renders the [`AdminLogin`] gate without one; with a session it loads the
+// admin's capabilities (`GET /admin/me`, `shell/can.ts`), parses the URL into a
+// section (`shell/router.ts`) and renders that section inside [`AdminShell`].
+//
+// Component tests inject mock clients through the props; production uses the
+// same-origin HTTP clients.
 
-import { createSignal, For, Show, Suspense, onMount, type JSX } from 'solid-js';
+import { Show, Suspense, createEffect, createSignal, onCleanup, onMount, type JSX } from 'solid-js';
 import { Dynamic } from 'solid-js/web';
-import {
-  ADMIN_SECTIONS,
-  createAdminSlice,
-  createHttpAdminApi,
-  type AdminApi,
-  type AdminSection,
-} from '../../state/slices/admin.ts';
+import { createAdminSlice, createHttpAdminApi, type AdminApi } from '../../state/slices/admin.ts';
+import { createThemeSlice } from '../../state/slices/theme.ts';
+import type { SliceContext } from '../../state/slices/context.ts';
 import { t, loadCatalog } from '../../i18n';
-import { createRovingTabindex } from '../../components/a11y';
-import { AdminContext } from './context.ts';
+import { AdminContext, useAdmin } from './context.ts';
 import { AdminLogin } from './AdminLogin.tsx';
-import { Domains } from './Domains.tsx';
-import { Users } from './Users.tsx';
-import { Integrations } from './Integrations.tsx';
-import { Observability } from './Observability.tsx';
-import { AdminPlugins } from './Plugins/index.tsx';
-import { AdminUiPlugins } from './UiPlugins/index.tsx';
-import { AdminAssist } from './Assist/index.tsx';
-import { AdminSso } from './Sso/index.tsx';
-import { AdminEgress } from './Egress.tsx';
-import { ServerMetadata } from './ServerMetadata.tsx';
-import { RethreadMaintenance } from './RethreadMaintenance.tsx';
-import { TwoFactorPolicy } from './TwoFactorPolicy.tsx';
+import { AdminShell } from './shell/AdminShell.tsx';
+import { SECTIONS, findSection, type SectionDef } from './shell/sections.ts';
+import { createAdminRouter, hrefFor, sectionPath, type AdminRouter } from './shell/router.ts';
+import { createLeaveCheck } from './shell/useDirtyGuard.ts';
+import { createAdminMeLoader, createLoadedCan, type AdminMeLoader } from './shell/can.ts';
+import { ShellContext } from './shell/context.ts';
+import { createAdminSearch, type AdminSearch } from './shell/CommandPalette.tsx';
+import { withTotpGate, type AdminTotpVerifier } from './shell/adminAuth.ts';
+import type { Crumb } from './shell/Breadcrumbs.tsx';
+import { createDashboardLoader, type DashboardLoader } from '../../api/admin/dashboard.ts';
 import * as css from './admin.css.ts';
-
-/** Localised nav labels per section (the source labels live in admin.ftl). */
-const NAV_LABEL: Record<AdminSection, () => string> = {
-  domains: () => t('admin-nav-domains'),
-  users: () => t('admin-nav-users'),
-  integrations: () => t('admin-nav-integrations'),
-  observability: () => t('admin-nav-observability'),
-  plugins: () => t('admin-nav-plugins'),
-  assist: () => t('admin-nav-assist'),
-};
-
-/** The section → component map (§19 + V7 plugins/assist, plan §3 e14). */
-const SECTION_VIEWS: Record<AdminSection, () => JSX.Element> = {
-  domains: Domains,
-  users: Users,
-  integrations: Integrations,
-  observability: Observability,
-  // Wrapped so their optional props default to the production HTTP clients.
-  plugins: () => <AdminPlugins />,
-  assist: () => <AdminAssist />,
-};
+import * as shellCss from './shell/shell.css.ts';
 
 export interface AdminScreenProps {
   /** The admin client. Defaults to the same-origin HTTP client; tests inject a mock. */
   api?: AdminApi;
+  /** `GET /admin/me`. Defaults to the HTTP loader. */
+  loadMe?: AdminMeLoader;
+  /** `GET /admin/dashboard`. Defaults to the HTTP loader. */
+  loadDashboard?: DashboardLoader;
+  /** `GET /admin/search`. Defaults to the HTTP client. */
+  search?: AdminSearch;
+  /** Second sign-in step. Defaults to the HTTP client. */
+  verifyTotp?: AdminTotpVerifier;
+  /** The section table. Defaults to `SECTIONS`; tests may pass a smaller one. */
+  sections?: readonly SectionDef[];
 }
 
 export function AdminScreen(props: AdminScreenProps): JSX.Element {
-  const admin = createAdminSlice(props.api ?? createHttpAdminApi());
-  // Reactive ref: the nav is behind an async session gate, so a plain `let` would
-  // still be undefined when the roving effect first runs. A signal re-runs it when
-  // the nav actually mounts.
-  const [navEl, setNavEl] = createSignal<HTMLElement>();
-  // t9 SSO (§18.3): a local section layered on top of the frozen `AdminSection`
-  // set — the shared `state/slices/admin.ts` union stays untouched (ownership
-  // boundary), so SSO is tracked with its own flag rather than in `admin.section`.
-  const [ssoActive, setSsoActive] = createSignal(false);
-  // t14 server-metadata editor (§24): a second local section layered on the frozen
-  // `AdminSection` set, mirroring `ssoActive` — the write-capable `MetadataView`
-  // (canEdit) under /admin. `metaActive`/`ssoActive` are mutually exclusive with
-  // each other and with the union sections (each click resets the others).
-  const [metaActive, setMetaActive] = createSignal(false);
-  // t14 JWZ backfill (§Workstream-3): a third local section layered on the frozen
-  // `AdminSection` set, mirroring `metaActive` — the admin-gated one-shot re-thread
-  // action. `rethreadActive`/`metaActive`/`ssoActive` and the union sections are
-  // mutually exclusive (each click resets the others).
-  const [rethreadActive, setRethreadActive] = createSignal(false);
-  // t16 require-2FA policy (DQ2): a fourth local section layered on the frozen
-  // `AdminSection` set, mirroring `rethreadActive` — the admin require-2FA policy
-  // (global / per-domain). Mutually exclusive with the others (each click resets
-  // the rest); the frozen `AdminSection` union stays untouched.
-  const [twofaActive, setTwofaActive] = createSignal(false);
-  // t22 egress routes (26.20): a fifth local section layered on the frozen
-  // `AdminSection` set, mirroring `twofaActive` — the outbound-proxy route editor.
-  // Mutually exclusive with the others (each click resets the rest); the frozen
-  // union in `state/slices/admin.ts` stays untouched.
-  const [egressActive, setEgressActive] = createSignal(false);
-  // t28 UI plugins (26.20): a sixth local section, mirroring `egressActive` — the
-  // `/admin/ui-plugins` registry. Mutually exclusive with the others; its nav label
-  // is in the `plugins` catalog.
-  const [uiPluginsActive, setUiPluginsActive] = createSignal(false);
+  const admin = createAdminSlice(withTotpGate(props.api ?? createHttpAdminApi()));
   onMount(() => void admin.loadSession());
   onMount(() => void loadCatalog('admin'));
+  onMount(() => void loadCatalog('admin-shell'));
+  onMount(() => void loadCatalog('admin-dashboard'));
   onMount(() => void loadCatalog('plugins'));
-  // Roving-tabindex nav: one Tab lands on the current section, arrows move
-  // between sections (WAI-ARIA vertical nav pattern).
-  createRovingTabindex(navEl, { orientation: 'vertical' });
+
+  // The console takes the theme this browser chose for the webmail (read-only:
+  // nothing here changes the stored preference). The slice ignores its context.
+  onMount(() => {
+    const theme = createThemeSlice({} as SliceContext);
+    onCleanup(() => theme.dispose());
+  });
 
   return (
     <AdminContext.Provider value={admin}>
       <Show when={admin.sessionChecked()} fallback={<div class={css.gate}>{t('common-loading')}</div>}>
-        <Show when={admin.session() !== null} fallback={<AdminLogin />}>
-          <div class={css.shell} data-screen="admin">
-            <nav ref={setNavEl} class={css.sidebar} aria-label={t('admin-nav')}>
-              <span class={css.brand}>{t('admin-brand')}</span>
-              <For each={ADMIN_SECTIONS}>
-                {(s) => (
-                  <button
-                    type="button"
-                    class={css.navItem}
-                    data-roving-item
-                    aria-current={
-                      !ssoActive() &&
-                      !metaActive() &&
-                      !rethreadActive() &&
-                      !twofaActive() &&
-                      !egressActive() &&
-                      !uiPluginsActive() &&
-                      admin.section() === s
-                    }
-                    onClick={() => {
-                      setSsoActive(false);
-                      setMetaActive(false);
-                      setRethreadActive(false);
-                      setTwofaActive(false);
-                      setUiPluginsActive(false);
-                  setEgressActive(false);
-                      setEgressActive(false);
-                      admin.setSection(s);
-                    }}
-                  >
-                    {NAV_LABEL[s]()}
-                  </button>
-                )}
-              </For>
-              <button
-                type="button"
-                class={css.navItem}
-                data-roving-item
-                aria-current={ssoActive()}
-                onClick={() => {
-                  setMetaActive(false);
-                  setRethreadActive(false);
-                  setTwofaActive(false);
-                  setUiPluginsActive(false);
-                  setEgressActive(false);
-                  setSsoActive(true);
-                }}
-              >
-                {t('admin-nav-sso')}
-              </button>
-              <button
-                type="button"
-                class={css.navItem}
-                data-roving-item
-                aria-current={metaActive()}
-                onClick={() => {
-                  setSsoActive(false);
-                  setRethreadActive(false);
-                  setTwofaActive(false);
-                  setUiPluginsActive(false);
-                  setEgressActive(false);
-                  setMetaActive(true);
-                }}
-              >
-                {t('admin-nav-servermeta')}
-              </button>
-              <button
-                type="button"
-                class={css.navItem}
-                data-roving-item
-                aria-current={rethreadActive()}
-                onClick={() => {
-                  setSsoActive(false);
-                  setMetaActive(false);
-                  setTwofaActive(false);
-                  setUiPluginsActive(false);
-                  setEgressActive(false);
-                  setRethreadActive(true);
-                }}
-              >
-                {t('admin-nav-rethread')}
-              </button>
-              <button
-                type="button"
-                class={css.navItem}
-                data-roving-item
-                aria-current={twofaActive()}
-                onClick={() => {
-                  setSsoActive(false);
-                  setMetaActive(false);
-                  setRethreadActive(false);
-                  setEgressActive(false);
-                  setUiPluginsActive(false);
-                  setTwofaActive(true);
-                }}
-              >
-                {t('admin-nav-2fa')}
-              </button>
-              <button
-                type="button"
-                class={css.navItem}
-                data-roving-item
-                aria-current={egressActive()}
-                data-testid="admin-nav-egress"
-                onClick={() => {
-                  setSsoActive(false);
-                  setMetaActive(false);
-                  setRethreadActive(false);
-                  setTwofaActive(false);
-                  setUiPluginsActive(false);
-                  setEgressActive(true);
-                }}
-              >
-                {t('admin-nav-egress')}
-              </button>
-              <button
-                type="button"
-                class={css.navItem}
-                data-roving-item
-                aria-current={uiPluginsActive()}
-                data-testid="admin-nav-ui-plugins"
-                onClick={() => {
-                  setSsoActive(false);
-                  setMetaActive(false);
-                  setRethreadActive(false);
-                  setTwofaActive(false);
-                  setEgressActive(false);
-                  setUiPluginsActive(true);
-                }}
-              >
-                {t('plugins-admin-ui-nav')}
-              </button>
-              <button type="button" class="btn btn--ghost" onClick={() => void admin.logout()}>
-                {t('admin-sign-out')}
-              </button>
-            </nav>
-            <main class={css.main}>
-              <Suspense fallback={<div class={css.note}>{t('common-loading')}</div>}>
-                <Show when={uiPluginsActive()}>
-                  <AdminUiPlugins />
-                </Show>
-                <Show
-                  when={!uiPluginsActive() && egressActive()}
-                  fallback={
-                    <Show when={!uiPluginsActive()}>
-                <Show
-                  when={twofaActive()}
-                  fallback={
-                    <Show
-                      when={rethreadActive()}
-                      fallback={
-                        <Show
-                          when={metaActive()}
-                          fallback={
-                            <Show when={ssoActive()} fallback={<Dynamic component={SECTION_VIEWS[admin.section()]} />}>
-                              <AdminSso />
-                            </Show>
-                          }
-                        >
-                          <ServerMetadata api={admin.api} />
-                        </Show>
-                      }
-                    >
-                      <RethreadMaintenance api={admin.api} />
-                    </Show>
-                  }
-                >
-                  <TwoFactorPolicy api={admin.api} />
-                </Show>
-                    </Show>
-                  }
-                >
-                  <AdminEgress />
-                </Show>
-              </Suspense>
-            </main>
-          </div>
+        <Show when={admin.session()} fallback={<AdminLogin verifyTotp={props.verifyTotp} />}>
+          {(session) => <Console {...props} username={session().username} />}
         </Show>
       </Show>
     </AdminContext.Provider>
+  );
+}
+
+function Console(props: AdminScreenProps & { username: string }): JSX.Element {
+  const admin = useAdmin();
+  const sections = props.sections ?? SECTIONS;
+  const can = createLoadedCan(props.loadMe ?? createAdminMeLoader());
+  onMount(() => void can.reload());
+
+  // The "leave with unsaved changes?" question: the router awaits the answer.
+  const [leaveOpen, setLeaveOpen] = createSignal(false);
+  let answer: ((ok: boolean) => void) | null = null;
+  const ask = (): Promise<boolean> =>
+    new Promise<boolean>((resolve) => {
+      answer = resolve;
+      setLeaveOpen(true);
+    });
+  function settle(ok: boolean): void {
+    setLeaveOpen(false);
+    answer?.(ok);
+    answer = null;
+  }
+
+  const base = createAdminRouter(createLeaveCheck(ask));
+  onCleanup(() => base.dispose());
+  // After an in-app navigation focus moves to the main column, so keyboard and
+  // screen-reader users continue in the new section rather than in the sidebar.
+  const router: AdminRouter = {
+    ...base,
+    async navigate(path, opts) {
+      const ok = await base.navigate(path, opts);
+      if (ok) queueMicrotask(() => document.getElementById('admin-main')?.focus({ preventScroll: true }));
+      return ok;
+    },
+  };
+  const navigate = (path: string): Promise<boolean> => router.navigate(path);
+
+  const services = {
+    loadDashboard: props.loadDashboard ?? createDashboardLoader(),
+    search: props.search ?? createAdminSearch(),
+  };
+
+  const section = (): SectionDef | undefined => {
+    const s = findSection(router.route().section, sections);
+    return s && can.can(s.capability) ? s : undefined;
+  };
+
+  createEffect(() => {
+    const s = section();
+    document.title = s ? `${s.label()} · ${t('admin-brand')}` : t('admin-brand');
+  });
+
+  const crumbs = (): Crumb[] => {
+    const s = section();
+    const r = router.route();
+    if (!s || s.id === 'dashboard') return [];
+    const items: Crumb[] = [
+      { label: t('admin-shell-nav-dashboard'), href: hrefFor('/admin'), onNavigate: () => void navigate('/admin') },
+      {
+        label: s.label(),
+        href: hrefFor(sectionPath(s.id)),
+        onNavigate: () => void navigate(sectionPath(s.id)),
+      },
+    ];
+    r.rest.forEach((part, i) => {
+      const path = sectionPath(s.id, r.rest.slice(0, i + 1));
+      items.push({ label: part, href: hrefFor(path), onNavigate: () => void navigate(path) });
+    });
+    return items;
+  };
+
+  return (
+    <ShellContext.Provider
+      value={{
+        can,
+        router,
+        services,
+        username: () => props.username,
+      }}
+    >
+      <Show when={can.loaded()} fallback={<div class={css.gate}>{t('common-loading')}</div>}>
+        <AdminShell
+          sections={sections}
+          route={router.route()}
+          navigate={(p) => void navigate(p)}
+          can={can}
+          username={props.username}
+          onSignOut={() => void admin.logout()}
+          search={services.search}
+          breadcrumbs={crumbs()}
+          leave={{ open: leaveOpen(), onStay: () => settle(false), onLeave: () => settle(true) }}
+        >
+          <h1 class={shellCss.srOnly}>{t('admin-brand')}</h1>
+          <Suspense
+            fallback={
+              <p class={shellCss.state} role="status">
+                {t('admin-shell-loading')}
+              </p>
+            }
+          >
+            <Show
+              when={section()}
+              fallback={
+                <div class={shellCss.state} data-testid="admin-unknown-section">
+                  <p>{t('admin-shell-unknown-section')}</p>
+                  <a
+                    class="btn btn--ghost"
+                    href={hrefFor('/admin')}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      void navigate('/admin');
+                    }}
+                  >
+                    {t('admin-shell-back-to-dashboard')}
+                  </a>
+                </div>
+              }
+            >
+              {(s) => <Dynamic component={s().component} api={admin.api} route={router.route()} />}
+            </Show>
+          </Suspense>
+        </AdminShell>
+      </Show>
+    </ShellContext.Provider>
   );
 }
 
