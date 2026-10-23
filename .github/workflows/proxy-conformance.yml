@@ -38,8 +38,13 @@
 # The suite this drives
 # ---------------------------------------------------------------------------
 #
-# `crates/mw-server/tests/t20_proxy_conformance.rs` (t20-e11): twelve tests,
+# `crates/mw-server/tests/t20_proxy_conformance.rs` (t20-e11): thirteen tests,
 # each driven through the cell's published port.
+#
+# The server in every cell runs with MW_CSRF_STRICT=true (docker-compose.proxy.yml,
+# the setting deploy.sh writes). The suite repeats the mw_csrf cookie in
+# X-CSRF-Token on its writes, and `a_write_without_the_csrf_token_is_refused`
+# fails in a cell whose server does not refuse a write without it (26.20 t31-e6).
 #
 # Env contract handed to t20-e11 (all `MW_T20_*`; the suite LOUD-SKIPS a leg
 # whose variable is absent, and never silently passes):
@@ -85,7 +90,7 @@
 # What runs in no cell
 # ---------------------------------------------------------------------------
 #
-# One of the twelve tests skips in every cell, with a SKIPPED line:
+# One of the thirteen tests skips in every cell, with a SKIPPED line:
 #
 #   sub_path_api_routes_return_json_not_the_spa_shell
 #       needs a cell hosted under a path prefix. None is shipped.

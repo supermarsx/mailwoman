@@ -41,6 +41,14 @@
 //! be on it (it would match `MW_T20_PROXY_PREFIX`); the "no cell booted" reason cites
 //! `MW_T20_PROXY_KIND` so that it is still fatal there.
 //!
+//! # Strict CSRF
+//!
+//! The cells run the server with `MW_CSRF_STRICT=true`, the setting `deploy.sh`
+//! writes. Every write here repeats the jar's `mw_csrf` cookie in `X-CSRF-Token`
+//! ([`Ctx::post`]), and `a_write_without_the_csrf_token_is_refused` checks in each
+//! cell that a write without it is refused, so a cell booted without the setting
+//! fails.
+//!
 //! # Environment contract (t20-e14, `678d3d1`)
 //!
 //! | var | meaning |
@@ -80,10 +88,16 @@
 
 mod common;
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
+use reqwest::cookie::{CookieStore, Jar};
 use serde_json::{Value, json};
+
+/// The double-submit pair `MW_CSRF_STRICT` enforces (`mw_server::hardening`).
+const CSRF_COOKIE: &str = "mw_csrf";
+const CSRF_HEADER: &str = "x-csrf-token";
 
 // ---------------------------------------------------------------------------
 // Gates
@@ -175,8 +189,14 @@ impl Cell {
 
     /// A client that trusts the cell's self-signed leaf.
     fn client(&self) -> reqwest::Client {
+        self.client_with_jar(Arc::new(Jar::default()))
+    }
+
+    /// [`Cell::client`] over a cookie jar the caller keeps, so it can read
+    /// `mw_csrf` back out of it ([`Ctx::post`]).
+    fn client_with_jar(&self, jar: Arc<Jar>) -> reqwest::Client {
         let mut b = reqwest::Client::builder()
-            .cookie_store(true)
+            .cookie_provider(jar)
             .timeout(Duration::from_secs(120));
         match self.ca_path.as_deref().map(std::fs::read) {
             Some(Ok(pem)) => match reqwest::Certificate::from_pem(&pem) {
@@ -196,7 +216,8 @@ impl Cell {
 
     /// Log in through this cell and return a driveable session.
     async fn login(&self, base: &str) -> Ctx {
-        let client = self.client();
+        let jar = Arc::new(Jar::default());
+        let client = self.client_with_jar(jar.clone());
         let resp = client
             .post(format!("{base}{}/api/login", self.prefix))
             .json(&json!({
@@ -240,6 +261,7 @@ impl Cell {
             kind: self.kind.clone(),
             account_id: body["accountId"].as_str().unwrap().to_string(),
             client,
+            jar,
             cookie_header,
             secure_session,
             hsts,
@@ -254,6 +276,8 @@ struct Ctx {
     kind: String,
     account_id: String,
     client: reqwest::Client,
+    /// `client`'s cookie jar.
+    jar: Arc<Jar>,
     cookie_header: String,
     /// Did the login's `mw_session` cookie carry `Secure`?
     secure_session: bool,
@@ -266,8 +290,34 @@ impl Ctx {
         format!("{}{}{}", self.base, self.prefix, path)
     }
 
-    /// Mint a read-only mail key restricted to `allowlist`.
-    async fn key_for(&self, allowlist: &[&str]) -> String {
+    /// The `mw_csrf` value the jar would send to `url`, if it holds one.
+    fn csrf_token(&self, url: &str) -> Option<String> {
+        let url = reqwest::Url::parse(url).ok()?;
+        let cookies = self.jar.cookies(&url)?;
+        cookies
+            .to_str()
+            .ok()?
+            .split(';')
+            .filter_map(|pair| pair.trim().split_once('='))
+            .find(|(name, value)| *name == CSRF_COOKIE && !value.is_empty())
+            .map(|(_, value)| value.to_string())
+    }
+
+    /// A `POST` to `url` that repeats the jar's `mw_csrf` cookie in
+    /// `X-CSRF-Token`, the rule the web client follows (`apps/web/src/api/http.ts`,
+    /// and `apps/web/e2e/csrf.ts` for the e2e specs). The cells run the server with
+    /// `MW_CSRF_STRICT=true`, which refuses a cookie-authorised write without it.
+    /// With no `mw_csrf` in the jar the request goes out as it is.
+    fn post(&self, url: &str) -> reqwest::RequestBuilder {
+        let req = self.client.post(url);
+        match self.csrf_token(url) {
+            Some(token) => req.header(CSRF_HEADER, token),
+            None => req,
+        }
+    }
+
+    /// The `POST /api/keys` body for a read-only mail key restricted to `allowlist`.
+    fn key_request(&self, allowlist: &[&str]) -> Value {
         let scope = json!({
             "read": true, "send": false, "delete": false,
             "accounts": { "subset": [self.account_id] }, "folders": "all",
@@ -276,10 +326,14 @@ impl Ctx {
             "expires_at": null, "rate_limit": null,
             "mcp_tools": [], "unattended_send": false,
         });
+        json!({ "label": "t20-e11", "accountId": self.account_id, "scope": scope })
+    }
+
+    /// Mint a read-only mail key restricted to `allowlist`.
+    async fn key_for(&self, allowlist: &[&str]) -> String {
         let minted: Value = self
-            .client
-            .post(self.url("/api/keys"))
-            .json(&json!({ "label": "t20-e11", "accountId": self.account_id, "scope": scope }))
+            .post(&self.url("/api/keys"))
+            .json(&self.key_request(allowlist))
             .send()
             .await
             .unwrap()
@@ -625,8 +679,7 @@ async fn the_assist_invoke_route_reaches_the_app_not_the_proxys_error_page() {
     let ctx = cell.login(cell.base()).await;
 
     let resp = ctx
-        .client
-        .post(ctx.url("/api/assist/invoke"))
+        .post(&ctx.url("/api/assist/invoke"))
         .json(&json!({
             "capability": "summarize",
             "input": { "prompt": "t20 conformance" },
@@ -902,7 +955,6 @@ async fn a_large_upload_succeeds_and_an_oversize_one_gets_the_apps_json_413() {
     let upload = ctx.url(&format!("/jmap/upload/{}", ctx.account_id));
 
     let ok = ctx
-        .client
         .post(&upload)
         .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
         .body(vec![b'a'; 20 * 1024 * 1024])
@@ -935,7 +987,6 @@ async fn a_large_upload_succeeds_and_an_oversize_one_gets_the_apps_json_413() {
     let mut attempt = Err(None);
     for _ in 0..2 {
         match ctx
-            .client
             .post(&upload)
             .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
             .body(vec![b'a'; 60 * 1024 * 1024])
@@ -1313,4 +1364,75 @@ async fn sub_path_api_routes_return_json_not_the_spa_shell() {
         ctx.assert_attributed_to(&host_route(&expected), DECOY, &[])
             .await;
     }
+}
+
+// ===========================================================================
+// 7. Strict CSRF
+// ===========================================================================
+
+/// The cell's server refuses a cookie-authorised write that does not repeat the
+/// `mw_csrf` cookie in `X-CSRF-Token`, and accepts the same write when it does.
+///
+/// `docker-compose.proxy.yml` runs the server with `MW_CSRF_STRICT=true`, as
+/// `deploy.sh` configures it, and every other write in this file sends the token
+/// ([`Ctx::post`]). Those tests would pass just the same against a server that
+/// checks nothing, so this one shows the setting is in force in this cell: a cell
+/// booted without it fails here. It also shows the proxy hands the `mw_csrf`
+/// cookie to the client and the header to the app, since the accepted write
+/// needs both.
+#[tokio::test]
+async fn a_write_without_the_csrf_token_is_refused() {
+    let Some(cell) = Cell::from_env() else { return };
+    let ctx = cell.login(cell.base()).await;
+    let url = ctx.url("/api/keys");
+    let token = ctx.csrf_token(&url).unwrap_or_else(|| {
+        panic!(
+            "[{}] signing in through the cell left no `mw_csrf` cookie in the jar for \
+             {url}. The login response sets it; either the proxy dropped that \
+             Set-Cookie or the cookie's attributes keep it from this URL.",
+            cell.kind
+        )
+    });
+
+    for (label, header) in [
+        ("no X-CSRF-Token", None),
+        ("a wrong X-CSRF-Token", Some("t20-not-the-cookie")),
+    ] {
+        let mut req = ctx.client.post(&url).json(&ctx.key_request(&[DECOY]));
+        if let Some(value) = header {
+            req = req.header(CSRF_HEADER, value);
+        }
+        let resp = req.send().await.unwrap();
+        let status = resp.status().as_u16();
+        let body: Value = resp.json().await.unwrap_or(Value::Null);
+        assert_eq!(
+            status, 403,
+            "[{}] POST /api/keys with the session cookie and {label} answered {status} \
+             {body}. A server with MW_CSRF_STRICT=true refuses it; this cell's server \
+             is not running strict.",
+            cell.kind
+        );
+        assert_eq!(
+            body["error"], "missing or invalid CSRF token",
+            "[{}] the 403 for {label} came from somewhere other than the CSRF check",
+            cell.kind
+        );
+    }
+
+    let minted = ctx
+        .client
+        .post(&url)
+        .header(CSRF_HEADER, &token)
+        .json(&ctx.key_request(&[DECOY]))
+        .send()
+        .await
+        .unwrap();
+    let status = minted.status().as_u16();
+    let body: Value = minted.json().await.unwrap_or(Value::Null);
+    assert!(
+        status == 200 && body["displayToken"].is_string(),
+        "[{}] the same write WITH the `mw_csrf` value in X-CSRF-Token answered {status} \
+         {body}; it must mint the key, or the refusals above prove nothing",
+        cell.kind
+    );
 }

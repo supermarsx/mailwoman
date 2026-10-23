@@ -23,7 +23,8 @@
 #   #    Compose 2.38.2 refuses `--wait` with such a service in the wait set.
 #   #    The service that fronts the app is named after its profile.
 #   docker compose -f docker-compose.proxy.yml --profile nginx up -d
-#   docker compose -f docker-compose.proxy.yml --profile nginx up -d #     --no-deps --wait --wait-timeout 300 mock app nginx
+#   docker compose -f docker-compose.proxy.yml --profile nginx up -d \
+#     --no-deps --wait --wait-timeout 300 mock app nginx
 #
 #   # 3. Drive it.
 #   MW_T20_PROXY=1 \
@@ -123,6 +124,11 @@ x-app-env: &app-env
   # (effective scheme/host derived from trusted X-Forwarded-Proto + Host).
   # Set it in the environment to drive the explicit-public-URL path instead.
   MW_PUBLIC_URL: "${MW_PUBLIC_URL:-}"
+  # The server as deploy.sh configures it: a cookie-authorised write must repeat
+  # the mw_csrf cookie in X-CSRF-Token. The suite sends it on every write, and
+  # `a_write_without_the_csrf_token_is_refused` fails in a cell where this is off.
+  # Shared by `app` and `app-tls` through this anchor.
+  MW_CSRF_STRICT: "true"
   RUST_LOG: "info,mw_server=debug"
 
 networks:
