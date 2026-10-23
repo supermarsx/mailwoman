@@ -49,7 +49,12 @@ env:
   #
   # Both separators are accepted so a developer running the same command on
   # Windows gets the same denominator CI does.
-  COVERAGE_IGNORE_REGEX: '[\\/](tests|benches|examples|fuzz)[\\/]|(crates|plugins)[\\/][^\\/]+[\\/]build\.rs$'
+  #
+  # The `apps/(desktop|mobile)/` arm keeps the two Tauri shells out of the
+  # report. `cargo llvm-cov report` takes no `--exclude` (0.9.1 refuses it with
+  # "not supported for subcommand 'report'"), so the shells are left out of the
+  # test run by package and out of the report by path.
+  COVERAGE_IGNORE_REGEX: '[\\/](tests|benches|examples|fuzz)[\\/]|(crates|plugins)[\\/][^\\/]+[\\/]build\.rs$|apps[\\/](desktop|mobile)[\\/]'
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -84,7 +89,8 @@ jobs:
           key: llvm-cov
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-llvm-cov
+          # Pinned: the `report` flags below were checked against this version.
+          tool: cargo-llvm-cov@0.9.1
       - name: instrumented workspace test run
         run: >-
           cargo llvm-cov --workspace
@@ -93,22 +99,19 @@ jobs:
           -- --test-threads=1
       - name: per-file report (json)
         run: >-
-          cargo llvm-cov report --workspace
-          --exclude mailwoman-desktop --exclude mailwoman-mobile
+          cargo llvm-cov report
           --summary-only --json
           --ignore-filename-regex "$COVERAGE_IGNORE_REGEX"
           --output-path rust-coverage.json
       - name: per-file report (lcov, for external viewers)
         run: >-
-          cargo llvm-cov report --workspace
-          --exclude mailwoman-desktop --exclude mailwoman-mobile
+          cargo llvm-cov report
           --lcov
           --ignore-filename-regex "$COVERAGE_IGNORE_REGEX"
           --output-path rust-coverage.lcov
       - name: per-file report (text, for the run log)
         run: >-
-          cargo llvm-cov report --workspace
-          --exclude mailwoman-desktop --exclude mailwoman-mobile
+          cargo llvm-cov report
           --ignore-filename-regex "$COVERAGE_IGNORE_REGEX"
       - uses: actions/upload-artifact@v4
         with:
