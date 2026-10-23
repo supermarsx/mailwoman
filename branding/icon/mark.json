@@ -1,0 +1,47 @@
+{
+  "notes": [
+    "Mailwoman mark: an envelope built from the three primary shapes on a near-black field.",
+    "Blue: the envelope body, a rectangle with a V cut from its top edge. Yellow: the flap, a triangle sitting in the V.",
+    "Red: a circular seal on the point of the V. No shape touches another: every edge is shape against field.",
+    "Units are the variant's grid. A shape's gap paints it grown by that many units in the field colour first.",
+    "Each output size uses the variant with the smallest maxSize it fits. At 16 px the seal is left out.",
+    "scripts/icons/build-icons.py reads this file; see README.md in this directory."
+  ],
+  "colors": {
+    "field": "#111111",
+    "red": "#ff5a4a",
+    "yellow": "#f5c400",
+    "blue": "#4d7cff",
+    "mono": "#000000"
+  },
+  "shapeColors": ["red", "yellow", "blue"],
+  "faviconSvgSize": 16,
+  "variants": [
+    {
+      "maxSize": 16,
+      "grid": 16,
+      "shapes": [
+        { "kind": "polygon", "fill": "blue", "points": [[2, 4], [8, 9], [14, 4], [14, 12], [2, 12]] },
+        { "kind": "polygon", "fill": "yellow", "points": [[3.56, 4], [12.44, 4], [8, 7.7]] }
+      ]
+    },
+    {
+      "maxSize": 48,
+      "grid": 32,
+      "shapes": [
+        { "kind": "polygon", "fill": "blue", "points": [[4, 8], [16, 17], [28, 8], [28, 24], [4, 24]] },
+        { "kind": "polygon", "fill": "yellow", "points": [[7.33, 8], [24.67, 8], [16, 14.5]] },
+        { "kind": "circle", "fill": "red", "cx": 16, "cy": 17, "r": 3.5, "gap": 1.5 }
+      ]
+    },
+    {
+      "maxSize": 100000,
+      "grid": 1024,
+      "shapes": [
+        { "kind": "polygon", "fill": "blue", "points": [[128, 256], [512, 544], [896, 256], [896, 768], [128, 768]] },
+        { "kind": "polygon", "fill": "yellow", "points": [[208, 256], [816, 256], [512, 484]] },
+        { "kind": "circle", "fill": "red", "cx": 512, "cy": 544, "r": 112, "gap": 48 }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+<mask id="m">
+<rect width="1024" height="1024" fill="#fff"/>
+<polygon points="128,256 512,544 896,256 896,768 128,768" fill="#000"/>
+<polygon points="208,256 816,256 512,484" fill="#000"/>
+<circle cx="512" cy="544" r="160" fill="#fff"/>
+<circle cx="512" cy="544" r="112" fill="#000"/>
+</mask>
+<rect width="1024" height="1024" fill="#000000" mask="url(#m)"/>
+</svg>
