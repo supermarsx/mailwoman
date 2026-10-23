@@ -87,7 +87,7 @@ Options:
   --pull            Refresh --image from its registry before deploying
   --require-signature
                     Refuse an --image whose signature cannot be checked (no
-                    cosign, or a local image that is not from a registry)
+                    cosign, or used from the local image store without --pull)
   --no-build        Reuse the last applied app image (configuration-only deploy)
   --no-auto-rollback
                     Leave a failed update in place instead of restoring the
@@ -317,7 +317,7 @@ if $DRY_RUN; then
     log "Dry run: $ACTION; project=$PROJECT; mode=$MODE; exposure=$EXPOSURE"
     log "State: $STATE; URL: $PUBLIC_URL"
     case "$ACTION" in
-        deploy) log "Prepare runtime image (${IMAGE:+check its signature when cosign is installed, }${IMAGE:-$($NO_BUILD && printf 'last applied image' || printf 'build Dockerfile --target runtime-static')}); snapshot existing data; apply Compose; verify app and public HTTP(S)$($AUTO_ROLLBACK && printf '; if an update fails that check, restore the previous release and its data')." ;;
+        deploy) log "Prepare runtime image (${IMAGE:-$($NO_BUILD && printf 'last applied image' || printf 'build Dockerfile --target runtime-static')}${IMAGE:+; signature checked when it is fetched from its registry and cosign is installed}); snapshot existing data; apply Compose; verify app and public HTTP(S)$($AUTO_ROLLBACK && printf '; if an update fails that check, restore the previous release and its data')." ;;
         restore|rollback) log "Validate snapshot checksums; save current installation; restore snapshot to a new volume; apply and verify. Post-snapshot writes will not be in the restored app." ;;
         *) log "Would run $ACTION. No files, containers, networks or volumes changed." ;;
     esac
