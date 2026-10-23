@@ -64,6 +64,34 @@ fn bootstrap_config_script() -> String {
     format!("globalThis.__MW_CONFIG__ = Object.assign(globalThis.__MW_CONFIG__ || {{}}, {cfg});")
 }
 
+/// Remove the service workers stored in the Android WebView profile before the
+/// first webview is created (t31-e7 finding, same as the desktop shell). wry's
+/// Android client serves the bundle from `WebViewClient.shouldInterceptRequest`,
+/// which Android does not call for a service worker's requests, so a stored
+/// worker's fetch of `http://tauri.localhost/` leaves the WebView for the network
+/// and its answer runs with the shell's IPC. The SPA no longer registers a worker
+/// in a shell (`apps/web/src/sw/register.ts`); this removes one an earlier build
+/// registered. `data_dir` is the app's data folder (Tauri's `app_data_dir` on
+/// Android, `Context.getDataDir()`); the WebView keeps its profile in
+/// `app_webview/Default` there, or in `app_webview` itself on WebView versions
+/// without profiles. Nothing else in the profile is touched. Returns how many
+/// folders were removed.
+pub fn remove_stored_service_workers(data_dir: &std::path::Path) -> Result<usize, String> {
+    let webview = data_dir.join("app_webview");
+    let mut removed = 0;
+    for dir in [
+        webview.join("Default").join("Service Worker"),
+        webview.join("Service Worker"),
+    ] {
+        match std::fs::remove_dir_all(&dir) {
+            Ok(()) => removed += 1,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("{}: {e}", dir.display())),
+        }
+    }
+    Ok(removed)
+}
+
 /// Build and run the mobile shell.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -121,6 +149,20 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_biometric::init());
     builder
         .setup(|app| {
+            // Before the first webview exists: no stored service worker may answer
+            // the start-up navigation (t31-e7). Not proven on a device.
+            #[cfg(target_os = "android")]
+            {
+                use tauri::Manager;
+                match app.path().app_data_dir() {
+                    Ok(dir) => match remove_stored_service_workers(&dir) {
+                        Ok(0) => {}
+                        Ok(n) => eprintln!("[mailwoman] removed stored service workers ({n})"),
+                        Err(e) => eprintln!("[mailwoman] service workers not removed: {e}"),
+                    },
+                    Err(e) => eprintln!("[mailwoman] service workers not removed: {e}"),
+                }
+            }
             // Deep-link bridge: forward OS-delivered mailto:/mailwoman: URLs to the
             // SPA's `onOpenUrl` via `mw://open-url` (matching desktop's e7 bridge).
             // Filtered so only handled schemes reach the frontend.
@@ -147,6 +189,39 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn removes_only_the_stored_service_workers() {
+        let root = std::env::temp_dir().join(format!("mw-mobile-sw-{}", std::process::id()));
+        let webview = root.join("app_webview");
+        std::fs::create_dir_all(
+            webview
+                .join("Default")
+                .join("Service Worker")
+                .join("Database"),
+        )
+        .unwrap();
+        std::fs::create_dir_all(webview.join("Service Worker")).unwrap();
+        std::fs::create_dir_all(webview.join("Default").join("Local Storage")).unwrap();
+        std::fs::write(
+            webview.join("Default").join("Local Storage").join("keep"),
+            b"x",
+        )
+        .unwrap();
+
+        assert_eq!(remove_stored_service_workers(&root), Ok(2));
+        assert!(!webview.join("Default").join("Service Worker").exists());
+        assert!(!webview.join("Service Worker").exists());
+        assert!(
+            webview
+                .join("Default")
+                .join("Local Storage")
+                .join("keep")
+                .exists()
+        );
+        assert_eq!(remove_stored_service_workers(&root), Ok(0));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
 
     #[test]
     fn bootstrap_script_declares_native_mobile_config() {
