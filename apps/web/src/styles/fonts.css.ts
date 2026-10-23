@@ -6,6 +6,11 @@
 // the token font stacks (tokens.ts) fall back to system fonts until the files
 // exist, so the build/UI never break on a missing binary. The face list here
 // mirrors `fonts/manifest.json` — keep them in sync.
+//
+// Since t32 the UI face is Jost, bundled with the web build and declared in
+// `styles/typeface.css`; the token UI stack no longer names Inter. The faces
+// below are the operator's `fonts pull` overlay: Newsreader and JetBrains Mono
+// back the reading and mono stacks, and Inter is used only if a stack names it.
 
 import { globalFontFace } from '@vanilla-extract/css';
 
