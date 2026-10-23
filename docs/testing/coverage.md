@@ -137,9 +137,8 @@ cargo llvm-cov --workspace \
   --exclude mailwoman-desktop --exclude mailwoman-mobile \
   --no-report --no-fail-fast -- --test-threads=1
 
-cargo llvm-cov report --workspace \
-  --exclude mailwoman-desktop --exclude mailwoman-mobile \
-  --ignore-filename-regex '[\\/](tests|benches|examples|fuzz)[\\/]|(crates|plugins)[\\/][^\\/]+[\\/]build\.rs$'
+cargo llvm-cov report \
+  --ignore-filename-regex '[\\/](tests|benches|examples|fuzz)[\\/]|(crates|plugins)[\\/][^\\/]+[\\/]build\.rs$|apps[\\/](desktop|mobile)[\\/]'
 ```
 
 The ignore regex accepts both path separators so the same command gives the same
