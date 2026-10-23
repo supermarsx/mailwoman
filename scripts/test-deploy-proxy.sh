@@ -12,7 +12,16 @@
 #              which Docker records as a manual stop. Docker must restart it (die event
 #              with exit code 137, RestartCount up by one), health must return, and an
 #              admin ban written before the kill must still be listed.
-#   2 npm      not written yet.
+#   2 npm      deploy.sh --proxy-network installs the app behind a real Nginx Proxy
+#              Manager (pinned image) on that network, set up through its API: a proxy
+#              host for the test domain forwarding to http://<project>:8080 with
+#              WebSocket support, served with an uploaded throwaway certificate. A
+#              client container on a second network then checks, through the proxy:
+#              that the certificate verifies against the throwaway CA and not without
+#              it, /healthz, the SPA, admin login and a write under strict CSRF, a
+#              WebSocket upgrade on /jmap/ws with a mailbox session (the JMAP mock is
+#              the upstream; 401 without one), and that the address the app logs for a
+#              failed admin login is the client's, not the proxy's.
 #   3 caddy    Caddy with a local ACME server (Pebble). Not written yet: it needs the
 #              ACME_CA and ACME_CA_ROOT keys in deploy.sh.
 #
@@ -34,6 +43,8 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 SELF="$ROOT/scripts/test-deploy-proxy.sh"
 # Sends the kill from the host PID namespace in case 1.
 TOOL_IMAGE=busybox:1.37-glibc@sha256:42a9ff19af33811ee466b24c66384461d37c32dcc28d1d27d49b8aca816bd5ee
+# Case 2's proxy. Its curl and openssl also serve as case 2's client.
+NPM_IMAGE=jc21/nginx-proxy-manager:2.15.1@sha256:52b2c59994f3d36acfcf70a1626f29734df0ed8c71bacc0269f78b6f939858bb
 PREFIX=${DEPLOY_TEST_PREFIX:-mw-proxy-test}
 [[ $PREFIX =~ ^[a-z0-9][a-z0-9-]{0,30}$ ]] || { printf 'Invalid DEPLOY_TEST_PREFIX\n' >&2; exit 2; }
 # Exit codes of one case run.
@@ -68,7 +79,8 @@ fail() { printf 'FAIL: %s: %s\n' "$TITLE" "$*" >&2; exit 1; }
 skip() { printf 'SKIP: %s: %s\n' "$TITLE" "$*"; exit "$SKIP_CODE"; }
 
 case $CASE in
-    npm) skip 'not written yet' ;;
+    npm) docker image inspect "$MOCK_IMAGE" >/dev/null 2>&1 \
+        || skip "the JMAP mock image $MOCK_IMAGE is not present; the WebSocket check needs a mailbox session (pass it as the second argument)" ;;
     caddy) skip 'not written yet: it needs ACME_CA and ACME_CA_ROOT in deploy.sh' ;;
 esac
 
@@ -201,5 +213,130 @@ case_restart() {
 }
 restarted() { (($(inspect '{{.RestartCount}}') > $1)) && [[ $(inspect '{{.State.Running}}') == true ]]; }
 healthy() { [[ $(inspect '{{.State.Health.Status}}') == healthy ]]; }
+
+case_npm() {
+    local domain=mail.npm-test.mailwoman.test network="$PROJECT-proxy" clients="$PROJECT-clients"
+    local mock="$PROJECT-mock" npm_user=npm-test@example.test npm_password="npm-$RANDOM-$RANDOM-$RANDOM"
+    local out cert_id npm_proxy_ip client_ip code probe rhost answer
+    NPM="$PROJECT-npm" CLIENT="$PROJECT-client"
+
+    # The proxy network exists before deploy.sh runs, as when the proxy's own stack
+    # made it; the JMAP mock on it is the mailbox upstream for the WebSocket check.
+    NETWORKS+=("$network" "$clients")
+    docker network create --label "mailwoman.deploy.project=$PROJECT" "$network" >/dev/null
+    docker network create --label "mailwoman.deploy.project=$PROJECT" "$clients" >/dev/null
+    CONTAINERS+=("$mock" "$NPM" "$CLIENT")
+    docker run --detach --name "$mock" --network "$network" --env MW_MOCK_PORT=8181 "$MOCK_IMAGE" >/dev/null
+    wait_for 60 'healthy JMAP mock' cx_in "$mock" /usr/local/bin/mailwoman healthcheck --url http://127.0.0.1:8181/healthz
+
+    run init --project "$PROJECT" --public-url "https://$domain" --proxy-network "$network" \
+        || fail "deploy.sh init failed: $(tail -n 5 "$STATE/deploy.log")"
+    printf '\nMW_JMAP_UPSTREAMS=http://%s:8181\n' "$mock" >> "$STATE/app.env"
+    run deploy --image "$IMAGE" --timeout 120 || fail "deploy.sh deploy failed: $(tail -n 5 "$STATE/deploy.log")"
+    APP=$(dc ps -q mailwoman)
+    [[ -n $APP ]] || fail 'no app container after deploy'
+    read_admin_credentials
+
+    # Nginx Proxy Manager on the proxy network, and on a second network shared only
+    # with the client, so the client's address is outside the app's trusted subnet.
+    MSYS_NO_PATHCONV=1 docker run --detach --name "$NPM" --network "$network" --volume /data --volume /etc/letsencrypt \
+        --env "INITIAL_ADMIN_EMAIL=$npm_user" --env "INITIAL_ADMIN_PASSWORD=$npm_password" "$NPM_IMAGE" >/dev/null
+    docker network connect "$clients" "$NPM"
+    MSYS_NO_PATHCONV=1 docker run --detach --name "$CLIENT" --network "$clients" --entrypoint sleep "$NPM_IMAGE" infinity >/dev/null
+    NPM_IP=$(network_ip "$NPM" "$clients")
+    npm_proxy_ip=$(network_ip "$NPM" "$network")
+    client_ip=$(network_ip "$CLIENT" "$clients")
+    [[ -n $NPM_IP && -n $npm_proxy_ip && -n $client_ip && $client_ip != "$npm_proxy_ip" ]] \
+        || fail "unexpected addresses: proxy $NPM_IP/$npm_proxy_ip, client $client_ip"
+
+    # A throwaway CA and a certificate for the test domain, made in the client.
+    # shellcheck disable=SC2016 # $1 expands in the client shell.
+    cx sh -c 'set -e; mkdir /w; cd /w
+        openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=Mailwoman proxy test CA" -keyout ca.key -out ca.pem
+        openssl req -newkey rsa:2048 -nodes -subj "/CN=$1" -keyout leaf.key -out leaf.csr
+        printf "subjectAltName=DNS:%s\nbasicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth\n" "$1" > leaf.ext
+        openssl x509 -req -in leaf.csr -CA ca.pem -CAkey ca.key -CAcreateserial -days 2 -extfile leaf.ext -out leaf.pem' \
+        sh "$domain" > "$STATE/openssl.log" 2>&1 || fail "could not make the throwaway certificate: $(tail -n 3 "$STATE/openssl.log")"
+
+    # Proxy Manager's API: sign in, upload the certificate, create the proxy host.
+    wait_for 180 'Nginx Proxy Manager API' npm_ready
+    TOKEN=$(cx curl --silent --show-error --fail-with-body --header 'content-type: application/json' \
+        --data "{\"identity\":\"$npm_user\",\"secret\":\"$npm_password\"}" "http://$NPM:81/api/tokens" \
+        | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+    [[ -n $TOKEN ]] || fail 'Nginx Proxy Manager issued no API token'
+    out=$(npm_api --header 'content-type: application/json' \
+        --data '{"provider":"other","nice_name":"Mailwoman proxy test"}' "http://$NPM:81/api/nginx/certificates")
+    cert_id=$(grep -o '"id":[0-9]*' <<< "$out" | head -n 1 | cut -d: -f2)
+    [[ -n $cert_id ]] || fail "no certificate id in: $out"
+    npm_api --form certificate=@/w/leaf.pem --form certificate_key=@/w/leaf.key \
+        "http://$NPM:81/api/nginx/certificates/$cert_id/upload" > "$STATE/npm-upload.json"
+    out=$(npm_api --header 'content-type: application/json' --data "{\"domain_names\":[\"$domain\"],
+        \"forward_scheme\":\"http\",\"forward_host\":\"$PROJECT\",\"forward_port\":8080,
+        \"allow_websocket_upgrade\":true,\"certificate_id\":$cert_id,\"ssl_forced\":true,\"http2_support\":false,
+        \"block_exploits\":false,\"caching_enabled\":false,\"access_list_id\":0,\"advanced_config\":\"\",
+        \"locations\":[],\"meta\":{}}" "http://$NPM:81/api/nginx/proxy-hosts")
+    [[ $out == *'"allow_websocket_upgrade":true'* && $out == *"\"certificate_id\":$cert_id"* ]] \
+        || fail "unexpected proxy host: $out"
+
+    CURL=(env MSYS_NO_PATHCONV=1 docker exec "$CLIENT" curl --resolve "$domain:443:$NPM_IP" --cacert /w/ca.pem)
+    JAR=/w/cookies JAR_CAT=(cx cat /w/cookies) BASE="https://$domain" BAN_IP=203.0.113.252
+    wait_for 60 '/healthz through the proxy' proxied_health
+
+    # The proxy serves the uploaded certificate: it verifies against the throwaway
+    # CA (above) and fails verification without it (curl exit 60).
+    code=0
+    cx curl --silent --output /dev/null --resolve "$domain:443:$NPM_IP" "$BASE/healthz" || code=$?
+    ((code == 60)) || fail "without the throwaway CA, curl exited $code, expected 60 (certificate not verified)"
+
+    req "$BASE/"
+    if [[ $CODE != 200 ]] || ! grep -qi '<!doctype html' <<< "$BODY"; then fail "the SPA did not load through the proxy ($CODE)"; fi
+
+    admin_login
+    admin_ban
+    req --request DELETE --header "x-csrf-token: $CSRF" "$BASE/admin/bans/$BAN_IP"
+    [[ $CODE == 2?? ]] || fail "removing the test ban answered $CODE: $BODY"
+
+    # The forwarded client address: the app trusts the proxy network's peers
+    # (deploy.sh) and must log the client's address, which it never sees directly.
+    probe="proxy-probe-$RANDOM$RANDOM"
+    req_json --data "{\"username\":\"$probe\",\"password\":\"not-the-password\"}" "$BASE/admin/login"
+    [[ $CODE == 401 ]] || fail "a wrong admin login answered $CODE, expected 401"
+    wait_for 10 'log line for the failed admin login' logged_rhost "$probe"
+    rhost=$(logged_rhost "$probe")
+    [[ $rhost == "$client_ip" ]] \
+        || fail "the app logged rhost=$rhost for a client at $client_ip behind the proxy at $npm_proxy_ip"
+
+    # WebSocket upgrade on the push endpoint: refused without a session, upgraded
+    # with one. The accept value for this key is the one RFC 6455 section 1.3 gives.
+    answer=$(ws_head)
+    [[ $answer == 'HTTP/1.1 401'* ]] || fail "a WebSocket request without a session answered: ${answer%%$'\n'*}"
+    req_json --data "{\"jmapUrl\":\"http://$mock:8181/.well-known/jmap\",\"username\":\"testuser@example.org\",\"password\":\"testpass\"}" \
+        "$BASE/api/login"
+    [[ $CODE == 200 ]] || fail "mailbox login through the proxy answered $CODE: $BODY"
+    answer=$(ws_head --cookie /w/cookies)
+    [[ $answer == 'HTTP/1.1 101'* ]] || fail "the WebSocket upgrade through the proxy answered: ${answer%%$'\n'*}"
+    grep -qix 'sec-websocket-accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=' <<< "$answer" || fail "wrong Sec-WebSocket-Accept: $answer"
+    grep -qix 'sec-websocket-protocol: jmap' <<< "$answer" || fail "the jmap subprotocol was not echoed: $answer"
+    PASSED=true
+    printf 'PASS: %s: certificate uploaded through the API verifies against the throwaway CA only, /healthz, SPA, admin login and a write under strict CSRF, WebSocket 101 on /jmap/ws (401 without a session), app logged the client address %s rather than the proxy'"'"'s %s\n' \
+        "$TITLE" "$client_ip" "$npm_proxy_ip"
+}
+cx() { MSYS_NO_PATHCONV=1 docker exec "$CLIENT" "$@"; }
+cx_in() { MSYS_NO_PATHCONV=1 docker exec "$@"; }
+network_ip() { docker inspect --format "{{(index .NetworkSettings.Networks \"$2\").IPAddress}}" "$1"; }
+npm_ready() { [[ $(cx curl --silent --fail --max-time 3 "http://$NPM:81/api/") == *'"setup":true'* ]]; }
+npm_api() { cx curl --silent --show-error --fail-with-body --header "authorization: Bearer $TOKEN" "$@"; }
+proxied_health() { req "$BASE/healthz"; [[ $CODE == 200 ]]; }
+# Print the address of the last fail2ban line the app logged for this user name.
+logged_rhost() {
+    docker logs "$APP" 2>&1 | tr -d '\r' | grep -o "logname=$1 rhost=[0-9a-fA-F.:]*" | tail -n 1 | sed 's/.*rhost=//' | grep .
+}
+# The response head of a WebSocket handshake on /jmap/ws through the proxy.
+ws_head() {
+    "${CURL[@]}" --silent --http1.1 --include --no-buffer --max-time 5 --header 'Connection: Upgrade' \
+        --header 'Upgrade: websocket' --header 'Sec-WebSocket-Version: 13' \
+        --header 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' --header 'Sec-WebSocket-Protocol: jmap' \
+        "$@" "$BASE/jmap/ws" | tr -d '\r' | sed '/^$/q' || true
+}
 
 "case_$CASE"
