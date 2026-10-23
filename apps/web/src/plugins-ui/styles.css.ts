@@ -16,14 +16,15 @@ export const tier = style({
 // The persistent, non-dismissable-by-plugin trust banner for approved-but-UNSIGNED
 // plugins. Rendered by the HOST, outside every sandboxed iframe, so a plugin can neither
 // hide nor style it. Uses `vars.color.warning` (not colour alone — carries an icon + text
-// label) and a `1px` border so it reads in high-contrast themes.
+// label) and a 2px rule border so it reads in high-contrast themes. The rule is 1px
+// thicker than before, so each padding side gives that 1px back (t32 §2.4 P1).
 export const banner = style({
   display: 'flex',
   alignItems: 'flex-start',
   gap: vars.space[3],
-  padding: `${vars.space[3]} ${vars.space[4]}`,
+  padding: `calc(${vars.space[3]} - 1px) calc(${vars.space[4]} - 1px)`,
   borderRadius: vars.radius.md,
-  border: `1px solid ${vars.color.warning}`,
+  border: `${vars.border.rule} solid ${vars.color.warning}`,
   background: vars.color.bgAlt,
   color: vars.color.text,
 });
@@ -36,24 +37,26 @@ export const bannerIcon = style({
 });
 
 export const bannerBody = style({ display: 'flex', flexDirection: 'column', gap: vars.space[1] });
-export const bannerTitle = style({ fontSize: '0.9rem', fontWeight: 600, margin: 0 });
+export const bannerTitle = style({ fontSize: '0.9rem', fontWeight: vars.weight.heavy, margin: 0 });
 export const bannerText = style({ fontSize: '0.82rem', color: vars.color.textDim, margin: 0 });
 export const bannerList = style({ margin: 0, padding: 0, listStyle: 'none', display: 'flex', gap: vars.space[2], flexWrap: 'wrap' });
 export const bannerPluginId = style({ fontFamily: vars.font.mono, fontSize: '0.78rem' });
 
-// One mounted plugin slot: a labelled region wrapping its sandboxed frame.
+// One mounted plugin slot: a labelled region wrapping its sandboxed frame. A panel
+// boundary, so the 2px rule in the strong border colour, paid for out of the padding.
 export const slot = style({
   display: 'flex',
   flexDirection: 'column',
   gap: vars.space[2],
-  border: `1px solid ${vars.color.border}`,
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
   borderRadius: vars.radius.md,
-  padding: vars.space[2],
+  padding: `calc(${vars.space[2]} - 1px)`,
 });
 
+// The plugin's own name, so its case is kept (no small capitals on names).
 export const slotLabel = style({
   fontSize: '0.8rem',
-  fontWeight: 600,
+  fontWeight: vars.weight.bold,
   color: vars.color.textDim,
 });
 

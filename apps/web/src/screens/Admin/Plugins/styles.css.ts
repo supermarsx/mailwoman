@@ -1,7 +1,12 @@
 // Admin → Plugins styles (plan §3 e7). Token-native — design tokens unchanged.
+// t32 restyle: square, flat, hard shadows only. Wherever a border went from 1px to the
+// 2px rule, the padding on that side gives back 1px, so no box grows (t32 §2.4 P1).
 
-import { style } from '@vanilla-extract/css';
+import { globalStyle, style } from '@vanilla-extract/css';
 import { vars } from '../../../theme/contract.css.ts';
+
+/** Padding shorthand minus the extra 1px of a 2px border (P1). */
+const lessRule = (block: string, inline: string): string => `calc(${block} - 1px) calc(${inline} - 1px)`;
 
 export const screen = style({
   display: 'flex',
@@ -11,7 +16,7 @@ export const screen = style({
   color: vars.color.text,
 });
 
-export const heading = style({ fontSize: '1.1rem', fontWeight: 600, margin: 0 });
+export const heading = style({ fontSize: '1.1rem', fontWeight: vars.weight.heavy, margin: 0 });
 export const prose = style({ fontSize: '0.9rem', lineHeight: 1.5, margin: 0 });
 export const meta = style({ fontSize: '0.8rem', color: vars.color.textDim, margin: 0 });
 
@@ -23,8 +28,8 @@ export const unsignedBanner = style({
   padding: vars.space[4],
   borderRadius: vars.radius.md,
   background: vars.color.bgAlt,
-  borderLeft: `4px solid ${vars.color.danger}`,
-  fontWeight: 600,
+  borderInlineStart: `4px solid ${vars.color.danger}`,
+  fontWeight: vars.weight.bold,
 });
 
 export const list = style({ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: vars.space[3] });
@@ -33,23 +38,26 @@ export const card = style({
   display: 'flex',
   flexDirection: 'column',
   gap: vars.space[3],
-  padding: vars.space[4],
+  padding: `calc(${vars.space[4]} - 1px)`,
   borderRadius: vars.radius.lg,
-  border: `1px solid ${vars.color.border}`,
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
   background: vars.color.surface,
 });
 
 export const cardHead = style({ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: vars.space[3], flexWrap: 'wrap' });
-export const title = style({ fontSize: '0.98rem', fontWeight: 600, margin: 0 });
+export const title = style({ fontSize: '0.98rem', fontWeight: vars.weight.heavy, margin: 0 });
 export const row = style({ display: 'flex', gap: vars.space[2], alignItems: 'center', flexWrap: 'wrap' });
 
+// A square badge with a hairline in its own text colour; the 1px border comes out of the
+// padding. Every chip carries a text label, so the colour is never the only signal.
 export const chip = style({
   fontSize: '0.7rem',
-  fontWeight: 700,
+  fontWeight: vars.weight.bold,
   textTransform: 'uppercase',
-  letterSpacing: '0.04em',
-  padding: `2px ${vars.space[2]}`,
-  borderRadius: vars.radius.pill,
+  letterSpacing: vars.tracking.label,
+  padding: `1px calc(${vars.space[2]} - 1px)`,
+  border: `${vars.border.hair} solid currentColor`,
+  borderRadius: vars.radius.sm,
   background: vars.color.bgSink,
   color: vars.color.textDim,
 });
@@ -58,46 +66,54 @@ export const signedChip = style({ background: vars.color.bgSink, color: vars.col
 export const unsignedChip = style({ background: vars.color.bgSink, color: vars.color.danger });
 export const capChip = style({ fontFamily: vars.font.mono, background: vars.color.bgAlt, color: vars.color.text });
 
-export const button = style({
+const buttonBase = {
   appearance: 'none',
-  border: `1px solid ${vars.color.accent}`,
+  borderRadius: vars.radius.md,
+  cursor: 'pointer',
+  padding: lessRule(vars.space[1], vars.space[3]),
+  font: 'inherit',
+  fontSize: '0.82rem',
+} as const;
+
+// Hover lifts a hard shadow (no box changes); a disabled button is dimmed and dashed.
+const buttonStates = {
+  '&:hover:not(:disabled)': { boxShadow: vars.elevation[1] },
+  '&:active:not(:disabled)': { boxShadow: 'none' },
+  '&:disabled': { opacity: 0.6, cursor: 'not-allowed', borderStyle: 'dashed' },
+} as const;
+
+export const button = style({
+  ...buttonBase,
+  border: `${vars.border.rule} solid ${vars.color.accent}`,
   background: vars.color.accent,
   color: vars.color.accentText,
-  borderRadius: vars.radius.md,
-  cursor: 'pointer',
-  padding: `${vars.space[1]} ${vars.space[3]}`,
-  font: 'inherit',
-  fontSize: '0.82rem',
   fontWeight: 600,
-  selectors: { '&:disabled': { opacity: 0.5, cursor: 'not-allowed' } },
+  selectors: buttonStates,
 });
 
+// Ghost buttons invert on hover instead of casting a shadow.
 export const ghost = style({
-  appearance: 'none',
-  border: `1px solid ${vars.color.border}`,
-  background: vars.color.bg,
+  ...buttonBase,
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
+  background: 'transparent',
   color: vars.color.text,
-  borderRadius: vars.radius.md,
-  cursor: 'pointer',
-  padding: `${vars.space[1]} ${vars.space[3]}`,
-  font: 'inherit',
-  fontSize: '0.82rem',
+  selectors: {
+    '&:hover:not(:disabled)': { background: vars.color.text, color: vars.color.bg },
+    '&:disabled': buttonStates['&:disabled'],
+  },
 });
 
 export const danger = style({
-  appearance: 'none',
-  border: `1px solid ${vars.color.danger}`,
-  background: 'transparent',
-  color: vars.color.danger,
-  borderRadius: vars.radius.md,
-  cursor: 'pointer',
-  padding: `${vars.space[1]} ${vars.space[3]}`,
-  font: 'inherit',
-  fontSize: '0.82rem',
+  ...buttonBase,
+  border: `${vars.border.rule} solid ${vars.color.danger}`,
+  background: vars.color.danger,
+  color: vars.color.accentText,
   fontWeight: 600,
+  selectors: buttonStates,
 });
 
 export const check = style({ display: 'flex', alignItems: 'center', gap: vars.space[2], fontSize: '0.84rem', cursor: 'pointer' });
+globalStyle(`${check} input`, { accentColor: vars.color.accent });
 export const limits = style({ fontSize: '0.78rem', color: vars.color.textDim, fontFamily: vars.font.mono });
 export const error = style({ fontSize: '0.85rem', color: vars.color.danger, margin: 0 });
 
@@ -119,9 +135,9 @@ export const digest = style({
 /** A small label for a labelled value (e.g. "Computed SHA-256"). */
 export const fieldLabel = style({
   fontSize: '0.72rem',
-  fontWeight: 700,
+  fontWeight: vars.weight.bold,
   textTransform: 'uppercase',
-  letterSpacing: '0.04em',
+  letterSpacing: vars.tracking.label,
   color: vars.color.textDim,
   margin: 0,
 });
@@ -144,26 +160,48 @@ export const form = style({
   display: 'flex',
   flexDirection: 'column',
   gap: vars.space[3],
-  padding: vars.space[4],
+  padding: `calc(${vars.space[4]} - 1px)`,
   borderRadius: vars.radius.lg,
-  border: `1px solid ${vars.color.border}`,
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
   background: vars.color.surface,
 });
 
+export const subheading = style({ fontSize: '0.86rem', fontWeight: vars.weight.heavy, margin: 0 });
+
 export const field = style({ display: 'flex', flexDirection: 'column', gap: vars.space[1], fontSize: '0.84rem' });
+// The field's own label (its first span, or a fieldset legend that is not a subheading)
+// is a small tracked capital; the hint span after the control keeps its sentence case.
+// Capitals run about 45% wider, so in the narrow layout (the app's 760px breakpoint) the
+// label keeps its case: there the admin column is too narrow and the label would wrap
+// onto an extra line.
+globalStyle(`${field} > span:first-child, ${field} > legend:not(${subheading})`, {
+  fontSize: '0.8rem',
+  fontWeight: vars.weight.bold,
+  textTransform: 'uppercase',
+  letterSpacing: vars.tracking.label,
+  '@media': { '(max-width: 760px)': { textTransform: 'none', letterSpacing: vars.tracking.none } },
+});
+// A fieldset used as a field: a square, solid divider instead of the UA's groove. It keeps
+// the UA's 2px width (the rule token), so the rows inside keep their width.
+globalStyle(`fieldset${field}`, {
+  border: `${vars.border.rule} solid ${vars.color.border}`,
+  borderRadius: vars.radius.sm,
+});
 
 export const input = style({
   font: 'inherit',
   fontSize: '0.86rem',
-  padding: `${vars.space[1]} ${vars.space[2]}`,
+  padding: lessRule(vars.space[1], vars.space[2]),
   borderRadius: vars.radius.md,
-  border: `1px solid ${vars.color.border}`,
-  background: vars.color.bg,
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
+  background: vars.color.bgSink,
   color: vars.color.text,
   minWidth: 0,
+  selectors: {
+    // A light page puts fields on the brighter surface instead of the sink.
+    ':root[data-appearance="light"] &': { background: vars.color.surface },
+  },
 });
-
-export const subheading = style({ fontSize: '0.86rem', fontWeight: 600, margin: 0 });
 
 /** The loaded / not loaded / restart required chip. */
 export const loadedChip = style({ background: vars.color.bgSink, color: vars.color.success });
