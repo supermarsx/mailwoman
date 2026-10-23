@@ -50,13 +50,16 @@ mw-engine = { workspace = true }
 # and no patched 46.x release exists; `cargo deny check advisories` is clear at
 # 49.0.2. The requirement names the patch release so the resolver cannot select
 # 49.0.0/49.0.1.
+# Raised to **49.0.4** (26.20 t31-e1, 2026-10-23): 49.0.2 carries fifteen wasmtime
+# advisories (RUSTSEC-2026-0352 … -0364, -0378, -0379); -0378/-0379 need 49.0.4, the
+# rest 49.0.3. Host-only bump; guest wasm is unchanged.
 # wasmtime and wasmtime-wasi are kept at the same version so they resolve
 # consistently; `mw-render` declares the same wasmtime version.
 #
 # wasmtime-wasi: `p2` is named explicitly. Its default set is `p1` + `p2` + `p3`;
 # only the WASI-p2 linker (`wasmtime_wasi::p2`) is used here, so `p1` (wiggle) and
 # `p3` (component-model-async) stay off.
-wasmtime = { version = "49.0.2", default-features = false, features = [
+wasmtime = { version = "49.0.4", default-features = false, features = [
     "runtime",
     "std",
     "cranelift",
@@ -71,7 +74,7 @@ wasmtime = { version = "49.0.2", default-features = false, features = [
     "addr2line",
     "pulley",
 ] }
-wasmtime-wasi = { version = "49.0.2", default-features = false, features = ["p2"] }
+wasmtime-wasi = { version = "49.0.4", default-features = false, features = ["p2"] }
 
 # Ed25519 detached-signature verification over component bytes (signed registry).
 # REUSE of the crate rPGP already pulls into the tree (2.2.0) — no new supply-chain
