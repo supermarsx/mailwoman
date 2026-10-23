@@ -122,12 +122,14 @@ In Caddy mode, `ACME_CA` in `deploy.env` names another ACME directory by its
 `https://acme-staging-v02.api.letsencrypt.org/directory` or a private CA; empty
 keeps Caddy's default issuers. `ACME_CA_ROOT` is the absolute path of a PEM file
 with the root certificate that signs that directory's own HTTPS certificate, for a
-CA whose root is not in the Caddy image's trust store. The script becomes Caddy's
-`acme_ca` / `acme_ca_root` global options; it copies the certificates from the PEM
-file into the generated Compose file, so snapshots keep them, and Caddy reads them
-as a read-only file. The file must exist whenever `doctor`, `deploy`, `restore` or
-`rollback` renders the configuration. Both keys are refused for the other
-exposures. Browsers do not trust certificates from a staging endpoint or a
+CA whose root is not in the Caddy image's trust store. The script makes them Caddy's
+`acme_ca` / `acme_ca_root` global options. The Caddyfile and the certificates from
+the PEM file are environment values of the Caddy service in the generated Compose
+file, so snapshots keep them; its entrypoint writes both to the container's
+temporary filesystem and starts Caddy (Compose does not mount inline files into a
+service whose root filesystem is read-only). The PEM file must exist whenever
+`doctor`, `deploy`, `restore` or `rollback` renders the configuration. Both keys
+are refused for the other exposures. Browsers do not trust certificates from a staging endpoint or a
 private CA unless their root is installed on the client.
 
 With an external proxy, configure `MW_TRUSTED_PROXIES` and `MW_FORWARDED_MODE` in

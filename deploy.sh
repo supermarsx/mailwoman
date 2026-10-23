@@ -475,7 +475,10 @@ load_active() {
     validate_config
 }
 
-# Prints the certificates of a PEM file, each line indented for a Compose config.
+# indent PREFIX TEXT: TEXT with PREFIX before each line.
+indent() { printf '%s%s\n' "$1" "${2//$'\n'/$'\n'$1}"; }
+
+# Prints the certificates of a PEM file, refusing anything else.
 pem_certificates() {
     local pem
     [[ -f $1 && -r $1 ]] || die "ACME_CA_ROOT names no readable file: $1"
@@ -483,11 +486,11 @@ pem_certificates() {
     if ! grep -qx -- '-----BEGIN CERTIFICATE-----' <<< "$pem" || grep -qvxE -- '-----(BEGIN|END) CERTIFICATE-----|[A-Za-z0-9+/=]*' <<< "$pem"; then
         die "ACME_CA_ROOT must hold PEM certificates only: $1"
     fi
-    printf '      %s\n' "${pem//$'\n'/$'\n'      }"
+    printf '%s\n' "$pem"
 }
 
 render() {
-    local directory=$1 secure=true trust='' acme_global='' acme_mount='' acme_config='' limits='' cpus=$CPU_LIMIT host_cpus
+    local directory=$1 secure=true trust='' caddyfile caddy_env root_pem limits='' cpus=$CPU_LIMIT host_cpus
     [[ $EXPOSURE != local ]] || secure=false
     # Client addresses come from the proxy network's peers unless app.env says otherwise.
     if [[ $EXPOSURE == network && -n $PROXY_SUBNETS ]] && ! grep -Eq '^MW_(TRUSTED_PROXIES|FORWARDED_MODE)=' "$directory/app.env"; then
@@ -551,17 +554,22 @@ EOF
     if [[ $EXPOSURE == caddy ]]; then
         [[ $CADDY_ID =~ ^sha256:[0-9a-f]{64}$ ]] || die "Invalid Caddy image ID"
         # Another ACME directory (a staging endpoint or a private CA) and the root
-        # that signs its TLS certificate, as Caddy global options. The root's
-        # certificates are written into the Compose file, so a snapshot keeps them.
+        # that signs its TLS certificate become Caddy global options. The Caddyfile
+        # and that root travel in the Compose file as environment values, so a
+        # snapshot keeps them, and the entrypoint writes them to the tmpfs: Compose
+        # refuses inline configs for a service with a read-only root filesystem.
+        caddyfile=
         if [[ -n $ACME_CA$ACME_CA_ROOT ]]; then
-            acme_global="      {"$'\n'
-            [[ -z $ACME_CA ]] || acme_global+="          acme_ca $ACME_CA"$'\n'
-            if [[ -n $ACME_CA_ROOT ]]; then
-                acme_global+="          acme_ca_root /etc/caddy/acme-ca-root.pem"$'\n'
-                acme_mount=$'\n'"      - source: acme_ca_root"$'\n'"        target: /etc/caddy/acme-ca-root.pem"
-                acme_config=$'\n'"  acme_ca_root:"$'\n'"    content: |"$'\n'"$(pem_certificates "$ACME_CA_ROOT")"
-            fi
-            acme_global+="      }"$'\n'
+            caddyfile="{"$'\n'
+            [[ -z $ACME_CA ]] || caddyfile+="    acme_ca $ACME_CA"$'\n'
+            [[ -z $ACME_CA_ROOT ]] || caddyfile+="    acme_ca_root /tmp/acme-ca-root.pem"$'\n'
+            caddyfile+="}"$'\n'
+        fi
+        caddyfile+="$DOMAIN {"$'\n'"    reverse_proxy mailwoman:8080 {"$'\n'"        flush_interval -1"$'\n'"    }"$'\n'"}"
+        caddy_env="      MW_CADDYFILE: |"$'\n'"$(indent '        ' "$caddyfile")"
+        if [[ -n $ACME_CA_ROOT ]]; then
+            root_pem=$(pem_certificates "$ACME_CA_ROOT")
+            caddy_env+=$'\n'"      MW_ACME_CA_ROOT: |"$'\n'"$(indent '        ' "$root_pem")"
         fi
         cat >> "$directory/compose.yaml" <<EOF
     networks:
@@ -579,9 +587,9 @@ EOF
     tmpfs: ['/tmp:rw,noexec,nosuid,nodev,size=16m']
     ports: ['80:80', '443:443']
     volumes: ['caddy_data:/data', 'caddy_config:/config']
-    configs:
-      - source: caddyfile
-        target: /etc/caddy/Caddyfile$acme_mount
+    environment:
+$caddy_env
+    entrypoint: [/bin/sh, -c, 'printf "%s\n" "\$\$MW_CADDYFILE" > /tmp/Caddyfile && printf "%s\n" "\$\${MW_ACME_CA_ROOT:-}" > /tmp/acme-ca-root.pem && exec caddy run --config /tmp/Caddyfile --adapter caddyfile']
     depends_on:
       mailwoman:
         condition: service_healthy
@@ -591,14 +599,6 @@ EOF
     logging:
       driver: json-file
       options: {max-size: 10m, max-file: '3'}
-configs:
-  caddyfile:
-    content: |
-${acme_global}      $DOMAIN {
-          reverse_proxy mailwoman:8080 {
-              flush_interval -1
-          }
-      }$acme_config
 networks:
   default:
     ipam:

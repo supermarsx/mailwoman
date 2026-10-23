@@ -96,7 +96,18 @@ cleanup() {
         [[ -n $volume && $volume == "${PROJECT}"[_-]* ]] || continue
         docker volume rm "$volume" >/dev/null || true
     done < <(docker volume ls -q --filter "label=mailwoman.deploy.project=$PROJECT"; docker volume ls -q --filter "label=mailwoman.deploy.project=$NET_PROJECT")
+    if [[ -f $ACME_STATE/caddy-check.yaml ]]; then
+        docker compose --project-name "$PROJECT-acme" --env-file /dev/null -f "$ACME_STATE/caddy-check.yaml" down --volumes >/dev/null 2>&1 || true
+    fi
+    # A compose run that failed can leave its created container behind.
+    while IFS= read -r container; do
+        [[ -n $container ]] && docker rm --force "$container" >/dev/null 2>&1 || true
+    done < <(docker ps -aq --filter "label=com.docker.compose.project=$PROJECT-acme")
+    docker volume rm "$PROJECT-acme_caddy_data" "$PROJECT-acme_caddy_config" >/dev/null 2>&1 || true
+    docker network rm "$PROJECT-acme_default" >/dev/null 2>&1 || true
     docker network rm "$NETWORK" >/dev/null 2>&1 || true
+    # A move from local to network exposure leaves the project's default network.
+    docker network rm "${PROJECT}_default" "${NET_PROJECT}_default" >/dev/null 2>&1 || true
     docker image rm "$BAD_IMAGE" >/dev/null 2>&1 || true
     if [[ -n $SIGNED ]]; then
         docker image rm "$SIGNED" >/dev/null 2>&1 || true
@@ -172,15 +183,45 @@ acme_reject() {
 acme init --project "$PROJECT-acme" --domain mail.example.test 2> "$ACME_STATE/doctor.log" || fail "init of a Caddy installation failed: $(cat "$ACME_STATE/doctor.log")"
 acme doctor 2> "$ACME_STATE/doctor.log" || fail "doctor refused a Caddy installation: $(cat "$ACME_STATE/doctor.log")"
 if grep -E '^ +acme_ca(_root)? ' "$DEPLOY_TEST_RENDERED" >/dev/null; then fail 'a Caddy installation without ACME_CA names an ACME directory'; fi
-printf -- '-----BEGIN CERTIFICATE-----\nTWFpbHdvbWFuIGRlcGxveSB0ZXN0IHJvb3Q=\n-----END CERTIFICATE-----\n' > "$ACME_STATE/root.pem"
+# A real certificate stands in for the ACME root, since Caddy parses it below: the
+# first one in the test image's CA bundle.
+CERT_CID=$(docker create "$IMAGE")
+docker cp "$CERT_CID:/etc/ssl/certs/ca-certificates.crt" - | tar -xO > "$ACME_STATE/bundle.pem"
+docker rm "$CERT_CID" >/dev/null
+awk '/^-----BEGIN CERTIFICATE-----$/ {copy = 1} copy {print} /^-----END CERTIFICATE-----$/ {exit}' "$ACME_STATE/bundle.pem" > "$ACME_STATE/root.pem"
+ROOT_LINE=$(sed -n 2p "$ACME_STATE/root.pem")
+[[ $ROOT_LINE =~ ^[A-Za-z0-9+/=]+$ ]] || fail 'no certificate in the test image CA bundle'
 set_in "$ACME_STATE/deploy.env" ACME_CA=https://pebble.test:14000/dir "ACME_CA_ROOT=$ACME_STATE/root.pem"
 acme doctor 2> "$ACME_STATE/doctor.log" || fail "doctor refused valid ACME settings: $(cat "$ACME_STATE/doctor.log")"
 # The global options block comes first in the Caddyfile, before the site block.
-ACME_LINES=$(grep -E '^      (\{|mail\.example\.test \{|    acme_ca https://pebble\.test:14000/dir|    acme_ca_root /etc/caddy/acme-ca-root\.pem)$' "$DEPLOY_TEST_RENDERED" | tr -s ' ' | tr '\n' '|')
-[[ $ACME_LINES == ' {| acme_ca https://pebble.test:14000/dir| acme_ca_root /etc/caddy/acme-ca-root.pem| mail.example.test {|' ]] || fail "the Caddyfile does not open with the ACME global options: $ACME_LINES"
-grep -Fx '        target: /etc/caddy/acme-ca-root.pem' "$DEPLOY_TEST_RENDERED" >/dev/null || fail 'the ACME root is not given to the Caddy container'
-grep -Fx '      TWFpbHdvbWFuIGRlcGxveSB0ZXN0IHJvb3Q=' "$DEPLOY_TEST_RENDERED" >/dev/null || fail 'the ACME root certificate is not in the Compose file'
+ACME_LINES=$({ grep -E '^        (\{|mail\.example\.test \{|    acme_ca https://pebble\.test:14000/dir|    acme_ca_root /tmp/acme-ca-root\.pem)$' "$DEPLOY_TEST_RENDERED" || true; } | tr -s ' ' | tr '\n' '|')
+[[ $ACME_LINES == ' {| acme_ca https://pebble.test:14000/dir| acme_ca_root /tmp/acme-ca-root.pem| mail.example.test {|' ]] || fail "the Caddyfile does not open with the ACME global options: $ACME_LINES"
+grep -Fx '      MW_ACME_CA_ROOT: |' "$DEPLOY_TEST_RENDERED" >/dev/null || fail 'the ACME root is not given to the Caddy container'
+grep -Fx "        $ROOT_LINE" "$DEPLOY_TEST_RENDERED" >/dev/null || fail 'the ACME root certificate is not in the Compose file'
 printf 'acme: %s\n' "$ACME_LINES"
+# The Caddy service as rendered (read-only root filesystem, tmpfs, capabilities,
+# entrypoint) starts, and Caddy accepts the Caddyfile and the root the entrypoint
+# writes: a copy without the app service and the fixed-address network runs
+# `caddy validate` instead of `caddy run`. No port is published by compose run.
+CADDY_REF=$(awk -F= '$1 == "CADDY_IMAGE" {print $2}' "$ACME_STATE/deploy.env")
+docker image inspect "$CADDY_REF" >/dev/null 2>&1 || docker pull --quiet "$CADDY_REF" >/dev/null
+awk -v image="$CADDY_REF" '
+    /^[^ ]/ { section = $1; entry = "" }
+    /^  [a-z_]/ { entry = $1 }
+    section == "services:" && entry == "mailwoman:" { next }
+    section == "volumes:" && entry == "app_data:" { next }
+    section == "networks:" { next }
+    skip && /^      / { next }
+    { skip = 0 }
+    /^    (networks|depends_on):$/ { skip = 1; next }
+    entry == "caddy:" && /^    image: / { print "    image: " image; next }
+    { sub(/exec caddy run /, "exec caddy validate "); print }
+' "$DEPLOY_TEST_RENDERED" > "$ACME_STATE/caddy-check.yaml"
+grep -F 'exec caddy validate ' "$ACME_STATE/caddy-check.yaml" >/dev/null || fail 'the rendered Caddy service does not start Caddy through its entrypoint'
+docker compose --project-name "$PROJECT-acme" --env-file /dev/null -f "$ACME_STATE/caddy-check.yaml" run --rm --no-deps caddy > "$ACME_STATE/caddy-check.log" 2>&1 || fail "the rendered Caddy service did not start or Caddy refused its configuration: $(tail -n 5 "$ACME_STATE/caddy-check.log")"
+grep -Fx 'Valid configuration' "$ACME_STATE/caddy-check.log" >/dev/null || fail "Caddy did not validate its configuration: $(tail -n 5 "$ACME_STATE/caddy-check.log")"
+docker compose --project-name "$PROJECT-acme" --env-file /dev/null -f "$ACME_STATE/caddy-check.yaml" down --volumes >/dev/null 2>&1
+printf 'caddy: %s (%s)\n' "$(grep -Fx 'Valid configuration' "$ACME_STATE/caddy-check.log")" "$CADDY_REF"
 cp "$ACME_STATE/deploy.env" "$ACME_STATE/deploy.env.good"
 acme_reject 'ACME_CA must be the https:// URL of an ACME directory' ACME_CA=http://pebble.test:14000/dir
 cat "$ACME_STATE/deploy.env.good" > "$ACME_STATE/deploy.env"
@@ -565,4 +606,4 @@ grep -F 'No memory or CPU limit for the app' "$NET_STATE/limits.log" >/dev/null 
 [[ $(awk -F= '$1 == "DATA_VOLUME" {print $2}' "$NET_STATE/active/release.env") == "$NET_VOLUME" ]] || fail 'update replaced the data volume'
 docker network inspect "$NETWORK" >/dev/null || fail 'update removed the proxy network'
 PASSED=true
-printf 'PASS: dry-run writes nothing (empty and applied state), port auto-pick when 8080 is taken, deployment, literal secrets, health, persistent data, admin login and writes under strict CSRF (curl), %s, refusal of a held port before any change, backup, rollback, corruption refusal, copy-failure recovery, repeated setup options, exposure moves local -> external -> network -> local with the data volume kept, refusal of a move to caddy, a proxy-network installation, the ACME directory settings for Caddy (rendered, and refused when invalid), memory/CPU limits (defaults for a new installation, edited, lowered to the CPUs Docker has, rolled back, none for an older deploy.env, invalid values refused), and the automatic rollback of an update that never becomes healthy (previous image, exposure network with its trust lines, data saved before the update; failed release kept), rollback after --no-auto-rollback, the Dockerfile target a deploy without --image builds (runtime-static), and the --image signature check with a stand-in cosign (verified digest deployed, failed verification refused before any change, --require-signature without cosign or for an image from the local store refused, unchecked local image reported)\n' "$BROWSER"
+printf 'PASS: dry-run writes nothing (empty and applied state), port auto-pick when 8080 is taken, deployment, literal secrets, health, persistent data, admin login and writes under strict CSRF (curl), %s, refusal of a held port before any change, backup, rollback, corruption refusal, copy-failure recovery, repeated setup options, exposure moves local -> external -> network -> local with the data volume kept, refusal of a move to caddy, a proxy-network installation, the ACME directory settings for Caddy (rendered, accepted by Caddy in the rendered read-only service, and refused when invalid), memory/CPU limits (defaults for a new installation, edited, lowered to the CPUs Docker has, rolled back, none for an older deploy.env, invalid values refused), and the automatic rollback of an update that never becomes healthy (previous image, exposure network with its trust lines, data saved before the update; failed release kept), rollback after --no-auto-rollback, the Dockerfile target a deploy without --image builds (runtime-static), and the --image signature check with a stand-in cosign (verified digest deployed, failed verification refused before any change, --require-signature without cosign or for an image from the local store refused, unchecked local image reported)\n' "$BROWSER"
