@@ -15,14 +15,24 @@
 // precedent `viewers/max-security.ts` reads): `serverUrl` retargets the base and
 // `native: true` turns on the bearer path (the token comes from the platform's
 // OS-keychain session store).
+//
+// The shells inject `serverUrl: null`: the user types the server address on the
+// Login screen (t31), `chooseServerUrl` writes it to `__MW_CONFIG__.serverUrl` and
+// to the platform's server store, and the native platform puts the stored address
+// back into `__MW_CONFIG__.serverUrl` at the next start (`platform/tauri.ts`).
+// Every request waits for the platform first (`platformReady`), so the first one
+// at boot already sees the stored address and token.
 
 import { createClient, type ClientAuth, type Client } from './client.ts';
 import { basePath } from './basePath.ts';
-import { getPlatform, isTauri } from '../platform/index.ts';
+import { setNativeTransport } from './http.ts';
+import { isNativeAuth, nativeServerBase } from './serverAddress.ts';
+import { platformReady } from '../platform/index.ts';
+
+export { chooseServerUrl, isNativeAuth, nativeServerBase, normalizeServerUrl } from './serverAddress.ts';
 
 interface MwConfig {
   serverUrl?: unknown;
-  native?: unknown;
 }
 
 function mwConfig(): MwConfig {
@@ -44,24 +54,40 @@ export function transportBase(): string {
   return url.endsWith('/') ? url.slice(0, -1) : url;
 }
 
-/** True only in a Tauri shell configured for native bearer auth (plan §2.2). */
-export function isNativeAuth(): boolean {
-  return isTauri() && mwConfig().native === true;
+/**
+ * The bearer-auth provider backed by the platform's OS-keychain token store. It
+ * waits for the platform first, so a request made while `initPlatform` is still
+ * running reads the native store, not the browser default's empty one.
+ */
+export function platformAuth(): ClientAuth {
+  return {
+    token: async () => (await platformReady()).getSessionToken(),
+    setToken: async (token) => (await platformReady()).setSessionToken(token),
+    clearToken: async () => (await platformReady()).clearSessionToken(),
+  };
 }
 
-/** The bearer-auth provider backed by the platform's OS-keychain token store. */
-export function platformAuth(): ClientAuth {
-  return { token: () => getPlatform().getSessionToken() };
+// A native shell sends root-relative `apiFetch` requests (Settings, prefs, …) to
+// its server with the same token store. Registered once, at import, because the
+// native flag is injected before any SPA code runs.
+if (isNativeAuth()) {
+  const auth = platformAuth();
+  setNativeTransport({
+    base: nativeServerBase,
+    token: auth.token,
+    setToken: (token) => auth.setToken?.(token) ?? Promise.resolve(),
+  });
 }
 
 /**
  * Build the API client for the current runtime. In a plain browser this returns
  * `createClient()` verbatim (cookie, same-origin) — the regression-critical path.
- * In a configured native shell it points at the injected server and attaches the
- * keychain bearer token.
+ * In a configured native shell it points at the server the user entered (read at
+ * each request, so a client built before sign-in follows the address typed
+ * later) and attaches the keychain bearer token.
  */
 export function createConfiguredClient(): Client {
-  if (isNativeAuth()) return createClient(transportBase(), platformAuth());
+  if (isNativeAuth()) return createClient(nativeServerBase, platformAuth());
   const base = transportBase();
   return base === '' ? createClient() : createClient(base);
 }

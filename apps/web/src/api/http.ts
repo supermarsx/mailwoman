@@ -19,6 +19,14 @@
 // server is another origin, its cookies are not in `document.cookie`, and the
 // bearer request goes out exactly as the caller built it.
 //
+// In a native shell (t31) the SPA's own origin is the shell, not the server. A
+// root-relative request (`/api/...`) is sent to the configured server instead,
+// with the bearer token and no cookies, through the transport `transport.ts`
+// registers with `setNativeTransport`. The server's answer to a sign-in route
+// carries the token for a native client; it is handed back to that transport to
+// keep. An absolute URL is left alone: `client.ts` builds those and attaches the
+// token itself.
+//
 // Imports: `basePath.ts` only, which has none of its own, so `platform/browser.ts`
 // can import this module without closing the `transport.ts` cycle it avoids.
 
@@ -33,6 +41,56 @@ const CSRF_REFUSAL = 'missing or invalid CSRF token';
 
 /** Methods the guard does not check. */
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/**
+ * Where a native shell sends root-relative requests (registered by
+ * `transport.ts`; `null` in a browser).
+ */
+export interface NativeTransport {
+  /** The server's base URL without a trailing slash, or `null` when none is set. */
+  base(): string | null;
+  /** The bearer token, or `null` before sign-in. */
+  token(): Promise<string | null>;
+  /** Keep the token a sign-in route answered with. */
+  setToken(token: string): Promise<void>;
+}
+
+let native: NativeTransport | null = null;
+
+/** Install (or, with `null`, remove) the native transport. */
+export function setNativeTransport(transport: NativeTransport | null): void {
+  native = transport;
+}
+
+/** The sign-in routes whose answer carries a native client's token. */
+function isSignInPath(path: string): boolean {
+  return path === '/api/login' || path.startsWith('/api/login/2fa');
+}
+
+/** `/api/...` but not `//host/...` (a scheme-relative URL names another host). */
+function isRootRelative(input: string): boolean {
+  return input.startsWith('/') && !input.startsWith('//');
+}
+
+/**
+ * Send a root-relative request to the native shell's server: the bearer token
+ * instead of cookies, and no CSRF token (the server does not check a request
+ * whose only authority is its bearer token). A sign-in answer's token is kept.
+ */
+async function sendNative(transport: NativeTransport, input: string, init: RequestInit | undefined): Promise<Response> {
+  const token = await transport.token();
+  const base = transport.base();
+  if (base === null) throw new TypeError('no server address is configured');
+  const path = stripBase(input, basePath());
+  const headers = new Headers(init?.headers);
+  if (token !== null && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`);
+  const res = await fetch(`${base}${path}`, { ...init, headers, credentials: 'omit' });
+  if (res.ok && isSignInPath(path.split('?')[0] ?? path)) {
+    const body = (await res.clone().json().catch(() => null)) as { token?: unknown } | null;
+    if (typeof body?.token === 'string' && body.token !== '') await transport.setToken(body.token);
+  }
+  return res;
+}
 
 /** The current CSRF token from `document.cookie`, or `null` when there is none. */
 export function csrfToken(): string | null {
@@ -119,8 +177,12 @@ function refreshToken(source: string): Promise<string | null> {
  * (see `tokenSource`) and the write is sent once more. The guard refuses before
  * the handler runs, so the first attempt changed nothing. A body that can be
  * read only once (a stream) is not sent again; the refusal is returned.
+ *
+ * In a native shell a root-relative `input` goes to the configured server with
+ * the bearer token instead (see `setNativeTransport`).
  */
 export async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+  if (native !== null && isRootRelative(input)) return sendNative(native, input, init);
   const method = (init?.method ?? 'GET').toUpperCase();
   if (SAFE_METHODS.has(method)) return send(input, init);
   const token = csrfToken();

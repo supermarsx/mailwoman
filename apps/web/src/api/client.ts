@@ -9,6 +9,8 @@
 // attaches an `Authorization: Bearer <token>` header (from the OS keychain) and
 // drops the cookie (`credentials: 'omit'`), sidestepping the cookie-only CSRF
 // guard. The browser passes neither, so nothing about the cookie path changes.
+// With a `ClientAuth`, `login` asks for a bearer session (`clientType: "native"`)
+// and hands the token the server returns to `auth.setToken`; `logout` clears it.
 
 import type { JmapRequest, JmapResponse, JmapSession } from './jmap-types.ts';
 import { basePath } from './basePath.ts';
@@ -35,6 +37,12 @@ export interface LoginInput {
   jmapUrl: string;
   username: string;
   password: string;
+  /**
+   * `"native"` asks the server for a bearer-token session (token in the body, no
+   * cookie). A client built with a `ClientAuth` (the native shells) sets it
+   * itself; the browser never sends it.
+   */
+  clientType?: 'native';
 }
 
 export interface Me {
@@ -155,6 +163,9 @@ export interface DiscoverResult {
 
 export type NetworkListener = (online: boolean) => void;
 
+/** The calls that need a session: with no server known they answer 401. */
+const SESSION_PATHS = new Set(['/api/me', '/jmap/session', '/jmap/api', '/api/sanitize']);
+
 /**
  * Optional bearer-auth provider for the native shell (plan §2.2). When present
  * and it yields a token, the client attaches `Authorization: Bearer <token>` and
@@ -162,9 +173,20 @@ export type NetworkListener = (online: boolean) => void;
  * unchanged.
  */
 export interface ClientAuth {
-  /** The current session bearer token, or `null` to use the cookie path. */
+  /** The current session bearer token, or `null` before sign-in. */
   token(): Promise<string | null>;
+  /** Keep the token a native sign-in returned. */
+  setToken?(token: string): Promise<void>;
+  /** Forget the token (sign-out). */
+  clearToken?(): Promise<void>;
 }
+
+/**
+ * Where the client sends requests: a fixed prefix, or a function read at each
+ * request that returns `null` while no server is known (a native shell before the
+ * user has entered a server address).
+ */
+export type ClientBase = string | (() => string | null);
 
 async function jsonOrThrow<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -222,8 +244,12 @@ export interface Client {
  * the origin root, so a bare `createClient()` is unchanged there, and `/mail`
  * under `MW_BASE_PATH=/mail`, so callers that construct a client directly rather
  * than through `createConfiguredClient()` are prefixed too.
+ *
+ * A function `base` is read at each request. While it returns `null` no request
+ * is sent: the calls that need a session answer as signed out (401), the others
+ * fail as unreachable.
  */
-export function createClient(base = basePath(), auth?: ClientAuth): Client {
+export function createClient(base: ClientBase = basePath(), auth?: ClientAuth): Client {
   const listeners = new Set<NetworkListener>();
   const gateListeners = new Set<PasswordChangeRequiredListener>();
   const unauthListeners = new Set<UnauthenticatedListener>();
@@ -248,15 +274,23 @@ export function createClient(base = basePath(), auth?: ClientAuth): Client {
    * verbatim. With an `auth` that yields a token it attaches the bearer header and
    * omits cookies (native cross-origin path).
    */
-  async function req(input: string, init?: RequestInit): Promise<Response> {
+  async function req(path: string, init?: RequestInit): Promise<Response> {
     const finalInit: RequestInit = { credentials: 'same-origin', ...init };
     if (auth) {
+      // Read before the base: the token provider waits for the platform, which is
+      // what puts a stored server address in place at boot.
       const token = await auth.token();
+      finalInit.credentials = 'omit'; // bearer path: no ambient cookie authority.
       if (token !== null) {
         finalInit.headers = { ...(init?.headers as Record<string, string>), Authorization: `Bearer ${token}` };
-        finalInit.credentials = 'omit'; // bearer path: no ambient cookie authority.
       }
     }
+    const prefix = typeof base === 'function' ? base() : base;
+    if (prefix === null) {
+      if (SESSION_PATHS.has(path)) return new Response(null, { status: 401 });
+      throw new NetworkError('no server address is configured');
+    }
+    const input = `${prefix}${path}`;
     let res: Response;
     try {
       res = await apiFetch(input, finalInit);
@@ -293,45 +327,53 @@ export function createClient(base = basePath(), auth?: ClientAuth): Client {
   return {
     login(input) {
       return guarded(async () => {
-        const res = await req(`${base}/api/login`, {
+        const body: LoginInput = auth ? { ...input, clientType: 'native' } : input;
+        const res = await req(`/api/login`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(input),
+          body: JSON.stringify(body),
         });
         if (res.status === 401) {
           throw new ApiError(401, 'invalid credentials');
         }
-        const body = await jsonOrThrow<LoginResponse>(res);
+        const answer = await jsonOrThrow<LoginResponse>(res);
         // A 2FA-gated response is a SUCCESSFUL request that is not yet an
         // authenticated session: surface the challenge (no session cookie was
         // set) rather than mistaking the body for a `Me`.
-        if (isTwofaGate(body)) {
-          const { twofaRequired: _required, ...challenge } = body;
+        if (isTwofaGate(answer)) {
+          const { twofaRequired: _required, ...challenge } = answer;
           throw new TwoFactorRequired(challenge);
         }
-        return body;
+        // A native sign-in returns its bearer token in the body (no cookie).
+        const { token, ...me } = answer as Me & { token?: unknown };
+        if (auth?.setToken && typeof token === 'string' && token !== '') await auth.setToken(token);
+        return me;
       });
     },
     logout() {
       return guarded(async () => {
-        await req(`${base}/api/logout`, { method: 'POST' });
+        try {
+          await req(`/api/logout`, { method: 'POST' });
+        } finally {
+          await auth?.clearToken?.();
+        }
       });
     },
     me() {
       return guarded(async () => {
-        const res = await req(`${base}/api/me`);
+        const res = await req(`/api/me`);
         return jsonOrGate<Me>(res);
       });
     },
     session() {
       return guarded(async () => {
-        const res = await req(`${base}/jmap/session`);
+        const res = await req(`/jmap/session`);
         return jsonOrGate<JmapSession>(res);
       });
     },
     jmap(body, opts) {
       return guarded(async () => {
-        const res = await req(`${base}/jmap/api`, {
+        const res = await req(`/jmap/api`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(body),
@@ -342,7 +384,7 @@ export function createClient(base = basePath(), auth?: ClientAuth): Client {
     },
     sanitize(html) {
       return guarded(async () => {
-        const res = await req(`${base}/api/sanitize`, {
+        const res = await req(`/api/sanitize`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ html }),
@@ -353,7 +395,7 @@ export function createClient(base = basePath(), auth?: ClientAuth): Client {
     },
     discover(email) {
       return guarded(async () => {
-        const res = await req(`${base}/api/discover`, {
+        const res = await req(`/api/discover`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ email }),

@@ -4,10 +4,9 @@ import { describe, expect, it } from 'vitest';
 
 // The hard rule (plan §1.4, risk R2): `@tauri-apps/*` must NEVER enter the plain
 // browser bundle. These are SOURCE-level guards backing the built-output check:
-//   * only `tauri.ts` may reference `@tauri-apps`;
-//   * it may reference it ONLY through the non-literal, `@vite-ignore`d dynamic
-//     import (so Vite never resolves/bundles it, and it loads lazily and only
-//     under isTauri()) — never a static `import ... from '@tauri-apps/...'`.
+//   * no module imports a `@tauri-apps` package at all: `tauri.ts` reaches the
+//     shell through the `__TAURI_INTERNALS__` object Tauri injects, and is itself
+//     loaded lazily and only under isTauri().
 
 function read(rel: string): string {
   return readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
@@ -29,12 +28,13 @@ describe('tauri packages stay out of the browser bundle', () => {
     expect(src).toContain("import('./tauri.ts')");
   });
 
-  it('tauri.ts uses only the @vite-ignore dynamic-import escape hatch', () => {
+  it('tauri.ts imports no @tauri-apps package and reaches the shell through __TAURI_INTERNALS__', () => {
     const src = read('./tauri.ts');
-    // No static import of a @tauri-apps package.
-    expect(src).not.toMatch(/import\s+[^;]*from\s+['"]@tauri-apps/);
-    // Every @tauri-apps specifier is carried by the guarded loader.
-    expect(src).toContain('/* @vite-ignore */');
-    expect(src).toContain("loadTauri<TauriCore>('@tauri-apps/api/core')");
+    // No import of a @tauri-apps package, static or dynamic: the webview has no
+    // import map, so a bare specifier cannot resolve there (t31).
+    expect(src).not.toMatch(/from\s+['"]@tauri-apps/);
+    expect(src).not.toMatch(/import\(\s*(\/\*[^*]*\*\/\s*)?['"]@tauri-apps/);
+    expect(src).not.toContain('@vite-ignore');
+    expect(src).toContain('__TAURI_INTERNALS__');
   });
 });

@@ -8,7 +8,7 @@
 // this file covers the client's branches.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { apiFetch, csrfToken } from './http.ts';
+import { apiFetch, csrfToken, setNativeTransport, type NativeTransport } from './http.ts';
 
 type FetchArgs = [input: string, init?: RequestInit];
 
@@ -227,5 +227,79 @@ describe('apiFetch', () => {
     const res = await apiFetch('/jmap/upload/a', { method: 'POST', body });
     expect(res.status).toBe(403);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// t31: in a native shell a root-relative request goes to the configured server
+// with the bearer token, and a sign-in answer's token is kept.
+describe('apiFetch in a native shell', () => {
+  let fetchMock: ReturnType<typeof vi.fn<(...args: FetchArgs) => Promise<Response>>>;
+  let stored: string | null;
+  let base: string | null;
+  const transport: NativeTransport = {
+    base: () => base,
+    token: async () => stored,
+    setToken: async (token) => {
+      stored = token;
+    },
+  };
+
+  beforeEach(() => {
+    clearCookie();
+    stored = null;
+    base = 'https://mail.example.org';
+    fetchMock = vi.fn<(...args: FetchArgs) => Promise<Response>>();
+    vi.stubGlobal('fetch', fetchMock);
+    setNativeTransport(transport);
+  });
+
+  afterEach(() => {
+    setNativeTransport(null);
+    vi.unstubAllGlobals();
+    clearCookie();
+  });
+
+  it('sends a root-relative write to the server with the bearer token and no cookies', async () => {
+    stored = 'tok-n';
+    // A readable mw_csrf cookie on the shell origin must not be sent along.
+    document.cookie = 'mw_csrf=shell; Path=/';
+    fetchMock.mockImplementation(async () => json(200, {}));
+    for (const method of ['GET', 'PUT', 'PATCH', 'DELETE']) {
+      await apiFetch('/api/account/appearance', { method, credentials: 'same-origin' });
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    for (const [input, init] of fetchMock.mock.calls) {
+      expect(input).toBe('https://mail.example.org/api/account/appearance');
+      expect(new Headers(init?.headers).get('authorization')).toBe('Bearer tok-n');
+      expect(init?.credentials).toBe('omit');
+      expect(sentToken(init)).toBeNull();
+    }
+  });
+
+  it('keeps the token the second-factor step answers with', async () => {
+    fetchMock.mockImplementation(async () => json(200, { ok: true, token: 'tok-2fa' }));
+    await apiFetch('/api/login/2fa', { method: 'POST', body: '{}' });
+    expect(stored).toBe('tok-2fa');
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get('authorization')).toBeNull();
+  });
+
+  it('does not take a token from a route that is not a sign-in route', async () => {
+    fetchMock.mockImplementation(async () => json(200, { token: 'not-a-session' }));
+    await apiFetch('/api/keys', { method: 'POST', body: '{}' });
+    expect(stored).toBeNull();
+  });
+
+  it('leaves an absolute URL alone', async () => {
+    stored = 'tok-n';
+    fetchMock.mockImplementation(async () => json(200, {}));
+    await apiFetch('https://other.example/api/x');
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://other.example/api/x');
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get('authorization')).toBeNull();
+  });
+
+  it('fails without a request when no server address is configured', async () => {
+    base = null;
+    await expect(apiFetch('/api/me')).rejects.toThrow();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

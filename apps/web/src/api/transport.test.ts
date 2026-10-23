@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createConfiguredClient, transportBase, isNativeAuth } from './transport.ts';
+import {
+  chooseServerUrl,
+  createConfiguredClient,
+  isNativeAuth,
+  nativeServerBase,
+  normalizeServerUrl,
+  transportBase,
+} from './transport.ts';
 import { basePath, normalizeBase, shellBase, stripBase, withBase } from './basePath.ts';
 import { setPlatform, type Platform } from '../platform/index.ts';
 import { createBrowserPlatform } from '../platform/browser.ts';
@@ -68,7 +75,7 @@ describe('native transport (opt-in shell path)', () => {
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer TOKEN123');
   });
 
-  it('falls back to the cookie path when the token store is empty', async () => {
+  it('sends no cookie and no bearer before sign-in', async () => {
     g.__TAURI_INTERNALS__ = {};
     g.__MW_CONFIG__ = { serverUrl: 'https://mail.example.org', native: true };
     const fake = { ...createBrowserPlatform(), getSessionToken: async () => null } as Platform;
@@ -77,7 +84,130 @@ describe('native transport (opt-in shell path)', () => {
     const fetchMock = stubFetch();
     await createConfiguredClient().me();
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(init.credentials).toBe('same-origin'); // no token → no bearer, keep cookie.
+    // The server is another origin: its cookies are not the shell's to send.
+    expect(init.credentials).toBe('omit');
+    expect(init.headers).toBeUndefined();
+  });
+});
+
+// t31: the native sign-in, end to end through the client — the server address
+// the user typed, `clientType: "native"`, the token kept through the platform,
+// and the token on every later request.
+describe('native sign-in (t31)', () => {
+  /** A platform fake that records what the client asks of its token store. */
+  function recordingPlatform(): { platform: Platform; calls: string[]; token: () => string | null } {
+    let token: string | null = null;
+    let server: string | null = null;
+    const calls: string[] = [];
+    const platform = {
+      ...createBrowserPlatform(),
+      getSessionToken: async () => token,
+      setSessionToken: async (t: string) => {
+        calls.push(`set:${t}`);
+        token = t;
+      },
+      clearSessionToken: async () => {
+        calls.push('clear');
+        token = null;
+      },
+      getServerUrl: async () => server,
+      setServerUrl: async (url: string) => {
+        calls.push(`server:${url}`);
+        server = url;
+      },
+    } as Platform;
+    return { platform, calls, token: () => token };
+  }
+
+  function nativeShell(serverUrl: string | null): void {
+    g.__TAURI_INTERNALS__ = {};
+    g.__MW_CONFIG__ = { serverUrl, native: true, platform: { kind: 'desktop', os: 'windows', version: '' } };
+  }
+
+  it('signs in with clientType native, keeps the token and sends it afterwards', async () => {
+    nativeShell(null);
+    const rec = recordingPlatform();
+    setPlatform(rec.platform);
+    const fetchMock = vi.fn(async (input: string) => {
+      if (input.endsWith('/api/login')) {
+        return new Response(JSON.stringify({ ok: true, accountId: 'a', username: 'u', token: 'tok-1' }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ username: 'u', accountId: 'a' }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    // Built before the address is known, as App.tsx builds it at boot.
+    const client = createConfiguredClient();
+    await chooseServerUrl('https://mail.example.org');
+    expect(rec.calls).toEqual(['server:https://mail.example.org']);
+
+    const me = await client.login({ jmapUrl: 'https://jmap.example.org', username: 'u', password: 'p' });
+    expect(me).toEqual({ ok: true, accountId: 'a', username: 'u' }); // the token is not part of `Me`.
+    const [loginUrl, loginInit] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(loginUrl).toBe('https://mail.example.org/api/login');
+    expect(JSON.parse(loginInit.body as string)).toEqual({
+      jmapUrl: 'https://jmap.example.org',
+      username: 'u',
+      password: 'p',
+      clientType: 'native',
+    });
+    expect(loginInit.credentials).toBe('omit');
+    expect(rec.token()).toBe('tok-1');
+
+    await client.me();
+    const [meUrl, meInit] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
+    expect(meUrl).toBe('https://mail.example.org/api/me');
+    expect((meInit.headers as Record<string, string>).Authorization).toBe('Bearer tok-1');
+
+    await client.logout();
+    expect(rec.token()).toBeNull();
+    expect(rec.calls.at(-1)).toBe('clear');
+  });
+
+  it('a browser sign-in never sends clientType', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ accountId: 'a', username: 'u' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await createConfiguredClient().login({ jmapUrl: 'x', username: 'u', password: 'p' });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).not.toHaveProperty('clientType');
+    expect(init.credentials).toBe('same-origin');
+  });
+
+  it('with no server address, boot reads as signed out and sends nothing', async () => {
+    nativeShell(null);
+    setPlatform(recordingPlatform().platform);
+    const fetchMock = stubFetch();
+    expect(nativeServerBase()).toBeNull();
+    await expect(createConfiguredClient().me()).rejects.toMatchObject({ status: 401 });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('choosing another server drops the old token', async () => {
+    nativeShell('https://old.example.org');
+    const rec = recordingPlatform();
+    setPlatform(rec.platform);
+    await chooseServerUrl('https://new.example.org');
+    expect(rec.calls).toEqual(['clear', 'server:https://new.example.org']);
+    expect(nativeServerBase()).toBe('https://new.example.org');
+    // The same server again keeps it.
+    await chooseServerUrl('https://new.example.org');
+    expect(rec.calls.at(-1)).toBe('server:https://new.example.org');
+    expect(rec.calls.filter((c) => c === 'clear')).toHaveLength(1);
+  });
+});
+
+describe('normalizeServerUrl', () => {
+  it('assumes https, drops the trailing slash and keeps a sub-path', () => {
+    expect(normalizeServerUrl('mail.example.org')).toBe('https://mail.example.org');
+    expect(normalizeServerUrl('  https://mail.example.org/ ')).toBe('https://mail.example.org');
+    expect(normalizeServerUrl('https://mail.example.org/mail/')).toBe('https://mail.example.org/mail');
+    expect(normalizeServerUrl('http://192.168.1.5:8080')).toBe('http://192.168.1.5:8080');
+  });
+
+  it('refuses what is not a server address', () => {
+    for (const raw of ['', '   ', 'ftp://mail.example.org', 'javascript:alert(1)', 'https://u:p@mail.example.org', 'https://mail.example.org/?x=1', 'https://']) {
+      expect(normalizeServerUrl(raw)).toBeNull();
+    }
   });
 });
 

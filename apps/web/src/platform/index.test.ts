@@ -100,8 +100,89 @@ describe('native (tauri) platform', () => {
     };
     const p = await createTauriPlatform();
     // The real impl invokes `mw_set_capture_protection` over Tauri IPC; with no
-    // Tauri runtime (unit env) the dynamic `@tauri-apps` import rejects — proving
-    // the native path calls the shell rather than the browser fallback.
+    // Tauri runtime (unit env) there is no `__TAURI_INTERNALS__` and the call
+    // rejects — proving the native path calls the shell rather than the browser
+    // fallback.
     await expect(p.setCaptureProtection(true)).rejects.toThrow();
+  });
+});
+
+// t31: the native platform reaches the shell through the injected
+// `__TAURI_INTERNALS__` (no `@tauri-apps` import), puts the stored server address
+// where the transport reads it, and holds the keychain token.
+describe('native (tauri) platform over __TAURI_INTERNALS__', () => {
+  interface Call {
+    cmd: string;
+    args?: Record<string, unknown>;
+  }
+  function fakeShell(answers: Record<string, unknown>): { calls: Call[]; callbacks: ((e: unknown) => void)[] } {
+    const calls: Call[] = [];
+    const callbacks: ((e: unknown) => void)[] = [];
+    (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {
+      invoke: async (cmd: string, args?: Record<string, unknown>) => {
+        calls.push(args === undefined ? { cmd } : { cmd, args });
+        if (cmd in answers) return answers[cmd];
+        return null;
+      },
+      transformCallback: (cb: (e: unknown) => void) => {
+        callbacks.push(cb);
+        return callbacks.length;
+      },
+    };
+    return { calls, callbacks };
+  }
+
+  it('puts the stored server address into __MW_CONFIG__ when the shell injected none', async () => {
+    fakeShell({ mw_server_get_selected: 'https://mail.example.org' });
+    (globalThis as { __MW_CONFIG__?: unknown }).__MW_CONFIG__ = { serverUrl: null, native: true };
+    await createTauriPlatform();
+    expect((globalThis as { __MW_CONFIG__?: { serverUrl?: unknown } }).__MW_CONFIG__?.serverUrl).toBe(
+      'https://mail.example.org',
+    );
+  });
+
+  it('reads the keychain token once, and set/clear go to the keychain', async () => {
+    const shell = fakeShell({ mw_keychain_get: 'tok-k' });
+    (globalThis as { __MW_CONFIG__?: unknown }).__MW_CONFIG__ = { serverUrl: 'https://m.example', native: true };
+    const p = await createTauriPlatform();
+    expect(await p.getSessionToken()).toBe('tok-k');
+    expect(await p.getSessionToken()).toBe('tok-k');
+    expect(shell.calls.filter((c) => c.cmd === 'mw_keychain_get')).toHaveLength(1);
+    await p.setSessionToken('tok-2');
+    expect(await p.getSessionToken()).toBe('tok-2');
+    expect(shell.calls).toContainEqual({
+      cmd: 'mw_keychain_set',
+      args: { service: 'mailwoman.session', key: 'token', value: 'tok-2' },
+    });
+    await p.clearSessionToken();
+    expect(await p.getSessionToken()).toBeNull();
+    expect(shell.calls).toContainEqual({ cmd: 'mw_keychain_delete', args: { service: 'mailwoman.session', key: 'token' } });
+  });
+
+  it('setServerUrl stores and selects the server and points the transport at it', async () => {
+    const shell = fakeShell({});
+    (globalThis as { __MW_CONFIG__?: unknown }).__MW_CONFIG__ = { serverUrl: null, native: true };
+    const p = await createTauriPlatform();
+    await p.setServerUrl('https://mail.example.org');
+    expect(shell.calls.map((c) => c.cmd)).toEqual(['mw_server_get_selected', 'mw_server_add', 'mw_server_select']);
+    expect((globalThis as { __MW_CONFIG__?: { serverUrl?: unknown } }).__MW_CONFIG__?.serverUrl).toBe(
+      'https://mail.example.org',
+    );
+  });
+
+  it('bridges a shell event through the event plugin and stops on dispose', async () => {
+    const shell = fakeShell({ 'plugin:event|listen': 7 });
+    (globalThis as { __MW_CONFIG__?: unknown }).__MW_CONFIG__ = { serverUrl: 'https://m.example', native: true };
+    const p = await createTauriPlatform();
+    const seen: string[] = [];
+    const off = p.onOpenUrl((url) => seen.push(url));
+    await new Promise((r) => setTimeout(r, 0));
+    const listen = shell.calls.find((c) => c.cmd === 'plugin:event|listen');
+    expect(listen?.args).toMatchObject({ event: 'mw://open-url', target: { kind: 'Any' } });
+    shell.callbacks[0]?.({ event: 'mw://open-url', id: 7, payload: 'mailto:a@example.org' });
+    expect(seen).toEqual(['mailto:a@example.org']);
+    off();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(shell.calls).toContainEqual({ cmd: 'plugin:event|unlisten', args: { event: 'mw://open-url', eventId: 7 } });
   });
 });

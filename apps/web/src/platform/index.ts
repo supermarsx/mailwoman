@@ -151,6 +151,8 @@ export interface Platform {
 
   // ── Self-contained lifecycle (desktop only; browser/mobile: "off") ──
   selfContainedStatus(): Promise<SelfContainedStatus>;
+  // HALF-WIRED (t31, decision D11): no UI calls this; the shells sign in to a
+  // remote server the user names on the Login screen.
   startLocalServer(): Promise<void>;
   stopLocalServer(): Promise<void>;
 }
@@ -171,6 +173,10 @@ export function isTauri(): boolean {
 // everywhere). `initPlatform()` swaps in the native impl at boot when running in a
 // shell. Consumers read `getPlatform()` synchronously and always get a valid impl.
 let current: Platform | null = null;
+// The last `initPlatform()` (or `setPlatform`) result, so `platformReady()` can
+// hand every caller the same resolution instead of starting another.
+let ready: Promise<Platform> | null = null;
+let nativeReady: Promise<Platform> | null = null;
 
 /** The active platform (browser impl by default; native after `initPlatform`). */
 export function getPlatform(): Platform {
@@ -188,19 +194,38 @@ export function getPlatform(): Platform {
  * DYNAMICALLY imports `./tauri.ts` (so `@tauri-apps/*` stay out of the browser
  * bundle) and installs the native impl. e7 calls this once during app boot.
  */
-export async function initPlatform(): Promise<Platform> {
+export function initPlatform(): Promise<Platform> {
   if (isTauri()) {
-    const mod = await import('./tauri.ts');
-    current = await mod.createTauriPlatform();
-  } else {
-    current = createBrowserDefault();
+    // One native platform per page: boot's first request (`platformReady`) and
+    // `App`'s own call share it, and with it the token the platform holds.
+    nativeReady ??= (async (): Promise<Platform> => {
+      const mod = await import('./tauri.ts');
+      current = await mod.createTauriPlatform();
+      return current;
+    })();
+    ready = nativeReady;
+    return nativeReady;
   }
-  return current;
+  current = createBrowserDefault();
+  ready = Promise.resolve(current);
+  return ready;
+}
+
+/**
+ * The platform once it is resolved for this runtime: the pending or last
+ * `initPlatform()`, started here if nothing has started it. The native transport
+ * waits on this before its first request, so a request made at boot, before
+ * `App` has called `initPlatform()`, reads the native token store and the stored
+ * server address rather than the browser default's.
+ */
+export function platformReady(): Promise<Platform> {
+  return ready ?? initPlatform();
 }
 
 /** Install a specific platform impl (tests inject a fake; e7 may pre-resolve). */
 export function setPlatform(platform: Platform): void {
   current = platform;
+  ready = Promise.resolve(platform);
 }
 
 function createBrowserDefault(): Platform {

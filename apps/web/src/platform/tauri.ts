@@ -1,15 +1,13 @@
 // Native (Tauri) implementation of the `Platform` capability layer (plan §2.1,
 // §2.5, §3 e6).
 //
-// IMPORTANT — why the imports look the way they do: `@tauri-apps/*` is NOT a
-// dependency of `apps/web` (it lives only in the `apps/desktop`/`apps/mobile`
-// build graphs). To keep this module compiling AND to guarantee those packages
-// NEVER enter the plain-browser bundle, every Tauri import here is a RUNTIME
-// dynamic import through a NON-LITERAL specifier tagged `/* @vite-ignore */`:
-//   * the non-literal specifier makes `tsc` type the result `any` and skip module
-//     resolution, so `apps/web` typechecks without the packages installed;
-//   * `@vite-ignore` makes Vite leave it as a native runtime `import()` instead of
-//     trying to resolve/bundle it — so no `@tauri-apps` code lands in any chunk.
+// How this module reaches the shell (t31): through `globalThis.__TAURI_INTERNALS__`,
+// the IPC object Tauri 2 injects into every webview before page scripts run —
+// the same object `@tauri-apps/api` wraps. `@tauri-apps/*` is NOT a dependency of
+// `apps/web`, and the shells load the built `apps/web/dist` as is, with no import
+// map, so a runtime import of `@tauri-apps/api/core` cannot resolve in the webview
+// (it used to be how this module loaded `invoke`, and every call rejected). Using
+// the injected object needs no package, and nothing Tauri enters any chunk.
 // This module itself is reached ONLY via `index.ts`'s dynamic `import('./tauri.ts')`
 // under `isTauri()`, so in a browser it is never even fetched.
 //
@@ -34,49 +32,59 @@ import type {
   Unsubscribe,
 } from './index.ts';
 
-/** Structural view of `@tauri-apps/api/core` (only `invoke`). */
-interface TauriCore {
-  invoke<T = void>(cmd: string, args?: Record<string, unknown>): Promise<T>;
-}
-/** Structural view of `@tauri-apps/api/event` (only `listen`). */
-interface TauriEvent {
-  listen<T>(event: string, handler: (e: { payload: T }) => void): Promise<() => void>;
+/** The part of `__TAURI_INTERNALS__` this module uses (Tauri 2). */
+interface TauriInternals {
+  invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T>;
+  /** Register a JS callback the shell can call; returns its id. */
+  transformCallback<T>(callback: (payload: T) => void, once?: boolean): number;
 }
 
-/** Load a Tauri module at runtime without letting Vite/tsc resolve it (see top). */
-async function loadTauri<T>(spec: string): Promise<T> {
-  return (await import(/* @vite-ignore */ spec)) as T;
+function internals(): TauriInternals {
+  const found = (globalThis as { __TAURI_INTERNALS__?: Partial<TauriInternals> }).__TAURI_INTERNALS__;
+  if (typeof found?.invoke !== 'function' || typeof found.transformCallback !== 'function') {
+    throw new Error('Tauri IPC is not available');
+  }
+  return found as TauriInternals;
 }
-
-const core = (): Promise<TauriCore> => loadTauri<TauriCore>('@tauri-apps/api/core');
-const events = (): Promise<TauriEvent> => loadTauri<TauriEvent>('@tauri-apps/api/event');
 
 /** `invoke` a shell command, returning the typed result. */
 async function invoke<T = void>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke: inv } = await core();
-  return inv<T>(cmd, args);
+  return internals().invoke<T>(cmd, args);
 }
 
 /**
- * Bridge a Tauri event to the interface's synchronous `Unsubscribe` shape: start
- * `listen()` (async), and return a disposer that awaits the unlisten handle.
+ * Bridge a Tauri event to the interface's synchronous `Unsubscribe` shape. This is
+ * what `@tauri-apps/api/event`'s `listen` does: register the handler as a
+ * callback and ask the event plugin to deliver `event` to it; the disposer asks
+ * the plugin to stop.
  */
 function bridge<T>(event: string, handler: (payload: T) => void): Unsubscribe {
-  let unlisten: (() => void) | null = null;
+  let eventId: number | null = null;
   let disposed = false;
-  void events()
-    .then(({ listen }) => listen<T>(event, (e) => handler(e.payload)))
-    .then((off) => {
-      if (disposed) off();
-      else unlisten = off;
-    })
-    .catch(() => {
-      /* the shell has no such event source: nothing to bridge. */
+  const unlisten = (id: number): void => {
+    void invoke('plugin:event|unlisten', { event, eventId: id }).catch(() => undefined);
+  };
+  void (async () => {
+    const ipc = internals();
+    const id = await ipc.invoke<number>('plugin:event|listen', {
+      event,
+      target: { kind: 'Any' },
+      handler: ipc.transformCallback<{ payload: T }>((e) => handler(e.payload)),
     });
+    if (disposed) unlisten(id);
+    else eventId = id;
+  })().catch(() => {
+    /* the shell has no such event source: nothing to bridge. */
+  });
   return () => {
     disposed = true;
-    unlisten?.();
+    if (eventId !== null) unlisten(eventId);
   };
+}
+
+/** The shell-injected config object, if any (the server address lives here). */
+function mwConfig(): { serverUrl?: unknown } | undefined {
+  return (globalThis as { __MW_CONFIG__?: { serverUrl?: unknown } }).__MW_CONFIG__;
 }
 
 /** Read the shell-injected platform descriptor (`__MW_CONFIG__.platform`). */
@@ -121,6 +129,27 @@ export async function createTauriPlatform(): Promise<Platform> {
   const info = injectedPlatform();
   const kind: PlatformKind = info?.kind ?? 'desktop';
 
+  // The shells inject `serverUrl: null`; the address the user entered last time
+  // is in the shell's server store. Put it where the transport reads it.
+  const cfg = mwConfig();
+  if (cfg !== undefined && (typeof cfg.serverUrl !== 'string' || cfg.serverUrl === '')) {
+    const selected = await invoke<string | null>('mw_server_get_selected').catch(() => null);
+    if (typeof selected === 'string' && selected !== '') cfg.serverUrl = selected;
+  }
+
+  // The session token, read from the keychain once and then held here, so a
+  // request does not cost a keychain read. `undefined` = not read yet. A keychain
+  // that cannot be written still keeps the token for this run.
+  let token: string | null | undefined;
+  async function readToken(): Promise<string | null> {
+    if (token === undefined) {
+      token = await invoke<string | null>('mw_keychain_get', { service: KC_SESSION, key: KC_SESSION_KEY }).catch(
+        () => null,
+      );
+    }
+    return token;
+  }
+
   return {
     ...base,
 
@@ -135,17 +164,28 @@ export async function createTauriPlatform(): Promise<Platform> {
     setServerUrl: async (url) => {
       await invoke('mw_server_add', { url, label: url });
       await invoke('mw_server_select', { url });
+      const current = mwConfig();
+      if (current !== undefined) current.serverUrl = url;
     },
     listServers: () => invoke<ServerEntry[]>('mw_server_list'),
-    selectServer: (url) => invoke('mw_server_select', { url }),
+    selectServer: async (url) => {
+      await invoke('mw_server_select', { url });
+      const current = mwConfig();
+      if (current !== undefined) current.serverUrl = url;
+    },
 
     // ── Auth token store (OS keychain, `mw_keychain_*` service=session). ──
-    getSessionToken: () =>
-      invoke<string | null>('mw_keychain_get', { service: KC_SESSION, key: KC_SESSION_KEY }),
-    setSessionToken: (token) =>
-      invoke('mw_keychain_set', { service: KC_SESSION, key: KC_SESSION_KEY, value: token }),
-    clearSessionToken: () =>
-      invoke('mw_keychain_delete', { service: KC_SESSION, key: KC_SESSION_KEY }),
+    getSessionToken: readToken,
+    setSessionToken: async (value) => {
+      token = value;
+      await invoke('mw_keychain_set', { service: KC_SESSION, key: KC_SESSION_KEY, value }).catch((err: unknown) => {
+        console.warn('the session token could not be stored in the keychain', err);
+      });
+    },
+    clearSessionToken: async () => {
+      token = null;
+      await invoke('mw_keychain_delete', { service: KC_SESSION, key: KC_SESSION_KEY }).catch(() => undefined);
+    },
 
     // ── Secure store (OS keychain, `mw_keychain_*` service=secure). ──
     secureGet: (key) => invoke<string | null>('mw_keychain_get', { service: KC_SECURE, key }),
