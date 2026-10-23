@@ -5,6 +5,7 @@
 
 use mw_sieve::{Action, Condition, MatchOp, Rule, StringTest};
 use mw_store::CryptoKeyRow;
+use serde_json::{Value, json};
 
 use super::types::{CryptoKey, KeyHistoryEntry, MailRule, MailRuleAction, MailRuleCondition};
 
@@ -152,7 +153,51 @@ pub(crate) fn rule_to_mail_rule(rule: &Rule) -> MailRule {
 /// Build a [`Rule`] from a [`MailRule`] DTO (the reverse of [`rule_to_mail_rule`]).
 /// `suppressNotify` has no Sieve action (silence is an engine-side flag, plan
 /// §1.9) and is dropped from the generated rule.
-pub(crate) fn mail_rule_to_rule(mr: &MailRule) -> Rule {
+///
+/// A condition kind with no Sieve test (`thread`) is dropped too. A rule with
+/// no conditions matches every message, so when the DTO has conditions and
+/// every one of them drops, the rule is refused with the RFC 8620 §5.3
+/// `invalidProperties` SetError (`Err`) instead of being stored as a rule
+/// that files all mail (t32-ext.md §2 D-3).
+pub(crate) fn mail_rule_to_rule(mr: &MailRule) -> Result<Rule, Value> {
+    let rule = convert_mail_rule(mr);
+    if rule.conditions.is_empty() && !mr.conditions.is_empty() {
+        return Err(no_condition_applies(mr));
+    }
+    Ok(rule)
+}
+
+/// [`mail_rule_to_rule`] for an update of the `stored` rule: also refuses an
+/// update that leaves no conditions on a rule that had some (a stored
+/// condition the DTO cannot show is lost on the round trip).
+pub(crate) fn mail_rule_update_to_rule(stored: &Rule, mr: &MailRule) -> Result<Rule, Value> {
+    let rule = mail_rule_to_rule(mr)?;
+    if rule.conditions.is_empty() && !stored.conditions.is_empty() {
+        return Err(no_condition_applies(mr));
+    }
+    Ok(rule)
+}
+
+fn no_condition_applies(mr: &MailRule) -> Value {
+    let mut kinds: Vec<&str> = mr.conditions.iter().map(|c| c.kind.as_str()).collect();
+    kinds.sort_unstable();
+    kinds.dedup();
+    let description = if kinds.is_empty() {
+        "the rule would keep no conditions and match every message".to_string()
+    } else {
+        format!(
+            "no condition of the rule can be applied (unsupported: {});              a rule without conditions would match every message",
+            kinds.join(", ")
+        )
+    };
+    json!({
+        "type": "invalidProperties",
+        "properties": ["conditions"],
+        "description": description,
+    })
+}
+
+fn convert_mail_rule(mr: &MailRule) -> Rule {
     let conditions = mr
         .conditions
         .iter()

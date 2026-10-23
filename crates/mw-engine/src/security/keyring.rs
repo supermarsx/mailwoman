@@ -13,7 +13,8 @@ use crate::account::AccountRuntime;
 use crate::change::{ChangeOp, ChangeType};
 use crate::engine::Engine;
 use crate::security::convert::{
-    initial_history, key_dto_to_row, key_row_to_dto, mail_rule_to_rule, rule_to_mail_rule,
+    initial_history, key_dto_to_row, key_row_to_dto, mail_rule_to_rule, mail_rule_update_to_rule,
+    rule_to_mail_rule,
 };
 use crate::security::types::{CryptoKey, KeyHistoryEntry, MailRule};
 
@@ -433,7 +434,9 @@ impl Engine {
             .unwrap_or_default();
         let mut rules = self.get_rules(account_id).await.unwrap_or_default();
         let mut created = Map::new();
+        let mut not_created = Map::new();
         let mut updated = Map::new();
+        let mut not_updated = Map::new();
         let mut destroyed = Vec::new();
         let mut changed_ids: Vec<(String, ChangeOp)> = Vec::new();
 
@@ -444,7 +447,13 @@ impl Engine {
                         mr.id = gen_id("mr");
                     }
                     let id = mr.id.clone();
-                    rules.push(mail_rule_to_rule(&mr));
+                    match mail_rule_to_rule(&mr) {
+                        Ok(rule) => rules.push(rule),
+                        Err(set_error) => {
+                            not_created.insert(client_id.clone(), set_error);
+                            continue;
+                        }
+                    }
                     created.insert(client_id.clone(), json!({ "id": id }));
                     changed_ids.push((id, ChangeOp::Created));
                 }
@@ -455,7 +464,13 @@ impl Engine {
                 if let Some(pos) = rules.iter().position(|r| &r.id == id) {
                     let mut mr = rule_to_mail_rule(&rules[pos]);
                     apply_mail_rule_patch(&mut mr, patch);
-                    rules[pos] = mail_rule_to_rule(&mr);
+                    match mail_rule_update_to_rule(&rules[pos], &mr) {
+                        Ok(rule) => rules[pos] = rule,
+                        Err(set_error) => {
+                            not_updated.insert(id.clone(), set_error);
+                            continue;
+                        }
+                    }
                     updated.insert(id.clone(), Value::Null);
                     changed_ids.push((id.clone(), ChangeOp::Updated));
                 }
@@ -488,14 +503,21 @@ impl Engine {
             .crypto_type_state(account_id, ChangeType::MailRule)
             .await
             .unwrap_or_default();
-        json!({
+        let mut resp = json!({
             "accountId": account_id,
             "oldState": old_state,
             "newState": new_state,
             "created": created,
             "updated": updated,
             "destroyed": destroyed,
-        })
+        });
+        if !not_created.is_empty() {
+            resp["notCreated"] = Value::Object(not_created);
+        }
+        if !not_updated.is_empty() {
+            resp["notUpdated"] = Value::Object(not_updated);
+        }
+        resp
     }
 
     /// Upload the rule set as Sieve where the backend advertises ManageSieve.
