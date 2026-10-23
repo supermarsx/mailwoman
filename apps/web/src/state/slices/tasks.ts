@@ -147,10 +147,24 @@ export function createTasksSlice(ctx: SliceContext): TasksSlice {
     setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   }
 
+  // Each `loadTasks()` / `selectList()` takes a ticket when it is called. Calls
+  // overlap (opening Tasks starts two loads; a list click starts another), and
+  // one that started earlier can answer last; only the call holding the latest
+  // ticket writes state and ends the loading state, so the older answer is
+  // dropped instead of replacing the newer one (as `loadTicket` in
+  // `modules/calendar/controller.ts`).
+  let loadTicket = 0;
+  // Only `loadTasks()` fetches the lists, so a `selectList()` started meanwhile
+  // must not drop them: the lists answer has its own ticket.
+  let listsTicket = 0;
+
   async function loadTasks(): Promise<void> {
+    const ticket = ++loadTicket;
+    const stale = (): boolean => ticket !== loadTicket;
+    const listsTurn = ++listsTicket;
     const acct = await resolveAccount();
     if (acct === null) return;
-    setTasksLoading(true);
+    if (!stale()) setTasksLoading(true);
     try {
       const listRes = await client.jmap(taskListsGet(acct));
       const cals = responseFor<CalendarGetResponse>(listRes, 'lists').list;
@@ -158,28 +172,34 @@ export function createTasksSlice(ctx: SliceContext): TasksSlice {
         .map((c) => taskListFromCalendar(c))
         .filter((l): l is TaskList => l !== null)
         .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
-      setTaskLists(lists);
+      if (listsTurn === listsTicket) setTaskLists(lists);
+      if (stale()) return;
       if (selectedListId() === null && lists.length > 0) {
         // Default focus is "all lists" (null); leave selection as-is.
       }
       const listId = selectedListId() ?? undefined;
       const taskRes = await client.jmap(tasksQueryGet(acct, listId));
+      if (stale()) return;
       setTasks(responseFor<TaskGetResponse>(taskRes, 'g').list);
     } finally {
-      setTasksLoading(false);
+      // The latest call ends the loading state; a dropped one leaves it alone.
+      if (!stale()) setTasksLoading(false);
     }
   }
 
   async function selectList(id: Id | null): Promise<void> {
+    const ticket = ++loadTicket;
+    const stale = (): boolean => ticket !== loadTicket;
     setSelectedListId(id);
     const acct = await resolveAccount();
-    if (acct === null) return;
+    if (acct === null || stale()) return;
     setTasksLoading(true);
     try {
       const res = await client.jmap(tasksQueryGet(acct, id ?? undefined));
+      if (stale()) return;
       setTasks(responseFor<TaskGetResponse>(res, 'g').list);
     } finally {
-      setTasksLoading(false);
+      if (!stale()) setTasksLoading(false);
     }
   }
 
