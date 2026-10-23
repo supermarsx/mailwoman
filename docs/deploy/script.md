@@ -227,9 +227,23 @@ bash scripts/test-deploy.sh mailwoman:deploy-verify
 ```
 
 It uses random test projects and localhost port 18089 (override with
-`DEPLOY_TEST_PORT`), exercises backup/rollback, failure recovery and a
-proxy-network installation, and removes its test containers, volumes and network
-afterward. Failed runs retain local diagnostics.
+`DEPLOY_TEST_PORT`; the port above it must also be free). It checks that
+`--dry-run` writes nothing, the port auto-pick (when localhost:8080 is free, a
+throwaway container holds it for the few seconds of one `init`), the admin panel
+under strict CSRF with curl and, when Playwright can start, in a browser, the
+refusal of a deploy onto a port held by something else, backup/rollback, failure
+recovery, the moves local → external → proxy network → local, the refusal of a move
+to Caddy, and a second, proxy-network installation. The external step stands in a
+curl wrapper for the host's reverse proxy; nothing in the test reaches the
+Internet or uses ports 80/443. It removes its test containers, volumes and network
+afterward; failed runs retain local diagnostics.
+
+The browser step runs `pnpm exec playwright` from `apps/web`, or
+`apps/web/node_modules/.bin/playwright` when pnpm cannot start it, and prints
+Playwright's summary. Without either the step is skipped and the `PASS` line says
+so; `DEPLOY_TEST_REQUIRE=all` makes that a failure, reported before anything is
+deployed. `DEPLOY_TEST_SCRIPT=/path/to/deploy.sh` runs the test against another
+copy of the script, for example one with a seeded defect.
 
 Implementation references: [Compose raw environment files](https://docs.docker.com/reference/compose-file/services/#env_file),
 [Compose health waiting](https://docs.docker.com/reference/cli/docker/compose/up/),

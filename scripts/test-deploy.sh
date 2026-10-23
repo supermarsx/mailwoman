@@ -252,6 +252,73 @@ run stop
 run start
 run status
 
+# The applied installation moves among local, external and proxy-network exposure
+# when deploy.env is edited and deploy runs again, keeping its data volume; a move
+# to Caddy is refused. For the external step a curl wrapper stands in for the host's
+# reverse proxy: deploy.sh's public check of https://mail.example.test is answered
+# by the app on its localhost port.
+MOVE_VOLUME=$(awk -F= '$1 == "DATA_VOLUME" {print $2}' "$STATE/active/release.env")
+moved() {
+    CID=$(dc ps -q mailwoman)
+    [[ -n $CID && $(docker inspect --format '{{.State.Health.Status}}' "$CID") == healthy ]] || fail "after the move to $1 the app is not healthy"
+    [[ $(awk -F= '$1 == "DATA_VOLUME" {print $2}' "$STATE/active/release.env") == "$MOVE_VOLUME" ]] || fail "the move to $1 replaced the data volume"
+    app_env "$CID" > "$STATE/env"
+}
+local_port_only() {
+    [[ $(docker port "$CID") == "8080/tcp -> 127.0.0.1:$PORT" ]] || fail "$1 does not publish exactly 127.0.0.1:$PORT: $(docker port "$CID")"
+    curl --fail --silent "http://localhost:$PORT/" -o "$STATE/index.html" || fail "$1: http://localhost:$PORT/ does not answer"
+    grep -qi '<!doctype html' "$STATE/index.html" || fail "$1: http://localhost:$PORT/ is not the web UI"
+}
+mkdir "$STATE/proxybin"
+REAL_CURL=$(command -v curl)
+DEPLOY_TEST_PROXY_TO="http://127.0.0.1:$PORT"
+export REAL_CURL DEPLOY_TEST_PROXY_TO
+cat > "$STATE/proxybin/curl" <<'WRAPPER'
+#!/usr/bin/env bash
+args=()
+for arg in "$@"; do
+    if [[ $arg == https://mail.example.test/* ]]; then arg="$DEPLOY_TEST_PROXY_TO/${arg#https://mail.example.test/}"; fi
+    args+=("$arg")
+done
+exec "$REAL_CURL" "${args[@]}"
+WRAPPER
+chmod +x "$STATE/proxybin/curl"
+# local -> external
+set_config EXPOSURE=external PUBLIC_URL=https://mail.example.test
+PATH="$STATE/proxybin:$PATH" run deploy --no-build || fail 'deploy did not move the installation from local to external'
+moved external
+local_port_only 'the external installation'
+grep -Fx 'MW_PUBLIC_URL=https://mail.example.test' "$STATE/env" >/dev/null || fail 'the external installation kept its old public URL'
+grep -Fx 'MW_COOKIE_SECURE=true' "$STATE/env" >/dev/null || fail 'the external installation does not use Secure cookies'
+# external -> network
+set_config EXPOSURE=network "PROXY_NETWORK=$NETWORK"
+run deploy --no-build || fail 'deploy did not move the installation from external to network'
+moved network
+[[ -z $(docker port "$CID") ]] || fail "the installation moved to a proxy network still publishes $(docker port "$CID")"
+if port_in_use "$PORT"; then fail "localhost:$PORT still answers after the move to a proxy network"; fi
+MSYS_NO_PATHCONV=1 docker run --rm --network "$NETWORK" "$IMAGE" healthcheck --url "http://$PROJECT:8080/" || fail "http://$PROJECT:8080/ does not answer on the proxy network"
+grep -Fx 'MW_FORWARDED_MODE=xff' "$STATE/env" >/dev/null || fail 'the moved installation does not trust its proxy network'
+# network -> local
+set_config EXPOSURE=local "PUBLIC_URL=http://localhost:$PORT" PROXY_NETWORK=
+run deploy --no-build || fail 'deploy did not move the installation from network to local'
+moved local
+local_port_only 'the installation moved back to local'
+[[ $(docker inspect --format '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' "$CID") != *"$NETWORK "* ]] || fail 'the local installation is still on the proxy network'
+grep -Fx 'MW_COOKIE_SECURE=false' "$STATE/env" >/dev/null || fail 'the local installation uses Secure cookies over HTTP'
+if grep -E '^MW_(FORWARDED_MODE|TRUSTED_PROXIES)=' "$STATE/env" >/dev/null; then fail 'the local installation still trusts the proxy network'; fi
+docker network inspect "$NETWORK" >/dev/null || fail 'leaving the proxy network removed it'
+# local -> caddy is refused before anything changes. CADDY_IMAGE names an image that
+# cannot exist, so a script that lacked the refusal could not start Caddy on this
+# host's ports 80 and 443.
+cp "$STATE/deploy.env" "$STATE/deploy.env.saved"
+set_config EXPOSURE=caddy DOMAIN=mail.example.test PUBLIC_URL=https://mail.example.test CADDY_IMAGE=mailwoman-deploy-test.invalid/absent:none
+reject deploy --no-build
+grep -F 'EXPOSURE cannot change from local to caddy: an installation cannot move to or from caddy' "$STATE/rejected.log" >/dev/null || fail "a move to caddy was not refused for that reason: $(cat "$STATE/rejected.log")"
+[[ $(dc ps -q mailwoman) == "$CID" && $(docker inspect --format '{{.State.Running}}' "$CID") == true ]] || fail 'a refused move to caddy replaced or stopped the app'
+printf 'caddy move: %s\n' "$(grep -F 'cannot move to or from caddy' "$STATE/rejected.log")"
+cat "$STATE/deploy.env.saved" > "$STATE/deploy.env"
+rm -- "$STATE/deploy.env.saved"
+
 # A second installation on a dedicated proxy network publishes no host port,
 # answers a peer on that network by project name, and trusts that network's
 # peers for forwarded headers. Its public URL is unroutable here by design.
@@ -269,4 +336,4 @@ net deploy --no-build
 [[ $(awk -F= '$1 == "DATA_VOLUME" {print $2}' "$NET_STATE/active/release.env") == "$NET_VOLUME" ]] || fail 'update replaced the data volume'
 docker network inspect "$NETWORK" >/dev/null || fail 'update removed the proxy network'
 PASSED=true
-printf 'PASS: dry-run writes nothing (empty and applied state), port auto-pick when 8080 is taken, deployment, literal secrets, health, persistent data, admin login and writes under strict CSRF (curl), %s, refusal of a held port before any change, backup, rollback, corruption refusal, copy-failure recovery, repeated setup options, and a proxy-network installation\n' "$BROWSER"
+printf 'PASS: dry-run writes nothing (empty and applied state), port auto-pick when 8080 is taken, deployment, literal secrets, health, persistent data, admin login and writes under strict CSRF (curl), %s, refusal of a held port before any change, backup, rollback, corruption refusal, copy-failure recovery, repeated setup options, exposure moves local -> external -> network -> local with the data volume kept, refusal of a move to caddy, and a proxy-network installation\n' "$BROWSER"
