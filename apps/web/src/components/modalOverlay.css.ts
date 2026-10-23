@@ -22,12 +22,15 @@
 import { style } from '@vanilla-extract/css';
 import { vars } from '../theme/contract.css.ts';
 
+// The scrim colour is the page colour at 0.8 opacity (t32 `color.scrim`): it
+// marks the inert page behind the dialog, and text over it keeps 4.5:1
+// (`contrast.ts` worstScrimRatio).
 export const modalOverlay = style({
   position: 'fixed',
   inset: 0,
   display: 'grid',
   placeItems: 'center',
-  background: 'rgba(0, 0, 0, 0.5)',
+  background: vars.color.scrim,
   padding: vars.space[4],
   zIndex: 1000,
 });

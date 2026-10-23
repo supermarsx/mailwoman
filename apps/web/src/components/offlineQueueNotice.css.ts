@@ -11,16 +11,16 @@ export const notice = style({
   maxHeight: '33%',
   overflowY: 'auto',
   padding: '0.5rem 0.7rem',
-  borderBottom: '1px solid var(--border)',
-  borderLeft: '3px solid var(--danger)',
-  background: 'var(--bg-alt)',
+  borderBlockEnd: `${vars.border.hair} solid ${vars.color.border}`,
+  borderInlineStart: `${vars.border.heavy} solid ${vars.color.danger}`,
+  background: vars.color.bgAlt,
   fontSize: '0.85rem',
 });
 
 export const title = style({
   margin: '0 0 0.35rem',
   fontSize: '0.85rem',
-  fontWeight: 600,
+  fontWeight: vars.weight.heavy,
 });
 
 export const list = style({
@@ -49,7 +49,7 @@ export const what = style({
 });
 
 export const reason = style({
-  color: 'var(--text-dim)',
+  color: vars.color.textDim,
   fontSize: '0.78rem',
 });
 
@@ -60,8 +60,8 @@ export const buttons = style({
 
 export const button = style({
   minHeight: '2rem',
-  padding: '0.2rem 0.7rem',
-  border: '1px solid var(--border)',
+  padding: 'calc(0.2rem - 1px) calc(0.7rem - 1px)',
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
   borderRadius: vars.radius.sm,
   background: 'transparent',
   color: 'inherit',

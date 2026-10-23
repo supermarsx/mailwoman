@@ -3,6 +3,7 @@
 // rule separates them from the actions on the message itself.
 
 import { style } from '@vanilla-extract/css';
+import { vars } from '../theme/contract.css.ts';
 
 export const replyGroup = style({
   display: 'inline-flex',
@@ -10,5 +11,5 @@ export const replyGroup = style({
   gap: '0.25rem',
   marginInlineEnd: '0.5rem',
   paddingInlineEnd: '0.5rem',
-  borderInlineEnd: '1px solid var(--border)',
+  borderInlineEnd: `${vars.border.hair} solid ${vars.color.border}`,
 });

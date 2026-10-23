@@ -9,6 +9,7 @@
 // last, full width and at least 2.75rem tall.
 
 import { style, styleVariants } from '@vanilla-extract/css';
+import { vars } from '../theme/contract.css.ts';
 
 const NARROW = '(max-width: 760px)';
 
@@ -34,19 +35,20 @@ export const header = style({
 export const title = style({
   margin: 0,
   fontSize: '1.1rem',
+  fontWeight: vars.weight.heavy,
 });
 
 export const empty = style({
   margin: 0,
   padding: '1rem 0',
-  color: 'var(--text-dim)',
+  color: vars.color.textDim,
 });
 
 export const items = style({
   listStyle: 'none',
   margin: 0,
   padding: 0,
-  borderTop: '1px solid var(--border)',
+  borderBlockStart: `${vars.border.hair} solid ${vars.color.border}`,
 });
 
 export const row = style({
@@ -56,16 +58,16 @@ export const row = style({
   columnGap: '0.9rem',
   alignItems: 'start',
   padding: '0.7rem 0.6rem',
-  borderBottom: '1px solid var(--border)',
-  borderInlineStart: '3px solid transparent',
+  borderBlockEnd: `${vars.border.hair} solid ${vars.color.border}`,
+  borderInlineStart: `${vars.border.heavy} solid transparent`,
   selectors: {
     // A row that will not be sent until its owner acts.
     '&[data-state="held"]': {
-      borderInlineStartColor: 'var(--accent)',
-      background: 'var(--bg-alt)',
+      borderInlineStartColor: vars.color.accent,
+      background: vars.color.bgAlt,
     },
     '&[data-state="failed"]': {
-      borderInlineStartColor: 'var(--danger)',
+      borderInlineStartColor: vars.color.danger,
     },
   },
   '@media': {
@@ -78,37 +80,41 @@ export const row = style({
   },
 });
 
+/** The state badge: square, small tracked capitals, a step smaller. Its text
+ *  always names the state, so the colour is never the only sign. */
 export const state = style({
   gridArea: 'state',
   justifySelf: 'start',
   padding: '0.1rem 0.55rem',
-  border: '1px solid var(--border)',
-  borderRadius: '999px',
-  fontSize: '0.75rem',
-  fontWeight: 600,
+  border: `${vars.border.hair} solid ${vars.color.borderStrong}`,
+  borderRadius: vars.radius.sm,
+  fontSize: '0.7rem',
+  fontWeight: vars.weight.bold,
+  letterSpacing: vars.tracking.label,
+  textTransform: 'uppercase',
   whiteSpace: 'nowrap',
 });
 
 export const stateOf = styleVariants({
-  held: { borderColor: 'var(--accent)', color: 'var(--accent)' },
+  held: { borderColor: vars.color.accent, color: vars.color.accent },
   scheduled: {},
   holding: {},
-  sent: { borderColor: 'var(--success)', color: 'var(--success)' },
-  canceled: { color: 'var(--text-dim)' },
-  failed: { borderColor: 'var(--danger)', color: 'var(--danger)' },
+  sent: { borderColor: vars.color.success, color: vars.color.success },
+  canceled: { color: vars.color.textDim },
+  failed: { borderColor: vars.color.danger, color: vars.color.danger },
 });
 
 export const when = style({
   gridArea: 'when',
   justifySelf: 'end',
-  color: 'var(--text-dim)',
+  color: vars.color.textDim,
   fontSize: '0.8rem',
   whiteSpace: 'nowrap',
 });
 
 export const subject = style({
   gridArea: 'subject',
-  fontWeight: 600,
+  fontWeight: vars.weight.bold,
   overflowWrap: 'anywhere',
   '@media': {
     [NARROW]: { marginTop: '0.35rem' },
@@ -118,7 +124,7 @@ export const subject = style({
 export const to = style({
   gridArea: 'to',
   marginTop: '0.15rem',
-  color: 'var(--text-dim)',
+  color: vars.color.textDim,
   fontSize: '0.85rem',
   overflowWrap: 'anywhere',
 });
@@ -133,7 +139,7 @@ export const note = style({
 export const error = style({
   gridArea: 'error',
   margin: '0.35rem 0 0',
-  color: 'var(--danger)',
+  color: vars.color.danger,
   fontSize: '0.85rem',
   overflowWrap: 'anywhere',
 });

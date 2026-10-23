@@ -21,9 +21,9 @@ export const toggle = style({
   alignItems: 'center',
   justifyContent: 'center',
   border: 'none',
-  borderBottom: '1px solid var(--border)',
+  borderBlockEnd: `${vars.border.hair} solid ${vars.color.border}`,
   background: 'transparent',
-  color: 'var(--text-dim)',
+  color: vars.color.textDim,
   cursor: 'pointer',
   fontSize: '0.8rem',
   lineHeight: 1,
@@ -35,26 +35,30 @@ export const headRow = style({
   minWidth: 0,
 });
 
-/** Conversation-count badge on the head row (e.g. "3"). */
+/** Conversation-count badge on the head row (e.g. "3"): square, like every badge. */
 export const count = style({
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
   minWidth: '1.25rem',
   padding: '0 0.35rem',
-  marginLeft: '0.35rem',
-  borderRadius: vars.radius.pill,
-  background: 'var(--bg-sink)',
-  color: 'var(--text-dim)',
+  marginInlineStart: '0.35rem',
+  borderRadius: vars.radius.sm,
+  background: vars.color.bgSink,
+  color: vars.color.textDim,
   fontSize: '0.72rem',
+  fontWeight: vars.weight.bold,
   fontVariantNumeric: 'tabular-nums',
 });
 
 /** A member row inside an expanded conversation: indented + a quieter left rail
  *  so it reads as nested under its head. */
 export const childRow = style({
-  paddingLeft: '2rem',
-  boxShadow: 'inset 3px 0 0 var(--border)',
+  paddingInlineStart: '2rem',
+  boxShadow: `inset 3px 0 0 ${vars.color.border}`,
+  selectors: {
+    ':root[dir="rtl"] &': { boxShadow: `inset -3px 0 0 ${vars.color.border}` },
+  },
 });
 
 /** The always-visible list toolbar that hosts the reading-pane control. */
@@ -64,20 +68,28 @@ export const toolbar = style({
   alignItems: 'center',
   gap: '0.35rem',
   padding: '0.4rem 0.6rem',
-  borderBottom: '1px solid var(--border)',
-  background: 'var(--bg-alt)',
+  borderBlockEnd: `${vars.border.hair} solid ${vars.color.border}`,
+  background: vars.color.bgAlt,
   fontSize: '0.78rem',
 });
 
+/** "Reading pane": a small tracked capital label, a step smaller than the buttons. */
 export const toolbarLabel = style({
-  color: 'var(--text-dim)',
-  marginRight: '0.15rem',
+  color: vars.color.textDim,
+  marginInlineEnd: '0.15rem',
+  fontSize: '0.72rem',
+  fontWeight: vars.weight.bold,
+  letterSpacing: vars.tracking.label,
+  textTransform: 'uppercase',
 });
 
-/** A segmented option button in the toolbar (reading-pane right/bottom/off). */
+/** A segmented option button in the toolbar (reading-pane right/bottom/off).
+ *  The 2px control rule takes 1px from each inline padding; the block padding
+ *  stays, because the pinned 1.2 line height already made the button shorter
+ *  and it must not drop further below the 24px target size. */
 export const segBtn = style({
-  padding: '0.15rem 0.5rem',
-  border: '1px solid var(--border)',
+  padding: '0.15rem calc(0.5rem - 1px)',
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
   borderRadius: vars.radius.sm,
   background: 'transparent',
   color: 'inherit',
@@ -85,9 +97,9 @@ export const segBtn = style({
   cursor: 'pointer',
   selectors: {
     '&[aria-pressed="true"]': {
-      background: 'var(--accent)',
-      color: 'var(--accent-text)',
-      borderColor: 'var(--accent)',
+      background: vars.color.accent,
+      color: vars.color.accentText,
+      borderColor: vars.color.accent,
     },
   },
 });

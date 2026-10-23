@@ -10,8 +10,11 @@
 // narrow-viewport media query in app.css (≤ 760px), which stacks the shell into
 // one pane and shows the open reader as a full-height view whatever this setting
 // is. The 220px offset matches the shell's fixed sidebar column in app.css.
+// Regions are split by the 3px rule in the control border colour (t32), the
+// same rule app.css draws between the sidebar, the list and the reader.
 
 import { globalStyle } from '@vanilla-extract/css';
+import { vars } from '../theme/contract.css.ts';
 
 const DESKTOP = 'screen and (min-width: 761px)';
 
@@ -27,7 +30,12 @@ globalStyle(':root[data-reading-pane="bottom"] .mail-pane', {
 });
 globalStyle(':root[data-reading-pane="bottom"] .reader', {
   '@media': {
-    [DESKTOP]: { gridColumn: '2', gridRow: '2', minHeight: 0, borderTop: '1px solid var(--border)' },
+    [DESKTOP]: {
+      gridColumn: '2',
+      gridRow: '2',
+      minHeight: 0,
+      borderBlockStart: `${vars.border.heavy} solid ${vars.color.borderStrong}`,
+    },
   },
 });
 
@@ -47,13 +55,12 @@ globalStyle(':root[data-reading-pane="off"] .reader.reader--open', {
   '@media': {
     [DESKTOP]: {
       position: 'fixed',
-      top: 0,
-      right: 0,
-      bottom: 0,
-      left: '220px',
+      insetBlock: 0,
+      insetInlineEnd: 0,
+      insetInlineStart: '220px',
       zIndex: 30,
-      background: 'var(--bg)',
-      borderLeft: '1px solid var(--border)',
+      background: vars.color.bg,
+      borderInlineStart: `${vars.border.heavy} solid ${vars.color.borderStrong}`,
     },
   },
 });

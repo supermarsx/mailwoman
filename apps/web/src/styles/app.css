@@ -6,9 +6,18 @@
  * this file (--bg, --text, --border-strong, --radius-md, --border-rule, …) are
  * the bridge it emits. Its rules come before this file in the built
  * stylesheet, so a rule here with the same selector wins: do not restate a
- * property it sets (body font and line height). */
+ * property it sets (body font and line height).
+ *
+ * Every rule below keeps boxes the same size or smaller (t32 §2.4 P1/P2): where
+ * a border got thicker, the padding on that side gives the pixels back. New and
+ * changed declarations use logical properties (inline/block), so RTL locales
+ * mirror them. */
 :root {
   color-scheme: dark;
+  /* Background-image hooks for admin branding and user backgrounds (t32 P).
+     Nothing sets them yet; `none` leaves every surface as it is. */
+  --mw-shell-bg-image: none;
+  --mw-login-bg-image: none;
 }
 
 * {
@@ -121,27 +130,61 @@ input[type='radio'] {
 }
 
 /* ── Login ────────────────────────────────────────────────────── */
+/* The page behind the card can carry a branding image (--mw-login-bg-image);
+   the card stays a solid surface over it, so the form never sits on the
+   picture itself. */
 .login {
   display: grid;
   place-items: center;
   height: 100%;
   padding: 1rem;
+  background-color: var(--bg);
+  background-image: var(--mw-login-bg-image);
+  background-position: center;
+  background-size: cover;
 }
 .login__card {
+  position: relative;
   width: 100%;
   max-width: 360px;
-  padding: 1.6rem;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--bg-alt);
+  padding: calc(1.6rem - 1px);
+  border: var(--border-rule) solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--elevation-3);
+}
+/* The mark: a red square and a yellow circle in the card's top corner, drawn
+   inside the padding, so no box moves. */
+.login__card::before,
+.login__card::after {
+  content: '';
+  position: absolute;
+  inset-block-start: 0.5rem;
+  width: 0.6rem;
+  height: 0.6rem;
+  pointer-events: none;
+}
+.login__card::before {
+  inset-inline-end: 0.5rem;
+  background: var(--danger);
+}
+.login__card::after {
+  inset-inline-end: 1.3rem;
+  border-radius: var(--radius-pill);
+  background: var(--signal);
 }
 .login__title {
   margin: 0 0 1rem;
   text-align: center;
+  font-weight: var(--weight-heavy);
 }
+/* Not colour alone: the error text also sits behind a red bar. */
 .login__error {
+  margin-block: 0 0.7rem;
+  margin-inline: 0;
+  padding-inline-start: 0.5rem;
+  border-inline-start: var(--border-heavy) solid var(--danger);
   color: var(--danger);
-  margin: 0 0 0.7rem;
 }
 .login__hint {
   margin: 0.8rem 0 0;
@@ -165,27 +208,74 @@ input[type='radio'] {
   margin-top: 0.4rem;
 }
 
+/* ── Async states (AsyncState.tsx: boot, panes) ───────────────── */
+/* A failure's first line starts with a red square, then the text and the
+   Retry (ghost) button. The square is an inline box shorter than the line, so
+   no box changes size (a border or padding on the card would). */
+.async-state--error > .async-state__message:first-child::before {
+  content: '';
+  display: inline-block;
+  width: 0.6em;
+  height: 0.6em;
+  margin-inline-end: 0.5em;
+  background: var(--danger);
+}
+.async-state--error > .async-state__message {
+  font-weight: var(--weight-medium);
+}
+.async-state--pending,
+.async-state--empty {
+  color: var(--text-dim);
+}
+
 /* ── Shell layout ─────────────────────────────────────────────── */
+/* Regions are flat fields split by 3px rules in the control border colour. */
 .shell {
   display: grid;
   grid-template-columns: 220px minmax(260px, 360px) 1fr;
   height: 100%;
 }
 
+/* Background layer for the app shell (t32 P). Whoever wires a user or brand
+   background mounts an empty `.mw-shell-bg` element inside `.shell` and sets
+   `--mw-shell-bg-image` plus `data-shell-bg` on the root element. The layer
+   sits under everything; with `data-shell-bg` set the sidebar and the phone
+   top bar turn to the scrim colour so the picture shows through them, and the
+   list and reader keep their solid fields. Protected surfaces (the login
+   form, two-factor prompts, the security panel, dialogs) are solid and are
+   never placed inside a user-styled container. */
+.mw-shell-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-image: var(--mw-shell-bg-image);
+  background-position: center;
+  background-size: cover;
+  pointer-events: none;
+}
+:root[data-shell-bg] .sidebar,
+:root[data-shell-bg] .shell__bar {
+  background-color: var(--scrim);
+  background-image: none;
+}
+
 .sidebar {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
-  padding: 0.9rem;
+  padding-block: 0.9rem;
+  padding-inline: 0.9rem calc(0.9rem - 2px);
   background: var(--bg-sink);
-  border-right: 1px solid var(--border);
+  border-inline-end: var(--border-heavy) solid var(--border-strong);
 }
 .sidebar__head {
   display: flex;
   flex-direction: column;
 }
 .sidebar__brand {
-  font-weight: 700;
+  font-weight: var(--weight-heavy);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
 }
 .sidebar__user {
   font-size: 0.75rem;
@@ -203,23 +293,30 @@ input[type='radio'] {
   align-items: center;
   padding: 0.45rem 0.6rem;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: transparent;
   color: inherit;
   font: inherit;
   cursor: pointer;
-  text-align: left;
+  text-align: start;
 }
+.sidebar__box:hover:not(.sidebar__box--active) {
+  background: var(--bg-alt);
+}
+/* Active: accent field plus bold text (not colour alone). */
 .sidebar__box--active {
   background: var(--accent);
   color: var(--accent-text);
+  font-weight: var(--weight-bold);
 }
+/* Unread count: a yellow block with dark ink, square like every badge. */
 .sidebar__badge {
-  background: var(--border);
-  color: var(--text);
-  border-radius: 999px;
+  background: var(--signal);
+  color: var(--signal-text);
+  border-radius: var(--radius-sm);
   padding: 0 0.45rem;
   font-size: 0.72rem;
+  font-weight: var(--weight-bold);
 }
 .sidebar__offline {
   font-size: 0.75rem;
@@ -230,8 +327,8 @@ input[type='radio'] {
 /* ── Message list ─────────────────────────────────────────────── */
 .list {
   overflow-y: auto;
-  border-right: 1px solid var(--border);
-  background: var(--bg-alt);
+  border-inline-end: var(--border-heavy) solid var(--border-strong);
+  background: var(--bg);
 }
 /* The virtual-scroll viewport. These three declarations used to be an inline
    `style={{…}}` on the element; because the object is fully static, Solid's
@@ -252,6 +349,7 @@ input[type='radio'] {
   color: var(--text-dim);
 }
 .list__row {
+  position: relative;
   display: grid;
   grid-template-columns: 1fr auto;
   grid-template-areas:
@@ -260,21 +358,52 @@ input[type='radio'] {
     'preview preview';
   gap: 0.15rem 0.5rem;
   width: 100%;
-  text-align: left;
+  text-align: start;
   padding: 0.6rem 0.8rem;
   border: none;
-  border-bottom: 1px solid var(--border);
+  border-block-end: var(--border-hair) solid var(--border);
   background: transparent;
   color: inherit;
   font: inherit;
   cursor: pointer;
 }
+.list__row:hover {
+  background: var(--bg-alt);
+}
+/* The open message: a field plus a 4px accent bar on the leading edge. */
 .list__row--active {
-  background: var(--bg-sink);
+  background: var(--bg-alt);
+}
+.list__row--active::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 4px;
+  background: var(--accent);
+}
+/* Unread: bold sender and a yellow square in the leading padding, beside the
+   accent bar. On a light page yellow is too faint alone, so the square gets
+   a dark edge there. */
+.list__row--unread::before {
+  content: '';
+  position: absolute;
+  inset-block-start: calc(0.35rem + 0.4em);
+  inset-inline-start: 5px;
+  box-sizing: border-box;
+  width: 6px;
+  height: 6px;
+  background: var(--signal);
+}
+:root[data-appearance='light'] .list__row--unread::before {
+  border: 1px solid var(--border-strong);
 }
 .list__sender {
   grid-area: sender;
-  font-weight: 600;
+  font-weight: var(--weight-medium);
+}
+.list__row--unread .list__sender {
+  font-weight: var(--weight-bold);
 }
 .list__date {
   grid-area: date;
@@ -304,8 +433,9 @@ input[type='radio'] {
   color: var(--text-dim);
 }
 .reader__header {
-  padding: 0.9rem 1.1rem;
-  border-bottom: 1px solid var(--border);
+  padding-block: 0.9rem calc(0.9rem - 1px);
+  padding-inline: 1.1rem;
+  border-block-end: var(--border-rule) solid var(--border-strong);
 }
 .reader__close {
   margin-bottom: 0.6rem;
@@ -320,10 +450,13 @@ input[type='radio'] {
   font-size: 0.8rem;
   color: var(--text-dim);
 }
+/* Message bodies stay on white paper (t32 decision D3: HTML mail is written for
+   white), framed by the 2px rule so the white block reads as a panel. The
+   colour is the one literal allowed here. */
 .reader__frame {
   flex: 1;
   width: 100%;
-  border: none;
+  border: var(--border-rule) solid var(--border-strong);
   background: #ffffff;
 }
 
@@ -331,7 +464,7 @@ input[type='radio'] {
 .compose__backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
+  background: var(--scrim);
   display: grid;
   place-items: center;
   padding: 1rem;
@@ -353,10 +486,11 @@ input[type='radio'] {
      Making the dialog its own scrollport is what lets `max-height` actually clamp
      (t24-e13). */
   overflow-y: auto;
-  padding: 1.1rem;
-  border-radius: 10px;
-  background: var(--bg);
-  border: 1px solid var(--border);
+  padding: calc(1.1rem - 1px);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  border: var(--border-rule) solid var(--border-strong);
+  box-shadow: var(--elevation-3);
 }
 .compose__header {
   display: flex;
@@ -373,100 +507,126 @@ input[type='radio'] {
   gap: 0.6rem;
   margin-top: 0.4rem;
 }
+/* "Attach a file" is a button-styled label around a visually hidden file
+   input; the label shows the focus outline while the input has focus. */
+.compose__attach > label:focus-within {
+  outline: var(--focus-ring-width) solid var(--focus);
+  outline-offset: 2px;
+}
 
 /* ── Toast ────────────────────────────────────────────────────── */
+/* An inverted field: page-text colour as the fill, page colour as the ink.
+   Success and error toasts are filled with their colour instead, with the
+   ink used on accent fills; the message text says what happened, so the
+   colour is never the only sign. Centred with auto margins rather than
+   left/transform, so it needs no RTL variant; `max-width: 50%` keeps the
+   width the old `left: 50%` placement allowed. */
 .toast {
   position: fixed;
-  bottom: 1.2rem;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 0.6rem 1rem;
-  border-radius: 8px;
-  color: #fff;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  inset-block-end: 1.2rem;
+  inset-inline: 0;
+  width: fit-content;
+  max-width: 50%;
+  margin-inline: auto;
+  padding: calc(0.6rem - 2px) calc(1rem - 2px);
+  border: var(--border-rule) solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--text);
+  color: var(--bg);
+  box-shadow: var(--elevation-2);
   z-index: 10;
-}
-.toast--info {
-  background: #334155;
 }
 .toast--success {
   background: var(--success);
+  color: var(--accent-text);
 }
 .toast--error {
   background: var(--danger);
+  color: var(--accent-text);
+  font-weight: var(--weight-medium);
 }
 
 /* ── V2 integration UI (t4-e13) ───────────────────────────────── */
 .sidebar__settings {
-  margin-left: auto;
-  padding: 0.1rem 0.4rem;
+  margin-inline-start: auto;
+  padding: calc(0.1rem - 1px) calc(0.4rem - 1px);
 }
 
 .mail-search {
   display: flex;
   gap: 0.4rem;
   padding: 0.5rem 0.6rem;
-  border-bottom: 1px solid var(--border, rgba(0, 0, 0, 0.1));
+  border-block-end: var(--border-hair) solid var(--border);
 }
 .mail-search__input {
   flex: 1 1 auto;
   min-width: 0;
-  padding: 0.4rem 0.6rem;
-  border: 1px solid var(--border, rgba(0, 0, 0, 0.15));
-  border-radius: 6px;
-  background: var(--bg, #fff);
+  padding: calc(0.4rem - 1px) calc(0.6rem - 1px);
+  border: var(--border-rule) solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-sink);
   color: inherit;
 }
+:root[data-appearance='light'] .mail-search__input {
+  background: var(--surface);
+}
 
-/* Connection-status banner (realtime push). */
+/* Connection-status banner (realtime push). Same treatment as the toast. */
 .connection-toast {
   position: fixed;
-  top: 0.8rem;
-  left: 50%;
-  transform: translateX(-50%);
+  inset-block-start: 0.8rem;
+  inset-inline: 0;
+  width: fit-content;
+  max-width: 50%;
+  margin-inline: auto;
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  padding: 0.5rem 0.9rem;
-  border-radius: 8px;
-  color: #fff;
-  background: #334155;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  padding: calc(0.5rem - 2px) calc(0.9rem - 2px);
+  border: var(--border-rule) solid var(--border-strong);
+  border-radius: var(--radius-md);
+  color: var(--bg);
+  background: var(--text);
+  box-shadow: var(--elevation-2);
   z-index: 20;
 }
 .connection-toast--offline,
 .connection-toast--auth-expired {
-  background: var(--danger, #b91c1c);
+  background: var(--danger);
+  color: var(--accent-text);
 }
 .connection-toast--degraded {
-  background: #a16207;
+  background: var(--warning);
+  color: var(--accent-text);
 }
 .connection-toast--reconnected {
-  background: var(--success, #15803d);
+  background: var(--success);
+  color: var(--accent-text);
 }
 .connection-toast__action {
-  border: 1px solid rgba(255, 255, 255, 0.6);
+  border: var(--border-rule) solid currentColor;
   background: transparent;
   color: inherit;
-  border-radius: 5px;
-  padding: 0.1rem 0.5rem;
+  border-radius: var(--radius-sm);
+  padding: calc(0.1rem - 1px) calc(0.5rem - 1px);
+  font-weight: var(--weight-medium);
   cursor: pointer;
 }
 
 /* Attachment strip + on-click viewer inside the Reader. */
 .reader__attachments {
   padding: 0.5rem 0.8rem;
-  border-bottom: 1px solid var(--border, rgba(0, 0, 0, 0.1));
+  border-block-end: var(--border-hair) solid var(--border);
 }
 .attachment-modal {
   position: fixed;
-  inset: 6% 6% 6% 6%;
+  inset: 6%;
   display: flex;
   flex-direction: column;
-  background: var(--bg, #fff);
-  border: 1px solid var(--border, rgba(0, 0, 0, 0.2));
-  border-radius: 10px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  background: var(--surface);
+  border: var(--border-rule) solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--elevation-3);
   z-index: 30;
   overflow: hidden;
 }
@@ -476,10 +636,10 @@ input[type='radio'] {
   justify-content: space-between;
   gap: 0.6rem;
   padding: 0.5rem 0.8rem;
-  border-bottom: 1px solid var(--border, rgba(0, 0, 0, 0.1));
+  border-block-end: var(--border-hair) solid var(--border);
 }
 .attachment-modal__name {
-  font-weight: 600;
+  font-weight: var(--weight-bold);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -488,9 +648,9 @@ input[type='radio'] {
 /* ── V3 PIM: nav-rail app entries + module surfaces (t5-e10) ───── */
 .sidebar__nav--apps {
   flex: 0 0 auto;
-  padding-top: 0.4rem;
-  margin-top: 0.2rem;
-  border-top: 1px solid var(--border);
+  padding-block-start: 0.4rem;
+  margin-block-start: 0.2rem;
+  border-block-start: var(--border-hair) solid var(--border);
 }
 .sidebar__nav--apps .sidebar__box {
   justify-content: flex-start;
@@ -508,24 +668,25 @@ input[type='radio'] {
 }
 
 /* ── V3 PIM: contacts recipient autocomplete in Compose (t5-e10) ── */
+/* A popover: 2px rule, hard shadow. The 2px gap above it went into the
+   thicker border, so its bottom edge stays where it was. */
 .compose__to {
   position: relative;
 }
 .compose__ac {
   position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
+  inset-block-start: 100%;
+  inset-inline: 0;
   z-index: 20;
-  margin: 2px 0 0;
+  margin: 0;
   padding: 0;
   list-style: none;
   max-height: 220px;
   overflow-y: auto;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  background: var(--surface);
+  border: var(--border-rule) solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--elevation-2);
 }
 .compose__ac-item {
   display: flex;
@@ -538,7 +699,7 @@ input[type='radio'] {
   color: inherit;
   font: inherit;
   cursor: pointer;
-  text-align: left;
+  text-align: start;
 }
 .compose__ac-item:hover {
   background: var(--bg-alt);
@@ -556,7 +717,8 @@ input[type='radio'] {
    components/Reader.tsx. The breakpoint is mirrored in
    components/narrowViewport.ts and is the complement of `DESKTOP` in
    components/readerPane.css.ts, so the reading-pane position setting does not
-   apply here. */
+   apply here. Every phone size here is unchanged by t32: touch targets keep
+   44px. */
 @media (max-width: 760px) {
   .shell {
     display: flex;
@@ -572,9 +734,24 @@ input[type='radio'] {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.4rem 0.6rem;
+    padding-block: 0.4rem calc(0.4rem - 2px);
+    padding-inline: 0.6rem;
     background: var(--bg-sink);
-    border-bottom: 1px solid var(--border);
+    border-block-end: var(--border-heavy) solid var(--border-strong);
+  }
+  /* Phone touch targets keep their height: the pinned 1.2 line height made
+     each button and field 2px shorter, so here the 1px the 2px border took
+     from each block padding goes back. */
+  .btn,
+  .field input,
+  .field textarea {
+    padding-block: 0.5rem;
+  }
+  .mail-search__input {
+    padding-block: 0.4rem;
+  }
+  .sidebar__settings {
+    padding-block: calc(0.1rem - 1px);
   }
   .shell__menu {
     min-width: 44px;
@@ -584,7 +761,7 @@ input[type='radio'] {
   .shell__bar-title {
     flex: 1 1 auto;
     min-width: 0;
-    font-weight: 600;
+    font-weight: var(--weight-heavy);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -598,15 +775,14 @@ input[type='radio'] {
      its controls are out of the tab order and the accessibility tree. */
   .sidebar {
     position: fixed;
-    top: 0;
-    bottom: 0;
+    inset-block: 0;
     inset-inline-start: 0;
     z-index: 21;
     width: min(86vw, 320px);
     overflow-y: auto;
-    padding: calc(0.9rem + env(safe-area-inset-top)) 0.9rem calc(0.9rem + env(safe-area-inset-bottom));
-    border-right: none;
-    border-inline-end: 1px solid var(--border);
+    padding-block: calc(0.9rem + env(safe-area-inset-top)) calc(0.9rem + env(safe-area-inset-bottom));
+    padding-inline: 0.9rem calc(0.9rem - 2px);
+    border-inline-end: var(--border-heavy) solid var(--border-strong);
     visibility: hidden;
     transform: translateX(-100%);
     transition:
@@ -637,7 +813,7 @@ input[type='radio'] {
     margin: 0;
     padding: 0;
     border: none;
-    background: rgba(0, 0, 0, 0.4);
+    background: var(--scrim);
   }
 
   /* The content pane under the bar fills the rest of the column, and the list
@@ -651,7 +827,7 @@ input[type='radio'] {
   .mail-pane > .list {
     flex: 1 1 auto;
     min-height: 0;
-    border-right: none;
+    border-inline-end: none;
     padding-bottom: env(safe-area-inset-bottom);
   }
   /* The reading-pane position control (right / bottom / off) changes nothing
@@ -691,14 +867,16 @@ input[type='radio'] {
     flex: 0 1 auto;
     max-height: 42dvh;
     overflow-y: auto;
-    padding: 0 0.8rem 0.6rem;
+    padding-block: 0 calc(0.6rem - 1px);
+    padding-inline: 0.8rem;
   }
   .reader--open .reader__close {
     position: sticky;
-    top: 0;
+    inset-block-start: 0;
     z-index: 1;
     min-height: 44px;
-    margin: 0 0 0.5rem;
+    margin-block: 0 0.5rem;
+    margin-inline: 0;
     background: var(--bg);
   }
   .reader--open .reader__subject {
@@ -733,6 +911,7 @@ input[type='radio'] {
     overflow-y: auto;
     border: none;
     border-radius: 0;
+    box-shadow: none;
     padding: calc(0.8rem + env(safe-area-inset-top)) calc(0.8rem + env(safe-area-inset-right))
       calc(0.8rem + env(safe-area-inset-bottom)) calc(0.8rem + env(safe-area-inset-left));
   }

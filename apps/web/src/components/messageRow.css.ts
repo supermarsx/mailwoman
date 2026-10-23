@@ -32,9 +32,8 @@ const HOVERED = '(hover: hover) and (min-width: 761px)';
 /** One slot of the virtualized list: out of flow, so `translateY` alone places it. */
 export const slot = style({
   position: 'absolute',
-  top: 0,
-  left: 0,
-  right: 0,
+  insetBlockStart: 0,
+  insetInline: 0,
   boxSizing: 'border-box',
   selectors: {
     // A slot's `transform` makes it a stacking context, and later slots paint
@@ -81,7 +80,7 @@ export const sender = style({
 
 export const date = style({
   flex: '0 0 auto',
-  marginLeft: 'auto',
+  marginInlineStart: 'auto',
   whiteSpace: 'nowrap',
 });
 
@@ -101,14 +100,14 @@ export const more = style({
 /** "More actions": only where the cluster cannot be revealed by hover. */
 export const moreToggle = style({
   position: 'absolute',
-  right: '0.25rem',
-  bottom: '0.25rem',
+  insetInlineEnd: '0.25rem',
+  insetBlockEnd: '0.25rem',
   zIndex: 2,
   minWidth: '2.75rem',
   minHeight: '2rem',
-  border: '1px solid var(--border)',
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
   borderRadius: vars.radius.sm,
-  background: 'var(--bg-alt)',
+  background: vars.color.surface,
   color: 'inherit',
   font: 'inherit',
   cursor: 'pointer',
@@ -128,26 +127,27 @@ export const followUpMark = style({
   lineHeight: 1,
   pointerEvents: 'none',
   '@media': {
-    [HOVERED]: { right: '0.5rem' },
-    [TOGGLED]: { right: '3.4rem' },
+    [HOVERED]: { insetInlineEnd: '0.5rem' },
+    [TOGGLED]: { insetInlineEnd: '3.4rem' },
   },
 });
 
-/** The cluster of action buttons. */
+/** The cluster of action buttons: a flat bar with the 2px control rule (its
+ *  padding gives the extra pixel back). */
 export const actions = style({
   position: 'absolute',
   display: 'flex',
   alignItems: 'center',
   gap: '0.15rem',
-  background: 'var(--bg-alt)',
-  border: '1px solid var(--border)',
+  background: vars.color.surface,
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
   borderRadius: vars.radius.sm,
   zIndex: 1,
   '@media': {
     [HOVERED]: {
-      right: '0.4rem',
-      bottom: '0.3rem',
-      padding: '0.1rem 0.2rem',
+      insetInlineEnd: '0.4rem',
+      insetBlockEnd: '0.3rem',
+      padding: 'calc(0.1rem - 1px) calc(0.2rem - 1px)',
       opacity: 0,
       pointerEvents: 'none',
       selectors: {
@@ -158,13 +158,13 @@ export const actions = style({
     [TOGGLED]: {
       display: 'none',
       // A bar across the row, leaving the toggle (which closes it) uncovered.
-      top: 0,
-      bottom: 0,
-      left: 0,
-      right: '3.25rem',
+      insetBlock: 0,
+      insetInlineStart: 0,
+      insetInlineEnd: '3.25rem',
       justifyContent: 'space-around',
       padding: '0 0.25rem',
-      borderWidth: '0 1px 1px 0',
+      borderBlockStartWidth: 0,
+      borderInlineStartWidth: 0,
       borderRadius: 0,
     },
   },
@@ -189,8 +189,12 @@ export const actionBtn = style({
   padding: '0.2rem 0.3rem',
   cursor: 'pointer',
   selectors: {
-    '&:hover': { background: 'var(--bg-sink)' },
-    '&[aria-pressed="true"]': { background: 'var(--bg-sink)' },
+    '&:hover': { background: vars.color.bgSink },
+    // Pressed: a field plus a 3px accent bar at the foot (not colour alone).
+    '&[aria-pressed="true"]': {
+      background: vars.color.bgSink,
+      boxShadow: `inset 0 -3px 0 ${vars.color.accent}`,
+    },
   },
   '@media': {
     [TOGGLED]: { minWidth: '2.75rem', minHeight: '2.75rem' },
@@ -206,22 +210,22 @@ export const menuWrap = style({
 /** A dropdown (snooze presets, labels) under its button. */
 export const menu = style({
   position: 'absolute',
-  top: 'calc(100% + 0.2rem)',
-  right: 0,
+  insetBlockStart: 'calc(100% + 0.2rem)',
+  insetInlineEnd: 0,
   zIndex: 3,
   display: 'flex',
   flexDirection: 'column',
   minWidth: '11rem',
   maxWidth: 'min(18rem, 80vw)',
-  padding: '0.2rem',
-  background: 'var(--bg-alt)',
-  border: '1px solid var(--border)',
+  padding: 'calc(0.2rem - 1px)',
+  background: vars.color.surface,
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
   borderRadius: vars.radius.sm,
-  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.18)',
+  boxShadow: vars.elevation[2],
   '@media': {
-    // In the bar the first buttons sit at the left edge, where a right-aligned
-    // menu would run off-screen.
-    [TOGGLED]: { right: 'auto', left: 0 },
+    // In the bar the first buttons sit at the leading edge, where a menu
+    // aligned to the trailing edge would run off-screen.
+    [TOGGLED]: { insetInlineEnd: 'auto', insetInlineStart: 0 },
   },
 });
 
@@ -235,11 +239,11 @@ export const menuItem = style({
   background: 'transparent',
   color: 'inherit',
   font: 'inherit',
-  textAlign: 'left',
+  textAlign: 'start',
   whiteSpace: 'nowrap',
   cursor: 'pointer',
   selectors: {
-    '&:hover': { background: 'var(--bg-sink)' },
+    '&:hover': { background: vars.color.bgSink },
   },
   '@media': {
     [TOGGLED]: { minHeight: '2.75rem' },
