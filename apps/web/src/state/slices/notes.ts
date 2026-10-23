@@ -198,19 +198,31 @@ export function createNotesSlice(ctx: SliceContext): NotesSlice {
     return acct;
   }
 
+  // Each `loadNotes()` takes a ticket when it is called. Calls overlap (opening
+  // Notes starts two loads), and one that started earlier can answer last; only
+  // the call holding the latest ticket writes state and ends the loading state,
+  // so the older answer is dropped instead of replacing the newer one (as
+  // `loadTicket` in `modules/calendar/controller.ts`).
+  let loadTicket = 0;
+
   async function loadNotes(): Promise<void> {
+    const ticket = ++loadTicket;
+    const stale = (): boolean => ticket !== loadTicket;
     setNotesLoading(true);
     try {
       const acct = await resolveAccount();
+      if (stale()) return;
       if (acct === null) {
         setNotes([]);
         return;
       }
       const res = await client.jmap(noteQuery(acct));
+      if (stale()) return;
       const got = responseFor<NoteGetResponse>(res, 'g');
       setNotes(sortNotes(got.list));
     } finally {
-      setNotesLoading(false);
+      // The latest call ends the loading state; a dropped one leaves it alone.
+      if (!stale()) setNotesLoading(false);
     }
   }
 
