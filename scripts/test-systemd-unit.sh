@@ -95,6 +95,7 @@ to_target() {
 
 cleanup() {
   local status=$?
+  if [[ -n "${cid:-}" ]]; then docker rm "$cid" >/dev/null 2>&1 || true; fi
   if $host; then
     in_target t_cleanup || true
   elif [[ -n "${started_ctr:-}" ]]; then
@@ -281,6 +282,7 @@ for f in /usr/local/bin/mailwoman /usr/local/bin/mw-render; do
 done
 MSYS_NO_PATHCONV=1 docker cp "$cid:/usr/lib/mailwoman/plugins" "$(native_path "$stage")/plugins" >/dev/null
 docker rm "$cid" >/dev/null
+cid=""
 cp "$unit" "$stage/mailwoman.service"
 log "copied mailwoman, mw-render and $(find "$stage/plugins" -name '*.wasm' | wc -l | tr -d ' ') plugin(s) out of the image"
 
