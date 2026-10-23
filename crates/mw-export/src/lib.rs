@@ -174,3 +174,21 @@ fn trim_trailing_newline(bytes: &[u8]) -> &[u8] {
     }
     &bytes[..end]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trim_trailing_newline_empties_an_all_newline_input() {
+        assert_eq!(trim_trailing_newline(b"\r\n\n"), b"");
+        assert_eq!(trim_trailing_newline(b"\n"), b"");
+        assert_eq!(trim_trailing_newline(b""), b"");
+    }
+
+    #[test]
+    fn trim_trailing_newline_keeps_interior_newlines() {
+        assert_eq!(trim_trailing_newline(b"a\r\n\nb\n\r\n"), b"a\r\n\nb");
+        assert_eq!(trim_trailing_newline(b"\nbody"), b"\nbody");
+    }
+}
