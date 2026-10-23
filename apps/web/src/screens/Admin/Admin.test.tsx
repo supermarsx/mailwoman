@@ -71,13 +71,13 @@ describe('AdminScreen (gate + shell)', () => {
     render(() => <AdminScreen api={mockAdminApi()} {...offlineShell()} />);
     fireEvent.click(await within(await screen.findByRole('navigation', { name: 'Admin sections' })).findByRole('link', { name: 'Observability' }));
     expect(await findRegion('Observability')).toBeInTheDocument();
-    expect(location.pathname).toBe('/admin/console/observability');
+    expect(location.pathname + location.hash).toBe('/admin#/observability');
     expect(within(nav()).getByRole('link', { name: 'Observability' })).toHaveAttribute('aria-current', 'page');
     expect(within(nav()).getByRole('link', { name: 'Dashboard' })).not.toHaveAttribute('aria-current');
   });
 
   it('a section path in the URL opens that section directly (deep link)', async () => {
-    history.replaceState(null, '', '/admin/console/ui-plugins');
+    history.replaceState(null, '', '/admin#/ui-plugins');
     render(() => <AdminScreen api={mockAdminApi()} {...offlineShell()} />);
     expect(await findRegion('UI plugins')).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Dashboard' })).toBeNull();
@@ -94,16 +94,16 @@ describe('AdminScreen (gate + shell)', () => {
   });
 
   it('nested sections get breadcrumbs back to the dashboard and the section', async () => {
-    history.replaceState(null, '', '/admin/console/domains/example.org');
+    history.replaceState(null, '', '/admin#/domains/example.org');
     render(() => <AdminScreen api={mockAdminApi()} {...offlineShell()} />);
     const crumbs = await screen.findByRole('navigation', { name: 'Breadcrumb' });
     expect(within(crumbs).getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/admin');
-    expect(within(crumbs).getByRole('link', { name: 'Domains' })).toHaveAttribute('href', '/admin/console/domains');
+    expect(within(crumbs).getByRole('link', { name: 'Domains' })).toHaveAttribute('href', '/admin#/domains');
     expect(within(crumbs).getByText('example.org')).toHaveAttribute('aria-current', 'page');
   });
 
   it('an unknown section says so and offers the dashboard', async () => {
-    history.replaceState(null, '', '/admin/console/nope');
+    history.replaceState(null, '', '/admin#/nope');
     render(() => <AdminScreen api={mockAdminApi()} {...offlineShell()} />);
     expect(await screen.findByTestId('admin-unknown-section')).toHaveTextContent('does not exist');
   });
@@ -151,7 +151,7 @@ describe('capability-aware navigation (GET /admin/me)', () => {
   });
 
   it('hides the sections the admin lacks and refuses their URL', async () => {
-    history.replaceState(null, '', '/admin/console/plugins');
+    history.replaceState(null, '', '/admin#/plugins');
     render(() => (
       <AdminScreen api={mockAdminApi()} {...offlineShell()} loadMe={holding(['dashboard.read', 'users.read'])} />
     ));

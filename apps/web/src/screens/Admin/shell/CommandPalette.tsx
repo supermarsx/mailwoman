@@ -24,7 +24,7 @@ export interface SearchHit {
   kind: SearchHitKind;
   label: string;
   detail?: string;
-  /** App path to open (`/admin/console/...`). */
+  /** App location to open (`/admin#/...`). */
   path: string;
 }
 

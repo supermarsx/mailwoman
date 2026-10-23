@@ -6,8 +6,8 @@ import { CommandPalette, createAdminSearch, type AdminSearch, type PaletteSectio
 afterEach(() => vi.unstubAllGlobals());
 
 const sections: PaletteSection[] = [
-  { id: 'users', label: 'Users', icon: 'users', path: '/admin/console/users' },
-  { id: 'domains', label: 'Domains', icon: 'domains', path: '/admin/console/domains' },
+  { id: 'users', label: 'Users', icon: 'users', path: '/admin#/users' },
+  { id: 'domains', label: 'Domains', icon: 'domains', path: '/admin#/domains' },
 ];
 
 function Harness(props: { search: AdminSearch; onOpen?: (p: string) => void }) {
@@ -38,7 +38,7 @@ describe('CommandPalette', () => {
   });
 
   it('server hits for users appear after the sections; Enter opens the chosen path', async () => {
-    const search = vi.fn<AdminSearch>(async () => [{ kind: 'user', label: 'alice@example.org', path: '/admin/console/users/alice@example.org' }]);
+    const search = vi.fn<AdminSearch>(async () => [{ kind: 'user', label: 'alice@example.org', path: '/admin#/users/alice@example.org' }]);
     const opened = vi.fn();
     render(() => <Harness search={search} onOpen={opened} />);
     const input = await screen.findByRole('combobox');
@@ -47,7 +47,7 @@ describe('CommandPalette', () => {
     expect(within(hit).getByText('User')).toBeInTheDocument();
     expect(search).toHaveBeenCalledWith('ali', expect.any(AbortSignal));
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(opened).toHaveBeenCalledWith('/admin/console/users/alice@example.org');
+    expect(opened).toHaveBeenCalledWith('/admin#/users/alice@example.org');
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
@@ -87,7 +87,7 @@ describe('createAdminSearch', () => {
         new Response(
           JSON.stringify({
             hits: [
-              { kind: 'user', label: 'alice', path: '/admin/console/users/alice' },
+              { kind: 'user', label: 'alice', path: '/admin#/users/alice' },
               { kind: 'user', label: 'evil', path: 'https://evil.example/' },
             ],
           }),
@@ -96,6 +96,6 @@ describe('createAdminSearch', () => {
       ),
     );
     const hits = await createAdminSearch('')('a', new AbortController().signal);
-    expect(hits).toEqual([{ kind: 'user', label: 'alice', path: '/admin/console/users/alice' }]);
+    expect(hits).toEqual([{ kind: 'user', label: 'alice', path: '/admin#/users/alice' }]);
   });
 });

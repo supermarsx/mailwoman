@@ -100,7 +100,7 @@ describe('Dashboard — with data', () => {
     const metrics = list.querySelector('[data-warning="metrics-token-unset"]') as HTMLElement;
     expect(metrics).toHaveTextContent('The metrics endpoint has no token set.');
     fireEvent.click(within(metrics).getByRole('link', { name: 'Open the section that fixes this' }));
-    expect(navigate).toHaveBeenCalledWith('/admin/console/observability');
+    expect(navigate).toHaveBeenCalledWith('/admin#/observability');
     const mig = list.querySelector('[data-warning="pending-migrations"]') as HTMLElement;
     expect(mig).toHaveTextContent('2 database migrations have not been applied. Restart the server to apply them.');
     expect(within(mig).queryByRole('link')).toBeNull();
@@ -137,7 +137,7 @@ describe('Dashboard — blocked accounts (DA3)', () => {
     expect(panel).toHaveTextContent('old.example 4 accounts');
     expect(panel).toHaveTextContent('last used mail host imap.old.example');
     fireEvent.click(within(panel).getByRole('link', { name: 'Configure old.example' }));
-    expect(navigate).toHaveBeenCalledWith('/admin/console/domains/old.example');
+    expect(navigate).toHaveBeenCalledWith('/admin#/domains/old.example');
     expect(within(panel).getByRole('table', { name: 'Blocked accounts per domain' })).toBeInTheDocument();
   });
 
@@ -159,9 +159,9 @@ describe('Dashboard — first-run checklist', () => {
   function withChecklist() {
     const d = engineDashboard();
     d.checklist = [
-      { id: 'domain-exists', done: true, href: '/admin/console/domains' },
-      { id: 'domain-upstream', done: false, href: '/admin/console/domains' },
-      { id: 'preferred-domain', done: false, href: '/admin/console/domains', optional: true },
+      { id: 'domain-exists', done: true, href: '/admin#/domains' },
+      { id: 'domain-upstream', done: false, href: '/admin#/domains' },
+      { id: 'preferred-domain', done: false, href: '/admin#/domains', optional: true },
     ];
     return d;
   }
@@ -176,7 +176,7 @@ describe('Dashboard — first-run checklist', () => {
     const open = list.querySelector('[data-check="domain-upstream"]') as HTMLElement;
     expect(open).toHaveTextContent('Open');
     fireEvent.click(within(open).getByRole('link', { name: 'Open' }));
-    expect(navigate).toHaveBeenCalledWith('/admin/console/domains');
+    expect(navigate).toHaveBeenCalledWith('/admin#/domains');
     expect(list.querySelector('[data-check="preferred-domain"]')).toHaveTextContent('(optional)');
   });
 

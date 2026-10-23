@@ -168,9 +168,16 @@ export const topbarTitle = style({
   whiteSpace: 'nowrap',
 });
 
-/** Phone touch targets stay at least 40px (narrow.spec.ts). */
+/** Phone touch targets stay at least 40px (narrow.spec.ts). Scoped under the
+ *  console root so it outranks admin.css.ts's 24px `.btn` minimum. */
 export const phoneTarget = style({
-  '@media': { [PHONE]: { minHeight: '40px', minWidth: '40px', justifyContent: 'center' } },
+  '@media': {
+    [PHONE]: {
+      selectors: {
+        '[data-screen="admin"] &': { minHeight: '40px', minWidth: '40px', justifyContent: 'center' },
+      },
+    },
+  },
 });
 
 export const scrim = style({

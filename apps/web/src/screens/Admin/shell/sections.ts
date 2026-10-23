@@ -1,6 +1,6 @@
 // The admin console's section table (t32-admin.md §2.1).
 //
-// One row per section: id (the URL segment under `/admin/console/`), sidebar
+// One row per section: id (the URL fragment segment, `/admin#/<id>`), sidebar
 // group, icon, label, the capability that shows it, and the lazily loaded screen.
 // The shell, the command palette and the breadcrumbs all read this table, so a
 // later stage adds a section by adding a row here (through the `t32-admin-index`

@@ -57,7 +57,7 @@ describe('Breadcrumbs', () => {
       <Breadcrumbs
         items={[
           { label: 'Dashboard', href: '/admin', onNavigate: go },
-          { label: 'Domains', href: '/admin/console/domains' },
+          { label: 'Domains', href: '/admin#/domains' },
           { label: 'example.org' },
         ]}
       />

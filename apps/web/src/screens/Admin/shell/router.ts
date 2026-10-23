@@ -1,12 +1,15 @@
-// Admin console path routing (t32-admin.md §2.1).
+// Admin console routing (t32-admin.md §2.1).
 //
-// Sections live at `/admin/console/<section>[/<rest>]`, the dashboard at `/admin`.
-// They cannot live at `/admin/<section>` as first drawn: the JSON API owns that
-// space (`GET /admin/users`, `/admin/domains`, `/admin/plugins`, ...), and a
-// reload of `/admin/users` would be answered by the API handler, not the app.
-// No server route is mounted under `/admin/console`, so a reload there reaches
-// the SPA fallback (`wants_spa_shell`, crates/mw-server/src/lib.rs) and gets the
-// shell. Server lanes must keep that prefix free.
+// Sections are addressed in the URL fragment: `/admin#/<section>[/<rest>]`, the
+// dashboard at plain `/admin`. Two things rule out real path segments such as
+// `/admin/users`:
+//   • the JSON API owns that space (`GET /admin/users`, `/admin/domains`,
+//     `/admin/plugins`, ...), so a reload there gets the API's answer, not the app;
+//   • `index.html` loads its chunks through relative URLs (`./assets/...`, the
+//     relative Vite base that sub-path hosting needs), so a page at any depth below
+//     `/admin` would ask for `/admin/<x>/assets/...` and never start.
+// The fragment never reaches the server, so neither applies, and it works the same
+// under `MW_BASE_PATH`.
 //
 // Navigation is `history.pushState`, so a section is linkable and Back works.
 // Before an in-app navigation the router asks the dirty-state guard
@@ -15,48 +18,51 @@
 import { createSignal, type Accessor } from 'solid-js';
 import { basePath, stripBase } from '../../../api/basePath.ts';
 
-export const CONSOLE_PREFIX = '/admin/console';
+/** The console page; sections hang off its fragment. */
+export const CONSOLE_PATH = '/admin';
 
 export interface AdminRoute {
-  /** Section id, `dashboard` for `/admin` and `/admin/console`. */
+  /** Section id, `dashboard` for plain `/admin`. */
   section: string;
-  /** Path segments after the section (decoded). */
+  /** Segments after the section (decoded). */
   rest: string[];
 }
 
-/** Parse an app path (deploy prefix already removed) into a route. */
-export function parseAdminPath(path: string): AdminRoute {
-  const clean = path.replace(/\/+$/, '');
-  if (!clean.startsWith(CONSOLE_PREFIX + '/')) return { section: 'dashboard', rest: [] };
-  const parts = clean
-    .slice(CONSOLE_PREFIX.length + 1)
+function decode(p: string): string {
+  try {
+    return decodeURIComponent(p);
+  } catch {
+    return p;
+  }
+}
+
+/** Parse an app location (deploy prefix removed, fragment included) into a route. */
+export function parseAdminPath(location: string): AdminRoute {
+  const hashAt = location.indexOf('#');
+  const fragment = hashAt === -1 ? '' : location.slice(hashAt + 1);
+  const parts = fragment
+    .replace(/^\/+/, '')
     .split('/')
     .filter((p) => p !== '')
-    .map((p) => {
-      try {
-        return decodeURIComponent(p);
-      } catch {
-        return p;
-      }
-    });
+    .map(decode);
   const [section = 'dashboard', ...rest] = parts;
   return { section, rest };
 }
 
-/** The app path of a section (`dashboard` is `/admin`). */
+/** The app location of a section (`dashboard` is plain `/admin`). */
 export function sectionPath(section: string, rest: readonly string[] = []): string {
-  if (section === 'dashboard' && rest.length === 0) return '/admin';
-  return [CONSOLE_PREFIX, section, ...rest].map((p, i) => (i === 0 ? p : encodeURIComponent(p))).join('/');
+  if (section === 'dashboard' && rest.length === 0) return CONSOLE_PATH;
+  return `${CONSOLE_PATH}#/${[section, ...rest].map(encodeURIComponent).join('/')}`;
 }
 
-/** The href for an app path, with the deploy prefix. */
+/** The href for an app location, with the deploy prefix. */
 export function hrefFor(path: string): string {
   return `${basePath()}${path}`;
 }
 
 export interface AdminRouter {
   route: Accessor<AdminRoute>;
-  /** Navigate to an app path. Resolves false when the dirty guard kept the page. */
+  /** Navigate to an app location. Resolves false when the dirty guard kept the page. */
   navigate(path: string, opts?: { replace?: boolean }): Promise<boolean>;
   dispose(): void;
 }
@@ -65,39 +71,54 @@ export interface AdminRouter {
 export type LeaveCheck = () => Promise<boolean>;
 
 export function createAdminRouter(leaveCheck: LeaveCheck = async () => true): AdminRouter {
-  const current = (): string => stripBase(location.pathname);
+  const current = (): string => `${stripBase(location.pathname)}${location.hash}`;
+  /** A location reduced to what identifies the route. */
+  const key = (loc: string): string => {
+    const r = parseAdminPath(loc);
+    return sectionPath(r.section, r.rest);
+  };
   const [route, setRoute] = createSignal<AdminRoute>(parseAdminPath(current()));
-  let shownPath = current();
+  let shown = key(current());
 
   async function navigate(path: string, opts: { replace?: boolean } = {}): Promise<boolean> {
-    if (path === shownPath) return true;
+    if (key(path) === shown) return true;
     if (!(await leaveCheck())) return false;
     if (opts.replace) history.replaceState(null, '', hrefFor(path));
     else history.pushState(null, '', hrefFor(path));
-    shownPath = path;
+    shown = key(path);
     setRoute(parseAdminPath(path));
     return true;
   }
 
-  // Back/Forward. The browser has already moved; when the guard keeps the page,
-  // the previous entry is pushed back so the address bar matches what is shown.
-  function onPop(): void {
-    const target = current();
-    if (target === shownPath) return;
+  // Back/Forward, or a fragment typed into the address bar. The browser has already
+  // moved; when the guard keeps the page, the shown entry is pushed back so the
+  // address bar matches what is on screen.
+  // A fragment move fires both `popstate` and `hashchange`; `asking` keeps the
+  // second from opening a second question while the first is open.
+  let asking = false;
+  function onMove(): void {
+    const target = key(current());
+    if (target === shown || asking) return;
+    asking = true;
     void leaveCheck().then((ok) => {
+      asking = false;
       if (ok) {
-        shownPath = target;
-        setRoute(parseAdminPath(target));
+        shown = key(current());
+        setRoute(parseAdminPath(current()));
       } else {
-        history.pushState(null, '', hrefFor(shownPath));
+        history.pushState(null, '', hrefFor(shown));
       }
     });
   }
-  window.addEventListener('popstate', onPop);
+  window.addEventListener('popstate', onMove);
+  window.addEventListener('hashchange', onMove);
 
   return {
     route,
     navigate,
-    dispose: () => window.removeEventListener('popstate', onPop),
+    dispose: () => {
+      window.removeEventListener('popstate', onMove);
+      window.removeEventListener('hashchange', onMove);
+    },
   };
 }

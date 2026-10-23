@@ -28,7 +28,7 @@ describe('StatTile', () => {
   it('formats numbers and links to the section that explains it', () => {
     const onLink = vi.fn((e: MouseEvent) => e.preventDefault());
     render(() => (
-      <StatTile label="Database" value={2048} format={(n) => `${n / 1024} KB`} href="/admin/console/observability" linkLabel="Details" onLink={onLink} />
+      <StatTile label="Database" value={2048} format={(n) => `${n / 1024} KB`} href="/admin#/observability" linkLabel="Details" onLink={onLink} />
     ));
     expect(screen.getByText('2 KB')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('link', { name: 'Details' }));

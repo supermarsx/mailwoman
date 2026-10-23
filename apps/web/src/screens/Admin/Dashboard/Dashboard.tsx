@@ -104,7 +104,7 @@ export function Dashboard(): JSX.Element {
           </p>
         </Match>
         <Match when={data()?.kind === 'unavailable'}>
-          <div class={shell.state} data-testid="dash-unavailable">
+          <div class={shell.field} data-testid="dash-unavailable">
             <Feedback kind="info" message={t('admin-dash-unavailable')} />
             <p class={admin.note}>{t('admin-dash-unavailable-detail')}</p>
           </div>
