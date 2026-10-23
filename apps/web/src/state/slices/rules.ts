@@ -15,6 +15,7 @@ import { createSignal, type Accessor } from 'solid-js';
 import { CAP_CORE, type Id } from '../../api/jmap-types.ts';
 import { responseFor } from '../../api/jmap.ts';
 import { CAP_SECURITY, type MailRule } from '../../api/crypto-types.ts';
+import { t } from '../../i18n';
 import type { SliceContext } from './context.ts';
 
 const RULES_USING = [CAP_CORE, CAP_SECURITY];
@@ -29,11 +30,30 @@ interface RuleGetResponse {
   notFound: Id[];
 }
 
+/** An RFC 8620 §5.3 SetError, as the server reports a refused create or update. */
+interface SetError {
+  type: string;
+  properties?: string[];
+  description?: string;
+}
+
 interface RuleSetResponse {
   accountId: Id;
   created: Record<string, { id: Id } & Partial<MailRule>> | null;
   updated: Record<string, unknown> | null;
   destroyed: Id[] | null;
+  notCreated?: Record<string, SetError> | null;
+  notUpdated?: Record<Id, SetError> | null;
+}
+
+/** A create or update the server refused; its message is already shown to the user. */
+export class RuleRefusedError extends Error {
+  readonly setError: SetError;
+  constructor(setError: SetError) {
+    super(setError.description ?? setError.type);
+    this.name = 'RuleRefusedError';
+    this.setError = setError;
+  }
 }
 
 /** A blank rule for the builder's "new rule" flow. */
@@ -54,11 +74,15 @@ export interface RulesSlice {
   rulesLoading: Accessor<boolean>;
   /** Load the account's mail rules (`MailRule/query` is not needed — get returns all). */
   loadRules(): Promise<void>;
-  /** Create (no id) or update (with id) a rule; refreshes the local list. */
+  /**
+   * Create (no id) or update (with id) a rule; refreshes the local list. A rule
+   * the server refuses (`notCreated`/`notUpdated`) shows the server's reason as
+   * an error toast and rejects with a {@link RuleRefusedError}.
+   */
   saveRule(draft: RuleDraft): Promise<void>;
   /** Delete a rule by id. */
   deleteRule(id: Id): Promise<void>;
-  /** Flip a rule's `enabled` flag. */
+  /** Flip a rule's `enabled` flag; a refused flip is put back and its reason shown. */
   toggleRule(id: Id, enabled: boolean): Promise<void>;
 }
 
@@ -121,7 +145,10 @@ export function createRulesSlice(ctx: SliceContext): RulesSlice {
       using: RULES_USING,
       methodCalls: [['MailRule/set', { accountId: acct, ...method }, 's']],
     });
-    responseFor<RuleSetResponse>(res, 's'); // throws on a method-level error
+    const set = responseFor<RuleSetResponse>(res, 's'); // throws on a method-level error
+    const refused =
+      draft.id === undefined || draft.id === '' ? set.notCreated?.['new'] : set.notUpdated?.[draft.id];
+    if (refused !== undefined) throw reportRefusal(refused);
     await loadRules();
     ctx.broadcastChange?.();
     ctx.showToast('success', draft.id ? 'Rule updated' : 'Rule created');
@@ -149,8 +176,21 @@ export function createRulesSlice(ctx: SliceContext): RulesSlice {
       using: RULES_USING,
       methodCalls: [['MailRule/set', { accountId: acct, update: { [id]: { enabled } } }, 's']],
     });
-    responseFor<RuleSetResponse>(res, 's');
+    const set = responseFor<RuleSetResponse>(res, 's');
+    const refused = set.notUpdated?.[id];
+    if (refused !== undefined) {
+      setRules(rules().map((r) => (r.id === id ? { ...r, enabled: !enabled } : r)));
+      reportRefusal(refused);
+      return;
+    }
     ctx.broadcastChange?.();
+  }
+
+  /** Show the server's reason for a refused create/update as an error toast. */
+  function reportRefusal(setError: SetError): RuleRefusedError {
+    const err = new RuleRefusedError(setError);
+    ctx.showToast('error', t('rules-save-refused', { reason: err.message }));
+    return err;
   }
 
   return { rules, rulesLoading, loadRules, saveRule, deleteRule, toggleRule };

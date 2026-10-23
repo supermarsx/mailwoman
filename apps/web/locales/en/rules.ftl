@@ -28,12 +28,13 @@ rules-act-type-label = Action
 rules-act-value-label = Action value
 rules-save = Save rule
 rules-editing = Editing { $name }
+rules-save-refused = The rule was not saved: { $reason }
 
 # Condition fields and operators
 rules-cond-from = From
 rules-cond-to = To
 rules-cond-subject = Subject
-rules-cond-thread = Thread
+rules-cond-thread-unsupported = Thread { $op } { $value }: thread conditions are not supported, so the rule cannot be saved until this condition is removed.
 rules-op-contains = contains
 rules-op-is = is
 

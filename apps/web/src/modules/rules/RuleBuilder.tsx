@@ -1,6 +1,10 @@
 // Condition/action rule builder (audit #1): edits one rule (name, all/any match,
 // conditions, actions) and shows a "where it runs" indicator derived from whether
 // the rule is Sieve-expressible. WCAG 2.2 AA: every control labelled.
+//
+// `thread` conditions are not offered: the server cannot apply them and refuses
+// a rule that has one (t32-h2). A stored rule that still shows one renders it
+// read-only with a note, and the rule cannot be saved until it is removed.
 
 import { createSignal, For, Show, type JSX } from 'solid-js';
 import { createStore } from 'solid-js/store';
@@ -19,7 +23,6 @@ const CONDITION_TYPES: ReadonlyArray<{ value: MailRuleConditionType; label: stri
   { value: 'from', label: 'rules-cond-from' },
   { value: 'to', label: 'rules-cond-to' },
   { value: 'subject', label: 'rules-cond-subject' },
-  { value: 'thread', label: 'rules-cond-thread' },
 ];
 
 const OPS: ReadonlyArray<{ value: MailRuleOp; label: string }> = [
@@ -40,7 +43,8 @@ const VALUED_ACTIONS = new Set<MailRuleActionType>(['move', 'tag']);
 
 export interface RuleBuilderProps {
   initial: RuleDraft;
-  onSave: (draft: RuleDraft) => void;
+  /** A rejected promise (a refused save) re-enables the form for another try. */
+  onSave: (draft: RuleDraft) => void | Promise<void>;
   onCancel: () => void;
 }
 
@@ -59,12 +63,19 @@ export function RuleBuilder(props: RuleBuilderProps): JSX.Element {
   const runsAt = (): 'server-sieve' | 'engine' =>
     runsAtFor({ conditions: draft.conditions, actions: draft.actions });
 
-  const canSave = (): boolean => draft.name.trim().length > 0 && !saving();
+  const hasThread = (): boolean => draft.conditions.some((c) => c.type === 'thread');
+
+  const canSave = (): boolean => draft.name.trim().length > 0 && !hasThread() && !saving();
 
   const save = (): void => {
     if (!canSave()) return;
     setSaving(true);
-    props.onSave({ ...draft, conditions: [...draft.conditions], actions: [...draft.actions], runsAt: runsAt() });
+    // The slice has already told the user why a save failed; only re-enable here.
+    void Promise.resolve()
+      .then(() =>
+        props.onSave({ ...draft, conditions: [...draft.conditions], actions: [...draft.actions], runsAt: runsAt() }),
+      )
+      .catch(() => setSaving(false));
   };
 
   return (
@@ -117,37 +128,49 @@ export function RuleBuilder(props: RuleBuilderProps): JSX.Element {
         <For each={draft.conditions}>
           {(cond, i) => (
             <div class={css.clause}>
-              <label class={css.srOnly} for={`cond-type-${i()}`}>
-                {t('rules-cond-type-label')}
-              </label>
-              <select
-                id={`cond-type-${i()}`}
-                class={css.select}
-                value={cond.type}
-                onChange={(e) => setDraft('conditions', i(), 'type', e.currentTarget.value as MailRuleConditionType)}
+              <Show
+                when={cond.type !== 'thread'}
+                fallback={
+                  <p class={css.prose}>
+                    {t('rules-cond-thread-unsupported', {
+                      op: t(cond.op === 'is' ? 'rules-op-is' : 'rules-op-contains'),
+                      value: cond.value,
+                    })}
+                  </p>
+                }
               >
-                <For each={CONDITION_TYPES}>{(o) => <option value={o.value}>{t(o.label)}</option>}</For>
-              </select>
-              <label class={css.srOnly} for={`cond-op-${i()}`}>
-                {t('rules-cond-op-label')}
-              </label>
-              <select
-                id={`cond-op-${i()}`}
-                class={css.select}
-                value={cond.op}
-                onChange={(e) => setDraft('conditions', i(), 'op', e.currentTarget.value as MailRuleOp)}
-              >
-                <For each={OPS}>{(o) => <option value={o.value}>{t(o.label)}</option>}</For>
-              </select>
-              <label class={css.srOnly} for={`cond-value-${i()}`}>
-                {t('rules-cond-value-label')}
-              </label>
-              <input
-                id={`cond-value-${i()}`}
-                class={css.input}
-                value={cond.value}
-                onInput={(e) => setDraft('conditions', i(), 'value', e.currentTarget.value)}
-              />
+                <label class={css.srOnly} for={`cond-type-${i()}`}>
+                  {t('rules-cond-type-label')}
+                </label>
+                <select
+                  id={`cond-type-${i()}`}
+                  class={css.select}
+                  value={cond.type}
+                  onChange={(e) => setDraft('conditions', i(), 'type', e.currentTarget.value as MailRuleConditionType)}
+                >
+                  <For each={CONDITION_TYPES}>{(o) => <option value={o.value}>{t(o.label)}</option>}</For>
+                </select>
+                <label class={css.srOnly} for={`cond-op-${i()}`}>
+                  {t('rules-cond-op-label')}
+                </label>
+                <select
+                  id={`cond-op-${i()}`}
+                  class={css.select}
+                  value={cond.op}
+                  onChange={(e) => setDraft('conditions', i(), 'op', e.currentTarget.value as MailRuleOp)}
+                >
+                  <For each={OPS}>{(o) => <option value={o.value}>{t(o.label)}</option>}</For>
+                </select>
+                <label class={css.srOnly} for={`cond-value-${i()}`}>
+                  {t('rules-cond-value-label')}
+                </label>
+                <input
+                  id={`cond-value-${i()}`}
+                  class={css.input}
+                  value={cond.value}
+                  onInput={(e) => setDraft('conditions', i(), 'value', e.currentTarget.value)}
+                />
+              </Show>
               <button
                 type="button"
                 class={css.iconBtn}

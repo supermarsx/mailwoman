@@ -108,6 +108,56 @@ describe('RuleBuilder', () => {
   });
 });
 
+describe('RuleBuilder — thread conditions (t32-h2)', () => {
+  it('does not offer thread as a condition field', () => {
+    const { getByLabelText } = render(() => (
+      <RuleBuilder initial={emptyRuleDraft()} onSave={vi.fn()} onCancel={() => undefined} />
+    ));
+    const field = getByLabelText(t('rules-cond-type-label')) as HTMLSelectElement;
+    const values = Array.from(field.options).map((o) => o.value);
+    expect(values).toEqual(['from', 'to', 'subject']);
+  });
+
+  it('shows a stored thread condition read-only with a note and blocks saving', () => {
+    const onSave = vi.fn();
+    const initial = {
+      ...emptyRuleDraft(),
+      name: 'old thread rule',
+      conditions: [
+        { type: 'thread' as const, op: 'is' as const, value: 'T1' },
+        { type: 'from' as const, op: 'contains' as const, value: 'alice' },
+      ],
+    };
+    const { getAllByLabelText, getByText, getAllByRole } = render(() => (
+      <RuleBuilder initial={initial} onSave={onSave} onCancel={() => undefined} />
+    ));
+    // Only the from row is editable.
+    expect(getAllByLabelText(t('rules-cond-type-label')).length).toBe(1);
+    expect(getByText(/thread conditions are not supported/)).toBeInTheDocument();
+    const save = getByText(t('rules-save')) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.click(save);
+    expect(onSave).not.toHaveBeenCalled();
+
+    // Removing the thread row makes the rule savable again.
+    fireEvent.click(getAllByRole('button', { name: t('rules-remove-condition') })[0]!);
+    expect(save.disabled).toBe(false);
+  });
+
+  it('re-enables saving after the save is refused', async () => {
+    const onSave = vi.fn(async () => {
+      throw new Error('refused');
+    });
+    const { getByText } = render(() => (
+      <RuleBuilder initial={{ ...emptyRuleDraft(), name: 'n' }} onSave={onSave} onCancel={() => undefined} />
+    ));
+    const save = getByText(t('rules-save')) as HTMLButtonElement;
+    fireEvent.click(save);
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(save.disabled).toBe(false));
+  });
+});
+
 describe('RawEditor', () => {
   it('reports a clean script with no diagnostics', () => {
     render(() => <RawEditor source={'require ["fileinto"];\nfileinto "A";'} readOnly />);
