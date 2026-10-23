@@ -1609,7 +1609,14 @@ async fn security_headers(State(state): State<AppState>, req: Request, next: Nex
 
     let mut resp = next.run(req).await;
     let h = resp.headers_mut();
+    // A handler's own policy (a download's sandbox, t32-h4) is kept as a second
+    // header next to the shell's. The browser enforces both, so it can only
+    // narrow what the shell policy allows.
+    let own = h.remove("content-security-policy");
     h.insert("content-security-policy", HeaderValue::from_static(CSP));
+    if let Some(v) = own {
+        h.append("content-security-policy", v);
+    }
     h.insert("x-frame-options", HeaderValue::from_static("DENY"));
     h.insert(
         "x-content-type-options",
@@ -2784,10 +2791,11 @@ fn session_urls_on_origin(
     Ok(())
 }
 
-/// The `Content-Type` a proxied download is served with. The upstream's value is
-/// reduced to its `type/subtype`, and any type a browser would run or render as a
-/// document is replaced with `application/octet-stream`. The response also carries
-/// `Content-Disposition: attachment` and `nosniff`; this is a second layer.
+/// The `Content-Type` a download is served with, in both modes: the upstream's or
+/// the MIME part's value is reduced to its `type/subtype`, and any type a browser
+/// would run or render as a document is replaced with `application/octet-stream`.
+/// The response also carries `Content-Disposition: attachment`, `nosniff` and
+/// [`DOWNLOAD_CSP`]; this is one layer of three.
 fn proxied_download_type(upstream: Option<&str>) -> String {
     const OPAQUE: &str = "application/octet-stream";
     let Some(essence) = upstream
@@ -2855,7 +2863,14 @@ async fn jmap_download(
                 } else {
                     &name
                 };
-                blob_response(&blob.content_type, filename, blob.bytes, &headers)
+                // The part's type is the sender's word for it, reduced the same
+                // way as a proxied download's (t32-h4).
+                blob_response(
+                    &proxied_download_type(Some(&blob.content_type)),
+                    filename,
+                    blob.bytes,
+                    &headers,
+                )
             }
             Ok(None) => (
                 StatusCode::NOT_FOUND,
@@ -3489,9 +3504,15 @@ fn apply_range(bytes: Bytes, req: &HeaderMap) -> (StatusCode, Bytes, Option<Stri
     }
 }
 
+/// The policy every download carries next to the shell's (t32-h4). A download
+/// opened as a page, directly or from the `blob:` URL the client makes of it, is
+/// an opaque-origin document that can load nothing, so an HTML or SVG
+/// attachment cannot run as this origin even if its type were mislabelled.
+const DOWNLOAD_CSP: &str = "sandbox; default-src 'none'";
+
 /// Build a download response with `Content-Type`, `Content-Disposition`
-/// (attachment), `Content-Length` and `Accept-Ranges: bytes` set, honouring a
-/// single `Range` request with `206` (t20 B9).
+/// (attachment), `Content-Length`, `Accept-Ranges: bytes`, `nosniff` and
+/// [`DOWNLOAD_CSP`] set, honouring a single `Range` request with `206` (t20 B9).
 ///
 /// `Accept-Ranges` is advertised unconditionally on this path because every
 /// caller holds the complete bytes. See [`apply_range`] for what range support
@@ -3503,6 +3524,14 @@ fn blob_response(content_type: &str, filename: &str, bytes: Vec<u8>, req: &Heade
     *resp.status_mut() = status;
     let h = resp.headers_mut();
     h.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+    h.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(DOWNLOAD_CSP),
+    );
+    h.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
     // A 416 describes the mismatch; it carries no representation, so the blob's
     // own type and filename would be misleading on it.
     if status != StatusCode::RANGE_NOT_SATISFIABLE {
