@@ -32,6 +32,7 @@ import {
   defaultAppearance,
   inDarkWindow,
   msUntilNextFlip,
+  mergeAppearancePrefs,
   parseAppearancePrefs,
   parseClock,
   resolveAppearance,
@@ -192,10 +193,17 @@ describe('theme pack contrast', () => {
 });
 
 describe('appearance preferences', () => {
-  it('defaults a fresh user to following the OS', () => {
+  it('defaults a fresh user to the Dark pack, whatever the OS, without a choice', () => {
     const p = defaultAppearance();
-    expect(p.mode).toBe('system');
+    expect(p.mode).toBe('fixed');
+    expect(p.theme).toBe('dark');
+    expect(p.chosen).toBe(false);
     expect(p.schedule).toEqual(DEFAULT_SCHEDULE);
+    // Dark under both OS schemes and at any hour.
+    for (const systemDark of [false, true]) {
+      expect(resolveThemeName(p, { systemDark, now: AT(12) })).toBe('dark');
+      expect(resolveThemeName(p, { systemDark, now: AT(23) })).toBe('dark');
+    }
   });
 
   it('migrates a pre-tri-state payload to a fixed choice and seeds the pair', () => {
@@ -205,6 +213,100 @@ describe('appearance preferences', () => {
     expect(p.darkTheme).toBe('grove-dark');
     expect(p.lightTheme).toBe('grove-light');
     expect(p.density).toBe('compact');
+    expect(p.chosen).toBe(true);
+  });
+
+  // ── t32: the stored `chosen` flag and payloads written before it ─────────
+  // An untouched account under the old build stored exactly this set: the old
+  // default, pushed to the server by the first-time sync seed.
+  const OLD_DEFAULT = {
+    mode: 'system',
+    theme: 'light',
+    lightTheme: 'light',
+    darkTheme: 'dark',
+    schedule: { darkStart: '20:00', darkEnd: '07:00' },
+    density: 'cozy',
+    accent: '',
+    font: 'default',
+    layout: 'default',
+    ribbonCollapsed: false,
+  };
+
+  it('reads an old untouched default (no chosen flag) as never chosen: Dark', () => {
+    const p = parseAppearancePrefs({ ...OLD_DEFAULT, density: 'compact', accent: '#be123c' });
+    expect(p).toMatchObject({ mode: 'fixed', theme: 'dark', chosen: false });
+    // Fields that are not the theme decision survive.
+    expect(p.density).toBe('compact');
+    expect(p.accent).toBe('#be123c');
+  });
+
+  it('keeps an old system-mode payload whose pair the user changed', () => {
+    const p = parseAppearancePrefs({
+      ...OLD_DEFAULT,
+      lightTheme: 'ocean-light',
+      darkTheme: 'plum-dark',
+    });
+    expect(p).toMatchObject({
+      mode: 'system',
+      lightTheme: 'ocean-light',
+      darkTheme: 'plum-dark',
+      chosen: true,
+    });
+    expect(resolveThemeName(p, { systemDark: false, now: AT(12) })).toBe('ocean-light');
+  });
+
+  it('keeps an old fixed or scheduled payload as a choice', () => {
+    expect(parseAppearancePrefs({ ...OLD_DEFAULT, mode: 'fixed', theme: 'light' })).toMatchObject({
+      mode: 'fixed',
+      theme: 'light',
+      chosen: true,
+    });
+    expect(parseAppearancePrefs({ ...OLD_DEFAULT, mode: 'schedule' })).toMatchObject({
+      mode: 'schedule',
+      chosen: true,
+    });
+  });
+
+  it('honours an explicit flag either way', () => {
+    // Picked "Follow system" after t32: same pair as the old default, but chosen.
+    expect(parseAppearancePrefs({ ...OLD_DEFAULT, chosen: true })).toMatchObject({
+      mode: 'system',
+      lightTheme: 'light',
+      darkTheme: 'dark',
+      chosen: true,
+    });
+    // Never chose: whatever theme fields are stored, the defaults apply.
+    const p = parseAppearancePrefs({
+      ...OLD_DEFAULT,
+      mode: 'fixed',
+      theme: 'ocean-light',
+      density: 'relaxed',
+      chosen: false,
+    });
+    expect(p).toMatchObject({ mode: 'fixed', theme: 'dark', density: 'relaxed', chosen: false });
+  });
+
+  it('merges a pre-t32 server blob by its own fields, not by this device flag', () => {
+    const fresh = defaultAppearance();
+    expect(mergeAppearancePrefs(fresh, { mode: 'fixed', theme: 'amoled' })).toMatchObject({
+      theme: 'amoled',
+      chosen: true,
+    });
+    const chose = { ...fresh, mode: 'fixed' as const, theme: 'light' as const, chosen: true };
+    expect(mergeAppearancePrefs(chose, { ...OLD_DEFAULT } as never)).toMatchObject({
+      theme: 'dark',
+      chosen: false,
+    });
+    // No theme fields in the payload: the current flag stands.
+    expect(mergeAppearancePrefs(fresh, { density: 'compact' })).toMatchObject({
+      theme: 'dark',
+      density: 'compact',
+      chosen: false,
+    });
+    expect(mergeAppearancePrefs(chose, { density: 'compact' })).toMatchObject({
+      theme: 'light',
+      chosen: true,
+    });
   });
 
   it('falls back field-by-field on a partly corrupt payload', () => {
@@ -219,8 +321,11 @@ describe('appearance preferences', () => {
       layout: 'ribbon',
       ribbonCollapsed: 'yes',
     });
+    // No valid mode or pack: read as the pre-t32 `system` start, and the
+    // changed pair member makes it a choice.
     expect(p.mode).toBe('system');
-    expect(p.theme).toBe('light');
+    expect(p.chosen).toBe(true);
+    expect(p.theme).toBe('dark');
     expect(p.lightTheme).toBe('ocean-light');
     expect(p.density).toBe('cozy');
     expect(p.schedule).toEqual({ darkStart: '20:00', darkEnd: '06:30' });
@@ -231,8 +336,15 @@ describe('appearance preferences', () => {
   });
 
   it('round-trips through its serialized form', () => {
-    const p = { ...defaultAppearance(), mode: 'schedule' as const, darkTheme: 'plum-dark' as const };
+    const p = {
+      ...defaultAppearance(),
+      mode: 'schedule' as const,
+      darkTheme: 'plum-dark' as const,
+      chosen: true,
+    };
     expect(parseAppearancePrefs(JSON.parse(serializeAppearancePrefs(p)))).toEqual(p);
+    const untouched = defaultAppearance();
+    expect(parseAppearancePrefs(JSON.parse(serializeAppearancePrefs(untouched)))).toEqual(untouched);
   });
 
   it('rejects a non-object payload', () => {

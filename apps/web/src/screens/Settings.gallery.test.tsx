@@ -76,9 +76,11 @@ describe('theme gallery', () => {
 
   it('picking a card applies the pack and switches to the fixed mode', async () => {
     const { app } = renderSettings();
-    // A fresh profile follows the system, so this also covers the case where the
-    // click has to take the user OUT of an automatic mode.
-    expect(app.themeMode()).toBe('system');
+    // A fresh profile is on the Dark default without having chosen (t32). Put it
+    // in an automatic mode first, so this also covers the case where the click
+    // has to take the user OUT of that mode.
+    expect(app.appearancePrefs()).toMatchObject({ mode: 'fixed', theme: 'dark', chosen: false });
+    app.setThemeMode('system');
 
     await vi.waitFor(() => expect(card('Ocean Dark')).toBeInTheDocument());
     fireEvent.click(card('Ocean Dark'));
@@ -132,7 +134,11 @@ describe('theme mode tri-state', () => {
       expect(screen.getByRole('button', { name: 'One theme' })).toBeInTheDocument(),
     );
 
-    // Following the system (the default) needs a pair to switch between…
+    // The default (t32) is a single fixed theme, so no pair is shown…
+    expect(screen.queryByRole('combobox', { name: 'Light theme' })).toBeNull();
+
+    // …following the system needs a pair to switch between…
+    fireEvent.click(screen.getByRole('button', { name: 'Follow the system' }));
     expect(screen.getByRole('combobox', { name: 'Light theme' })).toBeInTheDocument();
 
     // …a single fixed theme does not.
@@ -144,8 +150,9 @@ describe('theme mode tri-state', () => {
   it('the pair selects drive the light and dark packs', async () => {
     const { app } = renderSettings();
     await vi.waitFor(() =>
-      expect(screen.getByRole('combobox', { name: 'Dark theme' })).toBeInTheDocument(),
+      expect(screen.getByRole('button', { name: 'Follow the system' })).toBeInTheDocument(),
     );
+    fireEvent.click(screen.getByRole('button', { name: 'Follow the system' }));
 
     const dark = screen.getByRole('combobox', { name: 'Dark theme' }) as HTMLSelectElement;
     fireEvent.change(dark, { target: { value: 'slate-dark' } });

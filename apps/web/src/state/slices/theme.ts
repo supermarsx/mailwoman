@@ -16,6 +16,11 @@
 // Both modes pick from the user's light/dark pack PAIR, so following the OS
 // does not mean being limited to the two neutral packs.
 //
+// DEFAULT (t32): a user who never made a theme decision gets the Dark pack in
+// `fixed` mode, whatever the OS reports. `chosen` records that decision: the
+// theme setters set it, density/accent/font/layout setters do not, and while it
+// is false `parseAppearancePrefs` keeps the theme fields on the defaults.
+//
 // PERSISTENCE: the whole `AppearancePrefs` object is one JSON blob in
 // localStorage. `subscribePrefs()` fires after every change — that is the seam
 // for per-user server sync (§17.3); swapping the transport needs no other edit.
@@ -32,6 +37,7 @@ import type { ThemeName, Density } from '../../theme/contract.css.ts';
 import {
   FONT_STACKS,
   defaultAppearance,
+  mergeAppearancePrefs,
   msUntilNextFlip,
   parseAppearancePrefs,
   resolveAppearance,
@@ -76,6 +82,11 @@ export interface ThemeSlice {
   uiFont: Accessor<UiFont>;
   layout: Accessor<LayoutMode>;
   ribbonCollapsed: Accessor<boolean>;
+  /**
+   * Whether the user has made a theme decision. False means the theme fields
+   * are the defaults (Dark), which a deployment default may replace.
+   */
+  themeChosen: Accessor<boolean>;
 
   /**
    * Pick a pack explicitly. This is a user decision, so it switches the mode to
@@ -152,6 +163,7 @@ export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
   const [uiFont, setUiFontSig] = createSignal<UiFont>(initial.font);
   const [layout, setLayoutSig] = createSignal<LayoutMode>(initial.layout);
   const [ribbonCollapsed, setRibbonCollapsedSig] = createSignal(initial.ribbonCollapsed);
+  const [chosen, setChosenSig] = createSignal(initial.chosen);
 
   const [systemDark, setSystemDark] = createSignal(prefersDarkScheme());
   const [theme, setThemeSig] = createSignal<ThemeName>(initial.theme);
@@ -172,6 +184,7 @@ export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
       font: uiFont(),
       layout: layout(),
       ribbonCollapsed: ribbonCollapsed(),
+      chosen: chosen(),
     };
   }
 
@@ -234,28 +247,34 @@ export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
     uiFont,
     layout,
     ribbonCollapsed,
+    themeChosen: chosen,
     setTheme(t) {
       setPickSig(t);
       setModeSig('fixed');
       // Keep the pair in step with the explicit pick.
       if (themeEntry(t).appearance === 'light') setLightSig(t);
       else setDarkSig(t);
+      setChosenSig(true);
       persist();
     },
     setThemeMode(m) {
       setModeSig(m);
+      setChosenSig(true);
       persist();
     },
     setLightTheme(t) {
       setLightSig(t);
+      setChosenSig(true);
       persist();
     },
     setDarkTheme(t) {
       setDarkSig(t);
+      setChosenSig(true);
       persist();
     },
     setSchedule(s) {
       setScheduleSig(s);
+      setChosenSig(true);
       persist();
     },
     setDensity(d) {
@@ -281,8 +300,10 @@ export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
     appearancePrefs: snapshot,
     setAppearancePrefs(next) {
       // Validate through the same parser an untrusted payload goes through, so
-      // a bad field from the sync endpoint degrades instead of corrupting.
-      const merged = parseAppearancePrefs({ ...snapshot(), ...next });
+      // a bad field from the sync endpoint degrades instead of corrupting. A
+      // server blob written before t32 has no `chosen`; the merge infers it
+      // from that blob's theme fields, not from this device's flag.
+      const merged = mergeAppearancePrefs(snapshot(), next);
       setModeSig(merged.mode);
       setPickSig(merged.theme);
       setLightSig(merged.lightTheme);
@@ -293,6 +314,7 @@ export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
       setUiFontSig(merged.font);
       setLayoutSig(merged.layout);
       setRibbonCollapsedSig(merged.ribbonCollapsed);
+      setChosenSig(merged.chosen);
       persist();
     },
     subscribePrefs(fn) {

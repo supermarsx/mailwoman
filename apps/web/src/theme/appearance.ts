@@ -76,16 +76,27 @@ export interface AppearancePrefs {
   font: UiFont;
   layout: LayoutMode;
   ribbonCollapsed: boolean;
+  /**
+   * True once the user has made a theme decision: picked a pack, a mode, a
+   * pair member or a schedule. While it is false the theme fields are the
+   * defaults, so a later change of the default reaches every user who never
+   * chose. Density, accent, font and layout changes leave it alone.
+   */
+  chosen: boolean;
 }
 
+/** Fields that are reset to the defaults while `chosen` is false. */
+const THEME_FIELDS = ['mode', 'theme', 'lightTheme', 'darkTheme'] as const;
+
 /**
- * Defaults for a user with nothing stored: follow the OS. This is the §17.1
- * promise — a fresh install tracks light/dark without being told to.
+ * Defaults for a user with nothing stored: the Dark pack, whatever the OS
+ * reports (t32, SPEC §17.1). Light applies once the user picks a light pack,
+ * or picks "Follow system" while the OS is light.
  */
 export function defaultAppearance(): AppearancePrefs {
   return {
-    mode: 'system',
-    theme: DEFAULT_LIGHT_THEME,
+    mode: 'fixed',
+    theme: DEFAULT_DARK_THEME,
     lightTheme: DEFAULT_LIGHT_THEME,
     darkTheme: DEFAULT_DARK_THEME,
     schedule: DEFAULT_SCHEDULE,
@@ -94,6 +105,7 @@ export function defaultAppearance(): AppearancePrefs {
     font: 'default',
     layout: 'default',
     ribbonCollapsed: false,
+    chosen: false,
   };
 }
 
@@ -212,9 +224,12 @@ function scheduleOf(value: unknown, fallback: ThemeSchedule): ThemeSchedule {
  * partial or partly-corrupt object still yields a usable set rather than
  * throwing away the fields that were fine.
  *
- * Payloads written before the tri-state existed carry a `theme` but no `mode`.
- * Those users made an explicit choice, so they migrate to `fixed` — only a
- * genuinely absent preference starts in `system`.
+ * `chosen` decides whether the stored theme fields count:
+ *   • `true`  — they are the user's, kept as stored.
+ *   • `false` — the user never chose: the theme fields are the defaults (Dark),
+ *               and density, accent, font, layout and the schedule window are
+ *               kept.
+ *   • absent  — written before t32 added the flag; see `inferChosen`.
  */
 export function parseAppearancePrefs(input: unknown): AppearancePrefs {
   const base = defaultAppearance();
@@ -222,28 +237,78 @@ export function parseAppearancePrefs(input: unknown): AppearancePrefs {
   const p = input as Partial<AppearancePrefs>;
 
   const hasLegacyTheme = isThemeName(p.theme);
+  // Payloads written before the tri-state existed carry a `theme` but no
+  // `mode`. Those users made an explicit choice, so they migrate to `fixed`.
+  // Builds before t32 started everything else in `system`.
   const mode: ThemeMode =
     typeof p.mode === 'string' && THEME_MODES.includes(p.mode as ThemeMode)
       ? (p.mode as ThemeMode)
       : hasLegacyTheme
         ? 'fixed'
-        : base.mode;
+        : 'system';
 
   const theme = themeOr(p.theme, base.theme);
-  return {
-    mode,
-    theme,
-    // A pre-tri-state payload has no pair; seed it from the chosen pack so a
-    // later switch to `system` keeps the user inside the pack they liked.
-    lightTheme: themeOr(p.lightTheme, hasLegacyTheme ? variantFor(theme, 'light') : base.lightTheme),
-    darkTheme: themeOr(p.darkTheme, hasLegacyTheme ? variantFor(theme, 'dark') : base.darkTheme),
+  // A pre-tri-state payload has no pair; seed it from the chosen pack so a
+  // later switch to `system` keeps the user inside the pack they liked.
+  const lightTheme = themeOr(
+    p.lightTheme,
+    hasLegacyTheme ? variantFor(theme, 'light') : base.lightTheme,
+  );
+  const darkTheme = themeOr(p.darkTheme, hasLegacyTheme ? variantFor(theme, 'dark') : base.darkTheme);
+  const chosen =
+    typeof p.chosen === 'boolean' ? p.chosen : inferChosen(mode, lightTheme, darkTheme);
+
+  const rest = {
     schedule: scheduleOf(p.schedule, base.schedule),
     density: DENSITY_VALUES.includes(p.density as Density) ? (p.density as Density) : base.density,
     accent: typeof p.accent === 'string' ? p.accent : base.accent,
     font: typeof p.font === 'string' && p.font in FONT_STACKS ? (p.font as UiFont) : base.font,
-    layout: p.layout === 'ribbon' ? 'ribbon' : 'default',
+    layout: p.layout === 'ribbon' ? ('ribbon' as const) : ('default' as const),
     ribbonCollapsed: p.ribbonCollapsed === true,
   };
+
+  if (!chosen) {
+    const { mode: m, theme: t, lightTheme: l, darkTheme: d } = base;
+    return { mode: m, theme: t, lightTheme: l, darkTheme: d, ...rest, chosen: false };
+  }
+  return { mode, theme, lightTheme, darkTheme, ...rest, chosen: true };
+}
+
+/**
+ * Whether a payload without the `chosen` flag (written before t32) records a
+ * theme decision.
+ *
+ * Builds before t32 started every user in `system` mode with the Light/Dark
+ * pair, and the account sync pushed that set to the server on first sign-in.
+ * So `system` with exactly that pair is what an untouched account stores, and
+ * it counts as "never chose". A user who clicked "Follow system" without
+ * changing the pair stored the same bytes and cannot be told apart; they get
+ * Dark and can pick "Follow system" again. A fixed or scheduled mode, or any
+ * other pair, was the user's pick.
+ */
+function inferChosen(mode: ThemeMode, lightTheme: ThemeName, darkTheme: ThemeName): boolean {
+  if (mode !== 'system') return true;
+  return lightTheme !== DEFAULT_LIGHT_THEME || darkTheme !== DEFAULT_DARK_THEME;
+}
+
+/**
+ * Merge a partial payload over the current prefs and validate the result.
+ *
+ * A payload that carries theme fields but no `chosen` (a server blob written
+ * before t32) has `chosen` inferred from its own fields rather than inheriting
+ * this device's flag; otherwise an old explicit choice adopted on a fresh
+ * device would be reset to the default. A payload without theme fields
+ * (density only, say) keeps the current flag.
+ */
+export function mergeAppearancePrefs(
+  current: AppearancePrefs,
+  next: Partial<AppearancePrefs>,
+): AppearancePrefs {
+  const merged: Partial<AppearancePrefs> = { ...current, ...next };
+  if (typeof next.chosen !== 'boolean' && THEME_FIELDS.some((k) => k in next)) {
+    delete merged.chosen;
+  }
+  return parseAppearancePrefs(merged);
 }
 
 /** The JSON-safe wire/storage form. Round-trips through `parseAppearancePrefs`. */

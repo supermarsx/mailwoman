@@ -70,20 +70,115 @@ describe('theme mode tri-state', () => {
     vi.useRealTimers();
   });
 
-  it('defaults to system mode and adopts the OS scheme at boot', () => {
-    installMatchMedia(true);
+  it.each([false, true])(
+    'starts a user who never chose on the Dark pack (OS dark: %s)',
+    (osDark) => {
+      // t32: dark is the default whatever the OS says, and it is not a choice.
+      const os = installMatchMedia(osDark);
+      const s = makeSlice();
+      expect(s.themeMode()).toBe('fixed');
+      expect(s.themeChosen()).toBe(false);
+      expect(s.theme()).toBe('dark');
+      expect(s.appearance()).toBe('dark');
+      expect(root().getAttribute('data-theme')).toBe('dark');
+      expect(root().getAttribute('data-appearance')).toBe('dark');
+      expect(root().style.getPropertyValue('color-scheme')).toBe('dark');
+      // An OS flip does not move a user who never chose.
+      os.set(!osDark);
+      expect(s.theme()).toBe('dark');
+    },
+  );
+
+  it('picking "Follow the system" under a light OS gives Light and survives a reload', () => {
+    installMatchMedia(false);
+    const first = makeSlice();
+    first.setThemeMode('system');
+    expect(first.themeChosen()).toBe(true);
+    expect(first.theme()).toBe('light');
+
+    const second = makeSlice();
+    expect(second.themeMode()).toBe('system');
+    expect(second.theme()).toBe('light');
+    expect(root().getAttribute('data-theme')).toBe('light');
+  });
+
+  it('a stored chosen system mode follows the OS signal', () => {
+    localStorage.setItem(
+      'mw.theme.prefs',
+      JSON.stringify({ mode: 'system', lightTheme: 'light', darkTheme: 'dark', chosen: true }),
+    );
+    const os = installMatchMedia(false);
     const s = makeSlice();
-    expect(s.themeMode()).toBe('system');
+    expect(s.theme()).toBe('light');
+    os.set(true);
     expect(s.theme()).toBe('dark');
-    expect(s.appearance()).toBe('dark');
-    expect(root().getAttribute('data-theme')).toBe('dark');
-    expect(root().getAttribute('data-appearance')).toBe('dark');
-    expect(root().style.getPropertyValue('color-scheme')).toBe('dark');
+  });
+
+  it('an old untouched default in storage boots Dark and keeps its density', () => {
+    // Written by a build before t32: no `chosen`, system mode, Light/Dark pair.
+    localStorage.setItem(
+      'mw.theme.prefs',
+      JSON.stringify({
+        mode: 'system',
+        theme: 'light',
+        lightTheme: 'light',
+        darkTheme: 'dark',
+        density: 'compact',
+      }),
+    );
+    installMatchMedia(false);
+    const s = makeSlice();
+    expect(s.theme()).toBe('dark');
+    expect(s.themeChosen()).toBe(false);
+    expect(s.density()).toBe('compact');
+  });
+
+  it('each theme setter records a choice; the other setters do not', () => {
+    installMatchMedia(false);
+    const untouched = makeSlice();
+    untouched.setDensity('compact');
+    untouched.setAccent('#be123c');
+    untouched.setUiFont('mono');
+    untouched.setLayout('ribbon');
+    untouched.setRibbonCollapsed(true);
+    expect(untouched.themeChosen()).toBe(false);
+    expect(untouched.appearancePrefs().chosen).toBe(false);
+    expect(untouched.theme()).toBe('dark');
+
+    const setters: Array<(s: ThemeSlice) => void> = [
+      (s) => s.setTheme('ocean-light'),
+      (s) => s.setThemeMode('schedule'),
+      (s) => s.setLightTheme('slate-light'),
+      (s) => s.setDarkTheme('plum-dark'),
+      (s) => s.setSchedule({ darkStart: '19:00', darkEnd: '06:00' }),
+    ];
+    for (const apply of setters) {
+      localStorage.clear();
+      const s = makeSlice();
+      expect(s.themeChosen()).toBe(false);
+      apply(s);
+      expect(s.themeChosen()).toBe(true);
+      expect(JSON.parse(localStorage.getItem('mw.theme.prefs') ?? '{}').chosen).toBe(true);
+    }
+  });
+
+  it('adopting a pre-t32 server blob keeps its explicit pick on a fresh device', () => {
+    installMatchMedia(false);
+    const s = makeSlice();
+    s.setAppearancePrefs({ mode: 'fixed', theme: 'amoled' });
+    expect(s.theme()).toBe('amoled');
+    expect(s.themeChosen()).toBe(true);
+
+    // …and the old untouched default from another device moves it to Dark.
+    s.setAppearancePrefs({ mode: 'system', theme: 'light', lightTheme: 'light', darkTheme: 'dark' });
+    expect(s.theme()).toBe('dark');
+    expect(s.themeChosen()).toBe(false);
   });
 
   it('follows an OS scheme change LIVE, with no reload', () => {
     const os = installMatchMedia(false);
     const s = makeSlice();
+    s.setThemeMode('system');
     expect(s.theme()).toBe('light');
 
     os.set(true);
@@ -101,6 +196,7 @@ describe('theme mode tri-state', () => {
     const s = makeSlice();
     s.setLightTheme('ocean-light');
     s.setDarkTheme('plum-dark');
+    s.setThemeMode('system');
     expect(s.theme()).toBe('ocean-light');
     os.set(true);
     expect(s.theme()).toBe('plum-dark');
@@ -209,22 +305,22 @@ describe('theme mode tri-state', () => {
     // A hostile/garbled sync payload degrades field-by-field instead of
     // corrupting the live state.
     s.setAppearancePrefs({ theme: 'javascript:alert(1)' as never, density: 'huge' as never });
-    expect(s.theme()).toBe('light');
+    expect(s.theme()).toBe('dark');
     expect(s.density()).toBe('cozy');
 
     off();
     s.setDensity('relaxed');
     expect(seen).toHaveLength(2);
 
-    expect(s.appearancePrefs()).toMatchObject({ density: 'relaxed', theme: 'light' });
+    expect(s.appearancePrefs()).toMatchObject({ density: 'relaxed', theme: 'dark' });
   });
 
   it('is inert where matchMedia does not exist', () => {
     // jsdom's default: no matchMedia at all. Boot must not throw and must land
-    // on the light pack.
+    // on the default Dark pack.
     const s = makeSlice();
-    expect(s.theme()).toBe('light');
-    expect(s.appearance()).toBe('light');
+    expect(s.theme()).toBe('dark');
+    expect(s.appearance()).toBe('dark');
     expect(() => s.dispose()).not.toThrow();
   });
 });

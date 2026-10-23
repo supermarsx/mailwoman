@@ -36,7 +36,7 @@ test.describe('V2 theming via the Settings dialog', () => {
     await engineLogin(page);
     const root = page.locator('html');
 
-    // Baseline before switching (default light-ish theme).
+    // Baseline before switching (the Dark default for a user who never chose).
     const beforeBg = await bgVar(page);
     const beforeTheme = await root.getAttribute('data-theme');
 
@@ -139,7 +139,7 @@ async function bootShell(page: Page): Promise<void> {
 test.describe('every built-in pack is bound to real CSS', () => {
   for (const entry of THEME_LIST) {
     test(`${entry.id} paints its own token values, not the default palette`, async ({ page }) => {
-      await seedPrefs(page, { mode: 'fixed', theme: entry.id });
+      await seedPrefs(page, { mode: 'fixed', theme: entry.id, chosen: true });
       await bootShell(page);
 
       await expect(page.locator('html')).toHaveAttribute('data-theme', entry.id);
@@ -168,7 +168,12 @@ test.describe('appearance mode tri-state', () => {
     // to `matchMedia('(prefers-color-scheme: dark)')` for the page's lifetime, so
     // a user flipping their OS theme sees the app follow immediately. A reload
     // would pass even if the listener were never wired.
-    await seedPrefs(page, { mode: 'system', lightTheme: 'ocean-light', darkTheme: 'plum-dark' });
+    await seedPrefs(page, {
+      mode: 'system',
+      lightTheme: 'ocean-light',
+      darkTheme: 'plum-dark',
+      chosen: true,
+    });
     await page.emulateMedia({ colorScheme: 'light' });
     await bootShell(page);
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'ocean-light');
@@ -184,7 +189,7 @@ test.describe('appearance mode tri-state', () => {
   });
 
   test('fixed mode ignores the OS entirely', async ({ page }) => {
-    await seedPrefs(page, { mode: 'fixed', theme: 'grove-light' });
+    await seedPrefs(page, { mode: 'fixed', theme: 'grove-light', chosen: true });
     await page.emulateMedia({ colorScheme: 'dark' });
     await bootShell(page);
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'grove-light');
@@ -192,7 +197,9 @@ test.describe('appearance mode tri-state', () => {
   });
 
   test('an explicit pick leaves system mode and survives a reload', async ({ page }) => {
-    await seedPrefs(page, { mode: 'system', lightTheme: 'light', darkTheme: 'dark' });
+    // `chosen: true`: a user who picked "Follow the system". Without the flag
+    // this exact set is the pre-t32 untouched default, which boots Dark anyway.
+    await seedPrefs(page, { mode: 'system', lightTheme: 'light', darkTheme: 'dark', chosen: true });
     await page.emulateMedia({ colorScheme: 'dark' });
     await engineLogin(page);
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
@@ -217,5 +224,52 @@ test.describe('appearance mode tri-state', () => {
     await bootShell(page);
     await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
     expect(await legacyVar(page, '--bg')).not.toBe('');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// t32: Dark is the default for a user who has not chosen a theme, whatever the
+// OS reports. Light applies when the user picks a light pack, or picks "Follow
+// the system" while the OS is light. Each case reads `data-theme` off a real
+// boot, so a default that only changed in the unit-tested parser would fail.
+
+test.describe('the Dark default', () => {
+  test('a fresh profile under a light OS boots Dark', async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'light' });
+    await bootShell(page);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await expect(page.locator('html')).toHaveAttribute('data-appearance', 'dark');
+  });
+
+  test('picking "Follow the system" under a light OS gives Light and survives a reload', async ({
+    page,
+  }) => {
+    await page.emulateMedia({ colorScheme: 'light' });
+    await engineLogin(page);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+
+    await page.getByRole('button', { name: 'Settings' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Settings' });
+    await dialog.getByRole('button', { name: 'Follow the system' }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+
+    await page.reload();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  });
+
+  test('an old untouched default in storage (no chosen flag) boots Dark', async ({ page }) => {
+    // What a build before t32 stored for a user who never chose.
+    await seedPrefs(page, {
+      mode: 'system',
+      theme: 'light',
+      lightTheme: 'light',
+      darkTheme: 'dark',
+      density: 'compact',
+    });
+    await page.emulateMedia({ colorScheme: 'light' });
+    await bootShell(page);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    // The fields that are not the theme decision survive.
+    await expect(page.locator('html')).toHaveAttribute('data-density', 'compact');
   });
 });
