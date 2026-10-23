@@ -5,11 +5,18 @@
 // write + NIL remove) is GUARDED behind the `canEdit` prop — read-only by default.
 // The upstream IMAP server is the real enforcer; the gate is UX honesty. E9 mounts
 // this and injects the production `AclClient` + the edit permission.
+//
+// t32-h6: a failed load stays inside this section. An upstream that does not
+// implement `ServerMetadata/get` (proxy mode against a third-party JMAP server)
+// gets one "not available" line; any other failure an alert with a retry. The
+// resource is never read while it holds an error, because Solid rethrows it on
+// read and that took the whole app down to its error boundary.
 
 import { createResource, createSignal, For, Show, onMount, type JSX } from 'solid-js';
 import { t, loadCatalog, isolate } from '../../i18n';
 import type { AclClient, MetadataEntry } from '../../api/acl-types.ts';
 import type { Id } from '../../api/jmap-types.ts';
+import { isUnsupportedMethod } from '../../api/unsupported.ts';
 import * as css from './styles.css.ts';
 
 export interface MetadataViewProps {
@@ -98,6 +105,11 @@ export function MetadataView(props: MetadataViewProps): JSX.Element {
     () => props.client.getServerMetadata(scope()),
   );
 
+  // Read the list only when the load did not fail (see the header note).
+  const loaded = (): MetadataEntry[] | undefined => (entries.error === undefined ? entries() : undefined);
+  const unsupported = (): boolean => entries.error !== undefined && isUnsupportedMethod(entries.error);
+  const loadFailed = (): boolean => entries.error !== undefined && !entries.loading && !unsupported();
+
   const [busy, setBusy] = createSignal(false);
   const [opError, setOpError] = createSignal<string | null>(null);
   const canEdit = (): boolean => props.canEdit === true;
@@ -144,92 +156,106 @@ export function MetadataView(props: MetadataViewProps): JSX.Element {
       <Show when={entries.loading}>
         <p class={css.meta}>{t('servermeta-loading')}</p>
       </Show>
-      <Show when={entries.error as unknown}>
-        <p class={css.error} role="alert">
-          {t('servermeta-load-failed')}
-        </p>
-      </Show>
-
-      <Show when={!canEdit()}>
-        <p class={css.notice} role="note" data-testid="readonly-notice">
-          {t('servermeta-readonly')}
-        </p>
-      </Show>
-
-      <Show when={opError()}>
-        <p class={css.error} role="alert">
-          {opError()}
-        </p>
-      </Show>
-
-      <Show when={entries()}>
-        {(list) => (
-          <div>
-            <p class={css.subHeading}>{t('servermeta-entries')}</p>
-            <Show
-              when={list().length > 0}
-              fallback={<p class={css.meta}>{t('servermeta-no-entries')}</p>}
-            >
-              <ul class={css.list}>
-                <For each={list()}>
-                  {(entry) => (
-                    <EntryRow
-                      entry={entry}
-                      canEdit={canEdit()}
-                      busy={busy()}
-                      onSave={(name, value) => void run(() => props.client.setServerMetadata(scope(), name, value))}
-                      onRemove={(name) => void run(() => props.client.removeServerMetadata(scope(), name))}
-                    />
-                  )}
-                </For>
-              </ul>
-            </Show>
-          </div>
-        )}
-      </Show>
-
-      <Show when={canEdit()}>
-        <form class={css.addForm} onSubmit={submitEntry} data-testid="add-entry-form">
-          <p class={css.subHeading}>{t('servermeta-add-heading')}</p>
+      <Show
+        when={!unsupported()}
+        fallback={
+          <p class={css.notice} data-testid="metadata-unavailable">
+            {t('servermeta-unavailable')}
+          </p>
+        }
+      >
+        <Show when={loadFailed()}>
+          <p class={css.error} role="alert">
+            {t('servermeta-load-failed')}
+          </p>
           <div class={css.editRow}>
-            <label class={css.subHeading} for="meta-new-entry">
-              {t('servermeta-entry-label')}
-            </label>
-            <input
-              class={css.input}
-              id="meta-new-entry"
-              type="text"
-              value={newEntry()}
-              placeholder={t('servermeta-entry-placeholder')}
-              data-testid="new-entry"
-              onInput={(e) => setNewEntry(e.currentTarget.value)}
-            />
-          </div>
-          <div class={css.editRow}>
-            <label class={css.subHeading} for="meta-new-value">
-              {t('servermeta-value-label')}
-            </label>
-            <input
-              class={css.input}
-              id="meta-new-value"
-              type="text"
-              value={newValue()}
-              placeholder={t('servermeta-value-placeholder')}
-              data-testid="new-value"
-              onInput={(e) => setNewValue(e.currentTarget.value)}
-            />
-          </div>
-          <div class={css.editRow}>
-            <button
-              type="submit"
-              class={css.button}
-              disabled={busy() || newEntry().trim().length === 0}
-              data-testid="submit-entry"
-            >
-              {t('servermeta-add-entry')}
+            <button type="button" class={css.button} data-testid="metadata-retry" onClick={() => void refetch()}>
+              {t('common-retry')}
             </button>
           </div>
-        </form>
+        </Show>
+
+        <Show when={!canEdit()}>
+          <p class={css.notice} role="note" data-testid="readonly-notice">
+            {t('servermeta-readonly')}
+          </p>
+        </Show>
+
+        <Show when={opError()}>
+          <p class={css.error} role="alert">
+            {opError()}
+          </p>
+        </Show>
+
+        <Show when={loaded()}>
+          {(list) => (
+            <div>
+              <p class={css.subHeading}>{t('servermeta-entries')}</p>
+              <Show
+                when={list().length > 0}
+                fallback={<p class={css.meta}>{t('servermeta-no-entries')}</p>}
+              >
+                <ul class={css.list}>
+                  <For each={list()}>
+                    {(entry) => (
+                      <EntryRow
+                        entry={entry}
+                        canEdit={canEdit()}
+                        busy={busy()}
+                        onSave={(name, value) => void run(() => props.client.setServerMetadata(scope(), name, value))}
+                        onRemove={(name) => void run(() => props.client.removeServerMetadata(scope(), name))}
+                      />
+                    )}
+                  </For>
+                </ul>
+              </Show>
+            </div>
+          )}
+        </Show>
+
+        <Show when={canEdit()}>
+          <form class={css.addForm} onSubmit={submitEntry} data-testid="add-entry-form">
+            <p class={css.subHeading}>{t('servermeta-add-heading')}</p>
+            <div class={css.editRow}>
+              <label class={css.subHeading} for="meta-new-entry">
+                {t('servermeta-entry-label')}
+              </label>
+              <input
+                class={css.input}
+                id="meta-new-entry"
+                type="text"
+                value={newEntry()}
+                placeholder={t('servermeta-entry-placeholder')}
+                data-testid="new-entry"
+                onInput={(e) => setNewEntry(e.currentTarget.value)}
+              />
+            </div>
+            <div class={css.editRow}>
+              <label class={css.subHeading} for="meta-new-value">
+                {t('servermeta-value-label')}
+              </label>
+              <input
+                class={css.input}
+                id="meta-new-value"
+                type="text"
+                value={newValue()}
+                placeholder={t('servermeta-value-placeholder')}
+                data-testid="new-value"
+                onInput={(e) => setNewValue(e.currentTarget.value)}
+              />
+            </div>
+            <div class={css.editRow}>
+              <button
+                type="submit"
+                class={css.button}
+                disabled={busy() || newEntry().trim().length === 0}
+                data-testid="submit-entry"
+              >
+                {t('servermeta-add-entry')}
+              </button>
+            </div>
+          </form>
+        </Show>
       </Show>
     </section>
   );

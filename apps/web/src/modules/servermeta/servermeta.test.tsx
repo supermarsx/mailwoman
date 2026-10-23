@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, fireEvent, screen, waitFor } from '@solidjs/testing-library';
+import { ErrorBoundary } from 'solid-js';
 import { MetadataView } from './MetadataView.tsx';
 import { ServerMetadata } from '../../screens/Admin/ServerMetadata.tsx';
-import { createAclClient, type AclClient, type MetadataEntry } from '../../api/acl-types.ts';
+import { createAclClient, type AclClient, type JmapFn, type MetadataEntry } from '../../api/acl-types.ts';
 import type { JmapRequest, JmapResponse } from '../../api/jmap-types.ts';
 import type { AdminApi, UserSummary } from '../../state/slices/admin.ts';
 
@@ -99,6 +100,78 @@ describe('metadata view — guarded edit (canEdit)', () => {
     fireEvent.click(screen.getByTestId('submit-entry'));
 
     await waitFor(() => expect(set).toHaveBeenCalledWith(null, '/shared/comment', 'note'));
+  });
+});
+
+// ── t32-h6: an upstream without ServerMetadata/get must not take the app down ──
+//
+// In proxy mode every method goes to the upstream JMAP server, and one that does
+// not implement this Mailwoman extension (mw-mock-jmap, third-party servers)
+// answers `unknownMethod`. The view used to rethrow that into the app's error
+// boundary, replacing the whole mailbox with "Something went wrong".
+
+describe('metadata view — contained failures (t32-h6)', () => {
+  /** A JMAP transport whose first call answers with `answer`, then with entries. */
+  function jmapAnswering(answer: 'unknownMethod' | 'serverFail'): { jmap: JmapFn; calls: () => number } {
+    let n = 0;
+    const jmap: JmapFn = async (body) => {
+      n += 1;
+      const callId = body.methodCalls[0]![2];
+      if (answer === 'unknownMethod' || n === 1) {
+        return { methodResponses: [['error', { type: answer }, callId]], sessionState: 's0' };
+      }
+      return {
+        methodResponses: [['ServerMetadata/get', { accountId: 'acc', list: [{ entry: '/shared/comment', value: 'hi' }] }, callId]],
+        sessionState: 's0',
+      };
+    };
+    return { jmap, calls: () => n };
+  }
+
+  /** The view next to a stand-in mailbox, under an app-level boundary. */
+  function renderInApp(jmap: JmapFn): void {
+    render(() => (
+      <ErrorBoundary fallback={<p data-testid="app-boundary">Something went wrong</p>}>
+        <main data-testid="mailbox">Inbox</main>
+        <MetadataView client={createAclClient('acc', jmap)} />
+      </ErrorBoundary>
+    ));
+  }
+
+  it('unknownMethod reads as "not available" inside the section; the mailbox stays', async () => {
+    renderInApp(jmapAnswering('unknownMethod').jmap);
+
+    await waitFor(() => expect(screen.getByTestId('metadata-unavailable')).toBeInTheDocument());
+    expect(screen.queryByTestId('app-boundary')).not.toBeInTheDocument();
+    expect(screen.getByTestId('mailbox')).toBeInTheDocument();
+    expect(screen.getByTestId('metadata-view')).toBeInTheDocument();
+    // Not an error the user can fix: no alert, no retry, no read-only notice.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('metadata-retry')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('readonly-notice')).not.toBeInTheDocument();
+  });
+
+  it('a request-level unknownCapability is treated the same way', async () => {
+    renderInApp(async () => {
+      throw new Error('request failed: urn:ietf:params:jmap:error:unknownCapability');
+    });
+    await waitFor(() => expect(screen.getByTestId('metadata-unavailable')).toBeInTheDocument());
+    expect(screen.queryByTestId('app-boundary')).not.toBeInTheDocument();
+  });
+
+  it('any other failure is shown in the section with a retry that reloads it', async () => {
+    const { jmap, calls } = jmapAnswering('serverFail');
+    renderInApp(jmap);
+
+    await waitFor(() => expect(screen.getByTestId('metadata-retry')).toBeInTheDocument());
+    expect(screen.queryByTestId('app-boundary')).not.toBeInTheDocument();
+    expect(screen.getByTestId('mailbox')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not load the annotations.');
+
+    fireEvent.click(screen.getByTestId('metadata-retry'));
+    await waitFor(() => expect(screen.getAllByTestId('metadata-entry')).toHaveLength(1));
+    expect(calls()).toBe(2);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });
 

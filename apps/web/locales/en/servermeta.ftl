@@ -12,6 +12,7 @@ servermeta-title-named = Annotations on { $mailbox }
 servermeta-intro = Metadata entries are stored on the mail server. Changes here take effect only if your account is allowed to set them.
 servermeta-loading = Loading annotations…
 servermeta-load-failed = Could not load the annotations.
+servermeta-unavailable = This mail server does not provide annotations.
 servermeta-op-failed = The change was not saved. The server rejected it or was unreachable.
 servermeta-readonly = Editing is turned off for you. Annotations are shown read-only.
 
