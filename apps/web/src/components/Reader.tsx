@@ -31,10 +31,11 @@ import { createMaxSecurityStore } from '../viewers/max-security.ts';
 import { bodyFrameDoc, withImageLoadingHints } from '../viewers/sandbox.ts';
 import { createObjectUrlOwner } from '../viewers/objectUrl.ts';
 import { getCryptoWorker } from '../crypto/index.ts';
+import { pickSignerArmor } from '../crypto/signerMatch.ts';
 import { createConfiguredClient } from '../api/transport.ts';
 import { fetchThreadingHeaders, parentReferences, responseFor, type ThreadingHeaders } from '../api/jmap.ts';
 import { CAP_CORE } from '../api/jmap-types.ts';
-import { CAP_CRYPTO, CAP_SECURITY, type CryptoKey } from '../api/crypto-types.ts';
+import { CAP_CRYPTO, CAP_SECURITY } from '../api/crypto-types.ts';
 import type { Email, EmailAddress } from '../api/jmap-types.ts';
 import type { SecurityVerdict, SignatureVerdict } from '../api/security-types.ts';
 import {
@@ -382,38 +383,17 @@ function DecryptPanel(props: {
    *  already-loaded keyring (own + harvested/looked-up), then the same
    *  `CryptoKey/lookup` discovery (harvested/autocrypt/WKD/VKS).
    *
-   *  This only picks a CANDIDATE key by the From address; the actual verdict is
-   *  decided by real cryptography in the worker (`pgp::decrypt` → "verified" only
-   *  for a genuine signature match, "invalid" for a wrong key, "none" when no key
-   *  is supplied). So a false "verified" is impossible regardless of how the
-   *  candidate is chosen — a wrong candidate yields an honest "invalid", and no
-   *  candidate yields an honest "none". Matching therefore tolerates a From that
-   *  is a bare local part (no domain — some transports, incl. the engine loopback,
-   *  present addresses that way) by also comparing local parts. Returns undefined
-   *  when the keyring holds no key relatable to the sender. */
+   *  The worker says "verified" for any key that matches the signature, so the
+   *  candidate must be a live (not revoked, not expired) key bound to exactly the
+   *  From address; see `pickSignerArmor`. Returns undefined when no such key is
+   *  known, which yields an honest "none" verdict. */
   async function resolveSignerPublicKey(address: string): Promise<string | undefined> {
     if (address === '') return undefined;
-    const norm = address.toLowerCase();
-    const localOf = (a: string): string => a.split('@')[0] ?? '';
-    const senderLocal = localOf(norm);
-    const relatesToSender = (a: string): boolean => {
-      const al = a.toLowerCase();
-      return al === norm || (senderLocal !== '' && localOf(al) === senderLocal);
-    };
-    const usableArmor = (k: CryptoKey): string | undefined =>
-      k.kind === 'pgp' && k.publicKeyArmored !== null && k.addresses.some(relatesToSender)
-        ? (k.publicKeyArmored ?? undefined)
-        : undefined;
-    for (const k of app.keys()) {
-      const armored = usableArmor(k);
-      if (armored !== undefined) return armored;
-    }
+    const known = pickSignerArmor(address, app.keys(), new Date());
+    if (known !== undefined) return known;
     try {
       const found = await app.lookupContactKey(address, ['harvested', 'autocrypt', 'wkd', 'vks']);
-      for (const k of found) {
-        const armored = usableArmor(k);
-        if (armored !== undefined) return armored;
-      }
+      return pickSignerArmor(address, found, new Date());
     } catch {
       // Key discovery failure → no signer key → honest unverified verdict (never
       // a hard error, and never a false "verified").
