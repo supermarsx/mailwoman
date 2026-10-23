@@ -25,6 +25,8 @@ CADDY_IMAGE=caddy:2-alpine
 CADDY_ID=
 ACME_CA=
 ACME_CA_ROOT=
+MEMORY_LIMIT=
+CPU_LIMIT=
 IMAGE=
 PULL=false
 NO_BUILD=false
@@ -147,7 +149,7 @@ read_config() {
     [[ -f $file && ! -L $file ]] || die "Missing or symlinked configuration: $file"
     # Settings a deploy.env may leave out (older files, or ones edited by hand) are
     # empty unless this file sets them, never left over from a file read earlier.
-    if [[ ${file##*/} == deploy.env ]]; then PROXY_NETWORK=; ACME_CA=; ACME_CA_ROOT=; fi
+    if [[ ${file##*/} == deploy.env ]]; then PROXY_NETWORK=; ACME_CA=; ACME_CA_ROOT=; MEMORY_LIMIT=; CPU_LIMIT=; fi
     while IFS= read -r line || [[ -n $line ]]; do
         [[ -z $line || $line == \#* ]] && continue
         [[ $line != *$'\r'* && $line == *=* ]] || die "Invalid line in $file; use unquoted KEY=value with LF endings"
@@ -155,7 +157,7 @@ read_config() {
         [[ $seen != *"|$key|"* ]] || die "Duplicate $key in $file"
         seen+="$key|"
         case "$key" in
-            PROJECT|EXPOSURE|DOMAIN|PUBLIC_URL|PORT|MODE|PROXY_PREFIX|PROXY_NETWORK|CADDY_IMAGE|ACME_CA|ACME_CA_ROOT|IMAGE_ID|DATA_VOLUME|CADDY_ID)
+            PROJECT|EXPOSURE|DOMAIN|PUBLIC_URL|PORT|MODE|PROXY_PREFIX|PROXY_NETWORK|CADDY_IMAGE|ACME_CA|ACME_CA_ROOT|MEMORY_LIMIT|CPU_LIMIT|IMAGE_ID|DATA_VOLUME|CADDY_ID)
                 printf -v "$key" '%s' "$value" ;;
             *) die "Unknown setting $key in $file" ;;
         esac
@@ -194,6 +196,8 @@ validate_config() {
     [[ $EXPOSURE == caddy || -z $ACME_CA$ACME_CA_ROOT ]] || die "ACME_CA and ACME_CA_ROOT apply only to EXPOSURE=caddy"
     [[ -z $ACME_CA || $ACME_CA =~ ^https://[a-zA-Z0-9][a-zA-Z0-9.-]*(:[0-9]{1,5})?(/[a-zA-Z0-9._~/-]*)?$ ]] || die "ACME_CA must be the https:// URL of an ACME directory"
     [[ -z $ACME_CA_ROOT || $ACME_CA_ROOT =~ ^/[a-zA-Z0-9._/+@-]+$ ]] || die "ACME_CA_ROOT must be an absolute path to a PEM file (letters, digits and ._/+@- only)"
+    [[ -z $MEMORY_LIMIT || $MEMORY_LIMIT =~ ^[1-9][0-9]{0,5}[mg]$ ]] || die "MEMORY_LIMIT must be a size such as 1g or 768m, or empty for no limit"
+    [[ -z $CPU_LIMIT || ($CPU_LIMIT =~ ^[0-9]{1,3}(\.[0-9]{1,2})?$ && $CPU_LIMIT =~ [1-9]) ]] || die "CPU_LIMIT must be a number of CPUs such as 2 or 1.5, or empty for no limit"
 }
 
 write_config() {
@@ -210,6 +214,8 @@ PROXY_NETWORK=$PROXY_NETWORK
 CADDY_IMAGE=$CADDY_IMAGE
 ACME_CA=$ACME_CA
 ACME_CA_ROOT=$ACME_CA_ROOT
+MEMORY_LIMIT=$MEMORY_LIMIT
+CPU_LIMIT=$CPU_LIMIT
 EOF
 }
 
@@ -317,6 +323,10 @@ initialize() {
     key=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
     password=$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')
     [[ ${#key} == 64 && ${#password} == 48 ]] || die "Failed to generate secrets"
+    # New installations get the Helm chart's limits; deploy.env files written
+    # before these keys existed keep running without one.
+    MEMORY_LIMIT=1g
+    CPU_LIMIT=2
     write_config > "$STATE/deploy.env"
     cat > "$STATE/app.env" <<EOF
 # Raw Docker environment: values are literal; do not quote or escape dollars.
@@ -416,11 +426,22 @@ pem_certificates() {
 }
 
 render() {
-    local directory=$1 secure=true trust='' acme_global='' acme_mount='' acme_config=''
+    local directory=$1 secure=true trust='' acme_global='' acme_mount='' acme_config='' limits='' cpus=$CPU_LIMIT host_cpus
     [[ $EXPOSURE != local ]] || secure=false
     # Client addresses come from the proxy network's peers unless app.env says otherwise.
     if [[ $EXPOSURE == network && -n $PROXY_SUBNETS ]] && ! grep -Eq '^MW_(TRUSTED_PROXIES|FORWARDED_MODE)=' "$directory/app.env"; then
         trust=$'\n'"      MW_TRUSTED_PROXIES: '$PROXY_SUBNETS'"$'\n'"      MW_FORWARDED_MODE: xff"
+    fi
+    if [[ -n $MEMORY_LIMIT ]]; then limits+=$'\n'"    mem_limit: $MEMORY_LIMIT"; fi
+    if [[ -n $cpus ]]; then
+        # Docker refuses a CPU limit above the CPUs it can use.
+        host_cpus=$(docker info --format '{{.NCPU}}')
+        [[ $host_cpus =~ ^[1-9][0-9]*$ ]] || die "Cannot read the number of CPUs Docker can use"
+        if awk -v want="$cpus" -v have="$host_cpus" 'BEGIN { exit !(want > have) }'; then
+            log "CPU_LIMIT=$cpus is more than the $host_cpus CPUs Docker can use; the app is limited to $host_cpus"
+            cpus=$host_cpus
+        fi
+        limits+=$'\n'"    cpus: $cpus"
     fi
     [[ $IMAGE_ID =~ ^sha256:[0-9a-f]{64}$ ]] || die "Invalid image ID"
     [[ $DATA_VOLUME =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]+$ ]] || die "Invalid volume name"
@@ -438,7 +459,7 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    pids_limit: 512
+    pids_limit: 512$limits
     # The server's graceful shutdown handler listens for Ctrl-C / SIGINT.
     stop_signal: SIGINT
     stop_grace_period: 60s
@@ -660,6 +681,10 @@ case "$ACTION" in
                 die "Compose project $PROJECT already exists; use its original state directory or choose another project"
             fi
         fi
+        unlimited=
+        [[ -n $MEMORY_LIMIT ]] || unlimited=memory
+        [[ -n $CPU_LIMIT ]] || unlimited+="${unlimited:+ or }CPU"
+        [[ -z $unlimited ]] || log "No $unlimited limit for the app: MEMORY_LIMIT and CPU_LIMIT in $STATE/deploy.env set them (new installations get 1g and 2)"
         require_free_ports
         if ! $NO_BUILD; then
             if [[ -n $IMAGE ]]; then

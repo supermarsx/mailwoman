@@ -79,8 +79,8 @@ directories inside the repository must also sit beneath a top-level `*.local`
 directory; directories outside the repository are supported. Files use mode `0600`
 and the state directory uses `0700` on filesystems supporting Unix permissions.
 
-- `deploy.env`: project, mode, URL, port, exposure, proxy network and Caddy
-  image/network/ACME settings.
+- `deploy.env`: project, mode, URL, port, exposure, proxy network, Caddy
+  image/network/ACME settings, and the app's memory and CPU limits.
 - `app.env`: persistent random `MW_SERVER_KEY`, random admin password, and optional
   application environment variables. Values are **literal, unquoted** text; dollar
   signs and spaces are preserved. Do not add `export`, quotes or shell commands.
@@ -99,6 +99,16 @@ public URL and cookie security. SQLite and uploads always live together under
 `/data` in a persistent named volume, owned by UID/GID 65532. The app runs non-root
 with a read-only root filesystem, dropped capabilities, no-new-privileges, a PID
 limit, log rotation, and writable temporary space. No dev/test services start.
+
+`MEMORY_LIMIT` (a size such as `1g` or `768m`) and `CPU_LIMIT` (a number of CPUs
+such as `2` or `1.5`) in `deploy.env` become the app container's `mem_limit` and
+`cpus`. A new installation gets `MEMORY_LIMIT=1g` and `CPU_LIMIT=2`, the limits of
+the Helm chart. An empty or missing key means no limit; a `deploy.env` written
+before these keys existed has neither, and every `deploy` says so in one line
+until they are added. A `CPU_LIMIT` above the number of CPUs Docker can use is
+lowered to that number, with a message, because Docker refuses it otherwise. When
+the app reaches its memory limit the kernel ends it and Docker restarts it; Caddy
+has no limits.
 
 Local and external-proxy modes bind HTTP to `127.0.0.1` only. Local mode uses HTTP
 cookies; both HTTPS modes enable Secure cookies. Caddy mode publishes only ports
@@ -248,7 +258,9 @@ refusal of a deploy onto a port held by something else, backup/rollback, failure
 recovery, the moves local → external → proxy network → local, the refusal of a move
 to Caddy, a second, proxy-network installation, and the `ACME_CA` / `ACME_CA_ROOT`
 lines in a Caddy installation's generated Compose file (read with `doctor`;
-invalid values refused). The external step stands in a
+invalid values refused), and the memory and CPU limits Docker applies (defaults,
+edited values, a CPU limit above the host's lowered, none for a `deploy.env`
+without the keys). The external step stands in a
 curl wrapper for the host's reverse proxy; nothing in the test reaches the
 Internet or uses ports 80/443. It removes its test containers, volumes and network
 afterward; failed runs retain local diagnostics.

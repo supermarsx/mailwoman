@@ -173,6 +173,21 @@ acme_reject 'ACME_CA_ROOT must hold PEM certificates only' "ACME_CA_ROOT=$ACME_S
 set_in "$PICK_STATE/deploy.env" ACME_CA=https://pebble.test:14000/dir
 if bash "$DEPLOY" doctor --state-dir "$PICK_STATE" > "$ACME_STATE/rejected.log" 2>&1; then fail 'a local installation accepted ACME_CA'; fi
 grep -F 'ACME_CA and ACME_CA_ROOT apply only to EXPOSURE=caddy' "$ACME_STATE/rejected.log" >/dev/null || fail "ACME_CA on a local installation was refused for another reason: $(cat "$ACME_STATE/rejected.log")"
+set_in "$PICK_STATE/deploy.env" ACME_CA=
+
+# A new installation's deploy.env carries the Helm chart's limits; values that are
+# not a size or a CPU count are refused.
+[[ $(grep -E '^(MEMORY|CPU)_LIMIT=' "$PICK_STATE/deploy.env" | tr '\n' ' ') == 'MEMORY_LIMIT=1g CPU_LIMIT=2 ' ]] || fail "init wrote no default limits: $(grep LIMIT "$PICK_STATE/deploy.env")"
+pick_reject() {
+    local expected=$1
+    shift
+    set_in "$PICK_STATE/deploy.env" "$@"
+    if bash "$DEPLOY" doctor --state-dir "$PICK_STATE" > "$ACME_STATE/rejected.log" 2>&1; then fail "doctor accepted $*"; fi
+    grep -F "$expected" "$ACME_STATE/rejected.log" >/dev/null || fail "doctor refused $* for another reason: $(cat "$ACME_STATE/rejected.log")"
+}
+pick_reject 'MEMORY_LIMIT must be a size' MEMORY_LIMIT=lots
+pick_reject 'CPU_LIMIT must be a number of CPUs' MEMORY_LIMIT=1g CPU_LIMIT=0
+set_in "$PICK_STATE/deploy.env" CPU_LIMIT=2
 
 run init --project "$PROJECT" --port "$PORT"
 SERVER_KEY=$(awk -F= '$1 == "MW_SERVER_KEY" {print $2}' "$STATE/app.env")
@@ -189,6 +204,14 @@ rmdir "$STATE/.lock"
 
 run deploy --image "$IMAGE"
 CID=$(dc ps -q mailwoman)
+# limits CONTAINER MEMORY_BYTES CPUS WHEN (Compose stores CPUs as a float32, so
+# 26 CPUs read back as 25999998976 nanoCPUs; compared to two decimals)
+limits() {
+    local got
+    got=$(docker inspect --format '{{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}' "$1" | awk '{printf "%d %.2f", $1, $2 / 1e9}')
+    [[ $got == "$2 $3" ]] || fail "$4: memory and CPU limits are '$got', expected '$2 $3'"
+}
+limits "$CID" 1073741824 2.00 'a new installation'
 [[ $(docker inspect --format '{{.State.Health.Status}}' "$CID") == healthy ]] || fail 'not healthy'
 [[ $(docker inspect --format '{{.Config.User}}' "$CID") == 65532:65532 ]] || fail 'not nonroot'
 [[ $(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$CID") == true ]] || fail 'root writable'
@@ -267,10 +290,16 @@ SNAPSHOT=$(find "$STATE/backups" -mindepth 1 -maxdepth 1 -type d | head -n 1)
 tar --numeric-owner -tvf "$SNAPSHOT/data.tar" > "$STATE/tar-listing"
 grep -E '65532/65532.*\./mailwoman.db$' "$STATE/tar-listing" >/dev/null || fail 'backup lost database ownership'
 
-# A config deploy takes another backup and preserves the key and data.
-run deploy --no-build
+# A config deploy takes another backup and preserves the key and data. It also
+# applies edited limits; a CPU limit above what Docker can use is lowered to that.
+HOST_CPUS=$(docker info --format '{{.NCPU}}')
+set_config MEMORY_LIMIT=768m CPU_LIMIT=999
+run deploy --no-build 2> "$STATE/limits.log" || { cat "$STATE/limits.log" >&2; fail 'config deploy failed'; }
 [[ $(awk -F= '$1 == "MW_SERVER_KEY" {print $2}' "$STATE/app.env") == "$SERVER_KEY" ]] || fail 'deploy rotated key'
 CID=$(dc ps -q mailwoman)
+limits "$CID" 805306368 "$HOST_CPUS.00" 'after editing MEMORY_LIMIT=768m CPU_LIMIT=999'
+grep -F "CPU_LIMIT=999 is more than the $HOST_CPUS CPUs Docker can use" "$STATE/limits.log" >/dev/null || fail "the lowered CPU limit was not reported: $(cat "$STATE/limits.log")"
+printf 'limits: %s\n' "$(grep -F 'CPU_LIMIT=999' "$STATE/limits.log")"
 printf 'after-snapshot\n' > "$STATE/uploads/deploy-test-object"
 docker cp "$STATE/uploads" "$CID:/data/"
 OLD_VOLUME=$(awk -F= '$1 == "DATA_VOLUME" {print $2}' "$STATE/active/release.env")
@@ -281,6 +310,7 @@ docker volume inspect "$OLD_VOLUME" >/dev/null || fail 'restore deleted old data
 CID=$(dc ps -q mailwoman)
 docker cp "$CID:/data/uploads/deploy-test-object" "$STATE/restored-object"
 [[ $(cat "$STATE/restored-object") == before-snapshot ]] || fail 'upload object did not restore'
+limits "$CID" 1073741824 2.00 'after rolling back the limit change'
 
 # Corrupt snapshots are refused before taking down the live application.
 printf 'tampered\n' >> "$SNAPSHOT/app.env"
@@ -384,8 +414,15 @@ grep -Fx 'MW_FORWARDED_MODE=xff' "$NET_STATE/env" >/dev/null || fail 'proxy netw
 grep -E '^MW_TRUSTED_PROXIES=[0-9a-f:./,]+$' "$NET_STATE/env" >/dev/null || fail 'proxy network subnet is missing'
 # The same command again is an update of the same installation.
 NET_VOLUME=$(awk -F= '$1 == "DATA_VOLUME" {print $2}' "$NET_STATE/active/release.env")
-net deploy --no-build
+# A deploy.env written before the limit keys existed renders no limit, and deploy
+# says so in one line.
+grep -v -E '^(MEMORY|CPU)_LIMIT=' "$NET_STATE/deploy.env" > "$NET_STATE/deploy.env.old"
+cat "$NET_STATE/deploy.env.old" > "$NET_STATE/deploy.env"
+net deploy --no-build 2> "$NET_STATE/limits.log" || { cat "$NET_STATE/limits.log" >&2; fail 'update of the proxy-network installation failed'; }
+NET_CID=$(docker ps -q --filter "label=com.docker.compose.project=$NET_PROJECT")
+limits "$NET_CID" 0 0.00 'a deploy.env without MEMORY_LIMIT and CPU_LIMIT'
+grep -F 'No memory or CPU limit for the app' "$NET_STATE/limits.log" >/dev/null || fail "deploy did not say the app runs without limits: $(cat "$NET_STATE/limits.log")"
 [[ $(awk -F= '$1 == "DATA_VOLUME" {print $2}' "$NET_STATE/active/release.env") == "$NET_VOLUME" ]] || fail 'update replaced the data volume'
 docker network inspect "$NETWORK" >/dev/null || fail 'update removed the proxy network'
 PASSED=true
-printf 'PASS: dry-run writes nothing (empty and applied state), port auto-pick when 8080 is taken, deployment, literal secrets, health, persistent data, admin login and writes under strict CSRF (curl), %s, refusal of a held port before any change, backup, rollback, corruption refusal, copy-failure recovery, repeated setup options, exposure moves local -> external -> network -> local with the data volume kept, refusal of a move to caddy, a proxy-network installation, and the ACME directory settings for Caddy (rendered, and refused when invalid)\n' "$BROWSER"
+printf 'PASS: dry-run writes nothing (empty and applied state), port auto-pick when 8080 is taken, deployment, literal secrets, health, persistent data, admin login and writes under strict CSRF (curl), %s, refusal of a held port before any change, backup, rollback, corruption refusal, copy-failure recovery, repeated setup options, exposure moves local -> external -> network -> local with the data volume kept, refusal of a move to caddy, a proxy-network installation, the ACME directory settings for Caddy (rendered, and refused when invalid), and memory/CPU limits (defaults for a new installation, edited, lowered to the CPUs Docker has, rolled back, none for an older deploy.env, invalid values refused)\n' "$BROWSER"
