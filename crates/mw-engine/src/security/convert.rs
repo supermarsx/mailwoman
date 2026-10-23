@@ -154,17 +154,27 @@ pub(crate) fn rule_to_mail_rule(rule: &Rule) -> MailRule {
 /// `suppressNotify` has no Sieve action (silence is an engine-side flag, plan
 /// §1.9) and is dropped from the generated rule.
 ///
-/// A condition kind with no Sieve test (`thread`) is dropped too. A rule with
-/// no conditions matches every message, so when the DTO has conditions and
-/// every one of them drops, the rule is refused with the RFC 8620 §5.3
-/// `invalidProperties` SetError (`Err`) instead of being stored as a rule
-/// that files all mail (t32-ext.md §2 D-3).
+/// A condition kind with no Sieve test (`thread`) is not dropped: dropping it
+/// would leave a rule that matches more mail than was asked for (with every
+/// condition gone, all of it — t32-ext.md §2 D-3). The rule is refused with
+/// the RFC 8620 §5.3 `invalidProperties` SetError (`Err`) instead. Thread
+/// rules stay unsupported until the Sieve rework (t32-ext.md §S).
 pub(crate) fn mail_rule_to_rule(mr: &MailRule) -> Result<Rule, Value> {
-    let rule = convert_mail_rule(mr);
-    if rule.conditions.is_empty() && !mr.conditions.is_empty() {
-        return Err(no_condition_applies(mr));
+    let mut unsupported: Vec<&str> = mr
+        .conditions
+        .iter()
+        .map(|c| c.kind.as_str())
+        .filter(|kind| !matches!(*kind, "from" | "to" | "subject"))
+        .collect();
+    if !unsupported.is_empty() {
+        unsupported.sort_unstable();
+        unsupported.dedup();
+        return Err(invalid_conditions(format!(
+            "unsupported condition: {}; a rule can match on from, to and subject",
+            unsupported.join(", ")
+        )));
     }
-    Ok(rule)
+    Ok(convert_mail_rule(mr))
 }
 
 /// [`mail_rule_to_rule`] for an update of the `stored` rule: also refuses an
@@ -173,23 +183,14 @@ pub(crate) fn mail_rule_to_rule(mr: &MailRule) -> Result<Rule, Value> {
 pub(crate) fn mail_rule_update_to_rule(stored: &Rule, mr: &MailRule) -> Result<Rule, Value> {
     let rule = mail_rule_to_rule(mr)?;
     if rule.conditions.is_empty() && !stored.conditions.is_empty() {
-        return Err(no_condition_applies(mr));
+        return Err(invalid_conditions(
+            "the rule would keep no conditions and match every message".into(),
+        ));
     }
     Ok(rule)
 }
 
-fn no_condition_applies(mr: &MailRule) -> Value {
-    let mut kinds: Vec<&str> = mr.conditions.iter().map(|c| c.kind.as_str()).collect();
-    kinds.sort_unstable();
-    kinds.dedup();
-    let description = if kinds.is_empty() {
-        "the rule would keep no conditions and match every message".to_string()
-    } else {
-        format!(
-            "no condition of the rule can be applied (unsupported: {});              a rule without conditions would match every message",
-            kinds.join(", ")
-        )
-    };
+fn invalid_conditions(description: String) -> Value {
     json!({
         "type": "invalidProperties",
         "properties": ["conditions"],

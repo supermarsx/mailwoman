@@ -2,9 +2,10 @@
 //! is converted to a Sieve rule (today: a rule whose only condition is
 //! `thread`) used to be stored with no conditions, and a rule with no
 //! conditions matches every message — so it moved or tagged all new inbox
-//! mail. `MailRule/set` now refuses such a create or update with
-//! `invalidProperties` and never stores an empty-condition rule from a
-//! request that had conditions.
+//! mail. `MailRule/set` now refuses with `invalidProperties` any rule that has
+//! a condition with no Sieve test (a `thread` condition at all, alone or next
+//! to a kept one, since dropping it broadens the rule), and never stores an
+//! empty-condition rule from a request or a stored rule that had conditions.
 //!
 //! Driven through `Engine::handle_jmap` with `MailRule/set`, the method the
 //! web client's rules slice calls, over a scripted backend whose inbox holds
@@ -345,6 +346,39 @@ async fn update_that_drops_every_condition_is_refused_and_keeps_the_rule() {
     assert_eq!(got["list"][0]["conditions"], subject_report());
 
     // The kept rule still files the report and leaves the rest in the inbox.
+    h.engine.resync(&h.account_id).await.unwrap();
+    assert_eq!(h.count_in("inbox").await, 2);
+    assert_eq!(h.count_in("archive").await, 1);
+}
+
+#[tokio::test]
+async fn rule_mixing_thread_with_from_is_refused_and_a_from_rule_still_works() {
+    let h = setup().await;
+    let mixed = json!([
+        { "type": "thread", "op": "is", "value": "T1" },
+        { "type": "from", "op": "contains", "value": "alice" }
+    ]);
+    let from_carol = json!([{ "type": "from", "op": "contains", "value": "carol" }]);
+    let set = h
+        .call(
+            "MailRule/set",
+            json!({ "create": {
+                "mixed": rule("Alice in thread", mixed),
+                "carol": rule("Carol", from_carol),
+            } }),
+        )
+        .await;
+    assert_invalid_conditions(&set["notCreated"]["mixed"]);
+    assert!(
+        set["notCreated"]["mixed"]["description"]
+            .as_str()
+            .unwrap()
+            .contains("thread"),
+        "{set}"
+    );
+    assert!(set["created"]["carol"]["id"].is_string(), "{set}");
+
+    // Only Carol's message moved; Alice's stayed, as no rule for her exists.
     h.engine.resync(&h.account_id).await.unwrap();
     assert_eq!(h.count_in("inbox").await, 2);
     assert_eq!(h.count_in("archive").await, 1);
