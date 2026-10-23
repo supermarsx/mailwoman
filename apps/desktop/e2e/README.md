@@ -136,6 +136,41 @@ To run against another WebView2 Runtime without installing it, extract a Fixed V
 runtime, point `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER` at it, and put the `msedgedriver` of
 the same version in `MSEDGEDRIVER`.
 
+## When the SPA does not mount (Windows)
+
+The session opens, the window is titled `Mailwoman`, and the `before` hook fails with
+`SPA did not mount into #root` after 30 s. CI run 39895491554 failed this way: the driver
+log shows the page committed `http://tauri.localhost/` as `text/plain`, with a service
+worker for `http://tauri.localhost/sw.js` already registered.
+
+Cause (reproduced on WebView2 154.0.4258.62, not elevated): the SPA registers `sw.js`
+on startup, also inside the shell. On every later launch in the same WebView2 user data
+folder that worker answers the first navigation, and its `fetch()` of
+`http://tauri.localhost/` (and of `sw.js`) goes to the network instead of the shell's
+asset handler. Whatever answers there becomes the document, with the shell's IPC
+available to it. With nothing answering, the fetch fails and the worker serves the
+`index.html` it stored on the first launch, which is why a second local launch usually
+mounts. CI launches the shell once directly (the diagnostic step) in
+`%LOCALAPPDATA%\com.mailwoman.desktop` and then points the driver at that same folder,
+so the WebDriver launch is a second launch. What answered on the runner is not known.
+
+To reproduce: run the suite twice with the same `MW_E2E_WEBVIEW_USER_DATA_FOLDER`, after
+deleting `EBWebView\Default\Service Worker\CacheStorage` from it between the runs; the
+second run fails with the WebView2 error page (`ERR_FAILED`). Launching the shell
+directly with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--proxy-server=http://127.0.0.1:<port>
+--proxy-bypass-list=<-loopback>"` shows the worker's requests arriving at that proxy on
+the second launch and none on the first.
+
+What a failed run prints: the document the WebView holds (URL, MIME type, start of the
+HTML, the navigation's `responseStatus`, `deliveryType` and `workerStart`, the service
+worker in control), then the same after unregistering every service worker and
+reloading. `workerStart` above 0 means a worker answered the navigation;
+`deliveryType: "cache-storage"` means it answered from its cache. The test fails either
+way.
+
+`MW_E2E_DRIVER_PORT` moves `tauri-driver` off port 4444 (the native driver takes the next
+port), for running beside another session.
+
 ## CI / driver notes for e8
 
 - The `desktop-e2e` job must install `tauri-driver` and a WebView2-matched
