@@ -1,8 +1,21 @@
 // V7 Assist UI styles (plan §3 e6). Token-native — the frozen design tokens
 // (theme/contract.css.ts) are UNCHANGED; this file only references `vars.*`.
+//
+// t32 restyle (plan §2.4): square corners, 2px control and panel borders in
+// `borderStrong` with 1px less padding so no box grows (P1), focus is the
+// outline ring, headings heavy, labels small tracked capitals.
 
 import { style } from '@vanilla-extract/css';
 import { vars } from '../../theme/contract.css.ts';
+
+/** The outline ring (forced colours keep it; they drop a box-shadow ring). */
+const focusOutline = {
+  outline: `${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`,
+  outlineOffset: '2px',
+} as const;
+
+/** `base` less the 1px a 2px rule adds over the old 1px border (P1). */
+const less1 = (base: string): string => `calc(${base} - 1px)`;
 
 export const panel = style({
   display: 'flex',
@@ -17,19 +30,19 @@ export const section = style({
   display: 'flex',
   flexDirection: 'column',
   gap: vars.space[3],
-  padding: vars.space[4],
+  padding: less1(vars.space[4]),
   borderRadius: vars.radius.lg,
   background: vars.color.surface,
-  border: `1px solid ${vars.color.border}`,
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
 });
 
-export const heading = style({ fontSize: '1rem', fontWeight: 600, margin: 0 });
+export const heading = style({ fontSize: '1rem', fontWeight: vars.weight.heavy, margin: 0 });
 export const subHeading = style({
   fontSize: '0.75rem',
-  fontWeight: 600,
+  fontWeight: vars.weight.bold,
   color: vars.color.textDim,
   textTransform: 'uppercase',
-  letterSpacing: '0.04em',
+  letterSpacing: vars.tracking.label,
 });
 export const prose = style({ fontSize: '0.9rem', lineHeight: 1.5, margin: 0 });
 export const meta = style({ fontSize: '0.78rem', color: vars.color.textDim });
@@ -45,70 +58,78 @@ export const toolbar = style({ display: 'flex', gap: vars.space[2], flexWrap: 'w
 export const askInput = style({ flex: '1 1 auto' });
 
 export const input = style({
-  padding: `${vars.space[2]} ${vars.space[3]}`,
+  padding: `${less1(vars.space[2])} ${less1(vars.space[3])}`,
   borderRadius: vars.radius.md,
-  border: `1px solid ${vars.color.border}`,
-  background: vars.color.bg,
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
+  background: vars.color.bgSink,
   color: vars.color.text,
   font: 'inherit',
   fontSize: '0.9rem',
   minWidth: 0,
   minHeight: vars.a11y.touchTarget,
   selectors: {
-    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+    // A light page puts fields on the brighter surface instead of the sink.
+    ':root[data-appearance="light"] &': { background: vars.color.surface },
+    '&:focus-visible': focusOutline,
   },
 });
 
 export const button = style({
   appearance: 'none',
-  border: `1px solid ${vars.color.accent}`,
+  border: `${vars.border.rule} solid ${vars.color.accent}`,
   background: vars.color.accent,
   color: vars.color.accentText,
   borderRadius: vars.radius.md,
   cursor: 'pointer',
-  padding: `${vars.space[2]} ${vars.space[4]}`,
+  padding: `${less1(vars.space[2])} ${less1(vars.space[4])}`,
   font: 'inherit',
   fontSize: '0.9rem',
-  fontWeight: 600,
+  fontWeight: vars.weight.medium,
   minHeight: vars.a11y.touchTarget,
   selectors: {
-    '&:disabled': { opacity: 0.5, cursor: 'not-allowed' },
-    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+    '&:hover:not(:disabled)': { boxShadow: vars.elevation[1] },
+    '&:active:not(:disabled)': { boxShadow: 'none' },
+    // Not colour alone: a disabled button also has a dashed border.
+    '&:disabled': { opacity: 0.5, cursor: 'not-allowed', borderStyle: 'dashed' },
+    '&:focus-visible': focusOutline,
   },
 });
 
+// Ghost buttons invert on hover instead of casting a shadow.
 export const ghost = style({
   appearance: 'none',
-  border: `1px solid ${vars.color.border}`,
-  background: vars.color.bg,
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
+  background: 'transparent',
   color: vars.color.text,
   borderRadius: vars.radius.md,
   cursor: 'pointer',
-  padding: `${vars.space[2]} ${vars.space[3]}`,
+  padding: `${less1(vars.space[2])} ${less1(vars.space[3])}`,
   font: 'inherit',
   fontSize: '0.85rem',
   minHeight: vars.a11y.touchTarget,
   selectors: {
-    '&:disabled': { opacity: 0.5, cursor: 'not-allowed' },
-    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+    '&:hover:not(:disabled)': { background: vars.color.text, color: vars.color.bg },
+    '&:disabled': { opacity: 0.5, cursor: 'not-allowed', borderStyle: 'dashed' },
+    '&:focus-visible': focusOutline,
   },
 });
 
-// The push-to-talk dictation trigger; `active` is toggled while recording.
+// The push-to-talk dictation trigger; `active` is toggled while recording. It
+// is a text button, so it is square like the others (round is kept for circles).
 export const mic = style({
   appearance: 'none',
-  border: `1px solid ${vars.color.border}`,
-  background: vars.color.bg,
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
+  background: 'transparent',
   color: vars.color.text,
-  borderRadius: vars.radius.pill,
+  borderRadius: vars.radius.md,
   cursor: 'pointer',
-  padding: `${vars.space[2]} ${vars.space[4]}`,
+  padding: `${less1(vars.space[2])} ${less1(vars.space[4])}`,
   font: 'inherit',
   fontSize: '0.85rem',
-  fontWeight: 600,
+  fontWeight: vars.weight.medium,
   minHeight: vars.a11y.touchTarget,
   selectors: {
-    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+    '&:focus-visible': focusOutline,
   },
 });
 export const micActive = style({
@@ -135,7 +156,7 @@ export const transcript = style({
   padding: vars.space[2],
   borderRadius: vars.radius.md,
   background: vars.color.bgSink,
-  border: `1px solid ${vars.color.border}`,
+  border: `${vars.border.hair} solid ${vars.color.border}`,
 });
 export const bubbleUser = style({
   alignSelf: 'flex-end',
@@ -152,7 +173,7 @@ export const bubbleAssistant = style({
   padding: `${vars.space[2]} ${vars.space[3]}`,
   borderRadius: vars.radius.md,
   background: vars.color.surface,
-  border: `1px solid ${vars.color.border}`,
+  border: `${vars.border.hair} solid ${vars.color.borderStrong}`,
   color: vars.color.text,
   fontSize: '0.9rem',
 });
@@ -164,8 +185,8 @@ export const proposal = style({
   gap: vars.space[2],
   padding: vars.space[3],
   borderRadius: vars.radius.md,
-  border: `1px solid ${vars.color.border}`,
-  borderLeft: `3px solid ${vars.color.warning}`,
+  border: `${vars.border.hair} solid ${vars.color.border}`,
+  borderInlineStart: `${vars.border.heavy} solid ${vars.color.warning}`,
   background: vars.color.bgAlt,
 });
 
@@ -174,20 +195,21 @@ export const suggestion = style({
   padding: vars.space[3],
   borderRadius: vars.radius.md,
   background: vars.color.bgSink,
-  border: `1px dashed ${vars.color.border}`,
+  border: `${vars.border.hair} dashed ${vars.color.border}`,
   fontSize: '0.9rem',
   lineHeight: 1.5,
   whiteSpace: 'pre-wrap',
 });
 
-// Auto-tag suggestion chip.
+// Auto-tag suggestion chip: square with a hair rule. The tag is user content,
+// so its case is left alone.
 export const badge = style({
   display: 'inline-flex',
   alignItems: 'center',
   gap: vars.space[2],
   padding: `${vars.space[1]} ${vars.space[3]}`,
-  borderRadius: vars.radius.pill,
-  border: `1px solid ${vars.color.border}`,
+  borderRadius: vars.radius.md,
+  border: `${vars.border.hair} solid ${vars.color.borderStrong}`,
   background: vars.color.bg,
   fontSize: '0.82rem',
 });
@@ -199,7 +221,7 @@ export const disclosure = style({
   padding: vars.space[3],
   borderRadius: vars.radius.md,
   background: vars.color.bgAlt,
-  borderLeft: `3px solid ${vars.color.accent}`,
+  borderInlineStart: `${vars.border.heavy} solid ${vars.color.accent}`,
   color: vars.color.text,
 });
 

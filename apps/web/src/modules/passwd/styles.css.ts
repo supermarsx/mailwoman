@@ -1,7 +1,20 @@
 // Password-change UI styles (plan §3 e7). Token-native — design tokens unchanged.
+//
+// t32 restyle (plan §2.4): square corners, 2px control and panel borders in
+// `borderStrong` with 1px less padding so no box grows (P1), focus is the
+// outline ring, headings heavy, field labels small tracked capitals.
 
 import { style } from '@vanilla-extract/css';
 import { vars } from '../../theme/contract.css.ts';
+
+/** The outline ring (forced colours keep it; they drop a box-shadow ring). */
+const focusOutline = {
+  outline: `${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`,
+  outlineOffset: '2px',
+} as const;
+
+/** `base` less the 1px a 2px rule adds over the old 1px border (P1). */
+const less1 = (base: string): string => `calc(${base} - 1px)`;
 
 export const panel = style({
   display: 'flex',
@@ -16,38 +29,47 @@ export const section = style({
   display: 'flex',
   flexDirection: 'column',
   gap: vars.space[3],
-  padding: vars.space[5],
+  padding: less1(vars.space[5]),
   borderRadius: vars.radius.lg,
   background: vars.color.surface,
-  border: `1px solid ${vars.color.border}`,
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
 });
 
-export const heading = style({ fontSize: '1rem', fontWeight: 600, margin: 0 });
+export const heading = style({ fontSize: '1rem', fontWeight: vars.weight.heavy, margin: 0 });
 export const prose = style({ fontSize: '0.9rem', lineHeight: 1.5, margin: 0 });
 export const meta = style({ fontSize: '0.8rem', color: vars.color.textDim, margin: 0 });
 
 export const field = style({ display: 'flex', flexDirection: 'column', gap: vars.space[2] });
-export const label = style({ fontSize: '0.85rem', fontWeight: 600 });
+// Field label: small tracked capitals (the tracking token is 0 for ar/ja/zh).
+export const label = style({
+  fontSize: '0.8rem',
+  fontWeight: vars.weight.bold,
+  letterSpacing: vars.tracking.label,
+  textTransform: 'uppercase',
+  color: vars.color.textDim,
+});
 
 export const input = style({
-  padding: `${vars.space[2]} ${vars.space[3]}`,
+  padding: `${less1(vars.space[2])} ${less1(vars.space[3])}`,
   borderRadius: vars.radius.md,
-  border: `1px solid ${vars.color.border}`,
-  background: vars.color.bg,
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
+  background: vars.color.bgSink,
   color: vars.color.text,
   font: 'inherit',
   fontSize: '0.9rem',
   minHeight: vars.a11y.touchTarget,
-  transitionProperty: 'box-shadow, border-color',
+  transitionProperty: 'border-color',
   transitionDuration: vars.a11y.motionDuration,
   selectors: {
-    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+    // A light page puts fields on the brighter surface instead of the sink.
+    ':root[data-appearance="light"] &': { background: vars.color.surface },
+    '&:focus-visible': focusOutline,
   },
 });
 
 export const policyList = style({
   margin: 0,
-  paddingLeft: vars.space[5],
+  paddingInlineStart: vars.space[5],
   fontSize: '0.82rem',
   color: vars.color.textDim,
   display: 'flex',
@@ -57,39 +79,44 @@ export const policyList = style({
 
 export const button = style({
   appearance: 'none',
-  border: `1px solid ${vars.color.accent}`,
+  border: `${vars.border.rule} solid ${vars.color.accent}`,
   background: vars.color.accent,
   color: vars.color.accentText,
   borderRadius: vars.radius.md,
   cursor: 'pointer',
-  padding: `${vars.space[2]} ${vars.space[4]}`,
+  padding: `${less1(vars.space[2])} ${less1(vars.space[4])}`,
   font: 'inherit',
   fontSize: '0.9rem',
-  fontWeight: 600,
+  fontWeight: vars.weight.medium,
   minHeight: vars.a11y.touchTarget,
-  transitionProperty: 'box-shadow, background, border-color',
+  transitionProperty: 'box-shadow, background, color',
   transitionDuration: vars.a11y.motionDuration,
   selectors: {
-    '&:disabled': { opacity: 0.5, cursor: 'not-allowed' },
-    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+    '&:hover:not(:disabled)': { boxShadow: vars.elevation[1] },
+    '&:active:not(:disabled)': { boxShadow: 'none' },
+    // Not colour alone: a disabled button also has a dashed border.
+    '&:disabled': { opacity: 0.5, cursor: 'not-allowed', borderStyle: 'dashed' },
+    '&:focus-visible': focusOutline,
   },
 });
 
+// Ghost buttons invert on hover instead of casting a shadow.
 export const ghost = style({
   appearance: 'none',
-  border: `1px solid ${vars.color.border}`,
-  background: vars.color.bg,
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
+  background: 'transparent',
   color: vars.color.text,
   borderRadius: vars.radius.md,
   cursor: 'pointer',
-  padding: `${vars.space[2]} ${vars.space[4]}`,
+  padding: `${less1(vars.space[2])} ${less1(vars.space[4])}`,
   font: 'inherit',
   fontSize: '0.9rem',
   minHeight: vars.a11y.touchTarget,
-  transitionProperty: 'box-shadow, background, border-color',
+  transitionProperty: 'box-shadow, background, color',
   transitionDuration: vars.a11y.motionDuration,
   selectors: {
-    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+    '&:hover:not(:disabled)': { background: vars.color.text, color: vars.color.bg },
+    '&:focus-visible': focusOutline,
   },
 });
 
@@ -111,8 +138,9 @@ export const checkbox = style({
   minHeight: vars.a11y.touchTarget,
   margin: 0,
   cursor: 'pointer',
+  accentColor: vars.color.accent,
   selectors: {
-    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+    '&:focus-visible': focusOutline,
   },
 });
 
@@ -123,7 +151,7 @@ export const phrase = style({
   padding: vars.space[4],
   borderRadius: vars.radius.md,
   background: vars.color.bgSink,
-  border: `1px dashed ${vars.color.warning}`,
+  border: `${vars.border.hair} dashed ${vars.color.warning}`,
   color: vars.color.text,
   wordBreak: 'break-word',
   userSelect: 'all',
@@ -136,7 +164,7 @@ export const warn = style({
   padding: vars.space[4],
   borderRadius: vars.radius.md,
   background: vars.color.bgAlt,
-  borderLeft: `3px solid ${vars.color.warning}`,
+  borderInlineStart: `${vars.border.heavy} solid ${vars.color.warning}`,
 });
 
 export const banner = style({
@@ -146,7 +174,7 @@ export const banner = style({
   padding: vars.space[4],
   borderRadius: vars.radius.md,
   background: vars.color.bgAlt,
-  borderLeft: `3px solid ${vars.color.danger}`,
+  borderInlineStart: `${vars.border.heavy} solid ${vars.color.danger}`,
   fontWeight: 600,
 });
 
@@ -178,4 +206,4 @@ export const forcedBody = style({
   maxWidth: '32rem',
 });
 
-export const forcedTitle = style({ fontSize: '1.25rem', fontWeight: 600, margin: 0 });
+export const forcedTitle = style({ fontSize: '1.25rem', fontWeight: vars.weight.heavy, margin: 0 });

@@ -1,7 +1,20 @@
 // API-key / MCP-key UI styles (plan §3 e8). Token-native — design tokens unchanged.
+//
+// t32 restyle (plan §2.4): square corners, 2px control and panel borders in
+// `borderStrong` with 1px less padding so no box grows (P1), focus is the
+// outline ring, headings heavy, labels small tracked capitals.
 
 import { style } from '@vanilla-extract/css';
 import { vars } from '../../theme/contract.css.ts';
+
+/** The outline ring (forced colours keep it; they drop a box-shadow ring). */
+const focusOutline = {
+  outline: `${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`,
+  outlineOffset: '2px',
+} as const;
+
+/** `base` less the 1px a 2px rule adds over the old 1px border (P1). */
+const less1 = (base: string): string => `calc(${base} - 1px)`;
 
 export const panel = style({
   display: 'flex',
@@ -15,19 +28,19 @@ export const section = style({
   display: 'flex',
   flexDirection: 'column',
   gap: vars.space[3],
-  padding: vars.space[5],
+  padding: less1(vars.space[5]),
   borderRadius: vars.radius.lg,
   background: vars.color.surface,
-  border: `1px solid ${vars.color.border}`,
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
 });
 
-export const heading = style({ fontSize: '1rem', fontWeight: 600, margin: 0 });
+export const heading = style({ fontSize: '1rem', fontWeight: vars.weight.heavy, margin: 0 });
 export const subHeading = style({
   fontSize: '0.78rem',
-  fontWeight: 600,
+  fontWeight: vars.weight.bold,
   color: vars.color.textDim,
   textTransform: 'uppercase',
-  letterSpacing: '0.04em',
+  letterSpacing: vars.tracking.label,
 });
 export const prose = style({ fontSize: '0.9rem', lineHeight: 1.5, margin: 0 });
 
@@ -41,15 +54,18 @@ export const grid = style({
 });
 
 export const input = style({
-  padding: `${vars.space[2]} ${vars.space[3]}`,
+  padding: `${less1(vars.space[2])} ${less1(vars.space[3])}`,
   borderRadius: vars.radius.md,
-  border: `1px solid ${vars.color.border}`,
-  background: vars.color.bg,
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
+  background: vars.color.bgSink,
   color: vars.color.text,
   font: 'inherit',
   fontSize: '0.9rem',
-  transition: `box-shadow ${vars.a11y.motionDuration} ease`,
-  selectors: { '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing } },
+  selectors: {
+    // A light page puts fields on the brighter surface instead of the sink.
+    ':root[data-appearance="light"] &': { background: vars.color.surface },
+    '&:focus-visible': focusOutline,
+  },
 });
 
 export const check = style({
@@ -66,59 +82,71 @@ export const checkbox = style({
   minWidth: vars.a11y.touchTarget,
   minHeight: vars.a11y.touchTarget,
   cursor: 'pointer',
-  transition: `box-shadow ${vars.a11y.motionDuration} ease`,
-  selectors: { '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing } },
+  accentColor: vars.color.accent,
+  selectors: { '&:focus-visible': focusOutline },
 });
 
 export const button = style({
   appearance: 'none',
-  border: `1px solid ${vars.color.accent}`,
+  border: `${vars.border.rule} solid ${vars.color.accent}`,
   background: vars.color.accent,
   color: vars.color.accentText,
   borderRadius: vars.radius.md,
   cursor: 'pointer',
-  padding: `${vars.space[2]} ${vars.space[4]}`,
+  padding: `${less1(vars.space[2])} ${less1(vars.space[4])}`,
   font: 'inherit',
   fontSize: '0.9rem',
-  fontWeight: 600,
+  fontWeight: vars.weight.medium,
   minHeight: vars.a11y.touchTarget,
   transition: `box-shadow ${vars.a11y.motionDuration} ease`,
   selectors: {
-    '&:disabled': { opacity: 0.5, cursor: 'not-allowed' },
-    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+    '&:hover:not(:disabled)': { boxShadow: vars.elevation[1] },
+    '&:active:not(:disabled)': { boxShadow: 'none' },
+    // Not colour alone: a disabled button also has a dashed border.
+    '&:disabled': { opacity: 0.5, cursor: 'not-allowed', borderStyle: 'dashed' },
+    '&:focus-visible': focusOutline,
   },
 });
 
+// Ghost buttons invert on hover instead of casting a shadow.
 export const ghost = style({
   appearance: 'none',
-  border: `1px solid ${vars.color.border}`,
-  background: vars.color.bg,
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
+  background: 'transparent',
   color: vars.color.text,
   borderRadius: vars.radius.md,
   cursor: 'pointer',
-  padding: `${vars.space[2]} ${vars.space[4]}`,
+  padding: `${less1(vars.space[2])} ${less1(vars.space[4])}`,
   font: 'inherit',
   fontSize: '0.9rem',
   minHeight: vars.a11y.touchTarget,
-  transition: `box-shadow ${vars.a11y.motionDuration} ease`,
-  selectors: { '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing } },
+  transition: `background ${vars.a11y.motionDuration} ease, color ${vars.a11y.motionDuration} ease`,
+  selectors: {
+    '&:hover:not(:disabled)': { background: vars.color.text, color: vars.color.bg },
+    '&:disabled': { opacity: 0.5, cursor: 'not-allowed', borderStyle: 'dashed' },
+    '&:focus-visible': focusOutline,
+  },
 });
 
 export const danger = style({
   appearance: 'none',
-  border: `1px solid ${vars.color.danger}`,
-  background: 'transparent',
-  color: vars.color.danger,
+  border: `${vars.border.rule} solid ${vars.color.danger}`,
+  background: vars.color.danger,
+  color: vars.color.accentText,
   borderRadius: vars.radius.md,
   cursor: 'pointer',
-  padding: `${vars.space[1]} ${vars.space[3]}`,
+  padding: `${less1(vars.space[1])} ${less1(vars.space[3])}`,
   font: 'inherit',
   fontSize: '0.82rem',
-  fontWeight: 600,
+  fontWeight: vars.weight.medium,
   minHeight: vars.a11y.touchTarget,
   minWidth: vars.a11y.touchTarget,
   transition: `box-shadow ${vars.a11y.motionDuration} ease`,
-  selectors: { '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing } },
+  selectors: {
+    '&:hover:not(:disabled)': { boxShadow: vars.elevation[1] },
+    '&:active:not(:disabled)': { boxShadow: 'none' },
+    '&:focus-visible': focusOutline,
+  },
 });
 
 export const token = style({
@@ -127,7 +155,7 @@ export const token = style({
   padding: vars.space[3],
   borderRadius: vars.radius.md,
   background: vars.color.bgSink,
-  border: `1px dashed ${vars.color.warning}`,
+  border: `${vars.border.hair} dashed ${vars.color.warning}`,
   color: vars.color.text,
   wordBreak: 'break-all',
   userSelect: 'all',
@@ -142,7 +170,7 @@ export const keyItem = style({
   gap: vars.space[3],
   padding: vars.space[3],
   borderRadius: vars.radius.md,
-  border: `1px solid ${vars.color.border}`,
+  border: `${vars.border.hair} solid ${vars.color.border}`,
   background: vars.color.bg,
   flexWrap: 'wrap',
 });
@@ -158,7 +186,7 @@ export const warn = style({
   padding: vars.space[4],
   borderRadius: vars.radius.md,
   background: vars.color.bgAlt,
-  borderLeft: `3px solid ${vars.color.danger}`,
+  borderInlineStart: `${vars.border.heavy} solid ${vars.color.danger}`,
 });
 
 export const error = style({ fontSize: '0.85rem', color: vars.color.danger, margin: 0 });
@@ -167,9 +195,9 @@ export const error = style({ fontSize: '0.85rem', color: vars.color.danger, marg
 // survives loss of colour perception, WCAG 1.4.1).
 const statusBase = {
   fontSize: '0.72rem',
-  fontWeight: 600,
+  fontWeight: vars.weight.bold,
   textTransform: 'uppercase',
-  letterSpacing: '0.04em',
+  letterSpacing: vars.tracking.label,
   whiteSpace: 'nowrap',
 } as const;
 

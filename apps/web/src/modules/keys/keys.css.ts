@@ -1,9 +1,44 @@
 // Key-management module styles (plan §3 e2). Token-native scoped classes reusing
 // the V2 design-token contract so the module themes with the rest of the shell
 // (same posture as the V3 contacts module styles).
+//
+// t32 restyle (plan §2.4): square corners, 2px control and panel borders in
+// `borderStrong` with 1px less padding so no box grows (P1), focus is the
+// outline ring, the current key carries an inset start bar (not colour alone),
+// titles heavy, group headers, labels and badges small tracked capitals, and
+// the dialog is a flat surface with the hard `elevation[3]` shadow over the
+// theme's scrim.
 
 import { style } from '@vanilla-extract/css';
 import { vars } from '../../theme/contract.css.ts';
+
+/** The outline ring (forced colours keep it; they drop a box-shadow ring). */
+const focusOutline = {
+  outline: `${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`,
+  outlineOffset: '2px',
+} as const;
+
+/** `base` less the 1px a 2px rule adds over the old 1px border (P1). */
+const less1 = (base: string): string => `calc(${base} - 1px)`;
+
+/** Small tracked capitals (the tracking token is 0 for ar/ja/zh). */
+const capsLabel = {
+  fontWeight: vars.weight.bold,
+  textTransform: 'uppercase',
+  letterSpacing: vars.tracking.label,
+} as const;
+
+/** Fields sit on the sink in dark packs and on the brighter surface in light ones. */
+const field = {
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
+  borderRadius: vars.radius.md,
+  background: vars.color.bgSink,
+  color: vars.color.text,
+  selectors: {
+    ':root[data-appearance="light"] &': { background: vars.color.surface },
+    '&:focus-visible': focusOutline,
+  },
+} as const;
 
 export const layout = style({
   display: 'grid',
@@ -20,29 +55,28 @@ export const listPane = style({
   flexDirection: 'column',
   gap: vars.space[4],
   minWidth: 0,
-  borderRight: `1px solid ${vars.color.border}`,
-  paddingRight: vars.space[4],
+  borderInlineEnd: `${vars.border.hair} solid ${vars.color.borderStrong}`,
+  paddingInlineEnd: vars.space[4],
   overflowY: 'auto',
 });
 
 export const head = style({ display: 'flex', flexDirection: 'column', gap: vars.space[1] });
-export const title = style({ fontSize: '1.1rem', fontWeight: 700, margin: 0 });
+export const title = style({ fontSize: '1.1rem', fontWeight: vars.weight.heavy, margin: 0 });
 export const subtitle = style({ fontSize: '0.8rem', color: vars.color.textDim, margin: 0 });
 
 export const toolbar = style({ display: 'flex', gap: vars.space[2], flexWrap: 'wrap', alignItems: 'center' });
 
 export const heading = style({
+  ...capsLabel,
   fontSize: '0.72rem',
-  fontWeight: 700,
-  textTransform: 'uppercase',
-  letterSpacing: '0.04em',
   color: vars.color.textDim,
-  margin: `${vars.space[3]} 0 ${vars.space[1]}`,
+  marginBlock: `${vars.space[3]} ${vars.space[1]}`,
+  marginInline: 0,
 });
 
 export const button = style({
-  padding: `${vars.space[2]} ${vars.space[4]}`,
-  border: `1px solid ${vars.color.border}`,
+  padding: `${less1(vars.space[2])} ${less1(vars.space[4])}`,
+  border: `${vars.border.rule} solid ${vars.color.accent}`,
   borderRadius: vars.radius.md,
   background: vars.color.accent,
   color: vars.color.accentText,
@@ -50,13 +84,18 @@ export const button = style({
   cursor: 'pointer',
   minHeight: vars.a11y.touchTarget,
   selectors: {
-    '&:focus-visible': { boxShadow: vars.a11y.focusRing },
+    '&:hover:not(:disabled)': { boxShadow: vars.elevation[1] },
+    '&:active:not(:disabled)': { boxShadow: 'none' },
+    // Not colour alone: a disabled button also has a dashed border.
+    '&:disabled': { opacity: 0.5, cursor: 'not-allowed', borderStyle: 'dashed' },
+    '&:focus-visible': focusOutline,
   },
 });
 
+// Ghost buttons invert on hover instead of casting a shadow.
 export const buttonGhost = style({
-  padding: `${vars.space[2]} ${vars.space[3]}`,
-  border: `1px solid ${vars.color.border}`,
+  padding: `${less1(vars.space[2])} ${less1(vars.space[3])}`,
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
   borderRadius: vars.radius.md,
   background: 'transparent',
   color: vars.color.text,
@@ -64,7 +103,9 @@ export const buttonGhost = style({
   cursor: 'pointer',
   minHeight: vars.a11y.touchTarget,
   selectors: {
-    '&:focus-visible': { boxShadow: vars.a11y.focusRing },
+    '&:hover:not(:disabled)': { background: vars.color.text, color: vars.color.bg },
+    '&:disabled': { opacity: 0.5, cursor: 'not-allowed', borderStyle: 'dashed' },
+    '&:focus-visible': focusOutline,
   },
 });
 
@@ -82,18 +123,24 @@ export const keyRow = style({
   alignItems: 'center',
   gap: vars.space[2],
   padding: `${vars.space[2]} ${vars.space[3]}`,
-  border: '1px solid transparent',
+  border: `${vars.border.hair} solid transparent`,
   borderRadius: vars.radius.md,
   background: vars.color.surface,
   cursor: 'pointer',
   width: '100%',
-  textAlign: 'left',
+  textAlign: 'start',
   font: 'inherit',
   color: vars.color.text,
   selectors: {
-    '&[aria-current="true"]': { borderColor: vars.color.accent, background: vars.color.selection },
     '&:hover': { background: vars.color.bgAlt },
-    '&:focus-visible': { boxShadow: vars.a11y.focusRing },
+    '&[aria-current="true"]': {
+      borderColor: vars.color.accent,
+      background: vars.color.selection,
+      boxShadow: `inset 4px 0 0 ${vars.color.accent}`,
+    },
+    '&[aria-current="true"]:dir(rtl)': { boxShadow: `inset -4px 0 0 ${vars.color.accent}` },
+    // Inside the scrolling list pane, so the ring is drawn inward and not clipped.
+    '&:focus-visible': { ...focusOutline, outlineOffset: '-3px' },
   },
 });
 
@@ -102,13 +149,13 @@ export const rowName = style({ fontWeight: 600, overflow: 'hidden', textOverflow
 export const rowMeta = style({ fontSize: '0.72rem', color: vars.color.textDim, fontFamily: vars.font.mono });
 
 export const badge = style({
+  ...capsLabel,
   display: 'inline-flex',
   alignItems: 'center',
   gap: vars.space[1],
   padding: `${vars.space[1]} ${vars.space[2]}`,
-  borderRadius: vars.radius.pill,
+  borderRadius: vars.radius.md,
   fontSize: '0.68rem',
-  fontWeight: 600,
   background: vars.color.bgAlt,
   color: vars.color.textDim,
 });
@@ -125,24 +172,22 @@ export const detail = style({
 });
 
 export const card = style({
-  border: `1px solid ${vars.color.border}`,
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
   borderRadius: vars.radius.lg,
   background: vars.color.surface,
-  padding: vars.space[5],
+  padding: less1(vars.space[5]),
   display: 'flex',
   flexDirection: 'column',
   gap: vars.space[3],
 });
 
-export const cardName = style({ fontSize: '1.3rem', fontWeight: 700, margin: 0 });
+export const cardName = style({ fontSize: '1.3rem', fontWeight: vars.weight.heavy, margin: 0 });
 export const cardSub = style({ color: vars.color.textDim, margin: 0, fontSize: '0.85rem' });
 
 export const fieldGroup = style({ display: 'flex', flexDirection: 'column', gap: vars.space[2] });
 export const fieldLabel = style({
+  ...capsLabel,
   fontSize: '0.72rem',
-  fontWeight: 700,
-  textTransform: 'uppercase',
-  letterSpacing: '0.04em',
   color: vars.color.textDim,
 });
 export const fieldRow = style({ display: 'flex', gap: vars.space[2], alignItems: 'center', flexWrap: 'wrap' });
@@ -171,57 +216,44 @@ export const word = style({
   background: vars.color.bgAlt,
 });
 
+// A QR code needs dark modules on a light field to scan, whatever the theme, so
+// the frame stays white (the one colour literal here, on purpose).
 export const qr = style({
   width: '160px',
   height: '160px',
-  border: `1px solid ${vars.color.border}`,
+  border: `${vars.border.hair} solid ${vars.color.border}`,
   borderRadius: vars.radius.md,
   background: '#ffffff',
   padding: vars.space[2],
 });
 
 export const input = style({
+  ...field,
   flex: '1 1 auto',
   minWidth: 0,
   minHeight: vars.a11y.touchTarget,
-  padding: `${vars.space[2]} ${vars.space[3]}`,
-  border: `1px solid ${vars.color.border}`,
-  borderRadius: vars.radius.md,
-  background: vars.color.surface,
-  color: vars.color.text,
+  padding: `${less1(vars.space[2])} ${less1(vars.space[3])}`,
   font: 'inherit',
-  selectors: {
-    '&:focus-visible': { boxShadow: vars.a11y.focusRing },
-  },
+  // Not the bold of the capitals label that wraps it.
+  fontWeight: vars.weight.regular,
 });
 
 export const textarea = style({
+  ...field,
   width: '100%',
   minHeight: '7rem',
-  padding: vars.space[3],
-  border: `1px solid ${vars.color.border}`,
-  borderRadius: vars.radius.md,
-  background: vars.color.surface,
-  color: vars.color.text,
+  padding: less1(vars.space[3]),
   fontFamily: vars.font.mono,
   fontSize: '0.8rem',
   resize: 'vertical',
-  selectors: {
-    '&:focus-visible': { boxShadow: vars.a11y.focusRing },
-  },
 });
 
 export const select = style({
+  ...field,
   minHeight: vars.a11y.touchTarget,
-  padding: `${vars.space[2]} ${vars.space[3]}`,
-  border: `1px solid ${vars.color.border}`,
-  borderRadius: vars.radius.md,
-  background: vars.color.surface,
-  color: vars.color.text,
+  padding: `${less1(vars.space[2])} ${less1(vars.space[3])}`,
   font: 'inherit',
-  selectors: {
-    '&:focus-visible': { boxShadow: vars.a11y.focusRing },
-  },
+  fontWeight: vars.weight.regular,
 });
 
 // Small (native) checkbox controls — enlarge the interactive target to the WCAG
@@ -229,8 +261,9 @@ export const select = style({
 export const checkbox = style({
   minWidth: vars.a11y.touchTarget,
   minHeight: vars.a11y.touchTarget,
+  accentColor: vars.color.accent,
   selectors: {
-    '&:focus-visible': { boxShadow: vars.a11y.focusRing },
+    '&:focus-visible': focusOutline,
   },
 });
 
@@ -241,7 +274,7 @@ export const consent = style({
   gap: vars.space[2],
   alignItems: 'flex-start',
   padding: vars.space[3],
-  border: `1px solid ${vars.color.border}`,
+  border: `${vars.border.hair} solid ${vars.color.border}`,
   borderRadius: vars.radius.md,
   background: vars.color.bgAlt,
   fontSize: '0.8rem',
@@ -249,10 +282,11 @@ export const consent = style({
 
 export const actions = style({ display: 'flex', gap: vars.space[2], flexWrap: 'wrap' });
 
+// The page behind the dialog is covered by the theme's modal scrim.
 export const dialogBackdrop = style({
   position: 'fixed',
   inset: 0,
-  background: 'rgba(0,0,0,0.45)',
+  background: vars.color.scrim,
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -261,11 +295,12 @@ export const dialogBackdrop = style({
 });
 
 export const dialog = style({
-  background: vars.color.bg,
+  background: vars.color.surface,
   color: vars.color.text,
-  border: `1px solid ${vars.color.border}`,
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
   borderRadius: vars.radius.lg,
-  padding: vars.space[5],
+  boxShadow: vars.elevation[3],
+  padding: less1(vars.space[5]),
   maxWidth: '40rem',
   width: '100%',
   maxHeight: '85vh',
@@ -276,10 +311,29 @@ export const dialog = style({
 });
 
 export const fieldStack = style({ display: 'flex', flexDirection: 'column', gap: vars.space[3] });
-export const label = style({ display: 'flex', flexDirection: 'column', gap: vars.space[1], fontSize: '0.8rem' });
+// A field label wraps its control; the control keeps its own case and spacing
+// (form controls reset text-transform and letter-spacing).
+export const label = style({
+  ...capsLabel,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: vars.space[1],
+  fontSize: '0.8rem',
+  color: vars.color.textDim,
+  selectors: {
+    // A checkbox label is an option name in a row of options, not a field
+    // label: capitals would widen the row until it wraps.
+    '&:has(> input[type="checkbox"])': {
+      fontWeight: vars.weight.regular,
+      textTransform: 'none',
+      letterSpacing: vars.tracking.none,
+      color: vars.color.text,
+    },
+  },
+});
 export const preview = style({
   padding: vars.space[3],
-  border: `1px solid ${vars.color.border}`,
+  border: `${vars.border.hair} solid ${vars.color.border}`,
   borderRadius: vars.radius.md,
   background: vars.color.surface,
   display: 'flex',
