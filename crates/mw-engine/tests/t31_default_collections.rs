@@ -163,7 +163,7 @@ async fn setup(backing: Backing, round: usize) -> Harness {
 
 /// One first request of a screen, as the web client sends it.
 fn request(kind: usize, i: usize) -> (&'static str, Value) {
-    let even = i % 2 == 0;
+    let even = i.is_multiple_of(2);
     match (kind, even) {
         // Calendar screen: list the calendars, or create an event with no calendar.
         (0, true) => ("Calendar/get", json!({ "ids": null })),
@@ -218,7 +218,13 @@ async fn round(backing: Backing, n: usize) -> Counts {
     let store = h.engine.store();
 
     // Precondition: the account starts with no collection of any kind.
-    assert!(store.list_calendars(&h.account_id).await.unwrap().is_empty());
+    assert!(
+        store
+            .list_calendars(&h.account_id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
     assert!(
         store
             .list_address_books(&h.account_id)

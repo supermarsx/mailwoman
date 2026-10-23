@@ -439,13 +439,28 @@ impl Engine {
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
-    /// Ensure a default collection of `component` exists, returning its id (the
-    /// role:default one, else the first, else a freshly-created native one).
+    /// Ensure a collection of `component` exists, returning the id of the first
+    /// one listed, else of a freshly-created native one.
+    ///
+    /// Concurrent first requests of an account each used to find no collection
+    /// and create one, so twenty at once left up to twenty `Calendar`s. The
+    /// lookup is now repeated, and the row created, under
+    /// [`Engine::default_collections_lock`]: the first caller creates it and the
+    /// others find it. A fresh random id is kept rather than one derived from
+    /// the account, so a default the user destroyed comes back under an id no
+    /// client has seen destroyed. The lock is per process: two server
+    /// processes on one database are not covered. Accounts that already hold
+    /// duplicates keep them; nothing here merges them.
     pub(crate) async fn ensure_default_calendar(
         &self,
         account_id: &str,
         component: &str,
     ) -> Result<String> {
+        let cals = self.store().list_calendars(account_id).await?;
+        if let Some(c) = cals.iter().find(|c| c.component == component) {
+            return Ok(c.id.clone());
+        }
+        let _creating = self.default_collections_lock().lock().await;
         let cals = self.store().list_calendars(account_id).await?;
         if let Some(c) = cals.iter().find(|c| c.component == component) {
             return Ok(c.id.clone());
@@ -475,7 +490,9 @@ impl Engine {
         Ok(id)
     }
 
-    /// Seed a default event calendar + task list on first access.
+    /// Seed a default event calendar + task list on first access. The list here
+    /// only skips the common case; `ensure_default_calendar` looks again under
+    /// its lock before it creates anything.
     async fn seed_default_collections(&self, account_id: &str) -> Result<()> {
         let cals = self.store().list_calendars(account_id).await?;
         if !cals.iter().any(|c| c.component == "VEVENT") {

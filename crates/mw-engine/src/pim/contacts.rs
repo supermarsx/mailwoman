@@ -1032,15 +1032,25 @@ impl Engine {
         Ok(ids)
     }
 
-    /// Ensure a default address book exists, returning its id.
+    /// Ensure an address book exists, returning the id of the default one, else
+    /// the first, else of a freshly-created one. Creation is serialised the way
+    /// `ensure_default_calendar` explains: the lookup is repeated under
+    /// [`Engine::default_collections_lock`], the id stays random, the lock is
+    /// per process, and existing duplicates are not merged.
     pub(crate) async fn ensure_default_address_book(&self, account_id: &str) -> Result<String> {
-        let books = self.store().list_address_books(account_id).await?;
-        if let Some(b) = books
-            .iter()
-            .find(|b| b.is_default)
-            .or_else(|| books.first())
-        {
-            return Ok(b.id.clone());
+        let existing = |books: &[AddressBookRow]| {
+            books
+                .iter()
+                .find(|b| b.is_default)
+                .or_else(|| books.first())
+                .map(|b| b.id.clone())
+        };
+        if let Some(id) = existing(&self.store().list_address_books(account_id).await?) {
+            return Ok(id);
+        }
+        let _creating = self.default_collections_lock().lock().await;
+        if let Some(id) = existing(&self.store().list_address_books(account_id).await?) {
+            return Ok(id);
         }
         let id = gen_id("ab");
         let row = AddressBookRow {

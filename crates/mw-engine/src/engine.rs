@@ -104,6 +104,9 @@ pub struct Engine {
     search_dir: Option<PathBuf>,
     /// Single-flight guard and progress counters for a search-index rebuild.
     pub(crate) index_rebuild: IndexRebuild,
+    /// Held while a default calendar, task list or address book is looked up
+    /// again and created ([`Engine::default_collections_lock`]).
+    default_collections: tokio::sync::Mutex<()>,
 }
 
 /// State of the one search-index rebuild that may run at a time
@@ -151,6 +154,7 @@ impl Engine {
             search,
             search_dir: None,
             index_rebuild: IndexRebuild::default(),
+            default_collections: tokio::sync::Mutex::new(()),
             dispatcher_started: AtomicBool::new(false),
             v6: std::sync::RwLock::new(crate::v6::V6Hooks::default()),
             v7: std::sync::RwLock::new(crate::v7::V7Hooks::default()),
@@ -213,6 +217,14 @@ impl Engine {
     /// The broadcast sender (used by [`crate::state`] to fan out `StateChange`).
     pub(crate) fn changes_tx(&self) -> &broadcast::Sender<StateChange> {
         &self.changes
+    }
+
+    /// Serialises the creation of an account's default collections
+    /// (`ensure_default_calendar`, `ensure_default_address_book`). One lock for
+    /// every account: it is taken only when a list found no default, which
+    /// happens once per account and kind unless the user destroys the default.
+    pub(crate) fn default_collections_lock(&self) -> &tokio::sync::Mutex<()> {
+        &self.default_collections
     }
 
     /// The dispatcher-started guard (used by [`crate::dispatcher`]).
