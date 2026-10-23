@@ -29,6 +29,13 @@ const focusOutlineInset = {
  *  is 0 for ar/ja/zh. */
 const caps = { textTransform: 'uppercase', letterSpacing: vars.tracking.label, fontWeight: vars.weight.bold } as const;
 
+/** Event and day buttons that keep their own font size take the UI face
+ *  instead of the browser's control font. The line height is pinned at 1.05,
+ *  the line box they had with the control font (12px at 0.72rem, measured):
+ *  the face's own `normal` (about 1.45) or the page's 1.2 would make a
+ *  two-line event label taller than its block. */
+const controlFace = { fontFamily: 'inherit', lineHeight: 1.05 } as const;
+
 const hair = `${vars.border.hair} solid ${vars.color.border}`;
 const rule = `${vars.border.rule} solid ${vars.color.borderStrong}`;
 
@@ -214,6 +221,9 @@ export const eventBlock = style({
   borderRadius: vars.radius.sm,
   padding: '1px 4px',
   fontSize: '0.72rem',
+  // Keeps the browser's control font: the title is an inline <bdi> that wraps,
+  // and the bundled face's taller glyph box (about 1.45em) makes a two-line
+  // title 4px taller than before even at the same line height.
   color: userColourInk,
   overflow: 'hidden',
   cursor: 'pointer',
@@ -227,6 +237,7 @@ export const allDayChip = style({
   padding: '0 6px',
   margin: '1px',
   fontSize: '0.72rem',
+  ...controlFace,
   color: userColourInk,
   cursor: 'pointer',
   selectors: { '&:focus-visible': focusOutline },
@@ -272,7 +283,7 @@ export const dayNumToday = style([
   { background: vars.color.signal, color: vars.color.signalText, fontWeight: vars.weight.bold, borderRadius: vars.radius.sm, padding: '0 6px' },
 ]);
 
-export const monthEvent = style({ fontSize: '0.7rem', borderRadius: vars.radius.sm, padding: '0 3px', color: userColourInk, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer', appearance: 'none', border: 'none', textAlign: 'start', selectors: { '&:focus-visible': focusOutlineInset } });
+export const monthEvent = style({ fontSize: '0.7rem', ...controlFace, borderRadius: vars.radius.sm, padding: '0 3px', color: userColourInk, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer', appearance: 'none', border: 'none', textAlign: 'start', selectors: { '&:focus-visible': focusOutlineInset } });
 
 export const triMonth = style({ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: vars.space[3], padding: vars.space[3] });
 
@@ -302,7 +313,7 @@ export const miniTitle = style({ textAlign: 'center', fontSize: '0.85rem', fontW
 
 export const miniGrid = style({ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '1px' });
 
-export const miniDay = style({ fontSize: '0.65rem', textAlign: 'center', padding: '1px', cursor: 'pointer', borderRadius: vars.radius.sm, appearance: 'none', border: 'none', background: 'none', color: 'inherit', selectors: { '&:focus-visible': focusOutlineInset } });
+export const miniDay = style({ fontSize: '0.65rem', ...controlFace, textAlign: 'center', padding: '1px', cursor: 'pointer', borderRadius: vars.radius.sm, appearance: 'none', border: 'none', background: 'none', color: 'inherit', selectors: { '&:focus-visible': focusOutlineInset } });
 
 export const miniDayEvent = style([miniDay, { fontWeight: vars.weight.bold, color: vars.color.accent }]);
 
