@@ -113,20 +113,24 @@ conformance suite through it.
 | **Traefik** | ✅ | ✅ | ✅ developer host | 11/12, sole failure since fixed app-side |
 | **Apache httpd** | ✅ | ✅ | ✅ developer host | **10/12** — see §4.2 |
 | **HAProxy (L4, PROXY protocol)** | ✅ | ✅ | ✅ developer host | **9/12** — see §4.3 |
-| **Envoy** | ✅ | non-blocking cell, not in the tier-1 gate | developer host; no CI runner yet | 11 of 12 run and pass, the sub-path test skips — see §4.4 |
+| **Envoy** | ✅ | non-blocking cell, not in the tier-1 gate | developer host and CI run 38312068826 | 11 of 12 run and pass, the sub-path test skips — see §4.4 |
 | **IIS** | ✅ | ❌ **cannot be** | ❌ **never** | see §4.4 |
 
 ### 4.1 What "in the CI matrix" does and does not mean
 
-`.github/workflows/proxy-conformance.yml` is committed and correctly shaped —
-same environment contract, same ports, `up -d --wait` then `down -v` as the
-manual runs. **At the time of writing it has not been observed to complete a
-run**, and every result in the table above comes from a developer host with
-Docker, not from a CI runner.
+`.github/workflows/proxy-conformance.yml` boots each cell with the same
+environment contract and ports as the manual runs (`up -d --wait`, then
+`down -v`). The results in the table's last column come from a developer host.
+The workflow has since completed: in run 38312068826 (commit `b889b9d`) all
+seven cells — the six tier-1 cells and the non-blocking Envoy cell — finished
+their suite with no failures. Its skip log names the sub-path test in every
+cell and the appending-proxy test in every cell except Envoy. A test that
+returns early without writing to the skip log looks like a pass in that output.
 
-So: **do not say the proxy conformance matrix passes in CI.** Say that six cells
-were booted and measured, and that CI is configured to repeat it. The
-distinction is not pedantry — this repository has already shipped a conformance
+So: **say which run and which commit** when you say the matrix passes in CI,
+not "the matrix passes in CI" as a standing fact; one green run says nothing
+about the commits after it. The distinction is not pedantry — this repository
+has already shipped a conformance
 workflow (`t17-conformance.yml`) that never parsed, and therefore never ran, for
 an entire release cycle without anyone noticing, because GitHub reports an
 unparseable workflow as a file problem rather than a failing job.
@@ -153,11 +157,10 @@ as shipped and are worth knowing about:
   level — a raw client writing a 75 MB body now completes and receives the JSON
   `413`, where before it aborted mid-write.
 
-  **Honest limit: the Apache cell has not been re-booted since that fix.** The
-  cause is closed and the mechanism is understood, so the contract is expected to
-  hold on Apache now. It has not been *observed* to hold through httpd. Until a
-  run confirms it, state the JSON error contract as proven on the other five
-  cells and expected on Apache.
+  The Apache cell has since run in CI: in run 38312068826 (commit `b889b9d`)
+  `a_large_upload_succeeds_and_an_oversize_one_gets_the_apps_json_413` passed
+  through httpd and is not in that run's skip log. That is one run on one
+  commit; the developer-host result in the table (10/12) predates the fix.
 
 ### 4.3 HAProxy L4 — the PROXY-protocol cell
 
@@ -175,7 +178,7 @@ conformant; and the cell could not boot as shipped (omitting `healthcheck:` does
 not suppress the image's baked-in `HEALTHCHECK`, which spoke plain HTTP to a
 TLS-only listener — `healthcheck: disable: true` is required).
 
-### 4.4 Envoy and IIS — shipped configuration only
+### 4.4 Envoy (a non-blocking cell) and IIS (shipped configuration only)
 
 Neither is supported. Ship-and-document is not the same as tested, and the
 difference is stated here rather than left to the reader.
@@ -187,8 +190,8 @@ difference is stated here rather than left to the reader.
   configuration that depends on the application's right-to-left hop walk being
   correct, and the only cell in which
   `an_appending_proxy_still_resolves_the_real_client` runs instead of skipping.
-  The suite has passed against it on a developer host (11 of 12 tests run, the
-  sub-path test skips); no CI runner has executed the cell yet. That one
+  The suite has passed against it on a developer host and in CI run
+  38312068826 (11 of 12 tests run, the sub-path test skips). That one
   property is earned. Nothing else about the Envoy configuration is.
 - **IIS** cannot be tested in CI at all and **has never been booted by anyone**.
   The `web.config` and its runbook are a starting point written from the
@@ -209,7 +212,8 @@ For anyone writing release notes or marketing copy from this page:
   reachable here, and the failure direction is safe — it degrades to the
   pre-26.19 posture and never grants trust.
 - ❌ **Not** "PROXY protocol v2 verified/conformant" — see the CRC32C note above.
-- ❌ **Not** "the conformance matrix passes in CI" — see §4.1.
+- ❌ **Not** "the conformance matrix passes in CI" without the run and the
+  commit — see §4.1.
 - ❌ **Not** "`MW_BASE_PATH` isolates the app to a sub-path" — see §6.
 
 ---
@@ -303,3 +307,47 @@ or below the application's, an oversized upload would be rejected by the proxy a
 the user would get nginx's or IIS's HTML error page instead of Mailwoman's JSON
 error. Letting the request through so the application is the one that says no is
 what keeps the error contract intact.
+
+---
+
+## 8. `deploy.sh` behind a proxy, and after a crash — what is tested
+
+The proxy matrix in §4 runs the conformance suite against a compose file made
+for it. `scripts/test-deploy-proxy.sh` instead installs the app with
+`deploy.sh`, as an operator would, and checks it from the outside:
+
+```sh
+bash scripts/test-deploy-proxy.sh mailwoman:proxy-test mailwoman-mock:proxy-test
+```
+
+Build the two images first with `docker build --target runtime` and
+`docker build --target mock`. Each case prints `PASS`, `FAIL` or
+`SKIP: <reason>`; with `DEPLOY_TEST_REQUIRE=all` a skip makes the script exit
+non-zero. `DEPLOY_PROXY_CASES` picks cases (`restart npm caddy`). Every
+container, network and volume it creates carries a random project name and is
+removed afterwards.
+
+| Case | What it does | What it checks |
+|---|---|---|
+| 1 crash restart | `deploy.sh` on a localhost port; the server process is killed with SIGKILL from the host PID namespace (`docker run --privileged --pid=host … kill -9 <pid>`) | Docker records a `die` event with exit code 137 and restarts the container (`RestartCount` +1); health returns; an admin ban written before the kill is still listed |
+| 2 Nginx Proxy Manager | `deploy.sh --public-url https://… --proxy-network <net>`; `jc21/nginx-proxy-manager:2.15.1` (pinned by digest) on that network, set up through its API: one proxy host forwarding to `http://<project>:8080` with WebSocket support, and an uploaded throwaway certificate | from a client on a second network: the certificate verifies against the throwaway CA and not without it; `/healthz`; the SPA; admin login, a write refused without `X-CSRF-Token` and accepted with it; `/jmap/ws` answers 101 with the `jmap` subprotocol for a mailbox session and 401 without one; the address the app logs for a failed admin login is the client's, not the proxy's |
+| 3 Caddy with a local ACME server | not written yet: it needs the `ACME_CA` / `ACME_CA_ROOT` keys in `deploy.sh`. Until then it reports `SKIP` | — |
+
+Why case 1 does not use `docker kill`: on Docker 29.4.2 a `docker kill` is
+recorded as a manual stop, and a container with `restart: unless-stopped`
+(what `deploy.sh` writes) is then not restarted. The same script with
+`docker kill` in place of the host-namespace kill fails, and so does a run with
+the restart policy set to `no`; the forwarded-address check fails when the app
+is told not to trust the proxy network (`MW_FORWARDED_MODE=off`), and the
+WebSocket checks fail when the proxy host is created without WebSocket support.
+
+**Recorded run:** 2026-10-23, image `mailwoman:t31-w0` built from commit
+`b889b9d`, Docker 29.4.2 (Docker Desktop, WSL2 kernel 6.6.114.1, x86_64):
+case 1 PASS (healthy again 10 s after the kill), case 2 PASS, case 3 SKIP.
+
+**Not proven by this script:** issuance by the public Let's Encrypt endpoint
+for a real domain; DNS and inbound reachability on ports 80 and 443;
+certificate renewal over time; Nginx Proxy Manager's own Let's Encrypt flow and
+any setting made by hand in its UI; behaviour on Docker engines other than the
+one used for the recorded run. Case 1 kills the process once; it does not show
+what happens to a write in progress at the moment of the kill.
