@@ -1,6 +1,8 @@
 /* Attachment viewers + Attachments module (plan §2.4). Themed via the live
    design-token CSS vars (the same custom properties app.css / e4's token layer
-   drive) — never hardcoded colors — so viewers restyle with the active theme. */
+   drive) — never hardcoded colors — so viewers restyle with the active theme.
+   t32: square corners, flat fields, hard shadows only; fields and the search
+   box carry the 2px control rule with 1px back from each padding. */
 
 .mw-viewer {
   display: flex;
@@ -15,8 +17,8 @@
   flex: 1 1 auto;
   width: 100%;
   min-height: 240px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: var(--border-hair) solid var(--border);
+  border-radius: var(--radius-md);
   background: var(--bg-alt);
 }
 
@@ -47,15 +49,15 @@
   flex: 0 0 auto;
   max-width: 100%;
   background: var(--bg-alt);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
 }
 .mw-viewer__pdf-page {
   display: block;
   width: 100%;
   height: 100%;
   max-width: 100%;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
-  background: #fff;
+  box-shadow: var(--elevation-1);
+  background: var(--surface);
 }
 
 .mw-viewer__unsupported {
@@ -76,7 +78,7 @@
   overflow-x: auto;
   padding: 8px;
   background: var(--bg-alt);
-  border-top: 1px solid var(--border);
+  border-block-start: var(--border-hair) solid var(--border);
 }
 .mw-thumb {
   flex: 0 0 auto;
@@ -84,8 +86,8 @@
   display: grid;
   gap: 4px;
   padding: 6px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: var(--border-hair) solid var(--border);
+  border-radius: var(--radius-md);
   background: var(--bg);
   color: var(--text);
   cursor: pointer;
@@ -93,14 +95,14 @@
 }
 .mw-thumb--active {
   border-color: var(--accent);
-  outline: 2px solid var(--accent);
+  outline: var(--border-rule) solid var(--accent);
 }
 .mw-thumb__preview {
   display: grid;
   place-items: center;
   height: 60px;
   background: var(--bg-sink);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
 }
 .mw-thumb__img {
@@ -110,8 +112,9 @@
 }
 .mw-thumb__icon {
   font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.05em;
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
   color: var(--text-dim);
 }
 .mw-thumb__name {
@@ -135,28 +138,33 @@
   align-items: center;
   gap: 0.6rem;
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--border);
+  border-block-end: var(--border-hair) solid var(--border);
 }
 .mw-attach__title {
   margin: 0;
   font-size: 1.05rem;
+  font-weight: var(--weight-heavy);
 }
 .mw-attach__search {
   flex: 1 1 auto;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-alt);
+  padding: calc(0.45rem - 1px) calc(0.6rem - 1px);
+  border: var(--border-rule) solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-sink);
   color: var(--text);
   font: inherit;
 }
 .mw-attach__cat {
-  padding: 0.45rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-alt);
+  padding: calc(0.45rem - 1px) calc(0.5rem - 1px);
+  border: var(--border-rule) solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-sink);
   color: var(--text);
   font: inherit;
+}
+:root[data-appearance='light'] .mw-attach__search,
+:root[data-appearance='light'] .mw-attach__cat {
+  background: var(--surface);
 }
 .mw-attach__status {
   padding: 1.5rem;
@@ -176,24 +184,26 @@
   gap: 0.25rem;
   width: 100%;
   padding: 0.7rem;
-  text-align: left;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  text-align: start;
+  border: var(--border-hair) solid var(--border);
+  border-radius: var(--radius-lg);
   background: var(--bg-alt);
   color: var(--text);
   cursor: pointer;
 }
 .mw-attach__card:hover {
-  border-color: var(--accent);
+  border-color: var(--border-strong);
+  box-shadow: var(--elevation-1);
 }
 .mw-attach__kind {
   font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
   color: var(--accent);
 }
 .mw-attach__name {
-  font-weight: 600;
+  font-weight: var(--weight-bold);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

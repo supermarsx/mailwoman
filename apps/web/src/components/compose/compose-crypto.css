@@ -1,6 +1,8 @@
 /* Compose crypto + DLP styling (plan §2.5, e4). Themed entirely through the V2
  * design tokens (styles/app.css) so it tracks light/dark automatically. Scoped to
- * `.cmpcrypto*` classes — no bleed into the rest of Compose. */
+ * `.cmpcrypto*` classes — no bleed into the rest of Compose.
+ * t32: square, flat, a 3px state bar on the leading edge, labels in small
+ * tracked capitals; logical properties so RTL mirrors the bar. */
 
 .cmpcrypto {
   display: flex;
@@ -15,19 +17,19 @@
   align-items: flex-start;
   gap: 0.55rem;
   padding: 0.55rem 0.7rem;
-  border: 1px solid var(--border);
-  border-left-width: 3px;
-  border-radius: 6px;
+  border: var(--border-hair) solid var(--border);
+  border-inline-start-width: var(--border-heavy);
+  border-radius: var(--radius-md);
   background: var(--bg-alt);
 }
 .cmpcrypto-banner--e2ee {
-  border-left-color: var(--success);
+  border-inline-start-color: var(--success);
 }
 .cmpcrypto-banner--tls {
-  border-left-color: var(--text-dim);
+  border-inline-start-color: var(--text-dim);
 }
 .cmpcrypto-banner--mixed {
-  border-left-color: var(--danger);
+  border-inline-start-color: var(--danger);
 }
 .cmpcrypto-banner__badge {
   font-size: 1rem;
@@ -61,12 +63,15 @@
   gap: 0.35rem;
   margin: 0;
   padding: 0.5rem 0.7rem;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: var(--border-hair) solid var(--border);
+  border-radius: var(--radius-md);
 }
 .cmpcrypto-toggles__legend {
   padding: 0 0.3rem;
   font-size: 0.78rem;
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
   color: var(--text-dim);
 }
 .cmpcrypto-toggle {
@@ -77,14 +82,15 @@
   cursor: pointer;
 }
 .cmpcrypto-toggle--sub {
-  margin-left: 1.3rem;
+  margin-inline-start: 1.3rem;
 }
 .cmpcrypto-toggle--disabled {
   cursor: default;
   color: var(--text-dim);
 }
 .cmpcrypto-toggle__hint {
-  margin: -0.1rem 0 0.2rem 1.55rem;
+  margin-block: -0.1rem 0.2rem;
+  margin-inline: 1.55rem 0;
   font-size: 0.75rem;
   color: var(--text-dim);
 }
@@ -106,20 +112,20 @@
   flex-direction: column;
   gap: 0.1rem;
   padding: 0.5rem 0.7rem;
-  border: 1px solid var(--border);
-  border-left-width: 3px;
-  border-radius: 6px;
+  border: var(--border-hair) solid var(--border);
+  border-inline-start-width: var(--border-heavy);
+  border-radius: var(--radius-md);
   background: var(--bg-alt);
 }
 .cmpcrypto-dlp__item--block {
-  border-left-color: var(--danger);
+  border-inline-start-color: var(--danger);
 }
 .cmpcrypto-dlp__item--warn {
-  border-left-color: var(--text-dim);
+  border-inline-start-color: var(--text-dim);
 }
 .cmpcrypto-dlp__title {
   font-size: 0.82rem;
-  font-weight: 600;
+  font-weight: var(--weight-bold);
 }
 .cmpcrypto-dlp__item--block .cmpcrypto-dlp__title {
   color: var(--danger);

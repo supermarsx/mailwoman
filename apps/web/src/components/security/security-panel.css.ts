@@ -35,30 +35,32 @@ export const root = style({
 
 // ── Collapsed verdict chip ───────────────────────────────────────────────────
 
+/** Square chip with the 2px control rule (1px back from each padding); the
+ *  border takes the verdict's tone colour, the dot and the label repeat it, and
+ *  hover lifts a hard shadow. Focus is the global outline. */
 export const chip = style({
   appearance: 'none',
   display: 'inline-flex',
   alignItems: 'center',
   gap: vars.space[2],
-  border: `1px solid ${vars.color.border}`,
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
   background: vars.color.bg,
   color: vars.color.text,
-  borderRadius: vars.radius.pill,
+  borderRadius: vars.radius.sm,
   cursor: 'pointer',
-  padding: `${vars.space[1]} ${vars.space[3]}`,
+  padding: `calc(${vars.space[1]} - 1px) calc(${vars.space[3]} - 1px)`,
   font: 'inherit',
   fontSize: '0.85rem',
   lineHeight: 1.4,
   maxWidth: '100%',
   minHeight: vars.a11y.touchTarget,
   selectors: {
-    '&:hover': { borderColor: vars.color.accent },
-    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+    '&:hover': { boxShadow: vars.elevation[1] },
   },
 });
 
 export const chipTone = styleVariants(TONE_COLOR, (color) => ({
-  borderColor: `color-mix(in srgb, ${color} 45%, ${vars.color.border})`,
+  borderColor: color,
 }));
 
 export const chipDot = style({
@@ -85,12 +87,12 @@ export const chipCaret = style({
 // ── Expanded panel ───────────────────────────────────────────────────────────
 
 export const panel = style({
-  marginTop: vars.space[2],
-  border: `1px solid ${vars.color.border}`,
+  marginBlockStart: vars.space[2],
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
   borderRadius: vars.radius.md,
   background: vars.color.surface,
   boxShadow: vars.elevation[2],
-  padding: vars.space[4],
+  padding: `calc(${vars.space[4]} - 1px)`,
   display: 'flex',
   flexDirection: 'column',
   gap: vars.space[4],
@@ -107,19 +109,19 @@ export const section = style({
   display: 'flex',
   flexDirection: 'column',
   gap: vars.space[2],
-  borderTop: `1px solid ${vars.color.border}`,
-  paddingTop: vars.space[3],
+  borderBlockStart: `${vars.border.hair} solid ${vars.color.border}`,
+  paddingBlockStart: vars.space[3],
   selectors: {
-    '&:first-of-type': { borderTop: 'none', paddingTop: 0 },
+    '&:first-of-type': { borderBlockStart: 'none', paddingBlockStart: 0 },
   },
 });
 
 export const sectionTitle = style({
   margin: 0,
   fontSize: '0.72rem',
-  fontWeight: 700,
+  fontWeight: vars.weight.bold,
   textTransform: 'uppercase',
-  letterSpacing: '0.05em',
+  letterSpacing: vars.tracking.label,
   color: vars.color.textDim,
 });
 
@@ -138,15 +140,16 @@ export const badge = style({
   borderRadius: vars.radius.sm,
   padding: `${vars.space[0]} ${vars.space[2]}`,
   fontSize: '0.78rem',
-  fontWeight: 600,
-  border: '1px solid transparent',
+  fontWeight: vars.weight.bold,
+  border: `${vars.border.hair} solid transparent`,
   whiteSpace: 'nowrap',
 });
 
+// Flat: the tone colour for the text, the glyph and a hair border, no tinted
+// (translucent) fill.
 export const badgeTone = styleVariants(TONE_COLOR, (color, key) => ({
   color,
-  borderColor: `color-mix(in srgb, ${color} 40%, transparent)`,
-  background: `color-mix(in srgb, ${color} 12%, transparent)`,
+  borderColor: color,
   '::before': {
     content: `"${TONE_GLYPH[key]}\\00a0"`,
     fontWeight: 700,
@@ -163,7 +166,7 @@ export const authRow = style({
 });
 
 export const authName = style({
-  fontWeight: 600,
+  fontWeight: vars.weight.bold,
   color: vars.color.text,
 });
 
@@ -199,7 +202,7 @@ export const hop = style({
 export const hopIndex = style({
   flex: '0 0 auto',
   width: '1.5rem',
-  textAlign: 'right',
+  textAlign: 'end',
   color: vars.color.textDim,
   fontFamily: vars.font.mono,
 });
@@ -263,7 +266,7 @@ export const attachItem = style({
 });
 
 export const attachName = style({
-  fontWeight: 600,
+  fontWeight: vars.weight.bold,
   overflowWrap: 'anywhere',
 });
 
@@ -297,19 +300,18 @@ export const controls = style({
 
 export const controlBtn = style({
   appearance: 'none',
-  border: `1px solid ${vars.color.border}`,
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
   background: vars.color.bg,
   color: vars.color.text,
   borderRadius: vars.radius.md,
   cursor: 'pointer',
-  padding: `${vars.space[1]} ${vars.space[3]}`,
+  padding: `calc(${vars.space[1]} - 1px) calc(${vars.space[3]} - 1px)`,
   font: 'inherit',
   fontSize: '0.82rem',
   minHeight: vars.a11y.touchTarget,
   selectors: {
-    '&:hover:not(:disabled)': { borderColor: vars.color.accent },
-    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
-    '&:disabled': { opacity: 0.6, cursor: 'default' },
+    '&:hover:not(:disabled)': { boxShadow: vars.elevation[1] },
+    '&:disabled': { opacity: 0.6, cursor: 'default', borderStyle: 'dashed' },
   },
 });
 

@@ -1,5 +1,7 @@
 /* Composer side-features (W9/W10/W12) styling. Uses the V2 design tokens so
- * it tracks light/dark. Scoped to `.compose-extra*`. */
+ * it tracks light/dark. Scoped to `.compose-extra*`.
+ * t32: square, flat panels; the drafts entries are buttons with the 2px control
+ * rule (1px back from each padding). */
 
 .compose-extra__signature select {
   width: 100%;
@@ -8,9 +10,9 @@
 .compose-extra__recall {
   margin: 0.2rem 0 0.6rem;
   padding: 0.5rem 0.7rem;
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--text-dim);
-  border-radius: 6px;
+  border: var(--border-hair) solid var(--border);
+  border-inline-start: var(--border-heavy) solid var(--text-dim);
+  border-radius: var(--radius-md);
   background: var(--bg-alt);
 }
 .compose-extra__recall-title {
@@ -36,8 +38,8 @@
 .compose-extra__drafts {
   margin: 0.2rem 0 0.6rem;
   padding: 0.5rem 0.7rem;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: var(--border-hair) solid var(--border);
+  border-radius: var(--radius-md);
   background: var(--bg-alt);
 }
 .compose-extra__drafts-head {
@@ -73,13 +75,16 @@
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
-  padding: 0.35rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  padding: calc(0.35rem - 1px) calc(0.5rem - 1px);
+  border: var(--border-rule) solid var(--border-strong);
+  border-radius: var(--radius-sm);
   background: var(--bg);
   color: var(--text);
-  text-align: left;
+  text-align: start;
   cursor: pointer;
+}
+.compose-extra__drafts-open:hover {
+  box-shadow: var(--elevation-1);
 }
 .compose-extra__drafts-subject {
   font-size: 0.85rem;

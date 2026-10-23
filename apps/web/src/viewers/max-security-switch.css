@@ -1,13 +1,15 @@
 /* Max-security opening switch (plan §3 e5, §7.2). Themed via the live design
-   token CSS vars (same custom properties the viewers use) — never hardcoded. */
+   token CSS vars (same custom properties the viewers use) — never hardcoded.
+   t32: a square segmented control; the 2px control rule takes 1px from the
+   inner padding, and focus is the global outline. */
 
 .mw-maxsec {
   display: inline-flex;
   align-items: stretch;
   gap: 0;
-  padding: 2px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
+  padding: 1px;
+  border: var(--border-rule) solid var(--border-strong);
+  border-radius: var(--radius-md);
   background: var(--bg-sink);
 }
 
@@ -16,7 +18,7 @@
   border: 0;
   margin: 0;
   padding: 4px 12px;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-dim);
   font: inherit;
@@ -39,9 +41,4 @@
 .mw-maxsec__opt--off {
   opacity: 0.45;
   cursor: not-allowed;
-}
-
-.mw-maxsec__opt:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
 }

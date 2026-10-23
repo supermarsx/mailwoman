@@ -1,12 +1,15 @@
 /* Rich-text composer (W1) styling. Themed through the V2 design tokens
  * (styles/app.css) so it tracks light/dark. Scoped to `.compose-rt*` plus the
- * ProseMirror-owned `.ProseMirror` editable node. */
+ * ProseMirror-owned `.ProseMirror` editable node.
+ * t32: the editor is a field, so it has the 2px control rule; the surface's
+ * padding gives those pixels back. The editable node shows the focus outline,
+ * offset into the surface's padding so the scrollport does not clip it. */
 
 .compose-rt {
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: var(--border-rule) solid var(--border-strong);
+  border-radius: var(--radius-md);
   overflow: hidden;
 }
 
@@ -15,15 +18,15 @@
   flex-wrap: wrap;
   gap: 0.2rem;
   padding: 0.35rem;
-  border-bottom: 1px solid var(--border);
+  border-block-end: var(--border-hair) solid var(--border);
   background: var(--bg-alt);
 }
 
 .compose-rt__btn {
   min-width: 2rem;
-  padding: 0.25rem 0.45rem;
-  border: 1px solid transparent;
-  border-radius: 4px;
+  padding: calc(0.25rem - 1px) calc(0.45rem - 1px);
+  border: var(--border-rule) solid transparent;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text);
   font-size: 0.85rem;
@@ -32,19 +35,21 @@
 }
 .compose-rt__btn:hover {
   background: var(--bg);
-  border-color: var(--border);
+  border-color: var(--border-strong);
 }
+/* Active mark: field, control border and a 3px accent bar at the foot. */
 .compose-rt__btn--active {
   background: var(--bg);
-  border-color: var(--text-dim);
-  font-weight: 700;
+  border-color: var(--border-strong);
+  box-shadow: inset 0 -3px 0 var(--accent);
+  font-weight: var(--weight-bold);
 }
 
 .compose-rt__link {
   display: flex;
   gap: 0.4rem;
   padding: 0.35rem;
-  border-bottom: 1px solid var(--border);
+  border-block-end: var(--border-hair) solid var(--border);
 }
 .compose-rt__link input {
   flex: 1;
@@ -54,7 +59,7 @@
   min-height: 9rem;
   max-height: 22rem;
   overflow-y: auto;
-  padding: 0.6rem 0.7rem;
+  padding: calc(0.6rem - 1px) calc(0.7rem - 1px);
   background: var(--bg);
 }
 
@@ -65,6 +70,10 @@
   word-wrap: break-word;
   min-height: 8rem;
 }
+.ProseMirror:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus);
+  outline-offset: 2px;
+}
 .ProseMirror p {
   margin: 0 0 0.6rem;
 }
@@ -73,16 +82,16 @@
 }
 .ProseMirror blockquote {
   margin: 0 0 0.6rem;
-  padding-left: 0.8rem;
-  border-left: 3px solid var(--border);
+  padding-inline-start: 0.8rem;
+  border-inline-start: var(--border-heavy) solid var(--border);
   color: var(--text-dim);
 }
 .ProseMirror ul,
 .ProseMirror ol {
   margin: 0 0 0.6rem;
-  padding-left: 1.4rem;
+  padding-inline-start: 1.4rem;
 }
 .ProseMirror a {
-  color: var(--accent, #2563eb);
+  color: var(--link);
   text-decoration: underline;
 }
