@@ -107,23 +107,26 @@ conformance suite through it.
 
 | Proxy | Config shipped | In the CI matrix | Booted + suite run | Result |
 |---|---|---|---|---|
-| **nginx** | ✅ | ✅ | ✅ developer host | 11/12, sole failure since fixed app-side |
-| **Caddy** | ✅ | ✅ | ✅ developer host | 11/12, sole failure since fixed app-side |
-| **HAProxy (L7)** | ✅ | ✅ | ✅ developer host | 11/12, sole failure since fixed app-side |
-| **Traefik** | ✅ | ✅ | ✅ developer host | 11/12, sole failure since fixed app-side |
-| **Apache httpd** | ✅ | ✅ | ✅ developer host | **10/12** — see §4.2 |
-| **HAProxy (L4, PROXY protocol)** | ✅ | ✅ | ✅ developer host | **9/12** — see §4.3 |
-| **Envoy** | ✅ | non-blocking cell, not in the tier-1 gate | developer host and CI run 38312068826 | 11 of 12 run and pass, the sub-path test skips — see §4.4 |
+| **nginx** | ✅ | ✅ | ✅ developer host, server strict | 11 of 13 run and pass, 2 skip by design |
+| **Caddy** | ✅ | ✅ | ✅ developer host, server strict | 11 of 13 run and pass, 2 skip by design |
+| **HAProxy (L7)** | ✅ | ✅ | ✅ developer host, server strict | 11 of 13 run and pass, 2 skip by design |
+| **Traefik** | ✅ | ✅ | ✅ developer host, server strict | 11 of 13 run and pass, 2 skip by design |
+| **Apache httpd** | ✅ | ✅ | ✅ developer host, server strict | 11 of 13 run and pass, 2 skip by design — see §4.2 |
+| **HAProxy (L4, PROXY protocol)** | ✅ | ✅ | ✅ developer host, server strict | 11 of 13 run and pass, 2 skip by design — see §4.3 |
+| **Envoy** | ✅ | non-blocking cell, not in the tier-1 gate | developer host, server strict; CI run 38312068826 | 12 of 13 run and pass, the sub-path test skips — see §4.4 |
 | **IIS** | ✅ | ❌ **cannot be** | ❌ **never** | see §4.4 |
 
 ### 4.1 What "in the CI matrix" does and does not mean
 
 `.github/workflows/proxy-conformance.yml` boots each cell with the same
 environment contract and ports as the manual runs (`up -d --wait`, then
-`down -v`). The results in the table's last column come from a developer host.
-The workflow has since completed: in run 38312068826 (commit `b889b9d`) all
-seven cells — the six tier-1 cells and the non-blocking Envoy cell — finished
-their suite with no failures. Its skip log names the sub-path test in every
+`down -v`). The results in the table's last column come from a developer-host
+run on 2026-10-23 of every cell with the server strict (`MW_CSRF_STRICT=true`,
+as `deploy.sh` configures it), images built from `b889b9d`; the 13th test
+checks that a write without `X-CSRF-Token` is refused. The workflow has also
+completed: in run 38312068826 (commit `b889b9d`, before the cells ran strict,
+12 tests) all seven cells — the six tier-1 cells and the non-blocking Envoy
+cell — finished their suite with no failures. Its skip log names the sub-path test in every
 cell and the appending-proxy test in every cell except Envoy. A test that
 returns early without writing to the skip log looks like a pass in that output.
 
@@ -160,7 +163,7 @@ as shipped and are worth knowing about:
   The Apache cell has since run in CI: in run 38312068826 (commit `b889b9d`)
   `a_large_upload_succeeds_and_an_oversize_one_gets_the_apps_json_413` passed
   through httpd and is not in that run's skip log. That is one run on one
-  commit; the developer-host result in the table (10/12) predates the fix.
+  commit. The strict developer-host run of 2026-10-23 passed it as well.
 
 ### 4.3 HAProxy L4 — the PROXY-protocol cell
 
@@ -191,7 +194,8 @@ difference is stated here rather than left to the reader.
   correct, and the only cell in which
   `an_appending_proxy_still_resolves_the_real_client` runs instead of skipping.
   The suite has passed against it on a developer host and in CI run
-  38312068826 (11 of 12 tests run, the sub-path test skips). That one
+  38312068826 (11 of 12 tests run, the sub-path test skips), and in the
+  strict developer-host run of 2026-10-23 (12 of 13 run, the same skip). That one
   property is earned. Nothing else about the Envoy configuration is.
 - **IIS** cannot be tested in CI at all and **has never been booted by anyone**.
   The `web.config` and its runbook are a starting point written from the
@@ -331,7 +335,7 @@ removed afterwards.
 |---|---|---|
 | 1 crash restart | `deploy.sh` on a localhost port; the server process is killed with SIGKILL from the host PID namespace (`docker run --privileged --pid=host … kill -9 <pid>`) | Docker records a `die` event with exit code 137 and restarts the container (`RestartCount` +1); health returns; an admin ban written before the kill is still listed |
 | 2 Nginx Proxy Manager | `deploy.sh --public-url https://… --proxy-network <net>`; `jc21/nginx-proxy-manager:2.15.1` (pinned by digest) on that network, set up through its API: one proxy host forwarding to `http://<project>:8080` with WebSocket support, and an uploaded throwaway certificate | from a client on a second network: the certificate verifies against the throwaway CA and not without it; `/healthz`; the SPA; admin login, a write refused without `X-CSRF-Token` and accepted with it; `/jmap/ws` answers 101 with the `jmap` subprotocol for a mailbox session and 401 without one; the address the app logs for a failed admin login is the client's, not the proxy's |
-| 3 Caddy with a local ACME server | not written yet: it needs the `ACME_CA` / `ACME_CA_ROOT` keys in `deploy.sh`. Until then it reports `SKIP` | — |
+| 3 Caddy with a local ACME server | `deploy.sh --domain` with `ACME_CA` / `ACME_CA_ROOT` pointing at Pebble 2.10.1 (the ACME test server), whose DNS server (`pebble-challtestsrv`) answers every name with Caddy's address, so Pebble validates through Caddy's ports 80 and 443. Needs host ports 80 and 443 free, else `SKIP` | Caddy obtains a certificate from Pebble; `deploy.sh`'s own check of `https://<domain>/` from the host passes (a curl config in `CURL_HOME` maps the domain to 127.0.0.1 and trusts Pebble's root); the served chain verifies against Pebble's issuing root, fetched from Pebble before the deploy, and not without it; its issuer is Pebble's intermediate; then the case 2 checks through Caddy |
 
 Why case 1 does not use `docker kill`: on Docker 29.4.2 a `docker kill` is
 recorded as a manual stop, and a container with `restart: unless-stopped`
@@ -343,11 +347,19 @@ WebSocket checks fail when the proxy host is created without WebSocket support.
 
 **Recorded run:** 2026-10-23, image `mailwoman:t31-w0` built from commit
 `b889b9d`, Docker 29.4.2 (Docker Desktop, WSL2 kernel 6.6.114.1, x86_64):
-case 1 PASS (healthy again 10 s after the kill), case 2 PASS, case 3 SKIP.
+case 1 PASS (healthy again 10 s after the kill), case 2 PASS. Case 3 FAIL:
+Compose (5.1.3 here, and 2.38.2) refuses to start the Caddy service that
+`deploy.sh --domain` writes — `cannot create config … in read-only service
+caddy: file is the sole supported option` — because the Caddyfile is an
+inline `configs: content:` on a `read_only: true` container. So a Caddy
+installation made by `deploy.sh` at that commit does not start. With the
+Caddyfile passed as an environment value and written to `/tmp` at start
+instead, case 3 passed (certificate issued by Pebble's intermediate).
 
 **Not proven by this script:** issuance by the public Let's Encrypt endpoint
 for a real domain; DNS and inbound reachability on ports 80 and 443;
 certificate renewal over time; Nginx Proxy Manager's own Let's Encrypt flow and
 any setting made by hand in its UI; behaviour on Docker engines other than the
-one used for the recorded run. Case 1 kills the process once; it does not show
+one used for the recorded run, and Caddy images other than the `caddy:2-alpine`
+that `deploy.sh` pulled for it. Case 1 kills the process once; it does not show
 what happens to a write in progress at the moment of the kill.
