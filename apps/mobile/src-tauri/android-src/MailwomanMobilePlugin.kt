@@ -207,7 +207,9 @@ class MailwomanMobilePlugin(private val activity: android.app.Activity) : Plugin
             } else {
                 val builder = android.app.Notification.Builder(activity, BADGE_CHANNEL_ID)
                     .setSmallIcon(activity.applicationInfo.icon)
-                    .setContentTitle("Mailwoman")
+                    // The app label, which Tauri generates from productName
+                    // (MW_SHELL_PRODUCT_NAME at build time, t32).
+                    .setContentTitle(activity.applicationInfo.loadLabel(activity.packageManager))
                     .setContentText("$count unread")
                     .setNumber(count)
                     .setOngoing(false)

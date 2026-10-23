@@ -5,15 +5,16 @@
 //! `rust-embed`) and adds OS integration only — **no protocol logic and no forked
 //! UI**. The shell loads the same SPA a browser would, verifies the bundle's
 //! integrity (§7.4), injects the frozen `globalThis.__MW_CONFIG__` handshake, and
-//! points the SPA at the user's Mailwoman server (or the self-contained loopback
-//! `mw-server`) over the identical JMAP surface. The native capability layer
+//! points the SPA at the Mailwoman server the app was built or provisioned for
+//! (`serverconfig`, t32) over the identical JMAP surface. The native capability layer
 //! (`apps/web/src/platform/tauri.ts`) reaches the OS through the `mw_*` commands
 //! registered below.
 //!
 //! e7 (this file) consolidates the Batch-B modules into a running app:
-//!   * e1 — notifications / keychain / deep-link / biometric / badge / drag-out /
-//!     multi-server config (`badge`, `biometric`, `deeplink`, `dragout`, `keychain`,
-//!     `notifications`, `serverconfig`),
+//!   * e1 — notifications / keychain / deep-link / biometric / badge / drag-out
+//!     (`badge`, `biometric`, `deeplink`, `dragout`, `keychain`, `notifications`),
+//!   * t32 — the server address: baked in at build time or from an administrator's
+//!     provisioning file, never entered by the user (`serverconfig`),
 //!   * e3 — self-contained local-`mw-server` spawn (`selfcontained`),
 //!   * e4 — screen-capture protection (`capture`),
 //!   * e7 — desktop push honest-degrade (`push`) + the bundle-hash gate + the
@@ -37,24 +38,28 @@ use sha2::{Digest, Sha256};
 use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_deep_link::DeepLinkExt;
 
+/// The product name: `MW_SHELL_PRODUCT_NAME` at build time (`scripts/build-shells.*`,
+/// branding), else "Mailwoman". The window title and the error box caption.
+const PRODUCT_NAME: &str = match option_env!("MW_SHELL_PRODUCT_NAME") {
+    Some(name) => name,
+    None => "Mailwoman",
+};
+
 /// The frozen JS handshake (§2.1/§2.5): the shell injects `globalThis.__MW_CONFIG__`
 /// before the SPA executes so the capability layer (`platform/index.ts`) knows it is
 /// running natively, where its server is, and that the native capability consumers
-/// are active. `serverUrl` is `null` at boot: the user enters the server address on
-/// the SPA's Login screen, the SPA keeps it through `mw_server_*`, and the native
-/// platform reads it back at the next start (`platform/tauri.ts`, t31).
-/// camelCase matches the existing `__MW_CONFIG__` precedent
+/// are active. `serverUrl` is the address from `serverconfig` (provisioning file,
+/// else the build), or `null` when there is none and the SPA says the app has not
+/// been set up (t32). camelCase matches the existing `__MW_CONFIG__` precedent
 /// (`viewers/max-security.ts`).
-fn bootstrap_config_script() -> String {
+fn bootstrap_config_script(server_url: Option<&str>) -> String {
     let cfg = json!({
         "platform": {
             "kind": "desktop",
             "os": std::env::consts::OS,
             "version": env!("CARGO_PKG_VERSION"),
         },
-        // null → the SPA reads the stored address, or asks for one on its Login
-        // screen.
-        "serverUrl": serde_json::Value::Null,
+        "serverUrl": server_url,
         "native": true,
         // Turn on the passive native consumers (notifications/badge/deep-link/push)
         // in the SPA (`platform/capabilities.ts`). In a Tauri shell `isTauri()`
@@ -178,7 +183,7 @@ fn win_message_box(message: &str) {
             .collect::<Vec<u16>>()
     };
     let text = wide(message);
-    let caption = wide("Mailwoman");
+    let caption = wide(PRODUCT_NAME);
     // SAFETY: both pointers are NUL-terminated UTF-16 buffers that outlive the
     // call; a null owner window is allowed.
     unsafe {
@@ -253,12 +258,6 @@ pub fn run() {
             biometric::mw_biometric_authenticate,
             // e1 — drag-out attachments.
             dragout::mw_dragout_materialize,
-            // e1 — multi-server config.
-            serverconfig::mw_server_list,
-            serverconfig::mw_server_get_selected,
-            serverconfig::mw_server_add,
-            serverconfig::mw_server_remove,
-            serverconfig::mw_server_select,
             // e4 — screen-capture protection.
             capture::mw_set_capture_protection,
             // e3 — self-contained local mw-server lifecycle.
@@ -301,17 +300,21 @@ pub fn run() {
                 }
             });
 
+            // Read once at start: a provisioning file changed while the app runs
+            // applies at the next start.
+            let server = serverconfig::server_url();
+
             // The main window is created in code (not tauri.conf.json) so the
             // `__MW_CONFIG__` handshake runs as an initialization script BEFORE the
             // SPA loads. `content_protected(false)` is the default; e4's
             // `mw_set_capture_protection` flips it at runtime.
             if let Err(e) =
                 WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                    .title("Mailwoman")
+                    .title(PRODUCT_NAME)
                     .inner_size(1200.0, 800.0)
                     .min_inner_size(720.0, 560.0)
                     .content_protected(false)
-                    .initialization_script(bootstrap_config_script())
+                    .initialization_script(bootstrap_config_script(server.url.as_deref()))
                     .build()
             {
                 fatal(&format!("the main window could not be opened: {e}"));
@@ -335,13 +338,15 @@ mod tests {
 
     #[test]
     fn bootstrap_script_declares_desktop_native_config() {
-        let s = bootstrap_config_script();
+        let s = bootstrap_config_script(None);
         assert!(s.contains("__MW_CONFIG__"));
         assert!(s.contains("\"kind\":\"desktop\""));
         assert!(s.contains("\"native\":true"));
         assert!(s.contains("\"capabilities\":true"));
-        // serverUrl is null at boot (the server picker / e3 / e6 sets it).
+        // No configured server: the SPA shows that the app is not set up.
         assert!(s.contains("\"serverUrl\":null"));
+        let s = bootstrap_config_script(Some("https://mail.example.org"));
+        assert!(s.contains("\"serverUrl\":\"https://mail.example.org\""));
     }
 
     #[test]

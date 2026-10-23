@@ -2,8 +2,8 @@
 //!
 //! These are the Android capability commands backing the frozen `Platform`
 //! interface (§2.1). Every command uses the frozen **bare `mw_*` name** the SPA's
-//! `platform/tauri.ts` invokes (multi-server `config` → `mw_server_*`, `push` →
-//! `mw_push_*`, `badge` → `mw_set_badge_count`, plus the mobile bindings
+//! `platform/tauri.ts` invokes (`push` → `mw_push_*`, `badge` →
+//! `mw_set_badge_count`, plus the mobile bindings
 //! `mw_keychain_*`, `mw_notify`, `mw_biometric_*`, `mw_register_mailto_handler`,
 //! `mw_dragout_materialize`, `mw_set_capture_protection`, `mw_self_contained_*`).
 //!
@@ -104,7 +104,7 @@ impl<R: Runtime> CaptureBridge<R> {
 /// [`CaptureBridge`] for e4's FLAG_SECURE plugin) as managed Tauri state. The
 /// capability COMMANDS themselves are registered at the APP level in `lib.rs`'s
 /// `invoke_handler` with their frozen bare `mw_*` names, so the SPA's
-/// `invoke('mw_server_list')` etc. resolve directly (a plugin `invoke_handler`
+/// `invoke('mw_push_subscribe')` etc. resolve directly (a plugin `invoke_handler`
 /// would only expose them under the `plugin:mailwoman-mobile|…` namespace, which
 /// the frozen `platform/tauri.ts` does NOT use — this is the command-name
 /// reconciliation, t7-e8). `run_mobile_plugin` (Rust → Kotlin) is internal and not

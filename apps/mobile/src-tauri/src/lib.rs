@@ -10,7 +10,8 @@
 //! `platform.kind = "android" | "ios"`. The native command surface is intentionally
 //! empty here:
 //!   * e2 fills mobile capabilities (UnifiedPush registration, share targets, file
-//!     handlers, badge, biometric, multi-server),
+//!     handlers, badge, biometric),
+//!   * t32: the server address is baked in at build time (`commands::config`),
 //!   * e4 adds the Android `FLAG_SECURE` Kotlin plugin,
 //!   * e7 mounts the bundle-hash gate + produces the APK.
 
@@ -18,8 +19,7 @@ use serde_json::json;
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_deep_link::DeepLinkExt;
 
-// Mobile capability commands (UnifiedPush, share targets, badge, multi-server —
-// plan §3 e2). Packaged as a self-contained Tauri plugin (`commands::init()`);
+// Mobile capability commands (UnifiedPush, share targets, badge — plan §3 e2). Packaged as a self-contained Tauri plugin (`commands::init()`);
 // e7 registers it in `run()` below with `.plugin(commands::init())`. Declared
 // `pub` so the plugin is reachable from the crate's public API (and from e7's
 // mount code) — this executor does NOT edit `run()`'s builder chain itself.
@@ -43,18 +43,26 @@ fn platform_kind() -> &'static str {
     }
 }
 
+/// The product name: `MW_SHELL_PRODUCT_NAME` at build time (`scripts/build-shells.*`,
+/// branding), else "Mailwoman". The window title.
+const PRODUCT_NAME: &str = match option_env!("MW_SHELL_PRODUCT_NAME") {
+    Some(name) => name,
+    None => "Mailwoman",
+};
+
 /// The frozen JS handshake (§2.1/§2.5): injected before the SPA runs so the
-/// capability layer knows it is native and which mobile OS it is on. Mirrors the
-/// desktop shell's `bootstrap_config_script` (kept camelCase per the `__MW_CONFIG__`
-/// precedent).
-fn bootstrap_config_script() -> String {
+/// capability layer knows it is native, which mobile OS it is on and which server
+/// it talks to (`serverUrl`: the baked address, or `null` and the SPA says the app
+/// has not been set up, t32). Mirrors the desktop shell's `bootstrap_config_script`
+/// (kept camelCase per the `__MW_CONFIG__` precedent).
+fn bootstrap_config_script(server_url: Option<&str>) -> String {
     let cfg = json!({
         "platform": {
             "kind": platform_kind(),
             "os": std::env::consts::OS,
             "version": env!("CARGO_PKG_VERSION"),
         },
-        "serverUrl": serde_json::Value::Null,
+        "serverUrl": server_url,
         "native": true,
         // Enable the passive native consumers (notifications/badge/share/push) in
         // the SPA (`platform/capabilities.ts`); `isTauri()` already enables them in
@@ -109,12 +117,6 @@ pub fn run() {
         // `lib.rs`), so the SPA's bare `invoke('mw_*')` resolves natively on Android.
         // Commands `#[cfg(mobile)]`-degrade on the desktop host build.
         .invoke_handler(tauri::generate_handler![
-            // Multi-server config (§2.1 server methods).
-            commands::config::mw_server_list,
-            commands::config::mw_server_get_selected,
-            commands::config::mw_server_add,
-            commands::config::mw_server_remove,
-            commands::config::mw_server_select,
             // OS-backed secure store (Android EncryptedSharedPreferences).
             commands::keychain::mw_keychain_get,
             commands::keychain::mw_keychain_set,
@@ -176,9 +178,10 @@ pub fn run() {
                 }
             });
 
+            let server = commands::config::server_url();
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("Mailwoman")
-                .initialization_script(bootstrap_config_script())
+                .title(PRODUCT_NAME)
+                .initialization_script(bootstrap_config_script(server.as_deref()))
                 .build()?;
             Ok(())
         })
@@ -225,9 +228,11 @@ mod tests {
 
     #[test]
     fn bootstrap_script_declares_native_mobile_config() {
-        let s = bootstrap_config_script();
+        let s = bootstrap_config_script(None);
         assert!(s.contains("__MW_CONFIG__"));
         assert!(s.contains("\"native\":true"));
         assert!(s.contains("\"serverUrl\":null"));
+        let s = bootstrap_config_script(Some("https://mail.example.org"));
+        assert!(s.contains("\"serverUrl\":\"https://mail.example.org\""));
     }
 }
