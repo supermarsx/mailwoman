@@ -27,10 +27,18 @@ ACME_CA=
 ACME_CA_ROOT=
 MEMORY_LIMIT=
 CPU_LIMIT=
+SIGNATURE_IDENTITY=
+SIGNATURE_ISSUER=
+# The identity that signs the published image: .github/workflows/supply-chain.yml
+# on a push to master, through GitHub's OIDC issuer. deploy.env may name another
+# (SIGNATURE_IDENTITY / SIGNATURE_ISSUER) for a fork's images.
+DEFAULT_SIGNATURE_IDENTITY=https://github.com/supermarsx/mailwoman/.github/workflows/supply-chain.yml@refs/heads/master
+DEFAULT_SIGNATURE_ISSUER=https://token.actions.githubusercontent.com
 IMAGE=
 PULL=false
 NO_BUILD=false
 AUTO_ROLLBACK=true
+REQUIRE_SIGNATURE=false
 DRY_RUN=false
 TIMEOUT=180
 SNAPSHOT=
@@ -75,6 +83,9 @@ Options:
                     (init only; default 172.30.70; choose an unused subnet)
   --image REF       Use a ready-built Mailwoman image instead of building source
   --pull            Refresh --image from its registry before deploying
+  --require-signature
+                    Refuse an --image whose signature cannot be checked (no
+                    cosign, or a local image that is not from a registry)
   --no-build        Reuse the last applied app image (configuration-only deploy)
   --no-auto-rollback
                     Leave a failed update in place instead of restoring the
@@ -130,6 +141,7 @@ while (($#)); do
         --image) need_value "$@"; IMAGE=$2; shift ;;
         --timeout) need_value "$@"; TIMEOUT=$2; shift ;;
         --pull) PULL=true ;;
+        --require-signature) REQUIRE_SIGNATURE=true ;;
         --no-build) NO_BUILD=true ;;
         --no-auto-rollback) AUTO_ROLLBACK=false ;;
         --dry-run) DRY_RUN=true ;;
@@ -144,6 +156,7 @@ TIMEOUT=$((10#$TIMEOUT))
 [[ -z $IMAGE || $IMAGE != -* && $IMAGE != *[[:space:]]* ]] || die "Invalid image reference"
 if $NO_BUILD && { [[ -n $IMAGE ]] || $PULL; }; then die "--no-build cannot be combined with --image/--pull"; fi
 if $PULL && [[ -z $IMAGE ]]; then die "--pull requires --image"; fi
+if $REQUIRE_SIGNATURE && [[ -z $IMAGE ]]; then die "--require-signature requires --image"; fi
 if [[ $ACTION != deploy ]] && { [[ -n $IMAGE ]] || $NO_BUILD || $PULL || ! $AUTO_ROLLBACK; }; then
     die "Image and rollback options apply only to deploy"
 fi
@@ -154,7 +167,9 @@ read_config() {
     [[ -f $file && ! -L $file ]] || die "Missing or symlinked configuration: $file"
     # Settings a deploy.env may leave out (older files, or ones edited by hand) are
     # empty unless this file sets them, never left over from a file read earlier.
-    if [[ ${file##*/} == deploy.env ]]; then PROXY_NETWORK=; ACME_CA=; ACME_CA_ROOT=; MEMORY_LIMIT=; CPU_LIMIT=; fi
+    if [[ ${file##*/} == deploy.env ]]; then
+        PROXY_NETWORK=; ACME_CA=; ACME_CA_ROOT=; MEMORY_LIMIT=; CPU_LIMIT=; SIGNATURE_IDENTITY=; SIGNATURE_ISSUER=
+    fi
     while IFS= read -r line || [[ -n $line ]]; do
         [[ -z $line || $line == \#* ]] && continue
         [[ $line != *$'\r'* && $line == *=* ]] || die "Invalid line in $file; use unquoted KEY=value with LF endings"
@@ -162,7 +177,7 @@ read_config() {
         [[ $seen != *"|$key|"* ]] || die "Duplicate $key in $file"
         seen+="$key|"
         case "$key" in
-            PROJECT|EXPOSURE|DOMAIN|PUBLIC_URL|PORT|MODE|PROXY_PREFIX|PROXY_NETWORK|CADDY_IMAGE|ACME_CA|ACME_CA_ROOT|MEMORY_LIMIT|CPU_LIMIT|IMAGE_ID|DATA_VOLUME|CADDY_ID)
+            PROJECT|EXPOSURE|DOMAIN|PUBLIC_URL|PORT|MODE|PROXY_PREFIX|PROXY_NETWORK|CADDY_IMAGE|ACME_CA|ACME_CA_ROOT|MEMORY_LIMIT|CPU_LIMIT|SIGNATURE_IDENTITY|SIGNATURE_ISSUER|IMAGE_ID|DATA_VOLUME|CADDY_ID)
                 printf -v "$key" '%s' "$value" ;;
             *) die "Unknown setting $key in $file" ;;
         esac
@@ -203,6 +218,8 @@ validate_config() {
     [[ -z $ACME_CA_ROOT || $ACME_CA_ROOT =~ ^/[a-zA-Z0-9._/+@-]+$ ]] || die "ACME_CA_ROOT must be an absolute path to a PEM file (letters, digits and ._/+@- only)"
     [[ -z $MEMORY_LIMIT || $MEMORY_LIMIT =~ ^[1-9][0-9]{0,5}[mg]$ ]] || die "MEMORY_LIMIT must be a size such as 1g or 768m, or empty for no limit"
     [[ -z $CPU_LIMIT || ($CPU_LIMIT =~ ^[0-9]{1,3}(\.[0-9]{1,2})?$ && $CPU_LIMIT =~ [1-9]) ]] || die "CPU_LIMIT must be a number of CPUs such as 2 or 1.5, or empty for no limit"
+    [[ -z $SIGNATURE_IDENTITY || $SIGNATURE_IDENTITY =~ ^[a-zA-Z0-9][a-zA-Z0-9._~:/@%+=-]*$ ]] || die "SIGNATURE_IDENTITY must be a certificate identity such as $DEFAULT_SIGNATURE_IDENTITY"
+    [[ -z $SIGNATURE_ISSUER || $SIGNATURE_ISSUER =~ ^https://[a-zA-Z0-9][a-zA-Z0-9._~:/%+-]*$ ]] || die "SIGNATURE_ISSUER must be the https:// URL of an OIDC issuer"
 }
 
 write_config() {
@@ -221,6 +238,8 @@ ACME_CA=$ACME_CA
 ACME_CA_ROOT=$ACME_CA_ROOT
 MEMORY_LIMIT=$MEMORY_LIMIT
 CPU_LIMIT=$CPU_LIMIT
+SIGNATURE_IDENTITY=$SIGNATURE_IDENTITY
+SIGNATURE_ISSUER=$SIGNATURE_ISSUER
 EOF
 }
 
@@ -296,7 +315,7 @@ if $DRY_RUN; then
     log "Dry run: $ACTION; project=$PROJECT; mode=$MODE; exposure=$EXPOSURE"
     log "State: $STATE; URL: $PUBLIC_URL"
     case "$ACTION" in
-        deploy) log "Prepare runtime image (${IMAGE:-$($NO_BUILD && printf 'last applied image' || printf 'build Dockerfile --target runtime-static')}); snapshot existing data; apply Compose; verify app and public HTTP(S)$($AUTO_ROLLBACK && printf '; if an update fails that check, restore the previous release and its data')." ;;
+        deploy) log "Prepare runtime image (${IMAGE:+check its signature when cosign is installed, }${IMAGE:-$($NO_BUILD && printf 'last applied image' || printf 'build Dockerfile --target runtime-static')}); snapshot existing data; apply Compose; verify app and public HTTP(S)$($AUTO_ROLLBACK && printf '; if an update fails that check, restore the previous release and its data')." ;;
         restore|rollback) log "Validate snapshot checksums; save current installation; restore snapshot to a new volume; apply and verify. Post-snapshot writes will not be in the restored app." ;;
         *) log "Would run $ACTION. No files, containers, networks or volumes changed." ;;
     esac
@@ -410,6 +429,43 @@ ensure_proxy_network() {
     PROXY_SUBNETS=$(docker network inspect --format '{{range .IPAM.Config}}{{.Subnet}},{{end}}' "$PROXY_NETWORK")
     PROXY_SUBNETS=${PROXY_SUBNETS%,}
     [[ $PROXY_SUBNETS =~ ^[0-9a-fA-F:./,]*$ ]] || die "Cannot read the subnets of network $PROXY_NETWORK"
+}
+
+# image_repository REF: REF without its tag or digest.
+image_repository() {
+    local ref=${1%%@*}
+    if [[ ${ref##*/} == *:* ]]; then ref=${ref%:*}; fi
+    printf '%s' "$ref"
+}
+
+# check_signature FROM_REGISTRY: verify the keyless signature of an --image that
+# this deploy fetches from its registry, with cosign when it is installed. On
+# success IMAGE becomes the verified digest, so the pull fetches exactly what was
+# verified. A failed verification stops the deploy before anything changes; an
+# image that cannot be checked is reported, and refused under --require-signature.
+# A copy already in the local image store is not checked: whether it came from a
+# registry cannot be told (Docker's containerd store gives locally built images a
+# repository digest too).
+check_signature() {
+    local from_registry=$1 ref=$IMAGE repository reason='' output digest identity issuer
+    repository=$(image_repository "$IMAGE")
+    $from_registry || reason="$IMAGE is used from the local image store; --pull fetches it from its registry and checks it there"
+    if [[ -z $reason ]] && ! command -v cosign >/dev/null 2>&1; then reason="cosign is not installed"; fi
+    if [[ -n $reason ]]; then
+        $REQUIRE_SIGNATURE && die "The signature of $IMAGE cannot be checked ($reason) and --require-signature was given; nothing was changed"
+        log "Signature NOT checked: $reason. Use --require-signature to refuse such an image"
+        return 0
+    fi
+    identity=${SIGNATURE_IDENTITY:-$DEFAULT_SIGNATURE_IDENTITY}
+    issuer=${SIGNATURE_ISSUER:-$DEFAULT_SIGNATURE_ISSUER}
+    log "Checking the signature of $ref: signed by $identity ($issuer)"
+    if ! output=$(cosign verify --certificate-identity "$identity" --certificate-oidc-issuer "$issuer" "$ref" 2> "$WORK/cosign.log"); then
+        die "The signature of $ref did not verify; nothing was changed. cosign: $(tail -n 3 "$WORK/cosign.log" | tr '\n' ' ')"
+    fi
+    digest=$(grep -o '"docker-manifest-digest":"sha256:[0-9a-f]\{64\}"' <<< "$output" | awk -F'"' 'NR == 1 {print $4}')
+    [[ -n $digest ]] || die "cosign accepted $ref but printed no image digest; nothing was changed"
+    IMAGE="$repository@$digest"
+    log "Signature verified: $IMAGE"
 }
 
 load_active() {
@@ -775,7 +831,10 @@ case "$ACTION" in
         require_free_ports
         if ! $NO_BUILD; then
             if [[ -n $IMAGE ]]; then
-                if $PULL || ! docker image inspect "$IMAGE" >/dev/null 2>&1; then docker pull "$IMAGE"; fi
+                from_registry=false
+                if $PULL || ! docker image inspect "$IMAGE" >/dev/null 2>&1; then from_registry=true; fi
+                check_signature "$from_registry"
+                if $from_registry; then docker pull "$IMAGE"; fi
             else
                 IMAGE="mailwoman-deploy:${PROJECT}-$(date -u +%Y%m%dT%H%M%SZ)-$$"
                 log "Building web UI, server, render worker and bundled plugins"

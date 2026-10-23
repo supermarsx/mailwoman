@@ -178,6 +178,8 @@ bash deploy.sh deploy --no-build     # apply configuration, reuse the app image
 
 # Or supply an image containing the same runtime binaries/plugins:
 bash deploy.sh deploy --image registry.example.org/mailwoman:VERSION --pull
+# The published image, refused unless its signature verifies:
+bash deploy.sh deploy --image ghcr.io/supermarsx/mailwoman:master --pull --require-signature
 ```
 
 The build selects the Dockerfile target `runtime-static`, not the Dockerfile's
@@ -185,7 +187,27 @@ final stage: a `scratch` image with statically linked binaries, the target CI
 scans, signs and publishes, so an installation built from source has the shape
 of the published image. `--image` uses a locally present image unless `--pull`
 is supplied; a missing image is pulled. Each deployment records immutable image
-IDs. To update Caddy, pull the selected `CADDY_IMAGE` yourself (or edit that setting
+IDs.
+
+With `--image`, the script checks the image's keyless signature when `cosign` is
+on `PATH` and the deploy fetches the image from its registry (with `--pull`, or
+because it is not in the local image store). `cosign verify` must find a
+signature whose certificate names `SIGNATURE_IDENTITY` and `SIGNATURE_ISSUER` from
+`deploy.env`; empty values mean this repository's publishing workflow,
+`https://github.com/supermarsx/mailwoman/.github/workflows/supply-chain.yml@refs/heads/master`,
+and GitHub's issuer `https://token.actions.githubusercontent.com`. The deploy then
+uses the exact digest that was verified. A failed verification stops the deploy
+before any snapshot or container change. Without `cosign`, or for an image used
+from the local image store without `--pull` (Docker cannot tell whether a local
+copy came from a registry), the script prints that the signature was not checked
+and continues; `--require-signature` refuses such an image instead.
+Images that `deploy.sh` builds from source are not signature-checked. A fork that
+publishes its own images sets `SIGNATURE_IDENTITY` (and `SIGNATURE_ISSUER` for
+another CI) in `deploy.env`. The workflow pushes an image before it signs it, so
+for a few minutes after a push to `master` the `master` tag can name an image
+that is not signed yet; a deploy of it is refused until the signature exists.
+
+To update Caddy, pull the selected `CADDY_IMAGE` yourself (or edit that setting
 to a new tag/digest), then deploy. Multiple installations need distinct project
 names, state directories, ports, and Caddy subnets; only one can own ports 80/443.
 
@@ -265,7 +287,7 @@ bash scripts/test-deploy.sh mailwoman:deploy-verify
 ```
 
 It uses random test projects and localhost port 18089 (override with
-`DEPLOY_TEST_PORT`; the port above it must also be free). It checks that
+`DEPLOY_TEST_PORT`; the two ports above it must also be free). It checks that
 `--dry-run` writes nothing, the port auto-pick (when localhost:8080 is free, a
 throwaway container holds it for the few seconds of one `init`), the admin panel
 under strict CSRF with curl and, when Playwright can start, in a browser, the
@@ -274,7 +296,10 @@ recovery, the moves local → external → proxy network → local, the refusal 
 to Caddy, the automatic rollback of an update to an image that never becomes
 healthy (it also changes the exposure, and the previous exposure must come back)
 and `rollback` after an update made with `--no-auto-rollback`, a second,
-proxy-network installation, and the `ACME_CA` / `ACME_CA_ROOT`
+proxy-network installation, the `--image` signature check (a stand-in `cosign`
+and a registry container: verified digest deployed, failed verification refused
+before any change, `--require-signature` without `cosign` or for an image from the
+local store refused), and the `ACME_CA` / `ACME_CA_ROOT`
 lines in a Caddy installation's generated Compose file (read with `doctor`;
 invalid values refused), and the memory and CPU limits Docker applies (defaults,
 edited values, a CPU limit above the host's lowered, none for a `deploy.env`

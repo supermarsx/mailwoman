@@ -9,7 +9,7 @@
 # into a failure, reported before anything is deployed.
 # DEPLOY_TEST_PREFIX (default mw-deploy-test) starts the random project names.
 # DEPLOY_TEST_PORT (default 18089) is the localhost port of the first installation;
-# the port above it must be free too. DEPLOY_TEST_SCRIPT runs another copy of
+# the two ports above it must be free too. DEPLOY_TEST_SCRIPT runs another copy of
 # deploy.sh, e.g. one with a seeded defect, to show a case fails.
 # One step holds localhost:8080 for a few seconds when it is free (see below).
 # shellcheck disable=SC2016 # Dollar signs below deliberately test literal env values.
@@ -42,6 +42,8 @@ PICK_STATE=$(mktemp -d "$ROOT/.deploy-test-XXXXXX.local")
 ACME_STATE=$(mktemp -d "$ROOT/.deploy-test-XXXXXX.local")
 NETWORK="$PROJECT-proxy"
 BAD_IMAGE="$PROJECT-unhealthy:test"
+SIGNED=
+REGISTRY_IMAGE=registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
 SERVER_KEY=
 PASSED=false
 
@@ -80,7 +82,7 @@ set_config() { set_in "$STATE/deploy.env" "$@"; }
 app_env() { docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$1"; }
 state_listing() { (cd "$STATE" && find . -print | sort && find . -type f -exec sha256sum {} + | sort); }
 cleanup() {
-    local result=$? volume container
+    local result=$? volume container reference
     trap - EXIT
     # Exact random test project and explicit label checks protect unrelated data.
     while IFS= read -r container; do
@@ -96,6 +98,12 @@ cleanup() {
     done < <(docker volume ls -q --filter "label=mailwoman.deploy.project=$PROJECT"; docker volume ls -q --filter "label=mailwoman.deploy.project=$NET_PROJECT")
     docker network rm "$NETWORK" >/dev/null 2>&1 || true
     docker image rm "$BAD_IMAGE" >/dev/null 2>&1 || true
+    if [[ -n $SIGNED ]]; then
+        docker image rm "$SIGNED" >/dev/null 2>&1 || true
+        while IFS= read -r reference; do
+            [[ -n $reference ]] && docker image rm "$reference" >/dev/null 2>&1 || true
+        done < <(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$IMAGE" 2>/dev/null | grep -F "${SIGNED%:signed}@")
+    fi
     if $PASSED && [[ $STATE == "$ROOT"/.deploy-test-*.local && $NET_STATE == "$ROOT"/.deploy-test-*.local && $PICK_STATE == "$ROOT"/.deploy-test-*.local && $ACME_STATE == "$ROOT"/.deploy-test-*.local ]]; then
         rm -rf -- "$STATE" "$NET_STATE" "$PICK_STATE" "$ACME_STATE"
     else
@@ -220,7 +228,10 @@ mkdir "$STATE/.lock"
 reject deploy --image "$IMAGE"
 rmdir "$STATE/.lock"
 
-run deploy --image "$IMAGE"
+run deploy --image "$IMAGE" 2> "$STATE/first-deploy.log" || { cat "$STATE/first-deploy.log" >&2; fail 'first deploy failed'; }
+# An image used from the local image store is deployed unchecked, and the deploy
+# says so.
+grep -F "Signature NOT checked: $IMAGE is used from the local image store" "$STATE/first-deploy.log" >/dev/null || fail "the first deploy did not say the signature was not checked: $(cat "$STATE/first-deploy.log")"
 CID=$(dc ps -q mailwoman)
 # limits CONTAINER MEMORY_BYTES CPUS WHEN (Compose stores CPUs as a float32, so
 # 26 CPUs read back as 25999998976 nanoCPUs; compared to two decimals)
@@ -351,6 +362,67 @@ run start
 run stop
 run start
 run status
+
+# --image signature check. A registry container on localhost port DEPLOY_TEST_PORT + 2
+# holds a copy of the test image (a fixed port: Docker Desktop's daemon cannot reach
+# a randomly assigned one). A stand-in cosign on PATH answers as a passing or failing
+# keyless verification and records its arguments: this proves the script's control
+# flow and arguments, not sigstore itself.
+REGISTRY_PORT=$((PORT + 2))
+if port_in_use "$REGISTRY_PORT"; then fail "port $REGISTRY_PORT (DEPLOY_TEST_PORT + 2) must be free for this test"; fi
+MSYS_NO_PATHCONV=1 docker run -d --rm --name "$PROJECT-registry" --label "mailwoman.deploy.test=$PROJECT" --publish "127.0.0.1:$REGISTRY_PORT:5000" "$REGISTRY_IMAGE" >/dev/null
+SIGNED="127.0.0.1:$REGISTRY_PORT/$PROJECT/mailwoman:signed"
+docker tag "$IMAGE" "$SIGNED"
+for attempt in {1..10}; do
+    if docker push --quiet "$SIGNED" >/dev/null 2>&1; then break; fi
+    ((attempt < 10)) || fail "could not push the test image to the local registry"
+    sleep 1
+done
+SIGNED_DIGEST=$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$SIGNED" | awk -F@ -v repository="${SIGNED%:signed}" '$1 == repository {print $2}')
+[[ $SIGNED_DIGEST =~ ^sha256:[0-9a-f]{64}$ ]] || fail "no registry digest for $SIGNED"
+mkdir "$STATE/cosignbin"
+cat > "$STATE/cosignbin/cosign" <<'STANDIN'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$DEPLOY_TEST_COSIGN_ARGS"
+if [[ $DEPLOY_TEST_COSIGN == pass ]]; then
+    printf '[{"critical":{"identity":{"docker-reference":"stand-in"},"image":{"docker-manifest-digest":"%s"},"type":"cosign container image signature"},"optional":null}]\n' "$DEPLOY_TEST_COSIGN_DIGEST"
+    exit 0
+fi
+printf 'Error: no matching signatures: none of the expected identities matched what was in the certificate\n' >&2
+exit 12
+STANDIN
+chmod +x "$STATE/cosignbin/cosign"
+DEPLOY_TEST_COSIGN_ARGS="$STATE/cosign.args"
+DEPLOY_TEST_COSIGN_DIGEST=$SIGNED_DIGEST
+export DEPLOY_TEST_COSIGN_ARGS DEPLOY_TEST_COSIGN_DIGEST
+BACKUPS=$(find "$STATE/backups" -mindepth 1 -maxdepth 1 -type d | wc -l)
+# A failed verification stops the deploy before any snapshot or container change.
+DEPLOY_TEST_COSIGN=fail PATH="$STATE/cosignbin:$PATH" reject deploy --image "$SIGNED" --pull
+grep -F "The signature of $SIGNED did not verify; nothing was changed" "$STATE/rejected.log" >/dev/null || fail "a failed verification was not refused for that reason: $(cat "$STATE/rejected.log")"
+[[ $(dc ps -q mailwoman) == "$CID" && $(docker inspect --format '{{.State.Running}}' "$CID") == true ]] || fail 'a refused signature replaced or stopped the app'
+[[ $(find "$STATE/backups" -mindepth 1 -maxdepth 1 -type d | wc -l) == "$BACKUPS" ]] || fail 'a refused signature took a snapshot'
+printf 'signature refused: %s\n' "$(grep -F 'did not verify' "$STATE/rejected.log" | cut -c1-140)"
+# A passing verification deploys the digest that was verified, and cosign was asked
+# for this repository's signing identity and issuer.
+DEPLOY_TEST_COSIGN=pass PATH="$STATE/cosignbin:$PATH" run deploy --image "$SIGNED" --pull 2> "$STATE/signed.log" || { cat "$STATE/signed.log" >&2; fail 'a deploy with a verified signature failed'; }
+grep -F "Signature verified: ${SIGNED%:signed}@$SIGNED_DIGEST" "$STATE/signed.log" >/dev/null || fail "the verified digest was not deployed: $(cat "$STATE/signed.log")"
+[[ $(tr '\n' ' ' < "$DEPLOY_TEST_COSIGN_ARGS") == "verify --certificate-identity https://github.com/supermarsx/mailwoman/.github/workflows/supply-chain.yml@refs/heads/master --certificate-oidc-issuer https://token.actions.githubusercontent.com $SIGNED " ]] || fail "cosign was called with: $(tr '\n' ' ' < "$DEPLOY_TEST_COSIGN_ARGS")"
+CID=$(dc ps -q mailwoman)
+[[ $(docker inspect --format '{{.Image}}' "$CID") == "$(docker image inspect --format '{{.Id}}' "$IMAGE")" ]] || fail 'the verified image is not the one running'
+printf 'signature verified: %s\n' "$(grep -F 'Signature verified' "$STATE/signed.log")"
+# Without cosign the signature cannot be checked: --require-signature refuses.
+NO_COSIGN_PATH=
+IFS=: read -r -a PATH_DIRS <<< "$PATH"
+for dir in "${PATH_DIRS[@]}"; do
+    [[ -x $dir/cosign ]] || NO_COSIGN_PATH+="${NO_COSIGN_PATH:+:}$dir"
+done
+PATH="$NO_COSIGN_PATH" reject deploy --image "$SIGNED" --pull --require-signature
+grep -F "The signature of $SIGNED cannot be checked (cosign is not installed) and --require-signature was given" "$STATE/rejected.log" >/dev/null || fail "--require-signature without cosign was not refused for that reason: $(cat "$STATE/rejected.log")"
+# Nor is an image used from the local image store, cosign or not.
+DEPLOY_TEST_COSIGN=pass PATH="$STATE/cosignbin:$PATH" reject deploy --image "$IMAGE" --require-signature
+grep -F "$IMAGE is used from the local image store; --pull fetches it from its registry and checks it there) and --require-signature was given" "$STATE/rejected.log" >/dev/null || fail "--require-signature with a local-only image was not refused for that reason: $(cat "$STATE/rejected.log")"
+[[ $(dc ps -q mailwoman) == "$CID" ]] || fail 'a refused --require-signature deploy replaced the app'
+docker rm --force "$PROJECT-registry" >/dev/null
 
 # The applied installation moves among local, external and proxy-network exposure
 # when deploy.env is edited and deploy runs again, keeping its data volume; a move
@@ -493,4 +565,4 @@ grep -F 'No memory or CPU limit for the app' "$NET_STATE/limits.log" >/dev/null 
 [[ $(awk -F= '$1 == "DATA_VOLUME" {print $2}' "$NET_STATE/active/release.env") == "$NET_VOLUME" ]] || fail 'update replaced the data volume'
 docker network inspect "$NETWORK" >/dev/null || fail 'update removed the proxy network'
 PASSED=true
-printf 'PASS: dry-run writes nothing (empty and applied state), port auto-pick when 8080 is taken, deployment, literal secrets, health, persistent data, admin login and writes under strict CSRF (curl), %s, refusal of a held port before any change, backup, rollback, corruption refusal, copy-failure recovery, repeated setup options, exposure moves local -> external -> network -> local with the data volume kept, refusal of a move to caddy, a proxy-network installation, the ACME directory settings for Caddy (rendered, and refused when invalid), memory/CPU limits (defaults for a new installation, edited, lowered to the CPUs Docker has, rolled back, none for an older deploy.env, invalid values refused), and the automatic rollback of an update that never becomes healthy (previous image, exposure network with its trust lines, data saved before the update; failed release kept), rollback after --no-auto-rollback, and the Dockerfile target a deploy without --image builds (runtime-static)\n' "$BROWSER"
+printf 'PASS: dry-run writes nothing (empty and applied state), port auto-pick when 8080 is taken, deployment, literal secrets, health, persistent data, admin login and writes under strict CSRF (curl), %s, refusal of a held port before any change, backup, rollback, corruption refusal, copy-failure recovery, repeated setup options, exposure moves local -> external -> network -> local with the data volume kept, refusal of a move to caddy, a proxy-network installation, the ACME directory settings for Caddy (rendered, and refused when invalid), memory/CPU limits (defaults for a new installation, edited, lowered to the CPUs Docker has, rolled back, none for an older deploy.env, invalid values refused), and the automatic rollback of an update that never becomes healthy (previous image, exposure network with its trust lines, data saved before the update; failed release kept), rollback after --no-auto-rollback, the Dockerfile target a deploy without --image builds (runtime-static), and the --image signature check with a stand-in cosign (verified digest deployed, failed verification refused before any change, --require-signature without cosign or for an image from the local store refused, unchecked local image reported)\n' "$BROWSER"
