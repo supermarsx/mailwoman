@@ -211,6 +211,18 @@
 # new advisory ignore and NO new `[licenses].allow` entry. The guest-side packages
 # the committed plugin components are built from (wit-bindgen 0.46.0 and the
 # wasm-tools 0.239.0 crates) did not change version.
+#
+# 26.20 (t31-e1, 2026-10-23) — `cargo deny --all-features check` was red on 39
+# advisory errors published after t27-e1. Cleared by upgrades where a fixed version
+# exists: ammonia 4.1.4 -> 4.1.8 (RUSTSEC-2021-0157, -2021-0158, -2026-0373; the
+# 2021 IDs are new advisories filed in 2026), rustls 0.23.45 -> 0.23.46 (-0346 ..
+# -0349), rustls-webpki 0.103.15 -> 0.103.16 (-0382), webpki-roots / webpki-root-
+# certs 1.0.8 -> 1.0.11 (-0381, -0383), wasmtime + wasmtime-wasi 49.0.2 -> 49.0.4
+# with cranelift 0.136.4 (-0352 .. -0364, -0378, -0379), ctutils 0.4.2 -> 0.4.5
+# (-0385), tokio 1.52.3 -> 1.54.1 (-0386, unsound), docx-rs 0.4.20 -> 0.4.22
+# (removes zip 0.6.6 and quick-xml 0.36.2). zip 4.6.1 left with the updater's `zip`
+# feature. Two bounded ignores were added (zip 8.6.0 via docx-rs; the zbus family)
+# and the two quick-xml ignores were removed; each is described at its entry below.
 
 [graph]
 all-features = false
@@ -264,25 +276,46 @@ ignore = [
     "RUSTSEC-2025-0098",
     "RUSTSEC-2025-0100",
 
-    # ── V7 (26.8.0): quick-xml < 0.37 DoS advisories, reachable ONLY through the
-    # DOCX-export path and NOT in practice. `docx-rs` 0.4.20 hard-pins `quick-xml`
-    # 0.36.2 (RUSTSEC-2026-0194 quadratic duplicate-attribute check; -0195 unbounded
-    # namespace-declaration allocation) — both are memory-exhaustion **denial-of-
-    # service in the quick-xml READER**. Mailwoman uses `docx-rs` for DOCX **writing
-    # only** (mw-export, §10.6) — it never parses untrusted `.docx`/XML through
-    # docx-rs, so the vulnerable reader code path is unreachable; and it is a
-    # client-side export operation, not a network-reachable server parser. Every
-    # DIRECT quick-xml consumer in the tree (mw-ics/mw-dav/mw-carddav/mw-plugin) is
-    # on the FIXED `quick-xml` 0.41. Bounded + documented, same posture as
-    # RUSTSEC-2023-0071. e15 decision (26.8): `docx-rs` 0.4.20 hard-pins quick-xml
-    # 0.36.2 with no permissive-licensed newer release that lifts the pin, so the
-    # old quick-xml cannot be eliminated without dropping DOCX export or forking
-    # docx-rs — neither warranted for a write-only, non-network, unreachable-reader
-    # path. This bounded ignore therefore STANDS for 26.8 and is documented in
-    # docs/export/msg-oft-docx.md + docs/RELEASE-NOTES-26.8.md. Revisit when docx-rs
-    # ships a quick-xml >= 0.37 bump.
-    "RUSTSEC-2026-0194",
-    "RUSTSEC-2026-0195",
+    # (RUSTSEC-2026-0194 / -0195, the quick-xml < 0.37 reader DoS advisories that
+    # docx-rs 0.4.20 carried through its quick-xml 0.36.2 pin, were ignored here from
+    # 26.8 to 26.20. docx-rs 0.4.22 depends on quick-xml ^0.41, quick-xml 0.36.2 left
+    # the lock (t31-e1, 2026-10-23), and both ignores were removed.)
+
+    # ── 26.20 (t31-e1, 2026-10-23): zip `extract` advisories, zip 8.6.0 via docx-rs.
+    # RUSTSEC-2026-0367 (`ZipArchive::extract` creates symlinks whose targets lie
+    # outside the destination), -0368 (`extract` applies Unix permissions through
+    # symlinks), -0369 (`extract` preserves SUID/SGID bits). Fixed only in
+    # zip >= 9.0.0. The one remaining dependent is `docx-rs` 0.4.22 (`zip ^8.6.0`,
+    # its newest release) -> `mw-export`. All three concern extracting an archive to
+    # a filesystem. docx-rs never calls `ZipArchive::extract` or `ZipStreamReader`:
+    # its reader opens entries by name in memory (`docx-rs-0.4.22/src/reader/
+    # read_docx.rs:102`, `read_zip.rs:6`), and Mailwoman uses docx-rs to WRITE DOCX
+    # only (`crates/mw-export/src/docx.rs:13` imports `BreakType, Docx, Paragraph,
+    # Run`; there is no `read_docx` caller in the tree). The two other zip copies
+    # these advisories hit were removed rather than ignored: zip 0.6.6 (docx-rs
+    # 0.4.20, by the 0.4.22 bump) and zip 4.6.1 (tauri-plugin-updater's `zip`
+    # feature, disabled in the workspace `Cargo.toml`; the shells ship v2 updater
+    # artefacts, `createUpdaterArtifacts: true`, which the plugin installs without
+    # unzipping). mail-auth's `report` feature, which also pulled zip 8, is no longer
+    # enabled (`crates/mw-engine/Cargo.toml`). Revisit when docx-rs releases on
+    # zip >= 9, or if any crate in the tree starts calling `extract`.
+    "RUSTSEC-2026-0367",
+    "RUSTSEC-2026-0368",
+    "RUSTSEC-2026-0369",
+
+    # ── 26.20 (t31-e1, 2026-10-23): zbus family UNMAINTAINED advisories.
+    # RUSTSEC-2026-0370 (`zvariant`), -0371 (`zbus_names`), -0372 (`zvariant_derive`)
+    # are `unmaintained` notices, not vulnerabilities; the advisories state that no
+    # safe upgrade is available. They reach the tree only through `zbus` 5 ->
+    # `notify-rust` 4.18 -> `tauri-plugin-notification` 2 -> both Tauri shells, and
+    # only on Linux, where notify-rust talks to the desktop notification service over
+    # D-Bus. `notify-rust` 4.18.2 (newest) still requires `zbus ^5`; zbus 6 exists but
+    # nothing in the Tauri plugin chain uses it. The server crates do not depend on
+    # zbus. Same posture as the gtk-rs ignores above. Revisit when notify-rust (or
+    # tauri-plugin-notification) moves to zbus 6.
+    "RUSTSEC-2026-0370",
+    "RUSTSEC-2026-0371",
+    "RUSTSEC-2026-0372",
 ]
 
 [licenses]

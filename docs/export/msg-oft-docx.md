@@ -51,11 +51,15 @@ the parser exercised.
 
 ## Supply chain note
 
-`docx-rs` (MIT) transitively pins an older `quick-xml` (0.36.2) with two known
-denial-of-service advisories in the quick-xml **reader** (RUSTSEC-2026-0194 /
--0195). Mailwoman uses `docx-rs` for DOCX **writing only** and never parses untrusted
-`.docx`/XML through it, so the vulnerable reader path is unreachable, and it is a
-client-side export operation, not a network-reachable server parser. These two
-advisories are a **bounded, documented `cargo deny` ignore** (`deny.toml`); every
-other quick-xml consumer in the tree is on the fixed 0.41. See
-`docs/RELEASE-NOTES-26.8.md`.
+`docx-rs` (MIT) is at 0.4.22, which depends on `quick-xml` 0.41. Up to 26.19 it was
+at 0.4.20, which pinned `quick-xml` 0.36.2 with two denial-of-service advisories in
+the quick-xml reader (RUSTSEC-2026-0194 / -0195); those were a `cargo deny` ignore
+from 26.8 (`docs/RELEASE-NOTES-26.8.md`) and were removed in 26.20 when 0.36.2 left
+the lock. Every quick-xml consumer in the tree is now on 0.41.
+
+`docx-rs` 0.4.22 depends on `zip` 8.6, which is in the affected range of three `zip`
+advisories (RUSTSEC-2026-0367 / -0368 / -0369; fixed in zip 9). All three concern
+`ZipArchive::extract` writing an archive's entries to a filesystem. docx-rs does not
+call `extract`, and Mailwoman uses docx-rs to write DOCX only; it never reads a
+`.docx` through it. The three advisories are a `cargo deny` ignore in `deny.toml`,
+to be removed when docx-rs releases on zip 9 or later.
