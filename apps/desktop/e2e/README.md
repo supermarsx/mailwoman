@@ -10,7 +10,7 @@ assert every capability the SPA reaches the OS through actually round-trips.
 
 | Step | Asserts (LIVE) |
 |------|----------------|
-| boot | Launch succeeds → the §7.4 UI-bundle integrity gate passed (a hash mismatch aborts launch); the shared SPA mounts into `#root`; `window.__MW_CONFIG__` = `{platform.kind:"desktop", native:true, capabilities:true}` |
+| boot | Launch succeeds → the §7.4 UI-bundle integrity gate passed (a hash mismatch aborts launch); on a fresh profile the SPA shows the sign-in form with the server-address field (`[data-testid=login-server-address]`, labelled "Mailwoman server address" in English) — the boot-error card (`.async-state--error`) or an empty `#root` fails the run; `window.__MW_CONFIG__` = `{platform.kind:"desktop", native:true, capabilities:true}` |
 | keychain | `mw_keychain_set` → `mw_keychain_get` → `mw_keychain_delete` → get(null) against the **real OS keychain** (DPAPI on Windows) |
 | capture | `mw_set_capture_protection({enabled:true})` → `{supported:true}` on Windows (WDA_EXCLUDEFROMCAPTURE), then disable |
 | notification | `mw_notify(...)` fires a native toast without error |
@@ -160,6 +160,13 @@ second run fails with the WebView2 error page (`ERR_FAILED`). Launching the shel
 directly with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--proxy-server=http://127.0.0.1:<port>
 --proxy-bypass-list=<-loopback>"` shows the worker's requests arriving at that proxy on
 the second launch and none on the first.
+
+The boot step fails on the first screen it sees other than the sign-in form: an empty
+`#root` (`SPA did not mount into #root`), or the boot-error card, whose text is in the
+message (`SPA did not reach the sign-in form …: {"kind":"error", …}`). The card ends the
+wait at once; anything else (still loading, another screen) fails after 30 s. "Fresh
+profile" also means no selected server in `%APPDATA%\com.mailwoman.desktop\servers.json`:
+with one that does not answer, the SPA shows the card and the run fails.
 
 What a failed run prints: the document the WebView holds (URL, MIME type, start of the
 HTML, the navigation's `responseStatus`, `deliveryType` and `workerStart`, the service

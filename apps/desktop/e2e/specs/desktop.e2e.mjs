@@ -3,9 +3,11 @@
 // session, ordered assertions:
 //
 //   1. boot        — the shell launches (implying the §7.4 integrity gate passed,
-//                    since a mismatch aborts launch), the shared SPA mounts, and
-//                    the frozen `__MW_CONFIG__` handshake is present (desktop /
-//                    native / capabilities).
+//                    since a mismatch aborts launch), the shared SPA reaches its
+//                    first screen on a fresh profile — the sign-in form with the
+//                    server-address field, not the boot-error card or an empty
+//                    #root — and the frozen `__MW_CONFIG__` handshake is present
+//                    (desktop / native / capabilities).
 //   2. keychain    — the OS keychain (DPAPI on Windows) round-trips through the
 //                    `mw_keychain_*` commands: set -> get -> delete -> get(null).
 //   3. capture     — `mw_set_capture_protection({enabled})` reports {supported:true}
@@ -54,6 +56,34 @@ async function spaMounted() {
   return browser.execute(() => {
     const root = document.getElementById('root');
     return !!root && root.children.length > 0;
+  });
+}
+
+/**
+ * Which screen the SPA is showing. A fresh profile has no server address, so the
+ * first screen is the sign-in form with its server-address field (Login.tsx). The
+ * boot-error card (AsyncState.tsx, `.async-state--error`) means the SPA mounted and
+ * then failed to start; children in #root alone cannot tell the two apart.
+ */
+async function firstScreen() {
+  return browser.execute(() => {
+    const root = document.getElementById('root');
+    if (!root || root.children.length === 0) return { kind: 'empty' };
+    const field = root.querySelector('[data-testid="login-server-address"]');
+    if (field) {
+      const label = field.closest('label');
+      const span = label ? label.querySelector('span') : null;
+      return {
+        kind: 'login',
+        label: span ? span.textContent.trim() : '',
+        lang: document.documentElement.lang,
+        visible: field.getClientRects().length > 0,
+      };
+    }
+    const error = root.querySelector('.async-state--error');
+    if (error) return { kind: 'error', text: error.textContent.trim().slice(0, 200) };
+    if (root.querySelector('[data-testid="async-pending"]')) return { kind: 'pending' };
+    return { kind: 'other', text: root.textContent.trim().slice(0, 200) };
   });
 }
 
@@ -126,12 +156,25 @@ async function mountsWithoutServiceWorker() {
 
 describe('Mailwoman desktop shell — live (tauri-driver / WebView2)', () => {
   before(async () => {
-    // The SPA mounts into #root; wait for it to render before driving anything.
+    // Wait for the first screen before driving anything. The boot-error card is final
+    // (it waits for Retry), so it ends the wait as early as the sign-in form does.
+    let screen = { kind: 'empty' };
     try {
-      await browser.waitUntil(spaMounted, {
-        timeout: 30_000,
-        timeoutMsg: 'SPA did not mount into #root',
-      });
+      await browser
+        .waitUntil(
+          async () => {
+            screen = await firstScreen();
+            return screen.kind === 'login' || screen.kind === 'error';
+          },
+          { timeout: 30_000 },
+        )
+        .catch(() => undefined);
+      if (screen.kind === 'empty') throw new Error('SPA did not mount into #root');
+      if (screen.kind !== 'login') {
+        throw new Error(
+          `SPA did not reach the sign-in form with the server-address field: ${JSON.stringify(screen)}`,
+        );
+      }
     } catch (err) {
       const state = await documentState().catch((e) => `unavailable: ${e.message}`);
       // eslint-disable-next-line no-console
@@ -148,10 +191,13 @@ describe('Mailwoman desktop shell — live (tauri-driver / WebView2)', () => {
     // (a mismatch/missing asset returns Err and aborts launch, §7.4 / risk #9).
     assert.equal(await browser.getTitle(), 'Mailwoman');
 
-    const rootChildren = await browser.execute(
-      () => document.getElementById('root')?.children.length ?? 0,
-    );
-    assert.ok(rootChildren > 0, 'SPA #root has rendered content');
+    const screen = await firstScreen();
+    assert.equal(screen.kind, 'login', `first screen is the sign-in form: ${JSON.stringify(screen)}`);
+    assert.equal(screen.visible, true, 'the server-address field is rendered');
+    assert.ok(screen.label.length > 0, 'the server-address field has a label');
+    if (screen.lang === 'en') {
+      assert.equal(screen.label, 'Mailwoman server address');
+    }
 
     const cfg = await browser.execute(() => window.__MW_CONFIG__ ?? null);
     assert.ok(cfg, '__MW_CONFIG__ present');
