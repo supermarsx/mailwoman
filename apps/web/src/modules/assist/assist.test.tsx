@@ -161,6 +161,24 @@ describe('composer tools', () => {
     expect(screen.getByRole('button', { name: 'Fix grammar' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Translate' })).not.toBeInTheDocument();
   });
+
+  it('shows tone and language options as localized text and keeps the prompt in English', async () => {
+    const { service, invoke } = fakeService(noActions);
+    render(() => (
+      <ComposerTools config={enabled(['draft'])} service={service} text="hallo" account="a" onApply={() => undefined} />
+    ));
+    const tone = screen.getByRole('combobox', { name: 'Tone' }) as HTMLSelectElement;
+    expect([...tone.options].map((o) => [o.value, o.textContent])).toContainEqual(['friendly', 'Friendly']);
+    const lang = screen.getByRole('combobox', { name: 'Language' }) as HTMLSelectElement;
+    expect([...lang.options].map((o) => [o.value, o.textContent])).toContainEqual(['de', 'German']);
+
+    fireEvent.change(lang, { target: { value: 'de' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Translate' }));
+    await waitFor(() => expect(invoke).toHaveBeenCalled());
+    expect(invoke).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: 'Translate this message into German. Return only the translation.' }),
+    );
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

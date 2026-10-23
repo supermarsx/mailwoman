@@ -165,28 +165,29 @@ export interface ChatMessage {
 /** The inline composer transforms (§14.3). Each maps to a capability. */
 export type ComposerTool = 'grammar' | 'rewrite' | 'tone' | 'translate';
 
+// The visible texts are message ids: the button is `assist-tool-<id>`, the
+// argument select's label `assist-toolarg-<id>`. Option values are not shown as
+// they are: a tone value is shown through `assist-tone-<value>`, a language value
+// is a BCP-47 code shown as the language's name in the app locale.
 export interface ComposerToolSpec {
   readonly id: ComposerTool;
-  readonly label: string;
   readonly capability: AssistCapability;
   /** Whether the tool needs an argument (tone target / target language). */
-  readonly arg?: { readonly label: string; readonly options: readonly string[] };
+  readonly arg?: { readonly options: readonly string[] };
 }
 
 export const COMPOSER_TOOLS: readonly ComposerToolSpec[] = [
-  { id: 'grammar', label: 'Fix grammar', capability: 'grammar' },
-  { id: 'rewrite', label: 'Rewrite', capability: 'draft' },
+  { id: 'grammar', capability: 'grammar' },
+  { id: 'rewrite', capability: 'draft' },
   {
     id: 'tone',
-    label: 'Adjust tone',
     capability: 'draft',
-    arg: { label: 'Tone', options: ['Neutral', 'Friendly', 'Formal', 'Concise', 'Assertive'] },
+    arg: { options: ['neutral', 'friendly', 'formal', 'concise', 'assertive'] },
   },
   {
     id: 'translate',
-    label: 'Translate',
     capability: 'draft',
-    arg: { label: 'Language', options: ['English', 'German', 'French', 'Spanish', 'Portuguese', 'Dutch'] },
+    arg: { options: ['en', 'de', 'fr', 'es', 'pt', 'nl'] },
   },
 ];
 

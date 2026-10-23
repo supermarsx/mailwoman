@@ -6,6 +6,7 @@ import {
   formatDate,
   formatDateTime,
   formatDateWith,
+  formatLanguageName,
   formatList,
   formatNumber,
   formatPercent,
@@ -81,6 +82,14 @@ describe('format.ts uses the active app locale', () => {
     expect(formatList(['a', 'b', 'c'])).toBe('a, b, and c');
     setActiveLocale('de');
     expect(formatList(['a', 'b', 'c'])).toBe('a, b und c');
+  });
+
+  it('names languages in the active locale or an explicit one', () => {
+    expect(formatLanguageName('de')).toBe('German');
+    expect(formatLanguageName('pt')).toBe('Portuguese');
+    setActiveLocale('de');
+    expect(formatLanguageName('de')).toBe('Deutsch');
+    expect(formatLanguageName('fr', 'en')).toBe('French');
   });
 
   it('reports CLDR plural categories per locale', () => {

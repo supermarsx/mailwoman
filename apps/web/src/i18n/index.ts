@@ -24,6 +24,7 @@ export {
   formatPercent,
   formatBytes,
   formatList,
+  formatLanguageName,
   pluralCategory,
   formatLocale,
   type DateInput,

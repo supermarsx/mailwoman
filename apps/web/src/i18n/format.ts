@@ -166,6 +166,16 @@ export function formatList(items: readonly string[], options: Intl.ListFormatOpt
   return cached('list', locale, options, () => new Intl.ListFormat(locale, options)).format(items);
 }
 
+/**
+ * The name of a language from its BCP-47 code, in the active locale unless
+ * `locale` is given: `formatLanguageName('de')` is "German" in `en` and
+ * "Deutsch" in `de`. Returns the code itself if the runtime has no name for it.
+ */
+export function formatLanguageName(code: string, locale: string = formatLocale()): string {
+  const names = cached('lang', locale, undefined, () => new Intl.DisplayNames(locale, { type: 'language' }));
+  return names.of(code) ?? code;
+}
+
 /** The CLDR plural category of `n` in the active locale ('one', 'few', 'other', …). */
 export function pluralCategory(n: number, options?: Intl.PluralRulesOptions): Intl.LDMLPluralRule {
   const locale = formatLocale();

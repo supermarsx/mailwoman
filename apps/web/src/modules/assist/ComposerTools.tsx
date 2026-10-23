@@ -17,13 +17,16 @@ import {
   type Disclosure as DisclosureInfo,
   type InvokeRequest,
 } from './types.ts';
-import { t, loadCatalog } from '../../i18n';
+import { t, loadCatalog, formatLanguageName } from '../../i18n';
 import * as css from './styles.css.ts';
 
 /** Localized visible label for a composer tool (the button caption). */
 const toolLabel = (id: ComposerTool): string => t(`assist-tool-${id}`);
 /** Localized label for a tool's argument select (Tone / Language). */
 const toolArgLabel = (id: ComposerTool): string => t(`assist-toolarg-${id}`);
+/** Visible text for an argument option: a tone through its message, a language code as its name. */
+const optionLabel = (id: ComposerTool, value: string): string =>
+  id === 'translate' ? formatLanguageName(value) : t(`assist-tone-${value}`);
 
 export interface ComposerToolsProps {
   config: AssistConfig;
@@ -64,7 +67,8 @@ export function ComposerTools(props: ComposerToolsProps): JSX.Element {
       case 'tone':
         return `Rewrite this message in a ${a} tone. Return only the rewritten text.`;
       case 'translate':
-        return `Translate this message into ${a}. Return only the translation.`;
+        // The prompt is English, so the language is named in English.
+        return `Translate this message into ${formatLanguageName(a, 'en')}. Return only the translation.`;
     }
   }
 
@@ -118,7 +122,9 @@ export function ComposerTools(props: ComposerToolsProps): JSX.Element {
                       value={arg()[spec.id] ?? spec.arg?.options[0] ?? ''}
                       onChange={(e) => setArg((prev) => ({ ...prev, [spec.id]: e.currentTarget.value }))}
                     >
-                      <For each={spec.arg?.options ?? []}>{(o) => <option value={o}>{o}</option>}</For>
+                      <For each={spec.arg?.options ?? []}>
+                        {(o) => <option value={o}>{optionLabel(spec.id, o)}</option>}
+                      </For>
                     </select>
                   </label>
                 </Show>
