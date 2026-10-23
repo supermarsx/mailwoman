@@ -8,9 +8,10 @@
 # `deploy`). Otherwise that step is skipped; DEPLOY_TEST_REQUIRE=all turns the skip
 # into a failure, reported before anything is deployed.
 # DEPLOY_TEST_PREFIX (default mw-deploy-test) starts the random project names.
-# DEPLOY_TEST_PORT (default 18089) is the localhost port of the first installation.
-# DEPLOY_TEST_SCRIPT runs another copy of deploy.sh, e.g. one with a seeded defect,
-# to show a case fails.
+# DEPLOY_TEST_PORT (default 18089) is the localhost port of the first installation;
+# the port above it must be free too. DEPLOY_TEST_SCRIPT runs another copy of
+# deploy.sh, e.g. one with a seeded defect, to show a case fails.
+# One step holds localhost:8080 for a few seconds when it is free (see below).
 # shellcheck disable=SC2016 # Dollar signs below deliberately test literal env values.
 set -Eeuo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
@@ -34,8 +35,10 @@ fi
 PROJECT="${DEPLOY_TEST_PREFIX:-mw-deploy-test}-$$-$RANDOM"
 STATE=$(mktemp -d "$ROOT/.deploy-test-XXXXXX.local")
 PORT=${DEPLOY_TEST_PORT:-18089}
+NEXT_PORT=$((PORT + 1))
 NET_PROJECT="$PROJECT-net"
 NET_STATE=$(mktemp -d "$ROOT/.deploy-test-XXXXXX.local")
+PICK_STATE=$(mktemp -d "$ROOT/.deploy-test-XXXXXX.local")
 NETWORK="$PROJECT-proxy"
 SERVER_KEY=
 PASSED=false
@@ -43,12 +46,39 @@ PASSED=false
 run() { bash "$DEPLOY" "$@" --state-dir "$STATE"; }
 dc() { docker compose --project-name "$PROJECT" --env-file /dev/null -f "$STATE/active/compose.yaml" "$@"; }
 reject() { if run "$@" > "$STATE/rejected.log" 2>&1; then fail "unexpected success: $*"; fi; }
+port_in_use() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+# Something else listening on a localhost port: a throwaway app container that
+# publishes it. Waits until the port accepts connections.
+hold() {
+    local port=$1 i
+    MSYS_NO_PATHCONV=1 docker run -d --rm --name "$PROJECT-hold-$port" --label "mailwoman.deploy.test=$PROJECT" \
+        --publish "127.0.0.1:$port:8080" --tmpfs /tmp --env MW_DB_PATH=/tmp/hold.db \
+        --env "MW_SERVER_KEY=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')" "$IMAGE" >/dev/null
+    for i in {1..30}; do
+        if port_in_use "$port"; then return 0; fi
+        sleep 1
+    done
+    fail "could not hold port $port (attempts: $i)"
+}
+release() { docker rm --force "$PROJECT-hold-$1" >/dev/null 2>&1 || true; }
+# Rewrites KEY=value lines of the first installation's deploy.env, as a user would.
+set_config() {
+    local pair file=$STATE/deploy.env
+    for pair in "$@"; do
+        awk -v key="${pair%%=*}" -v line="$pair" -F= '$1 == key {print line; next} {print}' "$file" > "$file.new"
+        cat "$file.new" > "$file"
+        rm -- "$file.new"
+    done
+}
 app_env() { docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$1"; }
 state_listing() { (cd "$STATE" && find . -print | sort && find . -type f -exec sha256sum {} + | sort); }
 cleanup() {
-    local result=$? volume
+    local result=$? volume container
     trap - EXIT
     # Exact random test project and explicit label checks protect unrelated data.
+    while IFS= read -r container; do
+        [[ -n $container ]] && docker rm --force "$container" >/dev/null 2>&1 || true
+    done < <(docker ps -aq --filter "label=mailwoman.deploy.test=$PROJECT")
     if [[ -f $STATE/active/compose.yaml ]]; then dc down --timeout 10 >/dev/null 2>&1 || true; fi
     if [[ -f $NET_STATE/active/compose.yaml ]]; then
         docker compose --project-name "$NET_PROJECT" --env-file /dev/null -f "$NET_STATE/active/compose.yaml" down --timeout 10 >/dev/null 2>&1 || true
@@ -58,10 +88,10 @@ cleanup() {
         docker volume rm "$volume" >/dev/null || true
     done < <(docker volume ls -q --filter "label=mailwoman.deploy.project=$PROJECT"; docker volume ls -q --filter "label=mailwoman.deploy.project=$NET_PROJECT")
     docker network rm "$NETWORK" >/dev/null 2>&1 || true
-    if $PASSED && [[ $STATE == "$ROOT"/.deploy-test-*.local && $NET_STATE == "$ROOT"/.deploy-test-*.local ]]; then
-        rm -rf -- "$STATE" "$NET_STATE"
+    if $PASSED && [[ $STATE == "$ROOT"/.deploy-test-*.local && $NET_STATE == "$ROOT"/.deploy-test-*.local && $PICK_STATE == "$ROOT"/.deploy-test-*.local ]]; then
+        rm -rf -- "$STATE" "$NET_STATE" "$PICK_STATE"
     else
-        printf 'Test diagnostics retained at %s and %s\n' "$STATE" "$NET_STATE" >&2
+        printf 'Test diagnostics retained at %s, %s and %s\n' "$STATE" "$NET_STATE" "$PICK_STATE" >&2
     fi
     exit "$result"
 }
@@ -73,6 +103,22 @@ run --dry-run --domain mail.example.org
 reject --not-an-option
 reject --port 70000
 reject --domain 'mail.example.org;touch bad'
+
+# A new local installation without --port takes 8080, or the first free port from
+# 8081 to 8099 when 8080 is taken. When 8080 is free a listener takes it for the
+# length of one init, which starts nothing.
+HELD_8080=false
+if ! port_in_use 8080; then hold 8080; HELD_8080=true; fi
+bash "$DEPLOY" init --project "$PROJECT-pick" --state-dir "$PICK_STATE" 2> "$STATE/pick.log" || { $HELD_8080 && release 8080; fail "init without --port failed: $(cat "$STATE/pick.log")"; }
+if $HELD_8080; then release 8080; fi
+PICKED=$(awk -F= '$1 == "PORT" {print $2}' "$PICK_STATE/deploy.env")
+if [[ ! $PICKED =~ ^[0-9]+$ ]] || ((PICKED < 8081 || PICKED > 8099)); then
+    fail "with 8080 taken a new installation chose port '$PICKED', expected one from 8081 to 8099"
+fi
+grep -Fx "PUBLIC_URL=http://localhost:$PICKED" "$PICK_STATE/deploy.env" >/dev/null || fail "the picked port $PICKED is not in PUBLIC_URL"
+grep -F "Port 8080 is in use; using $PICKED instead" "$STATE/pick.log" >/dev/null || fail "init did not say which port it chose: $(cat "$STATE/pick.log")"
+printf 'auto-pick: 8080 %s; %s\n' "$($HELD_8080 && echo 'held by this test' || echo 'already in use')" "$(grep -F 'Port 8080 is in use' "$STATE/pick.log")"
+rm -- "$STATE/pick.log"
 
 run init --project "$PROJECT" --port "$PORT"
 SERVER_KEY=$(awk -F= '$1 == "MW_SERVER_KEY" {print $2}' "$STATE/app.env")
@@ -142,6 +188,21 @@ else
     printf 'SKIP: Playwright cannot start; the admin panel browser test did not run. Set DEPLOY_TEST_REQUIRE=all to make this a failure.\n' >&2
 fi
 
+# A deploy whose localhost port is held by something else stops before it builds,
+# snapshots or replaces anything; the running app keeps serving.
+if port_in_use "$NEXT_PORT"; then fail "port $NEXT_PORT (DEPLOY_TEST_PORT + 1) must be free for this test"; fi
+hold "$NEXT_PORT"
+cp "$STATE/deploy.env" "$STATE/deploy.env.saved"
+set_config "PORT=$NEXT_PORT" "PUBLIC_URL=http://localhost:$NEXT_PORT"
+reject deploy --no-build
+grep -F "Port $NEXT_PORT is already in use on this host" "$STATE/rejected.log" >/dev/null || fail "a deploy onto a held port was not refused for that reason: $(cat "$STATE/rejected.log")"
+[[ $(dc ps -q mailwoman) == "$CID" && $(docker inspect --format '{{.State.Running}}' "$CID") == true ]] || fail 'a refused deploy replaced or stopped the app'
+[[ ! -e $STATE/backups ]] || fail 'a refused deploy took a snapshot'
+printf 'held port: %s\n' "$(grep -F 'already in use' "$STATE/rejected.log")"
+release "$NEXT_PORT"
+cat "$STATE/deploy.env.saved" > "$STATE/deploy.env"
+rm -- "$STATE/deploy.env.saved"
+
 # Seed an opaque upload-tree object to verify full-volume backup and ownership.
 mkdir "$STATE/uploads"
 printf 'before-snapshot\n' > "$STATE/uploads/deploy-test-object"
@@ -208,4 +269,4 @@ net deploy --no-build
 [[ $(awk -F= '$1 == "DATA_VOLUME" {print $2}' "$NET_STATE/active/release.env") == "$NET_VOLUME" ]] || fail 'update replaced the data volume'
 docker network inspect "$NETWORK" >/dev/null || fail 'update removed the proxy network'
 PASSED=true
-printf 'PASS: dry-run writes nothing (empty and applied state), deployment, literal secrets, health, persistent data, admin login and writes under strict CSRF (curl), %s, backup, rollback, corruption refusal, copy-failure recovery, repeated setup options, and a proxy-network installation\n' "$BROWSER"
+printf 'PASS: dry-run writes nothing (empty and applied state), port auto-pick when 8080 is taken, deployment, literal secrets, health, persistent data, admin login and writes under strict CSRF (curl), %s, refusal of a held port before any change, backup, rollback, corruption refusal, copy-failure recovery, repeated setup options, and a proxy-network installation\n' "$BROWSER"
