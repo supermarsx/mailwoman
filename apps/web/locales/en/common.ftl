@@ -60,6 +60,11 @@ common-conn-reconnect = Reconnect
 common-conn-sign-in-again = Sign in again
 common-conn-reconnected = Reconnected
 
+# -- New-mail notification (App.tsx). The native desktop or mobile notification
+#    shown while the app is in the background; the body is the message subject. --
+common-notify-new-message = New message
+common-notify-no-subject = (no subject)
+
 # -- Generic labels ----------------------------------------------------------
 common-required = Required
 common-optional = Optional

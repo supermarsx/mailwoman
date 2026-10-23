@@ -160,8 +160,8 @@ export function App(): JSX.Element {
         if (!knownUnread.has(m.id)) {
           void platform.notify({
             id: m.id,
-            title: 'New message',
-            body: m.subject ?? '(no subject)',
+            title: t('common-notify-new-message'),
+            body: m.subject ?? t('common-notify-no-subject'),
             ...(m.threadId !== undefined ? { threadId: m.threadId } : {}),
           });
         }
