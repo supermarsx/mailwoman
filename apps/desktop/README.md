@@ -12,7 +12,10 @@ feature-detect.
 - `src-tauri/src/lib.rs` — the launching stub: loads the SPA + injects the frozen
   `__MW_CONFIG__` handshake (§2.1/§2.5) + registers the first-party plugins.
 - `src-tauri/capabilities/` — least-privilege permission set.
-- `src-tauri/icons/` — generated app icons (`cargo tauri icon app-icon.png`).
+- `src-tauri/icons/` — generated app icons. Regenerate them with
+  `py -3.12 scripts/icons/build-icons.py --tauri` from the repo root
+  (`branding/icon/README.md`); a plain `cargo tauri icon app-icon.png` drops the
+  Android adaptive and monochrome layers and the redrawn small sizes.
 
 ## Build
 ```
@@ -21,6 +24,8 @@ node ../../scripts/emit-bundle-hash.mjs
 pnpm install
 pnpm exec tauri build         # or `cargo build -p mailwoman-desktop`
 ```
+Set `MW_SHELL_SERVER_URL=https://…` for the build to talk to a server; without it the
+app says it has not been set up (`docs/deploy/shells.md`).
 Prereqs (verified by the e0 probe on this machine): Rust (MSVC), WebView2 (Win11),
 Tauri CLI 2.x.
 

@@ -10,7 +10,10 @@ Reached through the SPA's feature-detected capability layer, backed by the froze
 `mw_*` commands (registered app-level in `apps/mobile/src-tauri/src/lib.rs`) and two
 custom Kotlin plugins:
 
-- **Multi-server config** (`mw_server_*`) and **secure store** (`mw_keychain_*`,
+- **Server address** compiled into the build (`MW_SHELL_SERVER_URL`); users cannot
+  enter or change it, and there is no provisioning file on Android yet (see
+  [`shells.md`](./shells.md)),
+- **Secure store** (`mw_keychain_*`,
   backed by Android `EncryptedSharedPreferences` — AES-256 keyed by the hardware
   Android Keystore, the mobile counterpart of desktop's `keyring`),
 - **UnifiedPush** registration (`mw_push_*`) — the self-hostable, no-Google push path

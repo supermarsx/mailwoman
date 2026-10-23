@@ -9,10 +9,12 @@ JMAP surface. Everything here is additive; the browser deployment is unchanged.
 ## Two ways to run it
 
 1. **Connected to a server** (the default) — the shell loads the SPA and points it at
-   your Mailwoman server (work and/or personal; multiple servers are supported). The
-   transport is identical to the browser's, with one addition: native clients use a
-   **bearer token** instead of the cookie (see [Native auth](#native-auth-bearer-token)),
-   so there is no cross-origin cookie/CSRF fight.
+   one Mailwoman server, fixed when the app is built (`MW_SHELL_SERVER_URL`) or by a
+   provisioning file an administrator installs; users cannot enter or change it (see
+   [`shells.md`](./shells.md)). The transport is identical to the browser's, with one
+   addition: native clients use a **bearer token** instead of the cookie (see
+   [Native auth](#native-auth-bearer-token)), so there is no cross-origin cookie/CSRF
+   fight.
 2. **Self-contained** (§4.1) — for a laptop user with no server to deploy, the shell
    **spawns a bundled `mw-server` as a sibling process** on loopback
    (`127.0.0.1:<ephemeral>`), health-probes `/healthz`, and points the SPA at it. The
@@ -26,10 +28,13 @@ JMAP surface. Everything here is additive; the browser deployment is unchanged.
 
 ```sh
 # Linux/macOS
-bash scripts/build-shells.sh
+MW_SHELL_SERVER_URL=https://mail.example.org bash scripts/build-shells.sh
 # Windows
-pwsh scripts/build-shells.ps1
+$env:MW_SHELL_SERVER_URL = 'https://mail.example.org'; pwsh scripts/build-shells.ps1
 ```
+
+`MW_SHELL_SERVER_URL` is the server this build talks to; `build-shells` stops without
+it unless `MW_SHELL_NO_SERVER_URL=1` is set (see [`shells.md`](./shells.md)).
 
 `build-shells` (1) builds the shared SPA, (2) emits the UI-bundle hash, (3) bundles
 the release `mw-server` into the shell resources for self-contained mode, (4) runs
