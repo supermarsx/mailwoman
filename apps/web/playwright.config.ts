@@ -8,8 +8,8 @@ import { defineConfig, devices } from '@playwright/test';
  * (see .github/workflows/ci.yml); this config does NOT rebuild or manage the
  * server — it assumes the app is already reachable at the project's `baseURL`.
  *
- * The projects below `phone` in the `projects` array (crypto, push, v6, v7, t12,
- * t10, deploy) are described where they are defined. The first four:
+ * The projects after `pim-firefox` in the `projects` array (crypto, push, v6, v7,
+ * t12, t10, deploy) are described where they are defined. The first five:
  *   - `mock`   — the V0 in-repo JMAP mock (proxy mode) on :8080. Runs the
  *                original happy-path + sanitizer specs.
  *   - `engine` — V1 engine mode: mw-server driving a REAL IMAP/SMTP account
@@ -27,10 +27,11 @@ import { defineConfig, devices } from '@playwright/test';
  *                these specs need no CalDAV account in the browser.)
  *   - `phone`  — the same engine-mode server (:8090) at a phone viewport: the
  *                narrow single-pane layout (narrow.spec.ts).
+ *   - `pim-firefox` — pim-calendar.spec.ts in Firefox against the `pim` server.
  *
  * Strict CSRF: every stack these projects run against is started with
  * `MW_CSRF_STRICT=true`. `csrf-strict.spec.ts` is in the `testMatch` of each project
- * that has a server of its own (all but `phone`, `t10` and `deploy`) and fails when
+ * that has a server of its own (all but `phone`, `pim-firefox`, `t10` and `deploy`) and fails when
  * the stack is not strict. A spec that writes through a request context instead of
  * the UI imports `test` from `./csrf.ts` (see that file).
  *
@@ -137,6 +138,17 @@ export default defineConfig({
       // `e2e-pim` job (boots greenmail + mailwoman-engine, runs `--project=pim`).
       testMatch: ['pim-*.spec.ts', 'csrf-strict.spec.ts'],
       use: { ...devices['Desktop Chrome'], baseURL: engineBaseURL },
+    },
+    {
+      name: 'pim-firefox',
+      // pim-calendar.spec.ts in Firefox, against the same engine-mode server as
+      // `pim`. Its UTF-16 `.hol` import cases cannot fail in Chromium, which reads
+      // a UTF-16 byte order mark in `File.text()`; Firefox decodes such a file as
+      // UTF-8, so only here do they show whether the import decodes the bytes
+      // itself (src/modules/calendar/decode.ts). Run by the CI `e2e-pim` job
+      // beside `pim`, on the stack it starts (whose strictness `pim` checks).
+      testMatch: ['pim-calendar.spec.ts'],
+      use: { ...devices['Desktop Firefox'], baseURL: engineBaseURL },
     },
     {
       name: 'crypto',

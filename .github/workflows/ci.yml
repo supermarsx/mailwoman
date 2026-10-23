@@ -853,14 +853,16 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('apps/web/pnpm-lock.yaml') }}
-      - name: install Playwright chromium
-        run: pnpm -C apps/web exec playwright install --with-deps chromium
+      # Firefox for `pim-firefox`: the UTF-16 `.hol` import cases in
+      # pim-calendar.spec.ts can fail only in Firefox (see playwright.config.ts).
+      - name: install Playwright chromium + firefox
+        run: pnpm -C apps/web exec playwright install --with-deps chromium firefox
       - name: build + start engine stack (greenmail + mw-server engine mode)
         run: docker compose -f docker-compose.dev.yml up -d --build --wait greenmail mailwoman-engine
       - name: wait for server health
         run: ./scripts/wait-for-health.sh http://localhost:8090/healthz 240
-      - name: run Playwright E2E (PIM modules vs engine)
-        run: pnpm -C apps/web exec playwright test --project=pim
+      - name: run Playwright E2E (PIM modules vs engine; calendar also in Firefox)
+        run: pnpm -C apps/web exec playwright test --project=pim --project=pim-firefox
       - name: compose logs on failure
         if: failure()
         run: docker compose -f docker-compose.dev.yml logs --no-color greenmail mailwoman-engine
