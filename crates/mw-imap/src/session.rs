@@ -239,9 +239,9 @@ impl Session {
         } else if self.caps.has("CONDSTORE") {
             exts.push("CONDSTORE");
         }
-        if self.caps.has("IMAP4REV2") {
-            exts.push("IMAP4rev2");
-        }
+        // IMAP4rev2 is deliberately not enabled: a rev2 server answers SEARCH
+        // with `* ESEARCH`, which imap-proto 0.16.7 cannot parse (t32 D-2).
+        // t32-e35 re-enables it once it parses ESEARCH.
         if exts.is_empty() {
             return Ok(());
         }
