@@ -29,6 +29,10 @@ common-done = Done
 common-apply = Apply
 common-confirm = Confirm
 common-retry = Retry
+# Desktop and mobile apps only: under the error shown when the server address
+# they were given does not answer at start. Opens the sign-in screen, where the
+# address can be corrected.
+common-change-server = Change server
 common-copy = Copy
 common-search = Search
 common-more = More

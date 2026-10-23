@@ -2,6 +2,7 @@ import { onMount, onCleanup, createEffect, createSignal, Show, Switch, Match, ty
 import { AppContext } from './state/context.ts';
 import { createAppState } from './state/store.ts';
 import { createConfiguredClient } from './api/transport.ts';
+import { isNativeAuth } from './api/serverAddress.ts';
 import { stripBase } from './api/basePath.ts';
 import { getPlatform, initPlatform } from './platform/index.ts';
 import { capabilityEnabled } from './platform/capabilities.ts';
@@ -10,6 +11,7 @@ import { Toast } from './components/Toast.tsx';
 import { ConnectionToast } from './realtime/ConnectionToast.tsx';
 import { AsyncBoundary, LazyRoute } from './components/ErrorBoundary.tsx';
 import { AsyncError, AsyncPending } from './components/AsyncState.tsx';
+import { t } from './i18n/index.ts';
 
 // Every route below is a DYNAMIC IMPORT, and each now loads through `LazyRoute`
 // rather than a bare `<Suspense fallback="Loading…">`. A chunk that fails to
@@ -89,6 +91,17 @@ export function App(): JSX.Element {
   function boot(): void {
     setBootError(null);
     void app.init().catch(setBootError);
+  }
+
+  // A desktop or mobile shell talks to the server address the user typed, so a
+  // boot failure there may be a wrong or retired address, which Retry cannot fix
+  // (t31). The error card then also offers "Change server": the Login screen, whose
+  // server field holds the failing address. It opens only on that click — an
+  // unreachable server still never puts the login form up on its own. In a
+  // browser the server is the page's own origin, and nothing changes.
+  const native = isNativeAuth();
+  function changeServer(): void {
+    setBootError(null);
   }
 
   // A session whose account must change its password first. The server refuses
@@ -180,6 +193,11 @@ export function App(): JSX.Element {
               answer to the wrong question. */}
           <Match when={bootError() !== null}>
             <AsyncError error={bootError()} onRetry={boot} />
+            <Show when={native}>
+              <button type="button" class="btn btn--ghost" data-testid="boot-change-server" onClick={changeServer}>
+                {t('common-change-server')}
+              </button>
+            </Show>
           </Match>
           <Match when={app.me() === null}>
             <Login />

@@ -112,3 +112,49 @@ describe('boot failure is not a login prompt', () => {
     vi.useRealTimers();
   });
 });
+
+// t31: in a desktop or mobile shell the server is an address the user typed, so a
+// boot failure may be a wrong address. The error card then also offers "Change
+// server", which opens the Login screen with that address in its server field.
+describe('boot failure in a native shell', () => {
+  interface G {
+    __TAURI_INTERNALS__?: unknown;
+    __MW_CONFIG__?: unknown;
+  }
+  const g = globalThis as unknown as G;
+
+  afterEach(() => {
+    delete g.__TAURI_INTERNALS__;
+    delete g.__MW_CONFIG__;
+  });
+
+  it('offers Change server, which opens Login with the failing address', async () => {
+    g.__TAURI_INTERNALS__ = {};
+    g.__MW_CONFIG__ = { serverUrl: 'https://old.example.org', native: true };
+    hooks.me = () => Promise.reject(new NetworkError('connect ECONNREFUSED'));
+
+    render(() => <App />);
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+    // Still the error card first: no login form on its own.
+    expect(screen.queryByTestId('login-server-address')).toBeNull();
+    expect(screen.getByTestId('async-retry')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change server' }));
+
+    const field = await screen.findByTestId('login-server-address');
+    expect(field).toHaveValue('https://old.example.org');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('a browser boot failure has no Change server control', async () => {
+    hooks.me = () => Promise.reject(new NetworkError('connect ECONNREFUSED'));
+
+    render(() => <App />);
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+    expect(screen.getByTestId('async-retry')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Change server' })).toBeNull();
+    expect(screen.queryByTestId('boot-change-server')).toBeNull();
+  });
+});
