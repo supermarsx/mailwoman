@@ -228,7 +228,12 @@ tauri-plugin-deep-link = "2"
 tauri-plugin-biometric = "2"
 tauri-plugin-process = "2"
 tauri-plugin-shell = "2"
-tauri-plugin-updater = "2"
+# Default features minus `zip` (26.20 t31-e1): `zip` pulls zip 4.6 (RUSTSEC-2026-0367/
+# -0368/-0369) and is only needed to unpack v1-format updater archives (.msi.zip /
+# .nsis.zip / .AppImage.tar.gz). The shell builds v2 artefacts
+# (`apps/desktop/src-tauri/tauri.conf.json` `createUpdaterArtifacts: true`), which
+# the plugin installs without unpacking; macOS .app.tar.gz does not use this feature.
+tauri-plugin-updater = { version = "2", default-features = false, features = ["rustls-tls"] }
 # Web Push (VAPID + RFC 8188/http-ece). NB: the originally pre-declared `web-push`
 # 0.10 crate transitively pulls `ece` → `openssl` (a `-sys` C build that is BANNED
 # in deny.toml and does not build on this Windows/MSVC host). `web-push-native`
@@ -339,7 +344,7 @@ wasmtime = "49.0.4"
 wasmtime-wasi = "49.0.4"
 wit-bindgen = "0.46"
 ldap3 = { version = "0.12", default-features = false, features = ["tls-rustls-ring"] }
-docx-rs = "0.4"
+docx-rs = "0.4.22"
 cfb = "0.10"
 
 mw-jmap = { path = "crates/mw-jmap" }

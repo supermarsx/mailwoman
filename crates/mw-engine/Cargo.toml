@@ -51,12 +51,15 @@ mw-crypto = { workspace = true }
 # Attachment-filename extraction at ingest for `filename:` search (workspace dep,
 # already in-tree via mw-mime); parsing is best-effort and never panics.
 mail-parser = { workspace = true }
-# V4 (plan §3 e6, §1.6): DKIM/SPF/DMARC/ARC verdicts + ARF report generation for
-# the Security panel. `default-features = false` deliberately drops the crate's
-# default `aws-lc-rs` provider (plan §1.11 — VET-BEFORE-ENABLE, not a V4 gate); we
-# take only the hickory resolver + arc + report. Prod uses the system resolver;
+# V4 (plan §3 e6, §1.6): DKIM/SPF/DMARC/ARC verdicts for the Security panel.
+# `default-features = false` deliberately drops the crate's default `aws-lc-rs`
+# provider (plan §1.11 — VET-BEFORE-ENABLE, not a V4 gate); we take only the
+# hickory resolver + arc. The `report` feature is off (26.20 t31-e1): it pulled zip
+# 8.6 (RUSTSEC-2026-0367/-0368/-0369) and nothing here uses it — the only
+# `mail_auth::` imports are verdict types (`src/security/verdict.rs`) and ARF
+# reports are built by hand (`src/security/sender_controls.rs`). Prod uses the system resolver;
 # tests/CI inject a fixture-seeded `ResolverCache` so no DNS ever leaves the host.
-mail-auth = { workspace = true, default-features = false, features = ["ring", "arc", "report"] }
+mail-auth = { workspace = true, default-features = false, features = ["ring", "arc"] }
 # Attachment ext-vs-magic risk (plan §3 e6): declared MIME from the filename
 # extension, compared against the sniffed magic bytes. Pure-Rust, leaf.
 mime_guess = { workspace = true }
