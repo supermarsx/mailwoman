@@ -29,7 +29,6 @@ export const gate = style({
   background: vars.color.bg,
   color: vars.color.text,
   fontFamily: vars.font.ui,
-  padding: vars.space[5],
 });
 
 export const section = style({
@@ -158,7 +157,6 @@ export const loginCard = style([
   card,
   {
     position: 'relative',
-    width: 'min(100%, 360px)',
     boxShadow: vars.elevation[3],
     selectors: {
       '&::before': {
@@ -196,6 +194,14 @@ export const loginActions = style({
 // the 24×24 minimum target inside the console and its sign-in gate.
 globalStyle(`[data-screen="admin"] .btn, ${gate} .btn`, {
   minHeight: vars.a11y.touchTarget,
+});
+
+// Field labels in the console: the app's tracked capitals at 0.75rem instead of
+// 0.8rem, the same as the shell's FormField. In capitals a label such as "Quota
+// messages (0 = unlimited)" wrapped to two lines in the Users form's columns at
+// 0.8rem and made the form taller than before t32 (P2).
+globalStyle(`[data-screen="admin"] .field > span`, {
+  fontSize: '0.75rem',
 });
 
 /** A danger button (t32.md §2.4 "Buttons"): danger fill, accentText, no shadow on press. */
