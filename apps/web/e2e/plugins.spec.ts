@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext } from './csrf.ts';
+import { test, expect, ANONYMOUS_PAIR, type APIRequestContext } from './csrf.ts';
 import { V7, adminLogin, expectMounted } from './v7-helpers.ts';
 
 /**
@@ -126,9 +126,9 @@ test.describe('Plugin registry (V7) — admin surface on the real server', () =>
   test('the registry is admin-gated (unauthenticated ⇒ 401)', async ({ request }) => {
     for (const resp of [
       await request.get('/admin/plugins'),
-      await request.post('/admin/plugins', { data: { id: PLUGIN } }),
-      await request.post(`/admin/plugins/${PLUGIN}/grant`, { data: { capabilities: ['net'] } }),
-      await request.post(`/admin/plugins/${PLUGIN}/allow-unsigned`, { data: { allow: true } }),
+      await request.post('/admin/plugins', { headers: ANONYMOUS_PAIR, data: { id: PLUGIN } }),
+      await request.post(`/admin/plugins/${PLUGIN}/grant`, { headers: ANONYMOUS_PAIR, data: { capabilities: ['net'] } }),
+      await request.post(`/admin/plugins/${PLUGIN}/allow-unsigned`, { headers: ANONYMOUS_PAIR, data: { allow: true } }),
     ]) {
       expect(resp.status()).toBe(401);
     }

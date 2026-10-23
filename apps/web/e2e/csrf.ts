@@ -30,6 +30,18 @@ import { test as base, type APIRequestContext } from '@playwright/test';
 
 export * from '@playwright/test';
 
+/**
+ * Headers for a signed-out write whose answer a spec wants from the auth gate.
+ *
+ * A spec that checks that a route refuses an anonymous caller expects 401. Under
+ * `MW_CSRF_STRICT=true` the CSRF guard runs first and answers a write without the
+ * token 403, so the request never reaches the handler that would say 401. A
+ * self-made matching pair passes the guard (it checks only that the header repeats
+ * the cookie) and carries no session, so the 401 that comes back is the route's
+ * own. `csrf-strict.spec.ts` shows this pair gets that 401 on every stack.
+ */
+export const ANONYMOUS_PAIR = { cookie: 'mw_csrf=anonymous', 'x-csrf-token': 'anonymous' } as const;
+
 const CSRF_COOKIE = 'mw_csrf';
 const CSRF_HEADER = 'x-csrf-token';
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);

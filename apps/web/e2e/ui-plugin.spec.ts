@@ -1,4 +1,4 @@
-import { test, expect, type Page } from './csrf.ts';
+import { test, expect, ANONYMOUS_PAIR, type Page } from './csrf.ts';
 import {
   PLUGIN_IFRAME_SANDBOX,
   LOCKED_PLUGIN_CSP,
@@ -206,6 +206,7 @@ test.describe('UI-plugin registry + admin approval + broker on the real server',
     expectMounted(anonReg, 'GET /api/ui-plugins');
     expect(anonReg.status(), 'the registry needs a mailbox session').toBe(401);
     const anonRpc = await request.post('/api/ui-plugins/does-not-exist/rpc', {
+      headers: ANONYMOUS_PAIR,
       data: { v: RPC_PROTOCOL_VERSION, id: 'x:0', cap: 'net:host-allowlist', method: 'fetch', args: [] },
     });
     expect(anonRpc.status(), 'the broker needs a mailbox session').toBe(401);
