@@ -1,0 +1,172 @@
+// The admin console's section table (t32-admin.md §2.1).
+//
+// One row per section: id (the URL segment under `/admin/console/`), sidebar
+// group, icon, label, the capability that shows it, and the lazily loaded screen.
+// The shell, the command palette and the breadcrumbs all read this table, so a
+// later stage adds a section by adding a row here (through the `t32-admin-index`
+// mini-slot, which covers this file with index.tsx).
+//
+// Only screens that exist are listed. Sections the plan adds later (access
+// control, settings, audit log, admins and roles, logs, branding) get their row
+// when their screen lands, so the sidebar never offers an empty page.
+//
+// Capability choices where the catalogue has no `.read` for the area: the
+// two-factor policy is shown with `security.read` (its writes need
+// `twofa_policy.write`), maintenance with `maintenance.run`, server metadata with
+// `server_metadata.write` (the screen is an editor).
+
+import { createComponent, lazy, type Component } from 'solid-js';
+import { t } from '../../../i18n';
+import type { AdminApi } from '../../../state/slices/admin.ts';
+import type { Capability } from './can.ts';
+import type { IconName } from './icons.tsx';
+import type { AdminRoute } from './router.ts';
+
+export type GroupId = 'overview' | 'people' | 'security' | 'configuration' | 'operations';
+
+export const GROUPS: readonly { id: GroupId; label: () => string }[] = [
+  { id: 'overview', label: () => t('admin-shell-group-overview') },
+  { id: 'people', label: () => t('admin-shell-group-people') },
+  { id: 'security', label: () => t('admin-shell-group-security') },
+  { id: 'configuration', label: () => t('admin-shell-group-configuration') },
+  { id: 'operations', label: () => t('admin-shell-group-operations') },
+];
+
+/** What the shell hands every section screen. */
+export interface SectionProps {
+  api: AdminApi;
+  route: AdminRoute;
+}
+
+export interface SectionDef {
+  id: string;
+  group: GroupId;
+  icon: IconName;
+  label: () => string;
+  capability: Capability;
+  component: Component<SectionProps>;
+}
+
+/** Wrap a screen as a lazy section. With `passApi` the screen gets the console's
+ *  shared admin client as its `api` prop; otherwise it is rendered with no props
+ *  and uses its own production default. */
+function screen<P extends object>(load: () => Promise<Component<P>>, passApi: boolean): Component<SectionProps> {
+  return lazy(async () => {
+    const C = await load();
+    const wrapped: Component<SectionProps> = (props) =>
+      createComponent(C, (passApi ? { get api() { return props.api; } } : {}) as P);
+    return { default: wrapped };
+  });
+}
+
+export const SECTIONS: readonly SectionDef[] = [
+  {
+    id: 'dashboard',
+    group: 'overview',
+    icon: 'dashboard',
+    label: () => t('admin-shell-nav-dashboard'),
+    capability: 'dashboard.read',
+    component: screen(() => import('../Dashboard/Dashboard.tsx').then((m) => m.Dashboard), false),
+  },
+  {
+    id: 'users',
+    group: 'people',
+    icon: 'users',
+    label: () => t('admin-nav-users'),
+    capability: 'users.read',
+    component: screen(() => import('../Users.tsx').then((m) => m.Users), false),
+  },
+  {
+    id: 'domains',
+    group: 'people',
+    icon: 'domains',
+    label: () => t('admin-nav-domains'),
+    capability: 'domains.read',
+    component: screen(() => import('../Domains.tsx').then((m) => m.Domains), false),
+  },
+  {
+    id: 'two-factor',
+    group: 'people',
+    icon: 'twofactor',
+    label: () => t('admin-nav-2fa'),
+    capability: 'security.read',
+    component: screen(() => import('../TwoFactorPolicy.tsx').then((m) => m.TwoFactorPolicy), true),
+  },
+  {
+    id: 'sso',
+    group: 'security',
+    icon: 'sso',
+    label: () => t('admin-nav-sso'),
+    capability: 'sso.read',
+    component: screen(() => import('../Sso/index.tsx').then((m) => m.AdminSso), false),
+  },
+  {
+    id: 'ai-assistant',
+    group: 'configuration',
+    icon: 'assistant',
+    label: () => t('admin-nav-assist'),
+    capability: 'ai_assistant.read',
+    component: screen(() => import('../Assist/index.tsx').then((m) => m.AdminAssist), false),
+  },
+  {
+    id: 'integrations',
+    group: 'configuration',
+    icon: 'integrations',
+    label: () => t('admin-nav-integrations'),
+    capability: 'integrations.read',
+    component: screen(() => import('../Integrations.tsx').then((m) => m.Integrations), false),
+  },
+  {
+    id: 'plugins',
+    group: 'configuration',
+    icon: 'plugins',
+    label: () => t('admin-nav-plugins'),
+    capability: 'plugins.read',
+    component: screen(() => import('../Plugins/index.tsx').then((m) => m.AdminPlugins), false),
+  },
+  {
+    id: 'ui-plugins',
+    group: 'configuration',
+    icon: 'uiPlugins',
+    label: () => t('plugins-admin-ui-nav'),
+    capability: 'plugins.read',
+    component: screen(() => import('../UiPlugins/index.tsx').then((m) => m.AdminUiPlugins), false),
+  },
+  {
+    id: 'egress',
+    group: 'configuration',
+    icon: 'egress',
+    label: () => t('admin-nav-egress'),
+    capability: 'egress.read',
+    component: screen(() => import('../Egress.tsx').then((m) => m.AdminEgress), false),
+  },
+  {
+    id: 'observability',
+    group: 'operations',
+    icon: 'observability',
+    label: () => t('admin-nav-observability'),
+    capability: 'diagnostics.read',
+    component: screen(() => import('../Observability.tsx').then((m) => m.Observability), false),
+  },
+  {
+    id: 'maintenance',
+    group: 'operations',
+    icon: 'maintenance',
+    label: () => t('admin-nav-rethread'),
+    capability: 'maintenance.run',
+    component: screen(() => import('../RethreadMaintenance.tsx').then((m) => m.RethreadMaintenance), true),
+  },
+  {
+    id: 'server-metadata',
+    group: 'operations',
+    icon: 'serverMetadata',
+    label: () => t('admin-nav-servermeta'),
+    capability: 'server_metadata.write',
+    component: screen(() => import('../ServerMetadata.tsx').then((m) => m.ServerMetadata), true),
+  },
+];
+
+/** The section for an id, or undefined. */
+export function findSection(id: string, sections: readonly SectionDef[] = SECTIONS): SectionDef | undefined {
+  return sections.find((s) => s.id === id);
+}
