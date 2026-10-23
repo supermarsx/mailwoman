@@ -5,8 +5,6 @@ import { AppContext } from '../state/context.ts';
 import { createAppState } from '../state/store.ts';
 import { ApiError, TwoFactorRequired, type Client, type LoginInput, type Me } from '../api/client.ts';
 import { CAP_MAIL, type JmapResponse, type JmapSession } from '../api/jmap-types.ts';
-import { setPlatform, type Platform } from '../platform/index.ts';
-import { createBrowserPlatform } from '../platform/browser.ts';
 
 function fakeClient(overrides: Partial<Client> = {}): Client {
   const session: JmapSession = {
@@ -607,37 +605,42 @@ describe('Login › SSO', () => {
   });
 });
 
-// t31: the desktop and mobile apps are not served by the server they talk to, so
-// the screen asks for its address, and the client is pointed at it before
-// anything is sent.
-describe('Login › server address in a native shell', () => {
+// t32: the desktop and mobile apps talk to the server they were built or
+// provisioned for, so the screen never asks for a server address.
+describe('Login › native shell', () => {
   interface G {
     __TAURI_INTERNALS__?: unknown;
     __MW_CONFIG__?: { serverUrl?: unknown; native?: unknown };
   }
   const g = globalThis as unknown as G;
-  let servers: string[];
 
   function nativeShell(serverUrl: string | null): void {
     g.__TAURI_INTERNALS__ = {};
     g.__MW_CONFIG__ = { serverUrl, native: true };
-    servers = [];
-    setPlatform({
-      ...createBrowserPlatform(),
-      setServerUrl: async (url: string) => {
-        servers.push(url);
-      },
-    } as Platform);
   }
 
   afterEach(() => {
     delete g.__TAURI_INTERNALS__;
     delete g.__MW_CONFIG__;
-    setPlatform(createBrowserPlatform());
     vi.unstubAllGlobals();
   });
 
-  function signInManually(): void {
+  it('has no server address field in a browser', () => {
+    renderLogin(fakeClient());
+    expect(screen.queryByTestId('login-server-address')).toBeNull();
+    expect(screen.queryByText('Mailwoman server address')).toBeNull();
+  });
+
+  it('has no server address field in a shell, and signs in with what the form holds', async () => {
+    nativeShell('https://mail.example.org');
+    const client = fakeClient();
+    renderLogin(client);
+    expect(screen.queryByTestId('login-server-address')).toBeNull();
+    expect(screen.queryByText('Mailwoman server address')).toBeNull();
+    // The lookup form is the email address and the password, nothing else.
+    const inputs = [...document.querySelectorAll('form input')].map((el) => (el as HTMLInputElement).type);
+    expect(inputs.sort()).toEqual(['email', 'password']);
+
     showManual();
     fireEvent.input(screen.getByPlaceholderText('https://jmap.example.org'), {
       target: { value: 'https://jmap.example.org' },
@@ -645,41 +648,9 @@ describe('Login › server address in a native shell', () => {
     fireEvent.input(screen.getByLabelText('Username'), { target: { value: 'u' } });
     fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'p' } });
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
-  }
-
-  it('is not shown in a browser', () => {
-    renderLogin(fakeClient());
-    expect(screen.queryByTestId('login-server-address')).toBeNull();
-    expect(screen.queryByText('Mailwoman server address')).toBeNull();
-  });
-
-  it('is shown in a shell, prefilled with the server used last', () => {
-    nativeShell('https://mail.example.org');
-    renderLogin(fakeClient());
-    expect(screen.getByLabelText('Mailwoman server address')).toHaveValue('https://mail.example.org');
-  });
-
-  it('points the client at the typed address before signing in', async () => {
-    nativeShell(null);
-    const client = fakeClient();
-    renderLogin(client);
-    fireEvent.input(screen.getByLabelText('Mailwoman server address'), { target: { value: 'mail.example.org/' } });
-    signInManually();
     await vi.waitFor(() => expect(client.login).toHaveBeenCalled());
+    // The configured address is read, never written.
     expect(g.__MW_CONFIG__?.serverUrl).toBe('https://mail.example.org');
-    expect(servers).toEqual(['https://mail.example.org']);
-    expect(screen.getByLabelText('Mailwoman server address')).toHaveValue('https://mail.example.org');
-  });
-
-  it('refuses an address that is not one, and sends nothing', async () => {
-    nativeShell(null);
-    const client = fakeClient();
-    renderLogin(client);
-    fireEvent.input(screen.getByLabelText('Mailwoman server address'), { target: { value: 'ftp://mail.example.org' } });
-    signInManually();
-    expect(await screen.findByRole('alert')).toHaveTextContent('Enter the server address as https://host');
-    expect(client.login).not.toHaveBeenCalled();
-    expect(servers).toEqual([]);
   });
 
   it('does not ask the shell origin for SSO providers', async () => {

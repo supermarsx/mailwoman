@@ -2,7 +2,7 @@ import { onMount, onCleanup, createEffect, createSignal, Show, Switch, Match, ty
 import { AppContext } from './state/context.ts';
 import { createAppState } from './state/store.ts';
 import { createConfiguredClient } from './api/transport.ts';
-import { isNativeAuth } from './api/serverAddress.ts';
+import { isNativeAuth, nativeServerBase } from './api/serverAddress.ts';
 import { stripBase } from './api/basePath.ts';
 import { getPlatform, initPlatform } from './platform/index.ts';
 import { capabilityEnabled } from './platform/capabilities.ts';
@@ -75,6 +75,17 @@ export function App(): JSX.Element {
     return <LazyRoute load={loadConsentScreen} />;
   }
 
+  // A desktop or mobile shell built without a server address, with no
+  // provisioning file naming one (t32). There is nothing to sign in to and the
+  // user cannot supply an address, so nothing is requested.
+  if (isNativeAuth() && nativeServerBase() === null) {
+    return (
+      <div class="async-state async-state--error" role="alert" data-testid="shell-not-configured">
+        <p class="async-state__message">{t('common-shell-not-configured')}</p>
+      </div>
+    );
+  }
+
   const client = createConfiguredClient();
   const app = createAppState(client);
 
@@ -93,16 +104,10 @@ export function App(): JSX.Element {
     void app.init().catch(setBootError);
   }
 
-  // A desktop or mobile shell talks to the server address the user typed, so a
-  // boot failure there may be a wrong or retired address, which Retry cannot fix
-  // (t31). The error card then also offers "Change server": the Login screen, whose
-  // server field holds the failing address. It opens only on that click — an
-  // unreachable server still never puts the login form up on its own. In a
-  // browser the server is the page's own origin, and nothing changes.
+  // A desktop or mobile shell talks to the server it was built or provisioned for
+  // (t32), which the user cannot change, so its error card also says who can. In
+  // a browser the server is the page's own origin, and nothing changes.
   const native = isNativeAuth();
-  function changeServer(): void {
-    setBootError(null);
-  }
 
   // A session whose account must change its password first. The server refuses
   // its JMAP, push and realtime requests (403 `passwordChangeRequired`), so it
@@ -194,9 +199,9 @@ export function App(): JSX.Element {
           <Match when={bootError() !== null}>
             <AsyncError error={bootError()} onRetry={boot} />
             <Show when={native}>
-              <button type="button" class="btn btn--ghost" data-testid="boot-change-server" onClick={changeServer}>
-                {t('common-change-server')}
-              </button>
+              <p class="async-state__message" data-testid="boot-contact-administrator">
+                {t('common-contact-administrator')}
+              </p>
             </Show>
           </Match>
           <Match when={app.me() === null}>

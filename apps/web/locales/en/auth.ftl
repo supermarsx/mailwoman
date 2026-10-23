@@ -16,15 +16,6 @@ auth-invalid-credentials = Invalid credentials
 auth-refused-note = If the username and password are correct, the account may have been disabled by an administrator. A disabled account cannot sign in until an administrator enables it again.
 auth-unreachable = Could not reach the server
 
-# -- Server address (desktop and mobile apps) --------------------------------
-# Shown only in the desktop and mobile apps, which are not served by the
-# Mailwoman server they talk to. Not the mail server: that is looked up or
-# entered below.
-auth-server-address = Mailwoman server address
-auth-server-address-placeholder = https://mail.example.org
-auth-server-address-hint = The address you open Mailwoman at in a browser. The app keeps it for the next start.
-auth-server-address-invalid = Enter the server address as https://host, with an optional port and path.
-
 # -- Server lookup from the email address ------------------------------------
 # The sign-in screen starts with an email address and a password, asks the
 # server which mail server belongs to the address, shows the answer, and signs

@@ -27,10 +27,11 @@ describe('browser platform (the default, unchanged web path)', () => {
     expect(getPlatform().platform().kind).toBe('web');
   });
 
-  it('is a single same-origin server', async () => {
-    const p = getPlatform();
-    expect(await p.getServerUrl()).toBeNull();
-    expect(await p.listServers()).toEqual([{ url: '', label: 'This server' }]);
+  it('has no server configuration to change (t32)', () => {
+    const p = getPlatform() as unknown as Record<string, unknown>;
+    for (const name of ['getServerUrl', 'setServerUrl', 'listServers', 'selectServer']) {
+      expect(p[name]).toBeUndefined();
+    }
   });
 
   it('never issues a bearer token (cookie path)', async () => {
@@ -132,13 +133,15 @@ describe('native (tauri) platform over __TAURI_INTERNALS__', () => {
     return { calls, callbacks };
   }
 
-  it('puts the stored server address into __MW_CONFIG__ when the shell injected none', async () => {
-    fakeShell({ mw_server_get_selected: 'https://mail.example.org' });
+  it('leaves the injected server address as it is and asks the shell for none (t32)', async () => {
+    const shell = fakeShell({ mw_server_get_selected: 'https://typed.example.org' });
     (globalThis as { __MW_CONFIG__?: unknown }).__MW_CONFIG__ = { serverUrl: null, native: true };
-    await createTauriPlatform();
-    expect((globalThis as { __MW_CONFIG__?: { serverUrl?: unknown } }).__MW_CONFIG__?.serverUrl).toBe(
-      'https://mail.example.org',
-    );
+    const p = (await createTauriPlatform()) as unknown as Record<string, unknown>;
+    expect((globalThis as { __MW_CONFIG__?: { serverUrl?: unknown } }).__MW_CONFIG__?.serverUrl).toBeNull();
+    expect(shell.calls.filter((c) => c.cmd.startsWith('mw_server_'))).toEqual([]);
+    for (const name of ['getServerUrl', 'setServerUrl', 'listServers', 'selectServer']) {
+      expect(p[name]).toBeUndefined();
+    }
   });
 
   it('reads the keychain token once, and set/clear go to the keychain', async () => {
@@ -157,17 +160,6 @@ describe('native (tauri) platform over __TAURI_INTERNALS__', () => {
     await p.clearSessionToken();
     expect(await p.getSessionToken()).toBeNull();
     expect(shell.calls).toContainEqual({ cmd: 'mw_keychain_delete', args: { service: 'mailwoman.session', key: 'token' } });
-  });
-
-  it('setServerUrl stores and selects the server and points the transport at it', async () => {
-    const shell = fakeShell({});
-    (globalThis as { __MW_CONFIG__?: unknown }).__MW_CONFIG__ = { serverUrl: null, native: true };
-    const p = await createTauriPlatform();
-    await p.setServerUrl('https://mail.example.org');
-    expect(shell.calls.map((c) => c.cmd)).toEqual(['mw_server_get_selected', 'mw_server_add', 'mw_server_select']);
-    expect((globalThis as { __MW_CONFIG__?: { serverUrl?: unknown } }).__MW_CONFIG__?.serverUrl).toBe(
-      'https://mail.example.org',
-    );
   });
 
   it('bridges a shell event through the event plugin and stops on dispose', async () => {

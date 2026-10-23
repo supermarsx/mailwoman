@@ -29,10 +29,13 @@ common-done = Done
 common-apply = Apply
 common-confirm = Confirm
 common-retry = Retry
-# Desktop and mobile apps only: under the error shown when the server address
-# they were given does not answer at start. Opens the sign-in screen, where the
-# address can be corrected.
-common-change-server = Change server
+# Desktop and mobile apps only: under the error shown when the server the app
+# was built or provisioned for does not answer at start. The user cannot change
+# the server; an administrator can.
+common-contact-administrator = If this keeps happening, contact your administrator.
+# Desktop and mobile apps only: shown instead of the sign-in screen when the app
+# was built without a server address and no provisioning file names one.
+common-shell-not-configured = This app has not been set up for a server. Contact your administrator.
 common-copy = Copy
 common-search = Search
 common-more = More

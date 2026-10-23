@@ -1,12 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  chooseServerUrl,
-  createConfiguredClient,
-  isNativeAuth,
-  nativeServerBase,
-  normalizeServerUrl,
-  transportBase,
-} from './transport.ts';
+import { createConfiguredClient, isNativeAuth, nativeServerBase, transportBase } from './transport.ts';
 import { basePath, normalizeBase, shellBase, stripBase, withBase } from './basePath.ts';
 import { setPlatform, type Platform } from '../platform/index.ts';
 import { createBrowserPlatform } from '../platform/browser.ts';
@@ -91,13 +84,12 @@ describe('native transport (opt-in shell path)', () => {
 });
 
 // t31: the native sign-in, end to end through the client — the server address
-// the user typed, `clientType: "native"`, the token kept through the platform,
-// and the token on every later request.
+// the shell was built or provisioned for (t32), `clientType: "native"`, the token
+// kept through the platform, and the token on every later request.
 describe('native sign-in (t31)', () => {
   /** A platform fake that records what the client asks of its token store. */
   function recordingPlatform(): { platform: Platform; calls: string[]; token: () => string | null } {
     let token: string | null = null;
-    let server: string | null = null;
     const calls: string[] = [];
     const platform = {
       ...createBrowserPlatform(),
@@ -110,11 +102,6 @@ describe('native sign-in (t31)', () => {
         calls.push('clear');
         token = null;
       },
-      getServerUrl: async () => server,
-      setServerUrl: async (url: string) => {
-        calls.push(`server:${url}`);
-        server = url;
-      },
     } as Platform;
     return { platform, calls, token: () => token };
   }
@@ -125,7 +112,7 @@ describe('native sign-in (t31)', () => {
   }
 
   it('signs in with clientType native, keeps the token and sends it afterwards', async () => {
-    nativeShell(null);
+    nativeShell('https://mail.example.org/');
     const rec = recordingPlatform();
     setPlatform(rec.platform);
     const fetchMock = vi.fn(async (input: string) => {
@@ -136,10 +123,7 @@ describe('native sign-in (t31)', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    // Built before the address is known, as App.tsx builds it at boot.
     const client = createConfiguredClient();
-    await chooseServerUrl('https://mail.example.org');
-    expect(rec.calls).toEqual(['server:https://mail.example.org']);
 
     const me = await client.login({ jmapUrl: 'https://jmap.example.org', username: 'u', password: 'p' });
     expect(me).toEqual({ ok: true, accountId: 'a', username: 'u' }); // the token is not part of `Me`.
@@ -173,41 +157,13 @@ describe('native sign-in (t31)', () => {
     expect(init.credentials).toBe('same-origin');
   });
 
-  it('with no server address, boot reads as signed out and sends nothing', async () => {
+  it('with no configured server address, boot reads as signed out and sends nothing', async () => {
     nativeShell(null);
     setPlatform(recordingPlatform().platform);
     const fetchMock = stubFetch();
     expect(nativeServerBase()).toBeNull();
     await expect(createConfiguredClient().me()).rejects.toMatchObject({ status: 401 });
     expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it('choosing another server drops the old token', async () => {
-    nativeShell('https://old.example.org');
-    const rec = recordingPlatform();
-    setPlatform(rec.platform);
-    await chooseServerUrl('https://new.example.org');
-    expect(rec.calls).toEqual(['clear', 'server:https://new.example.org']);
-    expect(nativeServerBase()).toBe('https://new.example.org');
-    // The same server again keeps it.
-    await chooseServerUrl('https://new.example.org');
-    expect(rec.calls.at(-1)).toBe('server:https://new.example.org');
-    expect(rec.calls.filter((c) => c === 'clear')).toHaveLength(1);
-  });
-});
-
-describe('normalizeServerUrl', () => {
-  it('assumes https, drops the trailing slash and keeps a sub-path', () => {
-    expect(normalizeServerUrl('mail.example.org')).toBe('https://mail.example.org');
-    expect(normalizeServerUrl('  https://mail.example.org/ ')).toBe('https://mail.example.org');
-    expect(normalizeServerUrl('https://mail.example.org/mail/')).toBe('https://mail.example.org/mail');
-    expect(normalizeServerUrl('http://192.168.1.5:8080')).toBe('http://192.168.1.5:8080');
-  });
-
-  it('refuses what is not a server address', () => {
-    for (const raw of ['', '   ', 'ftp://mail.example.org', 'javascript:alert(1)', 'https://u:p@mail.example.org', 'https://mail.example.org/?x=1', 'https://']) {
-      expect(normalizeServerUrl(raw)).toBeNull();
-    }
   });
 });
 

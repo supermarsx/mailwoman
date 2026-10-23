@@ -113,10 +113,10 @@ describe('boot failure is not a login prompt', () => {
   });
 });
 
-// t31: in a desktop or mobile shell the server is an address the user typed, so a
-// boot failure may be a wrong address. The error card then also offers "Change
-// server", which opens the Login screen with that address in its server field.
-describe('boot failure in a native shell', () => {
+// t32: a desktop or mobile shell talks to the server it was built or provisioned
+// for, and the user cannot change it. A boot failure there shows Retry and says
+// to contact the administrator; there is no way to a server field.
+describe('boot in a native shell', () => {
   interface G {
     __TAURI_INTERNALS__?: unknown;
     __MW_CONFIG__?: unknown;
@@ -128,26 +128,26 @@ describe('boot failure in a native shell', () => {
     delete g.__MW_CONFIG__;
   });
 
-  it('offers Change server, which opens Login with the failing address', async () => {
+  it('a boot failure offers Retry and the administrator line, and no Change server', async () => {
     g.__TAURI_INTERNALS__ = {};
-    g.__MW_CONFIG__ = { serverUrl: 'https://old.example.org', native: true };
+    g.__MW_CONFIG__ = { serverUrl: 'https://mail.example.org', native: true };
     hooks.me = () => Promise.reject(new NetworkError('connect ECONNREFUSED'));
 
     render(() => <App />);
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
-    // Still the error card first: no login form on its own.
-    expect(screen.queryByTestId('login-server-address')).toBeNull();
     expect(screen.getByTestId('async-retry')).toBeTruthy();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Change server' }));
-
-    const field = await screen.findByTestId('login-server-address');
-    expect(field).toHaveValue('https://old.example.org');
-    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByTestId('boot-contact-administrator')).toHaveTextContent(
+      'If this keeps happening, contact your administrator.',
+    );
+    expect(screen.queryByRole('button', { name: 'Change server' })).toBeNull();
+    expect(screen.queryByTestId('boot-change-server')).toBeNull();
+    expect(screen.queryByTestId('login-server-address')).toBeNull();
+    // Only Retry: no other control on the card.
+    expect(screen.getAllByRole('button').map((b) => b.getAttribute('data-testid'))).toEqual(['async-retry']);
   });
 
-  it('a browser boot failure has no Change server control', async () => {
+  it('a browser boot failure has neither Change server nor the administrator line', async () => {
     hooks.me = () => Promise.reject(new NetworkError('connect ECONNREFUSED'));
 
     render(() => <App />);
@@ -155,6 +155,24 @@ describe('boot failure in a native shell', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
     expect(screen.getByTestId('async-retry')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Change server' })).toBeNull();
-    expect(screen.queryByTestId('boot-change-server')).toBeNull();
+    expect(screen.queryByTestId('boot-contact-administrator')).toBeNull();
+  });
+
+  it('a shell with no configured server says so, shows no form and requests nothing', async () => {
+    g.__TAURI_INTERNALS__ = {};
+    g.__MW_CONFIG__ = { serverUrl: null, native: true };
+    const me = vi.fn(() => Promise.reject(new ApiError(401, 'not authenticated')));
+    hooks.me = me;
+
+    render(() => <App />);
+
+    expect(screen.getByTestId('shell-not-configured')).toHaveTextContent(
+      'This app has not been set up for a server. Contact your administrator.',
+    );
+    expect(document.querySelector('input')).toBeNull();
+    expect(screen.queryByRole('button')).toBeNull();
+    await Promise.resolve();
+    expect(me).not.toHaveBeenCalled();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });

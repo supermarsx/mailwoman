@@ -20,7 +20,6 @@ import type {
   PushSubscriptionInfo,
   PushTransport,
   SelfContainedStatus,
-  ServerEntry,
   Unsubscribe,
 } from './index.ts';
 import {
@@ -144,19 +143,6 @@ export function createBrowserPlatform(): Platform {
       return { kind: 'web', os, version: '' };
     },
 
-    // ── Server config: a browser is single, same-origin. ──
-    async getServerUrl() {
-      return null; // same-origin; the transport uses base ''.
-    },
-    async setServerUrl() {
-      /* no-op: the browser cannot retarget its origin. */
-    },
-    async listServers(): Promise<ServerEntry[]> {
-      return [{ url: '', label: 'This server' }];
-    },
-    async selectServer() {
-      /* no-op in the browser. */
-    },
 
     // ── Auth token store: browser uses the HttpOnly cookie, never a bearer. ──
     async getSessionToken() {

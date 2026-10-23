@@ -14,7 +14,6 @@ import { createSignal, For, onCleanup, onMount, Show, type JSX } from 'solid-js'
 import { useApp } from '../state/context.ts';
 import { t, loadCatalog } from '../i18n';
 import { createFocusTrap } from '../components/a11y';
-import { ServerSettings } from '../platform/ServerSettings.tsx';
 // V6 (plan §3 e8/e11): the zero-access storage, scoped API-key, and MCP-key
 // sections — additive, rendered only for an authenticated account. The normal
 // appearance controls above are byte-unchanged.
@@ -218,9 +217,6 @@ export function Settings(props: SettingsProps): JSX.Element {
             </For>
           </div>
         </div>
-
-        {/* Native-shell multi-server management; renders nothing in a browser. */}
-        <ServerSettings />
 
         {/* V6 security & integrations — only for an authenticated account. The
             `app.me` optional call keeps this inert in the theme-only unit test. */}

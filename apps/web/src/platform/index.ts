@@ -30,12 +30,6 @@ export interface PlatformInfo {
   version: string;
 }
 
-/** A configured Mailwoman server (multi-server: work + personal). */
-export interface ServerEntry {
-  url: string;
-  label: string;
-}
-
 /** One actionable button on a native notification (archive/delete/reply). */
 export interface NotifyAction {
   id: string;
@@ -108,11 +102,8 @@ export type Unsubscribe = () => void;
 export interface Platform {
   platform(): PlatformInfo;
 
-  // ── Server config (multi-server: work + personal) ──
-  getServerUrl(): Promise<string | null>;
-  setServerUrl(url: string): Promise<void>;
-  listServers(): Promise<ServerEntry[]>;
-  selectServer(url: string): Promise<void>;
+  // No server config: a shell's server address is fixed at build time or by a
+  // provisioning file and injected as `__MW_CONFIG__.serverUrl` (t32).
 
   // ── Auth token store (native: OS keychain; browser: no-op, cookie path) ──
   getSessionToken(): Promise<string | null>;
@@ -151,8 +142,8 @@ export interface Platform {
 
   // ── Self-contained lifecycle (desktop only; browser/mobile: "off") ──
   selfContainedStatus(): Promise<SelfContainedStatus>;
-  // HALF-WIRED (t31, decision D11): no UI calls this; the shells sign in to a
-  // remote server the user names on the Login screen.
+  // HALF-WIRED (t31, decision D11): no UI calls this; the shells sign in to the
+  // remote server they were built or provisioned for (t32).
   startLocalServer(): Promise<void>;
   stopLocalServer(): Promise<void>;
 }

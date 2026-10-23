@@ -8,7 +8,7 @@ import {
   type LoginInput,
 } from '../api/client.ts';
 import { createConfiguredClient } from '../api/transport.ts';
-import { chooseServerUrl, isNativeAuth, nativeServerBase, normalizeServerUrl } from '../api/serverAddress.ts';
+import { isNativeAuth } from '../api/serverAddress.ts';
 import { basePath } from '../api/basePath.ts';
 import { useApp } from '../state/context.ts';
 import { t, loadCatalog, isolate } from '../i18n';
@@ -93,11 +93,9 @@ export function Login(): JSX.Element {
   const app = useApp();
   onMount(() => void loadCatalog('auth'));
   onMount(() => void loadCatalog('login2fa'));
-  // A desktop or mobile shell is not served by the server it talks to, so it asks
-  // which server to use (t31). Prefilled with the one used last; the address is
-  // kept by the platform for the next start.
+  // A desktop or mobile shell talks to the server it was built or provisioned for
+  // (t32); the user never enters a server address.
   const native = isNativeAuth();
-  const [serverAddress, setServerAddress] = createSignal(nativeServerBase() ?? '');
   const [email, setEmail] = createSignal('');
   // The server the last lookup found for `email()`, shown for confirmation.
   // Cleared whenever the address is edited, so it never describes another one.
@@ -214,28 +212,11 @@ export function Login(): JSX.Element {
     }
   }
 
-  /**
-   * In a shell, point the client at the typed server address before anything is
-   * sent. `false` (with the error shown) when it is not an address.
-   */
-  async function applyServerAddress(): Promise<boolean> {
-    if (!native) return true;
-    const url = normalizeServerUrl(serverAddress());
-    if (url === null) {
-      setError(t('auth-server-address-invalid'));
-      return false;
-    }
-    setServerAddress(url);
-    await chooseServerUrl(url);
-    return true;
-  }
-
   async function onSubmit(e: Event): Promise<void> {
     e.preventDefault();
     setError(null);
     setRefused(false);
     setFoundRefused(null);
-    if (!(await applyServerAddress())) return;
     if (manual()) {
       await signIn({ jmapUrl: jmapUrl(), username: username(), password: password() }, null);
       return;
@@ -284,26 +265,6 @@ export function Login(): JSX.Element {
     <main class="login">
       <form class="login__card" onSubmit={(e) => void onSubmit(e)} aria-label={t('auth-sign-in')}>
         <h1 class="login__title">{t('auth-app-name')}</h1>
-        <Show when={native}>
-          <label class="field">
-            <span>{t('auth-server-address')}</span>
-            <input
-              type="text"
-              inputmode="url"
-              required
-              autocomplete="url"
-              spellcheck={false}
-              placeholder={t('auth-server-address-placeholder')}
-              aria-describedby="login-server-address-hint"
-              data-testid="login-server-address"
-              value={serverAddress()}
-              onInput={(e) => setServerAddress(e.currentTarget.value)}
-            />
-          </label>
-          <p class="login__hint" id="login-server-address-hint">
-            {t('auth-server-address-hint')}
-          </p>
-        </Show>
         <Show
           when={manual()}
           fallback={

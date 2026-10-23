@@ -27,7 +27,6 @@ import type {
   PushSubscriptionInfo,
   PushTransport,
   SelfContainedStatus,
-  ServerEntry,
   ShareTargetPayload,
   Unsubscribe,
 } from './index.ts';
@@ -82,11 +81,6 @@ function bridge<T>(event: string, handler: (payload: T) => void): Unsubscribe {
   };
 }
 
-/** The shell-injected config object, if any (the server address lives here). */
-function mwConfig(): { serverUrl?: unknown } | undefined {
-  return (globalThis as { __MW_CONFIG__?: { serverUrl?: unknown } }).__MW_CONFIG__;
-}
-
 /** Read the shell-injected platform descriptor (`__MW_CONFIG__.platform`). */
 function injectedPlatform(): PlatformInfo | null {
   const cfg = (
@@ -129,14 +123,6 @@ export async function createTauriPlatform(): Promise<Platform> {
   const info = injectedPlatform();
   const kind: PlatformKind = info?.kind ?? 'desktop';
 
-  // The shells inject `serverUrl: null`; the address the user entered last time
-  // is in the shell's server store. Put it where the transport reads it.
-  const cfg = mwConfig();
-  if (cfg !== undefined && (typeof cfg.serverUrl !== 'string' || cfg.serverUrl === '')) {
-    const selected = await invoke<string | null>('mw_server_get_selected').catch(() => null);
-    if (typeof selected === 'string' && selected !== '') cfg.serverUrl = selected;
-  }
-
   // The session token, read from the keychain once and then held here, so a
   // request does not cost a keychain read. `undefined` = not read yet. A keychain
   // that cannot be written still keeps the token for this run.
@@ -155,23 +141,6 @@ export async function createTauriPlatform(): Promise<Platform> {
 
     platform(): PlatformInfo {
       return info ?? base.platform();
-    },
-
-    // ── Server config (multi-server, persisted natively — e1 `mw_server_*`). ──
-    getServerUrl: () => invoke<string | null>('mw_server_get_selected'),
-    // The Platform interface's single-arg `setServerUrl` maps to add-then-select
-    // over e1's multi-server store (label defaults to the URL).
-    setServerUrl: async (url) => {
-      await invoke('mw_server_add', { url, label: url });
-      await invoke('mw_server_select', { url });
-      const current = mwConfig();
-      if (current !== undefined) current.serverUrl = url;
-    },
-    listServers: () => invoke<ServerEntry[]>('mw_server_list'),
-    selectServer: async (url) => {
-      await invoke('mw_server_select', { url });
-      const current = mwConfig();
-      if (current !== undefined) current.serverUrl = url;
     },
 
     // ── Auth token store (OS keychain, `mw_keychain_*` service=session). ──

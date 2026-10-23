@@ -16,12 +16,10 @@
 // `native: true` turns on the bearer path (the token comes from the platform's
 // OS-keychain session store).
 //
-// The shells inject `serverUrl: null`: the user types the server address on the
-// Login screen (t31), `chooseServerUrl` writes it to `__MW_CONFIG__.serverUrl` and
-// to the platform's server store, and the native platform puts the stored address
-// back into `__MW_CONFIG__.serverUrl` at the next start (`platform/tauri.ts`).
-// Every request waits for the platform first (`platformReady`), so the first one
-// at boot already sees the stored address and token.
+// The shells inject the server address they were built or provisioned for (t32),
+// or `serverUrl: null` when they have none; nothing in the SPA changes it. Every
+// request waits for the platform first (`platformReady`), so the first one at boot
+// already sees the stored token.
 
 import { createClient, type ClientAuth, type Client } from './client.ts';
 import { basePath } from './basePath.ts';
@@ -29,7 +27,7 @@ import { setNativeTransport } from './http.ts';
 import { isNativeAuth, nativeServerBase } from './serverAddress.ts';
 import { platformReady } from '../platform/index.ts';
 
-export { chooseServerUrl, isNativeAuth, nativeServerBase, normalizeServerUrl } from './serverAddress.ts';
+export { isNativeAuth, nativeServerBase } from './serverAddress.ts';
 
 interface MwConfig {
   serverUrl?: unknown;
@@ -43,7 +41,7 @@ function mwConfig(): MwConfig {
  * The transport base URL. Browser: the sub-path prefix — `''` at the origin root
  * (unchanged from before sub-path support) or `/mail` when the server injected
  * `__MW_BASE__`. Native shell: the injected `serverUrl` verbatim, because the
- * operator types that URL in full and it already carries any prefix; `__MW_BASE__`
+ * operator sets that URL in full and it already carries any prefix; `__MW_BASE__`
  * is an `index.html` injection the native shell never receives.
  *
  * A trailing slash is trimmed either way so `${base}/api/...` stays well-formed.
@@ -82,9 +80,8 @@ if (isNativeAuth()) {
 /**
  * Build the API client for the current runtime. In a plain browser this returns
  * `createClient()` verbatim (cookie, same-origin) — the regression-critical path.
- * In a configured native shell it points at the server the user entered (read at
- * each request, so a client built before sign-in follows the address typed
- * later) and attaches the keychain bearer token.
+ * In a configured native shell it points at the server the shell was built or
+ * provisioned for and attaches the keychain bearer token.
  */
 export function createConfiguredClient(): Client {
   if (isNativeAuth()) return createClient(nativeServerBase, platformAuth());
