@@ -35,7 +35,7 @@ describe('Mailbox Assist wiring', () => {
     await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
     await app.assist.loadConfig();
 
-    expect(await screen.findByRole('region', { name: 'Assist' })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'AI assistant' })).toBeInTheDocument();
     expect(screen.getByText('Semantic search')).toBeInTheDocument();
   });
 
@@ -43,7 +43,7 @@ describe('Mailbox Assist wiring', () => {
     const { app } = renderWithApp(() => <MailboxScreen />);
     await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
 
-    expect(screen.queryByRole('region', { name: 'Assist' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'AI assistant' })).toBeNull();
     expect(screen.queryByText('Semantic search')).toBeNull();
   });
 });

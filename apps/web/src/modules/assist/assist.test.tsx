@@ -104,7 +104,7 @@ describe('send is never offered', () => {
     const onReviewAction = vi.fn();
     render(() => <AssistPanel config={enabled(['assistant'])} service={service} onReviewAction={onReviewAction} />);
 
-    fireEvent.input(screen.getByLabelText('Message the assistant'), { target: { value: 'reply to bob' } });
+    fireEvent.input(screen.getByLabelText('Message the AI assistant'), { target: { value: 'reply to bob' } });
     fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
 
     await waitFor(() => expect(screen.getByTestId('proposed-action')).toBeInTheDocument());

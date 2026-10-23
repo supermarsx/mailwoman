@@ -28,7 +28,7 @@
 11. [Calendar](#11-calendar)
 12. [Tasks & Notes](#12-tasks--notes)
 13. [Contacts & Directory](#13-contacts--directory)
-14. [AI Subsystem — Assist](#14-ai-subsystem--assist)
+14. [AI Subsystem — AI assistant](#14-ai-subsystem--ai-assistant)
 15. [Realtime, Sync, Offline & Caching](#15-realtime-sync-offline--caching)
 16. [Clients: Web-First, Thin Desktop & Mobile](#16-clients-web-first-thin-desktop--mobile)
 17. [Theming, Fonts & Personalization](#17-theming-fonts--personalization)
@@ -69,7 +69,7 @@ SnappyMail it is:
   voting buttons, reactions, pinning — the whole Outlook feature surface,
   self-hosted.
 - **AI-capable without AI-dependence.** A deeply integrated but strictly
-  opt-in, permission-scoped Assist subsystem (§14) against endpoints the user
+  opt-in, permission-scoped AI assistant subsystem (§14) against endpoints the user
   or admin configures. Zero AI without explicit configuration.
 
 ### Target audiences (in priority order)
@@ -120,7 +120,7 @@ that scale before 1.0 (see §2).
   over CalDAV/CardDAV/JMAP/bridges — Mailwoman syncs them, it does not host
   the canonical copy (except Notes, which may be Mailwoman-native, §12.2).
 - **No AI in core, no default-on AI anywhere.** Smart features ship only in
-  the opt-in Assist subsystem (§14) against a user/admin-configured endpoint;
+  the opt-in AI assistant subsystem (§14) against a user/admin-configured endpoint;
   nothing in core phones home.
 - **Not ISP-scale multi-tenancy (at 1.0).** No billing hooks, no
   million-mailbox horizontal-scaling work, no deep hosting-panel automation
@@ -177,8 +177,8 @@ browser, desktop shell, mobile shell — is the same TypeScript UI speaking
   Browser (PWA) ───┐   │  mailwoman server (Rust)                 │
                    │   │  ┌────────────────────────────────────┐  │
   Desktop shell ───┼──►│  │ engine: JMAP surface, sync, rules, │  │──► IMAP/JMAP/
-  (Tauri, thin)    │   │  │ search, crypto envelope, Assist    │  │    POP3/SMTP/
-                   │   │  │ gateway, DAV client, bridges       │  │    Sieve/DAV/
+  (Tauri, thin)    │   │  │ search, crypto envelope, bridges,  │  │    POP3/SMTP/
+                   │   │  │ DAV client, AI assistant gateway   │  │    Sieve/DAV/
   Mobile shell ────┘   │  └────────────────────────────────────┘  │    Graph/EWS
   (Tauri, thin)        │   PostgreSQL │ SQLite   +  Redis (opt.)  │
                        └──────────────────────────────────────────┘
@@ -799,7 +799,7 @@ disabled for zero-access accounts (§15.6).
   **per-folder thread on/off is not built.**
 - **Focused Inbox:** two-tab inbox (Focused/Other) driven by a local
   classifier (sender history, interaction frequency, rules) — optionally
-  Assist-enhanced (§14); syncs bidirectionally with Outlook's Focused state
+  enhanced by the AI assistant (§14); syncs bidirectionally with Outlook's Focused state
   via the Graph bridge; per-account toggle, trainable via "Move to
   Focused/Other" with "always do this for sender".
 - Hover quick-actions. Swipe actions (mobile), drag-and-drop (§10.7) and
@@ -929,13 +929,13 @@ disabled for zero-access accounts (§15.6).
     composer toggle and the pixel is a code follow-up.**
 - Templates ("quick parts") and canned responses; keyboard-driven
   emoji/mention pickers; spellcheck via OS/browser; grammar and text review via
-  Assist (§14). None of the template library ships yet. **OFT template
+  the AI assistant (§14). None of the template library ships yet. **OFT template
   import/export is cut.** The "local LanguageTool integration remains the no-AI
-  path" claim is **not met** — only the Assist path exists, and LanguageTool
+  path" claim is **not met** — only the AI assistant path exists, and LanguageTool
   cannot currently be pointed at a self-hosted server, which was the whole
   point of that sentence.
 - **Dictation:** browser SpeechRecognition / OS dictation where available, or
-  Assist speech-to-text against a configured endpoint (local Whisper server
+  AI assistant speech-to-text against a configured endpoint (local Whisper server
   first-class) — push-to-talk in the composer, with AI cleanup pass optional (§14).
 
 ### 10.4 Search
@@ -953,7 +953,7 @@ disabled for zero-access accounts (§15.6).
   is a goal, not a description. (The *rules* builder does round-trip; that is a
   different screen.) Operator chips over the existing operator whitelist are
   the cheap version and are what is tracked.
-- **AI-powered search (opt-in, §14):** the Assist endpoint can compute query
+- **AI-powered search (opt-in, §14):** the AI assistant endpoint can compute query
   embeddings for natural-language queries ("that invoice from the contractor
   in spring") through the user's configured endpoint. Re-ranking the search
   index by those embeddings — and persisting them encrypted alongside the
@@ -984,7 +984,7 @@ disabled for zero-access accounts (§15.6).
 - Raw Sieve editor (syntax highlighting, linting) for power users; client
   rules for POP3/no-Sieve servers; "filter messages like this" one-click;
   rules testable against existing mail (dry-run preview).
-- **AI auto-organization (opt-in, §14):** Assist suggests tags, folders, and
+- **AI auto-organization (opt-in, §14):** the AI assistant suggests tags, folders, and
   focused/other placement; runs in **suggest mode** (badge + one-click apply)
   or **auto mode** per rule, with per-rule scopes and full audit of what AI
   moved where — reversible in bulk.
@@ -1093,7 +1093,7 @@ is cut**; the rest is tracked.
   set a reminder that cannot fire. Building the scheduler closes this and the
   follow-up-flag reminders in §10.1 together.
 - **Quick create:** natural-language quick-add ("lunch with Ana tomorrow 1pm")
-  parsed locally; Assist can enhance parsing (§14) but the local parser is the
+  parsed locally; the AI assistant can enhance parsing (§14) but the local parser is the
   default. **Click-drag creation is not built** — and neither is empty-slot
   click on any timed view, so an event cannot be created at a specific hour
   from day or week view at all. This is the most-used interaction in every
@@ -1141,13 +1141,13 @@ calendar. Address books have **no share ACL at all** (recorded as a deliberate
 follow-up in `sharing.rs`). The `calendar_shares` table also has no primary key
 or unique constraint. Permission levels are the piece to build first.
 
-### 11.6 Meeting intelligence (Assist-gated, §14)
+### 11.6 Meeting intelligence (gated on the AI assistant, §14)
 
 - **Meeting recaps:** post-meeting, generate a recap from the invite thread,
   attached agenda/notes, and (if the user pastes/uploads one) a transcript —
   action items extracted into Tasks (§12.1). Strictly on-demand, endpoint-BYO.
 - Scheduling assistance ("find a slot for these 4 people next week", rules-based
-  from free/busy with Assist adding natural-language polish) is **cut for now**
+  from free/busy with the AI assistant adding natural-language polish) is **cut for now**
   — it cannot be built before free/busy actually reads other people's
   calendars (§11.3), and it is not worth planning before that lands.
 
@@ -1240,9 +1240,9 @@ or unique constraint. Permission levels are the piece to build first.
 
 ---
 
-## 14. AI Subsystem — Assist
+## 14. AI Subsystem — AI assistant
 
-Assist is a **first-party but strictly opt-in subsystem** — deeply integrated,
+The AI assistant is a **first-party but strictly opt-in subsystem** — deeply integrated,
 never load-bearing. Every feature in this section is invisible until an
 endpoint is configured, and every capability is individually permission-gated.
 
@@ -1255,7 +1255,7 @@ endpoint is configured, and every capability is individually permission-gated.
 - Configured per deployment (admin) and/or per user (if admin allows). No
   Mailwoman-hosted default, no trial, no baked-in key. Unconfigured = zero AI
   UI.
-- All Assist traffic goes through the engine's **Assist gateway** (`mw-assist`),
+- All AI assistant traffic goes through the engine's **AI assistant gateway** (`mw-assist`),
   which enforces scopes, redaction, rate limits, and audit — the UI never
   talks to an AI endpoint directly.
 
@@ -1268,9 +1268,9 @@ endpoint is configured, and every capability is individually permission-gated.
   tenant-wide, and scoped by **data class**: which accounts, which folders,
   whether E2EE-decrypted content may ever be included (default: never),
   whether attachments may be included (default: no).
-- **Send is always human-gated:** Assist can draft, never transmit. There is
+- **Send is always human-gated:** the AI assistant can draft, never transmit. There is
   no capability that sends mail, accepts invites, or deletes anything.
-- Every Assist call is audit-logged (capability, data scope summary, endpoint
+- Every AI assistant call is audit-logged (capability, data scope summary, endpoint
   host — never content) and the per-message UI shows a "what left the device"
   disclosure on demand.
 - Background/batch AI (auto-tagging, §10.5) runs only for capabilities
@@ -1598,7 +1598,7 @@ port was specced; a **Unix socket is not available** — see §18.1.)
   domain allow/blocklists, per-domain identity/alias provisioning (feeds
   §10.3 allowed-froms).
 - **Users:** provisioning (local mode), quotas, session listing + revocation,
-  per-user feature flags (zero-access, Assist, tracking pixel, DnD scopes),
+  per-user feature flags (zero-access, AI assistant, tracking pixel, DnD scopes),
   password reset/force-change. (**Remote cache wipe is cut**: the
   `remote_cache_wipe` flag is settable and read by nobody — no engine handler,
   no client consumer, no OPFS/IndexedDB purge. The same row's auto-lock timer
@@ -1607,7 +1607,7 @@ port was specced; a **Unix socket is not available** — see §18.1.)
 - **Security policy:** min TLS, 2FA required, session lifetimes, Argon2
   params, remote-content proxy policy, max-security floors (§7.2), DLP rules
   (§7.6), watermarking, screen-capture policy for shells.
-- **Assist governance:** endpoint allowlist, capability locks, data-class
+- **AI assistant governance:** endpoint allowlist, capability locks, data-class
   ceilings, tenant-wide kill switch (§14.2).
 - **Integrations:** LDAP directories, Nextcloud, spam trainers, password-change
   backends, webhooks, MCP/API key oversight (§20).
@@ -1685,7 +1685,7 @@ verdicts, admin events. Inbound webhook actions available to rules.
 - Protocol wire tracing (redacted literals) available per-account for
   debugging, time-boxed with auto-off.
 - **Audit log** (separate, append-only, exportable): logins, session events,
-  settings changes, admin actions, API/MCP key usage, Assist calls, DLP
+  settings changes, admin actions, API/MCP key usage, AI assistant calls, DLP
   verdicts, recalls, rule executions. (Rule-execution rows currently record the
   resulting action and message id but **not the rule id or name**, so they do
   not answer "which rule fired"; there are no non-match records and no viewer.)
@@ -1902,13 +1902,13 @@ partly so implementation can be delegated to agents and verified mechanically.
 | **V4 — Crypto & security depth** | OpenPGP (client-side WASM), Autocrypt, WKD, S/MIME, verdict UI, Security panel (metadata/signature analysis), DLP, max-security opening, message classification | Thunderbird/GnuPG/Outlook interop suites green; DLP rule engine audited |
 | **V5 — Thin shells** | Tauri desktop + mobile thin clients, self-contained desktop mode, UnifiedPush/APNs, capture protection, keychain, mailto/share/file handlers | Signed installers < 21 MB (§16, revised from 10 MB against measurement in 26.20); store-ready builds; shell integrity verification E2E |
 | **V6 — Zero-access + Admin + API/MCP + Plugins** | Zero-access mode + device pairing, PQC store wrapping, WASM plugin runtime, full admin panel, scoped API keys, webhooks, **MCP server**, LDAP/GAL, password-change backends, Redis cache layer, observability (OTLP/Sentry-compat) | External security audit (incl. MCP surface) passed; cache scope matrix enforced in tests |
-| **V7 — Bridges + Assist + Outlook parity tail** | Graph, EWS, Gmail API bridges; recall/reactions/voting/focused-sync via bridges; MSG/OFT/DOCX export; Nextcloud plugin; **Assist subsystem** (all capabilities, scoping, dictation, recaps, AI search/auto-tag) | Bridge fixture suites green; nightly live-interop vs M365/Workspace tenants; Assist works vs Ollama + OpenAI-compatible + Anthropic endpoints with scope audit E2E |
+| **V7 — Bridges + AI assistant + Outlook parity tail** | Graph, EWS, Gmail API bridges; recall/reactions/voting/focused-sync via bridges; MSG/OFT/DOCX export; Nextcloud plugin; **AI assistant subsystem** (all capabilities, scoping, dictation, recaps, AI search/auto-tag) | Bridge fixture suites green; nightly live-interop vs M365/Workspace tenants; the AI assistant works vs Ollama + OpenAI-compatible + Anthropic endpoints with scope audit E2E |
 | **1.0** | Hardening, WCAG audit, docs, translations | All release gates green; audit findings resolved |
 
 Scope-cut ladder if reality bites (cut from the bottom up, never quality):
 **Gmail API bridge (IMAP covers most users) → mobile store presence
 (sideload/F-Droid floor) → zero-access webmail mode (client-side E2EE stays) →
-Assist auto-modes (suggest-only stays).** Exchange support (Graph + EWS) is
+AI assistant auto-modes (suggest-only stays).** Exchange support (Graph + EWS) is
 a commitment and survives cuts; POP3 is guaranteed and ships in V1.
 
 ---

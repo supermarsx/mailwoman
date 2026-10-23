@@ -7,7 +7,7 @@ so the paid engagement starts from a known-good floor instead of rediscovering i
 
 > **HUMAN-GATED AUDIT.** Reproducing this baseline is **not** the audit. The funded
 > external audit **run** (an independent third party actively testing crypto / MCP /
-> plugin-sandbox / Assist) and the **resolution of its findings** are a hard, human-gated
+> plugin-sandbox / AI assistant) and the **resolution of its findings** are a hard, human-gated
 > condition of the actual 1.0 tag (SPEC §25 lines 1393–1394; §27; ROADMAP-1.0.md line 16).
 > This baseline is the *input* to that engagement, not a substitute for it.
 
@@ -136,7 +136,7 @@ cargo test -p languagetool --test jail_load
 **Auditor action:** author a hostile fixture plugin and attempt sandbox escape, off-
 allowlist network, secret exfiltration (`oauth-token`), and resource exhaustion.
 
-### Assist redaction / E2EE-never-forwarded / content-free audit (`assist-mock`)
+### AI assistant redaction / E2EE-never-forwarded / content-free audit (`assist-mock`)
 `cargo test -p mw-assist -- --include-ignored` against a deterministic, offline
 OpenAI-compatible (+ Anthropic) mock (`scripts/mock-assist`, `docker-compose.ci.yml` service
 `mock-assist`) asserts capability grant/deny, redaction, **E2EE decrypted content is never
@@ -173,9 +173,9 @@ M365/Workspace/Ollama/OpenAI/Anthropic endpoints when secrets are present.
 | Zero-access at rest | `mw-server --test v6_e2e` | ciphertext-at-rest proven | independent DB inspection |
 | MCP send-gating | `mw-mcp` + `e2e-v6/v7` | Outbox-only default proven | falsify transmit path |
 | Plugin sandbox | `jail` job | capability + limits proven | hostile-plugin escape attempt |
-| Assist governance | `assist-mock` | redaction + content-free audit proven | redactor corpus + bypass attempt |
+| AI assistant governance | `assist-mock` | redaction + content-free audit proven | redactor corpus + bypass attempt |
 | Directory TLS | `directory-vs-openldap` | rustls, live OpenLDAP | MITM/downgrade attempt |
 
 Start here, then exercise the four crown-jewel surfaces (crypto worker, plugin host, MCP,
-Assist) adversarially. **The funded external audit run + findings resolution remain
+AI assistant) adversarially. **The funded external audit run + findings resolution remain
 human-gated and are required before the actual 1.0 tag.**

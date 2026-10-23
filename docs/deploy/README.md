@@ -111,7 +111,7 @@ pluggable Postgres, layered Valkey/Redis cache, observability) adds:
 | `MW_PUBLIC_URL` | *(unset)* | 26.19. Canonical external base (`https://mail.example.com`). Highest-precedence source of public scheme + host. **Setting an https base changes the WebAuthn origin and can invalidate existing passkeys** — see [`reverse-proxy.md`](./reverse-proxy.md) §3. |
 | `MW_BASE_PATH` | *(unset)* | 26.19. Serve under a path prefix (`/mail`). The app **also** stays mounted at the origin root by design; the prefix is routing, not isolation. |
 | `MW_HEADER_AUTH_TRUSTED_IPS` | *(empty)* | Peers allowed to assert `X-Remote-User` when `MW_HEADER_AUTH=1`. Fails closed — empty authenticates nobody. Not independent of `MW_TRUSTED_PROXIES` once `MW_PROXY_PROTOCOL != off`. |
-| `MW_ASSIST_RATE_LIMIT_PER_MIN` | *(unset)* | 26.19. Per-account Assist budget in **outbound endpoint requests**/minute. `0` = hard stop. A cold-cache semantic search costs up to 33; a chat turn costs 1. |
+| `MW_ASSIST_RATE_LIMIT_PER_MIN` | *(unset)* | 26.19. Per-account AI assistant budget in **outbound endpoint requests**/minute. `0` = hard stop. A cold-cache semantic search costs up to 33; a chat turn costs 1. |
 
 ### Upgrading: the proxy upstream is now checked
 
@@ -215,12 +215,12 @@ between header auth and the proxy trust list, and **which proxies have actually
 been tested versus merely shipped**. Per-proxy configuration trees are under
 [`proxy/`](./proxy/).
 
-V7 (release 26.8.0) — bridges, directory, Assist, plugins — adds:
+V7 (release 26.8.0) — bridges, directory, AI assistant, plugins — adds:
 
 - [`ldap.md`](./ldap.md) — the read-only **LDAP/GAL directory** (`mw-directory`):
   endpoint list + priority, attribute mapping, StartTLS/LDAPS, S/MIME cert + photo
   lookup, and LDAP-bind login.
-- [`../assist.md`](../assist.md) — **Assist (AI)**: BYO endpoint adapters, capability
+- [`../assist.md`](../assist.md) — **AI assistant**: BYO endpoint adapters, capability
   scoping, the content-free audit, the "what left the device" disclosure, and admin
   governance.
 - [`../security/plugins.md`](../security/plugins.md) — the **WASM plugin runtime**:

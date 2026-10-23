@@ -239,7 +239,7 @@ attempt to **compose raw protocol** (IMAP/SMTP) through a tool.
 
 ---
 
-## 5. Assist (AI) gateway
+## 5. AI assistant gateway
 
 Authoritative: [`assist.md`](../../assist.md).
 
@@ -250,11 +250,11 @@ attachments; the record of what left the device.
 the AI host — the server proxies; CSP keeps `connect-src 'self'`).
 
 **Adversary model.** (a) **Data exfiltration** — sensitive/E2EE content leaking to a
-third-party endpoint; (b) a **compromised or hostile AI endpoint**; (c) **Assist being
+third-party endpoint; (b) a **compromised or hostile AI endpoint**; (c) **the AI assistant being
 used to send/act** irreversibly; (d) **audit leaking content**.
 
 **Existing mitigations.**
-- **Off until configured** — no endpoint ⇒ `Disabled`, zero Assist UI, nothing sent.
+- **Off until configured** — no endpoint ⇒ `Disabled`, zero AI assistant UI, nothing sent.
 - **The engine is the only client** — the browser never talks to the AI host; the server
   proxies. `LocalProcess` keeps everything on-device.
 - **E2EE-decrypted content and attachments are excluded by default** (`include_e2ee=false`,
@@ -262,12 +262,12 @@ used to send/act** irreversibly; (d) **audit leaking content**.
 - **Redaction runs before anything leaves the engine**; per-capability grant; data-class
   ceiling; rate-limit.
 - **Send is always human-gated — structurally:** the capability enum has **no
-  send/delete/accept variant**, so there is no code path for Assist to transmit or act
+  send/delete/accept variant**, so there is no code path for the AI assistant to transmit or act
   irreversibly. The assistant chat reuses the **same tool surface as MCP** and inherits its
   send-gating (drafts go to the Outbox).
 - **Content-free audit:** each invocation records capability + scope summary + endpoint
   host, **never** content (asserted in tests).
-- **"What left the device" disclosure** per Assist action; admin governance (endpoint
+- **"What left the device" disclosure** per AI assistant action; admin governance (endpoint
   allowlist, per-capability locks, data-class ceilings, kill switch).
 
 **Residual risk (auditor focus).**
@@ -276,7 +276,7 @@ used to send/act** irreversibly; (d) **audit leaking content**.
 - A **hostile AI endpoint** sees whatever the data-class ceiling + opt-ins allow; the
   disclosure surface should match actual gateway behaviour (verify no silent broadening).
 - Confirm the **no-send structural claim** holds across the shared MCP tool surface (no
-  Assist path reaches a transmit).
+  AI assistant path reaches a transmit).
 
 ---
 
@@ -361,7 +361,7 @@ custom detectors carry ReDoS risk worth a look.
 1. **Parsers of untrusted input** (MIME, HTML sanitize, CFB/.msg, LDAP, SOAP/EWS, JMAP,
    OpenPGP/S-MIME packets) — the primary fuzz/hardening targets. Enumerated in
    [`surface-inventory.md`](./surface-inventory.md).
-2. **The four sandboxes/boundaries** (crypto worker B3, plugin host B4, Assist gateway B5,
+2. **The four sandboxes/boundaries** (crypto worker B3, plugin host B4, AI assistant gateway B5,
    zero-access at-rest B6) — confirm no leak across each, and that the *honest boundaries*
    (active-server, prompt-injection, unaudited ml-kem, unimplemented UI-plugin tier) are
    not overstated in product copy.

@@ -399,16 +399,6 @@ export const ADMIN_SECTIONS = [
 
 export type AdminSection = (typeof ADMIN_SECTIONS)[number];
 
-/** Human labels for the nav rail. */
-export const ADMIN_SECTION_LABELS: Record<AdminSection, string> = {
-  domains: 'Domains',
-  users: 'Users',
-  integrations: 'Integrations',
-  observability: 'Observability',
-  plugins: 'Plugins',
-  assist: 'Assist',
-};
-
 export interface AdminSlice {
   /** The typed client every section calls. */
   readonly api: AdminApi;

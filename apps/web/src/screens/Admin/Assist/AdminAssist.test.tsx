@@ -88,12 +88,12 @@ describe('admin assist screen', () => {
     expect(screen.getByLabelText('Base URL')).toHaveValue('https://llm.example.test/v1');
     expect(screen.getByLabelText('Chat model')).toHaveValue('chat-t28');
     expect(screen.getByLabelText('Summarize')).toBeChecked();
-    expect(screen.getByLabelText('Assistant chat')).not.toBeChecked();
+    expect(screen.getByLabelText('AI assistant chat')).not.toBeChecked();
     expect(screen.getByLabelText('Account ids whose mail may be sent, one per line')).toHaveValue('acct-1\nacct-2');
     expect(screen.getByLabelText('Allow attachments to be sent')).toBeChecked();
     expect(screen.getByLabelText('Allow end-to-end-encrypted content to be sent')).not.toBeChecked();
     expect(screen.getByTestId('assist-status')).toHaveTextContent(
-      'Assist is running. Requests go to llm.example.test.',
+      'The AI assistant is running. Requests go to llm.example.test.',
     );
   });
 
@@ -112,7 +112,7 @@ describe('admin assist screen', () => {
     render(() => <AdminAssist api={api} />);
     await waitFor(() => expect(saveButton()).toBeEnabled());
 
-    fireEvent.click(screen.getByLabelText('Assistant chat'));
+    fireEvent.click(screen.getByLabelText('AI assistant chat'));
     fireEvent.click(screen.getByLabelText('Summarize'));
     fireEvent.click(screen.getByLabelText('Allow end-to-end-encrypted content to be sent'));
     fireEvent.change(screen.getByLabelText('Folder ids to limit sending to, one per line'), {
@@ -158,7 +158,7 @@ describe('admin assist screen', () => {
       render(() => <AdminAssist api={api} />);
       await waitFor(() =>
         expect(screen.getByRole('alert')).toHaveTextContent(
-          'Could not load the Assist configuration. Saving is disabled so the stored configuration is not overwritten.',
+          'Could not load the AI assistant configuration. Saving is disabled so the stored configuration is not overwritten.',
         ),
       );
       expect(saveButton()).toBeDisabled();
@@ -171,17 +171,17 @@ describe('admin assist screen', () => {
   it('stops Assist through the kill route and reports the answer', async () => {
     const { api, writes } = server({ config: STORED, status: RUNNING });
     render(() => <AdminAssist api={api} />);
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Stop Assist now' })).toBeInTheDocument());
-    expect(screen.queryByRole('button', { name: 'Turn Assist on' })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Stop the AI assistant now' })).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'Turn the AI assistant on' })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Stop Assist now' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Stop the AI assistant now' }));
     await waitFor(() => expect(writes()).toHaveLength(1));
     expect(writes()[0]).toEqual({ method: 'POST', path: '/admin/assist/kill', body: { on: true } });
     await waitFor(() =>
-      expect(screen.getByTestId('assist-status')).toHaveTextContent('Assist is off. Every Assist request is refused.'),
+      expect(screen.getByTestId('assist-status')).toHaveTextContent('The AI assistant is off. Every AI assistant request is refused.'),
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Turn Assist on' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Turn the AI assistant on' }));
     await waitFor(() => expect(writes()).toHaveLength(2));
     expect(writes()[1]).toEqual({ method: 'POST', path: '/admin/assist/kill', body: { on: false } });
 
@@ -203,7 +203,7 @@ describe('admin assist screen', () => {
     render(() => <AdminAssist api={api} />);
     await waitFor(() => expect(saveButton()).toBeEnabled());
     expect(screen.getByTestId('assist-status')).toHaveTextContent(
-      'Assist is on but not running because no usable endpoint is configured.',
+      'The AI assistant is on but not running because no usable endpoint is configured.',
     );
 
     fireEvent.change(screen.getByLabelText('Endpoint type'), { target: { value: 'open-ai-compatible' } });

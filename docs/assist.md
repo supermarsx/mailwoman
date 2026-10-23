@@ -1,18 +1,18 @@
-# Assist (AI) — endpoints, privacy, and governance (V7)
+# AI assistant — endpoints, privacy, and governance (V7)
 
-V7 (release 26.8.0) adds Assist (`mw-assist`): optional AI features — summarize, draft,
-grammar, dictation, semantic search, auto-tag, recap, and an assistant chat. Assist is
+V7 (release 26.8.0) adds the AI assistant (`mw-assist`): optional AI features — summarize, draft,
+grammar, dictation, semantic search, auto-tag, recap, and an assistant chat. The AI assistant is
 **bring-your-own-endpoint**: you point it at an AI endpoint you control or trust;
 Mailwoman ships no built-in model and no default provider.
 
-Assist is **off until configured.** With no endpoint configured, the gateway reports
-`Disabled` and the web app hides every Assist surface — there is no Assist UI, no
+The AI assistant is **off until configured.** With no endpoint configured, the gateway reports
+`Disabled` and the web app hides every AI assistant surface — there is no AI assistant UI, no
 prompts, nothing sent anywhere.
 
 ## Architecture: the engine is the only client
 
-The browser **never** talks to an AI endpoint directly. All Assist traffic goes
-through the engine-side **Assist gateway** (`mw-assist`), which the server proxies. The
+The browser **never** talks to an AI endpoint directly. All AI assistant traffic goes
+through the engine-side **AI assistant gateway** (`mw-assist`), which the server proxies. The
 browser's CSP keeps `connect-src 'self'` — the AI host is contacted only by the
 server, never by the page. This mirrors the existing server-proxied surfaces.
 
@@ -32,7 +32,7 @@ a local embeddings model and a hosted chat model.
 
 ## Capabilities and scoping
 
-Each Assist feature is a capability, granted independently:
+Each AI assistant feature is a capability, granted independently:
 
 `summarize`, `draft`, `grammar`, `dictation`, `search-semantic`, `auto-tag`, `recap`,
 `assistant`.
@@ -55,7 +55,7 @@ Each Assist feature is a capability, granted independently:
 > Bound it with `MW_ASSIST_RATE_LIMIT_PER_MIN` (per account, counted in **outbound
 > endpoint requests**): a cold-cache semantic search costs up to 33 — one for the
 > query plus one per document embedded on demand — converging toward 1 as the
-> embedding cache fills. A chat turn costs 1. `0` refuses every Assist request, which
+> embedding cache fills. A chat turn costs 1. `0` refuses every AI assistant request, which
 > is a usable kill switch.
 >
 > Embeddings are produced **only** for messages a user's own opt-in search surfaced.
@@ -76,10 +76,10 @@ Every invocation is enforced by the gateway in this order:
 
 ## Send is always human-gated
 
-**No Assist capability transmits, deletes, or accepts anything.** This is structural:
+**No AI assistant capability transmits, deletes, or accepts anything.** This is structural:
 the capability enum has no send/delete/accept variant, so there is no code path for
-Assist to send mail or act irreversibly. A drafted message goes to the Outbox for a
-human to send. Assist adds no privileged path.
+the AI assistant to send mail or act irreversibly. A drafted message goes to the Outbox for a
+human to send. The AI assistant adds no privileged path.
 
 **One correction to how this used to be described.** The assistant chat is *not* yet
 driven by the MCP tool surface. What ships is proposal **reporting**: the tool name in
@@ -92,8 +92,8 @@ until it is wired.
 
 ## What left the device (disclosure)
 
-Assist shows a per-message **"what left the device"** disclosure so the user can see,
-for each Assist action, what was sent and to which endpoint host. This is a
+The AI assistant shows a per-message **"what left the device"** disclosure so the user can see,
+for each AI assistant action, what was sent and to which endpoint host. This is a
 transparency surface, not a legal disclaimer — it reflects the actual gateway
 behavior.
 
@@ -117,27 +117,27 @@ shape as the defect fixed on the embed path.
 Every invocation writes an `assist_audit` row carrying the **capability**, a **scope
 summary**, and the **endpoint host** — and **never the message content**. This is
 asserted in tests: audit rows are checked to contain no mail content. If you need to
-know that Assist was used and against which endpoint, the audit tells you; it will not
+know that the AI assistant was used and against which endpoint, the audit tells you; it will not
 leak what was summarized or drafted.
 
 ## Privacy summary
 
-- Off until configured; zero Assist UI when disabled.
+- Off until configured; zero AI assistant UI when disabled.
 - E2EE-decrypted content and attachments are excluded by default; including them is an
   explicit opt-in.
 - The browser never contacts the AI host — the server proxies.
 - The audit records capability + scope + host, never content.
-- No Assist capability can send/delete/accept.
+- No AI assistant capability can send/delete/accept.
 - `LocalProcess` keeps everything on-device.
 
 ## Admin governance
 
-Admins control Assist tenant-wide (§19):
+Admins control the AI assistant tenant-wide (§19):
 
 - an endpoint allowlist (which endpoints users may configure),
 - per-capability locks (force a capability off, or restrict which capabilities exist),
 - data-class ceilings (which accounts/folders, E2EE/attachment inclusion),
-- a **kill switch** that disables Assist immediately.
+- a **kill switch** that disables the AI assistant immediately.
 
 Config is per-deployment and per-user, with admin locks taking precedence (migration
 0008 `assist_config`).

@@ -5,7 +5,7 @@ deferred-items list were finalized by t7-e15 at the 26.8 CI/docs pass. t7-e17 ap
 the release-time touch at the 26.8 (V7) tag.
 
 V7 (release **26.8**) delivers the **last features** on the SPEC roadmap (§27): the
-WASM plugin runtime, LDAP/GAL directory, password-change backends, Assist (AI), the
+WASM plugin runtime, LDAP/GAL directory, password-change backends, AI assistant, the
 Graph/EWS/Gmail bridges, MSG/OFT/DOCX export, and Nextcloud. **V7 completion is not
 1.0.** 1.0 is a distinct **hardening / accessibility / i18n / audit** milestone — no
 new features, everything below must be green.
@@ -26,7 +26,7 @@ links to its SPEC section and owner as work begins.
 - [ ] **Performance gates** measured in CI (SPEC §23): initial JS < 250 KB,
       cold-to-inbox < 1.5 s, search p95 < 50 ms, binary < 45 MB / image < 30 MB, etc.
 - [ ] **External security audit** — crypto + web app **+ the new MCP, plugin
-      sandbox, and Assist surfaces** — funded, run, and **findings resolved** (the
+      sandbox, and AI assistant surfaces** — funded, run, and **findings resolved** (the
       SPEC's hard 1.0 condition).
 - [ ] **Packaging / store presence** finalized (winget / notarized-macOS / AppImage /
       deb / rpm / Flatpak / F-Droid / Play / App-Store per §16), auto-update

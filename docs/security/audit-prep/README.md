@@ -6,7 +6,7 @@ before and during a funded engagement against Mailwoman. It is produced as part 
 
 > **The funded external audit itself is HUMAN-GATED.** This dossier only *prepares* the
 > engagement. The actual audit **run** — a paid, independent third party exercising the
-> crypto / MCP / plugin-sandbox / Assist surfaces — and the **resolution of its
+> crypto / MCP / plugin-sandbox / AI assistant surfaces — and the **resolution of its
 > findings** are a hard, human-gated condition of the real 1.0 tag (SPEC §25 lines
 > 1393–1394; ROADMAP-1.0.md line 16). No document here, and nothing in this milestone,
 > discharges that condition. This milestone makes Mailwoman **1.0-ready**, not 1.0-tagged.
@@ -15,7 +15,7 @@ before and during a funded engagement against Mailwoman. It is produced as part 
 
 - [`threat-model.md`](./threat-model.md) — the consolidated threat model across every
   security-sensitive surface: client-side crypto + zero-access key hierarchy, the MCP
-  server, the WASM plugin sandbox, the Assist gateway, OAuth 2.1 / scoped API keys,
+  server, the WASM plugin sandbox, the AI assistant gateway, OAuth 2.1 / scoped API keys,
   at-rest encryption, and DLP. Per surface: assets, trust boundaries, adversary model,
   existing mitigations, and **residual risk**.
 - [`surface-inventory.md`](./surface-inventory.md) — the security-surface inventory:
@@ -24,7 +24,7 @@ before and during a funded engagement against Mailwoman. It is produced as part 
   bounded-ignore rationale.
 - [`self-baseline.md`](./self-baseline.md) — how an auditor reproduces the baseline that
   already exists: the `zap-baseline` ZAP scan, `cargo deny check`, the JS license gate,
-  and the live-E2E security assertions (Assist redaction, MCP send-gating, plugin
+  and the live-E2E security assertions (AI assistant redaction, MCP send-gating, plugin
   capability denial, zero-access ciphertext-at-rest). What to run and where the current
   results live.
 
@@ -35,7 +35,7 @@ radius and where Mailwoman makes the strongest claims:
 
 1. **Client-side crypto & the zero-access key hierarchy** — the E2EE and at-rest promise.
 2. **The WASM plugin sandbox** — arbitrary third-party code, host-mediated I/O.
-3. **The MCP server & Assist gateway** — LLM-facing surfaces, prompt-injection blast
+3. **The MCP server & AI assistant gateway** — LLM-facing surfaces, prompt-injection blast
    radius, send-gating.
 4. **The OAuth 2.1 AS + scoped API keys** — the authorization surface for all automation.
 

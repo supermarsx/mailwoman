@@ -25,7 +25,7 @@ gate; every scoped path resolves to the typed `Scope` (see
 | API-key management | `GET/POST /api/keys`, `POST /api/keys/{prefix}/revoke` | session | request bodies |
 | OAuth 2.1 AS | `/oauth/consent`, `/oauth/decision`, `/oauth/token`, `/oauth/introspect`, `/oauth/revoke` | PKCE flow / client creds | auth params, redirect URIs, code/verifier |
 | MCP server | `/mcp` (Streamable HTTP) + `mailwoman mcp-stdio` | scoped MCP key / OAuth token | tool args, **mail bodies as untrusted content** |
-| Assist gateway | server-proxied to the BYO AI endpoint | session + capability | AI endpoint responses |
+| AI assistant gateway | server-proxied to the BYO AI endpoint | session + capability | AI endpoint responses |
 | Admin panel | admin routes, `GET /admin/api-keys`, `POST /admin/api-keys/{id}/revoke`, oversight | **separate** admin session | admin inputs |
 | DLP config read-back | `GET /api/security/dlp/config` | session | none (read) |
 | Security panel | server-computed DKIM/SPF/DMARC/ARC verdicts merge | session | upstream mail headers |
@@ -35,7 +35,7 @@ gate; every scoped path resolves to the typed `Scope` (see
 
 **Outbound connections the server initiates** (each a trust-boundary crossing): upstream
 IMAP/SMTP/POP3 (proxy mode), CalDAV/CardDAV, LDAP/GAL directory, the BYO AI endpoint
-(Assist), plugin `http-fetch` (host-mediated, allowlisted), OTLP collector, WKD lookup,
+(AI assistant), plugin `http-fetch` (host-mediated, allowlisted), OTLP collector, WKD lookup,
 push relay. **All TLS is rustls; openssl is banned** (`deny.toml [bans]`).
 
 ## 2. Trust-boundary crossings
@@ -48,11 +48,11 @@ The load-bearing ones for an auditor:
   refs, zeroized on lock. *Highest-value confidentiality boundary.*
 - **B4 — plugin host ↔ WASM guest.** The wasmtime host mediates 100% of guest authority;
   no ambient WASI. *Highest-value integrity/isolation boundary.*
-- **B5 — Assist gateway ↔ AI endpoint.** The only place mail content can leave to a third
+- **B5 — AI assistant gateway ↔ AI endpoint.** The only place mail content can leave to a third
   party; default-excludes E2EE + attachments; redaction before egress.
 - **B6 — server ↔ at-rest store.** Honest-but-curious for data at rest; **not** trusted to
   defend against a malicious active proxy.
-- **B7 — automation caller → engine.** Scoped-key/OAuth enforcement; MCP/Assist tools go
+- **B7 — automation caller → engine.** Scoped-key/OAuth enforcement; MCP/AI assistant tools go
   through the engine surface, never raw protocol.
 
 ## 3. Untrusted-input parsers (the fuzz/hardening targets)
@@ -179,7 +179,7 @@ OpenSSL-derived license decision required first), `jsonwebtoken`, `totp-rs`, `se
 
 **Networked CI services out of scope by design** (mere aggregation, never linked/shipped):
 postgres:16, valkey:8, OpenLDAP, Radicale (GPLv3 — a *separate program* over the network,
-not a dependency), Dovecot/Greenmail, the mock Assist endpoint.
+not a dependency), Dovecot/Greenmail, the mock AI assistant endpoint.
 
 ## 7. Honest scope boundaries (do not audit as shipped)
 

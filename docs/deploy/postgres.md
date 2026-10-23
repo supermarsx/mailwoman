@@ -80,7 +80,7 @@ capabilities until someone grants them again.
 Everything else, including the things a store move most obviously must not lose: the
 zero-access wrapped root keys, every 2FA enrolment and the policy that requires them,
 all four append-only audit logs, sealed account and bridge credentials, per-account
-settings and user-authored content, message embeddings, plugin state, and the Assist and
+settings and user-authored content, message embeddings, plugin state, and the AI assistant and
 cache configuration. A spent recovery code stays spent, a revoked remote-image grant
 stays revoked, and the TOTP replay counter travels with the secret, so migrating never
 re-opens something the user or operator had closed.

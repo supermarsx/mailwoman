@@ -69,7 +69,7 @@ Operator deployment guides for the V6 data layer are in
 `migrate-store`) and [`../deploy/cache.md`](../deploy/cache.md) (Valkey/Redis cache
 posture, the §15.6 scope matrix, and the zero-access exclusion).
 
-## V7 (release 26.8.0) — plugin runtime, directory, password-change, Assist
+## V7 (release 26.8.0) — plugin runtime, directory, password-change, AI assistant
 
 V7 adds the security-sensitive surfaces documented here:
 
@@ -80,7 +80,7 @@ V7 adds the security-sensitive surfaces documented here:
 - [`password-change.md`](./password-change.md) — in-app **password change**
   (`mw-passwd`): the backends (local / LDAP RFC 3062 / Dovecot HTTP / poppassd / HMAC
   webhook), sealed-credential re-seal, and the client-side zero-access re-wrap.
-- [`../assist.md`](../assist.md) — **Assist (AI)** privacy and governance: BYO
+- [`../assist.md`](../assist.md) — **AI assistant** privacy and governance: BYO
   endpoint, the default exclusion of E2EE content + attachments, redaction, the
   **content-free audit**, send-always-human-gated, and the "what left the device"
   disclosure.

@@ -54,7 +54,7 @@ logs on a real request rather than from the compose file.
 | `MW_PUBLIC_URL` | *(unset)* | The canonical external base, e.g. `https://mail.example.com`. Highest-precedence source for the public scheme and host. **Read the migration note in §3 before setting it.** |
 | `MW_BASE_PATH` | *(unset — root)* | Serve the application under a path prefix, e.g. `/mail`. See §6. |
 | `MW_HEADER_AUTH_TRUSTED_IPS` | *(empty — deny)* | Which peers may assert `X-Remote-User` when `MW_HEADER_AUTH=1`. Fails closed: an unset or unparseable list authenticates **nobody** rather than everybody. See §5. |
-| `MW_ASSIST_RATE_LIMIT_PER_MIN` | *(unset — unlimited)* | Per-account Assist budget in **outbound endpoint requests** per minute. `0` is an explicit hard stop (a kill switch that leaves the rest of the deployment running). Sizing matters: a cold-cache semantic search costs up to **33** requests (one for the query, up to 32 documents embedded on demand) and converges toward 1 as the cache fills, while a chat turn costs 1. `60` permits roughly two cold semantic searches a minute per account. |
+| `MW_ASSIST_RATE_LIMIT_PER_MIN` | *(unset — unlimited)* | Per-account AI assistant budget in **outbound endpoint requests** per minute. `0` is an explicit hard stop (a kill switch that leaves the rest of the deployment running). Sizing matters: a cold-cache semantic search costs up to **33** requests (one for the query, up to 32 documents embedded on demand) and converges toward 1 as the cache fills, while a chat turn costs 1. `60` permits roughly two cold semantic searches a minute per account. |
 
 Also relevant, and not new: `MW_COOKIE_SECURE` (absolute override in both
 directions), `MW_HSTS` / `MW_HSTS_MAX_AGE` / `MW_HSTS_INCLUDE_SUBDOMAINS` /
