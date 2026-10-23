@@ -14,16 +14,24 @@ is a claim, not a test — and this repository has a history of audits catching
 exactly that pattern. The proof is a CI cell that boots the proxy and runs the
 conformance suite through it.
 
-| Cell | Image | Tier | In the CI matrix | Booted + suite run |
+| Cell | Image | Tier | In the CI matrix | Booted + suite run (developer host, 2026-10-23, server strict) |
 |---|---|---|---|---|
-| `nginx` | `nginx:1.27-alpine` | 1 | yes | ✅ developer host — 11/12 |
-| `apache` | `httpd:2.4-alpine` | 1 | yes | ✅ developer host — 10/12 |
-| `caddy` | `caddy:2-alpine` | 1 | yes | ✅ developer host — 11/12 |
-| `haproxy-l7` | `haproxy:3.0-alpine` | 1 | yes | ✅ developer host — 11/12 |
-| `haproxy-l4` | `haproxy:3.0-alpine` | 1 | yes | ✅ developer host — 9/12 |
-| `traefik` | `traefik:v3.3` | 1 | yes | ✅ developer host — 11/12 |
-| `envoy` | `envoyproxy/envoy:v1.32` | 2 | yes, non-blocking — not part of the tier-1 gate; a red envoy cell does not fail it | developer host — 11 of 12 run and pass, the sub-path test skips; no CI runner has run the cell yet |
-| `iis` | — | 2 | **cannot be** | ❌ never; see `iis/README.md` |
+| `nginx` | `nginx:1.27-alpine` | 1 | yes | 11 of 13 run and pass, 2 skip by design |
+| `apache` | `httpd:2.4-alpine` | 1 | yes | 11 of 13 run and pass, 2 skip by design |
+| `caddy` | `caddy:2-alpine` | 1 | yes | 11 of 13 run and pass, 2 skip by design |
+| `haproxy-l7` | `haproxy:3.0-alpine` | 1 | yes | 11 of 13 run and pass, 2 skip by design |
+| `haproxy-l4` | `haproxy:3.0-alpine` | 1 | yes | 11 of 13 run and pass, 2 skip by design |
+| `traefik` | `traefik:v3.3` | 1 | yes | 11 of 13 run and pass, 2 skip by design |
+| `envoy` | `envoyproxy/envoy:v1.32` | 2 | yes, non-blocking — not part of the tier-1 gate; a red envoy cell does not fail it | 12 of 13 run and pass, the sub-path test skips; no CI runner has run the cell yet |
+| `iis` | — | 2 | **cannot be** | never; see `iis/README.md` |
+
+The last column is a run of every cell on a developer host with Docker on
+2026-10-23, against images built from `b889b9d`, with the environment
+`proxy-conformance.yml` sets (including its `MW_REQUIRE_LIVE` list) and its
+skip-log check. The two tests that skip in a tier-1 cell are
+`an_appending_proxy_still_resolves_the_real_client` (runs only in `envoy`) and
+`sub_path_api_routes_return_json_not_the_spa_shell` (runs in no cell). It is not
+a run on a CI runner.
 
 **Updated in 26.19.** This table used to say "intended" in both columns, which
 was the honest word when the directory was written and had stopped being honest
@@ -38,11 +46,25 @@ at all (`apache` was missing a `LoadModule`; `haproxy-l4` inherited the image's
 baked-in `HEALTHCHECK`, which spoke plain HTTP to a TLS-only listener). Both are
 fixed here. Three more were application defects, not proxy ones, and are fixed in
 the application. The remaining `apache` failure — the JSON `413` contract on
-oversize uploads — was also fixed application-side, **after** the last cell run,
-so it is closed in cause but not yet observed through httpd.
+oversize uploads — was also fixed application-side, after that run; the
+2026-10-23 run above observed it passing through httpd.
 
 `docs/deploy/reverse-proxy.md` is the operator-facing page and carries the full
 per-cell status, the caveats, and the list of claims that are still not earned.
+
+## The server runs as `deploy.sh` configures it: strict CSRF
+
+`docker-compose.proxy.yml` sets `MW_CSRF_STRICT=true` on `app` and `app-tls`,
+the value `deploy.sh` writes. In that mode the server refuses a write that a
+cookie authorises unless it repeats the `mw_csrf` cookie in `X-CSRF-Token`. The
+suite does what the web client does: on every write it sends the `mw_csrf` value
+from its cookie jar. The test `a_write_without_the_csrf_token_is_refused` checks
+in each cell that a write without the header, and one with a wrong header, is
+answered `403 {"error":"missing or invalid CSRF token"}`, and that the same
+write with the cookie's value is accepted. A cell booted with the setting off
+fails that test (observed: `200` where `403` was expected), so a green cell
+shows the setting is in force and that the proxy passes both the cookie and the
+header through.
 
 ## Fixed host ports
 
@@ -69,7 +91,11 @@ through-proxy result against the no-proxy baseline in the same run.
 # Once: generate the throwaway self-signed TLS pair the HTTPS listeners need.
 sh docs/deploy/proxy/tls/gen-certs.sh
 
-docker compose -f docker-compose.proxy.yml --profile nginx up -d --wait
+# Two commands: haproxy-l4's app-tls has no probe, and Compose 2.38.2 refuses
+# `--wait` with such a service in the wait set (see the workflow's boot step).
+docker compose -f docker-compose.proxy.yml --profile nginx up -d
+docker compose -f docker-compose.proxy.yml --profile nginx up -d \
+  --no-deps --wait --wait-timeout 300 mock app nginx
 
 MW_T20_PROXY=1 \
 MW_T20_PROXY_BASE=http://127.0.0.1:8601 \
