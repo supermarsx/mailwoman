@@ -180,8 +180,10 @@ bash deploy.sh deploy --no-build     # apply configuration, reuse the app image
 bash deploy.sh deploy --image registry.example.org/mailwoman:VERSION --pull
 ```
 
-The build explicitly selects Dockerfile target `runtime`; it does not depend on
-the Dockerfile's final stage. `--image` uses a locally present image unless `--pull`
+The build selects the Dockerfile target `runtime-static`, not the Dockerfile's
+final stage: a `scratch` image with statically linked binaries, the target CI
+scans, signs and publishes, so an installation built from source has the shape
+of the published image. `--image` uses a locally present image unless `--pull`
 is supplied; a missing image is pulled. Each deployment records immutable image
 IDs. To update Caddy, pull the selected `CADDY_IMAGE` yourself (or edit that setting
 to a new tag/digest), then deploy. Multiple installations need distinct project
@@ -258,7 +260,7 @@ retain the state directory together with the image archives and data snapshots.
 The repository also includes an isolated Docker lifecycle test:
 
 ```sh
-docker build --target runtime -t mailwoman:deploy-verify .
+docker build --target runtime-static -t mailwoman:deploy-verify .
 bash scripts/test-deploy.sh mailwoman:deploy-verify
 ```
 

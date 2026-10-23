@@ -296,7 +296,7 @@ if $DRY_RUN; then
     log "Dry run: $ACTION; project=$PROJECT; mode=$MODE; exposure=$EXPOSURE"
     log "State: $STATE; URL: $PUBLIC_URL"
     case "$ACTION" in
-        deploy) log "Prepare runtime image (${IMAGE:-$($NO_BUILD && printf 'last applied image' || printf 'build Dockerfile --target runtime')}); snapshot existing data; apply Compose; verify app and public HTTP(S)$($AUTO_ROLLBACK && printf '; if an update fails that check, restore the previous release and its data')." ;;
+        deploy) log "Prepare runtime image (${IMAGE:-$($NO_BUILD && printf 'last applied image' || printf 'build Dockerfile --target runtime-static')}); snapshot existing data; apply Compose; verify app and public HTTP(S)$($AUTO_ROLLBACK && printf '; if an update fails that check, restore the previous release and its data')." ;;
         restore|rollback) log "Validate snapshot checksums; save current installation; restore snapshot to a new volume; apply and verify. Post-snapshot writes will not be in the restored app." ;;
         *) log "Would run $ACTION. No files, containers, networks or volumes changed." ;;
     esac
@@ -779,7 +779,10 @@ case "$ACTION" in
             else
                 IMAGE="mailwoman-deploy:${PROJECT}-$(date -u +%Y%m%dT%H%M%SZ)-$$"
                 log "Building web UI, server, render worker and bundled plugins"
-                docker build --target runtime --tag "$IMAGE" "$ROOT"
+                # runtime-static is the target CI scans, signs and publishes
+                # (.github/workflows/supply-chain.yml), so a built installation runs
+                # the same shape as the published image.
+                docker build --target runtime-static --tag "$IMAGE" "$ROOT"
             fi
             IMAGE_ID=$(docker image inspect --format '{{.Id}}' "$IMAGE")
         fi

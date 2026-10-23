@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Real Docker lifecycle test. Never touches the normal mailwoman deployment.
 # Usage: bash scripts/test-deploy.sh mailwoman:deploy-verify
-# Build the supplied image with: docker build --target runtime -t mailwoman:deploy-verify .
+# Build the supplied image with: docker build --target runtime-static -t mailwoman:deploy-verify .
 # When Playwright can start (`pnpm exec playwright` in apps/web, or else
 # apps/web/node_modules/.bin/playwright; needs Node, apps/web/node_modules and
 # Playwright's chromium) it also drives the admin panel in a browser (project
@@ -50,14 +50,17 @@ dc() { docker compose --project-name "$PROJECT" --env-file /dev/null -f "$STATE/
 reject() { if run "$@" > "$STATE/rejected.log" 2>&1; then fail "unexpected success: $*"; fi; }
 port_in_use() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 # Something else listening on a localhost port: a throwaway app container that
-# publishes it. Waits until the port accepts connections.
+# publishes it. Waits until the app answers there: Docker Desktop's port proxy
+# accepts connections for a container that is about to exit, and with --rm the
+# port is then free again. /tmp needs mode 1777, as deploy.sh sets it: a tmpfs over
+# the static image's /tmp is not writable for the app user otherwise.
 hold() {
     local port=$1 i
     MSYS_NO_PATHCONV=1 docker run -d --rm --name "$PROJECT-hold-$port" --label "mailwoman.deploy.test=$PROJECT" \
-        --publish "127.0.0.1:$port:8080" --tmpfs /tmp --env MW_DB_PATH=/tmp/hold.db \
+        --publish "127.0.0.1:$port:8080" --tmpfs /tmp:mode=1777 --env MW_DB_PATH=/tmp/hold.db \
         --env "MW_SERVER_KEY=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')" "$IMAGE" >/dev/null
     for i in {1..30}; do
-        if port_in_use "$port"; then return 0; fi
+        if curl --fail --silent --max-time 2 "http://127.0.0.1:$port/healthz" -o /dev/null; then return 0; fi
         sleep 1
     done
     fail "could not hold port $port (attempts: $i)"
@@ -131,10 +134,15 @@ rm -- "$STATE/pick.log"
 # here (it needs ports 80 and 443): scripts/test-deploy-proxy.sh runs it against Pebble.
 REAL_DOCKER=$(command -v docker)
 DEPLOY_TEST_RENDERED="$ACME_STATE/rendered.yaml"
-export REAL_DOCKER DEPLOY_TEST_RENDERED
+DEPLOY_TEST_BUILD_ARGS="$ACME_STATE/build.args"
+export REAL_DOCKER DEPLOY_TEST_RENDERED DEPLOY_TEST_BUILD_ARGS
 mkdir "$ACME_STATE/bin"
 cat > "$ACME_STATE/bin/docker" <<'WRAPPER'
 #!/usr/bin/env bash
+if [[ ${1:-} == build ]]; then
+    printf '%s\n' "$@" > "$DEPLOY_TEST_BUILD_ARGS"
+    exit 3
+fi
 if [[ ${1:-} == compose && " $* " == *" config --quiet "* ]]; then
     previous=
     for arg in "$@"; do
@@ -190,6 +198,14 @@ pick_reject() {
 pick_reject 'MEMORY_LIMIT must be a size' MEMORY_LIMIT=lots
 pick_reject 'CPU_LIMIT must be a number of CPUs' MEMORY_LIMIT=1g CPU_LIMIT=0
 set_in "$PICK_STATE/deploy.env" CPU_LIMIT=2
+
+# A deploy without --image builds the Dockerfile's runtime-static target, the one
+# CI scans, signs and publishes. The docker wrapper records the build and fails it,
+# so nothing is built here and the deploy stops before creating anything.
+if PATH="$ACME_STATE/bin:$PATH" bash "$DEPLOY" deploy --state-dir "$PICK_STATE" > "$ACME_STATE/build.log" 2>&1; then fail 'a deploy whose image build failed succeeded'; fi
+[[ $(tr '\n' ' ' < "$DEPLOY_TEST_BUILD_ARGS") == "build --target runtime-static "* ]] || fail "deploy built: $(tr '\n' ' ' < "$DEPLOY_TEST_BUILD_ARGS")"
+[[ -z $(docker volume ls -q --filter "label=mailwoman.deploy.project=$PROJECT-pick") ]] || fail 'a deploy whose build failed created a volume'
+printf 'build: %s\n' "$(tr '\n' ' ' < "$DEPLOY_TEST_BUILD_ARGS" | cut -d' ' -f1-3)"
 
 run init --project "$PROJECT" --port "$PORT"
 SERVER_KEY=$(awk -F= '$1 == "MW_SERVER_KEY" {print $2}' "$STATE/app.env")
@@ -477,4 +493,4 @@ grep -F 'No memory or CPU limit for the app' "$NET_STATE/limits.log" >/dev/null 
 [[ $(awk -F= '$1 == "DATA_VOLUME" {print $2}' "$NET_STATE/active/release.env") == "$NET_VOLUME" ]] || fail 'update replaced the data volume'
 docker network inspect "$NETWORK" >/dev/null || fail 'update removed the proxy network'
 PASSED=true
-printf 'PASS: dry-run writes nothing (empty and applied state), port auto-pick when 8080 is taken, deployment, literal secrets, health, persistent data, admin login and writes under strict CSRF (curl), %s, refusal of a held port before any change, backup, rollback, corruption refusal, copy-failure recovery, repeated setup options, exposure moves local -> external -> network -> local with the data volume kept, refusal of a move to caddy, a proxy-network installation, the ACME directory settings for Caddy (rendered, and refused when invalid), memory/CPU limits (defaults for a new installation, edited, lowered to the CPUs Docker has, rolled back, none for an older deploy.env, invalid values refused), and the automatic rollback of an update that never becomes healthy (previous image, exposure network with its trust lines, data saved before the update; failed release kept) and rollback after --no-auto-rollback\n' "$BROWSER"
+printf 'PASS: dry-run writes nothing (empty and applied state), port auto-pick when 8080 is taken, deployment, literal secrets, health, persistent data, admin login and writes under strict CSRF (curl), %s, refusal of a held port before any change, backup, rollback, corruption refusal, copy-failure recovery, repeated setup options, exposure moves local -> external -> network -> local with the data volume kept, refusal of a move to caddy, a proxy-network installation, the ACME directory settings for Caddy (rendered, and refused when invalid), memory/CPU limits (defaults for a new installation, edited, lowered to the CPUs Docker has, rolled back, none for an older deploy.env, invalid values refused), and the automatic rollback of an update that never becomes healthy (previous image, exposure network with its trust lines, data saved before the update; failed release kept), rollback after --no-auto-rollback, and the Dockerfile target a deploy without --image builds (runtime-static)\n' "$BROWSER"
