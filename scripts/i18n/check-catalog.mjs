@@ -10,96 +10,40 @@
 //      and must be exactly the directories under `apps/web/locales/`. A locale
 //      registered without a catalog dir, or a catalog dir the app never offers,
 //      FAILS.
-//   3. COVERAGE REPORT (informational): for each shipped locale, how many of the
-//      `en` message ids it defines. Non-`en` catalogs are populated by human
-//      translators via Weblate (out of autonomous scope), so a partial or empty
-//      non-`en` catalog is EXPECTED and never fails — missing keys fall back to
-//      `en` at runtime. This is a visibility signal for translators, not a gate.
+//   3. COVERAGE GATE (t32-admin §2.9): every `en` message id must be defined
+//      in every shipped locale OR listed in that locale's `pending` array in
+//      apps/web/locales/TRANSLATION-STATUS.json (pending ids render in English
+//      through the runtime fallback chain). Ids a locale defines that `en` does
+//      not, and pending entries the locale already translates or `en` dropped,
+//      are reported too. `scripts/i18n/status.mjs` regenerates the file.
+//      Default mode: coverage problems are WARNINGS (t31/t32 lanes add en ids
+//      while t32 runs, and t32-e9 regenerates the file). `--strict` (or
+//      MW_I18N_STRICT=1) makes them FAIL; t32 stage A4 makes that the default.
+//      A missing or malformed TRANSLATION-STATUS.json always FAILS.
 //
 // `en` is the single source of truth. The runtime (`src/i18n/registry.ts`)
 // returns the id itself when a key is missing, so an unresolved id is silent at
 // runtime — this gate makes it loud at build time.
 //
-// Usage: `node scripts/i18n/check-catalog.mjs` (exit non-zero on an unresolved id
-// or a locale-set mismatch).
+// Usage: `node scripts/i18n/check-catalog.mjs [--strict]` (exit non-zero on an
+// unresolved id, a locale-set mismatch, a bad status file, or — strict — a
+// coverage gap).
 
 import { readdir, readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import {
+  SOURCE,
+  idsForLocale,
+  localesDir,
+  readStatus,
+  repoRoot,
+  shippedLocales,
+  srcDir,
+  statusPath,
+  walk,
+} from './lib/catalog.mjs';
 
-const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
-const localesDir = join(repoRoot, 'apps/web/locales');
-const srcDir = join(repoRoot, 'apps/web/src');
-
-const localesTs = join(srcDir, 'i18n/locales.ts');
-const SOURCE = 'en';
-
-/**
- * The shipped locales, read out of the `export const LOCALES = [...]` literal in
- * src/i18n/locales.ts rather than copied here, so this script cannot report on a
- * different set from the one the app ships.
- */
-async function shippedLocales() {
-  const src = await readFile(localesTs, 'utf8');
-  const decl = src.match(/export const LOCALES\s*=\s*\[([^\]]*)\]/);
-  const locales = decl ? [...decl[1].matchAll(/(['"])([^'"]+)\1/g)].map((m) => m[2]) : [];
-  if (locales.length === 0 || !locales.includes(SOURCE)) {
-    console.error(
-      `check-catalog: could not read a LOCALES array containing '${SOURCE}' from ${relative(repoRoot, localesTs)}`,
-    );
-    process.exit(1);
-  }
-  return locales;
-}
-
-/** Recursively list files under `dir` matching `filter`. */
-async function walk(dir, filter, out = []) {
-  let entries;
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch {
-    return out;
-  }
-  for (const e of entries) {
-    const p = join(dir, e.name);
-    if (e.isDirectory()) {
-      if (e.name === 'node_modules' || e.name === 'dist') continue;
-      await walk(p, filter, out);
-    } else if (filter(e.name)) {
-      out.push(p);
-    }
-  }
-  return out;
-}
-
-/**
- * Parse the top-level Fluent message ids from a `.ftl` source. Message ids start
- * at column 0 (attributes and select variants are indented, so `startsWith`
- * whitespace filters them); Fluent TERMS begin with `-` and are not `t()`-addressable.
- * Comments (`#`) and blank lines are skipped.
- */
-function parseFtlIds(source) {
-  const ids = new Set();
-  for (const rawLine of source.split(/\r?\n/)) {
-    if (rawLine.length === 0 || /^\s/.test(rawLine)) continue; // indented / blank
-    if (rawLine.startsWith('#') || rawLine.startsWith('-')) continue; // comment / term
-    const m = rawLine.match(/^([a-zA-Z][a-zA-Z0-9_-]*)\s*=/);
-    if (m) ids.add(m[1]);
-  }
-  return ids;
-}
-
-/** All message ids defined for a locale (union across its module catalogs). */
-async function idsForLocale(locale) {
-  const dir = join(localesDir, locale);
-  const files = await walk(dir, (n) => n.endsWith('.ftl'));
-  const ids = new Set();
-  for (const f of files) {
-    const src = await readFile(f, 'utf8');
-    for (const id of parseFtlIds(src)) ids.add(id);
-  }
-  return ids;
-}
+const STRICT = process.argv.includes('--strict') || process.env.MW_I18N_STRICT === '1';
 
 /**
  * Collect every STATIC-LITERAL `t('id' | "id")` used in the app source, with the
@@ -160,16 +104,47 @@ const localeDirs = (await readdir(localesDir, { withFileTypes: true }))
 const withoutDir = LOCALES.filter((l) => !localeDirs.includes(l));
 const unregistered = localeDirs.filter((l) => !LOCALES.includes(l));
 
-// --- coverage report (informational) ---------------------------------------
-console.log('\ncheck-catalog: per-locale coverage vs en (translated via Weblate; non-en is informational):');
-const enList = [...enIds];
-for (const locale of LOCALES) {
-  const ids = locale === SOURCE ? enIds : await idsForLocale(locale);
-  const present = enList.filter((id) => ids.has(id)).length;
-  const pct = ((present / enList.length) * 100).toFixed(1);
-  const bar = locale === SOURCE ? 'source' : `${present}/${enList.length} (${pct}%)`;
-  console.log(`  ${locale.padEnd(6)} ${bar}`);
+// --- coverage gate: each en id translated or pending ------------------------
+let status;
+try {
+  status = await readStatus();
+} catch (e) {
+  console.error(`\ncheck-catalog: FAIL — ${relative(repoRoot, statusPath)} is not valid JSON: ${e.message}`);
+  process.exit(1);
 }
+if (status === null || typeof status.locales !== 'object' || status.locales === null) {
+  console.error(
+    `\ncheck-catalog: FAIL — ${relative(repoRoot, statusPath)} is missing or has no "locales" object; ` +
+      'run node scripts/i18n/status.mjs',
+  );
+  process.exit(1);
+}
+
+console.log('\ncheck-catalog: per-locale coverage vs en (translated / pending / missing from both):');
+const enList = [...enIds];
+const coverage = [];
+for (const locale of LOCALES) {
+  if (locale === SOURCE) continue;
+  const ids = await idsForLocale(locale);
+  const entry = status.locales[locale];
+  const pending = new Set(Array.isArray(entry?.pending) ? entry.pending : []);
+  const present = enList.filter((id) => ids.has(id));
+  const missing = enList.filter((id) => !ids.has(id) && !pending.has(id));
+  const extra = [...ids].filter((id) => !enIds.has(id));
+  const stalePending = [...pending].filter((id) => ids.has(id) || !enIds.has(id));
+  coverage.push({ locale, missing, extra, stalePending, noEntry: entry === undefined });
+  const pct = ((present.length / enList.length) * 100).toFixed(1);
+  console.log(
+    `  ${locale.padEnd(6)} ${present.length}/${enList.length} (${pct}%) translated, ` +
+      `${pending.size} pending, ${missing.length} missing` +
+      (entry ? ` — source ${entry.source}, reviewed ${entry.reviewed === true ? 'yes' : 'no'}` : ' — no status entry'),
+  );
+}
+const statusExtra = Object.keys(status.locales).filter((l) => !LOCALES.includes(l) || l === SOURCE);
+const coverageProblems = coverage.filter(
+  (c) => c.noEntry || c.missing.length > 0 || c.extra.length > 0 || c.stalePending.length > 0,
+);
+const coverageOk = coverageProblems.length === 0 && statusExtra.length === 0;
 
 // --- verdict ---------------------------------------------------------------
 if (withoutDir.length > 0 || unregistered.length > 0) {
@@ -177,6 +152,28 @@ if (withoutDir.length > 0 || unregistered.length > 0) {
   for (const l of withoutDir) console.error(`  • '${l}' is in LOCALES but has no apps/web/locales/${l}/ directory`);
   for (const l of unregistered) console.error(`  • apps/web/locales/${l}/ exists but '${l}' is not in LOCALES`);
   process.exit(1);
+}
+if (!coverageOk) {
+  const out = STRICT ? console.error : console.warn;
+  out(
+    STRICT
+      ? '\ncheck-catalog: FAIL — locale coverage does not match TRANSLATION-STATUS.json (strict):'
+      : '\nWARN locale coverage does not match TRANSLATION-STATUS.json (report-only until t32 stage A4):',
+  );
+  const sample = (list) => list.slice(0, 5).join(', ') + (list.length > 5 ? `, … (${list.length})` : '');
+  for (const l of statusExtra) out(`  • the status file lists '${l}', which is not a shipped non-en locale`);
+  for (const c of coverageProblems) {
+    if (c.noEntry) out(`  • ${c.locale}: no entry in the status file`);
+    if (c.missing.length > 0) {
+      out(`  • ${c.locale}: ${c.missing.length} en id(s) neither translated nor pending: ${sample(c.missing)}`);
+    }
+    if (c.extra.length > 0) out(`  • ${c.locale}: ${c.extra.length} id(s) not in en: ${sample(c.extra)}`);
+    if (c.stalePending.length > 0) {
+      out(`  • ${c.locale}: ${c.stalePending.length} pending id(s) already translated or gone from en: ${sample(c.stalePending)}`);
+    }
+  }
+  out('  Run node scripts/i18n/status.mjs to regenerate the pending lists.');
+  if (STRICT) process.exit(1);
 }
 if (unresolved.length > 0) {
   console.error(`\ncheck-catalog: FAIL — ${unresolved.length} t() id(s) do not resolve in the en catalog:`);
@@ -190,5 +187,6 @@ if (unresolved.length > 0) {
 
 console.log(
   `\ncheck-catalog: OK — every static t() id resolves in the en source catalog; ` +
-    `all ${LOCALES.length} registered locales have a catalog directory.`,
+    `all ${LOCALES.length} registered locales have a catalog directory` +
+    (coverageOk ? '; every en id is translated or pending in every locale.' : '; coverage warnings above.'),
 );

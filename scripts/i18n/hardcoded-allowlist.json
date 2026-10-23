@@ -1,19 +1,19 @@
 {
-  "_comment": "Allowlist for no-hardcoded-strings.mjs. Each entry is a user-facing literal that is NOT routed through t() and is accepted as-is. New literals NOT listed here FAIL the gate — wrap them in t() (preferred) or add them here WITH a reason below. Categories: (1) BOOTSTRAP — rendered before the i18n provider/catalog is ready, so t() cannot resolve (App.tsx outer Suspense fallback). (2) RFC-2606 example tokens — example.com/example.org placeholders are reserved and conventionally left un-localized. (3) BASELINE DEBT — pre-existing untranslated copy in areas OUTSIDE the t8 a11y/i18n executors' ownership (viewers/ built by t4-e8; platform/ServerSettings by the t7 native shell). These are recorded here so the gate is green and ratchets; they are NOT introduced by the 1.0 i18n pass and are flagged in .orchestration/logs/t8-e8.md for a follow-up i18n pass. Regenerate the raw set with `node scripts/i18n/no-hardcoded-strings.mjs --update` (then re-review this comment).",
-  "strings": [
-    "Loading…",
-    "name@example.com",
-    "https://mail.example.org",
-    "Servers",
-    "No servers configured.",
-    "Add server URL",
-    "Attachments",
-    "Loading viewer…",
-    "Loading audio…",
-    "Loading image…",
-    "Loading video…",
-    "Rendering PDF…",
-    "Could not render this PDF.",
-    "No inline preview for this file type."
+  "_comment": "Literals accepted by no-hardcoded-strings.mjs without t(). Matched on the exact text in any in-scope file. Every entry needs a reason. Prefer t() or a `// i18n-ignore: <reason>` comment at the site; add an entry here only for text that is the same in every language or cannot be translated where it renders. BASELINE DEBT entries are pre-t32 untranslated copy that the t32 i18n pass removes; delete an entry once its text is gone (the script lists unused entries).",
+  "entries": [
+    { "text": "Loading…", "reason": "BOOTSTRAP: App.tsx outer Suspense fallback renders before any catalog has loaded, so t() would show the id." },
+    { "text": "name@example.com", "reason": "RFC 2606 example address used as a placeholder; reserved names are left as they are in every language." },
+    { "text": "https://mail.example.org", "reason": "RFC 2606 example URL used as a placeholder; reserved names are left as they are in every language." },
+    { "text": "Servers", "reason": "BASELINE DEBT: platform/ServerSettings.tsx (t7 native shell); the file is removed by t32-e14." },
+    { "text": "No servers configured.", "reason": "BASELINE DEBT: platform/ServerSettings.tsx (t7 native shell); the file is removed by t32-e14." },
+    { "text": "Add server URL", "reason": "BASELINE DEBT: platform/ServerSettings.tsx (t7 native shell); the file is removed by t32-e14." },
+    { "text": "Attachments", "reason": "BASELINE DEBT: viewers/ (t4-e8), to move to a catalog in the t32 i18n pass." },
+    { "text": "Loading viewer…", "reason": "BASELINE DEBT: viewers/ (t4-e8), to move to a catalog in the t32 i18n pass." },
+    { "text": "Loading audio…", "reason": "BASELINE DEBT: viewers/ (t4-e8), to move to a catalog in the t32 i18n pass." },
+    { "text": "Loading image…", "reason": "BASELINE DEBT: viewers/ (t4-e8), to move to a catalog in the t32 i18n pass." },
+    { "text": "Loading video…", "reason": "BASELINE DEBT: viewers/ (t4-e8), to move to a catalog in the t32 i18n pass." },
+    { "text": "Rendering PDF…", "reason": "BASELINE DEBT: viewers/ (t4-e8), to move to a catalog in the t32 i18n pass." },
+    { "text": "Could not render this PDF.", "reason": "BASELINE DEBT: viewers/ (t4-e8), to move to a catalog in the t32 i18n pass." },
+    { "text": "No inline preview for this file type.", "reason": "BASELINE DEBT: viewers/ (t4-e8), to move to a catalog in the t32 i18n pass." }
   ]
 }
