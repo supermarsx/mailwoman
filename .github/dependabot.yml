@@ -1,0 +1,39 @@
+# Dependabot keeps the base-image digests in the root Dockerfile current.
+#
+# Every FROM in Dockerfile names its image as `name:tag@sha256:<digest>`, and
+# scripts/check-image-pins.sh fails on one that does not. A digest does not move
+# when upstream republishes the tag (security fixes in node, alpine, distroless),
+# so Dependabot checks each week and opens a pull request that replaces the digest
+# with the one the tag points at then.
+#
+# The Rust image tag must equal the channel in rust-toolchain.toml. Version bumps
+# of `rust` are ignored here so that a toolchain change stays one reviewed commit
+# that edits both files; Node major versions are ignored so that one is chosen by
+# hand. A new digest under the same tag is not a version update, so these rules do
+# not block it (not verified locally: Dependabot runs only on GitHub).
+#
+# deploy.sh's CADDY_IMAGE default is a shell variable, which Dependabot does not
+# read; refresh it with `docker buildx imagetools inspect caddy:<tag>`.
+version: 2
+updates:
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build
+    groups:
+      base-images:
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: rust
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+          - version-update:semver-patch
+      - dependency-name: node
+        update-types:
+          - version-update:semver-major
