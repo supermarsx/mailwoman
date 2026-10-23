@@ -10,12 +10,17 @@
 # Default target is `runtime`. The dev compose stack selects `mock` explicitly.
 # Follow-up (SPEC §7.5): a FROM scratch + musl static build is a later
 # hardening step; distroless/cc is used here to de-risk V0.
+#
+# Every base image is named by tag AND digest (`name:tag@sha256:<index digest>`),
+# so a rebuild uses the same bytes until the digest is changed here.
+# scripts/check-image-pins.sh fails on a FROM without one; Dependabot
+# (.github/dependabot.yml) opens a pull request when a tag's digest moves.
 
 # ---------------------------------------------------------------------------
 # Stage 1 — web: build the SPA. apps/web is a self-contained pnpm project
 # (its own pnpm-workspace.yaml + pnpm-lock.yaml live under apps/web/).
 # ---------------------------------------------------------------------------
-FROM node:22-alpine AS web
+FROM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS web
 RUN corepack enable
 WORKDIR /web
 # Copy manifests first so `pnpm install` layer caches on unchanged deps.
@@ -33,7 +38,7 @@ RUN pnpm build
 # The image's rustc must match `rust-toolchain.toml` (COPY . . brings that file
 # in, and a mismatch makes rustup download the pinned toolchain inside the build).
 # Bump both together.
-FROM rust:1.98.1-bookworm AS build
+FROM rust:1.98.1-bookworm@sha256:93ce27a88655056a51dbdd8f5f2d7ddc071c7b0070fb288a37b5a285fc83971e AS build
 WORKDIR /src
 COPY . .
 # Replace the committed dist placeholder with the freshly built SPA.
@@ -51,7 +56,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # Stage 3 — runtime: production server image. Non-root, no shell, no package
 # manager. Ships only the server and its render worker.
 # ---------------------------------------------------------------------------
-FROM gcr.io/distroless/cc-debian12:nonroot AS runtime
+FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f AS runtime
 COPY --from=build /out/mailwoman   /usr/local/bin/mailwoman
 COPY --from=build /out/mw-render   /usr/local/bin/mw-render
 # First-party bridge/plugin `.wasm` components (26.9, t9-e5): no longer embedded in
@@ -80,7 +85,7 @@ CMD ["serve"]
 # solely so the compose healthcheck can probe the mock's /healthz without a
 # shell or curl in the distroless image.
 # ---------------------------------------------------------------------------
-FROM gcr.io/distroless/cc-debian12:nonroot AS mock
+FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f AS mock
 COPY --from=build /out/mw-mock-jmap /usr/local/bin/mw-mock-jmap
 COPY --from=build /out/mailwoman    /usr/local/bin/mailwoman
 ENV MW_MOCK_PORT=8181
@@ -100,7 +105,7 @@ ENTRYPOINT ["/usr/local/bin/mw-mock-jmap"]
 # crt so the binaries have zero shared-object dependencies.
 # ---------------------------------------------------------------------------
 # Same pin as the `build` stage above — keep it equal to `rust-toolchain.toml`.
-FROM rust:1.98.1-alpine AS build-musl
+FROM rust:1.98.1-alpine@sha256:7cc1c22d77d9432f7fe012a70e6d3e555af54c2a6832700ed7d553f1769ae89f AS build-musl
 # build-base = gcc + make + musl-dev, needed to compile the C/asm in `ring` and
 # `zstd-sys` against musl for a fully static link. ca-certificates provides the
 # root bundle copied into the scratch image for rustls upstream TLS.
