@@ -3,6 +3,8 @@
 rules-title = Rules & filters
 rules-intro = Automatically sort, tag, or act on incoming mail. Rules that use only standard tests run on the mail server as Sieve; the rest run in the engine at delivery.
 rules-empty = No rules yet.
+rules-unavailable = This mail server does not support mail rules.
+rules-load-failed = The rules could not be loaded.
 rules-new = New rule
 rules-list-label = Mail rules
 rules-enabled = Enabled

@@ -164,3 +164,42 @@ describe('RawEditor', () => {
     expect(screen.getByText(t('rules-lint-clean'))).toBeInTheDocument();
   });
 });
+
+// ── t32-h6: an upstream without MailRule/get ────────────────────────────────────
+//
+// In proxy mode `MailRule/get` goes to the upstream JMAP server, and one that does
+// not implement this Mailwoman extension answers `unknownMethod`. The section used
+// to drop that rejection on the floor (an unhandled rejection, then "No rules yet"
+// and a builder whose saves could never succeed).
+
+describe('RulesSettings — contained load failures (t32-h6)', () => {
+  function failingSlice(first: Error): { slice: RulesSlice; loadRules: ReturnType<typeof vi.fn> } {
+    const { slice } = fakeSlice([]);
+    const loadRules = vi.fn().mockRejectedValueOnce(first).mockResolvedValue(undefined);
+    return { slice: { ...slice, loadRules }, loadRules };
+  }
+
+  it('unknownMethod reads as "not available" and hides the builder', async () => {
+    const { slice } = failingSlice(new Error('JMAP method error: unknownMethod mock does not implement MailRule/get'));
+    render(() => <RulesSettings accountId="acct1" slice={slice} />);
+
+    expect(await screen.findByText(t('rules-unavailable'))).toBeInTheDocument();
+    expect(screen.getByText(t('rules-title'))).toBeInTheDocument();
+    expect(screen.queryByText(t('rules-new'))).not.toBeInTheDocument();
+    expect(screen.queryByText(t('rules-empty'))).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('any other failure is shown in the section with a retry that reloads it', async () => {
+    const { slice, loadRules } = failingSlice(new Error('JMAP method error: serverFail'));
+    render(() => <RulesSettings accountId="acct1" slice={slice} />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(t('rules-load-failed'));
+    expect(screen.queryByText(t('rules-new'))).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('rules-retry'));
+    await waitFor(() => expect(screen.getByText(t('rules-new'))).toBeInTheDocument());
+    expect(loadRules).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+});

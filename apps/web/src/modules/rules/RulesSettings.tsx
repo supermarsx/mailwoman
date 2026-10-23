@@ -7,10 +7,16 @@
 // This module does NOT touch the router or the global store (ownership boundary):
 // it instantiates its own rules slice over the same-origin JMAP client, mirroring
 // how apikeys/zeroaccess mount self-contained. Tests inject a `slice` directly.
+//
+// t32-h6: `MailRule/*` is a Mailwoman extension, so in proxy mode an upstream that
+// does not implement it answers `unknownMethod`. A failed load stays inside this
+// section: "not available" for that, an alert with a retry for anything else, and
+// no rule list or builder in either case (nothing could be saved).
 
 import { createMemo, createSignal, For, onMount, Show, type JSX } from 'solid-js';
 import { t, loadCatalog, isolate } from '../../i18n';
 import { createClient } from '../../api/client.ts';
+import { isUnsupportedMethod } from '../../api/unsupported.ts';
 import { useApp } from '../../state/context.ts';
 import type { MailRule } from '../../api/crypto-types.ts';
 import {
@@ -51,7 +57,17 @@ export function RulesSettings(props: RulesSettingsProps): JSX.Element {
   const [editing, setEditing] = createSignal<RuleDraft | null>(null);
   const [rawBuffer, setRawBuffer] = createSignal<string | null>(null);
 
-  onMount(() => void slice.loadRules());
+  // The load's failure, boxed so a rejection with `undefined` still counts.
+  const [loadFailure, setLoadFailure] = createSignal<{ error: unknown } | null>(null);
+  const load = (): void => {
+    setLoadFailure(null);
+    slice.loadRules().catch((error: unknown) => setLoadFailure({ error }));
+  };
+  onMount(load);
+  const unsupported = (): boolean => {
+    const failure = loadFailure();
+    return failure !== null && isUnsupportedMethod(failure.error);
+  };
 
   const generated = createMemo(() => rulesToSieve(slice.rules()));
   const rawSource = (): string => rawBuffer() ?? generated();
@@ -78,101 +94,120 @@ export function RulesSettings(props: RulesSettingsProps): JSX.Element {
       </h2>
       <p class={css.prose}>{t('rules-intro')}</p>
 
-      {/* Rule list */}
       <Show
-        when={slice.rules().length > 0}
-        fallback={<p class={css.prose}>{t('rules-empty')}</p>}
+        when={loadFailure() === null}
+        fallback={
+          <Show
+            when={!unsupported()}
+            fallback={<p class={css.prose}>{t('rules-unavailable')}</p>}
+          >
+            <p class={css.prose} role="alert">
+              {t('rules-load-failed')}
+            </p>
+            <div class={css.row}>
+              <button type="button" class={css.btn} data-testid="rules-retry" onClick={load}>
+                {t('common-retry')}
+              </button>
+            </div>
+          </Show>
+        }
       >
-        <ul class={css.list} aria-label={t('rules-list-label')}>
-          <For each={slice.rules()}>
-            {(rule) => (
-              <li class={css.ruleRow}>
-                <span class={css.ruleName}>{isolate(rule.name)}</span>
-                <span class={rule.runsAt === 'server-sieve' ? `${css.badge} ${css.badgeServer}` : css.badge}>
-                  {rule.runsAt === 'server-sieve' ? t('rules-runs-server') : t('rules-runs-engine')}
-                </span>
-                <label class={css.row}>
-                  <input
-                    type="checkbox"
-                    checked={rule.enabled}
-                    onChange={(e) => void slice.toggleRule(rule.id, e.currentTarget.checked)}
-                  />
-                  {t('rules-enabled')}
-                </label>
-                <button type="button" class={css.btn} onClick={() => startEdit(rule)}>
-                  {t('common-edit')}
-                </button>
-                <button
-                  type="button"
-                  class={css.btnDanger}
-                  aria-label={t('rules-delete-named', { name: isolate(rule.name) })}
-                  onClick={() => void slice.deleteRule(rule.id)}
-                >
-                  {t('common-delete')}
-                </button>
-              </li>
+        {/* Rule list */}
+        <Show
+          when={slice.rules().length > 0}
+          fallback={<p class={css.prose}>{t('rules-empty')}</p>}
+        >
+          <ul class={css.list} aria-label={t('rules-list-label')}>
+            <For each={slice.rules()}>
+              {(rule) => (
+                <li class={css.ruleRow}>
+                  <span class={css.ruleName}>{isolate(rule.name)}</span>
+                  <span class={rule.runsAt === 'server-sieve' ? `${css.badge} ${css.badgeServer}` : css.badge}>
+                    {rule.runsAt === 'server-sieve' ? t('rules-runs-server') : t('rules-runs-engine')}
+                  </span>
+                  <label class={css.row}>
+                    <input
+                      type="checkbox"
+                      checked={rule.enabled}
+                      onChange={(e) => void slice.toggleRule(rule.id, e.currentTarget.checked)}
+                    />
+                    {t('rules-enabled')}
+                  </label>
+                  <button type="button" class={css.btn} onClick={() => startEdit(rule)}>
+                    {t('common-edit')}
+                  </button>
+                  <button
+                    type="button"
+                    class={css.btnDanger}
+                    aria-label={t('rules-delete-named', { name: isolate(rule.name) })}
+                    onClick={() => void slice.deleteRule(rule.id)}
+                  >
+                    {t('common-delete')}
+                  </button>
+                </li>
+              )}
+            </For>
+          </ul>
+        </Show>
+
+        <div class={css.row}>
+          <button type="button" class={css.btnPrimary} onClick={startNew}>
+            {t('rules-new')}
+          </button>
+        </div>
+
+        {/* Panes */}
+        <div class={css.tabs} role="tablist" aria-label={t('rules-panes-label')}>
+          <For each={PANES}>
+            {(p) => (
+              <button
+                type="button"
+                role="tab"
+                id={`rules-tab-${p.id}`}
+                class={css.tab}
+                aria-selected={pane() === p.id}
+                aria-controls={`rules-panel-${p.id}`}
+                onClick={() => setPane(p.id)}
+              >
+                {t(p.label)}
+              </button>
             )}
           </For>
-        </ul>
-      </Show>
+        </div>
 
-      <div class={css.row}>
-        <button type="button" class={css.btnPrimary} onClick={startNew}>
-          {t('rules-new')}
-        </button>
-      </div>
-
-      {/* Panes */}
-      <div class={css.tabs} role="tablist" aria-label={t('rules-panes-label')}>
-        <For each={PANES}>
-          {(p) => (
-            <button
-              type="button"
-              role="tab"
-              id={`rules-tab-${p.id}`}
-              class={css.tab}
-              aria-selected={pane() === p.id}
-              aria-controls={`rules-panel-${p.id}`}
-              onClick={() => setPane(p.id)}
+        <Show when={pane() === 'builder'}>
+          <div role="tabpanel" id="rules-panel-builder" aria-labelledby="rules-tab-builder">
+            <Show
+              when={editing()}
+              fallback={<p class={css.prose}>{t('rules-builder-hint')}</p>}
             >
-              {t(p.label)}
-            </button>
-          )}
-        </For>
-      </div>
-
-      <Show when={pane() === 'builder'}>
-        <div role="tabpanel" id="rules-panel-builder" aria-labelledby="rules-tab-builder">
-          <Show
-            when={editing()}
-            fallback={<p class={css.prose}>{t('rules-builder-hint')}</p>}
-          >
-            {(draft) => (
-              <RuleBuilder initial={draft()} onSave={(d) => void onSave(d)} onCancel={() => setEditing(null)} />
-            )}
-          </Show>
-        </div>
-      </Show>
-
-      <Show when={pane() === 'raw'}>
-        <div role="tabpanel" id="rules-panel-raw" aria-labelledby="rules-tab-raw">
-          <RawEditor source={rawSource()} onInput={(next) => setRawBuffer(next)} />
-          <div class={css.row}>
-            <button type="button" class={css.btn} onClick={() => setRawBuffer(null)}>
-              {t('rules-raw-reset')}
-            </button>
+              {(draft) => (
+                <RuleBuilder initial={draft()} onSave={(d) => void onSave(d)} onCancel={() => setEditing(null)} />
+              )}
+            </Show>
           </div>
-        </div>
-      </Show>
+        </Show>
 
-      <Show when={pane() === 'dryrun'}>
-        <div role="tabpanel" id="rules-panel-dryrun" aria-labelledby="rules-tab-dryrun">
-          <DryRun rules={slice.rules()} />
-        </div>
-      </Show>
+        <Show when={pane() === 'raw'}>
+          <div role="tabpanel" id="rules-panel-raw" aria-labelledby="rules-tab-raw">
+            <RawEditor source={rawSource()} onInput={(next) => setRawBuffer(next)} />
+            <div class={css.row}>
+              <button type="button" class={css.btn} onClick={() => setRawBuffer(null)}>
+                {t('rules-raw-reset')}
+              </button>
+            </div>
+          </div>
+        </Show>
 
-      {/* Standing where-it-runs legend so both modes are explained. */}
-      <WhereItRuns runsAt="server-sieve" />
+        <Show when={pane() === 'dryrun'}>
+          <div role="tabpanel" id="rules-panel-dryrun" aria-labelledby="rules-tab-dryrun">
+            <DryRun rules={slice.rules()} />
+          </div>
+        </Show>
+
+        {/* Standing where-it-runs legend so both modes are explained. */}
+        <WhereItRuns runsAt="server-sieve" />
+      </Show>
     </section>
   );
 }

@@ -6,9 +6,16 @@
 //
 // Mounted from `screens/Settings.tsx` alongside the existing feature modules
 // (PasswordChange/RulesSettings/ApiKeys/…): `<AccountSettings />`.
+//
+// t32-h6: each screen sits in its own boundary. The screens read their resource
+// straight in JSX and Solid rethrows a failed load on read, so one failed
+// `/api/account/*` request used to reach the app's boundary and replace the
+// mailbox. Now it replaces only that screen, with an error and a retry that
+// mounts it again (which reloads it).
 
 import { createSignal, type JSX } from 'solid-js';
 import { useI18n } from '../../i18n';
+import { AsyncBoundary } from '../../components/ErrorBoundary.tsx';
 import { SettingsService } from './service.ts';
 import { loadPrefs, savePrefs, type SettingsPrefs } from './prefs.ts';
 import { TwoFactor } from './TwoFactor.tsx';
@@ -52,13 +59,27 @@ export function AccountSettings(props: AccountSettingsProps): JSX.Element {
 
   return (
     <div class={css.stack} dir={effectiveDir()} data-testid="account-settings">
-      <TwoFactor service={service} />
-      <Sessions service={service} />
-      <Signatures service={service} />
-      <Identities service={service} />
-      <Notifications service={service} />
-      <SavedSearches service={service} />
-      <Preferences prefs={prefs} onChange={onPrefsChange} />
+      <AsyncBoundary>
+        <TwoFactor service={service} />
+      </AsyncBoundary>
+      <AsyncBoundary>
+        <Sessions service={service} />
+      </AsyncBoundary>
+      <AsyncBoundary>
+        <Signatures service={service} />
+      </AsyncBoundary>
+      <AsyncBoundary>
+        <Identities service={service} />
+      </AsyncBoundary>
+      <AsyncBoundary>
+        <Notifications service={service} />
+      </AsyncBoundary>
+      <AsyncBoundary>
+        <SavedSearches service={service} />
+      </AsyncBoundary>
+      <AsyncBoundary>
+        <Preferences prefs={prefs} onChange={onPrefsChange} />
+      </AsyncBoundary>
     </div>
   );
 }
