@@ -95,6 +95,16 @@ async fn shell_is_served_under_the_shipped_tightened_csp() {
         csp.contains("require-trusted-types-for 'script'"),
         "Trusted-Types enforcement must be present in the shipped shell CSP: {csp}"
     );
+    // The whole value, pinned. `manifest-src 'self'` (26.20 t32-e22) lets the shell
+    // load its own manifest.webmanifest; under `default-src 'none'` it was blocked.
+    assert_eq!(
+        csp,
+        "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; \
+         img-src 'self' blob: data:; font-src 'self'; manifest-src 'self'; \
+         connect-src 'self' blob:; frame-src 'self'; worker-src 'self' blob:; \
+         base-uri 'none'; form-action 'none'; require-trusted-types-for 'script'",
+        "the shipped shell CSP is exactly this value"
+    );
 
     eprintln!("[t16 csp] shipped shell CSP:\n  {csp}");
     eprintln!(

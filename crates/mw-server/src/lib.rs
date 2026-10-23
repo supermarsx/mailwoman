@@ -156,7 +156,7 @@ const COOKIE_NAME: &str = "mw_session";
 ///     fail-closed. ProseMirror's scoped `ProseMirrorClipboard` policy reuses this
 ///     default. With the policy in place the directive is safe to enforce.
 const CSP: &str = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; \
-     style-src 'self'; img-src 'self' blob: data:; font-src 'self'; \
+     style-src 'self'; img-src 'self' blob: data:; font-src 'self'; manifest-src 'self'; \
      connect-src 'self' blob:; frame-src 'self'; worker-src 'self' blob:; \
      base-uri 'none'; form-action 'none'; require-trusted-types-for 'script'";
 

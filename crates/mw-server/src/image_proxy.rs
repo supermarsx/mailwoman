@@ -146,9 +146,9 @@ pub(crate) use mw_egress::{embedded_ipv4s, ip_allowed};
 /// unaffected by this constant.
 pub(crate) const SHELL_CSP_TIGHTENED: &str = "default-src 'none'; \
      script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; \
-     img-src 'self' blob: data:; font-src 'self'; connect-src 'self' blob:; \
-     frame-src 'self'; worker-src 'self' blob:; base-uri 'none'; form-action 'none'; \
-     require-trusted-types-for 'script'";
+     img-src 'self' blob: data:; font-src 'self'; manifest-src 'self'; \
+     connect-src 'self' blob:; frame-src 'self'; worker-src 'self' blob:; \
+     base-uri 'none'; form-action 'none'; require-trusted-types-for 'script'";
 
 // ── fetch caps ───────────────────────────────────────────────────────────────
 //
