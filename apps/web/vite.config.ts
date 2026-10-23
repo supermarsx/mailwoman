@@ -18,6 +18,7 @@ export default defineConfig({
   // `basePath()` (`src/api/basePath.ts`), which reads the server-injected
   // `__MW_BASE__`.
   base: './',
+  define: { __MW_I18N_PSEUDO__: JSON.stringify(process.env['MW_I18N_PSEUDO'] === '1') },
   // vanilla-extract compiles `*.css.ts` token/theme files to static CSS at build
   // (plan §2.3, e4). The hand-rolled Service Worker (e5) ships as `public/sw.js`,
   // copied verbatim into `dist/` — no bundling step needed for it.

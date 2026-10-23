@@ -17,6 +17,7 @@ import { createSignal } from 'solid-js';
 import { FluentBundle, FluentResource, type FluentVariable } from '@fluent/bundle';
 import { mapBundleSync } from '@fluent/sequence';
 import { SOURCE_LOCALE, fallbackChain, type Locale } from './locales.ts';
+import { pseudoLocalize } from './pseudo.ts';
 
 /** Args accepted by `t()` — Fluent variables (string | number | Date | …). */
 export type TArgs = Record<string, FluentVariable>;
@@ -93,7 +94,10 @@ export function t(id: string, args?: TArgs): string {
       if (message?.value != null) {
         const errors: Error[] = [];
         const out = bundle.formatPattern(message.value, args, errors);
-        return out;
+        // Pseudo-locale build only (MW_I18N_PSEUDO=1); Vite replaces the constant
+        // with `false` otherwise and drops the branch. The typeof guard keeps code
+        // loaded outside Vite (Playwright importing src/) from throwing.
+        return typeof __MW_I18N_PSEUDO__ !== 'undefined' && __MW_I18N_PSEUDO__ ? pseudoLocalize(out) : out;
       }
     }
   }
