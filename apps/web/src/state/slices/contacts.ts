@@ -213,8 +213,19 @@ export function createContactsSlice(ctx: SliceContext): ContactsSlice {
   }
 
   // ── loading ──
+  // Each `loadContacts()` takes a ticket when it is called. Calls overlap
+  // (opening Contacts starts two loads; Compose and the keys module start
+  // others), and one that started earlier can answer last; only the call
+  // holding the latest ticket writes state and ends the loading state, so the
+  // older answer is dropped instead of replacing the newer one (as `loadTicket`
+  // in `modules/calendar/controller.ts`).
+  let loadTicket = 0;
+
   async function loadContacts(): Promise<void> {
+    const ticket = ++loadTicket;
+    const stale = (): boolean => ticket !== loadTicket;
     const acct = await resolveAccount();
+    if (stale()) return;
     if (acct === null) {
       batch(() => {
         setAddressBooks([]);
@@ -230,13 +241,15 @@ export function createContactsSlice(ctx: SliceContext): ContactsSlice {
         client.jmap(contactGroupsGet(acct)),
         client.jmap(contactsQueryGet(acct, selectedAddressBookId() ?? undefined)),
       ]);
+      if (stale()) return;
       batch(() => {
         setAddressBooks(responseFor<AddressBookGetResponse>(bookRes, 'books').list);
         setContactGroups(responseFor<ContactGroupGetResponse>(groupRes, 'groups').list);
         setContacts(sortContacts(responseFor<ContactGetResponse>(cardRes, 'g').list));
       });
     } finally {
-      setContactsLoading(false);
+      // The latest call ends the loading state; a dropped one leaves it alone.
+      if (!stale()) setContactsLoading(false);
     }
   }
 
