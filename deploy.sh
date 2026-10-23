@@ -21,7 +21,9 @@ PROXY_NETWORK=
 PROXY_SUBNETS=
 IMAGE_ID=
 DATA_VOLUME=
-CADDY_IMAGE=caddy:2-alpine
+# New installations name Caddy by exact version and multi-platform index digest;
+# a deploy.env written earlier keeps the value it has.
+CADDY_IMAGE=caddy:2.11.7-alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f
 CADDY_ID=
 ACME_CA=
 ACME_CA_ROOT=

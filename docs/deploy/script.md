@@ -209,8 +209,12 @@ another CI) in `deploy.env`. The workflow pushes an image before it signs it, so
 for a few minutes after a push to `master` the `master` tag can name an image
 that is not signed yet; a deploy of it is refused until the signature exists.
 
-To update Caddy, pull the selected `CADDY_IMAGE` yourself (or edit that setting
-to a new tag/digest), then deploy. Multiple installations need distinct project
+A new installation's `CADDY_IMAGE` names an exact Caddy version and its
+multi-platform index digest (`caddy:2.11.7-alpine@sha256:…`), so every deploy uses
+the same Caddy bytes until that line changes. A `deploy.env` written before 26.20
+keeps the value it has (`caddy:2-alpine`, a moving tag). To update Caddy, set
+`CADDY_IMAGE` to a new version and digest (`docker buildx imagetools inspect
+caddy:<version>-alpine` prints the digest), then deploy. Multiple installations need distinct project
 names, state directories, ports, and Caddy subnets; only one can own ports 80/443.
 
 Before replacing an existing app, the script snapshots it. Building/pulling fails
@@ -297,7 +301,8 @@ refusal of a deploy onto a port held by something else, backup/rollback, failure
 recovery, the moves local → external → proxy network → local, the refusal of a move
 to Caddy, the automatic rollback of an update to an image that never becomes
 healthy (it also changes the exposure, and the previous exposure must come back)
-and `rollback` after an update made with `--no-auto-rollback`, a second,
+and `rollback` after an update made with `--no-auto-rollback`, a new Caddy
+installation's `CADDY_IMAGE` pinned by version and digest, a second,
 proxy-network installation, the `--image` signature check (a stand-in `cosign`
 and a registry container: verified digest deployed, failed verification refused
 before any change, `--require-signature` without `cosign` or for an image from the
