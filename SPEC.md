@@ -1474,6 +1474,9 @@ the effective cache posture.
   packages (same registry as plugins); per-user theme choice, per-profile
   themes (§10.3), auto light/dark by OS schedule; admin-brandable login page
   and default theme; density and accent-color user overrides on top of any theme.
+- **Dark by default:** a user who has not chosen a theme gets the Dark theme
+  whatever the OS colour scheme; Light applies once the user picks a light
+  theme, or picks "Follow the system" while the OS is light.
 
 ### 17.2 Fonts
 
@@ -1481,8 +1484,9 @@ the effective cache posture.
   `mailwoman fonts pull "Inter" "Lora"` (CLI + admin UI) downloads families
   from Google Fonts at *setup time*, subsets them (unicode-range), and serves
   them from the Mailwoman origin. **No runtime requests to Google ever** —
-  CSP `font-src 'self'` makes this structural, not a promise. Bundled
-  defaults: Inter (UI), a serif and a mono, packaged in-repo.
+  CSP `font-src 'self'` makes this structural, not a promise. The UI typeface
+  is Jost (variable, SIL OFL 1.1), bundled in the web build; Inter, Newsreader
+  and JetBrains Mono remain available through `mailwoman fonts pull`.
 - **Font configurability:** per-user UI font, reading font (applies to
   plain-text and can force-override HTML mail typography in "reader mode"),
   compose default font family/size (sent as inline styles for interop), mono
