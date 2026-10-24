@@ -27,26 +27,58 @@
 //! advances on an observed message, so an invisible keepalive leaves an idle but
 //! perfectly healthy session indistinguishable from a dead one. The WS leg still
 //! sends the protocol Ping as well, for proxies and native clients that watch it.
+//!
+//! ## Whose changes a stream carries, and for how long (D-27)
+//! The broadcast is process-wide: it carries every account's changes. Each stream
+//! filters it at its own subscription ([`ScopedChanges`]) down to the accounts
+//! [`stream_accounts`] names for the session that opened it — today the
+//! session's own account — so one user never sees another account's id or state
+//! tokens. The client has no say in that list.
+//!
+//! The session is checked once at the upgrade by `authed`, and then again every
+//! [`recheck_period`] (`MW_REALTIME_RECHECK_SECS`, default 30 s) by
+//! [`still_valid`]: the bearer token's native marker, the session row, its
+//! idle/absolute timeouts and the account's flags. A revoked or signed-out
+//! session, a revoked bearer token, an expired session, a disabled account, an
+//! account held for a password change, or a store that cannot be read ends the
+//! stream — a WS close with code 1008, or the end of the SSE body. The re-check
+//! does not count as activity, so an open stream does not keep an idle session
+//! alive. Between the session ending and the next re-check (at most one period)
+//! the stream can still carry that account's own changes; nothing is written to
+//! it after a failed re-check.
 
 use std::convert::Infallible;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use axum::extract::State;
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade, close_code};
 use axum::http::HeaderMap;
 use axum::http::header::{CACHE_CONTROL, HeaderName, HeaderValue};
 use axum::response::sse::{Event, Sse};
 use axum::response::{IntoResponse, Response};
 use futures_util::Stream;
+use futures_util::future::BoxFuture;
 use tokio::sync::broadcast;
 use tokio::time::{Interval, MissedTickBehavior};
 
 use mw_engine::StateChange;
+use mw_store::{Session, StoreError};
 
-use crate::{AppState, authed};
+use crate::{AppState, account_gate, authed, push_relay};
 
 /// How often an idle connection is nudged so proxies do not reap it (§2.2).
 const HEARTBEAT: Duration = Duration::from_secs(30);
+
+/// The environment variable that sets how often an open stream re-checks its
+/// session, in whole seconds (D-27).
+const RECHECK_ENV: &str = "MW_REALTIME_RECHECK_SECS";
+
+/// [`RECHECK_ENV`]'s default, in seconds.
+const RECHECK_DEFAULT_SECS: u64 = 30;
+
+/// The reason sent with the WS close frame when a re-check ends a stream.
+const SESSION_ENDED: &str = "session ended";
 
 /// The RFC 8887 WebSocket subprotocol token. Echoed back only when the client
 /// offered it; see [`negotiated_upgrade`].
@@ -128,6 +160,162 @@ impl Default for PushHandle {
     }
 }
 
+/// The account ids a session's realtime stream may carry changes for. Today that
+/// is the session's own account; accounts a session is later authorised for
+/// beyond its own join here, so every stream is filtered through this one
+/// function. An empty account id names no account (a proxy-mode upstream that
+/// reports none) and such a session sees no changes at all.
+pub(crate) fn stream_accounts(session: &Session) -> Vec<String> {
+    if session.account_id.is_empty() {
+        Vec::new()
+    } else {
+        vec![session.account_id.clone()]
+    }
+}
+
+/// One stream's subscription to the process-wide broadcast, narrowed to the
+/// changes for `accounts`. Changes for any other account are dropped here and
+/// never reach the socket.
+pub(crate) struct ScopedChanges {
+    rx: broadcast::Receiver<StateChange>,
+    accounts: Vec<String>,
+}
+
+impl ScopedChanges {
+    pub(crate) fn new(rx: broadcast::Receiver<StateChange>, accounts: Vec<String>) -> Self {
+        Self { rx, accounts }
+    }
+
+    /// The next change for one of this stream's accounts. Cancel-safe, as
+    /// [`broadcast::Receiver::recv`] is: a change for another account is dropped
+    /// whether or not the caller is still waiting.
+    async fn recv(&mut self) -> Result<StateChange, broadcast::error::RecvError> {
+        loop {
+            let change = self.rx.recv().await?;
+            if self.accounts.contains(&change.account_id) {
+                return Ok(change);
+            }
+        }
+    }
+}
+
+/// How often an open stream re-checks its session: [`RECHECK_ENV`] read once
+/// per process, at least one second, [`RECHECK_DEFAULT_SECS`] when unset or not
+/// a whole number.
+fn recheck_period() -> Duration {
+    static PERIOD: OnceLock<Duration> = OnceLock::new();
+    *PERIOD.get_or_init(|| parse_recheck(std::env::var(RECHECK_ENV).ok().as_deref()))
+}
+
+fn parse_recheck(raw: Option<&str>) -> Duration {
+    let secs = match raw.map(str::trim) {
+        None | Some("") => RECHECK_DEFAULT_SECS,
+        Some(v) => v.parse::<u64>().map(|n| n.max(1)).unwrap_or_else(|_| {
+            tracing::warn!(
+                "{RECHECK_ENV}={v:?} is not a whole number of seconds; using {RECHECK_DEFAULT_SECS}"
+            );
+            RECHECK_DEFAULT_SECS
+        }),
+    };
+    Duration::from_secs(secs)
+}
+
+/// Decides, every `period`, whether an open stream may stay open.
+#[derive(Clone)]
+struct StreamGuard {
+    period: Duration,
+    check: Arc<dyn Fn() -> BoxFuture<'static, bool> + Send + Sync>,
+}
+
+impl StreamGuard {
+    /// The guard for a stream opened by `session`; `bearer` says whether it was
+    /// presented as a native bearer token rather than a cookie.
+    fn for_session(state: AppState, session: Session, bearer: bool) -> Self {
+        Self {
+            period: recheck_period(),
+            check: Arc::new(move || {
+                let (state, session) = (state.clone(), session.clone());
+                Box::pin(async move { still_valid(&state, &session, bearer).await })
+            }),
+        }
+    }
+
+    async fn holds(&self) -> bool {
+        (self.check)().await
+    }
+}
+
+/// Is `session` still good for a realtime stream? Re-reads what `authed` read at
+/// the upgrade, without recording activity. Any read that fails says no (fail
+/// closed).
+async fn still_valid(state: &AppState, session: &Session, bearer: bool) -> bool {
+    match recheck(state, session, bearer).await {
+        Ok(()) => true,
+        Err(why) => {
+            tracing::info!("realtime stream for {} ended: {why}", session.username);
+            false
+        }
+    }
+}
+
+async fn recheck(state: &AppState, session: &Session, bearer: bool) -> Result<(), &'static str> {
+    const UNREADABLE: &str = "the store could not be read";
+    if bearer {
+        match state
+            .store
+            .get_native_session(&push_relay::hash_token(&session.id))
+            .await
+        {
+            Ok(Some(_)) => {}
+            Ok(None) => return Err("bearer token revoked"),
+            Err(_) => return Err(UNREADABLE),
+        }
+    }
+    let current = match state.store.get_session(&session.id).await {
+        Ok(current) => current,
+        Err(StoreError::NotFound) => return Err("session revoked"),
+        Err(_) => return Err(UNREADABLE),
+    };
+    if current.account_id != session.account_id {
+        return Err("session changed account");
+    }
+    // Not `SessionGuard::check`: that records activity, and an open stream is
+    // not activity. The next request with the session deletes it, as `authed`
+    // does for any expired session.
+    if state
+        .sessions
+        .expired(&session.id, &state.hardening)
+        .is_some()
+    {
+        return Err("session expired");
+    }
+    let gate = account_gate::for_session(&state.store, &current)
+        .await
+        .map_err(|_| UNREADABLE)?;
+    if gate.disabled {
+        return Err("account disabled");
+    }
+    if gate.password_change_required {
+        return Err("password change required");
+    }
+    Ok(())
+}
+
+/// The scoped subscription and the guard for a stream `session` is opening.
+fn open_stream(
+    state: &AppState,
+    headers: &HeaderMap,
+    session: Session,
+) -> (ScopedChanges, StreamGuard) {
+    // The same test `authed_with_gate` uses to pick the bearer path.
+    let bearer = push_relay::bearer_token(headers).is_some();
+    let changes = ScopedChanges::new(state.push.subscribe(), stream_accounts(&session));
+    (
+        changes,
+        StreamGuard::for_session(state.clone(), session, bearer),
+    )
+}
+
 /// Forward every `Engine` broadcast into the server push channel for the life of
 /// the process. Spawned once by `build_app` in engine mode.
 pub(crate) async fn bridge_engine(mut src: broadcast::Receiver<StateChange>, out: PushHandle) {
@@ -148,17 +336,20 @@ pub(crate) async fn bridge_engine(mut src: broadcast::Receiver<StateChange>, out
 // WebSocket (RFC 8887)
 // ---------------------------------------------------------------------------
 
-/// `GET /jmap/ws` — authenticate via cookie *before* upgrading, then stream
-/// `StateChange` frames. An unauthenticated request never upgrades (401).
+/// `GET /jmap/ws` — authenticate via cookie or native bearer *before* upgrading,
+/// then stream the session's own `StateChange` frames until the session ends.
+/// An unauthenticated request never upgrades (401).
 pub(crate) async fn jmap_ws(
     State(state): State<AppState>,
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response {
-    if let Err(resp) = authed(&state, &headers).await {
-        return resp;
-    }
-    negotiated_upgrade(ws, state.push.subscribe(), HEARTBEAT)
+    let session = match authed(&state, &headers).await {
+        Ok(session) => session,
+        Err(resp) => return resp,
+    };
+    let (changes, guard) = open_stream(&state, &headers, session);
+    negotiated_upgrade(ws, changes, HEARTBEAT, guard)
 }
 
 /// Complete the upgrade, offering the RFC 8887 `jmap` subprotocol.
@@ -171,21 +362,25 @@ pub(crate) async fn jmap_ws(
 /// would break all of them.
 fn negotiated_upgrade(
     ws: WebSocketUpgrade,
-    rx: broadcast::Receiver<StateChange>,
+    changes: ScopedChanges,
     heartbeat: Duration,
+    guard: StreamGuard,
 ) -> Response {
     ws.protocols([JMAP_SUBPROTOCOL])
-        .on_upgrade(move |socket| ws_loop(socket, rx, heartbeat))
+        .on_upgrade(move |socket| ws_loop(socket, changes, heartbeat, guard))
 }
 
-/// Pump broadcast frames to the socket, answer nothing but pings/closes from the
-/// client, and keep alive every `heartbeat`. Exits cleanly on any I/O error.
+/// Pump the stream's changes to the socket, answer nothing but pings/closes from
+/// the client, and keep alive every `heartbeat`. Exits cleanly on any I/O error,
+/// and with close code 1008 when a re-check finds the session no longer valid.
 async fn ws_loop(
     mut socket: WebSocket,
-    mut rx: broadcast::Receiver<StateChange>,
+    mut changes: ScopedChanges,
     heartbeat: Duration,
+    guard: StreamGuard,
 ) {
     let mut beat = idle_beat(heartbeat);
+    let mut recheck = idle_beat(guard.period);
     loop {
         tokio::select! {
             incoming = socket.recv() => match incoming {
@@ -193,7 +388,7 @@ async fn ws_loop(
                 Some(Ok(_)) => {}            // pong/ping/text/binary: ignore (axum auto-pongs)
                 Some(Err(_)) => break,
             },
-            change = rx.recv() => match change {
+            change = changes.recv() => match change {
                 Ok(sc) => {
                     let frame = sc.to_wire().to_string();
                     if socket.send(Message::Text(frame.into())).await.is_err() {
@@ -214,6 +409,16 @@ async fn ws_loop(
                     break;
                 }
             }
+            _ = recheck.tick() => {
+                if !guard.holds().await {
+                    let frame = CloseFrame {
+                        code: close_code::POLICY,
+                        reason: SESSION_ENDED.into(),
+                    };
+                    let _ = socket.send(Message::Close(Some(frame))).await;
+                    return;
+                }
+            }
         }
     }
     let _ = socket.send(Message::Close(None)).await;
@@ -223,17 +428,19 @@ async fn ws_loop(
 // EventSource / SSE fallback
 // ---------------------------------------------------------------------------
 
-/// `GET /jmap/eventsource` — the SSE fallback. Same cookie auth, same
-/// `StateChange` JSON emitted as `data:` frames, plus a `data:` keepalive every
-/// [`HEARTBEAT`].
+/// `GET /jmap/eventsource` — the SSE fallback. Same auth, same scope and the
+/// same re-check as the WS leg, the session's `StateChange` JSON emitted as
+/// `data:` frames, plus a `data:` keepalive every [`HEARTBEAT`].
 pub(crate) async fn jmap_eventsource(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Response {
-    if let Err(resp) = authed(&state, &headers).await {
-        return resp;
-    }
-    sse_response(state.push.subscribe(), HEARTBEAT)
+    let session = match authed(&state, &headers).await {
+        Ok(session) => session,
+        Err(resp) => return resp,
+    };
+    let (changes, guard) = open_stream(&state, &headers, session);
+    sse_response(changes, HEARTBEAT, guard)
 }
 
 /// Build the SSE response, overriding the two headers a stock reverse proxy
@@ -242,8 +449,8 @@ pub(crate) async fn jmap_eventsource(
 /// `axum` already sets `Cache-Control: no-cache`; the `insert` widens it to
 /// `no-cache, no-transform` so an intermediary is also told not to recompress
 /// the body, which is the other common way SSE frames get held back.
-fn sse_response(rx: broadcast::Receiver<StateChange>, heartbeat: Duration) -> Response {
-    let mut resp = Sse::new(change_stream(rx, heartbeat)).into_response();
+fn sse_response(changes: ScopedChanges, heartbeat: Duration, guard: StreamGuard) -> Response {
+    let mut resp = Sse::new(change_stream(changes, heartbeat, guard)).into_response();
     let headers = resp.headers_mut();
     headers.insert(
         CACHE_CONTROL,
@@ -253,35 +460,44 @@ fn sse_response(rx: broadcast::Receiver<StateChange>, heartbeat: Duration) -> Re
     resp
 }
 
-/// Turn a broadcast receiver into an infinite SSE `Event` stream, skipping lag
-/// gaps and ending when the channel closes.
+/// Turn the stream's changes into an SSE `Event` stream, skipping lag gaps and
+/// ending when the channel closes or a re-check finds the session no longer
+/// valid.
 ///
 /// The keepalive is emitted here rather than through [`axum::response::sse::KeepAlive`]
 /// because that helper writes an SSE *comment* (`:keep-alive`), which the
 /// `EventSource` API drops on the floor — see the module header. A `data:` frame
 /// costs the same bytes and is observable.
 fn change_stream(
-    rx: broadcast::Receiver<StateChange>,
+    changes: ScopedChanges,
     heartbeat: Duration,
+    guard: StreamGuard,
 ) -> impl Stream<Item = Result<Event, Infallible>> + Send {
+    let recheck = idle_beat(guard.period);
     futures_util::stream::unfold(
-        (rx, idle_beat(heartbeat)),
-        |(mut rx, mut beat)| async move {
+        (changes, idle_beat(heartbeat), recheck, guard),
+        |(mut changes, mut beat, mut recheck, guard)| async move {
             loop {
                 tokio::select! {
-                    // `broadcast::Receiver::recv` is cancel-safe, so losing this
-                    // branch of the select drops no change.
-                    change = rx.recv() => match change {
+                    // `ScopedChanges::recv` is cancel-safe, so losing this branch
+                    // of the select drops no change for this stream.
+                    change = changes.recv() => match change {
                         Ok(sc) => {
                             beat.reset();     // a real frame is itself proof of life
                             let ev = Event::default().data(sc.to_wire().to_string());
-                            return Some((Ok(ev), (rx, beat)));
+                            return Some((Ok(ev), (changes, beat, recheck, guard)));
                         }
                         Err(broadcast::error::RecvError::Lagged(_)) => continue,
                         Err(broadcast::error::RecvError::Closed) => return None,
                     },
                     _ = beat.tick() => {
-                        return Some((Ok(Event::default().data(PING_FRAME)), (rx, beat)));
+                        let ev = Event::default().data(PING_FRAME);
+                        return Some((Ok(ev), (changes, beat, recheck, guard)));
+                    }
+                    _ = recheck.tick() => {
+                        if !guard.holds().await {
+                            return None;
+                        }
                     }
                 }
             }
@@ -292,6 +508,7 @@ fn change_stream(
 #[cfg(test)]
 mod tests {
     use std::net::SocketAddr;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use axum::Router;
     use axum::routing::get;
@@ -316,23 +533,60 @@ mod tests {
         addr
     }
 
+    /// A guard that always holds. The re-check is the integration tests' subject
+    /// (`tests/t32_h13_realtime_scope.rs`); here it must not interfere.
+    fn guard_holding() -> StreamGuard {
+        StreamGuard {
+            period: Duration::from_secs(3600),
+            check: Arc::new(|| Box::pin(async { true })),
+        }
+    }
+
+    /// A guard that holds `n` times and then fails, re-checking every 50 ms.
+    fn guard_failing_after(n: usize) -> StreamGuard {
+        let left = Arc::new(AtomicUsize::new(n));
+        StreamGuard {
+            period: Duration::from_millis(50),
+            check: Arc::new(move || {
+                let left = left.clone();
+                Box::pin(async move {
+                    left.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| v.checked_sub(1))
+                        .is_ok()
+                })
+            }),
+        }
+    }
+
+    /// The stream the test endpoints serve: scoped to [`change`]'s account.
+    fn scoped(push: &PushHandle) -> ScopedChanges {
+        ScopedChanges::new(push.subscribe(), vec!["acct1".into()])
+    }
+
     async fn spawn_sse(push: PushHandle) -> SocketAddr {
+        spawn_sse_guarded(push, guard_holding()).await
+    }
+
+    async fn spawn_sse_guarded(push: PushHandle, guard: StreamGuard) -> SocketAddr {
         let app = Router::new().route(
             "/jmap/eventsource",
             get(move || {
-                let push = push.clone();
-                async move { sse_response(push.subscribe(), TEST_BEAT) }
+                let (push, guard) = (push.clone(), guard.clone());
+                async move { sse_response(scoped(&push), TEST_BEAT, guard) }
             }),
         );
         spawn(app).await
     }
 
     async fn spawn_ws(push: PushHandle) -> SocketAddr {
+        spawn_ws_guarded(push, guard_holding()).await
+    }
+
+    async fn spawn_ws_guarded(push: PushHandle, guard: StreamGuard) -> SocketAddr {
         let app = Router::new().route(
             "/jmap/ws",
             get(move |ws: WebSocketUpgrade| {
-                let push = push.clone();
-                async move { negotiated_upgrade(ws, push.subscribe(), TEST_BEAT) }
+                let (push, guard) = (push.clone(), guard.clone());
+                async move { negotiated_upgrade(ws, scoped(&push), TEST_BEAT, guard) }
             }),
         );
         spawn(app).await
@@ -393,8 +647,12 @@ mod tests {
     }
 
     fn change() -> StateChange {
+        change_for("acct1")
+    }
+
+    fn change_for(account_id: &str) -> StateChange {
         StateChange {
-            account_id: "acct1".into(),
+            account_id: account_id.into(),
             email: "7".into(),
             mailbox: "3".into(),
             submission: "1".into(),
@@ -418,6 +676,86 @@ mod tests {
     async fn send_with_no_subscribers_is_not_an_error() {
         let h = PushHandle::new();
         assert_eq!(h.send(change()), 0);
+    }
+
+    #[tokio::test]
+    async fn scoped_changes_drop_other_accounts() {
+        let h = PushHandle::new();
+        let mut mine = ScopedChanges::new(h.subscribe(), vec!["acct1".into()]);
+        h.send(change_for("acct2"));
+        h.send(change_for(""));
+        h.send(change_for("acct1"));
+        assert_eq!(mine.recv().await.unwrap(), change_for("acct1"));
+    }
+
+    #[test]
+    fn an_empty_account_id_is_scoped_to_nothing() {
+        let session = |account_id: &str| Session {
+            id: "s".into(),
+            account_id: account_id.into(),
+            username: "u".into(),
+            jmap_url: String::new(),
+            api_url: String::new(),
+            credentials: mw_store::Credentials {
+                username: "u".into(),
+                password: "p".into(),
+            },
+        };
+        assert!(stream_accounts(&session("")).is_empty());
+        assert_eq!(
+            stream_accounts(&session("acct1")),
+            vec!["acct1".to_string()]
+        );
+    }
+
+    #[test]
+    fn recheck_period_is_whole_seconds_with_a_floor_of_one() {
+        let secs = |raw| parse_recheck(raw).as_secs();
+        assert_eq!(secs(None), RECHECK_DEFAULT_SECS);
+        assert_eq!(secs(Some("")), RECHECK_DEFAULT_SECS);
+        assert_eq!(secs(Some("5")), 5);
+        assert_eq!(secs(Some(" 7 ")), 7);
+        assert_eq!(secs(Some("0")), 1);
+        assert_eq!(secs(Some("-3")), RECHECK_DEFAULT_SECS);
+        assert_eq!(secs(Some("1.5")), RECHECK_DEFAULT_SECS);
+    }
+
+    #[tokio::test]
+    async fn a_failed_recheck_ends_the_sse_body() {
+        let addr = spawn_sse_guarded(PushHandle::new(), guard_failing_after(1)).await;
+        let (_head, mut sock) = raw_request(
+            addr,
+            &format!("GET /jmap/eventsource HTTP/1.1\r\nHost: {addr}\r\n\r\n"),
+        )
+        .await;
+        // A chunked body ends with its zero-length last chunk.
+        read_until(&mut sock, "\r\n0\r\n\r\n").await;
+    }
+
+    #[tokio::test]
+    async fn a_failed_recheck_closes_the_ws_with_policy_violation() {
+        use futures_util::StreamExt;
+        use tokio_tungstenite::tungstenite::Message as Frame;
+
+        let addr = spawn_ws_guarded(PushHandle::new(), guard_failing_after(1)).await;
+        let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{addr}/jmap/ws"))
+            .await
+            .unwrap();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let msg = tokio::time::timeout_at(deadline, ws.next())
+                .await
+                .expect("the close arrives");
+            match msg {
+                Some(Ok(Frame::Close(Some(frame)))) => {
+                    assert_eq!(u16::from(frame.code), 1008);
+                    assert_eq!(frame.reason.as_str(), SESSION_ENDED);
+                    return;
+                }
+                Some(Ok(Frame::Ping(_) | Frame::Text(_))) => continue,
+                other => panic!("expected a policy close, got {other:?}"),
+            }
+        }
     }
 
     #[tokio::test]

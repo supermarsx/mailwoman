@@ -349,6 +349,22 @@ impl SessionGuard {
         self.inner.lock().expect("session guard lock").remove(id);
     }
 
+    /// Whether a session has passed its absolute or idle timeout, without
+    /// recording activity: a realtime stream's re-check must not keep its session
+    /// alive. A session with no record is not expired, as in [`check`](Self::check).
+    pub fn expired(&self, id: &str, cfg: &HardeningConfig) -> Option<Expiry> {
+        let now = Instant::now();
+        let map = self.inner.lock().expect("session guard lock");
+        let t = map.get(id)?;
+        if now.duration_since(t.created) > cfg.absolute_timeout {
+            Some(Expiry::Absolute)
+        } else if now.duration_since(t.last_seen) > cfg.idle_timeout {
+            Some(Expiry::Idle)
+        } else {
+            None
+        }
+    }
+
     /// Move timing from an old id to a new one, resetting the idle clock but
     /// preserving the absolute-creation instant (rotation must not extend the
     /// absolute lifetime).
