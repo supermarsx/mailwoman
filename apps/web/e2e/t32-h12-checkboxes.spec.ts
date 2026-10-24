@@ -35,7 +35,9 @@ function watchCsp(page: Page): string[] {
   const seen: string[] = [];
   page.on('console', (m) => {
     const text = m.text();
-    if (/Content Security Policy/i.test(text) && /style-src/i.test(text)) seen.push(text.slice(0, 200));
+    // Chromium: "… violates the following Content Security Policy directive 'style-src …'";
+    // Firefox: "Content-Security-Policy: The page's settings blocked an inline style (style-src-attr) …".
+    if (/Content.Security.Policy/i.test(text) && /style-src/i.test(text)) seen.push(text.slice(0, 200));
   });
   return seen;
 }
@@ -135,6 +137,8 @@ interface Geometry {
   /** Bounding box of the label's own text (not the input), or null when the label has none. */
   text: { x: number; y: number; w: number; h: number } | null;
   hasLabel: boolean;
+  /** The label's box, and whether it draws a frame (border or fill) a person sees as a bar. */
+  label: { x: number; w: number; framed: boolean } | null;
   accent: string;
   rootAccent: string;
 }
@@ -158,8 +162,28 @@ async function geometry(control: Locator): Promise<Geometry> {
       if (rects.length) {
         // First line of text: the rect nearest the top.
         const first = rects.reduce((a, b) => (b.top < a.top ? b : a));
-        text = { x: first.left, y: first.top, w: first.width, h: first.height };
+        // The text's full width on the first line, from its leftmost to its rightmost rect.
+        const line = rects.filter((rect) => Math.abs(rect.top - first.top) < 2);
+        const left = Math.min(...line.map((rect) => rect.left));
+        const right = Math.max(...line.map((rect) => rect.right));
+        text = { x: left, y: first.top, w: right - left, h: first.height };
       }
+    }
+    let labelBox: Geometry['label'] = null;
+    if (label) {
+      const lr = label.getBoundingClientRect();
+      const lcs = getComputedStyle(label);
+      // A fill only frames the label when it differs from what is behind it (under forced
+      // colours every element reports the same Canvas fill).
+      const clear = (c: string) => c === 'rgba(0, 0, 0, 0)' || c === 'transparent';
+      let behind = 'rgba(0, 0, 0, 0)';
+      for (let p = label.parentElement; p && clear(behind); p = p.parentElement) behind = getComputedStyle(p).backgroundColor;
+      const fill = lcs.backgroundColor;
+      labelBox = {
+        x: lr.left,
+        w: lr.width,
+        framed: parseFloat(lcs.borderTopWidth) > 0 || (!clear(fill) && fill !== behind),
+      };
     }
     // Resolve the theme accent the same way the browser resolves accent-color.
     const probe = document.createElement('span');
@@ -173,6 +197,7 @@ async function geometry(control: Locator): Promise<Geometry> {
       disabled: input.disabled,
       text,
       hasLabel: label !== null,
+      label: labelBox,
       accent: getComputedStyle(input).accentColor,
       rootAccent,
     };
@@ -198,6 +223,23 @@ async function checkControl(page: Page, control: Locator, name: string, opts: Ch
 
   if (Math.abs(g.box.w - BOX) > 0.5 || Math.abs(g.box.h - BOX) > 0.5)
     say(`box is ${g.box.w.toFixed(1)}×${g.box.h.toFixed(1)}, expected ${BOX}×${BOX}`);
+
+  // "A single tickbox element uses up a whole line" (user report): the box is square and no
+  // wider than the 24px target, its label text starts beside it on the same row (centres
+  // within 4px), and a framed label is no wider than its box and text plus 40px.
+  if (Math.abs(g.box.w - g.box.h) > 1 || g.box.w > BOX + 0.5)
+    say(`whole line: the box is ${g.box.w.toFixed(1)}px wide for ${g.box.h.toFixed(1)}px high`);
+  if (opts.labelText !== false && g.text) {
+    const centres = Math.abs(g.box.y + g.box.h / 2 - (g.text.y + g.text.h / 2));
+    if (centres > 4) say(`whole line: label text centre is ${centres.toFixed(1)}px off the box's centre`);
+    const beside = g.text.x >= g.box.x + g.box.w - 0.5 || g.text.x + g.text.w <= g.box.x + 0.5;
+    if (!beside) say('whole line: label text is not beside the box');
+    if (g.label?.framed) {
+      const content = Math.max(g.text.x + g.text.w, g.box.x + g.box.w) - Math.min(g.text.x, g.box.x);
+      if (g.label.w - content > 40)
+        say(`whole line: the framed label is ${g.label.w.toFixed(0)}px wide for ${content.toFixed(0)}px of box and text`);
+    }
+  }
 
   if (opts.labelText !== false && g.text) {
     // The first line of label text must share the box's line: their vertical spans overlap
@@ -249,7 +291,12 @@ async function checkControl(page: Page, control: Locator, name: string, opts: Ch
   // Nothing focused (a click elsewhere could close a dialog).
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   const unfocused = await ringClip();
+  // Reach it from the keyboard (Shift+Tab away, Tab back): Firefox shows :focus-visible only
+  // for focus that keyboard navigation moved.
   await control.focus();
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Tab');
+  if (!(await control.evaluate((el) => el === document.activeElement))) say('Tab does not come back to the box');
   await page.keyboard.press('Space');
   await page.waitForTimeout(100);
   await page.keyboard.press('Space');
