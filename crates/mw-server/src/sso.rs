@@ -498,7 +498,7 @@ async fn complete_flow(
     // browser back into the SPA carrying those cookies (a browser navigation, not a
     // JSON fetch — so `client_type` is None).
     let login = crate::finish_login(state, &session_id, &account.id, &account.username, None).await;
-    into_login_redirect(login, relay.as_deref())
+    into_login_redirect(login, relay.as_deref(), &state.base_path)
 }
 
 /// Append a content-free audit row for a pre-account failure and return the uniform
@@ -647,26 +647,28 @@ fn resolve_account(
     }
 }
 
-/// A safe post-login return target: only a same-site absolute path is honoured (no
-/// scheme, no protocol-relative `//host`) — otherwise `/` (defeats open-redirect).
-fn safe_relay(relay: Option<&str>) -> String {
-    match relay {
-        Some(r) if r.starts_with('/') && !r.starts_with("//") => r.to_string(),
-        _ => "/".to_string(),
-    }
+/// A safe post-login return target: an app path under the deploy prefix, checked
+/// by [`crate::error_pages::safe_return_path`] (no `//host`, `/\host`, scheme,
+/// control character or encoded form of one); otherwise the mail app at
+/// `{base}/`. The old check let `/\host` and `/<TAB>/host` through, and a CR/LF
+/// made the redirect builder panic (t32-h10).
+fn safe_relay(relay: Option<&str>, base: &str) -> String {
+    relay
+        .and_then(|r| crate::error_pages::safe_return_path(r, base))
+        .unwrap_or_else(|| format!("{base}/"))
 }
 
 /// Turn the existing login finisher's response into a 303 back into the SPA, carrying
 /// over its `Set-Cookie` headers (session + CSRF). The browser followed a redirect
 /// from the IdP, so it wants a redirect, not the JSON body.
-fn into_login_redirect(login: Response, relay: Option<&str>) -> Response {
+fn into_login_redirect(login: Response, relay: Option<&str>, base: &str) -> Response {
     let cookies: Vec<_> = login
         .headers()
         .get_all(header::SET_COOKIE)
         .iter()
         .cloned()
         .collect();
-    let target = safe_relay(relay);
+    let target = safe_relay(relay, base);
     let mut resp = Redirect::to(&target).into_response();
     let h = resp.headers_mut();
     for c in cookies {
@@ -744,10 +746,14 @@ mod tests {
 
     #[test]
     fn safe_relay_defeats_open_redirect() {
-        assert_eq!(safe_relay(Some("/inbox")), "/inbox");
-        assert_eq!(safe_relay(Some("//evil.example")), "/");
-        assert_eq!(safe_relay(Some("https://evil.example")), "/");
-        assert_eq!(safe_relay(None), "/");
+        assert_eq!(safe_relay(Some("/inbox"), ""), "/inbox");
+        assert_eq!(safe_relay(Some("//evil.example"), ""), "/");
+        assert_eq!(safe_relay(Some("https://evil.example"), ""), "/");
+        assert_eq!(safe_relay(Some("/\\evil.example"), ""), "/");
+        assert_eq!(safe_relay(Some("/\t/evil.example"), ""), "/");
+        assert_eq!(safe_relay(None, ""), "/");
+        assert_eq!(safe_relay(Some("/inbox"), "/mail"), "/mail/inbox");
+        assert_eq!(safe_relay(Some("//evil.example"), "/mail"), "/mail/");
     }
 
     #[test]

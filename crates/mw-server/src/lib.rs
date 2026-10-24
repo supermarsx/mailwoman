@@ -116,6 +116,10 @@ mod account_gate;
 mod scope_mw;
 // t32-h9: the server, never the client, picks the mail upstream for a sign-in.
 mod upstream_resolve;
+// t32-h10: the answer for a request nothing else handled (a page for a browser
+// navigation, `{error, code}` JSON otherwise), plus the return-path and
+// static-path checks.
+mod error_pages;
 
 pub use engine_mode::ServerMode;
 pub use hardening::HardeningConfig;
@@ -1424,6 +1428,11 @@ fn router(
         .route("/api/push/subscribe", post(push_relay::push_subscribe))
         .route("/api/push/unsubscribe", post(push_relay::push_unsubscribe))
         .route("/healthz", get(|| async { "ok" }))
+        // t32-h10: a mounted path with the wrong method answers `{error, code}`
+        // like every other error; axum still adds the `Allow` header.
+        .method_not_allowed_fallback(|| async {
+            error_pages::json(error_pages::ErrorKind::MethodNotAllowed)
+        })
         .fallback(static_handler)
         // Innermost: reject cross-origin / missing-CSRF writes before handlers.
         .layer(middleware::from_fn_with_state(
@@ -1434,6 +1443,12 @@ fn router(
         // (the Tauri origins plus `MW_NATIVE_ORIGINS`). Any other origin passes
         // through untouched, so the browser path emits no `Access-Control-*` headers.
         .layer(middleware::from_fn_with_state(state.clone(), native_cors))
+        // t32-h10: a handler panic becomes a plain 500 (inside the security
+        // headers) instead of a dropped connection; its message is only logged.
+        .layer(middleware::from_fn_with_state(
+            state.base_path.clone(),
+            error_pages::catch_panic,
+        ))
         // Outermost: security headers on every response (incl. guard rejections).
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -4119,32 +4134,84 @@ async fn static_handler(
     if let Some(resp) = redirect_to_base_slash(&original, &state.base_path) {
         return resp;
     }
-    let raw = uri.path().trim_start_matches('/');
+    let base: &str = &state.base_path;
+    // The path relative to the prefix. A nested request already reads that way in
+    // `uri`; `{base}/` itself reaches the root copy of the router with the prefix
+    // still on, so it is taken from `OriginalUri` whenever it is under the prefix.
+    let app_path = match match_base_path(original.path(), base) {
+        BaseMatch::Under(rest) => rest,
+        _ => uri.path(),
+    };
+    let raw = app_path.trim_start_matches('/');
     let path = if raw.is_empty() { "index.html" } else { raw };
+    let error = |kind| error_pages::respond(kind, &method, &headers, base, path);
 
+    // t32-h10: a path that could climb out of the web directory or name something
+    // other than a plain file (`..`, `\`, `:`, NUL, encoded or overlong forms of
+    // them) is refused before it reaches the filesystem.
+    if error_pages::is_unsafe_asset_path(path) {
+        return error(error_pages::ErrorKind::BadRequest);
+    }
     // The base shim is generated, not bundled: served at every prefix (including
     // none) so an `index.html` cached from a previously-prefixed deployment never
     // hits a 404 here.
     if path == BASE_SHIM_PATH {
-        return base_shim_response(&state.base_path, &headers);
+        return base_shim_response(base, &headers);
+    }
+    if path == error_pages::STYLESHEET_PATH {
+        return error_pages::stylesheet_response(&headers);
     }
     if let Some(resp) = serve_asset(&state, path, &headers) {
         return resp;
     }
-    // SPA fallback: a client-side route gets index.html; everything else gets a
-    // plain 404. See [`wants_spa_shell`] — answering a subresource or a non-GET
-    // with `200 text/html` is what made a missing webfont arrive as `<!DO…` and an
-    // unmounted `POST /mcp` arrive as an HTML page a JSON client then choked on.
-    if !wants_spa_shell(&method, &headers, path) {
-        return not_found_plain();
+    if let Some(resp) = redirect_page_trailing_slash(&original, app_path, base) {
+        return resp;
     }
-    serve_asset(&state, "index.html", &headers).unwrap_or_else(not_found_plain)
+    // SPA fallback: one of the app's own pages gets index.html; everything else
+    // gets the error answer, which is the designed page for a browser navigation
+    // and JSON otherwise. See [`wants_spa_shell`]: answering a subresource or a
+    // non-GET with `200 text/html` is what made a missing webfont arrive as `<!DO…`
+    // and an unmounted `POST /mcp` arrive as HTML a JSON client then choked on;
+    // answering an unknown page with the shell was a soft 404 (t32-h10).
+    if !is_app_page(path) || !wants_spa_shell(&method, &headers, path) {
+        return error(error_pages::ErrorKind::NotFound);
+    }
+    serve_asset(&state, "index.html", &headers)
+        .unwrap_or_else(|| error(error_pages::ErrorKind::Unavailable))
 }
 
-/// A 404 that is never the SPA shell — `text/plain`, so no client can mistake it
-/// for a document, a stylesheet, a font or a JSON reply.
-fn not_found_plain() -> Response {
-    (StatusCode::NOT_FOUND, "not found").into_response()
+/// The pages the SPA itself serves, relative to the deploy prefix. The app routes
+/// by URL fragment (`/#/calendar`, `/admin#/users`), so these are the only paths
+/// at which the shell is a real page; at any deeper path its relative asset URLs
+/// (`./assets/…`) would not even resolve.
+fn is_app_page(path: &str) -> bool {
+    matches!(path, "index.html" | "admin" | "oauth/authorize")
+}
+
+/// `308 {prefix}/admin/` → `{prefix}/admin`, and the same for `/oauth/authorize/`,
+/// keeping the query (the browser keeps the fragment, so `/admin/#/users` lands on
+/// `/admin#/users`). At the slash form the shell's relative asset URLs resolve one
+/// level too deep and the page never starts (t32-h8, t32-h10). `None` otherwise.
+///
+/// The prefix is put back only when the request came in under it; a request at the
+/// origin root of a prefixed deployment is redirected at the root.
+fn redirect_page_trailing_slash(original: &Uri, app_path: &str, base: &str) -> Option<Response> {
+    let page = app_path.strip_suffix('/')?.trim_start_matches('/');
+    if !matches!(page, "admin" | "oauth/authorize") {
+        return None;
+    }
+    let prefix = match match_base_path(original.path(), base) {
+        BaseMatch::Under(_) => base,
+        _ => "",
+    };
+    let target = match original.query() {
+        Some(q) => format!("{prefix}/{page}?{q}"),
+        None => format!("{prefix}/{page}"),
+    };
+    let loc = HeaderValue::from_str(&target).ok()?;
+    let mut resp = StatusCode::PERMANENT_REDIRECT.into_response();
+    resp.headers_mut().insert(header::LOCATION, loc);
+    Some(resp)
 }
 
 /// Final path segments that only ever name a **subresource**. A request for one of
@@ -4215,11 +4282,16 @@ fn wants_spa_shell(method: &Method, headers: &HeaderMap, path: &str) -> bool {
     if has_subresource_extension(path) {
         return false;
     }
+    let navigate =
+        header_str(headers, "sec-fetch-mode").map(|mode| mode.eq_ignore_ascii_case("navigate"));
     if let Some(dest) = header_str(headers, "sec-fetch-dest") {
-        return matches!(dest, "document" | "iframe" | "frame" | "embed" | "object");
+        // A navigation a service worker answered with `fetch(event.request)` arrives
+        // with `Sec-Fetch-Dest: empty` and `Sec-Fetch-Mode: navigate` (t32-h8).
+        return matches!(dest, "document" | "iframe" | "frame" | "embed" | "object")
+            || (dest == "empty" && navigate == Some(true));
     }
-    if let Some(mode) = header_str(headers, "sec-fetch-mode") {
-        return mode.eq_ignore_ascii_case("navigate");
+    if let Some(navigate) = navigate {
+        return navigate;
     }
     accepts_html(headers)
 }
@@ -4294,11 +4366,18 @@ fn base_shim_body(base: &str) -> String {
 fn serve_asset(state: &AppState, path: &str, req: &HeaderMap) -> Option<Response> {
     let mime = mime_guess::from_path(path).first_or_octet_stream();
     if let Some(dir) = &state.web_dir {
-        let full = dir.join(path);
-        // Guard against path traversal escaping the web dir.
-        if !full.starts_with(dir) {
+        // Only plain path components may reach `join`. The old guard,
+        // `dir.join(path).starts_with(dir)`, compared components lexically, so
+        // `../x` (and `..\x` on Windows) passed it and a raw `GET /../x` read a
+        // file outside the web directory (t32-h10).
+        if error_pages::is_unsafe_asset_path(path)
+            || !Path::new(path)
+                .components()
+                .all(|c| matches!(c, std::path::Component::Normal(_)))
+        {
             return None;
         }
+        let full = dir.join(path);
         let bytes = std::fs::read(&full).ok()?;
         let bytes = adapt_asset_to_base(path, bytes, &state.base_path);
         let mut resp = asset_response(path, mime.as_ref(), bytes, req);

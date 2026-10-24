@@ -306,8 +306,10 @@ async fn static_index_is_served() {
     // `<!DO…`. This request therefore carries the headers a browser actually sends
     // on a top-level navigation; `tests/t24_spa_fallback.rs` owns the full matrix,
     // including what a header-less client gets (a 404 — deliberately).
+    // The app routes by URL fragment, so `/admin` is one of its few real pages; an
+    // unknown path such as `/mailbox/inbox` gets the 404 page since t32-h10.
     let spa = c
-        .get(format!("{server}/mailbox/inbox"))
+        .get(format!("{server}/admin"))
         .header("accept", "text/html,application/xhtml+xml,*/*;q=0.8")
         .header("sec-fetch-dest", "document")
         .header("sec-fetch-mode", "navigate")

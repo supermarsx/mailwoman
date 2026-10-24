@@ -135,12 +135,15 @@ async fn a_missing_subresource_is_404_and_never_the_shell() {
     }
 }
 
-/// A client-side route still reloads into the app.
+/// The app's own pages still reload into the app. The app routes by URL fragment,
+/// so those are `/`, `/admin` and `/oauth/authorize`; a navigation to any other
+/// path gets the 404 page since t32-h10 (`t32_h10_errors.rs`), where it used to
+/// get the shell with a `200`.
 #[tokio::test]
 async fn a_navigation_still_gets_the_shell() {
     let base = spawn_server().await;
 
-    for path in ["/mail/inbox", "/mail/inbox/42", "/settings/keys"] {
+    for path in ["/admin", "/oauth/authorize"] {
         let (status, content_type, body) = get(&base, path, NAVIGATION).await;
         assert_eq!(status, 200, "{path} reloads into the SPA");
         assert!(
@@ -148,6 +151,18 @@ async fn a_navigation_still_gets_the_shell() {
             "{path} answered {content_type:?}"
         );
         assert!(body.contains("MW_SHELL"), "{path} served the shell: {body}");
+    }
+    for path in ["/mail/inbox", "/mail/inbox/42", "/settings/keys"] {
+        let (status, content_type, body) = get(&base, path, NAVIGATION).await;
+        assert_eq!(status, 404, "{path} is not a page of the app");
+        assert!(
+            content_type.starts_with("text/html"),
+            "{path}: the 404 page"
+        );
+        assert!(
+            !body.contains("MW_SHELL"),
+            "{path} served the shell: {body}"
+        );
     }
 
     // `/` is served as `index.html` directly (it never reaches the fallback), and
@@ -161,7 +176,7 @@ async fn a_navigation_still_gets_the_shell() {
     // extensionless path is NOT a navigation, so it does not get the shell either.
     let (status, content_type, _) = get(
         &base,
-        "/mail/inbox",
+        "/admin",
         &[
             ("accept", "*/*"),
             ("sec-fetch-dest", "empty"),
