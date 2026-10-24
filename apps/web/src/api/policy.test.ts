@@ -62,25 +62,32 @@ describe('loadClientPolicy', () => {
     expect(capture).not.toHaveBeenCalled();
   });
 
-  it('keeps the defaults while signed out and asks again after the retry interval', async () => {
+  it('keeps the defaults while signed out and reads the policy right after sign-in', async () => {
     const capture = fakePlatform();
-    let t = 1_000;
-    const now = () => t;
+    const now = () => 1_000;
     const signedOut = answering(401, { error: 'unauthorized' });
     await loadClientPolicy(signedOut, now);
     expect(clientPolicy()).toEqual(DEFAULT_CLIENT_POLICY);
     expect(capture).not.toHaveBeenCalled();
 
-    // Within the interval: no request.
+    // Signed in a moment later: the next call asks again at once.
     const signedIn = answering(200, { maxSecurityFloor: 'plain-text', capturePolicy: 'off' });
-    t += 1_000;
-    await loadClientPolicy(signedIn, now);
-    expect(signedIn).not.toHaveBeenCalled();
-
-    t += 30_000;
     await loadClientPolicy(signedIn, now);
     expect(signedIn).toHaveBeenCalledTimes(1);
     expect(clientPolicy().maxSecurityFloor).toBe('plain-text');
+  });
+
+  it('waits the retry interval after a server failure', async () => {
+    let t = 1_000;
+    const now = () => t;
+    await loadClientPolicy(answering(503, {}), now);
+    const ok = answering(200, { maxSecurityFloor: 'plain-text', capturePolicy: 'off' });
+    t += 1_000;
+    await loadClientPolicy(ok, now);
+    expect(ok).not.toHaveBeenCalled();
+    t += 30_000;
+    await loadClientPolicy(ok, now);
+    expect(ok).toHaveBeenCalledTimes(1);
   });
 
   it('survives a network failure with the defaults', async () => {

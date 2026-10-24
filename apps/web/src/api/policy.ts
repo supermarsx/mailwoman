@@ -14,9 +14,10 @@
 //
 // The policy is fetched once per session: the first successful load is kept until
 // `resetClientPolicy()`. Before sign-in the route answers 401, which is not an
-// error here — the defaults stand and the next `loadClientPolicy()` asks again (at
-// most every RETRY_MS, so a reader re-rendering while signed out does not send a
-// request per render).
+// error here — the defaults stand and the next `loadClientPolicy()` asks again, so
+// the first message opened after signing in reads the floor. Any other failure
+// (a 5xx, the network) waits RETRY_MS before asking again, so a reader re-rendering
+// does not send a request per render.
 
 import { createSignal, type Accessor } from 'solid-js';
 
@@ -91,7 +92,7 @@ export function loadClientPolicy(
     try {
       const res = await fetcher(withBase(ENDPOINT));
       if (!res.ok) {
-        if (gen === generation) lastFailure = now();
+        if (res.status !== 401 && gen === generation) lastFailure = now();
         return policy();
       }
       await apply(parseClientPolicy(await res.json()), gen);
