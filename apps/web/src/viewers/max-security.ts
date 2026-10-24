@@ -17,6 +17,7 @@
 
 import { createSignal, type Accessor } from 'solid-js';
 import { bodyCsp, type SecurityMode } from './sandbox.ts';
+import { clientPolicy, loadClientPolicy } from '../api/policy.ts';
 
 export type { SecurityMode } from './sandbox.ts';
 
@@ -133,7 +134,7 @@ export function allowsOriginalBytes(mode: SecurityMode): boolean {
   return !requiresPreviewJail(mode);
 }
 
-// ── Policy store (per-sender + global; admin floor is config-read) ────────────
+// ── Policy store (per-sender + global; the admin floor comes from the server) ──
 
 const STORAGE_KEY = 'mw.maxsec.v1';
 
@@ -142,12 +143,12 @@ interface Persisted {
   perSender: Record<string, SecurityMode>;
 }
 
-/** Read the admin floor from injected runtime config (config-read, not user
- *  editable). e7/e8 populate `globalThis.__MW_CONFIG__`; absent/invalid = none. */
-export function readAdminFloor(): SecurityMode | null {
-  const cfg = (globalThis as { __MW_CONFIG__?: { maxSecurityFloor?: unknown } }).__MW_CONFIG__;
-  const v = cfg?.maxSecurityFloor;
-  return isSecurityMode(v) ? v : null;
+/** The admin floor in force: `maxSecurityFloor` from `GET /api/policy`
+ *  (`api/policy.ts`), or `null` until the policy is read or when none is set.
+ *  Reading it asks for the policy if this session does not have it yet. */
+export function adminFloorFromPolicy(): SecurityMode | null {
+  void loadClientPolicy();
+  return clientPolicy().maxSecurityFloor;
 }
 
 function load(): Persisted {
@@ -175,7 +176,7 @@ export interface MaxSecurityStore {
   perSender: Accessor<Readonly<Record<string, SecurityMode>>>;
   /** Set (or, with `null`, clear) a per-sender override. */
   setSenderMode(address: string, mode: SecurityMode | null): void;
-  /** The config-read admin floor (minimum security), or `null`. */
+  /** The admin floor (minimum security) from the server's policy, or `null`. */
   adminFloor: Accessor<SecurityMode | null>;
   /** The assembled policy (reactive). */
   policy: Accessor<MaxSecurityPolicy>;
@@ -192,7 +193,11 @@ export function createMaxSecurityStore(): MaxSecurityStore {
   const [perSender, setPerSender] = createSignal<Readonly<Record<string, SecurityMode>>>(
     initial.perSender,
   );
-  const [adminFloor] = createSignal<SecurityMode | null>(readAdminFloor());
+  // Ask for the policy now: when the page loads signed in, the floor is known
+  // before the first message renders. Signed out, the read in `adminFloor` asks
+  // again once a message is shown.
+  void loadClientPolicy();
+  const adminFloor: Accessor<SecurityMode | null> = adminFloorFromPolicy;
 
   function persist(): void {
     try {

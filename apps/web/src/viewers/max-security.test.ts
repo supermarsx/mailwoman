@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createRoot } from 'solid-js';
 import {
   SECURITY_MODES,
@@ -10,21 +10,30 @@ import {
   requiresPreviewJail,
   allowsOriginalBytes,
   senderKey,
-  readAdminFloor,
+  adminFloorFromPolicy,
   createMaxSecurityStore,
   type MaxSecurityPolicy,
   type SecurityMode,
 } from './max-security.ts';
 import { bodyCsp, bodyFrameDoc, SANDBOX_TOKENS } from './sandbox.ts';
+import { loadClientPolicy, resetClientPolicy } from '../api/policy.ts';
 
-function setConfigFloor(floor: SecurityMode | null): void {
-  (globalThis as { __MW_CONFIG__?: unknown }).__MW_CONFIG__ =
-    floor === null ? {} : { maxSecurityFloor: floor };
+/** Answer `GET /api/policy` with `floor` and load it, as a signed-in session does. */
+async function serveFloor(floor: SecurityMode | null): Promise<void> {
+  const fetcher = vi.fn(
+    async () =>
+      new Response(JSON.stringify({ maxSecurityFloor: floor, capturePolicy: 'off' }), {
+        status: 200,
+      }),
+  );
+  resetClientPolicy();
+  await loadClientPolicy(fetcher);
+  expect(fetcher).toHaveBeenCalledTimes(1);
 }
 
 beforeEach(() => {
   globalThis.localStorage?.clear();
-  delete (globalThis as { __MW_CONFIG__?: unknown }).__MW_CONFIG__;
+  resetClientPolicy();
 });
 
 describe('mode ordering + guards', () => {
@@ -240,9 +249,15 @@ describe('createMaxSecurityStore', () => {
     });
   });
 
-  it('reads the admin floor from injected config and clamps to it', () => {
-    setConfigFloor('sanitized-no-media');
-    expect(readAdminFloor()).toBe('sanitized-no-media');
+  it('takes the admin floor from the server policy and clamps to it', async () => {
+    // Precondition: no policy read, no floor, the loosest mode stands.
+    expect(adminFloorFromPolicy()).toBeNull();
+    createRoot((dispose) => {
+      expect(createMaxSecurityStore().effectiveMode('anyone@example.com')).toBe('full-sanitized');
+      dispose();
+    });
+    await serveFloor('sanitized-no-media');
+    expect(adminFloorFromPolicy()).toBe('sanitized-no-media');
     createRoot((dispose) => {
       const store = createMaxSecurityStore();
       expect(store.adminFloor()).toBe('sanitized-no-media');
@@ -254,5 +269,5 @@ describe('createMaxSecurityStore', () => {
 });
 
 afterEach(() => {
-  delete (globalThis as { __MW_CONFIG__?: unknown }).__MW_CONFIG__;
+  resetClientPolicy();
 });
