@@ -2509,7 +2509,7 @@ async fn jmap_session(State(state): State<AppState>, headers: HeaderMap) -> Resp
             return upstream_error();
         }
         return Json(prefix_session_urls(
-            mw_engine::session_json(&session.account_id, &session.username),
+            engine.session_json_for(&session.account_id, &session.username),
             &state.base_path,
         ))
         .into_response();
