@@ -8,8 +8,14 @@
 
 const STORAGE_KEY = 'mw.settings.prefs.v1';
 
-/** Keyboard-shortcut preset (W14). The shell keymap consumes the active preset. */
-export type KeyboardPreset = 'default' | 'gmail' | 'outlook' | 'vim';
+/** Keyboard-shortcut preset (W14). The shell keymap (`src/keymap/`) reads the
+ *  active preset on every key press. `off` binds no key at all, which is the way
+ *  to turn single-character shortcuts off (WCAG 2.1.4). */
+export type KeyboardPreset = 'default' | 'gmail' | 'outlook' | 'vim' | 'off';
+
+/** When an opened message is marked read (t28-e16). `on-open` marks it after
+ *  `markReadDelayMs` of it staying open; `never` leaves that to the user. */
+export type MarkReadMode = 'on-open' | 'never';
 
 /** Offline cache eviction strategy (W16). */
 export type EvictionStrategy = 'lru' | 'oldest' | 'manual';
@@ -25,6 +31,9 @@ export interface SettingsPrefs {
   offlineRetentionDays: number;
   eviction: EvictionStrategy;
   direction: DirectionPref;
+  markRead: MarkReadMode;
+  /** How long a message must stay open before it is marked read, in ms (0 = at once). */
+  markReadDelayMs: number;
 }
 
 export const DEFAULT_PREFS: SettingsPrefs = {
@@ -33,9 +42,15 @@ export const DEFAULT_PREFS: SettingsPrefs = {
   offlineRetentionDays: 30,
   eviction: 'lru',
   direction: 'auto',
+  markRead: 'on-open',
+  markReadDelayMs: 1000,
 };
 
-const KEYBOARD_PRESETS: readonly KeyboardPreset[] = ['default', 'gmail', 'outlook', 'vim'];
+/** Upper bound on the mark-read delay: past a minute it is not a dwell any more. */
+export const MAX_MARK_READ_DELAY_MS = 60_000;
+
+const KEYBOARD_PRESETS: readonly KeyboardPreset[] = ['default', 'gmail', 'outlook', 'vim', 'off'];
+const MARK_READ_MODES: readonly MarkReadMode[] = ['on-open', 'never'];
 const EVICTION_STRATEGIES: readonly EvictionStrategy[] = ['lru', 'oldest', 'manual'];
 const DIRECTIONS: readonly DirectionPref[] = ['auto', 'ltr', 'rtl'];
 
@@ -69,6 +84,11 @@ export function loadPrefs(): SettingsPrefs {
       offlineRetentionDays: clampNumber(parsed.offlineRetentionDays, DEFAULT_PREFS.offlineRetentionDays),
       eviction: oneOf(parsed.eviction, EVICTION_STRATEGIES, DEFAULT_PREFS.eviction),
       direction: oneOf(parsed.direction, DIRECTIONS, DEFAULT_PREFS.direction),
+      markRead: oneOf(parsed.markRead, MARK_READ_MODES, DEFAULT_PREFS.markRead),
+      markReadDelayMs: Math.min(
+        clampNumber(parsed.markReadDelayMs, DEFAULT_PREFS.markReadDelayMs),
+        MAX_MARK_READ_DELAY_MS,
+      ),
     };
   } catch {
     return { ...DEFAULT_PREFS };
@@ -86,7 +106,13 @@ export function savePrefs(prefs: SettingsPrefs): void {
   }
 }
 
-/** The keybindings each preset maps a canonical action to (for the W14 preview). */
+/**
+ * The keybindings each preset maps a canonical action to. The one key dispatcher
+ * (`src/keymap/dispatcher.ts`) resolves key presses through this table, and the
+ * Settings preview lists it, so what the preview shows is what the keys do.
+ * Key syntax: a single key (`e`, `/`, `Backspace`), `↑`/`↓` for the arrow keys,
+ * and `Ctrl+` for the platform modifier (Ctrl, or Cmd on a Mac).
+ */
 export const PRESET_BINDINGS: Record<KeyboardPreset, ReadonlyArray<{ action: string; keys: string }>> = {
   default: [
     { action: 'compose', keys: 'c' },
@@ -120,4 +146,5 @@ export const PRESET_BINDINGS: Record<KeyboardPreset, ReadonlyArray<{ action: str
     { action: 'previous', keys: 'k' },
     { action: 'search', keys: '/' },
   ],
+  off: [],
 };

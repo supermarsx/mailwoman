@@ -1,6 +1,8 @@
 import { createMemo, createSignal, For, onCleanup, Show, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
 import { t, isolate } from '../i18n/index.ts';
+import { formatDateWith } from '../i18n/format.ts';
+import { useActions } from '../keymap/index.ts';
 import { computeWindow, projectedRowCount, sameWindow, splitWindow } from './virtual.ts';
 import { TagChips } from './TagChips.tsx';
 import { MessageActions } from './MessageActions.tsx';
@@ -8,10 +10,11 @@ import { OfflineQueueNotice } from './OfflineQueueNotice.tsx';
 import * as a11y from './mailA11y.css.ts';
 import * as thread from './threadList.css.ts';
 import * as rowCss from './messageRow.css.ts';
-import { groupThreads, type ThreadVisualRow } from './threads.ts';
+import * as bulk from './bulkBar.css.ts';
+import { groupThreads, threadKey, type ThreadVisualRow } from './threads.ts';
 import { readingPane, setReadingPane, READING_PANE_OPTIONS, type ReadingPane } from './readingPane.ts';
 import type { Density } from '../theme/contract.css.ts';
-import type { Email, EmailAddress } from '../api/jmap-types.ts';
+import type { Email, EmailAddress, Id } from '../api/jmap-types.ts';
 
 // The message list, virtualized for the §23 100k-row gate: only the rows inside
 // the viewport (± overscan) are mounted, positioned inside a full-height spacer
@@ -39,6 +42,15 @@ import type { Email, EmailAddress } from '../api/jmap-types.ts';
 // is announced, `aria-current` marks the open message, and an off-screen
 // "Unread" marker announces unread state. Arrow/Home/End move a roving focus
 // between rows, scrolling the window as needed.
+//
+// Selection (t28-e16): Ctrl/Cmd+click toggles a row, Shift+click selects the
+// range from the last clicked row, a plain click opens the message and clears
+// the selection. From the keyboard: Space toggles the focused row, Shift+Arrow
+// extends the range, Ctrl/Cmd+A selects every row in view, Escape clears. A
+// conversation head stands for all its messages. While anything is selected
+// the toolbar becomes the bulk bar, whose actions each send ONE request for the
+// whole selection. The `next`/`previous` shortcuts are registered here with the
+// one keymap dispatcher (src/keymap/); the keys above stay element-local.
 
 /** Virtualized row height per density. Cozy is the historical default (72px);
  *  the message row is three lines, so these sit above the single-line density
@@ -78,9 +90,22 @@ export function senderLabel(from: EmailAddress[] | null): string {
 }
 
 function formatDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return formatDateWith(iso, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+/** What a click did to the row, for the list to act on. */
+type RowClick = (e: MouseEvent) => void;
+
+/** The check mark and screen-reader text a selected row carries. */
+function SelectedMark(props: { selected: boolean }): JSX.Element {
+  return (
+    <Show when={props.selected}>
+      <span class={bulk.check} aria-hidden="true">
+        ✓
+      </span>
+      <span class={a11y.srOnly}>{t('mail-selected')}</span>
+    </Show>
+  );
 }
 
 function MessageRow(props: {
@@ -90,8 +115,10 @@ function MessageRow(props: {
   index: number;
   total: number;
   focused: boolean;
+  selected: boolean;
   threadChild?: boolean;
   setRef: (el: HTMLButtonElement | undefined) => void;
+  onClick: RowClick;
 }): JSX.Element {
   const app = useApp();
   const email = () => props.email;
@@ -112,21 +139,29 @@ function MessageRow(props: {
           'list__row--active': app.openEmail()?.id === email().id,
           'list__row--pinned': email().pinned === true,
           'list__row--unread': unread(),
+          'list__row--selected': props.selected,
+          [bulk.selectedRow]: props.selected,
           [thread.childRow]: props.threadChild === true,
         }}
         tabindex={props.focused ? 0 : -1}
         aria-current={app.openEmail()?.id === email().id ? 'true' : undefined}
         data-index={props.index}
-        onClick={() => void app.openMessage(email().id)}
+        onClick={(e) => props.onClick(e)}
       >
         <Show when={unread()}>
           <span class={a11y.srOnly}>{t('mail-unread')}</span>
         </Show>
         <span class={a11y.srOnly}>{t('mail-row-position', { pos: props.index + 1, total: props.total })}</span>
         <span class={`list__line1 ${rowCss.line1}`}>
+          <SelectedMark selected={props.selected} />
           {/* isolate the sender: it shares a line with the date, so a spoofed
               display name must not reorder surrounding UI (SPEC §24). */}
           <span class={`list__sender ${rowCss.sender}`}>{isolate(senderLabel(email().from))}</span>
+          <Show when={email().keywords?.['$flagged'] === true}>
+            <span class={`list__flag ${bulk.flagMark}`} data-testid="row-flagged" role="img" aria-label={t('mail-flagged')}>
+              ⚑
+            </span>
+          </Show>
           <Show when={email().pinned === true}>
             <span class="list__pin" aria-label={t('mail-pinned')}>📌</span>
           </Show>
@@ -184,8 +219,10 @@ function ThreadHeadRow(props: {
   index: number;
   total: number;
   focused: boolean;
+  selected: boolean;
   setRef: (el: HTMLButtonElement | undefined) => void;
   onToggle: () => void;
+  onClick: RowClick;
 }): JSX.Element {
   const app = useApp();
   const rep = () => props.row.email;
@@ -219,18 +256,21 @@ function ThreadHeadRow(props: {
         classList={{
           'list__row--active': active(),
           'list__row--unread': props.row.unread,
+          'list__row--selected': props.selected,
+          [bulk.selectedRow]: props.selected,
         }}
         tabindex={props.focused ? 0 : -1}
         aria-current={active() ? 'true' : undefined}
         data-index={props.index}
         data-testid="thread-head"
-        onClick={() => void app.openMessage(rep().id)}
+        onClick={(e) => props.onClick(e)}
       >
         <Show when={props.row.unread}>
           <span class={a11y.srOnly}>{t('mail-unread')}</span>
         </Show>
         <span class={a11y.srOnly}>{t('mail-row-position', { pos: props.index + 1, total: props.total })}</span>
         <span class={`list__line1 ${rowCss.line1}`}>
+          <SelectedMark selected={props.selected} />
           <span class={`list__sender ${rowCss.sender}`}>{isolate(senderLabel(rep().from))}</span>
           <span class={thread.count} aria-label={t('mail-thread-count', { count: props.row.count })}>
             {props.row.count}
@@ -270,6 +310,70 @@ function ListToolbar(): JSX.Element {
   );
 }
 
+/**
+ * The bulk bar (t28-e16): the toolbar while messages are selected. Every action
+ * applies to the whole selection in ONE request (see `mail.ts` `updateEmails`)
+ * and raises the shared undo. Flag reads "Remove flag" when every selected
+ * message is already flagged.
+ */
+function BulkBar(): JSX.Element {
+  const app = useApp();
+  const targets = (): Id[] => app.actionTargets();
+  const allFlagged = (): boolean => {
+    const sel = app.selectedIds();
+    const chosen = app.messages().filter((m) => sel.has(m.id));
+    return chosen.length > 0 && chosen.every((m) => m.keywords?.['$flagged'] === true);
+  };
+  const moveTargets = () => app.mailboxes().filter((b) => b.id !== app.selectedMailboxId());
+  const btn = `${thread.segBtn} ${a11y.focusable}`;
+  return (
+    <div
+      class={`${thread.toolbar} ${bulk.bar}`}
+      role="toolbar"
+      aria-label={t('mail-bulk-label')}
+      data-testid="bulk-bar"
+    >
+      <span class={bulk.count} aria-live="polite" data-testid="bulk-count">
+        {t('mail-bulk-count', { count: app.selectedIds().size })}
+      </span>
+      <button type="button" class={btn} onClick={() => void app.markRead(targets(), true)}>
+        {t('mail-mark-read')}
+      </button>
+      <button type="button" class={btn} onClick={() => void app.markRead(targets(), false)}>
+        {t('mail-mark-unread')}
+      </button>
+      <button type="button" class={btn} onClick={() => void app.flagMessage(targets(), !allFlagged())}>
+        {allFlagged() ? t('mail-unflag-message') : t('mail-flag-message')}
+      </button>
+      <button type="button" class={btn} onClick={() => void app.archiveMessage(targets())}>
+        {t('mail-archive')}
+      </button>
+      <select
+        class={`${bulk.select} ${a11y.focusable}`}
+        aria-label={t('mail-move-to')}
+        data-testid="bulk-move"
+        onChange={(e) => {
+          const box = e.currentTarget.value;
+          e.currentTarget.value = '';
+          if (box !== '') void app.moveMessage(targets(), box);
+        }}
+      >
+        <option value="">{t('mail-move-to-placeholder')}</option>
+        <For each={moveTargets()}>{(box) => <option value={box.id}>{box.name}</option>}</For>
+      </select>
+      <button type="button" class={btn} onClick={() => void app.trashMessage(targets())}>
+        {t('mail-delete')}
+      </button>
+      <button type="button" class={btn} onClick={() => app.selectAllInView()}>
+        {t('mail-select-all')}
+      </button>
+      <button type="button" class={btn} aria-label={t('mail-clear-selection')} onClick={() => app.clearSelection()}>
+        ✕
+      </button>
+    </div>
+  );
+}
+
 // Test seam: a weak handle on the most recently mounted list's row-ref map, so
 // a spec can assert the map stays bounded by the mounted window instead of
 // growing to one entry per row ever scrolled past. Weak so the seam itself
@@ -292,6 +396,9 @@ export function MessageList(): JSX.Element {
   const [cursor, setCursor] = createSignal(0);
   // Expanded conversation keys (W2). Toggling re-derives the visual rows.
   const [expanded, setExpanded] = createSignal<ReadonlySet<string>>(new Set());
+  // Where a Shift+click or Shift+Arrow range starts: the row last clicked or
+  // toggled (a visual-row index), or `null` before any.
+  const [anchor, setAnchor] = createSignal<number | null>(null);
 
   const rowHeight = (): number => ROW_HEIGHTS[app.density()];
   // The FLAT list folded into visual rows (singletons + conversation heads/members).
@@ -311,6 +418,50 @@ export function MessageList(): JSX.Element {
   );
   // Which of the mounted slots have rows and which are still pending.
   const split = createMemo(() => splitWindow(win(), rows().length));
+
+  // ── selection over visual rows (t28-e16) ────────────────────────────────
+  // A conversation's messages, by thread key, so a head row (collapsed or not)
+  // stands for every message in it.
+  const membersByKey = createMemo(() => {
+    const out = new Map<string, Id[]>();
+    for (const m of app.listMessages()) {
+      const key = threadKey(m);
+      const ids = out.get(key);
+      if (ids === undefined) out.set(key, [m.id]);
+      else ids.push(m.id);
+    }
+    return out;
+  });
+  function idsOf(row: ThreadVisualRow): Id[] {
+    return row.kind === 'head' ? (membersByKey().get(row.key) ?? [row.email.id]) : [row.email.id];
+  }
+  function isSelected(row: ThreadVisualRow): boolean {
+    const sel = app.selectedIds();
+    if (sel.size === 0) return false;
+    return idsOf(row).every((id) => sel.has(id));
+  }
+  /** Select the rows from `from` to `to` (inclusive); `add` keeps what was selected. */
+  function selectRange(from: number, to: number, add: boolean): void {
+    const all = rows();
+    const lo = Math.max(0, Math.min(from, to));
+    const hi = Math.min(all.length - 1, Math.max(from, to));
+    const ids = all.slice(lo, hi + 1).flatMap(idsOf);
+    app.setSelection(add ? [...app.selectedIds(), ...ids] : ids);
+  }
+  function onRowClick(e: MouseEvent, index: number, row: ThreadVisualRow): void {
+    setCursor(index);
+    if (e.shiftKey) {
+      selectRange(anchor() ?? index, index, e.ctrlKey || e.metaKey);
+      return;
+    }
+    setAnchor(index);
+    if (e.ctrlKey || e.metaKey) {
+      app.toggleSelection(idsOf(row));
+      return;
+    }
+    app.clearSelection();
+    void app.openMessage(row.email.id);
+  }
 
   let scroller: HTMLDivElement | undefined;
   // Keyed by ROW IDENTITY, not index. Two reasons: `<For>` is reference-keyed,
@@ -387,16 +538,55 @@ export function MessageList(): JSX.Element {
     });
   }
 
+  /** Shift+Arrow: move the cursor and select from the anchor to it. */
+  function extendTo(to: number): void {
+    const count = rows().length;
+    const next = Math.max(0, Math.min(count - 1, to));
+    const from = anchor() ?? cursor();
+    if (anchor() === null) setAnchor(from);
+    moveCursor(next);
+    selectRange(from, next, false);
+  }
+
   function onKeyDown(e: KeyboardEvent): void {
     const count = rows().length;
     if (count === 0) return;
-    if (e.key === 'ArrowDown') moveCursor(cursor() + 1);
+    // Selection keys act on a row, not on the thread toggle or a row's action
+    // buttons, which have their own meaning for Space.
+    const onRow = e.target instanceof Element && e.target.classList.contains('list__row');
+    const mod = e.ctrlKey || e.metaKey;
+    if (e.key === 'ArrowDown' && e.shiftKey) extendTo(cursor() + 1);
+    else if (e.key === 'ArrowUp' && e.shiftKey) extendTo(cursor() - 1);
+    else if (e.key === 'ArrowDown') moveCursor(cursor() + 1);
     else if (e.key === 'ArrowUp') moveCursor(cursor() - 1);
     else if (e.key === 'Home') moveCursor(0);
     else if (e.key === 'End') moveCursor(count - 1);
+    else if (e.key === ' ' && onRow && !mod) {
+      const row = rows()[cursor()];
+      if (row === undefined) return;
+      setAnchor(cursor());
+      app.toggleSelection(idsOf(row));
+    } else if ((e.key === 'a' || e.key === 'A') && mod && onRow) app.selectAllInView();
+    else if (e.key === 'Escape' && app.selectedIds().size > 0) app.clearSelection();
     else return;
     e.preventDefault();
   }
+
+  /** `next` / `previous` shortcuts: move to the neighbouring row and open it.
+   *  Counted from the open message's row when there is one, else the cursor. */
+  function step(delta: number): boolean {
+    const all = rows();
+    if (all.length === 0) return false;
+    const openId = app.openEmail()?.id;
+    const at = openId === undefined ? -1 : all.findIndex((r) => r.email.id === openId);
+    const from = at >= 0 ? at : cursor();
+    const to = Math.max(0, Math.min(all.length - 1, from + delta));
+    moveCursor(to);
+    const row = all[to];
+    if (row !== undefined && row.email.id !== openId) void app.openMessage(row.email.id);
+    return true;
+  }
+  useActions({ next: () => step(1), previous: () => step(-1) });
 
   // No wrapper objects: `<For>` keys on reference, and a fresh `{row, index}`
   // wrapper per render made every mounted row unmount and remount on each
@@ -418,7 +608,9 @@ export function MessageList(): JSX.Element {
 
   return (
     <section class="list" aria-label={t('mail-list-label')} style={{ display: 'flex', 'flex-direction': 'column' }}>
-      <ListToolbar />
+      <Show when={app.selectedIds().size > 0} fallback={<ListToolbar />}>
+        <BulkBar />
+      </Show>
       <OfflineQueueNotice />
       <Show when={!app.listLoading()} fallback={<p class="list__empty">{t('mail-loading')}</p>}>
         <Show when={rows().length > 0} fallback={<p class="list__empty">{t('mail-empty')}</p>}>
@@ -465,8 +657,10 @@ export function MessageList(): JSX.Element {
                           index={index()}
                           total={spanRows()}
                           focused={index() === cursor()}
+                          selected={isSelected(row)}
                           threadChild={row.kind === 'child'}
                           setRef={setRef}
+                          onClick={(e) => onRowClick(e, index(), row)}
                         />
                       }
                     >
@@ -477,8 +671,10 @@ export function MessageList(): JSX.Element {
                         index={index()}
                         total={spanRows()}
                         focused={index() === cursor()}
+                        selected={isSelected(row)}
                         onToggle={() => toggleThread(row.key)}
                         setRef={setRef}
+                        onClick={(e) => onRowClick(e, index(), row)}
                       />
                     </Show>
                   );

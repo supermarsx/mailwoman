@@ -20,6 +20,8 @@ import {
   sendEnvelope,
   setEmailKeyword,
   setEmailMeta,
+  updateEmails,
+  COUNTS_CALL_ID,
   type DraftInput,
 } from '../../api/jmap.ts';
 import {
@@ -48,6 +50,7 @@ import { t, isolate } from '../../i18n/index.ts';
 import { clearDrafts } from '../../components/compose/drafts-store.ts';
 import { purgeShellCaches } from '../../sw/purge.ts';
 import type { SliceContext } from './context.ts';
+import { currentMarkReadPolicy, decideMarkRead } from './readPolicy.ts';
 
 /**
  * Rows fetched per page. The list used to request exactly this many ids and
@@ -220,10 +223,30 @@ export interface MailSlice {
   snoozeMessage(id: Id, untilIso: string): Promise<void>;
   unsnoozeMessage(id: Id): Promise<void>;
   setFollowUp(id: Id, atIso: string | null): Promise<void>;
-  archiveMessage(id: Id): Promise<void>;
-  trashMessage(id: Id): Promise<void>;
-  moveMessage(id: Id, mailboxId: Id): Promise<void>;
-  markSpam(id: Id): Promise<void>;
+  // The relocations and the read/flag marks take one id or many. Many ids are
+  // ONE `Email/set` request (t28-e16), and one undo puts every message back.
+  archiveMessage(ids: Id | readonly Id[]): Promise<void>;
+  trashMessage(ids: Id | readonly Id[]): Promise<void>;
+  moveMessage(ids: Id | readonly Id[], mailboxId: Id): Promise<void>;
+  markSpam(ids: Id | readonly Id[]): Promise<void>;
+  /** Set or clear `$seen` (read / unread). */
+  markRead(ids: Id | readonly Id[], read: boolean): Promise<void>;
+  /** Set or clear `$flagged`: the IMAP `\Flagged` flag, not a follow-up reminder. */
+  flagMessage(ids: Id | readonly Id[], flagged: boolean): Promise<void>;
+
+  // ── Selection (t28-e16): which list messages a bulk action applies to ──
+  /** The selected messages, limited to those still in the list. */
+  selectedIds: Accessor<ReadonlySet<Id>>;
+  /** Replace the selection. */
+  setSelection(ids: Iterable<Id>): void;
+  /** Add `ids` to the selection, or remove them when all are already in it. */
+  toggleSelection(ids: readonly Id[]): void;
+  /** Select every message the list shows (`listMessages`). */
+  selectAllInView(): void;
+  clearSelection(): void;
+  /** What a message action applies to: the selection when there is one, else
+   *  the open message, else nothing. In list order. */
+  actionTargets(): Id[];
 
   // ── V2 sweep ──
   sweepPreview(fromEmail: string, strategy: SweepStrategy, olderThanDays?: number): Email[];
@@ -419,21 +442,280 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     if (open !== null && open.id === id) setOpenEmail({ ...open, ...patch });
   }
 
-  /** Remove a message from the current list, returning it + its index for undo. */
-  function takeFromList(id: Id): { email: Email; index: number } | null {
-    const msgs = messages();
-    const index = msgs.findIndex((m) => m.id === id);
-    if (index < 0) return null;
-    const email = msgs[index]!;
-    setMessages([...msgs.slice(0, index), ...msgs.slice(index + 1)]);
-    if (openEmail()?.id === id) closeMessage();
-    return { email, index };
+  /** The message with `id` as the list (or, failing that, the reader) holds it. */
+  function findEmail(id: Id): Email | null {
+    const listed = messages().find((m) => m.id === id);
+    if (listed !== undefined) return listed;
+    const open = openEmail();
+    return open !== null && open.id === id ? open : null;
   }
-  function restoreToList(taken: { email: Email; index: number }): void {
-    setMessages((msgs) => {
-      const at = Math.min(taken.index, msgs.length);
-      return [...msgs.slice(0, at), taken.email, ...msgs.slice(at)];
+
+  /** One id or many, as a duplicate-free array. */
+  function asIds(ids: Id | readonly Id[]): Id[] {
+    return typeof ids === 'string' ? [ids] : [...new Set(ids)];
+  }
+
+  interface Taken {
+    email: Email;
+    index: number;
+  }
+
+  /** Remove messages from the current list, returning each with its index for undo. */
+  function takeFromList(ids: readonly Id[]): Taken[] {
+    const want = new Set(ids);
+    const msgs = messages();
+    const taken: Taken[] = [];
+    msgs.forEach((email, index) => {
+      if (want.has(email.id)) taken.push({ email, index });
     });
+    if (taken.length === 0) return taken;
+    setMessages(msgs.filter((m) => !want.has(m.id)));
+    const open = openEmail();
+    if (open !== null && want.has(open.id)) closeMessage();
+    return taken;
+  }
+  /** Put taken messages back at their original indices (lowest first, so each
+   *  index means what it meant when the message was taken). */
+  function restoreToList(taken: readonly Taken[]): void {
+    if (taken.length === 0) return;
+    setMessages((msgs) => {
+      const out = [...msgs];
+      for (const item of [...taken].sort((a, b) => a.index - b.index)) {
+        out.splice(Math.min(item.index, out.length), 0, item.email);
+      }
+      return out;
+    });
+  }
+
+  // ── folder counts (t28-e16) ──────────────────────────────────────────────
+  function sortMailboxes(boxes: Mailbox[]): Mailbox[] {
+    return [...boxes].sort((a, b) => {
+      if (a.role === 'inbox') return -1;
+      if (b.role === 'inbox') return 1;
+      if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+      return a.name.localeCompare(b.name);
+    });
+  }
+
+  /** Take the folder counts from the `Mailbox/get` an `updateEmails` request
+   *  carries. Only the counts: the folder list itself is what was loaded. A
+   *  response without that call (an old server, a test double) changes nothing. */
+  function applyCounts(res: JmapResponse): void {
+    const found = res.methodResponses.find((m) => m[0] === 'Mailbox/get' && m[2] === COUNTS_CALL_ID);
+    const list = (found?.[1] as Partial<MailboxGetResponse> | undefined)?.list;
+    if (!Array.isArray(list)) return;
+    const byId = new Map(list.map((b) => [b.id, b]));
+    setMailboxes((boxes) =>
+      boxes.map((b) => {
+        const fresh = byId.get(b.id);
+        return fresh === undefined ? b : { ...b, unreadEmails: fresh.unreadEmails, totalEmails: fresh.totalEmails };
+      }),
+    );
+  }
+
+  /** Move the unread badges as if each message in `emails` became `seen`, before
+   *  the server answers (and offline, where it does not). `applyCounts` replaces
+   *  the guess with the server's numbers when they come. */
+  function shiftUnread(emails: readonly Email[], seen: boolean): void {
+    const delta = new Map<Id, number>();
+    for (const e of emails) {
+      if ((e.keywords?.['$seen'] === true) === seen) continue;
+      for (const [box, inBox] of Object.entries(e.mailboxIds ?? {})) {
+        if (inBox) delta.set(box, (delta.get(box) ?? 0) + (seen ? -1 : 1));
+      }
+    }
+    if (delta.size === 0) return;
+    setMailboxes((boxes) =>
+      boxes.map((b) => {
+        const d = delta.get(b.id);
+        return d === undefined ? b : { ...b, unreadEmails: Math.max(0, b.unreadEmails + d) };
+      }),
+    );
+  }
+
+  /** The ids of `ids` that an `updateEmails` response did not update: those in
+   *  `notUpdated`, or all of them when the `Email/set` call itself failed. */
+  function refusedUpdates(res: JmapResponse, ids: readonly Id[]): Set<Id> {
+    const found = res.methodResponses.find((m) => m[2] === 'set');
+    if (found === undefined) return new Set();
+    if (found[0] === 'error') return new Set(ids);
+    const notUpdated = (found[1] as Partial<EmailSetResponse>).notUpdated;
+    return new Set(notUpdated != null ? Object.keys(notUpdated).filter((id) => ids.includes(id)) : []);
+  }
+
+  // ── selection (t28-e16) ──────────────────────────────────────────────────
+  const [selection, setSelectionRaw] = createSignal<ReadonlySet<Id>>(new Set());
+  // Limited to what the list holds, so a message archived elsewhere, or dropped
+  // by a refresh, is neither counted in the bulk bar nor acted on.
+  const selectedIds = createMemo<ReadonlySet<Id>>(() => {
+    const raw = selection();
+    if (raw.size === 0) return raw;
+    const present = new Set<Id>();
+    for (const m of messages()) if (raw.has(m.id)) present.add(m.id);
+    return present;
+  });
+  function setSelection(ids: Iterable<Id>): void {
+    setSelectionRaw(new Set(ids));
+  }
+  function toggleSelection(ids: readonly Id[]): void {
+    if (ids.length === 0) return;
+    const current = selectedIds();
+    const next = new Set(current);
+    if (ids.every((id) => current.has(id))) for (const id of ids) next.delete(id);
+    else for (const id of ids) next.add(id);
+    setSelectionRaw(next);
+  }
+  function clearSelection(): void {
+    if (selection().size > 0) setSelectionRaw(new Set<Id>());
+  }
+  function selectAllInView(): void {
+    setSelection(listMessages().map((m) => m.id));
+  }
+  function actionTargets(): Id[] {
+    const sel = selectedIds();
+    if (sel.size > 0) return messages().filter((m) => sel.has(m.id)).map((m) => m.id);
+    const open = openEmail();
+    return open !== null ? [open.id] : [];
+  }
+
+  // ── read / flagged marks, batched (t28-e16) ──────────────────────────────
+  /**
+   * Write one keyword for many messages in ONE request. `changes` maps each id
+   * to the value wanted; ids already in that state, or not loaded, are skipped.
+   * The list and the unread badges change first; ids the server refuses (or all
+   * of them, when the request fails) are put back. Resolves to the number of
+   * messages changed: 0 when there was nothing to do or the write failed.
+   *
+   * `quiet` is for writes the user did not ask for (mark-read on open): a
+   * failure is put back without a toast.
+   */
+  async function writeKeyword(
+    keyword: string,
+    changes: ReadonlyMap<Id, boolean>,
+    opts: { quiet?: boolean } = {},
+  ): Promise<number> {
+    const acct = accountId();
+    if (acct === null) return 0;
+    const touched: { before: Email; on: boolean }[] = [];
+    for (const [id, on] of changes) {
+      const before = findEmail(id);
+      if (before === null || (before.keywords?.[keyword] === true) === on) continue;
+      touched.push({ before, on });
+    }
+    if (touched.length === 0) return 0;
+
+    const withKeyword = (email: Email, on: boolean): Record<string, boolean> => {
+      const keywords = { ...(email.keywords ?? {}) };
+      if (on) keywords[keyword] = true;
+      else delete keywords[keyword];
+      return keywords;
+    };
+    for (const { before, on } of touched) {
+      if (keyword === '$seen') shiftUnread([before], on);
+      patchMessage(before.id, { keywords: withKeyword(before, on) });
+    }
+    /** Undo the local change for `items` (refused or failed). */
+    const putBack = (items: readonly { before: Email; on: boolean }[]): void => {
+      for (const { before, on } of items) {
+        patchMessage(before.id, { keywords: before.keywords ?? {} });
+        if (keyword === '$seen') shiftUnread([{ ...before, keywords: withKeyword(before, on) }], !on);
+      }
+    };
+
+    if (isOffline() && ctx.enqueueOffline) {
+      for (const { before, on } of touched) {
+        await ctx.enqueueOffline('flag', { accountId: acct, emailId: before.id, keyword, value: on });
+      }
+      return touched.length;
+    }
+
+    const ids = touched.map((x) => x.before.id);
+    const patches: Record<Id, Record<string, unknown>> = {};
+    for (const { before, on } of touched) patches[before.id] = { [`keywords/${keyword}`]: on ? true : null };
+    let res: JmapResponse;
+    try {
+      res = await client.jmap(updateEmails(acct, patches));
+    } catch {
+      putBack(touched);
+      if (opts.quiet !== true) showToast('error', t('mail-toast-update-failed'));
+      return 0;
+    }
+    const refused = refusedUpdates(res, ids);
+    if (refused.size > 0) {
+      putBack(touched.filter((x) => refused.has(x.before.id)));
+      if (opts.quiet !== true) showToast('error', t('mail-toast-update-refused', { count: refused.size }));
+    }
+    applyCounts(res);
+    ctx.broadcastChange?.();
+    return touched.length - refused.size;
+  }
+
+  /** Each id's current state of `keyword`, for an undo to restore. */
+  function keywordSnapshot(ids: readonly Id[], keyword: string): Map<Id, boolean> {
+    const out = new Map<Id, boolean>();
+    for (const id of ids) {
+      const email = findEmail(id);
+      if (email !== null) out.set(id, email.keywords?.[keyword] === true);
+    }
+    return out;
+  }
+
+  /** A keyword change the user asked for over `ids`, with the shared undo. */
+  async function markWithUndo(
+    ids: readonly Id[],
+    keyword: string,
+    on: boolean,
+    label: (count: number) => string,
+  ): Promise<void> {
+    const prior = keywordSnapshot(ids, keyword);
+    const written = await writeKeyword(keyword, new Map(ids.map((id) => [id, on])));
+    if (written === 0) return;
+    showUndo(label(written), async () => {
+      await writeKeyword(keyword, prior);
+    });
+  }
+
+  async function markRead(ids: Id | readonly Id[], read: boolean): Promise<void> {
+    const list = asIds(ids);
+    // Marking the open message unread must not be undone a moment later by the
+    // mark-read-on-open timer still running for it.
+    const open = openEmail();
+    if (!read && open !== null && list.includes(open.id)) cancelMarkRead();
+    await markWithUndo(list, '$seen', read, (count) =>
+      read ? t('mail-toast-marked-read', { count }) : t('mail-toast-marked-unread', { count }),
+    );
+  }
+
+  async function flagMessage(ids: Id | readonly Id[], flagged: boolean): Promise<void> {
+    await markWithUndo(asIds(ids), '$flagged', flagged, (count) =>
+      flagged ? t('mail-toast-flagged', { count }) : t('mail-toast-unflagged', { count }),
+    );
+  }
+
+  // ── mark read on open (t28-e16, D-16) ────────────────────────────────────
+  // One pending timer at most: opening another message, closing the reader,
+  // switching folder or signing out cancels it, so only a message that stayed
+  // on screen for the whole delay is marked. The decision is `readPolicy.ts`'s.
+  let markReadTimer: ReturnType<typeof setTimeout> | undefined;
+  function cancelMarkRead(): void {
+    if (markReadTimer !== undefined) clearTimeout(markReadTimer);
+    markReadTimer = undefined;
+  }
+  function scheduleMarkRead(email: Email): void {
+    cancelMarkRead();
+    const decision = decideMarkRead(currentMarkReadPolicy(), {
+      kind: 'open',
+      email,
+      mailboxId: searchActive() ? null : selectedMailboxId(),
+    });
+    if (!decision.mark) return;
+    const fire = (): void => {
+      markReadTimer = undefined;
+      if (openEmail()?.id !== email.id) return;
+      void writeKeyword('$seen', new Map([[email.id, true]]), { quiet: true });
+    };
+    if (decision.delayMs === 0) fire();
+    else markReadTimer = setTimeout(fire, decision.delayMs);
   }
 
   // ── raw mutators (no undo) ───────────────────────────────────────────────
@@ -498,75 +780,121 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   }
 
   // ── archive / trash / move / spam ─────────────────────────────────────────
-  async function relocateWithUndo(id: Id, targetMailboxId: Id, label: string): Promise<void> {
+  /**
+   * Move `ids` to `targetMailboxId` with the shared undo. Online, every id goes
+   * in ONE `Email/set` (t28-e16); offline, each is queued as its own move (the
+   * replay queue's unit). Rows leave the list at once; ids the server refuses,
+   * or all of them when the request fails, come back.
+   */
+  async function relocateWithUndo(
+    ids: readonly Id[],
+    targetMailboxId: Id,
+    label: (count: number) => string,
+  ): Promise<void> {
     const acct = accountId();
     if (acct === null) return;
-    const taken = takeFromList(id);
-    if (taken === null) return;
-    const priorMailboxIds = taken.email.mailboxIds;
+    let taken = takeFromList(ids);
+    if (taken.length === 0) return;
     const queue = ctx;
-    // The id of the queued move, when the move was queued and the queue says
+    // The id of each queued move, when the move was queued and the queue says
     // which item it became (a context without the offline slice says nothing).
-    let queuedId: string | null = null;
+    const queuedIds = new Map<Id, string>();
     if (isOffline() && queue.enqueueOffline) {
-      const queued = await queue.enqueueOffline('move', {
-        accountId: acct,
-        emailId: id,
-        mailboxIds: { [targetMailboxId]: true },
-      });
-      if (typeof queued === 'string') queuedId = queued;
+      for (const { email } of taken) {
+        const queued = await queue.enqueueOffline('move', {
+          accountId: acct,
+          emailId: email.id,
+          mailboxIds: { [targetMailboxId]: true },
+        });
+        if (typeof queued === 'string') queuedIds.set(email.id, queued);
+      }
     } else {
-      await client.jmap(moveEmail(acct, id, { [targetMailboxId]: true }));
-      ctx.broadcastChange?.();
-    }
-    showUndo(label, async () => {
-      // Still waiting in the offline queue: take it out, and the server never
-      // hears of the move.
-      if (queuedId !== null && queue.dequeueOffline && (await queue.dequeueOffline(queuedId))) {
+      const patches: Record<Id, Record<string, unknown>> = {};
+      for (const { email } of taken) patches[email.id] = { mailboxIds: { [targetMailboxId]: true } };
+      let res: JmapResponse;
+      try {
+        res = await client.jmap(updateEmails(acct, patches));
+      } catch {
         restoreToList(taken);
+        showToast('error', t('mail-toast-move-failed'));
         return;
       }
-      // The move reached the server, or is queued where it cannot be taken
-      // back: move the message to where it was. Offline, that goes into the
-      // queue too — behind the original, so the pair nets out on reconnect.
-      if (isOffline() && queue.enqueueOffline) {
-        await queue.enqueueOffline('move', { accountId: acct, emailId: id, mailboxIds: priorMailboxIds });
-      } else {
-        await client.jmap(moveEmail(acct, id, priorMailboxIds));
-        ctx.broadcastChange?.();
+      const refused = refusedUpdates(res, Object.keys(patches));
+      if (refused.size > 0) {
+        restoreToList(taken.filter((x) => refused.has(x.email.id)));
+        taken = taken.filter((x) => !refused.has(x.email.id));
+        showToast('error', t('mail-toast-update-refused', { count: refused.size }));
       }
-      restoreToList(taken);
+      applyCounts(res);
+      ctx.broadcastChange?.();
+      if (taken.length === 0) return;
+    }
+    const moved = taken;
+    showUndo(label(moved.length), async () => {
+      // Still waiting in the offline queue: take it out, and the server never
+      // hears of the move.
+      const back: Taken[] = [];
+      const reverse: Taken[] = [];
+      for (const item of moved) {
+        const queuedId = queuedIds.get(item.email.id);
+        if (queuedId !== undefined && queue.dequeueOffline && (await queue.dequeueOffline(queuedId))) back.push(item);
+        else reverse.push(item);
+      }
+      // The rest reached the server, or are queued where they cannot be taken
+      // back: move each message to where it was. Offline, that goes into the
+      // queue too, behind the original, so the pair nets out on reconnect.
+      if (reverse.length > 0) {
+        if (isOffline() && queue.enqueueOffline) {
+          for (const { email } of reverse) {
+            await queue.enqueueOffline('move', { accountId: acct, emailId: email.id, mailboxIds: email.mailboxIds });
+          }
+        } else {
+          const patches: Record<Id, Record<string, unknown>> = {};
+          for (const { email } of reverse) patches[email.id] = { mailboxIds: email.mailboxIds };
+          applyCounts(await client.jmap(updateEmails(acct, patches)));
+          ctx.broadcastChange?.();
+        }
+      }
+      restoreToList([...back, ...reverse]);
     });
   }
-  async function archiveMessage(id: Id): Promise<void> {
+  async function archiveMessage(ids: Id | readonly Id[]): Promise<void> {
     const target = roleOf(mailboxes(), 'archive');
     if (target === null) {
       showToast('error', t('mail-toast-no-archive-folder'));
       return;
     }
-    await relocateWithUndo(id, target, t('mail-toast-archived'));
+    await relocateWithUndo(asIds(ids), target, (count) =>
+      count === 1 ? t('mail-toast-archived') : t('mail-toast-archived-count', { count }),
+    );
   }
-  async function trashMessage(id: Id): Promise<void> {
+  async function trashMessage(ids: Id | readonly Id[]): Promise<void> {
     const target = roleOf(mailboxes(), 'trash');
     if (target === null) {
       showToast('error', t('mail-toast-no-trash-folder'));
       return;
     }
-    await relocateWithUndo(id, target, t('mail-toast-trashed'));
+    await relocateWithUndo(asIds(ids), target, (count) =>
+      count === 1 ? t('mail-toast-trashed') : t('mail-toast-trashed-count', { count }),
+    );
   }
-  async function markSpam(id: Id): Promise<void> {
+  async function markSpam(ids: Id | readonly Id[]): Promise<void> {
     const target = roleOf(mailboxes(), 'junk');
     if (target === null) {
       showToast('error', t('mail-toast-no-spam-folder'));
       return;
     }
-    await relocateWithUndo(id, target, t('mail-toast-marked-spam'));
+    await relocateWithUndo(asIds(ids), target, (count) =>
+      count === 1 ? t('mail-toast-marked-spam') : t('mail-toast-marked-spam-count', { count }),
+    );
   }
-  async function moveMessage(id: Id, mailboxId: Id): Promise<void> {
+  async function moveMessage(ids: Id | readonly Id[], mailboxId: Id): Promise<void> {
     const box = mailboxes().find((m) => m.id === mailboxId);
-    const label =
-      box !== undefined ? t('mail-toast-moved-to', { folder: isolate(box.name) }) : t('mail-toast-moved');
-    await relocateWithUndo(id, mailboxId, label);
+    await relocateWithUndo(asIds(ids), mailboxId, (count) => {
+      if (box === undefined) return count === 1 ? t('mail-toast-moved') : t('mail-toast-moved-count', { count });
+      const folder = isolate(box.name);
+      return count === 1 ? t('mail-toast-moved-to', { folder }) : t('mail-toast-moved-to-count', { folder, count });
+    });
   }
 
   // ── sweep ─────────────────────────────────────────────────────────────────
@@ -696,13 +1024,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       return;
     }
     const res = await client.jmap(mailboxGet(acct));
-    const boxes = responseFor<MailboxGetResponse>(res, 'c0').list;
-    boxes.sort((a, b) => {
-      if (a.role === 'inbox') return -1;
-      if (b.role === 'inbox') return 1;
-      if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
-      return a.name.localeCompare(b.name);
-    });
+    const boxes = sortMailboxes(responseFor<MailboxGetResponse>(res, 'c0').list);
     setMailboxes(boxes);
     const inbox = boxes.find((m) => m.role === 'inbox') ?? boxes[0];
     if (inbox !== undefined) {
@@ -838,6 +1160,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     setSelectedMailboxId(id);
     setSearchActive(false);
     setSearch('');
+    cancelMarkRead();
+    clearSelection();
     setOpenEmail(null);
     setSanitizedHtml(null);
     const acct = accountId();
@@ -849,11 +1173,14 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const cached = messages().find((m) => m.id === id) ?? null;
     setOpenEmail(cached);
     setSanitizedHtml(cached !== null ? extractHtmlBody(cached) : null);
+    if (cached !== null) scheduleMarkRead(cached);
   }
 
   async function openMessage(id: Id): Promise<void> {
     const acct = accountId();
     if (acct === null) return;
+    // Whatever was pending for the previous message is void: it is no longer open.
+    cancelMarkRead();
     // Offline: render the cached header's escaped preview (a reduced read).
     if (isOffline()) {
       readFromCache(id);
@@ -866,6 +1193,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       const email = responseFor<EmailGetResponse>(res, 'g').list[0] ?? null;
       setOpenEmail(email);
       if (email !== null) {
+        scheduleMarkRead(email);
         const raw = extractHtmlBody(email);
         const clean = await client.sanitize(raw);
         setSanitizedHtml(clean);
@@ -880,6 +1208,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   }
 
   function closeMessage(): void {
+    cancelMarkRead();
     setOpenEmail(null);
     setSanitizedHtml(null);
   }
@@ -913,6 +1242,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   }
 
   async function clearSearch(): Promise<void> {
+    clearSelection();
     setSearch('');
     setSearchActive(false);
     const cur = selectedMailboxId();
@@ -923,6 +1253,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const acct = accountId();
     if (acct === null) return;
     setSearch(query);
+    clearSelection();
     if (query.trim() === '') {
       await clearSearch();
       return;
@@ -1168,6 +1499,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       setMailboxes([]);
       setMessages([]);
       setSelectedMailboxId(null);
+      cancelMarkRead();
+      setSelectionRaw(new Set<Id>());
       setOpenEmail(null);
       setSanitizedHtml(null);
       // Drop the paging cursor too, and supersede anything in flight so a fetch
@@ -1240,6 +1573,15 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     trashMessage,
     moveMessage,
     markSpam,
+    markRead,
+    flagMessage,
+
+    selectedIds,
+    setSelection,
+    toggleSelection,
+    selectAllInView,
+    clearSelection,
+    actionTargets,
 
     sweepPreview,
     executeSweep,

@@ -36,6 +36,9 @@ mail-has-attachment = Has attachment
 mail-answered = Answered
 mail-forwarded = Forwarded
 mail-unread = Unread
+mail-flagged = Flagged
+# Announced on a selected row; the row also shows a check mark.
+mail-selected = Selected
 # Announced row summary for screen readers (position within the whole list).
 mail-row-position = Message { $pos } of { $total }
 
@@ -59,6 +62,19 @@ mail-reading-pane = Reading pane
 mail-reading-pane-right = Right
 mail-reading-pane-bottom = Bottom
 mail-reading-pane-off = Off
+
+# -- Selection and bulk actions (the list toolbar while messages are selected) --
+mail-bulk-label = Selected messages
+mail-bulk-count = { $count } selected
+mail-mark-read = Mark read
+mail-mark-unread = Mark unread
+# Sets the message's IMAP flag (\Flagged). Not the same as a follow-up reminder.
+mail-flag-message = Flag
+mail-unflag-message = Remove flag
+mail-move-to = Move to folder
+mail-move-to-placeholder = Move to…
+mail-select-all = Select all
+mail-clear-selection = Clear selection
 
 # -- Inbox tabs --------------------------------------------------------------
 mail-inbox-focused-enable = Focused inbox
@@ -331,6 +347,33 @@ mail-toast-trashed = Moved to Trash
 mail-toast-marked-spam = Marked as spam
 mail-toast-moved-to = Moved to { $folder }
 mail-toast-moved = Moved to folder
+mail-toast-archived-count = { $count } messages archived
+mail-toast-trashed-count = { $count } messages moved to Trash
+mail-toast-marked-spam-count = { $count } messages marked as spam
+mail-toast-moved-count = { $count } messages moved
+mail-toast-moved-to-count = { $count } messages moved to { $folder }
+mail-toast-marked-read = { $count ->
+    [one] Marked as read
+   *[other] { $count } messages marked as read
+}
+mail-toast-marked-unread = { $count ->
+    [one] Marked as unread
+   *[other] { $count } messages marked as unread
+}
+mail-toast-flagged = { $count ->
+    [one] Flagged
+   *[other] { $count } messages flagged
+}
+mail-toast-unflagged = { $count ->
+    [one] Flag removed
+   *[other] Flag removed from { $count } messages
+}
+mail-toast-move-failed = Could not move the messages. Nothing was moved.
+mail-toast-update-failed = Could not change the messages. Nothing was changed.
+mail-toast-update-refused = { $count ->
+    [one] The server refused the change for one message
+   *[other] The server refused the change for { $count } messages
+}
 mail-toast-no-archive-folder = No Archive folder
 mail-toast-no-trash-folder = No Trash folder
 mail-toast-no-spam-folder = No Spam folder

@@ -11,6 +11,8 @@ import {
 } from 'solid-js';
 import { useApp } from '../state/context.ts';
 import { t, isolate, loadCatalog } from '../i18n/index.ts';
+import { formatDateTime } from '../i18n/format.ts';
+import { useActions } from '../keymap/index.ts';
 import * as a11y from './mailA11y.css.ts';
 // Reading-pane layout switch (W3): the globalStyle overrides keyed on
 // `:root[data-reading-pane]`. Imported for its side effect so the rules ship.
@@ -152,12 +154,10 @@ function addressList(addrs: EmailAddress[] | null): string {
 }
 
 /** A message date as the attribution line and the forwarded header show it,
- *  in the browser's locale like the message list's dates. Empty when unreadable. */
+ *  in the app's locale like the message list's dates. Empty when unreadable. */
 function quoteDate(iso: string | null | undefined): string {
   if (iso === null || iso === undefined) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  return formatDateTime(iso);
 }
 
 function ReaderToolbar(props: {
@@ -172,6 +172,8 @@ function ReaderToolbar(props: {
   const id = () => props.email.id;
   const sender = () => props.email.from?.[0]?.email ?? '';
   const pinned = () => props.email.pinned === true;
+  const unread = () => props.email.keywords?.['$seen'] !== true;
+  const flagged = () => props.email.keywords?.['$flagged'] === true;
 
   return (
     <div class="reader__toolbar" role="toolbar" aria-label={t('mail-reader-actions')}>
@@ -211,6 +213,23 @@ function ReaderToolbar(props: {
         onClick={() => void app.pinMessage(id(), !pinned())}
       >
         {pinned() ? t('mail-unpin') : t('mail-pin')}
+      </button>
+      <button
+        type="button"
+        class={`btn btn--ghost ${a11y.focusable}`}
+        data-testid="reader-toggle-read"
+        onClick={() => void app.markRead(id(), unread())}
+      >
+        {unread() ? t('mail-mark-read') : t('mail-mark-unread')}
+      </button>
+      <button
+        type="button"
+        class={`btn btn--ghost ${a11y.focusable}`}
+        aria-pressed={flagged()}
+        data-testid="reader-flag"
+        onClick={() => void app.flagMessage(id(), !flagged())}
+      >
+        {flagged() ? t('mail-unflag-message') : t('mail-flag-message')}
       </button>
       <button type="button" class={`btn btn--ghost ${a11y.focusable}`} onClick={() => void app.archiveMessage(id())}>
         {t('mail-archive')}
@@ -802,6 +821,15 @@ export function Reader(props: {
       setPreparing(false);
     }
   }
+
+  // The `reply` shortcut (src/keymap/): the same as the toolbar's Reply button.
+  useActions({
+    reply: () => {
+      if (app.openEmail() === null || props.onCompose === undefined) return false;
+      void startReply('reply');
+      return true;
+    },
+  });
 
   async function onSenderControl(req: SenderControlRequest): Promise<SenderControlResult> {
     const acct = app.accountId();

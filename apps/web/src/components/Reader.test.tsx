@@ -7,6 +7,7 @@ import { createAppState, type AppState } from '../state/store.ts';
 import { AppContext } from '../state/context.ts';
 import type { ComposeInitial } from './compose/reply.ts';
 import type { Email, Identity, JmapRequest, JmapResponse } from '../api/jmap-types.ts';
+import { formatDateTime } from '../i18n/format.ts';
 
 // Reply / Reply all / Forward from the reader toolbar: what the composer is
 // handed. The reader's own requests outside the app client (security verdict,
@@ -17,8 +18,7 @@ const RAW_HEADERS =
   'Message-ID: <orig@example.org>\r\nReferences: <root@example.org>\r\nSubject: Plans\r\n\r\nbody\r\n';
 
 /** The attribution date, formatted the way the reader formats it. */
-const shownDate = (iso: string): string =>
-  new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+const shownDate = (iso: string): string => formatDateTime(iso);
 
 const IDENTITIES: Identity[] = [
   { id: 'id1', name: 'Me', email: 'me@example.org', replyTo: null, signatureHtml: null, signatureText: null, sentMailboxId: null },

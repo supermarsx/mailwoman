@@ -22,6 +22,7 @@ import { AsyncPending } from '../components/AsyncState.tsx';
 import { APP_MODULES, KEYS_MODULE } from '../shell/modules.ts';
 import { createShellRouter, isPimSurface, type ShellSurface } from '../shell/router.ts';
 import { shouldRefetchPim } from '../realtime/pimRefetch.ts';
+import { useActions } from '../keymap/index.ts';
 // V7 Assist in the mailbox (plan §14.3, e14b): the chat panel + the semantic-search
 // toggle. Both are gated on the Assist gateway/capabilities, so a Disabled gateway
 // renders NOTHING and the mailbox is unchanged.
@@ -211,6 +212,32 @@ export function MailboxScreen(): JSX.Element {
 
   // Pull the mail catalog once for the whole mailbox area (idempotent).
   onMount(() => void loadCatalog('mail'));
+
+  // Keyboard shortcuts owned by the mailbox screen (src/keymap/: one dispatcher,
+  // the preset chosen in Settings). `next`/`previous` are the message list's and
+  // `reply` the reader's. Each declines (returns false) off the mail surface or
+  // with nothing to act on, so the key does what it would have done anyway.
+  useActions({
+    compose: () => {
+      if (composing()) return false;
+      openNewMessage();
+      return true;
+    },
+    archive: () => {
+      if (surface() !== 'mail') return false;
+      const ids = app.actionTargets();
+      if (ids.length === 0) return false;
+      void app.archiveMessage(ids);
+      return true;
+    },
+    search: () => {
+      if (surface() !== 'mail') return false;
+      const box = document.querySelector<HTMLInputElement>('.mail-search__input');
+      if (box === null) return false;
+      box.focus();
+      return true;
+    },
+  });
 
   // Seed a single "messages" sub-tab so the multi-surface strip is live.
   onMount(() => {

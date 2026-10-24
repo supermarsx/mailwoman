@@ -24,6 +24,10 @@ export const HEADER_PROPERTIES = [
   'receivedAt',
   'preview',
   'keywords',
+  // Where the message is. A relocation's undo moves it back to these, and the
+  // optimistic unread badge adjusts these folders; a server that projects
+  // `properties` (RFC 8620 §5.1) leaves it out unless it is named here.
+  'mailboxIds',
   'threadId',
   'pinned',
   'snoozedUntil',
@@ -52,6 +56,7 @@ export const BODY_PROPERTIES = [
   'bodyValues',
   'attachments',
   'keywords',
+  'mailboxIds',
   'threadId',
   'pinned',
   'snoozedUntil',
@@ -565,6 +570,27 @@ export function setEmailMeta(
 /** Relocate a message to a new set of mailboxes (archive/move/spam/restore). */
 export function moveEmail(accountId: Id, id: Id, mailboxIds: Record<Id, boolean>): JmapRequest {
   return request(MAIL_USING, [['Email/set', { accountId, update: { [id]: { mailboxIds } } }, 'set']]);
+}
+
+/** The call id of the `Mailbox/get` that {@link updateEmails} appends. */
+export const COUNTS_CALL_ID = 'mb';
+
+/**
+ * Patch several messages in ONE `Email/set` (t28-e16): a bulk action over a
+ * selection is one request whatever its size, and the engine applies it as one
+ * batch. `patches` maps each message id to its own patch (`keywords/<kw>`,
+ * `mailboxIds`, …), so an undo can put each message back where it was.
+ *
+ * A `Mailbox/get` follows in the same request (call id {@link COUNTS_CALL_ID}).
+ * The server runs method calls in order, so the folder counts it returns already
+ * reflect the patch: that is how the sidebar's unread badges follow a mark-read
+ * or a move without a second round trip.
+ */
+export function updateEmails(accountId: Id, patches: Record<Id, Record<string, unknown>>): JmapRequest {
+  return request(MAIL_USING, [
+    ['Email/set', { accountId, update: patches }, 'set'],
+    ['Mailbox/get', { accountId, ids: null }, COUNTS_CALL_ID],
+  ]);
 }
 
 /** Permanently destroy a message (used by sweep "delete all"). */

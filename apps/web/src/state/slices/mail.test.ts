@@ -1148,8 +1148,12 @@ describe('mail slice — offline mutation queue', () => {
       jmap.mockClear();
       broadcastChange.mockClear();
       await mail.undoNow();
+      // One request: the move back, then the folder counts it changed (t28-e16).
       expect(jmap.mock.calls.map((c) => (c[0] as JmapRequest).methodCalls)).toEqual([
-        [['Email/set', { accountId: 'acct1', update: { a: { mailboxIds: { inbox: true } } } }, 'set']],
+        [
+          ['Email/set', { accountId: 'acct1', update: { a: { mailboxIds: { inbox: true } } } }, 'set'],
+          ['Mailbox/get', { accountId: 'acct1', ids: null }, 'mb'],
+        ],
       ]);
       expect(broadcastChange).toHaveBeenCalledTimes(1);
       expect(mail.messages().map((m) => m.id)).toEqual(['a', 'b']);
