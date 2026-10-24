@@ -129,12 +129,12 @@ body {
 /* ── Login ────────────────────────────────────────────────────── */
 /* The page behind the card can carry a branding image (--mw-login-bg-image);
    the card stays a solid surface over it, so the form never sits on the
-   picture itself. */
+   picture itself. The card's width and the page's 16px gutter come from
+   styles/authCard.css.ts, shared with the admin sign-in. */
 .login {
   display: grid;
   place-items: center;
   height: 100%;
-  padding: 1rem;
   background-color: var(--bg);
   background-image: var(--mw-login-bg-image);
   background-position: center;
@@ -142,8 +142,6 @@ body {
 }
 .login__card {
   position: relative;
-  width: 100%;
-  max-width: 360px;
   padding: calc(1.6rem - 1px);
   border: var(--border-rule) solid var(--border-strong);
   border-radius: var(--radius-lg);
