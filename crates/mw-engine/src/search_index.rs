@@ -170,6 +170,17 @@ pub(crate) fn sort_from_comparator(cmp: Option<&Comparator>) -> Sort {
 ///
 /// `account_mailboxes` are every mailbox id the account owns; `scope_mailbox`
 /// is the single `inMailbox` id when the filter pins one (the common case).
+///
+/// # An empty scope matches nothing (t32-h7, D-24)
+///
+/// The mailbox clause is the only thing that keeps one account's query off
+/// another account's documents. An account with no mailboxes (a new account
+/// before its first sync, or one whose folders were all removed) used to get no
+/// scope clause at all, so its query ran over the whole index and returned
+/// every other account's ids and counts. Now no scope means no hits, and so
+/// does a `scope_mailbox` the account does not own. The caller already passes
+/// only owned ids; the check is here too so that no future caller can widen
+/// the scope by passing something else.
 pub(crate) fn build_search_query(
     filter: &EmailFilter,
     sort: Sort,
@@ -179,17 +190,17 @@ pub(crate) fn build_search_query(
     let mut clauses: Vec<Expr> = Vec::new();
 
     // Account/mailbox scope.
+    let owned = |mb: &str| account_mailboxes.iter().any(|m| m == mb);
     match scope_mailbox {
-        Some(mb) => clauses.push(Expr::Clause(Clause::Mailbox(mb.to_string()))),
-        None => {
-            let scope: Vec<Expr> = account_mailboxes
+        Some(mb) if owned(mb) => clauses.push(Expr::Clause(Clause::Mailbox(mb.to_string()))),
+        Some(_) => return match_nothing(sort),
+        None if account_mailboxes.is_empty() => return match_nothing(sort),
+        None => clauses.push(Expr::Or(
+            account_mailboxes
                 .iter()
                 .map(|m| Expr::Clause(Clause::Mailbox(m.clone())))
-                .collect();
-            if !scope.is_empty() {
-                clauses.push(Expr::Or(scope));
-            }
-        }
+                .collect(),
+        )),
     }
     if let Some(exclude) = &filter.in_mailbox_other_than {
         for mb in exclude {
@@ -273,6 +284,16 @@ pub(crate) fn build_search_query(
     }
 }
 
+/// A query no document satisfies. `mw-search` has no "none" expression;
+/// `NOT all` compiles to `+all -all`, which selects nothing.
+fn match_nothing(sort: Sort) -> SearchQuery {
+    SearchQuery {
+        raw: String::new(),
+        expr: Expr::Not(Box::new(Expr::All)),
+        sort,
+    }
+}
+
 /// Parse a filter date bound (RFC3339 or `YYYY-MM-DD` or bare unix-seconds).
 fn parse_date_bound(s: &str) -> Option<i64> {
     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
@@ -284,4 +305,58 @@ fn parse_date_bound(s: &str) -> Option<i64> {
     // `YYYY-MM-DD` at UTC midnight.
     let d = chrono::NaiveDate::parse_from_str(s.trim(), "%Y-%m-%d").ok()?;
     Some(d.and_hms_opt(0, 0, 0)?.and_utc().timestamp())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One index holding one message of mailbox `mb-a`; returns the ids the
+    /// compiled query selects from it.
+    fn hits(account_mailboxes: &[&str], scope: Option<&str>, filter: EmailFilter) -> Vec<String> {
+        let idx = mw_search::Index::open_in_ram().unwrap();
+        idx.upsert(&IndexDoc {
+            stable_id: "msg-a".into(),
+            account_id: "acct-a".into(),
+            mailbox_id: "mb-a".into(),
+            subject: "quarterly report".into(),
+            ..IndexDoc::default()
+        })
+        .unwrap();
+        let owned: Vec<String> = account_mailboxes.iter().map(|m| m.to_string()).collect();
+        let sq = build_search_query(&filter, Sort::received_desc(), &owned, scope);
+        idx.search_hits(&sq, 0).unwrap().ids
+    }
+
+    fn text(v: &str) -> EmailFilter {
+        EmailFilter {
+            text: Some(v.into()),
+            ..EmailFilter::default()
+        }
+    }
+
+    #[test]
+    fn owned_scope_finds_the_message() {
+        assert_eq!(hits(&["mb-a"], None, text("report")), ["msg-a"]);
+        assert_eq!(hits(&["mb-a"], Some("mb-a"), text("report")), ["msg-a"]);
+    }
+
+    #[test]
+    fn no_mailboxes_matches_nothing() {
+        assert!(hits(&[], None, text("report")).is_empty());
+        assert!(hits(&[], None, EmailFilter::default()).is_empty());
+        assert!(hits(&[], None, text("in:mb-a")).is_empty());
+    }
+
+    #[test]
+    fn scope_mailbox_the_account_does_not_own_matches_nothing() {
+        assert!(hits(&["mb-b"], Some("mb-a"), text("report")).is_empty());
+        assert!(hits(&[], Some("mb-a"), text("report")).is_empty());
+    }
+
+    #[test]
+    fn other_mailboxes_do_not_see_the_message() {
+        assert!(hits(&["mb-b", "mb-c"], None, text("report")).is_empty());
+        assert!(hits(&["mb-b"], None, text("in:mb-a")).is_empty());
+    }
 }
