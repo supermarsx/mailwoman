@@ -115,6 +115,7 @@ export default defineConfig({
         'login-discover.spec.ts',
         'reply-forward.spec.ts',
         'read-state.spec.ts',
+        't32-h8-sw-admin.spec.ts',
         'csrf-strict.spec.ts',
       ],
       use: { ...devices['Desktop Chrome'], baseURL: engineBaseURL },
