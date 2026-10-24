@@ -617,7 +617,7 @@ mod tests {
         tokio::spawn(async move {
             let _ = axum::serve(listener, app).await;
         });
-        let c = reqwest::Client::new();
+        let c = reqwest::Client::builder().no_proxy().build().unwrap();
         let api = c.get(format!("http://{addr}/boom")).send().await.unwrap();
         assert_eq!(api.status(), 500);
         let body = api.text().await.unwrap();
