@@ -25,6 +25,7 @@ const KEYBOARD_OPTIONS: ReadonlyArray<{ value: KeyboardPreset; label: string }> 
   { value: 'gmail', label: 'settings-kbd-gmail' },
   { value: 'outlook', label: 'settings-kbd-outlook' },
   { value: 'vim', label: 'settings-kbd-vim' },
+  { value: 'off', label: 'settings-kbd-off' },
 ];
 
 const EVICTION_OPTIONS: ReadonlyArray<{ value: EvictionStrategy; label: string }> = [

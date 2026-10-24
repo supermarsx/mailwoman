@@ -143,6 +143,7 @@ settings-kbd-default = Mailwoman
 settings-kbd-gmail = Gmail
 settings-kbd-outlook = Outlook
 settings-kbd-vim = Vim
+settings-kbd-off = Off (no shortcuts)
 settings-kbd-action-compose = Compose
 settings-kbd-action-archive = Archive
 settings-kbd-action-reply = Reply
