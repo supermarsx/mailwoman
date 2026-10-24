@@ -54,7 +54,10 @@ env:
 #   directory-vs-openldap, assist-mock, android-apk, deny, js-licenses,
 #   bundle-size, search-bench (a perf baseline is only comparable on one
 #   runner class), crypto-interop, mail-auth-verdicts, bridge-fixtures,
-#   wasm-plugin-build, jail, live-interop.
+#   wasm-plugin-build, jail, live-interop, and the deploy-path jobs at the end
+#   (shellcheck, image-pins, deploy-images, deploy-lifecycle, systemd-unit,
+#   deploy-proxy): deploy.sh targets Linux hosts with Docker, and systemd-unit
+#   needs systemd.
 # The POSIX helper scripts those jobs invoke (wait-for-health.sh,
 # search-bench.sh, radicale/seed.sh, managesieve/conformance.sh,
 # greenmail/wait-for-greenmail.sh) are therefore never reached off Linux. The
@@ -2480,3 +2483,239 @@ jobs:
         run: |
           docker compose -f docker-compose.ci.yml down -v || true
           docker compose -f docker-compose.dev.yml down -v || true
+
+  # =========================================================================
+  # Deploy path (26.20 t31-e10). These jobs run the scripts that test what
+  # `deploy.sh` installs, on the runner:
+  #   shellcheck        deploy.sh and every scripts/**/*.sh
+  #   image-pins        scripts/check-image-pins.sh (Dockerfile FROM lines and the
+  #                     deploy.sh Caddy default carry a digest)
+  #   deploy-images     builds runtime-static (the image deploy.sh builds), runtime
+  #                     and mock once and hands them to the three jobs below
+  #   deploy-lifecycle  scripts/test-deploy.sh with DEPLOY_TEST_REQUIRE=all
+  #   systemd-unit      scripts/test-systemd-unit.sh --host (docs/deploy/mailwoman.service
+  #                     under the runner's own systemd)
+  #   deploy-proxy      scripts/test-deploy-proxy.sh, all three cases (restart, Nginx
+  #                     Proxy Manager, Caddy + Pebble on ports 80/443)
+  # shellcheck and image-pins also run their check on a seeded defect and fail if
+  # it is not reported, so a check that stopped looking would turn the job red.
+  # Not covered here: issuance by the public Let's Encrypt endpoint, a real domain,
+  # and Docker engines other than the runner's.
+  # =========================================================================
+  shellcheck:
+    runs-on: ubuntu-latest
+    env:
+      # koalaman/shellcheck 0.11.0. Bump the tag and digest together.
+      SHELLCHECK_IMAGE: koalaman/shellcheck:stable@sha256:bb596a0d169b85ddd81d8b6d3a2ff6d5baf5fca10b97f575ebc647c3dff62b3d
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck deploy.sh and scripts/**/*.sh
+        run: |
+          set -euo pipefail
+          # In a git pathspec `*` also matches `/`, so this lists nested scripts too.
+          mapfile -t files < <(git ls-files deploy.sh 'scripts/*.sh')
+          ((${#files[@]} > 1)) || { echo "::error::the file list has ${#files[@]} entries"; exit 1; }
+          printf 'shellcheck on %d files:\n' "${#files[@]}"
+          printf '  %s\n' "${files[@]}"
+          # --external-sources follows `# shellcheck source=` lines (build-wasm.sh
+          # sources plugins/reproducible-env.sh), so the sourced file is checked too.
+          docker run --rm -v "$PWD:/mnt" -w /mnt "$SHELLCHECK_IMAGE" --external-sources "${files[@]}"
+      - name: the same check reports a seeded defect
+        run: |
+          set -uo pipefail
+          dir=$(mktemp -d)
+          # shellcheck disable=SC2016 # the seeded script has to contain a literal $1
+          printf '#!/usr/bin/env bash\nrm -rf $1/*\n' > "$dir/seeded.sh"
+          if docker run --rm -v "$dir:/mnt" -w /mnt "$SHELLCHECK_IMAGE" --external-sources seeded.sh; then
+            echo "::error::shellcheck accepted an unquoted rm -rf \$1/*"
+            exit 1
+          fi
+          echo "seeded defect reported, as expected"
+
+  image-pins:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: every Dockerfile FROM and the deploy.sh Caddy default carry a digest
+        run: bash scripts/check-image-pins.sh
+      - name: the same check reports a seeded defect
+        run: |
+          set -uo pipefail
+          dir=$(mktemp -d)
+          # Strip the first digest of the Dockerfile and the Caddy digest of deploy.sh.
+          sed '0,/@sha256:[0-9a-f]\{64\}/s///' Dockerfile > "$dir/Dockerfile"
+          sed 's/^\(CADDY_IMAGE=[^@]*\)@sha256:[0-9a-f]\{64\}/\1/' deploy.sh > "$dir/deploy.sh"
+          for f in Dockerfile deploy.sh; do
+            if cmp -s "$f" "$dir/$f"; then echo "::error::seeding left $f unchanged"; exit 1; fi
+            if out=$(bash scripts/check-image-pins.sh "$dir/$f" 2>&1); then
+              echo "::error::check-image-pins.sh accepted $f without a digest"
+              exit 1
+            fi
+            printf '%s\n' "$out"
+            grep -q 'has no @sha256: digest' <<<"$out" || { echo "::error::unexpected output for $f"; exit 1; }
+          done
+          echo "seeded defects reported, as expected"
+
+  deploy-images:
+    name: deploy images (built once)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      # runtime-static has its own cache scope: it builds from other stages (web,
+      # build-musl) than runtime and mock (web, build), and each cache export
+      # replaces the index of its scope.
+      - name: build runtime-static (the image deploy.sh builds)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime-static
+          push: false
+          load: true
+          tags: mailwoman:deploy-test-static
+          cache-from: type=gha,scope=deploy-static
+          cache-to: type=gha,scope=deploy-static,mode=max
+      - name: build runtime (test-deploy-proxy.sh)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime
+          push: false
+          load: true
+          tags: mailwoman:deploy-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: build mock (the JMAP upstream of test-deploy-proxy.sh)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: mock
+          push: false
+          load: true
+          tags: mailwoman-mock:deploy-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: save images
+        run: |
+          set -eu
+          docker save mailwoman:deploy-test-static mailwoman:deploy-test mailwoman-mock:deploy-test \
+            | gzip -1 > deploy-images.tar.gz
+          ls -lh deploy-images.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deploy-images
+          path: deploy-images.tar.gz
+          retention-days: 1
+          compression-level: 0
+
+  deploy-lifecycle:
+    needs: deploy-images
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      # The browser step (Playwright project `deploy`, e2e/deploy-admin.spec.ts)
+      # drives the admin panel of the installation the test has just deployed.
+      - name: install web deps
+        run: pnpm -C apps/web install --frozen-lockfile
+      - name: cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('apps/web/pnpm-lock.yaml') }}
+      - name: install Playwright chromium
+        run: pnpm -C apps/web exec playwright install --with-deps chromium
+      - uses: actions/download-artifact@v4
+        with:
+          name: deploy-images
+      - name: load images
+        run: |
+          set -eu
+          gzip -dc deploy-images.tar.gz | docker load
+          rm deploy-images.tar.gz
+          docker image inspect --format '{{.Id}} {{.RepoTags}}' mailwoman:deploy-test-static
+          docker compose version
+      # DEPLOY_TEST_REQUIRE=all: a skipped browser step fails the job.
+      - name: deploy.sh lifecycle test
+        env:
+          DEPLOY_TEST_REQUIRE: all
+        run: bash scripts/test-deploy.sh mailwoman:deploy-test-static
+      # A failed run keeps its state directories; upload their logs only (app.env
+      # holds the throwaway secrets of the test installation).
+      - name: upload lifecycle logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-lifecycle-logs
+          path: |
+            .deploy-test-*.local/**/*.log
+            .deploy-test-*.local/playwright/**
+          if-no-files-found: ignore
+          # The state directories start with a dot.
+          include-hidden-files: true
+          retention-days: 7
+
+  systemd-unit:
+    needs: deploy-images
+    # The script's container mode uses ubuntu:24.04 (systemd 255); this leg runs
+    # the same unit under the runner's own systemd.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: deploy-images
+      - name: load images
+        run: |
+          set -eu
+          gzip -dc deploy-images.tar.gz | docker load
+          rm deploy-images.tar.gz
+          docker image inspect --format '{{.Id}} {{.RepoTags}}' mailwoman:deploy-test-static
+          systemctl --version | head -n 1
+      - name: docs/deploy/mailwoman.service under the runner's systemd
+        run: bash scripts/test-systemd-unit.sh --host mailwoman:deploy-test-static
+
+  deploy-proxy:
+    needs: deploy-images
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: deploy-images
+      - name: load images
+        run: |
+          set -eu
+          gzip -dc deploy-images.tar.gz | docker load
+          rm deploy-images.tar.gz
+          docker image inspect --format '{{.Id}} {{.RepoTags}}' mailwoman:deploy-test mailwoman-mock:deploy-test
+      # Case 3 needs host ports 80 and 443. Printed so a skip has a visible cause.
+      - name: listeners on ports 80 and 443
+        run: sudo ss -Hltnp '( sport = :80 or sport = :443 )' || true
+      # DEPLOY_TEST_REQUIRE=all: a skipped case (for example case 3 with port 80
+      # taken) fails the job.
+      - name: restart, Nginx Proxy Manager and Caddy + Pebble cases
+        env:
+          DEPLOY_TEST_REQUIRE: all
+        run: bash scripts/test-deploy-proxy.sh mailwoman:deploy-test mailwoman-mock:deploy-test
+      - name: upload proxy test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-proxy-logs
+          path: .deploy-test-*.local/**/*.log
+          if-no-files-found: ignore
+          # The state directories start with a dot.
+          include-hidden-files: true
+          retention-days: 7
