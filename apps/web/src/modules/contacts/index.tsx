@@ -17,6 +17,7 @@ import { parseVCards, toVCardDocument, type ParsedContact } from './vcard.ts';
 import { contactsToCsv, csvToContacts, guessMapping, parseCsv, type CsvField, type CsvMapping } from './csv.ts';
 import { findDuplicateClusters, mergeCards } from './merge.ts';
 import { wireDialogFocus } from './dialogFocus.ts';
+import { readCalendarFile } from '../calendar/decode.ts';
 // V7 directory security (SPEC §13/§8.2, e14b): the per-contact cert/key rows, sourced
 // from the GAL. Gated on a configured directory, so an unconfigured deployment's
 // business card is unchanged.
@@ -578,7 +579,10 @@ function ImportDialog(props: { onClose: () => void }): JSX.Element {
   async function onFile(e: Event & { currentTarget: HTMLInputElement }): Promise<void> {
     const file = e.currentTarget.files?.[0];
     if (file === undefined) return;
-    const content = await file.text();
+    // `file.text()` is a UTF-8 decode, so Firefox turns a UTF-16 vCard or CSV
+    // into text that parses to nothing; `readCalendarFile` goes by the byte
+    // order mark, as the calendar import does.
+    const content = await readCalendarFile(file);
     setText(content);
     preview();
   }
