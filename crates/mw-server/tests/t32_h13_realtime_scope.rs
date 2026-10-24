@@ -684,12 +684,16 @@ async fn a_session_past_its_idle_timeout_ends_its_streams() {
     let a = cookie_login(&srv, A_USER, A_PASS).await;
     let mut streams = open_both(&srv, &a).await;
 
-    // Inside the idle window the streams are open and deliver (two re-checks
-    // have run by now: had they counted as activity the session would never
-    // idle out and the assertion below would fail).
+    // Inside the idle window the streams are open and deliver. Two re-checks per
+    // stream have run by now, and nothing else uses the session from here on:
+    // the open streams are the only thing touching it.
     assert_alive(&srv, &mut streams, &a, "a").await;
     assert!(SURVIVES + RECHECK < idle);
 
+    // So the session idles out only if the re-check never refreshes its
+    // last-seen time. A re-check through `SessionGuard::check`, which records
+    // activity, keeps it alive every second and fails this (shown in t32-h13's
+    // break demo); `SessionGuard::expired` only reads.
     for s in streams.iter_mut() {
         s.assert_ends("the idle timeout passed").await;
     }

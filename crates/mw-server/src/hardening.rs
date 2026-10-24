@@ -354,7 +354,10 @@ impl SessionGuard {
     /// recording activity: a realtime stream's re-check must not keep its session
     /// alive. A session with no record is not expired, as in [`check`](Self::check).
     pub fn expired(&self, id: &str, cfg: &HardeningConfig) -> Option<Expiry> {
-        let now = Instant::now();
+        self.expired_at(id, cfg, Instant::now())
+    }
+
+    fn expired_at(&self, id: &str, cfg: &HardeningConfig, now: Instant) -> Option<Expiry> {
         let map = self.inner.lock().expect("session guard lock");
         let t = map.get(id)?;
         if now.duration_since(t.created) > cfg.absolute_timeout {
@@ -602,6 +605,50 @@ mod tests {
         assert_eq!(
             g.check_at("s", &cfg, t0 + Duration::from_secs(150)),
             Err(Expiry::Absolute)
+        );
+    }
+
+    #[test]
+    fn expired_reports_both_timeouts_without_recording_activity() {
+        let g = SessionGuard::new();
+        let cfg = HardeningConfig {
+            idle_timeout: Duration::from_secs(100),
+            absolute_timeout: Duration::from_secs(1_000),
+            ..HardeningConfig::default()
+        };
+        let t0 = Instant::now();
+        // No record: not expired, and asking does not create one.
+        assert_eq!(g.expired_at("s", &cfg, t0), None);
+        assert!(!g.inner.lock().unwrap().contains_key("s"));
+
+        assert!(g.check_at("s", &cfg, t0).is_ok());
+        assert_eq!(g.expired_at("s", &cfg, t0 + Duration::from_secs(50)), None);
+        // Asking at +90 s must not move last_seen: at +150 s the session is idle
+        // from t0, which it would not be had +90 s counted as activity.
+        assert_eq!(g.expired_at("s", &cfg, t0 + Duration::from_secs(90)), None);
+        assert_eq!(
+            g.expired_at("s", &cfg, t0 + Duration::from_secs(150)),
+            Some(Expiry::Idle)
+        );
+        // Still a read: the record is there and unchanged for `check`.
+        assert_eq!(
+            g.check_at("s", &cfg, t0 + Duration::from_secs(150)),
+            Err(Expiry::Idle)
+        );
+
+        // Absolute applies to a session that is not idle.
+        let g = SessionGuard::new();
+        let cfg = HardeningConfig {
+            idle_timeout: Duration::from_secs(10_000),
+            absolute_timeout: Duration::from_secs(1_000),
+            ..HardeningConfig::default()
+        };
+        assert!(g.check_at("a", &cfg, t0).is_ok());
+        assert!(g.check_at("a", &cfg, t0 + Duration::from_secs(990)).is_ok());
+        assert_eq!(g.expired_at("a", &cfg, t0 + Duration::from_secs(995)), None);
+        assert_eq!(
+            g.expired_at("a", &cfg, t0 + Duration::from_secs(1_001)),
+            Some(Expiry::Absolute)
         );
     }
 
