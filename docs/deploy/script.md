@@ -156,7 +156,10 @@ To put an existing installation on a reverse proxy's Docker network:
 3. Point the proxy at `http://<project>:8080` (web UI and API; WebSocket support
    is needed). The app is no longer published on the host port.
 
-Set `MW_JMAP_UPSTREAMS` for private/internal JMAP origins (or to restrict allowed
+Set `MW_UPSTREAM_DEFAULT` in `app.env` to the mail server users sign in to: a
+JMAP URL in proxy mode, an `imaps://` or `pop3s://` URL in engine mode. The
+sign-in form has no server field, so without it nobody can sign in. Set
+`MW_JMAP_UPSTREAMS` for private/internal JMAP origins (or to restrict allowed
 public providers). In engine mode, use `MW_SMTP_HOST`, `MW_SMTP_PORT`, and
 `MW_SMTP_SECURITY` when submission differs from the mailbox server. Optional
 external cache, SSO, observability and integration settings go in `app.env`; see

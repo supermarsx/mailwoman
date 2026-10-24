@@ -3,14 +3,18 @@
 In **engine mode** (`MW_MODE=engine`) Mailwoman stops being a JMAP proxy and
 instead drives a real mailbox itself: it syncs an IMAP or POP3 account, parses
 MIME locally, submits outgoing mail over SMTP, and presents the *same* JMAP
-surface the SPA already speaks. The browser cannot tell the difference — the
-login form is unchanged; its **server-URL** field (the one that held a JMAP URL
-in proxy mode) is now read as a mail-server URL.
+surface the SPA already speaks. The browser cannot tell the difference: the
+sign-in form asks for the email address (or user name) and the password in both
+modes, and the server decides which mail server they are checked against.
 
 ## How a user logs in
 
-The login form posts `{ jmapUrl, username, password }`. In engine mode
-`jmapUrl` is parsed as a mail-server URL:
+The sign-in form posts `{ username, password }`. The server signs that user in
+to the mail server in `MW_UPSTREAM_DEFAULT` (see the
+[deployment reference](README.md#upgrading-the-server-chooses-the-mail-server));
+a login body that names a server is refused with `400`. With nothing
+configured, sign-in answers "This address is not set up on this server". The
+URL forms `MW_UPSTREAM_DEFAULT` accepts in engine mode:
 
 | URL | Backend | Transport | Default port |
 |-----|---------|-----------|--------------|
@@ -18,11 +22,10 @@ The login form posts `{ jmapUrl, username, password }`. In engine mode
 | `imap://host`  | IMAP | STARTTLS | 143 |
 | `pop3s://host` | POP3 | implicit TLS | 995 |
 | `pop3://host`  | POP3 | STARTTLS | 110 |
-| `host` (bare)  | IMAP | implicit TLS | 993 |
 
-An explicit `:port` overrides the default. `MW_ENGINE_TLS` overrides the
-transport for *every* login (e.g. to force `plaintext` against a test server
-without changing the URL). The username/password are whatever the mail server
+The scheme is required. An explicit `:port` overrides the default.
+`MW_ENGINE_TLS` overrides the transport for *every* login (e.g. to force
+`plaintext` against a test server without changing the URL). The username/password are whatever the mail server
 expects; credentials are sealed at rest with `MW_SERVER_KEY`.
 
 ## The send path (SMTP)
@@ -99,7 +102,8 @@ Run mw-server against it in engine mode:
 ```sh
 docker compose -f docker-compose.dev.yml up -d --wait greenmail mailwoman-engine
 # SPA on http://localhost:8090 — log in with:
-#   server URL = imap://greenmail:3143   username = testuser   password = testpass
+#   username = testuser   password = testpass
+# (the stack sets MW_UPSTREAM_DEFAULT=imap://greenmail:3143)
 ```
 
 ### Dovecot — the fidelity target

@@ -93,8 +93,9 @@ pluggable Postgres, layered Valkey/Redis cache, observability) adds:
 | `MW_WEB_DIR` | *(embedded)* | Serve the SPA from disk instead of the embedded copy (dev override). |
 | `MW_COOKIE_SECURE` | `false` | Mark the session cookie `Secure`. **Set `true` behind TLS** (i.e. always in production). |
 | `MW_MODE` | `proxy` | `proxy` (JMAP upstream) or `engine` (local IMAP/POP3 + SMTP). |
-| `MW_JMAP_UPSTREAMS` | *(unset)* | 26.20. Proxy mode only. Comma-separated JMAP upstream **origins** a login may name, e.g. `https://jmap.example.org,http://stalwart:8080`. **Unset:** any upstream on a public address; loopback, private (RFC 1918), link-local and cloud-metadata, CGNAT and unique-local targets are refused. **Set:** only the listed origins (scheme, host and port must all match), at whatever address they resolve to. This is how you use an internal JMAP server. An entry that is not an `http(s)` origin never matches. See [Upgrading: the proxy upstream is now checked](#upgrading-the-proxy-upstream-is-now-checked). |
-| `MW_ENGINE_TLS` | *(from URL)* | Engine mode only. Force the IMAP/POP3 transport (`implicit`/`starttls`/`plaintext`) regardless of the `imap(s)://` URL the browser posts — used to point at a plaintext test server (Greenmail) without changing the URL. |
+| `MW_UPSTREAM_DEFAULT` | *(unset)* | 26.20. The mail server every sign-in uses. Proxy mode: the JMAP server, e.g. `https://jmap.example.org` (the session resource is fetched from `/.well-known/jmap` unless the URL names it). Engine mode: `imaps://imap.example.org:993`, `imap://host:143` (STARTTLS), `pop3s://host:995` or `pop3://host:110`. **Set it at install:** the sign-in form asks only for the email address and the password, so with neither this nor a one-origin `MW_JMAP_UPSTREAMS` every sign-in answers "This address is not set up on this server". Its origin is treated as operator-named, like an `MW_JMAP_UPSTREAMS` entry. See [Upgrading: the server chooses the mail server](#upgrading-the-server-chooses-the-mail-server). |
+| `MW_JMAP_UPSTREAMS` | *(unset)* | 26.20. Proxy mode only. Comma-separated JMAP upstream **origins** the server may connect to, e.g. `https://jmap.example.org,http://stalwart:8080`. **Unset:** any upstream on a public address; loopback, private (RFC 1918), link-local and cloud-metadata, CGNAT and unique-local targets are refused. **Set:** only the listed origins (scheme, host and port must all match), at whatever address they resolve to. This is how you use an internal JMAP server. An entry that is not an `http(s)` origin never matches. With `MW_UPSTREAM_DEFAULT` unset and **exactly one** usable origin listed, that origin is the upstream every sign-in uses. See [Upgrading: the proxy upstream is now checked](#upgrading-the-proxy-upstream-is-now-checked). |
+| `MW_ENGINE_TLS` | *(from URL)* | Engine mode only. Force the IMAP/POP3 transport (`implicit`/`starttls`/`plaintext`) regardless of the scheme in `MW_UPSTREAM_DEFAULT` — used to point at a plaintext test server (Greenmail) without changing the URL. |
 | `MW_SMTP_HOST` | *(IMAP host)* | Engine mode only. SMTP submission host for `EmailSubmission/set`. |
 | `MW_SMTP_PORT` | `587`/`465`/`25` | Engine mode only. SMTP port (default keys off `MW_SMTP_SECURITY`). |
 | `MW_SMTP_SECURITY` | `starttls` | Engine mode only. `starttls` / `implicit` / `plaintext`. |
@@ -117,12 +118,53 @@ pluggable Postgres, layered Valkey/Redis cache, observability) adds:
 | `MW_HEADER_AUTH_TRUSTED_IPS` | *(empty)* | Peers allowed to assert `X-Remote-User` when `MW_HEADER_AUTH=1`. Fails closed — empty authenticates nobody. Not independent of `MW_TRUSTED_PROXIES` once `MW_PROXY_PROTOCOL != off`. |
 | `MW_ASSIST_RATE_LIMIT_PER_MIN` | *(unset)* | 26.19. Per-account AI assistant budget in **outbound endpoint requests**/minute. `0` = hard stop. A cold-cache semantic search costs up to 33; a chat turn costs 1. |
 
+### Upgrading: the server chooses the mail server
+
+Applies to both modes, from 26.20.
+
+The sign-in form asks for the email address and the password, and nothing
+else. It has no server URL field, no "enter server details manually" link, and
+it no longer shows a server it found for the address. The server decides which
+mail server an address signs in to, from its own configuration:
+
+1. `MW_UPSTREAM_DEFAULT` (see the table above);
+2. in proxy mode, if that is unset, the one origin in `MW_JMAP_UPSTREAMS` when
+   it lists exactly one;
+3. otherwise nothing: the sign-in answers `404` with code
+   `addressNotConfigured`, and the form says "This address is not set up on
+   this server. Contact your administrator."
+
+Per-domain settings in the admin panel are planned; until then every address
+signs in to the same server.
+
+**What to do on upgrade.** Set `MW_UPSTREAM_DEFAULT` to the server your users
+used to type, e.g. `MW_UPSTREAM_DEFAULT=https://jmap.example.org` (proxy) or
+`MW_UPSTREAM_DEFAULT=imaps://imap.example.org:993` (engine). A proxy install
+that already lists exactly one origin in `MW_JMAP_UPSTREAMS` keeps working
+without it.
+
+**Also changed:**
+
+* `POST /api/login` refuses a body that names a server (`jmapUrl`, `host`,
+  `port`, `server`, `serverUrl`, `imapUrl`, `pop3Url`, `sessionUrl`,
+  `upstream` or `url`, even empty) with `400` and code
+  `clientServerNotAllowed`. A script that signs in must send only `username`
+  and `password` (plus `clientType` for a native client).
+* `POST /api/discover` answers `410 Gone`. It used to look the address's domain
+  up and return the servers it found to the browser.
+* With header authentication (`MW_HEADER_AUTH`) in proxy mode, the upstream is
+  `MW_HEADER_AUTH_JMAP_URL`, else the order above; a `jmapUrl` in the login
+  body no longer overrides it.
+* Desktop and mobile apps built before this release still send the server they
+  found to `/api/login` and are refused; rebuild them from this release.
+
 ### Upgrading: the proxy upstream is now checked
 
 Applies to proxy mode (`MW_MODE=proxy`, the default), from 26.20.
 
-The login form's server URL comes from whoever submits it, and before 26.20 the
-server fetched it unchecked. It then relayed `/jmap/api`, `/jmap/download` and
+Before 26.20 the login form's server URL came from whoever submitted it, and the
+server fetched it unchecked. (From 26.20 the server chooses the upstream itself;
+see the section above.) It then relayed `/jmap/api`, `/jmap/download` and
 `/jmap/upload` to whatever URLs that server's session document named. Anyone
 running a JMAP server of their own could log in against it and read back
 responses from addresses only your server can reach, such as a cloud metadata
@@ -134,18 +176,19 @@ endpoint or an internal admin API.
 Logins against it fail with the usual "invalid credentials", and the server logs
 `proxy login refused: refused by the egress policy (Blocked)`. **Fix:** list the
 upstream in `MW_JMAP_UPSTREAMS`, e.g. `MW_JMAP_UPSTREAMS=http://stalwart:8080`,
-using the same scheme, host and port your users type. A deployment whose JMAP
-server is on a **public address** (`https://jmap.example.org`) needs no change.
+or set it as `MW_UPSTREAM_DEFAULT`, with the same scheme, host and port. A
+deployment whose JMAP server is on a **public address**
+(`https://jmap.example.org`) needs no change to this list.
 
 **Also enforced, whether or not the variable is set:**
 
 * The session document's `apiUrl`, `downloadUrl` and `uploadUrl` must be on the
-  same origin as the server URL. An upstream that serves its API from a different
+  same origin as the upstream URL. An upstream that serves its API from a different
   host or port is refused at login, and the server logs `the upstream session's
   URLs: not on the upstream's origin`.
-* The initial session request follows a redirect only to the same origin. Users
-  of a provider whose `/.well-known/jmap` redirects to another host should enter
-  the redirect's target URL.
+* The initial session request follows a redirect only to the same origin. For a
+  provider whose `/.well-known/jmap` redirects to another host, set
+  `MW_UPSTREAM_DEFAULT` to the redirect's target URL.
 * Redirects on the API, download and upload requests are not followed.
 * Every request is pinned to the address checked for it, with no ambient
   `HTTP_PROXY`. Each request is limited to 300 seconds; before 26.20 there was no
@@ -243,14 +286,14 @@ V7 (release 26.8.0) — bridges, directory, AI assistant, plugins — adds:
 
 Mailwoman is backend-agnostic in **both** modes:
 
-- **proxy mode** — the JMAP server URL is entered at login and the server
-  proxies to it. For local development and E2E, `docker-compose.dev.yml`
+- **proxy mode** — the server proxies to the JMAP server set in
+  `MW_UPSTREAM_DEFAULT`; users sign in with their email address and password. For local development and E2E, `docker-compose.dev.yml`
   provides the in-repo `mw-mock-jmap` (default, deterministic) and an optional,
   profile-gated Stalwart service (`--profile stalwart`, experimental — see the
   compose file and `scripts/stalwart-seed.sh`).
-- **engine mode** — the same login form's server-URL field takes an
-  `imap(s)://` / `pop3(s)://` URL; the engine drives that account (IMAP/POP3
-  sync + SMTP submission) and answers JMAP locally. See
+- **engine mode** — `MW_UPSTREAM_DEFAULT` holds an `imap(s)://` /
+  `pop3(s)://` URL; the engine drives the account each user signs in to there
+  (IMAP/POP3 sync + SMTP submission) and answers JMAP locally. See
   [`imap-pop3.md`](./imap-pop3.md). Testing backends: **Greenmail** (the
   deterministic conformance gate) and **Dovecot** (the production-fidelity
   target), both in `docker-compose.dev.yml`.

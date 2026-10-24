@@ -36,7 +36,7 @@ to flip once the whole stack is on V2.
     client that signs in with a cookie (a script with a cookie jar, for example)
     has to read the cookie and send the header itself.
   - **Routes not asked for it.** The sign-in routes (`/api/login`,
-    `/api/login/2fa…`, `/api/discover`, `/admin/login`), which run before any
+    `/api/login/2fa…`, `/api/discover` (which answers 410), `/admin/login`), which run before any
     token exists, and the routes no cookie authorises (`/oauth/token`,
     `/oauth/introspect`, `/oauth/revoke`, `/oauth/register…`,
     `/api/webhooks/inbound`, `/errors`, `/mcp`). All of them are still

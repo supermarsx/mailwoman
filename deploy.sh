@@ -362,6 +362,10 @@ MW_ADMIN_USER=admin
 MW_ADMIN_PASSWORD=$password
 MW_CSRF_STRICT=true
 RUST_LOG=info
+# Required for sign-in: the mail server every user signs in to. The sign-in form
+# asks only for the email address and the password. Proxy mode: a JMAP URL.
+# Engine mode: imaps://host:993, imap://host:143, pop3s://host:995 or pop3://host:110.
+# MW_UPSTREAM_DEFAULT=https://jmap.example.org
 # Optional: comma-separated origins allowed for proxy-mode JMAP logins.
 # MW_JMAP_UPSTREAMS=https://jmap.example.org
 # Engine-mode SMTP overrides (otherwise inferred from the mailbox host):
