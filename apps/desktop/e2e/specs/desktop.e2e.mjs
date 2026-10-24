@@ -4,10 +4,12 @@
 //
 //   1. boot        — the shell launches (implying the §7.4 integrity gate passed,
 //                    since a mismatch aborts launch), the shared SPA reaches its
-//                    first screen on a fresh profile — the sign-in form with the
-//                    server-address field, not the boot-error card or an empty
-//                    #root — and the frozen `__MW_CONFIG__` handshake is present
-//                    (desktop / native / capabilities).
+//                    first screen on a fresh profile — the sign-in form of the
+//                    server compiled into the build (MW_SHELL_SERVER_URL), with no
+//                    server-address field or any other server input (t32), not the
+//                    boot-error card or an empty #root — and the frozen
+//                    `__MW_CONFIG__` handshake is present (desktop / native /
+//                    capabilities / serverUrl).
 //   2. keychain    — the OS keychain (DPAPI on Windows) round-trips through the
 //                    `mw_keychain_*` commands: set -> get -> delete -> get(null).
 //   3. capture     — `mw_set_capture_protection({enabled})` reports {supported:true}
@@ -21,11 +23,18 @@
 //                    on loopback (blocking until /healthz 200) and status -> "ready",
 //                    then stop -> "off". (Otherwise skipped with a clear note; the
 //                    Rust integration test proves the spawn live regardless.)
+//   7. unreachable — with the server stopped, a reload shows the boot-error card
+//                    with Retry and "contact your administrator", and no Change
+//                    server control or server field (t32).
 //
 // The SPA reaches the OS through Tauri's IPC; we invoke the same `mw_*` commands
 // the SPA's platform/tauri.ts invokes, via `window.__TAURI_INTERNALS__.invoke`.
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+
+// The server the app was built for; wdio.conf.mjs starts it there.
+const SERVER_URL = process.env.MW_E2E_SERVER_URL || 'http://127.0.0.1:37930';
 
 /**
  * Invoke a Tauri command in the WebView exactly as the SPA does, awaiting the
@@ -60,28 +69,45 @@ async function spaMounted() {
 }
 
 /**
- * Which screen the SPA is showing. A fresh profile has no server address, so the
- * first screen is the sign-in form with its server-address field (Login.tsx). The
- * boot-error card (AsyncState.tsx, `.async-state--error`) means the SPA mounted and
- * then failed to start; children in #root alone cannot tell the two apart.
+ * Which screen the SPA is showing. A fresh profile is signed out, so the first
+ * screen is the sign-in form (Login.tsx) of the server compiled into the build. It
+ * must have no server-address field (t32): `serverField` and `serverInputs` list
+ * anything that looks like one. The boot-error card (AsyncState.tsx,
+ * `.async-state--error`) means the SPA mounted and then failed to start; children
+ * in #root alone cannot tell the two apart.
  */
 async function firstScreen() {
   return browser.execute(() => {
     const root = document.getElementById('root');
     if (!root || root.children.length === 0) return { kind: 'empty' };
-    const field = root.querySelector('[data-testid="login-server-address"]');
-    if (field) {
-      const label = field.closest('label');
-      const span = label ? label.querySelector('span') : null;
+    const notConfigured = root.querySelector('[data-testid="shell-not-configured"]');
+    if (notConfigured) return { kind: 'not-configured', text: notConfigured.textContent.trim() };
+    const form = root.querySelector('form.login__card');
+    if (form) {
+      const inputs = [...form.querySelectorAll('input')];
+      const labelOf = (i) => (i.closest('label')?.textContent ?? '').trim();
       return {
         kind: 'login',
-        label: span ? span.textContent.trim() : '',
-        lang: document.documentElement.lang,
-        visible: field.getClientRects().length > 0,
+        visible: form.getClientRects().length > 0,
+        serverField: !!root.querySelector('[data-testid="login-server-address"]'),
+        inputTypes: inputs.map((i) => i.type).sort(),
+        serverInputs: inputs
+          .filter((i) => i.type === 'url' || /server|url|https?:/i.test(`${labelOf(i)} ${i.placeholder}`))
+          .map((i) => `${i.type} ${labelOf(i)} ${i.placeholder}`.trim()),
       };
     }
     const error = root.querySelector('.async-state--error');
-    if (error) return { kind: 'error', text: error.textContent.trim().slice(0, 200) };
+    if (error) {
+      return {
+        kind: 'error',
+        text: error.textContent.trim().slice(0, 200),
+        contactAdmin: root.querySelector('[data-testid="boot-contact-administrator"]')?.textContent.trim() ?? null,
+        changeServer: !!root.querySelector('[data-testid="boot-change-server"]'),
+        serverField: !!root.querySelector('[data-testid="login-server-address"]'),
+        buttons: [...root.querySelectorAll('button')].map((b) => b.getAttribute('data-testid') || b.textContent.trim()),
+        lang: document.documentElement.lang,
+      };
+    }
     if (root.querySelector('[data-testid="async-pending"]')) return { kind: 'pending' };
     return { kind: 'other', text: root.textContent.trim().slice(0, 200) };
   });
@@ -171,9 +197,7 @@ describe('Mailwoman desktop shell — live (tauri-driver / WebView2)', () => {
         .catch(() => undefined);
       if (screen.kind === 'empty') throw new Error('SPA did not mount into #root');
       if (screen.kind !== 'login') {
-        throw new Error(
-          `SPA did not reach the sign-in form with the server-address field: ${JSON.stringify(screen)}`,
-        );
+        throw new Error(`SPA did not reach the sign-in form of ${SERVER_URL}: ${JSON.stringify(screen)}`);
       }
     } catch (err) {
       const state = await documentState().catch((e) => `unavailable: ${e.message}`);
@@ -193,17 +217,18 @@ describe('Mailwoman desktop shell — live (tauri-driver / WebView2)', () => {
 
     const screen = await firstScreen();
     assert.equal(screen.kind, 'login', `first screen is the sign-in form: ${JSON.stringify(screen)}`);
-    assert.equal(screen.visible, true, 'the server-address field is rendered');
-    assert.ok(screen.label.length > 0, 'the server-address field has a label');
-    if (screen.lang === 'en') {
-      assert.equal(screen.label, 'Mailwoman server address');
-    }
+    assert.equal(screen.visible, true, 'the sign-in form is rendered');
+    // t32: the server is fixed by the build; the user cannot enter one.
+    assert.equal(screen.serverField, false, 'no [data-testid=login-server-address] field');
+    assert.deepEqual(screen.serverInputs, [], 'no server or URL input of any kind');
+    assert.deepEqual(screen.inputTypes, ['email', 'password'], 'only the email address and the password');
 
     const cfg = await browser.execute(() => window.__MW_CONFIG__ ?? null);
     assert.ok(cfg, '__MW_CONFIG__ present');
     assert.equal(cfg.platform.kind, 'desktop', 'platform.kind === desktop');
     assert.equal(cfg.native, true, 'native === true');
     assert.equal(cfg.capabilities, true, 'capabilities === true');
+    assert.equal(cfg.serverUrl, SERVER_URL, 'serverUrl is the address compiled into the build');
     assert.ok(typeof cfg.platform.os === 'string' && cfg.platform.os.length > 0);
   });
 
@@ -283,5 +308,34 @@ describe('Mailwoman desktop shell — live (tauri-driver / WebView2)', () => {
     await invoke('mw_stop_local_server');
     const stopped = await invoke('mw_self_contained_status');
     assert.equal(stopped, 'off', 'status is off after stop');
+  });
+
+  // Last: it stops the server for the rest of the session.
+  it('an unreachable server shows Retry and the administrator line, with no way to change the server', async () => {
+    const pidFile = process.env.MW_E2E_SERVER_PID_FILE;
+    assert.ok(pidFile, 'wdio.conf.mjs recorded the server pid');
+    process.kill(Number(readFileSync(pidFile, 'utf8')));
+    await browser.waitUntil(
+      () => fetch(`${SERVER_URL}/healthz`).then(() => false, () => true),
+      { timeout: 15_000, timeoutMsg: 'the server still answers after being stopped' },
+    );
+
+    await browser.execute(() => location.reload());
+    let screen = { kind: 'empty' };
+    await browser.waitUntil(
+      async () => {
+        screen = await firstScreen();
+        return screen.kind === 'error';
+      },
+      { timeout: 30_000, timeoutMsg: 'no boot-error card' },
+    ).catch(() => undefined);
+    assert.equal(screen.kind, 'error', `the boot-error card: ${JSON.stringify(screen)}`);
+    assert.deepEqual(screen.buttons, ['async-retry'], 'Retry is the only control');
+    assert.equal(screen.changeServer, false, 'no Change server control');
+    assert.equal(screen.serverField, false, 'no server-address field');
+    assert.ok(screen.contactAdmin, 'the administrator line is shown');
+    if (screen.lang === 'en') {
+      assert.equal(screen.contactAdmin, 'If this keeps happening, contact your administrator.');
+    }
   });
 });

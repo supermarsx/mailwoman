@@ -22,6 +22,15 @@
 // tauri-driver is spawned once in onPrepare and torn down in onComplete; it
 // launches/quits a fresh app process per WebDriver session.
 //
+// THE SERVER (t32): the app talks only to the server address compiled into it
+// (MW_SHELL_SERVER_URL) and has no field to change it. onPrepare starts a strict
+// Mailwoman server (MW_CSRF_STRICT=true, fresh database) at MW_E2E_SERVER_URL,
+// default http://127.0.0.1:37930, so build the app with
+// MW_SHELL_SERVER_URL=http://127.0.0.1:37930 (or set both to the same address).
+// The server binary is MW_E2E_SERVER_BIN, else target/release/mailwoman[.exe],
+// else the bundled apps/desktop/src-tauri/resources/mw-server[.exe]. The spec
+// stops it (pid in MW_E2E_SERVER_PID_FILE) for the unreachable-server step.
+//
 // OPTIONAL (Windows; README "When the session does not open"):
 //   MW_E2E_WEBVIEW_USER_DATA_FOLDER  the WebView2 user data folder msedgedriver reads the
 //                                    shell's debug port from, in place of a temporary one.
@@ -29,7 +38,8 @@
 //                                    listens on the next one.
 
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,8 +71,26 @@ function resolveTauriDriver() {
   return path.resolve(os.homedir(), '.cargo', 'bin', bin);
 }
 
+/** Resolve the Mailwoman server binary the app is pointed at. */
+function resolveServer() {
+  if (process.env.MW_E2E_SERVER_BIN) return process.env.MW_E2E_SERVER_BIN;
+  const candidates = [
+    path.join(repoRoot, 'target', 'release', isWin ? 'mailwoman.exe' : 'mailwoman'),
+    path.join(repoRoot, 'apps', 'desktop', 'src-tauri', 'resources', isWin ? 'mw-server.exe' : 'mw-server'),
+  ];
+  const found = candidates.find((c) => existsSync(c));
+  if (found) return found;
+  throw new Error(
+    `Mailwoman server binary not found (${candidates.join(', ')}); build it ` +
+      `(cargo build --release -p mw-server --bin mailwoman) or set MW_E2E_SERVER_BIN`,
+  );
+}
+
 const application = resolveApplication();
 const tauriDriverBin = resolveTauriDriver();
+const serverUrl = new URL(process.env.MW_E2E_SERVER_URL || 'http://127.0.0.1:37930');
+const serverPidFile = path.join(__dirname, 'logs', 'server.pid');
+let server;
 // MSEDGEDRIVER (Windows) -> tauri-driver `--native-driver`. On Linux the native
 // WebKitWebDriver is found on PATH, so this stays empty.
 const nativeDriver = process.env.MSEDGEDRIVER;
@@ -181,8 +209,40 @@ export const config = {
     timeout: 120_000,
   },
 
-  // Spawn tauri-driver once for the run; it manages the app process per session.
-  onPrepare() {
+  // Start the server the app was built for, then tauri-driver once for the run;
+  // tauri-driver manages the app process per session.
+  async onPrepare() {
+    const serverBin = resolveServer();
+    mkdirSync(logsDir, { recursive: true });
+    const dataDir = mkdtempSync(path.join(os.tmpdir(), 'mw-desktop-e2e-'));
+    server = spawn(serverBin, ['serve'], {
+      env: {
+        ...process.env,
+        MW_BIND: serverUrl.host,
+        MW_DB_PATH: path.join(dataDir, 'mailwoman.db'),
+        MW_SERVER_KEY: randomBytes(32).toString('hex'),
+        MW_CSRF_STRICT: 'true',
+      },
+      cwd: dataDir,
+      stdio: ['ignore', 'ignore', process.stderr],
+    });
+    server.on('error', (err) => {
+      // eslint-disable-next-line no-console
+      console.error('[e2e] the Mailwoman server failed to start:', err);
+      process.exit(1);
+    });
+    writeFileSync(serverPidFile, String(server.pid));
+    process.env.MW_E2E_SERVER_PID_FILE = serverPidFile;
+    process.env.MW_E2E_SERVER_URL = serverUrl.origin;
+    let up = false;
+    for (let i = 0; i < 60 && !up; i++) {
+      up = await fetch(new URL('/healthz', serverUrl)).then((r) => r.ok, () => false);
+      if (!up) await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    if (!up) throw new Error(`the Mailwoman server did not answer at ${serverUrl.origin}/healthz`);
+    // eslint-disable-next-line no-console
+    console.log(`[e2e] strict Mailwoman server at ${serverUrl.origin} (${serverBin})`);
+
     const args = ['--port', String(driverPort), '--native-port', String(driverPort + 1)];
     if (nativeDriver) {
       args.push('--native-driver', verbose ? verboseNativeDriver(nativeDriver) : nativeDriver);
@@ -217,6 +277,7 @@ export const config = {
   async onComplete(exitCode) {
     clearTimeout(snapshotTimer);
     if (tauriDriver) tauriDriver.kill();
+    if (server && server.exitCode === null) server.kill();
     if (isWin && exitCode !== 0) {
       await Promise.race([snapshotDone, new Promise((resolve) => setTimeout(resolve, 30_000))]);
       printSessionDiagnostics();

@@ -1370,6 +1370,9 @@ jobs:
       - name: install tauri-driver
         run: cargo install tauri-driver --locked
       - name: build production desktop shell (embedded SPA + staged mw-server)
+        # The address the e2e harness starts its strict server at (wdio.conf.mjs default).
+        env:
+          MW_SHELL_SERVER_URL: http://127.0.0.1:37930
         run: pwsh scripts/build-shells.ps1
       - name: resolve a WebView2-matched msedgedriver
         shell: pwsh

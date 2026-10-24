@@ -10,12 +10,13 @@ assert every capability the SPA reaches the OS through actually round-trips.
 
 | Step | Asserts (LIVE) |
 |------|----------------|
-| boot | Launch succeeds → the §7.4 UI-bundle integrity gate passed (a hash mismatch aborts launch); on a fresh profile the SPA shows the sign-in form with the server-address field (`[data-testid=login-server-address]`, labelled "Mailwoman server address" in English) — the boot-error card (`.async-state--error`) or an empty `#root` fails the run; `window.__MW_CONFIG__` = `{platform.kind:"desktop", native:true, capabilities:true}` |
+| boot | Launch succeeds → the §7.4 UI-bundle integrity gate passed (a hash mismatch aborts launch); on a fresh profile the SPA shows the sign-in form of the server compiled into the build, with **no** server-address field (`[data-testid=login-server-address]`) and no other server or URL input — only the email address and the password (t32) — the boot-error card (`.async-state--error`) or an empty `#root` fails the run; `window.__MW_CONFIG__` = `{platform.kind:"desktop", native:true, capabilities:true, serverUrl:<MW_E2E_SERVER_URL>}` |
 | keychain | `mw_keychain_set` → `mw_keychain_get` → `mw_keychain_delete` → get(null) against the **real OS keychain** (DPAPI on Windows) |
 | capture | `mw_set_capture_protection({enabled:true})` → `{supported:true}` on Windows (WDA_EXCLUDEFROMCAPTURE), then disable |
 | notification | `mw_notify(...)` fires a native toast without error |
 | badge | `mw_set_badge_count` accepts a count and clears |
 | self-contained | `mw_self_contained_status` is `"off"`; `mw_start_local_server` **spawns the bundled `mw-server` sibling on loopback** (blocking until `/healthz` 200) → status `"ready"` → stop → `"off"` |
+| unreachable | The spec stops the server and reloads: the boot-error card shows **Retry** as its only control and "If this keeps happening, contact your administrator."; no Change server control, no server-address field (t32) |
 
 ## Prerequisites
 
@@ -30,6 +31,17 @@ assert every capability the SPA reaches the OS through actually round-trips.
      # or the sequenced: scripts/build-shells.{sh,ps1}
      ```
    Override the binary path with `MW_DESKTOP_BIN`.
+
+   **Build it for the test server.** The app talks only to the server address
+   compiled into it (`docs/deploy/shells.md`). `wdio.conf.mjs` starts a strict
+   Mailwoman server (`MW_CSRF_STRICT=true`, fresh database) at `MW_E2E_SERVER_URL`,
+   default `http://127.0.0.1:37930`, so build with the same address:
+   ```sh
+   MW_SHELL_SERVER_URL=http://127.0.0.1:37930 cargo tauri build --no-bundle
+   # or: MW_SHELL_SERVER_URL=http://127.0.0.1:37930 scripts/build-shells.{sh,ps1}
+   ```
+   The server binary is `MW_E2E_SERVER_BIN`, else `target/release/mailwoman[.exe]`,
+   else the bundled `apps/desktop/src-tauri/resources/mw-server[.exe]`.
 
 2. **`tauri-driver`** on PATH or `~/.cargo/bin` (`cargo install tauri-driver`).
    Override with `TAURI_DRIVER`.
