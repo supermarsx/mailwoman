@@ -78,7 +78,14 @@ pub struct BridgeAccountRow {
 }
 
 /// An `assist_config` row (0008). All-JSON except the queryable `enabled` flag.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `adapters_json` is the adapter as the caller wrote it, `api_key` in the clear.
+/// At rest the key is not: [`Store::put_assist_config`] replaces a non-empty
+/// `api_key` with `api_key_sealed` (the key sealed with the server key,
+/// hex-encoded), and [`Store::get_assist_config`] opens it back. A row written
+/// before 26.20 holds `api_key` in the clear; it still reads, and
+/// [`Store::reseal_assist_config`] rewrites it sealed.
+#[derive(Clone, PartialEq, Eq)]
 pub struct AssistConfigRow {
     pub scope: String,
     pub adapters_json: String,
@@ -87,7 +94,117 @@ pub struct AssistConfigRow {
     pub enabled: bool,
 }
 
+// `Debug` by hand: the adapter JSON carries the API key in the clear, and a
+// `{row:?}` in a log line must not publish it.
+impl std::fmt::Debug for AssistConfigRow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AssistConfigRow")
+            .field("scope", &self.scope)
+            .field("adapters_json", &"<redacted>")
+            .field("capability_grants_json", &self.capability_grants_json)
+            .field("data_ceilings_json", &self.data_ceilings_json)
+            .field("enabled", &self.enabled)
+            .finish()
+    }
+}
+
+/// The adapter field that holds the endpoint credential, and the field its sealed
+/// form is stored under.
+const ADAPTER_API_KEY: &str = "api_key";
+const ADAPTER_API_KEY_SEALED: &str = "api_key_sealed";
+
+/// The adapter objects in a stored `adapters` value: the value itself when it is an
+/// object, or each object of a list (0008 names the column `adapters`).
+fn adapter_objects(
+    value: &mut serde_json::Value,
+) -> Vec<&mut serde_json::Map<String, serde_json::Value>> {
+    match value {
+        serde_json::Value::Object(map) => vec![map],
+        serde_json::Value::Array(items) => items
+            .iter_mut()
+            .filter_map(serde_json::Value::as_object_mut)
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn hex_decode(text: &str) -> Option<Vec<u8>> {
+    if !text.len().is_multiple_of(2) || !text.is_ascii() {
+        return None;
+    }
+    (0..text.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).ok())
+        .collect()
+}
+
 impl Store {
+    /// `adapters_json` as it is stored: every non-empty `api_key` sealed. A value
+    /// with no key to seal (or that is not JSON) is stored as given.
+    fn seal_adapters(&self, adapters_json: &str) -> Result<String, StoreError> {
+        let Ok(mut value) = serde_json::from_str::<serde_json::Value>(adapters_json) else {
+            return Ok(adapters_json.to_string());
+        };
+        let mut changed = false;
+        for adapter in adapter_objects(&mut value) {
+            let Some(serde_json::Value::String(key)) = adapter.get(ADAPTER_API_KEY) else {
+                continue;
+            };
+            if key.is_empty() {
+                continue;
+            }
+            let sealed = hex_encode(&self.key.seal(key.as_bytes())?);
+            adapter.remove(ADAPTER_API_KEY);
+            adapter.insert(ADAPTER_API_KEY_SEALED.into(), sealed.into());
+            changed = true;
+        }
+        Ok(if changed {
+            value.to_string()
+        } else {
+            adapters_json.to_string()
+        })
+    }
+
+    /// A stored `adapters` value with every sealed key opened, and whether it held
+    /// a key in the clear (a row from before 26.20). A sealed key that does not
+    /// open under this server key is an error, not an empty key: the row was
+    /// written under another `MW_SERVER_KEY`, or has been altered.
+    fn open_adapters(&self, stored: &str) -> Result<(String, bool), StoreError> {
+        let Ok(mut value) = serde_json::from_str::<serde_json::Value>(stored) else {
+            return Ok((stored.to_string(), false));
+        };
+        let mut changed = false;
+        let mut legacy = false;
+        for adapter in adapter_objects(&mut value) {
+            if let Some(sealed) = adapter.remove(ADAPTER_API_KEY_SEALED) {
+                let bytes = sealed
+                    .as_str()
+                    .and_then(hex_decode)
+                    .ok_or(seal::SealError::Truncated)?;
+                let key = String::from_utf8(self.key.open(&bytes)?)
+                    .map_err(|_| seal::SealError::Decrypt)?;
+                adapter.insert(ADAPTER_API_KEY.into(), key.into());
+                changed = true;
+            } else if adapter
+                .get(ADAPTER_API_KEY)
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|k| !k.is_empty())
+            {
+                legacy = true;
+            }
+        }
+        let opened = if changed {
+            value.to_string()
+        } else {
+            stored.to_string()
+        };
+        Ok((opened, legacy))
+    }
+
     // ── directory_config ─────────────────────────────────────────────────────
 
     /// Read every directory endpoint, priority-ordered (lower = queried first).
@@ -362,7 +479,10 @@ impl Store {
 
     // ── assist_config + assist_audit ─────────────────────────────────────────
 
-    /// Read the Assist config for a scope (`'deployment'` or `'user:<account_id>'`).
+    /// Read the Assist config for a scope (`'deployment'` or `'user:<account_id>'`),
+    /// the adapter's API key opened. A key sealed under another server key is
+    /// [`StoreError::Seal`]. A key stored in the clear (before 26.20) is returned
+    /// as it is; [`reseal_assist_config`](Self::reseal_assist_config) seals it.
     pub async fn get_assist_config(
         &self,
         scope: &str,
@@ -374,17 +494,50 @@ impl Store {
         .bind(scope)
         .fetch_optional(&self.backend)
         .await?;
-        Ok(row.map(|r| AssistConfigRow {
+        let Some(r) = row else {
+            return Ok(None);
+        };
+        let (adapters_json, _legacy) = self.open_adapters(&r.get_string("adapters"))?;
+        Ok(Some(AssistConfigRow {
             scope: r.get_string("scope"),
-            adapters_json: r.get_string("adapters"),
+            adapters_json,
             capability_grants_json: r.get_string("capability_grants"),
             data_ceilings_json: r.get_string("data_ceilings"),
             enabled: r.get_i64("enabled") != 0,
         }))
     }
 
-    /// Upsert the Assist config for a scope.
+    /// Seal an API key a row from before 26.20 holds in the clear. Returns whether
+    /// the row was rewritten. The rewrite applies only if the column still holds
+    /// what was read, so a concurrent [`put_assist_config`](Self::put_assist_config)
+    /// is never overwritten with older data. `mw-server` calls this at start-up.
+    pub async fn reseal_assist_config(&self, scope: &str) -> Result<bool, StoreError> {
+        let row = q("SELECT adapters FROM assist_config WHERE scope = ?1")
+            .bind(scope)
+            .fetch_optional(&self.backend)
+            .await?;
+        let Some(r) = row else {
+            return Ok(false);
+        };
+        let stored = r.get_string("adapters");
+        let (opened, legacy) = self.open_adapters(&stored)?;
+        if !legacy {
+            return Ok(false);
+        }
+        let sealed = self.seal_adapters(&opened)?;
+        let done = q("UPDATE assist_config SET adapters = ?1 WHERE scope = ?2 AND adapters = ?3")
+            .bind(&sealed)
+            .bind(scope)
+            .bind(&stored)
+            .execute(&self.backend)
+            .await?;
+        Ok(done > 0)
+    }
+
+    /// Upsert the Assist config for a scope. The adapter's API key is stored sealed
+    /// (see [`AssistConfigRow`]).
     pub async fn put_assist_config(&self, row: &AssistConfigRow) -> Result<(), StoreError> {
+        let adapters = self.seal_adapters(&row.adapters_json)?;
         q(
             "INSERT INTO assist_config (scope, adapters, capability_grants, data_ceilings, enabled)
            VALUES (?1, ?2, ?3, ?4, ?5)
@@ -393,7 +546,7 @@ impl Store {
              data_ceilings = excluded.data_ceilings, enabled = excluded.enabled",
         )
         .bind(&row.scope)
-        .bind(&row.adapters_json)
+        .bind(&adapters)
         .bind(&row.capability_grants_json)
         .bind(&row.data_ceilings_json)
         .bind(i64::from(row.enabled))
@@ -655,5 +808,235 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(n, 1);
+    }
+
+    // ── t29-e14: the adapter API key is sealed at rest ──
+
+    const KEY: &str = "sk-t29e14-sealed-at-rest-0123456789";
+
+    fn keyed_row(adapters_json: String) -> AssistConfigRow {
+        AssistConfigRow {
+            scope: "deployment".into(),
+            adapters_json,
+            capability_grants_json: "[]".into(),
+            data_ceilings_json: "{}".into(),
+            enabled: true,
+        }
+    }
+
+    fn openai(key: &str) -> String {
+        serde_json::json!({
+            "kind": "open-ai-compatible",
+            "base_url": "https://llm.example/v1",
+            "api_key": key,
+        })
+        .to_string()
+    }
+
+    /// The `adapters` column exactly as it is on disk.
+    async fn raw_adapters(store: &Store) -> String {
+        q("SELECT adapters FROM assist_config WHERE scope = 'deployment'")
+            .fetch_optional(store.backend())
+            .await
+            .unwrap()
+            .unwrap()
+            .get_string("adapters")
+    }
+
+    fn temp_db() -> String {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir()
+            .join(format!("mw-store-assist-seal-{unique}.sqlite"))
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    #[tokio::test]
+    async fn the_assist_api_key_is_sealed_on_disk_and_opens_on_read() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        store
+            .put_assist_config(&keyed_row(openai(KEY)))
+            .await
+            .unwrap();
+        let raw = raw_adapters(&store).await;
+        assert!(!raw.contains(KEY), "no plaintext key on disk: {raw}");
+        assert!(!raw.contains("\"api_key\""), "{raw}");
+        assert!(raw.contains("api_key_sealed"), "{raw}");
+        assert!(
+            raw.contains("llm.example"),
+            "the rest stays readable: {raw}"
+        );
+        let got = store
+            .get_assist_config("deployment")
+            .await
+            .unwrap()
+            .unwrap();
+        let adapter: serde_json::Value = serde_json::from_str(&got.adapters_json).unwrap();
+        assert_eq!(adapter["api_key"], KEY);
+        assert!(adapter.get("api_key_sealed").is_none());
+        // Sealing uses a fresh nonce: the same key twice is two ciphertexts.
+        store
+            .put_assist_config(&keyed_row(openai(KEY)))
+            .await
+            .unwrap();
+        assert_ne!(raw_adapters(&store).await, raw);
+        // No key, and an empty key, are stored as given.
+        store
+            .put_assist_config(&keyed_row(openai("")))
+            .await
+            .unwrap();
+        assert_eq!(raw_adapters(&store).await, openai(""));
+        store
+            .put_assist_config(&keyed_row("null".into()))
+            .await
+            .unwrap();
+        assert_eq!(raw_adapters(&store).await, "null");
+        // The list form 0008 allows is sealed too.
+        let list = format!("[{}]", openai(KEY));
+        store.put_assist_config(&keyed_row(list)).await.unwrap();
+        assert!(!raw_adapters(&store).await.contains(KEY));
+        let got = store
+            .get_assist_config("deployment")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(got.adapters_json.contains(KEY));
+        // And `Debug` does not print the key.
+        assert!(!format!("{got:?}").contains(KEY));
+    }
+
+    #[tokio::test]
+    async fn a_plaintext_key_from_before_sealing_still_reads_and_is_resealed() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        q(
+            "INSERT INTO assist_config (scope, adapters, capability_grants, data_ceilings, enabled)
+           VALUES ('deployment', ?1, '[]', '{}', 1)",
+        )
+        .bind(openai(KEY))
+        .execute(store.backend())
+        .await
+        .unwrap();
+        assert!(
+            raw_adapters(&store).await.contains(KEY),
+            "precondition: legacy row"
+        );
+        let got = store
+            .get_assist_config("deployment")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(got.adapters_json.contains(KEY), "the legacy key is used");
+
+        assert!(store.reseal_assist_config("deployment").await.unwrap());
+        let raw = raw_adapters(&store).await;
+        assert!(!raw.contains(KEY), "rewritten sealed: {raw}");
+        let got = store
+            .get_assist_config("deployment")
+            .await
+            .unwrap()
+            .unwrap();
+        let adapter: serde_json::Value = serde_json::from_str(&got.adapters_json).unwrap();
+        assert_eq!(adapter["api_key"], KEY, "and still opens to the same key");
+        assert!(
+            !store.reseal_assist_config("deployment").await.unwrap(),
+            "a sealed row is left alone"
+        );
+        assert!(!store.reseal_assist_config("user:nobody").await.unwrap());
+    }
+
+    /// The same three properties on Postgres, where the `adapters` column is
+    /// `TEXT` too but the statements run through the other dialect. Env-gated like
+    /// the `v2.rs` legs.
+    #[tokio::test]
+    async fn postgres_assist_api_key_sealed_resealed_and_refused_under_another_key() {
+        let Some(dsn) = std::env::var("DATABASE_URL_PG")
+            .ok()
+            .or_else(|| std::env::var("MW_TEST_PG").ok())
+            .filter(|s| !s.trim().is_empty())
+        else {
+            mw_test_gate::skip(
+                "[mw-store] t29-e14 assist API key sealing: Postgres path (set \
+                 DATABASE_URL_PG or MW_TEST_PG to a live postgres:16 to run it). The \
+                 SQLite path still asserted.",
+            );
+            return;
+        };
+        let store = Store::open_postgres(&dsn, ServerKey::generate())
+            .await
+            .expect("DATABASE_URL_PG is set but Postgres is not reachable");
+        q("DELETE FROM assist_config WHERE scope = 'deployment'")
+            .execute(store.backend())
+            .await
+            .unwrap();
+        store
+            .put_assist_config(&keyed_row(openai(KEY)))
+            .await
+            .unwrap();
+        assert!(!raw_adapters(&store).await.contains(KEY));
+        let got = store
+            .get_assist_config("deployment")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(got.adapters_json.contains(KEY));
+
+        q("UPDATE assist_config SET adapters = ?1 WHERE scope = 'deployment'")
+            .bind(openai(KEY))
+            .execute(store.backend())
+            .await
+            .unwrap();
+        assert!(store.reseal_assist_config("deployment").await.unwrap());
+        assert!(!raw_adapters(&store).await.contains(KEY));
+        let got = store
+            .get_assist_config("deployment")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(got.adapters_json.contains(KEY));
+
+        let other = Store::open_postgres(&dsn, ServerKey::generate())
+            .await
+            .unwrap();
+        assert!(matches!(
+            other.get_assist_config("deployment").await,
+            Err(StoreError::Seal(_))
+        ));
+        q("DELETE FROM assist_config WHERE scope = 'deployment'")
+            .execute(store.backend())
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_key_sealed_under_another_server_key_is_an_error_not_an_empty_key() {
+        let path = temp_db();
+        let first = Store::open(&path, ServerKey::generate()).await.unwrap();
+        first
+            .put_assist_config(&keyed_row(openai(KEY)))
+            .await
+            .unwrap();
+        drop(first);
+        let other = Store::open(&path, ServerKey::generate()).await.unwrap();
+        assert!(matches!(
+            other.get_assist_config("deployment").await,
+            Err(StoreError::Seal(_))
+        ));
+        assert!(matches!(
+            other.reseal_assist_config("deployment").await,
+            Err(StoreError::Seal(_))
+        ));
+        // A sealed field that is not even hex is refused the same way.
+        q("UPDATE assist_config SET adapters = ?1")
+            .bind(r#"{"kind":"anthropic","api_key_sealed":"zz"}"#)
+            .execute(other.backend())
+            .await
+            .unwrap();
+        assert!(matches!(
+            other.get_assist_config("deployment").await,
+            Err(StoreError::Seal(_))
+        ));
     }
 }

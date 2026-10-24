@@ -1010,7 +1010,25 @@ const STOPPED_LOCAL_PROGRAM_NOT_ALLOWED: &str = "local-program-not-allowed";
 /// `MW_ASSIST_LOCAL_PROGRAMS` is not started: the gateway is built without an
 /// adapter, so it reports `Disabled` too, and the admin status says why.
 pub(crate) async fn build_assist(store: &Store) -> (AssistHandle, Vec<AssistCapability>) {
-    let row = store.get_assist_config("deployment").await.ok().flatten();
+    // A row from before 26.20 holds the API key in the clear: seal it now, so an
+    // existing installation upgrades without anyone re-entering the key.
+    match store.reseal_assist_config("deployment").await {
+        Ok(true) => tracing::info!("sealed the stored AI assistant API key with the server key"),
+        Ok(false) => {}
+        Err(e) => tracing::warn!("the stored AI assistant API key was not resealed: {e}"),
+    }
+    let row = match store.get_assist_config("deployment").await {
+        Ok(row) => row,
+        Err(e) => {
+            // Not `.ok()`: a key that does not open must not read as "no key".
+            tracing::error!(
+                "the AI assistant is off: {}",
+                assist_read_failure(&e)
+                    .unwrap_or_else(|| format!("its configuration did not load: {e}"))
+            );
+            None
+        }
+    };
     let mut config = stored_assist_config(row.as_ref());
     config.rate_limit_per_min = assist_rate_limit();
     // What was stored, before a refused adapter is taken out: the admin status
@@ -3651,8 +3669,34 @@ async fn read_assist_config(state: &AppState) -> Result<AssistConfig, Response> 
         Ok(row) => Ok(stored_assist_config(row.as_ref())),
         Err(e) => {
             tracing::error!("assist config read failed: {e}");
-            Err((StatusCode::INTERNAL_SERVER_ERROR, "store error").into_response())
+            Err(assist_read_error(&e))
         }
+    }
+}
+
+/// The `code` of the `500` for a stored configuration whose API key does not open.
+const ASSIST_CONFIG_UNREADABLE: &str = "config-unreadable";
+
+/// What to tell an administrator when the stored configuration's sealed API key
+/// does not open, or `None` for any other read failure.
+fn assist_read_failure(e: &mw_store::StoreError) -> Option<String> {
+    matches!(e, mw_store::StoreError::Seal(_)).then(|| {
+        "the stored AI assistant API key does not open with this server's key \
+         (MW_SERVER_KEY): it was saved under another key or has been altered. Save the \
+         configuration again, with its API key, to replace it"
+            .to_string()
+    })
+}
+
+/// The response for a failed read of the stored configuration.
+fn assist_read_error(e: &mw_store::StoreError) -> Response {
+    match assist_read_failure(e) {
+        Some(message) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": message, "code": ASSIST_CONFIG_UNREADABLE })),
+        )
+            .into_response(),
+        None => (StatusCode::INTERNAL_SERVER_ERROR, "store error").into_response(),
     }
 }
 
@@ -3718,9 +3762,16 @@ async fn assist_admin_put(
     };
     let config = match body {
         Ok(Json(req)) => {
-            let stored = match read_assist_config(&state).await {
-                Ok(c) => c,
-                Err(resp) => return resp,
+            // The stored configuration supplies a key the request leaves out. One
+            // whose key does not open has nothing to supply, and saving over it is
+            // how an administrator recovers, so it does not block the write.
+            let stored = match state.store.get_assist_config("deployment").await {
+                Ok(row) => stored_assist_config(row.as_ref()),
+                Err(e) if assist_read_failure(&e).is_some() => AssistConfig::default(),
+                Err(e) => {
+                    tracing::error!("assist config read failed: {e}");
+                    return assist_read_error(&e);
+                }
             };
             match req.into_config(&stored) {
                 Ok(c) => c,

@@ -54,9 +54,14 @@ fn fresh_dir() -> PathBuf {
 /// same `dir` is a restart as far as the Assist gateway is concerned: the gateway
 /// is built once per boot, from the stored row.
 async fn boot(dir: &std::path::Path, upstreams: Vec<String>) -> String {
+    boot_with_key(dir, upstreams, KEY_HEX).await
+}
+
+/// [`boot`] under a given `MW_SERVER_KEY`.
+async fn boot_with_key(dir: &std::path::Path, upstreams: Vec<String>, key_hex: &str) -> String {
     let config = AppConfig {
         db_path: dir.join("mw.db").to_string_lossy().into_owned(),
-        server_key_hex: Some(KEY_HEX.to_string()),
+        server_key_hex: Some(key_hex.to_string()),
         web_dir: Some(dir.join("web")),
         cookie_secure: false,
         mode: ServerMode::Proxy,
@@ -161,8 +166,23 @@ fn as_read_back(config: &Value) -> Value {
     out
 }
 
-/// The stored `assist_config.adapters` column, read straight from the database.
+/// The stored adapter as the server reads it (the API key opened), through the
+/// store under the server key.
 async fn stored_adapter(dir: &std::path::Path) -> Value {
+    let key = mw_store::ServerKey::from_hex(KEY_HEX).unwrap();
+    let store = mw_store::Store::open(&dir.join("mw.db").to_string_lossy(), key)
+        .await
+        .unwrap();
+    let row = store
+        .get_assist_config("deployment")
+        .await
+        .unwrap()
+        .unwrap();
+    serde_json::from_str(&row.adapters_json).unwrap()
+}
+
+/// The `assist_config.adapters` column exactly as it is on disk.
+async fn raw_adapters(dir: &std::path::Path) -> String {
     let options = sqlx::sqlite::SqliteConnectOptions::new().filename(dir.join("mw.db"));
     let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
     let row: (String,) =
@@ -171,7 +191,19 @@ async fn stored_adapter(dir: &std::path::Path) -> Value {
             .await
             .unwrap();
     pool.close().await;
-    serde_json::from_str(&row.0).unwrap()
+    row.0
+}
+
+/// Overwrite the `adapters` column on disk, as a server before 26.20 wrote it.
+async fn write_raw_adapters(dir: &std::path::Path, adapters: &str) {
+    let options = sqlx::sqlite::SqliteConnectOptions::new().filename(dir.join("mw.db"));
+    let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+    sqlx::query("UPDATE assist_config SET adapters = ?1 WHERE scope = 'deployment'")
+        .bind(adapters)
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
 }
 
 /// A configuration that sets every key to something other than its default.
@@ -735,4 +767,121 @@ async fn the_api_key_goes_in_and_never_comes_back_out() {
     let mut bad = bare.clone();
     bad["adapter"]["apiKey"] = json!(5);
     assert_eq!(put_config(&admin, &base, &bad).await.status(), 400);
+}
+
+// ── 4. the API key is sealed at rest ─────────────────────────────────────────
+
+/// A loopback OpenAI-compatible transcription endpoint that answers with the
+/// `Authorization` header it received, so the test sees which key the gateway sent.
+async fn spawn_echo_endpoint() -> String {
+    let app = axum::Router::new().route(
+        "/v1/audio/transcriptions",
+        axum::routing::post(|headers: axum::http::HeaderMap| async move {
+            let auth = headers
+                .get(axum::http::header::AUTHORIZATION)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .to_string();
+            axum::Json(json!({ "text": auth }))
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    format!("http://{addr}/v1")
+}
+
+#[tokio::test]
+async fn the_api_key_is_sealed_at_rest_and_a_plaintext_row_is_resealed_at_start() {
+    const SECRET: &str = "sk-t29e14-sealed-0123456789";
+    const LEGACY: &str = "sk-t29e14-legacy-plaintext-9876";
+    let endpoint = spawn_echo_endpoint().await;
+    let mock = spawn_mock_jmap().await;
+    let dir = fresh_dir();
+    let mut config = full_config(&endpoint);
+    config["adapter"]["apiKey"] = json!(SECRET);
+    config["dataCeilings"]["accounts"] = json!([]);
+
+    // A PUT stores the key sealed: the row on disk holds no plaintext key.
+    let base = boot(&dir, vec![mock.clone()]).await;
+    let a = admin(&base).await;
+    assert_eq!(put_config(&a, &base, &config).await.status(), 200);
+    let raw = raw_adapters(&dir).await;
+    assert!(!raw.contains(SECRET), "no plaintext key on disk: {raw}");
+    assert!(!raw.contains("sk-t29e14"), "{raw}");
+    assert_eq!(stored_adapter(&dir).await["api_key"], json!(SECRET));
+
+    // A row as a server before 26.20 wrote it: the key in the clear.
+    let mut legacy: Value = stored_adapter(&dir).await;
+    legacy["api_key"] = json!(LEGACY);
+    write_raw_adapters(&dir, &legacy.to_string()).await;
+    assert!(
+        raw_adapters(&dir).await.contains(LEGACY),
+        "precondition: plaintext row"
+    );
+
+    // Start-up seals it, and the gateway uses the key it held.
+    let base = boot(&dir, vec![mock.clone()]).await;
+    let raw = raw_adapters(&dir).await;
+    assert!(!raw.contains(LEGACY), "resealed at start: {raw}");
+    assert!(raw.contains("api_key_sealed"), "{raw}");
+    let a = admin(&base).await;
+    assert_eq!(
+        get_config(&a, &base).await["adapter"]["hasApiKey"],
+        json!(true)
+    );
+    let user = browser();
+    let login = user
+        .post(format!("{base}/api/login"))
+        .json(&json!({ "jmapUrl": mock, "username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(login.status(), 200, "mailbox login");
+    let heard = transcribe(&user, &base).await;
+    assert_eq!(heard.status(), 200);
+    assert_eq!(
+        heard.json::<Value>().await.unwrap()["text"],
+        json!(format!("Bearer {LEGACY}")),
+        "the endpoint received the key the legacy row held"
+    );
+
+    // Under another server key the sealed key does not open: a clear error, and
+    // the AI assistant is off, not running with an empty key.
+    let other = "0".repeat(64);
+    let base = boot_with_key(&dir, vec![mock.clone()], &other).await;
+    let a = admin(&base).await;
+    for path in ["/admin/assist", "/admin/assist/status"] {
+        let r = a.get(format!("{base}{path}")).send().await.unwrap();
+        assert_eq!(r.status(), 500, "{path}");
+        let body: Value = r.json().await.unwrap();
+        assert_eq!(body["code"], json!("config-unreadable"), "{path}: {body}");
+        assert!(
+            body["error"].as_str().unwrap().contains("MW_SERVER_KEY"),
+            "{body}"
+        );
+    }
+    let user = browser();
+    let login = user
+        .post(format!("{base}/api/login"))
+        .json(&json!({ "jmapUrl": mock, "username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(login.status(), 200, "mailbox login under the other key");
+    assert_eq!(
+        user_config(&user, &base).await["availability"],
+        json!("disabled")
+    );
+    assert_eq!(transcribe(&user, &base).await.status(), 404);
+    // Saving again, with the key, replaces it: the recovery path.
+    let mut again = config.clone();
+    again["adapter"]["apiKey"] = json!("sk-re-entered");
+    assert_eq!(put_config(&a, &base, &again).await.status(), 200);
+    assert_eq!(
+        get_config(&a, &base).await["adapter"]["hasApiKey"],
+        json!(true)
+    );
 }
