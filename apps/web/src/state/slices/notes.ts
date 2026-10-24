@@ -16,6 +16,10 @@ import { t } from '../../i18n';
 import type { SliceContext } from './context.ts';
 import { LocalWrites, keepUnchanged, sameValue } from './localWrites.ts';
 
+// A save asks the transport to finish even if the page closes or reloads
+// right after it starts (t32-h11); see `jmap` in `api/client.ts`.
+const SAVE = { keepalive: true } as const;
+
 /** The default notebook every account has until multi-notebook lands (e8). */
 export const DEFAULT_NOTEBOOK_ID = 'default';
 
@@ -288,7 +292,7 @@ export function createNotesSlice(ctx: SliceContext): NotesSlice {
     const { id: _omitId, createdAt: _omitCreated, ...create } = draft;
     let created: Partial<Note> | undefined;
     try {
-      const res = await client.jmap(noteSet(acct, { create: { [creationId]: create } }));
+      const res = await client.jmap(noteSet(acct, { create: { [creationId]: create } }), SAVE);
       created = responseFor<NoteSetResponse>(res, 's').created?.[creationId] ?? undefined;
     } catch (err) {
       ctx.showToast('error', t('notes-create-failed'));
@@ -315,7 +319,7 @@ export function createNotesSlice(ctx: SliceContext): NotesSlice {
     setNotes(notes().map((n) => (n.id === id ? { ...n, ...full } : n)));
     const answered = writes.begin(id, 'update', full);
     try {
-      await client.jmap(noteSet(acct, { update: { [id]: full } }));
+      await client.jmap(noteSet(acct, { update: { [id]: full } }), SAVE);
     } finally {
       answered();
     }
@@ -328,7 +332,7 @@ export function createNotesSlice(ctx: SliceContext): NotesSlice {
     setNotes(notes().filter((n) => n.id !== id));
     const answered = writes.begin(id, 'destroy');
     try {
-      await client.jmap(noteSet(acct, { destroy: [id] }));
+      await client.jmap(noteSet(acct, { destroy: [id] }), SAVE);
     } finally {
       answered();
     }

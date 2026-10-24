@@ -183,8 +183,14 @@ export interface Client {
    *
    * An aborted call rejects with the abort reason — NOT a {@link NetworkError} —
    * so it does not register as an offline transition. See `req`.
+   *
+   * `opts.keepalive` asks the browser to finish the request even if the page is
+   * closed or reloaded meanwhile (a save started just before). Browsers allow
+   * {@link KEEPALIVE_BUDGET} bytes of keepalive bodies in flight and reject a
+   * fetch over it, so a body that does not fit in what is left is sent as an
+   * ordinary request.
    */
-  jmap(body: JmapRequest, opts?: { signal?: AbortSignal }): Promise<JmapResponse>;
+  jmap(body: JmapRequest, opts?: { signal?: AbortSignal; keepalive?: boolean }): Promise<JmapResponse>;
   sanitize(html: string): Promise<string>;
   onNetwork(listener: NetworkListener): () => void;
   /**
@@ -204,6 +210,14 @@ export interface Client {
    */
   onUnauthenticated?(listener: UnauthenticatedListener): () => void;
 }
+
+/**
+ * The bytes of keepalive request bodies this module lets the page have in
+ * flight at once: the Fetch standard's 64 KiB per page, less a margin for other
+ * keepalive senders. The count is per page, so it is shared by every client.
+ */
+export const KEEPALIVE_BUDGET = 60 * 1024;
+let keepaliveInFlight = 0;
 
 /**
  * Build an API client. `base` defaults to the sub-path prefix (t20 B4) — `''` at
@@ -340,14 +354,23 @@ export function createClient(base: ClientBase = basePath(), auth?: ClientAuth): 
       });
     },
     jmap(body, opts) {
+      const text = JSON.stringify(body);
+      const size = new TextEncoder().encode(text).length;
+      const keepalive = opts?.keepalive === true && keepaliveInFlight + size <= KEEPALIVE_BUDGET;
+      if (keepalive) keepaliveInFlight += size;
       return guarded(async () => {
-        const res = await req(`/jmap/api`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(body),
-          ...(opts?.signal !== undefined ? { signal: opts.signal } : {}),
-        });
-        return jsonOrGate<JmapResponse>(res);
+        try {
+          const res = await req(`/jmap/api`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: text,
+            ...(opts?.signal !== undefined ? { signal: opts.signal } : {}),
+            ...(keepalive ? { keepalive: true } : {}),
+          });
+          return await jsonOrGate<JmapResponse>(res);
+        } finally {
+          if (keepalive) keepaliveInFlight -= size;
+        }
       });
     },
     sanitize(html) {

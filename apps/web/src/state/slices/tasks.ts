@@ -26,6 +26,10 @@ import {
 import type { SliceContext } from './context.ts';
 import { LocalWrites, keepUnchanged } from './localWrites.ts';
 
+// A save asks the transport to finish even if the page closes or reloads
+// right after it starts (t32-h11); see `jmap` in `api/client.ts`.
+const SAVE = { keepalive: true } as const;
+
 export type { TaskList } from '../../modules/tasks/api.ts';
 
 /** The fields a task editor supplies on create/edit (a subset of `Task`). */
@@ -249,7 +253,7 @@ export function createTasksSlice(ctx: SliceContext): TasksSlice {
   async function doCreate(create: TaskCreate): Promise<Id | null> {
     const acct = await resolveAccount();
     if (acct === null) return null;
-    const res = await client.jmap(taskSet(acct, { create: { new: create } }));
+    const res = await client.jmap(taskSet(acct, { create: { new: create } }), SAVE);
     const id = createResultId(res);
     ctx.broadcastChange?.();
     // Reflect the create locally so the UI updates without a full reload; the
@@ -292,7 +296,7 @@ export function createTasksSlice(ctx: SliceContext): TasksSlice {
     patchTask(id, patch);
     const answered = writes.begin(id, 'update', patch);
     try {
-      await client.jmap(taskSet(acct, { update: { [id]: { ...patch } } }));
+      await client.jmap(taskSet(acct, { update: { [id]: { ...patch } } }), SAVE);
     } finally {
       answered();
     }
@@ -328,7 +332,7 @@ export function createTasksSlice(ctx: SliceContext): TasksSlice {
       setMyDayOrder((o) => o.filter((x) => x !== id));
     });
     try {
-      await client.jmap(taskSet(acct, { destroy: [id] }));
+      await client.jmap(taskSet(acct, { destroy: [id] }), SAVE);
     } finally {
       for (const done of answered) done();
     }
