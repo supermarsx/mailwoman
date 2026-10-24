@@ -811,7 +811,7 @@ async fn the_floor_and_capture_policy_set_in_the_panel_reach_signed_in_clients()
     let body: Value = r.json().await.unwrap();
     assert_eq!(
         body,
-        json!({ "maxSecurityFloor": null, "capturePolicy": "off" })
+        json!({ "maxSecurityFloor": null, "capturePolicy": "off", "openTracking": false })
     );
 
     let (c, _) = admin(&s).await;
@@ -824,7 +824,7 @@ async fn the_floor_and_capture_policy_set_in_the_panel_reach_signed_in_clients()
     let body: Value = user.get(&url).send().await.unwrap().json().await.unwrap();
     assert_eq!(
         body,
-        json!({ "maxSecurityFloor": "plain-text", "capturePolicy": "protect" })
+        json!({ "maxSecurityFloor": "plain-text", "capturePolicy": "protect", "openTracking": false })
     );
 }
 
