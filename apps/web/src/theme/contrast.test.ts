@@ -37,7 +37,7 @@ import {
   type ContrastLevel,
   type ContrastResult,
 } from './contrast.ts';
-import { ACCENT_PRESETS, BRAND_SLOTS, THEMES } from './tokens.ts';
+import { BRAND_SLOTS, THEMES } from './tokens.ts';
 import { themeCssVars } from './themeCssVars.ts';
 import { bodyFrameDoc } from '../viewers/sandbox.ts';
 
@@ -97,13 +97,15 @@ describe('WCAG maths — independent cross-check', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('the requirement table itself', () => {
-  it('measures all 13 built-in themes', () => {
+  it('measures all 18 built-in themes', () => {
     // Guards against a pack being added to the token table but never reaching
     // the registry — the matrix below iterates the registry, so a theme missing
     // from it would be silently unmeasured rather than failing.
-    expect(THEME_LIST).toHaveLength(13);
-    expect(THEME_LIST.filter((e) => e.appearance === 'light')).toHaveLength(6);
-    expect(THEME_LIST.filter((e) => e.appearance === 'dark')).toHaveLength(7);
+    // 13 packs before t32 V, plus Black, Paper, Blueprint, Terminal and
+    // Primary blocks.
+    expect(THEME_LIST).toHaveLength(18);
+    expect(THEME_LIST.filter((e) => e.appearance === 'light')).toHaveLength(8);
+    expect(THEME_LIST.filter((e) => e.appearance === 'dark')).toHaveLength(10);
   });
 
   it('covers every surface × foreground combination it claims to', () => {
@@ -249,6 +251,14 @@ describe('t32 token additions', () => {
     expect(worstScrimRatio('papayawhip', '#ffffff')).toBe(0);
   });
 
+  const OWN_SIGNAL: Partial<Record<ThemeEntry['id'], string>> = {
+    'bauhaus-black': '#ffd000',
+    paper: '#d8a227',
+    blueprint: '#ffd84d',
+    terminal: '#ffb000',
+    primary: '#ffd100',
+  };
+
   it('puts the brand slots in front of each pack value', () => {
     for (const entry of THEME_LIST) {
       const c = entry.tokens.color;
@@ -258,7 +268,8 @@ describe('t32 token additions', () => {
       expect(c.signalText).toContain(`var(${BRAND_SLOTS.signalText},`);
       // Measured on the pack's own value, not on the wrapper.
       expect(entry.palette.danger).toMatch(/^#[0-9a-f]{6}$/);
-      expect(entry.palette.signal).toBe('#f5c400');
+      // Bauhaus yellow, except the Bauhaus packs, which name their own marker.
+      expect(entry.palette.signal).toBe(OWN_SIGNAL[entry.id] ?? '#f5c400');
     }
   });
 
@@ -287,90 +298,11 @@ describe('t32 token additions', () => {
   });
 });
 
-describe('accent overrides', () => {
-  // `ACCENT_PRESETS` is offered in Settings and lands as an inline `--mw-accent`
-  // that REPLACES the theme's own accent — so a preset is painted on every
-  // theme's surfaces, in combinations no single theme palette describes. The
-  // per-theme matrix above measures the pack's OWN accent and cannot see this.
-  const presets = ACCENT_PRESETS.filter((p) => p.value !== '');
-
-  it('offers only measurable opaque colours', () => {
-    expect(presets.length).toBeGreaterThan(0);
-    for (const p of presets) expect(parseColor(p.value), p.label).not.toBeNull();
-  });
-
-  /** Every (theme, preset, surface) triple where the preset misses 3:1. */
-  function surfaceShortfalls(): string[] {
-    const out: string[] = [];
-    for (const entry of THEME_LIST) {
-      for (const preset of presets) {
-        for (const bg of ['bg', 'bgAlt', 'bgSink', 'surface'] as const) {
-          const ratio = contrastRatio(preset.value, entry.palette[bg]);
-          if (ratio < 3) out.push(`${entry.id}/${preset.label}/${bg}=${ratio.toFixed(2)}`);
-        }
-      }
-    }
-    return out;
-  }
-
-  /** Every (theme, preset) pair where the filled-control label misses 4.5:1. */
-  function labelShortfalls(): string[] {
-    const out: string[] = [];
-    for (const entry of THEME_LIST) {
-      for (const preset of presets) {
-        const ratio = contrastRatio(entry.palette.accentText, preset.value);
-        if (ratio < 4.5) out.push(`${entry.id}/${preset.label}=${ratio.toFixed(2)}`);
-      }
-    }
-    return out;
-  }
-
-  // ── KNOWN GAP ───────────────────────────────────────────────────────────
-  // The accent override is not contrast-checked against anything. Every pack's
-  // OWN accent clears its tiers (the matrix above proves it), but a preset
-  // replaces that accent wholesale and is then painted on surfaces its own
-  // palette never described, and labelled with an `accentText` chosen for a
-  // different colour. Both halves below are the SAME defect.
-  //
-  // Not fixed here: `ACCENT_PRESETS` lives in `tokens.ts`, outside this lane's
-  // locks. The fix is per-appearance preset values, or a contrast-aware clamp
-  // where the override is applied — a token/UI change, not a test change.
-  // Recording the exact failing SETS makes the gap reviewable, and turns this
-  // red if a later palette edit widens it.
-
-  it('KNOWN GAP: every preset misses 3:1 on at least one theme surface', () => {
-    const shortfalls = surfaceShortfalls();
-    const offenders = [...new Set(shortfalls.map((s) => s.split('/')[1]))].sort();
-    expect(offenders).toEqual(presets.map((p) => p.label).sort());
-    // 38 since the t32 palettes (40 before).
-    expect(shortfalls).toHaveLength(38);
-    // Out of 13 themes × 6 presets × 4 surfaces = 312 combinations, so ~13%.
-    expect(shortfalls.length / (THEME_LIST.length * presets.length * 4)).toBeLessThan(0.15);
-  });
-
-  it('KNOWN GAP: the filled-control label misses 4.5:1 under most presets', () => {
-    const shortfalls = labelShortfalls();
-    expect(shortfalls).toHaveLength(40);
-    // Dark packs put dark ink on a bright accent and light packs the reverse,
-    // so a preset that suits one appearance fails the other. Both appearances
-    // are affected — this is not a dark-pack-only problem.
-    const affected = new Set(
-      shortfalls.map((s) => THEME_LIST.find((e) => e.id === s.split('/')[0])?.appearance),
-    );
-    expect(affected).toEqual(new Set(['light', 'dark']));
-  });
-
-  it('holds both recorded shortfalls to a near miss, never an invisible control', () => {
-    // The gap is a tuning shortfall, not a disappearance: even the worst case
-    // stays clearly visible. A combination landing near 1:1 would be an outright
-    // defect rather than a WCAG miss, so THAT boundary is enforced even while
-    // the 3:1 / 4.5:1 floors are only recorded.
-    for (const s of [...surfaceShortfalls(), ...labelShortfalls()]) {
-      const ratio = Number(s.split('=')[1]);
-      expect(ratio, s).toBeGreaterThan(2.2);
-    }
-  });
-});
+// The user's accent used to be a free colour (`ACCENT_PRESETS`) laid over every
+// pack unmeasured, and this file recorded the shortfalls as a KNOWN GAP. Since
+// t32 V the accent is one of ten named accents shaded per theme, and
+// `accents.test.ts` holds every theme × accent cell to the same pairs as the
+// packs themselves.
 
 // ─────────────────────────────────────────────────────────────────────────────
 

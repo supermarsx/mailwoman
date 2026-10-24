@@ -2,11 +2,11 @@
 //
 // `createThemeContract` fixes the CSS-custom-property NAMES here; each built-in
 // theme (e4) is a `createTheme` class that assigns these vars, so runtime
-// switching is just a `data-theme` attribute on `:root` (+ inline `--mw-accent`
-// and `data-density` overrides). Component authors (e7/e8) and theme authors
-// (e4) both reference `vars.*`; the SAME variables are injected into the
-// sanitized message iframe and the print stylesheet so mail + chrome theme
-// together. These names are FROZEN — changing one is a coordinator re-broadcast.
+// switching is just a `data-theme` attribute on `:root` (+ `data-accent`,
+// `data-density` and the inline `--mw-ui-font` overrides). Component authors
+// (e7/e8) and theme authors (e4) both reference `vars.*`; the SAME variables
+// are injected into the sanitized message iframe and the print stylesheet so
+// mail + chrome theme together. These names are FROZEN — changing one is a coordinator re-broadcast.
 //
 // zero-runtime: vanilla-extract compiles this to static CSS at build (via the
 // vite plugin, wired in vite.config.ts). No arbitrary CSS injection (§7.4).
@@ -155,7 +155,13 @@ export type ThemeName =
   | 'ocean-light'
   | 'ocean-dark'
   | 'plum-light'
-  | 'plum-dark';
+  | 'plum-dark'
+  // t32 V: the five Bauhaus packs.
+  | 'bauhaus-black'
+  | 'paper'
+  | 'blueprint'
+  | 'terminal'
+  | 'primary';
 
 /** The frozen `data-density` values (plan §2.3). */
 export type Density = 'compact' | 'cozy' | 'relaxed';

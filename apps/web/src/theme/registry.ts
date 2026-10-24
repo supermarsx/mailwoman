@@ -24,7 +24,10 @@ import {
   type ThemeMeta,
   type ThemeTokens,
 } from './tokens.ts';
+import { ACCENTS, type AccentDef, type AccentId, type AccentShade } from './accentMath.ts';
+import { ACCENT_SHADES } from './accents.ts';
 export type { Appearance, ThemeFamily } from './tokens.ts';
+export type { AccentDef, AccentId, AccentShade } from './accentMath.ts';
 
 /** A theme's colour palette with every value resolved to a concrete colour. */
 export type ResolvedPalette = ThemeTokens['color'];
@@ -66,19 +69,25 @@ function resolvePalette(color: ThemeTokens['color']): ResolvedPalette {
 }
 
 /**
- * Counterparts for packs that do not ship both appearances. A pack with a
- * light and a dark variant finds its sibling by family; these fill the gap.
+ * Counterparts the family rule cannot find or would pick badly. A pack with
+ * one light and one dark variant finds its sibling by family; these come first.
  */
-const COUNTERPART_FALLBACK: Partial<Record<ThemeName, ThemeName>> = {
+const COUNTERPARTS: Partial<Record<ThemeName, ThemeName>> = {
   // AMOLED is dark-only: its light counterpart is the neutral light theme.
   amoled: 'light',
+  // The Bauhaus family has two light and three dark packs; pair them by look.
+  'bauhaus-black': 'primary',
+  primary: 'bauhaus-black',
+  paper: 'blueprint',
+  blueprint: 'paper',
+  terminal: 'paper',
 };
 
 function siblingOf(meta: ThemeMeta): ThemeName {
   const sibling = THEME_META.find(
     (m) => m.family === meta.family && m.appearance !== meta.appearance,
   );
-  return sibling?.id ?? COUNTERPART_FALLBACK[meta.id] ?? (meta.appearance === 'dark' ? 'light' : 'dark');
+  return COUNTERPARTS[meta.id] ?? sibling?.id ?? (meta.appearance === 'dark' ? 'light' : 'dark');
 }
 
 function entryOf(meta: ThemeMeta): ThemeEntry {
@@ -131,6 +140,7 @@ export interface ThemeFamilyGroup {
 
 const FAMILY_LABELS: Record<ThemeFamily, string> = {
   core: 'Default',
+  bauhaus: 'Bauhaus',
   slate: 'Slate',
   ocean: 'Ocean',
   plum: 'Plum',
@@ -163,3 +173,23 @@ export function variantFor(id: ThemeName, appearance: Appearance): ThemeName {
 /** Defaults for the `system`/`schedule` light+dark pair. */
 export const DEFAULT_LIGHT_THEME: ThemeName = 'light';
 export const DEFAULT_DARK_THEME: ThemeName = 'dark';
+
+// ── Accents (t32 V) ──────────────────────────────────────────────────────────
+
+/** The ten named accents in picker order. */
+export const ACCENT_LIST: readonly AccentDef[] = ACCENTS;
+
+/** Label of the choice that keeps each pack's own accent. */
+export const THEME_DEFAULT_ACCENT_LABEL = 'Theme default';
+
+/**
+ * What `data-accent="<id>"` paints on `theme`: that theme's shade of the
+ * accent and the ink on it. `''` gives the pack's own accent.
+ */
+export function accentShade(theme: ThemeName, id: AccentId | ''): AccentShade {
+  if (id === '') {
+    const p = THEME_REGISTRY[theme].palette;
+    return { accent: p.accent, accentText: p.accentText };
+  }
+  return ACCENT_SHADES[theme][id];
+}

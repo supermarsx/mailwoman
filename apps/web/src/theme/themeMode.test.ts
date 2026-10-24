@@ -137,7 +137,7 @@ describe('theme mode tri-state', () => {
     installMatchMedia(false);
     const untouched = makeSlice();
     untouched.setDensity('compact');
-    untouched.setAccent('#be123c');
+    untouched.setAccentId('red');
     untouched.setUiFont('mono');
     untouched.setLayout('ribbon');
     untouched.setRibbonCollapsed(true);

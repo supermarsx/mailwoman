@@ -237,7 +237,8 @@ describe('appearance preferences', () => {
     expect(p).toMatchObject({ mode: 'fixed', theme: 'dark', chosen: false });
     // Fields that are not the theme decision survive.
     expect(p.density).toBe('compact');
-    expect(p.accent).toBe('#be123c');
+    // The old colour accent is carried over to the nearest named accent.
+    expect(p.accentId).toBe('red');
   });
 
   it('keeps an old system-mode payload whose pair the user changed', () => {
@@ -329,7 +330,7 @@ describe('appearance preferences', () => {
     expect(p.lightTheme).toBe('ocean-light');
     expect(p.density).toBe('cozy');
     expect(p.schedule).toEqual({ darkStart: '20:00', darkEnd: '06:30' });
-    expect(p.accent).toBe('');
+    expect(p.accentId).toBe('');
     expect(p.font).toBe('default');
     expect(p.layout).toBe('ribbon');
     expect(p.ribbonCollapsed).toBe(false);

@@ -15,31 +15,17 @@
 import { createGlobalTheme, globalStyle } from '@vanilla-extract/css';
 import { vars, type ThemeName } from './contract.css.ts';
 import { THEMES, type ThemeTokens } from './tokens.ts';
+import { ACCENT_IDS } from './accentMath.ts';
+import { ACCENT_SHADES } from './accents.ts';
+import { LEGACY_COLOR_PROPERTIES } from './publicTokens.ts';
 
 /** Legacy `app.css` custom properties, mapped from a theme palette. */
 function legacyVars(c: ThemeTokens['color']): Record<string, string> {
-  return {
-    '--bg': c.bg,
-    '--bg-alt': c.bgAlt,
-    '--bg-sink': c.bgSink,
-    '--surface': c.surface,
-    '--border': c.border,
-    '--text': c.text,
-    '--text-dim': c.textDim,
-    '--accent': c.accent,
-    '--accent-text': c.accentText,
-    '--danger': c.danger,
-    '--success': c.success,
-    '--warning': c.warning,
-    '--link': c.link,
-    '--selection': c.selection,
-    '--border-strong': c.borderStrong,
-    '--signal': c.signal,
-    '--signal-text': c.signalText,
-    '--focus': c.focus,
-    '--scrim': c.scrim,
-    '--scrim-text': c.scrimText,
-  };
+  const out: Record<string, string> = {};
+  for (const key of Object.keys(LEGACY_COLOR_PROPERTIES) as (keyof ThemeTokens['color'])[]) {
+    out[LEGACY_COLOR_PROPERTIES[key]] = c[key];
+  }
+  return out;
 }
 
 // Default (pre-JS / no data-theme): bind the contract and the legacy bridge to
@@ -82,6 +68,39 @@ globalStyle(':root', {
   const selector = `:root[data-theme="${name}"]`;
   createGlobalTheme(selector, vars, THEMES[name]);
   globalStyle(selector, { vars: legacyVars(THEMES[name].color) });
+});
+
+// ── Named accents (t32 V) ────────────────────────────────────────────────────
+// One rule per theme × accent, from the generated `accents.ts`: the slice sets
+// `data-accent="<id>"` on :root and this rule swaps in that theme's shade of
+// the accent and the ink drawn on it. Packs whose focus outline is the accent
+// (high contrast and the coloured packs) move the outline with it. The legacy
+// bridge names are set too, because `app.css` reads those, not the contract.
+// An attribute rule, not an inline property, so the shade can differ per theme
+// and a theme switch needs no script.
+(Object.keys(ACCENT_SHADES) as ThemeName[]).forEach((name) => {
+  const pack = THEMES[name].color;
+  const focusIsAccent = pack.focus === pack.accent;
+  for (const id of ACCENT_IDS) {
+    const { accent, accentText } = ACCENT_SHADES[name][id];
+    const focus = focusIsAccent
+      ? {
+          [vars.color.focus]: accent,
+          [vars.a11y.focusRingColor]: accent,
+          [vars.a11y.focusRing]: `0 0 0 2px ${pack.bg}, 0 0 0 5px ${accent}`,
+          [LEGACY_COLOR_PROPERTIES.focus]: accent,
+        }
+      : {};
+    globalStyle(`:root[data-theme="${name}"][data-accent="${id}"]`, {
+      vars: {
+        [vars.color.accent]: accent,
+        [vars.color.accentText]: accentText,
+        [LEGACY_COLOR_PROPERTIES.accent]: accent,
+        [LEGACY_COLOR_PROPERTIES.accentText]: accentText,
+        ...focus,
+      },
+    });
+  }
 });
 
 // ── Density (plan §2.3 `data-density`) ───────────────────────────────────────

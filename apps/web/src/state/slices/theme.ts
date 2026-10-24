@@ -6,7 +6,11 @@
 //   • `data-theme`      — the resolved concrete pack (never `system`/`schedule`)
 //   • `data-density`    — row height / base font size
 //   • `data-appearance` + `color-scheme` — light or dark, for UA-painted widgets
-//   • `--mw-accent` / `--mw-ui-font` — inline overrides on top of any pack
+//   • `data-accent`     — the named accent; `themes.css.ts` has one rule per
+//                         theme × accent with that theme's shade (an attribute,
+//                         not an inline `--mw-accent`, because an inline
+//                         property would beat those rules)
+//   • `--mw-ui-font`    — inline override on top of any pack
 //
 // TRI-STATE: `themeMode` is `fixed` | `system` | `schedule`.
 //   • `system` subscribes to `prefers-color-scheme` and re-resolves LIVE, so a
@@ -50,6 +54,7 @@ import {
   type UiFont,
 } from '../../theme/appearance.ts';
 import { themeEntry, type Appearance } from '../../theme/registry.ts';
+import type { AccentId } from '../../theme/accentMath.ts';
 import {
   prefersDarkScheme,
   syncRootAppearance,
@@ -78,7 +83,8 @@ export interface ThemeSlice {
   /** The local dark-window used by `schedule` mode. */
   schedule: Accessor<ThemeSchedule>;
   density: Accessor<Density>;
-  accent: Accessor<string>;
+  /** The named accent, or `''` for the pack's own. */
+  accentId: Accessor<AccentId | ''>;
   uiFont: Accessor<UiFont>;
   layout: Accessor<LayoutMode>;
   ribbonCollapsed: Accessor<boolean>;
@@ -99,7 +105,7 @@ export interface ThemeSlice {
   setDarkTheme(t: ThemeName): void;
   setSchedule(s: ThemeSchedule): void;
   setDensity(d: Density): void;
-  setAccent(hex: string): void;
+  setAccentId(id: AccentId | ''): void;
   setUiFont(f: UiFont): void;
   setLayout(l: LayoutMode): void;
   setRibbonCollapsed(v: boolean): void;
@@ -141,8 +147,8 @@ function apply(p: AppearancePrefs, resolved: ThemeName, appearance: Appearance):
   root.setAttribute('data-theme', resolved);
   root.setAttribute('data-density', p.density);
   syncRootAppearance(appearance);
-  if (p.accent !== '') root.style.setProperty('--mw-accent', p.accent);
-  else root.style.removeProperty('--mw-accent');
+  if (p.accentId !== '') root.setAttribute('data-accent', p.accentId);
+  else root.removeAttribute('data-accent');
   const stack = FONT_STACKS[p.font];
   if (stack !== null) root.style.setProperty('--mw-ui-font', stack);
   else root.style.removeProperty('--mw-ui-font');
@@ -159,7 +165,7 @@ export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
   const [darkTheme, setDarkSig] = createSignal<ThemeName>(initial.darkTheme);
   const [schedule, setScheduleSig] = createSignal<ThemeSchedule>(initial.schedule);
   const [density, setDensitySig] = createSignal<Density>(initial.density);
-  const [accent, setAccentSig] = createSignal(initial.accent);
+  const [accentId, setAccentIdSig] = createSignal<AccentId | ''>(initial.accentId);
   const [uiFont, setUiFontSig] = createSignal<UiFont>(initial.font);
   const [layout, setLayoutSig] = createSignal<LayoutMode>(initial.layout);
   const [ribbonCollapsed, setRibbonCollapsedSig] = createSignal(initial.ribbonCollapsed);
@@ -180,7 +186,7 @@ export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
       darkTheme: darkTheme(),
       schedule: schedule(),
       density: density(),
-      accent: accent(),
+      accentId: accentId(),
       font: uiFont(),
       layout: layout(),
       ribbonCollapsed: ribbonCollapsed(),
@@ -243,7 +249,7 @@ export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
     darkTheme,
     schedule,
     density,
-    accent,
+    accentId,
     uiFont,
     layout,
     ribbonCollapsed,
@@ -281,8 +287,8 @@ export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
       setDensitySig(d);
       persist();
     },
-    setAccent(hex) {
-      setAccentSig(hex);
+    setAccentId(id) {
+      setAccentIdSig(id);
       persist();
     },
     setUiFont(f) {
@@ -310,7 +316,7 @@ export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
       setDarkSig(merged.darkTheme);
       setScheduleSig(merged.schedule);
       setDensitySig(merged.density);
-      setAccentSig(merged.accent);
+      setAccentIdSig(merged.accentId);
       setUiFontSig(merged.font);
       setLayoutSig(merged.layout);
       setRibbonCollapsedSig(merged.ribbonCollapsed);

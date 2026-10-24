@@ -23,6 +23,7 @@ import {
   variantFor,
   type Appearance,
 } from './registry.ts';
+import { isAccentId, nearestAccentId, type AccentId } from './accentMath.ts';
 
 /**
  * How the active theme is chosen.
@@ -71,8 +72,13 @@ export interface AppearancePrefs {
   darkTheme: ThemeName;
   schedule: ThemeSchedule;
   density: Density;
-  /** Inline accent override; empty string = the pack's own accent. */
-  accent: string;
+  /**
+   * One of the named accents (`accentMath.ts`), shaded per theme; empty string
+   * = the pack's own accent. Replaces `accent`, the CSS colour that builds
+   * before t32 V stored; `parseAppearancePrefs` carries that over to the
+   * nearest named accent.
+   */
+  accentId: AccentId | '';
   font: UiFont;
   layout: LayoutMode;
   ribbonCollapsed: boolean;
@@ -101,7 +107,7 @@ export function defaultAppearance(): AppearancePrefs {
     darkTheme: DEFAULT_DARK_THEME,
     schedule: DEFAULT_SCHEDULE,
     density: 'cozy',
-    accent: '',
+    accentId: '',
     font: 'default',
     layout: 'default',
     ribbonCollapsed: false,
@@ -261,7 +267,7 @@ export function parseAppearancePrefs(input: unknown): AppearancePrefs {
   const rest = {
     schedule: scheduleOf(p.schedule, base.schedule),
     density: DENSITY_VALUES.includes(p.density as Density) ? (p.density as Density) : base.density,
-    accent: typeof p.accent === 'string' ? p.accent : base.accent,
+    accentId: accentIdOf(p),
     font: typeof p.font === 'string' && p.font in FONT_STACKS ? (p.font as UiFont) : base.font,
     layout: p.layout === 'ribbon' ? ('ribbon' as const) : ('default' as const),
     ribbonCollapsed: p.ribbonCollapsed === true,
@@ -272,6 +278,20 @@ export function parseAppearancePrefs(input: unknown): AppearancePrefs {
     return { mode: m, theme: t, lightTheme: l, darkTheme: d, ...rest, chosen: false };
   }
   return { mode, theme, lightTheme, darkTheme, ...rest, chosen: true };
+}
+
+/**
+ * The accent of a payload: a valid `accentId` as stored (`''` included, the
+ * pack default); otherwise the `accent` colour that builds before t32 V stored,
+ * mapped to the named accent nearest in hue (Graphite for a grey); otherwise
+ * the pack default.
+ */
+function accentIdOf(p: Partial<AppearancePrefs> & { accent?: unknown }): AccentId | '' {
+  if (p.accentId === '' || isAccentId(p.accentId)) return p.accentId;
+  if (typeof p.accent === 'string' && p.accent.trim() !== '') {
+    return nearestAccentId(p.accent.trim()) ?? '';
+  }
+  return '';
 }
 
 /**
@@ -302,12 +322,16 @@ function inferChosen(mode: ThemeMode, lightTheme: ThemeName, darkTheme: ThemeNam
  */
 export function mergeAppearancePrefs(
   current: AppearancePrefs,
-  next: Partial<AppearancePrefs>,
+  next: Partial<AppearancePrefs> & { accent?: unknown },
 ): AppearancePrefs {
   const merged: Partial<AppearancePrefs> = { ...current, ...next };
   if (typeof next.chosen !== 'boolean' && THEME_FIELDS.some((k) => k in next)) {
     delete merged.chosen;
   }
+  // The same for the accent: a payload from a build before t32 V carries the
+  // old `accent` colour and no `accentId`, and its accent wins over this
+  // device's.
+  if (!('accentId' in next) && 'accent' in next) delete merged.accentId;
   return parseAppearancePrefs(merged);
 }
 

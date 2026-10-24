@@ -14,7 +14,7 @@ describe('theme slice', () => {
     localStorage.clear();
     root().removeAttribute('data-theme');
     root().removeAttribute('data-density');
-    root().style.removeProperty('--mw-accent');
+    root().removeAttribute('data-accent');
     root().style.removeProperty('--mw-ui-font');
   });
 
@@ -35,12 +35,14 @@ describe('theme slice', () => {
     expect(stored.theme).toBe('grove-dark');
   });
 
-  it('setAccent sets an inline --mw-accent override and clears it when empty', () => {
+  it('setAccentId sets data-accent and removes it for the pack default', () => {
     const s = createThemeSlice(ctx);
-    s.setAccent('#6d8a4e');
-    expect(root().style.getPropertyValue('--mw-accent')).toBe('#6d8a4e');
-    s.setAccent('');
+    s.setAccentId('green');
+    expect(root().getAttribute('data-accent')).toBe('green');
+    // The shade comes from the per-theme rule, so no inline override is written.
     expect(root().style.getPropertyValue('--mw-accent')).toBe('');
+    s.setAccentId('');
+    expect(root().hasAttribute('data-accent')).toBe(false);
   });
 
   it('setUiFont sets/removes the --mw-ui-font override', () => {

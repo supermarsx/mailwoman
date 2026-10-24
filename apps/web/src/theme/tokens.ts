@@ -64,10 +64,14 @@ export interface ThemeTokens {
 type Palette = ThemeTokens['color'];
 
 /**
- * What each pack declares by hand. `signal`, `signalText`, `scrim` and
- * `scrimText` follow one rule for every pack and are filled in by `themeOf`.
+ * What each pack declares by hand. `scrim` and `scrimText` follow one rule for
+ * every pack and are filled in by `themeOf`; so are `signal` and `signalText`
+ * (Bauhaus yellow on near-black ink) unless the pack names its own.
  */
-type PackPalette = Omit<Palette, 'signal' | 'signalText' | 'scrim' | 'scrimText'>;
+type PackPalette = Omit<Palette, 'signal' | 'signalText' | 'scrim' | 'scrimText'> & {
+  signal?: string;
+  signalText?: string;
+};
 
 // ── Structural tokens (identical across every theme) ─────────────────────────
 const space: ThemeTokens['space'] = {
@@ -468,6 +472,123 @@ const plumDark: PackPalette = {
   focus: accent('#b28ce0'),
 };
 
+// ── The Bauhaus packs (t32 V) ────────────────────────────────────────────────
+// Five packs on the same structural tokens as the rest: square corners, hard
+// rules, Jost. Their `focus` is a fixed colour, not the accent.
+
+// Black: a pure black page, white text and controls, saturated primaries.
+const bauhausBlack: PackPalette = {
+  bg: '#000000',
+  bgAlt: '#0d0d0d',
+  bgSink: '#000000',
+  surface: '#141414',
+  border: '#5c5c5c',
+  borderStrong: '#ffffff',
+  text: '#ffffff',
+  textDim: '#c4c4c4',
+  accent: accent('#3d7bff'),
+  accentText: '#000000',
+  danger: brand('danger', '#ff3b30'),
+  success: '#2fd36b',
+  warning: '#ffd000',
+  link: '#80b0ff',
+  selection: '#0035c8',
+  focus: '#ffd000',
+  signal: '#ffd000',
+  signalText: '#000000',
+};
+
+// Paper: a warm off-white page, near-black ink, muted red, blue and ochre.
+const paper: PackPalette = {
+  bg: '#efe8d8',
+  bgAlt: '#e7dfcc',
+  bgSink: '#ded5c0',
+  surface: '#f6f1e6',
+  border: '#b3a88f',
+  borderStrong: '#141210',
+  text: '#141210',
+  textDim: '#4c4536',
+  accent: accent('#2b4a86'),
+  accentText: '#ffffff',
+  danger: brand('danger', '#9b2c20'),
+  success: '#2f5b29',
+  warning: '#6f4d08',
+  link: '#2b4a86',
+  selection: '#e6cb75',
+  focus: '#141210',
+  signal: '#d8a227',
+  signalText: '#141210',
+};
+
+// Blueprint: a deep blue page with white text and lines, cyan actions and
+// yellow markers.
+const blueprint: PackPalette = {
+  bg: '#0b2a5b',
+  bgAlt: '#0f3268',
+  bgSink: '#08224b',
+  surface: '#123a74',
+  border: '#3e679f',
+  borderStrong: '#e6eeff',
+  text: '#ffffff',
+  textDim: '#c2d3ee',
+  accent: accent('#4fd6ff'),
+  accentText: '#061a3d',
+  danger: brand('danger', '#ff8f85'),
+  success: '#7fe3a3',
+  warning: '#ffd84d',
+  link: '#a2e6ff',
+  selection: '#1f57aa',
+  focus: '#ffd84d',
+  signal: '#ffd84d',
+  signalText: '#0b2a5b',
+};
+
+// Terminal: green text on a near-black page with amber markers. Colours only:
+// the UI face stays Jost, because a monospace face would widen every label.
+const terminal: PackPalette = {
+  bg: '#0c0f0c',
+  bgAlt: '#111611',
+  bgSink: '#070907',
+  surface: '#151b15',
+  border: '#2e4a2e',
+  borderStrong: '#6fbf6f',
+  text: '#9be59b',
+  textDim: '#72b072',
+  accent: accent('#4cff80'),
+  accentText: '#0c0f0c',
+  danger: brand('danger', '#ff6f5e'),
+  success: '#5cf08c',
+  warning: '#ffb000',
+  link: '#7fd8ff',
+  selection: '#1f4a1f',
+  focus: '#ffb000',
+  signal: '#ffb000',
+  signalText: '#0c0f0c',
+};
+
+// Primary blocks: a white page, black text, flat blue, red and yellow blocks
+// for actions, alerts, selection and markers.
+const primary: PackPalette = {
+  bg: '#ffffff',
+  bgAlt: '#f2f2f2',
+  bgSink: '#e8e8e8',
+  surface: '#ffffff',
+  border: '#9a9a9a',
+  borderStrong: '#000000',
+  text: '#000000',
+  textDim: '#3d3d3d',
+  accent: accent('#0038a8'),
+  accentText: '#ffffff',
+  danger: brand('danger', '#c41230'),
+  success: '#006b38',
+  warning: '#765000',
+  link: '#0038a8',
+  selection: '#ffd100',
+  focus: '#000000',
+  signal: '#ffd100',
+  signalText: '#000000',
+};
+
 // Shared a11y token values. Structural constants (touch target, motion
 // durations) are identical across themes; the focus ring is derived per theme
 // from its `focus` colour. `focusRingColor` + `focusRingWidth` drive the global
@@ -492,10 +613,11 @@ function themeOf(
   appearance: Appearance,
   texture: ThemeTokens['texture'],
 ): ThemeTokens {
+  const { signal: _signal, signalText: _signalText, ...own } = pack;
   const color: Palette = {
-    ...pack,
-    signal: brand('signal', SIGNAL),
-    signalText: brand('signalText', SIGNAL_TEXT),
+    ...own,
+    signal: brand('signal', pack.signal ?? SIGNAL),
+    signalText: brand('signalText', pack.signalText ?? SIGNAL_TEXT),
     scrim: scrimOf(pack.bg),
     scrimText: pack.text,
   };
@@ -533,6 +655,11 @@ export const THEMES: Record<ThemeName, ThemeTokens> = {
   'ocean-dark': themeOf(oceanDark, 'dark', NO_TEXTURE),
   'plum-light': themeOf(plumLight, 'light', NO_TEXTURE),
   'plum-dark': themeOf(plumDark, 'dark', NO_TEXTURE),
+  'bauhaus-black': themeOf(bauhausBlack, 'dark', NO_TEXTURE),
+  paper: themeOf(paper, 'light', NO_TEXTURE),
+  blueprint: themeOf(blueprint, 'dark', NO_TEXTURE),
+  terminal: themeOf(terminal, 'dark', NO_TEXTURE),
+  primary: themeOf(primary, 'light', NO_TEXTURE),
 };
 
 // ── Theme metadata (presentation layer) ──────────────────────────────────────
@@ -541,7 +668,15 @@ export const THEMES: Record<ThemeName, ThemeTokens> = {
 // `registry.ts` is what UI code should consume; this array is the raw ordering.
 
 /** A theme family — a pack that ships a light and/or dark variant. */
-export type ThemeFamily = 'core' | 'slate' | 'ocean' | 'plum' | 'grove' | 'amoled' | 'contrast';
+export type ThemeFamily =
+  | 'core'
+  | 'bauhaus'
+  | 'slate'
+  | 'ocean'
+  | 'plum'
+  | 'grove'
+  | 'amoled'
+  | 'contrast';
 
 /** Whether a pack paints a light or a dark page. */
 export type Appearance = 'light' | 'dark';
@@ -558,8 +693,8 @@ export interface ThemeMeta {
 
 /**
  * Every built-in theme in gallery order: the default pair first (Dark, the
- * default, before Light), then the coloured packs, then the special-purpose
- * ones (AMOLED, high contrast).
+ * default, before Light), then the Bauhaus packs, then the coloured packs, then
+ * the special-purpose ones (AMOLED, high contrast).
  */
 export const THEME_META: readonly ThemeMeta[] = [
   {
@@ -574,6 +709,41 @@ export const THEME_META: readonly ThemeMeta[] = [
     label: 'Light',
     description: 'Off-white page, black text, blue actions, red alerts, yellow markers.',
     family: 'core',
+    appearance: 'light',
+  },
+  {
+    id: 'bauhaus-black',
+    label: 'Black',
+    description: 'Black page, white text and controls, blue actions, red alerts, yellow markers.',
+    family: 'bauhaus',
+    appearance: 'dark',
+  },
+  {
+    id: 'paper',
+    label: 'Paper',
+    description: 'Warm off-white page, black ink, muted blue, red and ochre.',
+    family: 'bauhaus',
+    appearance: 'light',
+  },
+  {
+    id: 'blueprint',
+    label: 'Blueprint',
+    description: 'Deep blue page, white text and lines, cyan actions, yellow markers.',
+    family: 'bauhaus',
+    appearance: 'dark',
+  },
+  {
+    id: 'terminal',
+    label: 'Terminal',
+    description: 'Near-black page, green text, amber markers. Colours only; the font is unchanged.',
+    family: 'bauhaus',
+    appearance: 'dark',
+  },
+  {
+    id: 'primary',
+    label: 'Primary blocks',
+    description: 'White page, black text, flat blue, red and yellow blocks.',
+    family: 'bauhaus',
     appearance: 'light',
   },
   {
@@ -662,14 +832,3 @@ export const THEME_META: readonly ThemeMeta[] = [
 export const THEME_OPTIONS: ReadonlyArray<{ value: ThemeName; label: string }> = THEME_META.map(
   (m) => ({ value: m.id, label: m.label }),
 );
-
-/** Accent presets offered in Settings (empty string = the theme default). */
-export const ACCENT_PRESETS: ReadonlyArray<{ value: string; label: string }> = [
-  { value: '', label: 'Theme default' },
-  { value: '#2563eb', label: 'Blue' },
-  { value: '#7c3aed', label: 'Violet' },
-  { value: '#0d9488', label: 'Teal' },
-  { value: '#6d8a4e', label: 'Moss' },
-  { value: '#c2410c', label: 'Amber' },
-  { value: '#be123c', label: 'Rose' },
-];

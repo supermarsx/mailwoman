@@ -51,8 +51,8 @@ describe('Settings', () => {
 
   it('picking an accent swatch sets the override', () => {
     const { app } = renderSettings();
-    fireEvent.click(screen.getByRole('button', { name: 'Moss' }));
-    expect(app.accent()).toBe('#6d8a4e');
+    fireEvent.click(screen.getByRole('button', { name: 'Green' }));
+    expect(app.accentId()).toBe('green');
   });
 
   it('the close button and backdrop click both invoke onClose', () => {

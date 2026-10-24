@@ -308,11 +308,11 @@ describe('appearance sync — pushing changes', () => {
     await sync.start();
     f.saved.length = 0;
 
-    s.setAccent('#6d8a4e');
+    s.setAccentId('green');
     sync.stop();
     await sync.flush();
 
-    expect(f.saved.at(-1)?.accent).toBe('#6d8a4e');
+    expect(f.saved.at(-1)?.accentId).toBe('green');
   });
 
   it('a signed-out session is local-only, not an error, and changes nothing', async () => {

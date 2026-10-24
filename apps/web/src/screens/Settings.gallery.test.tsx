@@ -11,7 +11,7 @@ import { Settings } from './Settings.tsx';
 import { AppContext } from '../state/context.ts';
 import { createThemeSlice } from '../state/slices/theme.ts';
 import { stopAppearanceSync } from '../api/prefs.ts';
-import { THEME_LIST, themeEntry } from '../theme/registry.ts';
+import { ACCENT_LIST, THEME_LIST, accentShade, themeEntry } from '../theme/registry.ts';
 import type { SliceContext } from '../state/slices/context.ts';
 import type { AppState } from '../state/store.ts';
 
@@ -208,5 +208,122 @@ describe('appearance sync status', () => {
         screen.getByRole('button', { name: 'Forget the appearance saved for my account' }),
       ).toBeInTheDocument(),
     );
+  });
+});
+
+// ── t32 V: the Bauhaus packs and the named accents ───────────────────────────
+
+/** jsdom reports inline colours as `rgb(r, g, b)`. */
+function rgb(hex: string): string {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+function accentGroup(): HTMLElement {
+  return screen.getByRole('group', { name: 'Accent' });
+}
+
+describe('the Bauhaus packs', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    document.documentElement.removeAttribute('data-theme');
+    stopAppearanceSync();
+  });
+  afterEach(() => stopAppearanceSync());
+
+  it('are one group of five cards', async () => {
+    renderSettings();
+    await vi.waitFor(() => expect(card('Blueprint')).toBeInTheDocument());
+    const group = screen.getByRole('group', { name: 'Bauhaus' });
+    const names = within(group)
+      .getAllByRole('button')
+      .map((b) => b.getAttribute('aria-label'));
+    expect(names).toEqual(['Black', 'Paper', 'Blueprint', 'Terminal', 'Primary blocks']);
+  });
+
+  it('picking one applies it', async () => {
+    const { app } = renderSettings();
+    await vi.waitFor(() => expect(card('Terminal')).toBeInTheDocument());
+    fireEvent.click(card('Terminal'));
+    expect(app.theme()).toBe('terminal');
+    expect(document.documentElement.getAttribute('data-theme')).toBe('terminal');
+  });
+
+  it('cards carry no inline layout, only the preview colours', async () => {
+    renderSettings();
+    await vi.waitFor(() => expect(card('Paper')).toBeInTheDocument());
+    // A static style attribute is refused by the page's style-src CSP; the card
+    // geometry lives in picker.css.ts.
+    for (const entry of THEME_LIST) {
+      expect(card(entry.label).getAttribute('style'), entry.id).toBeNull();
+    }
+  });
+});
+
+describe('the accent picker', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    document.documentElement.removeAttribute('data-theme');
+    document.documentElement.removeAttribute('data-accent');
+    stopAppearanceSync();
+  });
+  afterEach(() => stopAppearanceSync());
+
+  it('offers the theme default and the ten named accents, default chosen', async () => {
+    renderSettings();
+    await vi.waitFor(() => expect(accentGroup()).toBeInTheDocument());
+    const buttons = within(accentGroup()).getAllByRole('button');
+    expect(buttons.map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual([
+      'Theme default',
+      ...ACCENT_LIST.map((a) => a.label),
+    ]);
+    expect(buttons.map((b) => b.getAttribute('aria-pressed'))).toEqual([
+      'true',
+      ...ACCENT_LIST.map(() => 'false'),
+    ]);
+  });
+
+  it('paints each swatch in the active theme shade of its accent', async () => {
+    const { app } = renderSettings();
+    await vi.waitFor(() => expect(accentGroup()).toBeInTheDocument());
+    const teal = within(accentGroup()).getByRole('button', { name: 'Teal' });
+    expect(teal.style.background).toBe(rgb(accentShade('dark', 'teal').accent));
+
+    // Another theme shades the same accent differently, and the row follows it.
+    app.setTheme('paper');
+    expect(accentShade('paper', 'teal').accent).not.toBe(accentShade('dark', 'teal').accent);
+    expect(teal.style.background).toBe(rgb(accentShade('paper', 'teal').accent));
+  });
+
+  it('picking an accent applies it to the page and marks it without colour alone', async () => {
+    const { app } = renderSettings();
+    await vi.waitFor(() => expect(accentGroup()).toBeInTheDocument());
+    const violet = within(accentGroup()).getByRole('button', { name: 'Violet' });
+    expect(violet.textContent).toBe('');
+
+    fireEvent.click(violet);
+    expect(app.accentId()).toBe('violet');
+    expect(document.documentElement.getAttribute('data-accent')).toBe('violet');
+    expect(violet).toHaveAttribute('aria-pressed', 'true');
+    // A check mark in the accent's ink, beside the ring.
+    expect(violet.textContent).toBe('✓');
+    expect(violet.style.color).toBe(rgb(accentShade('dark', 'violet').accentText));
+
+    fireEvent.click(within(accentGroup()).getByRole('button', { name: 'Theme default' }));
+    expect(app.accentId()).toBe('');
+    expect(document.documentElement.hasAttribute('data-accent')).toBe(false);
+    expect(violet.textContent).toBe('');
+  });
+
+  it('the card previews show the chosen accent as each pack shades it', async () => {
+    const { app } = renderSettings();
+    await vi.waitFor(() => expect(card('Primary blocks')).toBeInTheDocument());
+    const bar = (label: string): HTMLElement =>
+      card(label).querySelector('[aria-hidden="true"]')?.lastElementChild as HTMLElement;
+    expect(bar('Primary blocks').style.background).toBe(rgb(themeEntry('primary').palette.accent));
+
+    app.setAccentId('orange');
+    expect(bar('Primary blocks').style.background).toBe(rgb(accentShade('primary', 'orange').accent));
+    expect(bar('Black').style.background).toBe(rgb(accentShade('bauhaus-black', 'orange').accent));
   });
 });

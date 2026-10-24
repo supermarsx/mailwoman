@@ -40,9 +40,11 @@ import { AccountSettings } from './Settings/index.ts';
 import { createAclClient } from '../api/acl-types.ts';
 import { createConfiguredClient } from '../api/transport.ts';
 import { startAppearanceSync, type SyncStatus } from '../api/prefs.ts';
-import { ACCENT_PRESETS } from '../theme/tokens.ts';
 import {
+  ACCENT_LIST,
+  accentShade,
   isThemeName,
+  THEME_DEFAULT_ACCENT_LABEL,
   THEME_GROUPS,
   themesByAppearance,
   type ThemeEntry,
@@ -50,6 +52,7 @@ import {
 import { vars, type Density } from '../theme/contract.css.ts';
 import type { LayoutMode, ThemeMode, UiFont } from '../state/slices/theme.ts';
 import * as css from '../styles/settings.css.ts';
+import * as picker from '../theme/picker.css.ts';
 
 // Option labels are Fluent ids resolved through `t()` at render (reactive).
 const MODE_OPTIONS: ReadonlyArray<{ value: ThemeMode; label: string }> = [
@@ -147,36 +150,7 @@ export function Settings(props: SettingsProps): JSX.Element {
           </div>
         </div>
 
-        <div class={css.row}>
-          <span class={css.label} id="settings-accent">
-            {t('settings-accent')}
-          </span>
-          <div class={css.options} role="group" aria-labelledby="settings-accent">
-            <For each={ACCENT_PRESETS}>
-              {(o) =>
-                o.value === '' ? (
-                  <button
-                    type="button"
-                    class={css.option}
-                    aria-pressed={app.accent() === ''}
-                    onClick={() => app.setAccent('')}
-                  >
-                    {o.label}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    class={css.swatch}
-                    aria-label={o.label}
-                    aria-pressed={app.accent() === o.value}
-                    style={{ background: o.value }}
-                    onClick={() => app.setAccent(o.value)}
-                  />
-                )
-              }
-            </For>
-          </div>
-        </div>
+        <AccentPicker />
 
         <div class={css.row}>
           <span class={css.label} id="settings-font">
@@ -379,29 +353,18 @@ function ThemeGallery(): JSX.Element {
                   {(entry) => (
                     <button
                       type="button"
-                      class={css.option}
+                      class={`${css.option} ${picker.card}`}
                       // The accessible name is the pack name alone: the preview is
                       // decorative and the description/appearance are supporting
                       // detail, not part of what the control is called.
                       aria-label={entry.label}
                       aria-pressed={app.theme() === entry.id}
                       onClick={() => app.setTheme(entry.id)}
-                      style={{
-                        display: 'flex',
-                        'flex-direction': 'column',
-                        gap: '6px',
-                        'align-items': 'stretch',
-                        'text-align': 'start',
-                        width: '9.5rem',
-                        padding: '0.5rem',
-                      }}
                     >
                       <ThemePreview entry={entry} />
-                      <span style={{ 'font-weight': '600' }}>{entry.label}</span>
-                      <span style={{ 'font-size': '0.72rem', opacity: '0.85' }}>
-                        {entry.description}
-                      </span>
-                      <span style={{ 'font-size': '0.7rem', opacity: '0.7' }}>
+                      <span class={picker.cardName}>{entry.label}</span>
+                      <span class={picker.cardDescription}>{entry.description}</span>
+                      <span class={picker.cardMeta}>
                         {entry.appearance === 'dark' ? t('appearance-dark') : t('appearance-light')}
                         <Show when={app.theme() === entry.id}> · {t('appearance-active')}</Show>
                       </span>
@@ -418,54 +381,75 @@ function ThemeGallery(): JSX.Element {
 }
 
 /**
- * A miniature of the pack painted in its OWN colours — page, panel, text, accent
- * and border — so the gallery previews the theme rather than naming it. Purely
- * decorative (`aria-hidden`): every colour it shows is already stated by the
- * card's label and appearance line.
+ * A miniature of the pack painted in its OWN colours — page, panel, text, the
+ * chosen accent as that pack shades it, and the control border — so the gallery
+ * previews the theme rather than naming it. Purely decorative (`aria-hidden`):
+ * every colour it shows is already stated by the card's label and appearance
+ * line. Only the colours are inline; the shape is `picker.css.ts`.
  */
 function ThemePreview(props: { entry: ThemeEntry }): JSX.Element {
+  const app = useApp();
   const p = (): ThemeEntry['palette'] => props.entry.palette;
   return (
     <span
       aria-hidden="true"
-      style={{
-        display: 'block',
-        height: '3rem',
-        padding: '0.3rem',
-        'border-radius': '4px',
-        border: `1px solid ${p().border}`,
-        background: p().bg,
-      }}
+      class={picker.preview}
+      style={{ background: p().bg, 'border-color': p().borderStrong }}
     >
+      <span class={picker.previewPanel} style={{ background: p().surface }} />
+      <span class={picker.previewText} style={{ background: p().text }} />
       <span
-        style={{
-          display: 'block',
-          height: '0.85rem',
-          'border-radius': '2px',
-          background: p().surface,
-          'margin-bottom': '0.3rem',
-        }}
-      />
-      <span
-        style={{
-          display: 'block',
-          height: '0.35rem',
-          width: '70%',
-          'border-radius': '2px',
-          background: p().text,
-          'margin-bottom': '0.25rem',
-        }}
-      />
-      <span
-        style={{
-          display: 'block',
-          height: '0.35rem',
-          width: '35%',
-          'border-radius': '2px',
-          background: p().accent,
-        }}
+        class={picker.previewAccent}
+        style={{ background: accentShade(props.entry.id, app.accentId()).accent }}
       />
     </span>
+  );
+}
+
+/**
+ * The ten named accents plus the pack's own (t32 V). Each swatch is filled with
+ * the ACTIVE theme's shade of the accent, which is what picking it paints, so
+ * the row changes with the theme. The page itself is the preview: a pick
+ * applies at once through `data-accent`.
+ */
+function AccentPicker(): JSX.Element {
+  const app = useApp();
+  return (
+    <div class={css.row}>
+      <span class={css.label} id="settings-accent">
+        {t('settings-accent')}
+      </span>
+      <div class={css.options} role="group" aria-labelledby="settings-accent">
+        <button
+          type="button"
+          class={css.option}
+          aria-pressed={app.accentId() === ''}
+          onClick={() => app.setAccentId('')}
+        >
+          {THEME_DEFAULT_ACCENT_LABEL}
+        </button>
+        <For each={ACCENT_LIST}>
+          {(def) => {
+            const shade = () => accentShade(app.theme(), def.id);
+            return (
+              <button
+                type="button"
+                class={picker.swatch}
+                aria-label={def.label}
+                title={def.label}
+                aria-pressed={app.accentId() === def.id}
+                style={{ background: shade().accent, color: shade().accentText }}
+                onClick={() => app.setAccentId(def.id)}
+              >
+                <Show when={app.accentId() === def.id}>
+                  <span aria-hidden="true">✓</span>
+                </Show>
+              </button>
+            );
+          }}
+        </For>
+      </div>
+    </div>
   );
 }
 
