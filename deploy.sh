@@ -360,6 +360,11 @@ initialize() {
 MW_SERVER_KEY=$key
 MW_ADMIN_USER=admin
 MW_ADMIN_PASSWORD=$password
+# Optional: serve the admin console at a path of your own instead of /admin,
+# e.g. /ops-7f3k (then /admin answers 404). Fewer scans and drive-by sign-in
+# attempts; not a substitute for the admin password, two-factor sign-in or a
+# network restriction. See docs/deploy/README.md, "Moving the admin console".
+# MW_ADMIN_PATH=/admin
 MW_CSRF_STRICT=true
 RUST_LOG=info
 # Required for sign-in: the mail server every user signs in to. The sign-in form
