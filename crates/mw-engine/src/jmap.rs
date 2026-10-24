@@ -21,7 +21,7 @@ use crate::backend::{EngineError, Flag, MessageRef, RawMailboxRef, RawMessage, R
 use crate::change::{ChangeOp, ChangeType};
 use crate::engine::{Engine, IndexPatch};
 use crate::mapping::{
-    display_name, flag_delta, flags_from_json, flags_to_json, flags_to_keywords, keywords_to_flags,
+    flag_delta, flags_from_json, flags_to_json, flags_to_keywords, keywords_to_flags,
     role_sort_order,
 };
 use crate::query::{Comparator, EmailFilter};
@@ -34,6 +34,12 @@ use crate::search_index;
 // the `is_mail_ext_method` guard.
 #[path = "mail_ext/mod.rs"]
 pub(crate) mod mail_ext;
+
+// Folder management (26.20 t28-e17): `Mailbox/set`, the `Email/set` destroy
+// path and the session's mail account capability. A child of this module so it
+// reaches the private helpers below (`remove_local_email`, `move_email`, ...).
+#[path = "folders.rs"]
+mod folders;
 
 /// Build the JMAP [`Session`](mw_jmap::Session) resource for a connected account,
 /// advertising core + mail + submission and pointing every URL back at us.
@@ -158,7 +164,8 @@ impl Engine {
         implicit: &mut Option<Value>,
     ) -> Value {
         match name {
-            "Mailbox/get" => self.mailbox_get(account_id, args).await,
+            "Mailbox/get" => self.mailbox_get(account_id, rt, args).await,
+            "Mailbox/set" => self.mailbox_set(account_id, rt, args).await,
             "Mailbox/changes" => {
                 self.type_changes(account_id, ChangeType::Mailbox, args)
                     .await
@@ -275,10 +282,20 @@ impl Engine {
 
     // ---- Mailbox/get ----------------------------------------------------
 
-    async fn mailbox_get(&self, account_id: &str, args: &Value) -> Value {
+    async fn mailbox_get(&self, account_id: &str, rt: &AccountRuntime, args: &Value) -> Value {
         let mailboxes = match self.store().list_mailboxes(account_id).await {
             Ok(m) => m,
             Err(e) => return server_fail(&e),
+        };
+        // Hierarchy (26.20 t28-e17): `parentId` and the leaf `name` come from
+        // the server name and the server's delimiter. `isSubscribed` costs an
+        // upstream LSUB, so it is answered only when `properties` names it.
+        let tree = folders::Tree::new(&mailboxes, self.hierarchy_delimiter(rt).await);
+        let manages = self.manages_folders(account_id, rt);
+        let subscribed = if folders::wants_property(args, "isSubscribed") {
+            self.subscribed_names(rt).await
+        } else {
+            None
         };
         // Optional id filter (the web client usually omits it to list all).
         let wanted: Option<Vec<&str>> = args
@@ -294,17 +311,22 @@ impl Engine {
                 continue;
             }
             let role = m.role.as_deref();
-            list.push(json!({
+            let mut entry = json!({
                 "id": m.id,
-                "name": display_name(&m.name, role),
-                "parentId": m.parent_id,
+                "name": tree.name(m),
+                "parentId": tree.parent_id(m),
                 "role": role,
                 "sortOrder": role_sort_order(role),
                 "totalEmails": m.total,
                 "unreadEmails": m.unread,
                 "totalThreads": m.total,
                 "unreadThreads": m.unread,
-            }));
+                "myRights": folders::my_rights(m, manages),
+            });
+            if let Some(names) = &subscribed {
+                entry["isSubscribed"] = json!(names.contains(&m.name));
+            }
+            list.push(entry);
         }
         // Saved searches surface as virtual folders (role:null +
         // mailwomanSearchQuery). Querying one runs its stored filter (§2.1).
@@ -332,6 +354,7 @@ impl Engine {
                 "unreadEmails": 0,
                 "totalThreads": 0,
                 "unreadThreads": 0,
+                "myRights": folders::read_only_rights(),
                 "mailwomanSearchQuery": s.query_json,
             }));
         }
@@ -1186,6 +1209,18 @@ impl Engine {
         // (RFC 8620 §5.3), and a failed id contributes no patch — so the index
         // can never publish an update the store rejected.
         let mut patches: Vec<IndexPatch> = Vec::new();
+        // The ids `destroy` names (26.20 t28-e17, D-20). Read before the update
+        // loop so an id named by both is refused as `willDestroy` there.
+        let destroys: Vec<String> = args
+            .get("destroy")
+            .and_then(Value::as_array)
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
         // Mailbox rows resolved once per batch rather than once per id: 500 ids
         // in one folder used to mean 500 identical `get_mailbox` reads.
         let mut mailbox_names: HashMap<String, String> = HashMap::new();
@@ -1214,6 +1249,17 @@ impl Engine {
             }
 
             for (id, patch) in updates {
+                // RFC 8620 §5.3: an id this same call destroys is not updated.
+                if destroys.contains(id) {
+                    not_updated.insert(
+                        id.clone(),
+                        json!({
+                            "type": "willDestroy",
+                            "description": "this call also destroys the Email",
+                        }),
+                    );
+                    continue;
+                }
                 // A patch this method cannot apply in full fails the id, naming
                 // the properties (26.20 t28-e1). It used to be reported under
                 // `updated` with nothing written, which is how the web's
@@ -1221,6 +1267,26 @@ impl Engine {
                 if let Err(invalid) = check_update_patch(patch) {
                     not_updated.insert(id.clone(), invalid);
                     continue;
+                }
+                // The mailbox set the patch leaves the message in must be
+                // exactly one (26.20 t28-e17, t29 A4): this store keeps one
+                // mailbox per message.
+                if touches_mailboxes(patch) {
+                    let current = match rows.get(id) {
+                        Some(msg) => Some(msg.mailbox_id.clone()),
+                        None => self
+                            .store()
+                            .get_message(id)
+                            .await
+                            .ok()
+                            .map(|m| m.mailbox_id),
+                    };
+                    if let Some(current) = current
+                        && let Err(invalid) = check_mailbox_patch(patch, &current)
+                    {
+                        not_updated.insert(id.clone(), invalid);
+                        continue;
+                    }
                 }
                 match self
                     .update_email(
@@ -1312,6 +1378,14 @@ impl Engine {
             }
         }
 
+        // Destroy (26.20 t28-e17, D-20): the message leaves the mail server,
+        // not only the cache. It used to be ignored, with `destroyed: []`.
+        let (destroyed, not_destroyed) = if destroys.is_empty() {
+            (Vec::new(), Map::new())
+        } else {
+            self.destroy_emails(account_id, rt, &destroys).await
+        };
+
         let new_state = self
             .type_state(account_id, ChangeType::Email)
             .await
@@ -1322,13 +1396,16 @@ impl Engine {
             "newState": new_state,
             "created": created,
             "updated": updated,
-            "destroyed": []
+            "destroyed": destroyed
         });
         if !not_created.is_empty() {
             resp["notCreated"] = Value::Object(not_created);
         }
         if !not_updated.is_empty() {
             resp["notUpdated"] = Value::Object(not_updated);
+        }
+        if !not_destroyed.is_empty() {
+            resp["notDestroyed"] = Value::Object(not_destroyed);
         }
         resp
     }
@@ -2735,6 +2812,8 @@ impl Engine {
             .get_message(email_id)
             .await
             .map_err(EngineError::Store)?;
+        check_mailbox_patch(patch, &msg.mailbox_id)
+            .map_err(|e| EngineError::Protocol(e.to_string()))?;
         let (source_mailbox, uid, local) = (msg.mailbox_id.clone(), msg.uid, msg.uidvalidity == 0);
         let dest = match move_target(patch, &msg.mailbox_id) {
             Some(id) => Some(
@@ -2753,7 +2832,7 @@ impl Engine {
         // adjusted against the mailbox the message is in when they are written.
         let mut rest = patch.clone();
         if let Some(fields) = rest.as_object_mut() {
-            fields.remove("mailboxIds");
+            fields.retain(|k, _| k != "mailboxIds" && !k.starts_with("mailboxIds/"));
         }
         let mut index_patch = None;
         if rest.as_object().is_some_and(|fields| !fields.is_empty()) {
@@ -3814,10 +3893,13 @@ fn keyword_patch_paths(patch: &Value) -> Vec<(&str, bool)> {
 /// `Err` is the RFC 8620 §5.3 SetError for the id's `notUpdated` entry.
 ///
 /// The properties it applies are `keywords`, `keywords/<kw>`, `mailboxIds`,
-/// `pinned`, `snoozedUntil` and `followUpAt`. A patch naming anything else is
-/// `invalidProperties`, and so is a `keywords/<kw>` whose value is not `true`,
-/// `false` or `null`. A patch that names nothing is `invalidPatch`: there is
-/// no change to report as made.
+/// `mailboxIds/<id>`, `pinned`, `snoozedUntil` and `followUpAt`. A patch
+/// naming anything else is `invalidProperties`, and so is a `keywords/<kw>`
+/// whose value is not `true`, `false` or `null`, a `mailboxIds/<id>` whose
+/// value is not `true` or `null` (RFC 8621 §4.1.1), and a `mailboxIds` that is
+/// not an object. A patch that names nothing is `invalidPatch`: there is no
+/// change to report as made. How many mailboxes the result names is checked
+/// against the message's current mailbox by [`check_mailbox_patch`].
 fn check_update_patch(patch: &Value) -> std::result::Result<(), Value> {
     let Some(obj) = patch.as_object().filter(|o| !o.is_empty()) else {
         return Err(json!({
@@ -3827,12 +3909,18 @@ fn check_update_patch(patch: &Value) -> std::result::Result<(), Value> {
     };
     let invalid: Vec<&str> = obj
         .iter()
-        .filter(|(path, v)| match path.strip_prefix("keywords/") {
-            Some(keyword) => keyword.is_empty() || !(v.is_boolean() || v.is_null()),
-            None => !matches!(
-                path.as_str(),
-                "keywords" | "mailboxIds" | "pinned" | "snoozedUntil" | "followUpAt"
-            ),
+        .filter(|(path, v)| {
+            if let Some(keyword) = path.strip_prefix("keywords/") {
+                return keyword.is_empty() || !(v.is_boolean() || v.is_null());
+            }
+            if let Some(mailbox) = path.strip_prefix("mailboxIds/") {
+                return mailbox.is_empty() || !(v.as_bool() == Some(true) || v.is_null());
+            }
+            match path.as_str() {
+                "mailboxIds" => !v.is_object(),
+                "keywords" | "pinned" | "snoozedUntil" | "followUpAt" => false,
+                _ => true,
+            }
         })
         .map(|(path, _)| path.as_str())
         .collect();
@@ -3846,21 +3934,76 @@ fn check_update_patch(patch: &Value) -> std::result::Result<(), Value> {
     }))
 }
 
+/// Whether an `Email/set` update patch names `mailboxIds` at all, as the whole
+/// object or as `mailboxIds/<id>` paths.
+fn touches_mailboxes(patch: &Value) -> bool {
+    patch.as_object().is_some_and(|o| {
+        o.keys()
+            .any(|k| k == "mailboxIds" || k.starts_with("mailboxIds/"))
+    })
+}
+
+/// The mailboxes a message is in after `patch`, starting from
+/// `current_mailbox_id` (26.20 t28-e17, t29 A4), or `None` when the patch does
+/// not touch `mailboxIds`. A whole `mailboxIds` object replaces the set (its
+/// `true` entries); `mailboxIds/<id>` paths then add (`true`) or remove
+/// (`null`) one mailbox each, as RFC 8621 §4.1.1 patches do.
+fn patched_mailboxes(patch: &Value, current_mailbox_id: &str) -> Option<Vec<String>> {
+    if !touches_mailboxes(patch) {
+        return None;
+    }
+    let obj = patch.as_object()?;
+    let mut set: Vec<String> = match obj.get("mailboxIds").and_then(Value::as_object) {
+        Some(whole) => whole
+            .iter()
+            .filter(|(_, v)| v.as_bool() == Some(true))
+            .map(|(k, _)| k.clone())
+            .collect(),
+        None => vec![current_mailbox_id.to_string()],
+    };
+    for (path, v) in obj {
+        let Some(mailbox) = path.strip_prefix("mailboxIds/") else {
+            continue;
+        };
+        set.retain(|m| m != mailbox);
+        if v.as_bool() == Some(true) {
+            set.push(mailbox.to_string());
+        }
+    }
+    Some(set)
+}
+
+/// The `notUpdated` SetError for a patch whose resulting mailbox set is not
+/// exactly one mailbox. A message here lives in one mailbox; adding a second
+/// or removing the only one cannot be stored, so it is refused rather than
+/// half-applied.
+fn check_mailbox_patch(patch: &Value, current_mailbox_id: &str) -> std::result::Result<(), Value> {
+    match patched_mailboxes(patch, current_mailbox_id) {
+        Some(set) if set.len() != 1 => Err(json!({
+            "type": "invalidProperties",
+            "properties": ["mailboxIds"],
+            "description": format!(
+                "this store keeps one mailbox per message; the patch would leave it in {}",
+                set.len()
+            ),
+        })),
+        _ => Ok(()),
+    }
+}
+
 /// The mailbox an `Email/set` update patch moves a message to, if it moves at
-/// all: the first `mailboxIds` entry set to `true` that is not where the message
-/// already is.
+/// all: the one mailbox [`patched_mailboxes`] leaves it in, when that is not
+/// where it already is. A patch naming zero or several mailboxes has been
+/// refused by [`check_mailbox_patch`] and moves nothing here.
 ///
 /// Extracted so the two places that need the answer cannot drift apart — the
 /// move itself, and the flag write, which must go through to the store *before*
 /// a move rather than into the batch (26.20 t22-e3s).
 fn move_target(patch: &Value, current_mailbox_id: &str) -> Option<String> {
-    patch
-        .get("mailboxIds")
-        .and_then(Value::as_object)?
-        .iter()
-        .find(|(_, v)| v.as_bool() == Some(true))
-        .map(|(k, _)| k.clone())
-        .filter(|target| target != current_mailbox_id)
+    match patched_mailboxes(patch, current_mailbox_id)?.as_slice() {
+        [target] if target != current_mailbox_id => Some(target.clone()),
+        _ => None,
+    }
 }
 
 /// Whether this patch relocates the message — see [`move_target`].
@@ -3868,14 +4011,32 @@ fn moves_mailbox(patch: &Value, current_mailbox_id: &str) -> bool {
     move_target(patch, current_mailbox_id).is_some()
 }
 
+/// What a client is told in place of an internal error's text.
+const SERVER_FAIL_TEXT: &str = "the server could not complete this request";
+
 /// A JMAP method-level `SetError` object for a failed create/update.
+///
+/// A store, transport or authentication failure is logged here and reaches
+/// the client only as [`SERVER_FAIL_TEXT`]: its text can carry database,
+/// file-system or upstream connection detail (26.20 t28-e17, t32-h10's engine
+/// item). The other variants describe the request itself (an unknown id, an
+/// unsupported operation, the mail server's refusal) and keep their text.
 fn set_error(e: &EngineError) -> Value {
-    json!({ "type": "serverFail", "description": e.to_string() })
+    let description = match e {
+        EngineError::Store(_) | EngineError::Transport(_) | EngineError::Auth(_) => {
+            tracing::warn!("JMAP set error: {e}");
+            SERVER_FAIL_TEXT.to_string()
+        }
+        _ => e.to_string(),
+    };
+    json!({ "type": "serverFail", "description": description })
 }
 
-/// A whole-method server failure result.
+/// A whole-method server failure result. The error is logged; the client gets
+/// [`SERVER_FAIL_TEXT`] (see [`set_error`]).
 fn server_fail(e: &dyn std::error::Error) -> Value {
-    json!({ "type": "serverFail", "description": e.to_string() })
+    tracing::warn!("JMAP method failed: {e}");
+    json!({ "type": "serverFail", "description": SERVER_FAIL_TEXT })
 }
 
 /// Swallow an `Unsupported` backend result (a POP3/local no-op) while

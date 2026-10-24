@@ -582,9 +582,9 @@ async fn an_update_the_engine_cannot_apply_is_not_reported_as_updated() {
             "unknown property",
         ),
         (
-            json!({ "mailboxIds/abc": true }),
+            json!({ "mailboxIds/abc": false }),
             "invalidProperties",
-            "mailboxIds patch path",
+            "mailboxIds patch path with a value other than true or null",
         ),
         (
             json!({ "keywords/$seen": "yes" }),
@@ -631,6 +631,90 @@ async fn an_update_the_engine_cannot_apply_is_not_reported_as_updated() {
     assert_updated(&first, &plain, "first mark-read");
     let again = set_update(&h, &plain, json!({ "keywords/$seen": true })).await;
     assert_updated(&again, &plain, "idempotent mark-read");
+}
+
+/// t29 A4 (26.20 t28-e17): `mailboxIds/<id>` patch paths. A patch whose result
+/// is exactly one mailbox is a move; one that leaves the message in zero or in
+/// two mailboxes is refused, because this store keeps one mailbox per message.
+#[tokio::test]
+async fn mailbox_patch_paths_move_when_they_name_one_mailbox() {
+    let h = setup().await;
+    let inbox = inbox(&h).await;
+    let [plain, other, _] = seeded_ids(&h, &inbox).await;
+    let mb = jmap(&h, json!([["Mailbox/get", {}, "mb"]])).await;
+    let archive = result(&mb, "mb")["list"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["role"] == "archive")
+        .expect("archive")["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        email(&h, &plain).await["mailboxIds"],
+        json!({ &inbox: true })
+    );
+
+    // Zero mailboxes (remove the only one) and two (add a second) are refused
+    // and move nothing.
+    let refused = [
+        json!({ format!("mailboxIds/{inbox}"): null }),
+        json!({ format!("mailboxIds/{archive}"): true }),
+        json!({ "mailboxIds": { &inbox: true, &archive: true } }),
+    ];
+    for patch in refused {
+        let set = set_update(&h, &plain, patch.clone()).await;
+        assert_not_updated(&set, &plain, "invalidProperties", &patch.to_string());
+        assert_eq!(
+            set["notUpdated"][&plain]["properties"],
+            json!(["mailboxIds"])
+        );
+        assert_eq!(
+            email(&h, &plain).await["mailboxIds"],
+            json!({ &inbox: true })
+        );
+    }
+
+    // Add the destination and remove the source: one mailbox, a move.
+    let set = set_update(
+        &h,
+        &plain,
+        json!({
+            format!("mailboxIds/{archive}"): true,
+            format!("mailboxIds/{inbox}"): null,
+        }),
+    )
+    .await;
+    assert_updated(&set, &plain, "add + remove");
+    assert_eq!(
+        email(&h, &plain).await["mailboxIds"],
+        json!({ &archive: true })
+    );
+
+    // Paths on top of a whole object: the object names the archive, the paths
+    // swap it for the inbox. (The recording backend answers every MOVE with
+    // the same uid, so this moves the same message back rather than a second
+    // one into the archive.)
+    let set = set_update(
+        &h,
+        &plain,
+        json!({
+            "mailboxIds": { &archive: true },
+            format!("mailboxIds/{archive}"): null,
+            format!("mailboxIds/{inbox}"): true,
+        }),
+    )
+    .await;
+    assert_updated(&set, &plain, "object + paths");
+    assert_eq!(
+        email(&h, &plain).await["mailboxIds"],
+        json!({ &inbox: true })
+    );
+    assert_eq!(
+        email(&h, &other).await["mailboxIds"],
+        json!({ &inbox: true })
+    );
 }
 
 // ---------------------------------------------------------------------------
