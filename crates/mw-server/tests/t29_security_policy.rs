@@ -938,6 +938,26 @@ async fn an_environment_pinned_minimum_tls_wins_and_the_panel_cannot_change_it()
     let body = change(&s, &c, json!({ "capturePolicy": "protect" })).await;
     assert_eq!(body["capturePolicy"], "protect");
     assert_eq!(body["minTls"], "1.3");
+
+    // The "Require two-factor" screen writes the same global rule: changing it is
+    // refused there too, naming the variable, while the pinned value and a
+    // per-domain rule are accepted.
+    let two_fa = |body: Value| {
+        let req = c.post(format!("{}/admin/2fa/policy", s.base)).json(&body);
+        async move { req.send().await.unwrap() }
+    };
+    let r = two_fa(json!({ "scopeKind": "global", "require2fa": false })).await;
+    assert_eq!(r.status(), 409, "the pinned global rule is not changed");
+    let err: Value = r.json().await.unwrap();
+    assert_eq!(err["variable"], "MW_ADMIN_REQUIRE_2FA", "{err}");
+    assert_eq!(get_policy(&s, &c).await["require2fa"], true);
+    let r = two_fa(json!({ "scopeKind": "global", "require2fa": true })).await;
+    assert_eq!(r.status(), 200, "writing the pinned value is accepted");
+    let r = two_fa(json!({
+        "scopeKind": "domain", "scopeValue": "example.org", "require2fa": false
+    }))
+    .await;
+    assert_eq!(r.status(), 200, "a per-domain rule is not pinned");
 }
 
 #[tokio::test]

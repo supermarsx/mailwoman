@@ -1292,6 +1292,11 @@ struct PolicyReq {
 
 /// `POST /admin/2fa/policy` — set (upsert) a require-2FA policy for the global or a
 /// per-domain scope (admin-gated, audited).
+///
+/// While `MW_ADMIN_REQUIRE_2FA` is set it pins the global rule (t29-e6,
+/// `mw_admin::EnvOverlay`): a write that would change the global rule answers 409
+/// naming the variable, as `PUT /admin/security-policy` does for `require2fa`.
+/// Writing the pinned value, and any per-domain rule, is accepted.
 async fn policy_set(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1304,6 +1309,22 @@ async fn policy_set(
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({ "error": "scopeKind must be \"global\" or \"domain\"" })),
+        )
+            .into_response();
+    }
+    if body.scope_kind == "global"
+        && let Some(pinned) = state.v6.admin.overlay().require_2fa
+        && pinned != body.require2fa
+    {
+        let var = mw_admin::EnvOverlay::REQUIRE_2FA_VAR;
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({
+                "error": format!(
+                    "the global two-factor rule is set by {var} and cannot be changed here"
+                ),
+                "variable": var,
+            })),
         )
             .into_response();
     }
