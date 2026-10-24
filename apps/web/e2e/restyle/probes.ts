@@ -285,6 +285,14 @@ async function adminSignIn(page: Page): Promise<void> {
 // ── screens ─────────────────────────────────────────────────────────────────
 
 const adminNav = (p: Page) => p.getByRole('navigation').first();
+/**
+ * A section entry in the admin nav: a button at T32-BASE, a link in the rebuilt console
+ * (t32-e8, sections at /admin#/<section>). Either role counts, in document order.
+ */
+const adminNavItem = (p: Page, name?: string) =>
+  name === undefined
+    ? adminNav(p).getByRole('link').or(adminNav(p).getByRole('button'))
+    : adminNav(p).getByRole('link', { name, exact: true }).or(adminNav(p).getByRole('button', { name, exact: true }));
 
 export const SCREENS: Screen[] = [
   {
@@ -533,7 +541,7 @@ export const SCREENS: Screen[] = [
     viewports: ['desktop'],
     open: async (page) => {
       await adminSignIn(page);
-      await adminNav(page).getByRole('button', { name: 'Users' }).click();
+      await adminNavItem(page, 'Users').first().click();
       const main = page.getByRole('main');
       await expect(main.getByRole('heading', { name: 'Users' })).toBeVisible();
       await page.waitForTimeout(500);
@@ -544,14 +552,14 @@ export const SCREENS: Screen[] = [
         await main.getByRole('button', { name: 'Provision user' }).click();
         await expect(main.getByRole('table')).toBeVisible();
         // Re-enter the section so the form's confirmation text does not differ between runs.
-        await adminNav(page).getByRole('button').first().click();
-        await adminNav(page).getByRole('button', { name: 'Users' }).click();
+        await adminNavItem(page).first().click();
+        await adminNavItem(page, 'Users').first().click();
       }
       await expect(main.getByRole('table')).toBeVisible();
     },
     probes: [
       container('admin.nav', (p) => adminNav(p)),
-      control('admin.nav-item', (p) => adminNav(p).getByRole('button'), 13),
+      control('admin.nav-item', (p) => adminNavItem(p), 13),
       container('admin.main', (p) => p.getByRole('main')),
       text('admin.heading', (p) => p.getByRole('main').getByRole('heading', { level: 2 }).first()),
       container('admin.form', (p) => p.getByRole('main').getByRole('form').first()),
