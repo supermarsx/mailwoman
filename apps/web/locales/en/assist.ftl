@@ -85,6 +85,7 @@ assist-excluded-attachments = attachments
 # server; every other change is read when the server starts.
 assist-admin-title = AI assistant
 assist-admin-intro = The AI assistant sends message text that users select to the AI endpoint configured here. It cannot send, delete, or accept mail. End-to-end-encrypted content and attachments are withheld unless you allow them below.
+assist-admin-load-unreadable = The stored AI assistant configuration cannot be read: its API key does not open with this server's key (MW_SERVER_KEY). It was saved under another key or has been changed. The AI assistant is off. Fill in the form, including the API key, and save to replace it.
 assist-admin-load-error = Could not load the AI assistant configuration. Saving is disabled so the stored configuration is not overwritten.
 assist-admin-status-running = The AI assistant is running. Requests go to { $host }.
 assist-admin-status-running-pending = The AI assistant is running with the configuration the server started with. Saved changes take effect when the server restarts.

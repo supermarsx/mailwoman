@@ -95,7 +95,17 @@ export function AdminAssist(props: AdminAssistProps): JSX.Element {
 
   onMount(() => void loadCatalog('assist'));
   onMount(() => {
-    void load().catch(() => setError(t('assist-admin-load-error')));
+    void load().catch((e: unknown) => {
+      // The stored key does not open with this server's key. There is nothing to
+      // overwrite by mistake (the server cannot read it either), and saving a new
+      // configuration is how it is replaced, so the form is offered empty.
+      if (e instanceof AdminAssistError && e.code === 'config-unreadable') {
+        setError(t('assist-admin-load-unreadable'));
+        setLoaded(true);
+        return;
+      }
+      setError(t('assist-admin-load-error'));
+    });
   });
 
   function patch(next: Partial<AdminAssistConfig>): void {

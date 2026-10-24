@@ -244,6 +244,33 @@ describe('admin assist screen', () => {
   });
 });
 
+describe('admin assist screen: unreadable stored key', () => {
+  it('says the stored key does not open with the server key, and lets a new configuration be saved', async () => {
+    const calls: { method: string; path: string }[] = [];
+    const fetcher: Fetcher = vi.fn(async (input: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      calls.push({ method, path: input });
+      const json = (body: unknown, status = 200): Response =>
+        new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+      if (method === 'PUT') return json({ ...RUNNING, running: false, endpointHost: null, restartPending: true });
+      // As `assist_read_error` answers both reads.
+      return json({ error: 'does not open with MW_SERVER_KEY', code: 'config-unreadable' }, 500);
+    });
+    render(() => <AdminAssist api={new AdminAssistApi(fetcher)} />);
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('MW_SERVER_KEY'));
+    expect(saveButton()).toBeEnabled();
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
+  });
+
+  it('still refuses to save when the configuration fails to load for another reason', async () => {
+    const fetcher: Fetcher = vi.fn(async () => new Response('store error', { status: 500 }));
+    render(() => <AdminAssist api={new AdminAssistApi(fetcher)} />);
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Saving is disabled'));
+    expect(saveButton()).toBeDisabled();
+  });
+});
+
 describe('admin assist screen: API key', () => {
   it('says a key is stored without showing it, and an untouched save leaves it out so the server keeps it', async () => {
     const { api, writes } = server({ config: STORED, status: RUNNING });

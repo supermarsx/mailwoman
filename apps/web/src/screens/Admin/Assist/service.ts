@@ -88,13 +88,28 @@ export interface AdminAssistStatus {
 
 export type AssistStoppedReason = 'local-program-not-allowed';
 
-/** A refused admin Assist request; `status` is the HTTP status (422: not allowed by the operator). */
+/**
+ * A refused admin Assist request; `status` is the HTTP status (422: not allowed by
+ * the operator). `code` is the server's machine-readable reason when it gives one:
+ * `config-unreadable` when the stored API key does not open with the server's key.
+ */
 export class AdminAssistError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    readonly code: string | null = null,
   ) {
     super(message);
+  }
+}
+
+/** The `code` of an error body, if the body is JSON with one. */
+async function errorCode(res: Response): Promise<string | null> {
+  try {
+    const body = (await res.json()) as unknown;
+    return isObject(body) && typeof body['code'] === 'string' ? body['code'] : null;
+  } catch {
+    return null;
   }
 }
 
@@ -192,13 +207,17 @@ export class AdminAssistApi {
 
   async get(): Promise<AdminAssistConfig> {
     const res = await this.fetcher(withBase('/admin/assist'));
-    if (!res.ok) throw new Error(`admin assist config failed (${res.status})`);
+    if (!res.ok) {
+      throw new AdminAssistError(`admin assist config failed (${res.status})`, res.status, await errorCode(res));
+    }
     return parseAdminAssistConfig(await res.json());
   }
 
   async status(): Promise<AdminAssistStatus> {
     const res = await this.fetcher(withBase('/admin/assist/status'));
-    if (!res.ok) throw new Error(`admin assist status failed (${res.status})`);
+    if (!res.ok) {
+      throw new AdminAssistError(`admin assist status failed (${res.status})`, res.status, await errorCode(res));
+    }
     return parseStatus(await res.json());
   }
 
