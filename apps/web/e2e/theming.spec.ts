@@ -1,6 +1,11 @@
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import AxeBuilder from '@axe-core/playwright';
 import { test, expect, type Page } from './csrf.ts';
 import { engineLogin, resetAccountAppearance } from './helpers.ts';
-import { THEME_LIST } from '../src/theme/registry.ts';
+import { THEME_LIST, accentShade } from '../src/theme/registry.ts';
+import { ACCENT_IDS, type AccentId } from '../src/theme/accentMath.ts';
+import type { ThemeName } from '../src/theme/contract.css.ts';
 
 /**
  * V2 design-token theming through the REAL Settings UI (mounted by ab25315).
@@ -272,4 +277,168 @@ test.describe('the Dark default', () => {
     // The fields that are not the theme decision survive.
     await expect(page.locator('html')).toHaveAttribute('data-density', 'compact');
   });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// t32 V: the named accents. `themes.css.ts` emits one rule per theme × accent
+// from the generated `accents.ts`; the unit suite measures the table, and only a
+// browser shows that each rule exists in the build and wins over the pack.
+
+/** The legacy colours an accent rule sets, read off `<html>`. */
+async function accentVars(page: Page): Promise<{ accent: string; accentText: string; focus: string }> {
+  return page.evaluate(() => {
+    const cs = getComputedStyle(document.documentElement);
+    const get = (n: string) => cs.getPropertyValue(n).trim();
+    return { accent: get('--accent'), accentText: get('--accent-text'), focus: get('--focus') };
+  });
+}
+
+test.describe('named accents', () => {
+  test('every theme × accent cell is bound to real CSS', async ({ page }) => {
+    await bootShell(page);
+    const wrong: string[] = [];
+    for (const entry of THEME_LIST) {
+      const focusIsAccent = entry.tokens.color.focus === entry.tokens.color.accent;
+      for (const id of ACCENT_IDS) {
+        const shade = accentShade(entry.id, id);
+        await page.evaluate(
+          ([theme, accent]) => {
+            document.documentElement.setAttribute('data-theme', theme);
+            document.documentElement.setAttribute('data-accent', accent);
+          },
+          [entry.id, id] as const,
+        );
+        const got = await accentVars(page);
+        const want = {
+          accent: shade.accent,
+          accentText: shade.accentText,
+          focus: focusIsAccent ? shade.accent : entry.palette.focus,
+        };
+        if (JSON.stringify(got) !== JSON.stringify(want)) {
+          wrong.push(`${entry.id}/${id}: ${JSON.stringify(got)} != ${JSON.stringify(want)}`);
+        }
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  test('without an accent each pack paints its own', async ({ page }) => {
+    await seedPrefs(page, { mode: 'fixed', theme: 'blueprint', chosen: true });
+    await bootShell(page);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'blueprint');
+    expect(await page.locator('html').getAttribute('data-accent')).toBeNull();
+    expect((await accentVars(page)).accent).toBe(accentShade('blueprint', '').accent);
+  });
+
+  test('picking a swatch applies it, follows a theme change and survives a reload', async ({
+    page,
+  }) => {
+    await engineLogin(page);
+    await page.getByRole('button', { name: 'Settings' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Settings' });
+    const accents = dialog.getByRole('group', { name: 'Accent' });
+
+    await accents.getByRole('button', { name: 'Teal' }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-accent', 'teal');
+    await expect(accents.getByRole('button', { name: 'Teal' })).toHaveAttribute('aria-pressed', 'true');
+    expect((await accentVars(page)).accent).toBe(accentShade('dark', 'teal').accent);
+
+    await dialog.getByRole('button', { name: 'Paper' }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'paper');
+    expect((await accentVars(page)).accent).toBe(accentShade('paper', 'teal').accent);
+
+    await page.reload();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'paper');
+    await expect(page.locator('html')).toHaveAttribute('data-accent', 'teal');
+  });
+
+  test('a colour accent stored by an older build arrives as the nearest named accent', async ({
+    page,
+  }) => {
+    await seedPrefs(page, { mode: 'fixed', theme: 'light', chosen: true, accent: '#7c3aed' });
+    await bootShell(page);
+    await expect(page.locator('html')).toHaveAttribute('data-accent', 'violet');
+    expect((await accentVars(page)).accent).toBe(accentShade('light', 'violet').accent);
+  });
+});
+
+// The five Bauhaus packs, each with two accents, as the next two groups use them.
+const SHOT_CELLS: ReadonlyArray<readonly [ThemeName, readonly [AccentId, AccentId]]> = [
+  ['bauhaus-black', ['yellow', 'magenta']],
+  ['paper', ['red', 'teal']],
+  ['blueprint', ['orange', 'green']],
+  ['terminal', ['violet', 'graphite']],
+  ['primary', ['red', 'indigo']],
+];
+
+/** axe `color-contrast` over the page, the untrusted message body excluded. */
+async function contrastViolations(page: Page): Promise<string[]> {
+  const result = await new AxeBuilder({ page })
+    .withRules(['color-contrast'])
+    .exclude('iframe.reader__frame')
+    .analyze();
+  return result.violations.flatMap((v) =>
+    v.nodes.map((n) => `${n.target.join(' ')}: ${n.failureSummary ?? v.help}`),
+  );
+}
+
+test.describe('the Bauhaus packs under axe', () => {
+  for (const [theme, pair] of SHOT_CELLS) {
+    for (const accent of pair) {
+      test(`${theme} with ${accent}: no colour-contrast violation on the mailbox or Settings`, async ({
+        page,
+      }) => {
+        await seedPrefs(page, { mode: 'fixed', theme, accentId: accent, chosen: true });
+        await engineLogin(page);
+        await expect(page.locator('html')).toHaveAttribute('data-accent', accent);
+        expect(await contrastViolations(page), `${theme}/${accent} mailbox`).toEqual([]);
+
+        await page.getByRole('button', { name: 'Settings' }).click();
+        await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+        expect(await contrastViolations(page), `${theme}/${accent} settings`).toEqual([]);
+      });
+    }
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Screenshots of the same cells on the mailbox, an open message and Settings →
+// Appearance. Runs only when T32_THEME_SHOTS names an output directory, against
+// a stack with mail in the inbox (the restyle harness stack,
+// `e2e/restyle/stack.sh`).
+
+const SHOT_DIR = process.env.T32_THEME_SHOTS ?? '';
+
+test.describe('theme screenshots', () => {
+  test.skip(SHOT_DIR === '', 'set T32_THEME_SHOTS to an output directory to capture');
+
+  for (const [theme, pair] of SHOT_CELLS) {
+    for (const accent of pair) {
+      test(`${theme} with ${accent}`, async ({ page }) => {
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await seedPrefs(page, { mode: 'fixed', theme, accentId: accent, chosen: true });
+        await engineLogin(page);
+        await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+        await expect(page.locator('html')).toHaveAttribute('data-accent', accent);
+        const dir = join(SHOT_DIR, theme);
+        mkdirSync(dir, { recursive: true });
+
+        const firstRow = page.locator('.list__row').first();
+        await expect(firstRow).toBeVisible({ timeout: 45_000 });
+        await page.screenshot({ path: join(dir, `${accent}-mailbox.png`) });
+
+        await firstRow.click();
+        await expect(page.locator('iframe.reader__frame')).toBeVisible();
+        await page.screenshot({ path: join(dir, `${accent}-reader.png`) });
+
+        await page.getByRole('button', { name: 'Settings' }).click();
+        const dialog = page.getByRole('dialog', { name: 'Settings' });
+        const accents = dialog.getByRole('group', { name: 'Accent' });
+        await expect(dialog).toBeVisible();
+        await page.screenshot({ path: join(dir, `${accent}-settings.png`) });
+        await accents.scrollIntoViewIfNeeded();
+        await page.screenshot({ path: join(dir, `${accent}-settings-accents.png`) });
+      });
+    }
+  }
 });
