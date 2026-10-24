@@ -125,6 +125,10 @@ export async function nonTextChecks(page: Page, exclude: string[]): Promise<{ ch
       'input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=color]):not([type=range]), select, textarea, button, input[type=checkbox], input[type=radio]';
     for (const el of document.querySelectorAll(sel)) {
       if (!h.visible(el) || excl.some((x) => el.closest(x))) continue;
+      // A visually hidden control (1x1 and clipped, e.g. a file input inside a styled label) has no
+      // boundary of its own; the visible wrapper is what the user sees and is checked as itself.
+      const box = el.getBoundingClientRect();
+      if (box.width <= 1 || box.height <= 1) continue;
       const cs = getComputedStyle(el);
       if ((el as HTMLInputElement).type === 'checkbox' || (el as HTMLInputElement).type === 'radio') {
         if (cs.appearance !== 'none') continue; // native control, painted by the browser

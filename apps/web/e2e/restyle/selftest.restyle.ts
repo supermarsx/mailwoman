@@ -17,6 +17,7 @@ const BASE_STYLE = `
 const GOOD = `
   <style>${BASE_STYLE}</style>
   <input aria-label="good field" style="border: 2px solid #bdb8ad; background: #0a0a0a">
+  <label style="border: 2px solid #bdb8ad; padding: 4px">Attach<input type="file" aria-label="hidden file" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); border: 0"></label>
   <button style="border: 2px solid #bdb8ad; background: transparent">Bordered</button>
   <button style="border: 2px solid #4d7cff; background: #4d7cff; color: #0b0b0b">Filled</button>
   <ul>

@@ -105,7 +105,8 @@ It also prints the instances that shrank by more than 1 px (allowed), for the re
   option has an inset bar, outline, 3 px start border or marker pseudo-element; links in
   running text are underlined; a selected tab has a bar.
 
-Elements inside an `inert` subtree (the page behind a dialog, the list behind the phone
+Visually hidden controls (1 px or less, such as a file input inside a styled label) are not
+boundary-checked; the visible wrapper is. Elements inside an `inert` subtree (the page behind a dialog, the list behind the phone
 reader) are skipped by the boundary, focus and signal checks; axe scans the whole page.
 
 `T32_CONTRAST_REPORT_ONLY=1` records findings without failing; the T32-BASE baseline was
