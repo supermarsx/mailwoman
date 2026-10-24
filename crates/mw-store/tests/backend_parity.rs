@@ -12,9 +12,9 @@ use mw_store::{
     AccountKind, AddressBookRow, AssistConfigRow, AuditRow, BridgeAccountRow, BridgeOauthTokenRow,
     CacheScopeRow, CalendarRow, ContactRow, Credentials, EventInstanceRow, EventRow,
     EwsAccountCred, MailboxUpsert, MaskedEmailRow, MessageUpsert, NewAccount, NoteRow,
-    NotificationRulesRow, PasswdConfigRow, PluginKvLimits, ServerKey, SignatureRow, SsoConfigRow,
-    Store, StoreKeyMaterialRow, SubmissionRow, TwofaPolicyRow, WebauthnCredentialRow,
-    ZeroAccessRow,
+    NotificationRulesRow, OpenBind, PasswdConfigRow, PluginKvLimits, ServerKey, SignatureRow,
+    SsoConfigRow, Store, StoreKeyMaterialRow, SubmissionRow, TwofaPolicyRow, WebauthnCredentialRow,
+    ZeroAccessRow, open_token_hash,
 };
 
 // Test-support helper; not part of the shipped `mw-store` library, so it is
@@ -62,7 +62,8 @@ const ALL_TABLES: &str = "sessions, settings, accounts, mailboxes, messages, bod
     recovery_codes, passwd_config, signatures, notification_rules, \
     remote_image_grants, masked_email, ews_account_cred, bridge_accounts, \
     bridge_oauth_tokens, uploaded_blobs, message_embeddings, plugin_kv, \
-    assist_config, cache_scope, password_change_audit, assist_audit";
+    assist_config, cache_scope, password_change_audit, assist_audit, open_tracking, \
+    open_events";
 
 async fn truncate_pg(dsn: &str) {
     use sqlx::postgres::PgPoolOptions;
@@ -825,8 +826,66 @@ async fn run_ops(s: &Store) -> Vec<String> {
         .unwrap();
     out.push("audits_appended".into());
 
+    // ---- 0032: open tracking — mint, bind, two loads, an unknown token ----
+    let t0 = chrono::DateTime::parse_from_rfc3339(OPEN_T0)
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let tok = open_token_hash(OPEN_TOKEN);
+    s.create_open_token(&tok, &account, OPEN_SUBJECT, r#"["b@example.org"]"#, t0)
+        .await
+        .unwrap();
+    out.push(format!(
+        "open_unbound_summary={:?}",
+        s.open_summary(&account, OPEN_EMAIL).await.unwrap()
+    ));
+    out.push(format!(
+        "open_bind={:?}:{:?}",
+        s.bind_open_token(&account, &tok, OPEN_EMAIL).await.unwrap(),
+        s.bind_open_token("other-account", &tok, OPEN_EMAIL)
+            .await
+            .unwrap()
+    ));
+    assert_eq!(
+        s.bind_open_token(&account, &tok, "another-email")
+            .await
+            .unwrap(),
+        OpenBind::AlreadyBound
+    );
+    s.record_open(&tok, t0 + chrono::Duration::minutes(5))
+        .await
+        .unwrap();
+    s.record_open(&tok, t0 + chrono::Duration::minutes(9))
+        .await
+        .unwrap();
+    out.push(format!(
+        "open_unknown_recorded={}",
+        s.record_open(&open_token_hash("no-such-token"), t0)
+            .await
+            .unwrap()
+    ));
+    out.push(format!(
+        "open_summary={:?}",
+        s.open_summary(&account, OPEN_EMAIL).await.unwrap()
+    ));
+    out.push(format!(
+        "open_events={:?}",
+        s.open_event_times(&tok).await.unwrap()
+    ));
+    out.push(format!(
+        "open_subject={:?}",
+        s.get_open_token(&account, &tok)
+            .await
+            .unwrap()
+            .map(|r| r.subject)
+    ));
+
     out
 }
+
+const OPEN_TOKEN: &str = "parity-open-token";
+const OPEN_EMAIL: &str = "parity-sent-email";
+const OPEN_SUBJECT: &str = "Quarterly report";
+const OPEN_T0: &str = "2026-07-01T10:00:00Z";
 
 /// Fixtures for the 2FA enrolments, so a migration test can prove they are still
 /// usable on the destination rather than merely present.
@@ -1802,6 +1861,28 @@ async fn assert_carried_surfaces(dest: &Store, account: &str, stable_id: &str, r
         .any(|c| c.class == "mailbox-list" && c.ttl_secs == 300)
     {
         lost.push("cache_scope: the operator's cache tuning is gone".into());
+    }
+
+    // 0032: the sent message's open record, its event times and the sealed subject.
+    let tok = open_token_hash(OPEN_TOKEN);
+    match dest.open_summary(account, OPEN_EMAIL).await.unwrap() {
+        Some(sum) if sum.count == 2 && sum.first.is_some() && sum.last.is_some() => {}
+        other => lost.push(format!(
+            "open_tracking: the sent message's open record is gone or changed ({other:?})"
+        )),
+    }
+    if dest.open_event_times(&tok).await.unwrap().len() != 2 {
+        lost.push("open_events: the recorded open times did not travel".into());
+    }
+    if dest
+        .get_open_token(account, &tok)
+        .await
+        .unwrap()
+        .map(|r| r.subject)
+        .as_deref()
+        != Some(OPEN_SUBJECT)
+    {
+        lost.push("open_tracking: the sealed subject did not open on the destination".into());
     }
 
     // ── The write-only tables, checked raw ───────────────────────────────────

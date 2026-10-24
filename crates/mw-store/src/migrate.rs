@@ -9,8 +9,8 @@
 //! validated at commit.
 //!
 //! **The copy is not the whole schema, but it is now nearly all of it.** `TABLES`
-//! below is the complete list of what is copied: as of migration 0031 that is 59
-//! tables out of the 76 the migrations create. The other 17 are left behind
+//! below is the complete list of what is copied: as of migration 0032 that is 61
+//! tables out of the 78 the migrations create. The other 17 are left behind
 //! deliberately, each with its reason recorded at its entry in
 //! `NOT_MIGRATED_DELIBERATELY` in `tests/backend_parity.rs`: the admin panel's
 //! separate identity domain, OAuth clients and tokens, API keys, webhooks, the
@@ -533,6 +533,34 @@ const TABLES: &[TableSpec] = &[
                 t(r, "updated_at"),
             ]
         },
+    },
+    TableSpec {
+        name: "open_tracking",
+        // 0032 (26.20): a sender's open-tracking tokens and their totals. Left
+        // behind, every sent message's "opened" record would vanish in a store move,
+        // and images already delivered would stop counting. The subject and
+        // recipients travel sealed, byte for byte, under the same server key.
+        select: "SELECT token_hash, account_id, email_id, subject_sealed, recipients_sealed, created_at, open_count, first_open_at, last_open_at FROM open_tracking",
+        insert: "INSERT INTO open_tracking (token_hash, account_id, email_id, subject_sealed, recipients_sealed, created_at, open_count, first_open_at, last_open_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+        map: |r| {
+            vec![
+                t(r, "token_hash"),
+                t(r, "account_id"),
+                ot(r, "email_id"),
+                b(r, "subject_sealed"),
+                b(r, "recipients_sealed"),
+                t(r, "created_at"),
+                i(r, "open_count"),
+                ot(r, "first_open_at"),
+                ot(r, "last_open_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "open_events",
+        select: "SELECT token_hash, at FROM open_events",
+        insert: "INSERT INTO open_events (token_hash, at) VALUES (?1,?2)",
+        map: |r| vec![t(r, "token_hash"), t(r, "at")],
     },
     TableSpec {
         name: "tags",

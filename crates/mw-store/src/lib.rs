@@ -92,6 +92,9 @@ mod state_counters;
 // `HTTP_PROXY` that t22-e8 refuses everywhere. The password is sealed at rest and
 // redacted from `Debug`.
 mod egress_config;
+// 0032 (26.20 t29-e8): opt-in open tracking. Tokens kept as SHA-256 only, subject
+// and recipients sealed, a recorded load is a timestamp and nothing else.
+mod open_tracking;
 
 pub(crate) use backend::{Backend, Row, q};
 
@@ -100,6 +103,10 @@ pub use egress_config::EgressProxyRow;
 pub use embeddings::{MAX_EMBEDDING_DIM, MessageEmbedding};
 pub use ews_cred::EwsAccountCred;
 pub use image_grants::RemoteImageGrantRow;
+pub use open_tracking::{
+    MAX_EVENTS_PER_TOKEN, OpenBind, OpenSummary, OpenTokenRow, RETENTION_DAYS, UNBOUND_TTL_HOURS,
+    open_token_hash,
+};
 pub use plugin_allowlist::{PluginAllowlistError, PluginAllowlistRow, new_allowlist_pin};
 pub use plugin_kv::{PluginKvError, PluginKvLimits};
 pub use sso::SsoConfigRow;
