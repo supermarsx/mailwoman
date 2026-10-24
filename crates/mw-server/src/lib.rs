@@ -97,6 +97,9 @@ pub mod prefs_routes;
 // t16 (26.16, e10) A9: a runtime ManageSieve caller — compile the account's rules to
 // a Sieve script and upload+activate it on the user's ManageSieve server.
 pub mod sieve_sync;
+// t29-e8: opt-in open tracking — token mint/bind/count and the unauthenticated
+// `/t/{token}.gif` image, which records a time and nothing else.
+mod open_tracking;
 // V6 MOUNT (t6-e11): store adapters backing the frozen Batch-B persistence seams
 // over the real 0007 tables.
 mod stores_v6;
@@ -1355,6 +1358,7 @@ fn router(
         .merge(client_policy::router())
         .merge(import_routes::import_router())
         .merge(sieve_sync::sieve_sync_router())
+        .merge(open_tracking::router())
         .route("/api/login", post(login))
         .route("/api/logout", post(logout))
         .route("/api/me", get(me))
@@ -1629,8 +1633,15 @@ async fn security_headers(State(state): State<AppState>, req: Request, next: Nex
         "cross-origin-opener-policy",
         HeaderValue::from_static("same-origin"),
     );
-    // Additive §7.4 deltas: COEP/CORP/Permissions-Policy.
+    // Additive §7.4 deltas: COEP/CORP/Permissions-Policy. A handler that sets its
+    // own `Cross-Origin-Resource-Policy` keeps it: the open-tracking image is loaded
+    // by mail programs on other origins, and `same-origin` would make a browser
+    // refuse it (t29-e8).
+    let own_corp = h.remove("cross-origin-resource-policy");
     hardening::apply_extra_headers(h, state.hardening.coep);
+    if let Some(v) = own_corp {
+        h.insert("cross-origin-resource-policy", v);
+    }
     // t20 B6: tell the browser never to speak plaintext to this host again, so a
     // later http navigation cannot be intercepted before the redirect. Emitted
     // only when this request itself was https (see `ExternalBase::hsts`).

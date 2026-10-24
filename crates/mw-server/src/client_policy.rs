@@ -3,8 +3,12 @@
 //!
 //! ```json
 //! { "maxSecurityFloor": null | "full-sanitized" | "sanitized-no-media" | "plain-text",
-//!   "capturePolicy": "off" | "protect" }
+//!   "capturePolicy": "off" | "protect",
+//!   "openTracking": true | false }
 //! ```
+//!
+//! `openTracking` is false when `MW_PUBLIC_URL` is unset; the compose control for
+//! open tracking is hidden then (see `open_tracking::availability`).
 //!
 //! The reader does not offer a rendering mode less restrictive than
 //! `maxSecurityFloor`; with `capturePolicy: "protect"` the desktop and Android apps
@@ -38,6 +42,7 @@ async fn get_policy(State(state): State<AppState>, headers: HeaderMap) -> Respon
             Json(json!({
                 "maxSecurityFloor": e.policy.max_security_floor.map(|f| f.as_str()),
                 "capturePolicy": e.policy.capture_policy.as_str(),
+                "openTracking": crate::open_tracking::enabled(&state).await,
             })),
         )
             .into_response(),
