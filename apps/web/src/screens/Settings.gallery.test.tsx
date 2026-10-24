@@ -16,9 +16,25 @@ import { ACCENT_LIST, THEME_LIST, accentShade, themeEntry } from '../theme/regis
 import type { SliceContext } from '../state/slices/context.ts';
 import type { AppState } from '../state/store.ts';
 
-function renderSettings() {
+// The signed-in sections, replaced by stubs: only the boundary test below
+// renders them (the others have no signed-in account), and one of them fails.
+vi.mock('../modules/passwd/index.ts', () => ({
+  PasswordChange: () => {
+    throw new Error('password policy did not load');
+  },
+}));
+vi.mock('../modules/apikeys/index.ts', () => ({
+  ApiKeys: () => <p>api keys section</p>,
+  McpKeys: () => <p>mcp keys section</p>,
+}));
+vi.mock('./Settings/index.ts', () => ({ AccountSettings: () => <p>account section</p> }));
+vi.mock('../modules/rules/index.ts', () => ({ RulesSettings: () => <p>rules section</p> }));
+vi.mock('../modules/servermeta/index.ts', () => ({ MetadataView: () => <p>metadata section</p> }));
+
+function renderSettings(signedIn = false) {
   const ctx = { client: {}, showToast: vi.fn() } as unknown as SliceContext;
-  const app = createThemeSlice(ctx) as unknown as AppState;
+  const slice = createThemeSlice(ctx);
+  const app = (signedIn ? { ...slice, me: () => ({ accountId: 'a1' }) } : slice) as unknown as AppState;
   const utils = render(() => (
     <AppContext.Provider value={app}>
       <Settings onClose={vi.fn()} />
@@ -328,5 +344,32 @@ describe('the accent picker', () => {
     app.setAccentId('orange');
     expect(bar('Primary blocks').style.background).toBe(rgb(accentShade('primary', 'orange').accent));
     expect(bar('Black').style.background).toBe(rgb(accentShade('bauhaus-black', 'orange').accent));
+  });
+});
+
+describe('the signed-in sections', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    stopAppearanceSync();
+  });
+  afterEach(() => stopAppearanceSync());
+
+  it('a section that fails to load shows its own error and leaves the rest of the dialog', async () => {
+    renderSettings(true);
+    await vi.waitFor(() => expect(card('Paper')).toBeInTheDocument());
+    // The failing section is replaced by an error with a retry (t32-h6)…
+    expect(screen.getByRole('alert')).toHaveTextContent(/.+/);
+    expect(screen.getByTestId('async-retry')).toBeInTheDocument();
+    // …and every other section, the appearance controls included, still renders.
+    for (const text of [
+      'account section',
+      'rules section',
+      'api keys section',
+      'mcp keys section',
+      'metadata section',
+    ]) {
+      expect(screen.getByText(text)).toBeInTheDocument();
+    }
+    expect(screen.getByRole('group', { name: 'Accent' })).toBeInTheDocument();
   });
 });

@@ -37,6 +37,7 @@ import { MetadataView } from '../modules/servermeta/index.ts';
 // folders, and device preferences. Self-contained; mounted for an authenticated
 // account alongside the existing feature modules.
 import { AccountSettings } from './Settings/index.ts';
+import { AsyncBoundary } from '../components/ErrorBoundary.tsx';
 import { createAclClient } from '../api/acl-types.ts';
 import { createConfiguredClient } from '../api/transport.ts';
 import { startAppearanceSync, type SyncStatus } from '../api/prefs.ts';
@@ -193,17 +194,34 @@ export function Settings(props: SettingsProps): JSX.Element {
         </div>
 
         {/* V6 security & integrations — only for an authenticated account. The
-            `app.me` optional call keeps this inert in the theme-only unit test. */}
+            `app.me` optional call keeps this inert in the theme-only unit test.
+            Each section has its own boundary (t32-h6): a section whose REST or
+            JMAP load fails shows its own error and retry instead of taking the
+            whole dialog down with it. */}
         <Show when={app.me?.()?.accountId ?? null}>
           {(accountId) => (
             <>
-              <PasswordChange accountId={accountId()} />
-              <AccountSettings />
-              <RulesSettings accountId={accountId()} />
-              <ZeroAccessBlock />
-              <ApiKeys accountId={accountId()} />
-              <McpKeys accountId={accountId()} />
-              <ServerMetadataSection accountId={accountId()} />
+              <AsyncBoundary>
+                <PasswordChange accountId={accountId()} />
+              </AsyncBoundary>
+              <AsyncBoundary>
+                <AccountSettings />
+              </AsyncBoundary>
+              <AsyncBoundary>
+                <RulesSettings accountId={accountId()} />
+              </AsyncBoundary>
+              <AsyncBoundary>
+                <ZeroAccessBlock />
+              </AsyncBoundary>
+              <AsyncBoundary>
+                <ApiKeys accountId={accountId()} />
+              </AsyncBoundary>
+              <AsyncBoundary>
+                <McpKeys accountId={accountId()} />
+              </AsyncBoundary>
+              <AsyncBoundary>
+                <ServerMetadataSection accountId={accountId()} />
+              </AsyncBoundary>
             </>
           )}
         </Show>
