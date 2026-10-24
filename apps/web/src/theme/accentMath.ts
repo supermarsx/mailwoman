@@ -38,8 +38,8 @@ export type AccentId = (typeof ACCENT_IDS)[number];
 
 export interface AccentDef {
   readonly id: AccentId;
-  /** User-visible name. */
-  readonly label: string;
+  /** Fluent id of the user-visible name (`locales/<lang>/appearance.ftl`). */
+  readonly labelId: string;
   /** OKLCH hue, degrees. */
   readonly hue: number;
   /** Chroma asked for; lowered where the sRGB gamut cannot reach it. */
@@ -49,16 +49,16 @@ export interface AccentDef {
 }
 
 export const ACCENTS: readonly AccentDef[] = [
-  { id: 'red', label: 'Red', hue: 27, chroma: 0.21, lightness: 0.6 },
-  { id: 'orange', label: 'Orange', hue: 47, chroma: 0.18, lightness: 0.7 },
-  { id: 'yellow', label: 'Yellow', hue: 92, chroma: 0.17, lightness: 0.86 },
-  { id: 'green', label: 'Green', hue: 145, chroma: 0.17, lightness: 0.66 },
-  { id: 'teal', label: 'Teal', hue: 185, chroma: 0.12, lightness: 0.66 },
-  { id: 'blue', label: 'Blue', hue: 258, chroma: 0.19, lightness: 0.58 },
-  { id: 'indigo', label: 'Indigo', hue: 276, chroma: 0.2, lightness: 0.5 },
-  { id: 'violet', label: 'Violet', hue: 300, chroma: 0.2, lightness: 0.56 },
-  { id: 'magenta', label: 'Magenta', hue: 335, chroma: 0.22, lightness: 0.6 },
-  { id: 'graphite', label: 'Graphite', hue: 260, chroma: 0.012, lightness: 0.5 },
+  { id: 'red', labelId: 'appearance-accent-red', hue: 27, chroma: 0.21, lightness: 0.6 },
+  { id: 'orange', labelId: 'appearance-accent-orange', hue: 47, chroma: 0.18, lightness: 0.7 },
+  { id: 'yellow', labelId: 'appearance-accent-yellow', hue: 92, chroma: 0.17, lightness: 0.86 },
+  { id: 'green', labelId: 'appearance-accent-green', hue: 145, chroma: 0.17, lightness: 0.66 },
+  { id: 'teal', labelId: 'appearance-accent-teal', hue: 185, chroma: 0.12, lightness: 0.66 },
+  { id: 'blue', labelId: 'appearance-accent-blue', hue: 258, chroma: 0.19, lightness: 0.58 },
+  { id: 'indigo', labelId: 'appearance-accent-indigo', hue: 276, chroma: 0.2, lightness: 0.5 },
+  { id: 'violet', labelId: 'appearance-accent-violet', hue: 300, chroma: 0.2, lightness: 0.56 },
+  { id: 'magenta', labelId: 'appearance-accent-magenta', hue: 335, chroma: 0.22, lightness: 0.6 },
+  { id: 'graphite', labelId: 'appearance-accent-graphite', hue: 260, chroma: 0.012, lightness: 0.5 },
 ];
 
 /** Runtime guard for an untrusted accent id. */

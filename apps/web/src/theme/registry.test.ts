@@ -5,8 +5,12 @@
 // that every pack is viable. The exhaustive per-theme × per-pair WCAG matrix
 // lives in `contrast.test.ts`.
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import {
+  ACCENT_LIST,
+  THEME_DEFAULT_ACCENT_LABEL_ID,
   THEME_GROUPS,
   THEME_LIST,
   THEME_REGISTRY,
@@ -42,6 +46,16 @@ import {
 } from './appearance.ts';
 
 const AT = (h: number, m = 0): Date => new Date(2026, 7, 10, h, m, 0, 0);
+
+
+// Theme, family and accent names are Fluent ids (t32-e9); their English text is
+// in the en appearance catalog.
+const APPEARANCE_FTL = readFileSync(resolve(process.cwd(), 'locales/en/appearance.ftl'), 'utf8').replace(/\r\n/g, '\n');
+
+function enText(id: string): string | undefined {
+  const m = new RegExp(`^${id} = (.+)$`, 'm').exec(APPEARANCE_FTL);
+  return m?.[1];
+}
 
 describe('theme registry', () => {
   it('covers every theme in the token table, in gallery order', () => {
@@ -83,9 +97,18 @@ describe('theme registry', () => {
     for (const entry of THEME_LIST) {
       expect(entry.swatches).toHaveLength(5);
       for (const swatch of entry.swatches) expect(parseColor(swatch)).not.toBeNull();
-      expect(entry.label.length).toBeGreaterThan(0);
-      expect(entry.description.length).toBeGreaterThan(0);
+      expect(enText(entry.labelId), entry.labelId).toMatch(/\S/);
+      expect(enText(entry.descriptionId), entry.descriptionId).toMatch(/\S/);
     }
+  });
+
+  it('names every family and accent through the en appearance catalog', () => {
+    for (const group of THEME_GROUPS) expect(enText(group.labelId), group.labelId).toMatch(/\S/);
+    for (const def of ACCENT_LIST) expect(enText(def.labelId), def.labelId).toMatch(/\S/);
+    expect(enText(THEME_DEFAULT_ACCENT_LABEL_ID)).toBe('Theme default');
+    expect(enText(themeEntry('primary').labelId)).toBe('Primary blocks');
+    // An id with no message would render as the raw id; this one does not exist.
+    expect(enText('appearance-theme-nope')).toBeUndefined();
   });
 
   it('groups themes by family with no theme lost or duplicated', () => {
@@ -114,7 +137,7 @@ describe('theme registry', () => {
 
   it('keeps THEME_OPTIONS in step with the registry', () => {
     expect(THEME_OPTIONS.map((o) => o.value)).toEqual(THEME_LIST.map((e) => e.id));
-    expect(themeEntry('slate-dark').label).toBe('Slate Dark');
+    expect(enText(themeEntry('slate-dark').labelId)).toBe('Slate Dark');
     expect(themesByAppearance('light').every((e) => e.appearance === 'light')).toBe(true);
     expect(themesByAppearance('dark').length + themesByAppearance('light').length).toBe(
       THEME_LIST.length,

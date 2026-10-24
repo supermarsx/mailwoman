@@ -683,10 +683,13 @@ export type Appearance = 'light' | 'dark';
 
 export interface ThemeMeta {
   readonly id: ThemeName;
-  /** User-visible name. Descriptive, not promotional. */
-  readonly label: string;
-  /** One honest line describing what the pack looks like. */
-  readonly description: string;
+  /**
+   * Fluent id of the user-visible name (`locales/<lang>/appearance.ftl`).
+   * Descriptive, not promotional.
+   */
+  readonly labelId: string;
+  /** Fluent id of one honest line describing what the pack looks like. */
+  readonly descriptionId: string;
   readonly family: ThemeFamily;
   readonly appearance: Appearance;
 }
@@ -699,136 +702,136 @@ export interface ThemeMeta {
 export const THEME_META: readonly ThemeMeta[] = [
   {
     id: 'dark',
-    label: 'Dark',
-    description: 'Near-black page, off-white text, blue actions, red alerts, yellow markers.',
+    labelId: 'appearance-theme-dark',
+    descriptionId: 'appearance-theme-dark-desc',
     family: 'core',
     appearance: 'dark',
   },
   {
     id: 'light',
-    label: 'Light',
-    description: 'Off-white page, black text, blue actions, red alerts, yellow markers.',
+    labelId: 'appearance-theme-light',
+    descriptionId: 'appearance-theme-light-desc',
     family: 'core',
     appearance: 'light',
   },
   {
     id: 'bauhaus-black',
-    label: 'Black',
-    description: 'Black page, white text and controls, blue actions, red alerts, yellow markers.',
+    labelId: 'appearance-theme-bauhaus-black',
+    descriptionId: 'appearance-theme-bauhaus-black-desc',
     family: 'bauhaus',
     appearance: 'dark',
   },
   {
     id: 'paper',
-    label: 'Paper',
-    description: 'Warm off-white page, black ink, muted blue, red and ochre.',
+    labelId: 'appearance-theme-paper',
+    descriptionId: 'appearance-theme-paper-desc',
     family: 'bauhaus',
     appearance: 'light',
   },
   {
     id: 'blueprint',
-    label: 'Blueprint',
-    description: 'Deep blue page, white text and lines, cyan actions, yellow markers.',
+    labelId: 'appearance-theme-blueprint',
+    descriptionId: 'appearance-theme-blueprint-desc',
     family: 'bauhaus',
     appearance: 'dark',
   },
   {
     id: 'terminal',
-    label: 'Terminal',
-    description: 'Near-black page, green text, amber markers. Colours only; the font is unchanged.',
+    labelId: 'appearance-theme-terminal',
+    descriptionId: 'appearance-theme-terminal-desc',
     family: 'bauhaus',
     appearance: 'dark',
   },
   {
     id: 'primary',
-    label: 'Primary blocks',
-    description: 'White page, black text, flat blue, red and yellow blocks.',
+    labelId: 'appearance-theme-primary',
+    descriptionId: 'appearance-theme-primary-desc',
     family: 'bauhaus',
     appearance: 'light',
   },
   {
     id: 'slate-light',
-    label: 'Slate Light',
-    description: 'Cool blue-grey surfaces on a tinted page, muted navy accent.',
+    labelId: 'appearance-theme-slate-light',
+    descriptionId: 'appearance-theme-slate-light-desc',
     family: 'slate',
     appearance: 'light',
   },
   {
     id: 'slate-dark',
-    label: 'Slate Dark',
-    description: 'Cool blue-grey dark theme with a muted blue accent.',
+    labelId: 'appearance-theme-slate-dark',
+    descriptionId: 'appearance-theme-slate-dark-desc',
     family: 'slate',
     appearance: 'dark',
   },
   {
     id: 'ocean-light',
-    label: 'Ocean Light',
-    description: 'Blue-green light theme with a deep teal accent.',
+    labelId: 'appearance-theme-ocean-light',
+    descriptionId: 'appearance-theme-ocean-light-desc',
     family: 'ocean',
     appearance: 'light',
   },
   {
     id: 'ocean-dark',
-    label: 'Ocean Dark',
-    description: 'Blue-green dark theme with a cyan accent.',
+    labelId: 'appearance-theme-ocean-dark',
+    descriptionId: 'appearance-theme-ocean-dark-desc',
     family: 'ocean',
     appearance: 'dark',
   },
   {
     id: 'plum-light',
-    label: 'Plum Light',
-    description: 'Muted purple light theme with a violet accent.',
+    labelId: 'appearance-theme-plum-light',
+    descriptionId: 'appearance-theme-plum-light-desc',
     family: 'plum',
     appearance: 'light',
   },
   {
     id: 'plum-dark',
-    label: 'Plum Dark',
-    description: 'Muted purple dark theme with a violet accent.',
+    labelId: 'appearance-theme-plum-dark',
+    descriptionId: 'appearance-theme-plum-dark-desc',
     family: 'plum',
     appearance: 'dark',
   },
   {
     id: 'grove-light',
-    label: 'Grove Light',
-    description: 'Warm paper tones with wood-grain texture and a moss accent.',
+    labelId: 'appearance-theme-grove-light',
+    descriptionId: 'appearance-theme-grove-light-desc',
     family: 'grove',
     appearance: 'light',
   },
   {
     id: 'grove-dark',
-    label: 'Grove Dark',
-    description: 'Warm walnut tones with wood-grain texture and a moss accent.',
+    labelId: 'appearance-theme-grove-dark',
+    descriptionId: 'appearance-theme-grove-dark-desc',
     family: 'grove',
     appearance: 'dark',
   },
   {
     id: 'amoled',
-    label: 'AMOLED',
-    description: 'Pure-black dark theme; unlit pixels on OLED screens.',
+    labelId: 'appearance-theme-amoled',
+    descriptionId: 'appearance-theme-amoled-desc',
     family: 'amoled',
     appearance: 'dark',
   },
   {
     id: 'hc-light',
-    label: 'High contrast (light)',
-    description: 'Black on white with black borders and no tinted surfaces.',
+    labelId: 'appearance-theme-hc-light',
+    descriptionId: 'appearance-theme-hc-light-desc',
     family: 'contrast',
     appearance: 'light',
   },
   {
     id: 'hc-dark',
-    label: 'High contrast (dark)',
-    description: 'White on black with white borders and no tinted surfaces.',
+    labelId: 'appearance-theme-hc-dark',
+    descriptionId: 'appearance-theme-hc-dark-desc',
     family: 'contrast',
     appearance: 'dark',
   },
 ];
 
 /**
- * Ordered theme list with human labels, for the Settings/ribbon picker.
- * Derived from `THEME_META` so ordering and labels have one source.
+ * Ordered theme list with the Fluent id of each name, for the Settings/ribbon
+ * picker. Derived from `THEME_META` so ordering and labels have one source.
  */
-export const THEME_OPTIONS: ReadonlyArray<{ value: ThemeName; label: string }> = THEME_META.map(
-  (m) => ({ value: m.id, label: m.label }),
+export const THEME_OPTIONS: ReadonlyArray<{ value: ThemeName; labelId: string }> = THEME_META.map(
+  (m) => ({ value: m.id, labelId: m.labelId }),
 );

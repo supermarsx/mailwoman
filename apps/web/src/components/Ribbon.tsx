@@ -9,9 +9,9 @@
 // panel groups are labelled toolbars. Styling is token-native
 // (styles/ribbon.css.ts); focus rings come from the shared a11y contract.
 
-import { createSignal, For, Show, type JSX } from 'solid-js';
+import { createSignal, For, onMount, Show, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
-import { t } from '../i18n/index.ts';
+import { loadCatalog, t } from '../i18n/index.ts';
 import { THEME_OPTIONS } from '../theme/tokens.ts';
 import type { Density } from '../theme/contract.css.ts';
 import * as css from '../styles/ribbon.css.ts';
@@ -31,6 +31,8 @@ export interface RibbonProps {
 
 export function Ribbon(props: RibbonProps): JSX.Element {
   const app = useApp();
+  // The theme names in the View tab come from the appearance catalog.
+  onMount(() => void loadCatalog('appearance'));
   const [active, setActive] = createSignal<RibbonTab>('home');
   const tabEls: (HTMLButtonElement | undefined)[] = [];
 
@@ -113,7 +115,7 @@ export function Ribbon(props: RibbonProps): JSX.Element {
                   onChange={(e) => app.setTheme(e.currentTarget.value as (typeof THEME_OPTIONS)[number]['value'])}
                 >
                   <For each={THEME_OPTIONS}>
-                    {(o) => <option value={o.value}>{o.label}</option>}
+                    {(o) => <option value={o.value}>{t(o.labelId)}</option>}
                   </For>
                 </select>
               </div>

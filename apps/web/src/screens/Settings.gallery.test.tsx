@@ -11,6 +11,7 @@ import { Settings } from './Settings.tsx';
 import { AppContext } from '../state/context.ts';
 import { createThemeSlice } from '../state/slices/theme.ts';
 import { stopAppearanceSync } from '../api/prefs.ts';
+import { t } from '../i18n';
 import { ACCENT_LIST, THEME_LIST, accentShade, themeEntry } from '../theme/registry.ts';
 import type { SliceContext } from '../state/slices/context.ts';
 import type { AppState } from '../state/store.ts';
@@ -45,7 +46,8 @@ describe('theme gallery', () => {
     // up without touching this screen — the failure this replaces was a
     // hardcoded list that silently omitted six packs.
     await vi.waitFor(() => expect(card('Grove Dark')).toBeInTheDocument());
-    for (const entry of THEME_LIST) expect(card(entry.label)).toBeInTheDocument();
+    // Names are Fluent ids resolved from the appearance catalog the panel loads.
+    for (const entry of THEME_LIST) expect(card(t(entry.labelId))).toBeInTheDocument();
   });
 
   it('groups the cards by pack family', async () => {
@@ -59,7 +61,8 @@ describe('theme gallery', () => {
   it('a card shows the pack description and its light/dark nature', async () => {
     renderSettings();
     await vi.waitFor(() => expect(card('Slate Dark')).toBeInTheDocument());
-    expect(card('Slate Dark').textContent).toContain(themeEntry('slate-dark').description);
+    expect(card('Slate Dark').textContent).toContain(t(themeEntry('slate-dark').descriptionId));
+    expect(card('Slate Dark').textContent).toContain('Cool blue-grey dark theme');
     expect(card('Slate Dark').textContent).toContain('Dark');
   });
 
@@ -255,7 +258,7 @@ describe('the Bauhaus packs', () => {
     // A static style attribute is refused by the page's style-src CSP; the card
     // geometry lives in picker.css.ts.
     for (const entry of THEME_LIST) {
-      expect(card(entry.label).getAttribute('style'), entry.id).toBeNull();
+      expect(card(t(entry.labelId)).getAttribute('style'), entry.id).toBeNull();
     }
   });
 });
@@ -275,7 +278,7 @@ describe('the accent picker', () => {
     const buttons = within(accentGroup()).getAllByRole('button');
     expect(buttons.map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual([
       'Theme default',
-      ...ACCENT_LIST.map((a) => a.label),
+      ...ACCENT_LIST.map((a) => t(a.labelId)),
     ]);
     expect(buttons.map((b) => b.getAttribute('aria-pressed'))).toEqual([
       'true',

@@ -44,7 +44,7 @@ import {
   ACCENT_LIST,
   accentShade,
   isThemeName,
-  THEME_DEFAULT_ACCENT_LABEL,
+  THEME_DEFAULT_ACCENT_LABEL_ID,
   THEME_GROUPS,
   themesByAppearance,
   type ThemeEntry,
@@ -268,7 +268,7 @@ function ThemeMode(): JSX.Element {
               }}
             >
               <For each={themesByAppearance('light')}>
-                {(entry) => <option value={entry.id}>{entry.label}</option>}
+                {(entry) => <option value={entry.id}>{t(entry.labelId)}</option>}
               </For>
             </select>
           </label>
@@ -283,7 +283,7 @@ function ThemeMode(): JSX.Element {
               }}
             >
               <For each={themesByAppearance('dark')}>
-                {(entry) => <option value={entry.id}>{entry.label}</option>}
+                {(entry) => <option value={entry.id}>{t(entry.labelId)}</option>}
               </For>
             </select>
           </label>
@@ -342,7 +342,7 @@ function ThemeGallery(): JSX.Element {
           <Show when={group.themes.length > 0}>
             <div class={css.row}>
               <span class={css.label} id={`appearance-family-${group.family}`}>
-                {group.label}
+                {t(group.labelId)}
               </span>
               <div
                 class={css.options}
@@ -357,13 +357,13 @@ function ThemeGallery(): JSX.Element {
                       // The accessible name is the pack name alone: the preview is
                       // decorative and the description/appearance are supporting
                       // detail, not part of what the control is called.
-                      aria-label={entry.label}
+                      aria-label={t(entry.labelId)}
                       aria-pressed={app.theme() === entry.id}
                       onClick={() => app.setTheme(entry.id)}
                     >
                       <ThemePreview entry={entry} />
-                      <span class={picker.cardName}>{entry.label}</span>
-                      <span class={picker.cardDescription}>{entry.description}</span>
+                      <span class={picker.cardName}>{t(entry.labelId)}</span>
+                      <span class={picker.cardDescription}>{t(entry.descriptionId)}</span>
                       <span class={picker.cardMeta}>
                         {entry.appearance === 'dark' ? t('appearance-dark') : t('appearance-light')}
                         <Show when={app.theme() === entry.id}> · {t('appearance-active')}</Show>
@@ -426,7 +426,7 @@ function AccentPicker(): JSX.Element {
           aria-pressed={app.accentId() === ''}
           onClick={() => app.setAccentId('')}
         >
-          {THEME_DEFAULT_ACCENT_LABEL}
+          {t(THEME_DEFAULT_ACCENT_LABEL_ID)}
         </button>
         <For each={ACCENT_LIST}>
           {(def) => {
@@ -435,8 +435,8 @@ function AccentPicker(): JSX.Element {
               <button
                 type="button"
                 class={picker.swatch}
-                aria-label={def.label}
-                title={def.label}
+                aria-label={t(def.labelId)}
+                title={t(def.labelId)}
                 aria-pressed={app.accentId() === def.id}
                 style={{ background: shade().accent, color: shade().accentText }}
                 onClick={() => app.setAccentId(def.id)}

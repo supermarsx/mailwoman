@@ -133,27 +133,27 @@ export function themesByAppearance(appearance: Appearance): readonly ThemeEntry[
 
 export interface ThemeFamilyGroup {
   readonly family: ThemeFamily;
-  /** Family label, taken from the pack name without its variant suffix. */
-  readonly label: string;
+  /** Fluent id of the family label (the pack name without its variant suffix). */
+  readonly labelId: string;
   readonly themes: readonly ThemeEntry[];
 }
 
-const FAMILY_LABELS: Record<ThemeFamily, string> = {
-  core: 'Default',
-  bauhaus: 'Bauhaus',
-  slate: 'Slate',
-  ocean: 'Ocean',
-  plum: 'Plum',
-  grove: 'Grove',
-  amoled: 'AMOLED',
-  contrast: 'High contrast',
+const FAMILY_LABEL_IDS: Record<ThemeFamily, string> = {
+  core: 'appearance-family-core',
+  bauhaus: 'appearance-family-bauhaus',
+  slate: 'appearance-family-slate',
+  ocean: 'appearance-family-ocean',
+  plum: 'appearance-family-plum',
+  grove: 'appearance-family-grove',
+  amoled: 'appearance-family-amoled',
+  contrast: 'appearance-family-contrast',
 };
 
 /** The gallery grouping: one row per pack, its variants in appearance order. */
 export const THEME_GROUPS: readonly ThemeFamilyGroup[] = Object.freeze(
-  (Object.keys(FAMILY_LABELS) as ThemeFamily[]).map((family) => ({
+  (Object.keys(FAMILY_LABEL_IDS) as ThemeFamily[]).map((family) => ({
     family,
-    label: FAMILY_LABELS[family],
+    labelId: FAMILY_LABEL_IDS[family],
     themes: THEME_LIST.filter((e) => e.family === family),
   })),
 );
@@ -179,8 +179,8 @@ export const DEFAULT_DARK_THEME: ThemeName = 'dark';
 /** The ten named accents in picker order. */
 export const ACCENT_LIST: readonly AccentDef[] = ACCENTS;
 
-/** Label of the choice that keeps each pack's own accent. */
-export const THEME_DEFAULT_ACCENT_LABEL = 'Theme default';
+/** Fluent id of the choice that keeps each pack's own accent. */
+export const THEME_DEFAULT_ACCENT_LABEL_ID = 'appearance-accent-default';
 
 /**
  * What `data-accent="<id>"` paints on `theme`: that theme's shade of the
