@@ -48,8 +48,19 @@ export function NoteEditor(props: NoteEditorProps): JSX.Element {
     props.onInput(sanitizeNoteHtml(ref.innerHTML));
   }
 
+  // Whether the user has typed or formatted since this note was loaded. Until
+  // then the surface follows the note's body (a change made elsewhere shows);
+  // after it, the surface keeps what the user wrote.
+  let typed = false;
+
+  function typedInput(): void {
+    typed = true;
+    emit();
+  }
+
   /** Run a formatting command against the current selection, then emit. */
   function run(c: ToolbarCommand): void {
+    typed = true;
     ref.focus();
     // execCommand is deprecated but is the only dependency-free rich-text path
     // and is supported by every browser we target; jsdom is a no-op (tests
@@ -61,6 +72,7 @@ export function NoteEditor(props: NoteEditorProps): JSX.Element {
   function insertLink(): void {
     const url = globalThis.prompt?.(t('notes-link-prompt')) ?? '';
     if (url.length === 0) return;
+    typed = true;
     ref.focus();
     document.execCommand('createLink', false, url);
     emit();
@@ -70,13 +82,20 @@ export function NoteEditor(props: NoteEditorProps): JSX.Element {
     ref.innerHTML = sanitizeNoteHtml(props.html);
   });
 
-  // Reload content only when the selected note changes (guards cursor jumps).
+  // Reload content when the selected note changes, or when its body changes
+  // before the user has typed in it (never under the cursor).
   let loadedId = props.noteId;
+  let loadedHtml = props.html;
   createEffect(() => {
+    const html = props.html;
     if (props.noteId !== loadedId) {
       loadedId = props.noteId;
-      ref.innerHTML = sanitizeNoteHtml(props.html);
+      typed = false;
+    } else if (typed || html === loadedHtml) {
+      return;
     }
+    loadedHtml = html;
+    ref.innerHTML = sanitizeNoteHtml(html);
   });
 
   return (
@@ -115,7 +134,7 @@ export function NoteEditor(props: NoteEditorProps): JSX.Element {
         aria-multiline="true"
         aria-label={props.ariaLabel ?? t('notes-body')}
         data-testid="note-body"
-        onInput={emit}
+        onInput={typedInput}
         onBlur={emit}
       />
     </div>

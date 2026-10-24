@@ -57,3 +57,8 @@ notes-link-target = Link target id
 notes-link-target-placeholder = id to link…
 notes-link-add = Add cross-link
 notes-link-button = Link
+
+# -- Changes from another device or session ------------------------------------
+notes-changed-elsewhere = This note was changed on another device or session. Text you typed here is kept, and your next edit saves it.
+notes-deleted-elsewhere = The note you had open was deleted on another device or session.
+notes-create-failed = The note could not be created.

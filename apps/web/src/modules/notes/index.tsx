@@ -9,7 +9,7 @@
 // leave the editor (see `sanitize.ts`); they are sealed only at rest server-side
 // (plan §1.6). Reuses the V2 design tokens (`--bg`/`--surface`/… in app.css).
 
-import { For, Show, createMemo, createSignal, onMount, type JSX } from 'solid-js';
+import { For, Show, createEffect, createMemo, createSignal, on, onMount, untrack, type JSX } from 'solid-js';
 import { t, loadCatalog } from '../../i18n';
 import { useApp } from '../../state/context.ts';
 import { NOTE_COLORS, noteBodyText } from '../../state/slices/notes.ts';
@@ -35,20 +35,40 @@ export function NotesModule(): JSX.Element {
   });
 
   const selected = createMemo(() => app.notes().find((n) => n.id === selectedId()) ?? null);
+  // Set when the open note was deleted on another device or session; cleared
+  // when another note is opened.
+  const [goneNotice, setGoneNotice] = createSignal(false);
+
+  createEffect(() => {
+    const id = selectedId();
+    if (id !== null && selected() === null && app.noteDeletedElsewhere(id)) {
+      setSelectedId(null);
+      setGoneNotice(true);
+    }
+  });
+
+  function select(id: string): void {
+    setGoneNotice(false);
+    setSelectedId(id);
+  }
 
   async function newNote(): Promise<void> {
-    const note = await app.createNote({ title: t('notes-untitled') });
-    setSelectedId(note.id);
+    try {
+      const note = await app.createNote({ title: t('notes-untitled') });
+      select(note.id);
+    } catch {
+      // The slice has shown the error; there is no note to open.
+    }
   }
 
   return (
     <section class="notes" aria-label={t('notes-title')} data-module="notes">
       <NotesList
         selectedId={selectedId()}
-        onSelect={(id) => setSelectedId(id)}
+        onSelect={select}
         onNew={() => void newNote()}
       />
-      <Show when={selected()} fallback={<NotesEmpty />}>
+      <Show when={selected()} fallback={<NotesEmpty gone={goneNotice()} />}>
         {(note) => <NoteDetail note={note()} onDeleted={() => setSelectedId(null)} />}
       </Show>
     </section>
@@ -140,9 +160,12 @@ function NotesList(props: {
   );
 }
 
-function NotesEmpty(): JSX.Element {
+function NotesEmpty(props: { gone: boolean }): JSX.Element {
   return (
     <div class="notes__detail notes__detail--empty" aria-label={t('notes-none-selected')}>
+      <Show when={props.gone}>
+        <p role="status">{t('notes-deleted-elsewhere')}</p>
+      </Show>
       <p>{t('notes-empty-hint')}</p>
     </div>
   );
@@ -154,6 +177,28 @@ function NoteDetail(props: { note: Note; onDeleted: () => void }): JSX.Element {
   const app = useApp();
   const [tagDraft, setTagDraft] = createSignal('');
   const note = (): Note => props.note;
+  // Once the user types a title, the field keeps showing what they typed while
+  // this note stays open, even if a reload brings a title set elsewhere.
+  const [typedTitle, setTypedTitle] = createSignal<string | null>(null);
+  // The count of changes made elsewhere when this note was opened; a higher
+  // count while it is open shows the notice.
+  const [seenChanges, setSeenChanges] = createSignal(0);
+  const noteId = createMemo(() => note().id);
+  createEffect(
+    on(
+      noteId,
+      (id) => {
+        setTypedTitle(null);
+        setSeenChanges(untrack(() => app.noteChangedElsewhere(id)));
+      },
+    ),
+  );
+  const changedElsewhere = (): boolean => app.noteChangedElsewhere(note().id) > seenChanges();
+
+  function setTitle(title: string): void {
+    setTypedTitle(title);
+    void app.updateNote(note().id, { title });
+  }
 
   function setBody(html: string): void {
     void app.updateNote(note().id, { bodyHtml: html, bodyText: htmlToText(html) });
@@ -187,8 +232,8 @@ function NoteDetail(props: { note: Note; onDeleted: () => void }): JSX.Element {
           type="text"
           placeholder={t('notes-title-placeholder')}
           aria-label={t('notes-title-label')}
-          value={note().title}
-          onInput={(e) => void app.updateNote(note().id, { title: e.currentTarget.value })}
+          value={typedTitle() ?? note().title}
+          onInput={(e) => setTitle(e.currentTarget.value)}
         />
         <button
           type="button"
@@ -203,6 +248,10 @@ function NoteDetail(props: { note: Note; onDeleted: () => void }): JSX.Element {
           🗑
         </button>
       </div>
+
+      <Show when={changedElsewhere()}>
+        <p class="notes__notice" role="status">{t('notes-changed-elsewhere')}</p>
+      </Show>
 
       <div class="notes__colors" role="group" aria-label={t('notes-color-group')}>
         <For each={NOTE_COLORS}>

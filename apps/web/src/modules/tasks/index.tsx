@@ -8,7 +8,17 @@
 // Shared primitives (ribbon / command-palette / tokens) are reused read-only;
 // this module owns only its own view. Styling is token-native (`tasks.css.ts`).
 
-import { For, Show, createSignal, onMount, type JSX } from 'solid-js';
+import {
+  For,
+  Show,
+  createContext,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onMount,
+  useContext,
+  type JSX,
+} from 'solid-js';
 import { t, loadCatalog } from '../../i18n';
 import { useApp } from '../../state/context.ts';
 import { isDone } from '../../state/slices/tasks.ts';
@@ -18,6 +28,38 @@ import * as css from './tasks.css.ts';
 
 /** Which working set the main pane shows. */
 type View = 'list' | 'myDay';
+
+/** Reports a notice for the module to show (a task being edited was deleted elsewhere). */
+const NoticeContext = createContext<(message: string) => void>(() => undefined);
+
+/**
+ * Render `each` with one row per task id rather than per object: a reload
+ * brings new objects, and a row keyed by object would be re-created, closing
+ * an open edit form and losing what was typed (t32-h11). The row gets the
+ * task's current object, so it shows content changed elsewhere.
+ */
+function ForTasks(props: {
+  each: Task[];
+  fallback?: JSX.Element;
+  children: (task: () => Task) => JSX.Element;
+}): JSX.Element {
+  const ids = createMemo(() => props.each.map((t) => t.id));
+  const byId = createMemo(() => new Map(props.each.map((t) => [t.id, t])));
+  return (
+    <For each={ids()} fallback={props.fallback}>
+      {(id) => {
+        // Keep the last object while the row is being removed.
+        let last = byId().get(id) as Task;
+        const task = (): Task => {
+          const cur = byId().get(id);
+          if (cur !== undefined) last = cur;
+          return last;
+        };
+        return props.children(task);
+      }}
+    </For>
+  );
+}
 
 /** Short human label for a task's due/start date, or empty when unscheduled. */
 function scheduleLabel(task: Task): string {
@@ -32,6 +74,7 @@ export function TasksModule(): JSX.Element {
   const [mailId, setMailId] = createSignal('');
   const [eventId, setEventId] = createSignal('');
   const [dragId, setDragId] = createSignal<Id | null>(null);
+  const [notice, setNotice] = createSignal<string | null>(null);
 
   onMount(() => {
     void loadCatalog('tasks');
@@ -93,105 +136,118 @@ export function TasksModule(): JSX.Element {
     view() === 'list' && app.selectedListId() === id;
 
   return (
-    <section class={css.layout} aria-label={t('tasks-title')} data-module="tasks">
-      <nav class={css.sidebar} aria-label={t('tasks-lists')}>
-        <button
-          type="button"
-          class={css.navButton}
-          aria-current={listActive(null)}
-          onClick={selectAll}
-        >
-          {t('tasks-all')}
-        </button>
-        <button
-          type="button"
-          class={css.navButton}
-          aria-current={view() === 'myDay'}
-          onClick={() => setView('myDay')}
-        >
-          {t('tasks-my-day')}
-        </button>
+    <NoticeContext.Provider value={setNotice}>
+      <section class={css.layout} aria-label={t('tasks-title')} data-module="tasks">
+        <nav class={css.sidebar} aria-label={t('tasks-lists')}>
+          <button
+            type="button"
+            class={css.navButton}
+            aria-current={listActive(null)}
+            onClick={selectAll}
+          >
+            {t('tasks-all')}
+          </button>
+          <button
+            type="button"
+            class={css.navButton}
+            aria-current={view() === 'myDay'}
+            onClick={() => setView('myDay')}
+          >
+            {t('tasks-my-day')}
+          </button>
 
-        <h2 class={css.sidebarHeading}>{t('tasks-lists-heading')}</h2>
-        <For each={app.taskLists()} fallback={<p class={css.meta}>{t('tasks-no-lists')}</p>}>
-          {(list) => (
-            <button
-              type="button"
-              class={css.navButton}
-              aria-current={listActive(list.id)}
-              onClick={() => selectList(list.id)}
-            >
-              <span class={css.colorDot} style={{ background: list.color }} aria-hidden="true" />
-              <span class={css.title}><bdi>{list.name}</bdi></span>
+          <h2 class={css.sidebarHeading}>{t('tasks-lists-heading')}</h2>
+          <For each={app.taskLists()} fallback={<p class={css.meta}>{t('tasks-no-lists')}</p>}>
+            {(list) => (
+              <button
+                type="button"
+                class={css.navButton}
+                aria-current={listActive(list.id)}
+                onClick={() => selectList(list.id)}
+              >
+                <span class={css.colorDot} style={{ background: list.color }} aria-hidden="true" />
+                <span class={css.title}><bdi>{list.name}</bdi></span>
+              </button>
+            )}
+          </For>
+        </nav>
+
+        <div class={css.main}>
+          <form class={css.addForm} onSubmit={addTask}>
+            <input
+              class={css.input}
+              type="text"
+              aria-label={t('tasks-new-title')}
+              placeholder={t('tasks-add-placeholder')}
+              value={newTitle()}
+              onInput={(e) => setNewTitle(e.currentTarget.value)}
+            />
+            <button class={css.button} type="submit">{t('common-add')}</button>
+          </form>
+
+          <Show when={notice()}>
+            {(message) => (
+              <p class={css.meta} role="status">
+                {message()}{' '}
+                <button class={css.button} type="button" onClick={() => setNotice(null)}>
+                  {t('tasks-notice-dismiss')}
+                </button>
+              </p>
+            )}
+          </Show>
+
+          <Show
+            when={view() === 'myDay'}
+            fallback={<TaskTree roots={app.rootTasks()} />}
+          >
+            <ol class={css.taskList} aria-label={t('tasks-my-day')}>
+              <ForTasks
+                each={app.myDayTasks()}
+                fallback={<li class={css.empty}>{t('tasks-my-day-empty')}</li>}
+              >
+                {(task) => (
+                  <li
+                    data-task-id={task().id}
+                    draggable="true"
+                    onDragStart={() => setDragId(task().id)}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={() => dropOn(task().id)}
+                  >
+                    <TaskItem task={task()} />
+                  </li>
+                )}
+              </ForTasks>
+            </ol>
+          </Show>
+
+          <div class={css.convert}>
+            <span class={css.meta}>{t('tasks-convert')}</span>
+            <input
+              class={css.input}
+              type="text"
+              aria-label={t('tasks-mail-id')}
+              placeholder={t('tasks-mail-id-placeholder')}
+              value={mailId()}
+              onInput={(e) => setMailId(e.currentTarget.value)}
+            />
+            <button class={css.button} type="button" onClick={convertMail}>
+              {t('tasks-mail-to-task')}
             </button>
-          )}
-        </For>
-      </nav>
-
-      <div class={css.main}>
-        <form class={css.addForm} onSubmit={addTask}>
-          <input
-            class={css.input}
-            type="text"
-            aria-label={t('tasks-new-title')}
-            placeholder={t('tasks-add-placeholder')}
-            value={newTitle()}
-            onInput={(e) => setNewTitle(e.currentTarget.value)}
-          />
-          <button class={css.button} type="submit">{t('common-add')}</button>
-        </form>
-
-        <Show
-          when={view() === 'myDay'}
-          fallback={<TaskTree roots={app.rootTasks()} />}
-        >
-          <ol class={css.taskList} aria-label={t('tasks-my-day')}>
-            <For
-              each={app.myDayTasks()}
-              fallback={<li class={css.empty}>{t('tasks-my-day-empty')}</li>}
-            >
-              {(task) => (
-                <li
-                  data-task-id={task.id}
-                  draggable="true"
-                  onDragStart={() => setDragId(task.id)}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={() => dropOn(task.id)}
-                >
-                  <TaskItem task={task} />
-                </li>
-              )}
-            </For>
-          </ol>
-        </Show>
-
-        <div class={css.convert}>
-          <span class={css.meta}>{t('tasks-convert')}</span>
-          <input
-            class={css.input}
-            type="text"
-            aria-label={t('tasks-mail-id')}
-            placeholder={t('tasks-mail-id-placeholder')}
-            value={mailId()}
-            onInput={(e) => setMailId(e.currentTarget.value)}
-          />
-          <button class={css.button} type="button" onClick={convertMail}>
-            {t('tasks-mail-to-task')}
-          </button>
-          <input
-            class={css.input}
-            type="text"
-            aria-label={t('tasks-event-id')}
-            placeholder={t('tasks-event-id-placeholder')}
-            value={eventId()}
-            onInput={(e) => setEventId(e.currentTarget.value)}
-          />
-          <button class={css.button} type="button" onClick={convertEvent}>
-            {t('tasks-event-to-task')}
-          </button>
+            <input
+              class={css.input}
+              type="text"
+              aria-label={t('tasks-event-id')}
+              placeholder={t('tasks-event-id-placeholder')}
+              value={eventId()}
+              onInput={(e) => setEventId(e.currentTarget.value)}
+            />
+            <button class={css.button} type="button" onClick={convertEvent}>
+              {t('tasks-event-to-task')}
+            </button>
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+    </NoticeContext.Provider>
   );
 }
 
@@ -199,14 +255,14 @@ export function TasksModule(): JSX.Element {
 function TaskTree(props: { roots: Task[] }): JSX.Element {
   return (
     <ul class={css.taskList} aria-label={t('tasks-list-label')}>
-      <For each={props.roots} fallback={<li class={css.empty}>{t('tasks-empty-list')}</li>}>
+      <ForTasks each={props.roots} fallback={<li class={css.empty}>{t('tasks-empty-list')}</li>}>
         {(task) => (
-          <li data-task-id={task.id}>
-            <TaskItem task={task} />
-            <Subtasks parentId={task.id} />
+          <li data-task-id={task().id}>
+            <TaskItem task={task()} />
+            <Subtasks parentId={task().id} />
           </li>
         )}
-      </For>
+      </ForTasks>
     </ul>
   );
 }
@@ -218,13 +274,13 @@ function Subtasks(props: { parentId: Id }): JSX.Element {
   return (
     <Show when={kids().length > 0}>
       <ul class={css.subtasks} aria-label={t('tasks-subtasks')}>
-        <For each={kids()}>
+        <ForTasks each={kids()}>
           {(task) => (
-            <li data-task-id={task.id}>
-              <TaskItem task={task} />
+            <li data-task-id={task().id}>
+              <TaskItem task={task()} />
             </li>
           )}
-        </For>
+        </ForTasks>
       </ul>
     </Show>
   );
@@ -262,17 +318,41 @@ export function dueFromDateInput(date: string, previous: string | null): string 
   return `${date}${time}`;
 }
 
+/** The task fields the edit form shows, as they were when it opened. */
+type EditBase = Pick<Task, 'title' | 'due' | 'priority'>;
+
 /** One task row: complete toggle + title + schedule/priority meta + edit. */
 function TaskItem(props: { task: Task }): JSX.Element {
   const app = useApp();
+  const notify = useContext(NoticeContext);
   const done = (): boolean => isDone(props.task);
   const [editing, setEditing] = createSignal(false);
   const [confirmingDelete, setConfirmingDelete] = createSignal(false);
   const [title, setTitle] = createSignal('');
   const [due, setDue] = createSignal('');
   const [priority, setPriority] = createSignal(0);
+  // What the form started from: Save sends only the fields the user changed
+  // from it, and a difference from the current task means it changed
+  // elsewhere while the form was open (the draft is kept either way).
+  const [base, setBase] = createSignal<EditBase | null>(null);
+  let deleting = false;
+
+  const changedElsewhere = (): boolean => {
+    const b = base();
+    if (!editing() || b === null) return false;
+    return b.title !== props.task.title || b.due !== props.task.due || b.priority !== props.task.priority;
+  };
+
+  // The row goes away while its form is open: say so when a reload found the
+  // task deleted elsewhere (not when the user deleted it or left the view).
+  onCleanup(() => {
+    if (editing() && !deleting && app.taskDeletedElsewhere(props.task.id)) {
+      notify(t('tasks-deleted-elsewhere', { title: base()?.title ?? props.task.title }));
+    }
+  });
 
   function startEdit(): void {
+    setBase({ title: props.task.title, due: props.task.due, priority: props.task.priority });
     setTitle(props.task.title);
     setDue(props.task.due === null ? '' : props.task.due.slice(0, 10));
     setPriority(priorityChoice(props.task.priority));
@@ -285,15 +365,22 @@ function TaskItem(props: { task: Task }): JSX.Element {
     const next = title().trim();
     // A task keeps a title: an emptied field leaves the edit open.
     if (next === '') return;
-    // Send only what changed, so an untouched priority of e.g. 3 is not
-    // rewritten to the "high" choice's 1.
+    // Send only what the user changed from what the form opened with, so an
+    // untouched priority of e.g. 3 is not rewritten to the "high" choice's 1,
+    // and a field changed elsewhere meanwhile is not put back.
+    const from = base() ?? props.task;
     const patch: Partial<Task> = {};
-    if (next !== props.task.title) patch.title = next;
-    const nextDue = dueFromDateInput(due(), props.task.due);
-    if (nextDue !== props.task.due) patch.due = nextDue;
-    if (priority() !== priorityChoice(props.task.priority)) patch.priority = priority();
+    if (next !== from.title) patch.title = next;
+    const nextDue = dueFromDateInput(due(), from.due);
+    if (nextDue !== from.due) patch.due = nextDue;
+    if (priority() !== priorityChoice(from.priority)) patch.priority = priority();
     setEditing(false);
     if (Object.keys(patch).length > 0) await app.updateTask(props.task.id, patch);
+  }
+
+  function confirmDelete(): void {
+    deleting = true;
+    void app.deleteTask(props.task.id);
   }
 
   return (
@@ -327,6 +414,9 @@ function TaskItem(props: { task: Task }): JSX.Element {
       }
     >
       <form class={css.editForm} aria-label={t('tasks-edit', { title: props.task.title })} onSubmit={save}>
+        <Show when={changedElsewhere()}>
+          <p class={css.meta} role="status">{t('tasks-changed-elsewhere')}</p>
+        </Show>
         <label class={css.field}>
           <span class={css.meta}>{t('tasks-field-title')}</span>
           <input
@@ -365,7 +455,7 @@ function TaskItem(props: { task: Task }): JSX.Element {
             }
           >
             <span class={css.meta} role="alert">{t('tasks-delete-confirm')}</span>
-            <button class={css.dangerButton} type="button" onClick={() => void app.deleteTask(props.task.id)}>
+            <button class={css.dangerButton} type="button" onClick={confirmDelete}>
               {t('tasks-delete-yes')}
             </button>
             <button class={css.button} type="button" onClick={() => setConfirmingDelete(false)}>

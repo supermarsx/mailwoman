@@ -24,6 +24,7 @@ import {
   type TaskSetResponse,
 } from '../../modules/tasks/api.ts';
 import type { SliceContext } from './context.ts';
+import { LocalWrites, keepUnchanged } from './localWrites.ts';
 
 export type { TaskList } from '../../modules/tasks/api.ts';
 
@@ -59,6 +60,9 @@ export interface TasksSlice {
   rootTasks: Accessor<Task[]>;
   /** Subtasks of a given parent task, in load order. */
   subtasksOf(parentId: Id): Task[];
+  /** Whether a reload of the same list found `id` gone: deleted on another
+   *  device or session, not by this client and not by picking another list. */
+  taskDeletedElsewhere(id: Id): boolean;
   /** Today's working set — the My Day filter (plan §2.2), reorderable. */
   myDayTasks: Accessor<Task[]>;
 
@@ -147,6 +151,34 @@ export function createTasksSlice(ctx: SliceContext): TasksSlice {
     setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   }
 
+  // A load answered after this client wrote can predate the write; `writes`
+  // keeps the local version of such rows (see `localWrites.ts`), and
+  // `applyLoad` keeps the old object for every unchanged row, so an open edit
+  // form is not re-created by a pushed reload (t32-h11).
+  const writes = new LocalWrites<Task>();
+  // The list the shown rows were loaded for (`undefined` = all lists), so a row
+  // that left the view because another list was picked is not taken for one
+  // deleted elsewhere.
+  let shownScope: Id | undefined | null = null;
+  const [deletedElsewhere, setDeletedElsewhere] = createSignal<ReadonlySet<Id>>(new Set());
+
+  function applyLoad(loaded: Task[], scope: Id | undefined, sentAt: number): void {
+    const prev = tasks();
+    const inScope = (t: Task): boolean => scope === undefined || t.listId === scope;
+    const next = keepUnchanged(prev, writes.merge(prev, loaded, sentAt, inScope).rows);
+    batch(() => {
+      if (scope === shownScope) {
+        const kept = new Set(next.map((t) => t.id));
+        const gone = prev.filter((t) => !kept.has(t.id)).map((t) => t.id);
+        if (gone.length > 0) setDeletedElsewhere((s) => new Set([...s, ...gone]));
+      } else {
+        setDeletedElsewhere(new Set<Id>());
+      }
+      shownScope = scope;
+      setTasks(next);
+    });
+  }
+
   // Each `loadTasks()` / `selectList()` takes a ticket when it is called. Calls
   // overlap (opening Tasks starts two loads; a list click starts another), and
   // one that started earlier can answer last; only the call holding the latest
@@ -178,9 +210,10 @@ export function createTasksSlice(ctx: SliceContext): TasksSlice {
         // Default focus is "all lists" (null); leave selection as-is.
       }
       const listId = selectedListId() ?? undefined;
+      const sentAt = writes.loadSent();
       const taskRes = await client.jmap(tasksQueryGet(acct, listId));
       if (stale()) return;
-      setTasks(responseFor<TaskGetResponse>(taskRes, 'g').list);
+      applyLoad(responseFor<TaskGetResponse>(taskRes, 'g').list, listId, sentAt);
     } finally {
       // The latest call ends the loading state; a dropped one leaves it alone.
       if (!stale()) setTasksLoading(false);
@@ -195,9 +228,10 @@ export function createTasksSlice(ctx: SliceContext): TasksSlice {
     if (acct === null || stale()) return;
     setTasksLoading(true);
     try {
+      const sentAt = writes.loadSent();
       const res = await client.jmap(tasksQueryGet(acct, id ?? undefined));
       if (stale()) return;
-      setTasks(responseFor<TaskGetResponse>(res, 'g').list);
+      applyLoad(responseFor<TaskGetResponse>(res, 'g').list, id ?? undefined, sentAt);
     } finally {
       if (!stale()) setTasksLoading(false);
     }
@@ -241,6 +275,8 @@ export function createTasksSlice(ctx: SliceContext): TasksSlice {
         etag: created?.etag ?? null,
         ...created,
       };
+      // The server holds it now; a load sent before this answer may not.
+      writes.begin(id, 'create')();
       setTasks((ts) => [...ts, optimistic]);
     }
     return id;
@@ -254,7 +290,12 @@ export function createTasksSlice(ctx: SliceContext): TasksSlice {
     const acct = await resolveAccount();
     if (acct === null) return;
     patchTask(id, patch);
-    await client.jmap(taskSet(acct, { update: { [id]: { ...patch } } }));
+    const answered = writes.begin(id, 'update', patch);
+    try {
+      await client.jmap(taskSet(acct, { update: { [id]: { ...patch } } }));
+    } finally {
+      answered();
+    }
     ctx.broadcastChange?.();
   }
 
@@ -272,6 +313,12 @@ export function createTasksSlice(ctx: SliceContext): TasksSlice {
     const acct = await resolveAccount();
     if (acct === null) return;
     // Detach subtasks locally (they become roots) and drop the task.
+    const answered = [
+      writes.begin(id, 'destroy'),
+      ...tasks()
+        .filter((t) => t.parentId === id)
+        .map((t) => writes.begin(t.id, 'update', { parentId: null })),
+    ];
     batch(() => {
       setTasks((ts) =>
         ts
@@ -280,7 +327,11 @@ export function createTasksSlice(ctx: SliceContext): TasksSlice {
       );
       setMyDayOrder((o) => o.filter((x) => x !== id));
     });
-    await client.jmap(taskSet(acct, { destroy: [id] }));
+    try {
+      await client.jmap(taskSet(acct, { destroy: [id] }));
+    } finally {
+      for (const done of answered) done();
+    }
     ctx.broadcastChange?.();
   }
 
@@ -314,6 +365,10 @@ export function createTasksSlice(ctx: SliceContext): TasksSlice {
     return tasks().filter((t) => t.parentId === parentId);
   }
 
+  function taskDeletedElsewhere(id: Id): boolean {
+    return deletedElsewhere().has(id);
+  }
+
   const myDayTasks = createMemo<Task[]>(() => {
     const today = todayDate();
     const members = tasks().filter((t) => isMyDay(t, today));
@@ -338,6 +393,7 @@ export function createTasksSlice(ctx: SliceContext): TasksSlice {
     tasksLoading,
     rootTasks,
     subtasksOf,
+    taskDeletedElsewhere,
     myDayTasks,
     loadTasks,
     selectList,

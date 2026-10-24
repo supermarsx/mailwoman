@@ -8,11 +8,13 @@
 // plaintext HTML and is responsible for allowlist-sanitizing the editor output
 // before it is sent (see `modules/notes/sanitize.ts`). Mock-backed until e10.
 
-import { createSignal, createMemo, type Accessor } from 'solid-js';
+import { createSignal, createMemo, batch, type Accessor } from 'solid-js';
 import { CAP_CORE, type Id, type Invocation, type JmapRequest } from '../../api/jmap-types.ts';
 import { responseFor } from '../../api/jmap.ts';
 import { CAP_NOTES, type Note, type NoteLink } from '../../api/pim-types.ts';
+import { t } from '../../i18n';
 import type { SliceContext } from './context.ts';
+import { LocalWrites, keepUnchanged, sameValue } from './localWrites.ts';
 
 /** The default notebook every account has until multi-notebook lands (e8). */
 export const DEFAULT_NOTEBOOK_ID = 'default';
@@ -104,13 +106,6 @@ type NotePatch = Partial<Omit<Note, 'id' | 'createdAt'>>;
 
 // ── Helpers (pure, exported for tests) ───────────────────────────────────────
 
-/** Best-effort unique id for optimistic inserts before the server answers. */
-function localId(): string {
-  const c = globalThis.crypto;
-  if (c !== undefined && typeof c.randomUUID === 'function') return c.randomUUID();
-  return `note-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
 /** Strip tags to a plain-text projection for the body substring search. */
 export function noteBodyText(note: Note): string {
   if (note.bodyText.length > 0) return note.bodyText;
@@ -123,6 +118,14 @@ export function sortNotes(list: readonly Note[]): Note[] {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
     return b.updatedAt.localeCompare(a.updatedAt);
   });
+}
+
+/** The fields a user edits; a change to one of them made elsewhere is worth a notice
+ *  (timestamps and the server-derived `bodyText` are not). */
+const EDITED_FIELDS = ['notebookId', 'title', 'tags', 'color', 'pinned', 'bodyHtml', 'links'] as const;
+
+function sameContent(a: Note, b: Note): boolean {
+  return EDITED_FIELDS.every((k) => sameValue(a[k], b[k]));
 }
 
 /** Does `note` match the lowercased query across title / tags / body? */
@@ -150,6 +153,11 @@ export interface NotesSlice {
 
   /** Load the account's notes (pinned first). */
   loadNotes(): Promise<void>;
+  /** How many reloads brought a change to note `id` made on another device or
+   *  session (0 when none has); compare against an earlier reading. */
+  noteChangedElsewhere(id: Id): number;
+  /** Whether a reload found note `id` gone without this client deleting it. */
+  noteDeletedElsewhere(id: Id): boolean;
   /** Create a note; resolves to the created note (with its server id). */
   createNote(input?: NotePatch): Promise<Note>;
   /** Patch a note (title / body / color / tags / pinned / links). */
@@ -198,6 +206,38 @@ export function createNotesSlice(ctx: SliceContext): NotesSlice {
     return acct;
   }
 
+  // A load answered after this client wrote can predate the write; `writes`
+  // keeps the local version of such notes (see `localWrites.ts`), so a note
+  // just created or a title just typed is not undone by a pushed reload, and
+  // `keepUnchanged` keeps the old object for every unchanged note (t32-h11).
+  const writes = new LocalWrites<Note>();
+  const [changedElsewhere, setChangedElsewhere] = createSignal<ReadonlyMap<Id, number>>(new Map());
+  const [deletedElsewhere, setDeletedElsewhere] = createSignal<ReadonlySet<Id>>(new Set());
+
+  function applyLoad(loaded: Note[], sentAt: number): void {
+    const prev = notes();
+    const merged = writes.merge(prev, loaded, sentAt);
+    const next = keepUnchanged(prev, sortNotes(merged.rows));
+    const prevById = new Map(prev.map((n) => [n.id, n]));
+    const changed = next.filter((n) => {
+      const old = prevById.get(n.id);
+      return old !== undefined && !merged.local.has(n.id) && !sameContent(old, n);
+    });
+    const kept = new Set(next.map((n) => n.id));
+    const gone = prev.filter((n) => !kept.has(n.id)).map((n) => n.id);
+    batch(() => {
+      if (changed.length > 0) {
+        setChangedElsewhere((m) => {
+          const out = new Map(m);
+          for (const n of changed) out.set(n.id, (out.get(n.id) ?? 0) + 1);
+          return out;
+        });
+      }
+      if (gone.length > 0) setDeletedElsewhere((s) => new Set([...s, ...gone]));
+      setNotes(next);
+    });
+  }
+
   // Each `loadNotes()` takes a ticket when it is called. Calls overlap (opening
   // Notes starts two loads), and one that started earlier can answer last; only
   // the call holding the latest ticket writes state and ends the loading state,
@@ -216,10 +256,10 @@ export function createNotesSlice(ctx: SliceContext): NotesSlice {
         setNotes([]);
         return;
       }
+      const sentAt = writes.loadSent();
       const res = await client.jmap(noteQuery(acct));
       if (stale()) return;
-      const got = responseFor<NoteGetResponse>(res, 'g');
-      setNotes(sortNotes(got.list));
+      applyLoad(responseFor<NoteGetResponse>(res, 'g').list, sentAt);
     } finally {
       // The latest call ends the loading state; a dropped one leaves it alone.
       if (!stale()) setNotesLoading(false);
@@ -246,10 +286,22 @@ export function createNotesSlice(ctx: SliceContext): NotesSlice {
     };
     const creationId = 'new';
     const { id: _omitId, createdAt: _omitCreated, ...create } = draft;
-    const res = await client.jmap(noteSet(acct, { create: { [creationId]: create } }));
-    const setRes = responseFor<NoteSetResponse>(res, 's');
-    const created = setRes.created?.[creationId];
-    const note: Note = { ...draft, id: created?.id ?? localId(), ...created };
+    let created: Partial<Note> | undefined;
+    try {
+      const res = await client.jmap(noteSet(acct, { create: { [creationId]: create } }));
+      created = responseFor<NoteSetResponse>(res, 's').created?.[creationId] ?? undefined;
+    } catch (err) {
+      ctx.showToast('error', t('notes-create-failed'));
+      throw err;
+    }
+    // A refused create adds nothing: the note would vanish on the next load.
+    if (created?.id === undefined) {
+      ctx.showToast('error', t('notes-create-failed'));
+      throw new Error('the server did not create the note');
+    }
+    const note: Note = { ...draft, ...created, id: created.id };
+    // The server holds it now; a load sent before this answer may not.
+    writes.begin(note.id, 'create')();
     setNotes([note, ...notes()]);
     ctx.broadcastChange?.();
     return note;
@@ -261,7 +313,12 @@ export function createNotesSlice(ctx: SliceContext): NotesSlice {
     const now = new Date().toISOString();
     const full = { ...patch, updatedAt: now };
     setNotes(notes().map((n) => (n.id === id ? { ...n, ...full } : n)));
-    await client.jmap(noteSet(acct, { update: { [id]: full } }));
+    const answered = writes.begin(id, 'update', full);
+    try {
+      await client.jmap(noteSet(acct, { update: { [id]: full } }));
+    } finally {
+      answered();
+    }
     ctx.broadcastChange?.();
   }
 
@@ -269,7 +326,12 @@ export function createNotesSlice(ctx: SliceContext): NotesSlice {
     const acct = await resolveAccount();
     if (acct === null) throw new Error('no account available for notes');
     setNotes(notes().filter((n) => n.id !== id));
-    await client.jmap(noteSet(acct, { destroy: [id] }));
+    const answered = writes.begin(id, 'destroy');
+    try {
+      await client.jmap(noteSet(acct, { destroy: [id] }));
+    } finally {
+      answered();
+    }
     ctx.broadcastChange?.();
   }
 
@@ -302,6 +364,8 @@ export function createNotesSlice(ctx: SliceContext): NotesSlice {
     noteTagFilter,
     setNoteTagFilter,
     loadNotes,
+    noteChangedElsewhere: (id: Id) => changedElsewhere().get(id) ?? 0,
+    noteDeletedElsewhere: (id: Id) => deletedElsewhere().has(id),
     createNote,
     updateNote,
     deleteNote,

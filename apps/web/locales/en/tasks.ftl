@@ -37,3 +37,6 @@ tasks-priority-low = Low
 tasks-delete-confirm = Delete this task? This cannot be undone.
 tasks-delete-yes = Delete task
 tasks-delete-no = Keep task
+tasks-changed-elsewhere = This task was changed on another device or session. Your edits are kept; Save applies only the fields you changed.
+tasks-deleted-elsewhere = “{ $title }” was deleted on another device or session, so its edit form was closed.
+tasks-notice-dismiss = Dismiss
