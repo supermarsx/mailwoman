@@ -2,7 +2,7 @@
 
 The admin panel is an operator surface for domains, users, quotas, security policy,
 integrations, and observability. It is **separate from the mailbox**: a distinct route
-(`/admin`), a distinct session domain (its own cookie, `mw_admin_session` unless
+(`/admin` unless `MW_ADMIN_PATH` moves it), a distinct session domain (its own cookie, `mw_admin_session` unless
 `MW_ADMIN_SESSION_COOKIE` names another), and a
 distinct credential. A logged-in mailbox user is **not** an admin; an admin session is
 obtained only by authenticating at the admin surface.
@@ -17,6 +17,7 @@ obtained only by authenticating at the admin surface.
 | `MW_ADMIN_SESSION_COOKIE` | `mw_admin_session` | Name of the admin session cookie: 1 to 64 characters from `A-Z a-z 0-9 _ - .`; `mw_session` and `mw_csrf` are refused. |
 | `MW_ADMIN_MIN_TLS` | *(unset)* | `1.2` or `1.3`. Pins the policy's minimum TLS version (see [Security policy](#security-policy)). |
 | `MW_ADMIN_REQUIRE_2FA` | *(unset)* | `true` or `false`. Pins the global require-two-factor rule. |
+| `MW_ADMIN_PATH` | `/admin` | URL path of the console, its sign-in and its API (see [Console path](#console-path)). |
 
 An invalid value in any of these stops the server at start with an error naming the
 variable. Since 26.20 the `MW_ADMIN_*` variables that nothing reads —
@@ -26,6 +27,36 @@ what to use instead. Before 26.20 they logged a warning and the server started.
 
 Set `admin.enabled = false` (or `MW_ADMIN_ENABLED=0`) for a GitOps-only deployment
 where all administration is done via the CLI + config and no HTTP panel is exposed.
+
+## Console path
+
+`MW_ADMIN_PATH` (26.20) moves the console page, the admin sign-in and every
+`/admin/*` route below to another path, relative to `MW_BASE_PATH`:
+`MW_ADMIN_PATH=/ops-7f3k` serves `GET /ops-7f3k/users`, `POST /ops-7f3k/login`
+and so on, and the page itself at `/ops-7f3k`. Unset, it is `/admin`.
+
+* **Accepted values:** `/` followed by one to four segments of
+  `A-Z a-z 0-9 . _ ~ -`, no `.` or `..` segment and no trailing `/`. The first
+  segment must not be one the server already uses (`api`, `jmap`, `oauth`,
+  `.well-known`, `dav`, `caldav`, `carddav`, `mcp`, `metrics`, `healthz`,
+  `errors`, `t`, `assets`, `fonts`, `icons`, `themes`, the files at the root of the
+  web build) or the first segment of `MW_BASE_PATH`. Anything else stops the start
+  with an error naming the variable.
+* **The old path:** once moved, `/admin` and everything under it get exactly the
+  answer an unknown path gets (status, headers and body), so probing `/admin` does
+  not lead anywhere or say where the console went.
+* **No leak:** the path is not in the web build, the service worker, the mail
+  client's page, `/api/policy`, discovery documents, error pages for other paths
+  or any response header outside the console. The console page is marked as the
+  console (`<meta name="mw-console" content="admin">`) and the web app uses its
+  own address as the console's location.
+* **What it is worth:** a custom path reduces scanning and drive-by sign-in
+  attempts. It is not a replacement for the admin password, two-factor sign-in,
+  the sign-in rate limit or a network restriction, and it is visible to anyone
+  who can read your proxy logs or an admin's browser history.
+
+The sign-in rate limit, the CSRF rules and the session cookie (`Path=/`) are the
+same at any path.
 
 ## Everything is also CLI + config
 

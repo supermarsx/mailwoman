@@ -106,7 +106,8 @@ pluggable Postgres, layered Valkey/Redis cache, observability) adds:
 | `MW_ADMIN_MIN_TLS` | *(unset)* | 26.20. `1.2` or `1.3`. Pins the security policy's minimum TLS version (HTTPS listener and outbound mail connections); the panel cannot change it while set. See [`../security/admin-panel.md`](../security/admin-panel.md#security-policy). |
 | `MW_ADMIN_REQUIRE_2FA` | *(unset)* | 26.20. `true` or `false`. Pins the global require-two-factor rule. |
 | `MW_ADMIN_SESSION_COOKIE` | `mw_admin_session` | 26.20. Name of the admin session cookie. |
-| `MW_ADMIN_PORT`, `MW_ADMIN_LOG_LEVEL`, `MW_ADMIN_OTLP_DSN`, `MW_ADMIN_METRICS`, `MW_ADMIN_THEME`, `MW_ADMIN_BRAND`, `MW_ADMIN_ACCENT` | — | 26.20: **setting any of these stops the start**, with an error saying what to use instead (before 26.20 they logged a warning). Nothing reads them. An invalid value of the three variables above also stops the start. |
+| `MW_ADMIN_PATH` | `/admin` | 26.20. URL path of the admin console, its sign-in and its API, under `MW_BASE_PATH` when that is set, e.g. `/ops-7f3k`. `/` followed by one to four segments of `A-Z a-z 0-9 . _ ~ -`, no trailing `/`; a path under `/api`, `/jmap`, `/oauth`, `/.well-known`, `/dav`, `/mcp`, `/assets`, `/fonts` or another path the server already uses is refused, and so is one that starts with the same segment as `MW_BASE_PATH`. When set, `/admin` answers exactly like any unknown path. A custom path cuts down scanning and drive-by sign-in attempts; it does not replace the admin password, two-factor sign-in, rate limits or network restrictions. See [Moving the admin console](#moving-the-admin-console). |
+| `MW_ADMIN_PORT`, `MW_ADMIN_LOG_LEVEL`, `MW_ADMIN_OTLP_DSN`, `MW_ADMIN_METRICS`, `MW_ADMIN_THEME`, `MW_ADMIN_BRAND`, `MW_ADMIN_ACCENT` | — | 26.20: **setting any of these stops the start**, with an error saying what to use instead (before 26.20 they logged a warning). Nothing reads them. An invalid value of the four variables above also stops the start. |
 | `MW_OTLP_ENDPOINT` | *(unset)* | V6. OTLP collector (e.g. `http://otel:4317`); rustls transport. Unset → OTLP export off. See [`../security/observability.md`](../security/observability.md). |
 | `MW_METRICS_TOKEN` | *(unset)* | V6. Bearer token guarding `GET /metrics`. Unset → `/metrics` is unreachable (never open). |
 | `MW_LOG` | `info` | V6. Per-subsystem tracing directives; hot-reloaded on `SIGHUP`. |
@@ -158,6 +159,37 @@ without it.
   body no longer overrides it.
 * Desktop and mobile apps built before this release still send the server they
   found to `/api/login` and are refused; rebuild them from this release.
+
+### Moving the admin console
+
+From 26.20. Nothing changes on upgrade: unless `MW_ADMIN_PATH` is set, the
+console stays at `/admin` (under `MW_BASE_PATH` when that is set).
+
+To move it, set the path and restart:
+
+```
+MW_ADMIN_PATH=/ops-7f3k
+```
+
+The console page, the admin sign-in and every admin API route are then served at
+`{MW_BASE_PATH}/ops-7f3k` instead of `{MW_BASE_PATH}/admin`, and `/admin` gets
+the same `404` as any path the server does not know: no redirect, no hint. The
+path is not written into the web app, the service worker, the mail client's page
+or any public answer, so nothing a visitor outside the console can fetch reveals
+it. An invalid value stops the start with an error naming the variable.
+
+**What it does and does not do.** A path that is not `/admin` cuts down
+automated scanning and drive-by sign-in attempts against the console. It is an
+extra layer, not a secret that protects the console on its own: the path appears
+in your reverse proxy's logs and in the browser history of anyone who uses it.
+Keep a strong admin password, two-factor sign-in for admin accounts, the sign-in
+rate limit and, where you can, a network restriction on the path (an allowlist
+in the reverse proxy, a VPN).
+
+**Also update:** bookmarks, any reverse-proxy rule that names `/admin`, and
+monitoring that probes it. The admin session cookie is unchanged (`Path=/`), so
+an admin who was signed in stays signed in at the new path. A browser end-to-end
+run against a moved console takes `MW_E2E_ADMIN_PATH` (default `/admin`).
 
 ### Upgrading: the proxy upstream is now checked
 
