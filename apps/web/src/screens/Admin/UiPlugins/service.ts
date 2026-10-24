@@ -7,7 +7,7 @@
 // Same-origin, cookie-authed against the admin session. The client is an interface
 // so the screen is tested without a server.
 
-import { withBase } from '../../../api/basePath.ts';
+import { adminUrl } from '../../../api/adminPath.ts';
 import { apiFetch } from '../../../api/http.ts';
 
 /** One row of `GET /admin/ui-plugins` (`list_admin`). */
@@ -64,7 +64,7 @@ export function createHttpUiPluginsApi(): UiPluginsApi {
       init.headers = { 'content-type': 'application/json' };
       init.body = JSON.stringify(body);
     }
-    const res = await apiFetch(withBase(`/admin/ui-plugins${path}`), init);
+    const res = await apiFetch(adminUrl(`/ui-plugins${path}`), init);
     const answer: unknown = res.status === 204 ? null : await res.json().catch(() => null);
     if (!res.ok) {
       const error = (answer as { error?: unknown } | null)?.error;

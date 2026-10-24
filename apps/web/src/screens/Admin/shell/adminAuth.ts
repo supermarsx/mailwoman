@@ -14,6 +14,7 @@
 // being taken for a session by the slice.
 
 import { basePath } from '../../../api/basePath.ts';
+import { adminUrl } from '../../../api/adminPath.ts';
 import { apiFetch } from '../../../api/http.ts';
 import { AdminApiError, type AdminApi, type AdminSession } from '../../../state/slices/admin.ts';
 
@@ -36,7 +37,7 @@ export type AdminTotpVerifier = (pendingToken: string, code: string) => Promise<
 
 export function createAdminTotpVerifier(base = basePath()): AdminTotpVerifier {
   return async (pendingToken, code) => {
-    const res = await apiFetch(`${base}/admin/login/totp`, {
+    const res = await apiFetch(adminUrl('/login/totp', base), {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'content-type': 'application/json' },

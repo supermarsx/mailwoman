@@ -13,6 +13,7 @@
 
 import { createSignal, type Accessor } from 'solid-js';
 import { basePath } from '../../../api/basePath.ts';
+import { adminUrl } from '../../../api/adminPath.ts';
 import { apiFetch } from '../../../api/http.ts';
 import { t } from '../../../i18n';
 
@@ -100,7 +101,7 @@ export type AdminMeLoader = () => Promise<AdminGrants>;
 export function createAdminMeLoader(base = basePath()): AdminMeLoader {
   return async () => {
     try {
-      const res = await apiFetch(`${base}/admin/me`, { credentials: 'same-origin' });
+      const res = await apiFetch(adminUrl('/me', base), { credentials: 'same-origin' });
       if (res.status === 404) return { kind: 'all', reason: 'no-rbac' };
       if (!res.ok) return { kind: 'all', reason: 'unreadable' };
       const me = (await res.json()) as AdminMe;

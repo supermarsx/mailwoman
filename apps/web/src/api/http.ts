@@ -31,6 +31,7 @@
 // can import this module without closing the `transport.ts` cycle it avoids.
 
 import { basePath, stripBase } from './basePath.ts';
+import { consolePath } from './adminPath.ts';
 
 /** The readable cookie holding the token (`hardening::CSRF_COOKIE`). */
 const CSRF_COOKIE = 'mw_csrf';
@@ -129,15 +130,17 @@ async function isCsrfRefusal(res: Response): Promise<boolean> {
 }
 
 /**
- * The GET that makes the server issue a token for `input`: `/admin/session` for
- * an admin route, `/api/me` for everything else, under the same origin and
+ * The GET that makes the server issue a token for `input`: `<console>/session`
+ * for an admin route (`/admin/session` unless the console is elsewhere, see
+ * `adminPath.ts`), `/api/me` for everything else, under the same origin and
  * deploy prefix as `input`.
  */
 function tokenSource(input: string): string {
   const base = basePath();
   const url = new URL(input, globalThis.location?.href ?? 'http://localhost');
   const path = stripBase(url.pathname, base);
-  const source = path.startsWith('/admin/') ? '/admin/session' : '/api/me';
+  const root = consolePath();
+  const source = path.startsWith(`${root}/`) ? `${root}/session` : '/api/me';
   const absolute = /^[a-z][a-z0-9+.-]*:\/\//i.test(input);
   return `${absolute ? url.origin : ''}${base}${source}`;
 }

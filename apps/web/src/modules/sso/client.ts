@@ -13,6 +13,7 @@
 // consumed-endpoint list.
 
 import { basePath } from '../../api/basePath.ts';
+import { adminUrl } from '../../api/adminPath.ts';
 import { apiFetch } from '../../api/http.ts';
 import type { SsoBackendInput, SsoBackendRow, SsoProviderSummary } from './types.ts';
 
@@ -83,12 +84,12 @@ export interface SsoAdminApi {
 export function createHttpSsoAdminApi(base = basePath()): SsoAdminApi {
   return {
     async list() {
-      const res = await apiFetch(`${base}/admin/sso`, { credentials: 'same-origin' });
+      const res = await apiFetch(adminUrl('/sso', base), { credentials: 'same-origin' });
       if (!res.ok) throw new SsoAdminError(res.status, `GET /admin/sso failed (${res.status})`);
       return (await res.json()) as SsoBackendRow[];
     },
     async save(input) {
-      const res = await apiFetch(`${base}/admin/sso`, {
+      const res = await apiFetch(adminUrl('/sso', base), {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },
@@ -97,7 +98,7 @@ export function createHttpSsoAdminApi(base = basePath()): SsoAdminApi {
       if (!res.ok) throw new SsoAdminError(res.status, `POST /admin/sso failed (${res.status})`);
     },
     async remove(id) {
-      const res = await apiFetch(`${base}/admin/sso/${encodeURIComponent(id)}`, {
+      const res = await apiFetch(adminUrl(`/sso/${encodeURIComponent(id)}`, base), {
         method: 'DELETE',
         credentials: 'same-origin',
       });

@@ -138,7 +138,7 @@ function Console(props: AdminScreenProps & { username: string }): JSX.Element {
     const r = router.route();
     if (section() === undefined && r.section !== 'dashboard') {
       setUnknownNotice(true);
-      void router.navigate('/admin', { replace: true });
+      void router.navigate(sectionPath('dashboard'), { replace: true });
     } else if (r.section !== 'dashboard') {
       setUnknownNotice(false);
     }
@@ -149,7 +149,11 @@ function Console(props: AdminScreenProps & { username: string }): JSX.Element {
     const r = router.route();
     if (!s || s.id === 'dashboard') return [];
     const items: Crumb[] = [
-      { label: t('admin-shell-nav-dashboard'), href: hrefFor('/admin'), onNavigate: () => void navigate('/admin') },
+      {
+        label: t('admin-shell-nav-dashboard'),
+        href: hrefFor(sectionPath('dashboard')),
+        onNavigate: () => void navigate(sectionPath('dashboard')),
+      },
       {
         label: s.label(),
         href: hrefFor(sectionPath(s.id)),
@@ -205,10 +209,10 @@ function Console(props: AdminScreenProps & { username: string }): JSX.Element {
                   <p>{t('admin-shell-unknown-section')}</p>
                   <a
                     class="btn btn--ghost"
-                    href={hrefFor('/admin')}
+                    href={hrefFor(sectionPath('dashboard'))}
                     onClick={(e) => {
                       e.preventDefault();
-                      void navigate('/admin');
+                      void navigate(sectionPath('dashboard'));
                     }}
                   >
                     {t('admin-shell-back-to-dashboard')}

@@ -13,6 +13,7 @@ import { For, Show, createEffect, createMemo, createSignal, createUniqueId, onCl
 import { Portal } from 'solid-js/web';
 import { t } from '../../../i18n';
 import { basePath } from '../../../api/basePath.ts';
+import { adminUrl, isConsoleLocation } from '../../../api/adminPath.ts';
 import { apiFetch } from '../../../api/http.ts';
 import { createFocusTrap } from '../../../components/a11y';
 import { Icon, type IconName } from './icons.tsx';
@@ -34,14 +35,14 @@ export type AdminSearch = (q: string, signal: AbortSignal) => Promise<SearchHit[
 /** `GET <base>/admin/search?q=` → `{ hits: [{kind, label, detail?, path}] }`. */
 export function createAdminSearch(base = basePath()): AdminSearch {
   return async (q, signal) => {
-    const res = await apiFetch(`${base}/admin/search?q=${encodeURIComponent(q)}`, {
+    const res = await apiFetch(adminUrl(`/search?q=${encodeURIComponent(q)}`, base), {
       credentials: 'same-origin',
       signal,
     });
     if (res.status === 404) return 'unavailable';
     if (!res.ok) throw new Error(`search failed (${res.status})`);
     const body = (await res.json()) as { hits?: SearchHit[] };
-    return Array.isArray(body.hits) ? body.hits.filter((h) => typeof h.path === 'string' && h.path.startsWith('/admin')) : [];
+    return Array.isArray(body.hits) ? body.hits.filter((h) => typeof h.path === 'string' && isConsoleLocation(h.path)) : [];
   };
 }
 

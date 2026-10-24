@@ -43,12 +43,20 @@ describe('the /admin route is lazily loaded (code-split off the mailbox bundle)'
   // mailbox instead of erroring. Both matchers must therefore strip the deploy prefix
   // first. Source-level guard, in this file's existing idiom (the matchers are module-
   // private, so there is nothing to call).
+  //
+  // t32-h15: the console can be at any path (`MW_ADMIN_PATH`), so the admin matcher
+  // asks `api/adminPath.ts`, which recognises the page by the server's marker and
+  // otherwise by the default path — with the prefix stripped there.
   it('both route matchers strip the deploy prefix before comparing', () => {
-    const matchers = app.match(/function is(?:Admin|OAuthAuthorize)Route\(\)[^}]*}/g);
-    expect(matchers).toHaveLength(2);
+    const matchers = app.match(/function isOAuthAuthorizeRoute\(\)[^}]*}/g);
+    expect(matchers).toHaveLength(1);
     for (const fn of matchers ?? []) {
       expect(fn).toMatch(/stripBase\(\s*location\.pathname\s*\)/);
       expect(fn).not.toMatch(/(?<!stripBase\()\blocation\.pathname\.replace/);
     }
+    expect(app).toMatch(/function isAdminRoute\(\)[^}]*isConsolePage\(\)/);
+    const adminPath = read('../../api/adminPath.ts');
+    expect(adminPath).toMatch(/stripBase\(\s*pathname\s*\)/);
+    expect(adminPath).not.toMatch(/\blocation\.pathname\.replace/);
   });
 });

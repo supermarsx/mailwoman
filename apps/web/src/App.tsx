@@ -4,6 +4,7 @@ import { createAppState } from './state/store.ts';
 import { createConfiguredClient } from './api/transport.ts';
 import { isNativeAuth, nativeServerBase } from './api/serverAddress.ts';
 import { stripBase } from './api/basePath.ts';
+import { isConsolePage } from './api/adminPath.ts';
 import { getPlatform, initPlatform } from './platform/index.ts';
 import { capabilityEnabled } from './platform/capabilities.ts';
 import { Login } from './screens/Login.tsx';
@@ -53,11 +54,10 @@ const loadMailboxScreen = () =>
 // MAILBOX instead of erroring. `stripBase` is a no-op at the origin root, so the
 // unprefixed deployment is byte-unchanged.
 
-/** Is the app being served under the separate `/admin` route? */
+/** Is this page the admin console? The server marks the page it serves at the
+ *  operator's admin path (`MW_ADMIN_PATH`, default `/admin`); see `adminPath.ts`. */
 function isAdminRoute(): boolean {
-  if (typeof location === 'undefined') return false;
-  const path = stripBase(location.pathname).replace(/\/+$/, '');
-  return path === '/admin' || path.startsWith('/admin/');
+  return isConsolePage();
 }
 
 /** Is the app being served under the `/oauth/authorize` consent route? */

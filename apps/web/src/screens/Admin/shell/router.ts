@@ -11,18 +11,20 @@
 // The fragment never reaches the server, so neither applies, and it works the same
 // under `MW_BASE_PATH`.
 //
+// `/admin` is the default. The operator may move the console (`MW_ADMIN_PATH`,
+// t32-h15); the console page is then wherever the server served it, and every
+// location below is built from `consolePath()` rather than a literal.
+//
 // Navigation is `history.pushState`, so a section is linkable and Back works.
 // Before an in-app navigation the router asks the dirty-state guard
 // (`useDirtyGuard.ts`); a guarded navigation waits for the admin's answer.
 
 import { createSignal, type Accessor } from 'solid-js';
 import { basePath, stripBase } from '../../../api/basePath.ts';
-
-/** The console page; sections hang off its fragment. */
-export const CONSOLE_PATH = '/admin';
+import { consolePath } from '../../../api/adminPath.ts';
 
 export interface AdminRoute {
-  /** Section id, `dashboard` for plain `/admin`. */
+  /** Section id, `dashboard` for the plain console page. */
   section: string;
   /** Segments after the section (decoded). */
   rest: string[];
@@ -49,10 +51,11 @@ export function parseAdminPath(location: string): AdminRoute {
   return { section, rest };
 }
 
-/** The app location of a section (`dashboard` is plain `/admin`). */
+/** The app location of a section (`dashboard` is the plain console page). */
 export function sectionPath(section: string, rest: readonly string[] = []): string {
-  if (section === 'dashboard' && rest.length === 0) return CONSOLE_PATH;
-  return `${CONSOLE_PATH}#/${[section, ...rest].map(encodeURIComponent).join('/')}`;
+  const root = consolePath();
+  if (section === 'dashboard' && rest.length === 0) return root;
+  return `${root}#/${[section, ...rest].map(encodeURIComponent).join('/')}`;
 }
 
 /** The href for an app location, with the deploy prefix. */

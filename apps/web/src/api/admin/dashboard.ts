@@ -8,6 +8,7 @@
 // Same-origin, cookie-authed under the admin session, like `state/slices/admin.ts`.
 
 import { basePath } from '../basePath.ts';
+import { adminUrl } from '../adminPath.ts';
 import { apiFetch } from '../http.ts';
 
 export interface DashboardServer {
@@ -144,7 +145,7 @@ export function createDashboardLoader(base = basePath()): DashboardLoader {
   return async () => {
     let res: Response;
     try {
-      res = await apiFetch(`${base}/admin/dashboard`, { credentials: 'same-origin' });
+      res = await apiFetch(adminUrl('/dashboard', base), { credentials: 'same-origin' });
     } catch {
       return { kind: 'error', status: null };
     }

@@ -16,6 +16,8 @@
 // cookie gated, body `{ "accountId": "<id>" }` → 200 JSON RethreadSummary.
 
 import { apiFetch } from './http.ts';
+import { adminUrl } from './adminPath.ts';
+import { basePath } from './basePath.ts';
 
 /**
  * The summary the backfill returns: how much of the corpus it touched and how many
@@ -58,10 +60,10 @@ export interface MaintenanceApi {
 }
 
 /** The production HTTP client (same-origin, admin-session cookie). */
-export function createHttpMaintenanceApi(base = ''): MaintenanceApi {
+export function createHttpMaintenanceApi(base = basePath()): MaintenanceApi {
   return {
     async rethread(accountId) {
-      const res = await apiFetch(`${base}/admin/maintenance/rethread`, {
+      const res = await apiFetch(adminUrl('/maintenance/rethread', base), {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },
@@ -126,10 +128,10 @@ export interface SearchIndexApi {
 }
 
 /** The production HTTP client (same-origin, admin-session cookie). */
-export function createHttpSearchIndexApi(base = ''): SearchIndexApi {
+export function createHttpSearchIndexApi(base = basePath()): SearchIndexApi {
   return {
     async status() {
-      const res = await apiFetch(`${base}/admin/maintenance/search-index`, {
+      const res = await apiFetch(adminUrl('/maintenance/search-index', base), {
         credentials: 'same-origin',
       });
       if (!res.ok) {
@@ -138,7 +140,7 @@ export function createHttpSearchIndexApi(base = ''): SearchIndexApi {
       return (await res.json()) as SearchIndexStatus;
     },
     async reindexAll() {
-      const res = await apiFetch(`${base}/admin/maintenance/reindex`, {
+      const res = await apiFetch(adminUrl('/maintenance/reindex', base), {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },

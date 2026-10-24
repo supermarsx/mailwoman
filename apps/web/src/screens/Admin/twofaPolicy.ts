@@ -13,6 +13,8 @@
 // by upserting it with `require2fa: false`.
 
 import { apiFetch } from '../../api/http.ts';
+import { adminUrl } from '../../api/adminPath.ts';
+import { basePath } from '../../api/basePath.ts';
 
 /** One require-2FA policy row (global, or per-domain). */
 export interface TwofaPolicyRow {
@@ -59,16 +61,16 @@ export interface TwofaPolicyApi {
 }
 
 /** The production HTTP client (same-origin, admin-session cookie). */
-export function createHttpTwofaPolicyApi(base = ''): TwofaPolicyApi {
+export function createHttpTwofaPolicyApi(base = basePath()): TwofaPolicyApi {
   return {
     async list() {
-      const res = await apiFetch(`${base}/admin/2fa/policy`, { credentials: 'same-origin' });
+      const res = await apiFetch(adminUrl('/2fa/policy', base), { credentials: 'same-origin' });
       if (!res.ok) throw new TwofaPolicyApiError(res.status, `list 2fa policy failed (${res.status})`);
       const body = (await res.json()) as { policies?: TwofaPolicyRow[] };
       return body.policies ?? [];
     },
     async set(input) {
-      const res = await apiFetch(`${base}/admin/2fa/policy`, {
+      const res = await apiFetch(adminUrl('/2fa/policy', base), {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },

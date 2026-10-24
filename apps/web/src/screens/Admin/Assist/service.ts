@@ -16,7 +16,7 @@
 // Same-origin, cookie-authed against the admin session (like the rest of
 // `/admin/*`). The transport is injectable so the screen is tested without a server.
 
-import { withBase } from '../../../api/basePath.ts';
+import { adminUrl } from '../../../api/adminPath.ts';
 import { apiFetch } from '../../../api/http.ts';
 import { ASSIST_CAPABILITIES, type AssistCapability } from '../../../modules/assist/types.ts';
 
@@ -206,7 +206,7 @@ export class AdminAssistApi {
   constructor(private readonly fetcher: Fetcher = defaultFetcher) {}
 
   async get(): Promise<AdminAssistConfig> {
-    const res = await this.fetcher(withBase('/admin/assist'));
+    const res = await this.fetcher(adminUrl('/assist'));
     if (!res.ok) {
       throw new AdminAssistError(`admin assist config failed (${res.status})`, res.status, await errorCode(res));
     }
@@ -214,7 +214,7 @@ export class AdminAssistApi {
   }
 
   async status(): Promise<AdminAssistStatus> {
-    const res = await this.fetcher(withBase('/admin/assist/status'));
+    const res = await this.fetcher(adminUrl('/assist/status'));
     if (!res.ok) {
       throw new AdminAssistError(`admin assist status failed (${res.status})`, res.status, await errorCode(res));
     }
@@ -222,7 +222,7 @@ export class AdminAssistApi {
   }
 
   async save(config: AdminAssistConfig): Promise<AdminAssistStatus> {
-    const res = await this.fetcher(withBase('/admin/assist'), {
+    const res = await this.fetcher(adminUrl('/assist'), {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(config),
@@ -233,7 +233,7 @@ export class AdminAssistApi {
 
   /** `on: true` stops Assist on the running server; `on: false` turns it back on. */
   async setKillSwitch(on: boolean): Promise<AdminAssistStatus> {
-    const res = await this.fetcher(withBase('/admin/assist/kill'), {
+    const res = await this.fetcher(adminUrl('/assist/kill'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ on }),

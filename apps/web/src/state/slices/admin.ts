@@ -13,6 +13,7 @@
 
 import { createSignal, type Accessor } from 'solid-js';
 import { basePath } from '../../api/basePath.ts';
+import { adminUrl } from '../../api/adminPath.ts';
 import { apiFetch } from '../../api/http.ts';
 import type { DlpRule } from '../../api/crypto-types.ts';
 
@@ -282,11 +283,12 @@ export class AdminApiError extends Error {
  * is byte-unchanged. `base` lets a native shell point at a remote server (as the
  * JMAP client does); it defaults to the deploy prefix, which is `''` at the
  * origin root and `/mail` under sub-path hosting, so every `/admin/*` call
- * follows the app without each call site having to know.
+ * follows the app without each call site having to know. The console part of the
+ * URL is wherever this page was served (`adminUrl`, t32-h15), `/admin` by default.
  */
 export function createHttpAdminApi(base = basePath()): AdminApi {
   async function raw(path: string, init?: RequestInit): Promise<Response> {
-    const res = await apiFetch(`${base}/admin${path}`, { credentials: 'same-origin', ...init });
+    const res = await apiFetch(adminUrl(path, base), { credentials: 'same-origin', ...init });
     // `/session` answers 401 for "not signed in" and `/login` for a wrong password;
     // on every other route a 401 means a session that existed has ended.
     if (res.status === 401 && path !== '/session' && path !== '/login') api.onSessionEnded?.();

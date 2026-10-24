@@ -13,6 +13,7 @@ import { isolate, t } from '../../../i18n';
 import { useShell } from '../shell/context.ts';
 import { findSection, SECTIONS } from '../shell/sections.ts';
 import { hrefFor, sectionPath } from '../shell/router.ts';
+import { isConsoleLocation } from '../../../api/adminPath.ts';
 import { StatTile } from '../shell/StatTile.tsx';
 import { Sparkline } from '../shell/Sparkline.tsx';
 import { BarChart } from '../shell/BarChart.tsx';
@@ -447,7 +448,7 @@ function Checklist(props: { items: ChecklistItem[]; open: (path: string) => void
                   <span class={admin.note}> {t('admin-dash-check-optional')}</span>
                 </Show>
               </span>
-              <Show when={!item.done && item.href.startsWith('/admin')}>
+              <Show when={!item.done && isConsoleLocation(item.href)}>
                 <a href={hrefFor(item.href)} onClick={(e) => inPlace(e, () => props.open(item.href))}>
                   {t('admin-dash-check-go')}
                 </a>

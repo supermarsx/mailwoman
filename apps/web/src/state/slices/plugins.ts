@@ -17,6 +17,7 @@
 
 import { createSignal, type Accessor } from 'solid-js';
 import { basePath } from '../../api/basePath.ts';
+import { adminUrl } from '../../api/adminPath.ts';
 import { apiFetch } from '../../api/http.ts';
 
 // ── Wire DTOs ────────────────────────────────────────────────────────────────
@@ -228,7 +229,7 @@ export function createHttpPluginsApi(base = basePath()): PluginsApi {
       init.headers = { 'content-type': 'application/json' };
       init.body = JSON.stringify(body);
     }
-    const res = await apiFetch(`${base}/admin/plugins${path}`, init);
+    const res = await apiFetch(adminUrl(`/plugins${path}`, base), init);
     const answer: unknown = await res.json().catch(() => null);
     if (!res.ok) {
       const fields = (answer ?? {}) as { error?: unknown; code?: unknown };
