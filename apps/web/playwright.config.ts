@@ -89,7 +89,7 @@ export default defineConfig({
   projects: [
     {
       name: 'mock',
-      testMatch: ['happy-path.spec.ts', 'sanitizer.spec.ts', 'csrf-strict.spec.ts'],
+      testMatch: ['happy-path.spec.ts', 'sanitizer.spec.ts', 'settings-optional-methods.spec.ts', 'csrf-strict.spec.ts'],
       use: { ...devices['Desktop Chrome'], baseURL: mockBaseURL },
     },
     {
