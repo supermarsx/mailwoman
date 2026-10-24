@@ -1,15 +1,18 @@
 //! DLP family (`Dlp/getRules`, `Dlp/scan`, frozen §2.2) + the outbound
 //! [`evaluate`] hook (plan §1.8). Enforcement is inline on `EmailSubmission/set`:
 //! a `block` verdict fails the submission with a `dlpBlocked` error; `warn`/
-//! `require-encryption` surface pre-send via `Dlp/scan`. Rules are config/env-
-//! sourced (`MW_DLP_RULES` = path to a JSON `[DlpRule]` file); every evaluation
-//! that matches writes a REDACTED `dlp_audit` row (matched detector + rule, NEVER
-//! the matched content — the excerpt carries only detector tokens).
+//! `require-encryption` surface pre-send via `Dlp/scan`. The rules in force are
+//! the union of `MW_DLP_RULES` (inline JSON or a path to a JSON `[DlpRule]` file)
+//! and the rules stored in the admin security policy ([`load_rules`]); every
+//! evaluation that matches writes a REDACTED `dlp_audit` row (matched detector +
+//! rule, NEVER the matched content — the excerpt carries only detector tokens).
 //!
 //! Built-in detectors (`pan`/`iban`/`ssn`/`national-id`) are hand-scanned so they
 //! need no regex; `custom-regex` compiles the rule's pattern.
 
 use serde_json::{Value, json};
+
+use mw_store::Store;
 
 use crate::account::header_text;
 use crate::engine::Engine;
@@ -36,7 +39,7 @@ pub(crate) struct AttachmentMeta {
 impl Engine {
     /// `Dlp/getRules` → `{list:[DlpRule]}` (read the active config/env rules).
     pub(crate) async fn dlp_get_rules(&self, _account_id: &str, _args: &Value) -> Value {
-        let rules = load_rules();
+        let rules = load_rules(self.store()).await;
         json!({ "list": rules })
     }
 
@@ -51,7 +54,7 @@ impl Engine {
         } else {
             dlp_input_from_args(args)
         };
-        let verdicts = scan(&load_rules(), &input);
+        let verdicts = scan(&load_rules(self.store()).await, &input);
         json!({ "list": verdicts })
     }
 
@@ -152,13 +155,91 @@ fn dlp_input_from_args(args: &Value) -> DlpInput {
     }
 }
 
-/// Load the active DLP rule set from `MW_DLP_RULES`. The value is EITHER inline
-/// JSON (a `[DlpRule]` array) OR a path to such a file — the SAME two forms
-/// e7's `/api/security/dlp/config` endpoint accepts, so `Dlp/getRules` (config
-/// read) and the `submit_email` enforcement hook can never drift. Inline JSON is
-/// tried first (a value starting with `[` after trimming); otherwise the value is
-/// read as a file path. Missing/unset/unparseable → no rules (allow-all default).
-pub(crate) fn load_rules() -> Vec<DlpRule> {
+/// The `settings` row holding the admin security policy, whose `dlp_rules_json`
+/// field carries the rules set from the admin panel or CLI. The engine does not
+/// depend on `mw-admin`; `mw-server`'s tests pin this string equal to
+/// `mw_admin::policy::SECURITY_POLICY_SETTINGS_KEY`.
+pub const SECURITY_POLICY_SETTINGS_KEY: &str = "v6:admin:security_policy";
+
+/// The active DLP rule set: the rules from `MW_DLP_RULES` followed by the rules
+/// stored in the admin security policy. A stored rule whose `id` is already used by
+/// an environment rule is dropped: the panel cannot replace or remove an
+/// environment rule. `Dlp/getRules`, `Dlp/scan` and the `submit_email`
+/// enforcement hook all read this, so what is shown and what is enforced agree.
+pub(crate) async fn load_rules(store: &Store) -> Vec<DlpRule> {
+    let mut rules = env_rules();
+    for rule in stored_rules(store).await {
+        if !rules.iter().any(|r| r.id == rule.id) {
+            rules.push(rule);
+        }
+    }
+    rules
+}
+
+/// The rules stored in the admin security policy. A row that does not parse, or
+/// a `dlp_rules_json` that is not a rule list, yields no rules and a warning: the
+/// admin API refuses such a value, so it can only come from a direct database edit.
+pub async fn stored_rules(store: &Store) -> Vec<DlpRule> {
+    let row = match store.get_setting(SECURITY_POLICY_SETTINGS_KEY).await {
+        Ok(Some(row)) => row,
+        Ok(None) => return Vec::new(),
+        Err(e) => {
+            tracing::warn!("DLP: the stored security policy could not be read: {e}");
+            return Vec::new();
+        }
+    };
+    let Some(text) = serde_json::from_str::<Value>(&row).ok().and_then(|v| {
+        v.get("dlp_rules_json")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    }) else {
+        return Vec::new();
+    };
+    match validate_rules(&text) {
+        Ok(rules) => rules,
+        Err(e) => {
+            tracing::warn!("DLP: the stored rules are not used: {e}");
+            Vec::new()
+        }
+    }
+}
+
+/// Parse a rule list as the admin API accepts it: a JSON array of [`DlpRule`],
+/// each `customRegex` a pattern that compiles, each `action` one the engine knows.
+///
+/// # Errors
+/// A message naming the first problem.
+pub fn validate_rules(json: &str) -> Result<Vec<DlpRule>, String> {
+    let rules: Vec<DlpRule> =
+        serde_json::from_str(json).map_err(|e| format!("dlpRulesJson is not a rule list: {e}"))?;
+    for r in &rules {
+        if let Some(re) = &r.conditions.custom_regex
+            && let Err(e) = regex::Regex::new(re)
+        {
+            return Err(format!(
+                "rule {:?}: customRegex does not compile: {e}",
+                r.id
+            ));
+        }
+        if !matches!(
+            r.action.as_str(),
+            "warn" | "block" | "require-encryption" | "notify-admin" | "notify"
+        ) {
+            return Err(format!(
+                "rule {:?}: action must be warn, block, require-encryption or notify-admin",
+                r.id
+            ));
+        }
+    }
+    Ok(rules)
+}
+
+/// The rules from `MW_DLP_RULES`. The value is EITHER inline JSON (a `[DlpRule]`
+/// array) OR a path to such a file — the SAME two forms `/api/security/dlp/config`
+/// accepts. Inline JSON is tried first (a value starting with `[` after trimming);
+/// otherwise the value is read as a file path. Missing/unset/unparseable → no
+/// rules.
+fn env_rules() -> Vec<DlpRule> {
     let Ok(value) = std::env::var("MW_DLP_RULES") else {
         return Vec::new();
     };
@@ -508,7 +589,7 @@ fn scan_grouped(text: &str, groups: &[usize]) -> bool {
 ///
 /// No rules loaded → no findings → allow (the send path is unchanged).
 pub(crate) async fn evaluate(engine: &Engine, account_id: &str, email_id: &str) -> Vec<DlpVerdict> {
-    let rules = load_rules();
+    let rules = load_rules(engine.store()).await;
     if rules.is_empty() {
         return Vec::new();
     }

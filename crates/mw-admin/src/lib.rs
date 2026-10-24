@@ -12,11 +12,11 @@
 //! [`config`]). **All admin actions write the append-only [`AuditLogEntry`].**
 //!
 //! **Stored is not the same as applied.** Several values this crate stores have
-//! no reader anywhere in the workspace: every [`SecurityPolicy`] field, the
-//! [`ObservabilityConfig`] fields, a [`Domain`]'s upstream/allowlist/blocklist,
-//! and the ban list (which records, and does not block). Each says so at its
-//! definition. The panel and the CLI do not offer the ones with no defined
-//! meaning (26.20, t28-e8).
+//! no reader anywhere in the workspace: the [`ObservabilityConfig`] fields, a
+//! [`Domain`]'s upstream/allowlist/blocklist, and the ban list (which records, and
+//! does not block). Each says so at its definition. The [`SecurityPolicy`] is
+//! applied by `mw-server` (see [`policy`]) and read through
+//! [`Admin::effective_security_policy`].
 //!
 //! **Persistence** is abstracted behind [`store::AdminBackend`] so the domain
 //! logic is testable in isolation and does not hard-couple to the in-flight
@@ -37,12 +37,17 @@ pub mod banlist;
 pub mod cli;
 pub mod config;
 pub mod password;
+pub mod policy;
 pub mod provisioning;
 pub mod store;
 
 pub use audit::{AuditEvent, AuditKind, export_jsonl, redact_detail};
 pub use banlist::{FAIL2BAN_FAILREGEX, LoginMonitor, LoginVerdict, fail2ban_line};
-pub use config::{AdminConfig, Appearance};
+pub use config::{AdminConfig, Appearance, EnvOverlay};
+pub use policy::{
+    CapturePolicy, EffectiveSecurityPolicy, MinTls, PinnedField, SecurityFloor, SecurityPolicy,
+    SecurityPolicyWrite,
+};
 pub use provisioning::{FlagUpdate, IntegrationStatus, IntegrationsConfig, UserFeatureFlags};
 pub use store::{AdminBackend, InMemoryBackend, UserRecord};
 
@@ -70,48 +75,6 @@ pub struct Domain {
 pub struct Quota {
     pub bytes_limit: i64,
     pub msg_limit: i64,
-}
-
-/// The stored security-policy record (§19 security-policy section).
-///
-/// **No field of this struct is read by anything that enforces it.** The record is
-/// kept so that stored values survive, and so a later release can give
-/// `dlp_rules_json` and `max_security_floor` a reader:
-///
-/// * `min_tls`, `capture_policy`, `argon2_*` — no defined semantics; not offered by
-///   the panel or the CLI since 26.20.
-/// * `require_2fa` — superseded by the enforced `twofa_policy` table (the
-///   "Require two-factor" screen); not offered here since 26.20.
-/// * `dlp_rules_json`, `max_security_floor` — stored through the admin API and the
-///   CLI; not applied. The DLP rules that are applied come from `MW_DLP_RULES`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct SecurityPolicy {
-    pub min_tls: String,
-    pub require_2fa: bool,
-    pub argon2_m_cost: u32,
-    pub argon2_t_cost: u32,
-    pub argon2_p_cost: u32,
-    pub dlp_rules_json: String,
-    pub max_security_floor: bool,
-    pub capture_policy: String,
-}
-
-impl Default for SecurityPolicy {
-    /// The values a deployment that never stored a policy reports. They describe
-    /// nothing the server does.
-    fn default() -> Self {
-        Self {
-            min_tls: "1.2".to_string(),
-            require_2fa: false,
-            argon2_m_cost: 19_456,
-            argon2_t_cost: 2,
-            argon2_p_cost: 1,
-            dlp_rules_json: "[]".to_string(),
-            max_security_floor: false,
-            capture_policy: "off".to_string(),
-        }
-    }
 }
 
 /// Who/what performed an audited action.
@@ -205,6 +168,15 @@ pub enum AdminError {
     Store(String),
     #[error("config error: {0}")]
     Config(String),
+    /// A write that fails validation; the message says which value and why.
+    #[error("invalid: {0}")]
+    Invalid(String),
+    /// A write that would change a field an environment variable pins.
+    #[error("{field} is set by {var} and cannot be changed here")]
+    Pinned {
+        field: &'static str,
+        var: &'static str,
+    },
 }
 
 /// The result of recording a login failure through [`Admin::record_login_failure`].
@@ -233,7 +205,13 @@ pub struct Admin {
     backend: Arc<dyn AdminBackend>,
     config: Arc<Mutex<AdminConfig>>,
     monitor: Arc<LoginMonitor>,
+    overlay: Arc<EnvOverlay>,
+    dlp_validator: Option<DlpValidator>,
 }
+
+/// Checks that a `dlpRulesJson` value parses as the engine's rule list; installed
+/// by `mw-server`, which knows the rule type ([`Admin::with_dlp_validator`]).
+pub type DlpValidator = Arc<dyn Fn(&str) -> Result<(), String> + Send + Sync>;
 
 impl Default for Admin {
     fn default() -> Self {
@@ -249,7 +227,27 @@ impl Admin {
             backend,
             config: Arc::new(Mutex::new(config)),
             monitor: Arc::new(LoginMonitor::with_defaults()),
+            overlay: Arc::new(EnvOverlay::default()),
+            dlp_validator: None,
         }
+    }
+
+    /// Attach the environment overlay: its fields pin the policy
+    /// ([`Self::effective_security_policy`], [`Self::write_security_policy`]).
+    pub fn with_overlay(mut self, overlay: EnvOverlay) -> Self {
+        self.overlay = Arc::new(overlay);
+        self
+    }
+
+    /// Install the check every policy write runs on `dlpRulesJson`.
+    pub fn with_dlp_validator(mut self, validator: DlpValidator) -> Self {
+        self.dlp_validator = Some(validator);
+        self
+    }
+
+    /// The environment overlay in force.
+    pub fn overlay(&self) -> &EnvOverlay {
+        &self.overlay
     }
 
     /// An in-memory admin (default config) — used by `Default`, tests, and
@@ -544,6 +542,9 @@ impl Admin {
 
     // ── Security policy ──────────────────────────────────────────────────────
 
+    /// The stored record, or the configured default when nothing is stored. The
+    /// environment overlay is NOT applied; most callers want
+    /// [`Self::effective_security_policy`].
     pub async fn get_security_policy(&self) -> Result<SecurityPolicy, AdminError> {
         Ok(self
             .backend
@@ -552,13 +553,64 @@ impl Admin {
             .unwrap_or_else(|| self.config().security))
     }
 
-    /// Store the policy record. Storing is all this does — see [`SecurityPolicy`].
-    pub async fn set_security_policy(
+    /// The policy in force: the stored record and the global require-two-factor
+    /// rule, with the environment overlay applied, and the fields it pins. The one
+    /// accessor for every reader (admin API, CLI, `mw-server`'s `admin_apply`).
+    pub async fn effective_security_policy(&self) -> Result<EffectiveSecurityPolicy, AdminError> {
+        let mut policy = self.get_security_policy().await?;
+        let mut require_2fa = self.backend.get_global_require_2fa().await?;
+        self.overlay.apply(&mut policy, &mut require_2fa);
+        Ok(EffectiveSecurityPolicy {
+            policy,
+            require_2fa,
+            pinned_by_env: self.overlay.pinned(),
+        })
+    }
+
+    /// Write the whole policy and return the effective policy before and after.
+    ///
+    /// Refused with [`AdminError::Pinned`] when the write changes a field the
+    /// environment pins (writing the pinned value itself is allowed and changes
+    /// nothing), with [`AdminError::Invalid`] when a value fails validation. On a
+    /// refusal nothing is stored. A pinned field keeps its stored value, so
+    /// unsetting the variable brings that value back. Audited.
+    pub async fn write_security_policy(
         &self,
         actor: &str,
-        policy: SecurityPolicy,
-    ) -> Result<(), AdminError> {
+        write: SecurityPolicyWrite,
+    ) -> Result<(EffectiveSecurityPolicy, EffectiveSecurityPolicy), AdminError> {
+        let old = self.effective_security_policy().await?;
+        if let Some(var) = old.pinned("minTls")
+            && write.policy.min_tls != old.policy.min_tls
+        {
+            return Err(AdminError::Pinned {
+                field: "minTls",
+                var,
+            });
+        }
+        if let Some(var) = old.pinned("require2fa")
+            && write.require_2fa != old.require_2fa
+        {
+            return Err(AdminError::Pinned {
+                field: "require2fa",
+                var,
+            });
+        }
+        write.policy.validate().map_err(AdminError::Invalid)?;
+        if let Some(check) = &self.dlp_validator {
+            check(&write.policy.dlp_rules_json).map_err(AdminError::Invalid)?;
+        }
+        let stored = self.get_security_policy().await?;
+        let mut policy = write.policy;
+        if self.overlay.min_tls.is_some() {
+            policy.min_tls = stored.min_tls;
+        }
         self.backend.set_security_policy(policy.clone()).await?;
+        if self.overlay.require_2fa.is_none() && write.require_2fa != old.require_2fa {
+            self.backend
+                .set_global_require_2fa(write.require_2fa, actor)
+                .await?;
+        }
         self.emit(
             actor,
             ActorKind::Admin,
@@ -567,11 +619,17 @@ impl Admin {
             // The DLP rules are operator-written patterns, not secrets, but they
             // can be long; the audit row records that they were set, not their text.
             serde_json::json!({
-                "max_security_floor": policy.max_security_floor,
+                "min_tls": policy.min_tls.as_str(),
+                "require_2fa": write.require_2fa,
+                "argon2": [policy.argon2_m_cost, policy.argon2_t_cost, policy.argon2_p_cost],
+                "capture_policy": policy.capture_policy.as_str(),
+                "max_security_floor": policy.max_security_floor.map(SecurityFloor::as_str),
                 "dlp_rules_bytes": policy.dlp_rules_json.len(),
             }),
         )
-        .await
+        .await?;
+        let new = self.effective_security_policy().await?;
+        Ok((old, new))
     }
 
     // ── Observability ────────────────────────────────────────────────────────

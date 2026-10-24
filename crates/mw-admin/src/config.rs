@@ -1,17 +1,27 @@
 //! Admin configuration model (plan §2.5). [`AdminConfig`] round-trips
 //! TOML↔struct.
 //!
-//! **Nothing loads it.** `mw-server` builds `AdminConfig::default()` and reads
-//! three variables of its own (`MW_ADMIN_ENABLED`, `MW_ADMIN_USER`,
-//! `MW_ADMIN_PASSWORD`). Until 26.20 this module also carried an environment
-//! overlay (`apply_env`) for ten more `MW_ADMIN_*` variables; it had no caller, so
-//! setting any of them changed nothing and said nothing. The overlay is gone and
-//! [`reject_unsupported_env`] names those variables instead, so a deployment that
-//! sets one is told at start rather than left believing it took effect.
+//! **Nothing loads the TOML.** `mw-server` builds `AdminConfig::default()` and
+//! reads three variables of its own (`MW_ADMIN_ENABLED`, `MW_ADMIN_USER`,
+//! `MW_ADMIN_PASSWORD`).
+//!
+//! **Environment overlay.** [`EnvOverlay`] reads the three `MW_ADMIN_*` variables
+//! that are applied: `MW_ADMIN_MIN_TLS` and `MW_ADMIN_REQUIRE_2FA` pin a field of
+//! the security policy (a set variable wins over the stored value, and the admin
+//! API and CLI refuse to change a pinned field), and `MW_ADMIN_SESSION_COOKIE`
+//! names the admin session cookie ([`session_cookie_name`]). An invalid value is an
+//! error naming the variable, and the server does not start.
+//!
+//! [`reject_unsupported_env`] names the `MW_ADMIN_*` variables nothing applies, so
+//! a deployment that sets one is refused at start rather than left believing it
+//! took effect.
+
+use std::sync::RwLock;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{AdminError, ObservabilityConfig, SecurityPolicy};
+use crate::policy::{MinTls, PinnedField, SecurityPolicy};
+use crate::{AdminError, ObservabilityConfig};
 
 /// Appearance/branding config (§19 appearance section).
 ///
@@ -63,8 +73,8 @@ pub struct AdminConfig {
     /// `admin.enabled`. A model field: `mw-server` gates `/admin/*` on its own
     /// `V6Config::admin_enabled` (`MW_ADMIN_ENABLED`).
     pub enabled: bool,
-    /// A model field with no reader: the cookie name is the constant
-    /// `mw_admin_session` at every site that sets or reads it.
+    /// A model field with no reader: the cookie name in force is
+    /// [`session_cookie_name`], set from `MW_ADMIN_SESSION_COOKIE` at start.
     pub session_cookie: String,
     /// A model field with no reader: nothing binds a separate admin port.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -78,7 +88,7 @@ impl Default for AdminConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            session_cookie: "mw_admin_session".to_string(),
+            session_cookie: DEFAULT_SESSION_COOKIE.to_string(),
             separate_port: None,
             security: SecurityPolicy::default(),
             observability: ObservabilityConfig::default(),
@@ -101,15 +111,12 @@ impl AdminConfig {
 
 /// The `MW_ADMIN_*` variables that name a setting nothing in the workspace applies,
 /// each with what to do instead. `MW_ADMIN_ENABLED`, `MW_ADMIN_USER` and
-/// `MW_ADMIN_PASSWORD` are not here: `mw-server` reads those.
+/// `MW_ADMIN_PASSWORD` are read by `mw-server`; `MW_ADMIN_MIN_TLS`,
+/// `MW_ADMIN_REQUIRE_2FA` and `MW_ADMIN_SESSION_COOKIE` by [`EnvOverlay`].
 pub const UNSUPPORTED_ENV: &[(&str, &str)] = &[
     (
         "MW_ADMIN_PORT",
         "the admin panel is served on the main listener; there is no separate admin port",
-    ),
-    (
-        "MW_ADMIN_SESSION_COOKIE",
-        "the admin session cookie is always named mw_admin_session",
     ),
     (
         "MW_ADMIN_LOG_LEVEL",
@@ -122,14 +129,6 @@ pub const UNSUPPORTED_ENV: &[(&str, &str)] = &[
     (
         "MW_ADMIN_METRICS",
         "/metrics is served when MW_METRICS_TOKEN is set at start",
-    ),
-    (
-        "MW_ADMIN_REQUIRE_2FA",
-        "require two-factor from the admin panel's \"Require two-factor\" screen",
-    ),
-    (
-        "MW_ADMIN_MIN_TLS",
-        "no minimum TLS version setting exists; the listeners use the rustls defaults",
     ),
     (
         "MW_ADMIN_THEME",
@@ -176,9 +175,221 @@ fn reject_unsupported_env_with(is_set: impl Fn(&str) -> bool) -> Result<(), Admi
     }
 }
 
+/// The admin session cookie name when `MW_ADMIN_SESSION_COOKIE` is not set.
+pub const DEFAULT_SESSION_COOKIE: &str = "mw_admin_session";
+
+/// Cookie names the admin session must not take: the mailbox session and the CSRF
+/// token cookie. Sharing a name with either would let one cookie overwrite the
+/// other.
+const RESERVED_COOKIES: &[&str] = &["mw_session", "mw_csrf"];
+
+static SESSION_COOKIE: RwLock<String> = RwLock::new(String::new());
+
+/// The name of the admin session cookie in force: `MW_ADMIN_SESSION_COOKIE` as
+/// applied at start ([`set_session_cookie_name`]), or [`DEFAULT_SESSION_COOKIE`].
+/// Every site in `mw-server` that sets, reads or clears the admin cookie, and the
+/// CSRF guard's list of authorising cookies, calls this.
+pub fn session_cookie_name() -> String {
+    let g = SESSION_COOKIE
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if g.is_empty() {
+        DEFAULT_SESSION_COOKIE.to_string()
+    } else {
+        g.clone()
+    }
+}
+
+/// Set the process-wide admin cookie name; `None` restores the default. Called by
+/// `mw-server` at start with the overlay's value. The name is a deployment
+/// constant: nothing changes it while the server runs.
+pub fn set_session_cookie_name(name: Option<&str>) {
+    *SESSION_COOKIE
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = name.unwrap_or("").to_string();
+}
+
+/// The `MW_ADMIN_*` variables that are applied, parsed and checked.
+///
+/// `min_tls` and `require_2fa` pin the policy field of the same meaning: while the
+/// variable is set its value is the one in force whatever is stored, and the admin
+/// API and CLI refuse to change the field. Unsetting the variable brings the stored
+/// value back at the next start. `session_cookie` names the admin cookie.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EnvOverlay {
+    pub min_tls: Option<MinTls>,
+    pub require_2fa: Option<bool>,
+    pub session_cookie: Option<String>,
+}
+
+impl EnvOverlay {
+    pub const MIN_TLS_VAR: &'static str = "MW_ADMIN_MIN_TLS";
+    pub const REQUIRE_2FA_VAR: &'static str = "MW_ADMIN_REQUIRE_2FA";
+    pub const SESSION_COOKIE_VAR: &'static str = "MW_ADMIN_SESSION_COOKIE";
+
+    /// Read the overlay from the process environment.
+    ///
+    /// # Errors
+    /// [`AdminError::Config`] naming the variable whose value is invalid.
+    pub fn from_env() -> Result<Self, AdminError> {
+        Self::from_lookup(|k| std::env::var(k).ok())
+    }
+
+    /// [`Self::from_env`] with an injectable lookup. A variable set to the empty
+    /// string is invalid, as for [`reject_unsupported_env`]: an operator who
+    /// exported it meant something by it.
+    pub fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Result<Self, AdminError> {
+        let bad = |var: &str, value: &str, want: &str| {
+            AdminError::Config(format!("{var}={value:?} is not valid: expected {want}"))
+        };
+        let min_tls = match lookup(Self::MIN_TLS_VAR) {
+            None => None,
+            Some(v) => Some(
+                MinTls::parse(v.trim()).ok_or_else(|| bad(Self::MIN_TLS_VAR, &v, "1.2 or 1.3"))?,
+            ),
+        };
+        let require_2fa = match lookup(Self::REQUIRE_2FA_VAR) {
+            None => None,
+            Some(v) => Some(match v.trim().to_ascii_lowercase().as_str() {
+                "1" | "true" | "yes" | "on" => true,
+                "0" | "false" | "no" | "off" => false,
+                _ => return Err(bad(Self::REQUIRE_2FA_VAR, &v, "true or false")),
+            }),
+        };
+        let session_cookie = match lookup(Self::SESSION_COOKIE_VAR) {
+            None => None,
+            Some(v) => {
+                let name = v.trim();
+                let token = !name.is_empty()
+                    && name.len() <= 64
+                    && name
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b"_-.".contains(&b));
+                if !token {
+                    return Err(bad(
+                        Self::SESSION_COOKIE_VAR,
+                        &v,
+                        "1 to 64 characters from A-Z a-z 0-9 _ - .",
+                    ));
+                }
+                if RESERVED_COOKIES.contains(&name) {
+                    return Err(AdminError::Config(format!(
+                        "{}={v:?} is not valid: another Mailwoman cookie has that name",
+                        Self::SESSION_COOKIE_VAR
+                    )));
+                }
+                Some(name.to_string())
+            }
+        };
+        Ok(Self {
+            min_tls,
+            require_2fa,
+            session_cookie,
+        })
+    }
+
+    /// The policy fields this overlay pins, by wire name.
+    pub fn pinned(&self) -> Vec<PinnedField> {
+        let mut out = Vec::new();
+        if self.min_tls.is_some() {
+            out.push(PinnedField {
+                field: "minTls",
+                var: Self::MIN_TLS_VAR,
+            });
+        }
+        if self.require_2fa.is_some() {
+            out.push(PinnedField {
+                field: "require2fa",
+                var: Self::REQUIRE_2FA_VAR,
+            });
+        }
+        out
+    }
+
+    /// Put the pinned values over a stored record.
+    pub fn apply(&self, policy: &mut SecurityPolicy, require_2fa: &mut bool) {
+        if let Some(v) = self.min_tls {
+            policy.min_tls = v;
+        }
+        if let Some(v) = self.require_2fa {
+            *require_2fa = v;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn overlay(set: &[(&str, &str)]) -> Result<EnvOverlay, AdminError> {
+        EnvOverlay::from_lookup(|k| {
+            set.iter()
+                .find(|(n, _)| *n == k)
+                .map(|(_, v)| (*v).to_string())
+        })
+    }
+
+    #[test]
+    fn an_empty_environment_pins_nothing() {
+        let o = overlay(&[]).unwrap();
+        assert_eq!(o, EnvOverlay::default());
+        assert!(o.pinned().is_empty());
+    }
+
+    #[test]
+    fn the_overlay_parses_and_pins_what_is_set() {
+        let o = overlay(&[
+            ("MW_ADMIN_MIN_TLS", "1.3"),
+            ("MW_ADMIN_REQUIRE_2FA", "TRUE"),
+            ("MW_ADMIN_SESSION_COOKIE", "corp_admin"),
+        ])
+        .unwrap();
+        assert_eq!(o.min_tls, Some(MinTls::V13));
+        assert_eq!(o.require_2fa, Some(true));
+        assert_eq!(o.session_cookie.as_deref(), Some("corp_admin"));
+        let pinned: Vec<_> = o.pinned().iter().map(|p| (p.field, p.var)).collect();
+        assert_eq!(
+            pinned,
+            vec![
+                ("minTls", "MW_ADMIN_MIN_TLS"),
+                ("require2fa", "MW_ADMIN_REQUIRE_2FA")
+            ]
+        );
+        let mut p = SecurityPolicy::default();
+        let mut r = false;
+        o.apply(&mut p, &mut r);
+        assert_eq!(p.min_tls, MinTls::V13);
+        assert!(r);
+    }
+
+    #[test]
+    fn an_invalid_value_is_an_error_naming_the_variable() {
+        for (var, value) in [
+            ("MW_ADMIN_MIN_TLS", "banana"),
+            ("MW_ADMIN_MIN_TLS", "1.1"),
+            ("MW_ADMIN_MIN_TLS", ""),
+            ("MW_ADMIN_REQUIRE_2FA", "maybe"),
+            ("MW_ADMIN_SESSION_COOKIE", ""),
+            ("MW_ADMIN_SESSION_COOKIE", "a b"),
+            ("MW_ADMIN_SESSION_COOKIE", "x;y"),
+            ("MW_ADMIN_SESSION_COOKIE", "mw_session"),
+            ("MW_ADMIN_SESSION_COOKIE", "mw_csrf"),
+        ] {
+            let AdminError::Config(msg) = overlay(&[(var, value)]).unwrap_err() else {
+                panic!("a config error for {var}={value}");
+            };
+            assert!(msg.starts_with(&format!("{var}=")), "{msg}");
+        }
+    }
+
+    #[test]
+    fn the_cookie_name_defaults_and_can_be_set_and_restored() {
+        assert_eq!(session_cookie_name(), DEFAULT_SESSION_COOKIE);
+        set_session_cookie_name(Some("corp_admin"));
+        assert_eq!(session_cookie_name(), "corp_admin");
+        set_session_cookie_name(None);
+        assert_eq!(session_cookie_name(), DEFAULT_SESSION_COOKIE);
+    }
 
     #[test]
     fn toml_round_trips() {
@@ -238,16 +449,17 @@ mod tests {
         assert!(!msg.contains("MW_ADMIN_SESSION_COOKIE"), "{msg}");
     }
 
+    /// The three variables the overlay applies are not refused.
     #[test]
-    fn the_session_cookie_variable_is_refused_by_name() {
-        let AdminError::Config(msg) = rejected(&["MW_ADMIN_SESSION_COOKIE"]).unwrap_err() else {
-            panic!("a config error");
-        };
+    fn the_overlay_variables_are_not_refused() {
         assert!(
-            msg.contains("MW_ADMIN_SESSION_COOKIE is set but is not supported"),
-            "{msg}"
+            rejected(&[
+                "MW_ADMIN_SESSION_COOKIE",
+                "MW_ADMIN_MIN_TLS",
+                "MW_ADMIN_REQUIRE_2FA"
+            ])
+            .is_ok()
         );
-        assert!(msg.contains("mw_admin_session"), "{msg}");
     }
 
     #[test]
@@ -266,18 +478,15 @@ mod tests {
         assert!(msg.ends_with("Unset them to start."), "{msg}");
     }
 
-    /// Each of the ten variables the removed overlay used to accept is refused on
-    /// its own, so none of them can go back to being silently ignored.
+    /// Each of the seven variables nothing applies is refused on its own, so none
+    /// of them can go back to being silently ignored.
     #[test]
-    fn each_former_overlay_variable_is_refused() {
+    fn each_unapplied_variable_is_refused() {
         let former = [
-            "MW_ADMIN_SESSION_COOKIE",
             "MW_ADMIN_PORT",
             "MW_ADMIN_LOG_LEVEL",
             "MW_ADMIN_OTLP_DSN",
             "MW_ADMIN_METRICS",
-            "MW_ADMIN_REQUIRE_2FA",
-            "MW_ADMIN_MIN_TLS",
             "MW_ADMIN_THEME",
             "MW_ADMIN_BRAND",
             "MW_ADMIN_ACCENT",

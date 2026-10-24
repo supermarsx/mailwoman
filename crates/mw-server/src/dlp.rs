@@ -1,9 +1,10 @@
 //! DLP config load (SPEC §7.6, plan §3 e7). The `/api/security/dlp/config`
-//! endpoint reads the deployment's `MW_DLP_RULES` and surfaces the active rules so
-//! the web client can name them pre-send. The engine (e6) reads the SAME source
-//! for enforcement at the `submit_email` chokepoint and for `Dlp/getRules`; both
+//! endpoint surfaces the active rules so the web client can name them pre-send:
+//! the deployment's `MW_DLP_RULES` and the rules stored in the admin security
+//! policy ([`active_rules`]). The engine reads the SAME two sources for
+//! enforcement at the `submit_email` chokepoint and for `Dlp/getRules`; both
 //! deserialize into the frozen [`DlpRule`](mw_engine::DlpRule) shape, so the rules
-//! shown here are byte-identical to the rules enforced (the V2/V3 parity gate).
+//! shown here are the rules enforced.
 //!
 //! `MW_DLP_RULES` is either **inline JSON** (a `[…]` array of `DlpRule`) or a
 //! **path** to a JSON file containing that array. This module only LOADS + surfaces
@@ -31,6 +32,37 @@ pub fn load_rules(source: &str) -> anyhow::Result<Vec<DlpRule>> {
     };
     let rules: Vec<DlpRule> = serde_json::from_str(&json)?;
     Ok(rules)
+}
+
+/// The rules in force, as the engine enforces them
+/// (`mw_engine::security::dlp::load_rules`): the `MW_DLP_RULES` rules, then the
+/// rules stored in the admin security policy whose `id` no environment rule uses.
+/// Each entry is the rule's JSON with a `source` field, `"env"` or `"admin"`;
+/// an `"env"` rule cannot be changed or removed from the admin panel.
+///
+/// # Errors
+/// When `MW_DLP_RULES` is set and does not load.
+pub async fn active_rules(
+    store: &mw_store::Store,
+    env_source: Option<&str>,
+) -> anyhow::Result<Vec<serde_json::Value>> {
+    let env = match env_source {
+        Some(source) => load_rules(source)?,
+        None => Vec::new(),
+    };
+    let stored = mw_engine::security::dlp::stored_rules(store).await;
+    let tagged = |rule: &DlpRule, source: &str| {
+        let mut v = serde_json::to_value(rule).unwrap_or_default();
+        if let Some(o) = v.as_object_mut() {
+            o.insert("source".into(), source.into());
+        }
+        v
+    };
+    let mut out: Vec<serde_json::Value> = env.iter().map(|r| tagged(r, "env")).collect();
+    for rule in stored.iter().filter(|s| !env.iter().any(|e| e.id == s.id)) {
+        out.push(tagged(rule, "admin"));
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

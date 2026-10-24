@@ -32,7 +32,7 @@ use crate::account_gate;
 use crate::webhooks::{WebhookEndpoint, WebhookRegistry};
 
 // Settings keys for the config surfaces without a dedicated 0007 table.
-const KEY_SECURITY: &str = "v6:admin:security_policy";
+const KEY_SECURITY: &str = mw_admin::policy::SECURITY_POLICY_SETTINGS_KEY;
 const KEY_OBS: &str = "v6:admin:observability";
 const KEY_BANS: &str = "v6:admin:bans";
 // Per-account flags live in `settings` too; their key and its normalisation belong
@@ -505,6 +505,9 @@ impl AdminBackend for AdminBackendAdapter {
             .map_err(admin_err)
     }
 
+    /// A stored value outside its field's set reads as the field's default
+    /// ([`SecurityPolicy::from_stored`]); each such substitution is logged once per
+    /// process, not on every read (the policy is re-read every 30 s).
     async fn get_security_policy(&self) -> Result<Option<SecurityPolicy>, AdminError> {
         match self
             .store
@@ -512,9 +515,44 @@ impl AdminBackend for AdminBackendAdapter {
             .await
             .map_err(admin_err)?
         {
-            Some(s) => Ok(Some(serde_json::from_str(&s).map_err(admin_err)?)),
+            Some(s) => {
+                let (policy, notes) = SecurityPolicy::from_stored(&s).map_err(admin_err)?;
+                static LOGGED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+                let mut logged = LOGGED
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                for note in notes {
+                    if !logged.contains(&note) {
+                        tracing::warn!("security policy: {note}");
+                        logged.push(note);
+                    }
+                }
+                Ok(Some(policy))
+            }
             None => Ok(None),
         }
+    }
+
+    async fn get_global_require_2fa(&self) -> Result<bool, AdminError> {
+        Ok(self
+            .store
+            .get_twofa_policy("global", "")
+            .await
+            .map_err(admin_err)?
+            .is_some_and(|p| p.require_2fa))
+    }
+
+    async fn set_global_require_2fa(&self, on: bool, actor: &str) -> Result<(), AdminError> {
+        self.store
+            .set_twofa_policy(&mw_store::TwofaPolicyRow {
+                scope_kind: "global".into(),
+                scope_value: String::new(),
+                require_2fa: on,
+                updated_by: actor.to_string(),
+                updated_at: String::new(),
+            })
+            .await
+            .map_err(admin_err)
     }
 
     async fn set_observability(&self, cfg: ObservabilityConfig) -> Result<(), AdminError> {

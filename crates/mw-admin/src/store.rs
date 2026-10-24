@@ -79,6 +79,11 @@ pub trait AdminBackend: Send + Sync {
     // ── Config surfaces ──────────────────────────────────────────────────────
     async fn set_security_policy(&self, policy: SecurityPolicy) -> Result<(), AdminError>;
     async fn get_security_policy(&self) -> Result<Option<SecurityPolicy>, AdminError>;
+    /// The global require-two-factor rule: the `twofa_policy` row the "Require
+    /// two-factor" screen writes (`false` when there is no row).
+    async fn get_global_require_2fa(&self) -> Result<bool, AdminError>;
+    /// Write the global require-two-factor rule, recording `actor` as its author.
+    async fn set_global_require_2fa(&self, on: bool, actor: &str) -> Result<(), AdminError>;
     async fn set_observability(&self, cfg: ObservabilityConfig) -> Result<(), AdminError>;
     async fn get_observability(&self) -> Result<Option<ObservabilityConfig>, AdminError>;
     async fn upsert_cache_scope(&self, row: CacheScopeRow) -> Result<(), AdminError>;
@@ -108,6 +113,7 @@ struct Inner {
     flags: HashMap<String, UserFeatureFlags>,
     sessions: HashMap<String, u64>,
     security: Option<SecurityPolicy>,
+    require_2fa: bool,
     observability: Option<ObservabilityConfig>,
     cache_scope: HashMap<String, CacheScopeRow>,
     bans: HashMap<String, BanEntry>,
@@ -225,6 +231,15 @@ impl AdminBackend for InMemoryBackend {
 
     async fn get_security_policy(&self) -> Result<Option<SecurityPolicy>, AdminError> {
         Ok(self.lock().security.clone())
+    }
+
+    async fn get_global_require_2fa(&self) -> Result<bool, AdminError> {
+        Ok(self.lock().require_2fa)
+    }
+
+    async fn set_global_require_2fa(&self, on: bool, _actor: &str) -> Result<(), AdminError> {
+        self.lock().require_2fa = on;
+        Ok(())
     }
 
     async fn set_observability(&self, cfg: ObservabilityConfig) -> Result<(), AdminError> {

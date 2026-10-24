@@ -3,8 +3,9 @@
 //! log and the ban list from config management.
 //!
 //! Like the panel, it offers no flag for a stored value that has no defined
-//! meaning (26.20, t28-e8). The flags that store a value nothing applies yet say
-//! so in their help text.
+//! meaning (26.20, t28-e8). The `security-policy set` flags write the policy a
+//! running server applies (it re-reads the stored policy every 30 seconds) and are
+//! checked as the admin API checks them.
 //!
 //! `mw-admin` owns the clap tree ([`AdminCommand`]) + the [`run`] dispatcher;
 //! `mw-server`'s `main.rs` (owned by e11 at mount) embeds [`AdminCommand`] under
@@ -18,7 +19,8 @@
 
 use clap::{Args, Parser, Subcommand};
 
-use crate::{Admin, AdminError, CacheScopeRow, Quota, SecurityPolicy, UserFeatureFlags};
+use crate::policy::{CapturePolicy, MinTls, SecurityFloor, SecurityPolicyWrite};
+use crate::{Admin, AdminError, CacheScopeRow, Quota, UserFeatureFlags};
 
 /// Standalone parser wrapping [`AdminCommand`] (tests / a potential
 /// `mailwoman-admin` binary). `main.rs` embeds [`AdminCommand`] directly.
@@ -45,7 +47,7 @@ pub enum AdminCommand {
         #[command(subcommand)]
         verb: UserVerb,
     },
-    /// Inspect/update the stored security-policy record.
+    /// Inspect/update the security policy.
     #[command(name = "security-policy")]
     SecurityPolicy {
         #[command(subcommand)]
@@ -125,20 +127,69 @@ pub enum UserVerb {
 
 #[derive(Debug, Subcommand)]
 pub enum PolicyVerb {
-    /// Show the two stored values this CLI can set.
+    /// Show the policy in force, with the fields an environment variable pins.
     Show,
-    /// Patch the stored record (only provided fields change).
+    /// Change the given fields; the others keep their value.
     Set(PolicySetArgs),
 }
 
 #[derive(Debug, Args)]
 pub struct PolicySetArgs {
-    /// Stored only: nothing reads this value in this release.
+    /// Lowest TLS version for the HTTPS listener and for outbound IMAP, SMTP,
+    /// POP3, ManageSieve and proxy-tunnel connections: 1.2 or 1.3. New
+    /// connections only. Not LDAP, Redis, Postgres or HTTP fetches.
+    #[arg(long, value_parser = parse_min_tls)]
+    pub min_tls: Option<MinTls>,
+    /// Require a second factor for every account (the global rule of the
+    /// "Require two-factor" screen).
     #[arg(long)]
-    pub max_security_floor: Option<bool>,
-    /// Stored only: the DLP rules that are applied come from MW_DLP_RULES.
+    pub require_2fa: Option<bool>,
+    /// Argon2id memory in KiB for new hashes of locally stored account passwords
+    /// and recovery codes (19456..=1048576). Existing password hashes are
+    /// upgraded at the next successful sign-in.
+    #[arg(long)]
+    pub argon2_m_cost: Option<u32>,
+    /// Argon2id passes (1..=10; 1 needs at least 47104 KiB).
+    #[arg(long)]
+    pub argon2_t_cost: Option<u32>,
+    /// Argon2id lanes (1..=16).
+    #[arg(long)]
+    pub argon2_p_cost: Option<u32>,
+    /// off or protect. protect asks the desktop and Android apps to keep their
+    /// window out of screenshots; a browser cannot be asked.
+    #[arg(long, value_parser = parse_capture)]
+    pub capture_policy: Option<CapturePolicy>,
+    /// The least restrictive rendering mode the Mailwoman clients allow: none,
+    /// full-sanitized, sanitized-no-media or plain-text.
+    #[arg(long, value_parser = parse_floor)]
+    pub max_security_floor: Option<FloorArg>,
+    /// A JSON array of DLP rules, applied beside MW_DLP_RULES to mail sent
+    /// through engine-mode accounts.
     #[arg(long)]
     pub dlp_rules_json: Option<String>,
+}
+
+/// `--max-security-floor`: `none` or a rendering mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FloorArg(pub Option<SecurityFloor>);
+
+fn parse_min_tls(s: &str) -> Result<MinTls, String> {
+    MinTls::parse(s).ok_or_else(|| "expected 1.2 or 1.3".to_string())
+}
+
+fn parse_capture(s: &str) -> Result<CapturePolicy, String> {
+    CapturePolicy::parse(s).ok_or_else(|| "expected off or protect".to_string())
+}
+
+fn parse_floor(s: &str) -> Result<FloorArg, String> {
+    if s == "none" {
+        return Ok(FloorArg(None));
+    }
+    SecurityFloor::parse(s)
+        .map(|f| FloorArg(Some(f)))
+        .ok_or_else(|| {
+            "expected none, full-sanitized, sanitized-no-media or plain-text".to_string()
+        })
 }
 
 #[derive(Debug, Subcommand)]
@@ -322,22 +373,53 @@ async fn users(admin: &Admin, verb: UserVerb, actor: &str) -> Result<String, Adm
 async fn policy(admin: &Admin, verb: PolicyVerb, actor: &str) -> Result<String, AdminError> {
     match verb {
         PolicyVerb::Show => {
-            let p = admin.get_security_policy().await?;
+            let e = admin.effective_security_policy().await?;
+            let p = &e.policy;
             Ok(pretty(&serde_json::json!({
-                "max_security_floor": p.max_security_floor,
+                "min_tls": p.min_tls.as_str(),
+                "require_2fa": e.require_2fa,
+                "argon2_m_cost": p.argon2_m_cost,
+                "argon2_t_cost": p.argon2_t_cost,
+                "argon2_p_cost": p.argon2_p_cost,
+                "capture_policy": p.capture_policy.as_str(),
+                "max_security_floor": p.max_security_floor.map(SecurityFloor::as_str),
                 "dlp_rules_json": p.dlp_rules_json,
+                "pinned_by_env": e.pinned_by_env.iter().map(|f| f.var).collect::<Vec<_>>(),
             })))
         }
         PolicyVerb::Set(args) => {
-            let mut p: SecurityPolicy = admin.get_security_policy().await?;
-            if let Some(v) = args.max_security_floor {
+            let e = admin.effective_security_policy().await?;
+            let mut write = SecurityPolicyWrite {
+                policy: e.policy,
+                require_2fa: e.require_2fa,
+            };
+            let p = &mut write.policy;
+            if let Some(v) = args.min_tls {
+                p.min_tls = v;
+            }
+            if let Some(v) = args.argon2_m_cost {
+                p.argon2_m_cost = v;
+            }
+            if let Some(v) = args.argon2_t_cost {
+                p.argon2_t_cost = v;
+            }
+            if let Some(v) = args.argon2_p_cost {
+                p.argon2_p_cost = v;
+            }
+            if let Some(v) = args.capture_policy {
+                p.capture_policy = v;
+            }
+            if let Some(FloorArg(v)) = args.max_security_floor {
                 p.max_security_floor = v;
             }
             if let Some(v) = args.dlp_rules_json {
                 p.dlp_rules_json = v;
             }
-            admin.set_security_policy(actor, p).await?;
-            Ok("security policy record stored (not applied in this release)".to_string())
+            if let Some(v) = args.require_2fa {
+                write.require_2fa = v;
+            }
+            admin.write_security_policy(actor, write).await?;
+            Ok("security policy stored; a running server applies it within 30 seconds".to_string())
         }
     }
 }
@@ -512,21 +594,101 @@ mod tests {
         );
     }
 
+    /// `security-policy set` writes every field the server applies, refuses an
+    /// out-of-range value without storing anything, and `show` reads it back.
+    #[tokio::test]
+    async fn security_policy_set_writes_the_applied_fields_and_refuses_bad_values() {
+        let admin = Admin::in_memory();
+        let set = |argv: &[&str]| {
+            let mut v = vec!["admin", "security-policy", "set"];
+            v.extend_from_slice(argv);
+            AdminCli::try_parse_from(v).map(|c| c.command)
+        };
+        run(
+            &admin,
+            set(&[
+                "--min-tls",
+                "1.3",
+                "--require-2fa",
+                "true",
+                "--argon2-m-cost",
+                "32768",
+                "--argon2-t-cost",
+                "3",
+                "--capture-policy",
+                "protect",
+                "--max-security-floor",
+                "plain-text",
+            ])
+            .unwrap(),
+            "root",
+        )
+        .await
+        .unwrap();
+        let e = admin.effective_security_policy().await.unwrap();
+        assert_eq!(e.policy.min_tls, MinTls::V13);
+        assert!(e.require_2fa);
+        assert_eq!(
+            (e.policy.argon2_m_cost, e.policy.argon2_t_cost),
+            (32_768, 3)
+        );
+        assert_eq!(e.policy.capture_policy, CapturePolicy::Protect);
+        assert_eq!(e.policy.max_security_floor, Some(SecurityFloor::PlainText));
+
+        // Out of range: refused, nothing changes.
+        let err = run(&admin, set(&["--argon2-m-cost", "1024"]).unwrap(), "root")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AdminError::Invalid(_)), "{err:?}");
+        assert_eq!(admin.effective_security_policy().await.unwrap(), e);
+        // Values outside a field's set do not parse.
+        assert!(set(&["--min-tls", "1.1"]).is_err());
+        assert!(set(&["--capture-policy", "block"]).is_err());
+        assert!(set(&["--max-security-floor", "true"]).is_err());
+        // `none` clears the floor.
+        run(
+            &admin,
+            set(&["--max-security-floor", "none"]).unwrap(),
+            "root",
+        )
+        .await
+        .unwrap();
+        let show = AdminCli::try_parse_from(["admin", "security-policy", "show"]).unwrap();
+        let out = run(&admin, show.command, "root").await.unwrap();
+        assert!(out.contains(r#""max_security_floor": null"#), "{out}");
+        assert!(out.contains(r#""min_tls": "1.3""#), "{out}");
+    }
+
+    /// A field pinned by the environment cannot be changed from the CLI.
+    #[tokio::test]
+    async fn a_pinned_field_is_refused_by_the_cli() {
+        let admin = Admin::in_memory().with_overlay(crate::EnvOverlay {
+            min_tls: Some(MinTls::V13),
+            ..Default::default()
+        });
+        let cli = AdminCli::try_parse_from(["admin", "security-policy", "set", "--min-tls", "1.2"])
+            .unwrap();
+        let err = run(&admin, cli.command, "root").await.unwrap_err();
+        assert!(
+            matches!(
+                err,
+                AdminError::Pinned {
+                    var: "MW_ADMIN_MIN_TLS",
+                    ..
+                }
+            ),
+            "{err:?}"
+        );
+    }
+
     /// The flags for stored values with no defined meaning are gone: clap refuses
     /// them rather than accepting and storing them.
     #[test]
     fn removed_flags_are_refused() {
         // Controls: the same commands parse without the removed flags.
-        AdminCli::try_parse_from(["admin", "security-policy", "set"]).unwrap();
         AdminCli::try_parse_from(["admin", "domains", "create", "example.com"]).unwrap();
         AdminCli::try_parse_from(["admin", "appearance", "show"]).unwrap();
         for argv in [
-            vec!["admin", "security-policy", "set", "--min-tls", "1.3"],
-            vec!["admin", "security-policy", "set", "--require-2fa", "true"],
-            vec!["admin", "security-policy", "set", "--capture-policy", "off"],
-            vec!["admin", "security-policy", "set", "--argon2-m-cost", "1"],
-            vec!["admin", "security-policy", "set", "--argon2-t-cost", "1"],
-            vec!["admin", "security-policy", "set", "--argon2-p-cost", "1"],
             vec![
                 "admin",
                 "domains",

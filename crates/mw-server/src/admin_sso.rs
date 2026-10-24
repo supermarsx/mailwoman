@@ -25,7 +25,9 @@ use mw_sso::{ClaimMap, SsoConfig};
 
 use crate::AppState;
 
-const ADMIN_COOKIE: &str = "mw_admin_session";
+fn admin_cookie_name() -> String {
+    mw_admin::config::session_cookie_name()
+}
 
 /// The `/admin/sso` router (merged + admin-gated by `lib.rs`).
 pub(crate) fn admin_sso_router() -> Router<AppState> {
@@ -47,7 +49,9 @@ fn unauthorized() -> Response {
 fn admin_cookie(headers: &HeaderMap) -> Option<String> {
     let raw = headers.get(header::COOKIE)?.to_str().ok()?;
     for part in raw.split(';') {
-        if let Some(v) = part.trim().strip_prefix(&format!("{ADMIN_COOKIE}="))
+        if let Some(v) = part
+            .trim()
+            .strip_prefix(&format!("{}=", admin_cookie_name()))
             && !v.is_empty()
         {
             return Some(v.to_string());

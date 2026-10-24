@@ -100,6 +100,10 @@ pub mod sieve_sync;
 // V6 MOUNT (t6-e11): store adapters backing the frozen Batch-B persistence seams
 // over the real 0007 tables.
 mod stores_v6;
+// t29-e6: the admin security policy applied at start, after a change and every
+// 30 s (`admin_apply`), and the client-enforced part served at `/api/policy`.
+mod admin_apply;
+mod client_policy;
 // t27-e3 (OH-1): the reader for the admin panel's per-account `disabled` and
 // `force_password_change` flags, consulted on every auth path.
 mod account_gate;
@@ -879,9 +883,10 @@ pub async fn build_admin(
         None => ServerKey::generate(),
     };
     let store = Store::open(db_path, key).await?;
-    Ok(mw_admin::Admin::new(
-        Arc::new(stores_v6::AdminBackendAdapter::new(store)),
-        mw_admin::AdminConfig::default(),
+    Ok(admin_apply::admin_for(
+        store,
+        None,
+        admin_apply::env_overlay()?,
     ))
 }
 
@@ -926,13 +931,9 @@ async fn build_app_inner(
     v6config: V6Config,
     sso_source: sso::SsoProviderSource,
 ) -> anyhow::Result<(Router, PushHandle)> {
-    // The ten `MW_ADMIN_*` variables in `mw_admin::config::UNSUPPORTED_ENV` are read
-    // by nothing. Say so for each one that is set, and start anyway.
-    for (name, instead) in mw_admin::config::UNSUPPORTED_ENV {
-        if std::env::var_os(name).is_some() {
-            tracing::warn!("{name} is set but currently has no effect: {instead}");
-        }
-    }
+    // Refuse the `MW_ADMIN_*` variables nothing applies, check the ones the security
+    // policy overlay applies, and set the admin cookie name (t29-e6).
+    let admin_overlay = admin_apply::env_overlay()?;
     let key = match &config.server_key_hex {
         Some(h) => ServerKey::from_hex(h).map_err(|_| anyhow!("MW_SERVER_KEY is not valid hex"))?,
         None => {
@@ -1045,11 +1046,11 @@ async fn build_app_inner(
     let auth = Arc::new(mw_oauth::AuthServer::new(
         stores_v6::OAuthStoreAdapter::new(store.clone()),
     ));
-    // Admin domain logic (audit log + provisioning) over the 0007 tables.
-    let admin = mw_admin::Admin::new(
-        Arc::new(stores_v6::AdminBackendAdapter::new(store.clone()).with_engine(engine.clone())),
-        mw_admin::AdminConfig::default(),
-    );
+    // Admin domain logic (audit log + provisioning) over the 0007 tables, with the
+    // stored security policy applied to this process and re-read every 30 s.
+    let (admin, applied_policy) =
+        admin_apply::boot(store.clone(), engine.clone(), admin_overlay).await?;
+    tokio::spawn(admin_apply::refresh_loop(admin.clone(), applied_policy));
 
     // Outbound webhooks: a second consumer of the StateChange broadcast, backed by
     // the sealed-secret 0007 `webhooks` table (unseal via the store key).
@@ -1351,6 +1352,7 @@ fn router(
         //     (its GET reuses e6's SSRF-safe fetcher).
         .merge(image_proxy::image_proxy_router())
         .merge(prefs_routes::prefs_router())
+        .merge(client_policy::router())
         .merge(import_routes::import_router())
         .merge(sieve_sync::sieve_sync_router())
         .route("/api/login", post(login))
@@ -3780,26 +3782,24 @@ async fn arf_report(
         .into_response()
 }
 
-/// `GET /api/security/dlp/config` — DLP config load (§7.6 / plan §3 e7): parses
-/// `MW_DLP_RULES` and surfaces the active rules (same frozen `DlpRule` shape the
-/// engine enforces) so the web can name them pre-send. Cookie-authed.
+/// `GET /api/security/dlp/config` — DLP config load (§7.6 / plan §3 e7): the
+/// active rules, `MW_DLP_RULES` and the admin-stored ones, each marked with its
+/// `source` ([`dlp::active_rules`], the same union the engine enforces), so the
+/// web can name them pre-send. Cookie-authed.
 async fn dlp_config(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Err(resp) = authed(&state, &headers).await {
         return resp;
     }
-    let rules = match &state.security.dlp_rules {
-        Some(source) => match dlp::load_rules(source) {
-            Ok(rules) => rules,
-            Err(e) => {
-                tracing::error!("MW_DLP_RULES failed to load: {e}");
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({ "error": "DLP rules are misconfigured" })),
-                )
-                    .into_response();
-            }
-        },
-        None => Vec::new(),
+    let rules = match dlp::active_rules(&state.store, state.security.dlp_rules.as_deref()).await {
+        Ok(rules) => rules,
+        Err(e) => {
+            tracing::error!("MW_DLP_RULES failed to load: {e}");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "DLP rules are misconfigured" })),
+            )
+                .into_response();
+        }
     };
     Json(json!({ "list": rules, "count": rules.len() })).into_response()
 }

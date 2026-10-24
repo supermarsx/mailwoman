@@ -206,7 +206,10 @@ pub fn native_signin_route(path: &str) -> bool {
 }
 
 /// The cookies that authorise a request on their own: the mailbox session and the
-/// admin session. `mw_csrf` is not one of them — it authorises nothing.
+/// admin session, whose name is `mw_admin_session` unless
+/// `MW_ADMIN_SESSION_COOKIE` sets another ([`mw_admin::config::session_cookie_name`],
+/// the same call every admin gate makes). `mw_csrf` is not one of them — it
+/// authorises nothing.
 ///
 /// This is the one place that names them for the guard. A new cookie that a
 /// handler accepts as proof of who is calling must be added here, or a request
@@ -214,10 +217,15 @@ pub fn native_signin_route(path: &str) -> bool {
 /// CSRF-token checks ([`has_auth_cookie`]). `tests/t30_csrf_strict.rs` signs in
 /// through the real routes, sends back the cookies those logins set, and expects
 /// the checks to apply, so a rename of either cookie that is not made here fails
-/// there.
-pub const AUTH_COOKIES: [&str; 2] = ["mw_session", "mw_admin_session"];
+/// there; `tests/t29_security_policy.rs` does the same with a renamed admin cookie.
+pub fn auth_cookies() -> [String; 2] {
+    [
+        "mw_session".to_string(),
+        mw_admin::config::session_cookie_name(),
+    ]
+}
 
-/// Whether the request carries one of [`AUTH_COOKIES`] with a non-empty value.
+/// Whether the request carries one of [`auth_cookies`] with a non-empty value.
 ///
 /// `state_change_guard` excuses a bearer request from its checks only when this
 /// is false: the bearer token is then the request's only authority. With a
@@ -229,13 +237,14 @@ pub const AUTH_COOKIES: [&str; 2] = ["mw_session", "mw_admin_session"];
 /// cookies over several fields, and the answer here must not be "no" for a cookie
 /// some handler could still see.
 pub fn has_auth_cookie(headers: &HeaderMap) -> bool {
+    let names = auth_cookies();
     headers
         .get_all(header::COOKIE)
         .iter()
         .filter_map(|v| v.to_str().ok())
         .flat_map(|raw| raw.split(';'))
         .filter_map(|part| part.trim().split_once('='))
-        .any(|(name, value)| !value.is_empty() && AUTH_COOKIES.contains(&name))
+        .any(|(name, value)| !value.is_empty() && names.iter().any(|n| n == name))
 }
 
 /// Pull one cookie value out of the `Cookie` header.

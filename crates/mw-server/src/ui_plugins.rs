@@ -62,7 +62,9 @@ use mw_store::{Store, StoreError, UiPluginGrantRow, UiPluginRow};
 
 use crate::AppState;
 
-const ADMIN_COOKIE: &str = "mw_admin_session";
+fn admin_cookie_name() -> String {
+    mw_admin::config::session_cookie_name()
+}
 
 /// The frozen RPC envelope protocol version (mirrors web `RPC_PROTOCOL_VERSION`).
 const RPC_PROTOCOL_VERSION: u32 = 1;
@@ -93,7 +95,9 @@ fn unauthorized() -> Response {
 fn admin_cookie(headers: &HeaderMap) -> Option<String> {
     let raw = headers.get(header::COOKIE)?.to_str().ok()?;
     for part in raw.split(';') {
-        if let Some(v) = part.trim().strip_prefix(&format!("{ADMIN_COOKIE}="))
+        if let Some(v) = part
+            .trim()
+            .strip_prefix(&format!("{}=", admin_cookie_name()))
             && !v.is_empty()
         {
             return Some(v.to_string());

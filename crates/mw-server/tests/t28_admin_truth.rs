@@ -13,7 +13,7 @@
 //!   proxy, for active and staged routes alike; the origin is a public literal address that nothing dials, because the
 //!   stand-in answers the tunnelled request itself (the `t22_egress_fetch_no_leak`
 //!   arrangement). Activation is then shown to change what the image proxy does.
-//! * **Shapes.** Security policy, domains and integrations return what
+//! * **Shapes.** Security policy (full shape since t29-e6), domains and integrations return what
 //!   `crates/mw-server/src/admin.rs` documents and refuse what it removed.
 //!
 //! SQLite only: the expiry and `0030` are also driven on live Postgres by
@@ -982,8 +982,11 @@ async fn integrations_report_what_the_deployment_has_configured() {
     assert_eq!(after["ldap"], "configured", "{after}");
 }
 
+/// t29-e6 replaced the two-field shape with the whole policy. The route returns
+/// every field, takes the full shape and nothing else, and refuses a value
+/// outside a field's set without storing anything.
 #[tokio::test]
-async fn the_security_policy_route_has_two_fields_and_refuses_the_removed_ones() {
+async fn the_security_policy_route_has_the_full_shape_and_refuses_anything_else() {
     let db = new_db("mw-t28e8-policy");
     let base = spawn_server(&db).await;
     let c = client();
@@ -1002,44 +1005,83 @@ async fn the_security_policy_route_has_two_fields_and_refuses_the_removed_ones()
         .map(String::as_str)
         .collect();
     keys.sort_unstable();
-    assert_eq!(keys, ["dlpRulesJson", "maxSecurityFloor"], "{got}");
+    assert_eq!(
+        keys,
+        [
+            "argon2MCost",
+            "argon2PCost",
+            "argon2TCost",
+            "capturePolicy",
+            "dlpRulesJson",
+            "envDlpRules",
+            "maxSecurityFloor",
+            "minTls",
+            "pinnedByEnv",
+            "require2fa"
+        ],
+        "{got}"
+    );
+    assert_eq!(got["minTls"], "1.2", "{got}");
+    assert_eq!(got["maxSecurityFloor"], Value::Null, "{got}");
 
-    // Control: a body with exactly those fields is stored.
+    let full = || {
+        json!({
+            "minTls": "1.2",
+            "require2fa": false,
+            "argon2MCost": 19456,
+            "argon2TCost": 2,
+            "argon2PCost": 1,
+            "capturePolicy": "off",
+            "maxSecurityFloor": "sanitized-no-media",
+            "dlpRulesJson": "[]",
+        })
+    };
     let put = |body: Value| {
         c.put(url.clone())
             .header(reqwest::header::COOKIE, &login.cookie)
             .json(&body)
             .send()
     };
-    let resp = put(json!({ "dlpRulesJson": "[{\"id\":\"r1\"}]", "maxSecurityFloor": true }))
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 204);
+    // Control: the full shape is stored and returned.
+    let resp = put(full()).await.unwrap();
+    assert_eq!(resp.status(), 200);
     let got: Value = get(&c, url.clone(), &login.cookie)
         .await
         .json()
         .await
         .unwrap();
-    assert_eq!(got["dlpRulesJson"], "[{\"id\":\"r1\"}]");
-    assert_eq!(got["maxSecurityFloor"], true);
+    assert_eq!(got["maxSecurityFloor"], "sanitized-no-media", "{got}");
 
-    // Each removed field is refused, and the refusal changes nothing.
-    for (field, value) in [
-        ("minTls", json!("1.3")),
-        ("require2fa", json!(true)),
-        ("capturePolicy", json!("metadata")),
-        ("argon2MCost", json!(65536)),
-        ("argon2TCost", json!(3)),
-        ("argon2PCost", json!(2)),
+    // A missing field, an unknown field, the legacy boolean floor, and values
+    // outside a field's set are refused, and the refusal changes nothing.
+    let mut missing = full();
+    missing.as_object_mut().unwrap().remove("argon2PCost");
+    let mut unknown = full();
+    unknown["sessionCookie"] = json!("x");
+    let bad = |field: &str, value: Value| {
+        let mut b = full();
+        b[field] = value;
+        b
+    };
+    for (what, body) in [
+        ("missing field", missing),
+        ("unknown field", unknown),
+        ("boolean floor", bad("maxSecurityFloor", json!(true))),
+        ("minTls 1.1", bad("minTls", json!("1.1"))),
+        ("capture metadata", bad("capturePolicy", json!("metadata"))),
+        ("argon2 memory too low", bad("argon2MCost", json!(1024))),
+        ("dlp rules not a list", bad("dlpRulesJson", json!("{}"))),
+        (
+            "dlp rule without its fields",
+            bad("dlpRulesJson", json!("[{\"id\":\"r1\"}]")),
+        ),
     ] {
-        let mut body = json!({ "dlpRulesJson": "[]", "maxSecurityFloor": false });
-        body[field] = value;
         let resp = put(body).await.unwrap();
-        assert_eq!(resp.status(), 422, "{field} is not accepted");
+        assert_eq!(resp.status(), 422, "{what} is refused");
     }
     let got: Value = get(&c, url, &login.cookie).await.json().await.unwrap();
     assert_eq!(
-        got["maxSecurityFloor"], true,
+        got["maxSecurityFloor"], "sanitized-no-media",
         "a refused PUT stored nothing"
     );
 }

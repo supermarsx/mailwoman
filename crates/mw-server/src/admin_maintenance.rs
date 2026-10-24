@@ -33,7 +33,9 @@ use serde_json::{Value, json};
 
 use crate::AppState;
 
-const ADMIN_COOKIE: &str = "mw_admin_session";
+fn admin_cookie_name() -> String {
+    mw_admin::config::session_cookie_name()
+}
 
 /// The four JMAP methods the admin account passthrough authorizes (RFC 5464
 /// METADATA + RFC 4314 ACL, the E4 editor's surface). Anything else in the request
@@ -66,7 +68,9 @@ fn unauthorized() -> Response {
 fn admin_cookie(headers: &HeaderMap) -> Option<String> {
     let raw = headers.get(header::COOKIE)?.to_str().ok()?;
     for part in raw.split(';') {
-        if let Some(v) = part.trim().strip_prefix(&format!("{ADMIN_COOKIE}="))
+        if let Some(v) = part
+            .trim()
+            .strip_prefix(&format!("{}=", admin_cookie_name()))
             && !v.is_empty()
         {
             return Some(v.to_string());
@@ -511,7 +515,7 @@ mod tests {
             .unwrap();
         let pair = set_cookie.split(';').next().unwrap().to_string();
         assert!(
-            pair.starts_with(&format!("{ADMIN_COOKIE}=")),
+            pair.starts_with(&format!("{}=", admin_cookie_name())),
             "cookie: {pair}"
         );
         pair
@@ -541,7 +545,10 @@ mod tests {
         // Bogus admin cookie → 401.
         let bogus = c
             .post(format!("{base}/admin/maintenance/rethread"))
-            .header(reqwest::header::COOKIE, format!("{ADMIN_COOKIE}=nope"))
+            .header(
+                reqwest::header::COOKIE,
+                format!("{}=nope", admin_cookie_name()),
+            )
             .json(&json!({ "accountId": "acct-unknown" }))
             .send()
             .await

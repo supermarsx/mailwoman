@@ -1,8 +1,9 @@
 //! Admin-panel HTTP surface (SPEC §19, plan §2.5, §3 e11 MOUNT).
 //!
-//! A SEPARATE session domain: `/admin/*` runs under its own `mw_admin_session`
-//! cookie (`Path=/`, because admin routes also live under `/api/admin/*`), distinct
-//! from the mailbox `mw_session`. Login validates the operator credentials
+//! A SEPARATE session domain: `/admin/*` runs under its own cookie, named
+//! `mw_admin_session` unless `MW_ADMIN_SESSION_COOKIE` says otherwise
+//! ([`mw_admin::config::session_cookie_name`]; `Path=/`, because admin routes also
+//! live under `/api/admin/*`), distinct from the mailbox `mw_session`. Login validates the operator credentials
 //! (`MW_ADMIN_USER`/`MW_ADMIN_PASSWORD`) and mints an admin session stored (hashed)
 //! in `admin_sessions`. Every action drives [`mw_admin::Admin`] (backed by the 0007
 //! tables via [`crate::stores_v6::AdminBackendAdapter`]), which writes the
@@ -15,12 +16,13 @@
 //! cookie carries the 12-hour figure as `Max-Age`, so a browser drops it at the
 //! same moment the server would refuse it.
 //!
+//! **Security policy (t29-e6).** `/admin/security-policy` reads and writes the
+//! whole policy; every field is applied (`crate::admin_apply`, `mw_admin::policy`).
+//! A field an `MW_ADMIN_*` variable pins is listed in `pinnedByEnv`, and a PUT that
+//! changes it is refused with 409 naming the variable.
+//!
 //! **What these routes do not offer (26.20, t28-e8).** A stored value that nothing
 //! in the workspace applies is not presented as a setting:
-//! * `/admin/security-policy` reads and writes two fields, `dlpRulesJson` and
-//!   `maxSecurityFloor`. They are stored and not yet applied; the panel shows
-//!   neither. The other stored fields (min TLS, capture policy, Argon2 parameters,
-//!   `require2fa`) have no defined meaning and are neither returned nor accepted.
 //! * `/admin/domains/{name}` registers a name. A domain's stored upstream JSON,
 //!   allowlist and blocklist are neither returned nor accepted.
 //! * `/admin/observability` and `/admin/appearance` still answer, for a later
@@ -30,6 +32,7 @@
 
 use axum::Json;
 use axum::Router;
+use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path as UrlPath, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
@@ -37,11 +40,12 @@ use axum::routing::{delete, get, post, put};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use mw_admin::{ActorKind, Domain as AdminDomain, Quota as AdminQuota};
+use mw_admin::{
+    ActorKind, AdminError, CapturePolicy, Domain as AdminDomain, EffectiveSecurityPolicy, MinTls,
+    Quota as AdminQuota, SecurityFloor, SecurityPolicy, SecurityPolicyWrite,
+};
 
 use crate::AppState;
-
-const ADMIN_COOKIE: &str = "mw_admin_session";
 
 /// The `/admin/*` router (merged by e11's `router()`).
 pub(crate) fn routes() -> Router<AppState> {
@@ -93,8 +97,9 @@ fn ct_eq(a: &[u8], b: &[u8]) -> bool {
 
 fn admin_cookie(headers: &HeaderMap) -> Option<String> {
     let raw = headers.get(header::COOKIE)?.to_str().ok()?;
+    let prefix = format!("{}=", mw_admin::config::session_cookie_name());
     for part in raw.split(';') {
-        if let Some(v) = part.trim().strip_prefix(&format!("{ADMIN_COOKIE}="))
+        if let Some(v) = part.trim().strip_prefix(&prefix)
             && !v.is_empty()
         {
             return Some(v.to_string());
@@ -108,7 +113,8 @@ fn admin_cookie(headers: &HeaderMap) -> Option<String> {
 /// one figure that is fixed at login.
 fn set_admin_cookie(token: &str, secure: bool) -> String {
     let mut c = format!(
-        "{ADMIN_COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={}",
+        "{}={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={}",
+        mw_admin::config::session_cookie_name(),
         mw_store::Store::ADMIN_SESSION_MAX_SECS
     );
     if secure {
@@ -118,7 +124,10 @@ fn set_admin_cookie(token: &str, secure: bool) -> String {
 }
 
 fn clear_admin_cookie(secure: bool) -> String {
-    let mut c = format!("{ADMIN_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0");
+    let mut c = format!(
+        "{}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0",
+        mw_admin::config::session_cookie_name()
+    );
     if secure {
         c.push_str("; Secure");
     }
@@ -533,33 +542,97 @@ async fn get_policy(State(state): State<AppState>, headers: HeaderMap) -> Respon
     if let Err(r) = admin_authed(&state, &headers).await {
         return r;
     }
-    match state.v6.admin.get_security_policy().await {
-        Ok(p) => Json(SecurityPolicyDto::from(p)).into_response(),
+    match state.v6.admin.effective_security_policy().await {
+        Ok(p) => Json(policy_body(&state, &p)).into_response(),
         Err(e) => err500(e),
     }
 }
 
-/// `PUT /admin/security-policy` — store the two fields of [`SecurityPolicyDto`].
-/// The stored record's other fields are carried forward as they are. A body naming
-/// any other field is refused (`422`) rather than accepted and dropped.
+/// `PUT /admin/security-policy` — write the whole policy ([`SecurityPolicyPut`]),
+/// apply it to this process at once (`admin_apply::on_policy_change`), audit it,
+/// and answer with the policy now in force (the GET body).
+///
+/// * A body that is not the full shape, names an unknown field, or has a value
+///   outside a field's set (`minTls: "1.1"`) → 422 with the reason.
+/// * An Argon2 cost out of range, or `dlpRulesJson` that is not a valid rule list
+///   → 422 with the reason; nothing is stored.
+/// * A change to a field an environment variable pins → 409 naming the variable.
 async fn set_policy(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(body): Json<SecurityPolicyDto>,
+    body: Result<Json<SecurityPolicyPut>, JsonRejection>,
 ) -> Response {
     let Ok(actor) = admin_authed(&state, &headers).await else {
         return unauthorized();
     };
-    let mut policy = match state.v6.admin.get_security_policy().await {
-        Ok(p) => p,
-        Err(e) => return err500(e),
+    let body = match body {
+        Ok(Json(b)) => b,
+        Err(rej) => {
+            return (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({ "error": rej.body_text() })),
+            )
+                .into_response();
+        }
     };
-    policy.dlp_rules_json = body.dlp_rules_json;
-    policy.max_security_floor = body.max_security_floor;
-    match state.v6.admin.set_security_policy(&actor, policy).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+    let write = SecurityPolicyWrite {
+        policy: SecurityPolicy {
+            min_tls: body.min_tls,
+            argon2_m_cost: body.argon2_m_cost,
+            argon2_t_cost: body.argon2_t_cost,
+            argon2_p_cost: body.argon2_p_cost,
+            dlp_rules_json: body.dlp_rules_json,
+            max_security_floor: body.max_security_floor,
+            capture_policy: body.capture_policy,
+        },
+        require_2fa: body.require2fa,
+    };
+    match state.v6.admin.write_security_policy(&actor, write).await {
+        Ok((old, new)) => {
+            crate::admin_apply::on_policy_change(&old, &new);
+            Json(policy_body(&state, &new)).into_response()
+        }
+        Err(AdminError::Pinned { field, var }) => (
+            StatusCode::CONFLICT,
+            Json(json!({
+                "error": format!("{field} is set by {var} and cannot be changed here"),
+                "field": field,
+                "variable": var,
+            })),
+        )
+            .into_response(),
+        Err(AdminError::Invalid(msg)) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({ "error": msg })),
+        )
+            .into_response(),
         Err(e) => err500(e),
     }
+}
+
+/// The GET body: every field of the policy in force, the `MW_DLP_RULES` rules
+/// (read-only here: `envDlpRules`), and `pinnedByEnv`, the wire names of the
+/// fields an environment variable pins.
+fn policy_body(state: &AppState, p: &EffectiveSecurityPolicy) -> Value {
+    let env_rules = match state.security.dlp_rules.as_deref() {
+        Some(source) => crate::dlp::load_rules(source).unwrap_or_else(|e| {
+            tracing::warn!("MW_DLP_RULES failed to load: {e}");
+            Vec::new()
+        }),
+        None => Vec::new(),
+    };
+    json!({
+        "minTls": p.policy.min_tls.as_str(),
+        "require2fa": p.require_2fa,
+        "argon2MCost": p.policy.argon2_m_cost,
+        "argon2TCost": p.policy.argon2_t_cost,
+        "argon2PCost": p.policy.argon2_p_cost,
+        "capturePolicy": p.policy.capture_policy.as_str(),
+        "maxSecurityFloor": p.policy.max_security_floor.map(SecurityFloor::as_str),
+        "dlpRulesJson": p.policy.dlp_rules_json,
+        "envDlpRules": env_rules,
+        "pinnedByEnv": p.pinned_by_env.iter().map(|f| f.field).collect::<Vec<_>>(),
+    })
 }
 
 // ─── integrations / oversight ─────────────────────────────────────────────────
@@ -972,22 +1045,19 @@ struct ProvisionReq {
     quota: QuotaDto,
 }
 
-/// The part of the stored security-policy record the admin API reads and writes.
-/// Both fields are stored and **not applied** in this release — see
-/// [`mw_admin::SecurityPolicy`].
-#[derive(Serialize, Deserialize)]
+/// The body of `PUT /admin/security-policy`: every field, none optional, nothing
+/// else. The enums refuse a value outside their set at deserialisation.
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct SecurityPolicyDto {
+struct SecurityPolicyPut {
+    min_tls: MinTls,
+    require2fa: bool,
+    argon2_m_cost: u32,
+    argon2_t_cost: u32,
+    argon2_p_cost: u32,
+    capture_policy: CapturePolicy,
+    max_security_floor: Option<SecurityFloor>,
     dlp_rules_json: String,
-    max_security_floor: bool,
-}
-impl From<mw_admin::SecurityPolicy> for SecurityPolicyDto {
-    fn from(p: mw_admin::SecurityPolicy) -> Self {
-        Self {
-            dlp_rules_json: p.dlp_rules_json,
-            max_security_floor: p.max_security_floor,
-        }
-    }
 }
 
 fn audit_dto(e: mw_admin::AuditLogEntry) -> Value {

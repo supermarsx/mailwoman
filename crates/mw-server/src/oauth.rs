@@ -1173,7 +1173,9 @@ mod dcr {
     //     + the default granted scope (+ the optional initial-access-token requirement).
 
     /// The admin-session cookie, same name/gate as `admin_sso.rs` / `ui_plugins.rs`.
-    const ADMIN_COOKIE: &str = "mw_admin_session";
+    fn admin_cookie_name() -> String {
+        mw_admin::config::session_cookie_name()
+    }
 
     fn admin_unauthorized() -> Response {
         (
@@ -1187,7 +1189,9 @@ mod dcr {
     fn admin_cookie(headers: &axum::http::HeaderMap) -> Option<String> {
         let raw = headers.get(axum::http::header::COOKIE)?.to_str().ok()?;
         for part in raw.split(';') {
-            if let Some(v) = part.trim().strip_prefix(&format!("{ADMIN_COOKIE}="))
+            if let Some(v) = part
+                .trim()
+                .strip_prefix(&format!("{}=", admin_cookie_name()))
                 && !v.is_empty()
             {
                 return Some(v.to_string());
@@ -1465,7 +1469,7 @@ mod dcr {
         }
 
         fn admin_cookie_header() -> String {
-            format!("{ADMIN_COOKIE}={ADMIN_TOKEN}")
+            format!("{}={ADMIN_TOKEN}", admin_cookie_name())
         }
 
         #[tokio::test]
@@ -1498,7 +1502,7 @@ mod dcr {
                 .get(format!("{base}/admin/oauth-dcr"))
                 .header(
                     reqwest::header::COOKIE,
-                    format!("{ADMIN_COOKIE}=not-a-session"),
+                    format!("{}=not-a-session", admin_cookie_name()),
                 )
                 .send()
                 .await

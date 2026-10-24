@@ -1228,7 +1228,9 @@ async fn guard_last_factor(
 // Admin: require-2FA policy (DQ2; consumed by the e16 admin panel)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const ADMIN_COOKIE: &str = "mw_admin_session";
+fn admin_cookie_name() -> String {
+    mw_admin::config::session_cookie_name()
+}
 
 /// The authenticated admin id, or `None` (mirrors `admin_maintenance.rs`). Honours
 /// the `admin.enabled` gate.
@@ -1237,7 +1239,7 @@ async fn admin_actor(state: &AppState, headers: &HeaderMap) -> Option<String> {
         return None;
     }
     let raw = headers.get(header::COOKIE)?.to_str().ok()?;
-    let prefix = format!("{ADMIN_COOKIE}=");
+    let prefix = format!("{}=", admin_cookie_name());
     let token = raw
         .split(';')
         .find_map(|p| p.trim().strip_prefix(&prefix).filter(|v| !v.is_empty()))?;
