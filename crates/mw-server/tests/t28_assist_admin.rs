@@ -147,6 +147,33 @@ fn default_config() -> Value {
     })
 }
 
+/// What `GET /admin/assist` returns for a configuration that was PUT: the same
+/// object, except that an adapter's `apiKey` is write-only and reads back as
+/// `hasApiKey`.
+fn as_read_back(config: &Value) -> Value {
+    let mut out = config.clone();
+    if let Some(adapter) = out["adapter"].as_object_mut()
+        && let Some(key) = adapter.remove("apiKey")
+    {
+        let has = key.as_str().is_some_and(|k| !k.is_empty());
+        adapter.insert("hasApiKey".into(), json!(has));
+    }
+    out
+}
+
+/// The stored `assist_config.adapters` column, read straight from the database.
+async fn stored_adapter(dir: &std::path::Path) -> Value {
+    let options = sqlx::sqlite::SqliteConnectOptions::new().filename(dir.join("mw.db"));
+    let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+    let row: (String,) =
+        sqlx::query_as("SELECT adapters FROM assist_config WHERE scope = 'deployment'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    pool.close().await;
+    serde_json::from_str(&row.0).unwrap()
+}
+
 /// A configuration that sets every key to something other than its default.
 fn full_config(base_url: &str) -> Value {
     json!({
@@ -204,8 +231,10 @@ async fn put_then_get_round_trips_and_other_shapes_are_refused_without_erasing()
     // Precondition: nothing is stored, and GET still returns every key.
     assert_eq!(get_config(&admin, &base).await, default_config());
 
-    // The round trip: what was PUT is what GET returns, key for key.
+    // The round trip: what was PUT is what GET returns, key for key, except the
+    // write-only `apiKey`, which reads back as `hasApiKey`.
     let full = full_config("https://llm.example.test/v1");
+    let shown = as_read_back(&full);
     let put = put_config(&admin, &base, &full).await;
     assert_eq!(
         put.status(),
@@ -221,11 +250,11 @@ async fn put_then_get_round_trips_and_other_shapes_are_refused_without_erasing()
         .await
         .unwrap();
     let got: Value = serde_json::from_str(&raw).unwrap();
-    assert_eq!(got, full, "GET returns exactly what PUT stored");
+    assert_eq!(got, shown, "GET returns what PUT stored, the key withheld");
     assert_eq!(
         raw,
-        serde_json::to_string(&full).unwrap(),
-        "byte for byte, as serde_json writes the body that was PUT"
+        serde_json::to_string(&shown).unwrap(),
+        "byte for byte, as serde_json writes that object"
     );
     assert!(
         !raw.contains('_'),
@@ -319,7 +348,7 @@ async fn put_then_get_round_trips_and_other_shapes_are_refused_without_erasing()
         );
         assert_eq!(
             get_config(&admin, &base).await,
-            full,
+            shown,
             "{what}: the stored config is untouched"
         );
     }
@@ -333,7 +362,7 @@ async fn put_then_get_round_trips_and_other_shapes_are_refused_without_erasing()
     for key in [
         "kind",
         "baseUrl",
-        "apiKey",
+        "hasApiKey",
         "model",
         "anthropicVersion",
         "maxTokens",
@@ -568,7 +597,7 @@ async fn the_kill_switch_stops_the_running_gateway_and_releasing_it_resumes() {
     // The kill kept the rest of the configuration.
     let mut expected = config.clone();
     expected["enabled"] = json!(false);
-    assert_eq!(get_config(&admin, &base).await, expected);
+    assert_eq!(get_config(&admin, &base).await, as_read_back(&expected));
 
     // Release: the same gateway answers again.
     let released = kill(&admin, &base, &json!({ "on": false })).await;
@@ -599,4 +628,111 @@ async fn the_kill_switch_stops_the_running_gateway_and_releasing_it_resumes() {
         late.json::<Value>().await.unwrap(),
         json!({ "enabled": true, "running": false, "endpointHost": null, "restartPending": true, "stoppedReason": null, "localPrograms": [] }),
     );
+}
+
+// ── 3. the API key is write-only ─────────────────────────────────────────────
+
+/// `GET /admin/assist` used to return the adapter's API key to the admin browser,
+/// so anything that could read an admin page (a stolen session, an XSS in the
+/// panel, a shared screen) could read the key. Now the key goes in and never comes
+/// out: GET says only whether one is stored, PUT without it keeps the stored key,
+/// and the stored key is not carried over to a different endpoint.
+#[tokio::test]
+async fn the_api_key_goes_in_and_never_comes_back_out() {
+    const SECRET: &str = "sk-t29e14-do-not-echo-0123456789";
+    let dir = fresh_dir();
+    let base = boot(&dir, Vec::new()).await;
+    let admin = admin(&base).await;
+    let mut config = full_config("https://llm.example.test/v1");
+    config["adapter"]["apiKey"] = json!(SECRET);
+    assert_eq!(put_config(&admin, &base, &config).await.status(), 200);
+    assert_eq!(
+        stored_adapter(&dir).await["api_key"],
+        json!(SECRET),
+        "precondition: the key is stored"
+    );
+
+    let raw = admin
+        .get(format!("{base}/admin/assist"))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(!raw.contains(SECRET), "GET carries no key material: {raw}");
+    assert!(!raw.contains("sk-t29e14"), "not even part of it: {raw}");
+    let got: Value = serde_json::from_str(&raw).unwrap();
+    assert!(got["adapter"].get("apiKey").is_none(), "{got}");
+    assert_eq!(got["adapter"]["hasApiKey"], json!(true));
+    let status_body = admin
+        .get(format!("{base}/admin/assist/status"))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(!status_body.contains(SECRET), "{status_body}");
+
+    // GET's body sent back unchanged keeps the key: `hasApiKey` is read-only.
+    assert_eq!(put_config(&admin, &base, &got).await.status(), 200);
+    assert_eq!(stored_adapter(&dir).await["api_key"], json!(SECRET));
+    // So does `apiKey: null`, with another field changed beside it.
+    let mut edit = got.clone();
+    edit["adapter"].as_object_mut().unwrap().remove("hasApiKey");
+    edit["adapter"]["apiKey"] = Value::Null;
+    edit["adapter"]["chatModel"] = json!("chat-2");
+    assert_eq!(put_config(&admin, &base, &edit).await.status(), 200);
+    assert_eq!(stored_adapter(&dir).await["api_key"], json!(SECRET));
+    assert_eq!(stored_adapter(&dir).await["chat_model"], json!("chat-2"));
+
+    // A new base URL without a new key is refused, so the stored key is never
+    // sent to an endpoint it was not entered for; nothing is written.
+    let mut moved = got.clone();
+    moved["adapter"]["baseUrl"] = json!("https://elsewhere.example/v1");
+    let r = put_config(&admin, &base, &moved).await;
+    assert_eq!(r.status(), 400, "moving the endpoint needs the key again");
+    let err: Value = r.json().await.unwrap();
+    assert!(err["error"].as_str().unwrap().contains("apiKey"), "{err}");
+    assert_eq!(
+        stored_adapter(&dir).await["base_url"],
+        json!("https://llm.example.test/v1")
+    );
+    // The same for a change of endpoint type.
+    let r = put_config(
+        &admin,
+        &base,
+        &json!({
+            "enabled": true,
+            "adapter": { "kind": "anthropic" },
+            "capabilityGrants": [],
+            "dataCeilings": got["dataCeilings"].clone(),
+        }),
+    )
+    .await;
+    assert_eq!(r.status(), 400, "a new endpoint type needs the key again");
+    assert_eq!(stored_adapter(&dir).await["api_key"], json!(SECRET));
+    // With the key sent, the move is saved.
+    moved["adapter"]["apiKey"] = json!("sk-new");
+    assert_eq!(put_config(&admin, &base, &moved).await.status(), 200);
+    assert_eq!(stored_adapter(&dir).await["api_key"], json!("sk-new"));
+
+    // An empty string clears the key.
+    let mut clear = moved.clone();
+    clear["adapter"]["apiKey"] = json!("");
+    assert_eq!(put_config(&admin, &base, &clear).await.status(), 200);
+    assert_eq!(stored_adapter(&dir).await["api_key"], json!(""));
+    assert_eq!(
+        get_config(&admin, &base).await["adapter"]["hasApiKey"],
+        json!(false)
+    );
+    // With no key stored, a move needs nothing.
+    let mut bare = get_config(&admin, &base).await;
+    bare["adapter"]["baseUrl"] = json!("https://third.example/v1");
+    assert_eq!(put_config(&admin, &base, &bare).await.status(), 200);
+    // A key that is not a string is refused.
+    let mut bad = bare.clone();
+    bad["adapter"]["apiKey"] = json!(5);
+    assert_eq!(put_config(&admin, &base, &bad).await.status(), 400);
 }

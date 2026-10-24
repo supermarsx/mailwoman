@@ -1015,7 +1015,7 @@ pub(crate) async fn build_assist(store: &Store) -> (AssistHandle, Vec<AssistCapa
     config.rate_limit_per_min = assist_rate_limit();
     // What was stored, before a refused adapter is taken out: the admin status
     // compares the stored row with this, and the row has not changed.
-    let booted = assist_admin_wire(&config);
+    let booted = assist_config_wire(&config);
     let refusal = config
         .adapter
         .as_ref()
@@ -1074,7 +1074,7 @@ fn stored_assist_config(row: Option<&mw_store::AssistConfigRow>) -> AssistConfig
 struct AssistLive {
     /// Set when an administrator turns Assist off. Checked on every dispatch.
     stopped: AtomicBool,
-    /// The configuration the gateway was built from, in the admin wire shape.
+    /// The configuration the gateway was built from ([`assist_config_wire`]).
     booted: serde_json::Value,
     /// Set when the stored adapter was not started (see [`build_assist`]).
     stopped_reason: Option<&'static str>,
@@ -3270,6 +3270,14 @@ fn admin_cookie(headers: &HeaderMap) -> Option<String> {
 // Every key is camelCase. The `adapter` and `dataCeilings` objects are
 // `mw_assist::AdapterConfig` and `mw_assist::DataScope` with their keys renamed, so
 // a field added to either type appears on the wire without an edit here.
+//
+// One exception: the adapter's `apiKey` is write-only. GET never returns it; in
+// its place the adapter carries `hasApiKey: bool`, which PUT accepts and ignores,
+// so GET's body sent back unchanged is still a valid PUT. On PUT, `apiKey` absent
+// or `null` keeps the stored key, a string replaces it, and `""` clears it. The
+// stored key is kept only while the endpoint type and base URL stay the same: a
+// PUT that moves the endpoint without sending a key is a `400`, so the stored key
+// is never sent to an endpoint it was not entered for ([`kept_api_key`]).
 
 /// `snake_case` → `camelCase`, for one object key.
 fn snake_to_camel(key: &str) -> String {
@@ -3355,14 +3363,83 @@ where
     Ok(parsed)
 }
 
-/// An [`AssistConfig`] in the admin wire shape. Every key is always present.
-fn assist_admin_wire(config: &AssistConfig) -> serde_json::Value {
+/// An [`AssistConfig`] in the admin wire shape, the API key included. Every key is
+/// always present. Used to compare the stored configuration with the one the
+/// gateway was built from; it is never sent ([`assist_admin_wire`] is).
+fn assist_config_wire(config: &AssistConfig) -> serde_json::Value {
     json!({
         "enabled": config.enabled,
         "adapter": config.adapter.as_ref().map(to_wire_object),
         "capabilityGrants": config.capability_grants,
         "dataCeilings": to_wire_object(&config.data_ceiling),
     })
+}
+
+/// The wire name of the adapter's write-only credential, and of the flag GET
+/// returns in its place.
+const WIRE_API_KEY: &str = "apiKey";
+const WIRE_HAS_API_KEY: &str = "hasApiKey";
+
+/// An [`AssistConfig`] as `GET /admin/assist` returns it: [`assist_config_wire`]
+/// with the adapter's `apiKey` replaced by `hasApiKey`.
+fn assist_admin_wire(config: &AssistConfig) -> serde_json::Value {
+    let mut wire = assist_config_wire(config);
+    if let Some(adapter) = wire["adapter"].as_object_mut()
+        && let Some(key) = adapter.remove(WIRE_API_KEY)
+    {
+        let has = key.as_str().is_some_and(|k| !k.is_empty());
+        adapter.insert(WIRE_HAS_API_KEY.into(), json!(has));
+    }
+    wire
+}
+
+/// The adapter's API key, for the kinds that have one.
+fn api_key_of(adapter: &AdapterConfig) -> Option<&str> {
+    match adapter {
+        AdapterConfig::OpenAiCompatible { api_key, .. }
+        | AdapterConfig::Anthropic { api_key, .. } => Some(api_key),
+        AdapterConfig::LocalProcess { .. } => None,
+    }
+}
+
+fn api_key_slot(adapter: &mut AdapterConfig) -> Option<&mut String> {
+    match adapter {
+        AdapterConfig::OpenAiCompatible { api_key, .. }
+        | AdapterConfig::Anthropic { api_key, .. } => Some(api_key),
+        AdapterConfig::LocalProcess { .. } => None,
+    }
+}
+
+/// Where an adapter sends requests: its kind and base URL.
+fn endpoint_of(adapter: &AdapterConfig) -> Option<(&'static str, &str)> {
+    match adapter {
+        AdapterConfig::OpenAiCompatible { base_url, .. } => Some(("open-ai-compatible", base_url)),
+        AdapterConfig::Anthropic { base_url, .. } => Some(("anthropic", base_url)),
+        AdapterConfig::LocalProcess { .. } => None,
+    }
+}
+
+/// The key a PUT that sent none keeps: the stored one, if the endpoint is the one
+/// it was entered for. Moving the endpoint (another kind or base URL) while a key
+/// is stored is refused instead, because keeping the key would send it to the new
+/// endpoint, and a PUT that did not include the key cannot have meant that.
+fn kept_api_key(next: &AdapterConfig, stored: Option<&AdapterConfig>) -> Result<String, String> {
+    let Some(stored) = stored else {
+        return Ok(String::new());
+    };
+    let key = api_key_of(stored).unwrap_or_default();
+    if key.is_empty() {
+        return Ok(String::new());
+    }
+    if endpoint_of(next) == endpoint_of(stored) {
+        Ok(key.to_string())
+    } else {
+        Err(
+            "adapter.apiKey: the stored key is kept only while the endpoint type and \
+             base URL stay the same; send the key for the new endpoint, or \"\" for none"
+                .into(),
+        )
+    }
 }
 
 /// The body of `PUT /admin/assist`. All four keys are required and no other key is
@@ -3379,12 +3456,41 @@ struct AssistAdminReq {
 }
 
 impl AssistAdminReq {
-    fn into_config(self) -> Result<AssistConfig, String> {
+    /// The configuration this request describes. `stored` supplies the API key when
+    /// the request leaves it out (see the wire-shape comment above).
+    fn into_config(self, stored: &AssistConfig) -> Result<AssistConfig, String> {
         let adapter = if self.adapter.is_null() {
             None
         } else {
-            let adapter: AdapterConfig = from_wire_object("adapter", &self.adapter, false)?;
+            let mut wire = self.adapter.clone();
+            let sent_key = match wire.as_object_mut() {
+                Some(map) => {
+                    // Read-only: GET's body sent back carries it.
+                    map.remove(WIRE_HAS_API_KEY);
+                    match map.remove(WIRE_API_KEY) {
+                        None | Some(serde_json::Value::Null) => None,
+                        Some(serde_json::Value::String(k)) => Some(k),
+                        Some(_) => return Err("adapter.apiKey must be a string or null".into()),
+                    }
+                }
+                None => None,
+            };
+            let mut adapter: AdapterConfig = from_wire_object("adapter", &wire, false)?;
             check_adapter(&adapter)?;
+            let key = match sent_key {
+                Some(k) => Some(k),
+                None if api_key_of(&adapter).is_some() => {
+                    Some(kept_api_key(&adapter, stored.adapter.as_ref())?)
+                }
+                None => None,
+            };
+            match (api_key_slot(&mut adapter), key) {
+                (Some(slot), Some(key)) => *slot = key,
+                (None, Some(_)) => {
+                    return Err("adapter.apiKey: a local-process adapter has no API key".into());
+                }
+                _ => {}
+            }
             Some(adapter)
         };
         for (i, cap) in self.capability_grants.iter().enumerate() {
@@ -3458,7 +3564,7 @@ fn assist_status(gateway: &AssistHandle, stored: &AssistConfig) -> serde_json::V
     let running = assist_running(gateway);
     let restart_pending = match assist_live(gateway) {
         Some(_) if !stored.enabled => false,
-        Some(live) => assist_admin_wire(stored) != live.booted,
+        Some(live) => assist_config_wire(stored) != live.booted,
         // Not a gateway `build_assist` built, so there is nothing to compare with
         // and no stop flag to have applied the stored setting.
         None => stored.enabled || gateway.is_enabled(),
@@ -3569,7 +3675,7 @@ fn not_allowed(message: impl Into<String>) -> Response {
 
 /// `GET /admin/assist` — the stored deployment Assist configuration in the admin
 /// wire shape. With no row stored it is the default configuration, every key
-/// present.
+/// present. The adapter's API key is not returned, only `hasApiKey`.
 async fn assist_admin_get(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Err(resp) = require_admin(&state, &headers).await {
         return resp;
@@ -3611,10 +3717,16 @@ async fn assist_admin_put(
         Err(resp) => return resp,
     };
     let config = match body {
-        Ok(Json(req)) => match req.into_config() {
-            Ok(c) => c,
-            Err(message) => return bad_request(message),
-        },
+        Ok(Json(req)) => {
+            let stored = match read_assist_config(&state).await {
+                Ok(c) => c,
+                Err(resp) => return resp,
+            };
+            match req.into_config(&stored) {
+                Ok(c) => c,
+                Err(message) => return bad_request(message),
+            }
+        }
         Err(rejection) => return bad_request(rejection.body_text()),
     };
     if let Some(why) = config
