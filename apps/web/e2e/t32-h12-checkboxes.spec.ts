@@ -19,14 +19,18 @@ import { engineLogin, enginePhoneLogin, drawerButton } from './helpers.ts';
  * The appearance block repeats the visual checks on a few controls in other themes, two
  * accents, forced colours, right-to-left and at 390 px.
  *
- * Runs in the `engine` project. The admin console cases need MW_ADMIN_USER and
- * MW_ADMIN_PASSWORD (the restyle stack, `e2e/restyle/stack.sh`, sets both); without them
- * they are skipped and say so.
+ * Each screen also checks every visible checkbox and radio on it, whatever row holds it
+ * (a `.field` column, a flex or grid row, a table cell): square, at most 24px, label text
+ * beside it on its row. That is the user's "a single tickbox element uses up a whole line".
+ *
+ * Runs in the `engine` project. The admin console cases sign in with MW_ADMIN_USER /
+ * MW_ADMIN_PASSWORD (default `root` / `hunter2`, the dev and CI stacks' values); on a stack
+ * whose admin panel refuses them they are skipped and say so.
  */
 
 const BOX = 24;
-const ADMIN_USER = process.env['MW_ADMIN_USER'];
-const ADMIN_PASSWORD = process.env['MW_ADMIN_PASSWORD'];
+const ADMIN_USER = process.env['MW_ADMIN_USER'] ?? 'root';
+const ADMIN_PASSWORD = process.env['MW_ADMIN_PASSWORD'] ?? 'hunter2';
 
 // ── page set-up ─────────────────────────────────────────────────────────────
 
@@ -72,11 +76,18 @@ async function applyLook(page: Page, look: Look): Promise<void> {
 
 async function adminSignIn(page: Page): Promise<void> {
   await page.goto('/admin');
-  const main = page.getByRole('main');
-  await main.getByRole('textbox').nth(0).fill(ADMIN_USER!);
-  await main.getByRole('textbox').nth(1).fill(ADMIN_PASSWORD!);
-  await page.getByRole('button', { name: /sign in/i }).click();
-  await expect(page.getByRole('navigation').first()).toBeVisible();
+  const nav = page.getByRole('navigation').first();
+  const form = page.getByRole('main').getByRole('textbox').first();
+  // The beforeEach sign-in check leaves an admin session in this context; sign in through
+  // the form only when the console asks for it.
+  await expect(nav.or(form)).toBeVisible();
+  if (await form.isVisible()) {
+    const main = page.getByRole('main');
+    await main.getByRole('textbox').nth(0).fill(ADMIN_USER);
+    await main.getByRole('textbox').nth(1).fill(ADMIN_PASSWORD);
+    await page.getByRole('button', { name: /sign in/i }).click();
+  }
+  await expect(nav).toBeVisible();
 }
 
 async function adminSection(page: Page, name: string): Promise<void> {
@@ -312,6 +323,47 @@ async function checkControl(page: Page, control: Locator, name: string, opts: Ch
   return problems;
 }
 
+/**
+ * Every visible checkbox and radio on the page, whatever holds it: the box is square and
+ * at most 24px, and the first line of its label text (when it has one) sits beside it on
+ * the same row. Elements inside an `inert` subtree (the page behind a dialog) are skipped.
+ */
+async function everyBoxOnItsRow(page: Page, screen: string): Promise<string[]> {
+  const found = await page.evaluate((max) => {
+    const out: string[] = [];
+    for (const el of Array.from(document.querySelectorAll<HTMLInputElement>('input[type="checkbox"], input[type="radio"]'))) {
+      if (el.closest('[inert]') || el.getClientRects().length === 0) continue;
+      const b = el.getBoundingClientRect();
+      if (b.width === 0 && b.height === 0) continue;
+      const label = el.labels?.[0] ?? null;
+      const name = el.getAttribute('aria-label') || label?.textContent?.trim().slice(0, 40) || el.id || el.type;
+      const holder = (label ?? el.parentElement)!;
+      const where = `${getComputedStyle(holder).display}/${getComputedStyle(holder.parentElement ?? holder).display}`;
+      if (Math.abs(b.width - b.height) > 1 || b.width > max + 0.5)
+        out.push(`${name} [${where}]: box ${b.width.toFixed(1)}×${b.height.toFixed(1)}`);
+      if (!label) continue;
+      const walker = document.createTreeWalker(label, NodeFilter.SHOW_TEXT);
+      const rects: DOMRect[] = [];
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        if (!n.textContent?.trim()) continue;
+        const range = document.createRange();
+        range.selectNodeContents(n);
+        for (const r of Array.from(range.getClientRects())) if (r.width > 0) rects.push(r);
+      }
+      if (rects.length === 0) continue;
+      const first = rects.reduce((a, c) => (c.top < a.top ? c : a));
+      const line = rects.filter((r) => Math.abs(r.top - first.top) < 2);
+      const left = Math.min(...line.map((r) => r.left));
+      const right = Math.max(...line.map((r) => r.right));
+      const overlap = Math.min(b.bottom, first.bottom) - Math.max(b.top, first.top);
+      if (overlap < first.height / 2) out.push(`${name} [${where}]: label text not on the box's row`);
+      if (!(left >= b.right - 0.5 || right <= b.left + 0.5)) out.push(`${name} [${where}]: label text not beside the box`);
+    }
+    return out;
+  }, BOX);
+  return found.map((f) => `${screen}: every box: ${f}`);
+}
+
 /** axe target-size findings on checkboxes and radios only. */
 async function targetSize(page: Page): Promise<string[]> {
   const res = await new AxeBuilder({ page }).withRules(['target-size']).analyze();
@@ -352,7 +404,11 @@ test.describe('checkboxes in the mail client', () => {
         toggle: false,
       })),
     );
-    problems.push(...(await targetSize(page)));
+    problems.push(...(await targetSize(page)), ...(await everyBoxOnItsRow(page, 'settings')));
+    // The rule builder: condition and action checkboxes in flex and grid rows.
+    await dialog.getByRole('button', { name: 'New rule' }).click();
+    await page.waitForTimeout(300);
+    problems.push(...(await everyBoxOnItsRow(page, 'settings › new rule')));
     expect(problems).toEqual([]);
     expect(csp, 'inline-style CSP violations').toEqual([]);
   });
@@ -366,7 +422,7 @@ test.describe('checkboxes in the mail client', () => {
     const problems: string[] = [];
     problems.push(...(await checkControl(page, dialog.getByTestId('sign-toggle'), 'sign', { labelText: true })));
     problems.push(...(await checkControl(page, dialog.getByTestId('encrypt-toggle'), 'encrypt (disabled)', { toggle: false })));
-    problems.push(...(await targetSize(page)));
+    problems.push(...(await targetSize(page)), ...(await everyBoxOnItsRow(page, new URL(page.url()).hash || new URL(page.url()).pathname)));
     expect(problems).toEqual([]);
     expect(csp, 'inline-style CSP violations').toEqual([]);
   });
@@ -383,7 +439,11 @@ test.describe('checkboxes in the mail client', () => {
     await expect(dialog).toBeVisible();
     problems.push(...(await checkControl(page, dialog.getByRole('checkbox', { name: 'All day' }), 'all day', { labelText: true })));
     problems.push(...(await checkControl(page, dialog.getByRole('checkbox', { name: 'Repeats' }), 'repeats', { labelText: true })));
-    problems.push(...(await targetSize(page)));
+    // Weekly repeats: the weekday options, a wrapping flex row of framed chips.
+    await dialog.getByRole('checkbox', { name: 'Repeats' }).check();
+    await dialog.getByRole('combobox', { name: 'Frequency' }).selectOption('weekly');
+    problems.push(...(await checkControl(page, dialog.getByRole('checkbox', { name: 'Mon', exact: true }), 'weekday', { labelText: true })));
+    problems.push(...(await targetSize(page)), ...(await everyBoxOnItsRow(page, 'calendar › new event')));
     expect(problems).toEqual([]);
     expect(csp, 'inline-style CSP violations').toEqual([]);
   });
@@ -397,7 +457,28 @@ test.describe('checkboxes in the mail client', () => {
     const form = region.getByRole('form', { name: 'New contact' });
     await expect(form).toBeVisible();
     const problems = await checkControl(page, form.getByRole('checkbox', { name: 'Favorite' }), 'favourite', { labelText: true });
-    problems.push(...(await targetSize(page)));
+    problems.push(...(await targetSize(page)), ...(await everyBoxOnItsRow(page, new URL(page.url()).hash || new URL(page.url()).pathname)));
+    expect(problems).toEqual([]);
+    expect(csp, 'inline-style CSP violations').toEqual([]);
+  });
+
+  test('tasks: the complete box beside each task', async ({ page }) => {
+    const csp = watchCsp(page);
+    await engineLogin(page);
+    await page.getByTestId('nav-tasks').click();
+    const list = page.getByRole('list', { name: 'Tasks' });
+    await expect(list).toBeVisible();
+    await page.waitForTimeout(500);
+    if ((await list.getByText('t32-h12 task', { exact: true }).count()) === 0) {
+      await page.getByRole('textbox', { name: 'New task title' }).fill('t32-h12 task');
+      await page.getByRole('button', { name: 'Add', exact: true }).click();
+    }
+    await expect(list.getByText('t32-h12 task', { exact: true })).toBeVisible();
+    // Completing a task moves it out of the open list, so the box is not toggled here.
+    const problems = await checkControl(page, page.getByRole('checkbox', { name: /^(Complete|Reopen) t32-h12 task$/ }), 'complete task', {
+      toggle: false,
+    });
+    problems.push(...(await targetSize(page)), ...(await everyBoxOnItsRow(page, 'tasks')));
     expect(problems).toEqual([]);
     expect(csp, 'inline-style CSP violations').toEqual([]);
   });
@@ -413,7 +494,7 @@ test.describe('checkboxes in the mail client', () => {
     const n = await boxes.count();
     expect(n).toBeGreaterThan(0);
     for (let i = 0; i < n; i++) problems.push(...(await checkControl(page, boxes.nth(i), `lookup source ${i}`, { labelText: true })));
-    problems.push(...(await targetSize(page)));
+    problems.push(...(await targetSize(page)), ...(await everyBoxOnItsRow(page, new URL(page.url()).hash || new URL(page.url()).pathname)));
     expect(problems).toEqual([]);
     expect(csp, 'inline-style CSP violations').toEqual([]);
   });
@@ -430,7 +511,15 @@ test.describe('checkboxes in the mail client', () => {
 // ── admin console ───────────────────────────────────────────────────────────
 
 test.describe('checkboxes in the admin console', () => {
-  test.skip(!ADMIN_USER || !ADMIN_PASSWORD, 'MW_ADMIN_USER / MW_ADMIN_PASSWORD are not set for this stack');
+  test.beforeEach(async ({ page }) => {
+    // A stack without admin credentials answers 401 to the admin sign-in.
+    const signIn = await page.request.post('/admin/login', { data: { username: ADMIN_USER, password: ADMIN_PASSWORD } });
+    test.skip(
+      signIn.status() === 401 && process.env['MW_ADMIN_USER'] === undefined,
+      'the admin panel refuses root/hunter2 on this stack (set MW_ADMIN_USER/MW_ADMIN_PASSWORD to run this)',
+    );
+    expect(signIn.status(), 'admin login').toBe(200);
+  });
 
   test.beforeEach(async ({ page }) => {
     await seedTheme(page, 'dark');
@@ -452,7 +541,7 @@ test.describe('checkboxes in the admin console', () => {
     problems.push(...(await checkControl(page, table.getByRole('checkbox', { name: /^Zero-access for/ }).first(), 'zero-access')));
     problems.push(...(await checkControl(page, table.getByRole('checkbox', { name: /^Disable / }).first(), 'disabled')));
     problems.push(...(await checkControl(page, table.getByRole('checkbox', { name: /^Force password change for/ }).first(), 'force change')));
-    problems.push(...(await targetSize(page)));
+    problems.push(...(await targetSize(page)), ...(await everyBoxOnItsRow(page, new URL(page.url()).hash || new URL(page.url()).pathname)));
     expect(problems).toEqual([]);
     expect(csp, 'inline-style CSP violations').toEqual([]);
   });
@@ -466,7 +555,7 @@ test.describe('checkboxes in the admin console', () => {
     // Turning the deployment-wide requirement on would make every sign-in enrol a factor.
     problems.push(...(await checkControl(page, main.getByTestId('admin-2fa-global'), 'whole deployment', { toggle: false })));
     problems.push(...(await checkControl(page, main.getByRole('checkbox', { name: 'Require two-factor for this domain' }), 'domain rule', { labelText: true })));
-    problems.push(...(await targetSize(page)));
+    problems.push(...(await targetSize(page)), ...(await everyBoxOnItsRow(page, new URL(page.url()).hash || new URL(page.url()).pathname)));
     expect(problems).toEqual([]);
     expect(csp, 'inline-style CSP violations').toEqual([]);
   });
@@ -479,13 +568,13 @@ test.describe('checkboxes in the admin console', () => {
     await adminSection(page, 'AI assistant');
     problems.push(...(await checkControl(page, main.getByRole('checkbox', { name: 'Summarize' }), 'assist capability', { labelText: true })));
     problems.push(...(await checkControl(page, main.getByRole('checkbox', { name: 'Allow attachments to be sent' }), 'assist ceiling', { labelText: true })));
-    problems.push(...(await targetSize(page)));
+    problems.push(...(await targetSize(page)), ...(await everyBoxOnItsRow(page, new URL(page.url()).hash || new URL(page.url()).pathname)));
     await adminSection(page, 'UI plugins');
     problems.push(...(await checkControl(page, main.getByRole('checkbox').first(), 'ui plugin unsigned', { labelText: true })));
-    problems.push(...(await targetSize(page)));
+    problems.push(...(await targetSize(page)), ...(await everyBoxOnItsRow(page, new URL(page.url()).hash || new URL(page.url()).pathname)));
     await adminSection(page, 'Egress');
     problems.push(...(await checkControl(page, main.getByTestId('egress-allow-plaintext'), 'egress plaintext', { labelText: true })));
-    problems.push(...(await targetSize(page)));
+    problems.push(...(await targetSize(page)), ...(await everyBoxOnItsRow(page, new URL(page.url()).hash || new URL(page.url()).pathname)));
     expect(problems).toEqual([]);
     expect(csp, 'inline-style CSP violations').toEqual([]);
   });
@@ -554,7 +643,7 @@ test.describe('checkboxes at phone width', () => {
     await drawerButton(page).click();
     const dialog = await settingsDialog(page);
     problems.push(...(await checkControl(page, dialog.getByRole('checkbox', { name: 'Search mail' }), 'phone api scope', { labelText: true })));
-    problems.push(...(await targetSize(page)));
+    problems.push(...(await targetSize(page)), ...(await everyBoxOnItsRow(page, new URL(page.url()).hash || new URL(page.url()).pathname)));
     expect(problems).toEqual([]);
   });
 });
