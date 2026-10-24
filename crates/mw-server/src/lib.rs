@@ -1073,16 +1073,11 @@ async fn build_app_inner(
     let webhook_registry: Arc<dyn webhooks::WebhookRegistry> = Arc::new(
         stores_v6::WebhookRegistryAdapter::new(store.clone(), key.clone()),
     );
+    // Each delivery builds its own client, pinned to the address the egress gate
+    // checked for that endpoint (t32-h5); see `webhooks::deliver`.
     tokio::spawn(webhooks::run_webhook_dispatcher(
         webhook_registry,
         push.subscribe_relay(),
-        // `.no_proxy()`: outbound webhooks carry the HMAC-signed payload to a
-        // subscriber's URL; an ambient `HTTP_PROXY` would route it through a third
-        // party. See `mw_egress::harden_client`.
-        reqwest::Client::builder()
-            .no_proxy()
-            .build()
-            .expect("reqwest client builds"),
     ));
 
     // Observability (OTLP/metrics/errors/inbound-webhook secret) — all off unless

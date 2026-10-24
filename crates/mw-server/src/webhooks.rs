@@ -10,6 +10,17 @@
 //! signs an **HMAC-SHA256** over the JSON body, and POSTs it with retry + backoff on
 //! 5xx / transport failure.
 //!
+//! ## Egress (t32-h5)
+//! A webhook URL is chosen by a user, so every delivery passes the same SSRF gate as
+//! the image proxy: [`mw_egress::validate_and_resolve_with`] resolves the host once
+//! and refuses it unless an address passes the policy (public unicast,
+//! [`mw_egress::ip_allowed`], in production), and the POST goes through a client
+//! pinned to that address by [`mw_egress::harden_client`] (no proxy, no redirects).
+//! A redirect is never followed: it ends the delivery as [`DeliveryError::Redirect`],
+//! so the signed body never reaches the `Location`. There is no registration route
+//! to check at (rows are written through the store only), so delivery is where the
+//! check happens.
+//!
 //! **No mail content ever transits a webhook.** The payload is built from
 //! [`StateChange::to_wire`], which carries only opaque state tokens + IDs (Email,
 //! Mailbox, EmailSubmission, Thread, CryptoKey, MailRule) — never a subject, body,
@@ -20,6 +31,7 @@
 //! before accepting a rule-action trigger, then hands off to the engine (wired by
 //! e11). The signature check ([`verify_signature`]) is constant-time.
 
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -180,18 +192,56 @@ pub fn build_payload(change: &StateChange) -> Vec<u8> {
 // Outbound dispatcher — second consumer of the StateChange broadcast
 // ---------------------------------------------------------------------------
 
+/// The address predicate a delivery's resolved address must pass (the shape
+/// [`mw_egress::validate_and_resolve_with`] takes).
+pub type AddressPolicy = fn(&IpAddr) -> bool;
+
+/// Why a delivery did not reach a 2xx/4xx answer.
+#[derive(Debug)]
+pub enum DeliveryError {
+    /// The URL failed the egress gate: not http(s), credentials in it, no host, or
+    /// no resolved address the policy allows. Not retried.
+    Refused(mw_egress::Refusal),
+    /// The endpoint answered with a redirect, which is not followed. Not retried.
+    Redirect(StatusCode),
+    /// Every attempt ended in a 5xx or a transport error.
+    Failed(String),
+}
+
+impl std::fmt::Display for DeliveryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Refused(r) => write!(f, "refused by the egress policy ({r:?})"),
+            Self::Redirect(s) => write!(f, "endpoint answered {s}; redirects are not followed"),
+            Self::Failed(e) => f.write_str(e),
+        }
+    }
+}
+
+impl std::error::Error for DeliveryError {}
+
 /// Drain the webhook broadcast for the life of the process, delivering a signed
 /// POST to every matching endpoint of a changed account. Spawned once by e11 in
 /// `build_app` (fed by [`crate::PushHandle::subscribe_relay`], distinct from the
-/// WS/SSE and push-relay receivers). Never carries message content.
+/// WS/SSE and push-relay receivers). Never carries message content. Deliveries go
+/// only to public unicast addresses ([`mw_egress::ip_allowed`]).
 pub async fn run_webhook_dispatcher(
     registry: Arc<dyn WebhookRegistry>,
+    rx: broadcast::Receiver<StateChange>,
+) {
+    run_webhook_dispatcher_with(registry, rx, mw_egress::ip_allowed).await
+}
+
+/// [`run_webhook_dispatcher`] under a caller-chosen address policy. Only the
+/// address range varies; the URL checks, the pin and the redirect refusal do not.
+pub async fn run_webhook_dispatcher_with(
+    registry: Arc<dyn WebhookRegistry>,
     mut rx: broadcast::Receiver<StateChange>,
-    http: reqwest::Client,
+    policy: AddressPolicy,
 ) {
     loop {
         match rx.recv().await {
-            Ok(change) => dispatch(&registry, &http, &change).await,
+            Ok(change) => dispatch(&registry, &change, policy).await,
             Err(broadcast::error::RecvError::Lagged(n)) => {
                 tracing::warn!("webhook dispatcher lagged {n} changes");
             }
@@ -203,8 +253,8 @@ pub async fn run_webhook_dispatcher(
 /// Sign + deliver a change to every matching endpoint of its account.
 async fn dispatch(
     registry: &Arc<dyn WebhookRegistry>,
-    http: &reqwest::Client,
     change: &StateChange,
+    policy: AddressPolicy,
 ) {
     let endpoints = registry.list_for_account(&change.account_id).await;
     if endpoints.is_empty() {
@@ -215,8 +265,7 @@ async fn dispatch(
         if !endpoint.wants(change) {
             continue;
         }
-        let signature = sign(&endpoint.secret, &body);
-        match deliver_with_retry(http, &endpoint, &body, &signature).await {
+        match deliver_with(&endpoint, &body, policy).await {
             Ok(status) => {
                 metrics::counter!("mw_webhook_deliveries_total", "result" => "ok").increment(1);
                 // Only opaque ids are logged — never the URL host's data or secret.
@@ -228,33 +277,60 @@ async fn dispatch(
                 );
             }
             Err(e) => {
-                metrics::counter!("mw_webhook_deliveries_total", "result" => "fail").increment(1);
-                tracing::warn!("webhook {} gave up after retries: {e}", endpoint.id);
+                let result = match e {
+                    DeliveryError::Refused(_) | DeliveryError::Redirect(_) => "refused",
+                    DeliveryError::Failed(_) => "fail",
+                };
+                metrics::counter!("mw_webhook_deliveries_total", "result" => result).increment(1);
+                // The URL is not logged: the refusal names no host or address.
+                tracing::warn!("webhook {} not delivered: {e}", endpoint.id);
             }
         }
     }
 }
 
-/// POST `body` to `endpoint`, retrying on a 5xx response or a transport error with
-/// exponential backoff. Returns the final 2xx/4xx status, or an error if every
-/// attempt failed. A 4xx is NOT retried (the receiver rejected the request shape).
-async fn deliver_with_retry(
-    http: &reqwest::Client,
+/// Sign `body` with the endpoint secret and deliver it, to public unicast addresses
+/// only ([`mw_egress::ip_allowed`]). See [`deliver_with`].
+pub async fn deliver(endpoint: &WebhookEndpoint, body: &[u8]) -> Result<StatusCode, DeliveryError> {
+    deliver_with(endpoint, body, mw_egress::ip_allowed).await
+}
+
+/// Sign `body` with the endpoint secret and POST it to the endpoint under `policy`,
+/// retrying on a 5xx response or a transport error with exponential backoff.
+/// Returns the final 2xx/4xx status (a 4xx is NOT retried: the receiver rejected the
+/// request shape). A URL the egress gate refuses and a redirect answer end the
+/// delivery at once.
+///
+/// Each attempt resolves the host once through the gate and connects only to the
+/// address that passed, so a name cannot rebind between the check and the connect.
+pub async fn deliver_with(
     endpoint: &WebhookEndpoint,
     body: &[u8],
-    signature: &str,
-) -> anyhow::Result<StatusCode> {
+    policy: AddressPolicy,
+) -> Result<StatusCode, DeliveryError> {
+    let url = reqwest::Url::parse(&endpoint.url).map_err(|_| {
+        DeliveryError::Refused(mw_egress::Refusal::BadRequest("malformed webhook URL"))
+    })?;
+    let signature = sign(&endpoint.secret, body);
     let mut last_err: Option<String> = None;
     for attempt in 0..MAX_ATTEMPTS {
         if attempt > 0 {
             tokio::time::sleep(RETRY_BASE * 2u32.pow(attempt - 1)).await;
         }
+        let target = mw_egress::validate_and_resolve_with(url.clone(), policy)
+            .await
+            .map_err(DeliveryError::Refused)?;
+        // `harden_client` pins host → the checked address, turns redirects off and
+        // refuses ambient proxies (which would resolve the name themselves).
+        let http = mw_egress::harden_client(reqwest::Client::builder(), &target.host, target.addr)
+            .timeout(DELIVERY_TIMEOUT)
+            .build()
+            .map_err(|e| DeliveryError::Failed(e.to_string()))?;
         let sent = http
-            .post(&endpoint.url)
-            .header(SIGNATURE_HEADER, signature)
+            .post(target.url)
+            .header(SIGNATURE_HEADER, &signature)
             .header(EVENT_HEADER, "StateChange")
             .header("content-type", "application/json")
-            .timeout(DELIVERY_TIMEOUT)
             .body(body.to_vec())
             .send()
             .await;
@@ -262,6 +338,9 @@ async fn deliver_with_retry(
             Ok(resp) => {
                 let status =
                     StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+                if status.is_redirection() {
+                    return Err(DeliveryError::Redirect(status));
+                }
                 if status.is_server_error() {
                     last_err = Some(format!("server error {status}"));
                     continue; // retry
@@ -269,15 +348,15 @@ async fn deliver_with_retry(
                 return Ok(status); // 2xx or 4xx: delivered / rejected, do not retry
             }
             Err(e) => {
-                last_err = Some(e.to_string());
+                last_err = Some(e.without_url().to_string());
                 continue; // transport error: retry
             }
         }
     }
-    anyhow::bail!(
+    Err(DeliveryError::Failed(format!(
         "{MAX_ATTEMPTS} attempts failed: {}",
         last_err.unwrap_or_else(|| "unknown".into())
-    )
+    )))
 }
 
 // ---------------------------------------------------------------------------
@@ -587,11 +666,11 @@ mod tests {
             }]));
 
         let (tx, rx) = broadcast::channel(8);
-        let http = reqwest::Client::builder()
-            .no_proxy()
-            .build()
-            .expect("reqwest client builds");
-        let handle = tokio::spawn(run_webhook_dispatcher(registry, rx, http));
+        // The receiver is on loopback, which production refuses; this policy lets it
+        // stand in for a public endpoint (the refusal is covered by t32_h5).
+        let handle = tokio::spawn(run_webhook_dispatcher_with(registry, rx, |ip| {
+            ip.is_loopback() || mw_egress::ip_allowed(ip)
+        }));
 
         tx.send(change("acct1")).unwrap();
         // Also send a change for an account with no webhook → no delivery.
