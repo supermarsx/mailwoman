@@ -73,8 +73,9 @@ export const swatch = style({
   borderRadius: vars.radius.pill,
   border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
   cursor: 'pointer',
+  // At or under the 13.33px a bare button had, so the swatch text is no bigger.
   font: 'inherit',
-  fontSize: '0.85rem',
+  fontSize: '0.8rem',
   fontWeight: vars.weight.bold,
   lineHeight: 1,
   selectors: {
