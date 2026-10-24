@@ -8,7 +8,7 @@
 // and expects it (`FlagsDto`, `crates/mw-server/src/admin.rs`), and is passed
 // through unchanged when another flag is saved.
 
-import { createSignal, For, Show, onMount, type JSX } from 'solid-js';
+import { createSignal, Index, Show, onMount, type JSX } from 'solid-js';
 import { useAdmin } from './context.ts';
 import type { UserFeatureFlags, UserSummary } from '../../state/slices/admin.ts';
 import { t } from '../../i18n';
@@ -49,7 +49,12 @@ export function Users(): JSX.Element {
     }
   }
 
-  async function patchFlag(u: UserSummary, key: keyof UserFeatureFlags, value: boolean): Promise<void> {
+  // Rows are an <Index> (t32-h12), so a reload updates them in place and keyboard
+  // focus stays on the box just toggled. Solid writes `checked` only when the model
+  // value changes, so the box is set back from the model by hand: to the stored
+  // value after the reload, or to the old value when the change failed.
+  async function patchFlag(u: UserSummary, key: keyof UserFeatureFlags, box: HTMLInputElement): Promise<void> {
+    const value = box.checked;
     try {
       if (key === 'zeroAccess') {
         await api.toggleZeroAccess(u.accountId, value);
@@ -57,7 +62,10 @@ export function Users(): JSX.Element {
         await api.setFlags(u.accountId, { ...u.flags, [key]: value });
       }
       await reload();
+      const stored = users().find((x) => x.accountId === u.accountId);
+      if (stored) box.checked = stored.flags[key];
     } catch {
+      box.checked = !value;
       setError(t('admin-users-flag-error'));
     }
   }
@@ -123,22 +131,22 @@ export function Users(): JSX.Element {
                 </tr>
               </thead>
               <tbody>
-                <For each={users()}>
+                <Index each={users()}>
                   {(u, i) => (
                     <tr>
-                      <td dir="auto">{u.accountId}</td>
-                      <td>{u.quota ? `${u.quota.bytesLimit} / ${u.quota.msgLimit}` : '—'}</td>
+                      <td dir="auto">{u().accountId}</td>
+                      <td>{u().quota ? `${u().quota?.bytesLimit} / ${u().quota?.msgLimit}` : '—'}</td>
                       <td>
                         <label class="field">
                           <input
                             type="checkbox"
-                            aria-label={t('admin-users-zeroaccess-for', { account: u.accountId })}
-                            aria-describedby={`admin-users-zeroaccess-help-${i()}`}
-                            checked={u.flags.zeroAccess}
-                            onChange={(e) => void patchFlag(u, 'zeroAccess', e.currentTarget.checked)}
+                            aria-label={t('admin-users-zeroaccess-for', { account: u().accountId })}
+                            aria-describedby={`admin-users-zeroaccess-help-${i}`}
+                            checked={u().flags.zeroAccess}
+                            onChange={(e) => void patchFlag(u(), 'zeroAccess', e.currentTarget)}
                           />
                         </label>
-                        <p class={css.note} id={`admin-users-zeroaccess-help-${i()}`}>
+                        <p class={css.note} id={`admin-users-zeroaccess-help-${i}`}>
                           {t('admin-users-zeroaccess-help')}
                         </p>
                       </td>
@@ -146,27 +154,27 @@ export function Users(): JSX.Element {
                         <label class="field">
                           <input
                             type="checkbox"
-                            aria-label={t('admin-users-disable-for', { account: u.accountId })}
-                            aria-describedby={`admin-users-disabled-help-${i()}`}
-                            checked={u.flags.disabled}
-                            onChange={(e) => void patchFlag(u, 'disabled', e.currentTarget.checked)}
+                            aria-label={t('admin-users-disable-for', { account: u().accountId })}
+                            aria-describedby={`admin-users-disabled-help-${i}`}
+                            checked={u().flags.disabled}
+                            onChange={(e) => void patchFlag(u(), 'disabled', e.currentTarget)}
                           />{' '}
                           {t('admin-users-disabled')}
                         </label>
-                        <p class={css.note} id={`admin-users-disabled-help-${i()}`}>
+                        <p class={css.note} id={`admin-users-disabled-help-${i}`}>
                           {t('admin-users-disabled-help')}
                         </p>
                         <label class="field">
                           <input
                             type="checkbox"
-                            aria-label={t('admin-users-force-change-for', { account: u.accountId })}
-                            aria-describedby={`admin-users-force-change-help-${i()}`}
-                            checked={u.flags.forcePasswordChange}
-                            onChange={(e) => void patchFlag(u, 'forcePasswordChange', e.currentTarget.checked)}
+                            aria-label={t('admin-users-force-change-for', { account: u().accountId })}
+                            aria-describedby={`admin-users-force-change-help-${i}`}
+                            checked={u().flags.forcePasswordChange}
+                            onChange={(e) => void patchFlag(u(), 'forcePasswordChange', e.currentTarget)}
                           />{' '}
                           {t('admin-users-force-change')}
                         </label>
-                        <p class={css.note} id={`admin-users-force-change-help-${i()}`}>
+                        <p class={css.note} id={`admin-users-force-change-help-${i}`}>
                           {t('admin-users-force-change-help')}
                         </p>
                       </td>
@@ -174,15 +182,15 @@ export function Users(): JSX.Element {
                         <button
                           type="button"
                           class="btn btn--ghost"
-                          aria-label={t('admin-users-revoke-for', { account: u.accountId })}
-                          onClick={() => void onRevoke(u)}
+                          aria-label={t('admin-users-revoke-for', { account: u().accountId })}
+                          onClick={() => void onRevoke(u())}
                         >
                           {t('admin-revoke')}
                         </button>
                       </td>
                     </tr>
                   )}
-                </For>
+                </Index>
               </tbody>
             </table>
           </div>

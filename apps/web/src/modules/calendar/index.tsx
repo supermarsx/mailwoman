@@ -8,7 +8,7 @@
 // engine-backed controller from `state/slices/calendar.ts`; `CalendarModule`
 // below is the mock-backed variant.
 
-import { For, Show, createSignal, onMount, type JSX } from 'solid-js';
+import { For, Index, Show, createSignal, onMount, type JSX } from 'solid-js';
 import { t, loadCatalog } from '../../i18n';
 import type { Calendar, CalendarEvent } from '../../api/pim-types.ts';
 import { createCalendarController, type CalendarBackend, type CalendarController } from './controller.ts';
@@ -264,32 +264,34 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
           <div>
             <h3 class={css.sideHeading}>{t('calendar-calendars-heading')}</h3>
             <ul class={css.calList}>
-              <For each={c.calendars()}>
+              {/* Index rather than For (t32-h12): toggling a calendar replaces its
+                  object, and a re-created row would drop keyboard focus from the checkbox. */}
+              <Index each={c.calendars()}>
                 {(cal) => (
                   <li class={css.calItem}>
                     <input
                       type="checkbox"
-                      checked={cal.isVisible}
-                      onChange={() => void c.toggleCalendar(cal.id)}
-                      aria-label={t('calendar-toggle', { name: cal.name })}
+                      checked={cal().isVisible}
+                      onChange={() => void c.toggleCalendar(cal().id)}
+                      aria-label={t('calendar-toggle', { name: cal().name })}
                     />
                     <input
                       type="color"
-                      value={cal.color}
-                      onChange={(e) => void c.setCalendarColor(cal.id, e.currentTarget.value)}
-                      aria-label={t('calendar-color-for', { name: cal.name })}
+                      value={cal().color}
+                      onChange={(e) => void c.setCalendarColor(cal().id, e.currentTarget.value)}
+                      aria-label={t('calendar-color-for', { name: cal().name })}
                       class={css.colorInput}
                     />
-                    <span class={css.grow}><bdi>{cal.name}</bdi></span>
-                    <Show when={cal.isReadOnlyOverlay || cal.caldavUrl !== null}>
-                      <span class={css.dimText} title={cal.caldavUrl ?? t('calendar-synced')} aria-label={t('calendar-synced')}>⇅</span>
+                    <span class={css.grow}><bdi>{cal().name}</bdi></span>
+                    <Show when={cal().isReadOnlyOverlay || cal().caldavUrl !== null}>
+                      <span class={css.dimText} title={cal().caldavUrl ?? t('calendar-synced')} aria-label={t('calendar-synced')}>⇅</span>
                     </Show>
-                    <Show when={cal.isReadOnlyOverlay && cal.caldavUrl !== null}>
+                    <Show when={cal().isReadOnlyOverlay && cal().caldavUrl !== null}>
                       <button
                         type="button"
                         class={css.button}
-                        onClick={() => void onRefreshFeed(cal.id)}
-                        aria-label={t('calendar-subscribe-refresh', { name: cal.name })}
+                        onClick={() => void onRefreshFeed(cal().id)}
+                        aria-label={t('calendar-subscribe-refresh', { name: cal().name })}
                       >
                         {t('calendar-subscribe-refresh-btn')}
                       </button>
@@ -297,14 +299,14 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
                     <button
                       type="button"
                       class={css.button}
-                      onClick={() => setSharing(cal)}
-                      aria-label={t('calendar-share-for', { name: cal.name })}
+                      onClick={() => setSharing(cal())}
+                      aria-label={t('calendar-share-for', { name: cal().name })}
                     >
                       {t('calendar-share')}
                     </button>
                   </li>
                 )}
-              </For>
+              </Index>
             </ul>
             <button type="button" class={`${css.button} ${css.addCalendar}`} onClick={() => void c.createCalendar(t('calendar-new-calendar-name'), '#22c55e')}>
               {t('calendar-add-calendar')}
