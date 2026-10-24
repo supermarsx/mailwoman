@@ -40,19 +40,32 @@ function lines(text: string): string[] {
     .filter((l) => l.length > 0);
 }
 
+/** The endpoint an adapter sends to: kind and base URL. The server keeps a stored key only while this is unchanged. */
+function endpointOf(adapter: AssistAdapter | null): string {
+  if (adapter === null || adapter.kind === 'local-process') return '';
+  return `${adapter.kind} ${adapter.baseUrl ?? ''}`;
+}
+
 /**
  * The adapter as it is sent: an optional text field left empty is omitted so the
  * server applies its default, instead of storing an empty model name.
+ *
+ * The API key is write-only. An empty key field is left out, which keeps the stored
+ * key, except when the stored key is being removed or the endpoint has moved: then
+ * it is sent as `""`, because the server does not carry a key to a new endpoint and
+ * an empty field there means "no key".
  */
-function adapterForSave(adapter: AssistAdapter | null): AssistAdapter | null {
+function adapterForSave(adapter: AssistAdapter | null, sendEmptyKey: boolean): AssistAdapter | null {
   if (adapter === null) return null;
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(adapter)) {
     const optionalText = typeof value === 'string' && key !== 'kind' && key !== 'apiKey';
     const required = adapter.kind === 'open-ai-compatible' && key === 'baseUrl';
     if (optionalText && !required && value.trim() === '') continue;
+    if (key === 'apiKey' && value === '') continue;
     out[key] = value;
   }
+  if (sendEmptyKey && adapter.kind !== 'local-process' && out['apiKey'] === undefined) out['apiKey'] = '';
   return out as unknown as AssistAdapter;
 }
 
@@ -63,6 +76,10 @@ export function AdminAssist(props: AdminAssistProps): JSX.Element {
   const [notice, setNotice] = createSignal<string | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [loaded, setLoaded] = createSignal(false);
+  // The adapter as last read from the server, to tell whether the endpoint moved.
+  const [loadedAdapter, setLoadedAdapter] = createSignal<AssistAdapter | null>(null);
+  // The administrator asked to remove the stored API key on the next save.
+  const [removeKey, setRemoveKey] = createSignal(false);
   // One write at a time: a Save sent while the kill switch is still in flight would
   // carry the on/off state from before it and undo it.
   const [busy, setBusy] = createSignal(false);
@@ -71,6 +88,7 @@ export function AdminAssist(props: AdminAssistProps): JSX.Element {
     // Both or neither: the form is only usable against a config that was read.
     const [c, s] = await Promise.all([api.get(), api.status()]);
     setConfig(c);
+    setLoadedAdapter(c.adapter);
     setStatus(s);
     setLoaded(true);
   }
@@ -142,10 +160,21 @@ export function AdminAssist(props: AdminAssistProps): JSX.Element {
     }
     setBusy(true);
     try {
-      const next = await api.save({ ...config(), adapter: adapterForSave(adapter) });
+      // A stored key the new endpoint will not get: say "no key" rather than leave
+      // the server to refuse a move that did not mention the key.
+      const loadedKey = loadedAdapter();
+      const dropsKey =
+        loadedKey !== null &&
+        loadedKey.kind !== 'local-process' &&
+        loadedKey.hasApiKey === true &&
+        endpointOf(adapter) !== endpointOf(loadedKey);
+      const next = await api.save({ ...config(), adapter: adapterForSave(adapter, removeKey() || dropsKey) });
       setStatus(next);
       // Read back what was stored, so fields the server defaulted are shown.
-      setConfig(await api.get());
+      const stored = await api.get();
+      setConfig(stored);
+      setLoadedAdapter(stored.adapter);
+      setRemoveKey(false);
       setNotice(next.restartPending ? t('assist-admin-saved-pending') : t('assist-admin-saved'));
     } catch (e) {
       setError(
@@ -175,7 +204,11 @@ export function AdminAssist(props: AdminAssistProps): JSX.Element {
 
   // `labelId` rather than the label text, so `t` runs inside the JSX and the label
   // follows the catalog when it finishes loading.
-  const field = (key: string, labelId: string, opts: { secret?: boolean; fallback?: boolean } = {}): JSX.Element => (
+  const field = (
+    key: string,
+    labelId: string,
+    opts: { secret?: boolean; fallback?: boolean; placeholderId?: string } = {},
+  ): JSX.Element => (
     <label class={css.field}>
       <span class={css.meta}>{t(labelId)}</span>
       <input
@@ -183,11 +216,60 @@ export function AdminAssist(props: AdminAssistProps): JSX.Element {
         type={opts.secret ? 'password' : 'text'}
         autocomplete="off"
         aria-label={t(labelId)}
-        placeholder={opts.fallback ? t('assist-admin-default-placeholder') : undefined}
+        placeholder={
+          opts.placeholderId !== undefined
+            ? t(opts.placeholderId)
+            : opts.fallback
+              ? t('assist-admin-default-placeholder')
+              : undefined
+        }
         value={adapterText(key)}
         onInput={(e) => setAdapterField(key, e.currentTarget.value)}
       />
     </label>
+  );
+
+  /**
+   * A key is stored for the endpoint being edited (the server says so; it never
+   * sends the key). Once the type or base URL is changed the stored key will not be
+   * used, so the screen shows an empty key field for the new endpoint instead.
+   */
+  const keyStored = (): boolean => {
+    const adapter = config().adapter;
+    return (
+      adapter !== null &&
+      adapter.kind !== 'local-process' &&
+      adapter.hasApiKey === true &&
+      endpointOf(adapter) === endpointOf(loadedAdapter())
+    );
+  };
+
+  // The API key: write-only. With a key stored, the screen says so and offers to
+  // replace or remove it; it cannot show it.
+  const apiKeyField = (): JSX.Element => (
+    <Show when={keyStored()} fallback={field('apiKey', 'assist-admin-api-key', { secret: true })}>
+      <p class={css.meta} data-testid="assist-api-key-stored">
+        {removeKey() ? t('assist-admin-api-key-remove-pending') : t('assist-admin-api-key-stored')}
+      </p>
+      <Show when={!removeKey()}>
+        {field('apiKey', 'assist-admin-api-key-replace', {
+          secret: true,
+          placeholderId: 'assist-admin-api-key-replace-placeholder',
+        })}
+      </Show>
+      <div class={css.row}>
+        <button
+          type="button"
+          class={css.ghost}
+          onClick={() => {
+            setAdapterField('apiKey', undefined);
+            setRemoveKey(!removeKey());
+          }}
+        >
+          {removeKey() ? t('assist-admin-api-key-keep') : t('assist-admin-api-key-remove')}
+        </button>
+      </div>
+    </Show>
   );
 
   return (
@@ -269,14 +351,14 @@ export function AdminAssist(props: AdminAssistProps): JSX.Element {
         <Switch>
           <Match when={config().adapter?.kind === 'open-ai-compatible'}>
             {field('baseUrl', 'assist-admin-base-url')}
-            {field('apiKey', 'assist-admin-api-key', { secret: true })}
+            {apiKeyField()}
             {field('chatModel', 'assist-admin-chat-model', { fallback: true })}
             {field('embedModel', 'assist-admin-embed-model', { fallback: true })}
             {field('sttModel', 'assist-admin-stt-model', { fallback: true })}
           </Match>
           <Match when={config().adapter?.kind === 'anthropic'}>
             {field('baseUrl', 'assist-admin-base-url', { fallback: true })}
-            {field('apiKey', 'assist-admin-api-key', { secret: true })}
+            {apiKeyField()}
             {field('model', 'assist-admin-model', { fallback: true })}
             {field('anthropicVersion', 'assist-admin-anthropic-version', { fallback: true })}
             <label class={css.field}>

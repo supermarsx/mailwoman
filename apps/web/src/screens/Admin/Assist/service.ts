@@ -8,6 +8,11 @@
 // throughout. The server refuses a body with a missing, extra or misnamed key, so
 // nothing here may rename or drop one.
 //
+// The adapter's `apiKey` is write-only: GET never returns it and carries
+// `hasApiKey` instead, which PUT ignores. On PUT, `apiKey` left out keeps the
+// stored key, a string replaces it, and `""` clears it. The server keeps the stored
+// key only while the endpoint type and base URL stay the same.
+//
 // Same-origin, cookie-authed against the admin session (like the rest of
 // `/admin/*`). The transport is injectable so the screen is tested without a server.
 
@@ -20,7 +25,10 @@ export type AssistAdapter =
   | {
       readonly kind: 'open-ai-compatible';
       readonly baseUrl: string;
+      /** Write-only: sent to set or clear the key, never returned. */
       readonly apiKey?: string;
+      /** Read-only: whether a key is stored. */
+      readonly hasApiKey?: boolean;
       readonly chatModel?: string;
       readonly embedModel?: string;
       readonly sttModel?: string;
@@ -29,6 +37,7 @@ export type AssistAdapter =
       readonly kind: 'anthropic';
       readonly baseUrl?: string;
       readonly apiKey?: string;
+      readonly hasApiKey?: boolean;
       readonly model?: string;
       readonly anthropicVersion?: string;
       readonly maxTokens?: number;

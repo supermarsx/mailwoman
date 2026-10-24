@@ -72,7 +72,7 @@ test.describe('Assist (V7) — web-facing contract on the real server', () => {
       adapter: {
         kind: 'open-ai-compatible',
         baseUrl: process.env['MW_E2E_ASSIST_URL'] ?? 'http://mock-assist:8199',
-        apiKey: 'k',
+        apiKey: 'sk-e2e-write-only-key',
         chatModel: 'mock',
         embedModel: 'mock',
         sttModel: 'mock',
@@ -82,15 +82,24 @@ test.describe('Assist (V7) — web-facing contract on the real server', () => {
     };
     const put = await request.put('/admin/assist', { data: config });
     expect(put.status()).toBe(200);
-    // What was saved is what is read back.
-    expect(await (await request.get('/admin/assist')).json()).toEqual(config);
+    // What was saved is what is read back, except the API key: it is write-only,
+    // and GET says only that one is stored.
+    const adapterShown: Record<string, unknown> = { ...config.adapter, hasApiKey: true };
+    delete adapterShown['apiKey'];
+    const shown = { ...config, adapter: adapterShown };
+    const raw = await (await request.get('/admin/assist')).text();
+    expect(raw, 'GET /admin/assist carries no key material').not.toContain('sk-e2e-write-only-key');
+    expect(JSON.parse(raw)).toEqual(shown);
+    // GET's body is a valid PUT, and saving it keeps the stored key.
+    expect((await request.put('/admin/assist', { data: shown })).status()).toBe(200);
+    expect(await (await request.get('/admin/assist')).json()).toEqual(shown);
 
     // The shape the screen sent before 26.20 is refused, and erases nothing.
     const old = await request.put('/admin/assist', {
       data: { enabled: true, endpoint_allowlist: [], capability_locks: {}, data_ceilings: {} },
     });
     expect(old.status()).toBe(400);
-    expect(await (await request.get('/admin/assist')).json()).toEqual(config);
+    expect(await (await request.get('/admin/assist')).json()).toEqual(shown);
 
     const kill = await request.post('/admin/assist/kill', { data: { on: true } });
     expectMounted(kill, 'POST /admin/assist/kill');
@@ -101,7 +110,7 @@ test.describe('Assist (V7) — web-facing contract on the real server', () => {
 
     // After the kill switch, the gateway is Disabled again, and the rest is kept.
     const after = await request.get('/admin/assist');
-    expect(await after.json()).toEqual({ ...config, enabled: false });
+    expect(await after.json()).toEqual({ ...shown, enabled: false });
   });
 });
 

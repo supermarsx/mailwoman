@@ -23,7 +23,8 @@ const STORED = {
   adapter: {
     kind: 'open-ai-compatible',
     baseUrl: 'https://llm.example.test/v1',
-    apiKey: 'sk-t28',
+    // GET never returns the key, only whether one is stored.
+    hasApiKey: true,
     chatModel: 'chat-t28',
     embedModel: 'embed-t28',
     sttModel: 'stt-t28',
@@ -73,7 +74,16 @@ function server(initial: { config: unknown; status: unknown; getStatus?: number;
       if (adapter?.kind === 'local-process' && !(initial.localPrograms ?? []).includes(adapter.program ?? '')) {
         return json({ error: 'adapter.program is not listed in MW_ASSIST_LOCAL_PROGRAMS' }, 422);
       }
-      state.config = body;
+      // As the server does: the key is stored, and reads back only as `hasApiKey`.
+      const sent = body as { adapter: Record<string, unknown> | null };
+      if (sent.adapter !== null && sent.adapter['kind'] !== 'local-process') {
+        const { apiKey, ...rest } = sent.adapter;
+        const prev = (state.config as { adapter: { hasApiKey?: boolean } | null }).adapter;
+        const has = typeof apiKey === 'string' ? apiKey !== '' : prev?.hasApiKey === true;
+        state.config = { ...sent, adapter: { ...rest, hasApiKey: has } };
+      } else {
+        state.config = body;
+      }
       state.status = { ...RUNNING, restartPending: true, localPrograms: initial.localPrograms ?? [] };
       return json(state.status);
     }
@@ -140,7 +150,7 @@ describe('admin assist screen', () => {
       adapter: {
         kind: 'open-ai-compatible',
         baseUrl: 'https://llm.example.test/v1',
-        apiKey: 'sk-t28',
+        hasApiKey: true,
         // chatModel was emptied: omitted, so the server applies its default.
         embedModel: 'embed-t28',
         sttModel: 'stt-t28',
@@ -231,6 +241,57 @@ describe('admin assist screen', () => {
       kind: 'open-ai-compatible',
       baseUrl: 'http://127.0.0.1:8199/v1',
     });
+  });
+});
+
+describe('admin assist screen: API key', () => {
+  it('says a key is stored without showing it, and an untouched save leaves it out so the server keeps it', async () => {
+    const { api, writes } = server({ config: STORED, status: RUNNING });
+    const { container } = render(() => <AdminAssist api={api} />);
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(screen.getByTestId('assist-api-key-stored')).toHaveTextContent('A key is stored.');
+    expect(screen.getByLabelText('Replace the API key')).toHaveValue('');
+    expect(screen.queryByLabelText('API key')).not.toBeInTheDocument();
+    for (const input of Array.from(container.querySelectorAll('input'))) expect(input.value).not.toContain('sk-');
+
+    // Typed into and emptied again is still "keep the stored key", not "clear it".
+    fireEvent.input(screen.getByLabelText('Replace the API key'), { target: { value: 'sk-oops' } });
+    fireEvent.input(screen.getByLabelText('Replace the API key'), { target: { value: '' } });
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    expect((writes()[0]?.body as { adapter: Record<string, unknown> }).adapter).not.toHaveProperty('apiKey');
+  });
+
+  it('sends a replacement key, and an empty string to remove the stored one', async () => {
+    const { api, writes } = server({ config: STORED, status: RUNNING });
+    render(() => <AdminAssist api={api} />);
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+
+    fireEvent.input(screen.getByLabelText('Replace the API key'), { target: { value: 'sk-new' } });
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    expect((writes()[0]?.body as { adapter: Record<string, unknown> }).adapter['apiKey']).toBe('sk-new');
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove the stored key' }));
+    expect(screen.getByTestId('assist-api-key-stored')).toHaveTextContent('The stored key will be removed when you save.');
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(writes()).toHaveLength(2));
+    expect((writes()[1]?.body as { adapter: Record<string, unknown> }).adapter['apiKey']).toBe('');
+    await waitFor(() => expect(screen.getByLabelText('API key')).toBeInTheDocument());
+  });
+
+  it('does not offer the stored key for a new base URL, and an empty key field there means no key', async () => {
+    const { api, writes } = server({ config: STORED, status: RUNNING });
+    render(() => <AdminAssist api={api} />);
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+
+    fireEvent.input(screen.getByLabelText('Base URL'), { target: { value: 'https://elsewhere.example/v1' } });
+    expect(screen.queryByTestId('assist-api-key-stored')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('API key')).toHaveValue('');
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    expect((writes()[0]?.body as { adapter: Record<string, unknown> }).adapter['apiKey']).toBe('');
   });
 });
 
