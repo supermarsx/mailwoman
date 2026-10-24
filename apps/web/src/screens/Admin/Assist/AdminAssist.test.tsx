@@ -7,11 +7,13 @@ afterEach(() => cleanup());
 
 // The bodies below are the server's, not this client's idea of them. They mirror
 // `crates/mw-server/src/v7_mount.rs`:
-//   - the config object: `assist_admin_wire` (line 2441), which GET returns and
-//     which `AssistAdminReq` (line 2455) requires back, whole, on PUT;
-//   - the status object: `assist_status` (line 2532), returned by
-//     GET /admin/assist/status, PUT /admin/assist and POST /admin/assist/kill;
-//   - the kill body: `AssistKillReq` (line 2688), `{ on }`.
+//   - the config object: `assist_admin_wire`, which GET returns and which
+//     `AssistAdminReq` requires back, whole, on PUT;
+//   - the status object: `assist_status`, returned by GET /admin/assist/status,
+//     PUT /admin/assist and POST /admin/assist/kill;
+//   - the 422 for a local program `MW_ASSIST_LOCAL_PROGRAMS` does not list:
+//     `local_program_refusal`;
+//   - the kill body: `AssistKillReq`, `{ on }`.
 // The server-side round trip of the same objects is
 // `crates/mw-server/tests/t28_assist_admin.rs`. This is a unit test of the screen
 // against a mocked fetch; it does not show the screen is wired to a server.
@@ -35,7 +37,14 @@ const STORED = {
   },
 };
 
-const RUNNING = { enabled: true, running: true, endpointHost: 'llm.example.test', restartPending: false };
+const RUNNING = {
+  enabled: true,
+  running: true,
+  endpointHost: 'llm.example.test',
+  restartPending: false,
+  stoppedReason: null,
+  localPrograms: [] as string[],
+};
 
 interface Call {
   method: string;
@@ -44,7 +53,7 @@ interface Call {
 }
 
 /** A fetch that serves the admin Assist routes from `state` and records every call. */
-function server(initial: { config: unknown; status: unknown; getStatus?: number }): {
+function server(initial: { config: unknown; status: unknown; getStatus?: number; localPrograms?: string[] }): {
   api: AdminAssistApi;
   calls: Call[];
   writes: () => Call[];
@@ -60,15 +69,19 @@ function server(initial: { config: unknown; status: unknown; getStatus?: number 
     if (input === '/admin/assist' && method === 'GET') return json(state.config, initial.getStatus ?? 200);
     if (input === '/admin/assist/status') return json(state.status);
     if (input === '/admin/assist' && method === 'PUT') {
+      const adapter = (body as { adapter: { kind: string; program?: string } | null }).adapter;
+      if (adapter?.kind === 'local-process' && !(initial.localPrograms ?? []).includes(adapter.program ?? '')) {
+        return json({ error: 'adapter.program is not listed in MW_ASSIST_LOCAL_PROGRAMS' }, 422);
+      }
       state.config = body;
-      state.status = { ...RUNNING, restartPending: true };
+      state.status = { ...RUNNING, restartPending: true, localPrograms: initial.localPrograms ?? [] };
       return json(state.status);
     }
     if (input === '/admin/assist/kill' && method === 'POST') {
       const on = (body as { on: boolean }).on;
       state.config = { ...(state.config as object), enabled: !on };
       state.status = on
-        ? { enabled: false, running: false, endpointHost: null, restartPending: false }
+        ? { ...RUNNING, enabled: false, running: false, endpointHost: null }
         : RUNNING;
       return json(state.status);
     }
@@ -198,7 +211,7 @@ describe('admin assist screen', () => {
   it('refuses to save an OpenAI-compatible endpoint with no base URL', async () => {
     const { api, writes } = server({
       config: { ...STORED, adapter: null },
-      status: { enabled: true, running: false, endpointHost: null, restartPending: false },
+      status: { ...RUNNING, running: false, endpointHost: null },
     });
     render(() => <AdminAssist api={api} />);
     await waitFor(() => expect(saveButton()).toBeEnabled());
@@ -218,6 +231,73 @@ describe('admin assist screen', () => {
       kind: 'open-ai-compatible',
       baseUrl: 'http://127.0.0.1:8199/v1',
     });
+  });
+});
+
+describe('admin assist screen: local program', () => {
+  const PROGRAMS = ['/opt/llm/run', '/opt/llm/other'];
+  const NO_ENDPOINT = { ...RUNNING, running: false, endpointHost: null };
+
+  it('does not offer a local program while the operator lists none, and says how to enable one', async () => {
+    const { api } = server({ config: { ...STORED, adapter: null }, status: NO_ENDPOINT });
+    render(() => <AdminAssist api={api} />);
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    const kinds = Array.from(screen.getByLabelText('Endpoint type').querySelectorAll('option')).map((o) => o.value);
+    expect(kinds).toEqual(['none', 'open-ai-compatible', 'anthropic']);
+    expect(screen.getByTestId('assist-local-program-enable')).toHaveTextContent('MW_ASSIST_LOCAL_PROGRAMS');
+  });
+
+  it('offers the listed programs only, with arguments as a list, and saves the choice', async () => {
+    const { api, writes } = server({
+      config: { ...STORED, adapter: null },
+      status: { ...NO_ENDPOINT, localPrograms: PROGRAMS },
+      localPrograms: PROGRAMS,
+    });
+    render(() => <AdminAssist api={api} />);
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(screen.queryByTestId('assist-local-program-enable')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Endpoint type'), { target: { value: 'local-process' } });
+    const program = screen.getByLabelText('Program');
+    expect(Array.from(program.querySelectorAll('option')).map((o) => o.value)).toEqual(PROGRAMS);
+    expect(program).toHaveValue('/opt/llm/run');
+    expect(screen.getByText(/starts this program for each AI assistant request/)).toBeInTheDocument();
+
+    fireEvent.change(program, { target: { value: '/opt/llm/other' } });
+    fireEvent.change(screen.getByLabelText('Arguments, one per line'), {
+      target: { value: '--model\n\n small \n' },
+    });
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    expect((writes()[0]?.body as { adapter: unknown }).adapter).toEqual({
+      kind: 'local-process',
+      program: '/opt/llm/other',
+      args: ['--model', 'small'],
+    });
+  });
+
+  it('shows why a stored program that is no longer listed is not running, and that saving it is refused', async () => {
+    const stored = { ...STORED, adapter: { kind: 'local-process', program: '/usr/bin/old', args: [] } };
+    const { api, writes } = server({
+      config: stored,
+      status: { ...NO_ENDPOINT, stoppedReason: 'local-program-not-allowed', localPrograms: PROGRAMS },
+      localPrograms: PROGRAMS,
+    });
+    render(() => <AdminAssist api={api} />);
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(screen.getByTestId('assist-status')).toHaveTextContent(
+      'The AI assistant is not running. The configured program /usr/bin/old is not listed in MW_ASSIST_LOCAL_PROGRAMS on the server, so the server did not start it.',
+    );
+    expect(screen.getByLabelText('Program')).toHaveValue('/usr/bin/old');
+    expect(screen.getByTestId('assist-local-program-unlisted')).toBeInTheDocument();
+
+    fireEvent.click(saveButton());
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'The configuration was not saved because the server does not allow this program.',
+      ),
+    );
+    expect(writes()).toHaveLength(1);
   });
 });
 

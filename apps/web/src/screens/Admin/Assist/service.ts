@@ -64,6 +64,29 @@ export interface AdminAssistStatus {
   readonly endpointHost: string | null;
   /** The stored configuration is not the one in effect until the server restarts. */
   readonly restartPending: boolean;
+  /**
+   * Why the stored endpoint was not started, or null. `local-program-not-allowed`:
+   * a local program that `MW_ASSIST_LOCAL_PROGRAMS` did not list when the server started.
+   */
+  readonly stoppedReason: AssistStoppedReason | null;
+  /**
+   * The programs `MW_ASSIST_LOCAL_PROGRAMS` lists on the server now: the only ones a
+   * `local-process` endpoint may run. Set by the operator where the server starts,
+   * not through this API. Empty means a local program cannot be configured.
+   */
+  readonly localPrograms: readonly string[];
+}
+
+export type AssistStoppedReason = 'local-program-not-allowed';
+
+/** A refused admin Assist request; `status` is the HTTP status (422: not allowed by the operator). */
+export class AdminAssistError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
 }
 
 /** What the server returns when nothing is stored. Used only as the form's starting state. */
@@ -131,11 +154,17 @@ function parseStatus(body: unknown): AdminAssistStatus {
   if (host !== null && typeof host !== 'string') {
     throw new Error('admin assist: endpointHost is neither null nor a string');
   }
+  const reason = body['stoppedReason'];
+  if (reason !== null && reason !== 'local-program-not-allowed') {
+    throw new Error('admin assist: stoppedReason is neither null nor a known reason');
+  }
   return {
     enabled: flag(body['enabled'], 'enabled'),
     running: flag(body['running'], 'running'),
     endpointHost: host,
     restartPending: flag(body['restartPending'], 'restartPending'),
+    stoppedReason: reason,
+    localPrograms: stringList(body['localPrograms'], 'localPrograms'),
   };
 }
 
@@ -145,7 +174,7 @@ const defaultFetcher: Fetcher = (input, init) => apiFetch(input, { credentials: 
 /**
  * The Assist admin client.
  *   GET  /admin/assist          → AdminAssistConfig
- *   PUT  /admin/assist          AdminAssistConfig → AdminAssistStatus
+ *   PUT  /admin/assist          AdminAssistConfig → AdminAssistStatus   (422: local program not listed)
  *   GET  /admin/assist/status   → AdminAssistStatus
  *   POST /admin/assist/kill     { on } → AdminAssistStatus   (on: true turns Assist off)
  */
@@ -170,7 +199,7 @@ export class AdminAssistApi {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(config),
     });
-    if (!res.ok) throw new Error(`admin assist save failed (${res.status})`);
+    if (!res.ok) throw new AdminAssistError(`admin assist save failed (${res.status})`, res.status);
     return parseStatus(await res.json());
   }
 

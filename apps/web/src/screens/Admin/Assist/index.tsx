@@ -8,6 +8,10 @@
 //
 // Save is only offered once the stored configuration has been loaded. Saving a
 // form that still holds defaults would overwrite the deployment's configuration.
+//
+// A local program is offered only from the list the operator set in
+// `MW_ASSIST_LOCAL_PROGRAMS` where the server starts; the server reports that list
+// in the status and refuses any other program (`local_program_refusal`).
 
 import { createSignal, For, Match, onMount, Show, Switch, type JSX } from 'solid-js';
 import { ASSIST_CAPABILITIES, type AssistCapability } from '../../../modules/assist/types.ts';
@@ -15,6 +19,7 @@ import { t, loadCatalog } from '../../../i18n';
 import * as css from '../../../modules/assist/styles.css.ts';
 import {
   AdminAssistApi,
+  AdminAssistError,
   DEFAULT_ADMIN_ASSIST_CONFIG,
   type AdminAssistConfig,
   type AdminAssistStatus,
@@ -80,14 +85,32 @@ export function AdminAssist(props: AdminAssistProps): JSX.Element {
     setNotice(null);
   }
 
+  /** The programs the operator allows a local-process endpoint to run (empty until the status is read). */
+  const localPrograms = (): readonly string[] => status()?.localPrograms ?? [];
+
+  /** The configured local program, if the endpoint is one. */
+  const localProgram = (): string => {
+    const adapter = config().adapter;
+    return adapter?.kind === 'local-process' ? adapter.program : '';
+  };
+
+  /** The configured local program's arguments, if the endpoint is one. */
+  const localArgs = (): readonly string[] => {
+    const adapter = config().adapter;
+    return adapter?.kind === 'local-process' ? (adapter.args ?? []) : [];
+  };
+
+  const unlisted = (): boolean => localProgram() !== '' && !localPrograms().includes(localProgram());
+
   function setKind(kind: AssistAdapterKind | 'none'): void {
     if (kind === 'none') patch({ adapter: null });
     else if (kind === 'open-ai-compatible') patch({ adapter: { kind, baseUrl: '' } });
     else if (kind === 'anthropic') patch({ adapter: { kind } });
+    else patch({ adapter: { kind, program: localPrograms()[0] ?? '', args: [] } });
   }
 
   /** Set one field of the current adapter; `undefined` removes it. */
-  function setAdapterField(key: string, value: string | number | undefined): void {
+  function setAdapterField(key: string, value: string | number | readonly string[] | undefined): void {
     const adapter = config().adapter;
     if (adapter === null) return;
     const next: Record<string, unknown> = { ...adapter, [key]: value };
@@ -113,6 +136,10 @@ export function AdminAssist(props: AdminAssistProps): JSX.Element {
       setError(t('assist-admin-base-url-required'));
       return;
     }
+    if (adapter?.kind === 'local-process' && adapter.program === '') {
+      setError(t('assist-admin-local-program-required'));
+      return;
+    }
     setBusy(true);
     try {
       const next = await api.save({ ...config(), adapter: adapterForSave(adapter) });
@@ -120,8 +147,12 @@ export function AdminAssist(props: AdminAssistProps): JSX.Element {
       // Read back what was stored, so fields the server defaulted are shown.
       setConfig(await api.get());
       setNotice(next.restartPending ? t('assist-admin-saved-pending') : t('assist-admin-saved'));
-    } catch {
-      setError(t('assist-admin-save-error'));
+    } catch (e) {
+      setError(
+        e instanceof AdminAssistError && e.status === 422
+          ? t('assist-admin-save-not-allowed')
+          : t('assist-admin-save-error'),
+      );
     } finally {
       setBusy(false);
     }
@@ -175,6 +206,9 @@ export function AdminAssist(props: AdminAssistProps): JSX.Element {
                   {t('assist-admin-status-running', { host: s().endpointHost ?? '' })}
                 </Match>
                 <Match when={!s().enabled}>{t('assist-admin-status-off')}</Match>
+                <Match when={s().stoppedReason === 'local-program-not-allowed'}>
+                  {t('assist-admin-status-local-program-not-allowed', { program: localProgram() })}
+                </Match>
                 <Match when={s().restartPending}>{t('assist-admin-status-pending')}</Match>
                 <Match when={true}>{t('assist-admin-status-no-endpoint')}</Match>
               </Switch>
@@ -217,17 +251,21 @@ export function AdminAssist(props: AdminAssistProps): JSX.Element {
             class={css.input}
             aria-label={t('assist-admin-kind')}
             value={config().adapter?.kind ?? 'none'}
-            disabled={config().adapter?.kind === 'local-process'}
             onChange={(e) => setKind(e.currentTarget.value as AssistAdapterKind | 'none')}
           >
             <option value="none">{t('assist-admin-kind-none')}</option>
             <option value="open-ai-compatible">{t('assist-admin-kind-open-ai-compatible')}</option>
             <option value="anthropic">{t('assist-admin-kind-anthropic')}</option>
-            <Show when={config().adapter?.kind === 'local-process'}>
+            <Show when={localPrograms().length > 0 || config().adapter?.kind === 'local-process'}>
               <option value="local-process">{t('assist-admin-kind-local-process')}</option>
             </Show>
           </select>
         </label>
+        <Show when={status() !== null && localPrograms().length === 0}>
+          <p class={css.meta} data-testid="assist-local-program-enable">
+            {t('assist-admin-local-program-enable')}
+          </p>
+        </Show>
         <Switch>
           <Match when={config().adapter?.kind === 'open-ai-compatible'}>
             {field('baseUrl', 'assist-admin-base-url')}
@@ -259,9 +297,40 @@ export function AdminAssist(props: AdminAssistProps): JSX.Element {
             </label>
           </Match>
           <Match when={config().adapter?.kind === 'local-process'}>
-            <p class={css.meta}>
-              {t('assist-admin-local-process-note', { program: adapterText('program') })}
-            </p>
+            <p class={css.prose}>{t('assist-admin-local-program-note')}</p>
+            <label class={css.field}>
+              <span class={css.meta}>{t('assist-admin-local-program')}</span>
+              <select
+                class={css.input}
+                aria-label={t('assist-admin-local-program')}
+                value={localProgram()}
+                onChange={(e) => setAdapterField('program', e.currentTarget.value)}
+              >
+                {/* A stored program the operator no longer lists stays in the list, marked, so the form shows what is stored. */}
+                <Show when={unlisted()}>
+                  <option value={localProgram()}>
+                    {t('assist-admin-local-program-unlisted', { program: localProgram() })}
+                  </option>
+                </Show>
+                <For each={localPrograms()}>{(program) => <option value={program}>{program}</option>}</For>
+              </select>
+            </label>
+            <Show when={unlisted()}>
+              <p class={css.error} data-testid="assist-local-program-unlisted">
+                {t('assist-admin-local-program-unlisted-note')}
+              </p>
+            </Show>
+            <label class={css.field}>
+              <span class={css.meta}>{t('assist-admin-local-args')}</span>
+              <textarea
+                class={css.input}
+                rows="3"
+                aria-label={t('assist-admin-local-args')}
+                value={localArgs().join('\n')}
+                onChange={(e) => setAdapterField('args', lines(e.currentTarget.value))}
+              />
+              <span class={css.meta}>{t('assist-admin-local-args-note')}</span>
+            </label>
           </Match>
         </Switch>
       </div>
