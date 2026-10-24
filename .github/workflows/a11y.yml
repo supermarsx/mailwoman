@@ -37,21 +37,32 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # i18n completeness + no-hardcoded-strings. Pure Node (the scripts have no deps),
-  # so this is a fast gate that needs neither the browser stack nor a pnpm install.
+  # i18n completeness + no-hardcoded-strings. Node scripts, no browser stack. The
+  # web deps are installed because the AST scan in no-hardcoded-strings.mjs and
+  # its tests load `typescript` from apps/web/node_modules; without them the scan
+  # prints a WARN and only the line scan runs (26.20 t31-e10, for t32-e9).
   # ---------------------------------------------------------------------------
   i18n-catalogs:
     name: i18n catalog completeness + no hardcoded strings
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: install web deps (typescript for the AST scan)
+        run: pnpm -C apps/web install --frozen-lockfile
       - name: catalog completeness (every t() id resolves in en; locale set matches; coverage report)
         run: node scripts/i18n/check-catalog.mjs
       - name: no new hardcoded user-facing JSX literals
         run: node scripts/i18n/no-hardcoded-strings.mjs
+      - name: i18n script tests
+        run: node --test scripts/i18n/*.test.mjs
 
   # ---------------------------------------------------------------------------
   # axe WCAG 2.2 AA gate + pseudolocale/RTL smoke, against the live engine-mode
