@@ -20,6 +20,23 @@
 // A screen measured before and not after fails too, unless --partial is given,
 // which limits the comparison to the screens present in <after> (for a run with
 // --grep or T32_SCREENS).
+//
+// Flex-fill exemption (t32 coordinator decision): a probe listed in FLEX_FILL is
+// sized by its row or column, not by its content (a `flex: 1` field beside buttons,
+// a checkbox stretched to its table cell, the message frame filling the reader).
+// When the buttons beside it get narrower it takes the space they freed. Its growth
+// along the listed axis is not counted when ALL of these hold:
+//   - its font-size did not grow and no padding side grew by more than 1 px;
+//   - per side, padding + border did not grow by more than 1 px (for a `container`
+//     entry the border is inside the space it fills and is not counted);
+//   - its band (the visible probes on the same screen that overlap it across the
+//     axis, minus those that enclose it) did not grow along the axis by more than 1 px;
+//     or, when it did (the instance took space from an element that is not a probe),
+//     the smallest probe enclosing it kept its size and the whole band lies inside it;
+//   - the other probes in the band shrank along the axis by at least its growth
+//     minus 1 px (the space came from its neighbours).
+// Every exempted instance is printed. Anything else (another rule, a growth that
+// widens the band, a padding increase) is still a violation.
 import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -61,12 +78,92 @@ export function load(p) {
   return out;
 }
 
+/**
+ * Probes sized by their row or column. `label` narrows an entry to the matching
+ * instances; `axis` is the size that may follow the neighbours.
+ */
+export const FLEX_FILL = [
+  { probe: 'contacts.search', axis: 'w', why: 'search field, flex 1 1 auto beside New contact (contacts.css.ts input)' },
+  { probe: 'tasks.convert-field', axis: 'w', why: 'message id field, flex fill beside the Mail/Event → task buttons' },
+  {
+    probe: 'admin.row-control',
+    label: /^(Zero-access|Disable|Force password change) for /,
+    axis: 'w',
+    why: 'checkboxes stretched to their cell; the auto table layout shares the fixed table width between columns',
+  },
+  { probe: 'reader.frame', axis: 'h', container: true, why: 'message frame, flex 1 in the reader column' },
+];
+
+const probeName = (id) => id.replace(/#\d+$/, '');
+
+function flexFillEntry(id, pb) {
+  return FLEX_FILL.find((f) => f.probe === probeName(id) && (f.label === undefined || f.label.test(pb.label ?? '')));
+}
+
+const encloses = (o, p) => o.x <= p.x + EPS && o.y <= p.y + EPS && o.x + o.w >= p.x + p.w - EPS && o.y + o.h >= p.y + p.h - EPS;
+
+/** Probes of a run that overlap `p` across `axis` (the same row for 'w', column for 'h'). */
+function band(probes, id, axis) {
+  const p = probes[id];
+  return Object.entries(probes).filter(([oid, o]) => {
+    if (oid === id || !o.visible) return false;
+    if (encloses(o, p)) return false;
+    return axis === 'w' ? o.y < p.y + p.h - EPS && o.y + o.h > p.y + EPS : o.x < p.x + p.w - EPS && o.x + o.w > p.x + EPS;
+  });
+}
+
+function extent(items, axis) {
+  const lo = Math.min(...items.map((o) => (axis === 'w' ? o.x : o.y)));
+  const hi = Math.max(...items.map((o) => (axis === 'w' ? o.x + o.w : o.y + o.h)));
+  return hi - lo;
+}
+
+/**
+ * Why a growth of instance `id` along `axis` is a flex-fill growth, or null when it is not.
+ * `b`/`a` are the screen results before and after.
+ */
+export function flexFill(b, a, id, axis) {
+  const pb = b.probes[id];
+  const pa = a.probes[id];
+  const entry = flexFillEntry(id, pb);
+  if (!entry || entry.axis !== axis) return null;
+  if (pa.fontSize > pb.fontSize + EPS) return null;
+  for (let i = 0; i < 4; i++) {
+    if (pa.padding[i] > pb.padding[i] + TOL) return null;
+    const border = entry.container ? 0 : 1;
+    if (pa.padding[i] + border * pa.border[i] > pb.padding[i] + border * pb.border[i] + TOL) return null;
+  }
+  const size = (p) => (axis === 'w' ? p.w : p.h);
+  const growth = size(pa) - size(pb);
+  // The band as it was before; the same instances after (an instance missing after is "vanished" anyway).
+  const others = band(b.probes, id, axis).filter(([oid]) => a.probes[oid]?.visible);
+  if (others.length === 0) return null;
+  const before = [pb, ...others.map(([, o]) => o)];
+  const after = [pa, ...others.map(([oid]) => a.probes[oid])];
+  const eb = extent(before, axis);
+  const ea = extent(after, axis);
+  if (ea > eb + TOL) {
+    // The band can also widen into space freed by an element that is not a probe (a label
+    // before the field). Then the smallest probe enclosing it must keep its size and the
+    // whole band must still lie inside it.
+    const box = Object.entries(b.probes)
+      .filter(([oid, o]) => oid !== id && o.visible && encloses(o, pb) && a.probes[oid]?.visible)
+      .sort(([, x], [, y]) => x.w * x.h - y.w * y.h)[0];
+    if (!box || size(a.probes[box[0]]) > size(box[1]) + TOL) return null;
+    if (!after.every((o) => encloses(a.probes[box[0]], o))) return null;
+  }
+  const freed = others.reduce((n, [oid, o]) => n + Math.max(0, size(o) - size(a.probes[oid])), 0);
+  if (freed < growth - TOL) return null;
+  return { why: entry.why, growth: r1(growth), band: `${r1(eb)}->${r1(ea)}`, freed: r1(freed) };
+}
+
 const r1 = (n) => (Number.isFinite(n) ? Math.round(n * 100) / 100 : n);
 
 /** All violations between two loaded runs, plus the instances that shrank. */
 export function compare(before, after, { partial = false } = {}) {
   const violations = [];
   const shrunk = [];
+  const exempt = [];
   const add = (key, probe, rule, b, a) => violations.push({ screen: key, probe, rule, before: r1(b), after: r1(a) });
 
   for (const [key, b] of Object.entries(before).sort()) {
@@ -86,8 +183,13 @@ export function compare(before, after, { partial = false } = {}) {
         add(key, id, 'vanished', `${pb.w}x${pb.h}`, pa === undefined ? 'absent' : 'invisible');
         continue;
       }
-      if (pa.h > pb.h + TOL) add(key, id, 'height +>1px', pb.h, pa.h);
-      if (pb.kind === 'control' && pa.w > pb.w + TOL) add(key, id, 'control width +>1px', pb.w, pa.w);
+      const grew = (axis, rule) => {
+        const ff = flexFill(b, a, id, axis);
+        if (ff) exempt.push({ screen: key, probe: id, axis, before: axis === 'w' ? pb.w : pb.h, after: axis === 'w' ? pa.w : pa.h, ...ff });
+        else add(key, id, rule, axis === 'w' ? pb.w : pb.h, axis === 'w' ? pa.w : pa.h);
+      };
+      if (pa.h > pb.h + TOL) grew('h', 'height +>1px');
+      if (pb.kind === 'control' && pa.w > pb.w + TOL) grew('w', 'control width +>1px');
       if (pa.fontSize > pb.fontSize + EPS) add(key, id, 'font-size grew', pb.fontSize, pa.fontSize);
       if (pa.lineHeight > pb.lineHeight + TOL) add(key, id, 'line-height +>1px', pb.lineHeight, pa.lineHeight);
       ['top', 'right', 'bottom', 'left'].forEach((side, i) => {
@@ -106,7 +208,7 @@ export function compare(before, after, { partial = false } = {}) {
       }
     }
   }
-  return { violations, shrunk };
+  return { violations, shrunk, exempt };
 }
 
 function table(rows, cols) {
@@ -126,7 +228,7 @@ if (isMain) {
   if (pos.length !== 2) usage();
   const before = load(pos[0]);
   const after = load(pos[1]);
-  const { violations, shrunk } = compare(before, after, { partial });
+  const { violations, shrunk, exempt } = compare(before, after, { partial });
   const screens = Object.keys(before).filter((k) => partial ? after[k] !== undefined : true).length;
   const probes = Object.entries(before)
     .filter(([k]) => after[k] !== undefined)
@@ -136,7 +238,12 @@ if (isMain) {
     console.log(`\n${shrunk.length} instance(s) shrank by more than 1 px (allowed):`);
     console.log(table(shrunk, ['screen', 'probe', 'before', 'after']));
   }
-  if (jsonOut) writeFileSync(jsonOut, JSON.stringify({ violations, shrunk }, null, 1));
+  if (exempt.length > 0) {
+    console.log(`
+${exempt.length} flex-fill growth(s) not counted (FLEX_FILL):`);
+    console.log(table(exempt, ['screen', 'probe', 'axis', 'before', 'after', 'band', 'freed', 'why']));
+  }
+  if (jsonOut) writeFileSync(jsonOut, JSON.stringify({ violations, shrunk, exempt }, null, 1));
   if (violations.length > 0) {
     console.log(`\n${violations.length} violation(s):`);
     console.log(table(violations, ['screen', 'probe', 'rule', 'before', 'after']));
