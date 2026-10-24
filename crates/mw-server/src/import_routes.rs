@@ -443,8 +443,8 @@ async fn calendar_subscribe(
         Err(resp) => return resp,
     };
     let ics = match fetch_ics(&state, &req.url).await {
-        Ok(b) => b,
-        Err(e) => return upstream(&e),
+        Ok(text) => text,
+        Err(resp) => return resp,
     };
     let mut args = json!({ "url": req.url, "blob": ics });
     if let Some(name) = req.name.filter(|s| !s.is_empty()) {
@@ -465,8 +465,8 @@ async fn calendar_refresh(
         Err(resp) => return resp,
     };
     let ics = match fetch_ics(&state, &req.url).await {
-        Ok(b) => b,
-        Err(e) => return upstream(&e),
+        Ok(text) => text,
+        Err(resp) => return resp,
     };
     let args = json!({ "calendarId": req.calendar_id, "blob": ics });
     forward_pim(
@@ -481,7 +481,8 @@ async fn calendar_refresh(
 /// Fetch a `.ics` feed through e6's SSRF-hardened fetcher, **over the deployment's
 /// configured egress route** (26.20 t22-e14). `webcal://`/`webcals://` are normalized
 /// to `https://` first (reqwest only speaks http/https); the fetched bytes are
-/// returned as a UTF-8 (lossy) string for the engine's parser.
+/// decoded and checked by [`feed_text`] for the engine's parser. `Err` is the
+/// response to send: a `502` for a failed fetch, a `422` from [`feed_text`].
 ///
 /// # Why this takes `state`
 /// The route is deployment-wide operator configuration read from the store, so this
@@ -502,11 +503,91 @@ async fn calendar_refresh(
 /// Fail-closed comes with it: if a route is configured and its tunnel cannot be
 /// established, this **fails** rather than fetching directly. Every error string is
 /// `fetch_url_hardened`'s unchanged, so the `502` bodies below are what they were.
-async fn fetch_ics(state: &AppState, url: &str) -> Result<String, String> {
+async fn fetch_ics(state: &AppState, url: &str) -> Result<String, Response> {
     let fetch_url = normalize_webcal(url);
-    let bytes =
-        crate::image_proxy::fetch_url_hardened_routed(state, &fetch_url, ICS_ACCEPT).await?;
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    let bytes = crate::image_proxy::fetch_url_hardened_routed(state, &fetch_url, ICS_ACCEPT)
+        .await
+        .map_err(|e| upstream(&e))?;
+    feed_text(&bytes)
+}
+
+/// The `code` of the `422` that refuses a holiday pack with more than one
+/// location. The web client maps it to its own message (`calendar.ftl`).
+const HOL_MULTIPLE_LOCATIONS: &str = "holMultipleLocations";
+
+/// A fetched feed body as the text the engine parses, or the `422` refusing it.
+///
+/// Decoded by [`decode_feed_bytes`]. A text the engine would read as an Outlook
+/// `.hol` pack with more than one location is refused: the engine imports every
+/// section of the text it is sent (`mw_ics::parse_hol`), Outlook's own
+/// OUTLOOK.HOL has over a hundred, and a URL gives the user no place to choose.
+/// The file import asks which locations to import (`HolLocationPicker`, the web
+/// calendar module), so the refusal tells the user to use that instead.
+fn feed_text(bytes: &[u8]) -> Result<String, Response> {
+    let text = decode_feed_bytes(bytes);
+    let locations = hol_location_count(&text);
+    if locations > 1 {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({
+                "error": format!(
+                    "the holiday file lists {locations} locations; import the file and pick the locations"
+                ),
+                "code": HOL_MULTIPLE_LOCATIONS,
+                "locations": locations,
+            })),
+        )
+            .into_response());
+    }
+    Ok(text)
+}
+
+/// Decode a feed body by its byte order mark, the rule the web client applies to
+/// a picked calendar file (`decodeCalendarBytes`, `modules/calendar/decode.ts`):
+/// `FF FE` is UTF-16LE and `FE FF` UTF-16BE (Outlook writes `.hol` packs as
+/// UTF-16LE with a mark); anything else is UTF-8, as before, with a UTF-8 mark
+/// dropped. Nothing is guessed from the content, so UTF-16 without a mark is
+/// read as UTF-8 and the engine refuses what that produces. Bytes that are not
+/// valid in the chosen encoding, and a trailing odd byte of UTF-16, become
+/// U+FFFD.
+fn decode_feed_bytes(bytes: &[u8]) -> String {
+    fn utf16(rest: &[u8], unit: fn([u8; 2]) -> u16) -> String {
+        let units = rest.chunks(2).map(|pair| match pair {
+            [a, b] => unit([*a, *b]),
+            // An odd byte left at the end is no code unit; a lone surrogate
+            // decodes to U+FFFD, as the web client's decoder does.
+            _ => 0xD800,
+        });
+        char::decode_utf16(units)
+            .map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER))
+            .collect()
+    }
+    match bytes {
+        [0xFF, 0xFE, rest @ ..] => utf16(rest, u16::from_le_bytes),
+        [0xFE, 0xFF, rest @ ..] => utf16(rest, u16::from_be_bytes),
+        [0xEF, 0xBB, 0xBF, rest @ ..] => String::from_utf8_lossy(rest).into_owned(),
+        _ => String::from_utf8_lossy(bytes).into_owned(),
+    }
+}
+
+/// How many locations the engine would import from `text` as a `.hol` pack:
+/// its section header lines, by the engine's own rule (`is_section_header`,
+/// `mw_ics::hol`): a line that, trimmed, opens with `[`, has a `]` after it and
+/// a non-empty name between the two. A text holding `BEGIN:VCALENDAR` is read
+/// as iCalendar, never as a pack (`parse_calendar_blob`, mw-engine
+/// `pim/events.rs`), and counts none.
+fn hol_location_count(text: &str) -> usize {
+    if text.contains("BEGIN:VCALENDAR") {
+        return 0;
+    }
+    text.lines()
+        .filter(|line| {
+            line.trim()
+                .strip_prefix('[')
+                .and_then(|rest| rest.split_once(']'))
+                .is_some_and(|(name, _)| !name.trim().is_empty())
+        })
+        .count()
 }
 
 /// `webcal://` / `webcals://` → `https://` (both are HTTPS iCalendar feeds); an
@@ -801,5 +882,217 @@ mod tests {
     fn message_limit_is_pinned_at_64_mib() {
         assert_eq!(MAX_MESSAGE_BYTES, 64 * 1024 * 1024);
         const { assert!(MAX_MESSAGE_BYTES > AXUM_DEFAULT_BODY_LIMIT) };
+    }
+}
+
+/// What a fetched feed body becomes before the engine sees it (t31-e11): the
+/// decode by byte order mark and the refusal of a pack with more than one
+/// location. The fetch itself is not driven here — the hardened fetcher refuses
+/// loopback, which is all a test can serve from — so each case starts from the
+/// bytes `fetch_url_hardened_routed` would return and runs the rest of the
+/// subscribe path: [`feed_text`], then [`forward_pim`] into a real engine.
+///
+/// The UTF-16 bytes are made by `utf16` below, code unit by code unit, from the
+/// text; nothing here goes through the code under test to build an expected
+/// value.
+#[cfg(test)]
+mod feed_tests {
+    use super::*;
+    use async_trait::async_trait;
+    use mw_engine::Engine;
+    use mw_engine::account::{AccountRuntime, MailSubmitter};
+    use mw_engine::backend::{
+        AccountBackend, BackendCaps, ChangeSink, EngineError, Flag, MailboxDelta, MessageRef,
+        MoveOutcome, RawMailbox, RawMailboxRef, RawMessage, Result, SyncCursor, WatchHandle,
+    };
+    use mw_store::{Credentials, NewAccount, ServerKey, Store};
+    use std::sync::Arc;
+
+    /// Two events, with a character outside ASCII in one summary.
+    const ICS: &str = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//t31-e11//EN\r\n\
+        BEGIN:VEVENT\r\nUID:a@t31-e11\r\nDTSTART;VALUE=DATE:20260101\r\nSUMMARY:Ano Novo\r\nEND:VEVENT\r\n\
+        BEGIN:VEVENT\r\nUID:b@t31-e11\r\nDTSTART;VALUE=DATE:20260701\r\nSUMMARY:Dia da Região\r\nEND:VEVENT\r\n\
+        END:VCALENDAR\r\n";
+    /// An Outlook pack with one location, in OUTLOOK.HOL's layout.
+    const ONE_LOCATION: &str = "[Portugal] 2\r\nAno Novo,2026/1/1\r\nDia da Região,2026/7/1\r\n";
+    /// The same with a second location.
+    const TWO_LOCATIONS: &str = "[Portugal] 2\r\nAno Novo,2026/1/1\r\nDia da Região,2026/7/1\r\n\
+        [Spain] 1\r\nAño Nuevo,2026/1/1\r\n";
+
+    /// `text` in UTF-16 with its byte order mark.
+    fn utf16(text: &str, little_endian: bool) -> Vec<u8> {
+        let mut out = if little_endian {
+            vec![0xFF, 0xFE]
+        } else {
+            vec![0xFE, 0xFF]
+        };
+        for unit in text.encode_utf16() {
+            let pair = if little_endian {
+                unit.to_le_bytes()
+            } else {
+                unit.to_be_bytes()
+            };
+            out.extend_from_slice(&pair);
+        }
+        out
+    }
+
+    /// `Calendar/subscribe` never reaches the account backend; every method is
+    /// a no-op or `Unsupported`.
+    struct NoopBackend;
+
+    #[async_trait]
+    impl AccountBackend for NoopBackend {
+        async fn capabilities(&self) -> Result<BackendCaps> {
+            Ok(BackendCaps::default())
+        }
+        async fn list_mailboxes(&self) -> Result<Vec<RawMailbox>> {
+            Ok(Vec::new())
+        }
+        async fn sync_mailbox(&self, _: &RawMailboxRef, _: &SyncCursor) -> Result<MailboxDelta> {
+            Err(EngineError::Unsupported("noop backend".into()))
+        }
+        async fn fetch_raw(&self, _: &[MessageRef]) -> Result<Vec<RawMessage>> {
+            Ok(Vec::new())
+        }
+        async fn store_flags(&self, _: &[MessageRef], _: &[Flag], _: &[Flag]) -> Result<()> {
+            Ok(())
+        }
+        async fn move_messages(&self, _: &[MessageRef], _: &RawMailboxRef) -> Result<MoveOutcome> {
+            Err(EngineError::Unsupported("noop backend".into()))
+        }
+        async fn append(&self, _: &RawMailboxRef, _: &[u8], _: &[Flag]) -> Result<MessageRef> {
+            Err(EngineError::Unsupported("noop backend".into()))
+        }
+        async fn watch(&self, _: ChangeSink) -> Result<WatchHandle> {
+            Err(EngineError::Unsupported("noop backend".into()))
+        }
+    }
+
+    struct NoSubmitter;
+
+    #[async_trait]
+    impl MailSubmitter for NoSubmitter {
+        async fn submit(&self, _: mw_smtp::Outgoing) -> Result<mw_smtp::SubmissionResult> {
+            Err(EngineError::Unsupported("no submitter".into()))
+        }
+    }
+
+    async fn engine_with_account() -> (Engine, String) {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let account_id = store
+            .create_account(
+                &NewAccount {
+                    kind: mw_store::AccountKind::Imap,
+                    host: "mail.example.test",
+                    port: 993,
+                    tls: "implicit",
+                    username: "alice@example.test",
+                    sync_policy_json: "{}",
+                },
+                &Credentials {
+                    username: "alice@example.test".into(),
+                    password: "pw".into(),
+                },
+            )
+            .await
+            .unwrap();
+        let engine = Engine::new(store);
+        engine.register_backend(
+            account_id.clone(),
+            AccountRuntime::new(
+                Arc::new(NoopBackend),
+                Arc::new(NoSubmitter),
+                "alice@example.test",
+            ),
+        );
+        (engine, account_id)
+    }
+
+    /// Run the subscribe path from the fetched `bytes` on: [`feed_text`], then
+    /// `Calendar/subscribe` through [`forward_pim`], as [`calendar_subscribe`]
+    /// does. Returns the status and the JSON body.
+    async fn subscribe_from_bytes(bytes: &[u8]) -> (StatusCode, Value) {
+        let (engine, account) = engine_with_account().await;
+        let resp = match feed_text(bytes) {
+            Ok(ics) => {
+                let args = json!({ "url": "https://feeds.example.test/f.ics", "blob": ics });
+                forward_pim(&engine, &account, "Calendar/subscribe", args).await
+            }
+            Err(resp) => resp,
+        };
+        let status = resp.status();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        (status, serde_json::from_slice(&body).unwrap())
+    }
+
+    #[test]
+    fn utf16_is_decoded_by_its_byte_order_mark() {
+        let le = utf16(ICS, true);
+        assert_eq!(&le[..4], &[0xFF, 0xFE, b'B', 0x00]);
+        assert_eq!(decode_feed_bytes(&le), ICS);
+        let be = utf16(ICS, false);
+        assert_eq!(&be[..4], &[0xFE, 0xFF, 0x00, b'B']);
+        assert_eq!(decode_feed_bytes(&be), ICS);
+    }
+
+    #[test]
+    fn utf8_is_read_as_before_and_its_mark_is_dropped() {
+        assert_eq!(decode_feed_bytes(ICS.as_bytes()), ICS);
+        let mut marked = vec![0xEF, 0xBB, 0xBF];
+        marked.extend_from_slice(ICS.as_bytes());
+        assert_eq!(decode_feed_bytes(&marked), ICS);
+        // Without a mark nothing is guessed: invalid UTF-8 becomes U+FFFD.
+        assert_eq!(decode_feed_bytes(b"a\xFFb"), "a\u{FFFD}b");
+    }
+
+    #[test]
+    fn a_trailing_odd_byte_of_utf16_becomes_a_replacement_character() {
+        let mut bytes = utf16("ab", true);
+        bytes.push(b'c');
+        assert_eq!(decode_feed_bytes(&bytes), "ab\u{FFFD}");
+    }
+
+    #[test]
+    fn locations_are_counted_by_the_engines_section_rule() {
+        assert_eq!(hol_location_count(ONE_LOCATION), 1);
+        assert_eq!(hol_location_count(TWO_LOCATIONS), 2);
+        // Indented headers count; an empty name and a line without `]` do not.
+        assert_eq!(hol_location_count("  [A] 1\n[] 1\n[B 1\n[C]\n"), 2);
+        // A text holding BEGIN:VCALENDAR is iCalendar to the engine, so a
+        // bracketed line inside it is not a location.
+        let ics_with_brackets = format!("[x] 1\r\n[y] 1\r\n{ICS}");
+        assert_eq!(hol_location_count(&ics_with_brackets), 0);
+    }
+
+    #[tokio::test]
+    async fn a_utf16_ics_feed_is_subscribed_with_its_events() {
+        for little_endian in [true, false] {
+            let (status, body) = subscribe_from_bytes(&utf16(ICS, little_endian)).await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            assert_eq!(body["imported"], 2, "{body}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_utf16_pack_with_one_location_is_subscribed_with_its_holidays() {
+        let (status, body) = subscribe_from_bytes(&utf16(ONE_LOCATION, true)).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["imported"], 2, "{body}");
+    }
+
+    #[tokio::test]
+    async fn a_pack_with_more_than_one_location_is_refused() {
+        for bytes in [
+            TWO_LOCATIONS.as_bytes().to_vec(),
+            utf16(TWO_LOCATIONS, true),
+        ] {
+            let (status, body) = subscribe_from_bytes(&bytes).await;
+            assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+            assert_eq!(body["code"], HOL_MULTIPLE_LOCATIONS, "{body}");
+            assert_eq!(body["locations"], 2, "{body}");
+        }
     }
 }
