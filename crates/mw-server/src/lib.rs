@@ -4171,28 +4171,43 @@ async fn static_handler(
     if !is_app_page(path) || !wants_spa_shell(&method, &headers, path) {
         return error(error_pages::ErrorKind::NotFound);
     }
-    serve_asset(&state, "index.html", &headers)
-        .unwrap_or_else(|| error(error_pages::ErrorKind::Unavailable))
+    let shell = if path == console_page() {
+        serve_console_shell(&state, &headers)
+    } else {
+        serve_asset(&state, "index.html", &headers)
+    };
+    shell.unwrap_or_else(|| error(error_pages::ErrorKind::Unavailable))
+}
+
+/// The admin console's page relative to the deploy prefix, without the leading
+/// `/`: `admin` unless `MW_ADMIN_PATH` moved it (t32-h15). Read from the one helper,
+/// [`mw_admin::config::admin_path`].
+fn console_page() -> String {
+    mw_admin::config::admin_path()
+        .trim_start_matches('/')
+        .to_string()
 }
 
 /// The pages the SPA itself serves, relative to the deploy prefix. The app routes
-/// by URL fragment (`/#/calendar`, `/admin#/users`), so these are the only paths
+/// by URL fragment (`/#/calendar`, `{console}#/users`), so these are the only paths
 /// at which the shell is a real page; at any deeper path its relative asset URLs
 /// (`./assets/…`) would not even resolve.
 fn is_app_page(path: &str) -> bool {
-    matches!(path, "index.html" | "admin" | "oauth/authorize")
+    matches!(path, "index.html" | "oauth/authorize") || path == console_page()
 }
 
-/// `308 {prefix}/admin/` → `{prefix}/admin`, and the same for `/oauth/authorize/`,
-/// keeping the query (the browser keeps the fragment, so `/admin/#/users` lands on
+/// `308 {prefix}{console}/` → `{prefix}{console}` (the console is `/admin` unless
+/// `MW_ADMIN_PATH` moved it), and the same for `/oauth/authorize/`, keeping the
+/// query (the browser keeps the fragment, so `/admin/#/users` lands on
 /// `/admin#/users`). At the slash form the shell's relative asset URLs resolve one
-/// level too deep and the page never starts (t32-h8, t32-h10). `None` otherwise.
+/// level too deep and the page never starts (t32-h8, t32-h10). `None` otherwise,
+/// which includes `/admin/` once the console has moved: that is an unknown path.
 ///
 /// The prefix is put back only when the request came in under it; a request at the
 /// origin root of a prefixed deployment is redirected at the root.
 fn redirect_page_trailing_slash(original: &Uri, app_path: &str, base: &str) -> Option<Response> {
     let page = app_path.strip_suffix('/')?.trim_start_matches('/');
-    if !matches!(page, "admin" | "oauth/authorize") {
+    if page != "oauth/authorize" && page != console_page() {
         return None;
     }
     let prefix = match match_base_path(original.path(), base) {
@@ -4360,6 +4375,15 @@ fn base_shim_body(base: &str) -> String {
 
 fn serve_asset(state: &AppState, path: &str, req: &HeaderMap) -> Option<Response> {
     let mime = mime_guess::from_path(path).first_or_octet_stream();
+    let bytes = adapt_asset_to_base(path, read_asset(state, path)?, &state.base_path);
+    let mut resp = asset_response(path, mime.as_ref(), bytes, req);
+    allow_worker_scope(&mut resp, path, &state.base_path);
+    Some(resp)
+}
+
+/// The bytes of one file of the web build, from `MW_WEB_DIR` when set, else from
+/// the bundle embedded at compile time.
+fn read_asset(state: &AppState, path: &str) -> Option<Vec<u8>> {
     if let Some(dir) = &state.web_dir {
         // Only plain path components may reach `join`. The old guard,
         // `dir.join(path).starts_with(dir)`, compared components lexically, so
@@ -4372,18 +4396,56 @@ fn serve_asset(state: &AppState, path: &str, req: &HeaderMap) -> Option<Response
         {
             return None;
         }
-        let full = dir.join(path);
-        let bytes = std::fs::read(&full).ok()?;
-        let bytes = adapt_asset_to_base(path, bytes, &state.base_path);
-        let mut resp = asset_response(path, mime.as_ref(), bytes, req);
-        allow_worker_scope(&mut resp, path, &state.base_path);
-        return Some(resp);
+        return std::fs::read(dir.join(path)).ok();
     }
-    let file = WebAssets::get(path)?;
-    let bytes = adapt_asset_to_base(path, file.data.into_owned(), &state.base_path);
-    let mut resp = asset_response(path, mime.as_ref(), bytes, req);
-    allow_worker_scope(&mut resp, path, &state.base_path);
-    Some(resp)
+    Some(WebAssets::get(path)?.data.into_owned())
+}
+
+/// The marker [`serve_console_shell`] puts in the console page, and only there.
+/// `apps/web/src/api/adminPath.ts` reads it; with it, the web app takes its own
+/// address as the console's location and builds every admin URL from that.
+const CONSOLE_MARKER: &str = r#"<meta name="mw-console" content="admin">"#;
+
+/// The admin console page: `index.html` adapted to the prefix like the mail shell,
+/// plus [`CONSOLE_MARKER`], with its `./` file references made prefix-absolute
+/// (t32-h15).
+///
+/// The marker is what keeps `MW_ADMIN_PATH` out of every other response: the web
+/// build cannot know the path, and nothing the server sends outside the console
+/// names it, so the page must be told it is the console rather than where the
+/// console is. A `<meta name>` is inert under the shell [`CSP`]; an inline script
+/// carrying the same fact would be blocked.
+///
+/// The `./` rewrite is for an admin path of more than one segment: at
+/// `/mail/ops/console`, `./assets/…` would resolve under `/mail/ops/`. Chunks
+/// imported from the entry resolve against the entry's own URL, so the entry and
+/// the stylesheet in this document are the only references that need it.
+fn serve_console_shell(state: &AppState, req: &HeaderMap) -> Option<Response> {
+    let base: &str = &state.base_path;
+    let bytes = adapt_asset_to_base("index.html", read_asset(state, "index.html")?, base);
+    let html = match String::from_utf8(bytes) {
+        Ok(html) => mark_console_shell(&html, base),
+        // Not UTF-8 ⇒ not the shell we shipped; there is no console to serve.
+        Err(_) => return None,
+    };
+    Some(asset_response(
+        "index.html",
+        "text/html",
+        html.into_bytes(),
+        req,
+    ))
+}
+
+/// [`CONSOLE_MARKER`] at the top of `<head>`, and `="./` made `="{base}/`.
+fn mark_console_shell(html: &str, base: &str) -> String {
+    let mut out = html
+        .replace("src=\"./", &format!("src=\"{base}/"))
+        .replace("href=\"./", &format!("href=\"{base}/"));
+    match out.find("<head>") {
+        Some(i) => out.insert_str(i + "<head>".len(), CONSOLE_MARKER),
+        None => out.insert_str(0, CONSOLE_MARKER),
+    }
+    out
 }
 
 /// Send `Service-Worker-Allowed` with the service worker (t20 B4).

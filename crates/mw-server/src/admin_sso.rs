@@ -21,6 +21,7 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::json;
 
+use mw_admin::config::admin_route;
 use mw_sso::{ClaimMap, SsoConfig};
 
 use crate::AppState;
@@ -32,8 +33,8 @@ fn admin_cookie_name() -> String {
 /// The `/admin/sso` router (merged + admin-gated by `lib.rs`).
 pub(crate) fn admin_sso_router() -> Router<AppState> {
     Router::new()
-        .route("/admin/sso", get(list).post(upsert))
-        .route("/admin/sso/{id}", delete(remove))
+        .route(&admin_route("/sso"), get(list).post(upsert))
+        .route(&admin_route("/sso/{id}"), delete(remove))
 }
 
 // ── admin session gate (mirrors admin.rs / plugins.rs) ───────────────────────

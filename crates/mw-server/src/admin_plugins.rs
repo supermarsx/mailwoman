@@ -27,6 +27,7 @@ use axum::extract::{Extension, Json, Path as UrlPath, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
+use mw_admin::config::admin_route;
 use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -38,14 +39,17 @@ use crate::plugins::PluginRegistry;
 pub(crate) fn allowlist_router() -> Router<AppState> {
     Router::new()
         .route(
-            "/admin/plugins/allowlist",
+            &admin_route("/plugins/allowlist"),
             get(list_allowlist).post(approve_digest),
         )
         .route(
-            "/admin/plugins/allowlist/{plugin_id}/{digest_hex}/revoke",
+            &admin_route("/plugins/allowlist/{plugin_id}/{digest_hex}/revoke"),
             post(revoke_digest),
         )
-        .route("/admin/plugins/{id}/uninstall", post(uninstall_plugin))
+        .route(
+            &admin_route("/plugins/{id}/uninstall"),
+            post(uninstall_plugin),
+        )
 }
 
 /// Scan `MW_THIRDPARTY_PLUGIN_DIR` for `<id>.wasm` files and compute each one's SHA-256.

@@ -57,6 +57,7 @@ use base64::Engine as _;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use mw_admin::config::admin_route;
 use mw_plugin::{SignatureStatus, TrustRoot};
 use mw_store::{Store, StoreError, UiPluginGrantRow, UiPluginRow};
 
@@ -72,12 +73,12 @@ const RPC_PROTOCOL_VERSION: u32 = 1;
 /// e13 merges this into `router()`. Unmounted today (`router()` byte-unchanged).
 pub(crate) fn ui_plugins_router() -> Router<AppState> {
     Router::new()
-        .route("/admin/ui-plugins", get(list_admin).post(register))
-        .route("/admin/ui-plugins/{id}/approve", post(approve))
-        .route("/admin/ui-plugins/{id}/enable", post(enable))
-        .route("/admin/ui-plugins/{id}/grant", post(grant))
-        .route("/admin/ui-plugins/{id}/disable", post(disable))
-        .route("/admin/ui-plugins/{id}", delete(remove))
+        .route(&admin_route("/ui-plugins"), get(list_admin).post(register))
+        .route(&admin_route("/ui-plugins/{id}/approve"), post(approve))
+        .route(&admin_route("/ui-plugins/{id}/enable"), post(enable))
+        .route(&admin_route("/ui-plugins/{id}/grant"), post(grant))
+        .route(&admin_route("/ui-plugins/{id}/disable"), post(disable))
+        .route(&admin_route("/ui-plugins/{id}"), delete(remove))
         .route("/api/ui-plugins", get(list_public))
         .route("/api/ui-plugins/{id}/rpc", post(broker_rpc))
 }

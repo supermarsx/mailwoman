@@ -40,6 +40,7 @@ use axum::routing::{delete, get, post, put};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use mw_admin::config::admin_route;
 use mw_admin::{
     ActorKind, AdminError, CapturePolicy, Domain as AdminDomain, EffectiveSecurityPolicy, MinTls,
     Quota as AdminQuota, SecurityFloor, SecurityPolicy, SecurityPolicyWrite,
@@ -50,36 +51,42 @@ use crate::AppState;
 /// The `/admin/*` router (merged by e11's `router()`).
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
-        .route("/admin/login", post(login))
-        .route("/admin/logout", post(logout))
-        .route("/admin/session", get(session))
-        .route("/admin/domains", get(list_domains))
+        .route(&admin_route("/login"), post(login))
+        .route(&admin_route("/logout"), post(logout))
+        .route(&admin_route("/session"), get(session))
+        .route(&admin_route("/domains"), get(list_domains))
         .route(
-            "/admin/domains/{name}",
+            &admin_route("/domains/{name}"),
             put(save_domain).delete(delete_domain),
         )
-        .route("/admin/users", get(list_users).post(provision_user))
-        .route("/admin/users/{account_id}/quota", put(set_quota))
-        .route("/admin/users/{account_id}/flags", put(set_flags))
+        .route(&admin_route("/users"), get(list_users).post(provision_user))
+        .route(&admin_route("/users/{account_id}/quota"), put(set_quota))
+        .route(&admin_route("/users/{account_id}/flags"), put(set_flags))
         .route(
-            "/admin/users/{account_id}/zero-access",
+            &admin_route("/users/{account_id}/zero-access"),
             post(toggle_zero_access),
         )
         .route(
-            "/admin/users/{account_id}/revoke-sessions",
+            &admin_route("/users/{account_id}/revoke-sessions"),
             post(revoke_sessions),
         )
-        .route("/admin/security-policy", get(get_policy).put(set_policy))
-        .route("/admin/integrations", get(get_integrations))
-        .route("/admin/webhooks", get(list_webhooks))
-        .route("/admin/api-keys", get(list_api_keys))
-        .route("/admin/api-keys/{id}/revoke", post(revoke_api_key))
-        .route("/admin/observability", get(get_obs).put(set_obs))
-        .route("/admin/audit", get(list_audit))
-        .route("/admin/audit/export", get(export_audit))
-        .route("/admin/bans", get(list_bans).post(add_ban))
-        .route("/admin/bans/{ip}", delete(remove_ban))
-        .route("/admin/appearance", get(get_appearance).put(set_appearance))
+        .route(
+            &admin_route("/security-policy"),
+            get(get_policy).put(set_policy),
+        )
+        .route(&admin_route("/integrations"), get(get_integrations))
+        .route(&admin_route("/webhooks"), get(list_webhooks))
+        .route(&admin_route("/api-keys"), get(list_api_keys))
+        .route(&admin_route("/api-keys/{id}/revoke"), post(revoke_api_key))
+        .route(&admin_route("/observability"), get(get_obs).put(set_obs))
+        .route(&admin_route("/audit"), get(list_audit))
+        .route(&admin_route("/audit/export"), get(export_audit))
+        .route(&admin_route("/bans"), get(list_bans).post(add_ban))
+        .route(&admin_route("/bans/{ip}"), delete(remove_ban))
+        .route(
+            &admin_route("/appearance"),
+            get(get_appearance).put(set_appearance),
+        )
 }
 
 // ─── admin session helpers ────────────────────────────────────────────────────

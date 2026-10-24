@@ -14,6 +14,7 @@ use base64::Engine as _;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use mw_admin::config::admin_route;
 use mw_oauth::{AuthorizeRequest, OAuthStore, Scope, ScopeSelector, TokenRequest, mint_api_key};
 
 use crate::AppState;
@@ -29,7 +30,7 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/api/keys", get(list_keys).post(create_key))
         .route("/api/keys/{prefix}/revoke", post(revoke_key))
         .route(
-            "/admin/api-keys/{id}/unattended-send",
+            &admin_route("/api-keys/{id}/unattended-send"),
             put(set_key_unattended_send),
         )
         .route("/api/zeroaccess", get(zeroaccess_status))
@@ -814,7 +815,10 @@ mod dcr {
             )
             // Admin enable/read surface (parity with `/admin/sso`, `/admin/ui-plugins`).
             // Admin-session-gated; the ONLY in-band way to toggle DCR (still default off).
-            .route("/admin/oauth-dcr", get(dcr_admin_get).put(dcr_admin_put))
+            .route(
+                &mw_admin::config::admin_route("/oauth-dcr"),
+                get(dcr_admin_get).put(dcr_admin_put),
+            )
     }
 
     /// Env var carrying the shared initial-access-token, checked when the policy sets

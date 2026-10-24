@@ -27,6 +27,7 @@ use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
+use mw_admin::config::admin_route;
 use mw_assist::{
     AdapterConfig, AssistAudit, AssistAuditSink, AssistCapability, AssistConfig, AssistError,
     AssistGateway, ChatPayload, ChatStream, DataScope, EndpointAdapter,
@@ -3180,9 +3181,12 @@ pub(crate) fn build_nextcloud() -> Option<Arc<dyn NextcloudGateway>> {
 pub(crate) fn extra_v7_router() -> Router<AppState> {
     Router::new()
         .route("/api/assist/transcribe", post(assist_transcribe))
-        .route("/admin/assist", get(assist_admin_get).put(assist_admin_put))
-        .route("/admin/assist/status", get(assist_admin_status))
-        .route("/admin/assist/kill", post(assist_admin_kill))
+        .route(
+            &admin_route("/assist"),
+            get(assist_admin_get).put(assist_admin_put),
+        )
+        .route(&admin_route("/assist/status"), get(assist_admin_status))
+        .route(&admin_route("/assist/kill"), post(assist_admin_kill))
         .route("/api/nextcloud/list", get(nextcloud_list))
         // The third-party allowlist admin API (approve/revoke/list-pending/uninstall),
         // admin-session-gated + audited. Registered on this already-mounted router so no

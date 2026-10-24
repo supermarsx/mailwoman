@@ -1,10 +1,10 @@
 //! Applying the admin security policy (`mw_admin::policy`) to the running process.
 //!
 //! * [`env_overlay`] runs first at start: it refuses the `MW_ADMIN_*` variables
-//!   nothing applies (`mw_admin::config::reject_unsupported_env`), parses the three
-//!   that are applied, and sets the admin cookie name from
-//!   `MW_ADMIN_SESSION_COOKIE`. An invalid value stops the start with an error
-//!   naming the variable.
+//!   nothing applies (`mw_admin::config::reject_unsupported_env`), parses the four
+//!   that are applied, sets the admin cookie name from `MW_ADMIN_SESSION_COOKIE`
+//!   and the admin console's path from `MW_ADMIN_PATH` (before any route is
+//!   built). An invalid value stops the start with an error naming the variable.
 //! * [`boot`] builds the [`Admin`] over the store, reads the effective policy and
 //!   applies it: the TLS floor ([`crate::tls::apply_min_tls`]), the Argon2id cost
 //!   for new password hashes (`mw_passwd::set_argon_cost`) and for new recovery
@@ -41,8 +41,33 @@ pub(crate) const REFRESH_EVERY: Duration = Duration::from_secs(30);
 pub(crate) fn env_overlay() -> anyhow::Result<EnvOverlay> {
     mw_admin::config::reject_unsupported_env().map_err(|e| anyhow!("{e}"))?;
     let overlay = EnvOverlay::from_env().map_err(|e| anyhow!("{e}"))?;
+    if let Some(path) = &overlay.admin_path {
+        check_admin_path_against_base(path, &crate::base_path_from_env())?;
+    }
     mw_admin::config::set_session_cookie_name(overlay.session_cookie.as_deref());
+    mw_admin::config::set_admin_path(overlay.admin_path.as_deref());
     Ok(overlay)
+}
+
+/// Refuse an `MW_ADMIN_PATH` whose first segment is the deploy prefix's first
+/// segment. The router is also served at the origin root (`mount_under_base_path`),
+/// where `{base}` itself is the redirect to `{base}/` and `{base}/…` belongs to the
+/// prefixed copy, so such a console would be reachable only by doubling the prefix.
+fn check_admin_path_against_base(path: &str, base: &str) -> anyhow::Result<()> {
+    let first = |p: &str| {
+        p.trim_start_matches('/')
+            .split('/')
+            .next()
+            .map(str::to_string)
+    };
+    if !base.is_empty() && first(path) == first(base) {
+        return Err(anyhow!(
+            "{}={path:?} is not valid: it starts with the same segment as MW_BASE_PATH={base:?}; \
+             the admin path is already under MW_BASE_PATH, so give it a segment of its own",
+            EnvOverlay::ADMIN_PATH_VAR
+        ));
+    }
+    Ok(())
 }
 
 /// The check every policy write runs on `dlpRulesJson`: the engine's own parser.

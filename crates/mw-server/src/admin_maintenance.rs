@@ -28,6 +28,7 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use mw_admin::config::admin_route;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -50,9 +51,12 @@ const ADMIN_JMAP_METHODS: &[&str] = &[
 /// The `/admin/maintenance/*` router (merged + ridden by `lib.rs`'s middleware).
 pub(crate) fn admin_maintenance_router() -> Router<AppState> {
     Router::new()
-        .route("/admin/maintenance/rethread", post(rethread))
-        .route("/admin/maintenance/reindex", post(reindex))
-        .route("/admin/maintenance/search-index", get(search_index_status))
+        .route(&admin_route("/maintenance/rethread"), post(rethread))
+        .route(&admin_route("/maintenance/reindex"), post(reindex))
+        .route(
+            &admin_route("/maintenance/search-index"),
+            get(search_index_status),
+        )
 }
 
 // ── admin session gate (mirrors admin.rs / admin_sso.rs) ─────────────────────

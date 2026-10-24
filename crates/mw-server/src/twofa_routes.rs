@@ -42,6 +42,7 @@ use rand::RngCore;
 use serde::Deserialize;
 use serde_json::json;
 
+use mw_admin::config::admin_route;
 use mw_mfa::totp::TotpParams;
 use mw_mfa::webauthn::{
     AssertionRequest, RegistrationRequest, UserVerification, verify_assertion, verify_registration,
@@ -1434,7 +1435,10 @@ pub(crate) fn twofa_router() -> Router<AppState> {
         .route("/api/account/sessions", get(sessions_list_route))
         .route("/api/account/sessions/revoke", post(sessions_revoke_route))
         // Admin require-2FA policy (DQ2; consumed by the e16 admin panel).
-        .route("/admin/2fa/policy", get(policy_list).post(policy_set))
+        .route(
+            &admin_route("/2fa/policy"),
+            get(policy_list).post(policy_set),
+        )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

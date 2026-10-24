@@ -186,9 +186,16 @@ pub(crate) fn respond(
     }
 }
 
+/// Is `path` the admin console or under it? The console is where
+/// [`mw_admin::config::admin_path`] says (`MW_ADMIN_PATH`, t32-h15), so once it has
+/// moved, `/admin` is an unknown path like any other and its page offers no way to
+/// the console: the page for it is byte for byte the page for any unknown path.
 fn is_admin_path(path: &str) -> bool {
+    let console = mw_admin::config::admin_path();
+    let console = console.trim_start_matches('/');
     let path = path.trim_start_matches('/');
-    path == "admin" || path.starts_with("admin/")
+    path.strip_prefix(console)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
 }
 
 /// `{"error": "...", "code": "..."}` with the kind's status.
@@ -201,12 +208,16 @@ pub(crate) fn json(kind: ErrorKind) -> Response {
 }
 
 /// The HTML error page. `base` is `""` or a `normalize_base_path`-validated prefix,
-/// so it holds no quote, `<` or `&` and goes into the attributes as it is.
+/// so it holds no quote, `<` or `&` and goes into the attributes as it is; so is the
+/// admin path (`mw_admin::config::validate_admin_path`). `admin_link` is set only
+/// for a request already under the admin path, so the link names nothing the
+/// request did not.
 pub(crate) fn page(kind: ErrorKind, base: &str, admin_link: bool) -> Response {
     let c = copy(kind);
     let admin = if admin_link {
+        let console = mw_admin::config::admin_path();
         format!(
-            "\n      <a class=\"mw-error__link\" href=\"{base}/admin\">Go to the admin console</a>"
+            "\n      <a class=\"mw-error__link\" href=\"{base}{console}\">Go to the admin console</a>"
         )
     } else {
         String::new()

@@ -56,6 +56,7 @@ use serde_json::json;
 use std::fmt;
 use std::time::Duration;
 
+use mw_admin::config::admin_route;
 use mw_egress::Refusal;
 use mw_egress::proxy::{ProxyRefusal, fetch_via_proxy};
 
@@ -65,11 +66,23 @@ use mw_store::EgressProxyRow;
 /// The egress admin routes. Merged into `v7_mount::extra_v7_router()`.
 pub(crate) fn egress_admin_router() -> Router<AppState> {
     Router::new()
-        .route("/admin/egress/proxies", get(list_proxies).post(put_proxy))
-        .route("/admin/egress/proxies/{id}/delete", post(delete_proxy))
-        .route("/admin/egress/proxies/{id}/activate", post(activate_proxy))
-        .route("/admin/egress/proxies/deactivate", post(deactivate_proxies))
-        .route("/admin/egress/proxies/{id}/test", post(test_proxy))
+        .route(
+            &admin_route("/egress/proxies"),
+            get(list_proxies).post(put_proxy),
+        )
+        .route(
+            &admin_route("/egress/proxies/{id}/delete"),
+            post(delete_proxy),
+        )
+        .route(
+            &admin_route("/egress/proxies/{id}/activate"),
+            post(activate_proxy),
+        )
+        .route(
+            &admin_route("/egress/proxies/deactivate"),
+            post(deactivate_proxies),
+        )
+        .route(&admin_route("/egress/proxies/{id}/test"), post(test_proxy))
 }
 
 /// A create/replace request.

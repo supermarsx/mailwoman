@@ -39,6 +39,7 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use mw_admin::config::admin_route;
 use mw_plugin::{Capability, PluginHost, PluginLimits, PluginManifest};
 use mw_store::PluginRow;
 
@@ -67,14 +68,17 @@ This message was sent by the Mailwoman admin panel to test the spam classifier.\
 
 pub(crate) fn plugins_router() -> Router<AppState> {
     Router::new()
-        .route("/admin/plugins", get(list).post(register))
-        .route("/admin/plugins/{id}/approve", post(approve))
-        .route("/admin/plugins/{id}/enable", post(enable))
-        .route("/admin/plugins/{id}/disable", post(disable))
-        .route("/admin/plugins/{id}/grant", post(grant))
-        .route("/admin/plugins/{id}/allow-unsigned", post(allow_unsigned))
-        .route("/admin/plugins/{id}/settings", post(settings))
-        .route("/admin/plugins/{id}/test", post(test_classifier))
+        .route(&admin_route("/plugins"), get(list).post(register))
+        .route(&admin_route("/plugins/{id}/approve"), post(approve))
+        .route(&admin_route("/plugins/{id}/enable"), post(enable))
+        .route(&admin_route("/plugins/{id}/disable"), post(disable))
+        .route(&admin_route("/plugins/{id}/grant"), post(grant))
+        .route(
+            &admin_route("/plugins/{id}/allow-unsigned"),
+            post(allow_unsigned),
+        )
+        .route(&admin_route("/plugins/{id}/settings"), post(settings))
+        .route(&admin_route("/plugins/{id}/test"), post(test_classifier))
 }
 
 // ── admin session gate (mirrors admin.rs; a user-facing mailbox session must not
