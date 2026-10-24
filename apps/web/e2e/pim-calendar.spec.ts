@@ -398,9 +398,20 @@ test.describe('Calendar module through the real UI (engine mode)', () => {
     const tag = uid();
     const mine = `Invited ${tag}`;
     const theirs = `Not invited ${tag}`;
-    const d = new Date();
+    // Other cases create events at the browser's "now" (the export case's
+    // "Exported …", the daily rule's instances), and a chip on top of the
+    // invitation takes the click. Fixed 14:00 / 16:00 collided whenever the suite
+    // ran between about 14:00 and 16:30 (t32-h11). Place both invitations on
+    // today (the week on screen) at least six hours from the browser's current
+    // hour, read from the browser's clock, the one the other events use.
+    const now = await page.evaluate(() => {
+      const t = new Date();
+      return { y: t.getFullYear(), m: t.getMonth() + 1, d: t.getDate(), h: t.getHours() };
+    });
     const p = (n: number): string => String(n).padStart(2, '0');
-    const ymd = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`;
+    const ymd = `${now.y}${p(now.m)}${p(now.d)}`;
+    const mineHour = now.h < 12 ? now.h + 6 : now.h - 8;
+    const theirsHour = mineHour + 2;
     const vevent = (title: string, hour: string, attendee: string): string[] => [
       'BEGIN:VEVENT',
       `UID:inv-${title.replace(/\s+/g, '-')}@e2e.test`,
@@ -415,8 +426,8 @@ test.describe('Calendar module through the real UI (engine mode)', () => {
       'BEGIN:VCALENDAR',
       'VERSION:2.0',
       'PRODID:-//Mailwoman e2e//EN',
-      ...vevent(mine, '14', ENGINE_CREDS.username),
-      ...vevent(theirs, '16', 'someone.else@example.org'),
+      ...vevent(mine, p(mineHour), ENGINE_CREDS.username),
+      ...vevent(theirs, p(theirsHour), 'someone.else@example.org'),
       'END:VCALENDAR',
       '',
     ].join('\r\n');
