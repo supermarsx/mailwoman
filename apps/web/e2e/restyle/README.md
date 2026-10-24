@@ -90,12 +90,13 @@ For each probe instance present in both runs (same viewport, theme, screen):
 | fully visible list rows on a screen | fewer than before |
 | probe instance visible before | absent or invisible after ("vanished") |
 
-Two listed exemptions, each instance printed when it applies:
+Three listed exemptions, each instance printed when it applies:
 
 | exemption | what may grow | conditions |
 |---|---|---|
 | `FLEX_FILL` | a listed probe sized by its row or column (a `flex: 1` field, the reader frame), along the listed axis | font-size and padding/border not grown; its band (or the probe enclosing it) not grown; the neighbours freed the space |
 | `CHECK_TARGET` (t32-h12) | a listed native checkbox, up to the 24×24 box every checkbox shares (`styles/checks.css.ts`, WCAG 2.2 §2.5.8) | after, width and height each ≤ 24 px; font-size, padding and border not grown; a checkbox past 24 px is still a violation |
+| `AUTH_CARD` (t32-h14, user request) | the admin sign-in card narrowed to the shared `AUTH_CARD_MAX_WIDTH` (`styles/authCard.css.ts`, read from that file): the card's and its session note's height as the note wraps, and on a phone the width of its fields and Sign in button inside the 16 px gutter | the card is ≤ the shared width after and narrower than before; the instance got narrower; font-size, padding and border not grown; the card grew by no more than its wrapped note; any other growth, a phone height change or a wider field is still a violation (`src/styles/authCard.compare.test.ts`) |
 
 It also prints the instances that shrank by more than 1 px (allowed), for the report.
 

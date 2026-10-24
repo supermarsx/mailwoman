@@ -1,4 +1,4 @@
-/* global process, console */
+/* global process, console, URL */
 // Compare two measure runs of the t32 restyle harness (README.md in this folder).
 //
 //   node compare.mjs <before> <after> [--partial] [--json <file>]
@@ -44,6 +44,22 @@
 //   - after, its width and its height are each at most 24 px;
 //   - its font-size did not grow and no padding or border side grew by more than 1 px.
 // Every such instance is printed; a checkbox growing past 24 px is still a violation.
+//
+// Sign-in card exemption (t32-h14, user request "can be make both admin and client be
+// normal sized"): the admin sign-in card became the shared AUTH_CARD_MAX_WIDTH card
+// (src/styles/authCard.css.ts) with a 16 px gutter on a phone. Its text wraps in the
+// narrower card and its fields follow the card's width. A probe listed in AUTH_CARD is
+// not counted for its listed rule when ALL of these hold:
+//   - the screen's card (`card`) is at most AUTH_CARD_MAX_WIDTH wide after and narrower
+//     than before;
+//   - the instance's font-size did not grow and no padding or border side grew by more
+//     than 1 px;
+//   - rule 'h' (text wrapping): the instance got narrower, and, for the card itself, it
+//     grew by no more than the listed text probes inside it grew together;
+//   - rule 'phone-w' (the gutter): the instance got narrower, never wider.
+// Every such instance is printed. Any other growth, on these probes or elsewhere, is
+// still a violation (a phone height change, a field growing wider, a card wider than
+// the maximum).
 import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -109,7 +125,46 @@ export const CHECK_TARGET = [
   { probe: 'tasks.complete' },
 ];
 
+/** The sign-in card's maximum width, read from the style module (a `.css.ts` file only runs in the build). */
+export const AUTH_CARD_MAX_WIDTH = Number(
+  /AUTH_CARD_MAX_WIDTH = '(\d+)px'/.exec(
+    readFileSync(new URL('../../src/styles/authCard.css.ts', import.meta.url), 'utf8'),
+  )?.[1] ?? 'NaN',
+);
+
+/** Probes of the admin sign-in card that follow its narrowing (see AUTH_CARD above). */
+export const AUTH_CARD = [
+  { probe: 'admin.login-card', card: 'admin.login-card#0', rule: 'h', text: ['admin.login-help'], why: 'sign-in card at the shared width; its note wraps (styles/authCard.css.ts)' },
+  { probe: 'admin.login-help', card: 'admin.login-card#0', rule: 'h', why: 'session note wraps in the shared-width sign-in card (styles/authCard.css.ts)' },
+  { probe: 'admin.login-field', card: 'admin.login-card#0', rule: 'phone-w', why: 'field follows the sign-in card inside the 16 px phone gutter (styles/authCard.css.ts)' },
+  { probe: 'admin.login-submit', card: 'admin.login-card#0', rule: 'phone-w', why: 'button follows the sign-in card inside the 16 px phone gutter (styles/authCard.css.ts)' },
+];
+
 const probeName = (id) => id.replace(/#\d+$/, '');
+
+/** Why a change of instance `id` under `rule` ('h' or 'phone-w') is the sign-in card narrowing, or null. */
+export function authCard(b, a, id, rule) {
+  const pb = b.probes[id];
+  const pa = a.probes[id];
+  const entry = AUTH_CARD.find((f) => f.probe === probeName(id) && f.rule === rule);
+  if (!entry) return null;
+  const cb = b.probes[entry.card];
+  const ca = a.probes[entry.card];
+  if (!cb?.visible || !ca?.visible) return null;
+  if (!(ca.w <= AUTH_CARD_MAX_WIDTH + EPS) || !(ca.w < cb.w - TOL)) return null;
+  if (pa.fontSize > pb.fontSize + EPS) return null;
+  for (let i = 0; i < 4; i++) {
+    if (pa.padding[i] > pb.padding[i] + TOL || pa.border[i] > pb.border[i] + TOL) return null;
+  }
+  if (!(pa.w < pb.w - TOL)) return null;
+  if (entry.text) {
+    const wrapped = Object.keys(b.probes)
+      .filter((oid) => entry.text.includes(probeName(oid)) && b.probes[oid].visible && a.probes[oid]?.visible)
+      .reduce((n, oid) => n + Math.max(0, a.probes[oid].h - b.probes[oid].h), 0);
+    if (pa.h - pb.h > wrapped + TOL) return null;
+  }
+  return { why: entry.why };
+}
 
 /** Why a growth of checkbox instance `id` is the shared 24 px target, or null. */
 export function checkTarget(b, a, id) {
@@ -194,6 +249,7 @@ export function compare(before, after, { partial = false } = {}) {
   const shrunk = [];
   const exempt = [];
   const targets = [];
+  const cards = [];
   const add = (key, probe, rule, b, a) => violations.push({ screen: key, probe, rule, before: r1(b), after: r1(a) });
 
   for (const [key, b] of Object.entries(before).sort()) {
@@ -216,8 +272,10 @@ export function compare(before, after, { partial = false } = {}) {
       const grew = (axis, rule) => {
         const ff = flexFill(b, a, id, axis);
         const ct = ff ? null : checkTarget(b, a, id);
+        const ac = ff || ct || axis !== 'h' ? null : authCard(b, a, id, 'h');
         if (ff) exempt.push({ screen: key, probe: id, axis, before: axis === 'w' ? pb.w : pb.h, after: axis === 'w' ? pa.w : pa.h, ...ff });
         else if (ct) targets.push({ screen: key, probe: id, axis, before: axis === 'w' ? pb.w : pb.h, after: axis === 'w' ? pa.w : pa.h, ...ct });
+        else if (ac) cards.push({ screen: key, probe: id, rule: 'height +>1px', before: pb.h, after: pa.h, ...ac });
         else add(key, id, rule, axis === 'w' ? pb.w : pb.h, axis === 'w' ? pa.w : pa.h);
       };
       if (pa.h > pb.h + TOL) grew('h', 'height +>1px');
@@ -228,7 +286,11 @@ export function compare(before, after, { partial = false } = {}) {
         if (pa.padding[i] > pb.padding[i] + TOL) add(key, id, `padding-${side} +>1px`, pb.padding[i], pa.padding[i]);
       });
       if (pb.interactive && phone) {
-        if (Math.abs(pa.w - pb.w) > TOL) add(key, id, 'phone tap target width changed >1px', pb.w, pa.w);
+        if (Math.abs(pa.w - pb.w) > TOL) {
+          const ac = authCard(b, a, id, 'phone-w');
+          if (ac) cards.push({ screen: key, probe: id, rule: 'phone tap target width changed >1px', before: pb.w, after: pa.w, ...ac });
+          else add(key, id, 'phone tap target width changed >1px', pb.w, pa.w);
+        }
         if (Math.abs(pa.h - pb.h) > TOL) add(key, id, 'phone tap target height changed >1px', pb.h, pa.h);
       }
       if (pb.interactive && !phone) {
@@ -240,7 +302,7 @@ export function compare(before, after, { partial = false } = {}) {
       }
     }
   }
-  return { violations, shrunk, exempt, targets };
+  return { violations, shrunk, exempt, targets, cards };
 }
 
 function table(rows, cols) {
@@ -260,7 +322,7 @@ if (isMain) {
   if (pos.length !== 2) usage();
   const before = load(pos[0]);
   const after = load(pos[1]);
-  const { violations, shrunk, exempt, targets } = compare(before, after, { partial });
+  const { violations, shrunk, exempt, targets, cards } = compare(before, after, { partial });
   const screens = Object.keys(before).filter((k) => partial ? after[k] !== undefined : true).length;
   const probes = Object.entries(before)
     .filter(([k]) => after[k] !== undefined)
@@ -280,7 +342,12 @@ ${exempt.length} flex-fill growth(s) not counted (FLEX_FILL):`);
 ${targets.length} checkbox growth(s) to the 24 px target not counted (CHECK_TARGET):`);
     console.log(table(targets, ['screen', 'probe', 'axis', 'before', 'after', 'why']));
   }
-  if (jsonOut) writeFileSync(jsonOut, JSON.stringify({ violations, shrunk, exempt, targets }, null, 1));
+  if (cards.length > 0) {
+    console.log(`
+${cards.length} sign-in card narrowing change(s) not counted (AUTH_CARD):`);
+    console.log(table(cards, ['screen', 'probe', 'rule', 'before', 'after', 'why']));
+  }
+  if (jsonOut) writeFileSync(jsonOut, JSON.stringify({ violations, shrunk, exempt, targets, cards }, null, 1));
   if (violations.length > 0) {
     console.log(`\n${violations.length} violation(s):`);
     console.log(table(violations, ['screen', 'probe', 'rule', 'before', 'after']));
