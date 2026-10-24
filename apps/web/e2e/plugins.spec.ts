@@ -139,7 +139,7 @@ test.describe('Plugin registry (V7) — admin surface on the real server', () =>
     await page.request.post('/admin/plugins/spam-rspamd/uninstall');
 
     await page.goto('/admin');
-    await page.getByRole('button', { name: 'Plugins', exact: true }).click();
+    await page.getByRole('link', { name: 'Plugins', exact: true }).click();
     const form = page.getByRole('form', { name: 'Register a plugin' });
     await form.getByLabel('Component', { exact: true }).selectOption('spam-rspamd');
     await form.getByRole('button', { name: 'Register' }).click();
@@ -159,7 +159,7 @@ test.describe('Plugin registry (V7) — admin surface on the real server', () =>
     await expect(card.getByRole('button', { name: 'Disable' })).toBeVisible();
 
     // The UI plugins screen is reachable from the nav and reads the real route.
-    await page.getByRole('button', { name: 'UI plugins' }).click();
+    await page.getByRole('link', { name: 'UI plugins' }).click();
     await expect(page.getByRole('region', { name: 'UI plugins' })).toBeVisible();
     await expect(page.getByRole('form', { name: 'Register a UI plugin' })).toBeVisible();
 

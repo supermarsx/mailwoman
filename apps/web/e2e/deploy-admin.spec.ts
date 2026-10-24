@@ -73,7 +73,7 @@ test.describe('admin panel on a deployed installation', () => {
     expect(await bannedIps(page.request), 'the refused write stored nothing').not.toContain(ip);
 
     // ── 2. the same write through the UI ────────────────────────────────────
-    await nav.getByRole('button', { name: 'Observability' }).click();
+    await nav.getByRole('link', { name: 'Observability' }).click();
     const addBan = page.getByRole('form', { name: 'Add ban' });
     await addBan.getByLabel('IP address').fill(ip);
     await addBan.getByLabel('Reason').fill('deploy guard');
