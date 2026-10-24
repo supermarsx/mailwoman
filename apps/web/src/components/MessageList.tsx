@@ -607,7 +607,7 @@ export function MessageList(): JSX.Element {
   });
 
   return (
-    <section class="list" aria-label={t('mail-list-label')} style={{ display: 'flex', 'flex-direction': 'column' }}>
+    <section class="list" aria-label={t('mail-list-label')}>
       <Show when={app.selectedIds().size > 0} fallback={<ListToolbar />}>
         <BulkBar />
       </Show>
@@ -624,7 +624,7 @@ export function MessageList(): JSX.Element {
               class="list__items"
               role="list"
               aria-label={t('mail-list-label')}
-              style={{ position: 'relative', height: `${win().totalHeight}px` }}
+              style={{ height: `${win().totalHeight}px` }}
             >
               <For each={pendingSlots()}>
                 {(index) => (

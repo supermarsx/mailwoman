@@ -25,7 +25,6 @@ import {
 } from '../../state/slices/admin.ts';
 import { createFocusTrap } from '../../components/a11y';
 import { modalOverlay } from '../../components/modalOverlay.css.ts';
-import { vars } from '../../theme/contract.css.ts';
 import { t } from '../../i18n';
 import * as css from './admin.css.ts';
 
@@ -314,18 +313,7 @@ export function Integrations(): JSX.Element {
               aria-describedby="admin-unattended-meaning"
               tabindex="-1"
               data-testid="admin-unattended-dialog"
-              style={{
-                display: 'flex',
-                'flex-direction': 'column',
-                gap: vars.space[4],
-                'max-width': '480px',
-                width: '100%',
-                padding: vars.space[5],
-                background: vars.color.surface,
-                color: vars.color.text,
-                border: `1px solid ${vars.color.border}`,
-                'border-radius': vars.radius.lg,
-              }}
+              class={css.confirmDialog}
             >
               <h3 id="admin-unattended-title" class={css.heading}>
                 {change().approve
@@ -349,7 +337,7 @@ export function Integrations(): JSX.Element {
                   ? t('admin-integrations-unattended-approve-effect')
                   : t('admin-integrations-unattended-withdraw-effect')}
               </p>
-              <div style={{ display: 'flex', gap: vars.space[3], 'justify-content': 'flex-end' }}>
+              <div class={css.confirmActions}>
                 <button
                   type="button"
                   class="btn btn--ghost"

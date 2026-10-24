@@ -207,3 +207,9 @@ export const subHeading = style({
   textTransform: 'uppercase',
   letterSpacing: vars.tracking.label,
 });
+
+// ── former inline styles (t32-h12) ──────────────────────────────────────────
+// Static `style={{…}}` objects compile into the template as a literal `style=`
+// attribute, which the shell CSP (`style-src 'self'`) drops.
+/** Photo and name side by side in the security tab. */
+export const secIdentity = style({ display: 'flex', alignItems: 'center', gap: '0.75rem' });

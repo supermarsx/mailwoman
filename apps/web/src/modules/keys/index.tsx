@@ -530,7 +530,7 @@ function LookupForm(): JSX.Element {
         <div class={css.fieldRow} role="group" aria-label={t('keys-lookup-sources')}>
           <For each={LOOKUP_SOURCES}>
             {(s) => (
-              <label class={css.label} style={{ 'flex-direction': 'row', 'align-items': 'center' }}>
+              <label class={css.label}>
                 <input
                   type="checkbox"
                   class={css.checkbox}

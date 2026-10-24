@@ -239,8 +239,7 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
         </Show>
         <button type="button" class={css.primaryButton} onClick={openNew}>{t('calendar-new-event')}</button>
         <input
-          class={css.input}
-          style={{ 'min-width': '12rem' }}
+          class={`${css.input} ${css.quickAdd}`}
           placeholder={t('calendar-quick-add-placeholder')}
           value={quickText()}
           onInput={(e) => setQuickText(e.currentTarget.value)}
@@ -254,7 +253,7 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
           ref={importInput}
           type="file"
           accept=".ics,.hol,text/calendar"
-          style={{ display: 'none' }}
+          class={css.fileInput}
           aria-label={t('calendar-import-file')}
           onChange={(e) => void onImportFile(e)}
         />
@@ -279,9 +278,9 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
                       value={cal.color}
                       onChange={(e) => void c.setCalendarColor(cal.id, e.currentTarget.value)}
                       aria-label={t('calendar-color-for', { name: cal.name })}
-                      style={{ width: '1.4rem', height: '1.4rem', padding: 0, border: 'none', background: 'none' }}
+                      class={css.colorInput}
                     />
-                    <span style={{ flex: 1 }}><bdi>{cal.name}</bdi></span>
+                    <span class={css.grow}><bdi>{cal.name}</bdi></span>
                     <Show when={cal.isReadOnlyOverlay || cal.caldavUrl !== null}>
                       <span class={css.dimText} title={cal.caldavUrl ?? t('calendar-synced')} aria-label={t('calendar-synced')}>⇅</span>
                     </Show>
@@ -307,7 +306,7 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
                 )}
               </For>
             </ul>
-            <button type="button" class={css.button} style={{ 'margin-top': '0.5rem' }} onClick={() => void c.createCalendar(t('calendar-new-calendar-name'), '#22c55e')}>
+            <button type="button" class={`${css.button} ${css.addCalendar}`} onClick={() => void c.createCalendar(t('calendar-new-calendar-name'), '#22c55e')}>
               {t('calendar-add-calendar')}
             </button>
           </div>

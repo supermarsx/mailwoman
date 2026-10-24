@@ -88,7 +88,7 @@ export function Observability(): JSX.Element {
       </div>
 
       <div class={css.card}>
-        <div style={{ display: 'flex', 'justify-content': 'space-between', 'align-items': 'center' }}>
+        <div class={css.headingRow}>
           <h3 class={css.heading}>{t('admin-obs-audit')}</h3>
           <button type="button" class="btn btn--ghost" onClick={() => void onExport()}>
             {t('admin-obs-export')}

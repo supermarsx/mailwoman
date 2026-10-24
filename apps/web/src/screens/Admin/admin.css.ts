@@ -210,3 +210,28 @@ globalStyle(`[data-screen="admin"] .btn--danger, ${gate} .btn--danger`, {
   borderColor: vars.color.danger,
   color: vars.color.accentText,
 });
+
+// ── former inline styles (t32-h12) ──────────────────────────────────────────
+// Static `style={{…}}` objects compile into the template as a literal `style=`
+// attribute, which the shell CSP (`style-src 'self'`) drops; these are the same
+// declarations as classes.
+
+/** A confirmation dialog box (unattended keys, re-thread). */
+export const confirmDialog = style({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: vars.space[4],
+  maxWidth: '480px',
+  width: '100%',
+  padding: vars.space[5],
+  background: vars.color.surface,
+  color: vars.color.text,
+  border: `${vars.border.hair} solid ${vars.color.border}`,
+  borderRadius: vars.radius.lg,
+});
+/** The buttons at the foot of a confirmation dialog, at the end of the row. */
+export const confirmActions = style({ display: 'flex', gap: vars.space[3], justifyContent: 'flex-end' });
+/** A card's heading row with an action at the other end. */
+export const headingRow = style({ display: 'flex', justifyContent: 'space-between', alignItems: 'center' });
+/** A sub-heading inside a card. */
+export const subHeading = style({ fontSize: '1rem' });

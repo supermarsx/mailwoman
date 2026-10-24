@@ -322,8 +322,11 @@ export const label = style({
   color: vars.color.textDim,
   selectors: {
     // A checkbox label is an option name in a row of options, not a field
-    // label: capitals would widen the row until it wraps.
+    // label: capitals would widen the row until it wraps. Box and name share
+    // one line (this was an inline style the shell CSP drops).
     '&:has(> input[type="checkbox"])': {
+      flexDirection: 'row',
+      alignItems: 'center',
       fontWeight: vars.weight.regular,
       textTransform: 'none',
       letterSpacing: vars.tracking.none,

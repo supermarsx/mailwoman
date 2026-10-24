@@ -32,7 +32,6 @@ import {
 } from '../../../state/slices/plugins.ts';
 import { createFocusTrap } from '../../../components/a11y';
 import { t, loadCatalog } from '../../../i18n';
-import { vars } from '../../../theme/contract.css.ts';
 import { modalOverlay } from '../../../components/modalOverlay.css.ts';
 import * as css from './styles.css.ts';
 
@@ -305,18 +304,7 @@ function ConfirmDialog(props: {
         aria-describedby="allowlist-confirm-detail"
         tabindex="-1"
         data-testid="allowlist-dialog"
-        style={{
-          display: 'flex',
-          'flex-direction': 'column',
-          gap: vars.space[4],
-          'max-width': '520px',
-          width: '100%',
-          padding: vars.space[5],
-          background: vars.color.surface,
-          color: vars.color.text,
-          border: `1px solid ${vars.color.border}`,
-          'border-radius': vars.radius.lg,
-        }}
+        class={css.confirmDialog}
       >
         <h3 id="allowlist-confirm-title" class={css.heading}>
           {t(titleKey())}
@@ -335,7 +323,7 @@ function ConfirmDialog(props: {
             </p>
           </div>
         </Show>
-        <div style={{ display: 'flex', gap: vars.space[3], 'justify-content': 'flex-end' }}>
+        <div class={css.confirmActions}>
           <button
             type="button"
             class={css.ghost}

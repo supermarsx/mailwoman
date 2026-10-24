@@ -248,7 +248,7 @@ export function ConflictResolver(props: ConflictResolverProps): JSX.Element {
         aria-modal="true"
         onKeyDown={onKeyDown}
       >
-        <h2 style={{ margin: 0, 'font-size': '1.1rem' }}>{t('calendar-resolver-title')}</h2>
+        <h2 class={css.dialogTitle}>{t('calendar-resolver-title')}</h2>
 
         <Show
           when={pair()}

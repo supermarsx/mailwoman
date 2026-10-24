@@ -104,7 +104,7 @@ export function ShareDialog(props: ShareDialogProps): JSX.Element {
         aria-modal="true"
         onKeyDown={onDialogKeyDown}
       >
-        <h2 style={{ margin: 0, 'font-size': '1.1rem' }}>
+        <h2 class={css.dialogTitle}>
           {t('calendar-share-title', { name: isolate(props.calendar.name) })}
         </h2>
         <p class={css.dimText}>{t('calendar-share-intro')}</p>

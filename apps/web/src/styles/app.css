@@ -322,7 +322,11 @@ body {
 }
 
 /* ── Message list ─────────────────────────────────────────────── */
+/* `display`, `flex-direction` (on .list) and `position` (on .list__items) were
+   static inline styles the shell CSP drops (t32-h12). */
 .list {
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
   border-inline-end: var(--border-heavy) solid var(--border-strong);
   background: var(--bg);
@@ -337,6 +341,7 @@ body {
   min-height: 0;
 }
 .list__items {
+  position: relative;
   list-style: none;
   margin: 0;
   padding: 0;

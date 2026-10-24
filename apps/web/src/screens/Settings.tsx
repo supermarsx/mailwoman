@@ -50,7 +50,7 @@ import {
   themesByAppearance,
   type ThemeEntry,
 } from '../theme/registry.ts';
-import { vars, type Density } from '../theme/contract.css.ts';
+import type { Density } from '../theme/contract.css.ts';
 import type { LayoutMode, ThemeMode, UiFont } from '../state/slices/theme.ts';
 import * as css from '../styles/settings.css.ts';
 import * as picker from '../theme/picker.css.ts';
@@ -236,13 +236,9 @@ export function Settings(props: SettingsProps): JSX.Element {
 // plus the pair/schedule inputs the automatic modes need), WHICH theme (the
 // gallery), and WHERE the choice is kept (the sync line).
 
-/** Small dim explanatory line. `styles/settings.css.ts` has no class for this
- *  and belongs to another lane, so the two typographic properties are inline —
- *  the tightened CSP keeps `style-src-attr 'unsafe-inline'` for exactly this. */
+/** Small dim explanatory line. */
 function Hint(props: { children: JSX.Element }): JSX.Element {
-  return (
-    <p style={{ margin: 0, 'font-size': '0.78rem', color: vars.color.textDim }}>{props.children}</p>
-  );
+  return <p class={css.hint}>{props.children}</p>;
 }
 
 /** `fixed` | `system` | `schedule`, plus whatever that mode needs configured. */

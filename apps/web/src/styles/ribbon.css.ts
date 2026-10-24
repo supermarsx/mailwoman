@@ -29,6 +29,9 @@ export const tabs = style({
   paddingInline: vars.space[4],
 });
 
+// The tab buttons in a row (was an inline style the shell CSP drops).
+export const tablist = style({ display: 'flex', gap: 0 });
+
 export const tab = style({
   appearance: 'none',
   border: 'none',

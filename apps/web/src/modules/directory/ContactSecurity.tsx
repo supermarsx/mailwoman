@@ -35,7 +35,7 @@ export function ContactSecurity(props: ContactSecurityProps): JSX.Element {
   return (
     <section class={css.secTab} data-testid="contact-security" aria-label={t('directory-contact-security-label')}>
       <div class={css.secRow}>
-        <div style={{ display: 'flex', 'align-items': 'center', gap: '0.75rem' }}>
+        <div class={css.secIdentity}>
           <Show when={data()?.photoB64}>
             {(b64) => (
               <img

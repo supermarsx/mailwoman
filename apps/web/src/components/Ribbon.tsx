@@ -54,7 +54,7 @@ export function Ribbon(props: RibbonProps): JSX.Element {
   return (
     <div class={css.ribbon}>
       <div class={css.tabs}>
-        <div role="tablist" aria-label={t('mail-ribbon-label')} onKeyDown={onTabKeyDown} style={{ display: 'flex', gap: '0' }}>
+        <div class={css.tablist} role="tablist" aria-label={t('mail-ribbon-label')} onKeyDown={onTabKeyDown}>
           <For each={TABS}>
             {(id, i) => (
               <button

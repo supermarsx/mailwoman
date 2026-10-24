@@ -115,7 +115,7 @@ export function TwoFactorPolicy(props: TwoFactorPolicyProps): JSX.Element {
 
       {/* ── Per-domain requirements ── */}
       <div class={css.card}>
-        <h3 class={css.heading} style={{ 'font-size': '1rem' }}>{t('admin-2fa-domains-heading')}</h3>
+        <h3 class={`${css.heading} ${css.subHeading}`}>{t('admin-2fa-domains-heading')}</h3>
         <Show
           when={domainRows().length > 0}
           fallback={<p class={css.note}>{t('admin-2fa-domains-empty')}</p>}

@@ -346,7 +346,7 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
         aria-modal="true"
         onKeyDown={onDialogKeyDown}
       >
-        <h2 style={{ margin: 0, 'font-size': '1.1rem' }}>{ev === null ? t('calendar-editor-new') : t('calendar-editor-edit')}</h2>
+        <h2 class={css.dialogTitle}>{ev === null ? t('calendar-editor-new') : t('calendar-editor-edit')}</h2>
 
         <Show when={isInvite()}>
           <div class={css.inviteBar} role="group" aria-label={t('calendar-invitation')}>
@@ -393,7 +393,7 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
         </div>
 
         <div class={css.row}>
-          <div class={css.field} style={{ flex: 1 }}>
+          <div class={`${css.field} ${css.grow}`}>
             <label class={css.label} for="ev-cal">{t('calendar-field-calendar')}</label>
             <select id="ev-cal" class={css.input} value={calendarId()} onChange={(e) => setCalendarId(e.currentTarget.value)}>
               <For each={props.controller.calendars()}>
@@ -407,7 +407,7 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
         </div>
 
         <div class={css.row}>
-          <div class={css.field} style={{ flex: 1 }}>
+          <div class={`${css.field} ${css.grow}`}>
             <label class={css.label} for="ev-start">{t('calendar-field-start')}</label>
             <Show
               when={!allDay()}
@@ -435,11 +435,10 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
               <label class={css.label} for="ev-dur">{t('calendar-field-duration')}</label>
               <input
                 id="ev-dur"
-                class={css.input}
+                class={`${css.input} ${css.durationInput}`}
                 type="number"
                 min="15"
                 step="15"
-                style={{ width: '6rem' }}
                 value={durationMin()}
                 onInput={(e) => setDurationMin(Math.max(15, Number(e.currentTarget.value) || 15))}
               />
@@ -484,7 +483,7 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
                 <option value="yearly">{t('calendar-freq-yearly')}</option>
               </select>
               <label class={css.label}>{t('calendar-every')}</label>
-              <input class={css.input} type="number" min="1" style={{ width: '4rem' }} value={interval()} onInput={(e) => setInterval(Math.max(1, Number(e.currentTarget.value) || 1))} aria-label={t('calendar-interval')} />
+              <input class={`${css.input} ${css.intervalInput}`} type="number" min="1" value={interval()} onInput={(e) => setInterval(Math.max(1, Number(e.currentTarget.value) || 1))} aria-label={t('calendar-interval')} />
             </div>
             <Show when={freq() === 'weekly'}>
               <div class={css.row}>
@@ -505,7 +504,7 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
                 <option value="until">{t('calendar-end-until')}</option>
               </select>
               <Show when={endMode() === 'count'}>
-                <input class={css.input} type="number" min="1" style={{ width: '5rem' }} value={count()} onInput={(e) => setCount(Math.max(1, Number(e.currentTarget.value) || 1))} aria-label={t('calendar-occurrences')} />
+                <input class={`${css.input} ${css.countInput}`} type="number" min="1" value={count()} onInput={(e) => setCount(Math.max(1, Number(e.currentTarget.value) || 1))} aria-label={t('calendar-occurrences')} />
               </Show>
               <Show when={endMode() === 'until'}>
                 <input class={css.input} type="date" value={until().slice(0, 10)} onInput={(e) => setUntil(`${e.currentTarget.value}T00:00:00`)} aria-label={t('calendar-until-date')} />

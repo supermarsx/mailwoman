@@ -300,7 +300,7 @@ function BusinessCard(props: { card: ContactCard; onEdit: () => void }): JSX.Ele
 
   return (
     <article class={css.card} aria-label={t('contacts-card', { name: contactDisplayName(card()) })}>
-      <div class={css.fieldRow} style={{ 'justify-content': 'space-between' }}>
+      <div class={`${css.fieldRow} ${css.cardHeader}`}>
         <div>
           <h1 class={css.cardName}><bdi>{contactDisplayName(card())}</bdi></h1>
           <Show when={card().titles.length > 0 || card().organizations.length > 0}>
@@ -357,7 +357,7 @@ function BusinessCard(props: { card: ContactCard; onEdit: () => void }): JSX.Ele
       <Show when={card().notes.length > 0}>
         <div class={css.fieldGroup}>
           <span class={css.fieldLabel}>{t('contacts-notes')}</span>
-          <p style={{ 'white-space': 'pre-wrap', margin: 0 }}><bdi>{card().notes}</bdi></p>
+          <p class={css.notesText}><bdi>{card().notes}</bdi></p>
         </div>
       </Show>
 
@@ -390,7 +390,7 @@ function GroupMembership(props: { card: ContactCard }): JSX.Element {
   const app = useApp();
   return (
     <Show when={app.contactGroups().length > 0}>
-      <fieldset class={css.fieldGroup} style={{ border: 'none', padding: 0, margin: 0 }}>
+      <fieldset class={`${css.fieldGroup} ${css.bareFieldset}`}>
         <legend class={css.fieldLabel}>{t('contacts-member-of')}</legend>
         <For each={app.contactGroups()}>
           {(group) => {

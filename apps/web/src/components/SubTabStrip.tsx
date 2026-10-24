@@ -42,11 +42,10 @@ export function SubTabStrip(): JSX.Element {
     <Show when={subTabs.tabs().length > 0}>
       <div class="subtab-strip" onKeyDown={onKeyDown}>
         <div
-          class="subtab-tablist"
+          class={`subtab-tablist ${a11y.srOnly}`}
           role="tablist"
           aria-label={t('mail-subtabs-label')}
           aria-owns={subTabs.tabs().map((tab) => tabDomId(tab.id)).join(' ')}
-          style={{ position: 'absolute', width: '1px', height: '1px', overflow: 'hidden' }}
         />
         <For each={subTabs.tabs()}>
           {(tab) => <SubTabButton tab={tab} active={subTabs.activeId() === tab.id} />}

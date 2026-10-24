@@ -24,16 +24,27 @@
 // author checked and was false for five others. Only the built output tells them
 // apart, so the check lives here.
 //
+// Solid's compiler writes template attributes WITHOUT quotes when the value has no
+// space or quote in it (`<ul class=list__items style=position:relative>`), so the
+// check matches the quoted form anywhere and the unquoted form inside a template
+// tag (t32-h12: 35 such attributes shipped while a quoted-only pattern passed).
+//
 // Run after `vite build`. Exits non-zero on: entry over budget, pdfjs on the
-// critical path, or a literal style attribute in an app chunk.
+// critical path, or a literal style attribute in an app chunk. An optional first
+// argument names another dist directory (default `apps/web/dist`).
 import { readdir, readFile } from 'node:fs/promises';
 import { gzipSync } from 'node:zlib';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const BUDGET_BYTES = 250 * 1024;
-const distDir = fileURLToPath(new URL('../dist/', import.meta.url));
+const distDir = process.argv[2] ?? fileURLToPath(new URL('../dist/', import.meta.url));
 const assetsDir = join(distDir, 'assets');
+
+// A literal style attribute: `style="…"` anywhere, or `style='…'` / unquoted
+// `style=…` inside a template tag (`<tag … style=…`; minified code has no space
+// before a `style=` assignment, a template attribute always does).
+const INLINE_STYLE = /style="[^"]*"|<[a-zA-Z][^<>]*?\sstyle=(?:'[^']*'|[^\s>"'`]+)/g;
 
 // Distinctive tokens the pdfjs-dist library bundle emits. Matching any in a
 // chunk marks it as "carries pdfjs". These are library internals, not incidental
@@ -111,7 +122,7 @@ for (const f of assetFiles) {
   // its only match sits inside a `data:image/svg+xml` URI, which is not a DOM
   // attribute on our page and so is not governed by `style-src`.
   if (!hasPdfjs) {
-    const found = [...new Set(text.match(/style="[^"]*"/g) ?? [])];
+    const found = [...new Set(text.match(INLINE_STYLE) ?? [])];
     if (found.length > 0) inlineStyleChunks.push({ file: f, found });
   }
 }
@@ -143,7 +154,7 @@ if (criticalOnPdfjs.length > 0) {
 // --- gate 3: no literal style attribute (blocked by `style-src 'self'`) -----
 if (inlineStyleChunks.length > 0) {
   console.error(
-    '\ncheck-size: literal style="…" attribute in a compiled template — the shell CSP\n' +
+    '\ncheck-size: literal style attribute in a compiled template — the shell CSP\n' +
       "  (`style-src 'self'`, no 'unsafe-inline') refuses to apply it, so the element\n" +
       '  renders unstyled. Move the STATIC declarations to a CSS class; keep only the\n' +
       '  dynamic ones in `style={{…}}` (Solid applies those via the CSSOM, which\n' +

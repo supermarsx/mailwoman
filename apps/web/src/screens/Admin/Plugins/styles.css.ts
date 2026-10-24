@@ -221,3 +221,20 @@ export const detail = style({
   borderRadius: vars.radius.md,
   background: vars.color.bgSink,
 });
+
+// The allowlist confirmation dialog and its button row (t32-h12): these were a static
+// `style={{…}}` object, which compiles to a literal `style=` attribute that the shell
+// CSP (`style-src 'self'`) drops.
+export const confirmDialog = style({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: vars.space[4],
+  maxWidth: '520px',
+  width: '100%',
+  padding: vars.space[5],
+  background: vars.color.surface,
+  color: vars.color.text,
+  border: `${vars.border.hair} solid ${vars.color.border}`,
+  borderRadius: vars.radius.lg,
+});
+export const confirmActions = style({ display: 'flex', gap: vars.space[3], justifyContent: 'flex-end' });

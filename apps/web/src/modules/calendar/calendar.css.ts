@@ -189,7 +189,8 @@ export const allDayRow = style({
 
 export const gutter = style({ width: '3.5rem', flexShrink: 0, color: vars.color.textDim, fontSize: '0.75rem' });
 
-export const hourCell = style({ height: '3rem', borderBlockEnd: hair, textAlign: 'end', paddingInlineEnd: vars.space[1], boxSizing: 'border-box' });
+// 48px = HOUR_PX in views.tsx: events are placed in px, so the hour rows are px too.
+export const hourCell = style({ height: '48px', borderBlockEnd: hair, textAlign: 'end', paddingInlineEnd: vars.space[1], boxSizing: 'border-box' });
 
 export const dayColumns = style({ display: 'grid', position: 'relative' });
 
@@ -212,7 +213,7 @@ export const dayHeader = style({
   },
 });
 
-export const hourLine = style({ height: '3rem', borderBlockEnd: hair, boxSizing: 'border-box' });
+export const hourLine = style({ height: '48px', borderBlockEnd: hair, boxSizing: 'border-box' });
 
 export const eventBlock = style({
   position: 'absolute',
@@ -524,6 +525,32 @@ export const fbHead = style({ padding: '2px 4px', color: vars.color.textDim, fon
 export const fbRowHead = style({ textAlign: 'start', padding: '2px 6px', position: 'sticky', insetInlineStart: 0, background: vars.color.surface, whiteSpace: 'nowrap', maxWidth: '10rem', overflow: 'hidden', textOverflow: 'ellipsis' });
 
 const fbCellBase = style({ textAlign: 'center', border: hair, minWidth: '1.4rem', height: '1.4rem', color: vars.color.text });
+
+// ── former inline styles (t32-h12) ──────────────────────────────────────────
+// Static `style={{…}}` objects compile into the template as a literal `style=`
+// attribute, which the shell CSP (`style-src 'self'`) drops. They live here.
+
+/** A dialog's own heading (conflict resolver, share dialog). */
+export const dialogTitle = style({ margin: 0, fontSize: '1.1rem' });
+/** Takes the free space in a flex row. */
+export const grow = style({ flex: 1 });
+export const durationInput = style({ width: '6rem' });
+export const intervalInput = style({ width: '4rem' });
+export const countInput = style({ width: '5rem' });
+export const quickAdd = style({ minWidth: '12rem' });
+/** The file input behind the Import button. */
+export const fileInput = style({ display: 'none' });
+/** The colour picker beside a calendar's name. */
+export const colorInput = style({ width: '1.4rem', height: '1.4rem', padding: 0, border: 'none', background: 'none' });
+export const addCalendar = style({ marginBlockStart: '0.5rem' });
+/** A view that stacks a header over a body filling the rest of the height. */
+export const viewColumn = style({ display: 'flex', flexDirection: 'column', height: '100%' });
+export const timeGridView = style({ display: 'flex', flexDirection: 'column', minHeight: '100%' });
+/** A CSS grid whose column track is set inline (it depends on the day count). */
+export const gridRow = style({ display: 'grid' });
+export const timeBody = style({ display: 'grid', flex: 1, position: 'relative' });
+export const allDayLabel = style({ fontSize: '0.7rem', textAlign: 'end', paddingInlineEnd: '4px' });
+export const allDayCell = style({ minHeight: '1.5rem', padding: '2px' });
 
 export const fbCell = styleVariants({
   free: [fbCellBase, { background: vars.color.bg }],

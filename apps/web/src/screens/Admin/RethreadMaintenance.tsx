@@ -45,7 +45,6 @@ import {
 } from '../../api/maintenance.ts';
 import { createFocusTrap } from '../../components/a11y';
 import { t, loadCatalog } from '../../i18n';
-import { vars } from '../../theme/contract.css.ts';
 import { modalOverlay } from '../../components/modalOverlay.css.ts';
 import * as css from './admin.css.ts';
 
@@ -321,18 +320,7 @@ export function RethreadMaintenance(props: RethreadMaintenanceProps): JSX.Elemen
               aria-describedby="admin-rethread-confirm-warning"
               tabindex="-1"
               data-testid="admin-rethread-dialog"
-              style={{
-                display: 'flex',
-                'flex-direction': 'column',
-                gap: vars.space[4],
-                'max-width': '480px',
-                width: '100%',
-                padding: vars.space[5],
-                background: vars.color.surface,
-                color: vars.color.text,
-                border: `1px solid ${vars.color.border}`,
-                'border-radius': vars.radius.lg,
-              }}
+              class={css.confirmDialog}
             >
               <h3 id="admin-rethread-confirm-title" class={css.heading}>
                 {t('admin-rethread-confirm-title')}
@@ -341,7 +329,7 @@ export function RethreadMaintenance(props: RethreadMaintenanceProps): JSX.Elemen
                 {t('admin-rethread-confirm-warning')}
               </p>
               <p class={css.note}>{t('admin-rethread-confirm-detail')}</p>
-              <div style={{ display: 'flex', gap: vars.space[3], 'justify-content': 'flex-end' }}>
+              <div class={css.confirmActions}>
                 <button
                   type="button"
                   class="btn btn--ghost"

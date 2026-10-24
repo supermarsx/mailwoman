@@ -159,12 +159,12 @@ export function TimeGridView(props: ViewProps): JSX.Element {
   }
 
   return (
-    <div style={{ display: 'flex', 'flex-direction': 'column', 'min-height': '100%' }}>
+    <div class={css.timeGridView}>
       <div class={css.srOnly} aria-live="polite" aria-atomic="true">{liveText()}</div>
       <div ref={headerEl} role="grid" aria-label={t('calendar-time-grid')}>
         {/* grid → row → gridcell (WCAG 1.3.1): the day headers are a single grid
             row; the CSS grid lives on the row so the layout is unchanged. */}
-        <div role="row" style={{ display: 'grid', 'grid-template-columns': cols() }}>
+        <div role="row" class={css.gridRow} style={{ 'grid-template-columns': cols() }}>
           <div class={css.gutter} role="presentation" />
           <For each={days()}>
             {(d) => (
@@ -191,12 +191,12 @@ export function TimeGridView(props: ViewProps): JSX.Element {
           `style-src 'self'` blocks (t24-e13); the inline `1px solid` also
           overrode the class's themed border colour with `currentColor`. */}
       <div style={{ 'grid-template-columns': cols() }} class={css.allDayRow}>
-        <div class={css.gutter} style={{ 'font-size': '0.7rem', 'text-align': 'end', 'padding-inline-end': '4px' }}>
+        <div class={`${css.gutter} ${css.allDayLabel}`}>
           {t('calendar-all-day')}
         </div>
         <For each={days()}>
           {(d) => (
-            <div style={{ 'min-height': '1.5rem', padding: '2px' }}>
+            <div class={css.allDayCell}>
               <For each={allDay(d)}>
                 {(inst) => (
                   <button
@@ -215,11 +215,11 @@ export function TimeGridView(props: ViewProps): JSX.Element {
           )}
         </For>
       </div>
-      <div style={{ display: 'grid', 'grid-template-columns': cols(), flex: 1, position: 'relative' }}>
+      <div class={css.timeBody} style={{ 'grid-template-columns': cols() }}>
         <div class={css.gutter}>
           <For each={hours}>
             {(h) => (
-              <div class={css.hourCell} style={{ height: `${HOUR_PX}px` }}>
+              <div class={css.hourCell}>
                 {h === 0 ? '' : `${String(h).padStart(2, '0')}:00`}
               </div>
             )}
@@ -227,8 +227,8 @@ export function TimeGridView(props: ViewProps): JSX.Element {
         </div>
         <For each={days()}>
           {(day) => (
-            <div class={css.dayColumn} style={{ position: 'relative' }} data-testid="day-column">
-              <For each={hours}>{() => <div class={css.hourLine} style={{ height: `${HOUR_PX}px` }} />}</For>
+            <div class={css.dayColumn} data-testid="day-column">
+              <For each={hours}>{() => <div class={css.hourLine} />}</For>
               <For each={timed(day)}>
                 {(inst) => {
                   const span = dayMinuteSpan(inst.start, inst.end, day);
@@ -315,7 +315,7 @@ export function MonthView(props: ViewProps): JSX.Element {
   }
 
   return (
-    <div style={{ display: 'flex', 'flex-direction': 'column', height: '100%' }}>
+    <div class={css.viewColumn}>
       <div class={css.srOnly} aria-live="polite" aria-atomic="true" data-testid="calendar-live">{liveText()}</div>
       <div class={css.weekdayHead} aria-hidden="true">
         <For each={weekdayNames(weekStart)}>{(w) => <div class={css.weekdayCell}>{w}</div>}</For>
@@ -393,7 +393,7 @@ function MonthGrid(props: { controller: CalendarController; year: number; month0
   const weekStart = localeWeekStart();
   const weeks = (): Date[][] => monthGrid(props.year, props.month0, weekStart);
   return (
-    <div style={{ display: 'flex', 'flex-direction': 'column', height: '100%' }}>
+    <div class={css.viewColumn}>
       <div class={css.weekdayHead} aria-hidden="true">
         <For each={weekdayNames(weekStart)}>{(w) => <div class={css.weekdayCell}>{w}</div>}</For>
       </div>

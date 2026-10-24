@@ -326,3 +326,12 @@ export const chip = style({
   background: vars.color.bgAlt,
   fontSize: '0.75rem',
 });
+
+// ── former inline styles (t32-h12) ──────────────────────────────────────────
+// Static `style={{…}}` objects compile into the template as a literal `style=`
+// attribute, which the shell CSP (`style-src 'self'`) drops.
+/** The card's header row: name block at the start, actions at the end. */
+export const cardHeader = style({ justifyContent: 'space-between' });
+export const notesText = style({ whiteSpace: 'pre-wrap', margin: 0 });
+/** A fieldset that only groups (no frame, no inset). */
+export const bareFieldset = style({ border: 'none', padding: 0, margin: 0 });

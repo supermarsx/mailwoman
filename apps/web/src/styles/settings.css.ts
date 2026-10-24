@@ -115,3 +115,9 @@ export const select = style({
     '&:focus-visible': focusOutline,
   },
 });
+
+// ── former inline styles (t32-h12) ──────────────────────────────────────────
+// Static `style={{…}}` objects compile into the template as a literal `style=`
+// attribute, which the shell CSP (`style-src 'self'`) drops.
+/** Small dim explanatory line under a setting. */
+export const hint = style({ margin: 0, fontSize: '0.78rem', color: vars.color.textDim });
