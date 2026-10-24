@@ -6,10 +6,16 @@ for a pre-send heads-up, on the compose-time `Dlp/scan` dry-run. Every evaluatio
 writes a **redacted** audit row (the matched detector + rule, **never** the matched
 content).
 
-In V4 the rules are **configuration/environment-sourced** — the admin panel proper
-is a later milestone (V6). Both the engine (enforcement) and `mw-server`'s
-`GET /api/security/dlp/config` (read-back) load the *same* value, so configuration
-and enforcement cannot drift.
+The rules in force are the `MW_DLP_RULES` rules followed by the rules stored in the
+admin security policy (`dlpRulesJson`, set from the admin panel or with
+`mailwoman admin security-policy set --dlp-rules-json`; see
+[`admin-panel.md`](./admin-panel.md#security-policy)). When a stored rule has the same
+`id` as an environment rule, the environment rule is used and the stored one is
+ignored, so the panel cannot replace or remove an environment rule. Both the engine
+(enforcement) and `mw-server`'s `GET /api/security/dlp/config` (read-back) build the
+same list; the read-back marks each rule with `source: "env"` or `source: "admin"`.
+The admin API refuses stored rules that do not parse, whose `customRegex` does not
+compile, or whose `action` is not one listed below.
 
 ## `MW_DLP_RULES`
 

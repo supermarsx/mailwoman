@@ -102,6 +102,10 @@ pluggable Postgres, layered Valkey/Redis cache, observability) adds:
 | `MW_REDIS_URL` | *(unset)* | V6. Redis/Valkey URL for the layered cache. Unset → memory + store only. See [`cache.md`](./cache.md). |
 | `MW_ADMIN_ENABLED` | `true` | V6. `false`/`0` unmounts the `/admin` panel (returns `401`). See [`../security/admin-panel.md`](../security/admin-panel.md). |
 | `MW_ADMIN_USER` / `MW_ADMIN_PASSWORD` | *(unset)* | V6. Admin operator credential (separate session domain). Unset → admin login fails. |
+| `MW_ADMIN_MIN_TLS` | *(unset)* | 26.20. `1.2` or `1.3`. Pins the security policy's minimum TLS version (HTTPS listener and outbound mail connections); the panel cannot change it while set. See [`../security/admin-panel.md`](../security/admin-panel.md#security-policy). |
+| `MW_ADMIN_REQUIRE_2FA` | *(unset)* | 26.20. `true` or `false`. Pins the global require-two-factor rule. |
+| `MW_ADMIN_SESSION_COOKIE` | `mw_admin_session` | 26.20. Name of the admin session cookie. |
+| `MW_ADMIN_PORT`, `MW_ADMIN_LOG_LEVEL`, `MW_ADMIN_OTLP_DSN`, `MW_ADMIN_METRICS`, `MW_ADMIN_THEME`, `MW_ADMIN_BRAND`, `MW_ADMIN_ACCENT` | — | 26.20: **setting any of these stops the start**, with an error saying what to use instead (before 26.20 they logged a warning). Nothing reads them. An invalid value of the three variables above also stops the start. |
 | `MW_OTLP_ENDPOINT` | *(unset)* | V6. OTLP collector (e.g. `http://otel:4317`); rustls transport. Unset → OTLP export off. See [`../security/observability.md`](../security/observability.md). |
 | `MW_METRICS_TOKEN` | *(unset)* | V6. Bearer token guarding `GET /metrics`. Unset → `/metrics` is unreachable (never open). |
 | `MW_LOG` | `info` | V6. Per-subsystem tracing directives; hot-reloaded on `SIGHUP`. |
