@@ -17,6 +17,7 @@ import { createSignal, For, Match, onMount, Show, Switch, type JSX } from 'solid
 import { ASSIST_CAPABILITIES, type AssistCapability } from '../../../modules/assist/types.ts';
 import { t, loadCatalog } from '../../../i18n';
 import * as css from '../../../modules/assist/styles.css.ts';
+import { PasswordInput } from '../../../components/PasswordInput.tsx';
 import {
   AdminAssistApi,
   AdminAssistError,
@@ -218,26 +219,43 @@ export function AdminAssist(props: AdminAssistProps): JSX.Element {
     key: string,
     labelId: string,
     opts: { secret?: boolean; fallback?: boolean; placeholderId?: string } = {},
-  ): JSX.Element => (
-    <label class={css.field}>
-      <span class={css.meta}>{t(labelId)}</span>
-      <input
-        class={css.input}
-        type={opts.secret ? 'password' : 'text'}
-        autocomplete="off"
-        aria-label={t(labelId)}
-        placeholder={
-          opts.placeholderId !== undefined
-            ? t(opts.placeholderId)
-            : opts.fallback
-              ? t('assist-admin-default-placeholder')
-              : undefined
-        }
-        value={adapterText(key)}
-        onInput={(e) => setAdapterField(key, e.currentTarget.value)}
-      />
-    </label>
-  );
+  ): JSX.Element => {
+    const placeholder = (): string | undefined =>
+      opts.placeholderId !== undefined
+        ? t(opts.placeholderId)
+        : opts.fallback
+          ? t('assist-admin-default-placeholder')
+          : undefined;
+    return (
+      <label class={css.field}>
+        <span class={css.meta}>{t(labelId)}</span>
+        <Show
+          when={opts.secret}
+          fallback={
+            <input
+              class={css.input}
+              type="text"
+              autocomplete="off"
+              aria-label={t(labelId)}
+              placeholder={placeholder()}
+              value={adapterText(key)}
+              onInput={(e) => setAdapterField(key, e.currentTarget.value)}
+            />
+          }
+        >
+          <PasswordInput
+            class={css.input}
+            label={t(labelId)}
+            autocomplete="off"
+            placeholder={placeholder()}
+            value={adapterText(key)}
+            onInput={(e) => setAdapterField(key, e.currentTarget.value)}
+            hideWhen={busy}
+          />
+        </Show>
+      </label>
+    );
+  };
 
   /**
    * A key is stored for the endpoint being edited (the server says so; it never

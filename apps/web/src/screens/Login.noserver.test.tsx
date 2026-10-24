@@ -55,10 +55,11 @@ describe('Login › no server entry (t32-h9)', () => {
 
   it('has the address and the password and no server, URL, host or port field', () => {
     renderLogin(fakeClient());
-    // Press every button on the form that is not the sign-in itself: none of
-    // them may bring up a field for a server.
+    // Press every button on the form that is not the sign-in itself or the
+    // password's show/hide toggle (t32-h17): none of them may bring up a field for
+    // a server.
     for (const button of screen.queryAllByRole('button')) {
-      if (button.textContent !== 'Sign in') fireEvent.click(button);
+      if (button.textContent !== 'Sign in' && button.getAttribute('aria-label') !== 'Show password') fireEvent.click(button);
     }
     expect(screen.queryByLabelText('JMAP server URL')).toBeNull();
     expect(document.querySelector('input[type=url]')).toBeNull();

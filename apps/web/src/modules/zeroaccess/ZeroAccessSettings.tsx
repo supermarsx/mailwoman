@@ -16,6 +16,7 @@ import { utf8ToB64, type ZeroAccessCrypto } from './crypto.ts';
 import type { Fetcher } from './service.ts';
 import { t, loadCatalog } from '../../i18n';
 import * as css from './styles.css.ts';
+import { PasswordInput } from '../../components/PasswordInput.tsx';
 
 // The honest zero-access disclosure copy is authored in `locales/en/security.ftl`
 // (security-za-*) and rendered via `t()`. Its English is byte-identical to the
@@ -151,13 +152,13 @@ export function ZeroAccessSettings(props: ZeroAccessSettingsProps): JSX.Element 
           <Show when={mode() === 'passphrase'}>
             <label class={css.field}>
               <span class={css.subHeading}>{t('security-za-passphrase')}</span>
-              <input
+              <PasswordInput
                 class={css.input}
-                type="password"
                 autocomplete="new-password"
                 value={passphrase()}
                 onInput={(e) => setPassphrase(e.currentTarget.value)}
-                aria-label={t('security-za-passphrase-label')}
+                label={t('security-za-passphrase-label')}
+                hideWhen={busy}
               />
             </label>
           </Show>

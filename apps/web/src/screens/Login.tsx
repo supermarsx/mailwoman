@@ -7,6 +7,7 @@ import { t, loadCatalog } from '../i18n';
 import { listSsoProviders, ssoBeginPath, type SsoProviderSummary } from '../modules/sso';
 import { TwoFactorChallenge } from './Settings/index.ts';
 import { authCard, authPage } from '../styles/authCard.css.ts';
+import { PasswordInput } from '../components/PasswordInput.tsx';
 
 /**
  * Did the browser land back here from a failed SSO round-trip? The IdP
@@ -132,12 +133,13 @@ export function Login(): JSX.Element {
         </label>
         <label class="field">
           <span>{t('auth-password')}</span>
-          <input
-            type="password"
+          <PasswordInput
+            label={t('auth-password')}
             required
             autocomplete="current-password"
             value={password()}
             onInput={(e) => setPassword(e.currentTarget.value)}
+            hideWhen={error}
           />
         </label>
         <Show when={error()}>

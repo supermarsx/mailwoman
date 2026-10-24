@@ -7,6 +7,7 @@ import { createSignal, onMount, Show, type JSX } from 'solid-js';
 import { NextcloudService, type Fetcher, type ShareLink } from './service.ts';
 import { t, loadCatalog, isolate } from '../../i18n';
 import * as css from './styles.css.ts';
+import { PasswordInput } from '../../components/PasswordInput.tsx';
 
 export interface ShareLinkComposerProps {
   /** The Nextcloud file to share (server-relative path). */
@@ -71,12 +72,13 @@ export function ShareLinkComposer(props: ShareLinkComposerProps): JSX.Element {
       <Show when={withPassword()}>
         <label class={css.field}>
           <span class={css.label}>{t('nextcloud-password-label')}</span>
-          <input
+          <PasswordInput
             class={css.input}
-            type="password"
-            aria-label={t('nextcloud-share-password')}
+            label={t('nextcloud-share-password')}
+            autocomplete="new-password"
             value={password()}
             onInput={(e) => setPassword(e.currentTarget.value)}
+            hideWhen={busy}
           />
         </label>
       </Show>

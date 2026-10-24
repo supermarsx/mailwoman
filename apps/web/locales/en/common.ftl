@@ -89,3 +89,10 @@ common-attach-cat-text = text
 common-attach-cat-audio = audio
 common-attach-cat-video = video
 common-attach-cat-other = other
+
+# -- Password fields (components/PasswordInput.tsx): the button at the end of
+# every password field, on both sign-in screens and in settings. It is a toggle;
+# its name stays "Show password" and screen readers announce pressed or not
+# pressed. The hide text is the pointer tooltip while the password is shown.
+common-password-show = Show password
+common-password-hide = Hide password

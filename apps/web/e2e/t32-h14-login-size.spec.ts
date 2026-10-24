@@ -144,7 +144,7 @@ for (const width of WIDTHS) {
       await shot(page, `mail-${tag}`);
 
       await form.getByRole('textbox', { name: 'Email address' }).fill('testuser@example.org');
-      await form.getByLabel('Password').fill('not-checked');
+      await form.getByLabel('Password', { exact: true }).fill('not-checked');
       await form.getByRole('button', { name: 'Sign in' }).click();
       await expect(form).toBeHidden();
       const second = await measure(page);

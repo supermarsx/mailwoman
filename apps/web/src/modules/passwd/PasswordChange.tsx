@@ -27,6 +27,7 @@ import { recoveryPhraseBefore, rewrapUnderNewPassword } from './rewrap.ts';
 import { utf8ToB64, type ZeroAccessCrypto } from '../zeroaccess/crypto.ts';
 import type { ZeroAccessAccount } from '../zeroaccess/service.ts';
 import * as css from './styles.css.ts';
+import { PasswordInput } from '../../components/PasswordInput.tsx';
 
 export interface PasswordChangeProps {
   accountId: string;
@@ -185,38 +186,38 @@ export function PasswordChange(props: PasswordChangeProps): JSX.Element {
 
           <label class={css.field}>
             <span class={css.label}>{t('passwd-current-label')}</span>
-            <input
+            <PasswordInput
               class={css.input}
-              type="password"
+              label={t('passwd-current-label')}
               autocomplete="current-password"
-              aria-label={t('passwd-current-label')}
               aria-describedby={describedBy()}
               value={oldPw()}
               onInput={(e) => setOldPw(e.currentTarget.value)}
+              hideWhen={busy}
             />
           </label>
           <label class={css.field}>
             <span class={css.label}>{t('passwd-new-label')}</span>
-            <input
+            <PasswordInput
               class={css.input}
-              type="password"
+              label={t('passwd-new-label')}
               autocomplete="new-password"
-              aria-label={t('passwd-new-label')}
               aria-describedby={describedBy()}
               value={newPw()}
               onInput={(e) => setNewPw(e.currentTarget.value)}
+              hideWhen={busy}
             />
           </label>
           <label class={css.field}>
             <span class={css.label}>{t('passwd-confirm-label')}</span>
-            <input
+            <PasswordInput
               class={css.input}
-              type="password"
+              label={t('passwd-confirm-label')}
               autocomplete="new-password"
-              aria-label={t('passwd-confirm-label')}
               aria-describedby={describedBy()}
               value={confirm()}
               onInput={(e) => setConfirm(e.currentTarget.value)}
+              hideWhen={busy}
             />
           </label>
 

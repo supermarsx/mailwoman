@@ -24,6 +24,7 @@ import {
 } from '../../../modules/sso';
 import { t, loadCatalog } from '../../../i18n';
 import * as css from '../admin.css.ts';
+import { PasswordInput } from '../../../components/PasswordInput.tsx';
 
 export interface AdminSsoProps {
   /** Tests inject a mock; production defaults to the same-origin HTTP client. */
@@ -330,12 +331,13 @@ export function AdminSso(props: AdminSsoProps): JSX.Element {
             </label>
             <label class="field">
               <span>{t('admin-sso-client-secret')}</span>
-              <input
-                type="password"
+              <PasswordInput
+                label={t('admin-sso-client-secret')}
                 autocomplete="off"
                 value={secret()}
                 placeholder={editingId() !== null ? t('admin-sso-secret-unchanged') : ''}
                 onInput={(e) => setSecret(e.currentTarget.value)}
+                hideWhen={error}
               />
             </label>
           </div>

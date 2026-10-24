@@ -35,7 +35,9 @@ export type IconName =
   | 'chevron'
   | 'check'
   | 'alert'
-  | 'info';
+  | 'info'
+  | 'eye'
+  | 'eyeOff';
 
 /** Icons whose meaning depends on reading direction. */
 export const DIRECTIONAL: ReadonlySet<IconName> = new Set<IconName>(['signOut', 'egress', 'chevron']);
@@ -194,6 +196,21 @@ const PATHS: Record<IconName, () => JSX.Element> = {
       <circle cx="8" cy="8" r="6.5" {...S} />
       <path d="M8 7 V12" {...S} />
       <rect x="7" y="3.5" width="2" height="2" {...F} />
+    </>
+  ),
+  // Show and hide a password (components/PasswordInput.tsx): an open eye, and the
+  // same eye struck through.
+  eye: () => (
+    <>
+      <path d="M1 8 Q8 1 15 8 Q8 15 1 8 Z" {...S} />
+      <circle cx="8" cy="8" r="2" {...F} />
+    </>
+  ),
+  eyeOff: () => (
+    <>
+      <path d="M1 8 Q8 1 15 8 Q8 15 1 8 Z" {...S} />
+      <circle cx="8" cy="8" r="2" {...F} />
+      <path d="M2 14 L14 2" {...S} />
     </>
   ),
 };

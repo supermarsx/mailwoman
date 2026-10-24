@@ -20,6 +20,7 @@ import { isolate, t } from '../../i18n';
 import { AdminTotpRequired, createAdminTotpVerifier, type AdminTotpVerifier } from './shell/adminAuth.ts';
 import * as css from './admin.css.ts';
 import { authCard, authPage } from '../../styles/authCard.css.ts';
+import { PasswordInput } from '../../components/PasswordInput.tsx';
 
 export interface AdminLoginProps {
   /** Second-step client. Defaults to the same-origin HTTP client; tests mock it. */
@@ -113,11 +114,12 @@ export function AdminLogin(props: AdminLoginProps = {}): JSX.Element {
             </label>
             <label class="field">
               <span>{t('admin-login-password')}</span>
-              <input
-                type="password"
+              <PasswordInput
+                label={t('admin-login-password')}
                 autocomplete="current-password"
                 value={password()}
                 onInput={(e) => setPassword(e.currentTarget.value)}
+                hideWhen={error}
               />
             </label>
             <Show when={error()}>
