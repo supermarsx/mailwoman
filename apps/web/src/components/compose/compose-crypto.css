@@ -82,7 +82,8 @@
   cursor: pointer;
 }
 .cmpcrypto-toggle--sub {
-  margin-inline-start: 1.3rem;
+  /* Under the parent option's text: the 24px box (checks.css.ts) plus the gap. */
+  margin-inline-start: calc(1.5rem + 0.45rem);
 }
 .cmpcrypto-toggle--disabled {
   cursor: default;
@@ -90,7 +91,7 @@
 }
 .cmpcrypto-toggle__hint {
   margin-block: -0.1rem 0.2rem;
-  margin-inline: 1.55rem 0;
+  margin-inline: calc(1.5rem + 0.45rem) 0;
   font-size: 0.75rem;
   color: var(--text-dim);
 }

@@ -89,10 +89,7 @@ body {
   box-shadow: none;
 }
 
-input[type='checkbox'],
-input[type='radio'] {
-  accent-color: var(--accent);
-}
+/* Checkboxes and radios: styles/checks.css.ts (size, accent, option rows). */
 
 .field {
   display: flex;
@@ -108,7 +105,7 @@ input[type='radio'] {
   text-transform: uppercase;
   color: var(--text-dim);
 }
-.field input,
+.field input:not([type='checkbox'], [type='radio']),
 .field textarea {
   font: inherit;
   padding: calc(0.5rem - 1px) calc(0.6rem - 1px);
@@ -118,7 +115,7 @@ input[type='radio'] {
   color: var(--text);
 }
 /* A light page puts fields on the brighter surface instead of the sink. */
-:root[data-appearance='light'] .field input,
+:root[data-appearance='light'] .field input:not([type='checkbox'], [type='radio']),
 :root[data-appearance='light'] .field textarea {
   background: var(--surface);
 }
@@ -755,7 +752,7 @@ input[type='radio'] {
      each button and field 2px shorter, so here the 1px the 2px border took
      from each block padding goes back. */
   .btn,
-  .field input,
+  .field input:not([type='checkbox'], [type='radio']),
   .field textarea {
     padding-block: 0.5rem;
   }

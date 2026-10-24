@@ -3,6 +3,8 @@ import { App } from './App.tsx';
 import { LocaleProvider } from './i18n/index.ts';
 import { installTrustedTypesPolicy } from './security/trustedTypes.ts';
 import './styles/app.css';
+// After app.css: one size and accent for every checkbox and radio (t32-h12).
+import './styles/checks.css.ts';
 
 // Trusted Types default policy (SPEC §7.4, 26.17; script-URL half added in 26.20
 // t24-e13). MUST run before `render()` — Solid's first `template().innerHTML` boot
