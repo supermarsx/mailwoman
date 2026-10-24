@@ -167,8 +167,9 @@ pub fn csrf_token_exempt(path: &str) -> bool {
         || path.starts_with("/api/login/2fa")
         // Mail-server lookup on the sign-in screen: unauthenticated, rate-limited.
         || path == "/api/discover"
-        // Admin panel sign-in. No admin session exists yet.
-        || path == "/admin/login"
+        // Admin panel sign-in, wherever `MW_ADMIN_PATH` puts it. No admin session
+        // exists yet.
+        || path == mw_admin::config::admin_route("/login")
         // OAuth token endpoint: authorisation code with its PKCE verifier, or a
         // refresh token, in the body.
         || path == "/oauth/token"
