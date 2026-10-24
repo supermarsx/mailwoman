@@ -344,3 +344,83 @@ describe('bounds', () => {
     expect(urls).toContain(url(519));
   });
 });
+
+// t32-h8: under a controlling worker `/admin` showed mw-server's plain-text 404.
+// The worker re-fetched the navigation itself, and a fetch made from a worker
+// goes out with `Sec-Fetch-Dest: empty` instead of `document`, which the server's
+// SPA fallback (`wants_spa_shell`) correctly refuses. Admin paths are now left to
+// the browser entirely: its own navigation carries `Sec-Fetch-Dest: document`,
+// nothing the admin session fetches is stored, and offline it gets the browser's
+// error page rather than the mail shell.
+describe('the admin console is never handled by the worker', () => {
+  async function withShell(scriptUrl?: string): Promise<Worker> {
+    const sw = boot(scriptUrl);
+    sw.network.fetch = async () => reply('<!doctype html><title>shell</title>', 'text/html');
+    await sw.install();
+    sw.network.calls.length = 0;
+    return sw;
+  }
+
+  it.each([
+    ['/admin', 'navigate'],
+    ['/admin/', 'navigate'],
+    ['/admin?next=users', 'navigate'],
+    ['/admin/users', 'navigate'],
+    ['/oauth/authorize?client_id=c1&state=s', 'navigate'],
+    ['/admin/session', 'cors'],
+    ['/admin/audit/export-a1b2c3d4e5.csv', 'cors'],
+  ])('leaves %s (%s) to the browser and stores nothing', async (path, mode) => {
+    const sw = await withShell();
+    // Control, same worker: a mail deep link is still answered by the worker.
+    expect((await sw.fetch('/inbox', { mode: 'navigate' })).handled).toBe(true);
+    sw.network.calls.length = 0;
+
+    const out = await sw.fetch(path, { mode });
+
+    expect(out.handled).toBe(false);
+    expect(sw.network.calls).toEqual([]);
+    expect(sw.caches.urls()).toEqual([`${ORIGIN}/`]);
+  });
+
+  it('offline, an admin navigation is not answered with the mail shell', async () => {
+    const sw = await withShell();
+    sw.network.fetch = offline;
+    // Control: the mail app still gets its shell offline.
+    expect(await (await sw.fetch('/inbox', { mode: 'navigate' })).response?.text()).toBe(
+      '<!doctype html><title>shell</title>',
+    );
+    expect((await sw.fetch('/admin', { mode: 'navigate' })).handled).toBe(false);
+  });
+
+  it('matches on a segment boundary', async () => {
+    const sw = await withShell();
+    for (const path of ['/administrator', '/admins', '/oauth/authorized']) {
+      expect((await sw.fetch(path, { mode: 'navigate' })).handled, path).toBe(true);
+    }
+  });
+
+  it('under a sub-path, only the prefixed admin console is left alone', async () => {
+    const sw = await withShell(`${ORIGIN}/mail/sw.js`);
+    expect((await sw.fetch('/mail/admin', { mode: 'navigate' })).handled).toBe(false);
+    expect((await sw.fetch('/mail/admin/', { mode: 'navigate' })).handled).toBe(false);
+    expect((await sw.fetch('/mail/oauth/authorize', { mode: 'navigate' })).handled).toBe(false);
+    expect((await sw.fetch('/mail/admin/session')).handled).toBe(false);
+    // Control: the prefixed mail app is still handled.
+    expect((await sw.fetch('/mail/inbox', { mode: 'navigate' })).handled).toBe(true);
+    expect(sw.caches.urls()).toEqual([`${ORIGIN}/mail/`]);
+  });
+
+  it('activation removes an admin response an older worker stored', async () => {
+    const sw = boot();
+    const legacy = await sw.caches.open(shellCacheName());
+    // Both stamped as fresh, so neither is removed for its age.
+    const fresh = (body: string): Response =>
+      new Response(body, { headers: { 'x-mw-cached-at': String(T0) } });
+    await legacy.put('/admin/audit/export-a1b2c3d4e5.csv', fresh('audit rows'));
+    await legacy.put(ASSET, fresh('export{}'));
+
+    await sw.activate();
+
+    expect(sw.caches.urls()).toEqual([`${ORIGIN}${ASSET}`]);
+  });
+});

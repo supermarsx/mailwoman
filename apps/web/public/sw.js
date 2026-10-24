@@ -10,7 +10,8 @@
 //   - cache-first  for hashed build assets + fonts (immutable, not user data)
 //   - network-first for the two PUBLIC, pre-auth config endpoints in
 //     CACHEABLE_API (cache is the offline fallback)
-//   - offline navigation → the stored app shell
+//   - offline navigation → the stored app shell, except for the admin console
+//     and the OAuth consent screen (SEPARATE_DOCUMENTS), which are never handled
 //   - everything else → not handled by this worker at all (plain network).
 //     That includes every other /jmap/* and /api/* path: /jmap/download/*
 //     (attachment bytes, whole .eml source), /api/export/*, /api/me,
@@ -48,6 +49,24 @@ function stripBase(pathname) {
 
 function isApiPath(pathname) {
   return pathname.startsWith('/jmap/') || pathname.startsWith('/api/');
+}
+
+// Pages that are their own documents rather than routes of the mail app: the
+// admin console (`/admin`, sections in the fragment) and the OAuth consent screen
+// (App.tsx renders both from the same bundle, picked by pathname). Every request
+// under them is left to the browser (t32-h8), for three reasons:
+//   - A navigation this worker re-fetches goes out with `Sec-Fetch-Dest: empty`
+//     rather than `document`, and mw-server's SPA fallback (`wants_spa_shell`)
+//     answers that with its plain-text 404. The browser's own navigation is
+//     recognised and gets the page.
+//   - Offline, the mail shell is the wrong page for them.
+//   - Admin requests carry the admin session; none of their responses is stored,
+//     whatever their path looks like.
+const SEPARATE_DOCUMENTS = ['/admin', '/oauth/authorize'];
+
+/** `/admin`, `/admin/`, `/admin/…` — on a segment boundary, so not `/administrator`. */
+function isSeparateDocument(pathname) {
+  return SEPARATE_DOCUMENTS.some((root) => pathname === root || pathname.startsWith(`${root}/`));
 }
 
 // The ONLY API responses that may be stored. Both are served before login and
@@ -100,10 +119,12 @@ function chooseStrategy(request) {
   const pathname = stripBase(url.pathname);
   // Checked BEFORE the navigation and asset rules: an attachment opened in a new
   // tab is a navigation, and `/jmap/download/a/b/report-2026final.pdf` has the
-  // shape of a hashed asset. Neither may fall through to a caching strategy.
+  // shape of a hashed asset. Neither may fall through to a caching strategy. The
+  // same holds for the admin console and the consent screen (SEPARATE_DOCUMENTS).
   if (isApiPath(pathname)) {
     return isCacheableApi(pathname, url.search) ? 'network-first' : 'passthrough';
   }
+  if (isSeparateDocument(pathname)) return 'passthrough';
   if (request.mode === 'navigate') return 'shell-fallback';
   if (isHashedAsset(pathname) || isFont(pathname)) return 'cache-first';
   return 'passthrough';
