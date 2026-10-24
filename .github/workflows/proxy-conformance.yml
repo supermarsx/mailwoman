@@ -70,9 +70,11 @@
 #                           network. It is deliberately OUTSIDE
 #                           MW_TRUSTED_PROXIES (172.28.10.0/24), which is what
 #                           makes the trusted-hop walk a real test.
-#   MW_T20_JMAP_URL         upstream for login — resolved by the APP inside the
-#   MW_T20_USER             compose network, not by the runner. The mock is not
-#   MW_T20_PASS             published on the host.
+#   MW_T20_USER             mailbox login. The app signs in to its own
+#   MW_T20_PASS             MW_UPSTREAM_DEFAULT (the compose `mock`, set in the
+#                           x-app-env anchor of docker-compose.proxy.yml); a
+#                           login cannot name a server (t32-h9). The mock is not
+#                           published on the host.
 #   MW_T20_PROXY_PREFIX     sub-path base. Left UNSET here on purpose: no
 #                           sub-path proxy config is shipped under
 #                           docs/deploy/proxy/. That test loud-skips.
@@ -366,7 +368,6 @@ jobs:
           MW_T20_PROXY_CA: ${{ github.workspace }}/docs/deploy/proxy/tls/certs/server.crt
           MW_T20_DIRECT_BASE: http://127.0.0.1:8607
           MW_T20_EXPECT_CLIENT_IP: 172.28.0.1
-          MW_T20_JMAP_URL: http://mock:8181/.well-known/jmap
           MW_T20_USER: testuser@example.org
           MW_T20_PASS: testpass
           # A list, not `all`. Two tests skip by design in the tier-1 cells, one
