@@ -285,3 +285,46 @@ describe('task editor helpers', () => {
     expect(dueFromDateInput('', '2026-10-09T17:00:00')).toBeNull();
   });
 });
+
+describe('TasksModule — adding before the task lists have loaded (t32-h11)', () => {
+  it('keeps Add disabled and sends no create until a list is known, then creates in that list', async () => {
+    let releaseLists: () => void = () => undefined;
+    const listsHeld = new Promise<void>((r) => {
+      releaseLists = r;
+    });
+    const sets: JmapRequest[] = [];
+    const base = mockClient([]);
+    const client = {
+      ...base,
+      jmap: async (body: JmapRequest): Promise<JmapResponse> => {
+        const method = body.methodCalls[0]?.[0];
+        if (method === 'Calendar/get') await listsHeld;
+        if (method === 'Task/set') sets.push(body);
+        return base.jmap(body);
+      },
+    } as Client;
+    const app = createAppState(client);
+    render(() => (
+      <AppContext.Provider value={app}>
+        <TasksModule />
+      </AppContext.Provider>
+    ));
+
+    const input = screen.getByLabelText('New task title') as HTMLInputElement;
+    const add = screen.getByRole('button', { name: 'Add' }) as HTMLButtonElement;
+    fireEvent.input(input, { target: { value: 'Early task' } });
+    expect(add.disabled).toBe(true);
+    // Enter submits the form even with the button disabled: still nothing is sent.
+    fireEvent.submit(input.closest('form')!);
+    await Promise.resolve();
+    expect(sets).toHaveLength(0);
+    expect(input.value).toBe('Early task');
+
+    releaseLists();
+    await waitFor(() => expect(add.disabled).toBe(false));
+    fireEvent.click(add);
+    await waitFor(() => expect(sets).toHaveLength(1));
+    const create = (sets[0]!.methodCalls[0]![1] as { create: { new: { listId: string; title: string } } }).create.new;
+    expect(create).toMatchObject({ listId: 'l1', title: 'Early task' });
+  });
+});

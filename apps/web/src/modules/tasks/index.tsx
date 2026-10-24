@@ -86,24 +86,29 @@ export function TasksModule(): JSX.Element {
     return app.selectedListId() ?? app.taskLists()[0]?.id ?? '';
   }
 
+  // Until the lists have loaded there is no list to put a task in; a create
+  // sent then names no list and the server refuses it (t32-h11), so adding
+  // waits and what was typed stays in the field.
+  const noList = (): boolean => targetList() === '';
+
   async function addTask(e: Event): Promise<void> {
     e.preventDefault();
     const title = newTitle().trim();
-    if (title === '') return;
+    if (title === '' || noList()) return;
     setNewTitle('');
     await app.createTask({ listId: targetList(), title });
   }
 
   async function convertMail(): Promise<void> {
     const id = mailId().trim();
-    if (id === '') return;
+    if (id === '' || noList()) return;
     setMailId('');
     await app.convertMailToTask(id, targetList(), { title: t('tasks-followup-mail', { id }) });
   }
 
   async function convertEvent(): Promise<void> {
     const id = eventId().trim();
-    if (id === '') return;
+    if (id === '' || noList()) return;
     setEventId('');
     await app.convertEventToTask(id, targetList(), { title: t('tasks-prep-event', { id }) });
   }
@@ -182,7 +187,7 @@ export function TasksModule(): JSX.Element {
               value={newTitle()}
               onInput={(e) => setNewTitle(e.currentTarget.value)}
             />
-            <button class={css.button} type="submit">{t('common-add')}</button>
+            <button class={css.button} type="submit" disabled={noList()}>{t('common-add')}</button>
           </form>
 
           <Show when={notice()}>
