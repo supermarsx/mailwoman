@@ -135,7 +135,7 @@ describe('OfflineQueueNotice', () => {
 describe('MessageList — where the notice is shown', () => {
   it('shows the failed-queue notice above the messages', async () => {
     const { app, client } = renderWithApp(() => <MessageList />, { emails: [mkEmail('a')] });
-    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await app.login({ username: 'me@example.org', password: 'p' });
     await waitFor(() => expect(app.messages().length).toBe(1));
     expect(screen.queryByTestId('offline-queue-failed')).toBeNull();
 

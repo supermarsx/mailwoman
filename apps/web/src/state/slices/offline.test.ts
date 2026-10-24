@@ -181,7 +181,7 @@ describe('the composed store — an offline move and its undo', () => {
     const client = makeClient({ emails: [mkEmail('a'), mkEmail('b')] });
     await createRoot(async (dispose) => {
       const app = createAppState(client);
-      await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+      await app.login({ username: 'me@example.org', password: 'p' });
       // Go offline the way the client reports it.
       for (const call of vi.mocked(client.onNetwork).mock.calls) call[0](false);
       expect(app.online()).toBe(false);

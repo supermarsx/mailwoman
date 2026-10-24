@@ -28,7 +28,7 @@ describe('Compose — the rich editor chunk has not arrived', () => {
         <Compose onClose={onClose} />
       </AppContext.Provider>
     ));
-    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await app.login({ username: 'me@example.org', password: 'p' });
 
     // Precondition: still in rich mode (the toggle offers "Plain text"), the
     // editor is absent, and Body is the fallback textarea.

@@ -109,7 +109,7 @@ async function withInbox(
   const ctx: SliceContext = { client, showToast: toast };
   await createRoot(async (dispose) => {
     const mail = createMailSlice(ctx);
-    await mail.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await mail.login({ username: 'me@example.org', password: 'p' });
     await run(mail, { toast, jmap, client, setSeed: (e) => (current = e) });
     dispose();
   });
@@ -141,7 +141,7 @@ async function withDeps(
   const ctx: SliceContext = { client, showToast: toast, ...deps };
   await createRoot(async (dispose) => {
     const mail = createMailSlice(ctx);
-    await mail.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await mail.login({ username: 'me@example.org', password: 'p' });
     await run(mail, { toast, jmap, client, setSeed: (e) => (current = e) });
     dispose();
   });
@@ -157,7 +157,7 @@ async function withBoxes(
   const toast = vi.fn();
   await createRoot(async (dispose) => {
     const mail = createMailSlice({ client, showToast: toast });
-    await mail.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await mail.login({ username: 'me@example.org', password: 'p' });
     await run(mail, { toast });
     dispose();
   });

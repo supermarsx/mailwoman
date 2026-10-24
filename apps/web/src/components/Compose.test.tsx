@@ -135,7 +135,7 @@ describe('Compose', () => {
 
   it('sends via the chosen identity', async () => {
     const { app } = renderWithApp(() => <Compose onClose={() => undefined} />, { identities: IDENTITIES });
-    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await app.login({ username: 'me@example.org', password: 'p' });
     await app.loadIdentities();
 
     fireEvent.input(screen.getByLabelText('To'), { target: { value: 'you@example.org' } });
@@ -258,7 +258,7 @@ describe('Compose', () => {
   it('uploads a locally-picked file and adds it as an attachment', async () => {
     vi.stubGlobal('fetch', mockUploadFetch());
     const { app } = renderWithApp(() => <Compose onClose={() => undefined} />, { identities: IDENTITIES });
-    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await app.login({ username: 'me@example.org', password: 'p' });
 
     const input = (await screen.findByLabelText('Attach a file')) as HTMLInputElement;
     // The picker enables once the session probe lands (uploadUrl + accountId).
@@ -275,7 +275,7 @@ describe('Compose', () => {
     const fetchSpy = mockUploadFetch();
     vi.stubGlobal('fetch', fetchSpy);
     const { app } = renderWithApp(() => <Compose onClose={() => undefined} />, { identities: IDENTITIES });
-    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await app.login({ username: 'me@example.org', password: 'p' });
 
     const input = (await screen.findByLabelText('Attach a file')) as HTMLInputElement;
     await waitFor(() => expect(input.disabled).toBe(false));
@@ -342,7 +342,7 @@ describe('Compose', () => {
         <Compose onClose={onClose} />
       </AppContext.Provider>
     ));
-    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await app.login({ username: 'me@example.org', password: 'p' });
     return { client, app, onClose };
   }
 
@@ -598,7 +598,7 @@ describe('Compose', () => {
         </Suspense>
       </AppContext.Provider>
     ));
-    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await app.login({ username: 'me@example.org', password: 'p' });
     fireEvent.click(screen.getByTestId('format-toggle')); // plain text
     const body = screen.getByLabelText('Body');
     expect(screen.queryByTestId('outer-fallback')).toBeNull();

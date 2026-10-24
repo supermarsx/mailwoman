@@ -34,7 +34,7 @@ import type { Client } from '../api/client.ts';
 import type { Email, EmailGetResponse, JmapResponse } from '../api/jmap-types.ts';
 
 const ROW = 72; // cozy density, the harness default
-const CREDS = { jmapUrl: 'x', username: 'me@example.org', password: 'p' };
+const CREDS = { username: 'me@example.org', password: 'p' };
 
 /** `makeClient` returns the SAME array instance from every `Email/get`, so a
  *  refetch after mutating it would never notify the `messages` signal. Clone

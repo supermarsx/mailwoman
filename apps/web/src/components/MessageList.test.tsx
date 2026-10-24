@@ -11,7 +11,7 @@ describe('MessageList (virtualized)', () => {
       mkEmail(`m${i}`, { subject: `Message ${i}` }),
     );
     const { app, result } = renderWithApp(() => <MessageList />, { emails });
-    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await app.login({ username: 'me@example.org', password: 'p' });
 
     await waitFor(() => expect(app.messages().length).toBe(5000));
     // Only the viewport window (± overscan) is in the DOM, not all 5000 rows.
@@ -27,7 +27,7 @@ describe('MessageList (virtualized)', () => {
     const { app } = renderWithApp(() => <MessageList />, {
       emails: [mkEmail('a', { keywords: { $seen: true, work: true } })],
     });
-    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await app.login({ username: 'me@example.org', password: 'p' });
     await waitFor(() => expect(app.messages().length).toBe(1));
     // 'work' is a seeded registry tag → its display name renders as a chip.
     expect(await screen.findByText('Work')).toBeInTheDocument();
@@ -36,7 +36,7 @@ describe('MessageList (virtualized)', () => {
   it('exposes list semantics: each row announces its position in the full list', async () => {
     const emails = Array.from({ length: 50 }, (_, i) => mkEmail(`m${i}`, { subject: `Message ${i}` }));
     const { app, result } = renderWithApp(() => <MessageList />, { emails });
-    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await app.login({ username: 'me@example.org', password: 'p' });
     await waitFor(() => expect(app.messages().length).toBe(50));
 
     const firstItem = result.container.querySelector('.list__slot') as HTMLElement;
@@ -52,7 +52,7 @@ describe('MessageList (virtualized)', () => {
     const { app, result } = renderWithApp(() => <MessageList />, {
       emails: [mkEmail('a', { subject: 'Alpha' }), mkEmail('b', { subject: 'Bravo', pinned: true })],
     });
-    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await app.login({ username: 'me@example.org', password: 'p' });
     await waitFor(() => expect(app.messages().length).toBe(2));
     const firstRow = result.container.querySelector('.list__row') as HTMLElement;
     expect(firstRow.textContent).toContain('Bravo');
@@ -62,7 +62,7 @@ describe('MessageList (virtualized)', () => {
   it('scales the virtualized row height with the density preference', async () => {
     const emails = Array.from({ length: 20 }, (_, i) => mkEmail(`m${i}`, { subject: `Message ${i}` }));
     const { app, result } = renderWithApp(() => <MessageList />, { emails });
-    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await app.login({ username: 'me@example.org', password: 'p' });
     await waitFor(() => expect(app.messages().length).toBe(20));
 
     const items = () => result.container.querySelector('.list__items') as HTMLElement;
@@ -85,7 +85,7 @@ describe('MessageList (virtualized)', () => {
       mkEmail('solo', { subject: 'Alone' }),
     ];
     const { app, result } = renderWithApp(() => <MessageList />, { emails });
-    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await app.login({ username: 'me@example.org', password: 'p' });
     await waitFor(() => expect(app.messages().length).toBe(4));
 
     // One conversation head (rep = newest 'Re: Hi') + one singleton row.
@@ -104,7 +104,7 @@ describe('MessageList (virtualized)', () => {
   it('leaves a thread-less list rendering exactly as a flat list (no thread heads)', async () => {
     const emails = Array.from({ length: 8 }, (_, i) => mkEmail(`m${i}`, { subject: `Message ${i}` }));
     const { app, result } = renderWithApp(() => <MessageList />, { emails });
-    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await app.login({ username: 'me@example.org', password: 'p' });
     await waitFor(() => expect(app.messages().length).toBe(8));
     expect(result.container.querySelectorAll('[data-testid="thread-head"]').length).toBe(0);
     expect(result.container.querySelectorAll('.list__row').length).toBe(8);
@@ -113,7 +113,7 @@ describe('MessageList (virtualized)', () => {
   // ── W3 reading-pane position control ──────────────────────────────────────
   it('drives the reading-pane position from the list toolbar', async () => {
     const { app } = renderWithApp(() => <MessageList />, { emails: [mkEmail('a')] });
-    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await app.login({ username: 'me@example.org', password: 'p' });
     await waitFor(() => expect(app.messages().length).toBe(1));
 
     const root = document.documentElement;

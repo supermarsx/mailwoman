@@ -149,7 +149,7 @@ describe('realtime slice — request outcomes drive the connection state', () =>
 
     next = () => json(401, { error: 'invalid credentials' });
     await expect(
-      client.login({ jmapUrl: 'https://mail.example.org', username: 'u', password: 'wrong' }),
+      client.login({ username: 'u', password: 'wrong' }),
     ).rejects.toMatchObject({ status: 401 });
     expect(slice.connectionState()).toBe('online');
 

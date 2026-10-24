@@ -75,7 +75,7 @@ async function openReader(
       <Reader onCompose={onCompose} />
     </AppContext.Provider>
   ));
-  await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+  await app.login({ username: 'me@example.org', password: 'p' });
   await app.loadIdentities();
   await app.openMessage(email.id);
   await screen.findByRole('toolbar', { name: 'Message actions' });
@@ -119,7 +119,7 @@ describe('Reader: opening a message suspends nothing around it', () => {
         </Suspense>
       </AppContext.Provider>
     ));
-    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await app.login({ username: 'me@example.org', password: 'p' });
     const list = screen.getByTestId('list-stand-in');
 
     await app.openMessage('m1');

@@ -13,7 +13,7 @@ describe('UndoToast', () => {
 
   it('shows the label + Undo button after a reversible action, and undo reverts it', async () => {
     const { app } = renderWithApp(() => <UndoToast />, { emails: [mkEmail('a'), mkEmail('b')] });
-    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await app.login({ username: 'me@example.org', password: 'p' });
 
     await app.pinMessage('b', true);
     expect(app.visibleMessages()[0]!.id).toBe('b');
@@ -29,7 +29,7 @@ describe('UndoToast', () => {
 
   it('labels the undo-send window Cancel', async () => {
     const { app } = renderWithApp(() => <UndoToast />, { emails: [mkEmail('a')] });
-    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await app.login({ username: 'me@example.org', password: 'p' });
 
     await app.sendMessage({ to: 'you@example.org', subject: 'Hi', htmlBody: '<p>x</p>', holdSeconds: 10 });
     expect(await screen.findByRole('button', { name: 'Cancel' })).toBeInTheDocument();
@@ -38,7 +38,7 @@ describe('UndoToast', () => {
 
   it('dismiss closes the toast without reverting', async () => {
     const { app } = renderWithApp(() => <UndoToast />, { emails: [mkEmail('a')] });
-    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await app.login({ username: 'me@example.org', password: 'p' });
     await app.applyTag('a', 'work');
 
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));

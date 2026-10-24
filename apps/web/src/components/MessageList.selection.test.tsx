@@ -23,7 +23,7 @@ async function setup(emails: Email[] = EMAILS): Promise<{ app: AppState; jmap: M
       <MessageList />
     </AppContext.Provider>
   ));
-  await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+  await app.login({ username: 'me@example.org', password: 'p' });
   await waitFor(() => expect(app.messages().length).toBe(emails.length));
   return { app, jmap: vi.mocked(client.jmap) };
 }

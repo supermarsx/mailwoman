@@ -60,7 +60,7 @@ async function open(initial?: ComposeInitial) {
       <Compose onClose={onClose} {...(initial !== undefined ? { initial } : {})} />
     </AppContext.Provider>
   ));
-  await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+  await app.login({ username: 'me@example.org', password: 'p' });
   return { client, app, onClose };
 }
 

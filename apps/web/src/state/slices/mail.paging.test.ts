@@ -185,7 +185,7 @@ async function withServer(
   const ctx: SliceContext = { client: server.client, showToast: toast };
   await createRoot(async (dispose) => {
     const mail = createMailSlice(ctx);
-    await mail.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await mail.login({ username: 'me@example.org', password: 'p' });
     await run(mail, toast);
     dispose();
   });
@@ -450,7 +450,7 @@ describe('paging — superseded responses cannot write', () => {
     const toast = vi.fn();
     await createRoot(async (dispose) => {
       const mail = createMailSlice({ client, showToast: toast });
-      await mail.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+      await mail.login({ username: 'me@example.org', password: 'p' });
       const archiveDone = mail.selectMailbox('archive').catch(() => 'threw');
       const trashDone = mail.selectMailbox('inbox');
       await expect(Promise.all([archiveDone, trashDone])).resolves.toBeDefined();
@@ -529,7 +529,7 @@ describe('paging — appending is not loading', () => {
     const toast = vi.fn();
     await createRoot(async (dispose) => {
       const mail = createMailSlice({ client, showToast: toast });
-      await mail.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+      await mail.login({ username: 'me@example.org', password: 'p' });
       fail = true;
       // Must not throw: this runs from a scroll handler, where a rejection is an
       // unhandled promise rather than a visible error.
@@ -640,7 +640,7 @@ describe('paging — offline search', () => {
         online: () => false,
         searchOffline: () => cached,
       });
-      await mail.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+      await mail.login({ username: 'me@example.org', password: 'p' });
       await mail.searchMessages('needle');
       expect(mail.messages()).toHaveLength(3);
       expect(mail.total()).toBe(3); // the cached slice IS the whole result here

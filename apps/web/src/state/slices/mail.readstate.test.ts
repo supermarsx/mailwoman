@@ -138,7 +138,7 @@ async function withSlice(
   const ctx: SliceContext = { client: server.client, showToast: toast };
   await createRoot(async (dispose) => {
     const mail = createMailSlice(ctx);
-    await mail.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await mail.login({ username: 'me@example.org', password: 'p' });
     await run(mail, server, toast);
     dispose();
   });

@@ -122,7 +122,7 @@ describe('MessageActions', () => {
 
   it('flagging from the toggled cluster closes it and hands focus back to the toggle', async () => {
     const { app, toggle, cluster } = mount();
-    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await app.login({ username: 'me@example.org', password: 'p' });
     fireEvent.click(toggle);
     fireEvent.click(within(cluster).getByRole('button', { name: 'Flag for follow-up' }));
     expect(cluster).not.toHaveClass(css.actionsOpen);
@@ -132,7 +132,7 @@ describe('MessageActions', () => {
 
   it('picking a snooze preset snoozes the message and closes everything', async () => {
     const { app, toggle, cluster } = mount();
-    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await app.login({ username: 'me@example.org', password: 'p' });
     fireEvent.click(toggle);
     fireEvent.click(within(cluster).getByRole('button', { name: 'Snooze' }));
     fireEvent.click(within(cluster).getByRole('menuitem', { name: 'Tomorrow' }));

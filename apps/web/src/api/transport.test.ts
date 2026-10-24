@@ -125,12 +125,11 @@ describe('native sign-in (t31)', () => {
 
     const client = createConfiguredClient();
 
-    const me = await client.login({ jmapUrl: 'https://jmap.example.org', username: 'u', password: 'p' });
+    const me = await client.login({ username: 'u', password: 'p' });
     expect(me).toEqual({ ok: true, accountId: 'a', username: 'u' }); // the token is not part of `Me`.
     const [loginUrl, loginInit] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(loginUrl).toBe('https://mail.example.org/api/login');
     expect(JSON.parse(loginInit.body as string)).toEqual({
-      jmapUrl: 'https://jmap.example.org',
       username: 'u',
       password: 'p',
       clientType: 'native',
@@ -151,10 +150,21 @@ describe('native sign-in (t31)', () => {
   it('a browser sign-in never sends clientType', async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ accountId: 'a', username: 'u' }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
-    await createConfiguredClient().login({ jmapUrl: 'x', username: 'u', password: 'p' });
+    await createConfiguredClient().login({ username: 'u', password: 'p' });
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(JSON.parse(init.body as string)).not.toHaveProperty('clientType');
     expect(init.credentials).toBe('same-origin');
+  });
+
+  // t32-h9: the server refuses a sign-in that names a mail server, so the client
+  // sends the two fields and nothing a caller adds.
+  it('a sign-in sends only the address and the password', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ accountId: 'a', username: 'u' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const input = { username: 'u', password: 'p', jmapUrl: 'https://jmap.example.org' };
+    await createConfiguredClient().login(input);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ username: 'u', password: 'p' });
   });
 
   it('with no configured server address, boot reads as signed out and sends nothing', async () => {

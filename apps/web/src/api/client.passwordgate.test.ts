@@ -98,7 +98,7 @@ describe('client — passwordChangeRequired', () => {
     stub(() => json(200, { username: 'u@example.org', accountId: 'a1', passwordChangeRequired: true }));
     const client = createClient('');
 
-    const fromLogin = await client.login({ jmapUrl: 'https://j.example.org', username: 'u', password: 'p' });
+    const fromLogin = await client.login({ username: 'u', password: 'p' });
     expect(fromLogin.passwordChangeRequired).toBe(true);
     const fromMe = await client.me();
     expect(fromMe.passwordChangeRequired).toBe(true);

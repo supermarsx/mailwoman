@@ -48,7 +48,7 @@ describe('MessageList — the sender cell', () => {
         mkEmail('b', { from: [{ name: 'security@bank.example', email: 'y@evil.example' }] }),
       ],
     });
-    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await app.login({ username: 'me@example.org', password: 'p' });
     await waitFor(() => expect(app.messages().length).toBe(2));
     const cells = [...result.container.querySelectorAll('.list__sender')].map((el) =>
       stripIsolates(el.textContent ?? ''),
@@ -69,7 +69,7 @@ describe('MessageList — answered and forwarded marks', () => {
         mkEmail('both', { keywords: { $answered: true, $forwarded: true } }),
       ],
     });
-    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await app.login({ username: 'me@example.org', password: 'p' });
     await waitFor(() => expect(app.messages().length).toBe(4));
     const marks = [...result.container.querySelectorAll('.list__row')].map((row) =>
       [...row.querySelectorAll('[data-testid="row-answered"], [data-testid="row-forwarded"]')].map((el) =>

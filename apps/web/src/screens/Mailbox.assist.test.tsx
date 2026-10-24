@@ -32,7 +32,7 @@ describe('Mailbox Assist wiring', () => {
 
   it('surfaces the Assist chat panel and semantic-search toggle when enabled', async () => {
     const { app } = renderWithApp(() => <MailboxScreen />, { deps: { assistService: enabledAssist() } });
-    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await app.login({ username: 'me@example.org', password: 'p' });
     await app.assist.loadConfig();
 
     expect(await screen.findByRole('region', { name: 'AI assistant' })).toBeInTheDocument();
@@ -41,7 +41,7 @@ describe('Mailbox Assist wiring', () => {
 
   it('renders no Assist affordances when the gateway is disabled', async () => {
     const { app } = renderWithApp(() => <MailboxScreen />);
-    await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
+    await app.login({ username: 'me@example.org', password: 'p' });
 
     expect(screen.queryByRole('region', { name: 'AI assistant' })).toBeNull();
     expect(screen.queryByText('Semantic search')).toBeNull();
