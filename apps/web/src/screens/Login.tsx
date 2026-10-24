@@ -6,6 +6,7 @@ import { useApp } from '../state/context.ts';
 import { t, loadCatalog } from '../i18n';
 import { listSsoProviders, ssoBeginPath, type SsoProviderSummary } from '../modules/sso';
 import { TwoFactorChallenge } from './Settings/index.ts';
+import { authCard, authPage } from '../styles/authCard.css.ts';
 
 /**
  * Did the browser land back here from a failed SSO round-trip? The IdP
@@ -88,8 +89,8 @@ export function Login(): JSX.Element {
   return (
     <Show when={challenge()} fallback={credentialForm()}>
       {(ch) => (
-        <main class="login">
-          <div class="login__card">
+        <main class={`login ${authPage}`}>
+          <div class={`login__card ${authCard}`}>
             <h1 class="login__title">{t('auth-app-name')}</h1>
             <Show
               when={!ch().enrollmentRequired}
@@ -112,8 +113,8 @@ export function Login(): JSX.Element {
 
   function credentialForm(): JSX.Element {
     return (
-    <main class="login">
-      <form class="login__card" onSubmit={(e) => void onSubmit(e)} aria-label={t('auth-sign-in')}>
+    <main class={`login ${authPage}`}>
+      <form class={`login__card ${authCard}`} onSubmit={(e) => void onSubmit(e)} aria-label={t('auth-sign-in')}>
         <h1 class="login__title">{t('auth-app-name')}</h1>
         <label class="field">
           <span>{t('auth-email')}</span>

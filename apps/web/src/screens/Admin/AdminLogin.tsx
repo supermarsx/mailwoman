@@ -19,6 +19,7 @@ import { AdminApiError } from '../../state/slices/admin.ts';
 import { isolate, t } from '../../i18n';
 import { AdminTotpRequired, createAdminTotpVerifier, type AdminTotpVerifier } from './shell/adminAuth.ts';
 import * as css from './admin.css.ts';
+import { authCard, authPage } from '../../styles/authCard.css.ts';
 
 export interface AdminLoginProps {
   /** Second-step client. Defaults to the same-origin HTTP client; tests mock it. */
@@ -89,11 +90,11 @@ export function AdminLogin(props: AdminLoginProps = {}): JSX.Element {
   }
 
   return (
-    <main class={css.gate}>
+    <main class={`${css.gate} ${authPage}`}>
       <Show
         when={pending() !== null}
         fallback={
-          <form class={css.loginCard} onSubmit={(e) => void onSubmit(e)} aria-label={t('admin-login-form')}>
+          <form class={`${css.loginCard} ${authCard}`} onSubmit={(e) => void onSubmit(e)} aria-label={t('admin-login-form')}>
             <h1 class={css.heading}>{t('admin-brand')}</h1>
             <p class={css.note}>{t('admin-login-note')}</p>
             <Show when={admin.sessionEnded()}>
@@ -130,7 +131,7 @@ export function AdminLogin(props: AdminLoginProps = {}): JSX.Element {
           </form>
         }
       >
-        <form class={css.loginCard} onSubmit={(e) => void onSubmitCode(e)} aria-label={t('admin-shell-totp-form')}>
+        <form class={`${css.loginCard} ${authCard}`} onSubmit={(e) => void onSubmitCode(e)} aria-label={t('admin-shell-totp-form')}>
           <h1 class={css.heading}>{t('admin-brand')}</h1>
           <p class={css.note}>{t('admin-shell-totp-note', { name: isolate(username()) })}</p>
           <label class="field">
