@@ -530,6 +530,72 @@ impl Store {
         Ok(())
     }
 
+    /// Follow an upstream RENAME (26.20 t28-e17): the mailbox named `old_name`
+    /// becomes `new_name`, and so does the prefix of every descendant —
+    /// `old_name` + `delimiter` + rest becomes `new_name` + `delimiter` + rest,
+    /// which is what the server did to the children (RFC 3501 §6.3.5). Rows
+    /// keep their ids, so messages, cursors and change history stay attached.
+    /// Returns the ids renamed, the mailbox itself first. `delimiter == None`
+    /// (a flat namespace) renames the one row.
+    pub async fn rename_mailbox_tree(
+        &self,
+        account_id: &str,
+        old_name: &str,
+        new_name: &str,
+        delimiter: Option<char>,
+    ) -> Result<Vec<String>, StoreError> {
+        let mut renames: Vec<(String, String)> = Vec::new();
+        let child_prefix = delimiter.map(|d| format!("{old_name}{d}"));
+        for m in self.list_mailboxes(account_id).await? {
+            if m.name == old_name {
+                renames.insert(0, (m.id, new_name.to_string()));
+            } else if let Some(prefix) = &child_prefix
+                && let Some(rest) = m.name.strip_prefix(prefix.as_str())
+            {
+                let d = delimiter.expect("set with child_prefix");
+                renames.push((m.id, format!("{new_name}{d}{rest}")));
+            }
+        }
+        let mut tx = self.backend.begin().await?;
+        for (id, name) in &renames {
+            q("UPDATE mailboxes SET name = ?2 WHERE id = ?1")
+                .bind(id)
+                .bind(name)
+                .execute_tx(&mut tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(renames.into_iter().map(|(id, _)| id).collect())
+    }
+
+    /// Drop a mailbox row after an upstream DELETE (26.20 t28-e17). Its
+    /// messages and sync cursor go with it through the foreign keys; the
+    /// engine removes the messages one by one first, so their embeddings,
+    /// unread counts, index entries and change rows are handled by the same
+    /// path as any other removal. Deleting a mailbox that is not there is a
+    /// no-op.
+    pub async fn delete_mailbox(&self, id: &str) -> Result<(), StoreError> {
+        let mut tx = self.backend.begin().await?;
+        q("DELETE FROM sync_state WHERE mailbox_id = ?1")
+            .bind(id)
+            .execute_tx(&mut tx)
+            .await?;
+        q("DELETE FROM messages WHERE mailbox_id = ?1")
+            .bind(id)
+            .execute_tx(&mut tx)
+            .await?;
+        q("UPDATE mailboxes SET parent_id = NULL WHERE parent_id = ?1")
+            .bind(id)
+            .execute_tx(&mut tx)
+            .await?;
+        q("DELETE FROM mailboxes WHERE id = ?1")
+            .bind(id)
+            .execute_tx(&mut tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     fn mailbox_from_row(row: &Row) -> Mailbox {
         Mailbox {
             id: row.get_string("id"),
@@ -2890,5 +2956,81 @@ mod tests {
                 .as_deref(),
             Some(cursor2)
         );
+    }
+
+    /// 26.20 t28-e17: a rename carries the descendants' prefixes and keeps
+    /// every id, and leaves a sibling that merely shares the prefix alone.
+    #[tokio::test]
+    async fn rename_mailbox_tree_renames_children_and_keeps_ids() {
+        let s = store().await;
+        let account_id = seed_account(&s).await;
+        let work = seed_mailbox(&s, &account_id, "Work", 7).await;
+        let child = seed_mailbox(&s, &account_id, "Work.Q3", 8).await;
+        let grandchild = seed_mailbox(&s, &account_id, "Work.Q3.Done", 9).await;
+        let lookalike = seed_mailbox(&s, &account_id, "Workshop", 10).await;
+        let message = s
+            .upsert_message(&msg(
+                &account_id,
+                &child,
+                1,
+                8,
+                "m@x",
+                "2026-07-01T09:00:00Z",
+            ))
+            .await
+            .unwrap();
+
+        let renamed = s
+            .rename_mailbox_tree(&account_id, "Work", "Jobs", Some('.'))
+            .await
+            .unwrap();
+        assert_eq!(renamed.first(), Some(&work), "the mailbox itself first");
+        assert_eq!(renamed.len(), 3, "{renamed:?}");
+
+        let name = |id: String| {
+            let s = &s;
+            async move { s.get_mailbox(&id).await.unwrap().name }
+        };
+        assert_eq!(name(work).await, "Jobs");
+        assert_eq!(name(child.clone()).await, "Jobs.Q3");
+        assert_eq!(name(grandchild).await, "Jobs.Q3.Done");
+        assert_eq!(name(lookalike).await, "Workshop");
+        assert_eq!(s.get_message(&message).await.unwrap().mailbox_id, child);
+    }
+
+    /// 26.20 t28-e17: dropping a mailbox removes its row, its messages and its
+    /// cursor, and un-parents (does not delete) a child row.
+    #[tokio::test]
+    async fn delete_mailbox_drops_row_messages_and_cursor() {
+        let s = store().await;
+        let account_id = seed_account(&s).await;
+        let doomed = seed_mailbox(&s, &account_id, "Old", 7).await;
+        let kept = seed_mailbox(&s, &account_id, "INBOX", 8).await;
+        let message = s
+            .upsert_message(&msg(
+                &account_id,
+                &doomed,
+                1,
+                7,
+                "m@x",
+                "2026-07-01T09:00:00Z",
+            ))
+            .await
+            .unwrap();
+        s.save_cursor(&account_id, &doomed, "{}").await.unwrap();
+        // Precondition: everything is there.
+        assert!(s.get_message(&message).await.is_ok());
+        assert!(s.load_cursor(&account_id, &doomed).await.unwrap().is_some());
+
+        s.delete_mailbox(&doomed).await.unwrap();
+        assert!(matches!(
+            s.get_mailbox(&doomed).await,
+            Err(StoreError::NotFound)
+        ));
+        assert!(s.get_message(&message).await.is_err());
+        assert!(s.load_cursor(&account_id, &doomed).await.unwrap().is_none());
+        assert!(s.get_mailbox(&kept).await.is_ok());
+        // A second delete is a no-op.
+        s.delete_mailbox(&doomed).await.unwrap();
     }
 }

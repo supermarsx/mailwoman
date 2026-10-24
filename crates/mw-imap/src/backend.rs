@@ -206,6 +206,51 @@ impl AccountBackend for ImapBackend {
         session.set_metadata(name, entry, value).await?;
         Ok(())
     }
+
+    // --- Folder management + permanent removal (26.20 t28-e17) ---------------
+
+    fn manages_mailboxes(&self) -> bool {
+        true
+    }
+
+    async fn hierarchy_delimiter(&self) -> Result<Option<char>> {
+        let mut session = self.session.lock().await;
+        Ok(session.hierarchy_delimiter().await?)
+    }
+
+    async fn create_mailbox(&self, name: &str) -> Result<()> {
+        let mut session = self.session.lock().await;
+        Ok(session.create_mailbox(name).await?)
+    }
+
+    async fn rename_mailbox(&self, from: &RawMailboxRef, to: &str) -> Result<()> {
+        let mut session = self.session.lock().await;
+        Ok(session.rename_mailbox(&from.name, to).await?)
+    }
+
+    async fn delete_mailbox(&self, mbox: &RawMailboxRef) -> Result<()> {
+        let mut session = self.session.lock().await;
+        Ok(session.delete_mailbox(&mbox.name).await?)
+    }
+
+    async fn subscribe(&self, mbox: &RawMailboxRef, subscribed: bool) -> Result<()> {
+        let mut session = self.session.lock().await;
+        Ok(session.subscribe(&mbox.name, subscribed).await?)
+    }
+
+    async fn subscribed_mailboxes(&self) -> Result<Vec<String>> {
+        let mut session = self.session.lock().await;
+        Ok(session.subscribed_mailboxes().await?)
+    }
+
+    async fn expunge_messages(&self, refs: &[MessageRef]) -> Result<()> {
+        let groups = group_imap_refs(refs)?;
+        let mut session = self.session.lock().await;
+        for (mailbox, uids) in groups {
+            session.expunge(&mailbox, &uids).await?;
+        }
+        Ok(())
+    }
 }
 
 /// Combine per-mailbox move outcomes: any re-derive taints the whole result;

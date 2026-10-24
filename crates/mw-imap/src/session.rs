@@ -91,6 +91,9 @@ pub struct Session {
     qresync_enabled: bool,
     host: String,
     port: u16,
+    /// The hierarchy delimiter once `LIST "" ""` has answered (`Some(None)` is
+    /// a flat namespace). It does not change for the life of a connection.
+    delimiter: Option<Option<char>>,
 }
 
 impl Session {
@@ -113,6 +116,7 @@ impl Session {
             qresync_enabled: false,
             host: host.to_string(),
             port,
+            delimiter: None,
         };
         if mode == TlsMode::StartTls && !session.conn.is_encrypted() {
             session.ensure_capabilities().await?;
@@ -682,6 +686,133 @@ impl Session {
             uidvalidity: 0,
             uid: 0,
         })
+    }
+
+    // --- Folder management (26.20 t28-e17) -------------------------------------
+
+    /// The hierarchy delimiter, from `LIST "" ""` (RFC 3501 §6.3.8), cached for
+    /// the connection. `None` is a flat namespace (`NIL`).
+    pub async fn hierarchy_delimiter(&mut self) -> ImapResult<Option<char>> {
+        if let Some(d) = self.delimiter {
+            return Ok(d);
+        }
+        let tagged = self.conn.execute("LIST \"\" \"\"").await?.ok()?;
+        let mut found = None;
+        for resp in tagged.untagged {
+            if let Response::MailboxData(MailboxDatum::List { delimiter, .. }) = resp {
+                found = delimiter.and_then(|d| d.chars().next());
+                break;
+            }
+        }
+        self.delimiter = Some(found);
+        Ok(found)
+    }
+
+    /// `CREATE <name>`.
+    pub async fn create_mailbox(&mut self, name: &str) -> ImapResult<()> {
+        self.conn
+            .execute(&format!("CREATE {}", quote(name)))
+            .await?
+            .ok()?;
+        Ok(())
+    }
+
+    /// `RENAME <from> <to>`. The server renames the children too.
+    pub async fn rename_mailbox(&mut self, from: &str, to: &str) -> ImapResult<()> {
+        self.leave_if_selected(from).await?;
+        self.conn
+            .execute(&format!("RENAME {} {}", quote(from), quote(to)))
+            .await?
+            .ok()?;
+        Ok(())
+    }
+
+    /// `DELETE <name>`.
+    pub async fn delete_mailbox(&mut self, name: &str) -> ImapResult<()> {
+        self.leave_if_selected(name).await?;
+        self.conn
+            .execute(&format!("DELETE {}", quote(name)))
+            .await?
+            .ok()?;
+        Ok(())
+    }
+
+    /// `SUBSCRIBE <name>` or `UNSUBSCRIBE <name>`.
+    pub async fn subscribe(&mut self, name: &str, subscribed: bool) -> ImapResult<()> {
+        let verb = if subscribed {
+            "SUBSCRIBE"
+        } else {
+            "UNSUBSCRIBE"
+        };
+        self.conn
+            .execute(&format!("{verb} {}", quote(name)))
+            .await?
+            .ok()?;
+        Ok(())
+    }
+
+    /// `LSUB "" "*"`: the full names of the subscribed mailboxes. `imap-proto`
+    /// does not model `LSUB`, so the reply is read at the line level; the name
+    /// is the last token of each `* LSUB (<attrs>) <delim> <name>` line.
+    pub async fn subscribed_mailboxes(&mut self) -> ImapResult<Vec<String>> {
+        let lines = self.conn.execute_lines("LSUB \"\" \"*\"").await?;
+        Ok(lines
+            .iter()
+            .filter_map(|line| untagged_payload(line, "LSUB"))
+            .filter_map(|payload| tokenize(payload).pop().map(tok_value))
+            .collect())
+    }
+
+    /// Remove `uids` from `mailbox` for good, and nothing else.
+    ///
+    /// With UIDPLUS: `UID STORE +FLAGS (\Deleted)` then `UID EXPUNGE <uids>`
+    /// (RFC 4315 §2.1), which expunges only the named messages. Without it the
+    /// only expunge is the whole-mailbox `EXPUNGE`, which would also remove any
+    /// other message somebody marked `\Deleted`; so `UID SEARCH DELETED` runs
+    /// first and, if it names anything but `uids`, this returns `Unsupported`
+    /// before changing anything.
+    pub async fn expunge(&mut self, mailbox: &RawMailboxRef, uids: &[u32]) -> ImapResult<()> {
+        if uids.is_empty() {
+            return Ok(());
+        }
+        self.ensure_selected(&mailbox.name).await?;
+        let set = format_uid_set(uids);
+        let uidplus = self.caps.has("UIDPLUS");
+        if !uidplus {
+            let marked = self.uid_search("UID SEARCH DELETED").await?;
+            if marked.iter().any(|uid| !uids.contains(uid)) {
+                return Err(ImapError::Unsupported(
+                    "the server has no UIDPLUS and other messages in this folder are marked \
+                     \\Deleted, so one message cannot be expunged on its own"
+                        .into(),
+                ));
+            }
+        }
+        self.conn
+            .execute(&format!("UID STORE {set} +FLAGS.SILENT (\\Deleted)"))
+            .await?
+            .ok()?;
+        let expunge = if uidplus {
+            format!("UID EXPUNGE {set}")
+        } else {
+            "EXPUNGE".to_string()
+        };
+        self.conn.execute(&expunge).await?.ok()?;
+        Ok(())
+    }
+
+    /// Close the selection when it is `name`, before a RENAME or DELETE of it.
+    /// `UNSELECT` (RFC 3691) leaves `\Deleted` messages alone, unlike `CLOSE`;
+    /// without it the selection is only forgotten here.
+    async fn leave_if_selected(&mut self, name: &str) -> ImapResult<()> {
+        if self.selected.as_deref() != Some(name) {
+            return Ok(());
+        }
+        if self.caps.has("UNSELECT") {
+            self.conn.execute("UNSELECT").await?.ok()?;
+        }
+        self.selected = None;
+        Ok(())
     }
 
     /// Graceful LOGOUT.

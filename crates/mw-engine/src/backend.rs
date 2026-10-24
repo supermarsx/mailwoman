@@ -153,6 +153,68 @@ pub trait AccountBackend: Send + Sync {
         let _ = (mbox, entry, value);
         Err(EngineError::Unsupported("set_metadata".into()))
     }
+
+    // ── Folder management and permanent removal, added 26.20 (t28-e17) ───────
+    //
+    // Additive like the ACL block above: every default is `Unsupported`, so
+    // POP3 and plugin/bridge backends compile unchanged and the engine answers
+    // `Mailbox/set` on them with `accountNotSupportedByMethod`. Names are full
+    // server names (hierarchy delimiter already applied by the caller, which
+    // learns it from `hierarchy_delimiter`).
+
+    /// Whether this backend implements the folder verbs below. Sync and cheap:
+    /// the engine reads it to build the session's mail account capability, so
+    /// a client can hide folder controls on accounts that cannot use them.
+    fn manages_mailboxes(&self) -> bool {
+        false
+    }
+
+    /// The server's hierarchy delimiter (`LIST "" ""`), or `None` for a flat
+    /// namespace.
+    async fn hierarchy_delimiter(&self) -> Result<Option<char>> {
+        Err(EngineError::Unsupported("hierarchy_delimiter".into()))
+    }
+
+    /// CREATE a mailbox with the full server name `name`.
+    async fn create_mailbox(&self, name: &str) -> Result<()> {
+        let _ = name;
+        Err(EngineError::Unsupported("create_mailbox".into()))
+    }
+
+    /// RENAME `from` to the full server name `to`. The server moves the
+    /// mailbox's children with it (RFC 3501 §6.3.5).
+    async fn rename_mailbox(&self, from: &RawMailboxRef, to: &str) -> Result<()> {
+        let _ = (from, to);
+        Err(EngineError::Unsupported("rename_mailbox".into()))
+    }
+
+    /// DELETE a mailbox. The server removes the messages in it.
+    async fn delete_mailbox(&self, mbox: &RawMailboxRef) -> Result<()> {
+        let _ = mbox;
+        Err(EngineError::Unsupported("delete_mailbox".into()))
+    }
+
+    /// SUBSCRIBE (`true`) or UNSUBSCRIBE (`false`) a mailbox.
+    async fn subscribe(&self, mbox: &RawMailboxRef, subscribed: bool) -> Result<()> {
+        let _ = (mbox, subscribed);
+        Err(EngineError::Unsupported("subscribe".into()))
+    }
+
+    /// The full names of the subscribed mailboxes (`LSUB "" "*"`).
+    async fn subscribed_mailboxes(&self) -> Result<Vec<String>> {
+        Err(EngineError::Unsupported("subscribed_mailboxes".into()))
+    }
+
+    /// Remove messages from the server for good: `\Deleted` + `UID EXPUNGE`.
+    ///
+    /// Only the named messages may go. A backend that cannot expunge them
+    /// without also expunging other messages (IMAP without UIDPLUS, when other
+    /// messages in the folder carry `\Deleted`) returns `Unsupported` having
+    /// changed nothing, and the engine moves them to Trash instead.
+    async fn expunge_messages(&self, refs: &[MessageRef]) -> Result<()> {
+        let _ = refs;
+        Err(EngineError::Unsupported("expunge_messages".into()))
+    }
 }
 
 /// One ACL grant (RFC 4314): an `identifier` (user/group/`anyone`) paired with
