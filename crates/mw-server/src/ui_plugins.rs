@@ -784,10 +784,13 @@ fn not_found(id: &str) -> Response {
         .into_response()
 }
 
+/// A store failure is logged here and reported without its text, which can name
+/// tables and SQL (t32-h10).
 fn store_error(e: &StoreError) -> Response {
+    tracing::warn!("ui-plugin registry error: {e}");
     (
         StatusCode::INTERNAL_SERVER_ERROR,
-        Json(json!({ "error": format!("registry error: {e}") })),
+        Json(json!({ "error": "registry operation failed" })),
     )
         .into_response()
 }

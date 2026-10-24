@@ -477,10 +477,13 @@ fn not_found(id: &str) -> Response {
         .into_response()
 }
 
+/// A store failure is logged here and reported without its text, which can name
+/// tables and SQL (t32-h10).
 fn store_error(e: &StoreError) -> Response {
+    tracing::warn!("masked-email store error: {e}");
     (
         StatusCode::INTERNAL_SERVER_ERROR,
-        axum::Json(json!({ "error": format!("masked-email store error: {e}") })),
+        axum::Json(json!({ "error": "masked-email operation failed" })),
     )
         .into_response()
 }

@@ -243,9 +243,12 @@ async fn ingest_messages(
         let blob_id = match engine.store_upload(account, "message/rfc822", msg).await {
             Ok(id) => id,
             Err(e) => {
-                return upstream(&format!(
-                    "upload backend rejected message {i} (is MW_UPLOAD_DIR configured?): {e}"
-                ));
+                // The store error can carry the upload path; the operator reads it
+                // in the log, the client gets the message number only (t32-h10).
+                tracing::warn!(
+                    "import: upload backend rejected message {i} (is MW_UPLOAD_DIR configured?): {e}"
+                );
+                return upstream(&format!("message {i} could not be stored"));
             }
         };
         emails.insert(

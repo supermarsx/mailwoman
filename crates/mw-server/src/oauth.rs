@@ -181,6 +181,14 @@ async fn decision(
     };
     let p = &body.params;
     if !body.approve {
+        // The deny redirect goes only to a URI registered for this client, the
+        // check the grant path makes in `authorize_within`. Without it any
+        // `redirect_uri` came back for the consent page to navigate to (t32-h10).
+        match state.v6.auth.store().get_client(&p.client_id).await {
+            Ok(Some(c)) if c.redirect_uris.iter().any(|u| u == &p.redirect_uri) => {}
+            Ok(_) => return bad_request("invalid_request"),
+            Err(e) => return server_error(e),
+        }
         let mut url = format!("{}?error=access_denied", p.redirect_uri);
         if let Some(s) = &p.state {
             url.push_str(&format!("&state={}", urlencode(s)));
@@ -216,6 +224,8 @@ async fn decision(
             }
             Json(json!({ "redirectUri": url })).into_response()
         }
+        // A store failure is not the client's fault and its text is not theirs to see.
+        Err(e @ mw_oauth::OAuthError::Store(_)) => server_error(e),
         Err(e) => bad_request(&format!("authorization denied: {e}")),
     }
 }
@@ -266,6 +276,7 @@ async fn token(State(state): State<AppState>, Json(body): Json<TokenReq>) -> Res
             "resource": t.resource,
         }))
         .into_response(),
+        Err(e @ mw_oauth::OAuthError::Store(_)) => server_error(e),
         Err(e) => (
             StatusCode::BAD_REQUEST,
             Json(json!({ "error": "invalid_grant", "detail": e.to_string() })),

@@ -219,12 +219,17 @@ fn upstream_error() -> Response {
         .into_response()
 }
 
-/// Return a JMAP method error as a REST error response.
+/// Return a JMAP method error as a REST error response. Only the error `type` is
+/// passed on: the engine's `description` can carry a store or upstream error
+/// (t32-h10), and the REST surface promises no more than the type.
 fn jmap_method_error(err: &Value) -> Response {
     let kind = err.get("type").and_then(Value::as_str).unwrap_or("error");
+    if let Some(desc) = err.get("description").and_then(Value::as_str) {
+        tracing::warn!("rest: JMAP method error {kind}: {desc}");
+    }
     (
         StatusCode::BAD_REQUEST,
-        Json(json!({ "error": kind, "jmap": err })),
+        Json(json!({ "error": kind, "jmap": { "type": kind } })),
     )
         .into_response()
 }

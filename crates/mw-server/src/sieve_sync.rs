@@ -200,7 +200,10 @@ async fn sieve_sync(
     // Compile the account's stored rules to a Sieve script.
     let rules = match engine.get_rules(&session.account_id).await {
         Ok(r) => r,
-        Err(e) => return upstream(&format!("could not load rules: {e}")),
+        Err(e) => {
+            tracing::warn!("sieve sync: could not load rules: {e}");
+            return upstream("could not load rules");
+        }
     };
     let script = match mw_sieve::generate(&rules) {
         Ok(s) => s,
@@ -232,9 +235,15 @@ async fn sieve_sync(
         username: req.username,
         password: req.password,
     };
+    // The connect error is logged, not returned: refused, timed out and a TLS
+    // failure read differently, which would make this a probe of the internal
+    // network a private target is allowed to reach (t32-h10).
     let mut client = match ManageSieveClient::connect_pinned(&host, addr, tls, creds).await {
         Ok(c) => c,
-        Err(e) => return upstream(&format!("connect failed: {e}")),
+        Err(e) => {
+            tracing::warn!("sieve sync: connect failed: {e}");
+            return upstream("could not connect to the sieve server");
+        }
     };
     if let Err(e) = client.put_script(&script_name, &script).await {
         return upstream(&format!("PUTSCRIPT failed: {e}"));
