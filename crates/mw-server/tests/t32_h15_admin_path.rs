@@ -449,17 +449,20 @@ async fn under_strict_csrf_the_sign_in_follows_the_console() {
 
 // ── 2: the old path is an unknown path ──────────────────────────────────────────
 
+/// One comparison: method, old admin path, unknown path, headers, JSON body.
+type Case = (
+    reqwest::Method,
+    &'static str,
+    &'static str,
+    &'static [(&'static str, &'static str)],
+    Option<serde_json::Value>,
+);
+
 #[tokio::test]
 async fn the_old_admin_path_gets_exactly_the_unknown_path_answer() {
     let s = spawn(Env::admin("/ops-h15q7zx")).await;
     let login = json!({ "username": ADMIN_USER, "password": ADMIN_PASS });
-    let cases: Vec<(
-        reqwest::Method,
-        &str,
-        &str,
-        &[(&str, &str)],
-        Option<serde_json::Value>,
-    )> = vec![
+    let cases: Vec<Case> = vec![
         (
             reqwest::Method::GET,
             "/admin",
