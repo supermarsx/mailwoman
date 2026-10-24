@@ -11,8 +11,11 @@
 //! process (`cmd /C type` on Windows, `cat` elsewhere) printing a canned reply, so
 //! "the helper ran" is measured as its text arriving in the SSE stream.
 //!
-//! The legs change process environment, so they are one test function in their own
-//! binary: nothing else reads `MW_ASSIST_LOCAL_PROGRAMS` while it changes.
+//! The second test is the admin gate these routes share: it follows a renamed
+//! admin cookie (`MW_ADMIN_SESSION_COOKIE`) like every other admin gate.
+//!
+//! Both tests change process environment, so they live in their own binary and take
+//! turns ([`turn`]): nothing else reads the variables while they change.
 //!
 //! Run:
 //!   cargo test -p mw-server --test t29_assist_local_programs --locked -- --test-threads=1
@@ -190,19 +193,30 @@ fn local_config(program: &str, args: &[String]) -> Value {
     })
 }
 
-fn set_env(value: Option<&str>) {
-    // SAFETY: this binary has one test, and it is the only reader and writer of
-    // the variable; nothing else runs concurrently with the change.
+/// One test at a time: each changes process environment that a boot reads.
+async fn turn() -> tokio::sync::MutexGuard<'static, ()> {
+    static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    LOCK.lock().await
+}
+
+fn set_var(key: &str, value: Option<&str>) {
+    // SAFETY: only while [`turn`]'s guard is held; the tests in this binary take
+    // turns, and nothing else in it reads process environment meanwhile.
     match value {
-        Some(v) => unsafe { std::env::set_var(ENV, v) },
-        None => unsafe { std::env::remove_var(ENV) },
+        Some(v) => unsafe { std::env::set_var(key, v) },
+        None => unsafe { std::env::remove_var(key) },
     }
+}
+
+fn set_env(value: Option<&str>) {
+    set_var(ENV, value);
 }
 
 // ── the legs ─────────────────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn a_local_program_runs_only_when_the_operator_lists_it() {
+    let _turn = turn().await;
     let mock = spawn_mock_jmap().await;
     let dir = fresh_dir();
     let (program, args) = helper(&dir);
@@ -319,4 +333,63 @@ async fn a_local_program_runs_only_when_the_operator_lists_it() {
     assert_eq!(st["running"], json!(false), "{st}");
     assert_eq!(st["stoppedReason"], json!("local-program-not-allowed"));
     set_env(None);
+}
+
+// ── the admin gate follows MW_ADMIN_SESSION_COOKIE ───────────────────────────
+
+#[tokio::test]
+async fn the_assist_admin_routes_accept_the_renamed_admin_cookie_only() {
+    let _turn = turn().await;
+    set_var("MW_ADMIN_SESSION_COOKIE", Some("corp_admin"));
+    let mock = spawn_mock_jmap().await;
+    let dir = fresh_dir();
+    let base = boot(&dir, &mock).await;
+    let login = reqwest::Client::new()
+        .post(format!("{base}/admin/login"))
+        .json(&json!({ "username": "root", "password": "hunter2" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(login.status(), 200, "admin login");
+    let set_cookie = login
+        .headers()
+        .get(reqwest::header::SET_COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        set_cookie.starts_with("corp_admin="),
+        "precondition: login sets the renamed cookie: {set_cookie}"
+    );
+    let token = set_cookie
+        .split(';')
+        .next()
+        .and_then(|kv| kv.split_once('='))
+        .map(|(_, v)| v.to_string())
+        .unwrap();
+    let status = |path: &str, cookie: String| {
+        let req = reqwest::Client::new()
+            .get(format!("{base}{path}"))
+            .header(reqwest::header::COOKIE, cookie);
+        async move { req.send().await.unwrap().status().as_u16() }
+    };
+    // The routes `v7_mount::require_admin` gates: the Assist routes, and the
+    // allowlist and egress routers merged beside them.
+    for path in [
+        "/admin/assist",
+        "/admin/assist/status",
+        "/admin/egress/proxies",
+    ] {
+        assert_eq!(
+            status(path, format!("corp_admin={token}")).await,
+            200,
+            "{path} accepts the renamed cookie"
+        );
+        assert_eq!(
+            status(path, format!("mw_admin_session={token}")).await,
+            401,
+            "{path} ignores the default name"
+        );
+    }
+    set_var("MW_ADMIN_SESSION_COOKIE", None);
 }

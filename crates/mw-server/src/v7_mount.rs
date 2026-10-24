@@ -3240,10 +3240,14 @@ fn admin_unauthorized() -> Response {
         .into_response()
 }
 
+/// The admin session cookie's value. Its name is the one in force
+/// ([`mw_admin::config::session_cookie_name`]: `MW_ADMIN_SESSION_COOKIE`, or
+/// `mw_admin_session`), as at every other admin gate.
 fn admin_cookie(headers: &HeaderMap) -> Option<String> {
     let raw = headers.get(header::COOKIE)?.to_str().ok()?;
+    let prefix = format!("{}=", mw_admin::config::session_cookie_name());
     for part in raw.split(';') {
-        if let Some(v) = part.trim().strip_prefix("mw_admin_session=")
+        if let Some(v) = part.trim().strip_prefix(prefix.as_str())
             && !v.is_empty()
         {
             return Some(v.to_string());
