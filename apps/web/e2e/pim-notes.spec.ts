@@ -102,7 +102,15 @@ test.describe('Notes module through the real UI (engine mode)', () => {
     await gotoModule(page, 'notes');
 
     const title = `Persisted note ${uid()}`;
+    // The title shows as soon as it is typed; the Note/set carrying it may still
+    // be out. Wait for its answer, so the reload tests what the server kept and
+    // does not cut the write off (t32-h11).
+    const titleSaved = page.waitForResponse((res) => {
+      const body = res.request().postData() ?? '';
+      return body.includes('"Note/set"') && body.includes(title);
+    });
     await newNote(page, title);
+    expect((await titleSaved).ok()).toBe(true);
 
     await reloadToShell(page);
     await gotoModule(page, 'notes');
