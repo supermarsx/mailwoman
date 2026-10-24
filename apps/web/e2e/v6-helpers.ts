@@ -28,6 +28,16 @@ export const V6 = {
   adminPass: process.env['MW_ADMIN_PASSWORD'] ?? 'hunter2',
 } as const;
 
+/** Where the stack under test serves the admin console and its API: its
+ *  `MW_ADMIN_PATH`, given to the specs as `MW_E2E_ADMIN_PATH` (t32-h15). */
+export const ADMIN_PATH = process.env['MW_E2E_ADMIN_PATH'] ?? '/admin';
+
+/** An admin route under {@link ADMIN_PATH}: `adminPath('/users')`, or the console
+ *  page itself with no argument. */
+export function adminPath(suffix = ''): string {
+  return `${ADMIN_PATH}${suffix}`;
+}
+
 /** Fixed PKCE pair: verifier + BASE64URL-NOPAD(SHA256(verifier)) challenge. */
 export const PKCE = {
   verifier: 'e13pkceverifier0123456789abcdefghijklmnopqrstuvwxyzABCDEF',
@@ -46,7 +56,7 @@ export async function mailboxLogin(request: APIRequestContext): Promise<string> 
 
 /** Cookie-authenticate the SEPARATE admin session domain. */
 export async function adminLogin(request: APIRequestContext): Promise<void> {
-  const resp = await request.post('/admin/login', {
+  const resp = await request.post(adminPath('/login'), {
     data: { username: V6.adminUser, password: V6.adminPass },
   });
   expect(resp.status(), 'admin login succeeds').toBe(200);

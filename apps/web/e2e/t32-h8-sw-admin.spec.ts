@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
+import { ADMIN_PATH } from './v6-helpers.ts';
 
 /**
  * The admin console under a controlling service worker (t32-h8).
@@ -12,6 +13,10 @@ import { fileURLToPath } from 'node:url';
  * fetch made from a worker carries `Sec-Fetch-Dest: empty` rather than
  * `document`, which the server's SPA fallback (`wants_spa_shell` in mw-server's
  * lib.rs) refuses. The worker now leaves admin requests to the browser.
+ *
+ * t32-h15: the console may be at any path (`MW_ADMIN_PATH`), so the worker owns
+ * only the mail shell's navigations; `/ops-7f3k` below stands for a moved console,
+ * and the live stack's console is at `MW_E2E_ADMIN_PATH` (default `/admin`).
  *
  * Two groups:
  *   - "stub origin": serves the real `public/sw.js` from an HTTP server started by
@@ -56,7 +61,7 @@ test.describe('service worker and the admin console: stub origin', () => {
       if (path === '/' || path === '/mail/') return send('text/html', MAIL_PAGE);
       // mw-server's SPA fallback: the page only for a document request.
       if (dest !== 'document') return send('text/plain', 'not found', 404);
-      return send('text/html', /\/admin(\/|$)/.test(path) ? ADMIN_PAGE : MAIL_PAGE);
+      return send('text/html', /\/(admin|ops-7f3k)(\/|$)/.test(path) ? ADMIN_PAGE : MAIL_PAGE);
     });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     // `localhost` (not the bare IP) so the page is a secure context.
@@ -80,13 +85,20 @@ test.describe('service worker and the admin console: stub origin', () => {
       );
       await controlled(page);
 
-      // Control: a mail deep link is still answered by the worker, which is what
-      // made the admin console 404.
+      // Control: the mail shell is still answered by the worker (its own fetch,
+      // `Sec-Fetch-Dest: empty`), which is what made the admin console 404.
       served = [];
-      await page.goto(`${origin}${base}inbox`);
-      expect(served).toContain(`${base}inbox empty`);
+      await page.goto(`${origin}${base}`);
+      expect(served).toContain(`${base} empty`);
 
-      for (const path of [`${base}admin`, `${base}admin/`, `${base}admin#/users`]) {
+      for (const path of [
+        `${base}admin`,
+        `${base}admin/`,
+        `${base}admin#/users`,
+        // Fragment first: from `ops-7f3k` itself it would be a same-document move.
+        `${base}ops-7f3k#/users`,
+        `${base}ops-7f3k`,
+      ]) {
         served = [];
         const res = await page.goto(`${origin}${path}`);
         expect(res?.status(), path).toBe(200);
@@ -106,7 +118,7 @@ test.describe('service worker and the admin console: live stack', () => {
     await page.goto(base);
     await controlled(page);
 
-    const res = await page.goto(`${base}admin`);
+    const res = await page.goto(`${base}${ADMIN_PATH.slice(1)}`);
     expect(res?.status()).toBe(200);
     await expect(page.getByRole('form', { name: 'Admin sign in' })).toBeVisible();
 

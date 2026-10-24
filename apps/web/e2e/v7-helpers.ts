@@ -1,4 +1,5 @@
 import { expect, type APIRequestContext, type APIResponse } from '@playwright/test';
+import { adminPath } from './v6-helpers.ts';
 
 /**
  * Shared helpers for the V7 live E2E specs (plan §3 e16). Like the V6 specs, these
@@ -43,7 +44,7 @@ export async function mailboxLogin(request: APIRequestContext): Promise<string> 
 
 /** Cookie-authenticate the SEPARATE admin session. */
 export async function adminLogin(request: APIRequestContext): Promise<void> {
-  const resp = await request.post('/admin/login', {
+  const resp = await request.post(adminPath('/login'), {
     data: { username: V7.adminUser, password: V7.adminPass },
   });
   expect(resp.status(), 'admin login succeeds').toBe(200);

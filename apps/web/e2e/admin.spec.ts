@@ -1,5 +1,5 @@
 import { test, expect } from './csrf.ts';
-import { adminLogin, uniq, V6 } from './v6-helpers.ts';
+import { adminLogin, adminPath, uniq, V6 } from './v6-helpers.ts';
 
 /**
  * V6 live E2E — ADMIN (plan §3 e13): provision a user + domain + quota through the
@@ -11,10 +11,10 @@ import { adminLogin, uniq, V6 } from './v6-helpers.ts';
 test.describe('v6 admin panel (live)', () => {
   test('provision user + domain + quota → audit entry + export', async ({ request }) => {
     // The admin surface is gated on the separate session domain.
-    expect((await request.get('/admin/session')).status(), 'unauthenticated → 401').toBe(401);
+    expect((await request.get(adminPath('/session'))).status(), 'unauthenticated → 401').toBe(401);
     await adminLogin(request);
 
-    const session = await (await request.get('/admin/session')).json();
+    const session = await (await request.get(adminPath('/session'))).json();
     expect(session.username).toBe(V6.adminUser);
 
     // Unique names so re-runs against the persistent Postgres never collide.
@@ -24,33 +24,33 @@ test.describe('v6 admin panel (live)', () => {
     const account = `${username}@${domain}`;
 
     // Domain upsert.
-    const saveDomain = await request.put(`/admin/domains/${domain}`, {
+    const saveDomain = await request.put(adminPath(`/domains/${domain}`), {
       data: { name: domain, upstreamJson: '{}', allowlist: [], blocklist: [] },
     });
     expect(saveDomain.status(), 'domain upsert → 204').toBe(204);
 
     // Provision user + quota.
-    const prov = await request.post('/admin/users', {
+    const prov = await request.post(adminPath('/users'), {
       data: { domain, username, quota: { bytesLimit: 1048576, msgLimit: 100 } },
     });
     expect(prov.status(), 'provision user → 204').toBe(204);
 
     // The user is listed.
-    const users = await (await request.get('/admin/users')).json();
+    const users = await (await request.get(adminPath('/users'))).json();
     expect(
       (users as Array<{ accountId: string }>).some((x) => x.accountId === account),
       'provisioned user listed',
     ).toBe(true);
 
     // The audit log recorded the provisioning.
-    const audit = await (await request.get('/admin/audit?limit=50')).json();
+    const audit = await (await request.get(adminPath('/audit?limit=50'))).json();
     expect(
       (audit as Array<{ action: string }>).some((e) => e.action === 'user-provisioned'),
       'audit has user-provisioned',
     ).toBe(true);
 
     // Export (NDJSON) works and includes the entry.
-    const exportResp = await request.get('/admin/audit/export?limit=50');
+    const exportResp = await request.get(adminPath('/audit/export?limit=50'));
     expect(exportResp.status(), 'audit export → 200').toBe(200);
     const ndjson = await exportResp.text();
     expect(ndjson, 'export includes the entry').toContain('user-provisioned');
@@ -59,7 +59,7 @@ test.describe('v6 admin panel (live)', () => {
     }
 
     // Wrong admin password fails closed.
-    const bad = await request.post('/admin/login', {
+    const bad = await request.post(adminPath('/login'), {
       data: { username: V6.adminUser, password: 'definitely-wrong' },
     });
     expect(bad.status(), 'wrong password → 401').toBe(401);
