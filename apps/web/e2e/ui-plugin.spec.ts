@@ -357,10 +357,8 @@ test.describe('Baseline renders unchanged in the real SPA (additive invariant)',
 
 /** Log into the real SPA via the UI against the JMAP mock the server proxies to. */
 async function uiLogin(page: Page): Promise<void> {
-  const jmapUrl = process.env['MW_E2E_JMAP_URL'] ?? 'http://127.0.0.1:8181/.well-known/jmap';
-  // The server URL field is behind "Enter server details manually" (helpers.ts).
+  // The server proxies to its MW_UPSTREAM_DEFAULT; the form takes no server (t32-h9).
   await signInManually(page, {
-    serverUrl: jmapUrl,
     username: process.env['MW_E2E_USERNAME'] ?? 'testuser@example.org',
     password: process.env['MW_E2E_PASSWORD'] ?? 'testpass',
   });

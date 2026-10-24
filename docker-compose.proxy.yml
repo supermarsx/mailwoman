@@ -115,6 +115,8 @@ x-app-env: &app-env
   # logs in against the in-repo `mock` service on the compose network, a private
   # address the policy floor refuses unless it is named here.
   MW_JMAP_UPSTREAMS: "http://mock:8181"
+  # The JMAP server every sign-in uses (t32-h9); a login cannot name one.
+  MW_UPSTREAM_DEFAULT: "http://mock:8181/.well-known/jmap"
   # --- forwarded-header trust (t20-e1) ---
   # Deliberately narrower than the network: the bridge gateway (172.28.0.1),
   # which is where host-originated test traffic appears from, is NOT in here.
@@ -149,8 +151,7 @@ services:
   # =========================================================================
 
   # In-repo deterministic JMAP mock — the upstream the server proxies to.
-  # Log in from the SPA / suite with:
-  #   jmapUrl  = http://mock:8181/.well-known/jmap
+  # Log in from the SPA / suite with (the server proxies to MW_UPSTREAM_DEFAULT):
   #   username = testuser@example.org
   #   password = testpass
   mock:

@@ -7,10 +7,10 @@
 #       -> V1 engine mode: mw-server driving a REAL IMAP/POP3/SMTP server
 #          (Greenmail) through mw-engine. The deterministic conformance gate.
 #          Log in from the SPA (mailwoman-engine on :8090) with:
-#            server URL = imap://greenmail:3143   (the jmapUrl field; engine
-#                         mode reads it as an IMAP URL)
 #            username   = testuser
 #            password   = testpass
+#          The server dials its MW_UPSTREAM_DEFAULT, imap://greenmail:3143; the
+#          sign-in form has no server field.
 #          SMTP send is wired to greenmail:3025 (plaintext) via env.
 #
 #   docker compose -f docker-compose.dev.yml up -d dovecot
@@ -24,7 +24,6 @@
 #          and .orchestration risk #1). The mock is the authoritative backend.
 #
 # Log in from the SPA (mock/proxy stack) with:
-#   jmapUrl  = http://mock:8181/.well-known/jmap   (server proxies to it)
 #   username = testuser@example.org
 #   password = testpass
 
@@ -69,6 +68,9 @@ services:
       # perf.yml. Add the stalwart profile's `http://stalwart:8080` here too if a
       # cell ever proxies to it.
       MW_JMAP_UPSTREAMS: "http://mock:8181"
+      # The JMAP server every sign-in uses (t32-h9): the server picks it, the
+      # sign-in form only takes the address and the password.
+      MW_UPSTREAM_DEFAULT: "http://mock:8181/.well-known/jmap"
       # Strict CSRF, the `deploy.sh` default; `apps/web/e2e/csrf-strict.spec.ts` checks it.
       MW_CSRF_STRICT: "true"
       RUST_LOG: "info"
@@ -219,8 +221,9 @@ services:
   # ---- mw-server in ENGINE mode over Greenmail (V1, for e8 E2E) --------------
   # Same image as `mailwoman` (runtime target) but MW_MODE=engine: it drives a
   # real IMAP/POP3 account through mw-engine instead of proxying JMAP. Points its
-  # send path at greenmail:3025. The browser logs in with an imap:// URL; the
-  # engine dials Greenmail over the compose network (MW_ENGINE_TLS=plaintext).
+  # send path at greenmail:3025. The browser logs in with a user name and a
+  # password; the engine dials Greenmail at MW_UPSTREAM_DEFAULT over the compose
+  # network (MW_ENGINE_TLS=plaintext).
   mailwoman-engine:
     build:
       context: .
@@ -231,8 +234,10 @@ services:
       MW_DB_PATH: "/data/mailwoman.db"
       MW_RENDER_BIN: "/usr/local/bin/mw-render"
       MW_MODE: "engine"
-      # Force plaintext IMAP/POP3 transport regardless of the imap:// URL the
-      # browser posts (Greenmail's plaintext listeners).
+      # The IMAP server every sign-in uses (t32-h9); the browser never names one.
+      MW_UPSTREAM_DEFAULT: "imap://greenmail:3143"
+      # Force plaintext IMAP/POP3 transport regardless of the scheme of that
+      # URL (Greenmail's plaintext listeners).
       MW_ENGINE_TLS: "plaintext"
       # Submission endpoint for EmailSubmission/set (Greenmail plaintext SMTP).
       MW_SMTP_HOST: "greenmail"

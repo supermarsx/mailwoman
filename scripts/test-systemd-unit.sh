@@ -245,7 +245,7 @@ t_probe() {
 
   # Render: a mailbox session through trusted-header sign-in, then the sanitizer (mw-render).
   out="$(curl -sS -D - -o /dev/null -H 'X-Remote-User: probe@example.org' \
-    -H 'content-type: application/json' -d '{"jmapUrl":"","username":"","password":""}' \
+    -H 'content-type: application/json' -d '{"username":"","password":""}' \
     "$b/api/login")"
   ses="$(sed -n 's/^[Ss]et-[Cc]ookie: mw_session=\([^;]*\);.*/\1/p' <<<"$out" | tr -d '\r')"
   ses_csrf="$(sed -n 's/^[Ss]et-[Cc]ookie: mw_csrf=\([^;]*\);.*/\1/p' <<<"$out" | tr -d '\r')"

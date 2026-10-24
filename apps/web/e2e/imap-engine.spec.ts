@@ -6,12 +6,11 @@ import { ENGINE_CREDS, engineLogin, messageRow, sidebarInbox } from './helpers.t
  * MW_MODE=engine talking to a REAL IMAP/SMTP server (Greenmail) through
  * mw-engine — not the V0 JMAP mock. baseURL is :8090 (the `engine` project).
  *
- * The login screen's "JMAP server URL" field (behind "Enter server details
- * manually") is reinterpreted by engine mode as an IMAP URL; the SERVER (not the
- * browser) dials Greenmail over the compose network, so the value is the
- * in-network `imap://greenmail:3143`. Greenmail's login name is the bare local
- * part `testuser` (NOT the full address). `engineLogin` and `ENGINE_CREDS` in
- * helpers.ts carry both and sign in through those manual fields; it returns once
+ * The SERVER (not the browser) dials Greenmail over the compose network at the
+ * stack's `MW_UPSTREAM_DEFAULT` (`imap://greenmail:3143`); the login screen asks
+ * only for the user name and the password (t32-h9). Greenmail's login name is the
+ * bare local part `testuser` (NOT the full address). `engineLogin` and
+ * `ENGINE_CREDS` in helpers.ts sign in with those; it returns once
  * Compose and the sidebar's Inbox — from a real IMAP LIST/SELECT, role=inbox via
  * SPECIAL-USE — are on screen.
  *

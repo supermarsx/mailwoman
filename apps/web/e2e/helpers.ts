@@ -2,12 +2,11 @@ import { expect, type APIRequestContext, type Page } from '@playwright/test';
 import net from 'node:net';
 
 /**
- * Credentials the mock JMAP backend accepts. The jmapUrl uses the compose
- * service name `mock` because mw-SERVER (not the browser) dials it; the browser
- * only ever talks to the same-origin proxy. Overridable for non-compose runs.
+ * Credentials the mock JMAP backend accepts. Which JMAP server they sign in to
+ * is the stack's server-side `MW_UPSTREAM_DEFAULT` (the compose service `mock`):
+ * a sign-in never names a server (t32-h9). Overridable for non-compose runs.
  */
 export const CREDS = {
-  jmapUrl: process.env['MW_E2E_JMAP_URL'] ?? 'http://mock:8181/.well-known/jmap',
   username: process.env['MW_E2E_USERNAME'] ?? 'testuser@example.org',
   password: process.env['MW_E2E_PASSWORD'] ?? 'testpass',
 } as const;
@@ -23,26 +22,21 @@ export function sidebarInbox(page: Page) {
 }
 
 /**
- * Open the app and sign in through the manual fields of the login screen.
- *
- * The screen opens on an email lookup (email address + password, then
- * `POST /api/discover`); the server URL and username fields are behind "Enter
- * server details manually". The test stacks are reached by in-network names
- * (`mock`, `greenmail`) that no lookup of `example.org` returns, so every helper
- * that signs in goes through the manual fields. Returns once the form has been
- * submitted; the caller waits for whatever its viewport shows next.
+ * Open the app and sign in through the login screen, which asks for the email
+ * address (or user name) and the password only. The server picks the mail server
+ * from its own configuration (`MW_UPSTREAM_DEFAULT` in every test stack, t32-h9).
+ * `serverUrl` is accepted and ignored so older call sites keep compiling; there
+ * is no field to type it into. Returns once the form has been submitted; the
+ * caller waits for whatever its viewport shows next.
  */
 export async function signInManually(
   page: Page,
-  creds: { serverUrl: string; username: string; password: string },
+  creds: { serverUrl?: string; username: string; password: string },
 ): Promise<void> {
   await page.goto('/');
   // The app boots (checks /api/me) before rendering the login form.
   await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Enter server details manually' }).click();
-
-  await page.getByLabel('JMAP server URL').fill(creds.serverUrl);
-  await page.getByLabel('Username', { exact: true }).fill(creds.username);
+  await page.getByLabel('Email address', { exact: true }).fill(creds.username);
   await page.getByLabel('Password', { exact: true }).fill(creds.password);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 }
@@ -52,7 +46,7 @@ export async function signInManually(
  * Each spec calls this so tests stay independent (fresh session per test).
  */
 export async function login(page: Page): Promise<void> {
-  await signInManually(page, { serverUrl: CREDS.jmapUrl, username: CREDS.username, password: CREDS.password });
+  await signInManually(page, { username: CREDS.username, password: CREDS.password });
 
   // Mailbox shell is up once the sidebar and Inbox mailbox render.
   await expect(page.getByRole('button', { name: 'Compose' })).toBeVisible();
@@ -68,12 +62,12 @@ export function messageRow(page: Page, subject: string) {
 //
 // The V2 modern-mail specs drive the SAME unmodified UI against mw-server in
 // MW_MODE=engine over a real IMAP/SMTP account (Greenmail) on :8090 — the
-// `engine` Playwright project. The server (not the browser) dials Greenmail, so
-// the login screen's manual "JMAP server URL" field carries the in-network
-// `imap://greenmail:3143` and Greenmail's login name is the bare local part
-// `testuser`.
+// `engine` Playwright project. The server (not the browser) dials Greenmail at
+// the stack's `MW_UPSTREAM_DEFAULT` (`imap://greenmail:3143`); the login screen
+// takes Greenmail's login name, the bare local part `testuser`.
 
 export const ENGINE_CREDS = {
+  /** The IMAP server the engine stacks set as `MW_UPSTREAM_DEFAULT`; never sent by a sign-in. */
   imapUrl: process.env['MW_E2E_ENGINE_IMAP_URL'] ?? 'imap://greenmail:3143',
   username: process.env['MW_E2E_ENGINE_USERNAME'] ?? 'testuser',
   password: process.env['MW_E2E_ENGINE_PASSWORD'] ?? 'testpass',
@@ -84,7 +78,6 @@ export const ENGINE_CREDS = {
 /** Log in through the real UI against the engine stack; waits for the shell. */
 export async function engineLogin(page: Page): Promise<void> {
   await signInManually(page, {
-    serverUrl: ENGINE_CREDS.imapUrl,
     username: ENGINE_CREDS.username,
     password: ENGINE_CREDS.password,
   });
@@ -106,7 +99,6 @@ export function drawerButton(page: Page) {
 /** Sign in to the engine stack at phone width; ready once the top bar is up. */
 export async function enginePhoneLogin(page: Page): Promise<void> {
   await signInManually(page, {
-    serverUrl: ENGINE_CREDS.imapUrl,
     username: ENGINE_CREDS.username,
     password: ENGINE_CREDS.password,
   });
@@ -316,7 +308,6 @@ function extractAddr(input: string): string {
 export async function resetAccountAppearance(request: APIRequestContext): Promise<void> {
   const login = await request.post('/api/login', {
     data: {
-      jmapUrl: ENGINE_CREDS.imapUrl,
       username: ENGINE_CREDS.username,
       password: ENGINE_CREDS.password,
     },

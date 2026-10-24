@@ -35,7 +35,7 @@ function requireBaseURL(baseURL: string | undefined): string {
 /** Cookie-authenticate a mailbox session in a fresh request context; returns accountId. */
 async function loginAs(ctx: APIRequestContext, username: string, password: string): Promise<string> {
   const resp = await ctx.post('/api/login', {
-    data: { jmapUrl: V7.jmapUrl, username, password },
+    data: { username, password },
   });
   expect(resp.status(), `mailbox login (${username}) succeeds`).toBe(200);
   return (await resp.json()).accountId as string;

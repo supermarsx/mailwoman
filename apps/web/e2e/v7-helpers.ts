@@ -24,8 +24,8 @@ import { expect, type APIRequestContext, type APIResponse } from '@playwright/te
  *   - the SPA served at the project baseURL.
  */
 
+// The JMAP server is the stack's MW_UPSTREAM_DEFAULT; a sign-in never names one (t32-h9).
 export const V7 = {
-  jmapUrl: process.env['MW_E2E_JMAP_URL'] ?? 'http://mock:8181/.well-known/jmap',
   mailUser: process.env['MW_E2E_USERNAME'] ?? 'testuser@example.org',
   mailPass: process.env['MW_E2E_PASSWORD'] ?? 'testpass',
   adminUser: process.env['MW_ADMIN_USER'] ?? 'root',
@@ -35,7 +35,7 @@ export const V7 = {
 /** Cookie-authenticate the mailbox session; returns the accountId. */
 export async function mailboxLogin(request: APIRequestContext): Promise<string> {
   const resp = await request.post('/api/login', {
-    data: { jmapUrl: V7.jmapUrl, username: V7.mailUser, password: V7.mailPass },
+    data: { username: V7.mailUser, password: V7.mailPass },
   });
   expect(resp.status(), 'mailbox login succeeds').toBe(200);
   return (await resp.json()).accountId as string;

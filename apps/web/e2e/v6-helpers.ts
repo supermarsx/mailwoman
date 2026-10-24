@@ -20,8 +20,8 @@ import { expect, type APIRequestContext } from '@playwright/test';
  * that proof lives server-side by design.
  */
 
+// The JMAP server is the stack's MW_UPSTREAM_DEFAULT; a sign-in never names one (t32-h9).
 export const V6 = {
-  jmapUrl: process.env['MW_E2E_JMAP_URL'] ?? 'http://mock:8181/.well-known/jmap',
   mailUser: process.env['MW_E2E_USERNAME'] ?? 'testuser@example.org',
   mailPass: process.env['MW_E2E_PASSWORD'] ?? 'testpass',
   adminUser: process.env['MW_ADMIN_USER'] ?? 'root',
@@ -37,7 +37,7 @@ export const PKCE = {
 /** Cookie-authenticate the mailbox session against the real server; returns the accountId. */
 export async function mailboxLogin(request: APIRequestContext): Promise<string> {
   const resp = await request.post('/api/login', {
-    data: { jmapUrl: V6.jmapUrl, username: V6.mailUser, password: V6.mailPass },
+    data: { username: V6.mailUser, password: V6.mailPass },
   });
   expect(resp.status(), 'mailbox login succeeds').toBe(200);
   const body = await resp.json();

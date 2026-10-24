@@ -33,9 +33,11 @@ import { CREDS, ENGINE_CREDS } from './helpers.ts';
  * spec. A project that adds this spec to its `testMatch` must be listed here; an
  * unlisted one fails rather than skipping.
  */
-const MAILBOX_ACCOUNT: Record<string, { jmapUrl: string; username: string; password: string }> = {
+// The server picks the mail server from its MW_UPSTREAM_DEFAULT; a sign-in sends
+// only the user name and the password (t32-h9).
+const MAILBOX_ACCOUNT: Record<string, { username: string; password: string }> = {
   // Proxy mode: the in-repo JMAP mock (`mock`), or the one the v6/v7 jobs publish
-  // on loopback (`MW_E2E_JMAP_URL`, which `CREDS` reads).
+  // on loopback.
   mock: CREDS,
   v6: CREDS,
   v7: CREDS,
@@ -43,7 +45,7 @@ const MAILBOX_ACCOUNT: Record<string, { jmapUrl: string; username: string; passw
   ...Object.fromEntries(
     ['engine', 'pim', 'crypto', 'push', 't12'].map((name) => [
       name,
-      { jmapUrl: ENGINE_CREDS.imapUrl, username: ENGINE_CREDS.username, password: ENGINE_CREDS.password },
+      { username: ENGINE_CREDS.username, password: ENGINE_CREDS.password },
     ]),
   ),
 };

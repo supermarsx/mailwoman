@@ -311,23 +311,6 @@ export const SCREENS: Screen[] = [
       control('login.email', (p) => p.getByRole('textbox', { name: 'Email address' })),
       control('login.password', (p) => p.getByRole('textbox', { name: 'Password' })),
       control('login.submit', (p) => btn(p, 'Sign in')),
-      control('login.manual', (p) => btn(p, 'Enter server details manually')),
-    ],
-  },
-  {
-    id: 'login-manual',
-    tag: '@login',
-    viewports: ['desktop', 'phone'],
-    open: async (page) => {
-      await page.goto('/');
-      await btn(page, 'Enter server details manually').click();
-      await expect(page.getByLabel('JMAP server URL')).toBeVisible();
-    },
-    probes: [
-      container('login.card', (p) => p.getByRole('form', { name: 'Sign in' })),
-      text('login.label', (p) => p.getByRole('form', { name: 'Sign in' }).locator('label'), 5),
-      control('login.field', (p) => p.getByRole('form', { name: 'Sign in' }).getByRole('textbox'), 5),
-      control('login.button', (p) => p.getByRole('form', { name: 'Sign in' }).getByRole('button'), 3),
     ],
   },
   {

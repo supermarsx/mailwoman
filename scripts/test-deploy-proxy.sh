@@ -341,7 +341,7 @@ checks_through_proxy() {
     # with one. The accept value for this key is the one RFC 6455 section 1.3 gives.
     answer=$(ws_head)
     [[ $answer == 'HTTP/1.1 401'* ]] || fail "a WebSocket request without a session answered: ${answer%%$'\n'*}"
-    req_json --data "{\"jmapUrl\":\"http://$mock:8181/.well-known/jmap\",\"username\":\"testuser@example.org\",\"password\":\"testpass\"}" \
+    req_json --data "{\"username\":\"testuser@example.org\",\"password\":\"testpass\"}" \
         "$BASE/api/login"
     [[ $CODE == 200 ]] || fail "mailbox login through the proxy answered $CODE: $BODY"
     answer=$(ws_head --cookie /w/cookies)

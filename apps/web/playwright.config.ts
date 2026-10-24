@@ -96,10 +96,9 @@ export default defineConfig({
       name: 'engine',
       // V1 IMAP round-trip + the V2 modern-UX/theming specs and later additions.
       // All target the engine-mode server (:8090), except the stub-origin group of
-      // sw-cache.spec.ts (see the header). login-discover.spec.ts answers
-      // `POST /api/discover` itself in its found-server case (the sign-in that
-      // follows is this server's) and calls this server's endpoint in its
-      // nothing-found case. A new spec added here "slots in" to the
+      // sw-cache.spec.ts (see the header). login-discover.spec.ts checks the
+      // sign-in form has no server field and that this server refuses a sign-in
+      // naming one (t32-h9). A new spec added here "slots in" to the
       // CI `e2e-engine` job with no workflow edits (per e11's handoff).
       testMatch: [
         'imap-engine.spec.ts',

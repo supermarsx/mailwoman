@@ -221,7 +221,8 @@ describe('Mailwoman desktop shell — live (tauri-driver / WebView2)', () => {
     // t32: the server is fixed by the build; the user cannot enter one.
     assert.equal(screen.serverField, false, 'no [data-testid=login-server-address] field');
     assert.deepEqual(screen.serverInputs, [], 'no server or URL input of any kind');
-    assert.deepEqual(screen.inputTypes, ['email', 'password'], 'only the email address and the password');
+    // The address field is `type=text` (a deployment may sign in with a bare user name, t32-h9).
+    assert.deepEqual(screen.inputTypes, ['password', 'text'], 'only the email address and the password');
 
     const cfg = await browser.execute(() => window.__MW_CONFIG__ ?? null);
     assert.ok(cfg, '__MW_CONFIG__ present');
