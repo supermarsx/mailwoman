@@ -248,6 +248,10 @@ services:
       MW_COOKIE_SECURE: "false"
       # Strict CSRF, the `deploy.sh` default; `apps/web/e2e/csrf-strict.spec.ts` checks it.
       MW_CSRF_STRICT: "true"
+      # Admin console credentials for t32-h12-checkboxes.spec.ts (admin checkboxes) and the
+      # other specs that sign in to /admin with root/hunter2. DEV/CI ONLY — never reuse.
+      MW_ADMIN_USER: "root"
+      MW_ADMIN_PASSWORD: "hunter2"
       RUST_LOG: "info"
     ports:
       - "8090:8080"
