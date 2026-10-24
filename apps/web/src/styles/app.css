@@ -459,6 +459,18 @@ input[type='radio'] {
   border: var(--border-rule) solid var(--border-strong);
   background: #ffffff;
 }
+/* Jost at the button weight sets "Sweep sender" 1.75px wider than the old
+   fallback face did, while the other action labels stay within 1px. The
+   toolbar labels are tracked 0.1px tighter, so no action is wider than it was;
+   off where letter-spacing breaks joining or CJK spacing. */
+.reader__toolbar .btn {
+  letter-spacing: -0.1px;
+}
+:lang(ar) .reader__toolbar .btn,
+:lang(ja) .reader__toolbar .btn,
+:lang(zh) .reader__toolbar .btn {
+  letter-spacing: normal;
+}
 
 /* ── Compose ──────────────────────────────────────────────────── */
 .compose__backdrop {
@@ -919,6 +931,11 @@ input[type='radio'] {
   .compose__footer {
     flex-wrap: wrap;
     gap: 0.5rem;
+  }
+  /* The plain/rich text toggle is a phone tap target: it keeps its T32-BASE
+     inline padding, so the narrower Jost label does not make it smaller. */
+  .compose__body-head > .btn {
+    padding-inline: 0.9rem;
   }
 }
 

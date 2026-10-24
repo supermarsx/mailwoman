@@ -5,7 +5,7 @@
 // `borderStrong` with 1px less padding so no box grows (P1), focus is the
 // outline ring, headings heavy, labels small tracked capitals.
 
-import { style } from '@vanilla-extract/css';
+import { globalStyle, style } from '@vanilla-extract/css';
 import { vars } from '../../theme/contract.css.ts';
 
 /** The outline ring (forced colours keep it; they drop a box-shadow ring). */
@@ -144,6 +144,15 @@ export const check = style({
   gap: vars.space[2],
   fontSize: '0.9rem',
   cursor: 'pointer',
+});
+// WCAG 2.5.8 target size: the native 13px checkboxes sat 23px apart in a list,
+// below the 24px minimum, so each checkbox is the touch-target size. Each row
+// grows from 19px to 24px; accessibility wins over the "not bigger" rule here.
+globalStyle(`${check} > input[type="checkbox"]`, {
+  inlineSize: vars.a11y.touchTarget,
+  blockSize: vars.a11y.touchTarget,
+  margin: 0,
+  flexShrink: 0,
 });
 
 // Chat transcript.

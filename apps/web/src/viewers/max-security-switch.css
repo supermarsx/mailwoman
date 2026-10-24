@@ -42,3 +42,19 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* On a phone the options are tap targets and keep at least their T32-BASE
+   widths (measured at 0.78rem in the old fallback face): the narrower Jost
+   labels would otherwise make "No media" and "Plain text" 1.3px and 3.9px
+   smaller. A longer label still widens its option. */
+@media (max-width: 760px) {
+  .mw-maxsec__opt[data-mode='full-sanitized'] {
+    min-inline-size: 3.54em;
+  }
+  .mw-maxsec__opt[data-mode='sanitized-no-media'] {
+    min-inline-size: 6.26em;
+  }
+  .mw-maxsec__opt[data-mode='plain-text'] {
+    min-inline-size: 5.98em;
+  }
+}

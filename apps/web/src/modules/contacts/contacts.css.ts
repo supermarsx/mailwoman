@@ -251,7 +251,8 @@ export const empty = style({ color: vars.color.textDim, fontStyle: 'italic', pad
 export const dialogBackdrop = style({
   position: 'fixed',
   inset: 0,
-  background: 'rgba(0,0,0,0.45)',
+  // The theme's modal scrim, as the other dialogs use (no colour literal).
+  background: vars.color.scrim,
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
