@@ -523,6 +523,11 @@ body {
 }
 /* "Attach a file" is a button-styled label around a visually hidden file
    input; the label shows the focus outline while the input has focus. */
+/* The label is the button; as an inline box its padding hung over the
+   message-security legend below it (t32-h12). */
+.compose__attach {
+  display: flex;
+}
 .compose__attach > label:focus-within {
   outline: var(--focus-ring-width) solid var(--focus);
   outline-offset: 2px;
