@@ -12,9 +12,23 @@ import {
   type AdminApi,
   type AdminSlice,
   type IntegrationsConfig,
+  type SecurityPolicy,
 } from '../../state/slices/admin.ts';
 
 type RenderResult = ReturnType<typeof render>;
+
+const DEFAULT_POLICY: SecurityPolicy = {
+  minTls: '1.2',
+  require2fa: false,
+  argon2MCost: 19456,
+  argon2TCost: 2,
+  argon2PCost: 1,
+  capturePolicy: 'off',
+  maxSecurityFloor: null,
+  dlpRulesJson: '[]',
+  envDlpRules: [],
+  pinnedByEnv: [],
+};
 
 /** A fully-stubbed `AdminApi`; pass `overrides` to shape a scenario. */
 export function mockAdminApi(overrides: Partial<AdminApi> = {}): AdminApi {
@@ -31,13 +45,10 @@ export function mockAdminApi(overrides: Partial<AdminApi> = {}): AdminApi {
     setFlags: vi.fn(async () => undefined),
     toggleZeroAccess: vi.fn(async () => undefined),
     revokeSessions: vi.fn(async () => 0),
-    // `SecurityPolicyDto` (crates/mw-server/src/admin.rs:939): two fields, with
-    // `mw_admin::SecurityPolicy::default()`'s values (crates/mw-admin/src/lib.rs).
-    getSecurityPolicy: vi.fn(async () => ({
-      dlpRulesJson: '[]',
-      maxSecurityFloor: false,
-    })),
-    setSecurityPolicy: vi.fn(async () => undefined),
+    // `GET /admin/security-policy` (`policy_body`, crates/mw-server/src/admin.rs)
+    // with `mw_admin::SecurityPolicy::default()`'s values (crates/mw-admin/src/policy.rs).
+    getSecurityPolicy: vi.fn(async () => ({ ...DEFAULT_POLICY })),
+    setSecurityPolicy: vi.fn(async (p) => ({ ...DEFAULT_POLICY, ...p })),
     // `get_integrations` (crates/mw-server/src/admin.rs:561) for a deployment with
     // no enabled `directory_config` row and no `MW_NEXTCLOUD_*`; the strings are
     // `IntegrationStatus::as_str` (crates/mw-admin/src/provisioning.rs).

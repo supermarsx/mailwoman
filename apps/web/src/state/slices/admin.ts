@@ -14,6 +14,7 @@
 import { createSignal, type Accessor } from 'solid-js';
 import { basePath } from '../../api/basePath.ts';
 import { apiFetch } from '../../api/http.ts';
+import type { DlpRule } from '../../api/crypto-types.ts';
 
 // ── Wire DTOs (the frozen `/admin/*` JSON contract e11 satisfies) ──────────────
 
@@ -52,13 +53,31 @@ export interface UserSummary {
   flags: UserFeatureFlags;
 }
 
-/** The stored security-policy record as the server exposes it
- *  (`SecurityPolicyDto`, `crates/mw-server/src/admin.rs`). Both fields are stored
- *  and NOT applied by this release, so no screen offers them; the server refuses a
- *  `PUT` carrying any other field. */
-export interface SecurityPolicy {
+/** The fields of the security policy a `PUT /admin/security-policy` writes, all
+ *  required (`SecurityPolicyPut`, `crates/mw-server/src/admin.rs`). Every field is
+ *  applied by the server (`crates/mw-server/src/admin_apply.rs`): `minTls` to the
+ *  HTTPS listener and outbound mail connections, the Argon2 cost to new password
+ *  and recovery-code hashes, `dlpRulesJson` beside `MW_DLP_RULES`, `require2fa` as
+ *  the global two-factor rule; the floor and capture policy reach clients through
+ *  `GET /api/policy`. */
+export interface SecurityPolicyWrite {
+  minTls: '1.2' | '1.3';
+  require2fa: boolean;
+  argon2MCost: number;
+  argon2TCost: number;
+  argon2PCost: number;
+  capturePolicy: 'off' | 'protect';
+  maxSecurityFloor: null | 'full-sanitized' | 'sanitized-no-media' | 'plain-text';
+  /** A JSON array of DLP rules; the server answers 422 with the reason if it is not one. */
   dlpRulesJson: string;
-  maxSecurityFloor: boolean;
+}
+
+/** `GET /admin/security-policy` (and the body a successful `PUT` answers with): the
+ *  policy in force, the read-only `MW_DLP_RULES` rules, and the fields an
+ *  environment variable pins. A `PUT` that changes a pinned field answers 409. */
+export interface SecurityPolicy extends SecurityPolicyWrite {
+  envDlpRules: DlpRule[];
+  pinnedByEnv: ('minTls' | 'require2fa')[];
 }
 
 /** The statuses `GET /admin/integrations` sends
@@ -206,10 +225,11 @@ export interface AdminApi {
   /** `POST /admin/users/{accountId}/revoke-sessions` → count revoked. */
   revokeSessions(accountId: string): Promise<number>;
 
-  /** `GET /admin/security-policy`. No screen calls this — see {@link SecurityPolicy}. */
+  /** `GET /admin/security-policy`. No screen calls this yet. */
   getSecurityPolicy(): Promise<SecurityPolicy>;
-  /** `PUT /admin/security-policy`. No screen calls this. */
-  setSecurityPolicy(policy: SecurityPolicy): Promise<void>;
+  /** `PUT /admin/security-policy` → the policy now in force. A refusal throws an
+   *  {@link AdminApiError} carrying the server's reason (409 pinned, 422 invalid). */
+  setSecurityPolicy(policy: SecurityPolicyWrite): Promise<SecurityPolicy>;
 
   /** `GET /admin/integrations`. */
   getIntegrations(): Promise<IntegrationsConfig>;
@@ -338,7 +358,22 @@ export function createHttpAdminApi(base = basePath()): AdminApi {
 
     getSecurityPolicy: () => getJson<SecurityPolicy>('/security-policy'),
     async setSecurityPolicy(policy) {
-      await send('/security-policy', 'PUT', policy);
+      const res = await raw('/security-policy', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(policy),
+      });
+      if (!res.ok) {
+        const reason = await res
+          .json()
+          .then((b: { error?: unknown }) => (typeof b.error === 'string' ? b.error : null))
+          .catch(() => null);
+        throw new AdminApiError(
+          res.status,
+          reason ?? `PUT /security-policy failed (${res.status})`,
+        );
+      }
+      return (await res.json()) as SecurityPolicy;
     },
 
     getIntegrations: () => getJson<IntegrationsConfig>('/integrations'),

@@ -80,6 +80,51 @@ describe('createHttpAdminApi', () => {
     });
   });
 
+  it('setSecurityPolicy PUTs the full shape and returns the policy in force', async () => {
+    const write = {
+      minTls: '1.3' as const,
+      require2fa: false,
+      argon2MCost: 19456,
+      argon2TCost: 2,
+      argon2PCost: 1,
+      capturePolicy: 'off' as const,
+      maxSecurityFloor: null,
+      dlpRulesJson: '[]',
+    };
+    const inForce = { ...write, envDlpRules: [], pinnedByEnv: [] };
+    const fetchMock = vi.fn(
+      async (_url: string, _init?: RequestInit): Promise<Response> => jsonResponse(inForce),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await createHttpAdminApi().setSecurityPolicy(write)).toEqual(inForce);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('/admin/security-policy');
+    expect(init?.method).toBe('PUT');
+    expect(JSON.parse(init?.body as string)).toEqual(write);
+  });
+
+  it.each([
+    [409, 'minTls is set by MW_ADMIN_MIN_TLS and cannot be changed here'],
+    [422, 'argon2 memory must be 19456..=1048576 KiB, got 1024'],
+  ])('setSecurityPolicy rejects a %i with the server reason', async (status, error) => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error }, status)));
+    const write = {
+      minTls: '1.2' as const,
+      require2fa: false,
+      argon2MCost: 1024,
+      argon2TCost: 2,
+      argon2PCost: 1,
+      capturePolicy: 'off' as const,
+      maxSecurityFloor: null,
+      dlpRulesJson: '[]',
+    };
+    await expect(createHttpAdminApi().setSecurityPolicy(write)).rejects.toMatchObject({
+      name: 'AdminApiError',
+      status,
+      message: error,
+    });
+  });
+
   it('throws AdminApiError on a non-2xx GET', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 500 })));
     const api = createHttpAdminApi();
