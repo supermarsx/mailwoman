@@ -114,6 +114,8 @@ mod account_gate;
 // scoped `mwk_…` key authorize `/api/v1/*` REST + adds IP-allowlist/rate-limit to
 // `/mcp`. Keeps the cookie path unchanged.
 mod scope_mw;
+// t32-h9: the server, never the client, picks the mail upstream for a sign-in.
+mod upstream_resolve;
 
 pub use engine_mode::ServerMode;
 pub use hardening::HardeningConfig;
@@ -265,6 +267,12 @@ pub struct SecurityConfig {
     /// Either way the session's `apiUrl`/`downloadUrl`/`uploadUrl` must share the
     /// upstream's origin; see `upstream_client`.
     pub jmap_upstreams: Option<Vec<String>>,
+    /// The upstream every sign-in uses until per-domain configuration exists
+    /// (env: `MW_UPSTREAM_DEFAULT`, t32-h9): a JMAP URL in proxy mode
+    /// (`https://jmap.example.org`), an `imap(s)://host:port` or
+    /// `pop3(s)://host:port` URL in engine mode. Its origin counts as operator
+    /// named, like an `MW_JMAP_UPSTREAMS` entry. See `upstream_resolve`.
+    pub upstream_default: Option<String>,
 }
 
 impl SecurityConfig {
@@ -294,6 +302,7 @@ impl SecurityConfig {
                     .unwrap_or(0.08),
             },
             jmap_upstreams: string("MW_JMAP_UPSTREAMS").map(|v| parse_jmap_upstreams(&v)),
+            upstream_default: string("MW_UPSTREAM_DEFAULT").map(|v| v.trim().to_string()),
         }
     }
 }
@@ -1913,7 +1922,6 @@ fn add_cors_headers(h: &mut HeaderMap, origin: HeaderValue) {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct LoginReq {
-    jmap_url: String,
     username: String,
     password: String,
     /// V5 native-auth mode (plan §2.2): a native shell sends `"native"` to get a
@@ -1922,6 +1930,59 @@ struct LoginReq {
     /// cookie/same-origin path is byte-identical.
     #[serde(default)]
     client_type: Option<String>,
+    /// Every other field, kept only to refuse the ones that name a server.
+    #[serde(flatten)]
+    other: std::collections::HashMap<String, serde_json::Value>,
+}
+
+/// Login-body fields through which a client could choose the mail server. The
+/// server decides the upstream (t32-h9); a body carrying any of them, even
+/// empty, is refused rather than having the field ignored.
+const CLIENT_SERVER_FIELDS: &[&str] = &[
+    "jmapUrl",
+    "jmap_url",
+    "server",
+    "serverUrl",
+    "host",
+    "port",
+    "imapUrl",
+    "pop3Url",
+    "sessionUrl",
+    "upstream",
+    "url",
+];
+
+impl LoginReq {
+    fn names_a_server(&self) -> bool {
+        CLIENT_SERVER_FIELDS
+            .iter()
+            .any(|f| self.other.contains_key(*f))
+    }
+}
+
+/// 400 for a login body that names a server (t32-h9).
+fn client_server_refused() -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({
+            "error": "the server chooses the mail server; a sign-in sends only the address and the password",
+            "code": "clientServerNotAllowed",
+        })),
+    )
+        .into_response()
+}
+
+/// 404 for an address no configured upstream places (t32-h9). It says nothing
+/// about the account: it is decided before any credential is checked.
+fn address_not_configured() -> Response {
+    (
+        StatusCode::NOT_FOUND,
+        Json(json!({
+            "error": "this address is not set up on this server",
+            "code": "addressNotConfigured",
+        })),
+    )
+        .into_response()
 }
 
 /// Uniform 401 — never leak which of URL/user/password was wrong (SPEC §7.4).
@@ -1941,6 +2002,9 @@ async fn login(
     ext: axum::http::Extensions,
     Json(body): Json<LoginReq>,
 ) -> Response {
+    if body.names_a_server() {
+        return client_server_refused();
+    }
     // A2 (header-auth trusted proxy): if the deployment trusts an upstream that has
     // already authenticated the user and asserts it via `X-Remote-User`, mint the
     // session from that header without a password. OFF unless configured, and
@@ -1953,9 +2017,14 @@ async fn login(
     if let Err(resp) = directory_bind_gate(&state, &body.username, &body.password).await {
         return resp;
     }
+    let upstream = match upstream_resolve::resolve_upstream(&state, &body.username).await {
+        Ok(u) => u,
+        Err(upstream_resolve::ResolveError::NotConfigured) => return address_not_configured(),
+    };
     if let Some(engine) = &state.engine {
-        return engine_login(&state, &headers, engine, body).await;
+        return engine_login(&state, &headers, engine, body, upstream.url()).await;
     }
+    let jmap_url = upstream.url().to_string();
     let creds = Credentials {
         username: body.username.clone(),
         password: body.password.clone(),
@@ -1963,7 +2032,7 @@ async fn login(
     // Validate credentials by fetching the upstream Session server-side — under the
     // upstream policy, so a refused upstream is never contacted (t24 B2). A refusal
     // answers with the same 401 as a wrong password.
-    let session = match upstream_session(&state.security, &body.jmap_url, &creds).await {
+    let session = match upstream_session(&state.security, &jmap_url, &creds).await {
         Ok(s) => s,
         Err(e) => {
             if let UpstreamSessionError::Refused(r) = &e {
@@ -1973,7 +2042,7 @@ async fn login(
         }
     };
     // An upstream may only name URLs on itself.
-    if let Err(r) = session_urls_on_origin(&body.jmap_url, &session) {
+    if let Err(r) = session_urls_on_origin(&jmap_url, &session) {
         tracing::warn!("proxy login refused: the upstream session's URLs: {r}");
         return unauthorized();
     }
@@ -1988,7 +2057,7 @@ async fn login(
     };
     // Resolve the (possibly relative) upstream apiUrl to an absolute URL so
     // server-side proxying can reach it regardless of the browser origin.
-    let api_url = resolve_api_url(&body.jmap_url, &session.api_url);
+    let api_url = resolve_api_url(&jmap_url, &session.api_url);
     // Credentials validated — hand off to the 2FA gate (DQ2). It either completes the
     // login (no factor enrolled/required) or returns a `twofaRequired` challenge and
     // withholds the session until the second factor clears.
@@ -1998,7 +2067,7 @@ async fn login(
         twofa_routes::SessionArgs {
             account_id,
             username,
-            jmap_url: body.jmap_url.clone(),
+            jmap_url,
             api_url,
             creds,
             client_type: body.client_type.clone(),
@@ -2073,13 +2142,22 @@ async fn header_auth_login(
         username: username.clone(),
         password,
     };
+    // The upstream comes from the server's configuration only (t32-h9):
+    // `MW_HEADER_AUTH_JMAP_URL`, else the resolver.
     let (jmap_url, api_url) = if state.engine.is_some() {
         ("engine".to_string(), "engine".to_string())
     } else {
-        let url = if body.jmap_url.is_empty() {
-            std::env::var("MW_HEADER_AUTH_JMAP_URL").unwrap_or_default()
-        } else {
-            body.jmap_url.clone()
+        let url = match std::env::var("MW_HEADER_AUTH_JMAP_URL")
+            .ok()
+            .filter(|s| !s.is_empty())
+        {
+            Some(url) => url,
+            None => match upstream_resolve::resolve_upstream(state, &username).await {
+                Ok(u) => u.url().to_string(),
+                Err(upstream_resolve::ResolveError::NotConfigured) => {
+                    return Some(address_not_configured());
+                }
+            },
         };
         (url.clone(), url)
     };
@@ -2241,19 +2319,18 @@ fn merge_body(base: &mut serde_json::Value, extra: serde_json::Value) {
     }
 }
 
-/// Engine-mode login: `jmapUrl` is read as an `imap(s)://`/`pop3(s)://` server
-/// URL. Connects the account, then issues the same session cookie the proxy path
-/// uses so the browser flow is identical.
+/// Engine-mode login against `server_url`, the `imap(s)://`/`pop3(s)://` server
+/// the resolver picked. Connects the account, then issues the same session cookie
+/// the proxy path uses so the browser flow is identical.
 async fn engine_login(
     state: &AppState,
     headers: &HeaderMap,
     engine: &Arc<Engine>,
     body: LoginReq,
+    server_url: &str,
 ) -> Response {
     let (account_id, username) =
-        match engine_mode::engine_login(engine, &body.jmap_url, &body.username, &body.password)
-            .await
-        {
+        match engine_mode::engine_login(engine, server_url, &body.username, &body.password).await {
             Ok(pair) => pair,
             Err(e) => {
                 tracing::warn!("engine login failed: {e}");
@@ -2302,74 +2379,22 @@ pub(crate) fn new_csrf_token() -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
 
-/// `POST /api/discover {email}` → the autoconfig ladder's candidate server set
-/// (plan §2.4). Pre-login, so unauthenticated; additive in both modes.
-#[derive(Debug, Deserialize)]
-struct DiscoverReq {
-    email: String,
-}
-
-async fn discover(Json(body): Json<DiscoverReq>) -> Response {
-    // A10 (RFC 8620 §2.2): the JMAP service may live on a different host than the
-    // mail domain, advertised as a `_jmap._tcp.<domain>` SRV record. Resolve it
-    // (best-effort) and surface the endpoint alongside the autoconfig candidate so a
-    // JMAP-native client can locate the API host without guessing.
-    let jmap_srv = match body.email.rsplit_once('@') {
-        Some((_, domain)) if !domain.is_empty() => lookup_jmap_srv(domain).await,
-        _ => None,
-    };
-    let jmap_srv_json = jmap_srv
-        .as_ref()
-        .map(|(host, port)| json!({ "host": host, "port": port }));
-
-    match mw_autoconfig::discover(&body.email).await {
-        Ok(candidate) => {
-            // Augment the candidate JSON with the `_jmap._tcp` hint (additive; the web
-            // ignores unknown fields). Serialization of a plain struct never fails.
-            let mut value = serde_json::to_value(&candidate).unwrap_or_else(|_| json!({}));
-            if let (Some(obj), Some(srv)) = (value.as_object_mut(), jmap_srv_json.clone()) {
-                obj.insert("jmapSrv".into(), srv);
-            }
-            Json(value).into_response()
-        }
-        // No autoconfig candidate, but a `_jmap._tcp` SRV exists → a JMAP-only server.
-        // Return it as a minimal candidate so the login flow can proceed to JMAP.
-        Err(mw_autoconfig::DiscoverError::NotFound(_)) if jmap_srv_json.is_some() => {
-            Json(json!({ "source": "jmap-srv", "jmapSrv": jmap_srv_json })).into_response()
-        }
-        Err(mw_autoconfig::DiscoverError::InvalidEmail(_)) => (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "invalid email address" })),
-        )
-            .into_response(),
-        Err(mw_autoconfig::DiscoverError::NotFound(_)) => (
-            StatusCode::NOT_FOUND,
-            Json(json!({ "error": "no configuration discovered" })),
-        )
-            .into_response(),
-        Err(e) => (
-            StatusCode::BAD_GATEWAY,
-            Json(json!({ "error": e.to_string() })),
-        )
-            .into_response(),
-    }
-}
-
-/// Resolve `_jmap._tcp.<domain>` (A10) and return the preferred `(host, port)` —
-/// lowest SRV priority, then highest weight — with the trailing dot stripped. A
-/// resolver-build failure, an absent record, or a `.` target (RFC 2782 "service
-/// decidedly not available") yields `None` so discovery degrades cleanly.
-async fn lookup_jmap_srv(domain: &str) -> Option<(String, u16)> {
-    use mw_autoconfig::SrvResolver;
-    let resolver = mw_autoconfig::HickoryResolver::new().ok()?;
-    let mut records = resolver
-        .lookup_srv(&format!("_jmap._tcp.{domain}"))
-        .await
-        .ok()?;
-    records.retain(|r| r.target != "." && !r.target.is_empty());
-    records.sort_by(|a, b| a.priority.cmp(&b.priority).then(b.weight.cmp(&a.weight)));
-    let best = records.into_iter().next()?;
-    Some((best.target.trim_end_matches('.').to_string(), best.port))
+/// `POST /api/discover` is gone (t32-h9; t32-admin plan DA7). It used to look an
+/// address's domain up (well-known JMAP, SRV, autoconfig, ISPDB, autodiscover) and
+/// hand the servers it found to the browser, which then sent one back as the
+/// login's `jmapUrl`. The server now picks the upstream itself
+/// (`upstream_resolve`) and a login naming one is refused, so the route answers
+/// 410 without reading the body or looking anything up. Its rate limiter stays in
+/// front of it and is now inert.
+async fn discover() -> Response {
+    (
+        StatusCode::GONE,
+        Json(json!({
+            "error": "server lookup was removed; sign in with the address and the password",
+            "code": "discoverRemoved",
+        })),
+    )
+        .into_response()
 }
 
 async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -2698,6 +2723,16 @@ fn upstream_address_policy(
     security: &SecurityConfig,
     url: &reqwest::Url,
 ) -> Result<fn(&std::net::IpAddr) -> bool, UpstreamRefusal> {
+    // The configured default upstream is named by the operator as surely as a
+    // listed origin is (t32-h9).
+    if security
+        .upstream_default
+        .as_deref()
+        .and_then(upstream_list_origin)
+        .is_some_and(|d| d.origin() == url.origin())
+    {
+        return Ok(operator_listed_address);
+    }
     let Some(list) = &security.jmap_upstreams else {
         return Ok(mw_egress::ip_allowed);
     };
@@ -2712,7 +2747,8 @@ fn upstream_address_policy(
     }
 }
 
-/// The address predicate for an origin the operator named in `MW_JMAP_UPSTREAMS`.
+/// The address predicate for an origin the operator named in `MW_JMAP_UPSTREAMS`
+/// or `MW_UPSTREAM_DEFAULT`.
 /// Naming the origin is the operator's decision to trust wherever it resolves —
 /// that is what lets a deployment use an internal JMAP server — so no range is
 /// refused. The connection is still pinned to the address resolved at check time.

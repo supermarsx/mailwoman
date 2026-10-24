@@ -5,9 +5,9 @@
 //! Backend *construction* lives here rather than in `mw-engine`, because
 //! `mw-imap`/`mw-pop3` depend on `mw-engine` for the frozen trait — so only this
 //! crate, which depends on all three, can dial a server and hand the engine a
-//! ready [`AccountRuntime`]. The web app is unchanged: it still `POST`s the same
-//! `{jmapUrl, username, password}` to `/api/login`; in engine mode the `jmapUrl`
-//! field is read as an `imap(s)://` / `pop3(s)://` server URL.
+//! ready [`AccountRuntime`]. The web app `POST`s `{username, password}` to
+//! `/api/login`; the server picks the `imap(s)://` / `pop3(s)://` server itself
+//! (`upstream_resolve`, t32-h9) and hands it to [`engine_login`].
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -360,7 +360,7 @@ fn connect_lock(account_id: &str) -> Arc<tokio::sync::Mutex<()>> {
     locks.entry(account_id.to_string()).or_default().clone()
 }
 
-/// A parsed mail server URL from the login form's `jmapUrl` field.
+/// A parsed mail server URL, as the upstream resolver supplies it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct MailUrl {
     kind: AccountKind,
@@ -372,6 +372,11 @@ struct MailUrl {
 
 /// Parse `imaps://host[:port]` / `imap://…` / `pop3s://…` / `pop3://…`; a bare
 /// host defaults to IMAPS. Returns `None` for an unrecognised scheme.
+/// Whether `input` names an IMAP or POP3 server [`engine_login`] can dial.
+pub(crate) fn is_mail_url(input: &str) -> bool {
+    parse_mail_url(input).is_some()
+}
+
 fn parse_mail_url(input: &str) -> Option<MailUrl> {
     let input = input.trim();
     let (scheme, rest) = match input.split_once("://") {
@@ -589,7 +594,7 @@ pub async fn engine_login(
     let mut url =
         parse_mail_url(server_url).ok_or_else(|| "unrecognised mail server URL".to_string())?;
     // Deployments fronting a plaintext test server (e.g. Greenmail in CI) can
-    // force the transport without changing the URL the browser posts.
+    // force the transport without changing the configured URL.
     if let Ok(tls) = std::env::var("MW_ENGINE_TLS")
         && matches!(tls.as_str(), "implicit" | "starttls" | "plaintext")
     {
