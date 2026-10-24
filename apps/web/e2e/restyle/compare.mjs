@@ -37,6 +37,13 @@
 //     minus 1 px (the space came from its neighbours).
 // Every exempted instance is printed. Anything else (another rule, a growth that
 // widens the band, a padding increase) is still a violation.
+//
+// Checkbox target exemption (t32-h12): a native checkbox or radio listed in
+// CHECK_TARGET may grow to the 24×24 box every checkbox shares (styles/checks.css.ts,
+// the WCAG 2.2 §2.5.8 target), and no further. Its growth is not counted when:
+//   - after, its width and its height are each at most 24 px;
+//   - its font-size did not grow and no padding or border side grew by more than 1 px.
+// Every such instance is printed; a checkbox growing past 24 px is still a violation.
 import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -94,7 +101,29 @@ export const FLEX_FILL = [
   { probe: 'reader.frame', axis: 'h', container: true, why: 'message frame, flex 1 in the reader column' },
 ];
 
+/** Native checkboxes measured by the harness (see CHECK_TARGET above). */
+export const CHECK_TARGET = [
+  { probe: 'admin.row-control', label: /^(Zero-access for|Disable|Force password change for) / },
+  { probe: 'cal.toggle' },
+  { probe: 'settings.checkbox' },
+  { probe: 'tasks.complete' },
+];
+
 const probeName = (id) => id.replace(/#\d+$/, '');
+
+/** Why a growth of checkbox instance `id` is the shared 24 px target, or null. */
+export function checkTarget(b, a, id) {
+  const pb = b.probes[id];
+  const pa = a.probes[id];
+  const entry = CHECK_TARGET.find((f) => f.probe === probeName(id) && (f.label === undefined || f.label.test(pb.label ?? '')));
+  if (!entry) return null;
+  if (pa.w > TOUCH_FLOOR + EPS || pa.h > TOUCH_FLOOR + EPS) return null;
+  if (pa.fontSize > pb.fontSize + EPS) return null;
+  for (let i = 0; i < 4; i++) {
+    if (pa.padding[i] > pb.padding[i] + TOL || pa.border[i] > pb.border[i] + TOL) return null;
+  }
+  return { why: 'checkbox at the shared 24×24 target (styles/checks.css.ts)' };
+}
 
 function flexFillEntry(id, pb) {
   return FLEX_FILL.find((f) => f.probe === probeName(id) && (f.label === undefined || f.label.test(pb.label ?? '')));
@@ -164,6 +193,7 @@ export function compare(before, after, { partial = false } = {}) {
   const violations = [];
   const shrunk = [];
   const exempt = [];
+  const targets = [];
   const add = (key, probe, rule, b, a) => violations.push({ screen: key, probe, rule, before: r1(b), after: r1(a) });
 
   for (const [key, b] of Object.entries(before).sort()) {
@@ -185,7 +215,9 @@ export function compare(before, after, { partial = false } = {}) {
       }
       const grew = (axis, rule) => {
         const ff = flexFill(b, a, id, axis);
+        const ct = ff ? null : checkTarget(b, a, id);
         if (ff) exempt.push({ screen: key, probe: id, axis, before: axis === 'w' ? pb.w : pb.h, after: axis === 'w' ? pa.w : pa.h, ...ff });
+        else if (ct) targets.push({ screen: key, probe: id, axis, before: axis === 'w' ? pb.w : pb.h, after: axis === 'w' ? pa.w : pa.h, ...ct });
         else add(key, id, rule, axis === 'w' ? pb.w : pb.h, axis === 'w' ? pa.w : pa.h);
       };
       if (pa.h > pb.h + TOL) grew('h', 'height +>1px');
@@ -208,7 +240,7 @@ export function compare(before, after, { partial = false } = {}) {
       }
     }
   }
-  return { violations, shrunk, exempt };
+  return { violations, shrunk, exempt, targets };
 }
 
 function table(rows, cols) {
@@ -228,7 +260,7 @@ if (isMain) {
   if (pos.length !== 2) usage();
   const before = load(pos[0]);
   const after = load(pos[1]);
-  const { violations, shrunk, exempt } = compare(before, after, { partial });
+  const { violations, shrunk, exempt, targets } = compare(before, after, { partial });
   const screens = Object.keys(before).filter((k) => partial ? after[k] !== undefined : true).length;
   const probes = Object.entries(before)
     .filter(([k]) => after[k] !== undefined)
@@ -243,7 +275,12 @@ if (isMain) {
 ${exempt.length} flex-fill growth(s) not counted (FLEX_FILL):`);
     console.log(table(exempt, ['screen', 'probe', 'axis', 'before', 'after', 'band', 'freed', 'why']));
   }
-  if (jsonOut) writeFileSync(jsonOut, JSON.stringify({ violations, shrunk, exempt }, null, 1));
+  if (targets.length > 0) {
+    console.log(`
+${targets.length} checkbox growth(s) to the 24 px target not counted (CHECK_TARGET):`);
+    console.log(table(targets, ['screen', 'probe', 'axis', 'before', 'after', 'why']));
+  }
+  if (jsonOut) writeFileSync(jsonOut, JSON.stringify({ violations, shrunk, exempt, targets }, null, 1));
   if (violations.length > 0) {
     console.log(`\n${violations.length} violation(s):`);
     console.log(table(violations, ['screen', 'probe', 'rule', 'before', 'after']));

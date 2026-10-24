@@ -90,6 +90,13 @@ For each probe instance present in both runs (same viewport, theme, screen):
 | fully visible list rows on a screen | fewer than before |
 | probe instance visible before | absent or invisible after ("vanished") |
 
+Two listed exemptions, each instance printed when it applies:
+
+| exemption | what may grow | conditions |
+|---|---|---|
+| `FLEX_FILL` | a listed probe sized by its row or column (a `flex: 1` field, the reader frame), along the listed axis | font-size and padding/border not grown; its band (or the probe enclosing it) not grown; the neighbours freed the space |
+| `CHECK_TARGET` (t32-h12) | a listed native checkbox, up to the 24×24 box every checkbox shares (`styles/checks.css.ts`, WCAG 2.2 §2.5.8) | after, width and height each ≤ 24 px; font-size, padding and border not grown; a checkbox past 24 px is still a violation |
+
 It also prints the instances that shrank by more than 1 px (allowed), for the report.
 
 ## What contrast.restyle.ts fails on
