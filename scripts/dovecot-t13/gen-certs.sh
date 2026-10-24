@@ -20,7 +20,7 @@
 # host openssl (the minimal dovecot image ships none).
 set -eu
 
-DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/certs"
+DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)/certs"
 mkdir -p "$DIR"
 
 # RSA-2048 leaf, self-signed with SHA-256 (the RFC-common channel-binding case).

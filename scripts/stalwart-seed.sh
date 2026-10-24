@@ -34,17 +34,23 @@ done
 
 # Create the domain (idempotent-ish: ignore "already exists").
 log "creating domain $DOMAIN"
-curl -fsS -u "$ADMIN" -X POST "$URL/api/principal" \
+if curl -fsS -u "$ADMIN" -X POST "$URL/api/principal" \
   -H 'content-type: application/json' \
-  -d "{\"type\":\"domain\",\"name\":\"$DOMAIN\"}" \
-  && log "domain ok" || log "domain create failed (may already exist); continuing"
+  -d "{\"type\":\"domain\",\"name\":\"$DOMAIN\"}"; then
+  log "domain ok"
+else
+  log "domain create failed (may already exist); continuing"
+fi
 
 # Create the individual account with a plaintext secret (Stalwart hashes it).
 log "creating account $USER"
-curl -fsS -u "$ADMIN" -X POST "$URL/api/principal" \
+if curl -fsS -u "$ADMIN" -X POST "$URL/api/principal" \
   -H 'content-type: application/json' \
-  -d "{\"type\":\"individual\",\"name\":\"$USER\",\"secrets\":[\"$PASS\"],\"emails\":[\"$USER\"]}" \
-  && log "account ok" || log "account create failed (may already exist); continuing"
+  -d "{\"type\":\"individual\",\"name\":\"$USER\",\"secrets\":[\"$PASS\"],\"emails\":[\"$USER\"]}"; then
+  log "account ok"
+else
+  log "account create failed (may already exist); continuing"
+fi
 
 log "seed complete (best-effort). If this failed, use the mock backend."
 exit 0

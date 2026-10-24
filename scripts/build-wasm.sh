@@ -89,6 +89,7 @@ WASM_PACK_VERSION="0.15.0"
 # otherwise remap THAT workspace's prefix — which matches nothing here, embeds the
 # real paths, and still exits 0. The one case the shared script cannot detect.
 cd "${ROOT}"
+# shellcheck source=plugins/reproducible-env.sh
 . "${ROOT}/plugins/reproducible-env.sh"
 
 # CAREFUL: reproducible-env.sh sets CARGO_ENCODED_RUSTFLAGS, and that variable
@@ -100,8 +101,11 @@ cd "${ROOT}"
 # (mw-crypto's Cargo.toml wasm target deps), so no `--cfg getrandom_backend` is
 # strictly required; we still pass it for older getrandom generations' safety.
 # `\037` is the 0x1f separator the encoded form uses, and `--cfg` and its value are
-# two separate arguments to rustc, hence two elements.
+# two separate arguments to rustc, hence two elements. The quotes around wasm_js are
+# literal on purpose: rustc reads `--cfg key="value"`, and cargo passes each element as is.
+# shellcheck disable=SC2089 # the quotes are part of the value rustc receives
 CARGO_ENCODED_RUSTFLAGS="${CARGO_ENCODED_RUSTFLAGS}$(printf '\037')--cfg$(printf '\037')getrandom_backend=\"wasm_js\""
+# shellcheck disable=SC2090 # same value as above; the literal quotes are meant
 export CARGO_ENCODED_RUSTFLAGS
 
 if ! command -v wasm-pack >/dev/null 2>&1; then
