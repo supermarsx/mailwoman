@@ -60,7 +60,7 @@
 //! | `MW_T20_PROXY_CA` | path to the self-signed leaf the cells present |
 //! | `MW_T20_DIRECT_BASE` | the same app process with no proxy — the control |
 //! | `MW_T20_EXPECT_CLIENT_IP` | the address the app must attribute the request to |
-//! | `MW_T20_JMAP_URL` / `MW_T20_USER` / `MW_T20_PASS` | upstream login |
+//! | `MW_T20_USER` / `MW_T20_PASS` | upstream login (the app signs in to its `MW_UPSTREAM_DEFAULT`) |
 //! | `MW_T20_PROXY_PREFIX` | sub-path base; unset in every cell today |
 //! | `MW_T20_XFF_APPENDS` | `1` for a cell whose proxy appends to `X-Forwarded-For`; unset in every tier-1 cell |
 //!
@@ -126,7 +126,6 @@ struct Cell {
     ca_path: Option<String>,
     direct_base: Option<String>,
     expect_client_ip: Option<String>,
-    jmap_url: String,
     user: String,
     pass: String,
     /// `MW_T20_PROXY_PREFIX`, canonicalised to `""` or `/mail` (no trailing slash).
@@ -162,8 +161,6 @@ impl Cell {
             ca_path: var("MW_T20_PROXY_CA"),
             direct_base: var("MW_T20_DIRECT_BASE"),
             expect_client_ip: var("MW_T20_EXPECT_CLIENT_IP"),
-            jmap_url: var("MW_T20_JMAP_URL")
-                .unwrap_or_else(|| "http://mock:8181/.well-known/jmap".into()),
             user: var("MW_T20_USER").unwrap_or_else(|| "testuser@example.org".into()),
             pass: var("MW_T20_PASS").unwrap_or_else(|| "testpass".into()),
             prefix,
@@ -214,14 +211,15 @@ impl Cell {
         b.danger_accept_invalid_certs(true).build().unwrap()
     }
 
-    /// Log in through this cell and return a driveable session.
+    /// Log in through this cell and return a driveable session. The login names
+    /// no server: the cell's app must set `MW_UPSTREAM_DEFAULT` (or a single
+    /// `MW_JMAP_UPSTREAMS` origin) to the mock (t32-h9).
     async fn login(&self, base: &str) -> Ctx {
         let jar = Arc::new(Jar::default());
         let client = self.client_with_jar(jar.clone());
         let resp = client
             .post(format!("{base}{}/api/login", self.prefix))
             .json(&json!({
-                "jmapUrl": self.jmap_url,
                 "username": self.user,
                 "password": self.pass,
             }))

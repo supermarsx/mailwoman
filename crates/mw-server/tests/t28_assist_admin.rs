@@ -523,7 +523,7 @@ async fn the_kill_switch_stops_the_running_gateway_and_releasing_it_resumes() {
     let user = browser();
     let login = user
         .post(format!("{first}/api/login"))
-        .json(&json!({ "jmapUrl": mock, "username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS }))
+        .json(&json!({ "username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS }))
         .send()
         .await
         .unwrap();
@@ -541,7 +541,7 @@ async fn the_kill_switch_stops_the_running_gateway_and_releasing_it_resumes() {
     let user = browser();
     let login = user
         .post(format!("{base}/api/login"))
-        .json(&json!({ "jmapUrl": mock, "username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS }))
+        .json(&json!({ "username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS }))
         .send()
         .await
         .unwrap();
@@ -835,7 +835,7 @@ async fn the_api_key_is_sealed_at_rest_and_a_plaintext_row_is_resealed_at_start(
     let user = browser();
     let login = user
         .post(format!("{base}/api/login"))
-        .json(&json!({ "jmapUrl": mock, "username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS }))
+        .json(&json!({ "username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS }))
         .send()
         .await
         .unwrap();
@@ -866,7 +866,7 @@ async fn the_api_key_is_sealed_at_rest_and_a_plaintext_row_is_resealed_at_start(
     let user = browser();
     let login = user
         .post(format!("{base}/api/login"))
-        .json(&json!({ "jmapUrl": mock, "username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS }))
+        .json(&json!({ "username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS }))
         .send()
         .await
         .unwrap();

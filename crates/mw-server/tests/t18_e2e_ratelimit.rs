@@ -58,6 +58,17 @@ fn mock_upstreams() -> Option<Vec<String>> {
     Some(MOCK_UPSTREAMS.lock().unwrap().clone())
 }
 
+// The mock this test started last. The server under test signs in to it as
+// its configured upstream (`MW_UPSTREAM_DEFAULT`): a login can no longer name
+// one (t32-h9). Per thread, so tests running in parallel keep their own.
+thread_local! {
+    static LAST_MOCK: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+fn last_mock() -> Option<String> {
+    LAST_MOCK.with(|m| m.borrow().clone())
+}
+
 async fn spawn_mock() -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -66,6 +77,7 @@ async fn spawn_mock() -> String {
     });
     let origin = format!("http://{addr}");
     MOCK_UPSTREAMS.lock().unwrap().push(origin.clone());
+    LAST_MOCK.with(|m| *m.borrow_mut() = Some(origin.clone()));
     origin
 }
 
@@ -86,6 +98,7 @@ async fn spawn_server(db_path: &str) -> SocketAddr {
         hardening: mw_server::HardeningConfig::default(),
         security: mw_server::SecurityConfig {
             jmap_upstreams: mock_upstreams(),
+            upstream_default: last_mock(),
             ..mw_server::SecurityConfig::default()
         },
     };
@@ -105,10 +118,10 @@ fn client() -> reqwest::Client {
         .unwrap()
 }
 
-async fn login_cookie(c: &reqwest::Client, base: &str, mock: &str) {
+async fn login_cookie(c: &reqwest::Client, base: &str, _mock: &str) {
     let body: Value = c
         .post(format!("{base}/api/login"))
-        .json(&json!({ "jmapUrl": mock, "username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS }))
+        .json(&json!({ "username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS }))
         .send()
         .await
         .unwrap()
@@ -227,11 +240,11 @@ async fn image_proxy_rate_limits_per_account_with_429() {
 
 /// Perform a fresh login on a throwaway client and return account A's raw session
 /// cookie value (so it can be sent explicitly).
-async fn login_raw_cookie(base: &str, mock: &str) -> String {
+async fn login_raw_cookie(base: &str, _mock: &str) -> String {
     let c = reqwest::Client::builder().build().unwrap();
     let resp = c
         .post(format!("{base}/api/login"))
-        .json(&json!({ "jmapUrl": mock, "username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS }))
+        .json(&json!({ "username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS }))
         .send()
         .await
         .unwrap();

@@ -261,11 +261,18 @@ async fn sandboxed_download(c: &reqwest::Client, url: &str, served: &str) {
 async fn engine_mode_parts_are_typed_safely_and_sandboxed() {
     let _g = serial().await;
     let pop = MockPop3::start(ENGINE_USER, ENGINE_PASS).await;
-    let base = &spawn(ServerMode::Engine, SecurityConfig::default()).await;
+    let base = &spawn(
+        ServerMode::Engine,
+        SecurityConfig {
+            upstream_default: Some(pop.url()),
+            ..SecurityConfig::default()
+        },
+    )
+    .await;
     let c = browser();
     let login = c
         .post(format!("{base}/api/login"))
-        .json(&json!({ "jmapUrl": pop.url(), "username": ENGINE_USER, "password": ENGINE_PASS }))
+        .json(&json!({ "username": ENGINE_USER, "password": ENGINE_PASS }))
         .send()
         .await
         .unwrap();
@@ -404,7 +411,7 @@ async fn proxy_mode_downloads_carry_the_same_headers() {
     let c = browser();
     let login = c
         .post(format!("{base}/api/login"))
-        .json(&json!({ "jmapUrl": upstream, "username": "h4", "password": "pw" }))
+        .json(&json!({ "username": "h4", "password": "pw" }))
         .send()
         .await
         .unwrap();

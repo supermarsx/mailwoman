@@ -193,7 +193,11 @@ impl Fixture {
             cookie_secure: false,
             mode: ServerMode::Engine,
             hardening: HardeningConfig::default(),
-            security: SecurityConfig::default(),
+            // The server signs in to `pop`; a login no longer names it (t32-h9).
+            security: SecurityConfig {
+                upstream_default: Some(pop.url()),
+                ..SecurityConfig::default()
+            },
         };
         let v6 = V6Config {
             admin_enabled: true,
@@ -224,7 +228,7 @@ impl Fixture {
             .unwrap();
         let login = owner
             .post(format!("{base}/api/login"))
-            .json(&json!({ "jmapUrl": pop.url(), "username": USER, "password": PASS }))
+            .json(&json!({ "username": USER, "password": PASS }))
             .send()
             .await
             .unwrap();

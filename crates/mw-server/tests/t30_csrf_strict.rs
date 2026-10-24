@@ -169,11 +169,12 @@ async fn admin_login(c: &reqwest::Client, base: &str) -> Signed {
     }
 }
 
-async fn mailbox_login(c: &reqwest::Client, base: &str, mock: &str) -> Signed {
+/// `_mock` is the server's only listed upstream, which it signs in to; the login
+/// does not name it (t32-h9).
+async fn mailbox_login(c: &reqwest::Client, base: &str, _mock: &str) -> Signed {
     let resp = c
         .post(format!("{base}/api/login"))
         .json(&json!({
-            "jmapUrl": mock,
             "username": mw_mock_jmap::USER,
             "password": mw_mock_jmap::PASS,
         }))
@@ -717,7 +718,6 @@ async fn a_bearer_request_without_a_session_cookie_is_not_checked() {
     let resp = c
         .post(format!("{base}/api/login"))
         .json(&json!({
-            "jmapUrl": mock,
             "username": mw_mock_jmap::USER,
             "password": mw_mock_jmap::PASS,
             "clientType": "native",

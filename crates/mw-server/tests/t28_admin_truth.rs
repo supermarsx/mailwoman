@@ -74,6 +74,7 @@ async fn spawn_server(db: &str) -> String {
         .join(format!("web-{}", test_db::unique_tag()));
     std::fs::create_dir_all(&web).unwrap();
     std::fs::write(web.join("index.html"), INDEX_HTML).unwrap();
+    let mocks = MOCK_UPSTREAMS.lock().unwrap().clone();
     let config = AppConfig {
         db_path: db.to_string(),
         server_key_hex: Some(KEY_HEX.to_string()),
@@ -82,7 +83,9 @@ async fn spawn_server(db: &str) -> String {
         mode: ServerMode::Proxy,
         hardening: HardeningConfig::default(),
         security: SecurityConfig {
-            jmap_upstreams: Some(MOCK_UPSTREAMS.lock().unwrap().clone()),
+            jmap_upstreams: Some(mocks.clone()),
+            // The mock the server signs in to: a login no longer names one (t32-h9).
+            upstream_default: mocks.last().cloned(),
             ..SecurityConfig::default()
         },
     };
@@ -748,7 +751,7 @@ async fn the_route_test_tells_failures_apart_and_says_where_each_stopped() {
 #[tokio::test]
 async fn activating_a_route_is_what_makes_the_image_proxy_use_it() {
     let db = new_db("mw-t28e8-activate");
-    let mock = spawn_mock().await;
+    let _mock = spawn_mock().await;
     let base = spawn_server(&db).await;
     let admin = client();
     let login = admin_login(&admin, &base).await;
@@ -764,7 +767,6 @@ async fn activating_a_route_is_what_makes_the_image_proxy_use_it() {
     let me: Value = user
         .post(format!("{base}/api/login"))
         .json(&json!({
-            "jmapUrl": mock,
             "username": mw_mock_jmap::USER,
             "password": mw_mock_jmap::PASS,
         }))

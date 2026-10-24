@@ -18,7 +18,9 @@ use mw_server::{AppConfig, HardeningConfig, ServerMode, build_app};
 mod common;
 use common::test_db;
 
-async fn spawn_engine_server() -> (String, PathBuf) {
+/// Engine-mode server whose configured upstream (`MW_UPSTREAM_DEFAULT`) is
+/// `upstream`; a login can no longer name one (t32-h9).
+async fn spawn_engine_server(upstream: &str) -> (String, PathBuf) {
     let base = test_db::unique_dir("mw-engine-dl");
     let web_dir = base.join("web");
     std::fs::create_dir_all(&web_dir).unwrap();
@@ -35,7 +37,10 @@ async fn spawn_engine_server() -> (String, PathBuf) {
         cookie_secure: false,
         mode: ServerMode::Engine,
         hardening: HardeningConfig::default(),
-        security: mw_server::SecurityConfig::default(),
+        security: mw_server::SecurityConfig {
+            upstream_default: Some(upstream.to_string()),
+            ..mw_server::SecurityConfig::default()
+        },
     };
     let app = build_app(config).await.unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -106,14 +111,14 @@ async fn download_and_export_over_http_engine_mode() {
     let user = std::env::var("GREENMAIL_USER").unwrap_or_else(|_| "user@example.org".into());
     let pass = std::env::var("GREENMAIL_PASS").unwrap_or_else(|_| "pass".into());
 
-    let (server, _web) = spawn_engine_server().await;
+    let (server, _web) = spawn_engine_server(&format!("imap://{addr}")).await;
     let c = client();
 
-    // Engine-mode login reads `jmapUrl` as an `imap://` server URL. The
+    // The server signs in to its configured `imap://` upstream. The
     // conformance job sets MW_ENGINE_TLS=plaintext for Greenmail.
     let login = c
         .post(format!("{server}/api/login"))
-        .json(&json!({ "jmapUrl": format!("imap://{addr}"), "username": user, "password": pass }))
+        .json(&json!({ "username": user, "password": pass }))
         .send()
         .await
         .unwrap();

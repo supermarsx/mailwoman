@@ -366,6 +366,8 @@ impl Deployment {
             .arg("--web-dir")
             .arg(self.dir.join("web"))
             .env("MW_ENGINE_TLS", "plaintext")
+            // The server signs in to the maildrop; a login no longer names it (t32-h9).
+            .env("MW_UPSTREAM_DEFAULT", self.pop.url())
             .env("MW_SMTP_HOST", "127.0.0.1")
             .env("MW_SMTP_PORT", self.smtp.addr.port().to_string())
             .env("MW_SMTP_SECURITY", "plaintext")
@@ -419,10 +421,11 @@ fn browser() -> reqwest::Client {
 }
 
 /// Log the mailbox user in. The engine resyncs the maildrop during this call.
-async fn login(c: &reqwest::Client, base: &str, pop: &Maildrop) {
+/// `_pop` is the server's configured upstream (`MW_UPSTREAM_DEFAULT`).
+async fn login(c: &reqwest::Client, base: &str, _pop: &Maildrop) {
     let r = c
         .post(format!("{base}/api/login"))
-        .json(&json!({ "jmapUrl": pop.url(), "username": USER, "password": PASS }))
+        .json(&json!({ "username": USER, "password": PASS }))
         .send()
         .await
         .unwrap();

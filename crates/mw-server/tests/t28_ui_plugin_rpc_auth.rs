@@ -165,7 +165,7 @@ async fn the_rpc_broker_serves_a_session_and_refuses_everyone_else() {
     let c = browser();
     let login = c
         .post(format!("{base}/api/login"))
-        .json(&json!({ "jmapUrl": mock, "username": user, "password": pass }))
+        .json(&json!({ "username": user, "password": pass }))
         .send()
         .await
         .unwrap();

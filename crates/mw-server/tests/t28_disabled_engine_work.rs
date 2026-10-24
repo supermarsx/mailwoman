@@ -79,7 +79,9 @@ impl Server {
     }
 }
 
-async fn spawn_engine() -> Server {
+/// An engine-mode server whose configured upstream (`MW_UPSTREAM_DEFAULT`) is
+/// `pop`; a login no longer names one (t32-h9).
+async fn spawn_engine(pop: &MockPop3) -> Server {
     let dir = test_db::unique_dir("mw-t28-c1");
     let web: PathBuf = dir.join("web");
     std::fs::create_dir_all(&web).unwrap();
@@ -96,7 +98,10 @@ async fn spawn_engine() -> Server {
         cookie_secure: false,
         mode: ServerMode::Engine,
         hardening: HardeningConfig::default(),
-        security: SecurityConfig::default(),
+        security: SecurityConfig {
+            upstream_default: Some(pop.url()),
+            ..SecurityConfig::default()
+        },
     };
     let v6 = V6Config {
         admin_enabled: true,
@@ -159,10 +164,11 @@ async fn set_disabled(admin: &reqwest::Client, base: &str, id: &str, disabled: b
     assert_eq!(r.status(), 204, "the panel's flag write is accepted");
 }
 
-async fn login(base: &str, pop: &MockPop3, password: &str) -> reqwest::Response {
+/// `_pop` is the server's configured upstream; the login does not name it.
+async fn login(base: &str, _pop: &MockPop3, password: &str) -> reqwest::Response {
     browser()
         .post(format!("{base}/api/login"))
-        .json(&json!({ "jmapUrl": pop.url(), "username": USER, "password": password }))
+        .json(&json!({ "username": USER, "password": password }))
         .send()
         .await
         .unwrap()
@@ -191,7 +197,7 @@ async fn admin_metadata(admin: &reqwest::Client, base: &str, account_id: &str) -
 async fn a_refused_login_of_a_disabled_account_runs_the_credential_check_and_nothing_else() {
     let _g = serial().await;
     let pop = MockPop3::start(USER, PASS).await;
-    let srv = spawn_engine().await;
+    let srv = spawn_engine(&pop).await;
     let base = &srv.base;
     let admin = admin(base).await;
 
@@ -239,7 +245,7 @@ async fn a_refused_login_of_a_disabled_account_runs_the_credential_check_and_not
 async fn a_disabled_name_that_never_logged_in_gets_no_account_row() {
     let _g = serial().await;
     let pop = MockPop3::start(USER, PASS).await;
-    let srv = spawn_engine().await;
+    let srv = spawn_engine(&pop).await;
     let base = &srv.base;
     let admin = admin(base).await;
     let store = srv.store().await;
@@ -269,7 +275,7 @@ async fn a_disabled_name_that_never_logged_in_gets_no_account_row() {
 async fn disabling_a_connected_account_drops_its_runtime_at_the_flag_write() {
     let _g = serial().await;
     let pop = MockPop3::start(USER, PASS).await;
-    let srv = spawn_engine().await;
+    let srv = spawn_engine(&pop).await;
     let base = &srv.base;
     let admin = admin(base).await;
 

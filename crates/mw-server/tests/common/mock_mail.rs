@@ -26,21 +26,33 @@ pub struct MockPop3 {
 impl MockPop3 {
     /// Serve one account, `user`/`pass`, on a fresh loopback port.
     pub async fn start(user: &str, pass: &str) -> MockPop3 {
+        Self::start_accounts(&[(user, pass)]).await
+    }
+
+    /// Serve several accounts on one fresh loopback port. A server signs every
+    /// address in to its one configured upstream (t32-h9), so tests with two
+    /// mailbox users give both accounts to the same mock.
+    pub async fn start_accounts(accounts: &[(&str, &str)]) -> MockPop3 {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let accepted = Arc::new(AtomicUsize::new(0));
         let refused = Arc::new(AtomicUsize::new(0));
-        let (user, pass) = (user.to_string(), pass.to_string());
+        let accounts: Arc<Vec<(String, String)>> = Arc::new(
+            accounts
+                .iter()
+                .map(|(u, p)| (u.to_string(), p.to_string()))
+                .collect(),
+        );
         let (acc, refd) = (accepted.clone(), refused.clone());
         tokio::spawn(async move {
             loop {
                 let Ok((sock, _)) = listener.accept().await else {
                     return;
                 };
-                let (user, pass) = (user.clone(), pass.clone());
+                let accounts = accounts.clone();
                 let (acc, refd) = (acc.clone(), refd.clone());
                 tokio::spawn(async move {
-                    let _ = serve(sock, &user, &pass, &acc, &refd).await;
+                    let _ = serve(sock, &accounts, &acc, &refd).await;
                 });
             }
         });
@@ -69,8 +81,7 @@ impl MockPop3 {
 
 async fn serve(
     sock: tokio::net::TcpStream,
-    user: &str,
-    pass: &str,
+    accounts: &[(String, String)],
     accepted: &AtomicUsize,
     refused: &AtomicUsize,
 ) -> std::io::Result<()> {
@@ -91,7 +102,10 @@ async fn serve(
                 b"+OK\r\n"
             }
             "PASS" => {
-                if given_user.as_deref() == Some(user) && arg == pass {
+                if accounts
+                    .iter()
+                    .any(|(u, p)| given_user.as_deref() == Some(u.as_str()) && arg == *p)
+                {
                     authed = true;
                     accepted.fetch_add(1, Ordering::SeqCst);
                     b"+OK logged in\r\n"

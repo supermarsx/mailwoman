@@ -184,9 +184,8 @@ async fn send(c: &reqwest::Client, method: &str, url: String, r: Req<'_>) -> Ans
     answer(req.send().await.unwrap()).await
 }
 
-fn login_body(mock: &str, native: bool) -> Value {
+fn login_body(_mock: &str, native: bool) -> Value {
     let mut body = json!({
-        "jmapUrl": mock,
         "username": mw_mock_jmap::USER,
         "password": mw_mock_jmap::PASS,
     });

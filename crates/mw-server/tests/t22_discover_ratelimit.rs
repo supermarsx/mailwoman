@@ -18,11 +18,11 @@
 //!   * without it — as an in-process transport may — nothing is counted, which is the
 //!     deliberate fail-open, live rather than merely described.
 //!
-//! Driven with `{"email":"bad"}`: no `@`, so `split_email` refuses it before any DNS
-//! or HTTP happens. The layer runs before the handler, so each request still charges
-//! a token. That keeps the test off the network entirely and makes it fast and
-//! deterministic — a discovery of a real domain would do live SRV and HTTPS work per
-//! request, which is neither.
+//! Since t32-h9 the route answers 410 without looking anything up (the server picks
+//! the upstream itself), but the limiter still stands in front of it: under the
+//! burst a request gets 410, over it 429. Driven with `{"email":"bad"}`, which
+//! before t32-h9 kept the handler off the network; the layer runs before the
+//! handler, so each request still charges a token.
 //!
 //! Run:
 //!   cargo test -p mw-server --test t22_discover_ratelimit -- --test-threads=1
@@ -124,12 +124,12 @@ async fn a_source_spends_its_burst_and_is_then_refused() {
     let addr = spawn_with_connect_info(&db).await;
     let statuses = discover_statuses(&format!("http://{addr}"), EXPECTED_BURST + 10).await;
 
-    // The early requests must be SERVED (whatever the handler makes of a malformed
-    // address) — a limiter that refused from the first request would also "contain"
-    // the abuse, and would be a broken endpoint.
+    // The early requests must be SERVED — by the handler's 410 — a limiter that
+    // refused from the first request would also "contain" the abuse, and would be a
+    // broken endpoint.
     let early = &statuses[..EXPECTED_BURST - 5];
     assert!(
-        early.iter().all(|s| *s != 429),
+        early.iter().all(|s| *s == 410),
         "the first {} requests must be admitted, got {early:?}",
         EXPECTED_BURST - 5
     );
@@ -154,7 +154,7 @@ async fn without_connect_info_nothing_is_counted() {
     let statuses = discover_statuses(&format!("http://{addr}"), EXPECTED_BURST + 10).await;
 
     assert!(
-        statuses.iter().all(|s| *s != 429),
+        statuses.iter().all(|s| *s == 410),
         "with no `ConnectInfo` there is no key, so nothing may be counted — a 429 \
          here means the limiter invented a key from something the peer controls: \
          {statuses:?}"

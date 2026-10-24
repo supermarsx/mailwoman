@@ -598,7 +598,7 @@ async fn a_forced_password_change_completes_through_the_webhook_backend() {
     let c = browser();
     let login = c
         .post(format!("{base}/api/login"))
-        .json(&json!({ "jmapUrl": mock, "username": user, "password": pass }))
+        .json(&json!({ "username": user, "password": pass }))
         .send()
         .await
         .unwrap();

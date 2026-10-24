@@ -11,13 +11,19 @@
 //! server could read back cloud metadata or an internal service through the
 //! download and API legs.
 //!
+//! Since t32-h9 a login cannot name the upstream at all: the server signs in to
+//! its configured one (`MW_UPSTREAM_DEFAULT`, or a `MW_JMAP_UPSTREAMS` list of one
+//! origin) and refuses a body that names a server with 400. The address-floor
+//! cases below therefore send the old login shape and assert that refusal, still
+//! with nothing dialled.
+//!
 //! # What is asserted
 //! * a login naming a loopback, RFC1918, link-local/metadata, CGNAT, ULA or
 //!   IPv4-mapped private upstream is refused **before any connection is made** —
 //!   proven with listeners that count accepted connections wherever a local
 //!   listener can stand in for the target;
-//! * an operator allowlist (`SecurityConfig::jmap_upstreams`) permits the upstream
-//!   it names and refuses every other one;
+//! * an operator allowlist (`SecurityConfig::jmap_upstreams`) of one origin is the
+//!   upstream every login uses, and no other is ever contacted;
 //! * the session's `apiUrl`/`downloadUrl`/`uploadUrl` must share the upstream's
 //!   origin, at login and on every relayed leg;
 //! * redirects are re-checked per hop: a same-origin redirect on the session fetch
@@ -274,13 +280,26 @@ fn client() -> reqwest::Client {
         .unwrap()
 }
 
-/// `POST /api/login` naming `jmap_url`; returns the status, bounded by
+/// `POST /api/login` with the address and the password, as the sign-in form sends
+/// it: the server picks the upstream. Returns the status, bounded by
 /// [`REFUSAL_BUDGET`] (a timeout is reported as `None`).
-async fn login(c: &reqwest::Client, server: &str, jmap_url: &str) -> Option<u16> {
-    let fut = c
-        .post(format!("{server}/api/login"))
-        .json(&json!({ "jmapUrl": jmap_url, "username": "b2", "password": "pw" }))
-        .send();
+async fn login(c: &reqwest::Client, server: &str) -> Option<u16> {
+    send_login(c, server, json!({ "username": "b2", "password": "pw" })).await
+}
+
+/// `POST /api/login` naming `jmap_url`, the login shape before t32-h9. The
+/// server refuses it (400) without contacting the named server.
+async fn login_naming(c: &reqwest::Client, server: &str, jmap_url: &str) -> Option<u16> {
+    send_login(
+        c,
+        server,
+        json!({ "jmapUrl": jmap_url, "username": "b2", "password": "pw" }),
+    )
+    .await
+}
+
+async fn send_login(c: &reqwest::Client, server: &str, body: Value) -> Option<u16> {
+    let fut = c.post(format!("{server}/api/login")).json(&body).send();
     match tokio::time::timeout(REFUSAL_BUDGET, fut).await {
         Ok(Ok(resp)) => Some(resp.status().as_u16()),
         Ok(Err(e)) => panic!("login request failed at the transport: {e}"),
@@ -307,8 +326,10 @@ async fn csrf(c: &reqwest::Client, server: &str) -> String {
 async fn login_refuses_a_loopback_upstream_without_connecting() {
     let internal = Internal::spawn().await;
     let server = spawn_server(SecurityConfig::default()).await;
-    let status = login(&client(), &server, &internal.url()).await;
-    assert_eq!(status, Some(401), "a loopback upstream must be refused");
+    let status = login_naming(&client(), &server, &internal.url()).await;
+    assert_eq!(status, Some(400), "a loopback upstream must be refused");
+    // Nothing configured: the address is not placed, and nothing is dialled.
+    assert_eq!(login(&client(), &server).await, Some(404));
     assert_eq!(
         internal.accepts(),
         0,
@@ -321,10 +342,10 @@ async fn login_refuses_a_hostname_that_resolves_to_loopback_without_connecting()
     let internal = Internal::spawn().await;
     let server = spawn_server(SecurityConfig::default()).await;
     let url = format!("http://localhost:{}", internal.addr.port());
-    let status = login(&client(), &server, &url).await;
+    let status = login_naming(&client(), &server, &url).await;
     assert_eq!(
         status,
-        Some(401),
+        Some(400),
         "`localhost` resolves to loopback and must be refused"
     );
     assert_eq!(
@@ -339,10 +360,10 @@ async fn login_refuses_an_ipv4_mapped_loopback_upstream_without_connecting() {
     let internal = Internal::spawn().await;
     let server = spawn_server(SecurityConfig::default()).await;
     let url = format!("http://[::ffff:127.0.0.1]:{}", internal.addr.port());
-    let status = login(&client(), &server, &url).await;
+    let status = login_naming(&client(), &server, &url).await;
     assert_eq!(
         status,
-        Some(401),
+        Some(400),
         "an IPv4-mapped loopback upstream must be refused"
     );
     assert_eq!(internal.accepts(), 0, "no connection may be made");
@@ -369,10 +390,10 @@ async fn login_refuses_metadata_private_cgnat_and_ula_upstreams_promptly() {
         "http://[fe80::1]",
     ] {
         let started = Instant::now();
-        let status = login(&c, &server, url).await;
+        let status = login_naming(&c, &server, url).await;
         assert_eq!(
             status,
-            Some(401),
+            Some(400),
             "{url} must be refused (None = the server was still dialling after {REFUSAL_BUDGET:?})"
         );
         assert!(
@@ -392,7 +413,7 @@ async fn an_allowlisted_upstream_works_end_to_end() {
     let up = Upstream::spawn().await;
     let server = spawn_server(allowing(&[&up.origin])).await;
     let c = client();
-    assert_eq!(login(&c, &server, &up.origin).await, Some(200));
+    assert_eq!(login(&c, &server).await, Some(200));
 
     let token = csrf(&c, &server).await;
     let api = c
@@ -436,7 +457,10 @@ async fn an_allowlisted_upstream_works_end_to_end() {
 async fn an_allowlist_refuses_an_upstream_it_does_not_name() {
     let internal = Internal::spawn().await;
     let server = spawn_server(allowing(&["https://jmap.example.org"])).await;
-    assert_eq!(login(&client(), &server, &internal.url()).await, Some(401));
+    assert_eq!(
+        login_naming(&client(), &server, &internal.url()).await,
+        Some(400)
+    );
     assert_eq!(
         internal.accepts(),
         0,
@@ -450,7 +474,13 @@ async fn an_allowlist_entry_is_an_origin_not_a_host() {
     let internal = Internal::spawn().await;
     let other_port = format!("http://127.0.0.1:{}", internal.addr.port().wrapping_add(1));
     let server = spawn_server(allowing(&[&other_port])).await;
-    assert_eq!(login(&client(), &server, &internal.url()).await, Some(401));
+    assert_eq!(
+        login_naming(&client(), &server, &internal.url()).await,
+        Some(400)
+    );
+    // The login uses the listed origin, where nothing listens, and never falls
+    // back to the internal service on the same host.
+    assert_eq!(login(&client(), &server).await, Some(401));
     assert_eq!(internal.accepts(), 0);
 }
 
@@ -463,7 +493,7 @@ async fn login_refuses_a_session_whose_api_url_names_another_origin() {
     up.set_field("apiUrl", &format!("{}/v1/secrets", internal.url()));
     let server = spawn_server(allowing(&[&up.origin])).await;
     let c = client();
-    let status = login(&c, &server, &up.origin).await;
+    let status = login(&c, &server).await;
 
     // Whatever the login said, drive the API leg: on the unfixed code this is the
     // read-back.
@@ -496,7 +526,7 @@ async fn login_refuses_a_session_whose_download_or_upload_url_names_another_orig
         up.set_field(key, &format!("{}/{{accountId}}", internal.url()));
         let server = spawn_server(allowing(&[&up.origin])).await;
         assert_eq!(
-            login(&client(), &server, &up.origin).await,
+            login(&client(), &server).await,
             Some(401),
             "a cross-origin {key} must refuse the login"
         );
@@ -512,7 +542,7 @@ async fn the_download_leg_refuses_a_download_url_that_changed_origin_after_login
     let internal = Internal::spawn().await;
     let server = spawn_server(allowing(&[&up.origin])).await;
     let c = client();
-    assert_eq!(login(&c, &server, &up.origin).await, Some(200));
+    assert_eq!(login(&c, &server).await, Some(200));
 
     up.set_field(
         "downloadUrl",
@@ -543,7 +573,7 @@ async fn the_upload_leg_refuses_an_upload_url_that_changed_origin_after_login() 
     let internal = Internal::spawn().await;
     let server = spawn_server(allowing(&[&up.origin])).await;
     let c = client();
-    assert_eq!(login(&c, &server, &up.origin).await, Some(200));
+    assert_eq!(login(&c, &server).await, Some(200));
     let token = csrf(&c, &server).await;
 
     up.set_field("uploadUrl", &format!("{}/{{accountId}}", internal.url()));
@@ -572,7 +602,7 @@ async fn a_session_redirect_to_another_address_is_not_followed() {
     let internal = Internal::spawn().await;
     *up.redirect.lock().unwrap() = Some(format!("{}/.well-known/jmap", internal.url()));
     let server = spawn_server(allowing(&[&up.origin])).await;
-    assert_eq!(login(&client(), &server, &up.origin).await, Some(401));
+    assert_eq!(login(&client(), &server).await, Some(401));
     assert_eq!(
         internal.accepts(),
         0,
@@ -582,7 +612,7 @@ async fn a_session_redirect_to_another_address_is_not_followed() {
     // And the metadata address, which no listener can stand in for.
     *up.redirect.lock().unwrap() = Some("http://169.254.169.254/latest/meta-data/".into());
     let started = Instant::now();
-    assert_eq!(login(&client(), &server, &up.origin).await, Some(401));
+    assert_eq!(login(&client(), &server).await, Some(401));
     assert!(started.elapsed() < Duration::from_secs(2));
 }
 
@@ -594,7 +624,7 @@ async fn a_same_origin_session_redirect_is_followed() {
     *up.redirect.lock().unwrap() = Some(format!("{}/jmap/session", up.origin));
     let server = spawn_server(allowing(&[&up.origin])).await;
     // The `/jmap/session` route clears the redirect, so it serves the document.
-    assert_eq!(login(&client(), &server, &up.origin).await, Some(200));
+    assert_eq!(login(&client(), &server).await, Some(200));
 }
 
 #[tokio::test]
@@ -603,7 +633,7 @@ async fn the_api_leg_does_not_follow_a_redirect() {
     let internal = Internal::spawn().await;
     let server = spawn_server(allowing(&[&up.origin])).await;
     let c = client();
-    assert_eq!(login(&c, &server, &up.origin).await, Some(200));
+    assert_eq!(login(&c, &server).await, Some(200));
     let token = csrf(&c, &server).await;
 
     *up.api_redirect.lock().unwrap() = Some(format!("{}/v1/secrets", internal.url()));
@@ -633,7 +663,7 @@ async fn the_download_leg_does_not_relay_upstream_content_headers_as_received() 
     let up = Upstream::spawn().await;
     let server = spawn_server(allowing(&[&up.origin])).await;
     let c = client();
-    assert_eq!(login(&c, &server, &up.origin).await, Some(200));
+    assert_eq!(login(&c, &server).await, Some(200));
     let dl = c
         .get(format!(
             "{server}/jmap/download/{ACCOUNT}/blob1/report.html"

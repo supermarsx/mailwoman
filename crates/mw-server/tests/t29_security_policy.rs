@@ -100,7 +100,6 @@ struct Server {
     base: String,
     db: String,
     app: axum::Router,
-    mock: String,
 }
 
 async fn spawn_mock_jmap() -> String {
@@ -160,7 +159,6 @@ async fn build(tag: &str) -> anyhow::Result<Server> {
         base: format!("http://{addr}"),
         db,
         app,
-        mock,
     })
 }
 
@@ -208,7 +206,6 @@ async fn mailbox(s: &Server) -> (reqwest::Client, String) {
     let r = c
         .post(format!("{}/api/login", s.base))
         .json(&json!({
-            "jmapUrl": s.mock,
             "username": mw_mock_jmap::USER,
             "password": mw_mock_jmap::PASS,
         }))
@@ -740,7 +737,6 @@ async fn environment_dlp_rules_are_listed_separately_and_win_over_a_stored_rule(
         base: format!("http://{addr}"),
         db,
         app,
-        mock,
     };
     let (c, _) = admin(&s).await;
     let got = get_policy(&s, &c).await;
@@ -834,7 +830,6 @@ async fn mailbox_login_body(s: &Server) -> Value {
     plain()
         .post(format!("{}/api/login", s.base))
         .json(&json!({
-            "jmapUrl": s.mock,
             "username": mw_mock_jmap::USER,
             "password": mw_mock_jmap::PASS,
         }))

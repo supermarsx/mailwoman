@@ -231,9 +231,11 @@ async fn spawn_proxy_on(mock: String) -> (Server, String) {
     (Server { base, db }, mock)
 }
 
-/// An engine-mode server (the mode that mounts `/mcp`).
-async fn spawn_engine() -> Server {
-    let (config, db) = app_config(ServerMode::Engine, Vec::new());
+/// An engine-mode server (the mode that mounts `/mcp`) whose configured
+/// upstream is `pop`.
+async fn spawn_engine(pop: &MockPop3) -> Server {
+    let (mut config, db) = app_config(ServerMode::Engine, Vec::new());
+    config.security.upstream_default = Some(pop.url());
     let app = mw_server::build_app_full(config, admin_v6())
         .await
         .expect("build_app_full")
@@ -286,23 +288,27 @@ async fn set_flags(admin: &reqwest::Client, base: &str, id: &str, disabled: bool
     assert_eq!(r.status(), 204, "the panel's flag write is accepted");
 }
 
+/// `_mock` is the upstream the server was started on. The login does not name
+/// it: the server signs in to its configured upstream (t32-h9).
 async fn proxy_login(
     c: &reqwest::Client,
     base: &str,
-    mock: &str,
+    _mock: &str,
     user: &str,
     pass: &str,
 ) -> reqwest::Response {
     c.post(format!("{base}/api/login"))
-        .json(&json!({ "jmapUrl": mock, "username": user, "password": pass }))
+        .json(&json!({ "username": user, "password": pass }))
         .send()
         .await
         .unwrap()
 }
 
-async fn engine_login(c: &reqwest::Client, base: &str, pop: &MockPop3) -> reqwest::Response {
+/// `_pop` is the server's configured upstream (see [`spawn_engine`]); the login
+/// does not name it (t32-h9).
+async fn engine_login(c: &reqwest::Client, base: &str, _pop: &MockPop3) -> reqwest::Response {
     c.post(format!("{base}/api/login"))
-        .json(&json!({ "jmapUrl": pop.url(), "username": ENGINE_USER, "password": ENGINE_PASS }))
+        .json(&json!({ "username": ENGINE_USER, "password": ENGINE_PASS }))
         .send()
         .await
         .unwrap()
@@ -661,7 +667,7 @@ async fn disabled_account_gets_no_second_factor_challenge_and_no_session() {
 #[tokio::test]
 async fn native_bearer_session_is_refused_after_disable() {
     let _g = serial().await;
-    let (srv, mock) = spawn_proxy().await;
+    let (srv, _mock) = spawn_proxy().await;
     let base = &srv.base;
     let (user, pass) = (mw_mock_jmap::USER, mw_mock_jmap::PASS);
     let store = srv.store().await;
@@ -671,7 +677,7 @@ async fn native_bearer_session_is_refused_after_disable() {
         bare()
             .post(format!("{base}/api/login"))
             .json(&json!({
-                "jmapUrl": mock, "username": user, "password": pass, "clientType": "native",
+                "username": user, "password": pass, "clientType": "native",
             }))
             .send()
             .await
@@ -732,7 +738,7 @@ async fn header_auth_does_not_mint_a_session_for_a_disabled_account() {
         std::env::set_var("MW_HEADER_AUTH", "1");
         std::env::set_var("MW_HEADER_AUTH_TRUSTED_IPS", "127.0.0.0/8, ::1/128");
     }
-    let (srv, mock) = spawn_proxy().await;
+    let (srv, _mock) = spawn_proxy().await;
     let base = &srv.base;
     let admin = admin(base).await;
     let asserted = "asserted@example.org";
@@ -741,7 +747,7 @@ async fn header_auth_does_not_mint_a_session_for_a_disabled_account() {
         let req = c
             .post(format!("{base}/api/login"))
             .header("x-remote-user", asserted)
-            .json(&json!({ "jmapUrl": mock, "username": "", "password": "" }));
+            .json(&json!({ "username": "", "password": "" }));
         async move { req.send().await.unwrap() }
     };
 
@@ -1034,7 +1040,7 @@ async fn key_mailboxes(base: &str, key: &str) -> reqwest::Response {
 async fn disabled_account_keys_and_tokens_are_refused_on_rest_mcp_and_refresh() {
     let _g = serial().await;
     let pop = MockPop3::start(ENGINE_USER, ENGINE_PASS).await;
-    let srv = spawn_engine().await;
+    let srv = spawn_engine(&pop).await;
     let base = &srv.base;
     let store = srv.store().await;
     let admin = admin(base).await;
@@ -1480,7 +1486,7 @@ async fn panel_force_flag(admin: &reqwest::Client, base: &str, id: &str) -> Valu
 async fn forced_password_change_holds_the_account_until_the_password_is_changed() {
     let _g = serial().await;
     let pop = MockPop3::start(ENGINE_USER, ENGINE_PASS).await;
-    let srv = spawn_engine().await;
+    let srv = spawn_engine(&pop).await;
     let base = &srv.base;
     let store = srv.store().await;
     let admin = admin(base).await;

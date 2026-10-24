@@ -183,12 +183,12 @@ fn bare() -> reqwest::Client {
 async fn login(
     c: &reqwest::Client,
     base: &str,
-    mock: &str,
+    _mock: &str,
     user: &str,
     pass: &str,
 ) -> reqwest::Response {
     c.post(format!("{base}/api/login"))
-        .json(&json!({ "jmapUrl": mock, "username": user, "password": pass }))
+        .json(&json!({ "username": user, "password": pass }))
         .send()
         .await
         .unwrap()

@@ -45,7 +45,9 @@ const KEY_HEX: &str = "7a6b5c4d3e2f10017a6b5c4d3e2f10017a6b5c4d3e2f10017a6b5c4d3
 const USER: &str = "owner@example.org";
 const PASS: &str = "correct horse";
 
-async fn spawn_engine_server(db_path: &str) -> SocketAddr {
+/// Engine-mode server signing in to `upstream`, its configured upstream
+/// (`MW_UPSTREAM_DEFAULT`); a login can no longer name one (t32-h9).
+async fn spawn_engine_server(db_path: &str, upstream: &MockPop3) -> SocketAddr {
     // The scripted server is plaintext; engine mode reads this per login.
     unsafe { std::env::set_var("MW_ENGINE_TLS", "plaintext") };
     let base = PathBuf::from(db_path)
@@ -61,7 +63,10 @@ async fn spawn_engine_server(db_path: &str) -> SocketAddr {
         cookie_secure: false,
         mode: mw_server::ServerMode::Engine,
         hardening: mw_server::HardeningConfig::default(),
-        security: mw_server::SecurityConfig::default(),
+        security: mw_server::SecurityConfig {
+            upstream_default: Some(upstream.url()),
+            ..mw_server::SecurityConfig::default()
+        },
     };
     let app = build_app(config).await.expect("build_app");
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -88,8 +93,8 @@ async fn post(c: &reqwest::Client, url: String, body: Value) -> reqwest::Respons
     c.post(url).json(&body).send().await.unwrap()
 }
 
-fn login_body(server: &MockPop3, password: &str) -> Value {
-    json!({ "jmapUrl": server.url(), "username": USER, "password": password })
+fn login_body(password: &str) -> Value {
+    json!({ "username": USER, "password": password })
 }
 
 fn set_session_cookie(resp: &reqwest::Response) -> bool {
@@ -119,11 +124,11 @@ fn now_unix() -> u64 {
 async fn second_engine_login_is_challenged_for_the_factor_the_first_login_left() {
     let db = temp_db("two-logins");
     let pop = MockPop3::start(USER, PASS).await;
-    let base = format!("http://{}", spawn_engine_server(&db).await);
+    let base = format!("http://{}", spawn_engine_server(&db, &pop).await);
 
     // Login 1: nothing enrolled, no policy → an ordinary session.
     let c1 = client();
-    let r1 = post(&c1, format!("{base}/api/login"), login_body(&pop, PASS)).await;
+    let r1 = post(&c1, format!("{base}/api/login"), login_body(PASS)).await;
     assert_eq!(r1.status(), 200, "login 1 succeeds");
     assert!(set_session_cookie(&r1), "login 1 issues a session");
     let b1: Value = r1.json().await.unwrap();
@@ -139,7 +144,7 @@ async fn second_engine_login_is_challenged_for_the_factor_the_first_login_left()
 
     // Login 2, a different browser, password only: challenged, no session.
     let c2 = client();
-    let r2 = post(&c2, format!("{base}/api/login"), login_body(&pop, PASS)).await;
+    let r2 = post(&c2, format!("{base}/api/login"), login_body(PASS)).await;
     assert_eq!(r2.status(), 200);
     assert!(
         !set_session_cookie(&r2),
@@ -201,15 +206,10 @@ async fn second_engine_login_is_challenged_for_the_factor_the_first_login_left()
 async fn refused_engine_login_persists_nothing_and_keeps_stored_credentials() {
     let db = temp_db("refused");
     let pop = MockPop3::start(USER, PASS).await;
-    let base = format!("http://{}", spawn_engine_server(&db).await);
+    let base = format!("http://{}", spawn_engine_server(&db, &pop).await);
     let store = seed_store(&db).await;
 
-    let r = post(
-        &client(),
-        format!("{base}/api/login"),
-        login_body(&pop, "wrong"),
-    )
-    .await;
+    let r = post(&client(), format!("{base}/api/login"), login_body("wrong")).await;
     assert_eq!(r.status(), 401, "a wrong password is refused");
     assert!(pop.logins_refused() >= 1, "the server really refused it");
     assert!(
@@ -218,23 +218,13 @@ async fn refused_engine_login_persists_nothing_and_keeps_stored_credentials() {
     );
 
     // With an account in place, a refused login must not re-seal its credentials.
-    let ok = post(
-        &client(),
-        format!("{base}/api/login"),
-        login_body(&pop, PASS),
-    )
-    .await;
+    let ok = post(&client(), format!("{base}/api/login"), login_body(PASS)).await;
     assert_eq!(ok.status(), 200);
     let account_id = ok.json::<Value>().await.unwrap()["accountId"]
         .as_str()
         .unwrap()
         .to_string();
-    let bad = post(
-        &client(),
-        format!("{base}/api/login"),
-        login_body(&pop, "wrong"),
-    )
-    .await;
+    let bad = post(&client(), format!("{base}/api/login"), login_body("wrong")).await;
     assert_eq!(bad.status(), 401);
     assert_eq!(
         store
@@ -254,7 +244,7 @@ async fn refused_engine_login_persists_nothing_and_keeps_stored_credentials() {
 async fn policy_required_second_login_is_challenged_not_re_enrolled() {
     let db = temp_db("policy");
     let pop = MockPop3::start(USER, PASS).await;
-    let base = format!("http://{}", spawn_engine_server(&db).await);
+    let base = format!("http://{}", spawn_engine_server(&db, &pop).await);
     let store = seed_store(&db).await;
     store
         .set_twofa_policy(&mw_store::TwofaPolicyRow {
@@ -269,7 +259,7 @@ async fn policy_required_second_login_is_challenged_not_re_enrolled() {
 
     // Login 1: nothing enrolled → forced enrolment, completed through the real routes.
     let c1 = client();
-    let b1: Value = post(&c1, format!("{base}/api/login"), login_body(&pop, PASS))
+    let b1: Value = post(&c1, format!("{base}/api/login"), login_body(PASS))
         .await
         .json()
         .await
@@ -304,7 +294,7 @@ async fn policy_required_second_login_is_challenged_not_re_enrolled() {
 
     // Login 2: the enrolled factor is demanded; no second enrolment is offered.
     let c2 = client();
-    let r2 = post(&c2, format!("{base}/api/login"), login_body(&pop, PASS)).await;
+    let r2 = post(&c2, format!("{base}/api/login"), login_body(PASS)).await;
     assert!(
         !set_session_cookie(&r2),
         "no session from the password alone"

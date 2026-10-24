@@ -66,6 +66,9 @@ async fn serial() -> MutexGuard<'static, ()> {
 struct Server {
     base: String,
     db: String,
+    /// The mailbox user's POP3 server, the server's configured upstream (a login
+    /// no longer names one, t32-h9). Kept alive here.
+    _pop: MockPop3,
 }
 
 impl Server {
@@ -80,6 +83,7 @@ impl Server {
 
 /// An engine-mode server with the admin panel on, over its own SQLite file.
 async fn spawn_engine() -> Server {
+    let pop = MockPop3::start(USER.0, USER.1).await;
     let dir = test_db::unique_dir("mw-t28-e12c");
     let web: PathBuf = dir.join("web");
     std::fs::create_dir_all(&web).unwrap();
@@ -92,7 +96,10 @@ async fn spawn_engine() -> Server {
         cookie_secure: false,
         mode: ServerMode::Engine,
         hardening: HardeningConfig::default(),
-        security: SecurityConfig::default(),
+        security: SecurityConfig {
+            upstream_default: Some(pop.url()),
+            ..SecurityConfig::default()
+        },
     };
     let v6 = V6Config {
         admin_enabled: true,
@@ -117,6 +124,7 @@ async fn spawn_engine() -> Server {
     Server {
         base: format!("http://{addr}"),
         db,
+        _pop: pop,
     }
 }
 
@@ -135,20 +143,18 @@ fn bare() -> reqwest::Client {
         .unwrap()
 }
 
-/// A logged-in mailbox user: their POP3 server (kept alive) and their client.
+/// A logged-in mailbox user: their client and account id.
 struct Mailbox {
-    _pop: MockPop3,
     client: reqwest::Client,
     account_id: String,
 }
 
 async fn mailbox(base: &str) -> Mailbox {
     let (user, pass) = USER;
-    let pop = MockPop3::start(user, pass).await;
     let client = browser();
     let login = client
         .post(format!("{base}/api/login"))
-        .json(&json!({ "jmapUrl": pop.url(), "username": user, "password": pass }))
+        .json(&json!({ "username": user, "password": pass }))
         .send()
         .await
         .unwrap();
@@ -157,11 +163,7 @@ async fn mailbox(base: &str) -> Mailbox {
         .as_str()
         .expect("login names the account")
         .to_string();
-    Mailbox {
-        _pop: pop,
-        client,
-        account_id,
-    }
+    Mailbox { client, account_id }
 }
 
 /// The scope the DCR policy grants in these tests, in `mw_oauth::Scope` wire form:

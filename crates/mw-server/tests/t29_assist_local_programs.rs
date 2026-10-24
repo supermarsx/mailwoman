@@ -116,11 +116,11 @@ async fn admin(base: &str) -> reqwest::Client {
     c
 }
 
-async fn mailbox(base: &str, upstream: &str) -> reqwest::Client {
+async fn mailbox(base: &str, _upstream: &str) -> reqwest::Client {
     let c = browser();
     let r = c
         .post(format!("{base}/api/login"))
-        .json(&json!({ "jmapUrl": upstream, "username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS }))
+        .json(&json!({ "username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS }))
         .send()
         .await
         .unwrap();

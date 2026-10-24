@@ -159,6 +159,17 @@ fn mock_upstreams() -> Option<Vec<String>> {
     Some(MOCK_UPSTREAMS.lock().unwrap().clone())
 }
 
+// The mock this test started last. The server under test signs in to it as
+// its configured upstream (`MW_UPSTREAM_DEFAULT`): a login can no longer name
+// one (t32-h9). Per thread, so tests running in parallel keep their own.
+thread_local! {
+    static LAST_MOCK: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+fn last_mock() -> Option<String> {
+    LAST_MOCK.with(|m| m.borrow().clone())
+}
+
 async fn spawn_mock() -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -167,6 +178,7 @@ async fn spawn_mock() -> String {
     });
     let origin = format!("http://{addr}");
     MOCK_UPSTREAMS.lock().unwrap().push(origin.clone());
+    LAST_MOCK.with(|m| *m.borrow_mut() = Some(origin.clone()));
     origin
 }
 
@@ -184,6 +196,7 @@ async fn build() -> Router {
         hardening: HardeningConfig::default(),
         security: SecurityConfig {
             jmap_upstreams: mock_upstreams(),
+            upstream_default: last_mock(),
             ..SecurityConfig::default()
         },
     };
@@ -254,7 +267,7 @@ struct Session {
 }
 
 impl Session {
-    async fn open(addr: SocketAddr, mock: &str) -> Self {
+    async fn open(addr: SocketAddr, _mock: &str) -> Self {
         let base = format!("http://{addr}");
         let client = reqwest::Client::builder()
             .cookie_store(true)
@@ -263,7 +276,6 @@ impl Session {
         let resp = client
             .post(format!("{base}/api/login"))
             .json(&json!({
-                "jmapUrl": mock,
                 "username": mw_mock_jmap::USER,
                 "password": mw_mock_jmap::PASS,
             }))
@@ -731,7 +743,7 @@ async fn header_auth_is_restricted_to_the_connecting_peer() {
         let resp = client
             .post(format!("http://{addr}/api/login"))
             .header("x-remote-user", "asserted@example.org")
-            .json(&json!({ "jmapUrl": mock, "username": "", "password": "" }))
+            .json(&json!({ "username": "", "password": "" }))
             .send()
             .await
             .unwrap();
@@ -750,12 +762,12 @@ async fn header_auth_is_restricted_to_the_connecting_peer() {
 }
 
 /// `POST /api/login` carrying an `X-Remote-User` assertion; returns the status.
-async fn header_auth_login(addr: SocketAddr, mock: &str, headers: &[(&str, &str)]) -> u16 {
+async fn header_auth_login(addr: SocketAddr, _mock: &str, headers: &[(&str, &str)]) -> u16 {
     let client = reqwest::Client::new();
     let mut req = client
         .post(format!("http://{addr}/api/login"))
         .header("x-remote-user", "asserted@example.org")
-        .json(&json!({ "jmapUrl": mock, "username": "", "password": "" }));
+        .json(&json!({ "username": "", "password": "" }));
     for (k, v) in headers {
         req = req.header(*k, *v);
     }
@@ -1204,11 +1216,10 @@ async fn the_apps_own_tls_listener_raises_the_scheme() {
 }
 
 /// Every `Set-Cookie` a successful login emits.
-async fn login_set_cookie(addr: SocketAddr, mock: &str) -> Vec<String> {
+async fn login_set_cookie(addr: SocketAddr, _mock: &str) -> Vec<String> {
     let resp = reqwest::Client::new()
         .post(format!("http://{addr}/api/login"))
         .json(&json!({
-            "jmapUrl": mock,
             "username": mw_mock_jmap::USER,
             "password": mw_mock_jmap::PASS,
         }))

@@ -94,7 +94,10 @@ impl Server {
     }
 }
 
-async fn spawn(mode: ServerMode, upstreams: Vec<String>) -> Server {
+/// A server in `mode` whose configured upstream (`MW_UPSTREAM_DEFAULT`) is
+/// `upstream`: the JMAP mock in proxy mode, the POP3 mock in engine mode. A login
+/// no longer names one (t32-h9).
+async fn spawn(mode: ServerMode, upstream: String) -> Server {
     let dir = test_db::unique_dir("mw-t29-e9");
     let web: PathBuf = dir.join("web");
     std::fs::create_dir_all(&web).unwrap();
@@ -108,7 +111,7 @@ async fn spawn(mode: ServerMode, upstreams: Vec<String>) -> Server {
         mode,
         hardening: HardeningConfig::default(),
         security: SecurityConfig {
-            jmap_upstreams: Some(upstreams),
+            upstream_default: Some(upstream),
             ..SecurityConfig::default()
         },
     };
@@ -146,11 +149,12 @@ fn browser() -> reqwest::Client {
         .unwrap()
 }
 
-/// Log in to an engine-mode server; returns the session's account id.
-async fn engine_login(c: &reqwest::Client, base: &str, pop: &MockPop3) -> String {
+/// Log in to an engine-mode server; returns the session's account id. `_pop` is
+/// the server's configured upstream; the login does not name it.
+async fn engine_login(c: &reqwest::Client, base: &str, _pop: &MockPop3) -> String {
     let r = c
         .post(format!("{base}/api/login"))
-        .json(&json!({ "jmapUrl": pop.url(), "username": ENGINE_USER, "password": ENGINE_PASS }))
+        .json(&json!({ "username": ENGINE_USER, "password": ENGINE_PASS }))
         .send()
         .await
         .unwrap();
@@ -299,7 +303,7 @@ async fn receipt_state(c: &reqwest::Client, base: &str, id: &str) -> Value {
 async fn the_engine_reads_the_policy_the_route_stores() {
     let _g = serial().await;
     let pop = MockPop3::start(ENGINE_USER, ENGINE_PASS).await;
-    let srv = spawn(ServerMode::Engine, Vec::new()).await;
+    let srv = spawn(ServerMode::Engine, pop.url()).await;
     let base = &srv.base;
     let store = srv.store().await;
     let c = browser();
@@ -388,13 +392,13 @@ async fn the_policy_route_is_not_offered_in_proxy_mode() {
     tokio::spawn(async move {
         axum::serve(listener, mw_mock_jmap::router()).await.unwrap();
     });
-    let srv = spawn(ServerMode::Proxy, vec![mock.clone()]).await;
+    let srv = spawn(ServerMode::Proxy, mock.clone()).await;
     let base = &srv.base;
     let c = browser();
     let r = c
         .post(format!("{base}/api/login"))
         .json(&json!({
-            "jmapUrl": mock, "username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS
+            "username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS
         }))
         .send()
         .await
@@ -429,7 +433,7 @@ async fn the_policy_route_is_not_offered_in_proxy_mode() {
 async fn a_disabled_account_cannot_set_the_policy_or_send_a_receipt() {
     let _g = serial().await;
     let pop = MockPop3::start(ENGINE_USER, ENGINE_PASS).await;
-    let srv = spawn(ServerMode::Engine, Vec::new()).await;
+    let srv = spawn(ServerMode::Engine, pop.url()).await;
     let base = &srv.base;
     let admin = admin(base).await;
     let c = browser();
@@ -468,7 +472,7 @@ async fn a_disabled_account_cannot_set_the_policy_or_send_a_receipt() {
 async fn a_held_account_cannot_set_the_policy_or_send_a_receipt() {
     let _g = serial().await;
     let pop = MockPop3::start(ENGINE_USER, ENGINE_PASS).await;
-    let srv = spawn(ServerMode::Engine, Vec::new()).await;
+    let srv = spawn(ServerMode::Engine, pop.url()).await;
     let base = &srv.base;
     let admin = admin(base).await;
     let c = browser();
