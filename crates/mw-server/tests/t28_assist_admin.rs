@@ -449,14 +449,14 @@ async fn the_kill_switch_stops_the_running_gateway_and_releasing_it_resumes() {
     let first_admin = admin(&first).await;
     assert_eq!(
         status(&first_admin, &first).await,
-        json!({ "enabled": false, "running": false, "endpointHost": null, "restartPending": false }),
+        json!({ "enabled": false, "running": false, "endpointHost": null, "restartPending": false, "stoppedReason": null, "localPrograms": [] }),
         "precondition: a fresh deployment has Assist off and nothing pending"
     );
     let saved = put_config(&first_admin, &first, &config).await;
     assert_eq!(saved.status(), 200);
     assert_eq!(
         saved.json::<Value>().await.unwrap(),
-        json!({ "enabled": true, "running": false, "endpointHost": null, "restartPending": true }),
+        json!({ "enabled": true, "running": false, "endpointHost": null, "restartPending": true, "stoppedReason": null, "localPrograms": [] }),
         "a saved config waits for the restart, and PUT says so"
     );
     let user = browser();
@@ -490,7 +490,7 @@ async fn the_kill_switch_stops_the_running_gateway_and_releasing_it_resumes() {
         .trim_end_matches("/v1");
     assert_eq!(
         status(&admin, &base).await,
-        json!({ "enabled": true, "running": true, "endpointHost": endpoint_host, "restartPending": false }),
+        json!({ "enabled": true, "running": true, "endpointHost": endpoint_host, "restartPending": false, "stoppedReason": null, "localPrograms": [] }),
     );
 
     // Precondition for the kill: a request goes out, and is audited.
@@ -537,7 +537,7 @@ async fn the_kill_switch_stops_the_running_gateway_and_releasing_it_resumes() {
     assert_eq!(killed.status(), 200);
     assert_eq!(
         killed.json::<Value>().await.unwrap(),
-        json!({ "enabled": false, "running": false, "endpointHost": null, "restartPending": false }),
+        json!({ "enabled": false, "running": false, "endpointHost": null, "restartPending": false, "stoppedReason": null, "localPrograms": [] }),
         "off is in effect at once, so nothing is pending"
     );
     for _ in 0..3 {
@@ -575,7 +575,7 @@ async fn the_kill_switch_stops_the_running_gateway_and_releasing_it_resumes() {
     assert_eq!(released.status(), 200);
     assert_eq!(
         released.json::<Value>().await.unwrap(),
-        json!({ "enabled": true, "running": true, "endpointHost": endpoint_host, "restartPending": false }),
+        json!({ "enabled": true, "running": true, "endpointHost": endpoint_host, "restartPending": false, "stoppedReason": null, "localPrograms": [] }),
     );
     assert_eq!(transcribe(&user, &base).await.status(), 200);
     assert_eq!(hits.load(Ordering::SeqCst), 2);
@@ -597,6 +597,6 @@ async fn the_kill_switch_stops_the_running_gateway_and_releasing_it_resumes() {
     let late = kill(&first_admin, &first, &json!({ "on": false })).await;
     assert_eq!(
         late.json::<Value>().await.unwrap(),
-        json!({ "enabled": true, "running": false, "endpointHost": null, "restartPending": true }),
+        json!({ "enabled": true, "running": false, "endpointHost": null, "restartPending": true, "stoppedReason": null, "localPrograms": [] }),
     );
 }

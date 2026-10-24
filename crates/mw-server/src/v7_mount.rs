@@ -939,20 +939,100 @@ fn parse_rate_limit(raw: Option<&str>) -> Option<u32> {
     }
 }
 
+/// The environment variable that lists the programs a `local-process` adapter may run.
+const ASSIST_LOCAL_PROGRAMS_ENV: &str = "MW_ASSIST_LOCAL_PROGRAMS";
+
+/// The programs an administrator may configure as a `local-process` Assist adapter:
+/// `MW_ASSIST_LOCAL_PROGRAMS`, a comma-separated list of absolute paths.
+///
+/// The server spawns the configured program for every Assist request, so without
+/// this list any admin session could make the server run any binary on the host.
+/// The list is the operator's, set where the server is started; the admin panel can
+/// pick from it but not add to it. Unset or empty ⇒ no program is allowed and a
+/// `local-process` adapter can be neither saved nor started.
+///
+/// Read on every call, so `PUT /admin/assist` and [`build_assist`] both see the
+/// value the process has now.
+fn assist_local_programs() -> Vec<String> {
+    parse_local_programs(env(ASSIST_LOCAL_PROGRAMS_ENV).as_deref())
+}
+
+/// The parsing half of [`assist_local_programs`]. An entry that is not an absolute
+/// path is dropped with a warning: a relative name would be resolved through `PATH`
+/// at spawn time, so the list would not say which binary runs.
+fn parse_local_programs(raw: Option<&str>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for entry in raw.unwrap_or("").split(',').map(str::trim) {
+        if entry.is_empty() {
+            continue;
+        }
+        if !Path::new(entry).is_absolute() {
+            tracing::warn!(
+                "{ASSIST_LOCAL_PROGRAMS_ENV}: {entry:?} is not an absolute path and is ignored"
+            );
+            continue;
+        }
+        if !out.iter().any(|p| p == entry) {
+            out.push(entry.to_string());
+        }
+    }
+    out
+}
+
+/// Why `adapter` may not run under the allowlist `allowed`, or `None` when it may.
+/// Only a `local-process` adapter is checked; the program must be listed exactly as
+/// it is spawned.
+fn local_program_refusal(adapter: &AdapterConfig, allowed: &[String]) -> Option<String> {
+    let AdapterConfig::LocalProcess { program, .. } = adapter else {
+        return None;
+    };
+    if allowed.is_empty() {
+        Some(format!(
+            "local-process adapters are disabled: {ASSIST_LOCAL_PROGRAMS_ENV} is not set. \
+             Set it to the absolute paths of the programs the server may run"
+        ))
+    } else if !allowed.iter().any(|p| p == program) {
+        Some(format!(
+            "adapter.program {program:?} is not listed in {ASSIST_LOCAL_PROGRAMS_ENV}"
+        ))
+    } else {
+        None
+    }
+}
+
+/// The `stoppedReason` [`assist_status`] reports for a gateway whose stored
+/// `local-process` adapter was not started because its program is not allowed.
+const STOPPED_LOCAL_PROGRAM_NOT_ALLOWED: &str = "local-program-not-allowed";
+
 /// Build the Assist gateway from the 0008 `assist_config` deployment row. Absent /
 /// disabled ⇒ `AssistConfig::default()` (the gateway reports `Disabled` and the web
-/// hides all Assist UI).
+/// hides all Assist UI). A stored `local-process` adapter whose program is not in
+/// `MW_ASSIST_LOCAL_PROGRAMS` is not started: the gateway is built without an
+/// adapter, so it reports `Disabled` too, and the admin status says why.
 pub(crate) async fn build_assist(store: &Store) -> (AssistHandle, Vec<AssistCapability>) {
     let row = store.get_assist_config("deployment").await.ok().flatten();
     let mut config = stored_assist_config(row.as_ref());
     config.rate_limit_per_min = assist_rate_limit();
+    // What was stored, before a refused adapter is taken out: the admin status
+    // compares the stored row with this, and the row has not changed.
+    let booted = assist_admin_wire(&config);
+    let refusal = config
+        .adapter
+        .as_ref()
+        .and_then(|a| local_program_refusal(a, &assist_local_programs()));
+    let stopped_reason = refusal.map(|why| {
+        tracing::warn!("Assist is not started: {why}");
+        config.adapter = None;
+        STOPPED_LOCAL_PROGRAM_NOT_ALLOWED
+    });
     if let Ok(mut w) = EMBED_MODEL.write() {
         *w = embed_model_of(config.adapter.as_ref());
     }
     let granted = config.capability_grants.clone();
     let live = Arc::new(AssistLive {
         stopped: AtomicBool::new(false),
-        booted: assist_admin_wire(&config),
+        booted,
+        stopped_reason,
     });
     // The gateway's own adapter is replaced by the same adapter behind the stop
     // check, so every dispatch path (chat, embed, transcribe) passes through it.
@@ -996,6 +1076,8 @@ struct AssistLive {
     stopped: AtomicBool,
     /// The configuration the gateway was built from, in the admin wire shape.
     booted: serde_json::Value,
+    /// Set when the stored adapter was not started (see [`build_assist`]).
+    stopped_reason: Option<&'static str>,
 }
 
 impl AssistLive {
@@ -3361,6 +3443,13 @@ fn assist_row(config: &AssistConfig) -> mw_store::AssistConfigRow {
 /// - `restartPending`: the stored configuration is not the one in effect. Turning
 ///   Assist off takes effect at once, so it never leaves this set; every other
 ///   change is read when the gateway is built, at start-up.
+/// - `stoppedReason`: why the stored adapter was not started, or `null`. The one
+///   value is `"local-program-not-allowed"`: a `local-process` adapter whose program
+///   `MW_ASSIST_LOCAL_PROGRAMS` did not list when the server started.
+/// - `localPrograms`: the programs `MW_ASSIST_LOCAL_PROGRAMS` lists now, which are
+///   the only ones `PUT /admin/assist` accepts for a `local-process` adapter. It is
+///   reported here rather than in `GET /admin/assist` because that body is exactly
+///   what `PUT` accepts, and this list is not something the panel can set.
 fn assist_status(gateway: &AssistHandle, stored: &AssistConfig) -> serde_json::Value {
     let running = assist_running(gateway);
     let restart_pending = match assist_live(gateway) {
@@ -3375,6 +3464,8 @@ fn assist_status(gateway: &AssistHandle, stored: &AssistConfig) -> serde_json::V
         "running": running,
         "endpointHost": if running { gateway.endpoint_host() } else { None },
         "restartPending": restart_pending,
+        "stoppedReason": assist_live(gateway).and_then(|l| l.stopped_reason),
+        "localPrograms": assist_local_programs(),
     })
 }
 
@@ -3463,6 +3554,15 @@ fn bad_request(message: impl Into<String>) -> Response {
         .into_response()
 }
 
+/// `422` for a well-formed configuration the operator has not allowed.
+fn not_allowed(message: impl Into<String>) -> Response {
+    (
+        StatusCode::UNPROCESSABLE_ENTITY,
+        Json(json!({ "error": message.into() })),
+    )
+        .into_response()
+}
+
 /// `GET /admin/assist` — the stored deployment Assist configuration in the admin
 /// wire shape. With no row stored it is the default configuration, every key
 /// present.
@@ -3493,7 +3593,9 @@ async fn assist_admin_status(
 
 /// `PUT /admin/assist` — replace the deployment Assist configuration (0008
 /// `assist_config`). The body is the admin wire shape, whole; anything else is a
-/// `400` naming the problem and nothing is written. Answers with [`assist_status`].
+/// `400` naming the problem and nothing is written. A `local-process` adapter whose
+/// program `MW_ASSIST_LOCAL_PROGRAMS` does not list is a `422` naming the variable,
+/// and nothing is written. Answers with [`assist_status`].
 async fn assist_admin_put(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -3511,6 +3613,13 @@ async fn assist_admin_put(
         },
         Err(rejection) => return bad_request(rejection.body_text()),
     };
+    if let Some(why) = config
+        .adapter
+        .as_ref()
+        .and_then(|a| local_program_refusal(a, &assist_local_programs()))
+    {
+        return not_allowed(why);
+    }
     store_assist_config(&state, &gateway, &admin, &config).await
 }
 
@@ -4486,6 +4595,53 @@ mod tests {
             .expect("a named loopback host is reachable");
         assert_eq!((resp.status, resp.body), (200, b"hi".to_vec()));
         assert_eq!(other_hits.load(Ordering::SeqCst), 1);
+    }
+
+    // ── 26.20 (t29-e14): the local-process program allowlist ──
+
+    #[test]
+    fn the_local_program_list_keeps_only_absolute_paths() {
+        let abs = if cfg!(windows) {
+            ["C:\\tools\\a.exe", "C:\\tools\\b.exe"]
+        } else {
+            ["/usr/bin/a", "/usr/bin/b"]
+        };
+        assert!(parse_local_programs(None).is_empty());
+        assert!(parse_local_programs(Some(" , ,")).is_empty());
+        let raw = format!(" {} ,relative, {} ,{}", abs[0], abs[1], abs[0]);
+        assert_eq!(
+            parse_local_programs(Some(&raw)),
+            vec![abs[0].to_string(), abs[1].to_string()],
+            "trimmed, relative names dropped, duplicates once"
+        );
+    }
+
+    #[test]
+    fn only_a_listed_program_is_allowed() {
+        let local = |program: &str| AdapterConfig::LocalProcess {
+            program: program.into(),
+            args: vec![],
+        };
+        let listed = vec!["/opt/llm/run".to_string()];
+        assert_eq!(local_program_refusal(&local("/opt/llm/run"), &listed), None);
+        let other = local_program_refusal(&local("/bin/sh"), &listed).unwrap();
+        assert!(other.contains("MW_ASSIST_LOCAL_PROGRAMS"), "{other}");
+        // Listed exactly: a path that resolves to the same file is still refused.
+        assert!(local_program_refusal(&local("/opt/llm/../llm/run"), &listed).is_some());
+        let unset = local_program_refusal(&local("/opt/llm/run"), &[]).unwrap();
+        assert!(
+            unset.contains("MW_ASSIST_LOCAL_PROGRAMS is not set"),
+            "{unset}"
+        );
+        // Other adapter kinds are not the list's business.
+        let http = AdapterConfig::Anthropic {
+            base_url: "https://api.example".into(),
+            api_key: String::new(),
+            model: "m".into(),
+            anthropic_version: "v".into(),
+            max_tokens: 1,
+        };
+        assert_eq!(local_program_refusal(&http, &[]), None);
     }
 
     // ── 26.19 (t19-e16): S1(a) payload clamp + S2 operator-reachable rate limit ──
