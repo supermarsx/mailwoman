@@ -205,6 +205,7 @@ calendar-subscribe-url = Calendar URL
 calendar-subscribe-add = Subscribe
 calendar-subscribe-url-placeholder = https://example.com/calendar.ics
 calendar-subscribe-failed = The calendar at that address could not be fetched, so it was not added.
+calendar-subscribe-hol-many-locations = This holiday file lists more than one location. Download it, then use Import and pick the locations you want.
 calendar-subscribe-refresh = Refresh { $name }
 calendar-subscribe-refresh-btn = Refresh
 calendar-subscribe-refresh-failed = The calendar feed could not be fetched. Its events were left as they were.

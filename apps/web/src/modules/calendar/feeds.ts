@@ -13,7 +13,9 @@
 //   POST /api/calendar/refresh   {calendarId, url} (`calendar_refresh`, :454-476)
 //     → the `Calendar/refreshSubscription` result: {accountId, calendarId, imported}
 //   Failure: a non-2xx with `{error}` — 502 when the fetch or the engine call
-//   failed (`upstream`, :594-597), 501 outside engine mode (`auth_engine`, :551-564).
+//   failed (`upstream`), 501 outside engine mode (`auth_engine`), and 422 with
+//   `code: "holMultipleLocations"` for a holiday pack with more than one
+//   location (`feed_text`), which is only imported from a file, after a choice.
 //
 // Transport injectable so the controller unit-tests without a live server.
 
@@ -31,6 +33,8 @@ export class FeedError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** The body's `code`, when the server named the refusal. */
+    readonly code: string | null = null,
   ) {
     super(message);
     this.name = 'FeedError';
@@ -45,13 +49,15 @@ async function postJson<T>(fetcher: Fetcher, path: string, body: unknown): Promi
   });
   if (!res.ok) {
     let detail = '';
+    let code: string | null = null;
     try {
-      const parsed = (await res.json()) as { error?: unknown };
+      const parsed = (await res.json()) as { error?: unknown; code?: unknown };
       if (typeof parsed.error === 'string') detail = parsed.error;
+      if (typeof parsed.code === 'string') code = parsed.code;
     } catch {
       /* a non-JSON error body carries nothing to add */
     }
-    throw new FeedError(res.status, `calendar feed request failed: ${res.status} ${detail}`.trim());
+    throw new FeedError(res.status, `calendar feed request failed: ${res.status} ${detail}`.trim(), code);
   }
   return (await res.json()) as T;
 }

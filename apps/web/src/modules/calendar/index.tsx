@@ -21,6 +21,7 @@ import { ConflictResolver } from './ConflictResolver.tsx';
 import { HolLocationPicker } from './HolLocationPicker.tsx';
 import { formatFull, formatMonth, formatMonthYear } from './datetime.ts';
 import { readCalendarFile } from './decode.ts';
+import { FeedError } from './feeds.ts';
 import { holLocations, holPack, type HolLocation } from './hol-locations.ts';
 import { HOLIDAY_PACKS } from './holidays.ts';
 import * as css from './calendar.css.ts';
@@ -168,17 +169,32 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
     });
   }
 
+  /**
+   * Run a feed action like {@link attempt}. A holiday pack with more than one
+   * location is refused by the server, which imports such a pack only from a
+   * file, after the user picks; that refusal gets its own message.
+   */
+  async function attemptFeed(failKey: string, fn: () => Promise<void>): Promise<void> {
+    setFeedback(null);
+    try {
+      await fn();
+    } catch (err) {
+      const many = err instanceof FeedError && err.code === 'holMultipleLocations';
+      setFeedback({ kind: 'error', text: t(many ? 'calendar-subscribe-hol-many-locations' : failKey) });
+    }
+  }
+
   async function onWebcalSubscribe(): Promise<void> {
     const url = webcalUrl().trim();
     if (url === '') return;
-    await attempt('calendar-subscribe-failed', async () => {
+    await attemptFeed('calendar-subscribe-failed', async () => {
       await c.subscribeUrl(url);
       setWebcalUrl('');
     });
   }
 
   async function onRefreshFeed(id: string): Promise<void> {
-    await attempt('calendar-subscribe-refresh-failed', () => c.refreshSubscription(id));
+    await attemptFeed('calendar-subscribe-refresh-failed', () => c.refreshSubscription(id));
   }
 
   function onCategoryFilter(value: string): void {
