@@ -16,7 +16,7 @@
 import { Show, createSignal, type JSX } from 'solid-js';
 import { useAdmin } from './context.ts';
 import { AdminApiError } from '../../state/slices/admin.ts';
-import { t } from '../../i18n';
+import { isolate, t } from '../../i18n';
 import { AdminTotpRequired, createAdminTotpVerifier, type AdminTotpVerifier } from './shell/adminAuth.ts';
 import * as css from './admin.css.ts';
 
@@ -132,7 +132,7 @@ export function AdminLogin(props: AdminLoginProps = {}): JSX.Element {
       >
         <form class={css.loginCard} onSubmit={(e) => void onSubmitCode(e)} aria-label={t('admin-shell-totp-form')}>
           <h1 class={css.heading}>{t('admin-brand')}</h1>
-          <p class={css.note}>{t('admin-shell-totp-note', { name: username() })}</p>
+          <p class={css.note}>{t('admin-shell-totp-note', { name: isolate(username()) })}</p>
           <label class="field">
             <span>{t('admin-shell-totp-code')}</span>
             <input

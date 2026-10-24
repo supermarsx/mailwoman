@@ -6,6 +6,7 @@ import { PinnedBadge } from './PinnedBadge.tsx';
 import { LockSwitch } from './LockSwitch.tsx';
 import { Breadcrumbs } from './Breadcrumbs.tsx';
 import { RestorePrevious } from './RestorePrevious.tsx';
+import { isolate } from '../../../i18n';
 import { AdminApiError } from '../../../state/slices/admin.ts';
 
 describe('PinnedBadge', () => {
@@ -103,7 +104,7 @@ describe('RestorePrevious', () => {
   it('shows who changed it, when, and the previous value; restore writes and confirms', async () => {
     const restore = vi.fn(async () => undefined);
     render(() => <RestorePrevious previous={prev} onRestore={restore} />);
-    expect(screen.getByTestId('restore-previous')).toHaveTextContent('Changed by root on 23 Oct 2026, 21:00. Previous value: Dark');
+    expect(screen.getByTestId('restore-previous')).toHaveTextContent(`Changed by ${isolate('root')} on 23 Oct 2026, 21:00. Previous value: ${isolate('Dark')}`);
     fireEvent.click(screen.getByRole('button', { name: 'Restore previous value' }));
     await waitFor(() => expect(restore).toHaveBeenCalledTimes(1));
     expect(await screen.findByRole('status')).toHaveTextContent('The previous value is restored.');

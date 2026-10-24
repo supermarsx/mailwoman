@@ -10,7 +10,7 @@
 // (Cmd+K on macOS) opens the command palette anywhere in the console.
 
 import { For, Show, createMemo, createSignal, onCleanup, onMount, type JSX } from 'solid-js';
-import { t } from '../../../i18n';
+import { isolate, t } from '../../../i18n';
 import { createFocusTrap, createRovingTabindex } from '../../../components/a11y';
 import type { Can } from './can.ts';
 import { GROUPS, type SectionDef } from './sections.ts';
@@ -112,7 +112,7 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
   const Footer = (): JSX.Element => (
     <div class={css.sidebarFooter}>
       {props.languagePicker}
-      <p class={css.help}>{t('admin-shell-signed-in-as', { name: props.username })}</p>
+      <p class={css.help}>{t('admin-shell-signed-in-as', { name: isolate(props.username) })}</p>
       <button type="button" class={['btn btn--ghost', css.iconButton].join(' ')} onClick={() => props.onSignOut()}>
         <Icon name="signOut" />
         <span>{t('admin-sign-out')}</span>

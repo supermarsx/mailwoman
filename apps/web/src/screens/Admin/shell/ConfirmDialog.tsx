@@ -12,7 +12,7 @@
 
 import { Show, createSignal, createUniqueId, type JSX } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import { t } from '../../../i18n';
+import { isolate, t } from '../../../i18n';
 import { createFocusTrap } from '../../../components/a11y';
 import { Feedback, describeAdminError } from './Feedback.tsx';
 import * as css from './shell.css.ts';
@@ -100,7 +100,7 @@ function ConfirmDialogOpen(props: ConfirmDialogProps): JSX.Element {
         <Show when={props.typedConfirmation}>
           {(target) => (
             <label class="field">
-              <span>{t('admin-shell-confirm-type', { name: target() })}</span>
+              <span>{t('admin-shell-confirm-type', { name: isolate(target()) })}</span>
               <input
                 ref={typedInput}
                 type="text"

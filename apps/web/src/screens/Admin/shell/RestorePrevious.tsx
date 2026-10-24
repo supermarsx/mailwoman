@@ -8,7 +8,7 @@
 // restored from here (the caller passes `restorable: false`).
 
 import { Show, createSignal, type JSX } from 'solid-js';
-import { t } from '../../../i18n';
+import { isolate, t } from '../../../i18n';
 import { Feedback, describeAdminError } from './Feedback.tsx';
 import * as css from './shell.css.ts';
 
@@ -53,9 +53,9 @@ export function RestorePrevious(props: RestorePreviousProps): JSX.Element {
         <div class={css.field} data-testid="restore-previous">
           <p class={css.help}>
             {t('admin-shell-restore-note', {
-              actor: prev().actor,
+              actor: isolate(prev().actor),
               time: prev().changedAt,
-              value: prev().display,
+              value: isolate(prev().display),
             })}
           </p>
           <Show when={prev().restorable !== false}>

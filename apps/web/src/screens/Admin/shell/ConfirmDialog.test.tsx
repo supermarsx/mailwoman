@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@solidjs/testing-library';
 import { createSignal } from 'solid-js';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
+import { isolate } from '../../../i18n';
 import { AdminApiError } from '../../../state/slices/admin.ts';
 
 function Harness(props: { onConfirm: () => void | Promise<void>; typed?: string }) {
@@ -71,7 +72,7 @@ describe('ConfirmDialog', () => {
     const confirm = vi.fn();
     render(() => <Harness onConfirm={confirm} typed="example.org" />);
     fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
-    const field = await screen.findByLabelText('Type example.org to confirm');
+    const field = await screen.findByLabelText(`Type ${isolate('example.org')} to confirm`);
     const go = screen.getByRole('button', { name: 'Revoke sessions' });
     await waitFor(() => expect(document.activeElement).toBe(field));
     expect(go).toBeDisabled();

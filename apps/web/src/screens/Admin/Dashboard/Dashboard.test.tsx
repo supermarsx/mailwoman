@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent, within } from '@solidjs/testing-library';
 import { Dashboard } from './Dashboard.tsx';
+import { isolate } from '../../../i18n';
 import { engineDashboard, proxyDashboard } from './fixtures.ts';
 import { dashboardReturning, holding, renderInShell } from '../shell/testkit.tsx';
 import type { DashboardResult } from '../../../api/admin/dashboard.ts';
@@ -104,7 +105,7 @@ describe('Dashboard — with data', () => {
     const mig = list.querySelector('[data-warning="pending-migrations"]') as HTMLElement;
     expect(mig).toHaveTextContent('2 database migrations have not been applied. Restart the server to apply them.');
     expect(within(mig).queryByRole('link')).toBeNull();
-    expect(list.querySelector('[data-warning="brand-new-thing"]')).toHaveTextContent('Server warning brand-new-thing (3)');
+    expect(list.querySelector('[data-warning="brand-new-thing"]')).toHaveTextContent(`Server warning ${isolate('brand-new-thing')} (3)`);
   });
 
   it('a warning whose section the admin cannot open has no link', async () => {
@@ -135,8 +136,8 @@ describe('Dashboard — blocked accounts (DA3)', () => {
     const panel = await screen.findByTestId('dash-blocked');
     expect(within(panel).getByRole('heading', { name: '5 accounts blocked: no domain configuration' })).toBeInTheDocument();
     expect(panel).toHaveTextContent('old.example 4 accounts');
-    expect(panel).toHaveTextContent('last used mail host imap.old.example');
-    fireEvent.click(within(panel).getByRole('link', { name: 'Configure old.example' }));
+    expect(panel).toHaveTextContent(`last used mail host ${isolate('imap.old.example')}`);
+    fireEvent.click(within(panel).getByRole('link', { name: `Configure ${isolate('old.example')}` }));
     expect(navigate).toHaveBeenCalledWith('/admin#/domains/old.example');
     expect(within(panel).getByRole('table', { name: 'Blocked accounts per domain' })).toBeInTheDocument();
   });

@@ -9,7 +9,7 @@
 // (nothing measures it), backups (host-side), recent error log lines (log viewer).
 
 import { For, Match, Show, Switch, createResource, createSignal, type JSX } from 'solid-js';
-import { t } from '../../../i18n';
+import { isolate, t } from '../../../i18n';
 import { useShell } from '../shell/context.ts';
 import { findSection, SECTIONS } from '../shell/sections.ts';
 import { hrefFor, sectionPath } from '../shell/router.ts';
@@ -159,7 +159,7 @@ function DashboardBody(props: BodyProps): JSX.Element {
                 return (
                   <li class={css.warning} data-warning={w.code}>
                     <Icon name="alert" />
-                    <span>{known ? known.text(w.count) : t('admin-dash-warn-unknown', { code: w.code, count: w.count })}</span>
+                    <span>{known ? known.text(w.count) : t('admin-dash-warn-unknown', { code: isolate(w.code), count: w.count })}</span>
                     <Show when={link}>
                       {(href) => (
                         <a href={hrefFor(href())} onClick={(e) => inPlace(e, () => props.open(href()))}>
@@ -390,7 +390,7 @@ function BlockedAccounts(props: {
                   <strong>{row.domain}</strong>{' '}
                   {t('admin-dash-blocked-row', { count: row.accounts })}
                   <Show when={row.seenHost}>
-                    {(host) => <span class={admin.note}> {t('admin-dash-blocked-seen', { host: host() })}</span>}
+                    {(host) => <span class={admin.note}> {t('admin-dash-blocked-seen', { host: isolate(host()) })}</span>}
                   </Show>
                 </span>
                 <Show
@@ -403,7 +403,7 @@ function BlockedAccounts(props: {
                       href={hrefFor(href())}
                       onClick={(e) => inPlace(e, () => props.open(href()))}
                     >
-                      {t('admin-dash-configure-domain', { domain: row.domain })}
+                      {t('admin-dash-configure-domain', { domain: isolate(row.domain) })}
                     </a>
                   )}
                 </Show>

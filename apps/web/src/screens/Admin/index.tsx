@@ -31,6 +31,7 @@ import { ShellContext } from './shell/context.ts';
 import { createAdminSearch, type AdminSearch } from './shell/CommandPalette.tsx';
 import { withTotpGate, type AdminTotpVerifier } from './shell/adminAuth.ts';
 import type { Crumb } from './shell/Breadcrumbs.tsx';
+import { LanguagePicker, useStoredAdminLocale } from './shell/LanguagePicker.tsx';
 import { createDashboardLoader, type DashboardLoader } from '../../api/admin/dashboard.ts';
 import * as css from './admin.css.ts';
 import * as shellCss from './shell/shell.css.ts';
@@ -57,6 +58,7 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
   onMount(() => void loadCatalog('admin-shell'));
   onMount(() => void loadCatalog('admin-dashboard'));
   onMount(() => void loadCatalog('plugins'));
+  useStoredAdminLocale();
 
   // The console takes the theme this browser chose for the webmail (read-only:
   // nothing here changes the stored preference). The slice ignores its context.
@@ -164,6 +166,7 @@ function Console(props: AdminScreenProps & { username: string }): JSX.Element {
           search={services.search}
           breadcrumbs={crumbs()}
           leave={{ open: leaveOpen(), onStay: () => settle(false), onLeave: () => settle(true) }}
+          languagePicker={<LanguagePicker />}
         >
           <h1 class={shellCss.srOnly}>{t('admin-brand')}</h1>
           <Suspense

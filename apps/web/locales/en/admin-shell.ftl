@@ -14,6 +14,7 @@ admin-shell-close-menu = Close menu
 admin-shell-search = Search
 admin-shell-search-key = Ctrl+K
 admin-shell-signed-in-as = Signed in as { $name }
+admin-shell-language-label = Language
 admin-shell-breadcrumb = Breadcrumb
 admin-shell-unknown-section = This section does not exist, or your role does not include it.
 admin-shell-back-to-dashboard = Back to the dashboard
