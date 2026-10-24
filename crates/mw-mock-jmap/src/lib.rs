@@ -39,6 +39,9 @@ struct Inner {
     // ordering for query determinism (newest first)
     order: Vec<String>,
     next_id: u64,
+    // Mailboxes in listing order (26.20 t28-e17: `Mailbox/set` changes them).
+    // Counts are computed from `emails` when listed.
+    mailboxes: Vec<Value>,
 }
 
 impl MailStore {
@@ -108,11 +111,18 @@ impl MailStore {
             order.push(id.to_string());
         }
 
+        let mailboxes = vec![
+            json!({ "id": "mb-inbox", "name": "Inbox", "parentId": null, "role": "inbox",
+                    "sortOrder": 0, "isSubscribed": true }),
+            json!({ "id": "mb-sent", "name": "Sent", "parentId": null, "role": "sent",
+                    "sortOrder": 1, "isSubscribed": true }),
+        ];
         Self {
             inner: Arc::new(Mutex::new(Inner {
                 emails,
                 order,
                 next_id: 100,
+                mailboxes,
             })),
         }
     }
@@ -157,6 +167,17 @@ async fn session(headers: HeaderMap) -> impl IntoResponse {
         },
         "accounts": {
             ACCOUNT_ID: { "name": USER, "isPersonal": true, "isReadOnly": false, "accountCapabilities": {
+                // RFC 8621 §1.3.1; `mailwomanMailboxSet` as the engine sends it
+                // (the mock implements `Mailbox/set`).
+                "urn:ietf:params:jmap:mail": {
+                    "maxMailboxesPerEmail": null,
+                    "maxMailboxDepth": null,
+                    "maxSizeMailboxName": 255,
+                    "maxSizeAttachmentsPerEmail": 50_000_000,
+                    "emailQuerySortOptions": ["receivedAt"],
+                    "mayCreateTopLevelMailbox": true,
+                    "mailwomanMailboxSet": true
+                },
                 "urn:mailwoman:crypto": {},
                 "urn:mailwoman:security": {}
             } }
@@ -280,17 +301,25 @@ async fn upload(headers: HeaderMap, Path(account): Path<String>, body: Body) -> 
 
 fn dispatch(store: &MailStore, name: &str, args: &Value) -> Value {
     match name {
-        "Mailbox/get" => json!({
-            "accountId": ACCOUNT_ID,
-            "state": "mb-0",
-            "list": [
-                { "id": "mb-inbox", "name": "Inbox", "role": "inbox", "sortOrder": 0,
-                  "totalEmails": inbox_count(store), "unreadEmails": 0, "totalThreads": 0, "unreadThreads": 0 },
-                { "id": "mb-sent", "name": "Sent", "role": "sent", "sortOrder": 1,
-                  "totalEmails": sent_count(store), "unreadEmails": 0, "totalThreads": 0, "unreadThreads": 0 }
-            ],
-            "notFound": []
-        }),
+        "Mailbox/get" => {
+            let inner = store.inner.lock().unwrap();
+            let list: Vec<Value> = inner
+                .mailboxes
+                .iter()
+                .map(|m| {
+                    let mut m = m.clone();
+                    let id = m["id"].as_str().unwrap_or_default().to_string();
+                    m["totalEmails"] = json!(count_in(&inner, &id));
+                    m["unreadEmails"] = json!(0);
+                    m["totalThreads"] = json!(0);
+                    m["unreadThreads"] = json!(0);
+                    m["myRights"] = rights(m["role"].is_null());
+                    m
+                })
+                .collect();
+            json!({ "accountId": ACCOUNT_ID, "state": "mb-0", "list": list, "notFound": [] })
+        }
+        "Mailbox/set" => mailbox_set(store, args),
         "Email/query" => {
             let inner = store.inner.lock().unwrap();
             let mailbox = args
@@ -354,8 +383,17 @@ fn dispatch(store: &MailStore, name: &str, args: &Value) -> Value {
                     );
                 }
             }
-            json!({ "accountId": ACCOUNT_ID, "oldState": "e-0", "newState": "e-1",
-                    "created": created, "updated": {}, "destroyed": [] })
+            let (updated, not_updated) = email_update(&mut inner, args);
+            let (destroyed, not_destroyed) = email_destroy(&mut inner, args);
+            let mut resp = json!({ "accountId": ACCOUNT_ID, "oldState": "e-0", "newState": "e-1",
+                    "created": created, "updated": updated, "destroyed": destroyed });
+            if !not_updated.is_empty() {
+                resp["notUpdated"] = Value::Object(not_updated);
+            }
+            if !not_destroyed.is_empty() {
+                resp["notDestroyed"] = Value::Object(not_destroyed);
+            }
+            resp
         }
         "EmailSubmission/set" => {
             // Mark the referenced draft as sent: move it into Sent.
@@ -594,14 +632,291 @@ fn resolve_references(args: &mut Value, responses: &[Value]) {
     }
 }
 
-fn inbox_count(store: &MailStore) -> u64 {
-    count_in(store, "mb-inbox")
+// ── Mailbox/set and Email/set update/destroy (26.20 t28-e17) ─────────────────
+//
+// Enough of RFC 8621 §2.5 / §4.6 for proxy-mode specs to create, rename, move
+// and delete folders and to move, flag and destroy messages. Unlike the
+// engine, the mock lets a message sit in several mailboxes, as a JMAP server
+// may.
+
+/// RFC 8621 `myRights`: a role mailbox cannot be renamed or deleted.
+fn rights(ordinary: bool) -> Value {
+    json!({
+        "mayReadItems": true, "mayAddItems": true, "mayRemoveItems": true,
+        "maySetSeen": true, "maySetKeywords": true, "mayCreateChild": true,
+        "mayRename": ordinary, "mayDelete": ordinary, "maySubmit": true
+    })
 }
-fn sent_count(store: &MailStore) -> u64 {
-    count_in(store, "mb-sent")
+
+fn set_error(kind: &str, description: &str) -> Value {
+    json!({ "type": kind, "description": description })
 }
-fn count_in(store: &MailStore, mailbox: &str) -> u64 {
-    let inner = store.inner.lock().unwrap();
+
+/// `#creationId` → the id created for it in this call.
+fn resolve(id: &str, created: &HashMap<String, String>) -> String {
+    id.strip_prefix('#')
+        .and_then(|cid| created.get(cid))
+        .cloned()
+        .unwrap_or_else(|| id.to_string())
+}
+
+/// Check a requested name/parent pair against the siblings it would join.
+fn check_sibling(
+    inner: &Inner,
+    name: &str,
+    parent: &Value,
+    except: Option<&str>,
+) -> Result<(), Value> {
+    if name.trim().is_empty() {
+        return Err(json!({ "type": "invalidProperties", "properties": ["name"],
+                           "description": "the name is empty" }));
+    }
+    if let Some(p) = parent.as_str()
+        && !inner.mailboxes.iter().any(|m| m["id"] == p)
+    {
+        return Err(
+            json!({ "type": "invalidProperties", "properties": ["parentId"],
+                           "description": "no such mailbox" }),
+        );
+    }
+    let taken = inner
+        .mailboxes
+        .iter()
+        .find(|m| m["name"] == name && &m["parentId"] == parent && m["id"].as_str() != except);
+    match taken {
+        Some(m) => Err(json!({ "type": "alreadyExists", "existingId": m["id"],
+                               "description": "a sibling has this name" })),
+        None => Ok(()),
+    }
+}
+
+fn mailbox_set(store: &MailStore, args: &Value) -> Value {
+    let mut inner = store.inner.lock().unwrap();
+    let mut created = serde_json::Map::new();
+    let mut not_created = serde_json::Map::new();
+    let mut ids: HashMap<String, String> = HashMap::new();
+    if let Some(creates) = args.get("create").and_then(Value::as_object) {
+        for (cid, spec) in creates {
+            let name = spec.get("name").and_then(Value::as_str).unwrap_or("");
+            let parent = match spec.get("parentId").and_then(Value::as_str) {
+                Some(p) => json!(resolve(p, &ids)),
+                None => Value::Null,
+            };
+            if let Err(e) = check_sibling(&inner, name, &parent, None) {
+                not_created.insert(cid.clone(), e);
+                continue;
+            }
+            inner.next_id += 1;
+            let id = format!("mb-{}", inner.next_id);
+            let subscribed = spec
+                .get("isSubscribed")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            inner
+                .mailboxes
+                .push(json!({ "id": id, "name": name, "parentId": parent,
+                "role": null, "sortOrder": 10, "isSubscribed": subscribed }));
+            ids.insert(cid.clone(), id.clone());
+            created.insert(cid.clone(), json!({ "id": id, "myRights": rights(true) }));
+        }
+    }
+
+    let mut updated = serde_json::Map::new();
+    let mut not_updated = serde_json::Map::new();
+    if let Some(updates) = args.get("update").and_then(Value::as_object) {
+        for (id, patch) in updates {
+            let id = resolve(id, &ids);
+            let Some(pos) = inner.mailboxes.iter().position(|m| m["id"] == id.as_str()) else {
+                not_updated.insert(id, set_error("notFound", "no such mailbox"));
+                continue;
+            };
+            let current = inner.mailboxes[pos].clone();
+            let name = patch
+                .get("name")
+                .cloned()
+                .unwrap_or(current["name"].clone());
+            let parent = match patch.get("parentId") {
+                Some(Value::String(p)) => json!(resolve(p, &ids)),
+                Some(_) => Value::Null,
+                None => current["parentId"].clone(),
+            };
+            let renames = name != current["name"] || parent != current["parentId"];
+            if renames && !current["role"].is_null() {
+                not_updated.insert(
+                    id,
+                    set_error("forbidden", "a role mailbox cannot be renamed"),
+                );
+                continue;
+            }
+            if renames
+                && let Err(e) =
+                    check_sibling(&inner, name.as_str().unwrap_or(""), &parent, Some(&id))
+            {
+                not_updated.insert(id, e);
+                continue;
+            }
+            let m = &mut inner.mailboxes[pos];
+            m["name"] = name;
+            m["parentId"] = parent;
+            if let Some(sub) = patch.get("isSubscribed").and_then(Value::as_bool) {
+                m["isSubscribed"] = json!(sub);
+            }
+            updated.insert(id, Value::Null);
+        }
+    }
+
+    let mut destroyed = Vec::new();
+    let mut not_destroyed = serde_json::Map::new();
+    let remove_emails = args
+        .get("onDestroyRemoveEmails")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    for id in args
+        .get("destroy")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+    {
+        let id = resolve(id, &ids);
+        let Some(pos) = inner.mailboxes.iter().position(|m| m["id"] == id.as_str()) else {
+            not_destroyed.insert(id, set_error("notFound", "no such mailbox"));
+            continue;
+        };
+        if !inner.mailboxes[pos]["role"].is_null() {
+            not_destroyed.insert(
+                id,
+                set_error("forbidden", "a role mailbox cannot be deleted"),
+            );
+            continue;
+        }
+        if inner.mailboxes.iter().any(|m| m["parentId"] == id.as_str()) {
+            not_destroyed.insert(id, set_error("mailboxHasChild", "the mailbox has children"));
+            continue;
+        }
+        if count_in(&inner, &id) > 0 && !remove_emails {
+            not_destroyed.insert(
+                id,
+                set_error("mailboxHasEmail", "the mailbox holds messages"),
+            );
+            continue;
+        }
+        inner.mailboxes.remove(pos);
+        // A message only in this mailbox goes with it; one also elsewhere stays.
+        let doomed: Vec<String> = inner
+            .emails
+            .iter()
+            .filter_map(|(eid, e)| {
+                let boxes = e.get("mailboxIds")?.as_object()?;
+                (boxes.contains_key(&id) && boxes.len() == 1).then(|| eid.clone())
+            })
+            .collect();
+        for e in inner.emails.values_mut() {
+            if let Some(boxes) = e.get_mut("mailboxIds").and_then(Value::as_object_mut) {
+                boxes.remove(&id);
+            }
+        }
+        for eid in doomed {
+            inner.emails.remove(&eid);
+            inner.order.retain(|o| o != &eid);
+        }
+        destroyed.push(json!(id));
+    }
+
+    let mut resp = json!({ "accountId": ACCOUNT_ID, "oldState": "mb-0", "newState": "mb-1",
+                           "created": created, "updated": updated, "destroyed": destroyed });
+    if !not_created.is_empty() {
+        resp["notCreated"] = Value::Object(not_created);
+    }
+    if !not_updated.is_empty() {
+        resp["notUpdated"] = Value::Object(not_updated);
+    }
+    if !not_destroyed.is_empty() {
+        resp["notDestroyed"] = Value::Object(not_destroyed);
+    }
+    resp
+}
+
+/// `Email/set` update: `keywords` and `mailboxIds`, whole or as RFC 8620 §5.3
+/// patch paths (`keywords/<kw>`, `mailboxIds/<id>`; `true` sets, `null`
+/// clears). A patch naming anything else, or leaving no mailbox, is refused.
+fn email_update(
+    inner: &mut Inner,
+    args: &Value,
+) -> (
+    serde_json::Map<String, Value>,
+    serde_json::Map<String, Value>,
+) {
+    let mut updated = serde_json::Map::new();
+    let mut not_updated = serde_json::Map::new();
+    let Some(updates) = args.get("update").and_then(Value::as_object) else {
+        return (updated, not_updated);
+    };
+    for (id, patch) in updates {
+        let Some(email) = inner.emails.get(id) else {
+            not_updated.insert(id.clone(), set_error("notFound", "no such email"));
+            continue;
+        };
+        let mut next = email.clone();
+        let mut bad = Vec::new();
+        for (path, value) in patch.as_object().into_iter().flatten() {
+            match path.split_once('/') {
+                None if path == "keywords" || path == "mailboxIds" => {
+                    next[path.as_str()] = value.clone();
+                }
+                Some((prop @ ("keywords" | "mailboxIds"), key)) if !key.is_empty() => {
+                    if !next[prop].is_object() {
+                        next[prop] = json!({});
+                    }
+                    let map = next[prop].as_object_mut().expect("object");
+                    if value.as_bool() == Some(true) {
+                        map.insert(key.to_string(), json!(true));
+                    } else {
+                        map.remove(key);
+                    }
+                }
+                _ => bad.push(path.clone()),
+            }
+        }
+        if next["mailboxIds"].as_object().is_none_or(|m| m.is_empty()) {
+            bad.push("mailboxIds".into());
+        }
+        if !bad.is_empty() {
+            not_updated.insert(
+                id.clone(),
+                json!({ "type": "invalidProperties", "properties": bad,
+                        "description": "the mock cannot apply these" }),
+            );
+            continue;
+        }
+        inner.emails.insert(id.clone(), next);
+        updated.insert(id.clone(), Value::Null);
+    }
+    (updated, not_updated)
+}
+
+/// `Email/set` destroy: the message is gone.
+fn email_destroy(inner: &mut Inner, args: &Value) -> (Vec<Value>, serde_json::Map<String, Value>) {
+    let mut destroyed = Vec::new();
+    let mut not_destroyed = serde_json::Map::new();
+    for id in args
+        .get("destroy")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+    {
+        if inner.emails.remove(id).is_some() {
+            inner.order.retain(|o| o != id);
+            destroyed.push(json!(id));
+        } else {
+            not_destroyed.insert(id.to_string(), set_error("notFound", "no such email"));
+        }
+    }
+    (destroyed, not_destroyed)
+}
+
+fn count_in(inner: &Inner, mailbox: &str) -> u64 {
     inner
         .emails
         .values()
@@ -756,5 +1071,94 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    /// 26.20 t28-e17: proxy-mode specs can manage folders and move, flag and
+    /// destroy messages against the mock.
+    #[tokio::test]
+    async fn mailbox_set_and_email_update_destroy() {
+        let addr = spawn().await;
+        let c = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("reqwest client builds");
+        let call = |calls: Value| {
+            let c = c.clone();
+            async move {
+                c.post(format!("http://{addr}/jmap"))
+                    .header("authorization", auth())
+                    .json(&json!({ "using": [], "methodCalls": calls }))
+                    .send()
+                    .await
+                    .unwrap()
+                    .json::<Value>()
+                    .await
+                    .unwrap()
+            }
+        };
+
+        let r = call(json!([["Mailbox/set", { "create": {
+            "a": { "name": "Projects" },
+            "dup": { "name": "Inbox" },
+        } }, "s"]]))
+        .await;
+        let set = &r["methodResponses"][0][1];
+        let projects = set["created"]["a"]["id"].as_str().unwrap().to_string();
+        assert_eq!(set["notCreated"]["dup"]["type"], "alreadyExists", "{set}");
+
+        // Move e1 in with patch paths; flag it.
+        let r = call(json!([["Email/set", { "update": { "e1": {
+            format!("mailboxIds/{projects}"): true,
+            "mailboxIds/mb-inbox": null,
+            "keywords/$flagged": true,
+        } } }, "u"]]))
+        .await;
+        assert!(
+            r["methodResponses"][0][1]["updated"]
+                .as_object()
+                .unwrap()
+                .contains_key("e1")
+        );
+        let r = call(json!([["Email/query", { "filter": { "inMailbox": projects } }, "q"]])).await;
+        assert_eq!(r["methodResponses"][0][1]["ids"], json!(["e1"]));
+
+        // Removing the only mailbox is refused.
+        let r = call(json!([["Email/set", { "update": { "e1": {
+            format!("mailboxIds/{projects}"): null,
+        } } }, "u"]]))
+        .await;
+        assert_eq!(
+            r["methodResponses"][0][1]["notUpdated"]["e1"]["type"],
+            "invalidProperties"
+        );
+
+        // A folder with mail stays unless asked; a role folder always stays.
+        let r = call(json!([["Mailbox/set", { "destroy": [projects.clone(), "mb-inbox"] }, "d"]]))
+            .await;
+        let set = &r["methodResponses"][0][1];
+        assert_eq!(
+            set["notDestroyed"][&projects]["type"], "mailboxHasEmail",
+            "{set}"
+        );
+        assert_eq!(
+            set["notDestroyed"]["mb-inbox"]["type"], "forbidden",
+            "{set}"
+        );
+        let r = call(json!([["Mailbox/set", {
+            "destroy": [projects.clone()], "onDestroyRemoveEmails": true
+        }, "d"]]))
+        .await;
+        assert_eq!(r["methodResponses"][0][1]["destroyed"], json!([projects]));
+        let r = call(json!([["Email/get", { "ids": ["e1"] }, "g"]])).await;
+        assert_eq!(r["methodResponses"][0][1]["notFound"], json!(["e1"]));
+
+        // Email/set destroy.
+        let r = call(json!([["Email/set", { "destroy": ["e2", "nope"] }, "x"]])).await;
+        let set = &r["methodResponses"][0][1];
+        assert_eq!(set["destroyed"], json!(["e2"]));
+        assert_eq!(set["notDestroyed"]["nope"]["type"], "notFound");
+        let r =
+            call(json!([["Email/query", { "filter": { "inMailbox": "mb-inbox" } }, "q"]])).await;
+        assert_eq!(r["methodResponses"][0][1]["ids"], json!(["e3"]));
     }
 }
