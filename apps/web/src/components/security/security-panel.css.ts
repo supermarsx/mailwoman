@@ -179,8 +179,13 @@ export const authDetail = style({
 
 // ── Received chain ───────────────────────────────────────────────────────────
 
+// Long hops scroll sideways. `overflow-x: auto` also makes the block axis a
+// scroll axis, and the 1.2 line height leaves the font's content area 2px past
+// the last line box, which made the chain a keyboard-unreachable scroll region
+// (axe scrollable-region-focusable). Glyph ink stays inside the line box.
 export const hopScroll = style({
   overflowX: 'auto',
+  overflowY: 'hidden',
 });
 
 export const hopList = style({

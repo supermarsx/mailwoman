@@ -203,3 +203,38 @@ globalStyle(':root', {
     '(forced-colors: active)': { vars: HC_FOCUS },
   },
 });
+
+// ── Forced colours (t32-e7) ──────────────────────────────────────────────────
+// Under `forced-colors: active` the browser paints system colours, but some
+// computed values keep the author colour (Chromium leaves
+// `-webkit-text-fill-color` at the theme's text colour), so a checker reads the
+// Dark theme's near-white ink against the forced white Canvas. Every colour
+// token becomes the matching system colour here, so author and painted colours
+// agree. Placed last, on selectors as specific as the theme and accent rules.
+const FORCED: Record<keyof ThemeTokens['color'], string> = {
+  bg: 'Canvas',
+  bgAlt: 'Canvas',
+  bgSink: 'Canvas',
+  surface: 'Canvas',
+  selection: 'Canvas',
+  signal: 'Canvas',
+  scrim: 'Canvas',
+  border: 'CanvasText',
+  borderStrong: 'CanvasText',
+  text: 'CanvasText',
+  textDim: 'CanvasText',
+  accent: 'CanvasText',
+  accentText: 'CanvasText',
+  danger: 'CanvasText',
+  success: 'CanvasText',
+  warning: 'CanvasText',
+  signalText: 'CanvasText',
+  scrimText: 'CanvasText',
+  link: 'LinkText',
+  focus: 'Highlight',
+};
+const forcedVars: Record<string, string> = { ...legacyVars(FORCED), [vars.a11y.focusRingColor]: 'Highlight' };
+for (const key of Object.keys(FORCED) as (keyof ThemeTokens['color'])[]) forcedVars[vars.color[key]] = FORCED[key];
+globalStyle(':root, :root[data-theme], :root[data-theme][data-accent]', {
+  '@media': { '(forced-colors: active)': { vars: forcedVars } },
+});
