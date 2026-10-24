@@ -1474,6 +1474,12 @@ the effective cache posture.
   packages (same registry as plugins); per-user theme choice, per-profile
   themes (§10.3), auto light/dark by OS schedule; admin-brandable login page
   and default theme; density and accent-color user overrides on top of any theme.
+- **Accents:** the accent is one of ten named accents, each shaded per theme
+  to keep 3:1 on the theme's surfaces and 4.5:1 for the text on it.
+- **Rules:** border widths are shared by every theme: 2px rules for controls
+  and panels, 3px for section and top-bar rules. The Black theme keeps the
+  2px control rules too, because a 3px rule would make every bordered box 1px
+  bigger on each side.
 - **Dark by default:** a user who has not chosen a theme gets the Dark theme
   whatever the OS colour scheme; Light applies once the user picks a light
   theme, or picks "Follow the system" while the OS is light.
