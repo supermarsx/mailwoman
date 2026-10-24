@@ -55,6 +55,40 @@ The `/admin/*` HTTP endpoints (all under the separate admin session):
   OTLP DSN, the audit-log viewer + export, the login monitor + ban list.
 - **Appearance** — branding/theme configuration.
 
+## Disabling an account
+
+`PUT /admin/users/{id}/flags` with `disabled: true` refuses the account here:
+password and header-auth logins, SSO, second-factor completion, existing
+sessions, native bearer sessions, API keys and OAuth tokens. It does not
+disable the mailbox on the mail server; a client that talks to the mail
+server directly is not affected.
+
+The flag is stored under the address folded to lower case. A mail server can
+accept other spellings of that address, so a sign-in is also refused when it
+uses:
+
+- the address with a `+tag` in the local part (`alice+x@example.com` for
+  `alice@example.com`);
+- the other form of an internationalised domain (`alice@xn--bcher-kva.example`
+  for `alice@bücher.example`, either way round);
+- the bare local part (`alice`), as a mail server with a default realm accepts
+  it. The bare name is refused while **any** `alice@<domain>` is disabled.
+
+The bare-name rule fails closed. On a server with more than one domain, a
+bare `alice` that the mail server maps to `alice@example.org` is refused while
+`alice@example.com` is disabled, though they are two people. That user can
+still sign in with the full address. A tag delimiter other than `+` and an
+alias the mail server knows are not recognised: a flag set under one of those
+names applies only once someone has signed in with it.
+
+`forcePasswordChange` set under an address holds a sign-in under any of the
+spellings above. A password change clears it under the names that session
+was opened with, their `+tag`-less form and the other form of the domain. It
+does not clear it under an address found only from a bare name, because that
+address may be another person's. A user held that way clears the hold by
+signing in with the full address and changing the password there, or the
+admin clears the flag.
+
 ## Security policy
 
 `GET /admin/security-policy` returns every field below, the DLP rules that come from
