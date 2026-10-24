@@ -47,6 +47,15 @@ export interface ShellRoute {
   param: string | null;
 }
 
+/** Decode a route parameter; a malformed escape is no parameter, not a throw. */
+function decodeParam(raw: string): string | null {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+}
+
 /** Parse a location hash into a route. Unknown/empty hashes resolve to Mail. */
 export function parseHash(hash: string): ShellRoute {
   const raw = hash.replace(/^#/, '').replace(/^\//, '');
@@ -55,8 +64,20 @@ export function parseHash(hash: string): ShellRoute {
   const known = ALL_SURFACES.has(head as ShellSurface);
   const surface = (known ? head : 'mail') as ShellSurface;
   const rawParam = parts[1];
-  const param = known && rawParam !== undefined && rawParam !== '' ? decodeURIComponent(rawParam) : null;
+  const param = known && rawParam !== undefined && rawParam !== '' ? decodeParam(rawParam) : null;
   return { surface, param };
+}
+
+/**
+ * Does `hash` address a surface that does not exist (`#/bogus`)? Only a
+ * route-shaped fragment (`#/<head>`) with a non-empty head counts: the empty
+ * hash and `#/` are the inbox, and a plain fragment such as `#main` is not a
+ * route at all.
+ */
+export function isUnknownRoute(hash: string): boolean {
+  if (!hash.startsWith('#/')) return false;
+  const head = hash.slice(2).split('/')[0] ?? '';
+  return head !== '' && !ALL_SURFACES.has(head as ShellSurface);
 }
 
 /** Build the canonical hash for a route (`#/calendar/week`, `#/tasks`). */
@@ -76,14 +97,27 @@ export interface ShellRouter {
 /**
  * A reactive hash router bound to `window.location.hash`. Constructed inside the
  * shell component so its `hashchange` listener is torn down with the component.
+ *
+ * An unknown route (`#/bogus`, at load or typed later) is replaced in place by
+ * the inbox's `#/mail`, so Back does not return to it, and `onUnknown` is told
+ * so the shell can say why the page changed (t32-h10).
  */
-export function createShellRouter(): ShellRouter {
-  const initial = typeof location !== 'undefined' ? location.hash : '';
-  const [route, setRoute] = createSignal<ShellRoute>(parseHash(initial));
+export function createShellRouter(onUnknown?: () => void): ShellRouter {
+  /** The current hash, with an unknown route already replaced by the inbox. */
+  function settledHash(): string {
+    if (typeof location === 'undefined') return '';
+    if (!isUnknownRoute(location.hash)) return location.hash;
+    const inbox = routeHash('mail');
+    history.replaceState(history.state, '', `${location.pathname}${location.search}${inbox}`);
+    onUnknown?.();
+    return inbox;
+  }
+
+  const [route, setRoute] = createSignal<ShellRoute>(parseHash(settledHash()));
 
   if (typeof window !== 'undefined') {
     const onHash = (): void => {
-      setRoute(parseHash(location.hash));
+      setRoute(parseHash(settledHash()));
     };
     window.addEventListener('hashchange', onHash);
     onCleanup(() => window.removeEventListener('hashchange', onHash));

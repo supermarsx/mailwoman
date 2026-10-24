@@ -33,6 +33,7 @@ import { withTotpGate, type AdminTotpVerifier } from './shell/adminAuth.ts';
 import type { Crumb } from './shell/Breadcrumbs.tsx';
 import { LanguagePicker, useStoredAdminLocale } from './shell/LanguagePicker.tsx';
 import { createDashboardLoader, type DashboardLoader } from '../../api/admin/dashboard.ts';
+import { Feedback } from './shell/Feedback.tsx';
 import * as css from './admin.css.ts';
 import * as shellCss from './shell/shell.css.ts';
 
@@ -127,6 +128,22 @@ function Console(props: AdminScreenProps & { username: string }): JSX.Element {
     document.title = s ? `${s.label()} · ${t('admin-brand')}` : t('admin-brand');
   });
 
+  // An address naming no section this admin can open (`/admin#/bogus`, or one
+  // outside their role) is replaced by the dashboard, with a notice that stays
+  // until another section is opened (t32-h10).
+  onMount(() => void loadCatalog('errors'));
+  const [unknownNotice, setUnknownNotice] = createSignal(false);
+  createEffect(() => {
+    if (!can.loaded()) return;
+    const r = router.route();
+    if (section() === undefined && r.section !== 'dashboard') {
+      setUnknownNotice(true);
+      void router.navigate('/admin', { replace: true });
+    } else if (r.section !== 'dashboard') {
+      setUnknownNotice(false);
+    }
+  });
+
   const crumbs = (): Crumb[] => {
     const s = section();
     const r = router.route();
@@ -169,6 +186,11 @@ function Console(props: AdminScreenProps & { username: string }): JSX.Element {
           languagePicker={<LanguagePicker />}
         >
           <h1 class={shellCss.srOnly}>{t('admin-brand')}</h1>
+          <Feedback
+            kind="info"
+            message={unknownNotice() ? t('errors-admin-section-not-found') : null}
+            testId="admin-unknown-section"
+          />
           <Suspense
             fallback={
               <p class={shellCss.state} role="status">
@@ -179,7 +201,7 @@ function Console(props: AdminScreenProps & { username: string }): JSX.Element {
             <Show
               when={section()}
               fallback={
-                <div class={shellCss.state} data-testid="admin-unknown-section">
+                <div class={shellCss.state} data-testid="admin-no-section">
                   <p>{t('admin-shell-unknown-section')}</p>
                   <a
                     class="btn btn--ghost"

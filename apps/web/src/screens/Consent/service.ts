@@ -93,6 +93,28 @@ export class ConsentService {
       body: JSON.stringify({ approve, params }),
     });
     if (!res.ok) throw new Error(`consent decision failed: ${res.status}`);
-    return (await res.json()) as ConsentResult;
+    const result = (await res.json()) as ConsentResult;
+    if (!isNavigableRedirect(result.redirectUri)) throw new Error('consent decision returned an unusable address');
+    return result;
   }
+}
+
+/** Schemes that run code or show content in this page's place (t32-h10). */
+const REFUSED_SCHEMES = new Set(['javascript:', 'data:', 'vbscript:', 'blob:', 'file:', 'about:']);
+
+/**
+ * May the browser be sent to this decision target? The server returns only a
+ * redirect URI registered for the client, and the page checks again before it
+ * navigates: an address that does not parse, or one whose scheme is in
+ * `REFUSED_SCHEMES`, is refused. Native apps' own schemes (`com.example.app:/cb`)
+ * stay allowed, since RFC 8252 clients register those.
+ */
+export function isNavigableRedirect(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  return !REFUSED_SCHEMES.has(parsed.protocol.toLowerCase());
 }

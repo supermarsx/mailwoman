@@ -121,7 +121,10 @@ export function MailboxScreen(): JSX.Element {
 
   // The shell router (plan §2.5): Mail/Outbox/Attachments + the four PIM modules
   // are hash-routed surfaces, so each PIM module is reachable + deep-linkable.
-  const router = createShellRouter();
+  // An unknown address (`#/bogus`) is replaced by the inbox; say why (t32-h10).
+  const router = createShellRouter(() => {
+    void loadCatalog('errors').then(() => app.showToast('info', t('errors-mail-route-not-found')));
+  });
   const surface = (): ShellSurface => router.route().surface;
 
   // Narrow-viewport shell (t28-e6). At phone width the sidebar is an off-canvas
