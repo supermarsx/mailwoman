@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, type MockedFunction } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
 import { MessageList } from './MessageList.tsx';
 import { makeClient, mkEmail } from './appHarness.tsx';
@@ -6,6 +6,7 @@ import { createAppState, type AppState } from '../state/store.ts';
 import { AppContext } from '../state/context.ts';
 import { getKeymap } from '../keymap/index.ts';
 import { DEFAULT_PREFS, savePrefs } from '../screens/Settings/prefs.ts';
+import type { Client } from '../api/client.ts';
 import type { Email, JmapRequest } from '../api/jmap-types.ts';
 
 // Selection and the bulk bar in the message list (t28-e16). The harness answers
@@ -14,7 +15,7 @@ import type { Email, JmapRequest } from '../api/jmap-types.ts';
 
 const EMAILS: Email[] = ['a', 'b', 'c', 'd', 'e'].map((id) => mkEmail(id, { subject: `Subject ${id}` }));
 
-async function setup(emails: Email[] = EMAILS): Promise<{ app: AppState; jmap: ReturnType<typeof makeClient>['jmap'] }> {
+async function setup(emails: Email[] = EMAILS): Promise<{ app: AppState; jmap: MockedFunction<Client['jmap']> }> {
   const client = makeClient({ emails });
   const app = createAppState(client);
   render(() => (
@@ -24,7 +25,7 @@ async function setup(emails: Email[] = EMAILS): Promise<{ app: AppState; jmap: R
   ));
   await app.login({ jmapUrl: 'x', username: 'me@example.org', password: 'p' });
   await waitFor(() => expect(app.messages().length).toBe(emails.length));
-  return { app, jmap: client.jmap as ReturnType<typeof makeClient>['jmap'] };
+  return { app, jmap: vi.mocked(client.jmap) };
 }
 
 const row = (subject: string): HTMLElement =>
