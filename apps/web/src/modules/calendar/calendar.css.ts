@@ -400,6 +400,9 @@ export const inviteBar = style({
 
 export const chip = style({
   display: 'inline-flex',
+  // As wide as its box and text: in a flex column (the Repeats option) it was
+  // stretched into a framed bar across the whole dialog (t32-h12).
+  width: 'fit-content',
   alignItems: 'center',
   gap: vars.space[1],
   borderRadius: vars.radius.sm,
