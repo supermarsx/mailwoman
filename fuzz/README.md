@@ -9,6 +9,9 @@ the parser must never panic on arbitrary input.
 | `mime_parse` | `mw-mime` | raw RFC822 message bytes |
 | `sanitize_html` | `mw-sanitize` | untrusted HTML email bodies |
 | `imap_parse_response` | `mw-imap` | IMAP server responses off the wire |
+| `imap_esearch` | `mw-imap` | `* ESEARCH` replies (hand parser) |
+| `imap_status_notify` | `mw-imap` | extended `* STATUS` replies and NOTIFY response codes (hand parser) |
+| `imap_utf7` | `mw-imap` | modified UTF-7 mailbox names; decode/encode must round-trip |
 | `pop3_parse` | `mw-pop3` | POP3 CAPA/UIDL/LIST bodies off the wire |
 | `sieve_parse` | `mw-sieve` | user-supplied Sieve scripts |
 | `search_query` | `mw-search` | search-operator text typed by users (`Email/query`'s `filter.text`) |

@@ -34,6 +34,9 @@ getrandom = { workspace = true }
 # second nom in the tree. Needed only to classify streaming parse results
 # (Incomplete vs. malformed) from `imap_proto::parse_response`.
 nom = "7"
+# COMPRESS=DEFLATE (RFC 4978): raw DEFLATE both ways. Same pure-Rust backend
+# and version as mw-sso's edge, so no new package enters the lock.
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 
 [dev-dependencies]
 tokio = { workspace = true }

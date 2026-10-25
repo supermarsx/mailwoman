@@ -14,22 +14,34 @@
 //! - [`session`] — high-level commands and response → backend-type mapping.
 //! - [`sync`] — the QRESYNC → CONDSTORE → UID-window fallback ladder (§1.8).
 //! - [`backend`] — [`ImapBackend`] wiring it all behind the trait.
+//! - [`esearch`], [`notify`] — hand parsers for the `* ESEARCH` and extended
+//!   `* STATUS` replies `imap-proto` cannot read; NOTIFY command building.
+//! - [`compress`] — the COMPRESS=DEFLATE stream.
+//! - [`utf7`] — modified UTF-7 mailbox names.
+//! - [`extensions`] — the extension compliance table.
 //!
 //! Feature-detection drives every extension: nothing is assumed present, and
 //! the sync ladder + MOVE/COPY fallback degrade to whatever the server offers.
 
 pub mod backend;
 pub mod caps;
+pub mod compress;
 pub mod connection;
 pub mod error;
+pub mod esearch;
+pub mod extensions;
+mod lex;
+pub mod notify;
 pub mod sasl;
 pub mod session;
 pub mod sync;
 mod tls;
 pub mod transport;
+pub mod utf7;
 
 pub use backend::{ImapBackend, ImapConfig};
 pub use error::{ImapError, ImapResult};
+pub use lex::Parsed;
 pub use session::{Credentials, FetchItem, SelectMode, SelectResult, Session};
 pub use tls::{MIN_TLS_REFUSED, MinTls, min_tls, set_min_tls};
 pub use transport::{ImapStream, TlsMode};

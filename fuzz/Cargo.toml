@@ -76,3 +76,24 @@ path = "fuzz_targets/search_query.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "imap_esearch"
+path = "fuzz_targets/imap_esearch.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "imap_status_notify"
+path = "fuzz_targets/imap_status_notify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "imap_utf7"
+path = "fuzz_targets/imap_utf7.rs"
+test = false
+doc = false
+bench = false
