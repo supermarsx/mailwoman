@@ -46,6 +46,8 @@ mw-export = { workspace = true }
 # to a JMAP `Email/set`. In-tree crate (no external dep); mw-engine already links it.
 mw-sieve = { workspace = true }
 mw-imap = { workspace = true }
+mw-net = { workspace = true }
+mw-crypto = { workspace = true }
 mw-pop3 = { workspace = true }
 mw-smtp = { workspace = true }
 mw-autoconfig = { workspace = true }

@@ -54,6 +54,10 @@ members = [
     # them reporting through `eprintln!`, which libtest captures for a passing test,
     # so they said nothing anywhere. NOT PUBLISHED and NO dependencies: `std` only. ──
     "crates/mw-test-gate",
+    # ── t32 (26.20) f15/e23: the outbound dial seam (t32-ext §J). tokio only;
+    # the protocol crates take a `Dialer` from it so an upstream connection can
+    # run through an SSH tunnel instead of a direct TCP connect. ──
+    "crates/mw-net",
     "plugins/bridge-graph",
     "plugins/bridge-ews",
     "plugins/bridge-gmail",
@@ -371,6 +375,7 @@ mw-assist = { path = "crates/mw-assist" }
 mw-sandbox = { path = "crates/mw-sandbox" }
 # ── t22 (26.20) shared outbound-egress policy (plan §2.2 e6). ──
 mw-egress = { path = "crates/mw-egress" }
+mw-net = { path = "crates/mw-net" }
 # ── t25 (26.20) e1: test-support only. Taken exclusively as a `[dev-dependencies]`
 # entry. Deliberately NO `version` key: Cargo strips a path dev-dependency that has
 # none from the published manifest, so `mw-engine`/`mw-store` can use it from their

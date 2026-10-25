@@ -5164,6 +5164,7 @@ dependencies = [
  "hmac 0.13.0",
  "imap-proto",
  "mw-engine",
+ "mw-net",
  "nom 7.1.3",
  "rustls",
  "rustls-pki-types",
@@ -5247,6 +5248,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "mw-net"
+version = "26.19.0"
+dependencies = [
+ "tokio",
+]
+
+[[package]]
 name = "mw-oauth"
 version = "26.19.0"
 dependencies = [
@@ -5306,6 +5314,7 @@ dependencies = [
  "chrono",
  "hmac 0.13.0",
  "mw-engine",
+ "mw-net",
  "rustls",
  "rustls-pki-types",
  "sha2 0.11.0",
@@ -5381,6 +5390,7 @@ dependencies = [
  "mw-assist",
  "mw-autoconfig",
  "mw-cache",
+ "mw-crypto",
  "mw-directory",
  "mw-egress",
  "mw-engine",
@@ -5390,6 +5400,7 @@ dependencies = [
  "mw-mcp",
  "mw-mfa",
  "mw-mock-jmap",
+ "mw-net",
  "mw-oauth",
  "mw-passwd",
  "mw-plugin",
@@ -5433,7 +5444,9 @@ name = "mw-sieve"
 version = "26.19.0"
 dependencies = [
  "base64 0.22.1",
+ "chrono",
  "hmac 0.13.0",
+ "mw-net",
  "rustls",
  "rustls-pki-types",
  "serde",
@@ -5452,6 +5465,7 @@ version = "26.19.0"
 dependencies = [
  "base64 0.22.1",
  "hmac 0.13.0",
+ "mw-net",
  "rustls",
  "rustls-pki-types",
  "sha2 0.11.0",

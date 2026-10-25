@@ -10,6 +10,9 @@ repository.workspace = true
 # raw MIME bytes (plan §3 e4 "PREFER: accept raw bytes"), so it depends on no
 # other workspace crate and does not block on e1.
 [dependencies]
+# The dial seam (t32-ext §J): connections open through a `mw_net::Dialer`
+# (direct TCP unless the caller passes one). tokio only, no new package.
+mw-net = { workspace = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true }
 rustls = { workspace = true }

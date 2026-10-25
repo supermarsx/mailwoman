@@ -1,0 +1,20 @@
+[package]
+name = "mw-net"
+description = "The outbound dial seam shared by the protocol clients: a boxed byte stream and a Dialer trait (direct TCP by default; an SSH tunnel or other transport can be passed in)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "mw_net"
+path = "src/lib.rs"
+
+# tokio only (t32-ext §J): the protocol crates (mw-imap, mw-pop3, mw-smtp,
+# mw-sieve) depend on this crate, so it must not pull anything they do not
+# already link.
+[dependencies]
+tokio = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
