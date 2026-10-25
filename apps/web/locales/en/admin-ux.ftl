@@ -151,3 +151,10 @@ admin-ux-appearance-accent = Accent colour
 admin-ux-appearance-light = Light
 admin-ux-appearance-dark = Dark
 admin-ux-appearance-reset = Use the webmail theme
+
+# -- List editor (f33) ----------------------------------------------------------
+admin-ux-list-add = Add
+admin-ux-list-remove = Remove { $item }
+admin-ux-list-none = None yet.
+admin-ux-list-duplicate = { $item } is already in the list.
+admin-ux-list-empty-entry = Type an entry first.

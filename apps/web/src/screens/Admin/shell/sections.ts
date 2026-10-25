@@ -11,9 +11,10 @@
 // when their screen lands, so the sidebar never offers an empty page.
 //
 // Capability choices where the catalogue has no `.read` for the area: the
-// two-factor policy is shown with `security.read` (its writes need
-// `twofa_policy.write`), maintenance with `maintenance.run`, server metadata with
-// `server_metadata.write` (the screen is an editor).
+// two-factor policy and the security policy are shown with `security.read` (their
+// writes need `twofa_policy.write` / `security_policy.write`), maintenance with
+// `maintenance.run`, server metadata with `server_metadata.write` and OAuth clients
+// with `oauth_clients.write` (the screens are editors).
 
 import { createComponent, lazy, type Component } from 'solid-js';
 import { t } from '../../../i18n';
@@ -99,6 +100,22 @@ export const SECTIONS: readonly SectionDef[] = [
     label: () => t('admin-nav-sso'),
     capability: 'sso.read',
     component: screen(() => import('../Sso/index.tsx').then((m) => m.AdminSso), false),
+  },
+  {
+    id: 'security-policy',
+    group: 'security',
+    icon: 'policy',
+    label: () => t('admin-nav-security-policy'),
+    capability: 'security.read',
+    component: screen(() => import('../SecurityPolicy/index.tsx').then((m) => m.AdminSecurityPolicy), false),
+  },
+  {
+    id: 'oauth-clients',
+    group: 'security',
+    icon: 'oauthClients',
+    label: () => t('admin-nav-oauth-clients'),
+    capability: 'oauth_clients.write',
+    component: screen(() => import('../OAuthClients/index.tsx').then((m) => m.AdminOAuthClients), false),
   },
   {
     id: 'ai-assistant',

@@ -16,8 +16,14 @@
 // region. While anything is unsaved the dirty-state guard asks before leaving.
 //
 // Every field's holder carries its field anchor, so `?field=<id>` focuses it.
+//
+// A field or group with `when` is shown only while `when(values)` holds (the
+// OIDC fields while the kind is OIDC); a hidden field is neither validated nor
+// counted as changed, and `save` still gets every value to pick from. With
+// `frame: 'none'` the form is drawn without the page heading, for a form that
+// sits inside a list's detail pane (`labelledBy` names the pane's heading).
 
-import { For, Show, createMemo, createSignal, createUniqueId, onMount, type JSX } from 'solid-js';
+import { For, Show, createMemo, createSignal, createUniqueId, onMount, untrack, type JSX } from 'solid-js';
 import { t } from '../../../../i18n';
 import { PasswordInput } from '../../../../components/PasswordInput.tsx';
 import { Feedback } from '../Feedback.tsx';
@@ -50,6 +56,8 @@ export interface FieldRenderContext {
   disabled: boolean;
   value: unknown;
   setValue: (v: unknown) => void;
+  /** Every current value of the form (read-only). */
+  values: Readonly<Record<string, unknown>>;
 }
 
 export interface SettingField {
@@ -79,12 +87,16 @@ export interface SettingField {
   propagation?: 'hot' | 'restart';
   /** Audit target and last change (UX8). */
   history?: { target: string; updatedBy?: string | null; updatedAt?: string | null };
-  /** Revert to default (UX7): the default as shown, and the action (deletes the stored value). */
-  revert?: { defaultDisplay: string; isDefault: boolean; onRevert: () => void | Promise<void> };
+  /** Revert to default (UX7): the default as shown, and the action (deletes the stored value).
+   *  With `value` instead of `isDefault`/`onRevert`, the form puts the default in the field
+   *  (a change saved with the others) and hides the button while the field holds it. */
+  revert?: { defaultDisplay: string; isDefault?: boolean; onRevert?: () => void | Promise<void>; value?: unknown };
   /** Extra client rule; returns the sentence to show, or null. */
   validate?: (value: unknown, values: Readonly<Record<string, unknown>>) => string | null;
   /** A control the kinds above do not cover. */
   render?: (ctx: FieldRenderContext) => JSX.Element;
+  /** Show the field only while this holds for the current values. */
+  when?: (values: Readonly<Record<string, unknown>>) => boolean;
 }
 
 export interface SettingsGroup {
@@ -92,6 +104,8 @@ export interface SettingsGroup {
   heading: string;
   help?: string;
   fields: readonly SettingField[];
+  /** Show the group only while this holds for the current values. */
+  when?: (values: Readonly<Record<string, unknown>>) => boolean;
 }
 
 export type SettingsLoad = { values: Record<string, unknown>; etag?: string | null } | 'unavailable';
@@ -118,6 +132,10 @@ export interface SettingsFormPageProps {
   fieldFor?: (pointer: string) => string | undefined;
   actions?: JSX.Element;
   saveLabel?: string;
+  /** `none`: no page heading or description, for a form inside a detail pane. Default `page`. */
+  frame?: 'page' | 'none';
+  /** With `frame: 'none'`, the id of the heading that names the form. */
+  labelledBy?: string;
   testId?: string;
 }
 
@@ -168,6 +186,10 @@ export function SettingsFormPage(props: SettingsFormPageProps): JSX.Element {
   const [result, setResult] = createSignal<string | null>(null);
 
   const fields = createMemo(() => props.groups.flatMap((g) => g.fields));
+  // The fields on screen for the current values (`when` on the field and its group).
+  const visible = createMemo(() =>
+    props.groups.flatMap((g) => (g.when && !g.when(draft()) ? [] : g.fields.filter((f) => !f.when || f.when(draft())))),
+  );
   const errors = useFieldErrors({
     ...(props.fieldFor ? { fieldFor: props.fieldFor } : {}),
     known: () => fields().map((f) => f.id),
@@ -175,7 +197,7 @@ export function SettingsFormPage(props: SettingsFormPageProps): JSX.Element {
   const etag = useEtag();
 
   const changedIds = createMemo(() =>
-    fields()
+    visible()
       .filter((f) => (f.kind === 'secret' ? typeof draft()[f.id] === 'string' && draft()[f.id] !== '' : !same(draft()[f.id], initial()[f.id])))
       .map((f) => f.id),
   );
@@ -221,7 +243,7 @@ export function SettingsFormPage(props: SettingsFormPageProps): JSX.Element {
     setResult(null);
     // Validate every field first (UX5): no request while any value is wrong.
     const found: Record<string, string> = {};
-    for (const f of fields()) {
+    for (const f of visible()) {
       if (sourceBlocksEdit(f.source)) continue;
       const msg = validateSettingField(f, draft()[f.id], draft());
       if (msg !== null) found[f.id] = msg;
@@ -281,63 +303,81 @@ export function SettingsFormPage(props: SettingsFormPageProps): JSX.Element {
     }
   }
 
-  return (
-    <AdminPage title={props.title} titleId={`${id}-title`} {...(props.description ? { description: props.description } : {})} actions={props.actions} testId={props.testId}>
-      <Show
-        when={state() === 'ready'}
-        fallback={
-          <PageState
-            state={
-              state() === 'loading'
-                ? { kind: 'loading' }
-                : state() === 'unavailable'
-                  ? { kind: 'unavailable', reason: props.unavailableReason ?? t('admin-ux-unavailable-default') }
-                  : { kind: 'error', error: loadError(), onRetry: () => void load() }
-            }
-          />
-        }
-      >
-        <form class={ux.form} noValidate onSubmit={(e) => void save(e)} aria-labelledby={`${id}-title`}>
-          <For each={props.groups}>
-            {(group) => (
+  const body = (): JSX.Element => (
+    <Show
+      when={state() === 'ready'}
+      fallback={
+        <PageState
+          state={
+            state() === 'loading'
+              ? { kind: 'loading' }
+              : state() === 'unavailable'
+                ? { kind: 'unavailable', reason: props.unavailableReason ?? t('admin-ux-unavailable-default') }
+                : { kind: 'error', error: loadError(), onRetry: () => void load() }
+          }
+        />
+      }
+    >
+      <form class={ux.form} noValidate onSubmit={(e) => void save(e)} aria-labelledby={props.frame === 'none' ? props.labelledBy : `${id}-title`}>
+        <For each={props.groups}>
+          {(group) => (
+            <Show when={!group.when || group.when(draft())}>
               <fieldset class={ux.fieldset} data-group={group.id}>
                 <legend class={ux.legend}>{group.heading}</legend>
                 <Show when={group.help}>{(h) => <p class={ux.fieldsetHelp}>{h()}</p>}</Show>
                 <For each={group.fields}>
                   {(f) => (
-                    <SettingFieldView
-                      field={f}
-                      value={draft()[f.id]}
-                      stored={initial()[f.id]}
-                      error={errors.error(f.id)}
-                      onInput={(v) => setValue(f.id, v)}
-                    />
+                    <Show when={!f.when || f.when(draft())}>
+                      <SettingFieldView
+                        field={f}
+                        value={draft()[f.id]}
+                        stored={initial()[f.id]}
+                        values={draft()}
+                        error={errors.error(f.id)}
+                        onInput={(v) => setValue(f.id, v)}
+                      />
+                    </Show>
                   )}
                 </For>
               </fieldset>
-            )}
-          </For>
-          <Feedback kind="error" message={errors.formError()} />
-          <StaleNotice conflict={etag.conflict()} onReload={() => load()} onKeepMine={() => keepMine()} />
-          <div class={ux.saveBar} data-testid="save-bar">
-            <p class={ux.saveCount} aria-live="polite">
-              {changedIds().length === 0 ? t('admin-ux-form-no-changes') : t('admin-ux-form-changes', { count: changedIds().length })}
-            </p>
-            <div class={css.rowActions}>
-              <button type="button" class="btn btn--ghost" disabled={saving() || changedIds().length === 0} onClick={discard}>
-                {t('admin-ux-form-discard')}
-              </button>
-              <button type="submit" class="btn btn--primary" disabled={saving() || changedIds().length === 0}>
-                {saving() ? t('admin-ux-form-saving') : (props.saveLabel ?? t('admin-shell-save'))}
-              </button>
-            </div>
-          </div>
-          <p class={css.srOnly} role="status" data-testid="save-result">
-            {result() ?? ''}
+            </Show>
+          )}
+        </For>
+        <Feedback kind="error" message={errors.formError()} />
+        <StaleNotice conflict={etag.conflict()} onReload={() => load()} onKeepMine={() => keepMine()} />
+        <div class={ux.saveBar} data-testid="save-bar">
+          <p class={ux.saveCount} aria-live="polite">
+            {changedIds().length === 0 ? t('admin-ux-form-no-changes') : t('admin-ux-form-changes', { count: changedIds().length })}
           </p>
-        </form>
-      </Show>
-    </AdminPage>
+          <div class={css.rowActions}>
+            <button type="button" class="btn btn--ghost" disabled={saving() || changedIds().length === 0} onClick={discard}>
+              {t('admin-ux-form-discard')}
+            </button>
+            <button type="submit" class="btn btn--primary" disabled={saving() || changedIds().length === 0}>
+              {saving() ? t('admin-ux-form-saving') : (props.saveLabel ?? t('admin-shell-save'))}
+            </button>
+          </div>
+        </div>
+        <p class={css.srOnly} role="status" data-testid="save-result">
+          {result() ?? ''}
+        </p>
+      </form>
+    </Show>
+  );
+
+  return (
+    <Show
+      when={props.frame !== 'none'}
+      fallback={
+        <div class={ux.form} data-testid={props.testId}>
+          {body()}
+        </div>
+      }
+    >
+      <AdminPage title={props.title} titleId={`${id}-title`} {...(props.description ? { description: props.description } : {})} actions={props.actions} testId={props.testId}>
+        {body()}
+      </AdminPage>
+    </Show>
   );
 }
 
@@ -345,6 +385,7 @@ interface FieldViewProps {
   field: SettingField;
   value: unknown;
   stored: unknown;
+  values: Readonly<Record<string, unknown>>;
   error: string | null;
   onInput: (v: unknown) => void;
 }
@@ -373,14 +414,30 @@ function SettingFieldView(props: FieldViewProps): JSX.Element {
   const control = (): JSX.Element => {
     const field = f();
     if (field.render) {
-      return field.render({
-        id,
-        describedBy: describedBy(),
-        invalid: Boolean(props.error),
-        disabled: blocked(),
-        value: props.value,
-        setValue: props.onInput,
-      });
+      // Getters, read inside the control's own JSX: the control is built once and
+      // keeps its focus while the value changes.
+      const render = field.render;
+      return untrack(() =>
+        render({
+          id,
+          get describedBy() {
+            return describedBy();
+          },
+          get invalid() {
+            return Boolean(props.error);
+          },
+          get disabled() {
+            return blocked();
+          },
+          get value() {
+            return props.value;
+          },
+          setValue: props.onInput,
+          get values() {
+            return props.values;
+          },
+        }),
+      );
     }
     switch (field.kind) {
       case 'boolean':
@@ -509,8 +566,8 @@ function SettingFieldView(props: FieldViewProps): JSX.Element {
             <RevertToDefault
               label={f().label}
               defaultDisplay={r().defaultDisplay}
-              isDefault={r().isDefault}
-              onRevert={r().onRevert}
+              isDefault={'value' in r() ? same(props.value, r().value) : (r().isDefault ?? false)}
+              onRevert={() => ('value' in r() ? props.onInput(r().value) : r().onRevert?.())}
               disabledReason={reason()}
             />
           )}

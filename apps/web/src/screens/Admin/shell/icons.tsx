@@ -37,7 +37,9 @@ export type IconName =
   | 'alert'
   | 'info'
   | 'eye'
-  | 'eyeOff';
+  | 'eyeOff'
+  | 'policy'
+  | 'oauthClients';
 
 /** Icons whose meaning depends on reading direction. */
 export const DIRECTIONAL: ReadonlySet<IconName> = new Set<IconName>(['signOut', 'egress', 'chevron']);
@@ -211,6 +213,20 @@ const PATHS: Record<IconName, () => JSX.Element> = {
       <path d="M1 8 Q8 1 15 8 Q8 15 1 8 Z" {...S} />
       <circle cx="8" cy="8" r="2" {...F} />
       <path d="M2 14 L14 2" {...S} />
+    </>
+  ),
+  // A shield with a filled lower half: the rules the deployment enforces.
+  policy: () => (
+    <>
+      <path d="M8 1 L14 3 V8 Q14 13 8 15 Q2 13 2 8 V3 Z" {...S} />
+      <path d="M2.5 9 H13.5 Q12.5 13 8 14.5 Q3.5 13 2.5 9 Z" {...F} />
+    </>
+  ),
+  // A key: a filled bow and a stroked shaft with two teeth, for registered clients.
+  oauthClients: () => (
+    <>
+      <circle cx="4.5" cy="8" r="3.5" {...F} />
+      <path d="M8 8 H15 M12 8 V11 M15 8 V10" {...S} />
     </>
   ),
 };

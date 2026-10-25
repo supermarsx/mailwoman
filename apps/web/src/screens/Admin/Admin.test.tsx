@@ -41,7 +41,7 @@ describe('AdminScreen (gate + shell)', () => {
     render(() => <AdminScreen api={mockAdminApi()} {...offlineShell()} />);
     await findRegion('Dashboard');
     const links = within(nav()).getAllByRole('link');
-    expect(links.length).toBe(13);
+    expect(links.length).toBe(15);
     const icons = new Set<string>();
     for (const a of links) {
       const svgs = a.querySelectorAll('svg');
@@ -54,11 +54,11 @@ describe('AdminScreen (gate + shell)', () => {
     expect(icons.size).toBe(links.length);
   });
 
-  it('has no Security policy or Appearance section and reads neither record', async () => {
+  it('has no Appearance section; the Security policy section reads through its own client, not the shared one', async () => {
     const api = mockAdminApi();
     render(() => <AdminScreen api={api} {...offlineShell()} />);
     await findRegion('Dashboard');
-    expect(screen.queryByRole('link', { name: 'Security policy' })).toBeNull();
+    expect(within(nav()).getByRole('link', { name: 'Security policy' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Appearance' })).toBeNull();
     for (const a of within(nav()).getAllByRole('link')) fireEvent.click(a);
     await Promise.resolve();
@@ -147,7 +147,7 @@ describe('capability-aware navigation (GET /admin/me)', () => {
   it('a 404 from /admin/me (no RBAC yet) shows every section', async () => {
     render(() => <AdminScreen api={mockAdminApi()} {...offlineShell()} />);
     await findRegion('Dashboard');
-    expect(within(nav()).getAllByRole('link')).toHaveLength(13);
+    expect(within(nav()).getAllByRole('link')).toHaveLength(15);
   });
 
   it('hides the sections the admin lacks and refuses their URL', async () => {

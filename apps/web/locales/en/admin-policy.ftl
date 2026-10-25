@@ -1,0 +1,132 @@
+# Admin console: Security policy and OAuth clients (t32-admin §3.1 e16, f33).
+# Loaded by screens/Admin/SecurityPolicy and screens/Admin/OAuthClients.
+
+## Security policy
+
+admin-policy-title = Security policy
+admin-policy-intro = The TLS floor, password hashing cost, reading floor and data loss prevention rules for this deployment. Every server process reads the policy again within 30 seconds.
+admin-policy-unavailable = this server does not offer a security policy.
+admin-policy-history = History
+admin-policy-off = Off
+
+admin-policy-group-connections = Connections
+admin-policy-min-tls = Lowest TLS version
+admin-policy-min-tls-help = Applies to the HTTPS listener and to new IMAP, SMTP, POP3, ManageSieve and proxy connections; open connections keep their version.
+admin-policy-min-tls-12 = TLS 1.2 and later
+admin-policy-min-tls-13 = TLS 1.3 only
+
+admin-policy-group-sign-in = Sign-in
+admin-policy-group-sign-in-help = The password hashing cost applies to new password and recovery-code hashes; existing hashes keep their cost until the password changes.
+admin-policy-require-2fa = Require a second factor for every account
+admin-policy-require-2fa-help = Accounts without a second factor are asked to set one up at their next sign-in; per-domain rules are on the two-factor page.
+admin-policy-argon-memory = Argon2 memory, in KiB
+admin-policy-argon-memory-help = Memory used for each password hash, from { $min } to { $max } KiB; more memory makes guessing slower and each sign-in heavier.
+admin-policy-argon-single-pass = With a single pass the memory must be at least { $min } KiB.
+admin-policy-argon-passes = Argon2 passes
+admin-policy-argon-passes-help = How many times the hash runs over its memory, from 1 to { $max }.
+admin-policy-argon-parallelism = Argon2 parallelism
+admin-policy-argon-parallelism-help = Threads used for each hash, from 1 to { $max }; it does not change how many sign-ins run at once.
+
+admin-policy-group-reading = Reading
+admin-policy-group-reading-help = Mailwoman clients read these through the public policy; other mail clients do not apply them.
+admin-policy-floor = Reading floor
+admin-policy-floor-help = The least restrictive way a message may be shown; a person can choose a stricter view but not a looser one.
+admin-policy-floor-none = No floor
+admin-policy-floor-full-sanitized = Sanitised HTML with media
+admin-policy-floor-sanitized-no-media = Sanitised HTML without remote media
+admin-policy-floor-plain-text = Plain text only
+admin-policy-capture = Screen capture protection
+admin-policy-capture-help = Asks Mailwoman apps to block screenshots and screen recording of mail; browsers cannot enforce it.
+admin-policy-capture-off = Off
+admin-policy-capture-protect = Protect
+
+admin-policy-group-dlp = Data loss prevention
+admin-policy-group-dlp-help = Rules checked on outgoing mail sent through this server in engine mode, beside the rules in MW_DLP_RULES.
+admin-policy-dlp-rules = Stored rules
+admin-policy-dlp-rules-help = Each rule names what to look for and what happens when a message matches; a rule from MW_DLP_RULES with the same id wins.
+admin-policy-dlp-json = Stored rules (text)
+admin-policy-dlp-json-help = The stored rules could not be read as rules, so they are shown as JSON; fix the text or replace it with [] to start again.
+admin-policy-dlp-json-not-list = The text must be a JSON list of rules.
+admin-policy-dlp-json-not-json = The text is not valid JSON.
+admin-policy-dlp-env-heading = Rules from MW_DLP_RULES
+admin-policy-dlp-env-note = Set where the server starts; they cannot be changed here.
+admin-policy-dlp-none = No stored rules.
+admin-policy-dlp-add = Add a rule
+admin-policy-dlp-on = On
+admin-policy-dlp-off = Off
+admin-policy-dlp-rule-untitled = Rule { $n }
+admin-policy-dlp-shadowed = A rule from MW_DLP_RULES uses the id { $id }, so this stored rule is not applied.
+admin-policy-dlp-name = Name
+admin-policy-dlp-action = When a message matches
+admin-policy-dlp-action-warn = Warn the sender
+admin-policy-dlp-action-block = Block the message
+admin-policy-dlp-action-require-encryption = Require encryption
+admin-policy-dlp-action-notify-admin = Send and notify an administrator
+admin-policy-dlp-priority = Priority
+admin-policy-dlp-priority-help = Higher numbers are checked first.
+admin-policy-dlp-enabled = Rule is on
+admin-policy-dlp-message = Message to the sender
+admin-policy-dlp-message-help = Shown to the sender when the rule matches; leave empty for the standard sentence.
+admin-policy-dlp-detectors = Look for
+admin-policy-dlp-detector-pan = Payment card numbers
+admin-policy-dlp-detector-iban = Bank account numbers (IBAN)
+admin-policy-dlp-detector-national-id = National identity numbers
+admin-policy-dlp-detector-ssn = US social security numbers
+admin-policy-dlp-detector-custom-regex = A pattern of my own
+admin-policy-dlp-pattern = Pattern
+admin-policy-dlp-pattern-help = A regular expression matched against the message text.
+admin-policy-dlp-domains = Recipient domains
+admin-policy-dlp-domains-none = Any recipient.
+admin-policy-dlp-domains-placeholder = example.org
+admin-policy-dlp-domain-mode = The rule applies to
+admin-policy-dlp-domain-mode-in = Recipients in these domains
+admin-policy-dlp-domain-mode-not-in = Recipients outside these domains
+admin-policy-dlp-types = Attachment types
+admin-policy-dlp-types-none = Any attachment type.
+admin-policy-dlp-types-placeholder = pdf
+admin-policy-dlp-size = Largest attachment, in bytes
+admin-policy-dlp-size-help = A message with a larger attachment matches; leave empty for no size limit.
+admin-policy-dlp-kept = This rule also has dictionaries or a classification, which are kept as stored.
+admin-policy-dlp-remove = Remove { $name }
+admin-policy-dlp-err-name = Rule { $n } needs a name.
+admin-policy-dlp-err-id = Rule { $n } uses the id { $id }, which another rule already has.
+admin-policy-dlp-err-priority = Rule { $n }: the priority must be a whole number.
+admin-policy-dlp-err-pattern-missing = Rule { $n } looks for a pattern of its own, but the pattern is empty.
+admin-policy-dlp-err-pattern = Rule { $n }: the pattern is not a valid regular expression.
+admin-policy-dlp-err-size = Rule { $n }: the largest attachment must be a whole number of bytes.
+admin-policy-dlp-err-condition = Rule { $n } needs at least one thing to look for.
+admin-policy-dlp-err-domain = { $domain } is not a domain name.
+
+## OAuth clients (dynamic client registration)
+
+admin-oauth-title = OAuth clients
+admin-oauth-intro = Whether apps may register themselves as OAuth clients, which addresses they may send people back to, and what they may do.
+admin-oauth-unavailable = this server does not offer client registration settings.
+admin-oauth-off = Off
+admin-oauth-group-registration = Self-registration
+admin-oauth-enabled = Let apps register themselves
+admin-oauth-enabled-help = Opens /oauth/register to apps (RFC 7591); clients you add by other means are not affected.
+admin-oauth-enabled-needs-hosts = Add at least one redirect host first: with an empty list every registration is refused.
+admin-oauth-hosts = Allowed redirect hosts
+admin-oauth-hosts-help = An app may only register redirect addresses on these hosts or their subdomains; example.org also allows app.example.org.
+admin-oauth-hosts-none = No host: every registration is refused.
+admin-oauth-hosts-placeholder = example.org
+admin-oauth-hosts-invalid = { $host } is not a host name.
+admin-oauth-token = Require the shared registration token
+admin-oauth-token-help = Registration then needs the bearer token set in MW_DCR_INITIAL_ACCESS_TOKEN where the server starts; without that variable every registration is refused.
+admin-oauth-group-scope = What a registered app gets
+admin-oauth-group-scope-help = Every self-registered app gets exactly this scope; what an app asks for never widens it.
+admin-oauth-scope = Granted scope
+admin-oauth-scope-help = The permissions and parts of the account a self-registered app may use once a person approves it.
+admin-oauth-scope-nothing = Nothing
+admin-oauth-scope-permissions = Permissions
+admin-oauth-scope-surfaces = Parts of the account
+admin-oauth-scope-read = Read
+admin-oauth-scope-send = Send
+admin-oauth-scope-delete = Delete
+admin-oauth-scope-mail = Mail
+admin-oauth-scope-pim = Calendar, contacts, tasks and notes
+admin-oauth-scope-rate = Requests per minute
+admin-oauth-scope-rate-help = Leave empty for no limit.
+admin-oauth-scope-needs-surface = Choose mail or calendar and contacts too: a permission without a part of the account grants nothing.
+admin-oauth-scope-rate-invalid = The limit must be a whole number of 1 or more.

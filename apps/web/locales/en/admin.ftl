@@ -16,6 +16,8 @@ admin-nav-sso = Single sign-on
 admin-nav-servermeta = Server metadata
 admin-nav-rethread = Maintenance
 admin-nav-2fa = Require two-factor
+admin-nav-security-policy = Security policy
+admin-nav-oauth-clients = OAuth clients
 
 # Shared admin actions / states
 admin-delete = Delete
