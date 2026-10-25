@@ -45,7 +45,8 @@ use serde_json::json;
 use crate::admin_ctx::AdminCtx;
 use mw_mfa::totp::TotpParams;
 use mw_mfa::webauthn::{
-    AssertionRequest, RegistrationRequest, UserVerification, verify_assertion, verify_registration,
+    AssertionRequest, RegistrationRequest, UserVerification, verify_assertion_with_backup,
+    verify_registration,
 };
 use mw_mfa::{recovery, totp};
 use mw_store::{Credentials, TwofaPolicyRow, WebauthnCredentialRow};
@@ -598,6 +599,8 @@ struct PasswordlessFinish {
     authenticator_data: String,
     signature: String,
     #[serde(default)]
+    user_handle: Option<String>,
+    #[serde(default)]
     client_type: Option<String>,
 }
 async fn passwordless_finish(
@@ -632,6 +635,12 @@ async fn passwordless_finish(
     else {
         return twofa_unauthorized();
     };
+    if !passkey_handle_matches(&credential.account_id, body.user_handle.as_deref(), true) {
+        return twofa_unauthorized();
+    }
+    let Ok(Some(previous)) = state.store.webauthn_state(&body.credential_id).await else {
+        return twofa_unauthorized();
+    };
     let (Some(client_data_json), Some(authenticator_data), Some(signature)) = (
         decode_b64(&body.client_data_json),
         decode_b64(&body.authenticator_data),
@@ -646,11 +655,11 @@ async fn passwordless_finish(
         client_data_json,
         authenticator_data,
         signature,
-        cose_public_key: credential.cose_public_key,
+        cose_public_key: credential.cose_public_key.clone(),
         stored_sign_count: credential.sign_count.max(0) as u32,
         user_verification: UserVerification::Required,
     };
-    let Ok(assertion) = verify_assertion(&request) else {
+    let Ok(assertion) = verify_assertion_with_backup(&request, previous.backup_eligible) else {
         return twofa_unauthorized();
     };
     let Ok(account) = state.store.get_account(&credential.account_id).await else {
@@ -712,12 +721,10 @@ async fn passwordless_finish(
             _ => return twofa_unauthorized(),
         }
     }
-    if let Err(e) = state
-        .store
-        .update_webauthn_sign_count(&body.credential_id, i64::from(assertion.new_sign_count))
-        .await
-    {
-        return server_error("passkey counter", e);
+    match commit_passkey_assertion(&state, &credential, &previous, &assertion).await {
+        Ok(true) => {}
+        Ok(false) => return twofa_unauthorized(),
+        Err(e) => return server_error("passkey state", e),
     }
     let device = crate::security_center::device(&headers, &ext, args.client_type.as_deref());
     complete_login(&state, &args, &device, json!({}), Stage::Passwordless).await
@@ -744,6 +751,8 @@ struct VerifyReq {
     authenticator_data: Option<String>,
     #[serde(default)]
     signature: Option<String>,
+    #[serde(default)]
+    user_handle: Option<String>,
 }
 
 /// Verify the presented second factor for a pending login and, on success, issue the
@@ -878,6 +887,12 @@ async fn verify_webauthn_factor(
     if cred.account_id != pending.args.account_id {
         return Ok(false);
     }
+    if !passkey_handle_matches(&cred.account_id, body.user_handle.as_deref(), false) {
+        return Ok(false);
+    }
+    let Some(previous) = state.store.webauthn_state(cred_id).await? else {
+        return Ok(false);
+    };
     let req = AssertionRequest {
         challenge: pending.challenge.clone(),
         origin: pending.origin.clone(),
@@ -889,16 +904,57 @@ async fn verify_webauthn_factor(
         stored_sign_count: cred.sign_count.max(0) as u32,
         user_verification: UV,
     };
-    match verify_assertion(&req) {
-        Ok(outcome) => {
-            state
-                .store
-                .update_webauthn_sign_count(cred_id, i64::from(outcome.new_sign_count))
-                .await?;
-            Ok(true)
-        }
+    match verify_assertion_with_backup(&req, previous.backup_eligible) {
+        Ok(outcome) => commit_passkey_assertion(state, &cred, &previous, &outcome).await,
         Err(_) => Ok(false),
     }
+}
+
+pub(crate) fn passkey_user_handle(account: &str) -> Vec<u8> {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    hash.update(b"mailwoman.webauthn.user\0");
+    hash.update(account.as_bytes());
+    hash.finalize().to_vec()
+}
+
+pub(crate) fn passkey_handle_matches(account: &str, encoded: Option<&str>, required: bool) -> bool {
+    let Some(encoded) = encoded else {
+        return !required;
+    };
+    let Some(handle) = decode_b64(encoded) else {
+        return false;
+    };
+    // Existing credentials used account-id bytes. New registrations use an opaque
+    // fixed-size handle (WebAuthn user.id is limited to 64 bytes).
+    handle == passkey_user_handle(account) || handle == account.as_bytes()
+}
+
+pub(crate) async fn commit_passkey_assertion(
+    state: &AppState,
+    credential: &WebauthnCredentialRow,
+    previous: &mw_store::WebauthnState,
+    outcome: &mw_mfa::AssertionOutcome,
+) -> Result<bool, mw_store::StoreError> {
+    let next = mw_store::WebauthnState {
+        backup_eligible: Some(outcome.backup_eligible),
+        backup_state: outcome.backup_state,
+        uv_initialized: outcome.user_verified,
+        revision: previous.revision,
+    };
+    let accepted = state
+        .store
+        .advance_webauthn_state(
+            credential,
+            previous,
+            &next,
+            i64::from(outcome.new_sign_count),
+        )
+        .await?;
+    if accepted && outcome.counter_anomaly {
+        tracing::info!(credential = %credential_handle(&credential.credential_id), "multi-device passkey counter anomaly; preserved monotonic stored counter");
+    }
+    Ok(accepted)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -994,7 +1050,7 @@ async fn login_enroll_passkey_begin(
         }
         Err(r) => return r,
     }
-    passkey_begin(&state, &headers, &ext, &p.args.account_id, &p.args.username)
+    passkey_begin(&state, &headers, &ext, &p.args.account_id, &p.args.username).await
 }
 
 /// Finish forced passkey enrolment; on success issue recovery codes AND the session.
@@ -1234,6 +1290,7 @@ async fn passkey_begin_route(
         &session.account_id,
         &session.username,
     )
+    .await
 }
 
 /// `POST /api/account/2fa/passkey/finish` — verify + store a registered passkey.
@@ -1573,7 +1630,7 @@ async fn seed_recovery_if_empty(
 }
 
 /// Issue a passkey registration challenge (stored server-side keyed by account).
-fn passkey_begin(
+async fn passkey_begin(
     state: &AppState,
     headers: &HeaderMap,
     ext: &axum::http::Extensions,
@@ -1588,6 +1645,10 @@ fn passkey_begin(
             .into_response();
     };
     let challenge = random_challenge();
+    let credentials = match state.store.list_webauthn_credentials(account_id).await {
+        Ok(rows) => rows,
+        Err(e) => return server_error("list passkeys", e),
+    };
     state.twofa.put_reg(
         account_id.to_string(),
         RegChallenge {
@@ -1604,9 +1665,10 @@ fn passkey_begin(
         "challenge": b64(&challenge),
         "rpId": rp_id,
         "residentKey": if state.engine.is_some() { "required" } else { "discouraged" },
-        "userHandle": b64(account_id.as_bytes()),
+        "userHandle": b64(&passkey_user_handle(account_id)),
         "userName": username,
-        "userVerification": "preferred",
+        "userVerification": if state.engine.is_some() { "required" } else { "preferred" },
+        "excludeCredentialIds": credentials.iter().map(|c|&c.credential_id).collect::<Vec<_>>(),
     }))
     .into_response()
 }
@@ -1637,7 +1699,11 @@ async fn register_passkey(
         rp_id: reg.rp_id,
         attestation_object: att,
         client_data_json: cdj,
-        user_verification: UV,
+        user_verification: if reg.discoverable {
+            UserVerification::Required
+        } else {
+            UV
+        },
     };
     let cred = match verify_registration(&req) {
         Ok(c) => c,
@@ -1657,12 +1723,27 @@ async fn register_passkey(
         },
         created_at: String::new(),
     };
-    state.store.add_webauthn_credential(&row).await?;
-    state
+    let initial = mw_store::WebauthnState {
+        backup_eligible: Some(cred.backup_eligible),
+        backup_state: cred.backup_state,
+        uv_initialized: cred.user_verified,
+        revision: 0,
+    };
+    match state
         .store
-        .set_passkey_discoverable(&row.credential_id, account_id, reg.discoverable)
-        .await?;
-    Ok(true)
+        .register_webauthn_credential(&row, &initial, reg.discoverable)
+        .await
+    {
+        Ok(()) => Ok(true),
+        Err(mw_store::StoreError::Db(error))
+            if error
+                .as_database_error()
+                .is_some_and(|e| e.is_unique_violation()) =>
+        {
+            Ok(false)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 /// Refuse to remove the LAST factor of an account whose domain/global policy
@@ -1960,6 +2041,45 @@ fn server_error(what: &str, e: mw_store::StoreError) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn passkey_user_handle_is_account_bound_and_required_for_discovery() {
+        let encoded = b64(&passkey_user_handle("alice@example.test"));
+        assert_eq!(passkey_user_handle("alice@example.test").len(), 32);
+        assert!(passkey_handle_matches(
+            "alice@example.test",
+            Some(&encoded),
+            true
+        ));
+        assert!(!passkey_handle_matches(
+            "bob@example.test",
+            Some(&encoded),
+            true
+        ));
+        assert!(!passkey_handle_matches("alice@example.test", None, true));
+        assert!(passkey_handle_matches("alice@example.test", None, false));
+        assert!(!passkey_handle_matches(
+            "alice@example.test",
+            Some(""),
+            true
+        ));
+        assert!(!passkey_handle_matches(
+            "alice@example.test",
+            Some("!invalid"),
+            false
+        ));
+        let legacy = b64(b"alice@example.test");
+        assert!(passkey_handle_matches(
+            "alice@example.test",
+            Some(&legacy),
+            true
+        ));
+        assert!(!passkey_handle_matches(
+            "bob@example.test",
+            Some(&legacy),
+            false
+        ));
+    }
 
     fn args() -> SessionArgs {
         SessionArgs {

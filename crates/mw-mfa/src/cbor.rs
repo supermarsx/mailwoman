@@ -55,6 +55,13 @@ impl<'a> Reader<'a> {
         Reader { buf, pos: 0 }
     }
 
+    pub(crate) fn next_major(&self) -> Result<u8, MfaError> {
+        self.buf
+            .get(self.pos)
+            .map(|b| b >> 5)
+            .ok_or_else(|| Self::err("unexpected end of input"))
+    }
+
     fn err(msg: &str) -> MfaError {
         MfaError::Cbor(msg.to_string())
     }

@@ -158,8 +158,8 @@ const TABLES: &[TableSpec] = &[
         name: "sessions",
         // 0033 (26.20): the device columns travel with the session, so "sign out
         // this device" still names the right device after a move.
-        select: "SELECT id, account_id, username, jmap_url, api_url, sealed_creds, created_at, last_seen, user_agent, ip, client_type, device_label, client_version FROM sessions",
-        insert: "INSERT INTO sessions (id, account_id, username, jmap_url, api_url, sealed_creds, created_at, last_seen, user_agent, ip, client_type, device_label, client_version) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+        select: "SELECT id, account_id, username, jmap_url, api_url, sealed_creds, created_at, last_seen, user_agent, ip, client_type, device_label, client_version, authentication_method FROM sessions",
+        insert: "INSERT INTO sessions (id, account_id, username, jmap_url, api_url, sealed_creds, created_at, last_seen, user_agent, ip, client_type, device_label, client_version, authentication_method) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
         map: |r| {
             vec![
                 t(r, "id"),
@@ -175,6 +175,7 @@ const TABLES: &[TableSpec] = &[
                 ot(r, "client_type"),
                 ot(r, "device_label"),
                 ot(r, "client_version"),
+                t(r, "authentication_method"),
             ]
         },
     },
@@ -256,8 +257,8 @@ const TABLES: &[TableSpec] = &[
         // noticing a cloned authenticator.
         // 0033 (26.20): `discoverable` marks a passkey usable without a username;
         // dropped, passwordless sign-in would stop finding it.
-        select: "SELECT credential_id, account_id, cose_public_key, sign_count, transports, label, created_at, discoverable FROM webauthn_credentials",
-        insert: "INSERT INTO webauthn_credentials (credential_id, account_id, cose_public_key, sign_count, transports, label, created_at, discoverable) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+        select: "SELECT credential_id, account_id, cose_public_key, sign_count, transports, label, created_at, discoverable, backup_eligible, backup_state, uv_initialized, state_revision FROM webauthn_credentials",
+        insert: "INSERT INTO webauthn_credentials (credential_id, account_id, cose_public_key, sign_count, transports, label, created_at, discoverable, backup_eligible, backup_state, uv_initialized, state_revision) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
         map: |r| {
             vec![
                 t(r, "credential_id"),
@@ -268,6 +269,10 @@ const TABLES: &[TableSpec] = &[
                 t(r, "label"),
                 t(r, "created_at"),
                 i(r, "discoverable"),
+                oi(r, "backup_eligible"),
+                i(r, "backup_state"),
+                i(r, "uv_initialized"),
+                i(r, "state_revision"),
             ]
         },
     },

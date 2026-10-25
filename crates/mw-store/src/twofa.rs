@@ -39,6 +39,14 @@ pub struct WebauthnCredentialRow {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WebauthnState {
+    pub backup_eligible: Option<bool>,
+    pub backup_state: bool,
+    pub uv_initialized: bool,
+    pub revision: i64,
+}
+
 /// An admin require-2FA policy row (0015): global (`scope_value` = "") or per-domain.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TwofaPolicyRow {
@@ -179,13 +187,21 @@ impl Store {
         &self,
         cred: &WebauthnCredentialRow,
     ) -> Result<(), StoreError> {
+        self.register_webauthn_credential(cred, &WebauthnState::default(), false)
+            .await
+    }
+
+    /// Insert-only registration: an existing credential id never authorizes replacing a key.
+    pub async fn register_webauthn_credential(
+        &self,
+        cred: &WebauthnCredentialRow,
+        state: &WebauthnState,
+        discoverable: bool,
+    ) -> Result<(), StoreError> {
         let now = Utc::now().to_rfc3339();
         q("INSERT INTO webauthn_credentials
-                 (credential_id, account_id, cose_public_key, sign_count, transports, label, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-             ON CONFLICT(credential_id) DO UPDATE SET
-                 cose_public_key = excluded.cose_public_key, sign_count = excluded.sign_count,
-                 transports = excluded.transports, label = excluded.label")
+                 (credential_id, account_id, cose_public_key, sign_count, transports, label, created_at, backup_eligible, backup_state, uv_initialized, discoverable)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)")
         .bind(&cred.credential_id)
         .bind(&cred.account_id)
         .bind(&cred.cose_public_key)
@@ -193,9 +209,51 @@ impl Store {
         .bind(&cred.transports)
         .bind(&cred.label)
         .bind(&now)
+        .bind(state.backup_eligible.map(i64::from))
+        .bind(i64::from(state.backup_state))
+        .bind(i64::from(state.uv_initialized))
+        .bind(i64::from(discoverable))
         .execute(&self.backend)
         .await?;
         Ok(())
+    }
+
+    pub async fn webauthn_state(
+        &self,
+        credential_id: &str,
+    ) -> Result<Option<WebauthnState>, StoreError> {
+        let row=q("SELECT backup_eligible,backup_state,uv_initialized,state_revision FROM webauthn_credentials WHERE credential_id=?1").bind(credential_id).fetch_optional(&self.backend).await?;
+        Ok(row.map(|r| WebauthnState {
+            backup_eligible: r.get_opt_i64("backup_eligible").map(|v| v != 0),
+            backup_state: r.get_i64("backup_state") != 0,
+            uv_initialized: r.get_i64("uv_initialized") != 0,
+            revision: r.get_i64("state_revision"),
+        }))
+    }
+
+    /// Commit exactly the verified credential version; no counter rollback, key
+    /// replacement, revocation race, or immutable backup-eligibility change.
+    pub async fn advance_webauthn_state(
+        &self,
+        cred: &WebauthnCredentialRow,
+        previous: &WebauthnState,
+        next: &WebauthnState,
+        sign_count: i64,
+    ) -> Result<bool, StoreError> {
+        if !(0..=i64::from(u32::MAX)).contains(&sign_count)
+            || sign_count < cred.sign_count
+            || next.backup_eligible.is_none()
+            || (next.backup_state && next.backup_eligible != Some(true))
+            || previous
+                .backup_eligible
+                .is_some_and(|v| Some(v) != next.backup_eligible)
+        {
+            return Ok(false);
+        }
+        let changed=q("UPDATE webauthn_credentials SET sign_count=?1,backup_eligible=?2,backup_state=?3,uv_initialized=?4,state_revision=state_revision+1 WHERE credential_id=?5 AND account_id=?6 AND cose_public_key=?7 AND sign_count=?8 AND state_revision=?9 AND created_at=?10")
+            .bind(sign_count).bind(next.backup_eligible.map(i64::from)).bind(i64::from(next.backup_state)).bind(i64::from(previous.uv_initialized||next.uv_initialized))
+            .bind(&cred.credential_id).bind(&cred.account_id).bind(&cred.cose_public_key).bind(cred.sign_count).bind(previous.revision).bind(&cred.created_at).execute(&self.backend).await?;
+        Ok(changed == 1)
     }
 
     /// A single WebAuthn credential by its id (assertion lookup).
@@ -230,7 +288,7 @@ impl Store {
         credential_id: &str,
         sign_count: i64,
     ) -> Result<(), StoreError> {
-        q("UPDATE webauthn_credentials SET sign_count = ?2 WHERE credential_id = ?1")
+        q("UPDATE webauthn_credentials SET sign_count = ?2 WHERE credential_id = ?1 AND sign_count < ?2")
             .bind(credential_id)
             .bind(sign_count)
             .execute(&self.backend)
@@ -520,6 +578,127 @@ mod tests {
         );
         assert!(r1.unwrap() ^ r2.unwrap());
         assert_eq!(s.totp_last_step("a1").await.unwrap(), 102);
+    }
+
+    #[tokio::test]
+    async fn passkey_registration_cannot_replace_another_account_key() {
+        let s = store().await;
+        let original = WebauthnCredentialRow {
+            credential_id: "public-id".into(),
+            account_id: "victim".into(),
+            cose_public_key: vec![1],
+            sign_count: 8,
+            transports: String::new(),
+            label: "original".into(),
+            created_at: String::new(),
+        };
+        s.add_webauthn_credential(&original).await.unwrap();
+        let mut attacker = original.clone();
+        attacker.account_id = "attacker".into();
+        attacker.cose_public_key = vec![2];
+        attacker.sign_count = 0;
+        assert!(
+            s.add_webauthn_credential(&attacker).await.is_err(),
+            "a public credential id cannot authorize replacing its owner key"
+        );
+        let stored = s
+            .get_webauthn_credential("public-id")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.account_id, "victim");
+        assert_eq!(stored.cose_public_key, vec![1]);
+        assert_eq!(stored.sign_count, 8);
+        assert!(
+            s.add_webauthn_credential(&original).await.is_err(),
+            "re-registration must not reset an existing credential counter"
+        );
+    }
+
+    async fn assertion_state_cas(s: Store) {
+        let id = format!("passkey-cas-{:032x}", rand::random::<u128>());
+        let row = WebauthnCredentialRow {
+            credential_id: id.clone(),
+            account_id: "cas-owner".into(),
+            cose_public_key: vec![9],
+            sign_count: 5,
+            transports: String::new(),
+            label: String::new(),
+            created_at: String::new(),
+        };
+        let initial = WebauthnState {
+            backup_eligible: Some(true),
+            backup_state: false,
+            uv_initialized: true,
+            revision: 0,
+        };
+        s.register_webauthn_credential(&row, &initial, true)
+            .await
+            .unwrap();
+        let cred = s.get_webauthn_credential(&id).await.unwrap().unwrap();
+        let old = s.webauthn_state(&id).await.unwrap().unwrap();
+        let next = WebauthnState {
+            backup_state: true,
+            uv_initialized: false,
+            ..old.clone()
+        };
+        let (a, b) = tokio::join!(
+            s.advance_webauthn_state(&cred, &old, &next, 6),
+            s.advance_webauthn_state(&cred, &old, &next, 6)
+        );
+        assert!(
+            a.unwrap() ^ b.unwrap(),
+            "only one assertion can commit a verified revision"
+        );
+        let updated = s.webauthn_state(&id).await.unwrap().unwrap();
+        assert_eq!(updated.revision, 1);
+        assert!(updated.backup_state);
+        assert!(updated.uv_initialized);
+        s.update_webauthn_sign_count(&id, 1).await.unwrap();
+        let cred = s.get_webauthn_credential(&id).await.unwrap().unwrap();
+        assert_eq!(cred.sign_count, 6);
+        let changed = WebauthnState {
+            backup_eligible: Some(false),
+            backup_state: false,
+            ..updated.clone()
+        };
+        assert!(
+            !s.advance_webauthn_state(&cred, &updated, &changed, 7)
+                .await
+                .unwrap()
+        );
+        s.delete_webauthn_credential(&id).await.unwrap();
+        assert!(
+            !s.advance_webauthn_state(&cred, &updated, &next, 7)
+                .await
+                .unwrap()
+        );
+        let impostor = WebauthnCredentialRow {
+            account_id: "other-owner".into(),
+            cose_public_key: vec![8],
+            ..cred.clone()
+        };
+        s.register_webauthn_credential(&impostor, &initial, true)
+            .await
+            .unwrap();
+        assert!(
+            !s.advance_webauthn_state(&cred, &initial, &next, 7)
+                .await
+                .unwrap()
+        );
+        s.delete_webauthn_credential(&id).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn passkey_assertion_cas_sqlite() {
+        assertion_state_cas(store().await).await;
+    }
+
+    #[tokio::test]
+    async fn passkey_assertion_cas_postgres() {
+        if let Ok(url) = std::env::var("MW_TEST_PG") {
+            assertion_state_cas(Store::open(&url, ServerKey::generate()).await.unwrap()).await;
+        }
     }
 
     #[tokio::test]

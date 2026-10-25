@@ -22,6 +22,7 @@ hmac = { workspace = true }
 # primitives. ES256 = ECDSA/P-256/SHA-256 with an ASN.1 DER signature; EdDSA =
 # Ed25519 over the raw message. No openssl, no `-sys` — pure Rust.
 p256 = { workspace = true, features = ["ecdsa"] }
+rsa = { workspace = true }
 ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 
 # Recovery-code hashing (Argon2id) + CSPRNG for code + TOTP-secret generation.

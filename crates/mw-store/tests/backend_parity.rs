@@ -2759,13 +2759,14 @@ mod admin_controls_0033 {
             ("seq", 'I', "~"),
         ]),
         ("sessions", &[
+            ("authentication_method", 'T', "=legacy"),
             ("user_agent", 'T', "~"),
             ("ip", 'T', "~"),
             ("client_type", 'T', "~"),
             ("device_label", 'T', "~"),
             ("client_version", 'T', "~"),
         ]),
-        ("webauthn_credentials", &[("discoverable", 'I', "=0")]),
+        ("webauthn_credentials", &[("discoverable", 'I', "=0"), ("backup_eligible", 'I', "~"), ("backup_state", 'I', "=0"), ("uv_initialized", 'I', "=0"), ("state_revision", 'I', "=0")]),
         ("egress_proxy", &[
             ("kind", 'T', "=http"),
             ("tunnel_id", 'T', "~"),

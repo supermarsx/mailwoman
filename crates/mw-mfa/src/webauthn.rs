@@ -6,7 +6,7 @@
 //! assertion later verifies a signature over `authData ‖ SHA256(clientDataJSON)`.
 //!
 //! Supported signature algorithms: ES256 (ECDSA/P-256/SHA-256, ASN.1 DER signature)
-//! and EdDSA (Ed25519, raw 64-byte signature). RS256 is deferred.
+//! EdDSA (Ed25519, raw 64-byte signature), and RS256 (RSA PKCS#1 v1.5/SHA-256).
 
 use base64::Engine;
 use sha2::{Digest, Sha256};
@@ -18,7 +18,10 @@ use crate::{MfaError, ct_eq};
 // authenticatorData flag bits (WebAuthn §6.1).
 const FLAG_UP: u8 = 0x01; // User Present
 const FLAG_UV: u8 = 0x04; // User Verified
+const FLAG_BE: u8 = 0x08; // Backup eligible (immutable credential property)
+const FLAG_BS: u8 = 0x10; // Currently backed up
 const FLAG_AT: u8 = 0x40; // Attested credential data included
+const FLAG_ED: u8 = 0x80; // Extension data included
 
 /// Policy for the user-verification requirement. "Preferred" is the Mailwoman
 /// default (DQ2): UV is honoured when present but not mandated.
@@ -60,6 +63,9 @@ pub struct RegisteredCredential {
     pub aaguid: [u8; 16],
     /// Negotiated signature algorithm.
     pub alg: CoseAlg,
+    pub backup_eligible: bool,
+    pub backup_state: bool,
+    pub user_verified: bool,
 }
 
 /// An assertion ceremony to verify (`navigator.credentials.get` result).
@@ -90,6 +96,11 @@ pub struct AssertionRequest {
 pub struct AssertionOutcome {
     /// The new signature counter (already checked against regression).
     pub new_sign_count: u32,
+    pub backup_eligible: bool,
+    pub backup_state: bool,
+    pub user_verified: bool,
+    /// Multi-device counters may be non-monotonic. Callers can audit this signal.
+    pub counter_anomaly: bool,
 }
 
 /// Verify a registration ceremony (attestation `"none"`), returning the credential
@@ -125,12 +136,24 @@ pub fn verify_registration(req: &RegistrationRequest) -> Result<RegisteredCreden
         sign_count: auth.sign_count,
         aaguid: cred.aaguid,
         alg: key.alg(),
+        backup_eligible: auth.flags & FLAG_BE != 0,
+        backup_state: auth.flags & FLAG_BS != 0,
+        user_verified: auth.flags & FLAG_UV != 0,
     })
 }
 
-/// Verify an assertion ceremony, returning the counter to persist. Rejects a
-/// signature-counter regression (a possible cloned authenticator).
+/// Verify an assertion ceremony, returning the counter to persist. Device-bound
+/// credentials reject counter regression; multi-device credentials report it.
 pub fn verify_assertion(req: &AssertionRequest) -> Result<AssertionOutcome, MfaError> {
+    verify_assertion_with_backup(req, None)
+}
+
+/// Verify signed backup eligibility against its registration value. `None` is
+/// reserved for legacy rows; the caller must atomically persist the signed value.
+pub fn verify_assertion_with_backup(
+    req: &AssertionRequest,
+    stored_backup_eligible: Option<bool>,
+) -> Result<AssertionOutcome, MfaError> {
     check_client_data(
         &req.client_data_json,
         "webauthn.get",
@@ -140,6 +163,10 @@ pub fn verify_assertion(req: &AssertionRequest) -> Result<AssertionOutcome, MfaE
 
     let auth = parse_authenticator_data(&req.authenticator_data, /*expect_attested=*/ false)?;
     verify_rp_and_flags(&auth, &req.rp_id, req.user_verification)?;
+    let backup_eligible = auth.flags & FLAG_BE != 0;
+    if stored_backup_eligible.is_some_and(|stored| stored != backup_eligible) {
+        return Err(MfaError::Malformed("backup eligibility changed".into()));
+    }
 
     // The signed message is authenticatorData ‖ SHA256(clientDataJSON).
     let client_hash = Sha256::digest(&req.client_data_json);
@@ -156,12 +183,17 @@ pub fn verify_assertion(req: &AssertionRequest) -> Result<AssertionOutcome, MfaE
     // stored one.
     let new = auth.sign_count;
     let stored = req.stored_sign_count;
-    if !(new == 0 && stored == 0) && new <= stored {
+    let counter_anomaly = !(new == 0 && stored == 0) && new <= stored;
+    if counter_anomaly && !backup_eligible {
         return Err(MfaError::CounterRegression);
     }
 
     Ok(AssertionOutcome {
-        new_sign_count: new,
+        new_sign_count: new.max(stored),
+        backup_eligible,
+        backup_state: auth.flags & FLAG_BS != 0,
+        user_verified: auth.flags & FLAG_UV != 0,
+        counter_anomaly,
     })
 }
 
@@ -179,6 +211,10 @@ fn check_client_data(
         ty: String,
         challenge: String,
         origin: String,
+        #[serde(default, rename = "crossOrigin")]
+        cross_origin: bool,
+        #[serde(default, rename = "topOrigin")]
+        top_origin: Option<String>,
     }
     let cd: ClientData = serde_json::from_slice(client_data_json)
         .map_err(|e| MfaError::ClientData(format!("parse: {e}")))?;
@@ -199,6 +235,15 @@ fn check_client_data(
     if cd.origin != expected_origin {
         return Err(MfaError::Origin);
     }
+    // No cross-origin embedding policy is configured by this relying party.
+    if cd.cross_origin
+        || cd
+            .top_origin
+            .as_deref()
+            .is_some_and(|top| top != expected_origin)
+    {
+        return Err(MfaError::Origin);
+    }
     Ok(())
 }
 
@@ -214,14 +259,31 @@ fn parse_attestation_object(bytes: &[u8]) -> Result<AttestationObject, MfaError>
     let n = r.map_len()?;
     let mut fmt: Option<String> = None;
     let mut auth_data: Option<Vec<u8>> = None;
+    let mut statement = false;
+    let mut fields = std::collections::BTreeSet::new();
     for _ in 0..n {
         let key = r.text()?;
+        if !fields.insert(key.to_owned()) {
+            return Err(MfaError::Attestation("duplicate attestation field".into()));
+        }
         match key {
             "fmt" => fmt = Some(r.text()?.to_string()),
             "authData" => auth_data = Some(r.bytes()?.to_vec()),
-            // attStmt (and anything else) is not needed for attestation "none".
+            "attStmt" => {
+                if r.map_len()? != 0 {
+                    return Err(MfaError::Attestation(
+                        "none attestation requires an empty statement".into(),
+                    ));
+                }
+                statement = true;
+            }
             _ => r.skip()?,
         }
+    }
+    if !statement || r.pos != bytes.len() {
+        return Err(MfaError::Attestation(
+            "missing statement or trailing attestation data".into(),
+        ));
     }
     Ok(AttestationObject {
         fmt: fmt.ok_or_else(|| MfaError::Attestation("missing fmt".into()))?,
@@ -255,8 +317,14 @@ fn parse_authenticator_data(
     let mut rp_id_hash = [0u8; 32];
     rp_id_hash.copy_from_slice(&bytes[0..32]);
     let flags = bytes[32];
+    if !expect_attested && flags & FLAG_AT != 0 {
+        return Err(MfaError::Malformed(
+            "assertion includes attested credential data".into(),
+        ));
+    }
     let sign_count = u32::from_be_bytes([bytes[33], bytes[34], bytes[35], bytes[36]]);
 
+    let mut consumed = 37;
     let attested = if flags & FLAG_AT != 0 {
         // attestedCredentialData: aaguid(16) ‖ credIdLen(2 BE) ‖ credId ‖ COSE_Key
         let rest = &bytes[37..];
@@ -268,6 +336,11 @@ fn parse_authenticator_data(
         let mut aaguid = [0u8; 16];
         aaguid.copy_from_slice(&rest[0..16]);
         let cred_id_len = u16::from_be_bytes([rest[16], rest[17]]) as usize;
+        if cred_id_len == 0 || cred_id_len > 1023 {
+            return Err(MfaError::Malformed(
+                "credential id length outside 1..1023".into(),
+            ));
+        }
         let cred_start: usize = 18;
         let cred_end = cred_start
             .checked_add(cred_id_len)
@@ -283,6 +356,7 @@ fn parse_authenticator_data(
         let mut r = Reader::new(cose_bytes);
         CoseKey::decode(&mut r)?;
         let cose_public_key = cose_bytes[..r.pos].to_vec();
+        consumed += cred_end + r.pos;
 
         Some(AttestedCredential {
             aaguid,
@@ -292,6 +366,22 @@ fn parse_authenticator_data(
     } else {
         None
     };
+
+    if flags & FLAG_ED != 0 {
+        let mut extensions = Reader::new(&bytes[consumed..]);
+        let n = extensions.map_len()?;
+        let mut names = std::collections::BTreeSet::new();
+        for _ in 0..n {
+            if !names.insert(extensions.text()?.to_owned()) {
+                return Err(MfaError::Malformed("duplicate extension".into()));
+            }
+            extensions.skip()?;
+        }
+        consumed += extensions.pos;
+    }
+    if consumed != bytes.len() {
+        return Err(MfaError::Malformed("trailing authenticator data".into()));
+    }
 
     if expect_attested && attested.is_none() {
         return Err(MfaError::Attestation(
@@ -321,6 +411,11 @@ fn verify_rp_and_flags(
     }
     if uv == UserVerification::Required && auth.flags & FLAG_UV == 0 {
         return Err(MfaError::UserVerification);
+    }
+    if auth.flags & FLAG_BS != 0 && auth.flags & FLAG_BE == 0 {
+        return Err(MfaError::Malformed(
+            "backup state requires backup eligibility".into(),
+        ));
     }
     Ok(())
 }
@@ -353,6 +448,15 @@ fn verify_signature(key: &CoseKey, message: &[u8], signature: &[u8]) -> Result<(
             let sig = ed25519_dalek::Signature::from_bytes(&sig_bytes);
             vk.verify_strict(message, &sig)
                 .map_err(|_| MfaError::Verify("EdDSA signature did not verify".into()))
+        }
+        CoseKey::Rs256 { n, e } => {
+            use rsa::signature::Verifier;
+            let key = crate::cose::rsa_public_key(n, e)?;
+            let signature = rsa::pkcs1v15::Signature::try_from(signature)
+                .map_err(|_| MfaError::Verify("invalid RSA signature encoding".into()))?;
+            rsa::pkcs1v15::VerifyingKey::<Sha256>::new(key)
+                .verify(message, &signature)
+                .map_err(|_| MfaError::Verify("RS256 signature did not verify".into()))
         }
     }
 }

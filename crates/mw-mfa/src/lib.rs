@@ -9,8 +9,8 @@
 //! Relying-party (server) verification for **attestation `"none"` only**, which is
 //! what Mailwoman requests. Registration decodes and stores the COSE public key;
 //! assertion verifies the signature over `authData ‖ SHA256(clientDataJSON)`.
-//! Algorithms: **ES256** (ECDSA/P-256/SHA-256, ASN.1 DER signature) and **EdDSA**
-//! (Ed25519). RS256 is deferred.
+//! Algorithms: **ES256** (ECDSA/P-256/SHA-256, ASN.1 DER signature), **EdDSA**
+//! (Ed25519), and **RS256** (RSA PKCS#1 v1.5/SHA-256).
 //!
 //! The verification is hand-rolled over already-vendored RustCrypto primitives
 //! (`p256`, `ed25519-dalek`, `sha2`) with a small in-crate CBOR reader, because the
@@ -28,7 +28,7 @@ pub use recovery::{DEFAULT_RECOVERY_CODES, RecoveryCode};
 pub use totp::TotpParams;
 pub use webauthn::{
     AssertionOutcome, AssertionRequest, RegisteredCredential, RegistrationRequest,
-    UserVerification, verify_assertion, verify_registration,
+    UserVerification, verify_assertion, verify_assertion_with_backup, verify_registration,
 };
 
 /// Errors from any second-factor operation.
@@ -67,7 +67,7 @@ pub enum MfaError {
     /// The signature counter went backwards (a possible cloned authenticator).
     #[error("signature count regression (possible cloned authenticator)")]
     CounterRegression,
-    /// The COSE algorithm is not one this crate verifies (only ES256 / EdDSA).
+    /// The COSE algorithm is not one this crate verifies (ES256 / EdDSA / RS256).
     #[error("unsupported COSE algorithm")]
     UnsupportedAlg,
     /// A byte buffer was too short or otherwise malformed.

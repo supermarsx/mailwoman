@@ -385,6 +385,178 @@ fn good_es256_assertion() -> (AssertionRequest, u32) {
 }
 
 #[test]
+fn passkey_hardening_rejects_cross_origin_assertion() {
+    let (mut req, _) = good_es256_assertion();
+    let mut client: serde_json::Value = serde_json::from_slice(&req.client_data_json).unwrap();
+    client["crossOrigin"] = serde_json::json!(true);
+    client["topOrigin"] = serde_json::json!("https://attacker.example");
+    req.client_data_json = serde_json::to_vec(&client).unwrap();
+    req.signature = Es256Key::new().sign(&signed_message(
+        &req.authenticator_data,
+        &req.client_data_json,
+    ));
+    assert!(
+        verify_assertion(&req).is_err(),
+        "a valid signature must not authorize a cross-origin ceremony"
+    );
+}
+
+#[test]
+fn passkey_hardening_rejects_backup_state_without_eligibility() {
+    let (mut req, _) = good_es256_assertion();
+    req.authenticator_data[32] |= 0x10;
+    req.signature = Es256Key::new().sign(&signed_message(
+        &req.authenticator_data,
+        &req.client_data_json,
+    ));
+    assert!(verify_assertion(&req).is_err(), "BS=1 with BE=0 is invalid");
+}
+
+#[test]
+fn passkey_hardening_rejects_unflagged_trailing_authenticator_data() {
+    let (mut req, _) = good_es256_assertion();
+    req.authenticator_data.push(0xa0);
+    req.signature = Es256Key::new().sign(&signed_message(
+        &req.authenticator_data,
+        &req.client_data_json,
+    ));
+    assert!(
+        verify_assertion(&req).is_err(),
+        "unflagged extension bytes must not be ignored"
+    );
+}
+
+#[test]
+fn passkey_hardening_rejects_duplicate_cose_label() {
+    let mut key = Es256Key::new().cose();
+    key[0] = 0xa6;
+    key.extend_from_slice(&[0x03, 0x26]);
+    assert!(
+        CoseKey::from_cbor(&key).is_err(),
+        "duplicate algorithm labels are ambiguous"
+    );
+}
+
+#[test]
+fn passkey_hardening_rejects_cose_trailing_data() {
+    let mut key = Es256Key::new().cose();
+    key.push(0xa0);
+    assert!(
+        CoseKey::from_cbor(&key).is_err(),
+        "the stored COSE key must be exactly one item"
+    );
+}
+
+#[test]
+fn passkey_hardening_rejects_nonempty_none_attestation_statement() {
+    let key = Es256Key::new();
+    let tail = attested_cred(&[0u8; 16], b"credential", &key.cose());
+    let data = auth_data(RP_ID, 0x45, 0, &tail);
+    let mut object = attestation_object_none(&data);
+    let statement = object.windows(7).position(|s| s == b"attStmt").unwrap() + 7;
+    assert_eq!(object[statement], 0xa0);
+    object.splice(statement..statement + 1, [0xa1, 0x01, 0x01]);
+    let req = RegistrationRequest {
+        challenge: b"c".to_vec(),
+        origin: ORIGIN.into(),
+        rp_id: RP_ID.into(),
+        attestation_object: object,
+        client_data_json: client_data("webauthn.create", b"c", ORIGIN),
+        user_verification: UserVerification::Required,
+    };
+    assert!(
+        verify_registration(&req).is_err(),
+        "none attestation requires an empty attStmt map"
+    );
+}
+
+#[test]
+fn passkey_rsa_registration_assertion_and_bad_signature() {
+    use rsa::{
+        pkcs1::DecodeRsaPrivateKey,
+        signature::{SignatureEncoding, Signer},
+        traits::PublicKeyParts,
+    };
+    // Public test-only key copied from the existing mw-sso fixture, never a deployment key.
+    let key =
+        rsa::RsaPrivateKey::from_pkcs1_pem(include_str!("../tests/fixtures/rsa2048.pem")).unwrap();
+    let n = key.n().to_be_bytes();
+    let e = key.e().to_be_bytes();
+    let e = e
+        .iter()
+        .skip_while(|v| **v == 0)
+        .copied()
+        .collect::<Vec<_>>();
+    let mut cose = vec![0xa4, 0x01, 0x03, 0x03, 0x39, 0x01, 0x00, 0x20]; // kty RSA; alg -257; n
+    cose.extend(cbor_bstr_header(n.len()));
+    cose.extend_from_slice(&n);
+    cose.push(0x21);
+    cose.extend(cbor_bstr_header(e.len()));
+    cose.extend_from_slice(&e);
+    let registration = RegistrationRequest {
+        challenge: b"reg".to_vec(),
+        origin: ORIGIN.into(),
+        rp_id: RP_ID.into(),
+        attestation_object: attestation_object_none(&auth_data(
+            RP_ID,
+            0x45,
+            0,
+            &attested_cred(&[0; 16], b"rsa-key", &cose),
+        )),
+        client_data_json: client_data("webauthn.create", b"reg", ORIGIN),
+        user_verification: UserVerification::Required,
+    };
+    assert_eq!(
+        verify_registration(&registration).unwrap().alg,
+        CoseAlg::Rs256
+    );
+    let mut assertion = AssertionRequest {
+        challenge: b"assert".to_vec(),
+        origin: ORIGIN.into(),
+        rp_id: RP_ID.into(),
+        client_data_json: client_data("webauthn.get", b"assert", ORIGIN),
+        authenticator_data: auth_data(RP_ID, 0x05, 1, &[]),
+        signature: vec![],
+        cose_public_key: cose,
+        stored_sign_count: 0,
+        user_verification: UserVerification::Required,
+    };
+    let signer = rsa::pkcs1v15::SigningKey::<Sha256>::new(key);
+    assertion.signature = signer
+        .sign(&signed_message(
+            &assertion.authenticator_data,
+            &assertion.client_data_json,
+        ))
+        .to_vec();
+    assert!(verify_assertion(&assertion).is_ok());
+    assertion.signature[0] ^= 1;
+    assert!(verify_assertion(&assertion).is_err());
+}
+
+#[test]
+fn passkey_synced_counter_and_immutable_backup_eligibility() {
+    let (mut req, _) = good_es256_assertion();
+    req.authenticator_data[32] |= 0x18;
+    req.authenticator_data[33..37].copy_from_slice(&0u32.to_be_bytes());
+    req.signature = Es256Key::new().sign(&signed_message(
+        &req.authenticator_data,
+        &req.client_data_json,
+    ));
+    let outcome = crate::verify_assertion_with_backup(&req, Some(true)).unwrap();
+    assert!(outcome.counter_anomaly);
+    assert!(outcome.backup_state);
+    assert_eq!(outcome.new_sign_count, 9);
+    assert!(crate::verify_assertion_with_backup(&req, Some(false)).is_err());
+    req.authenticator_data[32] &= !0x18;
+    req.signature = Es256Key::new().sign(&signed_message(
+        &req.authenticator_data,
+        &req.client_data_json,
+    ));
+    assert!(crate::verify_assertion_with_backup(&req, Some(true)).is_err());
+    assert!(crate::verify_assertion_with_backup(&req, Some(false)).is_err());
+}
+
+#[test]
 fn assertion_es256_verifies_and_returns_new_counter() {
     let (req, expected) = good_es256_assertion();
     let out = verify_assertion(&req).expect("assertion verifies");

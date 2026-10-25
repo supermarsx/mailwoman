@@ -12,10 +12,11 @@ import { passkeySupported } from '../../modules/zeroaccess/passkey.ts';
 
 export { passkeySupported };
 
-// ES256 (-7) then EdDSA (-8): the two algorithms `mw-mfa` verifies at launch.
+// Prefer ES256, then EdDSA; RS256 supports compatible RSA authenticators.
 const PUB_KEY_CRED_PARAMS: PublicKeyCredentialParameters[] = [
   { alg: -7, type: 'public-key' },
   { alg: -8, type: 'public-key' },
+  { alg: -257, type: 'public-key' },
 ];
 
 function b64urlToBytes(s: string): Uint8Array {
@@ -52,6 +53,7 @@ export async function registerPasskey(challenge: {
   userName: string;
   userVerification: string;
   residentKey?: ResidentKeyRequirement;
+  excludeCredentialIds?: readonly string[];
 }): Promise<RegistrationResult> {
   if (!passkeySupported()) throw new Error('passkeys are not supported in this browser');
   const cred = (await navigator.credentials.create({
@@ -64,6 +66,7 @@ export async function registerPasskey(challenge: {
         displayName: challenge.userName,
       },
       pubKeyCredParams: PUB_KEY_CRED_PARAMS,
+      excludeCredentials: (challenge.excludeCredentialIds ?? []).map(id => ({ id: b64urlToBytes(id) as BufferSource, type: 'public-key' as const })),
       authenticatorSelection: { userVerification: toUv(challenge.userVerification), residentKey: challenge.residentKey ?? 'discouraged' },
       attestation: 'none',
     },
@@ -85,6 +88,7 @@ export interface AssertionResult {
   clientDataJson: string;
   authenticatorData: string;
   signature: string;
+  userHandle: string | null;
 }
 
 /** Run `navigator.credentials.get` for a login-time second-factor assertion. */
@@ -113,5 +117,6 @@ export async function assertPasskey(challenge: {
     clientDataJson: bytesToB64url(response.clientDataJSON),
     authenticatorData: bytesToB64url(response.authenticatorData),
     signature: bytesToB64url(response.signature),
+    userHandle: response.userHandle === null ? null : bytesToB64url(response.userHandle),
   };
 }

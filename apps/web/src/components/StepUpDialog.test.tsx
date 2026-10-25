@@ -27,7 +27,7 @@ it('keeps failed confirmation open and Escape cancels without retry', async () =
   expect(send).toHaveBeenCalledTimes(1);
 });
 it('uses a user-verified passkey', async () => {
-  const proof = { credentialId: 'id', clientDataJson: 'data', authenticatorData: 'auth', signature: 'sig' };
+  const proof = { credentialId: 'id', clientDataJson: 'data', authenticatorData: 'auth', signature: 'sig', userHandle: null };
   vi.mocked(assertPasskey).mockResolvedValue(proof);
   const send = vi.fn(async (_body: Record<string, unknown>, begin?: boolean) => new Response(JSON.stringify(begin ? { challenge: 'c', rpId: 'mail.example', credentialIds: ['id'] } : {}), { status: 200 }));
   const result = requestStepUp({ methods: ['passkey'], send });

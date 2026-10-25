@@ -47,7 +47,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use mw_mfa::totp::{self, TotpParams};
-use mw_mfa::webauthn::{AssertionRequest, UserVerification, verify_assertion};
+use mw_mfa::webauthn::{AssertionRequest, UserVerification, verify_assertion_with_backup};
 
 use crate::AppState;
 use crate::admin_ctx::{AdminApiError, AdminCtx, AdminJson};
@@ -675,6 +675,8 @@ struct PasskeyAssertion {
     client_data_json: String,
     authenticator_data: String,
     signature: String,
+    #[serde(default)]
+    user_handle: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -982,6 +984,12 @@ async fn verify_passkey(
     if cred.account_id != account_id {
         return Ok(false);
     }
+    if !crate::twofa_routes::passkey_handle_matches(account_id, a.user_handle.as_deref(), false) {
+        return Ok(false);
+    }
+    let Some(previous) = state.store.webauthn_state(&a.credential_id).await? else {
+        return Ok(false);
+    };
     let req = AssertionRequest {
         challenge: challenge.bytes.clone(),
         origin: challenge.origin.clone(),
@@ -993,13 +1001,9 @@ async fn verify_passkey(
         stored_sign_count: cred.sign_count.max(0) as u32,
         user_verification: uv,
     };
-    match verify_assertion(&req) {
+    match verify_assertion_with_backup(&req, previous.backup_eligible) {
         Ok(outcome) => {
-            state
-                .store
-                .update_webauthn_sign_count(&a.credential_id, i64::from(outcome.new_sign_count))
-                .await?;
-            Ok(true)
+            crate::twofa_routes::commit_passkey_assertion(state, &cred, &previous, &outcome).await
         }
         Err(_) => Ok(false),
     }

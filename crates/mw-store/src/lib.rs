@@ -129,7 +129,7 @@ pub use open_tracking::{
 pub use plugin_allowlist::{PluginAllowlistError, PluginAllowlistRow, new_allowlist_pin};
 pub use plugin_kv::{PluginKvError, PluginKvLimits};
 pub use sso::SsoConfigRow;
-pub use twofa::{SessionMeta, TotpSecret, TwofaPolicyRow, WebauthnCredentialRow, session_handle};
+pub use twofa::{SessionMeta, TotpSecret, TwofaPolicyRow, WebauthnCredentialRow, WebauthnState, session_handle};
 pub use upload::{FsUploadBackend, Upload, UploadBackend, UploadError};
 pub use user_prefs::{NotificationRulesRow, SignatureRow};
 pub use v6::{
