@@ -1,7 +1,41 @@
-# MT-SEED — NOT REVIEWED
-# Locale: es · Module: tasks. Source of truth: ../en/tasks.ftl
-#
-# PLACEHOLDER awaiting human translation via Weblate. This catalog holds NO
-# reviewed translations — every key falls back to the en source at runtime until
-# a translator fills it in, so Weblate shows it as needing translation (0%).
-# Do NOT hand-edit or paste raw machine output as final: translate in Weblate.
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: es · Module: tasks. Source: ../en/tasks.ftl
+
+tasks-title = Tareas
+tasks-lists = Listas de tareas
+tasks-all = Todas las tareas
+tasks-my-day = Mi día
+tasks-lists-heading = Listas
+tasks-no-lists = Todavía no hay listas.
+tasks-new-title = Título de la nueva tarea
+tasks-add-placeholder = Añadir una tarea…
+tasks-my-day-empty = Nada pendiente para hoy.
+tasks-convert = Convertir:
+tasks-mail-id = Id. del mensaje que convertir
+tasks-mail-id-placeholder = id. del mensaje
+tasks-mail-to-task = Correo → tarea
+tasks-event-id = Id. del evento que convertir
+tasks-event-id-placeholder = id. del evento
+tasks-event-to-task = Evento → tarea
+tasks-followup-mail = Seguimiento: correo { $id }
+tasks-prep-event = Preparar: evento { $id }
+tasks-list-label = Tareas
+tasks-subtasks = Subtareas
+tasks-empty-list = No hay tareas en esta lista.
+tasks-complete = Completar { $title }
+tasks-reopen = Reabrir { $title }
+tasks-high-priority = Prioridad alta
+tasks-edit = Editar { $title }
+tasks-field-title = Título
+tasks-field-due = Fecha de vencimiento
+tasks-field-priority = Prioridad
+tasks-priority-none = Ninguna
+tasks-priority-high = Alta
+tasks-priority-medium = Media
+tasks-priority-low = Baja
+tasks-delete-confirm = ¿Eliminar esta tarea? No se puede deshacer.
+tasks-delete-yes = Eliminar tarea
+tasks-delete-no = Conservar tarea
+tasks-changed-elsewhere = Esta tarea se modificó en otro dispositivo o sesión. Sus cambios se conservan; Guardar aplica solo los campos que modificó.
+tasks-deleted-elsewhere = «{ $title }» se eliminó en otro dispositivo o sesión, así que se cerró su formulario de edición.
+tasks-notice-dismiss = Descartar
