@@ -187,3 +187,4 @@ security-center-activity = Account activity
 security-center-error = Security information could not be loaded or changed. Your administrator may have disabled this action.
 security-center-first-seen = First seen: { $when }
 security-center-passkey-mode = Passkeys can sign you in without a password in engine mode. In proxy mode, they verify a second factor after your mail password.
+security-stepup-recovery = Recovery code (with your password, instead of an authenticator code)

@@ -19,6 +19,17 @@ function renderAccounts(api: AdminAccountsApi, initial = '/admin#/admins') {
   return { ...view, route };
 }
 describe('admin accounts and roles', () => {
+  it('requires the account name before revoking passkeys and sessions', async () => {
+    const api = service();
+    api.accounts = vi.fn(async () => [{ ...account, passkeyCount: 2 }]);
+    renderAccounts(api, '/admin#/admins/alice/edit');
+    fireEvent.click(await screen.findByRole('button', { name: 'Revoke all passkeys' }));
+    const dialog = await screen.findByRole('alertdialog');
+    expect(api.write).not.toHaveBeenCalled();
+    fireEvent.input(within(dialog).getByRole('textbox'), { target: { value: 'alice' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm change' }));
+    await waitFor(() => expect(api.write).toHaveBeenCalledWith('/admins/alice/passkeys', 'DELETE'));
+  });
   it('assigns a role with explicit domain limits and the account version', async () => {
     const api = service(); renderAccounts(api);
     fireEvent.click(await screen.findByRole('button', { name: 'Alice (alice)' }));

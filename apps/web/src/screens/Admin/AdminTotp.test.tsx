@@ -1,0 +1,19 @@
+import {it,expect,vi} from 'vitest';
+import {render,fireEvent,screen,waitFor,within} from '@solidjs/testing-library';
+import {AdminTotp} from './AdminTotp.tsx';
+import type {AdminTotpApi} from '../../api/admin/totp.ts';
+import {anyDirty} from './shell/useDirtyGuard.ts';
+function service(initial=false):AdminTotpApi {let enrolled=initial;return {status:vi.fn(async()=>({totpEnrolled:enrolled,recoveryRemaining:2})),begin:vi.fn(async()=>({secret:'JBSWY3DPEHPK3PXP',otpauthUri:'otpauth://totp/admin?secret=JBSWY3DPEHPK3PXP'})),confirm:vi.fn(async()=>{enrolled=true;return {ok:true,recoveryCodes:['recovery-one','recovery-two']};}),remove:vi.fn(async()=>{enrolled=false;}),rotate:vi.fn(async()=>({recoveryCodes:['new-recovery']}))};}
+it('shows a local QR and manual key, then one-time recovery codes after verification',async()=>{
+ const api=service();render(()=><AdminTotp api={api} back={()=>{}}/>);fireEvent.click(await screen.findByRole('button',{name:'Set up authenticator'}));expect(await screen.findByLabelText('Manual setup key')).toHaveValue('JBSWY3DPEHPK3PXP');expect(screen.getByAltText('Authenticator setup QR code, generated on this device').getAttribute('src')).toMatch(/^data:image\/svg\+xml,/);expect(anyDirty()).toBe(true);
+ fireEvent.input(screen.getByLabelText('Authenticator code'),{target:{value:'123456'}});fireEvent.submit(screen.getByRole('button',{name:'Confirm authenticator'}).closest('form')!);await screen.findByText('recovery-one');expect(api.confirm).toHaveBeenCalledWith('123456');expect(screen.queryByLabelText('Manual setup key')).not.toBeInTheDocument();expect(anyDirty()).toBe(true);fireEvent.click(screen.getByRole('button',{name:'I have saved my recovery codes'}));expect(screen.queryByText('recovery-one')).not.toBeInTheDocument();expect(anyDirty()).toBe(false);
+});
+it('retains pending enrollment after a rejected verification and never claims success',async()=>{
+ const api=service();vi.mocked(api.confirm).mockRejectedValue(new Error('rejected'));render(()=><AdminTotp api={api} back={()=>{}}/>);fireEvent.click(await screen.findByRole('button',{name:'Set up authenticator'}));await screen.findByLabelText('Manual setup key');fireEvent.input(screen.getByLabelText('Authenticator code'),{target:{value:'000000'}});fireEvent.submit(screen.getByRole('button',{name:'Confirm authenticator'}).closest('form')!);await screen.findByRole('alert');expect(screen.getByLabelText('Manual setup key')).toBeInTheDocument();expect(screen.queryByText('recovery-one')).not.toBeInTheDocument();
+});
+it('removes only after explicit confirmation and leaves factor verification to central step-up',async()=>{
+ const api=service(true);render(()=><AdminTotp api={api} back={()=>{}}/>);fireEvent.click(await screen.findByRole('button',{name:'Remove authenticator'}));const dialog=await screen.findByRole('alertdialog');expect(api.remove).not.toHaveBeenCalled();expect(screen.queryByLabelText('Authenticator code')).not.toBeInTheDocument();fireEvent.click(within(dialog).getByRole('button',{name:'Remove authenticator'}));await waitFor(()=>expect(api.remove).toHaveBeenCalledWith());await screen.findByRole('button',{name:'Set up authenticator'});
+});
+it('confirms shared recovery-code replacement and displays the new values only until acknowledgement',async()=>{
+ const api=service(true);render(()=><AdminTotp api={api} back={()=>{}}/>);fireEvent.click(await screen.findByRole('button',{name:'Replace recovery codes'}));const dialog=await screen.findByRole('alertdialog');expect(api.rotate).not.toHaveBeenCalled();fireEvent.click(within(dialog).getByRole('button',{name:'Replace recovery codes'}));await screen.findByText('new-recovery');fireEvent.click(screen.getByRole('button',{name:'I have saved my recovery codes'}));expect(screen.queryByText('new-recovery')).not.toBeInTheDocument();
+});

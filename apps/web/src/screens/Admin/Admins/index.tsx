@@ -37,7 +37,7 @@ export function AdminAdmins(props: { service?: AdminAccountsApi }): JSX.Element 
   const [busy, setBusy] = createSignal(false);
   const [loaded, setLoaded] = createSignal(false);
   const [secret, setSecret] = createSignal('');
-  const [confirm, setConfirm] = createSignal<{ name: string; action: () => Promise<unknown> }>();
+  const [confirm, setConfirm] = createSignal<{ name: string; typed?: boolean; action: () => Promise<unknown> }>();
   const canManage = () => me()?.capabilities.includes('admins.manage') === true;
   async function reload(): Promise<void> {
     const [a, r, m, s] = await Promise.all([api.accounts(), api.roles(), api.me(), api.sessions()]);
@@ -131,6 +131,7 @@ export function AdminAdmins(props: { service?: AdminAccountsApi }): JSX.Element 
         </fieldset>
         <fieldset class={ux.fieldset} disabled={busy() || !canManage()}><legend>{t('admin-accounts-credentials')}</legend>
           <p>{t('admin-accounts-credentials-help')}</p>
+          <Show when={account().passkeyCount !== undefined}><p>{t('admin-accounts-passkey-count', { count: account().passkeyCount ?? 0 })}</p><button class="btn" type="button" disabled={!account().passkeyCount} onClick={() => setConfirm({ name: account().username, typed: true, action: () => api.write(`${path()}/passkeys`, 'DELETE') })}>{t('admin-accounts-revoke-passkeys')}</button><p>{t('admin-accounts-revoke-passkeys-help')}</p></Show>
           <label class={css.field}>{t('admin-accounts-password')}<input class={ux.control} type="password" autocomplete="new-password" minLength={12} value={password()} onInput={(e) => setPassword(e.currentTarget.value)} /></label>
           <button class="btn" type="button" disabled={password().length < 12} onClick={() => setConfirm({ name: account().username, action: async () => { await api.write(`${path()}/reset-password`, 'POST', { password: password() }); setPassword(''); } })}>{t('admin-accounts-reset-password')}</button>
           <button class="btn" type="button" onClick={() => setConfirm({ name: account().username, action: async () => { const result = await api.write<{ secret: string }>(`${path()}/totp`, 'POST'); setSecret(result.secret); } })}>{t('admin-accounts-reset-totp')}</button>
@@ -146,6 +147,6 @@ export function AdminAdmins(props: { service?: AdminAccountsApi }): JSX.Element 
       <Show when={!creating()}><h3>{t('admin-accounts-sessions')}</h3>
       <ul><For each={editing() ? sessions().filter(s => s.adminId === selected()?.id) : sessions()}>{(session) => <li>{session.adminId} — {session.createdAt} {session.current ? t('admin-accounts-current') : ''}<button class="btn" type="button" disabled={busy() || !canManage()} onClick={() => setConfirm({ name: session.adminId, action: () => api.write(`/admin-sessions/${encodeURIComponent(session.id)}`, 'DELETE') })}>{t('admin-accounts-revoke')}</button></li>}</For></ul></Show>
     </Show>
-    <ConfirmDialog open={confirm() !== undefined} title={t('admin-accounts-confirm', { name: confirm()?.name ?? '' })} body={t('admin-accounts-confirm-body')} confirmLabel={t('admin-accounts-confirm-action')} onCancel={() => setConfirm(undefined)} onConfirm={async () => { const action = confirm()?.action; if (action) { await action(); setConfirm(undefined); await run(reload); } }} />
+    <ConfirmDialog {...(confirm()?.typed ? { typedConfirmation: confirm()?.name ?? '' } : {})} open={confirm() !== undefined} title={t('admin-accounts-confirm', { name: confirm()?.name ?? '' })} body={t('admin-accounts-confirm-body')} confirmLabel={t('admin-accounts-confirm-action')} onCancel={() => setConfirm(undefined)} onConfirm={async () => { const action = confirm()?.action; if (action) { await action(); setConfirm(undefined); await run(reload); } }} />
   </section>;
 }

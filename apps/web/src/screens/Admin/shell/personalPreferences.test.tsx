@@ -89,21 +89,29 @@ it('disables edits after a failed save and explains that reload discards changes
 it('uses personal security endpoints without writing secrets to preferences', async () => {
   history.replaceState(null, '', '/admin#/preferences');
   const calls: { path: string; body: unknown }[] = [];
+  let totpEnrolled = false;
   vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const path = String(input);
+    if(path.endsWith('/admin/me')) return new Response(JSON.stringify({totpEnrolled}),{status:200,headers:{'Content-Type':'application/json'}});
     if (!path.includes('/admin/me/')) return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
     calls.push({ path, body: init?.body ? JSON.parse(String(init.body)) : null });
-    return path.endsWith('/totp') ? new Response(JSON.stringify({ secret: 'TESTSETUPKEY' }), { status: 200, headers: { 'Content-Type': 'application/json' } }) : new Response(null, { status: 204 });
+    if(path.endsWith('/passkeys')) return new Response(JSON.stringify({passkeys:[],recoveryRemaining:0}),{status:200,headers:{'Content-Type':'application/json'}});
+    if(path.endsWith('/totp/confirm')) {totpEnrolled=true;return new Response(JSON.stringify({ok:true,recoveryCodes:[]}),{status:200,headers:{'Content-Type':'application/json'}});}
+    return path.endsWith('/totp') ? new Response(JSON.stringify({ secret: 'TESTSETUPKEY',otpauthUri:'otpauth://totp/test?secret=TESTSETUPKEY' }), { status: 200, headers: { 'Content-Type': 'application/json' } }) : new Response(null, { status: 204 });
   }));
   const save = vi.fn<AdminPreferencesApi['save']>().mockImplementation(async data => ({ data, etag: 'v2' }));
   render(() => <AdminScreen api={mockAdminApi()} {...offlineShell()} loadMe={async () => ({ kind: 'listed', me: { username: 'alice', accountId: 'account-alice', displayName: null, roles: [], capabilities: [], domainScope: null, totpEnrolled: false } })} preferencesApi={{ load: async () => ({ data: {}, etag: 'v1' }), save }} sections={[{ id: 'preferences', group: 'personal', icon: 'preferences', label: () => 'My preferences', component: Page }]} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Manage authenticator and recovery codes' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Set up authenticator' }));
-  await screen.findByText('TESTSETUPKEY');
+  expect(await screen.findByLabelText('Manual setup key')).toHaveValue('TESTSETUPKEY');
   fireEvent.input(screen.getByLabelText('Authenticator code'), { target: { value: '123456' } });
   fireEvent.click(screen.getByRole('button', { name: 'Confirm authenticator' }));
   await screen.findByText('An authenticator is enabled for your admin account.');
   expect(calls).toContainEqual({ path: '/admin/me/totp/confirm', body: { code: '123456' } });
-  expect(screen.queryByText('TESTSETUPKEY')).toBeNull();
+  expect(screen.queryByLabelText('Manual setup key')).toBeNull();
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Back to my preferences'})).not.toBeDisabled());
+  fireEvent.click(screen.getByRole('button',{name:'Back to my preferences'}));
+  await screen.findByLabelText('Current password');
   fireEvent.input(screen.getByLabelText('Current password'), { target: { value: 'old-fixture' } });
   fireEvent.input(screen.getByLabelText('New password'), { target: { value: 'new-fixture' } });
   fireEvent.submit(screen.getByRole('button', { name: 'Change password' }).closest('form')!);

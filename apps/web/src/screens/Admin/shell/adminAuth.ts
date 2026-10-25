@@ -17,6 +17,20 @@ import { basePath } from '../../../api/basePath.ts';
 import { adminUrl } from '../../../api/adminPath.ts';
 import { apiFetch } from '../../../api/http.ts';
 import { AdminApiError, type AdminApi, type AdminSession } from '../../../state/slices/admin.ts';
+import { assertPasskey } from '../../Settings/webauthn.ts';
+
+export async function signInAdminPasskey(): Promise<void> {
+  const begin=await apiFetch(adminUrl('/login/passkey/begin',basePath()),{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:'{}'});
+  if(!begin.ok) throw new AdminApiError(begin.status,'Passkey sign-in unavailable');
+  const challenge=await begin.json() as Parameters<typeof assertPasskey>[0]&{pendingToken:string};
+  const proof=await assertPasskey({...challenge,userVerification:'required'});
+  const finish=await apiFetch(adminUrl('/login/passkey/finish',basePath()),{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({...proof,pendingToken:challenge.pendingToken})});
+  if(!finish.ok) throw new AdminApiError(finish.status,'Passkey did not verify');
+}
+export async function completeAdminRecovery(pendingToken:string,code:string):Promise<void> {
+  const response=await apiFetch(adminUrl('/login/recovery',basePath()),{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({pendingToken,code})});
+  if(!response.ok) throw new AdminApiError(response.status,'Recovery code did not verify');
+}
 
 export interface AdminTotpChallenge {
   pendingToken: string;

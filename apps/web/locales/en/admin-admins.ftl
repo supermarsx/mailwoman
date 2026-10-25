@@ -90,3 +90,7 @@ admin-accounts-credentials = Password and authenticator
 admin-accounts-credentials-help = Resetting a password ends existing sessions. Authenticator changes require confirmation.
 admin-accounts-access-state = Disable or remove account
 admin-accounts-access-state-help = These actions end the account’s sessions. The server protects the last enabled super administrator.
+
+admin-accounts-passkey-count = Passkeys: { $count }
+admin-accounts-revoke-passkeys = Revoke all passkeys
+admin-accounts-revoke-passkeys-help = Removes this administrator’s passkeys and recovery codes and signs out all their sessions.

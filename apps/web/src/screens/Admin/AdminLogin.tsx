@@ -13,11 +13,12 @@
 // (`shell/adminAuth.ts` has the wire contract). Without TOTP on the server this
 // step never appears.
 
-import { Show, createSignal, type JSX } from 'solid-js';
+import { Show, createSignal, onMount, type JSX } from 'solid-js';
 import { useAdmin } from './context.ts';
 import { AdminApiError } from '../../state/slices/admin.ts';
-import { isolate, t } from '../../i18n';
-import { AdminTotpRequired, createAdminTotpVerifier, type AdminTotpVerifier } from './shell/adminAuth.ts';
+import { isolate, t, loadCatalog } from '../../i18n';
+import { AdminTotpRequired, createAdminTotpVerifier, signInAdminPasskey, completeAdminRecovery, type AdminTotpVerifier } from './shell/adminAuth.ts';
+import { passkeySupported } from '../Settings/webauthn.ts';
 import * as css from './admin.css.ts';
 import { authCard, authPage } from '../../styles/authCard.css.ts';
 import { PasswordInput } from '../../components/PasswordInput.tsx';
@@ -36,6 +37,10 @@ export function AdminLogin(props: AdminLoginProps = {}): JSX.Element {
   const [pending, setPending] = createSignal<string | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false);
+  const [factors,setFactors]=createSignal<string[]>([]);
+  const [recovery,setRecovery]=createSignal(false);
+  onMount(()=>void loadCatalog('admin-passkeys'));
+  async function passkeyLogin():Promise<void>{setBusy(true);setError(null);try{await signInAdminPasskey();await admin.loadSession();}catch{setError(t('admin-passkeys-failed'));}finally{setBusy(false);}}
 
   async function onSubmit(e: Event): Promise<void> {
     e.preventDefault();
@@ -47,6 +52,8 @@ export function AdminLogin(props: AdminLoginProps = {}): JSX.Element {
       if (err instanceof AdminTotpRequired) {
         setPassword('');
         setPending(err.challenge.pendingToken);
+        setFactors(err.challenge.factors);
+        setRecovery(err.challenge.factors.includes('recovery') && !err.challenge.factors.includes('totp'));
       } else {
         setError(
           err instanceof AdminApiError && err.status === 401
@@ -68,10 +75,12 @@ export function AdminLogin(props: AdminLoginProps = {}): JSX.Element {
     setError(null);
     setBusy(true);
     try {
-      await verify(token, code().replace(/\s+/g, ''));
+      if(recovery()) await completeAdminRecovery(token,code().trim());
+      else await verify(token, code().replace(/\s+/g, ''));
       await admin.loadSession();
     } catch (err) {
       setCode('');
+      if(recovery()){setPending(null);setError(t('admin-passkeys-recovery-failed'));return;}
       setError(
         err instanceof AdminApiError && err.status === 401
           ? t('admin-shell-totp-invalid')
@@ -130,25 +139,30 @@ export function AdminLogin(props: AdminLoginProps = {}): JSX.Element {
             <button type="submit" class="btn btn--primary" disabled={busy()}>
               {busy() ? t('admin-login-signing-in') : t('admin-login-sign-in')}
             </button>
+            <Show when={passkeySupported()}><button type="button" class="btn" disabled={busy()} onClick={()=>void passkeyLogin()}>{t('admin-passkeys-sign-in')}</button></Show>
           </form>
         }
       >
         <form class={`${css.loginCard} ${authCard}`} onSubmit={(e) => void onSubmitCode(e)} aria-label={t('admin-shell-totp-form')}>
           <h1 class={css.heading}>{t('admin-brand')}</h1>
-          <p class={css.note}>{t('admin-shell-totp-note', { name: isolate(username()) })}</p>
+          <p class={css.note}>{factors().includes('totp') ? t('admin-shell-totp-note', { name: isolate(username()) }) : t('admin-passkeys-factor-note')}</p>
+          <Show when={factors().includes('webauthn') && passkeySupported()}><button class="btn" type="button" disabled={busy()} onClick={()=>void passkeyLogin()}>{t('admin-passkeys-use')}</button></Show>
+          <Show when={factors().includes('recovery')}><label class="field"><input type="checkbox" checked={recovery()} onChange={e=>{setRecovery(e.currentTarget.checked);setCode('');}}/>{t('admin-passkeys-recovery-use')}</label></Show>
+          <Show when={recovery() || factors().includes('totp')}>
           <label class="field">
-            <span>{t('admin-shell-totp-code')}</span>
+            <span>{t(recovery()?'admin-passkeys-recovery-code':'admin-shell-totp-code')}</span>
             <input
               type="text"
-              inputmode="numeric"
+              inputmode={recovery()?'text':'numeric'}
               autocomplete="one-time-code"
-              pattern="[0-9 ]*"
-              maxlength={8}
+              pattern={recovery()?undefined:'[0-9 ]*'}
+              maxlength={recovery()?128:8}
               value={code()}
               onInput={(e) => setCode(e.currentTarget.value)}
               ref={(el) => queueMicrotask(() => el.focus())}
             />
           </label>
+          </Show>
           <Show when={error()}>
             <p class={css.error} role="alert">
               {error()}

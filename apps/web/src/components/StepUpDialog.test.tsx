@@ -36,3 +36,15 @@ it('uses a user-verified passkey', async () => {
   expect(assertPasskey).toHaveBeenCalledWith(expect.objectContaining({ userVerification: 'required' }));
   expect(send).toHaveBeenLastCalledWith({ passkey: proof });
 });
+
+it('sends recovery as an explicit password-backed alternative and clears it',async()=>{
+  const send=vi.fn(async()=>new Response('{}',{status:200}));
+  const result=requestStepUp({methods:['password','passkey','recovery'],send});
+  const dialog=await screen.findByRole('dialog');
+  fireEvent.input(screen.getByLabelText('Password'),{target:{value:'private-password'}});
+  fireEvent.input(screen.getByLabelText('Recovery code (with your password, instead of an authenticator code)'),{target:{value:'  recovery-proof  '}});
+  fireEvent.submit(dialog);
+  await expect(result).resolves.toBe(true);
+  expect(send).toHaveBeenCalledWith({password:'private-password',recoveryCode:'recovery-proof'});
+  expect(screen.queryByRole('dialog')).toBeNull();
+});

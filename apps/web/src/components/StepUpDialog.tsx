@@ -14,6 +14,7 @@ function StepUpDialog(props: StepUpPrompt & { finish: (confirmed: boolean) => vo
   const id = createUniqueId();
   const [password, setPassword] = createSignal('');
   const [code, setCode] = createSignal('');
+  const [recoveryCode,setRecoveryCode]=createSignal('');
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal('');
   const [element, setElement] = createSignal<HTMLElement>();
@@ -33,6 +34,7 @@ function StepUpDialog(props: StepUpPrompt & { finish: (confirmed: boolean) => vo
       } else {
         if (props.methods.includes('password')) body.password = password();
         if (props.methods.includes('totp')) body.code = code();
+        if (props.methods.includes('recovery') && recoveryCode().trim()) body.recoveryCode=recoveryCode().trim();
       }
       const response = await props.send(body);
       if (!response.ok) {
@@ -41,6 +43,7 @@ function StepUpDialog(props: StepUpPrompt & { finish: (confirmed: boolean) => vo
       }
       setPassword('');
       setCode('');
+      setRecoveryCode('');
       props.finish(true);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : t('security-stepup-failed'));
@@ -53,6 +56,7 @@ function StepUpDialog(props: StepUpPrompt & { finish: (confirmed: boolean) => vo
       <p class={css.help} id={`${id}-body`}>{t('security-stepup-body')}</p>
       <Show when={props.methods.includes('password')}><label class="field"><span>{t('security-stepup-password')}</span><input type="password" autocomplete="current-password" value={password()} onInput={(event) => setPassword(event.currentTarget.value)} disabled={busy()} /></label></Show>
       <Show when={props.methods.includes('totp')}><label class="field"><span>{t('security-stepup-code')}</span><input type="text" inputmode="numeric" autocomplete="one-time-code" value={code()} onInput={(event) => setCode(event.currentTarget.value)} disabled={busy()} /></label></Show>
+      <Show when={props.methods.includes('recovery')}><label class="field"><span>{t('security-stepup-recovery')}</span><input type="text" autocomplete="one-time-code" value={recoveryCode()} onInput={event=>setRecoveryCode(event.currentTarget.value)} disabled={busy()}/></label></Show>
       <Show when={props.methods.length === 0}><p role="alert">{t('security-stepup-unavailable')}</p></Show>
       <Show when={error()}><p role="alert">{error()}</p></Show>
       <div class={css.dialogActions}>
