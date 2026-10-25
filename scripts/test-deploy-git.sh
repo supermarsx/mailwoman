@@ -16,6 +16,7 @@ git init -q -b main "$FIXTURE/author"
 AUTHOR="$FIXTURE/author"
 awk '{ print } $0 == "update_checkout" { print "printf '\''%s\\n'\'' \"$STATE\" > \"$ROOT/reached\"; exit 0" }' "$ROOT/deploy.sh" > "$AUTHOR/deploy.sh"
 printf 'old\n' > "$AUTHOR/version"
+printf 'local defaults\n' > "$AUTHOR/local-settings"
 printf 'reached\n*.local/\n' > "$AUTHOR/.gitignore"
 git -C "$AUTHOR" add .
 git -C "$AUTHOR" commit -qm initial
@@ -23,7 +24,7 @@ git -C "$AUTHOR" remote add origin "$FIXTURE/remote.git"
 git -C "$AUTHOR" push -qu origin main
 git --git-dir="$FIXTURE/remote.git" symbolic-ref HEAD refs/heads/main
 clone() { git clone -q "$FIXTURE/remote.git" "$FIXTURE/$1"; }
-for name in clean dirty staged diverged detached untracked collision dry offline; do clone "$name"; done
+for name in clean dirty staged dirty-unrelated staged-unrelated diverged detached untracked collision dry offline; do clone "$name"; done
 printf 'new\n' > "$AUTHOR/version"
 printf 'incoming\n' > "$AUTHOR/conflict"
 # A changed script must be reloaded, not continue executing old parsed code.
@@ -33,6 +34,7 @@ git -C "$AUTHOR" add .
 git -C "$AUTHOR" commit -qm update
 git -C "$AUTHOR" push -q
 LATEST=$(git -C "$AUTHOR" rev-parse HEAD)
+clone current-dirty
 run() { bash "$FIXTURE/$1/deploy.sh" "${@:2}" > "$FIXTURE/$1.log" 2>&1; }
 reject() {
     local checkout=$1; shift
@@ -44,6 +46,19 @@ reject() {
 run clean --state-dir "$FIXTURE/state with spaces"
 [[ $(git -C "$FIXTURE/clean" rev-parse HEAD) == "$LATEST" ]] || fail 'did not pull'
 [[ $(cat "$FIXTURE/clean/reached-new") == "$FIXTURE/state with spaces" ]] || fail 'did not re-exec with original arguments'
+printf 'local change\n' > "$FIXTURE/dirty-unrelated/local-settings"
+git -C "$FIXTURE/dirty-unrelated" config pull.rebase true
+run dirty-unrelated
+[[ $(git -C "$FIXTURE/dirty-unrelated" rev-parse HEAD) == "$LATEST" ]] || fail 'unrelated dirty checkout did not pull'
+[[ $(cat "$FIXTURE/dirty-unrelated/local-settings") == 'local change' ]] || fail 'unrelated dirty work lost'
+printf 'staged change\n' > "$FIXTURE/staged-unrelated/local-settings"
+git -C "$FIXTURE/staged-unrelated" add local-settings
+run staged-unrelated
+[[ $(git -C "$FIXTURE/staged-unrelated" rev-parse HEAD) == "$LATEST" ]] || fail 'unrelated staged checkout did not pull'
+[[ $(git -C "$FIXTURE/staged-unrelated" show :local-settings) == 'staged change' ]] || fail 'staged work lost'
+printf 'local\n' >> "$FIXTURE/current-dirty/version"
+run current-dirty
+grep -q local "$FIXTURE/current-dirty/version" || fail 'up-to-date dirty work lost'
 printf 'local\n' >> "$FIXTURE/dirty/version"
 reject dirty
 grep -q local "$FIXTURE/dirty/version" || fail 'dirty work lost'
@@ -75,4 +90,4 @@ git -C "$FIXTURE/offline" branch --unset-upstream
 reject offline
 run detached --no-pull
 run staged status
-printf 'PASS: fast-forward, refreshed script/arguments, dirty and staged work, divergence, detached HEAD, untracked preservation/collision, dry-run, failed fetch, missing upstream, opt-out and status\n'
+printf 'PASS: fast-forward/re-exec, unrelated dirty/staged edits, dirty up-to-date checkout, configured rebase override, overlapping edits protected, divergence, detached HEAD, untracked preservation/collision, dry-run, failed fetch, missing upstream, opt-out and status\n'

@@ -237,12 +237,14 @@ update_checkout() {
     # Git itself refuses an untracked file that an incoming commit would overwrite.
     status=0
     git -c core.safecrlf=false -C "$ROOT" diff --quiet || status=$?
-    [[ $status == 0 ]] || die "Tracked working-tree changes or Git read failure; commit your work or use --no-pull"
+    [[ $status == 0 || $status == 1 ]] || die "Cannot read the Git working tree"
+    [[ $status == 0 ]] || log "Local tracked edits detected; Git will preserve them or refuse an overlapping update"
     status=0
     git -c core.safecrlf=false -C "$ROOT" diff --cached --quiet || status=$?
-    [[ $status == 0 ]] || die "Staged changes or Git read failure; commit your work or use --no-pull"
+    [[ $status == 0 || $status == 1 ]] || die "Cannot read the Git index"
+    [[ $status == 0 ]] || log "Staged edits detected; Git will preserve them or refuse an overlapping update"
     log "Updating from $upstream (currently $before)"
-    git -C "$ROOT" -c rebase.autoStash=false -c merge.autoStash=false pull --ff-only ||
+    git -C "$ROOT" -c rebase.autoStash=false -c merge.autoStash=false pull --ff-only --no-rebase ||
         die "Git update failed; nothing was built or restarted. Reconcile the checkout or use --no-pull"
     export MW_DEPLOY_GIT_SYNCED
     MW_DEPLOY_GIT_SYNCED=$(git -C "$ROOT" rev-parse HEAD) || die "Cannot read updated Git HEAD"

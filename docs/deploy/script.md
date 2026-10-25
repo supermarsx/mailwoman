@@ -203,9 +203,12 @@ bash deploy.sh deploy --image-tag master --require-signature
 
 `deploy` runs `git pull --ff-only` before reading deployment configuration or
 touching containers, then restarts the script from the updated checkout with the
-same arguments. It refuses tracked local edits, detached HEAD, a missing upstream,
-divergence, or a failed fetch. It never stashes, resets, cleans, or merges your work.
-Unrelated untracked files are retained; Git refuses incoming path collisions.
+same arguments. Local tracked, staged, and untracked edits are retained when Git
+can fast-forward without overwriting them. An already-current dirty checkout can
+deploy too. Git refuses overlapping edits or incoming path collisions. Detached
+HEAD, a missing upstream, divergence, or a failed fetch also stop deployment.
+The script never stashes, resets, cleans, or creates a merge commit; an existing
+`pull.rebase` setting does not change this behavior.
 Use `--no-pull` for an intentional local revision, a source archive, or an offline
 deployment. `--dry-run` only describes the Git update. Other commands do not pull.
 The existing `--pull` option fetches a **container image**, independently of Git.
