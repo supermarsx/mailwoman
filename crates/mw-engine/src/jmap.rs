@@ -1462,10 +1462,14 @@ impl Engine {
         // only in the local cache (still immediately queryable via `ingest_local`
         // below); outbound send happens exclusively through the submitter at
         // `EmailSubmission` time. Standards IMAP keeps the best-effort upstream APPEND
-        // (byte-unchanged).
-        if !self.is_plugin_backed(account_id) {
-            tolerant(rt.backend.append(&mbref, &raw, &[Flag::Draft]).await)?;
-        }
+        // (byte-unchanged). Where the server says where it put the copy
+        // (UIDPLUS `APPENDUID`), that is remembered, so the copy can be removed
+        // once the message is sent ([`Engine::remove_upstream_draft`]).
+        let upstream = if self.is_plugin_backed(account_id) {
+            None
+        } else {
+            tolerant(rt.backend.append(&mbref, &raw, &[Flag::Draft]).await)?
+        };
 
         let sid = self
             .ingest_local(
@@ -1477,6 +1481,9 @@ impl Engine {
                 &[Flag::Draft],
             )
             .await?;
+        if let Some(at) = upstream {
+            self.remember_upstream_draft(account_id, &sid, &at).await;
+        }
         // The draft's download blobId is the whole-message form `<stableId>`
         // (see `Engine::fetch_blob`), so a just-composed draft is exportable.
         Ok((sid.clone(), Some(sid)))
@@ -2720,9 +2727,15 @@ impl Engine {
         {
             tracing::warn!("submission {sub_id} was sent; recording the change failed: {e}");
         }
-        let (filed, problem) = self
+        let (filed, mut problem) = self
             .file_after_send(account_id, rt, email_id, sent, on_success.as_ref())
             .await;
+        if let Some(note) = self.remove_upstream_draft(account_id, rt, email_id).await {
+            problem = Some(match problem {
+                Some(earlier) => format!("{earlier}; {note}"),
+                None => note,
+            });
+        }
         if let Some(note) = problem {
             tracing::warn!("submission {sub_id} was {note}; filing will not be retried");
             if let Err(e) = self
@@ -2734,6 +2747,134 @@ impl Engine {
             }
         }
         Ok(filed)
+    }
+
+    /// Remember where the server put the copy of a draft composed here, keyed by
+    /// the draft's Email id. Only a copy with server coordinates (a UID from
+    /// `APPENDUID`) is remembered: without one there is nothing that could be
+    /// removed later without touching other messages. Best-effort: a failure to
+    /// record it means only that the copy is not removed after the send.
+    async fn remember_upstream_draft(&self, account_id: &str, email_id: &str, at: &MessageRef) {
+        let MessageRef::Imap {
+            mailbox,
+            uidvalidity,
+            uid,
+        } = at
+        else {
+            return;
+        };
+        if *uidvalidity == 0 || *uid == 0 {
+            return;
+        }
+        let entry = json!({ "mailbox": mailbox.name, "uidvalidity": uidvalidity, "uid": uid });
+        let changed = self
+            .update_upstream_drafts(account_id, |map| {
+                map.insert(email_id.to_string(), entry.clone());
+                // Drafts that are never sent would otherwise pile up here.
+                while map.len() > UPSTREAM_DRAFTS_MAX {
+                    let Some(first) = map.keys().next().cloned() else {
+                        break;
+                    };
+                    map.remove(&first);
+                }
+            })
+            .await;
+        if let Err(e) = changed {
+            tracing::warn!("draft {email_id}: could not record its copy on the mail server: {e}");
+        }
+    }
+
+    /// Read-modify-write the account's record of draft copies on the server,
+    /// retried on a concurrent writer (`compare_and_set_setting`).
+    async fn update_upstream_drafts(
+        &self,
+        account_id: &str,
+        edit: impl Fn(&mut Map<String, Value>),
+    ) -> Result<()> {
+        let key = upstream_drafts_key(account_id);
+        for _ in 0..8 {
+            let current = self.store().get_setting(&key).await?;
+            let mut map = current
+                .as_deref()
+                .and_then(|v| serde_json::from_str::<Map<String, Value>>(v).ok())
+                .unwrap_or_default();
+            edit(&mut map);
+            let next = Value::Object(map).to_string();
+            if self
+                .store()
+                .compare_and_set_setting(&key, current.as_deref(), &next)
+                .await?
+            {
+                return Ok(());
+            }
+        }
+        Err(EngineError::Protocol(
+            "the record of draft copies kept changing".into(),
+        ))
+    }
+
+    /// Remove the copy of a sent draft from the server's Drafts folder (t28-e17
+    /// open item 4): without this, the copy APPENDed when the draft was composed
+    /// stayed there, the next sync listed it, and Drafts showed every message
+    /// the user had sent. Only that one message is expunged
+    /// ([`AccountBackend::expunge_messages`](crate::backend::AccountBackend::expunge_messages));
+    /// a server that cannot do that without touching others keeps the copy.
+    ///
+    /// Returns a note for the submission's `last_error` when removing the copy
+    /// failed; a server that cannot do it at all is not a failure. The send
+    /// itself stands either way.
+    async fn remove_upstream_draft(
+        &self,
+        account_id: &str,
+        rt: &AccountRuntime,
+        email_id: &str,
+    ) -> Option<String> {
+        let key = upstream_drafts_key(account_id);
+        let stored = self.store().get_setting(&key).await.ok().flatten()?;
+        let map = serde_json::from_str::<Map<String, Value>>(&stored).ok()?;
+        let entry = map.get(email_id)?;
+        let (Some(name), Some(uidvalidity), Some(uid)) = (
+            entry["mailbox"].as_str(),
+            entry["uidvalidity"]
+                .as_u64()
+                .and_then(|v| u32::try_from(v).ok()),
+            entry["uid"].as_u64().and_then(|v| u32::try_from(v).ok()),
+        ) else {
+            return None;
+        };
+        let at = MessageRef::Imap {
+            mailbox: RawMailboxRef {
+                name: name.to_string(),
+                uidvalidity,
+            },
+            uidvalidity,
+            uid,
+        };
+        let outcome = rt.backend.expunge_messages(&[at]).await;
+        // Forgotten either way: a copy the server will not remove now is not
+        // retried at every later send.
+        let forget = self
+            .update_upstream_drafts(account_id, |map| {
+                map.remove(email_id);
+            })
+            .await;
+        if let Err(e) = forget {
+            tracing::warn!("draft {email_id}: could not forget its copy on the mail server: {e}");
+        }
+        match outcome {
+            Ok(()) => None,
+            // The server cannot remove one message on its own (no UIDPLUS): the
+            // copy stays, as it always did there. Not an error of this send.
+            Err(EngineError::Unsupported(_)) => {
+                tracing::info!(
+                    "draft {email_id}: the mail server keeps its Drafts copy (no UIDPLUS)"
+                );
+                None
+            }
+            Err(e) => Some(format!(
+                "sent, but the copy in Drafts on the mail server could not be removed: {e}"
+            )),
+        }
     }
 
     /// What happens to a message once SMTP has accepted it. Returns what was
@@ -2927,7 +3068,37 @@ impl Engine {
             name: dest.name,
             uidvalidity: 0,
         };
-        Ok(tolerant(rt.backend.append(&folder, &sent.raw, &flags).await).err())
+        match tolerant(rt.backend.append(&folder, &sent.raw, &flags).await) {
+            Ok(Some(at)) => {
+                self.adopt_upstream_copy(email_id, &dest.id, &at).await;
+                Ok(None)
+            }
+            Ok(None) => Ok(None),
+            Err(e) => Ok(Some(e)),
+        }
+    }
+
+    /// Give an engine-local message the server coordinates of the copy just
+    /// APPENDed for it (UIDPLUS `APPENDUID`). Without them the next sync of that
+    /// folder found the copy, did not know it, and listed the message twice.
+    /// Without an `APPENDUID` nothing changes. Best-effort.
+    async fn adopt_upstream_copy(&self, email_id: &str, mailbox_id: &str, at: &MessageRef) {
+        let MessageRef::Imap {
+            uidvalidity, uid, ..
+        } = at
+        else {
+            return;
+        };
+        if *uidvalidity == 0 || *uid == 0 {
+            return;
+        }
+        if let Err(e) = self
+            .store()
+            .relocate_message(email_id, mailbox_id, *uid, *uidvalidity)
+            .await
+        {
+            tracing::warn!("message {email_id}: could not record its copy on the mail server: {e}");
+        }
     }
 
     /// Record `final` for a submission SMTP has accepted.
@@ -3091,25 +3262,44 @@ impl Engine {
                     name: sent_name,
                     uidvalidity: 0,
                 };
+                let mut upstream = None;
                 if !self.is_plugin_backed(account_id) {
-                    keep(
-                        tolerant(rt.backend.append(&sent_ref, &sent.raw, &[Flag::Seen]).await)
-                            .map(|_| ()),
-                    );
+                    match tolerant(rt.backend.append(&sent_ref, &sent.raw, &[Flag::Seen]).await) {
+                        Ok(at) => upstream = at,
+                        Err(e) => keep(Err(e)),
+                    }
                 }
-                let message_id = sent.message_id.clone().unwrap_or_else(gen_message_id);
-                keep(
-                    self.ingest_local(
-                        account_id,
-                        &sent_id,
-                        &sent_ref,
-                        &message_id,
-                        sent.raw,
-                        &[Flag::Seen],
-                    )
-                    .await
-                    .map(|_| ()),
-                );
+                // The local copy takes the coordinates the server gave the
+                // APPENDed one, so the next sync of Sent knows it and does not
+                // list the message twice; without them it is engine-local.
+                let ingested = match upstream {
+                    Some(
+                        at @ MessageRef::Imap {
+                            uidvalidity, uid, ..
+                        },
+                    ) if uidvalidity != 0 && uid != 0 => {
+                        let msg = RawMessage {
+                            message_ref: at,
+                            raw: sent.raw,
+                            flags: vec![Flag::Seen],
+                            internaldate: Some(now_rfc3339()),
+                        };
+                        self.ingest(account_id, &sent_id, &msg).await
+                    }
+                    _ => {
+                        let message_id = sent.message_id.clone().unwrap_or_else(gen_message_id);
+                        self.ingest_local(
+                            account_id,
+                            &sent_id,
+                            &sent_ref,
+                            &message_id,
+                            sent.raw,
+                            &[Flag::Seen],
+                        )
+                        .await
+                    }
+                };
+                keep(ingested.map(|_| ()));
             }
             Err(e) => keep(Err(e)),
         }
@@ -4507,6 +4697,15 @@ pub(crate) fn claim_send(id: &str) -> Option<SendClaim> {
         .insert(id.to_string())
         .then(|| SendClaim(id.to_string()))
 }
+
+/// The `settings` key holding where the drafts composed for `account_id` sit on
+/// the mail server: a JSON object, Email id → `{ mailbox, uidvalidity, uid }`.
+fn upstream_drafts_key(account_id: &str) -> String {
+    format!("draft_upstream:{account_id}")
+}
+
+/// How many draft copies [`upstream_drafts_key`] remembers per account.
+const UPSTREAM_DRAFTS_MAX: usize = 500;
 
 fn tolerant<T>(res: Result<T>) -> Result<Option<T>> {
     match res {
