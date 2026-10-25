@@ -31,6 +31,7 @@ MEMORY_LIMIT=
 CPU_LIMIT=
 SIGNATURE_IDENTITY=
 SIGNATURE_ISSUER=
+UPSTREAM_DEFAULT=
 # The identity that signs the published image: .github/workflows/supply-chain.yml
 # on a push to master, through GitHub's OIDC issuer. deploy.env may name another
 # (SIGNATURE_IDENTITY / SIGNATURE_ISSUER) for a fork's images.
@@ -200,7 +201,7 @@ read_config() {
     # Settings a deploy.env may leave out (older files, or ones edited by hand) are
     # empty unless this file sets them, never left over from a file read earlier.
     if [[ ${file##*/} == deploy.env ]]; then
-        PROXY_NETWORK=; ACME_CA=; ACME_CA_ROOT=; MEMORY_LIMIT=; CPU_LIMIT=; SIGNATURE_IDENTITY=; SIGNATURE_ISSUER=
+        PROXY_NETWORK=; ACME_CA=; ACME_CA_ROOT=; MEMORY_LIMIT=; CPU_LIMIT=; SIGNATURE_IDENTITY=; SIGNATURE_ISSUER=; UPSTREAM_DEFAULT=
         BACKUP_KEEP=; BACKUP_KEEP_DAYS=; BACKUP_RECIPIENT=; BACKUP_HOOK=; ALERT_HOOK=
     fi
     while IFS= read -r line || [[ -n $line ]]; do
@@ -210,7 +211,7 @@ read_config() {
         [[ $seen != *"|$key|"* ]] || die "Duplicate $key in $file"
         seen+="$key|"
         case "$key" in
-            PROJECT|EXPOSURE|DOMAIN|PUBLIC_URL|PORT|MODE|PROXY_PREFIX|PROXY_NETWORK|CADDY_IMAGE|ACME_CA|ACME_CA_ROOT|MEMORY_LIMIT|CPU_LIMIT|SIGNATURE_IDENTITY|SIGNATURE_ISSUER|BACKUP_KEEP|BACKUP_KEEP_DAYS|BACKUP_RECIPIENT|BACKUP_HOOK|ALERT_HOOK|IMAGE_ID|DATA_VOLUME|CADDY_ID)
+            PROJECT|EXPOSURE|DOMAIN|PUBLIC_URL|PORT|MODE|PROXY_PREFIX|PROXY_NETWORK|CADDY_IMAGE|ACME_CA|ACME_CA_ROOT|MEMORY_LIMIT|CPU_LIMIT|SIGNATURE_IDENTITY|SIGNATURE_ISSUER|UPSTREAM_DEFAULT|BACKUP_KEEP|BACKUP_KEEP_DAYS|BACKUP_RECIPIENT|BACKUP_HOOK|ALERT_HOOK|IMAGE_ID|DATA_VOLUME|CADDY_ID)
                 printf -v "$key" '%s' "$value" ;;
             *) die "Unknown setting $key in $file" ;;
         esac
@@ -253,6 +254,13 @@ validate_config() {
     [[ -z $CPU_LIMIT || ($CPU_LIMIT =~ ^[0-9]{1,3}(\.[0-9]{1,2})?$ && $CPU_LIMIT =~ [1-9]) ]] || die "CPU_LIMIT must be a number of CPUs such as 2 or 1.5, or empty for no limit"
     [[ -z $SIGNATURE_IDENTITY || $SIGNATURE_IDENTITY =~ ^[a-zA-Z0-9][a-zA-Z0-9._~:/@%+=-]*$ ]] || die "SIGNATURE_IDENTITY must be a certificate identity such as $DEFAULT_SIGNATURE_IDENTITY"
     [[ -z $SIGNATURE_ISSUER || $SIGNATURE_ISSUER =~ ^https://[a-zA-Z0-9][a-zA-Z0-9._~:/%+-]*$ ]] || die "SIGNATURE_ISSUER must be the https:// URL of an OIDC issuer"
+    if [[ -n $UPSTREAM_DEFAULT ]]; then
+        if [[ $MODE == proxy ]]; then
+            [[ $UPSTREAM_DEFAULT =~ ^https?://[a-zA-Z0-9][a-zA-Z0-9.-]*(:[0-9]{1,5})?(/[a-zA-Z0-9._~/%-]*)?$ ]] || die "UPSTREAM_DEFAULT must be the http(s):// URL of a JMAP server in proxy mode"
+        else
+            [[ $UPSTREAM_DEFAULT =~ ^(imaps?|pop3s?)://[a-zA-Z0-9][a-zA-Z0-9.-]*(:[0-9]{1,5})?/?$ ]] || die "UPSTREAM_DEFAULT must be an imaps://, imap://, pop3s:// or pop3:// server URL in engine mode"
+        fi
+    fi
     [[ -z $BACKUP_KEEP || $BACKUP_KEEP =~ ^[1-9][0-9]{0,3}$ ]] || die "BACKUP_KEEP must be a number of snapshots from 1 to 9999, or empty"
     [[ -z $BACKUP_KEEP_DAYS || $BACKUP_KEEP_DAYS =~ ^[1-9][0-9]{0,4}$ ]] || die "BACKUP_KEEP_DAYS must be a number of days from 1 to 99999, or empty"
     # age: an age1 recipient or an SSH public key. gpg: a full key fingerprint, so
@@ -280,6 +288,7 @@ MEMORY_LIMIT=$MEMORY_LIMIT
 CPU_LIMIT=$CPU_LIMIT
 SIGNATURE_IDENTITY=$SIGNATURE_IDENTITY
 SIGNATURE_ISSUER=$SIGNATURE_ISSUER
+UPSTREAM_DEFAULT=$UPSTREAM_DEFAULT
 BACKUP_KEEP=$BACKUP_KEEP
 BACKUP_KEEP_DAYS=$BACKUP_KEEP_DAYS
 BACKUP_RECIPIENT=$BACKUP_RECIPIENT
@@ -303,6 +312,8 @@ validate_app_env() {
                 die "$key is managed by deploy.sh; see docs/deploy/script.md" ;;
             MW_TRUSTED_PROXIES|MW_FORWARDED_MODE)
                 [[ $EXPOSURE != caddy ]] || die "$key is managed for Caddy; remove it from app.env" ;;
+            MW_UPSTREAM_DEFAULT)
+                [[ -z $UPSTREAM_DEFAULT ]] || die "The mail server is set twice: UPSTREAM_DEFAULT in deploy.env and MW_UPSTREAM_DEFAULT in app.env; keep one" ;;
         esac
     done < "$1"
     $found || die "MW_SERVER_KEY is missing from app.env"
@@ -416,10 +427,9 @@ RUST_LOG=info
 # Bearer token for GET /metrics (Prometheus text format); without it /metrics is
 # refused. Remove the line to turn metrics off. See docs/deploy/monitoring.md.
 MW_METRICS_TOKEN=$metrics
-# Required for sign-in: the mail server every user signs in to. The sign-in form
-# asks only for the email address and the password. Proxy mode: a JMAP URL.
-# Engine mode: imaps://host:993, imap://host:143, pop3s://host:995 or pop3://host:110.
-# MW_UPSTREAM_DEFAULT=https://jmap.example.org
+# Required for sign-in: the mail server every user signs in to, set as
+# UPSTREAM_DEFAULT in deploy.env (or as MW_UPSTREAM_DEFAULT here, not both). The
+# sign-in form asks only for the email address and the password.
 # Optional: comma-separated origins allowed for proxy-mode JMAP logins.
 # MW_JMAP_UPSTREAMS=https://jmap.example.org
 # Engine-mode SMTP overrides (otherwise inferred from the mailbox host):
@@ -558,12 +568,13 @@ pem_certificates() {
 }
 
 render() {
-    local directory=$1 secure=true trust='' caddyfile caddy_env root_pem limits='' cpus=$CPU_LIMIT host_cpus
+    local directory=$1 secure=true trust='' upstream='' caddyfile caddy_env root_pem limits='' cpus=$CPU_LIMIT host_cpus
     [[ $EXPOSURE != local ]] || secure=false
     # Client addresses come from the proxy network's peers unless app.env says otherwise.
     if [[ $EXPOSURE == network && -n $PROXY_SUBNETS ]] && ! grep -Eq '^MW_(TRUSTED_PROXIES|FORWARDED_MODE)=' "$directory/app.env"; then
         trust=$'\n'"      MW_TRUSTED_PROXIES: '$PROXY_SUBNETS'"$'\n'"      MW_FORWARDED_MODE: xff"
     fi
+    if [[ -n $UPSTREAM_DEFAULT ]]; then upstream=$'\n'"      MW_UPSTREAM_DEFAULT: '$UPSTREAM_DEFAULT'"; fi
     if [[ -n $MEMORY_LIMIT ]]; then limits+=$'\n'"    mem_limit: $MEMORY_LIMIT"; fi
     if [[ -n $cpus ]]; then
         # Docker refuses a CPU limit above the CPUs it can use.
@@ -607,7 +618,7 @@ services:
       MW_PLUGIN_DIR: /usr/lib/mailwoman/plugins
       MW_MODE: '$MODE'
       MW_PUBLIC_URL: '$PUBLIC_URL'
-      MW_COOKIE_SECURE: '$secure'$trust
+      MW_COOKIE_SECURE: '$secure'$trust$upstream
     volumes: ['app_data:/data']
     healthcheck:
       test: [CMD, /usr/local/bin/mailwoman, healthcheck, --url, 'http://127.0.0.1:8080/healthz']

@@ -392,11 +392,25 @@ SNAPSHOT=$(find "$STATE/backups" -mindepth 1 -maxdepth 1 -type d | head -n 1)
 tar --numeric-owner -tvf "$SNAPSHOT/data.tar" > "$STATE/tar-listing"
 grep -E '65532/65532.*\./mailwoman.db$' "$STATE/tar-listing" >/dev/null || fail 'backup lost database ownership'
 
+# UPSTREAM_DEFAULT in deploy.env becomes MW_UPSTREAM_DEFAULT; a URL for the other
+# mode, or the same setting in app.env as well, is refused.
+JMAP_UPSTREAM=https://jmap.example.test/.well-known/jmap
+set_config UPSTREAM_DEFAULT=imaps://imap.example.test:993
+reject doctor
+grep -F 'UPSTREAM_DEFAULT must be the http(s):// URL of a JMAP server in proxy mode' "$STATE/rejected.log" >/dev/null || fail "an IMAP upstream in proxy mode was refused for another reason: $(cat "$STATE/rejected.log")"
+set_config "UPSTREAM_DEFAULT=$JMAP_UPSTREAM"
+cp "$STATE/app.env" "$STATE/app.env.saved"
+printf 'MW_UPSTREAM_DEFAULT=%s\n' "$JMAP_UPSTREAM" >> "$STATE/app.env"
+reject doctor
+grep -F 'The mail server is set twice' "$STATE/rejected.log" >/dev/null || fail "an upstream set in both files was refused for another reason: $(cat "$STATE/rejected.log")"
+cat "$STATE/app.env.saved" > "$STATE/app.env"
+rm -- "$STATE/app.env.saved"
 # A config deploy takes another backup and preserves the key and data. It also
 # applies edited limits; a CPU limit above what Docker can use is lowered to that.
 HOST_CPUS=$(docker info --format '{{.NCPU}}')
 set_config MEMORY_LIMIT=768m CPU_LIMIT=999
 run deploy --no-build 2> "$STATE/limits.log" || { cat "$STATE/limits.log" >&2; fail 'config deploy failed'; }
+app_env "$(dc ps -q mailwoman)" | grep -Fx "MW_UPSTREAM_DEFAULT=$JMAP_UPSTREAM" >/dev/null || fail 'UPSTREAM_DEFAULT did not reach the app as MW_UPSTREAM_DEFAULT'
 [[ $(awk -F= '$1 == "MW_SERVER_KEY" {print $2}' "$STATE/app.env") == "$SERVER_KEY" ]] || fail 'deploy rotated key'
 CID=$(dc ps -q mailwoman)
 limits "$CID" 805306368 "$HOST_CPUS.00" 'after editing MEMORY_LIMIT=768m CPU_LIMIT=999'
@@ -413,6 +427,7 @@ CID=$(dc ps -q mailwoman)
 docker cp "$CID:/data/uploads/deploy-test-object" "$STATE/restored-object"
 [[ $(cat "$STATE/restored-object") == before-snapshot ]] || fail 'upload object did not restore'
 limits "$CID" 1073741824 2.00 'after rolling back the limit change'
+if app_env "$CID" | grep -F 'MW_UPSTREAM_DEFAULT=' >/dev/null; then fail 'the rollback kept the UPSTREAM_DEFAULT the snapshot did not have'; fi
 
 # Corrupt snapshots are refused before taking down the live application.
 printf 'tampered\n' >> "$SNAPSHOT/app.env"

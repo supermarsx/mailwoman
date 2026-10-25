@@ -80,7 +80,10 @@ directory; directories outside the repository are supported. Files use mode `060
 and the state directory uses `0700` on filesystems supporting Unix permissions.
 
 - `deploy.env`: project, mode, URL, port, exposure, proxy network, Caddy
-  image/network/ACME settings, and the app's memory and CPU limits.
+  image/network/ACME settings, the app's memory and CPU limits, the mail server
+  (`UPSTREAM_DEFAULT`), and the backup and alert settings (`BACKUP_KEEP`,
+  `BACKUP_KEEP_DAYS`, `BACKUP_RECIPIENT`, `BACKUP_HOOK`, `ALERT_HOOK`; see
+  [backups.md](backups.md) and [monitoring.md](monitoring.md)).
 - `app.env`: persistent random `MW_SERVER_KEY`, random admin password, and optional
   application environment variables. Values are **literal, unquoted** text; dollar
   signs and spaces are preserved. Do not add `export`, quotes or shell commands.
@@ -158,9 +161,12 @@ To put an existing installation on a reverse proxy's Docker network:
 3. Point the proxy at `http://<project>:8080` (web UI and API; WebSocket support
    is needed). The app is no longer published on the host port.
 
-Set `MW_UPSTREAM_DEFAULT` in `app.env` to the mail server users sign in to: a
-JMAP URL in proxy mode, an `imaps://` or `pop3s://` URL in engine mode. The
-sign-in form has no server field, so without it nobody can sign in. Set
+Set `UPSTREAM_DEFAULT` in `deploy.env` to the mail server users sign in to: an
+`http(s)://` JMAP URL in proxy mode, an `imaps://`, `imap://`, `pop3s://` or
+`pop3://` server URL in engine mode (`doctor` refuses a URL for the other mode).
+The script passes it to the app as `MW_UPSTREAM_DEFAULT`. The sign-in form has no
+server field, so without it nobody can sign in. An installation that already sets
+`MW_UPSTREAM_DEFAULT` in `app.env` keeps working; setting both is refused. Set
 `MW_JMAP_UPSTREAMS` for private/internal JMAP origins (or to restrict allowed
 public providers). In engine mode, use `MW_SMTP_HOST`, `MW_SMTP_PORT`, and
 `MW_SMTP_SECURITY` when submission differs from the mailbox server. Optional
