@@ -55,6 +55,7 @@ ASSUME_YES=false
 BACKUP_KEEP=
 BACKUP_KEEP_DAYS=
 BACKUP_RECIPIENT=
+BACKUP_HOOK=
 IDENTITY=
 EXTRACT=
 
@@ -73,7 +74,8 @@ Commands (default: deploy):
   start             Start the last applied configuration and verify health
   restart           Restart the last applied configuration and verify health
   backup            Stop the app briefly; snapshot data, uploads, config and key
-                    (one encrypted archive when BACKUP_RECIPIENT is set)
+                    (one encrypted archive when BACKUP_RECIPIENT is set), then
+                    run BACKUP_HOOK with its path
   restore PATH      Restore a snapshot directory or encrypted archive into a NEW
                     volume, then verify health
   rollback          Restore the snapshot taken immediately before the last deploy
@@ -193,7 +195,7 @@ read_config() {
     # empty unless this file sets them, never left over from a file read earlier.
     if [[ ${file##*/} == deploy.env ]]; then
         PROXY_NETWORK=; ACME_CA=; ACME_CA_ROOT=; MEMORY_LIMIT=; CPU_LIMIT=; SIGNATURE_IDENTITY=; SIGNATURE_ISSUER=
-        BACKUP_KEEP=; BACKUP_KEEP_DAYS=; BACKUP_RECIPIENT=
+        BACKUP_KEEP=; BACKUP_KEEP_DAYS=; BACKUP_RECIPIENT=; BACKUP_HOOK=
     fi
     while IFS= read -r line || [[ -n $line ]]; do
         [[ -z $line || $line == \#* ]] && continue
@@ -202,7 +204,7 @@ read_config() {
         [[ $seen != *"|$key|"* ]] || die "Duplicate $key in $file"
         seen+="$key|"
         case "$key" in
-            PROJECT|EXPOSURE|DOMAIN|PUBLIC_URL|PORT|MODE|PROXY_PREFIX|PROXY_NETWORK|CADDY_IMAGE|ACME_CA|ACME_CA_ROOT|MEMORY_LIMIT|CPU_LIMIT|SIGNATURE_IDENTITY|SIGNATURE_ISSUER|BACKUP_KEEP|BACKUP_KEEP_DAYS|BACKUP_RECIPIENT|IMAGE_ID|DATA_VOLUME|CADDY_ID)
+            PROJECT|EXPOSURE|DOMAIN|PUBLIC_URL|PORT|MODE|PROXY_PREFIX|PROXY_NETWORK|CADDY_IMAGE|ACME_CA|ACME_CA_ROOT|MEMORY_LIMIT|CPU_LIMIT|SIGNATURE_IDENTITY|SIGNATURE_ISSUER|BACKUP_KEEP|BACKUP_KEEP_DAYS|BACKUP_RECIPIENT|BACKUP_HOOK|IMAGE_ID|DATA_VOLUME|CADDY_ID)
                 printf -v "$key" '%s' "$value" ;;
             *) die "Unknown setting $key in $file" ;;
         esac
@@ -249,6 +251,7 @@ validate_config() {
     [[ -z $BACKUP_KEEP_DAYS || $BACKUP_KEEP_DAYS =~ ^[1-9][0-9]{0,4}$ ]] || die "BACKUP_KEEP_DAYS must be a number of days from 1 to 99999, or empty"
     # age: an age1 recipient or an SSH public key. gpg: a full key fingerprint, so
     # that exactly one key in the keyring can match.
+    [[ -z $BACKUP_HOOK || $BACKUP_HOOK =~ ^/[a-zA-Z0-9._/+@-]+$ ]] || die "BACKUP_HOOK must be the absolute path of an executable (letters, digits and ._/+@- only), or empty"
     [[ -z $BACKUP_RECIPIENT || $BACKUP_RECIPIENT =~ ^(age1[02-9ac-hj-np-z]{58}|ssh-(ed25519|rsa)\ [A-Za-z0-9+/]+={0,2}|[0-9A-Fa-f]{40}|[0-9A-Fa-f]{64})$ ]] || die "BACKUP_RECIPIENT must be an age recipient (age1...), an SSH public key (ssh-ed25519 AAAA...) or a full gpg key fingerprint (40 hex digits), or empty"
 }
 
@@ -273,6 +276,7 @@ SIGNATURE_ISSUER=$SIGNATURE_ISSUER
 BACKUP_KEEP=$BACKUP_KEEP
 BACKUP_KEEP_DAYS=$BACKUP_KEEP_DAYS
 BACKUP_RECIPIENT=$BACKUP_RECIPIENT
+BACKUP_HOOK=$BACKUP_HOOK
 EOF
 }
 
@@ -514,7 +518,7 @@ check_signature() {
 
 # Keys that steer backup, prune and check rather than the running app. They take
 # effect as soon as deploy.env is saved, so they are not taken from the applied copy.
-OPERATION_KEYS=(BACKUP_KEEP BACKUP_KEEP_DAYS BACKUP_RECIPIENT)
+OPERATION_KEYS=(BACKUP_KEEP BACKUP_KEEP_DAYS BACKUP_RECIPIENT BACKUP_HOOK)
 
 load_active() {
     local key
@@ -739,6 +743,18 @@ encrypt_snapshot() {
     log "Encrypted backup ready: $archive (clear-text copy removed)"
 }
 
+# run_backup_hook: hand the finished backup (archive or snapshot directory) to
+# BACKUP_HOOK, for example to copy it off the host. A failing hook fails the backup;
+# the local copy stays either way.
+run_backup_hook() {
+    local status=0
+    [[ -f $BACKUP_HOOK && -x $BACKUP_HOOK ]] || die "BACKUP_HOOK $BACKUP_HOOK is not an executable file; the backup is at $LAST_BACKUP"
+    log "Running BACKUP_HOOK $BACKUP_HOOK"
+    "$BACKUP_HOOK" "$LAST_BACKUP" < /dev/null || status=$?
+    ((status == 0)) || die "BACKUP_HOOK $BACKUP_HOOK exited $status; the backup is kept at $LAST_BACKUP"
+    log "BACKUP_HOOK finished"
+}
+
 # decrypt_snapshot ARCHIVE: decrypt an archive written by encrypt_snapshot into a
 # private directory under the state directory, removed when the command ends, and
 # set SNAPSHOT to it.
@@ -809,7 +825,8 @@ activate() {
 # and makes DIR's configuration the state directory's; replace-failed is the
 # automatic rollback, which leaves deploy.env and app.env as the user wrote them.
 restore_snapshot() {
-    local from=$1 how=$2 file target_project
+    local from=$1 how=$2 file target_project key
+    local -A operation=()
     [[ -d $from && -f $from/COMPLETE ]] || die "Not a complete snapshot: $from"
     from=$(cd "$from" && pwd -P)
     [[ $(cat "$from/COMPLETE") == mailwoman-deploy-snapshot-v1 ]] || die "Unknown snapshot format"
@@ -819,8 +836,11 @@ restore_snapshot() {
     # Check the fixed expected set, ignoring any extra manifest paths.
     cmp -s <(cd "$from" && sha256sum data.tar compose.yaml app.env deploy.env release.env) "$from/SHA256SUMS" || die "Snapshot checksum mismatch"
     target_project=$PROJECT
+    # The snapshot brings back the app's configuration, not how backups are taken.
+    for key in "${OPERATION_KEYS[@]}"; do operation[$key]=${!key}; done
     read_config "$from/deploy.env"
     read_config "$from/release.env"
+    for key in "${OPERATION_KEYS[@]}"; do printf -v "$key" '%s' "${operation[$key]}"; done
     validate_config
     [[ $PROJECT == "$target_project" ]] || die "Snapshot belongs to project $PROJECT; initialize recovery state with that project name"
     if [[ ! -f $ACTIVE/release.env && -n $(docker ps -aq --filter "label=com.docker.compose.project=$PROJECT") ]]; then
@@ -1029,6 +1049,10 @@ case "$ACTION" in
         else
             log "Backups are not encrypted (BACKUP_RECIPIENT is empty; age $(command -v age >/dev/null 2>&1 && printf 'is' || printf 'is not') installed, gpg $(command -v gpg >/dev/null 2>&1 && printf 'is' || printf 'is not'))"
         fi
+        if [[ -n $BACKUP_HOOK ]]; then
+            [[ -f $BACKUP_HOOK && -x $BACKUP_HOOK ]] || die "BACKUP_HOOK $BACKUP_HOOK is not an executable file"
+            log "After each backup, BACKUP_HOOK runs: $BACKUP_HOOK <backup path>"
+        fi
         log "Prerequisites and configuration OK. App mode: $MODE; URL: $PUBLIC_URL" ;;
     status) load_active; compose "$ACTIVE" ps -a; log "URL: $PUBLIC_URL; data volume: $DATA_VOLUME${PROXY_NETWORK:+; proxy network: $PROXY_NETWORK (http://$PROJECT:8080)}" ;;
     logs) load_active; compose "$ACTIVE" logs --tail 100 --follow ;;
@@ -1039,6 +1063,7 @@ case "$ACTION" in
         load_active
         snapshot
         if [[ -n $BACKUP_RECIPIENT ]]; then encrypt_snapshot "$LAST_BACKUP"; fi
+        if [[ -n $BACKUP_HOOK ]]; then run_backup_hook; fi
         # Retention runs after a backup only when deploy.env asks for it.
         if [[ -n $BACKUP_KEEP$BACKUP_KEEP_DAYS ]]; then prune_snapshots; fi
         ;;

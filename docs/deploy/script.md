@@ -265,7 +265,9 @@ resumed even if copying fails or the operation receives SIGINT/SIGTERM.
 Restore validates the snapshot, populates a **new volume**, snapshots the current
 installation (which then stays stopped, so a release that cannot become healthy
 can still be replaced), and starts the saved version/configuration against the
-recovered data. It reverts all writes since the snapshot time. The old volume and the
+recovered data. It reverts all writes since the snapshot time. The backup
+settings in `deploy.env` (`BACKUP_*`) are not taken from the
+snapshot: they stay as they are. The old volume and the
 pre-restore snapshot remain available. `rollback` restores the pre-deployment
 snapshot, including the old image and data; it is not just an image downgrade.
 Snapshots and old volumes are kept until `prune` removes them: the retention

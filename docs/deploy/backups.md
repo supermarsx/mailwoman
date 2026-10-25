@@ -100,3 +100,39 @@ for age, or no secret key in the gpg keyring) nothing is changed.
   (retention also removes it once it falls outside `BACKUP_KEEP`).
 - If encryption fails, `backup` exits non-zero and leaves the clear-text
   snapshot where it was, so the backup itself is not lost.
+
+## Off-host copies: `BACKUP_HOOK`
+
+`BACKUP_HOOK` in `deploy.env` is the absolute path of an executable that
+`backup` runs after each completed backup, with one argument: the path of the
+archive (`backups/<name>.tar.age` / `.tar.gpg`) or, without encryption, of the
+snapshot directory. It runs as the user that runs `deploy.sh`, with no input.
+
+When the hook exits non-zero, `backup` exits non-zero, says so, and keeps the
+local copy; the retention that would follow the backup does not run. A hook that
+succeeds does not remove the local copy either; retention decides that.
+
+The backup contains `MW_SERVER_KEY` and the admin password (in `app.env`), so
+whatever the hook copies to needs the same protection as the host. Encrypting
+with `BACKUP_RECIPIENT` first means only ciphertext leaves the host. Examples:
+
+```sh
+#!/bin/sh
+# rsync over SSH to a backup host (the archive, or the snapshot directory)
+exec rsync -a --chmod=go-rwx "$1" backup@backup.example.org:/srv/mailwoman/
+```
+
+```sh
+#!/bin/sh
+# rclone to any remote it supports (S3, B2, SFTP, ...)
+exec rclone copy "$1" offsite:mailwoman-backups/
+```
+
+```sh
+#!/bin/sh
+# restic, which deduplicates and encrypts the repository itself
+export RESTIC_REPOSITORY=sftp:backup@backup.example.org:/srv/restic RESTIC_PASSWORD_FILE="$HOME/.restic-password"
+exec restic backup --quiet "$1"
+```
+
+`doctor` checks that the hook is an executable file.

@@ -503,6 +503,8 @@ encrypted_case() {
     CID=$(dc ps -q mailwoman)
     docker cp "$CID:/data/uploads/deploy-test-object" "$STATE/restored-object"
     [[ $(cat "$STATE/restored-object") == "encrypted-$tool" ]] || fail "the $tool archive restored other data: $(cat "$STATE/restored-object")"
+    # The restored configuration is the snapshot's, but backup settings stay as set.
+    grep -Fx "BACKUP_RECIPIENT=$recipient" "$STATE/deploy.env" >/dev/null || fail "the $tool restore reset BACKUP_RECIPIENT in deploy.env"
     [[ -z $(find "$STATE" -maxdepth 1 -name '.work.*') ]] || fail "the decrypted snapshot was left in the state directory"
     ENCRYPTION+=" $tool"
 }
@@ -545,6 +547,34 @@ else
     set_config BACKUP_RECIPIENT=
 fi
 printf '%s\n' "$ENCRYPTION"
+
+# BACKUP_HOOK gets the path of each finished backup. A hook that fails makes
+# backup fail, keeps that backup, and stops the retention that would otherwise
+# follow; once it succeeds, BACKUP_KEEP=1 removes the older snapshots except the
+# rollback one.
+mkdir "$STATE/hookbin"
+cat > "$STATE/hookbin/hook" <<'HOOK'
+#!/usr/bin/env bash
+printf '%s\n' "$1" >> "${0%/hookbin/hook}/hook.args"
+exit "$(cat "${0%/hookbin/hook}/hook.exit")"
+HOOK
+chmod +x "$STATE/hookbin/hook"
+printf '3\n' > "$STATE/hook.exit"
+set_config "BACKUP_HOOK=$STATE/hookbin/hook" BACKUP_KEEP=1
+run doctor 2> "$STATE/doctor.log" || fail "doctor refused BACKUP_HOOK: $(cat "$STATE/doctor.log")"
+SNAPSHOTS_BEFORE=$(find "$STATE/backups" -mindepth 1 -maxdepth 1 -type d | wc -l)
+if run backup > "$STATE/hook.log" 2>&1; then fail 'a backup whose BACKUP_HOOK exited 3 succeeded'; fi
+grep -F "BACKUP_HOOK $STATE/hookbin/hook exited 3; the backup is kept at" "$STATE/hook.log" >/dev/null || fail "the failing hook was not reported: $(cat "$STATE/hook.log")"
+HOOKED=$(tail -n 1 "$STATE/hook.args")
+[[ $HOOKED == "$STATE/backups/"* && -f $HOOKED/COMPLETE ]] || fail "the hook was not given the finished snapshot: '$HOOKED'"
+[[ $(find "$STATE/backups" -mindepth 1 -maxdepth 1 -type d | wc -l) == $((SNAPSHOTS_BEFORE + 1)) ]] || fail 'after a failing hook, retention removed snapshots'
+printf '0\n' > "$STATE/hook.exit"
+run backup 2> "$STATE/hook.log" || { cat "$STATE/hook.log" >&2; fail 'a backup whose BACKUP_HOOK exited 0 failed'; }
+HOOKED=$(tail -n 1 "$STATE/hook.args")
+[[ -f $HOOKED/COMPLETE ]] || fail "the hook was not given the finished snapshot: '$HOOKED'"
+[[ $(find "$STATE/backups" -mindepth 2 -maxdepth 2 -name COMPLETE | wc -l) == 2 && -d $(cat "$STATE/rollback.path") ]] || fail "after a successful hook, BACKUP_KEEP=1 did not leave the new and the rollback snapshot: $(ls "$STATE/backups")"
+printf 'backup hook: exit 3 failed the backup and kept it, exit 0 passed and retention ran (%s calls)\n' "$(wc -l < "$STATE/hook.args" | tr -d ' ')"
+set_config BACKUP_HOOK= BACKUP_KEEP=
 
 # --image signature check. A registry container on localhost port DEPLOY_TEST_PORT + 2
 # holds a copy of the test image (a fixed port: Docker Desktop's daemon cannot reach
