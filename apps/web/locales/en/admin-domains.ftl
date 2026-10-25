@@ -87,3 +87,18 @@ domain-editor-blocked-domain-count = { $count } affected accounts
 domain-editor-import-host = Previously used server: { $host }
 domain-editor-upstream-choices = Previously configured JMAP origins
 domain-editor-choose-upstream = Choose an origin to review
+
+domain-editor-back-list = Back to domains
+
+# Dedicated domain configuration pages
+domain-editor-pages = Domain configuration pages
+domain-page-overview = Overview
+domain-page-connections = Connections and discovery
+domain-page-policy = Sign-in policy
+domain-page-aliases = Domain aliases
+domain-page-hosts = Login hostnames
+domain-page-diagnostics = Diagnostics
+domain-editor-overview-help = Open a configuration page to change connections, authentication, access rules or domain mappings. Each connection has its own dedicated editor.
+domain-list-edit = Edit
+domain-list-clone = Clone
+domain-clone-help = Copy connections, discovery settings and sign-in rules to a new disabled domain. Domain aliases, login hostnames and the preferred-domain assignment remain with the original. Review the new domain before enabling it.

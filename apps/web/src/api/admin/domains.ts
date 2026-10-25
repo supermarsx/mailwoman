@@ -1,8 +1,12 @@
+import type { PasswordAuthentication, PasswordMechanism } from "./domain-auth.ts";
 import { adminRequest } from '../../screens/Admin/shell/adminApi.ts';
 
-export interface DomainEndpoint { host: string; port: number; tls: 'implicit' | 'starttls' | 'none'; auth: 'password'; allowPrivate?: boolean }
-export interface DomainUpstream { imap?: DomainEndpoint | null; pop3?: DomainEndpoint | null; smtp?: DomainEndpoint | null; sieve?: DomainEndpoint | null; jmap?: { sessionUrl: string } | null; dav?: { caldavUrl?: string; carddavUrl?: string } | null }
-export interface ManagedDomain { name: string; enabled: boolean; preferred: boolean; upstream: DomainUpstream; settings: Record<string, unknown>; allowlist: string[]; blocklist: string[]; updatedAt: number }
+export type UsernameFormat = { format: 'fullEmail' | 'localUser' } | { format: 'domainUser'; domain: string } | { format: 'userRealm'; realm: string } | { format: 'custom'; template: string; realm?: string };
+export interface ConnectionSecurity { mode: 'fixed' | 'auto'; allowed: ('implicit' | 'starttls' | 'none')[]; allowPlaintext: boolean; serverName?: string; caPem?: string }
+export interface DomainBackend { id: string; role: 'mail' | 'submission' | 'rules'; protocol: 'imap' | 'pop3' | 'jmap' | 'smtp' | 'sieve'; enabled?: boolean; preferred?: boolean; priority?: number; endpoint?: DomainEndpoint; sessionUrl?: string; username?: UsernameFormat }
+export interface DomainEndpoint { authentication?: PasswordAuthentication; security?: ConnectionSecurity; host: string; port: number; tls: 'implicit' | 'starttls' | 'none'; auth: 'password'; allowPrivate?: boolean }
+export interface DomainUpstream { version?: 2; backends?: DomainBackend[]; imap?: DomainEndpoint | null; pop3?: DomainEndpoint | null; smtp?: DomainEndpoint | null; sieve?: DomainEndpoint | null; jmap?: { sessionUrl: string } | null; dav?: { caldavUrl?: string; carddavUrl?: string } | null }
+export interface ManagedDomain { selection?: { mail?: DomainBackend | null; submission?: DomainBackend | null; rules?: DomainBackend | null } | null; name: string; enabled: boolean; preferred: boolean; upstream: DomainUpstream; settings: Record<string, unknown>; allowlist: string[]; blocklist: string[]; updatedAt: number }
 export interface DomainDetail extends ManagedDomain { mode: 'engine' | 'proxy'; aliases: string[]; hosts: string[]; etag: string | null; mappingEtag: string; preferenceEtag: string }
 export interface DomainChange { upstream?: DomainUpstream; settings?: Record<string, unknown>; enabled?: boolean; allowlist?: string[]; blocklist?: string[]; dryRun?: boolean }
 export interface DomainPreview { dryRun: boolean; before: ManagedDomain | null; after: ManagedDomain }
@@ -10,8 +14,9 @@ const path = (name: string) => `/domains/${encodeURIComponent(name)}`;
 export interface UpstreamProbe { protocol: string; host: string; port: number; tls: string; reachable: boolean; latencyMs: number; tlsVersion: string | null; certNotAfter: string | null; certDaysLeft: number | null; greeting: string | null; capabilities: string[]; error: string | null }
 export interface ProbeReport { domain: string; results: UpstreamProbe[]; ranAt: string; credentialsSent: false }
 export interface DnsReport { domain: string; mx: { records: { preference: number; host: string }[]; error: string | null }; spf: { present: boolean; records: string[]; error: string | null }; dmarc: { present: boolean; records: string[]; error: string | null }; srv: { service: string; records: { priority: number; weight: number; port: number; host: string }[]; error: string | null }[] }
-export interface DomainStatus { mode: 'engine' | 'proxy'; blockedAccounts: { total: number; byDomain: { domain: string; accounts: number; seenHost: string | null }[] }; upstreamChoices: string[] }
+export interface DomainStatus { authentication?: { runtimeReady: boolean; protocols: Record<string, PasswordMechanism[]> }; transportSecurity?: { runtimeReady: boolean; auto: boolean; customCa: boolean; serverName: boolean; protocols: string[] }; mode: 'engine' | 'proxy'; blockedAccounts: { total: number; byDomain: { domain: string; accounts: number; seenHost: string | null }[] }; upstreamChoices: string[] }
 export const domainsApi = {
+  async usernamePreview(identity: string, username: UsernameFormat): Promise<{ authenticationUsername: string; credentialsSent: false }> { return (await adminRequest<{ authenticationUsername: string; credentialsSent: false }>('/domains/username-preview', { method: 'POST', body: { identity, username } })).data; },
   async status(): Promise<DomainStatus> { return (await adminRequest<DomainStatus>('/domains/status')).data; },
   async probe(domain: string): Promise<ProbeReport> { return (await adminRequest<ProbeReport>('/diag/upstream', { method: 'POST', body: { domain } })).data; },
   async dns(domain: string): Promise<DnsReport> { return (await adminRequest<DnsReport>('/diag/dns', { method: 'POST', body: { domain } })).data; },
@@ -26,4 +31,12 @@ export const domainsApi = {
   async clearPreferred(etag: string | null): Promise<void> { await adminRequest('/preferred-domain', { method: 'DELETE', ifMatch: etag }); },
   async mapping(name: string, kind: 'aliases' | 'hosts', value: string, remove: boolean, etag: string | null): Promise<void> { await adminRequest(`${path(name)}/${kind}/${encodeURIComponent(value)}`, { method: remove ? 'DELETE' : 'PUT', ifMatch: etag }); },
 };
-export type DomainsApi = typeof domainsApi;
+export type DomainsApi = Omit<typeof domainsApi, 'usernamePreview'> & { usernamePreview?: typeof domainsApi.usernamePreview };
+
+export function domainBackends(upstream: DomainUpstream): DomainBackend[] {
+  if (upstream.version === 2) return structuredClone(upstream.backends ?? []);
+  const rows: DomainBackend[] = [];
+  for (const protocol of ['imap', 'pop3', 'smtp', 'sieve'] as const) { const endpoint = upstream[protocol]; if (endpoint) rows.push({ id: `legacy-${protocol}`, role: protocol === 'smtp' ? 'submission' : protocol === 'sieve' ? 'rules' : 'mail', protocol, enabled: true, preferred: false, priority: 100, endpoint: structuredClone(endpoint), username: { format: 'fullEmail' } }); }
+  if (upstream.jmap) rows.push({ id: 'legacy-jmap', role: 'mail', protocol: 'jmap', enabled: true, preferred: false, priority: 100, sessionUrl: upstream.jmap.sessionUrl, username: { format: 'fullEmail' } });
+  return rows;
+}
