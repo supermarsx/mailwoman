@@ -2,7 +2,7 @@
 # Locale: es · Module: rules. Source: ../en/rules.ftl
 
 rules-title = Reglas y filtros
-rules-intro = Ordenar, etiquetar o actuar automáticamente sobre el correo entrante. Las reglas que solo usan pruebas estándar se ejecutan en el servidor de correo como Sieve; el resto se ejecutan en el motor al entregar el correo.
+rules-intro = Administra scripts de filtrado y reglas visuales. Las funciones disponibles dependen de la cuenta y de los ajustes del administrador.
 rules-empty = Todavía no hay reglas.
 rules-unavailable = Este servidor de correo no admite reglas de correo.
 rules-load-failed = No se pudieron cargar las reglas.
@@ -48,7 +48,7 @@ rules-act-stop = Detener el procesamiento
 rules-runs-server = Servidor (Sieve)
 rules-runs-server-detail = Se sube al servidor de correo y se aplica allí.
 rules-runs-engine = Motor
-rules-runs-engine-detail = La aplica el motor al entregar el correo.
+rules-runs-engine-detail = Se aplica al sincronizar los mensajes nuevos; las respuestas y los movimientos esperan a la próxima sincronización.
 
 rules-panes-label = Herramientas de reglas
 rules-tab-builder = Editor
@@ -65,3 +65,27 @@ rules-dryrun-results = Resultados de la simulación
 rules-dryrun-none = No hay reglas activadas que evaluar.
 rules-dryrun-nomatch = Sin coincidencia
 rules-dryrun-stopped = No alcanzada (una regla anterior detuvo el procesamiento)
+
+rules-scripts-label = Scripts de Sieve
+rules-script-active = Activo
+rules-script-new = Nuevo script
+rules-script-export = Exportar script
+rules-script-import = Importar script
+rules-script-too-large = El script supera el límite de tamaño.
+rules-script-read-only = La edición directa de scripts está desactivada por el administrador.
+rules-script-validate = Validar script
+rules-script-deactivate = Desactivar
+rules-script-activate = Activar
+rules-script-saved = Script guardado.
+
+rules-vacation-title = Respuesta de ausencia
+rules-vacation-enabled = Activar respuestas automáticas
+rules-vacation-from = Inicio (UTC)
+rules-vacation-to = Fin (UTC)
+rules-vacation-body = Texto de respuesta
+rules-vacation-saved = Respuesta de ausencia guardada.
+rules-script-template = Plantilla de script
+rules-forward-title = Reenvío
+rules-forward-address = Reenviar a
+rules-forward-copy = Conservar una copia en esta cuenta
+rules-forward-refused = El administrador no permite reenviar a este dominio.

@@ -121,3 +121,4 @@ apikeys-tool-tasks-write-label = Taken schrijven
 apikeys-tool-tasks-write-desc = Taken maken of bijwerken.
 apikeys-tool-contacts-read-label = Contacten lezen
 apikeys-tool-contacts-read-desc = Contacten lezen.
+apikeys-surface-scripts-label = Sieve-scripts beheren

@@ -2,7 +2,7 @@
 # Locale: de · Module: rules. Source: ../en/rules.ftl
 
 rules-title = Regeln & Filter
-rules-intro = Eingehende E-Mails automatisch sortieren, mit Schlagwörtern versehen oder bearbeiten. Regeln, die nur Standardtests verwenden, laufen als Sieve auf dem Mailserver; die übrigen laufen bei der Zustellung in der Engine.
+rules-intro = Verwalten Sie Filter-Skripte und visuelle Regeln. Verfügbare Funktionen hängen vom Konto und den Administratoreinstellungen ab.
 rules-empty = Noch keine Regeln.
 rules-unavailable = Dieser Mailserver unterstützt keine E-Mail-Regeln.
 rules-load-failed = Die Regeln konnten nicht geladen werden.
@@ -52,7 +52,7 @@ rules-act-stop = Verarbeitung beenden
 rules-runs-server = Server (Sieve)
 rules-runs-server-detail = Wird auf den Mailserver hochgeladen und dort angewendet.
 rules-runs-engine = Engine
-rules-runs-engine-detail = Wird bei der Zustellung von der Engine angewendet.
+rules-runs-engine-detail = Wird beim Synchronisieren neuer Posteingangsnachrichten angewendet; Antworten und Verschiebungen warten auf die nächste Synchronisierung.
 
 # Panes
 rules-panes-label = Regelwerkzeuge
@@ -72,3 +72,27 @@ rules-dryrun-results = Ergebnisse des Testlaufs
 rules-dryrun-none = Keine aktivierten Regeln zum Auswerten.
 rules-dryrun-nomatch = Kein Treffer
 rules-dryrun-stopped = Nicht erreicht (eine vorherige Regel hat die Verarbeitung beendet)
+
+rules-scripts-label = Sieve-Skripte
+rules-script-active = Aktiv
+rules-script-new = Neues Skript
+rules-script-export = Skript exportieren
+rules-script-import = Skript importieren
+rules-script-too-large = Das Skript überschreitet die Größenbegrenzung.
+rules-script-read-only = Die direkte Skriptbearbeitung wurde administrativ deaktiviert.
+rules-script-validate = Skript prüfen
+rules-script-deactivate = Deaktivieren
+rules-script-activate = Aktivieren
+rules-script-saved = Skript gespeichert.
+
+rules-vacation-title = Abwesenheitsnotiz
+rules-vacation-enabled = Automatische Antworten aktivieren
+rules-vacation-from = Beginn (UTC)
+rules-vacation-to = Ende (UTC)
+rules-vacation-body = Antworttext
+rules-vacation-saved = Abwesenheitsnotiz gespeichert.
+rules-script-template = Skriptvorlage
+rules-forward-title = Weiterleitung
+rules-forward-address = Weiterleiten an
+rules-forward-copy = Kopie in diesem Konto behalten
+rules-forward-refused = Die Weiterleitung an diese Domain ist nicht erlaubt.

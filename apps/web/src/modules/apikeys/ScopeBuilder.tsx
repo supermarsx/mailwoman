@@ -55,6 +55,10 @@ export function ScopeBuilder(props: ScopeBuilderProps): JSX.Element {
             <input class={css.checkbox} type="checkbox" checked={props.scope.pim} onChange={(e) => set({ pim: e.currentTarget.checked })} />
             {t('apikeys-surface-pim-label')}
           </label>
+          <label class={css.check}>
+            <input class={css.checkbox} type="checkbox" checked={props.scope.scripts} onChange={(e) => set({ scripts: e.currentTarget.checked })} />
+            {t('apikeys-surface-scripts-label')}
+          </label>
         </div>
       </div>
 
@@ -162,7 +166,7 @@ export function summarizeScope(scope: ApiKeyScope): string[] {
     scope.send && t('apikeys-verb-send'),
     scope.delete && t('apikeys-verb-delete'),
   ].filter(Boolean) as string[];
-  const surfaces = [scope.mail && t('apikeys-summary-mail'), scope.pim && t('apikeys-summary-pim')].filter(Boolean) as string[];
+  const surfaces = [scope.mail && t('apikeys-summary-mail'), scope.pim && t('apikeys-summary-pim'), scope.scripts && t('apikeys-surface-scripts-label')].filter(Boolean) as string[];
   const out: string[] = [];
   out.push(
     t('apikeys-summary-verbs-on', {

@@ -121,3 +121,4 @@ apikeys-tool-tasks-write-label = Запись задач
 apikeys-tool-tasks-write-desc = Создание или изменение задач.
 apikeys-tool-contacts-read-label = Чтение контактов
 apikeys-tool-contacts-read-desc = Чтение контактов.
+apikeys-surface-scripts-label = Управление скриптами Sieve

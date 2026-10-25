@@ -2,7 +2,7 @@
 # Locale: fr · Module: rules. Source: ../en/rules.ftl
 
 rules-title = Règles et filtres
-rules-intro = Trier, étiqueter ou traiter automatiquement le courrier entrant. Les règles qui n’utilisent que des tests standard s’exécutent sur le serveur de messagerie en Sieve ; les autres s’exécutent dans le moteur à la distribution.
+rules-intro = Gérez les scripts de filtrage et les règles visuelles. Les fonctionnalités disponibles dépendent du compte et des paramètres administrateur.
 rules-empty = Aucune règle pour l’instant.
 rules-unavailable = Ce serveur de messagerie ne prend pas en charge les règles.
 rules-load-failed = Impossible de charger les règles.
@@ -48,7 +48,7 @@ rules-act-stop = Arrêter le traitement
 rules-runs-server = Serveur (Sieve)
 rules-runs-server-detail = Envoyée au serveur de messagerie et appliquée sur celui-ci.
 rules-runs-engine = Moteur
-rules-runs-engine-detail = Appliquée par le moteur à la distribution.
+rules-runs-engine-detail = Appliqué lors de la synchronisation des nouveaux messages reçus ; les réponses et déplacements attendent la prochaine synchronisation.
 
 rules-panes-label = Outils de règles
 rules-tab-builder = Éditeur
@@ -65,3 +65,27 @@ rules-dryrun-results = Résultats de la simulation
 rules-dryrun-none = Aucune règle activée à évaluer.
 rules-dryrun-nomatch = Aucune correspondance
 rules-dryrun-stopped = Non atteinte (une règle précédente a arrêté le traitement)
+
+rules-scripts-label = Scripts Sieve
+rules-script-active = Actif
+rules-script-new = Nouveau script
+rules-script-export = Exporter le script
+rules-script-import = Importer un script
+rules-script-too-large = Le script dépasse la taille maximale.
+rules-script-read-only = La modification directe des scripts est désactivée par votre administrateur.
+rules-script-validate = Valider le script
+rules-script-deactivate = Désactiver
+rules-script-activate = Activer
+rules-script-saved = Script enregistré.
+
+rules-vacation-title = Réponse automatique
+rules-vacation-enabled = Activer les réponses automatiques
+rules-vacation-from = Début (UTC)
+rules-vacation-to = Fin (UTC)
+rules-vacation-body = Texte de la réponse
+rules-vacation-saved = Réponse automatique enregistrée.
+rules-script-template = Modèle de script
+rules-forward-title = Transfert
+rules-forward-address = Transférer à
+rules-forward-copy = Conserver une copie dans ce compte
+rules-forward-refused = Le transfert vers ce domaine est interdit par votre administrateur.

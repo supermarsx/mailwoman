@@ -14,6 +14,7 @@ export interface ApiKeyScope {
   readonly folders: ScopeSelector;
   readonly mail: boolean;
   readonly pim: boolean;
+  readonly scripts: boolean;
   readonly ipAllowlist: readonly string[];
   readonly expiresAt: string | null;
   readonly rateLimit: number | null;
@@ -31,6 +32,7 @@ export function readOnlyScope(accountId: string): ApiKeyScope {
     folders: { kind: 'all' },
     mail: true,
     pim: false,
+    scripts: false,
     ipAllowlist: [],
     expiresAt: null,
     rateLimit: null,
@@ -51,6 +53,7 @@ export interface WireScope {
   folders: WireScopeSelector;
   mail: boolean;
   pim: boolean;
+  scripts: boolean;
   ip_allowlist: string[];
   expires_at: string | null;
   rate_limit: number | null;
@@ -72,6 +75,7 @@ export function scopeToWire(scope: ApiKeyScope): WireScope {
     folders: selectorToWire(scope.folders),
     mail: scope.mail,
     pim: scope.pim,
+    scripts: scope.scripts,
     ip_allowlist: [...scope.ipAllowlist],
     expires_at: scope.expiresAt,
     rate_limit: scope.rateLimit,
@@ -94,6 +98,7 @@ export function scopeFromWire(wire: WireScope): ApiKeyScope {
     folders: selectorFromWire(wire.folders),
     mail: wire.mail,
     pim: wire.pim,
+    scripts: wire.scripts ?? false,
     ipAllowlist: [...wire.ip_allowlist],
     expiresAt: wire.expires_at,
     rateLimit: wire.rate_limit,

@@ -34,14 +34,17 @@ const ACTION_TYPES: ReadonlyArray<{ value: MailRuleActionType; label: string }> 
   { value: 'move', label: 'rules-act-move' },
   { value: 'tag', label: 'rules-act-tag' },
   { value: 'archive', label: 'rules-act-archive' },
-  { value: 'suppressNotify', label: 'rules-act-suppress' },
+  { value: 'forward', label: 'rules-forward-title' },
+  { value: 'forwardCopy', label: 'rules-forward-copy' },
   { value: 'stop', label: 'rules-act-stop' },
 ];
 
 /** Actions that carry a free-text value (a mailbox/keyword). */
-const VALUED_ACTIONS = new Set<MailRuleActionType>(['move', 'tag']);
+const VALUED_ACTIONS = new Set<MailRuleActionType>(['move', 'tag', 'forward', 'forwardCopy']);
 
 export interface RuleBuilderProps {
+  runsAt?: 'engine' | 'server-sieve';
+  extensions?: readonly string[];
   initial: RuleDraft;
   /** A rejected promise (a refused save) re-enables the form for another try. */
   onSave: (draft: RuleDraft) => void | Promise<void>;
@@ -57,11 +60,11 @@ export function RuleBuilder(props: RuleBuilderProps): JSX.Element {
   const removeCondition = (i: number): void =>
     setDraft('conditions', (c) => c.filter((_, idx) => idx !== i));
 
-  const addAction = (): void => setDraft('actions', (a) => [...a, { type: 'move', value: '' }]);
+  const addAction = (): void => setDraft('actions', (a) => [...a, { type: props.extensions && !props.extensions.includes('fileinto') ? 'stop' : 'move', value: '' }]);
   const removeAction = (i: number): void => setDraft('actions', (a) => a.filter((_, idx) => idx !== i));
 
   const runsAt = (): 'server-sieve' | 'engine' =>
-    runsAtFor({ conditions: draft.conditions, actions: draft.actions });
+    props.runsAt ?? runsAtFor({ conditions: draft.conditions, actions: draft.actions });
 
   const hasThread = (): boolean => draft.conditions.some((c) => c.type === 'thread');
 
@@ -202,7 +205,10 @@ export function RuleBuilder(props: RuleBuilderProps): JSX.Element {
                 value={act.type}
                 onChange={(e) => setDraft('actions', i(), 'type', e.currentTarget.value as MailRuleActionType)}
               >
-                <For each={ACTION_TYPES}>{(o) => <option value={o.value}>{t(o.label)}</option>}</For>
+                <For each={ACTION_TYPES.filter((action) => props.extensions === undefined
+                  || (['move','archive'].includes(action.value) ? props.extensions.includes('fileinto')
+                    : action.value === 'tag' ? props.extensions.includes('imap4flags')
+                    : action.value === 'forwardCopy' ? props.extensions.includes('copy') : true))}>{(o) => <option value={o.value}>{t(o.label)}</option>}</For>
               </select>
               <Show when={VALUED_ACTIONS.has(act.type)}>
                 <label class={css.srOnly} for={`act-value-${i()}`}>

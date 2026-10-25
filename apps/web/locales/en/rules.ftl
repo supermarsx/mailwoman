@@ -1,7 +1,7 @@
 # Rules (mail-filter) module (audit #1, SPEC §6.1/§10.5). English source catalog.
 
 rules-title = Rules & filters
-rules-intro = Automatically sort, tag, or act on incoming mail. Rules that use only standard tests run on the mail server as Sieve; the rest run in the engine at delivery.
+rules-intro = Manage mail filtering scripts and visual rules. Available features depend on this account and administrator settings.
 rules-empty = No rules yet.
 rules-unavailable = This mail server does not support mail rules.
 rules-load-failed = The rules could not be loaded.
@@ -51,7 +51,7 @@ rules-act-stop = Stop processing
 rules-runs-server = Server (Sieve)
 rules-runs-server-detail = Uploaded to the mail server and applied there.
 rules-runs-engine = Engine
-rules-runs-engine-detail = Applied by the engine at delivery.
+rules-runs-engine-detail = Applied when the engine syncs new inbox messages; replies and moves wait for the next sync.
 
 # Panes
 rules-panes-label = Rule tools
@@ -71,3 +71,27 @@ rules-dryrun-results = Dry-run results
 rules-dryrun-none = No enabled rules to evaluate.
 rules-dryrun-nomatch = No match
 rules-dryrun-stopped = Not reached (a prior rule stopped processing)
+
+rules-scripts-label = Sieve scripts
+rules-script-active = Active
+rules-script-new = New script
+rules-script-export = Export script
+rules-script-import = Import script
+rules-script-too-large = The script exceeds the size limit.
+rules-script-read-only = Your administrator has disabled raw script editing.
+rules-script-validate = Validate script
+rules-script-deactivate = Deactivate
+rules-script-activate = Activate
+rules-script-saved = Script saved.
+
+rules-vacation-title = Vacation reply
+rules-vacation-enabled = Enable automatic replies
+rules-vacation-from = Start (UTC)
+rules-vacation-to = End (UTC)
+rules-vacation-body = Reply text
+rules-vacation-saved = Vacation reply saved.
+rules-script-template = Script template
+rules-forward-title = Forwarding
+rules-forward-address = Forward to
+rules-forward-copy = Keep a copy in this account
+rules-forward-refused = Your administrator does not allow forwarding to this domain.

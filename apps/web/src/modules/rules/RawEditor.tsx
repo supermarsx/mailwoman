@@ -48,20 +48,16 @@ export function RawEditor(props: RawEditorProps): JSX.Element {
       <label class={css.label} for="rules-raw-sieve">
         {t('rules-raw-label')}
       </label>
-      <Show
-        when={editable()}
-        fallback={<Highlighted source={props.source} />}
-      >
         <textarea
           id="rules-raw-sieve"
           class={css.textarea}
           spellcheck={false}
+          readOnly={!editable()}
           value={props.source}
           aria-describedby="rules-raw-diagnostics"
           onInput={(e) => props.onInput?.(e.currentTarget.value)}
         />
         <Highlighted source={props.source} />
-      </Show>
 
       <div id="rules-raw-diagnostics" role="status" aria-live="polite">
         <Show

@@ -114,7 +114,7 @@ export type MailRuleConditionType = 'from' | 'to' | 'subject' | 'thread';
 export type MailRuleOp = 'is' | 'contains';
 
 /** A mail-rule action type (frozen §2.1). */
-export type MailRuleActionType = 'move' | 'tag' | 'stop' | 'suppressNotify' | 'archive';
+export type MailRuleActionType = 'move' | 'tag' | 'stop' | 'suppressNotify' | 'archive' | 'forward' | 'forwardCopy';
 
 export interface MailRuleCondition {
   type: MailRuleConditionType;

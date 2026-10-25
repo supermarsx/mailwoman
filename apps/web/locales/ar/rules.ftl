@@ -2,7 +2,7 @@
 # Locale: ar · Module: rules. Source: ../en/rules.ftl
 
 rules-title = القواعد وعوامل التصفية
-rules-intro = فرز البريد الوارد أو وسمه أو اتخاذ إجراء عليه تلقائيًا. القواعد التي تستخدم اختبارات قياسية فقط تعمل على خادم البريد بصيغة Sieve، والباقي يعمل في المحرك عند التسليم.
+rules-intro = إدارة نصوص تصفية البريد والقواعد المرئية. تعتمد الميزات المتاحة على هذا الحساب وإعدادات المسؤول.
 rules-empty = لا توجد قواعد بعد.
 rules-unavailable = خادم البريد هذا لا يدعم قواعد البريد.
 rules-load-failed = تعذّر تحميل القواعد.
@@ -48,7 +48,7 @@ rules-act-stop = إيقاف المعالجة
 rules-runs-server = الخادم (Sieve)
 rules-runs-server-detail = تُرفع إلى خادم البريد وتُطبَّق هناك.
 rules-runs-engine = المحرك
-rules-runs-engine-detail = يطبّقها المحرك عند التسليم.
+rules-runs-engine-detail = يُطبق عند مزامنة الرسائل الواردة الجديدة؛ تنتظر الردود وعمليات النقل المزامنة التالية.
 
 rules-panes-label = أدوات القواعد
 rules-tab-builder = المنشئ
@@ -65,3 +65,27 @@ rules-dryrun-results = نتائج التشغيل التجريبي
 rules-dryrun-none = لا توجد قواعد مفعّلة لتقييمها.
 rules-dryrun-nomatch = لا تطابق
 rules-dryrun-stopped = لم يُوصل إليها (أوقفت قاعدة سابقة المعالجة)
+
+rules-scripts-label = نصوص Sieve
+rules-script-active = نشط
+rules-script-new = نص جديد
+rules-script-export = تصدير النص
+rules-script-import = استيراد النص
+rules-script-too-large = يتجاوز النص الحد الأقصى للحجم.
+rules-script-read-only = عطّل المسؤول التحرير المباشر للنصوص.
+rules-script-validate = التحقق من النص
+rules-script-deactivate = إلغاء التنشيط
+rules-script-activate = تنشيط
+rules-script-saved = تم حفظ النص.
+
+rules-vacation-title = رد الغياب
+rules-vacation-enabled = تفعيل الردود التلقائية
+rules-vacation-from = البداية (UTC)
+rules-vacation-to = النهاية (UTC)
+rules-vacation-body = نص الرد
+rules-vacation-saved = تم حفظ رد الغياب.
+rules-script-template = قالب النص البرمجي
+rules-forward-title = إعادة التوجيه
+rules-forward-address = إعادة التوجيه إلى
+rules-forward-copy = الاحتفاظ بنسخة في هذا الحساب
+rules-forward-refused = لا يسمح المسؤول بإعادة التوجيه إلى هذا النطاق.

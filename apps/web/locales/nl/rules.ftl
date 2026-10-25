@@ -2,7 +2,7 @@
 # Locale: nl · Module: rules. Source: ../en/rules.ftl
 
 rules-title = Regels en filters
-rules-intro = Inkomende mail automatisch sorteren, taggen of erop reageren. Regels die alleen standaardtests gebruiken, draaien als Sieve op de mailserver; de rest draait bij aflevering in de engine.
+rules-intro = Beheer filterscripts en visuele regels. Beschikbare functies hangen af van dit account en de beheerdersinstellingen.
 rules-empty = Nog geen regels.
 rules-unavailable = Deze mailserver ondersteunt geen mailregels.
 rules-load-failed = De regels konden niet worden geladen.
@@ -52,7 +52,7 @@ rules-act-stop = Verwerking stoppen
 rules-runs-server = Server (Sieve)
 rules-runs-server-detail = Geüpload naar de mailserver en daar toegepast.
 rules-runs-engine = Engine
-rules-runs-engine-detail = Bij aflevering toegepast door de engine.
+rules-runs-engine-detail = Toegepast bij het synchroniseren van nieuwe inboxberichten; antwoorden en verplaatsingen wachten op de volgende synchronisatie.
 
 # Panes
 rules-panes-label = Regelhulpmiddelen
@@ -72,3 +72,27 @@ rules-dryrun-results = Resultaten van proefdraaien
 rules-dryrun-none = Geen ingeschakelde regels om te evalueren.
 rules-dryrun-nomatch = Geen overeenkomst
 rules-dryrun-stopped = Niet bereikt (een eerdere regel heeft de verwerking gestopt)
+
+rules-scripts-label = Sieve-scripts
+rules-script-active = Actief
+rules-script-new = Nieuw script
+rules-script-export = Script exporteren
+rules-script-import = Script importeren
+rules-script-too-large = Het script overschrijdt de maximale grootte.
+rules-script-read-only = De beheerder heeft het rechtstreeks bewerken van scripts uitgeschakeld.
+rules-script-validate = Script valideren
+rules-script-deactivate = Deactiveren
+rules-script-activate = Activeren
+rules-script-saved = Script opgeslagen.
+
+rules-vacation-title = Afwezigheidsbericht
+rules-vacation-enabled = Automatische antwoorden inschakelen
+rules-vacation-from = Begin (UTC)
+rules-vacation-to = Einde (UTC)
+rules-vacation-body = Antwoordtekst
+rules-vacation-saved = Afwezigheidsbericht opgeslagen.
+rules-script-template = Scriptsjabloon
+rules-forward-title = Doorsturen
+rules-forward-address = Doorsturen naar
+rules-forward-copy = Een kopie in dit account bewaren
+rules-forward-refused = Uw beheerder staat doorsturen naar dit domein niet toe.

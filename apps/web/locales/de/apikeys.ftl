@@ -121,3 +121,4 @@ apikeys-tool-tasks-write-label = Aufgaben schreiben
 apikeys-tool-tasks-write-desc = Aufgaben erstellen oder aktualisieren.
 apikeys-tool-contacts-read-label = Kontakte lesen
 apikeys-tool-contacts-read-desc = Kontakte lesen.
+apikeys-surface-scripts-label = Sieve-Skripte verwalten

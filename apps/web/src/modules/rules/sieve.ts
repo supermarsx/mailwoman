@@ -52,6 +52,10 @@ function renderAction(a: MailRuleAction): { line: string | null; ext: string[] }
       return { line: `addflag ${quote(a.value ?? '')};`, ext: ['imap4flags'] };
     case 'stop':
       return { line: 'stop;', ext: [] };
+    case 'forward':
+      return { line: `redirect ${quote(a.value ?? '')};`, ext: [] };
+    case 'forwardCopy':
+      return { line: `redirect :copy ${quote(a.value ?? '')};`, ext: ['copy'] };
     case 'suppressNotify':
       // Silence is an engine-side flag with no Sieve action (mirrors convert.rs).
       return { line: '# suppress-notify (engine-side)', ext: [] };

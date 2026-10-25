@@ -2,7 +2,7 @@
 # Locale: uk · Module: rules. Source: ../en/rules.ftl
 
 rules-title = Правила та фільтри
-rules-intro = Автоматично сортувати, позначати тегами або обробляти вхідну пошту. Правила, що використовують лише стандартні умови, виконуються на поштовому сервері як Sieve; решта виконується рушієм під час доставлення.
+rules-intro = Керуйте сценаріями фільтрації та візуальними правилами. Доступні функції залежать від облікового запису й налаштувань адміністратора.
 rules-empty = Правил ще немає.
 rules-unavailable = Цей поштовий сервер не підтримує поштові правила.
 rules-load-failed = Не вдалося завантажити правила.
@@ -52,7 +52,7 @@ rules-act-stop = Зупинити обробку
 rules-runs-server = Сервер (Sieve)
 rules-runs-server-detail = Завантажується на поштовий сервер і застосовується там.
 rules-runs-engine = Рушій
-rules-runs-engine-detail = Застосовується рушієм під час доставлення.
+rules-runs-engine-detail = Застосовується під час синхронізації нових вхідних; відповіді та переміщення чекають наступної синхронізації.
 
 # Panes
 rules-panes-label = Інструменти правил
@@ -72,3 +72,27 @@ rules-dryrun-results = Результати пробного запуску
 rules-dryrun-none = Немає увімкнених правил для перевірки.
 rules-dryrun-nomatch = Немає збігу
 rules-dryrun-stopped = Не досягнуто (попереднє правило зупинило обробку)
+
+rules-scripts-label = Скрипти Sieve
+rules-script-active = Активний
+rules-script-new = Новий скрипт
+rules-script-export = Експортувати скрипт
+rules-script-import = Імпортувати скрипт
+rules-script-too-large = Скрипт перевищує допустимий розмір.
+rules-script-read-only = Адміністратор вимкнув пряме редагування скриптів.
+rules-script-validate = Перевірити скрипт
+rules-script-deactivate = Вимкнути
+rules-script-activate = Активувати
+rules-script-saved = Скрипт збережено.
+
+rules-vacation-title = Відповідь про відсутність
+rules-vacation-enabled = Увімкнути автоматичні відповіді
+rules-vacation-from = Початок (UTC)
+rules-vacation-to = Кінець (UTC)
+rules-vacation-body = Текст відповіді
+rules-vacation-saved = Відповідь про відсутність збережено.
+rules-script-template = Шаблон сценарію
+rules-forward-title = Пересилання
+rules-forward-address = Пересилати на
+rules-forward-copy = Зберігати копію в цьому обліковому записі
+rules-forward-refused = Адміністратор заборонив пересилання на цей домен.

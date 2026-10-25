@@ -173,3 +173,12 @@ describe('MCP keys — per-tool grants + unattended-send disclosure', () => {
     expect(screen.getByTestId('unattended-send-disclosure').textContent).toBe(UNATTENDED_SEND_DISCLOSURE);
   });
 });
+
+it('requires an explicit scripts grant and preserves it in consent wire data', () => {
+  const scope = readOnlyScope('a');
+  expect(scope.scripts).toBe(false);
+  expect(scopeFromWire(scopeToWire({ ...scope, scripts: true })).scripts).toBe(true);
+  const legacy = scopeToWire(scope) as Omit<ReturnType<typeof scopeToWire>, 'scripts'> & { scripts?: boolean };
+  delete legacy.scripts;
+  expect(scopeFromWire(legacy as ReturnType<typeof scopeToWire>).scripts).toBe(false);
+});

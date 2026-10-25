@@ -2,7 +2,7 @@
 # Locale: ru · Module: rules. Source: ../en/rules.ftl
 
 rules-title = Правила и фильтры
-rules-intro = Автоматическая сортировка, пометка тегами или другие действия со входящей почтой. Правила, использующие только стандартные проверки, выполняются на почтовом сервере как Sieve; остальные выполняет движок при доставке.
+rules-intro = Управляйте скриптами фильтрации и визуальными правилами. Доступные функции зависят от аккаунта и настроек администратора.
 rules-empty = Правил пока нет.
 rules-unavailable = Этот почтовый сервер не поддерживает почтовые правила.
 rules-load-failed = Не удалось загрузить правила.
@@ -52,7 +52,7 @@ rules-act-stop = Остановить обработку
 rules-runs-server = Сервер (Sieve)
 rules-runs-server-detail = Загружается на почтовый сервер и применяется там.
 rules-runs-engine = Движок
-rules-runs-engine-detail = Применяется движком при доставке.
+rules-runs-engine-detail = Применяется при синхронизации новых входящих; ответы и перемещения выполняются при следующей синхронизации.
 
 # Panes
 rules-panes-label = Инструменты правил
@@ -72,3 +72,27 @@ rules-dryrun-results = Результаты пробного запуска
 rules-dryrun-none = Нет включённых правил для проверки.
 rules-dryrun-nomatch = Нет совпадения
 rules-dryrun-stopped = Не достигнуто (предыдущее правило остановило обработку)
+
+rules-scripts-label = Скрипты Sieve
+rules-script-active = Активен
+rules-script-new = Новый скрипт
+rules-script-export = Экспортировать скрипт
+rules-script-import = Импортировать скрипт
+rules-script-too-large = Скрипт превышает допустимый размер.
+rules-script-read-only = Администратор отключил прямое редактирование скриптов.
+rules-script-validate = Проверить скрипт
+rules-script-deactivate = Отключить
+rules-script-activate = Активировать
+rules-script-saved = Скрипт сохранён.
+
+rules-vacation-title = Ответ об отсутствии
+rules-vacation-enabled = Включить автоматические ответы
+rules-vacation-from = Начало (UTC)
+rules-vacation-to = Окончание (UTC)
+rules-vacation-body = Текст ответа
+rules-vacation-saved = Ответ об отсутствии сохранён.
+rules-script-template = Шаблон скрипта
+rules-forward-title = Пересылка
+rules-forward-address = Пересылать на
+rules-forward-copy = Сохранять копию в этом аккаунте
+rules-forward-refused = Администратор запретил пересылку на этот домен.

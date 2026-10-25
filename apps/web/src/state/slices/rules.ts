@@ -86,14 +86,18 @@ export interface RulesSlice {
   toggleRule(id: Id, enabled: boolean): Promise<void>;
 }
 
-export function createRulesSlice(ctx: SliceContext): RulesSlice {
+export function createRulesSlice(ctx: SliceContext, selectedAccount?: () => string): RulesSlice {
   const client = ctx.client;
   const [rules, setRules] = createSignal<MailRule[]>([]);
   const [rulesLoading, setRulesLoading] = createSignal(false);
   const [accountId, setAccountId] = createSignal<string | null>(null);
+  let observed: { account: string; state: string } | undefined;
+  let loadGeneration = 0;
+  const stateFor = (account: string): Record<string, string> => observed?.account === account ? { ifInState: observed.state } : {};
 
   /** Resolve (and cache) the security account id; `null` when none is available. */
   async function resolveAccount(): Promise<string | null> {
+    if (selectedAccount) return selectedAccount();
     const cur = accountId();
     if (cur !== null) return cur;
     const session = await client.session();
@@ -104,6 +108,7 @@ export function createRulesSlice(ctx: SliceContext): RulesSlice {
   }
 
   async function loadRules(): Promise<void> {
+    const generation = ++loadGeneration;
     setRulesLoading(true);
     try {
       const acct = await resolveAccount();
@@ -116,9 +121,11 @@ export function createRulesSlice(ctx: SliceContext): RulesSlice {
         methodCalls: [['MailRule/get', { accountId: acct }, 'g']],
       });
       const got = responseFor<RuleGetResponse>(res, 'g');
+      if (generation !== loadGeneration || (selectedAccount && selectedAccount() !== acct)) return;
+      observed = { account: acct, state: got.state };
       setRules(got.list);
     } finally {
-      setRulesLoading(false);
+      if (generation === loadGeneration) setRulesLoading(false);
     }
   }
 
@@ -143,7 +150,7 @@ export function createRulesSlice(ctx: SliceContext): RulesSlice {
         : { update: { [draft.id]: ruleBody(draft) } };
     const res = await client.jmap({
       using: RULES_USING,
-      methodCalls: [['MailRule/set', { accountId: acct, ...method }, 's']],
+      methodCalls: [['MailRule/set', { accountId: acct, ...stateFor(acct), ...method }, 's']],
     });
     const set = responseFor<RuleSetResponse>(res, 's'); // throws on a method-level error
     const refused =
@@ -159,10 +166,10 @@ export function createRulesSlice(ctx: SliceContext): RulesSlice {
     if (acct === null) throw new Error('no account available for rules');
     const res = await client.jmap({
       using: RULES_USING,
-      methodCalls: [['MailRule/set', { accountId: acct, destroy: [id] }, 's']],
+      methodCalls: [['MailRule/set', { accountId: acct, ...stateFor(acct), destroy: [id] }, 's']],
     });
     responseFor<RuleSetResponse>(res, 's');
-    setRules(rules().filter((r) => r.id !== id));
+    await loadRules();
     ctx.broadcastChange?.();
     ctx.showToast('success', 'Rule deleted');
   }
@@ -174,7 +181,7 @@ export function createRulesSlice(ctx: SliceContext): RulesSlice {
     setRules(rules().map((r) => (r.id === id ? { ...r, enabled } : r)));
     const res = await client.jmap({
       using: RULES_USING,
-      methodCalls: [['MailRule/set', { accountId: acct, update: { [id]: { enabled } } }, 's']],
+      methodCalls: [['MailRule/set', { accountId: acct, ...stateFor(acct), update: { [id]: { enabled } } }, 's']],
     });
     const set = responseFor<RuleSetResponse>(res, 's');
     const refused = set.notUpdated?.[id];
@@ -184,6 +191,7 @@ export function createRulesSlice(ctx: SliceContext): RulesSlice {
       return;
     }
     ctx.broadcastChange?.();
+    await loadRules();
   }
 
   /** Show the server's reason for a refused create/update as an error toast. */

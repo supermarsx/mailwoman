@@ -109,6 +109,7 @@ export interface OAuthScope {
   folders: ScopeSelector;
   mail: boolean;
   pim: boolean;
+  scripts: boolean;
   ip_allowlist: string[];
   expires_at: string | null;
   rate_limit: number | null;
@@ -126,6 +127,7 @@ export function noScope(): OAuthScope {
     folders: { subset: [] },
     mail: false,
     pim: false,
+    scripts: false,
     ip_allowlist: [],
     expires_at: null,
     rate_limit: null,
@@ -156,6 +158,7 @@ export function readScope(raw: unknown): OAuthScope {
     folders: selector(o.folders),
     mail: bool('mail'),
     pim: bool('pim'),
+    scripts: bool('scripts'),
     ip_allowlist: strings(o.ip_allowlist),
     expires_at: typeof o.expires_at === 'string' ? o.expires_at : null,
     rate_limit: typeof o.rate_limit === 'number' ? o.rate_limit : null,

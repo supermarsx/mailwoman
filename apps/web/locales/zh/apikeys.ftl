@@ -121,3 +121,4 @@ apikeys-tool-tasks-write-label = 写入任务
 apikeys-tool-tasks-write-desc = 创建或更新任务。
 apikeys-tool-contacts-read-label = 读取联系人
 apikeys-tool-contacts-read-desc = 读取联系人。
+apikeys-surface-scripts-label = 管理 Sieve 脚本

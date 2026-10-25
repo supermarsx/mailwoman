@@ -121,3 +121,4 @@ apikeys-tool-tasks-write-label = タスクを書き込む
 apikeys-tool-tasks-write-desc = タスクを作成または更新します。
 apikeys-tool-contacts-read-label = 連絡先を読む
 apikeys-tool-contacts-read-desc = 連絡先を読みます。
+apikeys-surface-scripts-label = Sieve スクリプトを管理

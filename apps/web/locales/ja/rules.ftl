@@ -2,7 +2,7 @@
 # Locale: ja · Module: rules. Source: ../en/rules.ftl
 
 rules-title = ルールとフィルター
-rules-intro = 受信メールを自動で振り分け、タグ付け、処理します。標準のテストのみを使うルールはメールサーバー上で Sieve として実行され、それ以外は配信時にエンジンで実行されます。
+rules-intro = メールのフィルタースクリプトとルールを管理します。利用できる機能はアカウントと管理者の設定によって異なります。
 rules-empty = ルールはまだありません。
 rules-unavailable = このメールサーバーはメールルールに対応していません。
 rules-load-failed = ルールを読み込めませんでした。
@@ -48,7 +48,7 @@ rules-act-stop = 処理を停止
 rules-runs-server = サーバー (Sieve)
 rules-runs-server-detail = メールサーバーにアップロードされ、そこで適用されます。
 rules-runs-engine = エンジン
-rules-runs-engine-detail = 配信時にエンジンで適用されます。
+rules-runs-engine-detail = 新しい受信メッセージの同期時に適用されます。返信と移動は次の同期まで待機します。
 
 rules-panes-label = ルールツール
 rules-tab-builder = ビルダー
@@ -65,3 +65,27 @@ rules-dryrun-results = テスト実行の結果
 rules-dryrun-none = 評価する有効なルールはありません。
 rules-dryrun-nomatch = 一致なし
 rules-dryrun-stopped = 未到達 (前のルールで処理が停止しました)
+
+rules-scripts-label = Sieve スクリプト
+rules-script-active = 有効
+rules-script-new = 新しいスクリプト
+rules-script-export = スクリプトをエクスポート
+rules-script-import = スクリプトをインポート
+rules-script-too-large = スクリプトがサイズ制限を超えています。
+rules-script-read-only = 管理者によりスクリプトの直接編集が無効になっています。
+rules-script-validate = スクリプトを検証
+rules-script-deactivate = 無効にする
+rules-script-activate = 有効にする
+rules-script-saved = スクリプトを保存しました。
+
+rules-vacation-title = 不在時の返信
+rules-vacation-enabled = 自動返信を有効にする
+rules-vacation-from = 開始（UTC）
+rules-vacation-to = 終了（UTC）
+rules-vacation-body = 返信の本文
+rules-vacation-saved = 不在時の返信を保存しました。
+rules-script-template = スクリプトのテンプレート
+rules-forward-title = 転送
+rules-forward-address = 転送先
+rules-forward-copy = このアカウントにコピーを残す
+rules-forward-refused = 管理者はこのドメインへの転送を許可していません。

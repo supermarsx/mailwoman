@@ -2,7 +2,7 @@
 # Locale: pl · Module: rules. Source: ../en/rules.ftl
 
 rules-title = Reguły i filtry
-rules-intro = Automatyczne sortowanie, tagowanie i inne działania na przychodzącej poczcie. Reguły korzystające tylko ze standardowych testów działają na serwerze pocztowym jako Sieve; pozostałe są wykonywane przez silnik podczas dostarczania.
+rules-intro = Zarządzaj skryptami filtrowania i regułami wizualnymi. Dostępne funkcje zależą od konta i ustawień administratora.
 rules-empty = Brak reguł.
 rules-unavailable = Ten serwer pocztowy nie obsługuje reguł poczty.
 rules-load-failed = Nie udało się wczytać reguł.
@@ -52,7 +52,7 @@ rules-act-stop = Zakończ przetwarzanie
 rules-runs-server = Serwer (Sieve)
 rules-runs-server-detail = Przesyłana na serwer pocztowy i tam stosowana.
 rules-runs-engine = Silnik
-rules-runs-engine-detail = Stosowana przez silnik podczas dostarczania.
+rules-runs-engine-detail = Stosowane podczas synchronizacji nowych wiadomości; odpowiedzi i przenoszenie czekają na następną synchronizację.
 
 # Panes
 rules-panes-label = Narzędzia reguł
@@ -72,3 +72,27 @@ rules-dryrun-results = Wyniki próby
 rules-dryrun-none = Brak włączonych reguł do sprawdzenia.
 rules-dryrun-nomatch = Brak dopasowania
 rules-dryrun-stopped = Nie osiągnięto (wcześniejsza reguła zakończyła przetwarzanie)
+
+rules-scripts-label = Skrypty Sieve
+rules-script-active = Aktywny
+rules-script-new = Nowy skrypt
+rules-script-export = Eksportuj skrypt
+rules-script-import = Importuj skrypt
+rules-script-too-large = Skrypt przekracza limit rozmiaru.
+rules-script-read-only = Administrator wyłączył bezpośrednią edycję skryptów.
+rules-script-validate = Sprawdź skrypt
+rules-script-deactivate = Dezaktywuj
+rules-script-activate = Aktywuj
+rules-script-saved = Skrypt zapisany.
+
+rules-vacation-title = Odpowiedź urlopowa
+rules-vacation-enabled = Włącz odpowiedzi automatyczne
+rules-vacation-from = Początek (UTC)
+rules-vacation-to = Koniec (UTC)
+rules-vacation-body = Treść odpowiedzi
+rules-vacation-saved = Zapisano odpowiedź urlopową.
+rules-script-template = Szablon skryptu
+rules-forward-title = Przekazywanie
+rules-forward-address = Przekazuj do
+rules-forward-copy = Zachowaj kopię na tym koncie
+rules-forward-refused = Administrator nie zezwala na przekazywanie do tej domeny.

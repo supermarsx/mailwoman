@@ -7,6 +7,7 @@ import { RawEditor } from './RawEditor.tsx';
 import { emptyRuleDraft, type RulesSlice } from '../../state/slices/rules.ts';
 import type { MailRule } from '../../api/crypto-types.ts';
 import { t } from '../../test/i18n.ts';
+import type { SieveApi } from './sieve-api.ts';
 
 function fakeSlice(initial: MailRule[]): { slice: RulesSlice; saveRule: ReturnType<typeof vi.fn>; deleteRule: ReturnType<typeof vi.fn> } {
   const [rules, setRules] = createSignal<MailRule[]>(initial);
@@ -66,11 +67,16 @@ describe('RulesSettings section', () => {
     expect(saveRule.mock.calls[0]![0].name).toBe('My rule');
   });
 
-  it('surfaces lint diagnostics in the raw editor', () => {
+  it('surfaces lint diagnostics in the raw editor', async () => {
     const { slice } = fakeSlice([ruleFixture('1', 'r')]);
-    render(() => <RulesSettings accountId="acct1" slice={slice} />);
+    const api: SieveApi = {
+      connect: vi.fn(async () => ({ maxSizeScriptName: 512, maxSizeScript: 65536, maxNumberScripts: 5, maxNumberRedirects: 4, sieveExtensions: [], 'urn:mailwoman:policy': { rawEdit: true, forwardExternal: false, ownDomains: ['example.test'], runsAt: 'engine' as const } })),
+      get: vi.fn(async () => ({ accountId: 'acct1', state: 's1', list: [], notFound: [] })),
+      source: vi.fn(async () => 'keep;'), validate: vi.fn(async () => null), save: vi.fn(async () => undefined), activate: vi.fn(async () => undefined), remove: vi.fn(async () => undefined),
+    };
+    render(() => <RulesSettings accountId="acct1" slice={slice} scriptApi={api} />);
     fireEvent.click(screen.getByRole('tab', { name: t('rules-tab-raw') }));
-    const editor = screen.getByLabelText(t('rules-raw-label')) as HTMLTextAreaElement;
+    const editor = await screen.findByLabelText(t('rules-raw-label')) as HTMLTextAreaElement;
     // Break the Sieve: an unterminated string must surface a diagnostic.
     fireEvent.input(editor, { target: { value: 'fileinto "Spam;' } });
     expect(screen.getByText(/unterminated string/)).toBeInTheDocument();
