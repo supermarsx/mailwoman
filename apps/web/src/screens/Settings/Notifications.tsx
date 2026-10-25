@@ -6,6 +6,8 @@
 import { createEffect, createResource, createSignal, For, Show, onMount, type JSX } from 'solid-js';
 import { t, loadCatalog } from '../../i18n';
 import { SettingsService } from './service.ts';
+import { useSetting } from './useSetting.ts';
+import { LockNote } from './LockNote.tsx';
 import type { NotificationConfig, NotificationRule } from './types.ts';
 import * as css from './styles.css.ts';
 
@@ -26,6 +28,10 @@ function newRuleId(): string {
 export function Notifications(props: NotificationsProps): JSX.Element {
   const service = props.service ?? new SettingsService();
   onMount(() => void loadCatalog('settings'));
+  onMount(() => void loadCatalog('settings-policy'));
+  // An administrator can hold notifications on or off (`notifications.enabled`,
+  // t32 settings model C); the server refuses a held change, so offer none.
+  const enabledHold = useSetting('notifications.enabled', true);
 
   const [loaded] = createResource<NotificationConfig>(() => service.notifications().catch(() => DEFAULT_CONFIG));
   // Working copy; hydrated from the resource once it settles (exactly once).
@@ -43,7 +49,8 @@ export function Notifications(props: NotificationsProps): JSX.Element {
     }
   });
 
-  const view = (): NotificationConfig => config();
+  const view = (): NotificationConfig =>
+    enabledHold.locked() ? { ...config(), enabled: enabledHold.value() } : config();
 
   function patch(next: Partial<NotificationConfig>): void {
     setConfig({ ...config(), ...next });
@@ -71,7 +78,7 @@ export function Notifications(props: NotificationsProps): JSX.Element {
     setError('');
     setBusy(true);
     try {
-      await service.saveNotifications(config());
+      await service.saveNotifications(view());
       setSaved(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : t('settings-notif-error'));
@@ -90,11 +97,14 @@ export function Notifications(props: NotificationsProps): JSX.Element {
           class={css.checkbox}
           type="checkbox"
           aria-label={t('settings-notif-enabled-label')}
+          aria-describedby={enabledHold.locked() ? 'settings-notif-enabled-lock' : undefined}
+          disabled={enabledHold.locked()}
           checked={view().enabled}
           onChange={(e) => patch({ enabled: e.currentTarget.checked })}
         />
         <span>{t('settings-notif-enabled-label')}</span>
       </label>
+      <LockNote id="settings-notif-enabled-lock" locked={enabledHold.locked()} />
 
       {/* Quiet hours */}
       <div class={css.field}>

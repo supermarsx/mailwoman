@@ -3,9 +3,15 @@
 // persisted to localStorage via `prefs.ts` and consumed by the shell keymap, the
 // OPFS offline cache, and the Settings panel's direction. The parent owns the
 // working copy so the whole account surface can mirror when RTL is chosen.
+//
+// t32 settings model C (worker f01): an administrator can hold the offline
+// budget and retention (`offline.budgetMb`, `offline.retentionDays`). A held
+// value replaces the device value, and its input is disabled with a LockNote.
 
-import { For, onMount, type Accessor, type JSX } from 'solid-js';
+import { createEffect, For, onMount, type Accessor, type JSX } from 'solid-js';
 import { t, loadCatalog } from '../../i18n';
+import { useSetting } from './useSetting.ts';
+import { LockNote } from './LockNote.tsx';
 import {
   PRESET_BINDINGS,
   type DirectionPref,
@@ -42,8 +48,22 @@ const DIRECTION_OPTIONS: ReadonlyArray<{ value: DirectionPref; label: string }> 
 
 export function Preferences(props: PreferencesProps): JSX.Element {
   onMount(() => void loadCatalog('settings'));
+  onMount(() => void loadCatalog('settings-policy'));
 
   const patch = (next: Partial<SettingsPrefs>): void => props.onChange({ ...props.prefs(), ...next });
+  const budgetHold = useSetting('offline.budgetMb', props.prefs().offlineBudgetMb);
+  const retentionHold = useSetting('offline.retentionDays', props.prefs().offlineRetentionDays);
+  // A held value is the device's value too.
+  createEffect(() => {
+    const next: Partial<SettingsPrefs> = {};
+    if (budgetHold.locked() && props.prefs().offlineBudgetMb !== budgetHold.value()) {
+      next.offlineBudgetMb = budgetHold.value();
+    }
+    if (retentionHold.locked() && props.prefs().offlineRetentionDays !== retentionHold.value()) {
+      next.offlineRetentionDays = retentionHold.value();
+    }
+    if (Object.keys(next).length > 0) patch(next);
+  });
 
   function purgeOfflineCache(): void {
     // Decoupled seam: the OPFS offline cache listens for this and drops its store.
@@ -98,9 +118,12 @@ export function Preferences(props: PreferencesProps): JSX.Element {
               type="number"
               min="0"
               aria-label={t('settings-offline-budget-label')}
+              aria-describedby={budgetHold.locked() ? 'settings-offline-budget-lock' : undefined}
+              disabled={budgetHold.locked()}
               value={props.prefs().offlineBudgetMb}
               onInput={(e) => patch({ offlineBudgetMb: Math.max(0, Number(e.currentTarget.value) || 0) })}
             />
+            <LockNote id="settings-offline-budget-lock" locked={budgetHold.locked()} />
           </label>
           <label class={css.field}>
             <span class={css.label}>{t('settings-offline-retention-label')}</span>
@@ -109,9 +132,12 @@ export function Preferences(props: PreferencesProps): JSX.Element {
               type="number"
               min="0"
               aria-label={t('settings-offline-retention-label')}
+              aria-describedby={retentionHold.locked() ? 'settings-offline-retention-lock' : undefined}
+              disabled={retentionHold.locked()}
               value={props.prefs().offlineRetentionDays}
               onInput={(e) => patch({ offlineRetentionDays: Math.max(0, Number(e.currentTarget.value) || 0) })}
             />
+            <LockNote id="settings-offline-retention-lock" locked={retentionHold.locked()} />
           </label>
         </div>
         <div class={css.field}>

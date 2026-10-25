@@ -10,6 +10,7 @@
 
 import { withBase } from '../../api/basePath.ts';
 import { apiFetch } from '../../api/http.ts';
+import { t } from '../../i18n';
 import type {
   Identity,
   NotificationConfig,
@@ -26,28 +27,65 @@ export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
 const defaultFetcher: Fetcher = (input, init) => apiFetch(input, { credentials: 'same-origin', ...init });
 
-/** Raised on a non-2xx settings request. `status` lets callers special-case 409. */
+/**
+ * Raised on a non-2xx settings request. `message` is localised text chosen from
+ * the status and the server's `code` (t32-admin §2.8: the UI never shows the
+ * server's English), with the answer's request id as a reference when it sent
+ * one. `detail` keeps the server's own text for logs and tests; `status` lets
+ * callers special-case 409.
+ */
 export class SettingsError extends Error {
   readonly status: number;
-  constructor(status: number, message: string) {
+  readonly code: string | null;
+  readonly detail: string;
+  readonly requestId: string | null;
+  constructor(
+    status: number,
+    message: string,
+    extra: { code?: string | null; detail?: string; requestId?: string | null } = {},
+  ) {
     super(message);
     this.name = 'SettingsError';
     this.status = status;
+    this.code = extra.code ?? null;
+    this.detail = extra.detail ?? message;
+    this.requestId = extra.requestId ?? null;
   }
+}
+
+/** The localised text for a refused settings request. */
+export function settingsErrorText(status: number, code: string | null, requestId: string | null): string {
+  let id = 'settings-policy-error-generic';
+  if (code === 'setting_locked') id = 'settings-policy-error-locked';
+  else if (status === 401) id = 'settings-policy-error-signed-out';
+  else if (status === 400 || status === 422) id = 'settings-policy-error-invalid';
+  else if (status === 403) id = 'settings-policy-error-forbidden';
+  else if (status === 404) id = 'settings-policy-error-not-found';
+  else if (status === 409) id = 'settings-policy-error-conflict';
+  else if (status === 413) id = 'settings-policy-error-too-large';
+  else if (status === 429) id = 'settings-policy-error-rate';
+  const text = t(id);
+  return requestId !== null ? `${text} ${t('settings-policy-reference', { id: requestId })}` : text;
 }
 
 async function jsonOrThrow<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    // Surface the server's error string when it sends one (e.g. the last-factor
-    // 409), else a generic message. Never throws while reading the body.
+    // Read the server's code and text without throwing; show neither as such.
     let detail = `request failed with ${res.status}`;
+    let code: string | null = null;
     try {
-      const body = (await res.json()) as { error?: string };
+      const body = (await res.json()) as { error?: unknown; code?: unknown };
       if (typeof body.error === 'string' && body.error !== '') detail = body.error;
+      if (typeof body.code === 'string' && body.code !== '') code = body.code;
     } catch {
-      /* non-JSON body — keep the generic message */
+      /* non-JSON body — no detail */
     }
-    throw new SettingsError(res.status, detail);
+    const requestId = res.headers.get('x-request-id');
+    throw new SettingsError(res.status, settingsErrorText(res.status, code, requestId), {
+      code,
+      detail,
+      requestId,
+    });
   }
   return (await res.json()) as T;
 }
@@ -126,7 +164,15 @@ export class SettingsService {
     authenticatorData?: string;
     signature?: string;
   }): Promise<void> {
-    await okOrThrow(await postJson(this.fetcher, withBase('/api/login/2fa'), body));
+    try {
+      await okOrThrow(await postJson(this.fetcher, withBase('/api/login/2fa'), body));
+    } catch (e) {
+      // A refused factor gets the one uniform text: never which check failed.
+      if (e instanceof SettingsError && (e.status === 401 || e.status === 410)) {
+        throw new SettingsError(e.status, t('settings-2fa-challenge-failed'), { detail: e.detail });
+      }
+      throw e;
+    }
   }
 
   // ── Sessions (S11) ───────────────────────────────────────────────────────

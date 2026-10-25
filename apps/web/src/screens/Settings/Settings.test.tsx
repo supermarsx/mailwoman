@@ -18,6 +18,7 @@ import { registerPasskey, assertPasskey } from './webauthn.ts';
 import type { SettingsService as SS } from './service.ts';
 import type { Identity, NotificationConfig, SavedSearch, Signature } from './types.ts';
 import { createSignal } from 'solid-js';
+import { t } from '../../test/i18n.ts';
 
 /** Build a partial `SettingsService` for component injection. */
 function fakeService(overrides: Partial<Record<keyof SS, unknown>>): SettingsService {
@@ -313,14 +314,41 @@ describe('SettingsService — endpoints + error surfacing', () => {
     expect(JSON.parse(revokeCall?.[1]?.body as string)).toEqual({ all: true });
   });
 
-  it('surfaces the server error string with its status (e.g. last-factor 409)', async () => {
+  it('a refusal carries localised text, never the server string (t32-admin §2.8)', async () => {
     const fetcher = vi.fn(async () =>
       okJson({ error: 'your organization requires two-factor authentication' }, 409),
     ) as unknown as Fetcher;
     const service = new SettingsService(fetcher);
     await expect(service.totpDisable()).rejects.toMatchObject({
       status: 409,
-      message: 'your organization requires two-factor authentication',
+      message: t('settings-policy-error-conflict'),
+      detail: 'your organization requires two-factor authentication',
+    });
+  });
+
+  it('a refusal names its request id as a reference and maps codes', async () => {
+    const fetcher = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ code: 'setting_locked', error: 'held' }), {
+          status: 403,
+          headers: { 'content-type': 'application/json', 'x-request-id': 'req-42' },
+        }),
+    ) as unknown as Fetcher;
+    const service = new SettingsService(fetcher);
+    await expect(service.notifications()).rejects.toMatchObject({
+      status: 403,
+      code: 'setting_locked',
+      requestId: 'req-42',
+      message: `${t('settings-policy-error-locked')} ${t('settings-policy-reference', { id: 'req-42' })}`,
+    });
+  });
+
+  it('a refused login factor gets the uniform challenge text', async () => {
+    const fetcher = vi.fn(async () => okJson({ error: 'invalid code' }, 401)) as unknown as Fetcher;
+    const service = new SettingsService(fetcher);
+    await expect(service.verifyLoginFactor({ pendingToken: 'p', method: 'totp', code: '1' })).rejects.toMatchObject({
+      status: 401,
+      message: t('settings-2fa-challenge-failed'),
     });
   });
 });
