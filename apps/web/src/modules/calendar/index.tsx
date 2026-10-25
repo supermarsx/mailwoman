@@ -10,6 +10,7 @@
 
 import { For, Index, Show, createSignal, onMount, type JSX } from 'solid-js';
 import { t, loadCatalog } from '../../i18n';
+import { toast } from '../../components/toast/index.ts';
 import type { Calendar, CalendarEvent } from '../../api/pim-types.ts';
 import { createCalendarController, type CalendarBackend, type CalendarController } from './controller.ts';
 import { MOCK_IDENTITY, createMockFeeds, createMockStore, mockSession, createMockJmap, type MockStore } from './mock.ts';
@@ -76,9 +77,16 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
   const [quickText, setQuickText] = createSignal('');
   const [catFilter, setCatFilter] = createSignal('');
   const [webcalUrl, setWebcalUrl] = createSignal('');
-  // The outcome of the last import / export / subscribe / quick-add, shown in the
-  // sidebar: a failed engine call is reported rather than dropped.
-  const [feedback, setFeedback] = createSignal<{ kind: 'error' | 'info'; text: string } | null>(null);
+  // Action outcomes use the shell's shared, dismissible toast region.
+  function setFeedback(feedback: { kind: 'error' | 'info'; text: string } | null): void {
+    const id = 'calendar-feedback';
+    if (feedback === null) {
+      toast.dismiss(id);
+    } else {
+      const show = feedback.kind === 'error' ? toast.error : toast.success;
+      show(feedback.text, { id, testId: id });
+    }
+  }
   // The locations of a picked `.hol` file that has more than one, while the user
   // chooses among them. Such a file is never imported whole.
   const [locationChoice, setLocationChoice] = createSignal<HolLocation[] | null>(null);
@@ -359,17 +367,6 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
 
           <Show when={c.error() !== null}>
             <p class={css.dangerText} role="alert">{c.error()}</p>
-          </Show>
-          <Show when={feedback()}>
-            {(f) => (
-              <p
-                class={f().kind === 'error' ? css.dangerText : css.dimText}
-                role={f().kind === 'error' ? 'alert' : 'status'}
-                data-testid="calendar-feedback"
-              >
-                {f().text}
-              </p>
-            )}
           </Show>
         </aside>
 

@@ -197,7 +197,7 @@ test.describe('Calendar module through the real UI (engine mode)', () => {
       .setInputFiles({ name: 'review.ics', mimeType: 'text/calendar', buffer: Buffer.from(ics, 'utf8') });
 
     // The engine reports one created event and the view renders it.
-    await expect(calendar(page).getByTestId('calendar-feedback')).toHaveText('Imported 1 event.');
+    await expect(page.getByTestId('calendar-feedback')).toHaveText('Imported 1 event.');
     await expect(calendar(page).getByText(title).first()).toBeVisible();
 
     await reloadToShell(page);
@@ -213,7 +213,7 @@ test.describe('Calendar module through the real UI (engine mode)', () => {
       .getByLabel('Import calendar file')
       .setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('not a calendar', 'utf8') });
 
-    const feedback = calendar(page).getByTestId('calendar-feedback');
+    const feedback = page.getByTestId('calendar-feedback');
     await expect(feedback).toHaveAttribute('role', 'alert');
     await expect(feedback).toContainText('Nothing was imported');
   });
@@ -228,7 +228,7 @@ test.describe('Calendar module through the real UI (engine mode)', () => {
     await engineLogin(page);
     await openCalendar(page);
     const input = calendar(page).getByLabel('Import calendar file');
-    const feedback = calendar(page).getByTestId('calendar-feedback');
+    const feedback = page.getByTestId('calendar-feedback');
 
     // The repository's fixture, re-encoded by `utf16WithBom`: one location, three
     // holidays.
@@ -269,7 +269,7 @@ test.describe('Calendar module through the real UI (engine mode)', () => {
       .getByLabel('Import calendar file')
       .setInputFiles({ name: 'notes.hol', mimeType: 'application/octet-stream', buffer: utf16WithBom('not a calendar') });
 
-    const feedback = calendar(page).getByTestId('calendar-feedback');
+    const feedback = page.getByTestId('calendar-feedback');
     await expect(feedback).toHaveAttribute('role', 'alert');
     await expect(feedback).toContainText('Nothing was imported');
   });
@@ -278,7 +278,7 @@ test.describe('Calendar module through the real UI (engine mode)', () => {
     await engineLogin(page);
     await openCalendar(page);
     const input = calendar(page).getByLabel('Import calendar file');
-    const feedback = calendar(page).getByTestId('calendar-feedback');
+    const feedback = page.getByTestId('calendar-feedback');
 
     // Lines in the layout of Outlook's own file: `[Name] n` sections, unpadded
     // dates, and a line with a calendar-type id (a Hijri date), which the engine
@@ -368,7 +368,7 @@ test.describe('Calendar module through the real UI (engine mode)', () => {
     await calendar(page).getByLabel('Calendar URL').fill('http://127.0.0.1:9/none.ics');
     await calendar(page).getByRole('button', { name: 'Subscribe' }).click();
 
-    const feedback = calendar(page).getByTestId('calendar-feedback');
+    const feedback = page.getByTestId('calendar-feedback');
     await expect(feedback).toHaveAttribute('role', 'alert');
     await expect(feedback).toContainText('could not be fetched');
     await reloadToShell(page);
@@ -436,7 +436,7 @@ test.describe('Calendar module through the real UI (engine mode)', () => {
     await calendar(page)
       .getByLabel('Import calendar file')
       .setInputFiles({ name: 'invites.ics', mimeType: 'text/calendar', buffer: Buffer.from(ics, 'utf8') });
-    await expect(calendar(page).getByTestId('calendar-feedback')).toHaveText('Imported 2 events.');
+    await expect(page.getByTestId('calendar-feedback')).toHaveText('Imported 2 events.');
 
     // Not a participant → no response controls.
     await calendar(page).getByText(theirs).first().click();

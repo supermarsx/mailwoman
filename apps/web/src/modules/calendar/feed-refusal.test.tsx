@@ -7,6 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, fireEvent, screen, within } from '@solidjs/testing-library';
 import { CalendarApp } from './index.tsx';
+import { ToastRegion } from '../../components/toast/index.ts';
 import { createCalendarController } from './controller.ts';
 import { createCalendarFeeds, FeedError } from './feeds.ts';
 import { MOCK_IDENTITY, createMockJmap, createMockStore } from './mock.ts';
@@ -39,7 +40,7 @@ async function renderWith(status: number, body: unknown): Promise<void> {
     resolveIdentity: () => Promise.resolve(MOCK_IDENTITY),
     feeds: answering(status, body),
   });
-  render(() => <CalendarApp controller={controller} />);
+  render(() => <><ToastRegion /><CalendarApp controller={controller} /></>);
   await screen.findByTitle('Design review');
 }
 

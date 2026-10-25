@@ -38,6 +38,7 @@ import { isolate } from '../../i18n';
 import { instanceBound, queryBounds } from './datetime.ts';
 import { createCalendarFeeds, FeedError, type CalendarFeeds } from './feeds.ts';
 import { CalendarApp } from './index.tsx';
+import { ToastRegion } from '../../components/toast/index.ts';
 import { MOCK_IDENTITY, createMockFeeds, createMockJmap, createMockStore, type MockStore } from './mock.ts';
 
 // ── fixtures transcribed from the server ─────────────────────────────────────
@@ -714,7 +715,7 @@ describe('calendar shell feedback', () => {
       resolveAccount: () => Promise.resolve('acct-mock'),
       feeds: createMockFeeds(store, () => null),
     });
-    render(() => <CalendarApp controller={controller} />);
+    render(() => <><ToastRegion /><CalendarApp controller={controller} /></>);
     await screen.findByTitle('Design review');
     const before = store.calendars.length;
     fireEvent.input(screen.getByLabelText('Calendar URL'), { target: { value: 'https://example.com/gone.ics' } });
@@ -732,7 +733,7 @@ describe('calendar shell feedback', () => {
       resolveAccount: () => Promise.resolve('acct-mock'),
       feeds: createMockFeeds(store),
     });
-    render(() => <CalendarApp controller={controller} />);
+    render(() => <><ToastRegion /><CalendarApp controller={controller} /></>);
     await screen.findByTitle('Design review');
     const ics = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:imp-1\r\nSUMMARY:Imported planning\r\nDTSTART:20260714T120000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n';
     const file = new File([ics], 'plan.ics', { type: 'text/calendar' });
@@ -752,7 +753,7 @@ describe('calendar shell feedback', () => {
       resolveAccount: () => Promise.resolve('acct-mock'),
       feeds: createMockFeeds(store),
     });
-    render(() => <CalendarApp controller={controller} />);
+    render(() => <><ToastRegion /><CalendarApp controller={controller} /></>);
     await screen.findByTitle('Design review');
     const before = store.events.length;
     const file = new File(['hello'], 'notes.txt');

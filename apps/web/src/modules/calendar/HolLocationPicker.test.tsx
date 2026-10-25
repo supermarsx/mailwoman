@@ -13,6 +13,7 @@ import { render, fireEvent, screen, waitFor, within } from '@solidjs/testing-lib
 import type { JmapRequest, JmapResponse } from '../../api/jmap-types.ts';
 import { createCalendarController } from './controller.ts';
 import { CalendarApp } from './index.tsx';
+import { ToastRegion } from '../../components/toast/index.ts';
 
 const SERVER_BODIES: Record<string, unknown> = {
   'Calendar/get': {
@@ -43,7 +44,7 @@ async function mountApp(): Promise<{ imports: string[]; pick: (bytes: Uint8Array
     return Promise.resolve({ methodResponses } as unknown as JmapResponse);
   };
   const controller = createCalendarController({ jmap, resolveAccount: () => Promise.resolve('acct1') });
-  render(() => <CalendarApp controller={controller} />);
+  render(() => <><ToastRegion /><CalendarApp controller={controller} /></>);
   const input = (await screen.findByLabelText('Import calendar file')) as HTMLInputElement;
   await waitFor(() => expect(controller.calendars().length).toBe(1));
   const pick = (bytes: Uint8Array<ArrayBuffer> | string, name: string): void => {
