@@ -21,14 +21,14 @@ export interface DashboardServer {
 }
 
 export interface DashboardCounts {
-  provisionedUsers: number;
-  accountsSignedIn24h: number;
-  accountsSignedIn7d: number;
-  domains: number;
-  domainsWithUpstream: number;
-  domainsDisabled: number;
-  activeSessions: number;
-  activeAdminSessions: number;
+  provisionedUsers: number | null;
+  accountsSignedIn24h: number | null;
+  accountsSignedIn7d: number | null;
+  domains: number | null;
+  domainsWithUpstream: number | null;
+  domainsDisabled: number | null;
+  activeSessions: number | null;
+  activeAdminSessions: number | null;
 }
 
 export interface DashboardSecurity {
@@ -40,7 +40,7 @@ export interface DashboardSecurity {
 }
 
 export interface DashboardStorage {
-  dbBytes: number;
+  dbBytes: number | null;
   walBytes: number | null;
   searchIndexBytes: number | null;
   dataVolume: { freeBytes: number; totalBytes: number } | null;
@@ -52,8 +52,8 @@ export interface DashboardHealth {
   engine: { registeredAccounts: number; accountsWithSyncError: number } | null;
   outbox: { pending: number; oldestAgeSecs: number | null; failed24h: number } | null;
   searchIndex: { documents: number; rebuilding: boolean } | null;
-  renderSandbox: 'available' | 'missing' | 'jail-required-missing';
-  pluginRuntime: 'available' | 'disabled';
+  renderSandbox: 'available' | 'missing' | 'jail-required-missing' | null;
+  pluginRuntime: 'available' | 'disabled' | null;
 }
 
 export interface TrafficPoint {
@@ -71,9 +71,11 @@ export interface DashboardTraffic {
 }
 
 export interface DashboardAuditRow {
-  id: number;
+  id: string | number;
   ts: number;
   actor: string;
+  actorLabel?: string;
+  actorLink?: { section: 'admins' | 'users'; id: string };
   action: string;
   target: string;
 }
@@ -119,15 +121,16 @@ export interface ChecklistItem {
 }
 
 export interface Dashboard {
-  server: DashboardServer;
+  server: DashboardServer | null;
   counts: DashboardCounts;
-  security: DashboardSecurity;
-  storage: DashboardStorage;
-  health: DashboardHealth;
-  traffic: DashboardTraffic;
+  security: DashboardSecurity | null;
+  storage: DashboardStorage | null;
+  health: DashboardHealth | null;
+  traffic: DashboardTraffic | null;
   recentAudit: DashboardAuditRow[];
-  blockedAccounts: BlockedAccounts;
+  blockedAccounts: BlockedAccounts | null;
   warnings: DashboardWarning[];
+  unavailable?: Record<string, string>;
   /** Added by t32-ext.md §K; absent from a server that does not compute it. */
   checklist?: ChecklistItem[];
 }

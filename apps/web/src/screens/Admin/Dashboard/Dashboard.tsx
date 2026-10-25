@@ -1,3 +1,5 @@
+import { AuditActor } from '../shell/AuditActor.tsx';
+import * as auditCss from '../shell/audit.css.ts';
 // Admin › Dashboard, the console's landing page (t32-admin.md §2.2, t32-ext.md §K).
 //
 // Real data only. Every figure comes from `GET /admin/dashboard`; a figure the
@@ -8,8 +10,11 @@
 // Not on this page because the server cannot read them honestly: quota usage
 // (nothing measures it), backups (host-side), recent error log lines (log viewer).
 
-import { For, Match, Show, Switch, createResource, createSignal, type JSX } from 'solid-js';
+import { For, Match, Show, Switch, createResource, createSignal, createEffect, onCleanup, type JSX } from 'solid-js';
+import { AsyncPending } from '../../../components/AsyncState.tsx';
 import { isolate, t } from '../../../i18n';
+import { useOptionalPersonalPreferences } from '../shell/personalPreferences.tsx';
+import { dashboardPreferences, type DashboardPreferences, type DashboardWidgetId } from './preferences.ts';
 import { useShell } from '../shell/context.ts';
 import { findSection, SECTIONS } from '../shell/sections.ts';
 import { hrefFor, sectionPath } from '../shell/router.ts';
@@ -77,7 +82,16 @@ function writeHidden(user: string, ids: string[]): void {
 
 export function Dashboard(): JSX.Element {
   const shellCtx = useShell();
+  const preferences = useOptionalPersonalPreferences();
+  const layout = () => dashboardPreferences(preferences?.data()['dashboard']);
   const [data, { refetch }] = createResource(() => shellCtx.services.loadDashboard());
+
+  createEffect(() => {
+    const seconds = layout().refreshSecs;
+    if (!seconds) return;
+    const timer = setInterval(() => { if (document.visibilityState === 'visible' && !data.loading) void refetch(); }, seconds * 1000);
+    onCleanup(() => clearInterval(timer));
+  });
 
   /** A link to a section, only when the section exists and the admin may open it. */
   function sectionLink(id: string | null, rest: string[] = []): string | null {
@@ -94,15 +108,14 @@ export function Dashboard(): JSX.Element {
         <h2 id="admin-dash-title" class={admin.heading}>
           {t('admin-shell-nav-dashboard')}
         </h2>
+        <a class="btn btn--ghost" href={hrefFor(sectionPath('preferences'))} onClick={e => inPlace(e, () => open(sectionPath('preferences')))}>{t('admin-dash-customize')}</a>
         <button type="button" class="btn btn--ghost" onClick={() => void refetch()} disabled={data.loading}>
           {t('admin-dash-refresh')}
         </button>
       </div>
       <Switch>
         <Match when={data.loading && data() === undefined}>
-          <p class={shell.state} role="status">
-            <span class={shell.busy} aria-hidden="true" /> {t('admin-shell-loading')}
-          </p>
+          <div class={shell.state}><AsyncPending message={t('admin-shell-loading')} onRetry={() => void refetch()} /></div>
         </Match>
         <Match when={data()?.kind === 'unavailable'}>
           <div class={shell.field} data-testid="dash-unavailable">
@@ -126,7 +139,7 @@ export function Dashboard(): JSX.Element {
           </div>
         </Match>
         <Match when={(() => { const r = data(); return r?.kind === 'ok' ? r.data : undefined; })()}>
-          {(d) => <DashboardBody data={d()} sectionLink={sectionLink} open={open} username={shellCtx.username()} />}
+          {(d) => <DashboardBody data={d()} layout={layout()} sectionLink={sectionLink} open={open} username={shellCtx.username()} />}
         </Match>
       </Switch>
     </section>
@@ -134,19 +147,30 @@ export function Dashboard(): JSX.Element {
 }
 
 interface BodyProps {
+  layout: DashboardPreferences;
   data: DashboardData;
   sectionLink: (id: string | null, rest?: string[]) => string | null;
   open: (path: string) => void;
   username: string;
 }
 
+function Widget(props: { id: DashboardWidgetId; layout: DashboardPreferences; children: JSX.Element }): JSX.Element {
+  return <Show when={!props.layout.hidden.includes(props.id)}><div data-dashboard-widget={props.id} class={css.widgetOrder[props.layout.order.indexOf(props.id) as keyof typeof css.widgetOrder]}>{props.children}</div></Show>;
+}
+
 function DashboardBody(props: BodyProps): JSX.Element {
   const d = (): DashboardData => props.data;
-  const proxy = (): boolean => d().server.mode === 'proxy';
+  const proxy = (): boolean => d().server?.mode === 'proxy';
   const reasonProxy = (): string => (proxy() ? t('admin-dash-na-proxy') : t('admin-dash-na-unreported'));
 
   return (
-    <>
+    <div class={css.widgets}>
+      <Show when={d().unavailable && Object.keys(d().unavailable!).length > 0}>
+        <details class={css.panel}>
+          <summary class={css.panelTitle}>{t('admin-dash-limitations')}</summary>
+          <ul class={css.list}><For each={[...new Set(Object.values(d().unavailable ?? {}))]}>{reason => <li>{reason}</li>}</For></ul>
+        </details>
+      </Show>
       <Show when={d().warnings.length > 0}>
         <section class={css.panel} aria-labelledby="admin-dash-warnings">
           <h3 id="admin-dash-warnings" class={css.panelTitle}>
@@ -176,14 +200,15 @@ function DashboardBody(props: BodyProps): JSX.Element {
         </section>
       </Show>
 
-      <Show when={d().blockedAccounts.total > 0}>
+      <Show when={(d().blockedAccounts?.total ?? 0) > 0}>
         <BlockedAccounts data={d()} sectionLink={props.sectionLink} open={props.open} />
       </Show>
 
       <Show when={d().checklist && d().checklist!.length > 0}>
-        <Checklist items={d().checklist!} open={props.open} username={props.username} />
+        <Widget id="checklist" layout={props.layout}><Checklist items={d().checklist!} open={props.open} username={props.username} /></Widget>
       </Show>
 
+      <Widget id="overview" layout={props.layout}>
       <section class={css.panel} aria-labelledby="admin-dash-overview">
         <h3 id="admin-dash-overview" class={css.panelTitle}>
           {t('admin-dash-overview')}
@@ -197,48 +222,55 @@ function DashboardBody(props: BodyProps): JSX.Element {
             value={d().counts.domains}
             format={formatCount}
             detail={t('admin-dash-domains-detail', {
-              upstream: d().counts.domainsWithUpstream,
-              disabled: d().counts.domainsDisabled,
+              upstream: d().counts.domainsWithUpstream ?? t('admin-shell-not-available'),
+              disabled: d().counts.domainsDisabled ?? t('admin-shell-not-available'),
             })}
           />
           <StatTile label={t('admin-dash-sessions')} value={d().counts.activeSessions} format={formatCount} />
           <StatTile label={t('admin-dash-admin-sessions')} value={d().counts.activeAdminSessions} format={formatCount} />
         </div>
       </section>
+      </Widget>
 
+      <Show when={d().security}>{security => (
+      <Widget id="security" layout={props.layout}>
       <section class={css.panel} aria-labelledby="admin-dash-security">
         <h3 id="admin-dash-security" class={css.panelTitle}>
           {t('admin-dash-security')}
         </h3>
         <div class={shell.tiles}>
-          <StatTile label={t('admin-dash-failed-webmail')} value={d().security.failedLogins24h.webmail} format={formatCount} />
-          <StatTile label={t('admin-dash-failed-admin')} value={d().security.failedLogins24h.admin} format={formatCount} />
-          <StatTile label={t('admin-dash-active-blocks')} value={d().security.activeBlocks} format={formatCount} />
+          <StatTile label={t('admin-dash-failed-webmail')} value={security().failedLogins24h.webmail} format={formatCount} />
+          <StatTile label={t('admin-dash-failed-admin')} value={security().failedLogins24h.admin} format={formatCount} />
+          <StatTile label={t('admin-dash-active-blocks')} value={security().activeBlocks} format={formatCount} />
           <StatTile
             label={t('admin-dash-allowlists')}
             value={t('admin-dash-allowlists-value', {
-              admin: d().security.allowlists.admin === 'on' ? t('admin-dash-on') : t('admin-dash-off'),
-              webmail: d().security.allowlists.webmail === 'on' ? t('admin-dash-on') : t('admin-dash-off'),
+              admin: security().allowlists.admin === 'on' ? t('admin-dash-on') : t('admin-dash-off'),
+              webmail: security().allowlists.webmail === 'on' ? t('admin-dash-on') : t('admin-dash-off'),
             })}
           />
           <StatTile
             label={t('admin-dash-trusted-proxies')}
-            value={d().security.trustedProxiesConfigured ? t('admin-dash-configured') : t('admin-dash-not-configured')}
-            detail={t('admin-dash-untrusted-forwarded', { count: d().security.forwardedFromUntrustedPeer24h })}
+            value={security().trustedProxiesConfigured ? t('admin-dash-configured') : t('admin-dash-not-configured')}
+            detail={t('admin-dash-untrusted-forwarded', { count: security().forwardedFromUntrustedPeer24h })}
           />
         </div>
       </section>
+      </Widget>
+      )}</Show>
 
+      <Show when={d().traffic}>{traffic => (
+      <Widget id="traffic" layout={props.layout}>
       <section class={css.panel} aria-labelledby="admin-dash-traffic">
         <h3 id="admin-dash-traffic" class={css.panelTitle}>
-          {t('admin-dash-traffic', { mins: d().traffic.windowMins })}
+          {t('admin-dash-traffic', { mins: traffic().windowMins })}
         </h3>
         <p class={admin.note}>{t('admin-dash-traffic-note')}</p>
         <div class={css.charts}>
           <Sparkline
             testId="spark-requests"
             title={t('admin-dash-requests')}
-            points={d().traffic.series.map((p) => ({ t: p.t, value: p.requests }))}
+            points={traffic().series.map((p) => ({ t: p.t, value: p.requests }))}
             format={formatCount}
             formatTime={formatTime}
             emptyText={t('admin-dash-traffic-empty')}
@@ -247,7 +279,7 @@ function DashboardBody(props: BodyProps): JSX.Element {
             testId="spark-errors"
             title={t('admin-dash-errors')}
             tone="danger"
-            points={d().traffic.series.map((p) => ({ t: p.t, value: p.errors5xx }))}
+            points={traffic().series.map((p) => ({ t: p.t, value: p.errors5xx }))}
             format={formatCount}
             formatTime={formatTime}
             emptyText={t('admin-dash-traffic-empty')}
@@ -255,49 +287,56 @@ function DashboardBody(props: BodyProps): JSX.Element {
           <Sparkline
             testId="spark-p95"
             title={t('admin-dash-p95')}
-            points={d().traffic.series.map((p) => ({ t: p.t, value: p.p95Ms }))}
+            points={traffic().series.map((p) => ({ t: p.t, value: p.p95Ms }))}
             format={formatMs}
             formatTime={formatTime}
             emptyText={t('admin-dash-traffic-empty')}
           />
         </div>
       </section>
+      </Widget>
+      )}</Show>
 
-      <Health health={d().health} reasonProxy={reasonProxy()} />
+      <Show when={d().health}>{health => <Widget id="health" layout={props.layout}><Health health={health()} reasonProxy={reasonProxy()} /></Widget>}</Show>
 
+      <Show when={d().storage}>{storage => (
+      <Widget id="storage" layout={props.layout}>
       <section class={css.panel} aria-labelledby="admin-dash-storage">
         <h3 id="admin-dash-storage" class={css.panelTitle}>
           {t('admin-dash-storage')}
         </h3>
         <div class={shell.tiles}>
-          <StatTile label={t('admin-dash-db-size')} value={d().storage.dbBytes} format={formatBytes} />
+          <StatTile label={t('admin-dash-db-size')} value={storage().dbBytes} format={formatBytes} />
           <StatTile
             label={t('admin-dash-wal-size')}
-            value={d().storage.walBytes}
+            value={storage().walBytes}
             format={formatBytes}
             unavailableReason={t('admin-dash-na-wal')}
           />
           <StatTile
             label={t('admin-dash-index-size')}
-            value={d().storage.searchIndexBytes}
+            value={storage().searchIndexBytes}
             format={formatBytes}
             unavailableReason={t('admin-dash-na-index')}
           />
           <StatTile
             testId="tile-volume"
             label={t('admin-dash-volume-free')}
-            value={d().storage.dataVolume?.freeBytes ?? null}
+            value={storage().dataVolume?.freeBytes ?? null}
             format={formatBytes}
             detail={
-              d().storage.dataVolume
-                ? t('admin-dash-volume-of', { total: formatBytes(d().storage.dataVolume!.totalBytes) })
+              storage().dataVolume
+                ? t('admin-dash-volume-of', { total: formatBytes(storage().dataVolume!.totalBytes) })
                 : undefined
             }
             unavailableReason={t('admin-dash-na-volume')}
           />
         </div>
       </section>
+      </Widget>
+      )}</Show>
 
+      <Widget id="audit" layout={props.layout}>
       <section class={css.panel} aria-labelledby="admin-dash-audit">
         <h3 id="admin-dash-audit" class={css.panelTitle}>
           {t('admin-dash-recent-audit')}
@@ -307,7 +346,7 @@ function DashboardBody(props: BodyProps): JSX.Element {
           fallback={<p class={admin.note}>{t('admin-dash-audit-empty')}</p>}
         >
           <div class={admin.tableWrap}>
-            <table class={admin.table}>
+            <table class={`${admin.table} ${auditCss.auditTable}`}>
               <caption class={shell.srOnly}>{t('admin-dash-recent-audit')}</caption>
               <thead>
                 <tr>
@@ -321,10 +360,10 @@ function DashboardBody(props: BodyProps): JSX.Element {
                 <For each={d().recentAudit.slice(0, 10)}>
                   {(row) => (
                     <tr>
-                      <td>{formatDateTime(row.ts)}</td>
-                      <td>{row.actor}</td>
-                      <td class={admin.mono}>{row.action}</td>
-                      <td>{row.target}</td>
+                      <td data-label={t('admin-dash-audit-when')}>{formatDateTime(row.ts)}</td>
+                      <td data-label={t('admin-dash-audit-actor')}><AuditActor {...row} /></td>
+                      <td class={admin.mono} data-label={t('admin-dash-audit-action')}>{row.action}</td>
+                      <td data-label={t('admin-dash-audit-target')}><span class={auditCss.identifier} title={row.target ?? undefined}>{row.target}</span></td>
                     </tr>
                   )}
                 </For>
@@ -342,25 +381,30 @@ function DashboardBody(props: BodyProps): JSX.Element {
           )}
         </Show>
       </section>
+      </Widget>
 
+      <Show when={d().server}>{server => (
+      <Widget id="server" layout={props.layout}>
       <section class={css.panel} aria-labelledby="admin-dash-server">
         <h3 id="admin-dash-server" class={css.panelTitle}>
           {t('admin-dash-server')}
         </h3>
         <dl class={css.facts}>
           <dt>{t('admin-dash-version')}</dt>
-          <dd>{d().server.version}</dd>
+          <dd>{server().version}</dd>
           <dt>{t('admin-dash-build')}</dt>
-          <dd class={admin.mono}>{d().server.buildSha ?? t('admin-shell-not-available')}</dd>
+          <dd class={admin.mono}>{server().buildSha ?? t('admin-shell-not-available')}</dd>
           <dt>{t('admin-dash-mode')}</dt>
           <dd>{proxy() ? t('admin-dash-mode-proxy') : t('admin-dash-mode-engine')}</dd>
           <dt>{t('admin-dash-uptime')}</dt>
-          <dd>{formatDuration(d().server.uptimeSecs)}</dd>
+          <dd>{formatDuration(server().uptimeSecs)}</dd>
           <dt>{t('admin-dash-base-path')}</dt>
-          <dd class={admin.mono}>{d().server.basePath === '' ? t('admin-dash-base-root') : d().server.basePath}</dd>
+          <dd class={admin.mono}>{server().basePath === '' ? t('admin-dash-base-root') : server().basePath}</dd>
         </dl>
       </section>
-    </>
+      </Widget>
+      )}</Show>
+    </div>
   );
 }
 
@@ -369,7 +413,7 @@ function BlockedAccounts(props: {
   sectionLink: BodyProps['sectionLink'];
   open: BodyProps['open'];
 }): JSX.Element {
-  const b = (): DashboardData['blockedAccounts'] => props.data.blockedAccounts;
+  const b = (): NonNullable<DashboardData['blockedAccounts']> => props.data.blockedAccounts!;
   return (
     <section class={[css.panel, css.alertPanel].join(' ')} aria-labelledby="admin-dash-blocked" data-testid="dash-blocked">
       <h3 id="admin-dash-blocked" class={css.panelTitle}>
@@ -522,9 +566,9 @@ function Health(props: { health: DashboardHealth; reasonProxy: string }): JSX.El
       },
       {
         label: t('admin-dash-h-sandbox'),
-        ok: h().renderSandbox === 'available',
+        ok: h().renderSandbox === null ? null : h().renderSandbox === 'available',
         text:
-          h().renderSandbox === 'available'
+          h().renderSandbox === null ? t('admin-dash-na-unreported') : h().renderSandbox === 'available'
             ? t('admin-dash-h-sandbox-ok')
             : h().renderSandbox === 'missing'
               ? t('admin-dash-h-sandbox-missing')
@@ -533,7 +577,7 @@ function Health(props: { health: DashboardHealth; reasonProxy: string }): JSX.El
       {
         label: t('admin-dash-h-plugins'),
         ok: h().pluginRuntime === 'available' ? true : null,
-        text: h().pluginRuntime === 'available' ? t('admin-dash-h-plugins-ok') : t('admin-dash-h-plugins-off'),
+        text: h().pluginRuntime === null ? t('admin-dash-na-unreported') : h().pluginRuntime === 'available' ? t('admin-dash-h-plugins-ok') : t('admin-dash-h-plugins-off'),
       },
     ];
   };

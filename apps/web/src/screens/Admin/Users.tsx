@@ -1,3 +1,8 @@
+import * as auditCss from './shell/audit.css.ts';
+import { ShellContext } from './shell/context.ts';
+import { adminRequest } from './shell/adminApi.ts';
+import { hrefFor, sectionPath } from './shell/router.ts';
+import { AsyncPending } from '../../components/AsyncState.tsx';
 // Admin › Users (§19). Provision users, set quota, revoke sessions, and set the
 // per-account flags: disabled, force password change, and the zero-access flag.
 // Every action audits server-side.
@@ -8,7 +13,7 @@
 // and expects it (`FlagsDto`, `crates/mw-server/src/admin.rs`), and is passed
 // through unchanged when another flag is saved.
 
-import { createSignal, Index, Show, onMount, type JSX } from 'solid-js';
+import { createSignal, createResource, useContext, Index, Show, onMount, type JSX } from 'solid-js';
 import { useAdmin } from './context.ts';
 import type { UserFeatureFlags, UserSummary } from '../../state/slices/admin.ts';
 import { t } from '../../i18n';
@@ -16,6 +21,21 @@ import { Feedback } from './shell/Feedback.tsx';
 import * as css from './admin.css.ts';
 
 export function Users(): JSX.Element {
+  const shell = useContext(ShellContext);
+  const identity = () => shell?.router.route().rest[0];
+  return <Show when={identity()} fallback={<UserList />}>{id => <UserIdentity id={id()} />}</Show>;
+}
+function UserIdentity(props: { id: string }): JSX.Element {
+  const [identity] = createResource(() => props.id, async id => (await adminRequest<{accountId:string;label:string;address:string}>(`/users/${encodeURIComponent(id)}/identity`)).data);
+  return <section class={css.section} aria-label={t('admin-users-title')}>
+    <a href={hrefFor(sectionPath('users'))}>{t('admin-users-back')}</a>
+    <h2 class={css.heading}>{t('admin-users-identity')}</h2>
+    <Show when={identity.loading}><AsyncPending /></Show>
+    <Show when={identity.error}><p role="alert">{t('admin-users-load-error')}</p></Show>
+    <Show when={identity()}>{value => <div class={css.card}><h3 dir="auto">{value().label}</h3><p dir="auto">{value().address}</p><p class={css.note}>{t('admin-users-id')}: <code class={auditCss.actor}>{value().accountId}</code></p></div>}</Show>
+  </section>;
+}
+function UserList(): JSX.Element {
   const { api } = useAdmin();
   const [users, setUsers] = createSignal<UserSummary[]>([]);
   const [error, setError] = createSignal<string | null>(null);
@@ -142,7 +162,7 @@ export function Users(): JSX.Element {
                 <Index each={users()}>
                   {(u, i) => (
                     <tr>
-                      <td dir="auto">{u().accountId}</td>
+                      <td dir="auto"><a href={hrefFor(sectionPath('users', [u().accountId]))}>{u().domain ? `${u().username}@${u().domain}` : u().username}</a><Show when={u().lastSigninAt}><p class={css.note}>{t('admin-users-last-signin')}: {new Date(u().lastSigninAt! * 1000).toLocaleString()}</p></Show></td>
                       <td>{u().quota ? `${u().quota?.bytesLimit} / ${u().quota?.msgLimit}` : '—'}</td>
                       <td>
                         <label class="field">

@@ -74,6 +74,7 @@ function createPreferences(username: () => string, api: AdminPreferencesApi) {
 }
 export type PersonalPreferences = ReturnType<typeof createPreferences>;
 const PreferencesContext = createContext<PersonalPreferences>();
+export function useOptionalPersonalPreferences(): PersonalPreferences | undefined { return useContext(PreferencesContext); }
 export function usePersonalPreferences(): PersonalPreferences {
   const value = useContext(PreferencesContext);
   if (!value) throw new Error('Personal preferences require the signed-in console');

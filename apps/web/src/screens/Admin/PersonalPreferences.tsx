@@ -10,6 +10,7 @@ import type { UiFont } from '../../theme/appearance.ts';
 import * as css from '../Settings/styles.css.ts';
 import * as ux from './shell/ux.css.ts';
 import { AdminPasskeys } from './AdminPasskeys.tsx';
+import { DashboardPreferencesFields } from './Dashboard/PreferencesFields.tsx';
 
 export function PersonalPreferences(): JSX.Element {
   const prefs = usePersonalPreferences();
@@ -30,6 +31,7 @@ export function PersonalPreferences(): JSX.Element {
       <label class={css.field}>{t('admin-personal-font')}<select class={css.select} value={prefs.appearance.prefs().font ?? 'default'} onChange={e => prefs.appearance.setFont(e.currentTarget.value as UiFont)}><For each={['default', 'system', 'serif', 'mono'] as const}>{value => <option value={value}>{t(`admin-personal-font-${value}`)}</option>}</For></select></label>
       <Show when={prefs.i18n}>{ctx => <label class={css.field}>{t('admin-personal-language')}<select class={css.select} value={ctx().locale()} onChange={e => { const locale = e.currentTarget.value; if (isKnownLocale(locale)) { prefs.patch({ locale }); ctx().setLocale(locale); } }}><For each={LOCALES}>{locale => <option value={locale} lang={locale}>{formatLanguageName(locale)}</option>}</For></select></label>}</Show>
     </fieldset>
+    <DashboardPreferencesFields />
     <section class={css.section}><h3 class={css.heading}>{t('admin-personal-security')}</h3><Show when={me()?.accountId} fallback={<p class={css.prose}>{t('admin-personal-managed-auth')}</p>}><PersonalSecurity manageTotp={()=>void shell.router.navigate(sectionPath('preferences',['totp']))} /></Show></section>
   </div>}><Show when={me()?.accountId} fallback={<p>{t('admin-personal-managed-auth')}</p>}><AdminTotp back={()=>void shell.router.navigate(sectionPath('preferences'))}/></Show></Show>;
 }

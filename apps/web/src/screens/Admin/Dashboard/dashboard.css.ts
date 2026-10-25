@@ -2,7 +2,7 @@
 // grid (shell.css.ts), the three traffic charts side by side on wide screens.
 // Same t32 rules as admin.css.ts.
 
-import { style, globalStyle } from '@vanilla-extract/css';
+import { style, styleVariants, globalStyle } from '@vanilla-extract/css';
 import { vars } from '../../../theme/contract.css.ts';
 
 export const page = style({ display: 'flex', flexDirection: 'column', gap: vars.space[5], maxWidth: '1100px' });
@@ -78,3 +78,7 @@ globalStyle(`${facts} dd`, { margin: 0, overflowWrap: 'anywhere' });
 export const healthValue = style({ display: 'flex', gap: vars.space[2], alignItems: 'flex-start' });
 export const healthOk = style({ color: vars.color.success, display: 'inline-flex', flex: 'none', marginTop: '1px' });
 export const healthBad = style({ color: vars.color.warning, display: 'inline-flex', flex: 'none', marginTop: '1px' });
+
+export const widgets = style({ display: 'flex', flexDirection: 'column', gap: vars.space[5], minInlineSize: 0 });
+
+export const widgetOrder = styleVariants({ 0: { order: 1 }, 1: { order: 2 }, 2: { order: 3 }, 3: { order: 4 }, 4: { order: 5 }, 5: { order: 6 }, 6: { order: 7 }, 7: { order: 8 } });

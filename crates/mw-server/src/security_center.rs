@@ -129,6 +129,39 @@ pub(crate) async fn record_login(
     device: &SessionDevice,
     method: &str,
 ) -> Result<(), Response> {
+    let canonical = state
+        .store
+        .canonical_policy_address(address)
+        .await
+        .map_err(|e| error("directory identity", e))?;
+    let (local, domain) = canonical.rsplit_once('@').unwrap_or((&canonical, ""));
+    let registered = state
+        .store
+        .register_successful_signin(mw_store::user_directory::SuccessfulSignin {
+            account_id: account,
+            address: &canonical,
+            domain,
+            local_part: local,
+            mode: if method == "sso" {
+                "sso"
+            } else if method == "header" {
+                "header"
+            } else if state.engine.is_some() {
+                "engine"
+            } else {
+                "proxy"
+            },
+            now: chrono::Utc::now().timestamp(),
+        })
+        .await
+        .map_err(|e| error("directory registration", e))?;
+    if !registered {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({"error":"account unavailable"})),
+        )
+            .into_response());
+    }
     let policy = policy(state, account, address).await?;
     state
         .store

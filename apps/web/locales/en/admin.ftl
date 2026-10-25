@@ -555,3 +555,8 @@ admin-security-center-allowlist-on = An upstream allowlist or default is configu
 admin-security-center-allowlist-off = No upstream allowlist or default is configured
 admin-security-center-env-on = Environment administrator sign-in is enabled
 admin-security-center-env-off = Environment administrator sign-in is disabled
+
+admin-users-back = Back to users
+admin-users-identity = User identity
+admin-users-id = Account identifier
+admin-users-last-signin = Last sign-in

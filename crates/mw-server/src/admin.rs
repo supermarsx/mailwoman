@@ -46,8 +46,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use mw_admin::{
-    ActorKind, AdminError, CapturePolicy, EffectiveSecurityPolicy, MinTls,
-    Quota as AdminQuota, SecurityFloor, SecurityPolicy, SecurityPolicyWrite,
+    ActorKind, AdminError, CapturePolicy, EffectiveSecurityPolicy, MinTls, Quota as AdminQuota,
+    SecurityFloor, SecurityPolicy, SecurityPolicyWrite,
 };
 
 use crate::AppState;
@@ -107,6 +107,12 @@ pub(crate) fn register(r: &mut impl AdminRegistrar) {
     );
     r.admin_endpoint(Method::GET, "/observability", C::ObservabilityRead, get_obs);
     r.admin_endpoint(Method::PUT, "/observability", C::LogsLevel, set_obs);
+    r.admin_endpoint(
+        Method::GET,
+        "/users/{id}/identity",
+        C::UsersRead,
+        get_user_identity,
+    );
     r.admin_endpoint(Method::GET, "/audit", C::AuditRead, list_audit);
     r.admin_endpoint(Method::GET, "/audit/export", C::AuditExport, export_audit);
     r.admin_endpoint(Method::GET, "/bans", C::BansRead, list_bans);
@@ -135,22 +141,26 @@ fn err500(e: impl std::fmt::Display) -> Response {
 // ─── users ────────────────────────────────────────────────────────────────────
 
 async fn list_users(State(state): State<AppState>, ctx: AdminCtx) -> Response {
-    let users = match state.store.list_admin_users().await {
+    let users = match state.store.directory_accounts().await {
         Ok(u) => u,
         Err(e) => return err500(e),
     };
     let scope = ctx.domain_filter(Capability::UsersRead);
     let mut out = Vec::new();
     for u in users {
-        let account_id = u.username;
+        let account_id = u.account_id;
+        let address = match state.store.canonical_policy_address(&u.address).await {
+            Ok(value) => value,
+            Err(e) => return err500(e),
+        };
         if let Some(scope) = scope
-            && !scope.contains(&crate::admin_ctx::domain_of(&account_id))
+            && !scope.contains(&crate::admin_ctx::domain_of(&address))
         {
             continue;
         }
-        let (username, domain) = match account_id.rsplit_once('@') {
+        let (username, domain) = match address.rsplit_once('@') {
             Some((a, b)) => (a.to_string(), b.to_string()),
-            None => (account_id.clone(), String::new()),
+            None => (address.clone(), String::new()),
         };
         let quota = state
             .v6
@@ -173,9 +183,50 @@ async fn list_users(State(state): State<AppState>, ctx: AdminCtx) -> Response {
             domain,
             quota,
             flags,
+            last_signin_at: u.last_signin_at,
         });
     }
     Json(out).into_response()
+}
+
+async fn user_identity(
+    state: &AppState,
+    ctx: &AdminCtx,
+    id: &str,
+) -> Result<mw_store::audit_identity::AuditIdentity, crate::admin_ctx::AdminApiError> {
+    let identity = state
+        .store
+        .audit_identity("user", id)
+        .await?
+        .ok_or_else(|| {
+            crate::admin_ctx::AdminApiError::new(
+                StatusCode::NOT_FOUND,
+                "userNotFound",
+                "User not found.",
+            )
+        })?;
+    let address = state
+        .store
+        .canonical_policy_address(identity.address.as_deref().unwrap_or_default())
+        .await?;
+    ctx.require_domain(&crate::admin_ctx::domain_of(&address))?;
+    Ok(identity)
+}
+async fn get_user_identity(
+    State(state): State<AppState>,
+    ctx: AdminCtx,
+    UrlPath(id): UrlPath<String>,
+) -> Response {
+    match user_identity(&state, &ctx, &id).await {
+        Ok(identity) => (
+            [(header::CACHE_CONTROL, "no-store")],
+            Json(
+                json!({"accountId":identity.id,"label":identity.label,"address":identity.address}),
+            ),
+        )
+            .into_response(),
+        Err(error) => error.into_response(),
+    }
 }
 
 async fn provision_user(
@@ -204,6 +255,9 @@ async fn set_quota(
     UrlPath(account_id): UrlPath<String>,
     Json(body): Json<QuotaDto>,
 ) -> Response {
+    if let Err(error) = user_identity(&state, &ctx, &account_id).await {
+        return error.into_response();
+    }
     let actor = ctx.username.clone();
     match state
         .v6
@@ -222,6 +276,9 @@ async fn set_flags(
     UrlPath(account_id): UrlPath<String>,
     Json(body): Json<FlagsDto>,
 ) -> Response {
+    if let Err(error) = user_identity(&state, &ctx, &account_id).await {
+        return error.into_response();
+    }
     let actor = ctx.username.clone();
     match state
         .v6
@@ -245,6 +302,9 @@ async fn toggle_zero_access(
     UrlPath(account_id): UrlPath<String>,
     Json(body): Json<ToggleReq>,
 ) -> Response {
+    if let Err(error) = user_identity(&state, &ctx, &account_id).await {
+        return error.into_response();
+    }
     let actor = ctx.username.clone();
     match state
         .v6
@@ -262,6 +322,9 @@ async fn revoke_sessions(
     ctx: AdminCtx,
     UrlPath(account_id): UrlPath<String>,
 ) -> Response {
+    if let Err(error) = user_identity(&state, &ctx, &account_id).await {
+        return error.into_response();
+    }
     let actor = ctx.username.clone();
     match state.v6.admin.revoke_sessions(&actor, &account_id).await {
         Ok(count) => Json(json!({ "count": count })).into_response(),
@@ -511,27 +574,93 @@ struct LimitQuery {
     limit: Option<usize>,
 }
 
+async fn audit_rows(
+    state: &AppState,
+    ctx: &AdminCtx,
+    cap: Capability,
+    limit: usize,
+    export: bool,
+) -> Result<Vec<Value>, crate::admin_ctx::AdminApiError> {
+    let work = async {
+        let rows = state
+            .v6
+            .admin
+            .list_audit(limit)
+            .await
+            .map_err(crate::admin_ctx::AdminApiError::internal)?;
+        let mut projection = crate::audit_projection::Projection::new(&state.store, ctx, cap);
+        let mut values = Vec::new();
+        for row in rows {
+            let value = if export {
+                serde_json::to_value(&row).map_err(crate::admin_ctx::AdminApiError::internal)?
+            } else {
+                audit_dto(row.clone())
+            };
+            if let Some(value) = projection.decorate(&row, value).await? {
+                values.push(value);
+            }
+        }
+        Ok(values)
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(3), work)
+        .await
+        .map_err(|_| {
+            crate::admin_ctx::AdminApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "auditTimeout",
+                "Audit query budget exceeded; reduce the limit.",
+            )
+        })?
+}
+
 async fn list_audit(
     State(state): State<AppState>,
-    _ctx: AdminCtx,
+    ctx: AdminCtx,
     Query(q): Query<LimitQuery>,
 ) -> Response {
-    let limit = q.limit.unwrap_or(50).min(1000);
-    match state.v6.admin.list_audit(limit).await {
-        Ok(list) => Json(list.into_iter().map(audit_dto).collect::<Vec<_>>()).into_response(),
-        Err(e) => err500(e),
+    match audit_rows(
+        &state,
+        &ctx,
+        Capability::AuditRead,
+        q.limit.unwrap_or(50).min(1000),
+        false,
+    )
+    .await
+    {
+        Ok(rows) => ([(header::CACHE_CONTROL, "no-store")], Json(rows)).into_response(),
+        Err(error) => error.into_response(),
     }
 }
 
 async fn export_audit(
     State(state): State<AppState>,
-    _ctx: AdminCtx,
+    ctx: AdminCtx,
     Query(q): Query<LimitQuery>,
 ) -> Response {
-    let limit = q.limit.unwrap_or(1000).min(100_000);
-    match state.v6.admin.export_audit(limit).await {
-        Ok(text) => ([(header::CONTENT_TYPE, "application/x-ndjson")], text).into_response(),
-        Err(e) => err500(e),
+    match audit_rows(
+        &state,
+        &ctx,
+        Capability::AuditExport,
+        q.limit.unwrap_or(1000).min(10000),
+        true,
+    )
+    .await
+    {
+        Ok(rows) => {
+            let text = rows
+                .into_iter()
+                .map(|row| row.to_string() + "\n")
+                .collect::<String>();
+            (
+                [
+                    (header::CONTENT_TYPE, "application/x-ndjson"),
+                    (header::CACHE_CONTROL, "no-store"),
+                ],
+                text,
+            )
+                .into_response()
+        }
+        Err(error) => error.into_response(),
     }
 }
 
@@ -691,6 +820,7 @@ impl From<FlagsDto> for mw_admin::UserFeatureFlags {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UserSummaryDto {
+    last_signin_at: Option<i64>,
     account_id: String,
     username: String,
     domain: String,
@@ -869,10 +999,17 @@ mod tests {
     }
 
     async fn correct_password_is_blocked(c: &reqwest::Client, base: &str) {
-        let response = c.post(format!("{base}/admin/login"))
+        let response = c
+            .post(format!("{base}/admin/login"))
             .json(&json!({"username": ADMIN_USER, "password": ADMIN_PASS}))
-            .send().await.unwrap();
-        assert_eq!(response.status(), 401, "an active source ban also blocks a correct password");
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            401,
+            "an active source ban also blocks a correct password"
+        );
     }
 
     async fn bans(c: &reqwest::Client, base: &str, cookie: &str) -> Vec<serde_json::Value> {

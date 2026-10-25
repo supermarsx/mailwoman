@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, fireEvent, within } from '@solidjs/testing-library';
+import { screen, fireEvent, within, waitFor } from '@solidjs/testing-library';
 import { Dashboard } from './Dashboard.tsx';
 import { isolate } from '../../../i18n';
 import { engineDashboard, proxyDashboard } from './fixtures.ts';
 import { dashboardReturning, holding, renderInShell } from '../shell/testkit.tsx';
 import type { DashboardResult } from '../../../api/admin/dashboard.ts';
+import { PersonalPreferencesProvider } from '../shell/personalPreferences.tsx';
 
 const ok = (data = engineDashboard()): DashboardResult => ({ kind: 'ok', data });
 
@@ -37,6 +38,51 @@ describe('Dashboard — before the endpoint exists', () => {
 });
 
 describe('Dashboard — with data', () => {
+  it('pauses automatic refresh in hidden tabs and does not overlap requests', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    const original = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    let visibility = 'visible';
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => visibility });
+    const load = vi.fn<() => Promise<DashboardResult>>().mockResolvedValueOnce(ok()).mockImplementation(() => new Promise(() => {}));
+    const api = { load: async () => ({ data: { dashboard: { refreshSecs: 30 } }, etag: '"1"' }), save: async (data: Record<string, unknown>) => ({ data, etag: '"2"' }) };
+    try {
+      renderInShell(() => <PersonalPreferencesProvider username="root" api={api}><Dashboard /></PersonalPreferencesProvider>, { loadDashboard: load });
+      await screen.findByTestId('tile-users');
+      visibility = 'hidden'; vi.advanceTimersByTime(60_000);
+      expect(load).toHaveBeenCalledTimes(1);
+      visibility = 'visible'; vi.advanceTimersByTime(30_000);
+      await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+      vi.advanceTimersByTime(90_000);
+      expect(load).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId('tile-users')).toHaveTextContent('42');
+    } finally {
+      vi.useRealTimers();
+      if (original) Object.defineProperty(document, 'visibilityState', original); else Reflect.deleteProperty(document, 'visibilityState');
+    }
+  });
+
+  it('withholds unavailable global panels for a domain-scoped response', async () => {
+    const data = engineDashboard();
+    data.server = null; data.health = null; data.storage = null; data.security = null; data.traffic = null;
+    data.recentAudit = []; data.blockedAccounts = null;
+    data.unavailable = { server: 'Requires access for all domains.' };
+    renderInShell(() => <Dashboard />, { loadDashboard: dashboardReturning(ok(data)) });
+    expect(await screen.findByTestId('tile-users')).toHaveTextContent('42');
+    expect(screen.queryByTestId('spark-requests')).toBeNull();
+    expect(screen.queryByTestId('dash-health')).toBeNull();
+    expect(screen.getByText('Requires access for all domains.')).toBeInTheDocument();
+  });
+
+  it('uses account preferences to hide widgets and links to the dedicated preferences page', async () => {
+    const api = { load: async () => ({ data: { dashboard: { hidden: ['traffic', 'server'] } }, etag: '"1"' }), save: async (data: Record<string, unknown>) => ({ data, etag: '"2"' }) };
+    const { navigate } = renderInShell(() => <PersonalPreferencesProvider username="root" api={api}><Dashboard /></PersonalPreferencesProvider>, { loadDashboard: dashboardReturning(ok()) });
+    await screen.findByTestId('tile-users');
+    expect(screen.queryByTestId('spark-requests')).toBeNull();
+    expect(document.querySelector('[data-dashboard-widget="server"]')).toBeNull();
+    fireEvent.click(screen.getByRole('link', { name: 'Customize dashboard' }));
+    expect(navigate).toHaveBeenCalledWith('/admin#/preferences');
+  });
+
   it('shows the server-read counts in tiles', async () => {
     renderInShell(() => <Dashboard />, { loadDashboard: dashboardReturning(ok()) });
     expect(await screen.findByTestId('tile-users')).toHaveTextContent('42');
@@ -68,7 +114,7 @@ describe('Dashboard — with data', () => {
 
   it('migrations behind are reported as applied of expected', async () => {
     const d = engineDashboard();
-    d.health.migration = { applied: 31, expected: 33 };
+    d.health!.migration = { applied: 31, expected: 33 };
     renderInShell(() => <Dashboard />, { loadDashboard: dashboardReturning(ok(d)) });
     expect(await screen.findByTestId('dash-health')).toHaveTextContent('31 of 33 applied');
   });

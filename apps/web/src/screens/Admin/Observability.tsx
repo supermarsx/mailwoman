@@ -1,3 +1,6 @@
+import { formatDateTime } from '../../i18n/format.ts';
+import { AuditActor } from './shell/AuditActor.tsx';
+import * as auditCss from './shell/audit.css.ts';
 // Admin › Observability (§19, §21). The append-only audit-log viewer + JSONL
 // export, and the login monitor's ban list with add + unban.
 //
@@ -104,7 +107,7 @@ export function Observability(): JSX.Element {
         </div>
         <Show when={audit().length > 0} fallback={<p class={css.note}>{t('admin-obs-audit-empty')}</p>}>
           <div class={css.tableWrap}>
-            <table class={css.table}>
+            <table class={`${css.table} ${auditCss.auditTable}`}>
               <thead>
                 <tr>
                   <th>{t('admin-obs-col-time')}</th>
@@ -117,12 +120,12 @@ export function Observability(): JSX.Element {
                 <For each={audit()}>
                   {(a) => (
                     <tr>
-                      <td class={css.mono}>{a.ts}</td>
-                      <td>
-                        <span dir="auto">{a.actor}</span> <span class={css.badge}>{a.actorKind}</span>
+                      <td data-label={t('admin-obs-col-time')}><time dateTime={a.ts} title={a.ts}>{formatDateTime(a.ts) || a.ts}</time></td>
+                      <td data-label={t('admin-obs-col-actor')}>
+                        <div><AuditActor {...a} /><span class={css.badge}>{a.actorKind}</span></div>
                       </td>
-                      <td dir="auto">{a.action}</td>
-                      <td dir="auto">{a.target ?? '—'}</td>
+                      <td data-label={t('admin-obs-col-action')} dir="auto">{a.action}</td>
+                      <td data-label={t('admin-obs-col-target')} dir="auto"><span class={auditCss.identifier} title={a.target ?? undefined}>{a.target ?? '—'}</span></td>
                     </tr>
                   )}
                 </For>

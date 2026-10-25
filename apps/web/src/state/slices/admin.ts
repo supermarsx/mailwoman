@@ -47,6 +47,7 @@ export interface UserFeatureFlags {
 
 /** A provisioned user row (list view). */
 export interface UserSummary {
+  lastSigninAt?: number | null;
   accountId: string;
   username: string;
   domain: string;
@@ -147,6 +148,8 @@ export interface AuditLogEntry {
   ts: string;
   actor: string;
   actorKind: ActorKind;
+  actorLabel?: string;
+  actorLink?: { section: 'admins' | 'users'; id: string };
   action: string;
   target: string | null;
   /** Structured detail (JSON), redacted of secrets + mail content (§21.1). */

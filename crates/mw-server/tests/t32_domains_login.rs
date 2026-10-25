@@ -602,3 +602,104 @@ async fn formatted_login_uses_endpoint_ca_and_server_name_in_the_real_engine_pat
     assert_eq!(fallback.logins_accepted() + fallback.logins_refused(), 0);
     relay.abort();
 }
+
+#[tokio::test]
+async fn only_successful_domain_login_enrolls_the_real_account_in_admin_users() {
+    let mail = MockPop3::start("alice@example.org", "testpass").await;
+    let db = test_db::unique_dir("domain-user-directory")
+        .join("mw.db")
+        .to_string_lossy()
+        .into_owned();
+    let store = Store::open(&db, ServerKey::from_hex(KEY).unwrap())
+        .await
+        .unwrap();
+    store
+        .put_domain_config(&row("example.org", &mail))
+        .await
+        .unwrap();
+    let config = AppConfig {
+        db_path: db,
+        server_key_hex: Some(KEY.into()),
+        mode: ServerMode::Engine,
+        cookie_secure: false,
+        web_dir: None,
+        hardening: Default::default(),
+        security: SecurityConfig {
+            upstream_default: Some(mail.url()),
+            ..Default::default()
+        },
+    };
+    let (app, _) = mw_server::build_app_full(
+        config,
+        mw_server::V6Config {
+            admin_enabled: true,
+            admin_username: Some("root".into()),
+            admin_password: Some("hunter2".into()),
+            redis_url: None,
+        },
+    )
+    .await
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let admin = reqwest::Client::builder()
+        .no_proxy()
+        .cookie_store(true)
+        .build()
+        .unwrap();
+    assert_eq!(
+        admin
+            .post(format!("{base}/admin/login"))
+            .json(&json!({"username":"root","password":"hunter2"}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .cookie_store(true)
+        .build()
+        .unwrap();
+    assert_eq!(
+        login(&client, &base, "failed@example.org").await.status(),
+        401
+    );
+    assert!(store.directory_accounts().await.unwrap().is_empty());
+    assert_eq!(
+        login(&client, &base, "alice@example.org").await.status(),
+        200
+    );
+    let users: Value = admin
+        .get(format!("{base}/admin/users"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(users.as_array().unwrap().len(), 1);
+    let account = store.list_accounts().await.unwrap().remove(0);
+    assert_eq!(users[0]["accountId"], account.id);
+    assert_eq!(users[0]["username"], "alice");
+    assert_eq!(users[0]["domain"], "example.org");
+    assert!(users[0]["lastSigninAt"].as_i64().unwrap() > 0);
+    let identity: Value = admin
+        .get(format!("{base}/admin/users/{}/identity", account.id))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(identity["address"], "alice@example.org");
+    assert_eq!(
+        login(&client, &base, "alice@example.org").await.status(),
+        200
+    );
+    assert_eq!(store.directory_accounts().await.unwrap().len(), 1);
+}

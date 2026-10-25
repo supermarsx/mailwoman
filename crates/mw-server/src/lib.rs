@@ -111,6 +111,8 @@ pub mod settings_routes;
 mod features;
 mod feature_jmap;
 mod diagnostics;
+mod admin_dashboard;
+mod audit_projection;
 mod auth_logs;
 mod hosting_connections;
 mod ssh_tunnels;
@@ -828,6 +830,8 @@ fn mount_under_base_path(app: Router, base: &str) -> Router {
 
 #[derive(Clone)]
 pub(crate) struct AppState {
+    started_at: std::time::SystemTime,
+    started: std::time::Instant,
     config_snapshot: config_routes::BootConfigSnapshot,
     store: Store,
     pub(crate) scheduler: Arc<jobs::Scheduler>,
@@ -1273,6 +1277,8 @@ async fn build_app_inner(
         tracing::info!("serving under sub-path {base_path} (MW_BASE_PATH)");
     }
     let state = AppState {
+        started_at: std::time::SystemTime::now(),
+        started: std::time::Instant::now(),
         config_snapshot,
         store,
         scheduler: jobs::new_scheduler(),

@@ -164,3 +164,5 @@ admin-dash-duration-dh = { $d } d { $h } h
 admin-dash-duration-hm = { $h } h { $m } min
 admin-dash-duration-m = { $m } min
 admin-dash-duration-s = { $s } s
+admin-dash-customize = Customize dashboard
+admin-dash-limitations = Data availability

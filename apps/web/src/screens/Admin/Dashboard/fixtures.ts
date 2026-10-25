@@ -53,8 +53,8 @@ export function proxyDashboard(): Dashboard {
   const d = engineDashboard();
   return {
     ...d,
-    server: { ...d.server, mode: 'proxy' },
+    server: { ...d.server!, mode: 'proxy' },
     storage: { dbBytes: 1_048_576, walBytes: null, searchIndexBytes: null, dataVolume: null },
-    health: { ...d.health, engine: null, outbox: null, searchIndex: null },
+    health: { ...d.health!, engine: null, outbox: null, searchIndex: null },
   };
 }

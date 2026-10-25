@@ -7,19 +7,22 @@
 
 mod security_center;
 mod auth_logs;
-pub use auth_logs::{AuthLogEvent, AuthLogLimits, AuthLogQuery, AuthSurface};
 mod hosting_connections;
 pub use hosting_connections::{HostingConnectionRow, HostingCredentialChange, HostingMutation};
-mod ssh_tunnels;
-pub use ssh_tunnels::{SshCredentialChange, SshTunnelDelete, SshTunnelMutation, SshTunnelRow};
+pub use auth_logs::{AuthLogEvent, AuthLogLimits, AuthLogQuery, AuthSurface};
 pub mod groups;
 pub mod feature_profiles;
 pub mod diagnostics;
+pub mod diag;
+pub mod audit_identity;
+pub mod user_directory;
 pub mod jobs;
 pub use security_center::{SessionDevice, SecuritySession, SigninEvent, RememberedDevice};
 mod admin_accounts;
 mod admin_passkeys;
 pub use admin_passkeys::{AdminPasskey, AdminSessionFactor};
+mod ssh_tunnels;
+pub use ssh_tunnels::{SshCredentialChange, SshTunnelDelete, SshTunnelMutation, SshTunnelRow};
 mod domain_config;
 pub use domain_config::{
     DomainAccount, DomainConfigRow, DomainMutation, DomainSigninState, SessionAuthority,
