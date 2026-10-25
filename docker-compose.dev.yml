@@ -252,6 +252,13 @@ services:
       # other specs that sign in to /admin with root/hunter2. DEV/CI ONLY — never reuse.
       MW_ADMIN_USER: "root"
       MW_ADMIN_PASSWORD: "hunter2"
+      # compose-options.spec.ts (t29-e12): an inline image is an upload (needs an
+      # upload store); a receipt request and inline parts need a From with a domain,
+      # and the Greenmail login is the bare `testuser`, so that address is offered
+      # as a sending identity; open tracking needs an absolute public base URL.
+      MW_UPLOAD_DIR: "/data/uploads"
+      MW_ALLOWED_FROMS: "testuser@example.org"
+      MW_PUBLIC_URL: "http://localhost:8090"
       RUST_LOG: "info"
     ports:
       - "8090:8080"

@@ -422,6 +422,11 @@ test.describe('checkboxes in the mail client', () => {
     const problems: string[] = [];
     problems.push(...(await checkControl(page, dialog.getByTestId('sign-toggle'), 'sign', { labelText: true })));
     problems.push(...(await checkControl(page, dialog.getByTestId('encrypt-toggle'), 'encrypt (disabled)', { toggle: false })));
+    // t29-e12 send options: the receipt request (engine), and open tracking where the stack has MW_PUBLIC_URL.
+    problems.push(...(await checkControl(page, dialog.getByTestId('compose-request-receipt'), 'request receipt', { labelText: true })));
+    if ((await dialog.getByTestId('compose-track-opens').count()) > 0) {
+      problems.push(...(await checkControl(page, dialog.getByTestId('compose-track-opens'), 'record opens', { labelText: true })));
+    }
     problems.push(...(await targetSize(page)), ...(await everyBoxOnItsRow(page, new URL(page.url()).hash || new URL(page.url()).pathname)));
     expect(problems).toEqual([]);
     expect(csp, 'inline-style CSP violations').toEqual([]);
