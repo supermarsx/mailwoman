@@ -21,6 +21,7 @@ fn base_scope() -> Scope {
         folders: ScopeSelector::All,
         mail: true,
         pim: false,
+        scripts: false,
         ip_allowlist: Vec::new(),
         expires_at: None,
         rate_limit: None,
@@ -97,6 +98,29 @@ fn scope_folder_subset_coverage() {
     want_sent.folders = ScopeSelector::Subset(vec!["Sent".into()]);
     assert!(granted.allows(&want_inbox));
     assert!(!granted.allows(&want_sent));
+}
+
+/// t28-e18: a request that names no folder is not covered by a folder-subset key.
+/// Before 26.20 `Subset([])` was covered vacuously, so a key for INBOX could list
+/// every folder's mail. An all-folders key still covers it, and the listing
+/// comparison (whose caller filters by the granted set) leaves folders out.
+#[test]
+fn scope_folder_subset_does_not_cover_a_request_naming_no_folder() {
+    let mut granted = base_scope();
+    granted.folders = ScopeSelector::Subset(vec!["INBOX".into()]);
+    let mut names_none = base_scope();
+    names_none.folders = ScopeSelector::Subset(vec![]);
+    assert!(!granted.allows(&names_none));
+    assert!(granted.allows_listing(&names_none));
+
+    let mut all_folders = base_scope();
+    all_folders.folders = ScopeSelector::All;
+    assert!(all_folders.allows(&names_none));
+
+    // The listing comparison still applies every other grant.
+    let mut wants_delete = names_none.clone();
+    wants_delete.delete = true;
+    assert!(!granted.allows_listing(&wants_delete));
 }
 
 #[test]
@@ -686,6 +710,7 @@ fn over_broad_scope() -> Scope {
         folders: ScopeSelector::All,
         mail: true,
         pim: true,
+        scripts: false,
         ip_allowlist: Vec::new(),
         expires_at: None,
         rate_limit: None,
@@ -882,4 +907,28 @@ async fn refresh_does_not_widen_the_scope() {
         assert_eq!(info.scope, Some(ceiling_scope()));
         refresh = next.refresh_token.unwrap();
     }
+}
+
+#[test]
+fn scripts_are_an_explicit_noninherited_permission() {
+    let mut grant = mw_oauth::Scope::read_only("alice");
+    let mut required = grant.clone();
+    required.read = false;
+    required.mail = false;
+    required.scripts = true;
+    assert!(!grant.allows(&required));
+    grant.scripts = true;
+    assert!(grant.allows(&required));
+    assert!(
+        !grant
+            .intersect(&mw_oauth::Scope::read_only("alice"))
+            .scripts
+    );
+    let mut legacy = serde_json::to_value(&grant).unwrap();
+    legacy.as_object_mut().unwrap().remove("scripts");
+    assert!(
+        !serde_json::from_value::<mw_oauth::Scope>(legacy)
+            .unwrap()
+            .scripts
+    );
 }

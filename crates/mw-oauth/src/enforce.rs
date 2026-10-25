@@ -192,6 +192,14 @@ fn ip_allowed(ip: Option<IpAddr>, allow: &[String]) -> bool {
     }
 }
 
+/// Whether the capability check compares folders ([`Scope::allows`]) or leaves
+/// them to the caller ([`Scope::allows_listing`]).
+#[derive(Debug, Clone, Copy)]
+enum FolderCheck {
+    Strict,
+    CallerFilters,
+}
+
 /// A credential resolved to its effective grant, before policy checks.
 struct Resolved {
     kind: CredentialKind,
@@ -214,7 +222,7 @@ impl<S: OAuthStore> AuthServer<S> {
         required: &Scope,
         audit: &dyn AuditSink,
     ) -> Result<Granted, OAuthError> {
-        let (outcome, event) = self.enforce(ctx, required).await;
+        let (outcome, event) = self.enforce(ctx, required, FolderCheck::Strict).await;
         audit.emit(&event);
         outcome
     }
@@ -234,7 +242,24 @@ impl<S: OAuthStore> AuthServer<S> {
         required: &Scope,
         audit: &(dyn AuditSink + Send + Sync),
     ) -> Result<Granted, OAuthError> {
-        let (outcome, event) = self.enforce(ctx, required).await;
+        let (outcome, event) = self.enforce(ctx, required, FolderCheck::Strict).await;
+        audit.emit(&event);
+        outcome
+    }
+
+    /// [`require_scope_send`](Self::require_scope_send) for a request that names no
+    /// folder and whose handler restricts what it returns to the granted folders
+    /// ([`Scope::allows_listing`]). Every other check is the same. The caller MUST
+    /// apply `Granted.scope.folders` to its results: this does not.
+    pub async fn require_scope_send_listing(
+        &self,
+        ctx: &RequestContext<'_>,
+        required: &Scope,
+        audit: &(dyn AuditSink + Send + Sync),
+    ) -> Result<Granted, OAuthError> {
+        let (outcome, event) = self
+            .enforce(ctx, required, FolderCheck::CallerFilters)
+            .await;
         audit.emit(&event);
         outcome
     }
@@ -246,6 +271,7 @@ impl<S: OAuthStore> AuthServer<S> {
         &self,
         ctx: &RequestContext<'_>,
         required: &Scope,
+        folders: FolderCheck,
     ) -> (Result<Granted, OAuthError>, AuditEvent) {
         let resolved = self.resolve(ctx.credential).await;
         let (actor, actor_kind) = match &resolved {
@@ -255,12 +281,14 @@ impl<S: OAuthStore> AuthServer<S> {
 
         let outcome = match resolved {
             Err(e) => Err(e),
-            Ok(r) => self.check_policy(&r, ctx, required).map(|()| Granted {
-                account_id: r.account_id,
-                scope: r.scope,
-                resource: r.resource,
-                via: r.kind,
-            }),
+            Ok(r) => self
+                .check_policy(&r, ctx, required, folders)
+                .map(|()| Granted {
+                    account_id: r.account_id,
+                    scope: r.scope,
+                    resource: r.resource,
+                    via: r.kind,
+                }),
         };
 
         let event = AuditEvent {
@@ -326,6 +354,7 @@ impl<S: OAuthStore> AuthServer<S> {
         r: &Resolved,
         ctx: &RequestContext<'_>,
         required: &Scope,
+        folders: FolderCheck,
     ) -> Result<(), OAuthError> {
         // 1. Expiry.
         if let Some(exp) = &r.expires_at
@@ -351,7 +380,11 @@ impl<S: OAuthStore> AuthServer<S> {
             return Err(OAuthError::InvalidScope);
         }
         // 5. Capability check — no scope escalation.
-        if !r.scope.allows(required) {
+        let covered = match folders {
+            FolderCheck::Strict => r.scope.allows(required),
+            FolderCheck::CallerFilters => r.scope.allows_listing(required),
+        };
+        if !covered {
             return Err(OAuthError::InvalidScope);
         }
         Ok(())

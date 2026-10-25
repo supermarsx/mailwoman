@@ -143,6 +143,7 @@ impl McpTool {
             folders: ScopeSelector::All,
             mail: false,
             pim: false,
+            scripts: false,
             ip_allowlist: Vec::new(),
             expires_at: None,
             rate_limit: None,

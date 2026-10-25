@@ -69,6 +69,9 @@ pub struct Scope {
     pub mail: bool,
     /// PIM (calendar/tasks/notes/contacts) surface granted.
     pub pim: bool,
+    /// Permission to manage account-wide Sieve scripts; never implied by mail.
+    #[serde(default)]
+    pub scripts: bool,
     /// CIDR/IP allowlist (empty = any source IP).
     pub ip_allowlist: Vec<String>,
     /// RFC 3339 expiry (None = no expiry).
@@ -93,6 +96,7 @@ impl Scope {
             folders: ScopeSelector::All,
             mail: true,
             pim: false,
+            scripts: false,
             ip_allowlist: Vec::new(),
             expires_at: None,
             rate_limit: None,
@@ -107,7 +111,27 @@ impl Scope {
     /// a narrower key can never escalate. `ip_allowlist`/`expires_at`/`rate_limit`
     /// are per-key constraints checked by [`AuthServer::require_scope`], not part of
     /// the capability comparison here.
+    ///
+    /// Folders are compared strictly: a key limited to a folder subset covers a
+    /// request only when the request names its folders and every one is granted.
+    /// A request that names no folder (`Subset([])`) is NOT covered by a subset
+    /// key — before 26.20 (t28-e18) it was, vacuously, so a key scoped to one
+    /// folder could list every folder's mail. A route that lists across folders
+    /// uses [`Scope::allows_listing`] and restricts its results to the granted set.
     pub fn allows(&self, required: &Scope) -> bool {
+        self.allows_except_folders(required) && folders_cover(&self.folders, &required.folders)
+    }
+
+    /// [`Scope::allows`] without the folder comparison, for a route that names no
+    /// folder and restricts what it returns to `self.folders` itself (the REST
+    /// message and mailbox lists, `/mcp`'s per-call guard whose tools check
+    /// folders on their own). The caller owns the restriction; this only says the
+    /// rest of the grant covers the request.
+    pub fn allows_listing(&self, required: &Scope) -> bool {
+        self.allows_except_folders(required)
+    }
+
+    fn allows_except_folders(&self, required: &Scope) -> bool {
         // Verb grants: every requested verb must be held.
         if required.read && !self.read {
             return false;
@@ -122,14 +146,14 @@ impl Scope {
         if required.mail && !self.mail {
             return false;
         }
+        if required.scripts && !self.scripts {
+            return false;
+        }
         if required.pim && !self.pim {
             return false;
         }
         // Account / folder coverage.
         if !selector_covers(&self.accounts, &required.accounts) {
-            return false;
-        }
-        if !selector_covers(&self.folders, &required.folders) {
             return false;
         }
         // MCP tool grants: every requested tool must be granted.
@@ -168,6 +192,7 @@ impl Scope {
             folders: selector_intersect(&self.folders, &ceiling.folders),
             mail: self.mail && ceiling.mail,
             pim: self.pim && ceiling.pim,
+            scripts: self.scripts && ceiling.scripts,
             ip_allowlist: ip_allowlist_intersect(&self.ip_allowlist, &ceiling.ip_allowlist),
             expires_at: earlier_expiry(self.expires_at.as_deref(), ceiling.expires_at.as_deref()),
             rate_limit: match (self.rate_limit, ceiling.rate_limit) {
@@ -234,6 +259,17 @@ fn selector_covers(granted: &ScopeSelector, required: &ScopeSelector) -> bool {
         (ScopeSelector::All, _) => true,
         (ScopeSelector::Subset(_), ScopeSelector::All) => false,
         (ScopeSelector::Subset(g), ScopeSelector::Subset(r)) => r.iter().all(|id| g.contains(id)),
+    }
+}
+
+/// [`selector_covers`] for folders, where an empty required subset means "the
+/// request names no folder". Only an all-folders grant covers that; a subset
+/// grant covers a request only for folders it names.
+fn folders_cover(granted: &ScopeSelector, required: &ScopeSelector) -> bool {
+    match (granted, required) {
+        (ScopeSelector::All, _) => true,
+        (ScopeSelector::Subset(_), ScopeSelector::Subset(r)) if r.is_empty() => false,
+        _ => selector_covers(granted, required),
     }
 }
 

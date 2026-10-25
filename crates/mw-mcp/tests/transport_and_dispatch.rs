@@ -43,6 +43,7 @@ fn full_scope() -> Scope {
         folders: ScopeSelector::All,
         mail: true,
         pim: true,
+        scripts: false,
         ip_allowlist: Vec::new(),
         expires_at: None,
         rate_limit: None,

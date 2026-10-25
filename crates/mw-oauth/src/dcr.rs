@@ -146,6 +146,7 @@ pub fn no_scope() -> Scope {
         folders: ScopeSelector::Subset(Vec::new()),
         mail: false,
         pim: false,
+        scripts: false,
         ip_allowlist: Vec::new(),
         expires_at: None,
         rate_limit: None,
