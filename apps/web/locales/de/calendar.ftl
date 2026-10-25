@@ -68,6 +68,7 @@ calendar-overlaps = Dieser Termin überschneidet sich mit { $count ->
    *[other] { $count } anderen Terminen
 }.
 calendar-field-title = Titel
+calendar-untitled = (ohne Titel)
 calendar-field-calendar = Kalender
 calendar-field-all-day = Ganztägig
 calendar-field-start = Beginn

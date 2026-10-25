@@ -70,6 +70,7 @@ calendar-overlaps = Este evento se solapa con { $count ->
    *[other] { $count } eventos más
 }.
 calendar-field-title = Título
+calendar-untitled = (sin título)
 calendar-field-calendar = Calendario
 calendar-field-all-day = Todo el día
 calendar-field-start = Inicio

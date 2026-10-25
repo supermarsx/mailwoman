@@ -66,6 +66,7 @@ calendar-overlaps = この予定は他の { $count ->
    *[other] { $count } 件の予定
 } と重なっています。
 calendar-field-title = タイトル
+calendar-untitled = (タイトルなし)
 calendar-field-calendar = カレンダー
 calendar-field-all-day = 終日
 calendar-field-start = 開始

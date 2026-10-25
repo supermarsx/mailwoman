@@ -75,6 +75,7 @@ calendar-overlaps = يتداخل هذا الحدث مع { $count ->
    *[other] { $count } حدث آخر
 }.
 calendar-field-title = العنوان
+calendar-untitled = (بلا عنوان)
 calendar-field-calendar = التقويم
 calendar-field-all-day = طوال اليوم
 calendar-field-start = البدء
