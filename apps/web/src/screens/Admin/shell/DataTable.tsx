@@ -93,7 +93,7 @@ export function DataTable<R>(props: DataTableProps<R>): JSX.Element {
   };
 
   return (
-    <div class={css.field}>
+    <div class={css.tableContainer}>
       <Show when={props.search || (props.filters && props.filters.length > 0)}>
         <div class={css.tableToolbar}>
           <Show when={props.search}>

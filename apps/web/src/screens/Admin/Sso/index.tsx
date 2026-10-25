@@ -2,7 +2,7 @@
 // f33 for t32-cfg §4.12).
 //
 // A list of the OIDC and SAML sign-in providers with their detail at
-// `#/sso/<id>` (`ListDetailPage`): the table shows each provider's name, protocol,
+// `#/sso/<id>/edit` (a standalone editor page): the table shows each provider's name, protocol,
 // where it applies, whether it is on and, for SAML, whether its signing
 // certificates are valid, expiring or expired. Opening one shows its form
 // (`SsoEditor`); "Add a sign-in provider" opens an empty one at `#/sso/new`.
@@ -15,18 +15,20 @@
 //
 // It talks to `/admin/sso` through its own `SsoAdminApi` (tests inject a mock).
 
-import { Show, createMemo, createResource, createSignal, onMount, useContext, type JSX } from 'solid-js';
+import { For, Show, createMemo, createResource, createSignal, onMount, useContext, type JSX } from 'solid-js';
 import { createHttpSsoAdminApi, ssoMetadataPath, type SsoAdminApi, type SsoBackendInput, type SsoBackendRow } from '../../../modules/sso';
 import { isolate, loadCatalog, t } from '../../../i18n';
 import { AdminContext } from '../context.ts';
 import { ShellContext } from '../shell/context.ts';
-import { ListDetailPage } from '../shell/templates/ListDetailPage.tsx';
+import { AdminPage, PageState } from '../shell/templates/PageFrame.tsx';
+import { Icon } from '../shell/icons.tsx';
+import * as ux from '../shell/ux.css.ts';
 import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
 import { Feedback, describeAdminError } from '../shell/Feedback.tsx';
 import { FieldHistory } from '../shell/FieldHistory.tsx';
 import { StatusBadge } from '../shell/StatusBadge.tsx';
 import { sectionPath, type AdminRoute } from '../shell/router.ts';
-import type { Column, FilterChip } from '../shell/DataTable.tsx';
+import { DataTable, type Column, type FilterChip } from '../shell/DataTable.tsx';
 import * as shellCss from '../shell/shell.css.ts';
 import * as css from '../shell/extras.css.ts';
 import { CertBadge } from './CertList.tsx';
@@ -102,6 +104,9 @@ export function AdminSso(props: AdminSsoProps): JSX.Element {
 
   const [query, setQuery] = createSignal('');
   const [kinds, setKinds] = createSignal<string[]>([]);
+  const [states, setStates] = createSignal<string[]>([]);
+  const [scope, setScope] = createSignal('');
+  const [savingEditor, setSavingEditor] = createSignal(false);
   const [pending, setPending] = createSignal<Pending | null>(null);
   const [notice, setNotice] = createSignal<string | null>(null);
   const [failure, setFailure] = createSignal<string | null>(null);
@@ -116,6 +121,8 @@ export function AdminSso(props: AdminSsoProps): JSX.Element {
     return all().filter(
       (r) =>
         (kinds().length === 0 || kinds().includes(r.config?.kind ?? '')) &&
+        (states().length === 0 || states().includes(r.enabled ? 'enabled' : 'disabled')) &&
+        (scope() === '' || r.scope === scope()) &&
         (q === '' || r.id.toLowerCase().includes(q) || r.displayName.toLowerCase().includes(q) || r.scope.toLowerCase().includes(q)),
     );
   });
@@ -124,6 +131,8 @@ export function AdminSso(props: AdminSsoProps): JSX.Element {
   const filters = (): FilterChip[] => [
     { id: 'oidc', label: t('admin-sso-kind-oidc'), active: kinds().includes('oidc') },
     { id: 'saml', label: t('admin-sso-kind-saml'), active: kinds().includes('saml') },
+    { id: 'state:enabled', label: t('admin-sso-badge-enabled'), active: states().includes('enabled') },
+    { id: 'state:disabled', label: t('admin-sso-badge-disabled'), active: states().includes('disabled') },
   ];
 
   const columns: Column<SsoBackendRow>[] = [
@@ -189,28 +198,29 @@ export function AdminSso(props: AdminSsoProps): JSX.Element {
     const stored = find(input.id) ?? null;
     // After the form has taken the saved values (it is no longer dirty), so the
     // move to the new provider's address does not ask about unsaved changes.
-    if (route().rest[0] === NEW) setTimeout(() => navigate(sectionPath(SECTION, [input.id])), 0);
+    setTimeout(() => navigate(sectionPath(SECTION)), 0);
     return stored;
   }
 
   const rowActions = (r: SsoBackendRow): JSX.Element => (
     <>
+      <button type="button" class={`btn btn--ghost ${ux.iconAction}`} title={`${t('admin-sso-edit')} ${r.displayName}`} aria-label={`${t('admin-sso-edit')} ${r.displayName}`} onClick={() => navigate(sectionPath(SECTION, [r.id, 'edit']))}><Icon name="edit" /></button>
       <Show
         when={r.enabled}
         fallback={
-          <button type="button" class="btn btn--ghost" disabled={r.config === null} onClick={() => void enable(r)}>
-            {t('admin-sso-enable')}
+          <button type="button" class={`btn btn--ghost ${ux.iconAction}`} title={`${t('admin-sso-enable')} ${r.displayName}`} disabled={r.config === null} onClick={() => void enable(r)}>
+            <Icon name="enable" /><span class={shellCss.srOnly}>{t('admin-sso-enable')}</span>
             <span class={shellCss.srOnly}> {r.displayName}</span>
           </button>
         }
       >
-        <button type="button" class="btn btn--ghost" onClick={() => setPending({ kind: 'disable', row: r })}>
-          {t('admin-sso-disable')}
+        <button type="button" class={`btn btn--ghost ${ux.iconAction}`} title={`${t('admin-sso-disable')} ${r.displayName}`} onClick={() => setPending({ kind: 'disable', row: r })}>
+          <Icon name="disable" /><span class={shellCss.srOnly}>{t('admin-sso-disable')}</span>
           <span class={shellCss.srOnly}> {r.displayName}</span>
         </button>
       </Show>
-      <button type="button" class="btn btn--ghost" onClick={() => setPending({ kind: 'delete', row: r })}>
-        {t('admin-sso-delete')}
+      <button type="button" class={`btn btn--ghost ${ux.iconAction}`} title={`${t('admin-sso-delete')} ${r.displayName}`} onClick={() => setPending({ kind: 'delete', row: r })}>
+        <Icon name="delete" /><span class={shellCss.srOnly}>{t('admin-sso-delete')}</span>
         <span class={shellCss.srOnly}> {r.displayName}</span>
       </button>
     </>
@@ -219,6 +229,7 @@ export function AdminSso(props: AdminSsoProps): JSX.Element {
   const detail = (id: string): JSX.Element => {
     if (id === NEW) {
       return (
+        <Show when={loaded() !== undefined} fallback={<PageState state={rows.error !== undefined ? {kind:'error',error:rows.error,onRetry:()=>void refetch()} : {kind:'loading'}} />}>
         <SsoEditor
           row={null}
           takenIds={all().map((r) => r.id)}
@@ -226,7 +237,9 @@ export function AdminSso(props: AdminSsoProps): JSX.Element {
           save={save}
           labelledBy={`${SECTION}-detail-title`}
           now={props.now}
+          onCancel={() => navigate(sectionPath(SECTION))} onSaving={setSavingEditor}
         />
+        </Show>
       );
     }
     return (
@@ -249,7 +262,7 @@ export function AdminSso(props: AdminSsoProps): JSX.Element {
                 <Feedback kind="error" message={t('admin-sso-config-unreadable-note')} />
               </Show>
               {/* renderDetail runs again for another id, so each provider gets a fresh form. */}
-              <SsoEditor row={row()} takenIds={[]} domains={domains() ?? []} save={save} labelledBy={`${SECTION}-detail-title`} now={props.now} />
+              <SsoEditor row={row()} takenIds={[]} domains={domains() ?? []} save={save} labelledBy={`${SECTION}-detail-title`} now={props.now} onCancel={() => navigate(sectionPath(SECTION))} onSaving={setSavingEditor} />
             </>
           )}
         </Show>
@@ -261,36 +274,22 @@ export function AdminSso(props: AdminSsoProps): JSX.Element {
     <>
       <Feedback kind="success" message={notice()} testId="sso-notice" />
       <Feedback kind="error" message={failure()} />
-      <ListDetailPage<SsoBackendRow>
-        title={t('admin-sso-title')}
-        description={t('admin-sso-intro')}
-        section={SECTION}
-        route={route()}
-        navigate={navigate}
-        actions={
-          <button type="button" class="btn btn--primary" onClick={() => navigate(sectionPath(SECTION, [NEW]))}>
-            {t('admin-sso-add')}
-          </button>
-        }
-        table={{
-          caption: t('admin-sso-title'),
-          columns,
-          rows: shown(),
-          rowKey: (r) => r.id,
-          state: tableState(),
-          errorText: t('admin-sso-load-error'),
-          onRetry: () => void refetch(),
-          emptyText: all().length === 0 ? t('admin-sso-empty') : t('admin-sso-no-match'),
-          ...(all().length === 0 ? { emptyAction: { label: t('admin-sso-add'), onClick: () => navigate(sectionPath(SECTION, [NEW])) } } : {}),
-          search: { label: t('admin-sso-search'), value: query(), onSearch: setQuery, debounceMs: 0 },
-          filters: filters(),
-          onToggleFilter: (id) => setKinds((k) => (k.includes(id) ? k.filter((x) => x !== id) : [...k, id])),
-          rowActions,
-        }}
-        detailTitle={(id) => (id === NEW ? t('admin-sso-add') : (find(id)?.displayName ?? id))}
-        renderDetail={detail}
-        testId="admin-sso"
-      />
+      <Show when={route().rest[0]} keyed fallback={
+        <AdminPage title={t('admin-sso-title')} description={t('admin-sso-intro')} testId="admin-sso" actions={<button type="button" class="btn btn--primary" onClick={() => navigate(sectionPath(SECTION, [NEW]))}>{t('admin-sso-add')}</button>}>
+          <div class={ux.fieldBlock}><label for="sso-scope-filter">{t('admin-sso-filter-scope')}</label><select id="sso-scope-filter" value={scope()} onChange={event => setScope(event.currentTarget.value)}><option value="">{t('admin-sso-all-scopes')}</option><option value="deployment">{t('admin-sso-scope-deployment')}</option><For each={domains() ?? []}>{domain => <option value={`domain:${domain}`}>{scopeText(`domain:${domain}`)}</option>}</For></select></div>
+          <DataTable<SsoBackendRow>
+            caption={t('admin-sso-title')} columns={columns} rows={shown()} rowKey={r => r.id}
+            state={tableState()} errorText={t('admin-sso-load-error')} onRetry={() => void refetch()}
+            emptyText={all().length === 0 ? t('admin-sso-empty') : t('admin-sso-no-match')}
+            {...(all().length === 0 ? {emptyAction: {label: t('admin-sso-add'), onClick: () => navigate(sectionPath(SECTION, [NEW]))}} : {})}
+            search={{label:t('admin-sso-search'),value:query(),onSearch:setQuery,debounceMs:0}}
+            filters={filters()} onToggleFilter={id => {
+              if(id.startsWith('state:')) { const value=id.slice(6); setStates(values=>values.includes(value)?values.filter(v=>v!==value):[...values,value]); }
+              else setKinds(values=>values.includes(id)?values.filter(value=>value!==id):[...values,id]);
+            }} rowActions={rowActions}
+          />
+        </AdminPage>
+      }>{id => <AdminPage title={id === NEW ? t('admin-sso-add') : (find(id)?.displayName ?? id)} titleId={`${SECTION}-detail-title`} description={t('admin-sso-editor-intro')} testId="sso-editor-page" actions={<button type="button" class="btn btn--ghost" disabled={savingEditor()} onClick={() => navigate(sectionPath(SECTION))}><Icon name="back" />{t('admin-sso-back')}</button>}>{detail(id)}</AdminPage>}</Show>
       <ConfirmDialog
         open={pending() !== null}
         title={

@@ -96,6 +96,32 @@ function setup(rows: SsoBackendRow[] = [OIDC_ROW, SAML_ROW], opts: { rest?: stri
 }
 
 describe('Admin › SSO list', () => {
+  it('combines enabled state, scope and protocol filters on the real provider table', async () => {
+    setup([OIDC_ROW, SAML_ROW, {...OIDC_ROW,id:'disabled-oidc',displayName:'Disabled OIDC',enabled:false}]);
+    await screen.findByRole('table', {name:'Single sign-on'});
+    fireEvent.click(screen.getByRole('button',{name:'Disabled',pressed:false}));
+    expect(screen.getByRole('table').querySelectorAll('tbody tr')).toHaveLength(2);
+    fireEvent.change(screen.getByRole('combobox',{name:'Filter by scope'}),{target:{value:'domain:example.org'}});
+    expect(screen.getByRole('table').querySelector('[data-row-key="corp-saml"]')).not.toBeNull();
+    expect(screen.getByRole('table').querySelectorAll('tbody tr')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button',{name:'OIDC',pressed:false}));
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'OIDC',pressed:true}));
+    fireEvent.change(screen.getByRole('combobox',{name:'Filter by scope'}),{target:{value:''}});
+    expect(screen.getByRole('table').querySelectorAll('tbody tr')).toHaveLength(2);
+  });
+  it('opens a standalone edit route with no list and returns on pristine Cancel', async () => {
+    const {navigate} = setup();
+    await screen.findByRole('table',{name:'Single sign-on'});
+    fireEvent.click(screen.getByRole('button',{name:'Edit Acme SSO'}));
+    expect(navigate).toHaveBeenCalledWith(sectionPath('sso',['corp-oidc','edit']));
+    await screen.findByTestId('sso-editor-page');
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:/^Cancel$/}));
+    await screen.findByRole('table',{name:'Single sign-on'});
+    expect(screen.queryByTestId('sso-editor')).not.toBeInTheDocument();
+  });
+
   it('lists the providers of every scope with protocol, scope, state and certificate state', async () => {
     const { api } = setup();
     const table = await screen.findByRole('table', { name: 'Single sign-on' });
@@ -179,7 +205,8 @@ describe('Admin › SSO list errors', () => {
 describe('Admin › SSO detail', () => {
   it('opens a provider at #/sso/<id> with its values, history, and a fixed id', async () => {
     setup([OIDC_ROW], { rest: ['corp-oidc'] });
-    const detail = await screen.findByTestId('list-detail');
+    const detail = await screen.findByTestId('sso-editor-page');
+    await within(detail).findByRole('textbox', {name:'Backend ID'});
     expect(await within(detail).findByRole('heading', { name: 'Acme SSO' })).toBeInTheDocument();
     const id = await within(detail).findByRole('textbox', { name: 'Backend ID' });
     expect(id).toHaveValue('corp-oidc');
@@ -193,7 +220,8 @@ describe('Admin › SSO detail', () => {
 
   it('adds an OIDC provider: validation first, then the body with this server callback filled in, then the new address', async () => {
     const { api, navigate } = setup([], { rest: ['new'] });
-    const detail = await screen.findByTestId('list-detail');
+    const detail = await screen.findByTestId('sso-editor-page');
+    await within(detail).findByRole('textbox', {name:'Backend ID'});
     fireEvent.click(within(detail).getByRole('button', { name: 'Add backend' }));
     expect(within(detail).getByRole('button', { name: 'Add backend' })).toBeDisabled();
     fireEvent.input(within(detail).getByRole('textbox', { name: 'Backend ID' }), { target: { value: 'Bad Id' } });
@@ -217,13 +245,15 @@ describe('Admin › SSO detail', () => {
       secret: 's3cret',
       config: { kind: 'oidc', issuerUrl: 'https://idp.test', clientId: 'mw', redirectUrl: ownAddress('new-oidc', 'callback'), scopes: ['openid', 'email', 'profile'] },
     });
-    await waitFor(() => expect(navigate).toHaveBeenCalledWith(sectionPath('sso', ['new-oidc'])));
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith(sectionPath('sso')));
   });
 
   it('a new provider may not reuse an id', async () => {
     const { api } = setup([OIDC_ROW], { rest: ['new'] });
-    const detail = await screen.findByTestId('list-detail');
-    await waitFor(() => expect(screen.getByRole('table').querySelector('[data-row-key="corp-oidc"]')).not.toBeNull());
+    const detail = await screen.findByTestId('sso-editor-page');
+    await within(detail).findByRole('textbox', {name:'Backend ID'});
+    await waitFor(() => expect(api.list).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
     fireEvent.input(within(detail).getByRole('textbox', { name: 'Backend ID' }), { target: { value: 'corp-oidc' } });
     fireEvent.click(within(detail).getByRole('button', { name: 'Add backend' }));
     await waitFor(() => expect(within(detail).getByText(/Another provider already uses the id/)).toBeInTheDocument());
@@ -232,7 +262,8 @@ describe('Admin › SSO detail', () => {
 
   it('SAML: metadata upload shows a preview and fills the sign-in address, sign-out address and certificates', async () => {
     const { api } = setup([SAML_ROW], { rest: ['corp-saml'] });
-    const detail = await screen.findByTestId('list-detail');
+    const detail = await screen.findByTestId('sso-editor-page');
+    await within(detail).findByRole('textbox', {name:'Backend ID'});
     const meta = await within(detail).findByTestId('sso-metadata');
     const file = new File([METADATA], 'idp.xml', { type: 'application/xml' });
     fireEvent.change(within(meta).getByLabelText('Metadata file'), { target: { files: [file] } });

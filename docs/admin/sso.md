@@ -3,8 +3,14 @@
 The **Single sign-on** page (`#/sso`) lists the OpenID Connect and SAML 2.0 sign-in providers. Each
 enabled provider is a "Sign in with …" button on the mail sign-in page. The list shows the protocol,
 where the provider applies, whether it is on and, for SAML, whether its signing certificates are valid,
-expire within 30 days or have expired. A provider opens at `#/sso/<id>`; **Add a login backend** opens
-an empty form at `#/sso/new`. Turning a provider off and deleting it ask first.
+expire within 30 days or have expired. Edit opens a dedicated page at `#/sso/<id>/edit`; **Add a login backend** opens
+an empty page at `#/sso/new`. The table is not displayed beside either editor. Save returns to the
+table; Back and Cancel ask before discarding unsaved changes. Turning a provider off and deleting
+it ask first.
+
+Search by provider name, ID or scope. Protocol and enabled-state filters combine with the scope
+selector, so you can inspect, for example, disabled SAML providers for one domain. Clearing a
+filter restores those rows without changing any provider configuration.
 
 The server stores providers per scope (`GET /admin/sso?scope=deployment|domain:<d>`); the page asks for
 the deployment and for every domain the console lists.

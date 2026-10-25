@@ -1,4 +1,4 @@
-// The add / edit form of one SSO backend, in the list's detail pane
+// The add / edit form of one SSO backend, on its dedicated route page
 // (SettingsFormPage with `frame: 'none'`, t32-cfg UX3-UX7).
 //
 // One form for both protocols: the OIDC group shows while the protocol is OIDC,
@@ -10,7 +10,7 @@
 // Secrets are write-only: the client secret (OIDC) and the service provider key
 // (SAML) show whether one is stored and are sent only when something is typed.
 
-import { createMemo, type JSX } from 'solid-js';
+import { createMemo, createSignal, Show, type JSX } from 'solid-js';
 import { t, isolate } from '../../../i18n';
 import { basePath } from '../../../api/basePath.ts';
 import type { ClaimMap, FirstLoginPolicy, SsoBackendInput, SsoBackendRow, SsoConfig, SsoKind } from '../../../modules/sso';
@@ -135,10 +135,13 @@ export interface SsoEditorProps {
   domains: readonly string[];
   save: (input: SsoBackendInput) => Promise<SsoBackendRow | null>;
   labelledBy: string;
+  onCancel?: () => void;
+  onSaving?: (saving: boolean) => void;
   now?: Date | undefined;
 }
 
 export function SsoEditor(props: SsoEditorProps): JSX.Element {
+  const [saving, setSaving] = createSignal(false);
   const isNew = (): boolean => props.row === null;
   const docs = (id: string): string => adminDocsHref(AREA, id);
   const oidc = (v: Readonly<Record<string, unknown>>): boolean => v.kind === 'oidc';
@@ -395,11 +398,15 @@ export function SsoEditor(props: SsoEditorProps): JSX.Element {
   }
 
   async function save(_changed: Record<string, unknown>, ctx: { values: Readonly<Record<string, unknown>> }): Promise<{ values: Record<string, unknown> } | void> {
-    const stored = await props.save(ssoInput(ctx.values));
-    if (stored) return { values: ssoValues(stored) };
+    setSaving(true); props.onSaving?.(true);
+    try {
+      const stored = await props.save(ssoInput(ctx.values));
+      if (stored) return { values: ssoValues(stored) };
+    } finally { setSaving(false); props.onSaving?.(false); }
   }
 
   return (
+    <>
     <SettingsFormPage
       title={isNew() ? t('admin-sso-add') : t('admin-sso-edit-title')}
       frame="none"
@@ -410,5 +417,7 @@ export function SsoEditor(props: SsoEditorProps): JSX.Element {
       saveLabel={isNew() ? t('admin-sso-create') : t('admin-sso-update')}
       testId="sso-editor"
     />
+    <Show when={props.onCancel}><div class={ux.pageActions}><button type="button" class="btn btn--ghost" disabled={saving()} onClick={() => props.onCancel?.()}>{t('admin-sso-cancel')}</button></div></Show>
+    </>
   );
 }

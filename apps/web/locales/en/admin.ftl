@@ -560,3 +560,8 @@ admin-users-back = Back to users
 admin-users-identity = User identity
 admin-users-id = Account identifier
 admin-users-last-signin = Last sign-in
+
+admin-sso-filter-scope = Filter by scope
+admin-sso-all-scopes = All scopes
+admin-sso-back = Back to sign-in providers
+admin-sso-editor-intro = Configure this sign-in provider, then save or cancel to return to the provider table.
