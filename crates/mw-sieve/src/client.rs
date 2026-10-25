@@ -85,8 +85,19 @@ impl ManageSieveClient {
         creds: Credentials,
         options: &mw_net::TlsOptions,
     ) -> Result<Self> {
+        Self::from_stream_with_auth(stream, host, mode, creds, options, None).await
+    }
+
+    pub async fn from_stream_with_auth(
+        stream: mw_net::BoxStream,
+        host: &str,
+        mode: TlsMode,
+        creds: Credentials,
+        options: &mw_net::TlsOptions,
+        policy: Option<&mw_net::PasswordAuthPolicy>,
+    ) -> Result<Self> {
         let stream = SieveStream::from_stream_with_tls(stream, host, mode, options).await?;
-        Self::handshake_with_tls(host, stream, mode, creds, options).await
+        Self::handshake_with_auth(host, stream, mode, creds, options, policy).await
     }
 
     /// Shared post-connect flow: open the connection, perform the optional
@@ -108,6 +119,17 @@ impl ManageSieveClient {
         creds: Credentials,
         options: &mw_net::TlsOptions,
     ) -> Result<Self> {
+        Self::handshake_with_auth(host, stream, mode, creds, options, None).await
+    }
+
+    async fn handshake_with_auth(
+        host: &str,
+        stream: SieveStream,
+        mode: TlsMode,
+        creds: Credentials,
+        options: &mw_net::TlsOptions,
+        policy: Option<&mw_net::PasswordAuthPolicy>,
+    ) -> Result<Self> {
         let mut conn = Connection::open(stream).await?;
 
         if mode == TlsMode::StartTls {
@@ -121,6 +143,47 @@ impl ManageSieveClient {
             conn = Connection::open(stream).await?;
         }
 
+        let creds = if let Some(policy) = policy {
+            use mw_net::AuthMechanism as M;
+            let (username, password) = match creds {
+                Credentials::Plain { username, password }
+                | Credentials::Login { username, password }
+                | Credentials::ScramSha256 { username, password } => (username, password),
+                _ => {
+                    return Err(SieveError::ManageSieve(
+                        "password policy cannot use OAuth credentials".into(),
+                    ));
+                }
+            };
+            let selected = policy
+                .select(
+                    mw_net::AuthProtocol::Sieve,
+                    |name| conn.capabilities().offers_sasl(name),
+                    false,
+                    false,
+                )
+                .ok_or_else(|| {
+                    SieveError::ManageSieve(
+                        "no permitted password authentication mechanism is available".into(),
+                    )
+                })?;
+            tracing::debug!(
+                mechanism = selected.as_str(),
+                "selected ManageSieve password authentication"
+            );
+            match selected {
+                M::Plain => Credentials::Plain { username, password },
+                M::Login => Credentials::Login { username, password },
+                M::ScramSha256 => Credentials::ScramSha256 { username, password },
+                _ => {
+                    return Err(SieveError::ManageSieve(
+                        "unsupported ManageSieve authentication selection".into(),
+                    ));
+                }
+            }
+        } else {
+            creds
+        };
         conn.authenticate(&creds).await?;
         Ok(Self { conn })
     }

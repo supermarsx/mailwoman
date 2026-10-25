@@ -28,6 +28,8 @@ impl Status {
 /// Capabilities advertised by a `CAPA` response (RFC 2449 §3).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CapaInfo {
+    /// `USER` advertises the USER/PASS command pair.
+    pub user: bool,
     /// SASL mechanisms from the `SASL` capability line, upper-cased.
     pub sasl: Vec<String>,
     /// `STLS` advertised (RFC 2595) — opportunistic TLS is available.
@@ -160,6 +162,7 @@ pub fn parse_capa(body: &[u8]) -> CapaInfo {
         let mut parts = line.split_ascii_whitespace();
         let Some(name) = parts.next() else { continue };
         match name.to_ascii_uppercase().as_str() {
+            "USER" => info.user = true,
             "SASL" => {
                 info.sasl = parts.map(|m| m.to_ascii_uppercase()).collect();
             }

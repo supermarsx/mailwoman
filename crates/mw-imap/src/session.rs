@@ -25,6 +25,12 @@ pub enum Credentials {
     /// Username + password; the session picks SASL PLAIN/LOGIN or the `LOGIN`
     /// command based on advertised capabilities.
     Password { username: String, password: String },
+    /// Explicit ordered selection on this connection, before sending credentials.
+    PasswordWithPolicy {
+        username: String,
+        password: String,
+        policy: mw_net::PasswordAuthPolicy,
+    },
     /// OAuth2 bearer token (Gmail / Outlook) via SASL XOAUTH2.
     XOAuth2 { username: String, token: String },
 }
@@ -33,7 +39,8 @@ impl std::fmt::Debug for Credentials {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Never render secrets.
         match self {
-            Credentials::Password { username, .. } => f
+            Credentials::Password { username, .. }
+            | Credentials::PasswordWithPolicy { username, .. } => f
                 .debug_struct("Password")
                 .field("username", username)
                 .finish_non_exhaustive(),
@@ -198,26 +205,59 @@ impl Session {
                     ));
                 }
             }
-            Credentials::Password { username, password } => {
+            Credentials::Password { username, password }
+            | Credentials::PasswordWithPolicy {
+                username, password, ..
+            } => {
                 // Preference: SCRAM-SHA-256-PLUS (channel-bound) → SCRAM-SHA-256
                 // → PLAIN → LOGIN → the LOGIN command. SCRAM keeps the password
                 // off the wire; `-PLUS` additionally binds it to the TLS channel.
                 let channel_binding = self.conn.channel_binding();
-                if self.caps.has_auth("SCRAM-SHA-256-PLUS") && channel_binding.is_some() {
+                use mw_net::AuthMechanism as M;
+                let selected = if let Credentials::PasswordWithPolicy { policy, .. } = creds {
+                    policy
+                        .select(
+                            mw_net::AuthProtocol::Imap,
+                            |name| self.caps.has_auth(name),
+                            channel_binding.is_some(),
+                            !self.caps.has("LOGINDISABLED"),
+                        )
+                        .ok_or_else(|| {
+                            ImapError::Unsupported(
+                                "no permitted password authentication mechanism is available"
+                                    .into(),
+                            )
+                        })?
+                } else if self.caps.has_auth("SCRAM-SHA-256-PLUS") && channel_binding.is_some() {
+                    M::ScramSha256Plus
+                } else if self.caps.has_auth("SCRAM-SHA-256") {
+                    M::ScramSha256
+                } else if self.caps.has_auth("PLAIN") {
+                    M::Plain
+                } else if self.caps.has_auth("LOGIN") {
+                    M::Login
+                } else {
+                    M::ImapLogin
+                };
+                tracing::debug!(
+                    mechanism = selected.as_str(),
+                    "selected IMAP password authentication"
+                );
+                if selected == M::ScramSha256Plus {
                     let mut client =
                         crate::sasl::ScramSha256::new(username, password, channel_binding);
                     self.conn
                         .authenticate_sasl("SCRAM-SHA-256-PLUS", &mut client)
                         .await?
-                } else if self.caps.has_auth("SCRAM-SHA-256") {
+                } else if selected == M::ScramSha256 {
                     let mut client = crate::sasl::ScramSha256::new(username, password, None);
                     self.conn
                         .authenticate_sasl("SCRAM-SHA-256", &mut client)
                         .await?
-                } else if self.caps.has_auth("PLAIN") {
+                } else if selected == M::Plain {
                     let frame = crate::sasl::plain(username, password);
                     self.conn.authenticate("PLAIN", &[frame]).await?
-                } else if self.caps.has_auth("LOGIN") {
+                } else if selected == M::Login {
                     let frames = crate::sasl::login(username, password);
                     self.conn.authenticate("LOGIN", &frames).await?
                 } else {

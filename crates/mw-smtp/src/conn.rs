@@ -288,6 +288,49 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
         caps: &Capabilities,
         channel_binding: Option<(&str, &[u8])>,
     ) -> Result<(), SmtpError> {
+        let resolved;
+        let creds = if let Credentials::PasswordWithPolicy { user, pass, policy } = creds {
+            use mw_net::AuthMechanism as M;
+            let selected = policy
+                .select(
+                    mw_net::AuthProtocol::Smtp,
+                    |name| caps.offers(name),
+                    channel_binding.is_some(),
+                    false,
+                )
+                .ok_or_else(|| {
+                    SmtpError::Auth(
+                        "no permitted password authentication mechanism is available".into(),
+                    )
+                })?;
+            tracing::debug!(
+                mechanism = selected.as_str(),
+                "selected SMTP password authentication"
+            );
+            resolved = match selected {
+                M::Plain => Credentials::Plain {
+                    user: user.clone(),
+                    pass: pass.clone(),
+                },
+                M::Login => Credentials::Login {
+                    user: user.clone(),
+                    pass: pass.clone(),
+                },
+                M::ScramSha256 | M::ScramSha256Plus => Credentials::ScramExact {
+                    user: user.clone(),
+                    pass: pass.clone(),
+                    plus: selected == M::ScramSha256Plus,
+                },
+                _ => {
+                    return Err(SmtpError::Auth(
+                        "unsupported SMTP authentication selection".into(),
+                    ));
+                }
+            };
+            &resolved
+        } else {
+            creds
+        };
         let require = |mech: &str| -> Result<(), SmtpError> {
             if caps.auth.is_empty() || caps.offers(mech) {
                 Ok(()) // absent AUTH line ⇒ try anyway (some servers omit it)
@@ -354,12 +397,20 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
                     ))),
                 }
             }
-            Credentials::Scram { user, pass } => {
+            Credentials::Scram { user, pass } | Credentials::ScramExact { user, pass, .. } => {
                 // Preference: SCRAM-SHA-256-PLUS when a channel binding is present
                 // AND the server advertised `-PLUS`; otherwise plain SCRAM-SHA-256
                 // (which also covers the plaintext / implicit-TLS-without-binding
                 // path).
-                let use_plus = channel_binding.is_some() && caps.offers("SCRAM-SHA-256-PLUS");
+                let use_plus = match creds {
+                    Credentials::ScramExact { plus, .. } => *plus,
+                    _ => channel_binding.is_some() && caps.offers("SCRAM-SHA-256-PLUS"),
+                };
+                if use_plus && (channel_binding.is_none() || !caps.offers("SCRAM-SHA-256-PLUS")) {
+                    return Err(SmtpError::Auth(
+                        "SCRAM-SHA-256-PLUS requires advertisement and channel binding".into(),
+                    ));
+                }
                 let (mech, binding) = if use_plus {
                     ("SCRAM-SHA-256-PLUS", channel_binding)
                 } else {
@@ -388,12 +439,11 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
                     .command(&format!("{}\r\n", BASE64_STANDARD.encode(&client_final)))
                     .await?;
                 match r.code {
-                    // Some servers fold the server-final into the 235 line; if it
-                    // carries a decodable `v=`, verify it, otherwise accept.
+                    // Mutual authentication requires a valid server-final even
+                    // when it is carried directly by the success response.
                     235 => {
-                        if let Ok(txt) = decode_challenge(&r) {
-                            let _ = scram.verify(&txt);
-                        }
+                        let txt = decode_challenge(&r)?;
+                        scram.verify(&txt).map_err(SmtpError::Auth)?;
                         Ok(())
                     }
                     // The server sends the server-final (v=) as a 334 challenge;
@@ -411,6 +461,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
                     ))),
                 }
             }
+            Credentials::PasswordWithPolicy { .. } => Err(SmtpError::Auth(
+                "unresolved password authentication policy".into(),
+            )),
             Credentials::OAuthBearer { user, token } => {
                 require("OAUTHBEARER")?;
                 let r = self
@@ -759,6 +812,101 @@ mod tests {
         "x@example.com> SIZE=1",
         "a@b>",
     ];
+
+    #[tokio::test]
+    async fn password_policy_selects_once_and_refuses_unavailable_mechanisms_without_credentials() {
+        use mw_net::{AuthMechanism as M, PasswordAuthPolicy};
+        let caps = Capabilities::parse(&["AUTH PLAIN LOGIN".into()]);
+        let policy = PasswordAuthPolicy::new(vec![M::Plain, M::Login]).unwrap();
+        let (result, wire) = written_by(|mut c| async move {
+            c.authenticate(
+                &Credentials::PasswordWithPolicy {
+                    user: "user".into(),
+                    pass: "secret".into(),
+                    policy,
+                },
+                &caps,
+                None,
+            )
+            .await
+        })
+        .await;
+        assert!(result.is_err()); // Peer rejects authentication; LOGIN is never tried.
+        assert_eq!(wire.lines().count(), 1);
+        assert!(wire.starts_with("AUTH PLAIN "));
+        for mechanism in [M::ScramSha256, M::ScramSha256Plus] {
+            let caps = Capabilities::parse(&["AUTH PLAIN SCRAM-SHA-256-PLUS".into()]);
+            let policy = PasswordAuthPolicy::new(vec![mechanism]).unwrap();
+            let (result, wire) = written_by(|mut c| async move {
+                c.authenticate(
+                    &Credentials::PasswordWithPolicy {
+                        user: "user".into(),
+                        pass: "secret".into(),
+                        policy,
+                    },
+                    &caps,
+                    None,
+                )
+                .await
+            })
+            .await;
+            assert!(result.is_err());
+            assert!(
+                wire.is_empty(),
+                "unsupported or unbound mechanism must send nothing"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn scram_success_without_a_valid_server_proof_is_refused() {
+        for response in [
+            "2.7.0 Authentication successful".to_string(),
+            BASE64_STANDARD.encode("v=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="),
+        ] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (sock, _) = listener.accept().await.unwrap();
+                let mut f = Framed::new(sock);
+                let auth = f.line().await;
+                let first = String::from_utf8(
+                    BASE64_STANDARD
+                        .decode(auth.strip_prefix("AUTH SCRAM-SHA-256 ").unwrap())
+                        .unwrap(),
+                )
+                .unwrap();
+                let nonce = first
+                    .rsplit(',')
+                    .next()
+                    .unwrap()
+                    .strip_prefix("r=")
+                    .unwrap();
+                let server_first = format!("r={nonce}SERVER,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096");
+                f.send(format!("334 {}\r\n", BASE64_STANDARD.encode(server_first)).as_bytes())
+                    .await;
+                let _ = f.line().await;
+                f.send(format!("235 {response}\r\n").as_bytes()).await;
+            });
+            let mut conn = Connection::new(TcpStream::connect(addr).await.unwrap());
+            let result = conn
+                .authenticate(
+                    &Credentials::ScramExact {
+                        user: "user".into(),
+                        pass: "pencil".into(),
+                        plus: false,
+                    },
+                    &Capabilities::parse(&["AUTH SCRAM-SHA-256".into()]),
+                    None,
+                )
+                .await;
+            assert!(
+                result.is_err(),
+                "success status cannot replace mutual authentication"
+            );
+            server.await.unwrap();
+        }
+    }
 
     #[tokio::test]
     async fn rcpt_to_writes_a_valid_address_and_nothing_for_a_malformed_one() {
@@ -1135,9 +1283,12 @@ mod tests {
                 format!("r={client_nonce}SRVNONCE,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096");
             f.send(format!("334 {}\r\n", BASE64_STANDARD.encode(&server_first)).as_bytes())
                 .await;
-            let client_final = f.line().await; // base64 client-final-message
+            let client_final =
+                String::from_utf8(BASE64_STANDARD.decode(f.line().await).unwrap()).unwrap();
             assert!(!client_final.is_empty());
-            f.send(b"235 2.7.0 Authentication successful\r\n").await;
+            let proof = sasl::fixture_server_final(&client_first, &server_first, &client_final);
+            f.send(format!("235 {}\r\n", BASE64_STANDARD.encode(proof)).as_bytes())
+                .await;
 
             // MAIL FROM must carry SMTPUTF8 (UTF-8 recipient below), SIZE, and
             // the DSN RET/ENVID parameters.
@@ -1339,7 +1490,9 @@ mod tests {
             let mut expected = b"p=tls-server-end-point,,".to_vec();
             expected.extend_from_slice(&server_binding);
             assert_eq!(BASE64_STANDARD.decode(c).unwrap(), expected);
-            f.send(b"235 2.7.0 Authentication successful\r\n").await;
+            let proof = sasl::fixture_server_final(&client_first, &server_first, &client_final);
+            f.send(format!("235 {}\r\n", BASE64_STANDARD.encode(proof)).as_bytes())
+                .await;
         });
 
         let tcp = TcpStream::connect(addr).await.unwrap();
@@ -1407,7 +1560,9 @@ mod tests {
             let mut expected = b"p=tls-exporter,,".to_vec();
             expected.extend_from_slice(&server_binding);
             assert_eq!(BASE64_STANDARD.decode(c).unwrap(), expected);
-            f.send(b"235 2.7.0 Authentication successful\r\n").await;
+            let proof = sasl::fixture_server_final(&client_first, &server_first, &client_final);
+            f.send(format!("235 {}\r\n", BASE64_STANDARD.encode(proof)).as_bytes())
+                .await;
         });
 
         let tcp = TcpStream::connect(addr).await.unwrap();
@@ -1466,7 +1621,9 @@ mod tests {
                 String::from_utf8(BASE64_STANDARD.decode(f.line().await).unwrap()).unwrap();
             // Unbound: c= is base64("n,,") = "biws".
             assert!(client_final.starts_with("c=biws,"), "{client_final}");
-            f.send(b"235 2.7.0 Authentication successful\r\n").await;
+            let proof = sasl::fixture_server_final(&client_first, &server_first, &client_final);
+            f.send(format!("235 {}\r\n", BASE64_STANDARD.encode(proof)).as_bytes())
+                .await;
         });
 
         let tcp = TcpStream::connect(addr).await.unwrap();

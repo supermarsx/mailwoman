@@ -19,6 +19,8 @@
 //! The crate depends on tokio only, because the protocol crates depend on it.
 
 use std::fmt;
+mod auth;
+pub use auth::{AuthMechanism, AuthProtocol, PasswordAuthPolicy};
 use std::future::Future;
 use std::io;
 use std::pin::Pin;

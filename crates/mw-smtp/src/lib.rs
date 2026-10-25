@@ -114,7 +114,7 @@ pub enum Security {
 }
 
 /// SASL credentials for the submission server.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub enum Credentials {
     /// No authentication (unauthenticated relay / local test server).
     #[default]
@@ -127,8 +127,36 @@ pub enum Credentials {
     XOAuth2 { user: String, token: String },
     /// SASL `SCRAM-SHA-256` (RFC 5802 / RFC 7677) — salted challenge/response.
     Scram { user: String, pass: String },
+    /// Exact SCRAM variant; unlike the legacy variant this never upgrades it.
+    ScramExact {
+        user: String,
+        pass: String,
+        plus: bool,
+    },
+    /// Select once from this connection's advertised mechanisms, before auth.
+    PasswordWithPolicy {
+        user: String,
+        pass: String,
+        policy: mw_net::PasswordAuthPolicy,
+    },
     /// SASL `OAUTHBEARER` (RFC 7628) bearer token.
     OAuthBearer { user: String, token: String },
+}
+
+impl std::fmt::Debug for Credentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let kind = match self {
+            Self::None => "None",
+            Self::Plain { .. } => "Plain",
+            Self::Login { .. } => "Login",
+            Self::Scram { .. } => "Scram",
+            Self::ScramExact { .. } => "ScramExact",
+            Self::PasswordWithPolicy { .. } => "PasswordWithPolicy",
+            Self::XOAuth2 { .. } => "XOAuth2",
+            Self::OAuthBearer { .. } => "OAuthBearer",
+        };
+        f.debug_struct(kind).finish_non_exhaustive()
+    }
 }
 
 /// DSN `RET=` (RFC 3461): how much of the original message a bounce returns.

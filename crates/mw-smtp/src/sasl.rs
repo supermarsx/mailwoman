@@ -122,6 +122,27 @@ fn scram_escape(s: &str) -> String {
     s.replace('=', "=3D").replace(',', "=2C")
 }
 
+#[cfg(test)]
+pub(crate) fn fixture_server_final(first: &str, server_first: &str, final_message: &str) -> String {
+    let attribute = |name: &str| {
+        server_first
+            .split(',')
+            .find_map(|part| part.strip_prefix(name))
+            .unwrap()
+    };
+    let salt = BASE64_STANDARD.decode(attribute("s=")).unwrap();
+    let iterations = attribute("i=").parse().unwrap();
+    let salted = pbkdf2_sha256(b"pencil", &salt, iterations);
+    let server_key = hmac_sha256(&salted, b"Server Key");
+    let first_bare = first.split_once(",,").unwrap().1;
+    let final_without_proof = final_message.rsplit_once(",p=").unwrap().0;
+    let auth_message = format!("{first_bare},{server_first},{final_without_proof}");
+    format!(
+        "v={}",
+        BASE64_STANDARD.encode(hmac_sha256(&server_key, auth_message.as_bytes()))
+    )
+}
+
 /// An unpredictable, comma/equals-free client nonce (hex over OS-seeded
 /// entropy). `RandomState::new()` draws fresh keys from the platform RNG on each
 /// call; hex keeps the value inside the SCRAM `printable` set with no escaping.

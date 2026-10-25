@@ -92,6 +92,20 @@ impl Pop3Conn {
         dialer: Option<&dyn mw_net::Dialer>,
         options: &mw_net::TlsOptions,
     ) -> Result<Self> {
+        Self::open_via_with_auth(cfg, dialer, options, None).await
+    }
+
+    pub async fn open_via_with_auth(
+        cfg: &Pop3Config,
+        dialer: Option<&dyn mw_net::Dialer>,
+        options: &mw_net::TlsOptions,
+        policy: Option<&mw_net::PasswordAuthPolicy>,
+    ) -> Result<Self> {
+        if policy.is_some() && matches!(cfg.auth, Pop3Auth::XOAuth2 | Pop3Auth::OAuthBearer) {
+            return Err(EngineError::Unsupported(
+                "password policy cannot use OAuth credentials".into(),
+            ));
+        }
         let tcp = mw_net::dial(dialer, &cfg.host, cfg.port)
             .await
             .map_err(transport)?;
@@ -117,7 +131,11 @@ impl Pop3Conn {
                 Pop3Conn::with_binding(tls, binding)
             }
         };
-        conn.authenticate(cfg).await?;
+        if let Some(policy) = policy {
+            conn.authenticate_with_policy(cfg, policy).await?;
+        } else {
+            conn.authenticate(cfg).await?;
+        }
         Ok(conn)
     }
 
@@ -255,6 +273,58 @@ impl Pop3Conn {
         Ok(())
     }
 
+    async fn authenticate_with_policy(
+        &mut self,
+        cfg: &Pop3Config,
+        policy: &mw_net::PasswordAuthPolicy,
+    ) -> Result<()> {
+        use mw_net::AuthMechanism as M;
+        let advertised_caps = self.capa_optional().await?;
+        let command_available = advertised_caps.as_ref().is_none_or(|caps| caps.user);
+        let caps = advertised_caps.unwrap_or_default();
+        let selected = policy
+            .select(
+                mw_net::AuthProtocol::Pop3,
+                |name| {
+                    caps.sasl
+                        .iter()
+                        .any(|advertised| advertised.eq_ignore_ascii_case(name))
+                },
+                self.channel_binding.is_some(),
+                command_available,
+            )
+            .ok_or_else(|| {
+                EngineError::Unsupported(
+                    "no permitted password authentication mechanism is available".into(),
+                )
+            })?;
+        tracing::debug!(
+            mechanism = selected.as_str(),
+            "selected POP3 password authentication"
+        );
+        if matches!(selected, M::ScramSha256 | M::ScramSha256Plus) {
+            return self
+                .authenticate_scram_sha256(
+                    &cfg.username,
+                    &cfg.secret,
+                    selected == M::ScramSha256Plus,
+                )
+                .await;
+        }
+        let mut selected_cfg = cfg.clone();
+        selected_cfg.auth = match selected {
+            M::Plain => Pop3Auth::SaslPlain,
+            M::Login => Pop3Auth::SaslLogin,
+            M::Pop3UserPass => Pop3Auth::UserPass,
+            _ => {
+                return Err(EngineError::Unsupported(
+                    "unsupported POP3 authentication selection".into(),
+                ));
+            }
+        };
+        self.authenticate(&selected_cfg).await
+    }
+
     /// SASL `SCRAM-SHA-256`(`-PLUS`) (RFC 5802 / RFC 7677) over POP3 `AUTH`
     /// (RFC 5034), challenge/response form: `AUTH SCRAM-SHA-256[-PLUS]` → `+` →
     /// client-first → `+` server-first → client-final → server-final/`+OK`. The
@@ -379,13 +449,17 @@ impl Pop3Conn {
 
     /// `CAPA` (RFC 2449). A `-ERR`/absent CAPA yields empty capabilities.
     pub async fn capa(&mut self) -> Result<CapaInfo> {
+        Ok(self.capa_optional().await?.unwrap_or_default())
+    }
+
+    async fn capa_optional(&mut self) -> Result<Option<CapaInfo>> {
         self.send("CAPA").await?;
         match self.read_status().await? {
             Status::Ok(_) => {
                 let body = self.read_multiline().await?;
-                Ok(parse_capa(&body))
+                Ok(Some(parse_capa(&body)))
             }
-            Status::Err(_) => Ok(CapaInfo::default()),
+            Status::Err(_) => Ok(None),
         }
     }
 
