@@ -4519,7 +4519,32 @@ mod tests {
         let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
         let graph = first_party_manifest("bridge-graph").unwrap();
         store.put_plugin(&registry_row(&graph)).await.unwrap();
-        for account in ["acct-a", "acct-b"] {
+        // Live invocation policy requires authoritative stored account identities.
+        let mut accounts = Vec::new();
+        for username in ["a@example.test", "b@example.test"] {
+            accounts.push(
+                store
+                    .create_account(
+                        &mw_store::NewAccount {
+                            kind: mw_store::AccountKind::Imap,
+                            host: "mail.example.test",
+                            port: 993,
+                            tls: "implicit",
+                            username,
+                            sync_policy_json: "{}",
+                        },
+                        &mw_store::Credentials {
+                            username: username.into(),
+                            password: "fixture".into(),
+                        },
+                    )
+                    .await
+                    .unwrap(),
+            );
+        }
+        let account_a = accounts[0].as_str();
+        let account_b = accounts[1].as_str();
+        for account in [account_a, account_b] {
             store
                 .put_bridge_account(&mw_store::BridgeAccountRow {
                     account_id: account.into(),
@@ -4539,7 +4564,7 @@ mod tests {
         let pim = pim.expect("graph binds PIM slots");
         assert_eq!(loaded, 2);
         let row = store.get_plugin("bridge-graph").await.unwrap().unwrap();
-        for account in ["acct-a", "acct-b"] {
+        for account in [account_a, account_b] {
             assert!(engine.is_registered(account), "{account} is served");
             assert!(pim.calendar(account).is_some(), "{account} has PIM slots");
         }
@@ -4548,21 +4573,21 @@ mod tests {
 
         // Nothing changed: a sync leaves both instances running.
         sync_plugins(Some(&engine), &reg, &store).await;
-        assert!(engine.is_registered("acct-a") && engine.is_registered("acct-b"));
+        assert!(engine.is_registered(account_a) && engine.is_registered(account_b));
 
         // Narrow the grant for everyone, keep the full one for account A only: B's
         // instance would now run with less than it was loaded with, so it is stopped.
         grant_caps(&store, "bridge-graph", "", &[AccountBackend, Net]).await;
-        grant_caps(&store, "bridge-graph", "acct-a", &all).await;
+        grant_caps(&store, "bridge-graph", account_a, &all).await;
         sync_plugins(Some(&engine), &reg, &store).await;
-        assert!(engine.is_registered("acct-a"), "A's grant is unchanged");
+        assert!(engine.is_registered(account_a), "A's grant is unchanged");
         assert!(
-            !engine.is_registered("acct-b"),
+            !engine.is_registered(account_b),
             "B must not keep its old grant"
         );
-        assert!(pim.calendar("acct-a").is_some());
-        assert!(pim.calendar("acct-b").is_none(), "B's PIM slots are gone");
-        assert!(!pim.caps("acct-b").reactions);
+        assert!(pim.calendar(account_a).is_some());
+        assert!(pim.calendar(account_b).is_none(), "B's PIM slots are gone");
+        assert!(!pim.caps(account_b).reactions);
         let status = plugin_status(&store, &reg, &row).await;
         assert!(status.loaded, "A's instance still runs");
         assert!(
@@ -4576,8 +4601,8 @@ mod tests {
             .await
             .unwrap();
         sync_plugins(Some(&engine), &reg, &store).await;
-        assert!(!engine.is_registered("acct-a"));
-        assert!(pim.calendar("acct-a").is_none());
+        assert!(!engine.is_registered(account_a));
+        assert!(pim.calendar(account_a).is_none());
         let row = store.get_plugin("bridge-graph").await.unwrap().unwrap();
         let status = plugin_status(&store, &reg, &row).await;
         assert!(!status.loaded && !status.restart_required);
@@ -4589,7 +4614,7 @@ mod tests {
             .await
             .unwrap();
         sync_plugins(Some(&engine), &reg, &store).await;
-        assert!(!engine.is_registered("acct-a"));
+        assert!(!engine.is_registered(account_a));
         let row = store.get_plugin("bridge-graph").await.unwrap().unwrap();
         let status = plugin_status(&store, &reg, &row).await;
         assert!(!status.loaded && status.restart_required);
