@@ -19,10 +19,10 @@
 //                        a style belongs in a class;
 //             - colour   a colour literal in the markup (`fill="#…"`, `rgb(…)`).
 //
-// Existing files that break a rule are listed in ALLOWLIST with the lane that owns the fix
-// (f33 for the screens e77 was to rebuild); an entry that no longer matches fails, so the
-// list only shrinks. The self-test block shows each
-// check finding a seeded defect. `MW_ADMIN_STYLE_SRC` points the scan at another
+// Existing files that break a rule are listed in ALLOWLIST with the lane that owns the fix;
+// an entry that no longer matches fails, so the list only shrinks. It is empty since f33
+// gave the Plugins buttons and checkbox rows their own focus rules. The self-test block
+// shows each check finding a seeded defect. `MW_ADMIN_STYLE_SRC` points the scan at another
 // `screens/Admin` tree (used to show the gate failing on a seeded copy).
 
 import { describe, expect, it } from 'vitest';
@@ -48,22 +48,7 @@ interface Allowed {
 }
 
 // Each entry: the finding as reported, the owner, and why it is here. A stale entry fails.
-const ALLOWLIST: Allowed[] = [
-  {
-    file: 'Plugins/styles.css.ts',
-    rule: 'focus',
-    text: 'ghost: interactive without :focus-visible',
-    owner: 'f33',
-    reason: 'Plugins screen button at HEAD; f33 (which absorbs e77) rebuilds Plugins/** on the templates (t32-cfg §4.12) and drops this class',
-  },
-  {
-    file: 'Plugins/styles.css.ts',
-    rule: 'focus',
-    text: 'check: interactive without :focus-visible',
-    owner: 'f33',
-    reason: 'Plugins checkbox label at HEAD; f33 (which absorbs e77) rebuilds Plugins/** on the templates (t32-cfg §4.12) and drops this class',
-  },
-];
+const ALLOWLIST: Allowed[] = [];
 
 // ── source handling ─────────────────────────────────────────────────────────
 

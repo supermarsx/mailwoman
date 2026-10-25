@@ -75,8 +75,12 @@ const buttonBase = {
   fontSize: '0.82rem',
 } as const;
 
+// The keyboard focus ring of the theme (the global :focus-visible ring is not relied on).
+const focusRing = { outline: 'none', boxShadow: vars.a11y.focusRing } as const;
+
 // Hover lifts a hard shadow (no box changes); a disabled button is dimmed and dashed.
 const buttonStates = {
+  '&:focus-visible': focusRing,
   '&:hover:not(:disabled)': { boxShadow: vars.elevation[1] },
   '&:active:not(:disabled)': { boxShadow: 'none' },
   '&:disabled': { opacity: 0.6, cursor: 'not-allowed', borderStyle: 'dashed' },
@@ -98,6 +102,7 @@ export const ghost = style({
   background: 'transparent',
   color: vars.color.text,
   selectors: {
+    '&:focus-visible': focusRing,
     '&:hover:not(:disabled)': { background: vars.color.text, color: vars.color.bg },
     '&:disabled': buttonStates['&:disabled'],
   },
@@ -112,7 +117,15 @@ export const danger = style({
   selectors: buttonStates,
 });
 
-export const check = style({ display: 'flex', alignItems: 'center', gap: vars.space[2], fontSize: '0.84rem', cursor: 'pointer' });
+// The label row of a checkbox: the box inside takes the focus, so the row shows it with :focus-within.
+export const check = style({
+  display: 'flex',
+  alignItems: 'center',
+  gap: vars.space[2],
+  fontSize: '0.84rem',
+  cursor: 'pointer',
+  selectors: { '&:focus-within': { outline: `${vars.border.hair} solid ${vars.color.accent}`, outlineOffset: '2px' } },
+});
 globalStyle(`${check} input`, { accentColor: vars.color.accent });
 export const limits = style({ fontSize: '0.78rem', color: vars.color.textDim, fontFamily: vars.font.mono });
 export const error = style({ fontSize: '0.85rem', color: vars.color.danger, margin: 0 });
