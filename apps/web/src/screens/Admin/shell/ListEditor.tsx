@@ -39,8 +39,9 @@ export interface ListEditorProps {
   mono?: boolean | undefined;
   /** Lower-case entries before comparing and storing (host names). */
   lowerCase?: boolean | undefined;
-  /** Spaces are not allowed: a pasted "a b, c" is split into entries. Default true. */
-  splitOnSpace?: boolean | undefined;
+  /** `words` (default): a pasted "a b, c" becomes three entries; `none`: the input is one
+   *  entry as typed (program arguments, names with spaces or commas). */
+  split?: 'words' | 'none' | undefined;
   testId?: string | undefined;
 }
 
@@ -63,7 +64,7 @@ export function ListEditor(props: ListEditorProps): JSX.Element {
   }
 
   function add(): void {
-    const parts = (props.splitOnSpace === false ? draft().split(/[\n,]/) : draft().split(/[\s,]+/)).map(normalise).filter((p) => p !== '');
+    const parts = (props.split === 'none' ? [draft()] : draft().split(/[\s,]+/)).map(normalise).filter((p) => p !== '');
     if (parts.length === 0) {
       setError(t('admin-ux-list-empty-entry'));
       input?.focus();

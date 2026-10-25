@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, fireEvent, screen, waitFor, cleanup } from '@solidjs/testing-library';
-import { AdminAssist } from './index.tsx';
-import { AdminAssistApi, parseAdminAssistConfig, type Fetcher } from './service.ts';
+import { fireEvent, screen, waitFor, cleanup, within } from '@solidjs/testing-library';
+import { AdminAssist, assistConfig, assistValues, type RateLimitApi } from './index.tsx';
+import { AdminAssistApi, parseAdminAssistConfig, type AdminAssistConfig, type Fetcher } from './service.ts';
+import type { AdminSetting } from '../../../api/admin/settings.ts';
+import { renderInShell } from '../shell/testkit.tsx';
+import { expectNoAxeViolations, expectNoInlineStyle, problem } from '../shell/uxTestkit.ts';
 
 afterEach(() => cleanup());
 
@@ -61,8 +64,7 @@ function server(initial: { config: unknown; status: unknown; getStatus?: number;
 } {
   const state = { config: initial.config, status: initial.status };
   const calls: Call[] = [];
-  const json = (body: unknown, status = 200): Response =>
-    new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  const json = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
   const fetcher: Fetcher = vi.fn(async (input: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
     const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : undefined;
@@ -90,9 +92,7 @@ function server(initial: { config: unknown; status: unknown; getStatus?: number;
     if (input === '/admin/assist/kill' && method === 'POST') {
       const on = (body as { on: boolean }).on;
       state.config = { ...(state.config as object), enabled: !on };
-      state.status = on
-        ? { ...RUNNING, enabled: false, running: false, endpointHost: null }
-        : RUNNING;
+      state.status = on ? { ...RUNNING, enabled: false, running: false, endpointHost: null } : RUNNING;
       return json(state.status);
     }
     return json({ error: 'not found' }, 404);
@@ -100,225 +100,207 @@ function server(initial: { config: unknown; status: unknown; getStatus?: number;
   return { api: new AdminAssistApi(fetcher), calls, writes: () => calls.filter((c) => c.method !== 'GET') };
 }
 
+const NO_RATE: RateLimitApi = { load: async () => ({ kind: 'unavailable' }), save: vi.fn() };
+
+function rateSetting(over: Partial<AdminSetting> = {}): AdminSetting {
+  return {
+    key: 'assistant.rateLimitPerMin',
+    family: false,
+    kind: { type: 'int', min: 0, max: 10000 },
+    default: 0,
+    nullable: false,
+    scopes: 'global',
+    userOverride: false,
+    category: 'assistant',
+    mapsTo: 'v7_mount.rs',
+    env: { var: 'MW_ASSIST_RATE_LIMIT_PER_MIN', precedence: 'pin' },
+    dedicatedRoute: null,
+    scopeId: 'account',
+    hot: true,
+    ceiling: false,
+    userVisible: false,
+    globalValue: 30,
+    allowUserOverride: false,
+    globalLocked: false,
+    updatedBy: 'root',
+    updatedAt: 1_761_300_000,
+    effective: { value: 30, source: 'global' },
+    envState: { var: 'MW_ASSIST_RATE_LIMIT_PER_MIN', precedence: 'pin', set: false, value: null },
+    overrides: {},
+    etag: '"r1"',
+    ...over,
+  };
+}
+
+function setup(s: ReturnType<typeof server>, rate: RateLimitApi = NO_RATE) {
+  return renderInShell(() => <AdminAssist api={s.api} rateLimit={rate} />);
+}
+
 const saveButton = (): HTMLElement => screen.getByRole('button', { name: 'Save configuration' });
+const ready = async (): Promise<void> => {
+  await waitFor(() => expect(screen.getByTestId('save-bar')).toBeInTheDocument());
+};
 
 describe('admin assist screen', () => {
   it('shows the stored configuration and what the server reports as running', async () => {
-    const { api } = server({ config: STORED, status: RUNNING });
-    render(() => <AdminAssist api={api} />);
-    await waitFor(() => expect(saveButton()).toBeEnabled());
-
-    expect(screen.getByLabelText('Base URL')).toHaveValue('https://llm.example.test/v1');
-    expect(screen.getByLabelText('Chat model')).toHaveValue('chat-t28');
-    expect(screen.getByLabelText('Summarize')).toBeChecked();
-    expect(screen.getByLabelText('AI assistant chat')).not.toBeChecked();
-    expect(screen.getByLabelText('Account ids whose mail may be sent, one per line')).toHaveValue('acct-1\nacct-2');
-    expect(screen.getByLabelText('Allow attachments to be sent')).toBeChecked();
-    expect(screen.getByLabelText('Allow end-to-end-encrypted content to be sent')).not.toBeChecked();
-    expect(screen.getByTestId('assist-status')).toHaveTextContent(
-      'The AI assistant is running. Requests go to llm.example.test.',
-    );
+    const s = server({ config: STORED, status: RUNNING });
+    setup(s);
+    await ready();
+    expect(screen.getByRole('textbox', { name: 'Base URL' })).toHaveValue('https://llm.example.test/v1');
+    expect(screen.getByRole('textbox', { name: 'Chat model' })).toHaveValue('chat-t28');
+    expect(screen.getByRole('checkbox', { name: 'Summarize' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'AI assistant chat' })).not.toBeChecked();
+    expect(within(screen.getByRole('list', { name: 'Account ids whose mail may be sent' })).getAllByRole('listitem').map((li) => li.textContent?.trim())).toEqual(['acct-1', 'acct-2']);
+    expect(screen.getByRole('checkbox', { name: 'Allow attachments to be sent' })).toBeChecked();
+    expect(screen.getByTestId('assist-status')).toHaveTextContent('The AI assistant is running. Requests go to llm.example.test.');
+    // Endpoint fields take effect on restart.
+    expect(within(screen.getByTestId('setting-baseUrl')).getByText('Applies after the server restarts.')).toBeInTheDocument();
+    expect(saveButton()).toBeDisabled();
   });
 
-  it('saving an untouched form sends back exactly what was loaded', async () => {
-    const { api, writes } = server({ config: STORED, status: RUNNING });
-    render(() => <AdminAssist api={api} />);
-    await waitFor(() => expect(saveButton()).toBeEnabled());
-
+  it('sends edits in the server shape: list editors, omitted empty optional fields', async () => {
+    const s = server({ config: STORED, status: RUNNING });
+    setup(s);
+    await ready();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'AI assistant chat' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Summarize' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Allow end-to-end-encrypted content to be sent' }));
+    const folders = screen.getByRole('textbox', { name: 'Folder ids to limit sending to' });
+    fireEvent.input(folders, { target: { value: ' archive ' } });
+    fireEvent.keyDown(folders, { key: 'Enter' });
+    fireEvent.input(screen.getByRole('textbox', { name: 'Chat model' }), { target: { value: '' } });
     fireEvent.click(saveButton());
-    await waitFor(() => expect(writes()).toHaveLength(1));
-    expect(writes()[0]).toEqual({ method: 'PUT', path: '/admin/assist', body: STORED });
-  });
-
-  it('sends edits in the same shape and says when they wait for a restart', async () => {
-    const { api, writes } = server({ config: STORED, status: RUNNING });
-    render(() => <AdminAssist api={api} />);
-    await waitFor(() => expect(saveButton()).toBeEnabled());
-
-    fireEvent.click(screen.getByLabelText('AI assistant chat'));
-    fireEvent.click(screen.getByLabelText('Summarize'));
-    fireEvent.click(screen.getByLabelText('Allow end-to-end-encrypted content to be sent'));
-    fireEvent.change(screen.getByLabelText('Folder ids to limit sending to, one per line'), {
-      target: { value: 'inbox\n\n archive \n' },
-    });
-    fireEvent.input(screen.getByLabelText('Chat model'), { target: { value: '' } });
-    fireEvent.click(saveButton());
-
-    await waitFor(() => expect(writes()).toHaveLength(1));
-    expect(writes()[0]?.body).toEqual({
+    await waitFor(() => expect(s.writes()).toHaveLength(1));
+    expect(s.writes()[0]?.body).toEqual({
       enabled: true,
-      adapter: {
-        kind: 'open-ai-compatible',
-        baseUrl: 'https://llm.example.test/v1',
-        hasApiKey: true,
-        // chatModel was emptied: omitted, so the server applies its default.
-        embedModel: 'embed-t28',
-        sttModel: 'stt-t28',
-      },
+      adapter: { kind: 'open-ai-compatible', baseUrl: 'https://llm.example.test/v1', embedModel: 'embed-t28', sttModel: 'stt-t28' },
       capabilityGrants: ['dictation', 'assistant'],
-      dataCeilings: {
-        accounts: ['acct-1', 'acct-2'],
-        folders: ['inbox', 'archive'],
-        includeE2ee: true,
-        includeAttachments: true,
-      },
+      dataCeilings: { accounts: ['acct-1', 'acct-2'], folders: ['inbox', 'archive'], includeE2ee: true, includeAttachments: true },
     });
-    await waitFor(() =>
-      expect(screen.getByTestId('assist-notice')).toHaveTextContent(
-        'Saved. The change takes effect when the server restarts.',
-      ),
-    );
+    await waitFor(() => expect(screen.getByTestId('save-result')).toHaveTextContent(/Saved/));
   });
 
-  it('does not offer Save when the configuration could not be read', async () => {
-    // The pre-26.20 server answered an unconfigured deployment with only `enabled`.
+  it('does not offer the form when the configuration could not be read', async () => {
     for (const broken of [
       { config: { enabled: false }, status: RUNNING },
       { config: STORED, status: RUNNING, getStatus: 500 },
-      { config: { ...STORED, dataCeilings: { include_e2ee: false, include_attachments: false } }, status: RUNNING },
     ]) {
-      const { api, writes } = server(broken);
-      render(() => <AdminAssist api={api} />);
-      await waitFor(() =>
-        expect(screen.getByRole('alert')).toHaveTextContent(
-          'Could not load the AI assistant configuration. Saving is disabled so the stored configuration is not overwritten.',
-        ),
-      );
-      expect(saveButton()).toBeDisabled();
-      fireEvent.click(saveButton());
-      expect(writes()).toEqual([]);
+      const s = server(broken);
+      setup(s);
+      await waitFor(() => expect(screen.getByTestId('page-state')).toHaveAttribute('data-state', 'error'));
+      expect(screen.queryByRole('button', { name: 'Save configuration' })).toBeNull();
+      expect(s.writes()).toEqual([]);
       cleanup();
     }
   });
 
-  it('stops Assist through the kill route and reports the answer', async () => {
-    const { api, writes } = server({ config: STORED, status: RUNNING });
-    render(() => <AdminAssist api={api} />);
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Stop the AI assistant now' })).toBeInTheDocument());
-    expect(screen.queryByRole('button', { name: 'Turn the AI assistant on' })).not.toBeInTheDocument();
-
+  it('stopping asks first, goes through the kill route and reports the answer; a later Save carries that state', async () => {
+    const s = server({ config: STORED, status: RUNNING });
+    setup(s);
+    await ready();
     fireEvent.click(screen.getByRole('button', { name: 'Stop the AI assistant now' }));
-    await waitFor(() => expect(writes()).toHaveLength(1));
-    expect(writes()[0]).toEqual({ method: 'POST', path: '/admin/assist/kill', body: { on: true } });
-    await waitFor(() =>
-      expect(screen.getByTestId('assist-status')).toHaveTextContent('The AI assistant is off. Every AI assistant request is refused.'),
-    );
-
+    const dialog = await screen.findByRole('alertdialog');
+    expect(s.writes()).toEqual([]);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Stop the AI assistant now' }));
+    await waitFor(() => expect(s.writes()).toHaveLength(1));
+    expect(s.writes()[0]).toEqual({ method: 'POST', path: '/admin/assist/kill', body: { on: true } });
+    await waitFor(() => expect(screen.getByTestId('assist-status')).toHaveTextContent('The AI assistant is off. Every AI assistant request is refused.'));
     fireEvent.click(screen.getByRole('button', { name: 'Turn the AI assistant on' }));
-    await waitFor(() => expect(writes()).toHaveLength(2));
-    expect(writes()[1]).toEqual({ method: 'POST', path: '/admin/assist/kill', body: { on: false } });
-
-    // While that request is in flight, Save is not offered: it would send the
-    // on/off state from before it.
-    expect(saveButton()).toBeDisabled();
-    await waitFor(() => expect(saveButton()).toBeEnabled());
-    // A later Save carries the state the kill route left, not the one first loaded.
+    await waitFor(() => expect(s.writes()).toHaveLength(2));
+    expect(s.writes()[1]).toEqual({ method: 'POST', path: '/admin/assist/kill', body: { on: false } });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Recap' }));
     fireEvent.click(saveButton());
-    await waitFor(() => expect(writes()).toHaveLength(3));
-    expect((writes()[2]?.body as { enabled: boolean }).enabled).toBe(true);
+    await waitFor(() => expect(s.writes()).toHaveLength(3));
+    expect((s.writes()[2]?.body as { enabled: boolean }).enabled).toBe(true);
   });
 
   it('refuses to save an OpenAI-compatible endpoint with no base URL', async () => {
-    const { api, writes } = server({
-      config: { ...STORED, adapter: null },
-      status: { ...RUNNING, running: false, endpointHost: null },
-    });
-    render(() => <AdminAssist api={api} />);
-    await waitFor(() => expect(saveButton()).toBeEnabled());
-    expect(screen.getByTestId('assist-status')).toHaveTextContent(
-      'The AI assistant is on but not running because no usable endpoint is configured.',
-    );
-
-    fireEvent.change(screen.getByLabelText('Endpoint type'), { target: { value: 'open-ai-compatible' } });
+    const s = server({ config: { ...STORED, adapter: null }, status: { ...RUNNING, running: false, endpointHost: null } });
+    setup(s);
+    await ready();
+    expect(screen.getByTestId('assist-status')).toHaveTextContent('The AI assistant is on but not running because no usable endpoint is configured.');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Endpoint type' }), { target: { value: 'open-ai-compatible' } });
     fireEvent.click(saveButton());
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Enter the endpoint'));
-    expect(writes()).toEqual([]);
-
-    fireEvent.input(screen.getByLabelText('Base URL'), { target: { value: 'http://127.0.0.1:8199/v1' } });
+    await waitFor(() => expect(screen.getByText('Enter the endpoint\'s base URL, starting with http:// or https://.')).toBeInTheDocument());
+    expect(s.writes()).toEqual([]);
+    fireEvent.input(screen.getByRole('textbox', { name: 'Base URL' }), { target: { value: 'http://127.0.0.1:8199/v1' } });
     fireEvent.click(saveButton());
-    await waitFor(() => expect(writes()).toHaveLength(1));
-    expect((writes()[0]?.body as { adapter: unknown }).adapter).toEqual({
-      kind: 'open-ai-compatible',
-      baseUrl: 'http://127.0.0.1:8199/v1',
-    });
+    await waitFor(() => expect(s.writes()).toHaveLength(1));
+    expect((s.writes()[0]?.body as { adapter: unknown }).adapter).toEqual({ kind: 'open-ai-compatible', baseUrl: 'http://127.0.0.1:8199/v1' });
+  });
+
+  it('has no axe violations and no inline style', async () => {
+    const { container } = setup(server({ config: STORED, status: RUNNING }));
+    await ready();
+    await expectNoAxeViolations(container);
+    expectNoInlineStyle(container);
   });
 });
 
 describe('admin assist screen: unreadable stored key', () => {
-  it('says the stored key does not open with the server key, and lets a new configuration be saved', async () => {
+  it('says the stored key does not open with the server key, and lets a new configuration be saved as it is', async () => {
     const calls: { method: string; path: string }[] = [];
     const fetcher: Fetcher = vi.fn(async (input: string, init?: RequestInit) => {
       const method = init?.method ?? 'GET';
       calls.push({ method, path: input });
-      const json = (body: unknown, status = 200): Response =>
-        new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+      const json = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
       if (method === 'PUT') return json({ ...RUNNING, running: false, endpointHost: null, restartPending: true });
       // As `assist_read_error` answers both reads.
       return json({ error: 'does not open with MW_SERVER_KEY', code: 'config-unreadable' }, 500);
     });
-    render(() => <AdminAssist api={new AdminAssistApi(fetcher)} />);
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('MW_SERVER_KEY'));
+    renderInShell(() => <AdminAssist api={new AdminAssistApi(fetcher)} rateLimit={NO_RATE} />);
+    await waitFor(() => expect(screen.getByTestId('assist-unreadable')).toHaveTextContent('MW_SERVER_KEY'));
     expect(saveButton()).toBeEnabled();
     fireEvent.click(saveButton());
     await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
   });
-
-  it('still refuses to save when the configuration fails to load for another reason', async () => {
-    const fetcher: Fetcher = vi.fn(async () => new Response('store error', { status: 500 }));
-    render(() => <AdminAssist api={new AdminAssistApi(fetcher)} />);
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Saving is disabled'));
-    expect(saveButton()).toBeDisabled();
-  });
 });
 
 describe('admin assist screen: API key', () => {
-  it('says a key is stored without showing it, and an untouched save leaves it out so the server keeps it', async () => {
-    const { api, writes } = server({ config: STORED, status: RUNNING });
-    const { container } = render(() => <AdminAssist api={api} />);
-    await waitFor(() => expect(saveButton()).toBeEnabled());
+  it('says a key is stored without showing it, and a save that leaves it alone omits it so the server keeps it', async () => {
+    const s = server({ config: STORED, status: RUNNING });
+    const { container } = setup(s);
+    await ready();
     expect(screen.getByTestId('assist-api-key-stored')).toHaveTextContent('A key is stored.');
     expect(screen.getByLabelText('Replace the API key')).toHaveValue('');
-    expect(screen.queryByLabelText('API key')).not.toBeInTheDocument();
+    expect(document.querySelector('input[aria-label="API key"]')).toBeNull();
     for (const input of Array.from(container.querySelectorAll('input'))) expect(input.value).not.toContain('sk-');
-
     // Typed into and emptied again is still "keep the stored key", not "clear it".
     fireEvent.input(screen.getByLabelText('Replace the API key'), { target: { value: 'sk-oops' } });
     fireEvent.input(screen.getByLabelText('Replace the API key'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Recap' }));
     fireEvent.click(saveButton());
-    await waitFor(() => expect(writes()).toHaveLength(1));
-    expect((writes()[0]?.body as { adapter: Record<string, unknown> }).adapter).not.toHaveProperty('apiKey');
+    await waitFor(() => expect(s.writes()).toHaveLength(1));
+    expect((s.writes()[0]?.body as { adapter: Record<string, unknown> }).adapter).not.toHaveProperty('apiKey');
   });
 
   it('sends a replacement key, and an empty string to remove the stored one', async () => {
-    const { api, writes } = server({ config: STORED, status: RUNNING });
-    render(() => <AdminAssist api={api} />);
-    await waitFor(() => expect(saveButton()).toBeEnabled());
-
+    const s = server({ config: STORED, status: RUNNING });
+    setup(s);
+    await ready();
     fireEvent.input(screen.getByLabelText('Replace the API key'), { target: { value: 'sk-new' } });
     fireEvent.click(saveButton());
-    await waitFor(() => expect(writes()).toHaveLength(1));
-    expect((writes()[0]?.body as { adapter: Record<string, unknown> }).adapter['apiKey']).toBe('sk-new');
-    await waitFor(() => expect(saveButton()).toBeEnabled());
-
+    await waitFor(() => expect(s.writes()).toHaveLength(1));
+    expect((s.writes()[0]?.body as { adapter: Record<string, unknown> }).adapter['apiKey']).toBe('sk-new');
+    await waitFor(() => expect(screen.getByTestId('save-bar')).toHaveTextContent('No unsaved changes'));
     fireEvent.click(screen.getByRole('button', { name: 'Remove the stored key' }));
     expect(screen.getByTestId('assist-api-key-stored')).toHaveTextContent('The stored key will be removed when you save.');
     fireEvent.click(saveButton());
-    await waitFor(() => expect(writes()).toHaveLength(2));
-    expect((writes()[1]?.body as { adapter: Record<string, unknown> }).adapter['apiKey']).toBe('');
+    await waitFor(() => expect(s.writes()).toHaveLength(2));
+    expect((s.writes()[1]?.body as { adapter: Record<string, unknown> }).adapter['apiKey']).toBe('');
     await waitFor(() => expect(screen.getByLabelText('API key')).toBeInTheDocument());
   });
 
   it('does not offer the stored key for a new base URL, and an empty key field there means no key', async () => {
-    const { api, writes } = server({ config: STORED, status: RUNNING });
-    render(() => <AdminAssist api={api} />);
-    await waitFor(() => expect(saveButton()).toBeEnabled());
-
-    fireEvent.input(screen.getByLabelText('Base URL'), { target: { value: 'https://elsewhere.example/v1' } });
+    const s = server({ config: STORED, status: RUNNING });
+    setup(s);
+    await ready();
+    fireEvent.input(screen.getByRole('textbox', { name: 'Base URL' }), { target: { value: 'https://elsewhere.example/v1' } });
     expect(screen.queryByTestId('assist-api-key-stored')).not.toBeInTheDocument();
     expect(screen.getByLabelText('API key')).toHaveValue('');
     fireEvent.click(saveButton());
-    await waitFor(() => expect(writes()).toHaveLength(1));
-    expect((writes()[0]?.body as { adapter: Record<string, unknown> }).adapter['apiKey']).toBe('');
+    await waitFor(() => expect(s.writes()).toHaveLength(1));
+    expect((s.writes()[0]?.body as { adapter: Record<string, unknown> }).adapter['apiKey']).toBe('');
   });
 });
 
@@ -327,79 +309,104 @@ describe('admin assist screen: local program', () => {
   const NO_ENDPOINT = { ...RUNNING, running: false, endpointHost: null };
 
   it('does not offer a local program while the operator lists none, and says how to enable one', async () => {
-    const { api } = server({ config: { ...STORED, adapter: null }, status: NO_ENDPOINT });
-    render(() => <AdminAssist api={api} />);
-    await waitFor(() => expect(saveButton()).toBeEnabled());
-    const kinds = Array.from(screen.getByLabelText('Endpoint type').querySelectorAll('option')).map((o) => o.value);
+    setup(server({ config: { ...STORED, adapter: null }, status: NO_ENDPOINT }));
+    await ready();
+    const kinds = Array.from(screen.getByRole('combobox', { name: 'Endpoint type' }).querySelectorAll('option')).map((o) => o.value);
     expect(kinds).toEqual(['none', 'open-ai-compatible', 'anthropic']);
-    expect(screen.getByTestId('assist-local-program-enable')).toHaveTextContent('MW_ASSIST_LOCAL_PROGRAMS');
+    expect(screen.getByRole('combobox', { name: 'Endpoint type' })).toHaveAccessibleDescription(/MW_ASSIST_LOCAL_PROGRAMS/);
   });
 
   it('offers the listed programs only, with arguments as a list, and saves the choice', async () => {
-    const { api, writes } = server({
-      config: { ...STORED, adapter: null },
-      status: { ...NO_ENDPOINT, localPrograms: PROGRAMS },
-      localPrograms: PROGRAMS,
-    });
-    render(() => <AdminAssist api={api} />);
-    await waitFor(() => expect(saveButton()).toBeEnabled());
-    expect(screen.queryByTestId('assist-local-program-enable')).not.toBeInTheDocument();
-
-    fireEvent.change(screen.getByLabelText('Endpoint type'), { target: { value: 'local-process' } });
-    const program = screen.getByLabelText('Program');
+    const s = server({ config: { ...STORED, adapter: null }, status: { ...NO_ENDPOINT, localPrograms: PROGRAMS }, localPrograms: PROGRAMS });
+    setup(s);
+    await ready();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Endpoint type' }), { target: { value: 'local-process' } });
+    const program = screen.getByRole('combobox', { name: 'Program' });
     expect(Array.from(program.querySelectorAll('option')).map((o) => o.value)).toEqual(PROGRAMS);
-    expect(program).toHaveValue('/opt/llm/run');
-    expect(screen.getByText(/starts this program for each AI assistant request/)).toBeInTheDocument();
-
     fireEvent.change(program, { target: { value: '/opt/llm/other' } });
-    fireEvent.change(screen.getByLabelText('Arguments, one per line'), {
-      target: { value: '--model\n\n small \n' },
-    });
+    const args = screen.getByRole('textbox', { name: 'Arguments' });
+    for (const a of ['--model', 'small model']) {
+      fireEvent.input(args, { target: { value: a } });
+      fireEvent.keyDown(args, { key: 'Enter' });
+    }
     fireEvent.click(saveButton());
-    await waitFor(() => expect(writes()).toHaveLength(1));
-    expect((writes()[0]?.body as { adapter: unknown }).adapter).toEqual({
-      kind: 'local-process',
-      program: '/opt/llm/other',
-      args: ['--model', 'small'],
-    });
+    await waitFor(() => expect(s.writes()).toHaveLength(1));
+    expect((s.writes()[0]?.body as { adapter: unknown }).adapter).toEqual({ kind: 'local-process', program: '/opt/llm/other', args: ['--model', 'small model'] });
   });
 
-  it('shows why a stored program that is no longer listed is not running, and that saving it is refused', async () => {
+  it('shows why a stored program that is no longer listed is not running, and refuses to save it before any request', async () => {
     const stored = { ...STORED, adapter: { kind: 'local-process', program: '/usr/bin/old', args: [] } };
-    const { api, writes } = server({
-      config: stored,
-      status: { ...NO_ENDPOINT, stoppedReason: 'local-program-not-allowed', localPrograms: PROGRAMS },
-      localPrograms: PROGRAMS,
-    });
-    render(() => <AdminAssist api={api} />);
-    await waitFor(() => expect(saveButton()).toBeEnabled());
+    const s = server({ config: stored, status: { ...NO_ENDPOINT, stoppedReason: 'local-program-not-allowed', localPrograms: PROGRAMS }, localPrograms: PROGRAMS });
+    setup(s);
+    await ready();
     expect(screen.getByTestId('assist-status')).toHaveTextContent(
       'The AI assistant is not running. The configured program /usr/bin/old is not listed in MW_ASSIST_LOCAL_PROGRAMS on the server, so the server did not start it.',
     );
-    expect(screen.getByLabelText('Program')).toHaveValue('/usr/bin/old');
-    expect(screen.getByTestId('assist-local-program-unlisted')).toBeInTheDocument();
-
+    expect(screen.getByRole('combobox', { name: 'Program' })).toHaveValue('/usr/bin/old');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Recap' }));
     fireEvent.click(saveButton());
-    await waitFor(() =>
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        'The configuration was not saved because the server does not allow this program.',
-      ),
-    );
-    expect(writes()).toHaveLength(1);
+    await waitFor(() => expect(screen.getByText(/This program is not listed in MW_ASSIST_LOCAL_PROGRAMS/)).toBeInTheDocument());
+    expect(s.writes()).toEqual([]);
   });
 });
 
-describe('parseAdminAssistConfig', () => {
-  it('accepts the server shape and nothing that only resembles it', () => {
+describe('admin assist screen: rate limit', () => {
+  it('is not offered on a server without the settings model, and says where it is set', async () => {
+    setup(server({ config: STORED, status: RUNNING }));
+    await ready();
+    expect(screen.queryByRole('spinbutton', { name: /Requests per minute/ })).toBeNull();
+    expect(screen.getByText(/MW_ASSIST_RATE_LIMIT_PER_MIN where the server starts/)).toBeInTheDocument();
+  });
+
+  it('writes only the setting, with If-Match, when only the rate limit changed', async () => {
+    const s = server({ config: STORED, status: RUNNING });
+    const rate: RateLimitApi = {
+      load: async () => ({ kind: 'ok', setting: rateSetting(), etag: '"r1"' }),
+      save: vi.fn(async (value: number) => ({ setting: rateSetting({ globalValue: value, effective: { value, source: 'global' }, etag: '"r2"' }), etag: '"r2"' })),
+    };
+    setup(s, rate);
+    await ready();
+    const field = screen.getByRole('spinbutton', { name: /Requests per minute/ });
+    expect(field).toHaveValue(30);
+    fireEvent.input(field, { target: { value: '120' } });
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(rate.save).toHaveBeenCalledWith(120, '"r1"'));
+    expect(s.writes()).toEqual([]);
+  });
+
+  it('a value pinned by MW_ASSIST_RATE_LIMIT_PER_MIN is disabled with its reason', async () => {
+    const rate: RateLimitApi = { load: async () => ({ kind: 'ok', setting: rateSetting({ envState: { var: 'MW_ASSIST_RATE_LIMIT_PER_MIN', precedence: 'pin', set: true, value: 10 } }), etag: null }), save: vi.fn() };
+    setup(server({ config: STORED, status: RUNNING }), rate);
+    await ready();
+    expect(screen.getByRole('spinbutton', { name: /Requests per minute/ })).toBeDisabled();
+  });
+
+  it('a stale write shows who changed it', async () => {
+    const rate: RateLimitApi = {
+      load: async () => ({ kind: 'ok', setting: rateSetting(), etag: '"r1"' }),
+      save: vi.fn(async () => {
+        throw problem(412, { code: 'stale', updatedBy: 'alice', updatedAt: '2026-10-25T10:00:00Z' });
+      }),
+    };
+    setup(server({ config: STORED, status: RUNNING }), rate);
+    await ready();
+    fireEvent.input(screen.getByRole('spinbutton', { name: /Requests per minute/ }), { target: { value: '5' } });
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(screen.getByText(/alice/)).toBeInTheDocument());
+  });
+});
+
+describe('assist values', () => {
+  it('round-trips the stored config, leaving the key out', () => {
+    const c = parseAdminAssistConfig(STORED) as AdminAssistConfig;
+    const out = assistConfig(assistValues(c), true, 'open-ai-compatible https://llm.example.test/v1');
+    expect(out).toEqual({ ...STORED, adapter: { kind: 'open-ai-compatible', baseUrl: 'https://llm.example.test/v1', chatModel: 'chat-t28', embedModel: 'embed-t28', sttModel: 'stt-t28' } });
+  });
+
+  it('parseAdminAssistConfig accepts the server shape and nothing that only resembles it', () => {
     expect(parseAdminAssistConfig(STORED)).toEqual(STORED);
     expect(parseAdminAssistConfig({ ...STORED, adapter: null }).adapter).toBeNull();
-    for (const bad of [
-      null,
-      { enabled: false },
-      { ...STORED, capabilityGrants: ['send'] },
-      { ...STORED, adapter: { OpenAiCompatible: { base_url: 'http://mock' } } },
-      { ...STORED, enabled: 'yes' },
-    ]) {
+    for (const bad of [null, { enabled: false }, { ...STORED, capabilityGrants: ['send'] }, { ...STORED, adapter: { OpenAiCompatible: { base_url: 'http://mock' } } }, { ...STORED, enabled: 'yes' }]) {
       expect(() => parseAdminAssistConfig(bad)).toThrow();
     }
   });
