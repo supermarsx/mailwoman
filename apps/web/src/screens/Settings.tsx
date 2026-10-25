@@ -9,8 +9,14 @@
 // pair the two automatic modes switch between, and the schedule window. The same
 // lane wired the per-account server sync (SPEC §17.3) — `api/prefs.ts` — which is
 // started here as a fallback for app builds that do not start it at boot.
+//
+// t32 settings model C (worker f01): an administrator can hold the theme, the
+// accent and the density (`appearance.*` keys, global, per domain or per user).
+// A held control is disabled, says "Set by your administrator" (LockNote), and
+// the held value is applied here and by the server on every appearance write.
+// The language picker (`Settings/Language.tsx`) writes `ui.language`.
 
-import { createSignal, For, onCleanup, onMount, Show, type JSX } from 'solid-js';
+import { createEffect, createSignal, For, onCleanup, onMount, Show, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
 import { t, loadCatalog } from '../i18n';
 import { createFocusTrap } from '../components/a11y';
@@ -37,6 +43,9 @@ import { MetadataView } from '../modules/servermeta/index.ts';
 // folders, and device preferences. Self-contained; mounted for an authenticated
 // account alongside the existing feature modules.
 import { AccountSettings } from './Settings/index.ts';
+import { Language } from './Settings/Language.tsx';
+import { LockNote } from './Settings/LockNote.tsx';
+import { useSetting } from './Settings/useSetting.ts';
 import { AsyncBoundary } from '../components/ErrorBoundary.tsx';
 import { createAclClient } from '../api/acl-types.ts';
 import { createConfiguredClient } from '../api/transport.ts';
@@ -104,6 +113,29 @@ export function Settings(props: SettingsProps): JSX.Element {
   onMount(() => {
     void loadCatalog('settings');
     void loadCatalog('appearance');
+    void loadCatalog('settings-policy');
+  });
+  const themeHold = useSetting('appearance.theme', '');
+  const accentHold = useSetting('appearance.accent', '');
+  const densityHold = useSetting('appearance.density', '');
+  // A held value is the one in force: apply it to this device as well.
+  createEffect(() => {
+    const v = themeHold.value();
+    if (themeHold.locked() && isThemeName(v) && (app.theme() !== v || app.themeMode() !== 'fixed')) {
+      app.setTheme(v);
+    }
+  });
+  createEffect(() => {
+    const v = accentHold.value();
+    if (accentHold.locked() && app.accentId() !== v && (v === '' || ACCENT_LIST.some((a) => a.id === v))) {
+      app.setAccentId(v as Parameters<typeof app.setAccentId>[0]);
+    }
+  });
+  createEffect(() => {
+    const v = densityHold.value();
+    if (densityHold.locked() && app.density() !== v && DENSITY_OPTIONS.some((o) => o.value === v)) {
+      app.setDensity(v as Density);
+    }
   });
   // Modal focus management: trap Tab inside the panel, restore focus to the
   // opener on close, and close on Esc (WCAG 2.2 — dialog pattern).
@@ -127,21 +159,27 @@ export function Settings(props: SettingsProps): JSX.Element {
           </button>
         </header>
 
-        <ThemeMode />
-        <ThemeGallery />
+        <ThemeMode locked={themeHold.locked()} />
+        <ThemeGallery locked={themeHold.locked()} />
         <AppearanceSyncStatus />
 
         <div class={css.row}>
           <span class={css.label} id="settings-density">
             {t('settings-density')}
           </span>
-          <div class={css.options} role="group" aria-labelledby="settings-density">
+          <div
+            class={css.options}
+            role="group"
+            aria-labelledby="settings-density"
+            aria-describedby={densityHold.locked() ? 'settings-density-lock' : undefined}
+          >
             <For each={DENSITY_OPTIONS}>
               {(o) => (
                 <button
                   type="button"
                   class={css.option}
                   aria-pressed={app.density() === o.value}
+                  disabled={densityHold.locked()}
                   onClick={() => app.setDensity(o.value)}
                 >
                   {t(o.label)}
@@ -149,9 +187,10 @@ export function Settings(props: SettingsProps): JSX.Element {
               )}
             </For>
           </div>
+          <LockNote id="settings-density-lock" locked={densityHold.locked()} />
         </div>
 
-        <AccentPicker />
+        <AccentPicker locked={accentHold.locked()} />
 
         <div class={css.row}>
           <span class={css.label} id="settings-font">
@@ -192,6 +231,8 @@ export function Settings(props: SettingsProps): JSX.Element {
             </For>
           </div>
         </div>
+
+        <Language />
 
         {/* V6 security & integrations — only for an authenticated account. The
             `app.me` optional call keeps this inert in the theme-only unit test.
@@ -242,20 +283,26 @@ function Hint(props: { children: JSX.Element }): JSX.Element {
 }
 
 /** `fixed` | `system` | `schedule`, plus whatever that mode needs configured. */
-function ThemeMode(): JSX.Element {
+function ThemeMode(props: { locked: boolean }): JSX.Element {
   const app = useApp();
   return (
     <div class={css.row}>
       <span class={css.label} id="appearance-mode">
         {t('appearance-mode')}
       </span>
-      <div class={css.options} role="group" aria-labelledby="appearance-mode">
+      <div
+        class={css.options}
+        role="group"
+        aria-labelledby="appearance-mode"
+        aria-describedby={props.locked ? 'settings-theme-lock' : undefined}
+      >
         <For each={MODE_OPTIONS}>
           {(o) => (
             <button
               type="button"
               class={css.option}
               aria-pressed={app.themeMode() === o.value}
+              disabled={props.locked}
               onClick={() => app.setThemeMode(o.value)}
             >
               {t(o.label)}
@@ -343,13 +390,14 @@ function ThemeMode(): JSX.Element {
  * automatic mode stays inside the pack the user liked. The pair selects above
  * are how the automatic modes are steered without leaving them.
  */
-function ThemeGallery(): JSX.Element {
+function ThemeGallery(props: { locked: boolean }): JSX.Element {
   const app = useApp();
   return (
     <div class={css.row}>
       <span class={css.label} id="settings-theme">
         {t('settings-theme')}
       </span>
+      <LockNote id="settings-theme-lock" locked={props.locked} />
       <Hint>{t('appearance-gallery-hint')}</Hint>
       <For each={THEME_GROUPS}>
         {(group) => (
@@ -373,6 +421,8 @@ function ThemeGallery(): JSX.Element {
                       // detail, not part of what the control is called.
                       aria-label={t(entry.labelId)}
                       aria-pressed={app.theme() === entry.id}
+                      aria-describedby={props.locked ? 'settings-theme-lock' : undefined}
+                      disabled={props.locked}
                       onClick={() => app.setTheme(entry.id)}
                     >
                       <ThemePreview entry={entry} />
@@ -426,18 +476,24 @@ function ThemePreview(props: { entry: ThemeEntry }): JSX.Element {
  * the row changes with the theme. The page itself is the preview: a pick
  * applies at once through `data-accent`.
  */
-function AccentPicker(): JSX.Element {
+function AccentPicker(props: { locked: boolean }): JSX.Element {
   const app = useApp();
   return (
     <div class={css.row}>
       <span class={css.label} id="settings-accent">
         {t('settings-accent')}
       </span>
-      <div class={css.options} role="group" aria-labelledby="settings-accent">
+      <div
+        class={css.options}
+        role="group"
+        aria-labelledby="settings-accent"
+        aria-describedby={props.locked ? 'settings-accent-lock' : undefined}
+      >
         <button
           type="button"
           class={css.option}
           aria-pressed={app.accentId() === ''}
+          disabled={props.locked}
           onClick={() => app.setAccentId('')}
         >
           {t(THEME_DEFAULT_ACCENT_LABEL_ID)}
@@ -452,6 +508,7 @@ function AccentPicker(): JSX.Element {
                 aria-label={t(def.labelId)}
                 title={t(def.labelId)}
                 aria-pressed={app.accentId() === def.id}
+                disabled={props.locked}
                 style={{ background: shade().accent, color: shade().accentText }}
                 onClick={() => app.setAccentId(def.id)}
               >
@@ -463,6 +520,7 @@ function AccentPicker(): JSX.Element {
           }}
         </For>
       </div>
+      <LockNote id="settings-accent-lock" locked={props.locked} />
     </div>
   );
 }
