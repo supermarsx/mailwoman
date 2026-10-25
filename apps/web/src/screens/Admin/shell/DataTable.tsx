@@ -1,3 +1,4 @@
+import { Icon } from '../../../components/Icon.tsx';
 // Admin list table (t32-admin.md §2.1).
 //
 // Server-driven: search text, filter chips, sort and paging are reported to the
@@ -174,7 +175,7 @@ export function DataTable<R>(props: DataTableProps<R>): JSX.Element {
                             <button type="button" class={css.sortButton} onClick={() => props.onSort?.(col.id)}>
                               {col.header}
                               <span aria-hidden="true">
-                                {ariaSort(col) === 'ascending' ? '▲' : ariaSort(col) === 'descending' ? '▼' : '△'}
+                                <Icon name={ariaSort(col) === 'ascending' ? 'chevronUp' : ariaSort(col) === 'descending' ? 'chevronDown' : 'sort'} />
                               </span>
                             </button>
                           </Show>

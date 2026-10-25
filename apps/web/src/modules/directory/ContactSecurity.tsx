@@ -1,3 +1,4 @@
+import { Icon } from '../../components/Icon.tsx';
 // Per-contact security tab (SPEC §13 / §8.2, plan §3 e7): the cert / key / verified
 // rows for one address, sourced from the directory. Shows the directory photo, any
 // published S/MIME certificates (DER → feeds the existing `mw-crypto` cert path — no
@@ -75,7 +76,7 @@ export function ContactSecurity(props: ContactSecurityProps): JSX.Element {
                     fallback={
                       <span class={css.unverified} data-testid="cert-status">
                         <span class={css.statusIcon} aria-hidden="true">
-                          ✕
+                          <Icon name="close" />
                         </span>
                         {t('directory-cert-expired')}
                       </span>
@@ -83,7 +84,7 @@ export function ContactSecurity(props: ContactSecurityProps): JSX.Element {
                   >
                     <span class={css.verified} data-testid="cert-status">
                       <span class={css.statusIcon} aria-hidden="true">
-                        ✓
+                        <Icon name="check" />
                       </span>
                       {t('directory-cert-current')}
                     </span>

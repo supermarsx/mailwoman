@@ -1,3 +1,4 @@
+import { Icon } from './Icon.tsx';
 import { createMemo, createSignal, For, Show, onMount, onCleanup, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
 import { t, isolate } from '../i18n/index.ts';
@@ -61,7 +62,7 @@ export function SweepDialog(props: { fromEmail: string; onClose: () => void }): 
         <header class="sweep__header">
           <h2>{t('mail-sweep-title', { sender: isolate(props.fromEmail) })}</h2>
           <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-label={t('mail-compose-close')} onClick={() => props.onClose()}>
-            ✕
+            <Icon name="close" />
           </button>
         </header>
 

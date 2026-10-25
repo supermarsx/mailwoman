@@ -1,3 +1,4 @@
+import { Icon } from '../../components/Icon.tsx';
 // Contacts module (plan §2.5, §3 e7). Address books, the contact list
 // (favorites + groups / distribution lists), a business-card detail + edit view,
 // merge-duplicates, vCard/CSV import (with a preview + CSV field mapping) and
@@ -119,7 +120,7 @@ export function ContactsModule(): JSX.Element {
                       aria-pressed={card.isFavorite}
                       onClick={(e) => { e.stopPropagation(); void app.toggleFavorite(card.id); }}
                     >
-                      {card.isFavorite ? '★' : '☆'}
+                      <Icon name={card.isFavorite ? 'star' : 'starOutline'} />
                     </button>
                     <span class={css.rowBody}>
                       <span class={css.rowName}><bdi>{contactDisplayName(card)}</bdi></span>
@@ -243,7 +244,7 @@ function Sidebar(props: {
 
       <h2 class={css.heading}>
         <span>{t('contacts-groups')}</span>
-        <button type="button" class={css.buttonGhost} aria-label={t('contacts-new-group')} onClick={props.onNewGroup}>+</button>
+        <button type="button" class={css.buttonGhost} aria-label={t('contacts-new-group')} onClick={props.onNewGroup}><Icon name="plus" /></button>
       </h2>
       <Show when={props.newGroupOpen}>
         <div class={css.toolbar}>
@@ -491,7 +492,7 @@ function ContactEditor(props: {
             <div class={css.fieldRow}>
               <input class={css.input} aria-label={t('contacts-email-n', { n: i() + 1 })} type="email" value={em.value} onInput={(e) => setDraft('emails', i(), 'value', e.currentTarget.value)} />
               <input class={css.select} aria-label={t('contacts-email-label', { n: i() + 1 })} placeholder={t('contacts-email-label-placeholder')} value={em.context} onInput={(e) => setDraft('emails', i(), 'context', e.currentTarget.value)} />
-              <button type="button" class={css.buttonGhost} aria-label={t('contacts-remove-email', { n: i() + 1 })} onClick={() => setDraft('emails', (list) => list.filter((_, j) => j !== i()))}>−</button>
+              <button type="button" class={css.buttonGhost} aria-label={t('contacts-remove-email', { n: i() + 1 })} onClick={() => setDraft('emails', (list) => list.filter((_, j) => j !== i()))}><Icon name="minus" /></button>
             </div>
           )}
         </For>
@@ -504,7 +505,7 @@ function ContactEditor(props: {
           {(p, i) => (
             <div class={css.fieldRow}>
               <input class={css.input} aria-label={t('contacts-phone-n', { n: i() + 1 })} value={p.value} onInput={(e) => setDraft('phones', i(), 'value', e.currentTarget.value)} />
-              <button type="button" class={css.buttonGhost} aria-label={t('contacts-remove-phone', { n: i() + 1 })} onClick={() => setDraft('phones', (list) => list.filter((_, j) => j !== i()))}>−</button>
+              <button type="button" class={css.buttonGhost} aria-label={t('contacts-remove-phone', { n: i() + 1 })} onClick={() => setDraft('phones', (list) => list.filter((_, j) => j !== i()))}><Icon name="minus" /></button>
             </div>
           )}
         </For>

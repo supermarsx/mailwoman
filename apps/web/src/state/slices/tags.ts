@@ -39,11 +39,11 @@ export function isLabelKeyword(keyword: string): boolean {
 }
 
 const DEFAULT_TAGS: Tag[] = [
-  { id: 'work', name: 'Work', color: '#2563eb', icon: '💼' },
-  { id: 'personal', name: 'Personal', color: '#15803d', icon: '🏠' },
-  { id: 'important', name: 'Important', color: '#b91c1c', icon: '⭐' },
-  { id: 'later', name: 'Later', color: '#a16207', icon: '🕒' },
-  { id: 'receipts', name: 'Receipts', color: '#7c3aed', icon: '🧾' },
+  { id: 'work', name: 'Work', color: '#2563eb', icon: 'archive' },
+  { id: 'personal', name: 'Personal', color: '#15803d', icon: 'users' },
+  { id: 'important', name: 'Important', color: '#b91c1c', icon: 'star' },
+  { id: 'later', name: 'Later', color: '#a16207', icon: 'clock' },
+  { id: 'receipts', name: 'Receipts', color: '#7c3aed', icon: 'file' },
 ];
 
 const STORAGE_KEY = 'mw.tags.v1';
@@ -97,7 +97,7 @@ export function createTagsSlice(_ctx: SliceContext): TagsSlice {
   return {
     tags,
     tagByKeyword: (keyword) => tags().find((t) => t.id === keyword),
-    addTag(name, color, icon = '🏷️') {
+    addTag(name, color, icon = 'tag') {
       const id = keywordFor(name);
       if (id.length === 0) return id;
       const existing = tags().find((t) => t.id === id);

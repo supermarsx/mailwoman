@@ -1,3 +1,4 @@
+import { Icon } from '../../components/Icon.tsx';
 // Calendar module (plan §2.5, §3 e4): the mounted shell that composes the view
 // switcher, the multi-calendar overlay sidebar, all nine views, the event
 // create/edit dialog (recurrence + reminders + attendees + free/busy + invite
@@ -223,9 +224,9 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
     <section class={css.module} aria-label={t('calendar-title')} data-module="calendar">
       <div class={css.toolbar}>
         <span class={css.title} aria-live="polite">{headerLabel(c)}</span>
-        <button type="button" class={css.button} onClick={() => c.goPrev()} aria-label={t('calendar-prev')}>‹</button>
+        <button type="button" class={css.button} onClick={() => c.goPrev()} aria-label={t('calendar-prev')}><Icon name="chevronLeft" /></button>
         <button type="button" class={css.button} onClick={() => c.goToday()}>{t('calendar-today')}</button>
-        <button type="button" class={css.button} onClick={() => c.goNext()} aria-label={t('calendar-next')}>›</button>
+        <button type="button" class={css.button} onClick={() => c.goNext()} aria-label={t('calendar-next')}><Icon name="chevron" /></button>
         <div class={css.viewSwitch} role="tablist" aria-label={t('calendar-views')}>
           <For each={CALENDAR_VIEWS}>
             {(view) => (
@@ -299,7 +300,7 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
                     />
                     <span class={css.grow}><bdi>{cal().name}</bdi></span>
                     <Show when={cal().isReadOnlyOverlay || cal().caldavUrl !== null}>
-                      <span class={css.dimText} title={cal().caldavUrl ?? t('calendar-synced')} aria-label={t('calendar-synced')}>⇅</span>
+                      <span class={css.dimText} title={cal().caldavUrl ?? t('calendar-synced')} aria-label={t('calendar-synced')}><Icon name="sync" /></span>
                     </Show>
                     <Show when={cal().isReadOnlyOverlay && cal().caldavUrl !== null}>
                       <button

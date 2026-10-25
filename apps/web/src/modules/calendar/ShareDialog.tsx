@@ -1,3 +1,4 @@
+import { Icon } from '../../components/Icon.tsx';
 // Calendar sharing dialog (P1). A focus-trapped modal that lists a calendar's
 // existing `shareWith` grants (principal + read / read-write access) and lets the
 // owner add a grant, change its access, or remove it. Every mutation goes through
@@ -137,7 +138,7 @@ export function ShareDialog(props: ShareDialogProps): JSX.Element {
                       aria-label={t('calendar-share-remove', { principal: isolate(g.principal) })}
                       onClick={() => void removeGrant(g.principal)}
                     >
-                      ×
+                      <Icon name="close" />
                     </button>
                   </li>
                 )}

@@ -1,3 +1,4 @@
+import { Icon, tagIconName } from './Icon.tsx';
 import { createSignal, For, Show, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
 import { t } from '../i18n/index.ts';
@@ -118,7 +119,7 @@ export function MessageActions(props: { email: Email }): JSX.Element {
         data-testid="msg-more-toggle"
         onClick={() => (open() ? closeAll() : openFromToggle())}
       >
-        {open() ? '✕' : '⋯'}
+        <Icon name={open() ? 'close' : 'more'} />
       </button>
 
       <Show when={hasFollowUp()}>
@@ -128,7 +129,7 @@ export function MessageActions(props: { email: Email }): JSX.Element {
           aria-label={t('mail-flag')}
           data-testid="msg-followup-mark"
         >
-          🚩
+          <Icon name="flag" />
         </span>
       </Show>
 
@@ -146,7 +147,7 @@ export function MessageActions(props: { email: Email }): JSX.Element {
           aria-pressed={pinned()}
           onClick={() => void app.pinMessage(id(), !pinned())}
         >
-          📌
+          <Icon name="pin" />
         </button>
 
         <div class={`msg-actions__wrap ${css.menuWrap}`}>
@@ -158,7 +159,7 @@ export function MessageActions(props: { email: Email }): JSX.Element {
             aria-expanded={menu() === 'snooze'}
             onClick={() => toggleMenu('snooze')}
           >
-            🕒
+            <Icon name="clock" />
           </button>
           <Show when={menu() === 'snooze'}>
             <div class={`msg-menu ${css.menu}`} role="menu" aria-label={t('mail-snooze-menu')}>
@@ -203,7 +204,7 @@ export function MessageActions(props: { email: Email }): JSX.Element {
             aria-expanded={menu() === 'tag'}
             onClick={() => toggleMenu('tag')}
           >
-            🏷️
+            <Icon name="tag" />
           </button>
           <Show when={menu() === 'tag'}>
             <div class={`msg-menu ${css.menu}`} role="menu" aria-label={t('mail-labels-menu')}>
@@ -223,8 +224,8 @@ export function MessageActions(props: { email: Email }): JSX.Element {
                       }}
                     >
                       <span class={`msg-menu__swatch ${css.swatch}`} style={{ 'background-color': tag.color }} />
-                      {tag.icon} {tag.name}
-                      <Show when={on()}> ✓</Show>
+                      <Icon name={tagIconName(tag.icon)} /> {tag.name}
+                      <Show when={on()}> <Icon name="check" /></Show>
                     </button>
                   );
                 }}
@@ -244,7 +245,7 @@ export function MessageActions(props: { email: Email }): JSX.Element {
             void app.setFollowUp(id(), at);
           }}
         >
-          🚩
+          <Icon name="flag" />
         </button>
 
         <button
@@ -253,7 +254,7 @@ export function MessageActions(props: { email: Email }): JSX.Element {
           aria-label={t('mail-archive')}
           onClick={() => void app.archiveMessage(id())}
         >
-          🗄️
+          <Icon name="archive" />
         </button>
         <button
           type="button"
@@ -261,7 +262,7 @@ export function MessageActions(props: { email: Email }): JSX.Element {
           aria-label={t('mail-delete')}
           onClick={() => void app.trashMessage(id())}
         >
-          🗑️
+          <Icon name="delete" />
         </button>
       </div>
     </div>

@@ -1,3 +1,4 @@
+import type { IconName } from '../../components/Icon.tsx';
 // Cross-link picker (plan §3 e6, §2.1 `Note.links`). Attaches a `mailwoman:`
 // cross-link from the open note to a message / event / contact. The link is
 // stored structurally on the note (`links:[{type,id}]`) — NOT injected into the
@@ -11,10 +12,10 @@ import type { NoteLink } from '../../api/pim-types.ts';
 
 /** The three cross-link targets (frozen `NoteLink.type`, plan §2.1). Labels are
  *  resolved through `t()` at render time (see `linkMeta`) so they localize. */
-export const LINK_TYPES: ReadonlyArray<{ type: NoteLink['type']; labelKey: string; icon: string }> = [
-  { type: 'email', labelKey: 'notes-link-message', icon: '✉️' },
-  { type: 'event', labelKey: 'notes-link-event', icon: '📅' },
-  { type: 'contact', labelKey: 'notes-link-contact', icon: '👤' },
+export const LINK_TYPES: ReadonlyArray<{ type: NoteLink['type']; labelKey: string; icon: IconName }> = [
+  { type: 'email', labelKey: 'notes-link-message', icon: 'mail' },
+  { type: 'event', labelKey: 'notes-link-event', icon: 'calendar' },
+  { type: 'contact', labelKey: 'notes-link-contact', icon: 'users' },
 ];
 
 /** The `mailwoman:` URI form of a cross-link (plan §2.5 picker → URI). */
@@ -23,9 +24,9 @@ export function linkUri(link: NoteLink): string {
 }
 
 /** Human (localized) label + glyph for a stored link (chip rendering). */
-export function linkMeta(type: NoteLink['type']): { label: string; icon: string } {
+export function linkMeta(type: NoteLink['type']): { label: string; icon: IconName } {
   const found = LINK_TYPES.find((l) => l.type === type);
-  return found === undefined ? { label: type, icon: '🔗' } : { label: t(found.labelKey), icon: found.icon };
+  return found === undefined ? { label: type, icon: 'link' } : { label: t(found.labelKey), icon: found.icon };
 }
 
 export interface LinkPickerProps {
@@ -55,7 +56,7 @@ export function LinkPicker(props: LinkPickerProps): JSX.Element {
       >
         {LINK_TYPES.map((lt) => (
           <option value={lt.type}>
-            {lt.icon} {t(lt.labelKey)}
+            {t(lt.labelKey)}
           </option>
         ))}
       </select>

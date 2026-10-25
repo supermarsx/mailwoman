@@ -14,19 +14,6 @@ const TONE_COLOR = {
   neutral: vars.color.textDim,
 } as const;
 
-/**
- * Per-tone GLYPH rendered before each badge's text via `::before` (WCAG 1.4.1):
- * a redundant, non-colour shape so pass/fail/warn is legible without colour and
- * under forced-colors. Kept out of the DOM (CSS content) so it never merges into
- * the badge's text node — literal-text assertions ("DKIM passed") stay intact.
- */
-const TONE_GLYPH: Record<keyof typeof TONE_COLOR, string> = {
-  good: '✓',
-  warning: '!',
-  bad: '✕',
-  neutral: '–',
-};
-
 export const root = style({
   fontFamily: vars.font.ui,
   fontSize: vars.fontSize.base,
@@ -147,14 +134,7 @@ export const badge = style({
 
 // Flat: the tone colour for the text, the glyph and a hair border, no tinted
 // (translucent) fill.
-export const badgeTone = styleVariants(TONE_COLOR, (color, key) => ({
-  color,
-  borderColor: color,
-  '::before': {
-    content: `"${TONE_GLYPH[key]}\\00a0"`,
-    fontWeight: 700,
-  },
-}));
+export const badgeTone = styleVariants(TONE_COLOR, (color) => ({ color, borderColor: color }));
 
 // ── Auth grid ────────────────────────────────────────────────────────────────
 

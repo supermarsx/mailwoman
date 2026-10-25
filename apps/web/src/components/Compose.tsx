@@ -1,3 +1,4 @@
+import { Icon } from './Icon.tsx';
 import {
   createEffect,
   createMemo,
@@ -875,7 +876,7 @@ export function Compose(props: {
               {t('mail-compose-recall')}
             </button>
             <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-label={t('mail-compose-close')} onClick={() => props.onClose()}>
-              ✕
+              <Icon name="close" />
             </button>
           </div>
         </header>
@@ -1150,7 +1151,7 @@ export function Compose(props: {
                     aria-label={t('mail-compose-remove-attachment', { name: isolate(a.name) })}
                     onClick={() => setAttachments((cur) => cur.filter((x) => x.blobId !== a.blobId))}
                   >
-                    ✕
+                    <Icon name="close" />
                   </button>
                 </li>
               )}

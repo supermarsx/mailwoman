@@ -1,3 +1,4 @@
+import { Icon } from './Icon.tsx';
 import { createMemo, createSignal, For, onCleanup, Show, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
 import { t, isolate } from '../i18n/index.ts';
@@ -101,7 +102,7 @@ function SelectedMark(props: { selected: boolean }): JSX.Element {
   return (
     <Show when={props.selected}>
       <span class={bulk.check} aria-hidden="true">
-        ✓
+        <Icon name="check" />
       </span>
       <span class={a11y.srOnly}>{t('mail-selected')}</span>
     </Show>
@@ -159,20 +160,20 @@ function MessageRow(props: {
           <span class={`list__sender ${rowCss.sender}`}>{isolate(senderLabel(email().from))}</span>
           <Show when={email().keywords?.['$flagged'] === true}>
             <span class={`list__flag ${bulk.flagMark}`} data-testid="row-flagged" role="img" aria-label={t('mail-flagged')}>
-              ⚑
+              <Icon name="flag" />
             </span>
           </Show>
           <Show when={email().pinned === true}>
-            <span class="list__pin" aria-label={t('mail-pinned')}>📌</span>
+            <span class="list__pin" aria-label={t('mail-pinned')}><Icon name="pin" /></span>
           </Show>
           <Show when={email().hasAttachment === true}>
-            <span class="list__attach" aria-label={t('mail-has-attachment')}>📎</span>
+            <span class="list__attach" aria-label={t('mail-has-attachment')}><Icon name="attachment" /></span>
           </Show>
           <Show when={email().keywords?.['$answered'] === true}>
-            <span class="list__attach" data-testid="row-answered" aria-label={t('mail-answered')}>↩</span>
+            <span class="list__attach" data-testid="row-answered" aria-label={t('mail-answered')}><Icon name="reply" /></span>
           </Show>
           <Show when={email().keywords?.['$forwarded'] === true}>
-            <span class="list__attach" data-testid="row-forwarded" aria-label={t('mail-forwarded')}>↪</span>
+            <span class="list__attach" data-testid="row-forwarded" aria-label={t('mail-forwarded')}><Icon name="forward" /></span>
           </Show>
           <span class={`list__date ${rowCss.date}`}>{formatDate(email().receivedAt)}</span>
         </span>
@@ -247,7 +248,7 @@ function ThreadHeadRow(props: {
         data-testid="thread-toggle"
         onClick={props.onToggle}
       >
-        {props.row.expanded ? '▾' : '▸'}
+        <Icon name={props.row.expanded ? 'chevronDown' : 'chevron'} />
       </button>
       <button
         type="button"
@@ -276,7 +277,7 @@ function ThreadHeadRow(props: {
             {props.row.count}
           </span>
           <Show when={props.row.hasAttachment}>
-            <span class="list__attach" aria-label={t('mail-has-attachment')}>📎</span>
+            <span class="list__attach" aria-label={t('mail-has-attachment')}><Icon name="attachment" /></span>
           </Show>
           <span class={`list__date ${rowCss.date}`}>{formatDate(rep().receivedAt)}</span>
         </span>
@@ -368,7 +369,7 @@ function BulkBar(): JSX.Element {
         {t('mail-select-all')}
       </button>
       <button type="button" class={btn} aria-label={t('mail-clear-selection')} onClick={() => app.clearSelection()}>
-        ✕
+        <Icon name="close" />
       </button>
     </div>
   );

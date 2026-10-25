@@ -1,3 +1,4 @@
+import { Icon } from '../../components/Icon.tsx';
 // A minimal WebDAV directory picker (SPEC §18.4, plan §3 e7). Browses Nextcloud
 // folders via the injected NextcloudService, letting the caller either navigate into
 // directories and select files (attach) or pick a destination directory (save-to).
@@ -77,7 +78,7 @@ export function FilePicker(props: FilePickerProps): JSX.Element {
               const content = (): JSX.Element => (
                 <>
                   <span class={css.dirIcon} aria-hidden="true">
-                    {entry.isDir ? '📁' : '📄'}
+                    <Icon name={entry.isDir ? 'folder' : 'file'} />
                   </span>
                   <span class={css.name}>{entry.name}</span>
                   <Show when={!entry.isDir}>
@@ -85,7 +86,7 @@ export function FilePicker(props: FilePickerProps): JSX.Element {
                   </Show>
                   <Show when={isSelected()}>
                     <span class={css.size} data-testid="nc-selected" aria-hidden="true">
-                      ✓
+                      <Icon name="check" />
                     </span>
                   </Show>
                 </>

@@ -1,3 +1,4 @@
+import { Icon, type IconName } from '../../components/Icon.tsx';
 // Notes rich-text editor (plan §3 e6). A themed `contentEditable` surface — NO
 // third-party (GPL) editor dependency — with a small formatting toolbar over the
 // browser's `execCommand`. Every value the editor emits is run through
@@ -13,20 +14,20 @@ import { sanitizeNoteHtml } from './sanitize.ts';
 interface ToolbarCommand {
   cmd: string;
   value?: string;
-  label: string;
+  label: IconName;
   titleKey: string;
 }
 
 const COMMANDS: readonly ToolbarCommand[] = [
-  { cmd: 'bold', label: 'B', titleKey: 'notes-fmt-bold' },
-  { cmd: 'italic', label: 'I', titleKey: 'notes-fmt-italic' },
-  { cmd: 'underline', label: 'U', titleKey: 'notes-fmt-underline' },
-  { cmd: 'strikeThrough', label: 'S', titleKey: 'notes-fmt-strike' },
-  { cmd: 'formatBlock', value: 'h2', label: 'H', titleKey: 'notes-fmt-heading' },
-  { cmd: 'insertUnorderedList', label: '•', titleKey: 'notes-fmt-ul' },
-  { cmd: 'insertOrderedList', label: '1.', titleKey: 'notes-fmt-ol' },
-  { cmd: 'formatBlock', value: 'blockquote', label: '❝', titleKey: 'notes-fmt-quote' },
-  { cmd: 'removeFormat', label: '⌫', titleKey: 'notes-fmt-clear' },
+  { cmd: 'bold', label: 'bold', titleKey: 'notes-fmt-bold' },
+  { cmd: 'italic', label: 'italic', titleKey: 'notes-fmt-italic' },
+  { cmd: 'underline', label: 'underline', titleKey: 'notes-fmt-underline' },
+  { cmd: 'strikeThrough', label: 'strike', titleKey: 'notes-fmt-strike' },
+  { cmd: 'formatBlock', value: 'h2', label: 'heading', titleKey: 'notes-fmt-heading' },
+  { cmd: 'insertUnorderedList', label: 'bulletList', titleKey: 'notes-fmt-ul' },
+  { cmd: 'insertOrderedList', label: 'numberList', titleKey: 'notes-fmt-ol' },
+  { cmd: 'formatBlock', value: 'blockquote', label: 'quote', titleKey: 'notes-fmt-quote' },
+  { cmd: 'removeFormat', label: 'clearFormat', titleKey: 'notes-fmt-clear' },
 ];
 
 export interface NoteEditorProps {
@@ -111,7 +112,7 @@ export function NoteEditor(props: NoteEditorProps): JSX.Element {
               onMouseDown={(e) => e.preventDefault() /* keep selection */}
               onClick={() => run(c)}
             >
-              {c.label}
+              <Icon name={c.label} />
             </button>
           )}
         </For>
@@ -123,7 +124,7 @@ export function NoteEditor(props: NoteEditorProps): JSX.Element {
           onMouseDown={(e) => e.preventDefault()}
           onClick={insertLink}
         >
-          🔗
+          <Icon name="link" />
         </button>
       </div>
       <div

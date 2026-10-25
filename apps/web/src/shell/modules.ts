@@ -1,3 +1,4 @@
+import type { IconName } from '../components/Icon.tsx';
 // FROZEN app-shell module registry (plan §2.5) — the V2-lesson wiring contract.
 // e0 authors this registry + the four stub module entries + their route stubs;
 // the four Batch-B web builders (e4–e7) fill each module's `mount()` + views;
@@ -53,8 +54,8 @@ export interface AppModule {
   /** Nav-rail label, in the active locale (the entries below read it through a
    *  getter, so the nav follows a language switch). */
   readonly label: string;
-  /** Nav-rail glyph (emoji, matching the ribbon icon style). */
-  icon: string;
+  /** Native SVG nav-rail icon. */
+  icon: IconName;
   /** Base route (§2.5 uses `/calendar/:view?`, `/tasks`, `/notes/:id?`,
    *  `/contacts/:id?`; the param forms are wired by e10's router). */
   route: string;
@@ -76,7 +77,7 @@ export const APP_MODULES: readonly AppModule[] = [
     get label() {
       return t('common-module-calendar');
     },
-    icon: '📅',
+    icon: 'calendar',
     route: '/calendar',
     mount: () => CalendarMount,
     ribbonTabs: [],
@@ -87,7 +88,7 @@ export const APP_MODULES: readonly AppModule[] = [
     get label() {
       return t('common-module-tasks');
     },
-    icon: '✅',
+    icon: 'check',
     route: '/tasks',
     mount: () => TasksMount,
     ribbonTabs: [],
@@ -98,7 +99,7 @@ export const APP_MODULES: readonly AppModule[] = [
     get label() {
       return t('common-module-notes');
     },
-    icon: '🗒️',
+    icon: 'file',
     route: '/notes',
     mount: () => NotesMount,
     ribbonTabs: [],
@@ -109,7 +110,7 @@ export const APP_MODULES: readonly AppModule[] = [
     get label() {
       return t('common-module-contacts');
     },
-    icon: '👤',
+    icon: 'users',
     route: '/contacts',
     mount: () => ContactsMount,
     ribbonTabs: [],
@@ -133,7 +134,7 @@ export const KEYS_MODULE: AppModule = {
   get label() {
     return t('common-module-keys');
   },
-  icon: '🔑',
+  icon: 'oauthClients',
   route: '/keys',
   mount: () => KeysMount,
   ribbonTabs: [],

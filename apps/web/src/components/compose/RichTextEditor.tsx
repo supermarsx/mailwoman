@@ -1,3 +1,4 @@
+import { Icon, type IconName } from '../Icon.tsx';
 // ProseMirror rich-text editor for the composer (W1). Statically imports the
 // ProseMirror packages; Compose pulls THIS module via `lazy()` so the editor +
 // its libraries land in their own chunk (kept off the <250 KB login→inbox entry).
@@ -50,20 +51,20 @@ function markActive(state: EditorState, type: MarkType): boolean {
 interface ToolbarButton {
   readonly id: string;
   readonly labelKey: string;
-  readonly glyph: string;
+  readonly glyph: IconName;
   readonly command: Command;
   /** Marks whose active-state lights the button (optional). */
   readonly activeMark?: MarkType;
 }
 
 const BUTTONS: readonly ToolbarButton[] = [
-  { id: 'bold', labelKey: 'mail-compose-rt-bold', glyph: 'B', command: toggleMark(mStrong), activeMark: mStrong },
-  { id: 'italic', labelKey: 'mail-compose-rt-italic', glyph: 'I', command: toggleMark(mEm), activeMark: mEm },
-  { id: 'underline', labelKey: 'mail-compose-rt-underline', glyph: 'U', command: toggleMark(mUnderline), activeMark: mUnderline },
-  { id: 'strike', labelKey: 'mail-compose-rt-strike', glyph: 'S', command: toggleMark(mStrike), activeMark: mStrike },
-  { id: 'bullet', labelKey: 'mail-compose-rt-bullet', glyph: '•', command: wrapInList(nBullet) },
-  { id: 'ordered', labelKey: 'mail-compose-rt-ordered', glyph: '1.', command: wrapInList(nOrdered) },
-  { id: 'quote', labelKey: 'mail-compose-rt-quote', glyph: '❝', command: wrapIn(nQuote) },
+  { id: 'bold', labelKey: 'mail-compose-rt-bold', glyph: 'bold', command: toggleMark(mStrong), activeMark: mStrong },
+  { id: 'italic', labelKey: 'mail-compose-rt-italic', glyph: 'italic', command: toggleMark(mEm), activeMark: mEm },
+  { id: 'underline', labelKey: 'mail-compose-rt-underline', glyph: 'underline', command: toggleMark(mUnderline), activeMark: mUnderline },
+  { id: 'strike', labelKey: 'mail-compose-rt-strike', glyph: 'strike', command: toggleMark(mStrike), activeMark: mStrike },
+  { id: 'bullet', labelKey: 'mail-compose-rt-bullet', glyph: 'bulletList', command: wrapInList(nBullet) },
+  { id: 'ordered', labelKey: 'mail-compose-rt-ordered', glyph: 'numberList', command: wrapInList(nOrdered) },
+  { id: 'quote', labelKey: 'mail-compose-rt-quote', glyph: 'quote', command: wrapIn(nQuote) },
 ];
 
 /** Imperative handle the composer uses for signature insert (W12) and draft
@@ -291,7 +292,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
                   run(btn.command);
                 }}
               >
-                {btn.glyph}
+                <Icon name={btn.glyph} />
               </button>
             );
           }}
@@ -307,7 +308,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
             setLinkOpen((v) => !v);
           }}
         >
-          🔗
+          <Icon name="link" />
         </button>
         <Show when={props.inline !== undefined}>
           <label
@@ -315,7 +316,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
             title={t('mail-compose-rt-image')}
             data-testid="rt-image"
           >
-            <span aria-hidden="true">🖼</span>
+            <span aria-hidden="true"><Icon name="image" /></span>
             <input
               type="file"
               accept="image/png,image/jpeg,image/gif,image/webp"

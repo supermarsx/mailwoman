@@ -1,3 +1,4 @@
+import { tagIconName } from '../../../components/Icon.tsx';
 import { describe, it, expect } from 'vitest';
 import { render } from '@solidjs/testing-library';
 import { readFileSync } from 'node:fs';
@@ -42,8 +43,14 @@ describe('admin icons', () => {
   });
 
   it('no icon library is imported: the icons are this one file', () => {
-    const src = readFileSync(join(process.cwd(), 'src/screens/Admin/shell/icons.tsx'), 'utf8');
+    const src = readFileSync(join(process.cwd(), 'src/components/Icon.tsx'), 'utf8');
     const imports = [...src.matchAll(/^import[^\n]*from '([^']+)'/gm)].map((m) => m[1]);
     expect(imports).toEqual(['solid-js']);
   });
+});
+
+it('legacy saved tag glyphs resolve to native SVG names without rendering arbitrary text', () => {
+  expect(tagIconName('\u{1f4bc}')).toBe('archive');
+  expect(tagIconName('clock')).toBe('clock');
+  expect(tagIconName('<script>')).toBe('tag');
 });

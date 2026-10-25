@@ -1,3 +1,4 @@
+import { Icon, tagIconName } from './Icon.tsx';
 import { For, Show, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
 import { isLabelKeyword } from '../state/slices/tags.ts';
@@ -30,7 +31,7 @@ export function TagChips(props: { email: Email }): JSX.Element {
                 style={tag ? { 'background-color': tag.color, color: '#fff' } : undefined}
                 data-keyword={kw}
               >
-                <Show when={tag?.icon}>{(icon) => <span class="tag-chip__icon">{icon()}</span>}</Show>
+                <Show when={tag?.icon}>{(icon) => <span class="tag-chip__icon"><Icon name={tagIconName(icon())} /></span>}</Show>
                 {tag?.name ?? kw}
               </span>
             );

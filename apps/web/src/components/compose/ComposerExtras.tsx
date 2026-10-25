@@ -1,3 +1,4 @@
+import { Icon } from '../Icon.tsx';
 // Composer side-features (W9 Drafts drawer, W10 recall, W12 signature picker). Each is a small, prop-first component so it is unit-
 // testable in isolation and Compose stays the single wiring point. No component
 // here reaches into a store slice directly — Compose passes the data + callbacks.
@@ -108,7 +109,7 @@ export function DraftsDrawer(props: {
             aria-label={t('mail-compose-close')}
             onClick={() => props.onClose()}
           >
-            ✕
+            <Icon name="close" />
           </button>
         </header>
         <Show
@@ -139,7 +140,7 @@ export function DraftsDrawer(props: {
                     data-testid={`draft-delete-${draft.id}`}
                     onClick={() => props.onDelete(draft.id)}
                   >
-                    🗑
+                    <Icon name="delete" />
                   </button>
                 </li>
               )}

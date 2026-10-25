@@ -1,3 +1,4 @@
+import { Icon } from '../../components/Icon.tsx';
 // Side-by-side conflict resolver (plan #7, SPEC §11.4). Lists the overlapping
 // instance pairs the controller detected and, for the selected pair, compares
 // the two events side by side and offers concrete resolutions:
@@ -420,7 +421,7 @@ function FbCells(props: { hours: number[]; label: string; statusAt: (hour: numbe
               status: t(`calendar-fb-${s()}`),
             })}
           >
-            <span aria-hidden="true">{s() === 'free' ? '' : s() === 'busy' ? '●' : '◐'}</span>
+            <span aria-hidden="true">{s() === 'free' ? null : <Icon name={s() === 'busy' ? 'busy' : 'tentative'} />}</span>
           </td>
         );
       }}

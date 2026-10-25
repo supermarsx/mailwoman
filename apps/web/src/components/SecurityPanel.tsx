@@ -1,3 +1,4 @@
+import { Icon, type IconName } from './Icon.tsx';
 // Reader Security panel (plan §3 e3 / SPEC §7.3) — a STANDALONE component that
 // renders a FROZEN `SecurityVerdict` (`api/security-types.ts`) as a collapsed
 // plain-language chip that expands into the full analysis: DKIM/SPF/DMARC/ARC
@@ -95,7 +96,7 @@ export function SecurityPanel(props: SecurityPanelProps): JSX.Element {
         <span class={`${css.chipDot} ${css.chipDotTone[tone()]}`} aria-hidden="true" />
         <span class={css.chipLabel}>{props.verdict.plainLanguage}</span>
         <span class={css.chipCaret} aria-hidden="true">
-          {expanded() ? '▲' : '▼'}
+          <Icon name={expanded() ? 'chevronUp' : 'chevronDown'} />
         </span>
       </button>
 
@@ -122,7 +123,8 @@ export function SecurityPanel(props: SecurityPanelProps): JSX.Element {
 // ── Tone badge ───────────────────────────────────────────────────────────────
 
 function Badge(props: { tone: SecurityTone; children: JSX.Element }): JSX.Element {
-  return <span class={`${css.badge} ${css.badgeTone[props.tone]}`}>{props.children}</span>;
+  const icons: Record<SecurityTone, IconName> = { good: 'check', warning: 'alert', bad: 'close', neutral: 'minus' };
+  return <span class={`${css.badge} ${css.badgeTone[props.tone]}`}><Icon name={icons[props.tone]} />{props.children}</span>;
 }
 
 // ── Email authentication ─────────────────────────────────────────────────────
@@ -366,7 +368,7 @@ function AnomaliesSection(props: {
             {(token) => (
               <li class={css.anomalyItem} data-anomaly={token}>
                 <span class={css.anomalyMark} aria-hidden="true">
-                  ⚠
+                  <Icon name="alert" />
                 </span>
                 <span>{t(`security-anomaly-${token}`)}</span>
               </li>

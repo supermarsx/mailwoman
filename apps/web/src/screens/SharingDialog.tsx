@@ -1,3 +1,4 @@
+import { Icon } from '../components/Icon.tsx';
 // Mailbox sharing dialog (t13 26.13 E9 mount): the modal host that makes the E8
 // ACL editor (`modules/sharing`) reachable from the mailbox context. A "Share
 // folder" affordance in the mailbox sidebar opens this for the selected mailbox.
@@ -55,7 +56,7 @@ export function SharingDialog(props: SharingDialogProps): JSX.Element {
             aria-label={t('common-close')}
             onClick={() => props.onClose()}
           >
-            ✕
+            <Icon name="close" />
           </button>
         </header>
         <AclEditor mailboxId={props.mailboxId} mailboxName={props.mailboxName} client={client()} />

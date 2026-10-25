@@ -1,3 +1,4 @@
+import { Icon } from '../../components/Icon.tsx';
 // Condition/action rule builder (audit #1): edits one rule (name, all/any match,
 // conditions, actions) and shows a "where it runs" indicator derived from whether
 // the rule is Sieve-expressible. WCAG 2.2 AA: every control labelled.
@@ -181,7 +182,7 @@ export function RuleBuilder(props: RuleBuilderProps): JSX.Element {
                 disabled={draft.conditions.length <= 1}
                 onClick={() => removeCondition(i())}
               >
-                ✕
+                <Icon name="close" />
               </button>
             </div>
           )}
@@ -228,7 +229,7 @@ export function RuleBuilder(props: RuleBuilderProps): JSX.Element {
                 disabled={draft.actions.length <= 1}
                 onClick={() => removeAction(i())}
               >
-                ✕
+                <Icon name="close" />
               </button>
             </div>
           )}

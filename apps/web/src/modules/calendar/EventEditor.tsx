@@ -1,3 +1,4 @@
+import { Icon } from '../../components/Icon.tsx';
 // Event create/edit dialog (plan §3 e4): title / calendar / start / duration /
 // all-day / location / description, a recurrence editor (common set), reminders
 // (VALARM offsets), attendees, a free/busy status picker + a free/busy peek, and
@@ -525,7 +526,7 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
                 <span class={css.chip}>
                   {t('calendar-reminder-before', { min })}
                   <button type="button" class={css.button} aria-label={t('calendar-remove-reminder', { min })} onClick={() => setReminders((r) => r.filter((_, j) => j !== i()))}>
-                    ×
+                    <Icon name="close" />
                   </button>
                 </span>
               )}
@@ -569,7 +570,7 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
                     <For each={ATTENDEE_CUTYPES}>{(k) => <option value={k}>{t(`calendar-cutype-${k}`)}</option>}</For>
                   </select>
                   <button type="button" class={css.button} aria-label={t('calendar-remove-attendee', { email: isolate(a.email) })} onClick={() => setAttendees((cur) => cur.filter((_, j) => j !== i()))}>
-                    ×
+                    <Icon name="close" />
                   </button>
                 </li>
               )}
@@ -605,7 +606,7 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
                     aria-label={t('calendar-remove-category', { name: isolate(cat) })}
                     onClick={() => setCategories((cur) => cur.filter((_, j) => j !== i()))}
                   >
-                    ×
+                    <Icon name="close" />
                   </button>
                 </span>
               )}
@@ -638,7 +639,7 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
                     aria-label={t('calendar-remove-attachment', { name: isolate(att.title ?? att.uri ?? '') })}
                     onClick={() => setAttachments((cur) => cur.filter((_, j) => j !== i()))}
                   >
-                    ×
+                    <Icon name="close" />
                   </button>
                 </li>
               )}

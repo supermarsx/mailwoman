@@ -1,3 +1,4 @@
+import { Icon } from './Icon.tsx';
 // Optional collapsible Outlook-style ribbon (plan §3 e4, §0.9). A LAYOUT PRESET
 // beside the default command-palette/pane layout — OFF unless the `layout`
 // setting is `'ribbon'` (see the theme slice + Settings). Tabs: Home / View /
@@ -79,7 +80,7 @@ export function Ribbon(props: RibbonProps): JSX.Element {
           aria-expanded={!app.ribbonCollapsed()}
           onClick={() => app.setRibbonCollapsed(!app.ribbonCollapsed())}
         >
-          {app.ribbonCollapsed() ? `${t('mail-ribbon-expand')} ▾` : `${t('mail-ribbon-collapse')} ▴`}
+          {app.ribbonCollapsed() ? t('mail-ribbon-expand') : t('mail-ribbon-collapse')} <Icon name={app.ribbonCollapsed() ? 'chevronDown' : 'chevronUp'} />
         </button>
       </div>
 
@@ -90,7 +91,7 @@ export function Ribbon(props: RibbonProps): JSX.Element {
               <span class={css.groupLabel}>{t('mail-ribbon-group-new')}</span>
               <div class={css.groupRow}>
                 <button type="button" class={`${css.btn} ${a11y.focusable}`} onClick={() => props.onCompose()}>
-                  ✉️ {t('mail-ribbon-compose')}
+                  <Icon name="mail" /> {t('mail-ribbon-compose')}
                 </button>
               </div>
             </div>
@@ -98,7 +99,7 @@ export function Ribbon(props: RibbonProps): JSX.Element {
               <span class={css.groupLabel}>{t('mail-ribbon-group-session')}</span>
               <div class={css.groupRow}>
                 <button type="button" class={`${css.btn} ${a11y.focusable}`} onClick={() => void app.logout()}>
-                  ⎋ {t('mail-ribbon-logout')}
+                  <Icon name="signOut" /> {t('mail-ribbon-logout')}
                 </button>
               </div>
             </div>
@@ -141,7 +142,7 @@ export function Ribbon(props: RibbonProps): JSX.Element {
               <span class={css.groupLabel}>{t('mail-ribbon-group-settings')}</span>
               <div class={css.groupRow}>
                 <button type="button" class={`${css.btn} ${a11y.focusable}`} onClick={() => props.onOpenSettings()}>
-                  ⚙ {t('mail-ribbon-more')}
+                  <Icon name="settings" /> {t('mail-ribbon-more')}
                 </button>
               </div>
             </div>

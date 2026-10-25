@@ -1,3 +1,4 @@
+import { Icon } from '../components/Icon.tsx';
 // Settings panel (plan §3 e4): the user-facing theme / density / accent / font /
 // layout controls that drive the theme slice. Rendered as a dismissible dialog;
 // every control writes straight through the slice, which reflects onto :root and
@@ -157,7 +158,7 @@ export function Settings(props: SettingsProps): JSX.Element {
         <header class={css.header}>
           <h2>{t('settings-appearance')}</h2>
           <button type="button" class="btn btn--ghost" aria-label={t('settings-close')} onClick={() => props.onClose()}>
-            ✕
+            <Icon name="close" />
           </button>
         </header>
 
@@ -519,7 +520,7 @@ function AccentPicker(props: { locked: boolean }): JSX.Element {
                 onClick={() => app.setAccentId(def.id)}
               >
                 <Show when={app.accentId() === def.id}>
-                  <span aria-hidden="true">✓</span>
+                  <span aria-hidden="true"><Icon name="check" /></span>
                 </Show>
               </button>
             );

@@ -1,3 +1,4 @@
+import { Icon } from './Icon.tsx';
 // Compose crypto + DLP subcomponents (plan §2.5). STANDALONE, self-contained
 // pieces that take props + callbacks so each is independently testable; the host
 // `Compose.tsx` mounts them and reads the reported state on send. Three concerns:
@@ -67,7 +68,7 @@ export function CapabilityBanner(props: {
       aria-live="polite"
     >
       <span class="cmpcrypto-banner__badge" aria-hidden="true">
-        {props.capability === 'e2ee' ? '🔒' : props.capability === 'mixed' ? '⚠️' : '🔓'}
+        <Icon name={props.capability === 'e2ee' ? 'lock' : props.capability === 'mixed' ? 'alert' : 'unlock'} />
       </span>
       <span class="cmpcrypto-banner__text">
         <strong class="cmpcrypto-banner__label">

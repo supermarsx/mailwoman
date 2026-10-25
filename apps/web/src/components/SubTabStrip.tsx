@@ -1,3 +1,4 @@
+import { Icon } from './Icon.tsx';
 // In-app sub-tab strip (plan §3 e6). A thin view over the realtime controller's
 // sub-tab model (realtime/subTabs.ts): a horizontal tablist of open surfaces
 // (messages / composers / settings), each activatable, pinnable, closable, and
@@ -86,7 +87,7 @@ function SubTabButton(props: { tab: SubTab; active: boolean }): JSX.Element {
         aria-pressed={props.tab.pinned}
         onClick={() => subTabs.togglePin(id())}
       >
-        {props.tab.pinned ? '★' : '☆'}
+        <Icon name={props.tab.pinned ? 'star' : 'starOutline'} />
       </button>
       <button
         type="button"
@@ -94,7 +95,7 @@ function SubTabButton(props: { tab: SubTab; active: boolean }): JSX.Element {
         aria-label={t('mail-subtab-tearoff', { title: props.tab.title })}
         onClick={() => subTabs.tearOff(id())}
       >
-        ⧉
+        <Icon name="clone" />
       </button>
       <button
         type="button"
@@ -102,7 +103,7 @@ function SubTabButton(props: { tab: SubTab; active: boolean }): JSX.Element {
         aria-label={t('mail-subtab-close', { title: props.tab.title })}
         onClick={() => subTabs.close(id())}
       >
-        ×
+        <Icon name="close" />
       </button>
     </div>
   );

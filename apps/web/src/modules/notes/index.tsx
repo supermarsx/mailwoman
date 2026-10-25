@@ -1,3 +1,4 @@
+import { Icon } from '../../components/Icon.tsx';
 // Notes module (plan §2.5, §3 e6). A two-pane personal-notes surface mounted into
 // the app shell beside Mail: a searchable/filterable list (pinned first, color
 // chips, tag filter) on the left, and a detail editor (title, color, tags, pin,
@@ -140,7 +141,7 @@ function NotesList(props: {
                 <span class="notes__item-main">
                   <span class="notes__item-title">
                     <Show when={note.pinned}>
-                      <span class="notes__pin" aria-label={t('notes-pinned')}>📌</span>{' '}
+                      <span class="notes__pin" aria-label={t('notes-pinned')}><Icon name="pin" /></span>{' '}
                     </Show>
                     <bdi>{note.title.length > 0 ? note.title : t('notes-untitled')}</bdi>
                   </span>
@@ -242,10 +243,10 @@ function NoteDetail(props: { note: Note; onDeleted: () => void }): JSX.Element {
           aria-pressed={note().pinned}
           onClick={() => void app.toggleNotePin(note().id)}
         >
-          {note().pinned ? '📌' : '📍'}
+          <Icon name="pin" />
         </button>
         <button type="button" class="notes__delete" aria-label={t('notes-delete')} onClick={() => void del()}>
-          🗑
+          <Icon name="delete" />
         </button>
       </div>
 
@@ -280,7 +281,7 @@ function NoteDetail(props: { note: Note; onDeleted: () => void }): JSX.Element {
                 aria-label={t('notes-remove-tag', { tag })}
                 onClick={() => removeTag(tag)}
               >
-                ×
+                <Icon name="close" />
               </button>
             </span>
           )}
@@ -316,7 +317,7 @@ function LinkChip(props: { link: NoteLink; onRemove: () => void }): JSX.Element 
   return (
     <li class="notes__link-chip">
       <span class="notes__link-icon" aria-hidden="true">
-        {meta.icon}
+        <Icon name={meta.icon} />
       </span>
       <span class="notes__link-label">
         {meta.label}: <bdi>{props.link.id}</bdi>
@@ -327,7 +328,7 @@ function LinkChip(props: { link: NoteLink; onRemove: () => void }): JSX.Element 
         aria-label={t('notes-remove-link', { label: meta.label, id: props.link.id })}
         onClick={props.onRemove}
       >
-        ×
+        <Icon name="close" />
       </button>
     </li>
   );

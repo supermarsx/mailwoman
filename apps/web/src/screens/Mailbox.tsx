@@ -1,3 +1,4 @@
+import { Icon } from '../components/Icon.tsx';
 import { createEffect, createMemo, createSignal, For, Show, Suspense, onMount, onCleanup, type JSX } from 'solid-js';
 import { Dynamic } from 'solid-js/web';
 import { useApp } from '../state/context.ts';
@@ -282,7 +283,7 @@ export function MailboxScreen(): JSX.Element {
             aria-controls="shell-nav"
             onClick={openNav}
           >
-            ☰
+            <Icon name="menu" />
           </button>
           <span class="shell__bar-title">{barTitle()}</span>
           <button
@@ -324,7 +325,7 @@ export function MailboxScreen(): JSX.Element {
             aria-label={t('mail-nav-settings')}
             onClick={() => setSettingsOpen(true)}
           >
-            ⚙
+            <Icon name="settings" />
           </button>
         </div>
         <button type="button" class={`btn btn--primary sidebar__compose ${a11y.focusable}`} onClick={() => setComposing(true)}>
@@ -398,7 +399,7 @@ export function MailboxScreen(): JSX.Element {
                 data-testid={`nav-${m.id}`}
                 onClick={() => router.navigate(m.id as ShellSurface)}
               >
-                <span class="sidebar__box-icon" aria-hidden="true">{m.icon}</span>
+                <span class="sidebar__box-icon" aria-hidden="true"><Icon name={m.icon} /></span>
                 <span class="sidebar__box-name">{m.label}</span>
               </button>
             )}
