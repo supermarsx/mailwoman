@@ -41,7 +41,7 @@ export function sourceFromEffective(e: Pick<EffectiveEntry, 'source' | 'envVar' 
   let kind = kinds[e.source] ?? 'read-only';
   const lockedBy = typeof e.locked === 'string' ? e.locked : e.locked === true ? 'global' : undefined;
   if (lockedBy !== undefined && (kind === 'default' || kind === 'stored')) kind = 'locked';
-  if (e.class !== undefined && e.class !== 'Ui' && kind !== 'build' && kind !== 'env-pin') kind = 'read-only';
+  if (e.class !== undefined && e.class !== 'Ui' && e.class !== 'ui' && kind !== 'build' && kind !== 'env-pin') kind = 'read-only';
   return {
     kind,
     ...(e.envVar !== undefined ? { envVar: e.envVar } : {}),

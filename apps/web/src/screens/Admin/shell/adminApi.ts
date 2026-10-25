@@ -167,7 +167,7 @@ export type EffectiveSource = 'default' | 'stored' | 'env-pin' | 'env-fallback' 
 export interface EffectiveEntry {
   id: string;
   group: string;
-  class: 'Ui' | 'ReadOnly' | 'Refused' | 'CliOnly' | 'Build' | 'TestOnly';
+  class: 'ui' | 'readOnly' | 'refused' | 'cliOnly' | 'build' | 'testOnly' | 'Ui' | 'ReadOnly' | 'Refused' | 'CliOnly' | 'Build' | 'TestOnly';
   value: unknown;
   source: EffectiveSource;
   envVar?: string;
@@ -180,6 +180,13 @@ export interface EffectiveEntry {
   etag?: string;
   docs?: string;
   reasonId?: string;
+  valueStatus?: 'resolved' | 'resolvedPolicy' | 'build' | 'unavailable';
+  configuredInput?: unknown;
+  what?: string;
+  configuredBy?: string;
+  href?: string;
+  kind?: string;
+  searchText?: string;
 }
 
 /** `GET /admin/config/effective`; `unavailable` before e70a lands. */
