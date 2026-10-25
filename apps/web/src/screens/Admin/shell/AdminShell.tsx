@@ -56,6 +56,8 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
   const preferences = useOptionalPersonalPreferences();
   const [sidebarWidth, setSidebarWidth] = createSignal(220);
   const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
+  let frameElement: HTMLDivElement | undefined;
+  createEffect(() => frameElement?.style.setProperty('--admin-sidebar-width', `${sidebarWidth()}px`));
   createEffect(() => {
     const raw = preferences?.data()['shellLayout'];
     const layout = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
@@ -185,7 +187,7 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
   );
 
   return (
-    <div class={css.frame} data-screen="admin" data-sidebar-collapsed={sidebarCollapsed() ? '' : undefined} style={{ '--admin-sidebar-width': `${sidebarWidth()}px` }}>
+    <div ref={frameElement} class={css.frame} data-screen="admin" data-sidebar-collapsed={sidebarCollapsed() ? '' : undefined}>
       <aside id="admin-sidebar" class={css.sidebar}>
         <Brand />
         <Nav roving />
