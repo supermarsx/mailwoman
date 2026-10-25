@@ -5,8 +5,10 @@ import { globalStyle, style } from '@vanilla-extract/css';
 import { vars } from '../../../theme/contract.css.ts';
 
 /** A setting's name over its key in the list. */
-export const nameCell = style({ display: 'flex', flexDirection: 'column', gap: '2px', minInlineSize: '16ch', maxInlineSize: '24ch' });
-export const valueCell = style({ display: 'inline-block', maxInlineSize: '24ch', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', verticalAlign: 'middle' });
+export const nameCell = style({ display: 'flex', flexDirection: 'column', gap: '2px', minInlineSize: '16ch', whiteSpace: 'normal' });
+export const valueCell = style({ display: 'inline', whiteSpace: 'normal', overflowWrap: 'anywhere', verticalAlign: 'middle' });
+
+globalStyle('[data-testid="admin-settings"] table', { tableLayout: 'auto', inlineSize: '100%' });
 globalStyle('[data-testid="admin-settings"] table td:last-child, [data-testid="admin-settings"] table th:last-child', {
   position: 'sticky', insetInlineEnd: 0, background: vars.color.surface, zIndex: 1,
   borderInlineStart: `${vars.border.hair} solid ${vars.color.border}`,
@@ -14,6 +16,7 @@ globalStyle('[data-testid="admin-settings"] table td:last-child, [data-testid="a
 
 /** The technical key, secondary to the plain name. */
 export const keyName = style({
+  margin: 0,
   fontFamily: vars.font.mono,
   fontSize: '0.75rem',
   color: vars.color.textDim,
@@ -22,11 +25,12 @@ export const keyName = style({
 
 /** The row of the two switches under the value. */
 export const switches = style({
-  display: 'flex',
-  flexWrap: 'wrap',
-  alignItems: 'center',
-  gap: `${vars.space[2]} ${vars.space[4]}`,
+  display: 'grid',
+  gap: vars.space[5],
+  paddingBlock: vars.space[4],
+  borderBlock: `${vars.border.hair} solid ${vars.color.border}`,
 });
+export const switchOption = style({ display: 'flex', flexDirection: 'column', gap: vars.space[3], minInlineSize: 0 });
 
 /** An add or edit form for a narrower value. */
 export const inlineForm = style({

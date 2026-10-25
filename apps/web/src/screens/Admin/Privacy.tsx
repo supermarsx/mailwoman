@@ -6,6 +6,7 @@ import { describeAdminError } from './shell/Feedback.tsx';
 import { useShell } from './shell/context.ts';
 import { hrefFor, sectionPath } from './shell/router.ts';
 import { AdminSubsection } from './AdminSubsection.tsx';
+import { AsyncPending } from '../../components/AsyncState.tsx';
 import * as css from './admin.css.ts';
 export interface PrivacyStats { cacheEntries: number; cacheBytes: number; trackersReplaced: number; traffic: { class: string; allowed: number; refused: number; failed: number; totalMs: number }[] }
 export const privacyAdminApi = { settings: listAdminSettings, async stats(): Promise<PrivacyStats> { return (await adminRequest<PrivacyStats>('/egress/privacy-stats')).data; } };
@@ -20,7 +21,25 @@ export function AdminPrivacy(props: { service?: typeof privacyAdminApi }): JSX.E
     <Show when={settings.state === 'ready' && settings.latest?.kind === 'ok' ? settings.latest.data.filter(row => Object.hasOwn(labels, row.key)) : []}>{rows => <AdminSubsection title={t('privacy-policy-values')}><For each={rows()}>{row => <div class={css.listRow}><div><strong>{t(labels[row.key] ?? row.key)}</strong><p>{typeof row.effective.value === 'boolean' ? t(row.effective.value ? 'privacy-on':'privacy-off') : String(row.effective.value)}</p><Show when={row.globalLocked}><p>{t('privacy-locked')}</p></Show></div><a class="btn" href={hrefFor(sectionPath('settings',[row.key]))} onClick={e => { e.preventDefault(); void shell.router.navigate(sectionPath('settings',[row.key])); }}>{t('privacy-edit-setting')}</a></div>}</For></AdminSubsection>}</Show>
     <AdminSubsection title={t('privacy-process-stats')} actions={<button class="btn" disabled={stats.loading} onClick={() => void refetch()}>{t('privacy-refresh')}</button>}>
     <Show when={stats.error}><p role="alert">{describeAdminError(stats.error)}</p></Show>
-    <Show when={stats.state === 'ready' ? stats.latest : undefined}>{value => <><dl><dt>{t('privacy-cache-entries')}</dt><dd>{value().cacheEntries}</dd><dt>{t('privacy-cache-bytes')}</dt><dd>{value().cacheBytes}</dd><dt>{t('privacy-replaced-trackers')}</dt><dd>{value().trackersReplaced}</dd></dl><table><thead><tr><th>{t('privacy-traffic-class')}</th><th>{t('privacy-allowed')}</th><th>{t('privacy-refused')}</th><th>{t('privacy-failed')}</th></tr></thead><tbody><For each={value().traffic}>{row => <tr><th scope="row">{row.class.replaceAll('_',' ')}</th><td>{row.allowed}</td><td>{row.refused}</td><td>{row.failed}</td></tr>}</For></tbody></table></>}</Show>
+    <Show when={stats.loading && !stats.latest}><AsyncPending /></Show>
+    <Show when={!stats.error ? stats.latest : undefined}>{value => <div class={css.section} aria-busy={stats.loading}>
+      <div class={css.tableWrap} tabindex="0" role="region" aria-label={t('privacy-cache-summary')}>
+        <table class={css.table} aria-label={t('privacy-cache-summary')}>
+          <thead><tr><th scope="col">{t('privacy-metric')}</th><th scope="col">{t('privacy-value')}</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">{t('privacy-cache-entries')}</th><td>{value().cacheEntries}</td></tr>
+            <tr><th scope="row">{t('privacy-cache-bytes')}</th><td>{value().cacheBytes}</td></tr>
+            <tr><th scope="row">{t('privacy-replaced-trackers')}</th><td>{value().trackersReplaced}</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class={css.tableWrap} tabindex="0" role="region" aria-label={t('privacy-traffic-summary')}>
+        <table class={css.table} aria-label={t('privacy-traffic-summary')}>
+          <thead><tr><th scope="col">{t('privacy-traffic-class')}</th><th scope="col">{t('privacy-allowed')}</th><th scope="col">{t('privacy-refused')}</th><th scope="col">{t('privacy-failed')}</th><th scope="col">{t('privacy-total-time')}</th></tr></thead>
+          <tbody><For each={value().traffic} fallback={<tr><td colspan="5">{t('privacy-no-traffic')}</td></tr>}>{row => <tr><th scope="row">{row.class.replaceAll('_',' ')}</th><td>{row.allowed}</td><td>{row.refused}</td><td>{row.failed}</td><td>{row.totalMs}</td></tr>}</For></tbody>
+        </table>
+      </div>
+    </div>}</Show>
     </AdminSubsection>
   </section>;
 }

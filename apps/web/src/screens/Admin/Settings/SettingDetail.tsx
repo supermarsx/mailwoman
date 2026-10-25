@@ -241,6 +241,7 @@ export function SettingDetail(props: SettingDetailProps): JSX.Element {
             </div>
             <div class={css.switches}>
               <Show when={userScoped()}>
+                <div class={css.switchOption}>
                 <label class={ux.checkboxRow}>
                   <input
                     type="checkbox"
@@ -251,8 +252,11 @@ export function SettingDetail(props: SettingDetailProps): JSX.Element {
                   />
                   <span>{t('admin-settings-user-override')}</span>
                 </label>
+                <p class={ux.fieldsetHelp} id="setting-override-help">{t('admin-settings-user-override-help')}</p>
+                </div>
               </Show>
               <Show when={lockable()}>
+                <div class={css.switchOption}>
                 <LockSwitch
                   locked={locked()}
                   onChange={setLocked}
@@ -260,18 +264,10 @@ export function SettingDetail(props: SettingDetailProps): JSX.Element {
                   disabled={!writable()}
                   describedBy="setting-lock-help"
                 />
+                <p class={ux.fieldsetHelp} id="setting-lock-help">{t('admin-settings-lock-help')}</p>
+                </div>
               </Show>
             </div>
-            <Show when={userScoped()}>
-              <p class={ux.fieldsetHelp} id="setting-override-help">
-                {t('admin-settings-user-override-help')}
-              </p>
-            </Show>
-            <Show when={lockable()}>
-              <p class={ux.fieldsetHelp} id="setting-lock-help">
-                {t('admin-settings-lock-help')}
-              </p>
-            </Show>
             <p class={ux.fieldsetHelp}>{t(s().hot ? 'admin-ux-propagation-hot' : 'admin-ux-propagation-restart')}</p>
             <StaleNotice
               conflict={tag.conflict()}

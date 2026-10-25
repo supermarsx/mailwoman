@@ -44,3 +44,9 @@ privacy-decoded-trackers = { $count } recently decoded tracking images blocked (
 privacy-decoded-trackers-limited = At least { $count } recently decoded tracking images blocked (up to { $minutes } minutes; resets when the server cache clears)
 
 privacy-policy-values = Remote-content policy
+privacy-cache-summary = Cache and tracking protection
+privacy-traffic-summary = Outbound traffic processing
+privacy-metric = Metric
+privacy-value = Value
+privacy-total-time = Total time (ms)
+privacy-no-traffic = No outbound traffic has been recorded since this process started.

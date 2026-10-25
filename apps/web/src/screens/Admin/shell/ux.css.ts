@@ -86,12 +86,13 @@ export const detailPane = style({
   boxSizing: 'border-box',
   display: 'flex',
   flexDirection: 'column',
-  gap: vars.space[3],
-  padding: `calc(${vars.space[4]} - 1px)`,
+  gap: vars.space[5],
+  padding: `calc(${vars.space[6]} - ${vars.border.rule})`,
   border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
   borderRadius: vars.radius.md,
   background: vars.color.surface,
   '@media': {
+    [PHONE]: { padding: `calc(${vars.space[5]} - ${vars.border.rule})` },
     'screen and (min-width: 1200px)': {
       position: 'sticky', insetBlockStart: vars.space[4],
       maxBlockSize: `calc(100dvh - ${vars.space[6]} * 2 - ${vars.space[4]} * 2)`,
@@ -123,7 +124,7 @@ export const fieldset = style({
   ...subsectionSurface,
   display: 'flex', flexDirection: 'column', gap: vars.space[5],
 });
-export const legend = style({ padding: 0, fontSize: '1rem', fontWeight: vars.weight.heavy, float: 'none' });
+export const legend = style({ margin: 0, padding: 0, fontSize: '1rem', fontWeight: vars.weight.heavy, float: 'none', lineHeight: 1.4 });
 export const fieldsetHelp = style({ margin: 0, fontSize: '0.85rem', lineHeight: 1.5, color: vars.color.textDim, maxInlineSize: '72ch' });
 export const fieldBlock = style({ display: 'flex', flexDirection: 'column', gap: vars.space[3], minInlineSize: 0 });
 /** Source badge, propagation note, history and revert under a field. */
@@ -149,7 +150,8 @@ export const control = style({
   selectors: { ':root[data-appearance="light"] &': { background: vars.color.surface } },
   '@media': { [PHONE]: { paddingBlock: '0.5rem' } },
 });
-export const checkboxRow = style({ display: 'flex', alignItems: 'center', gap: vars.space[2] });
+export const checkboxRow = style({ display: 'flex', alignItems: 'flex-start', gap: vars.space[3], lineHeight: 1.5, minInlineSize: 0 });
+globalStyle(`${checkboxRow} > input`, { flexShrink: 0, marginBlockStart: '0.25em' });
 export const learnMore = style({
   color: vars.color.link,
   selectors: { '&:focus-visible': focusRing, '&:hover': { textDecoration: 'underline' } },
