@@ -1,6 +1,7 @@
 import { For, Show, createSignal, createEffect, on, onMount, type JSX } from 'solid-js';
 import { loadCatalog, t } from '../../../i18n';
 import { adminsApi, type AdminAccountsApi, type AdminAccount, type AdminRole, type AdminMe, type AdminSession, type RoleGrant, type Override } from '../../../api/admin/admins.ts';
+import { AdminSessionTable } from './SessionTable.tsx';
 import { Feedback, describeAdminError } from '../shell/Feedback.tsx';
 import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
 import { useShell } from '../shell/context.ts';
@@ -144,8 +145,8 @@ export function AdminAdmins(props: { service?: AdminAccountsApi }): JSX.Element 
           <button class="btn" type="button" onClick={() => setConfirm({ name: account().username, action: async () => { await api.write(path(), 'DELETE', undefined, account().etag); setSelected(undefined); go(); } })}>{t('admin-accounts-delete')}</button>
         </fieldset>
       </section>}</Show></Show>
-      <Show when={!creating()}><h3>{t('admin-accounts-sessions')}</h3>
-      <ul><For each={editing() ? sessions().filter(s => s.adminId === selected()?.id) : sessions()}>{(session) => <li>{session.adminId} — {session.createdAt} {session.current ? t('admin-accounts-current') : ''}<button class="btn" type="button" disabled={busy() || !canManage()} onClick={() => setConfirm({ name: session.adminId, action: () => api.write(`/admin-sessions/${encodeURIComponent(session.id)}`, 'DELETE') })}>{t('admin-accounts-revoke')}</button></li>}</For></ul></Show>
+      <Show when={!creating()}><AdminSessionTable sessions={editing() ? sessions().filter(s => s.adminId === selected()?.id) : sessions()} accounts={accounts()} busy={busy()} canRevoke={canManage()}
+        onRevoke={(session) => setConfirm({ name: accounts().find((a) => a.id === session.adminId)?.username ?? session.adminId, action: () => api.write(`/admin-sessions/${encodeURIComponent(session.id)}`, 'DELETE') })} /></Show>
     </Show>
     <ConfirmDialog {...(confirm()?.typed ? { typedConfirmation: confirm()?.name ?? '' } : {})} open={confirm() !== undefined} title={t('admin-accounts-confirm', { name: confirm()?.name ?? '' })} body={t('admin-accounts-confirm-body')} confirmLabel={t('admin-accounts-confirm-action')} onCancel={() => setConfirm(undefined)} onConfirm={async () => { const action = confirm()?.action; if (action) { await action(); setConfirm(undefined); await run(reload); } }} />
   </section>;

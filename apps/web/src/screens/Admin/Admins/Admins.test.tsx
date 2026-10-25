@@ -96,6 +96,6 @@ describe('admin accounts and roles', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     expect(api.write).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Create role' }));
-    await waitFor(() => expect(api.write).toHaveBeenCalledWith('/roles', 'POST', { name: 'Regional support', capabilities: ['users.read'] }, undefined));
+    await waitFor(() => expect(api.write).toHaveBeenCalledWith('/roles', 'POST', { name: 'Regional support', capabilities: ['users.read'], description: expect.stringContaining('Account support and incident triage') }, undefined));
   });
 });

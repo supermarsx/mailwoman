@@ -237,6 +237,15 @@ settings-search-without-attachments = Without attachments
 settings-search-unread = Unread messages only
 settings-search-flagged = Flagged messages only
 
+settings-sessions-search = Search account, device or IP
+settings-sessions-account = Account
+settings-sessions-device = Device and client
+settings-sessions-location = IP and last known country
+settings-sessions-location-unavailable = Country unavailable
+settings-sessions-activity = Activity
+settings-sessions-actions = Actions
+settings-sessions-revoke-device = Sign out { $device }
+
 settings-font-inter = Inter
 settings-font-roboto = Roboto
 settings-font-open-sans = Open Sans

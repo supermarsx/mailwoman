@@ -9,6 +9,8 @@ import { t, loadCatalog, isolate } from '../../i18n';
 import { SettingsService } from './service.ts';
 import type { SessionMeta } from './types.ts';
 import { toast } from '../../components/toast/index.ts';
+import { Icon } from '../../components/Icon.tsx';
+import * as table from './sessions.css.ts';
 import * as css from './styles.css.ts';
 
 export interface SessionsProps {
@@ -20,6 +22,7 @@ export function Sessions(props: SessionsProps): JSX.Element {
   onMount(() => void loadCatalog('settings'));
 
   const [sessions, { refetch }] = createResource<SessionMeta[]>(() => service.sessions());
+  const [query, setQuery] = createSignal('');
   const [busy, setBusy] = createSignal(false);
 
   // A failed action is a toast (t32 f39).
@@ -51,38 +54,27 @@ export function Sessions(props: SessionsProps): JSX.Element {
     }
   }
 
-  const others = (): number => (sessions() ?? []).filter((s) => !s.current).length;
+  const loaded = (): SessionMeta[] => sessions.error ? [] : sessions.latest ?? [];
+  const others = (): number => loaded().filter((s) => !s.current).length;
 
   return (
     <section class={css.section} aria-label={t('settings-sessions-title')}>
       <h2 class={css.heading}>{t('settings-sessions-title')}</h2>
       <p class={css.prose}>{t('settings-sessions-intro')}</p>
 
-      <ul class={css.list} data-testid="session-list">
-        <For each={sessions() ?? []}>
-          {(s) => (
-            <li class={css.item}>
-              <div class={css.itemMain}>
-                <span class={css.itemName}>{isolate(s.username)}</span>
-                <span class={css.meta}>{t('settings-sessions-last-seen', { when: s.lastSeen })}</span>
-                <span class={css.meta}>{s.deviceLabel || s.clientType} · {s.clientVersion} · {s.ip} {s.country}</span>
-                <span class={css.meta}>{s.userAgent}</span>
-                <span class={css.meta}>{t('security-center-first-seen', { when: s.createdAt })}</span>
-              </div>
-              <Show
-                when={s.current}
-                fallback={
-                  <button type="button" class={css.danger} disabled={busy()} onClick={() => void revoke(s.handle)}>
-                    {t('settings-sessions-revoke')}
-                  </button>
-                }
-              >
-                <span class={css.badge}>{t('settings-sessions-current')}</span>
-              </Show>
-            </li>
-          )}
-        </For>
-      </ul>
+      <label class={css.field}>{t('settings-sessions-search')}<input class={css.input} type="search" value={query()} onInput={(event) => setQuery(event.currentTarget.value)} /></label>
+      <Show when={sessions.error}><p role="alert">{t('settings-sessions-error')}</p></Show>
+      <div class={table.wrap} aria-busy={sessions.loading}>
+        <table class={table.table} data-testid="session-list"><caption>{t('settings-sessions-title')}</caption>
+          <thead><tr><th>{t('settings-sessions-account')}</th><th>{t('settings-sessions-device')}</th><th>{t('settings-sessions-location')}</th><th>{t('settings-sessions-activity')}</th><th>{t('settings-sessions-actions')}</th></tr></thead>
+          <tbody><For each={loaded().filter((row) => [row.username, row.ip, row.deviceLabel, row.userAgent].some((value) => value?.toLowerCase().includes(query().trim().toLowerCase())))}>{(s) => <tr>
+            <td>{isolate(s.username)}</td><td>{s.deviceLabel || s.clientType || '—'} {s.clientVersion}<p class={css.meta}>{s.userAgent || '—'}</p></td>
+            <td>{s.ip || '—'}<p class={css.meta}>{s.country || t('settings-sessions-location-unavailable')}</p></td>
+            <td>{t('settings-sessions-last-seen', { when: s.lastSeen })}<p class={css.meta}>{t('security-center-first-seen', { when: s.createdAt })}</p></td>
+            <td><Show when={s.current} fallback={<button type="button" class={css.danger} disabled={busy()} aria-label={t('settings-sessions-revoke-device', { device: s.deviceLabel || s.clientType || s.username })} title={t('settings-sessions-revoke-device', { device: s.deviceLabel || s.clientType || s.username })} onClick={() => void revoke(s.handle)}><Icon name="close" /></button>}><span class={css.badge}>{t('settings-sessions-current')}</span></Show></td>
+          </tr>}</For></tbody>
+        </table>
+      </div>
 
       <Show when={others() > 0}>
         <div class={css.actions}>

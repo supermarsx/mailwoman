@@ -5,7 +5,7 @@ export interface Override { capability: string; effect: 'allow' | 'deny' }
 export interface AdminAccount { id: string; username: string; displayName: string; disabled: boolean; roles: RoleGrant[]; overrides: Override[]; totpEnrolled: boolean; passkeyCount?: number; etag?: string }
 export interface AdminRole { id: string; name: string; description?: string; builtin: boolean; capabilities: string[]; holders: number; etag?: string }
 export interface AdminMe { username: string; capabilities: string[]; totpEnrolled: boolean }
-export interface AdminSession { id: string; adminId: string; createdAt: string; current: boolean }
+export interface AdminSession { id: string; adminId: string; createdAt: string; idleExpiresAt?: number; expiresAt?: number; current: boolean }
 export const adminsApi = {
   async accounts() { return (await adminRequest<{ admins: AdminAccount[] }>('/admins')).data.admins; },
   async roles() { return (await adminRequest<{ roles: AdminRole[] }>('/roles')).data.roles; },

@@ -565,3 +565,23 @@ admin-sso-filter-scope = Filter by scope
 admin-sso-all-scopes = All scopes
 admin-sso-back = Back to sign-in providers
 admin-sso-editor-intro = Configure this sign-in provider, then save or cancel to return to the provider table.
+
+admin-session-mailbox-title = Mailbox sessions
+admin-session-console-title = Administrator sessions
+admin-session-empty = No sessions match these filters.
+admin-session-search = Search account, device or IP
+admin-session-account = Account
+admin-session-device = Device and client
+admin-session-ip = IP address
+admin-session-activity = Last activity
+admin-session-created = Created
+admin-session-expiry = Expiry
+admin-session-status = Status
+admin-session-active = Active
+admin-session-idle-expiry = Idle expiry
+admin-session-revoke-account = Revoke session for { $account }
+admin-session-revoke-help = This ends this session. The account can sign in again.
+admin-session-console-metadata = Administrator device, IP and location metadata are not recorded for these sessions.
+
+admin-session-current = This session
+admin-session-revoke = Revoke session
