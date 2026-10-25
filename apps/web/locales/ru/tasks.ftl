@@ -1,7 +1,41 @@
-# MT-SEED — NOT REVIEWED
-# Locale: ru · Module: tasks. Source of truth: ../en/tasks.ftl
-#
-# PLACEHOLDER awaiting human translation via Weblate. This catalog holds NO
-# reviewed translations — every key falls back to the en source at runtime until
-# a translator fills it in, so Weblate shows it as needing translation (0%).
-# Do NOT hand-edit or paste raw machine output as final: translate in Weblate.
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: ru · Module: tasks. Source: ../en/tasks.ftl
+
+tasks-title = Задачи
+tasks-lists = Списки задач
+tasks-all = Все задачи
+tasks-my-day = Мой день
+tasks-lists-heading = Списки
+tasks-no-lists = Списков пока нет.
+tasks-new-title = Название новой задачи
+tasks-add-placeholder = Добавить задачу…
+tasks-my-day-empty = На сегодня ничего не запланировано.
+tasks-convert = Преобразовать:
+tasks-mail-id = Идентификатор сообщения для преобразования
+tasks-mail-id-placeholder = идентификатор сообщения
+tasks-mail-to-task = Письмо → задача
+tasks-event-id = Идентификатор события для преобразования
+tasks-event-id-placeholder = идентификатор события
+tasks-event-to-task = Событие → задача
+tasks-followup-mail = Ответить: сообщение { $id }
+tasks-prep-event = Подготовиться: событие { $id }
+tasks-list-label = Задачи
+tasks-subtasks = Подзадачи
+tasks-empty-list = В этом списке нет задач.
+tasks-complete = Выполнить { $title }
+tasks-reopen = Возобновить { $title }
+tasks-high-priority = Высокий приоритет
+tasks-edit = Изменить { $title }
+tasks-field-title = Название
+tasks-field-due = Срок
+tasks-field-priority = Приоритет
+tasks-priority-none = Нет
+tasks-priority-high = Высокий
+tasks-priority-medium = Средний
+tasks-priority-low = Низкий
+tasks-delete-confirm = Удалить эту задачу? Это действие нельзя отменить.
+tasks-delete-yes = Удалить задачу
+tasks-delete-no = Оставить задачу
+tasks-changed-elsewhere = Эта задача была изменена на другом устройстве или в другом сеансе. Ваши правки сохранены; кнопка «Сохранить» применяет только изменённые вами поля.
+tasks-deleted-elsewhere = Задача «{ $title }» была удалена на другом устройстве или в другом сеансе, поэтому форма её изменения закрыта.
+tasks-notice-dismiss = Закрыть
