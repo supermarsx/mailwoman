@@ -15,6 +15,7 @@ import { createSignal, For, Show, onMount, type JSX } from 'solid-js';
 import { useAdmin } from './context.ts';
 import type { AuditLogEntry, BanEntry } from '../../state/slices/admin.ts';
 import { t } from '../../i18n';
+import { Feedback } from './shell/Feedback.tsx';
 import * as css from './admin.css.ts';
 
 export function Observability(): JSX.Element {
@@ -22,6 +23,12 @@ export function Observability(): JSX.Element {
   const [audit, setAudit] = createSignal<AuditLogEntry[]>([]);
   const [bans, setBans] = createSignal<BanEntry[]>([]);
   const [error, setError] = createSignal<string | null>(null);
+  // An action's failure is a toast (t32 f39); a load failure stays on the page.
+  const [failure, setFailure] = createSignal<string | null>(null);
+  function fail(message: string): void {
+    setFailure(null);
+    setFailure(message);
+  }
   const [banIp, setBanIp] = createSignal('');
   const [banReason, setBanReason] = createSignal('');
 
@@ -48,7 +55,7 @@ export function Observability(): JSX.Element {
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      setError(t('admin-obs-export-error'));
+      fail(t('admin-obs-export-error'));
     }
   }
 
@@ -61,7 +68,7 @@ export function Observability(): JSX.Element {
       setBanReason('');
       await reload();
     } catch {
-      setError(t('admin-obs-ban-add-error'));
+      fail(t('admin-obs-ban-add-error'));
     }
   }
 
@@ -70,7 +77,7 @@ export function Observability(): JSX.Element {
       await api.removeBan(ip);
       await reload();
     } catch {
-      setError(t('admin-obs-unban-error'));
+      fail(t('admin-obs-unban-error'));
     }
   }
 
@@ -82,6 +89,7 @@ export function Observability(): JSX.Element {
           {error()}
         </p>
       </Show>
+      <Feedback kind="error" as="toast" message={failure()} />
 
       <div class={css.card}>
         <p class={css.note}>{t('admin-obs-telemetry-note')}</p>

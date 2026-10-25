@@ -3,12 +3,23 @@
 // `Feedback` announces a result: success as `role=status` (polite), failure as
 // `role=alert` (assertive). Each carries an icon and text, never colour alone.
 //
+// Where it shows (t32 f39, one toast system for webmail and console): a result
+// of an action ("Saved", "Deleted", a failed request) is a toast
+// (components/toast) and nothing stays in the page; a blocking state or a
+// standing note (a load failure beside Try again, "not found", an error inside
+// a dialog, "set by the environment") stays inline. `as` picks: success
+// defaults to 'toast', error and info to 'inline', so a transient failure says
+// `as="toast"`. The toast takes `testId` as its data-testid. With no
+// ToastRegion mounted (a screen rendered on its own) the message stays inline,
+// so a result is never raised where nobody can see it.
+//
 // `describeAdminError` turns a failed admin request into a sentence that says what
 // failed and what to do. A server that sends `{code, detail}` gets its code mapped
 // to a localized message with a next step; otherwise the HTTP status decides.
 
-import { Show, type JSX } from 'solid-js';
+import { Show, createEffect, createUniqueId, on, type JSX } from 'solid-js';
 import { t } from '../../../i18n';
+import { toast, toastRegionMounted } from '../../../components/toast/index.ts';
 import { Icon } from './icons.tsx';
 import * as css from './shell.css.ts';
 
@@ -19,11 +30,26 @@ export interface FeedbackProps {
   /** Nothing is rendered while the message is empty or null. */
   message: string | null | undefined;
   testId?: string;
+  /** 'toast': raised as a toast when the message is set, nothing rendered. Default: 'toast' for success, else 'inline'. */
+  as?: 'inline' | 'toast';
 }
 
 export function Feedback(props: FeedbackProps): JSX.Element {
+  const asToast = (): boolean =>
+    (props.as ?? (props.kind === 'success' ? 'toast' : 'inline')) === 'toast' && toastRegionMounted();
+  // One toast per Feedback: a second result from the same place replaces the first.
+  const id = `feedback-${createUniqueId()}`;
+  createEffect(
+    on(
+      () => [props.message, asToast()] as const,
+      ([message, toToast]) => {
+        if (!toToast || !message) return;
+        toast.show(props.kind, message, { id, ...(props.testId ? { testId: props.testId } : {}) });
+      },
+    ),
+  );
   return (
-    <Show when={props.message}>
+    <Show when={!asToast() && props.message}>
       {(message) => (
         <p
           class={[

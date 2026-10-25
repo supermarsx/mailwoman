@@ -98,8 +98,6 @@ describe('admin require-two-factor policy (DQ2)', () => {
     await waitFor(() => expect(screen.getByTestId('admin-2fa-global')).toBeInTheDocument());
 
     fireEvent.change(screen.getByTestId('admin-2fa-global'), { target: { checked: true } });
-    await waitFor(() =>
-      expect(screen.getByText('Could not save the two-factor policy.')).toHaveAttribute('role', 'alert'),
-    );
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Could not save the two-factor policy.'));
   });
 });

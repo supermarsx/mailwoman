@@ -66,7 +66,7 @@ export function RestorePrevious(props: RestorePreviousProps): JSX.Element {
             </div>
           </Show>
           <Feedback kind="success" message={ok()} />
-          <Feedback kind="error" message={err()} />
+          <Feedback kind="error" as="toast" message={err()} />
         </div>
       )}
     </Show>

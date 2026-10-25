@@ -1,6 +1,6 @@
 // Test helpers for the admin shell (not a suite: vitest collects only *.test.*).
 // Mock loaders for `/admin/me`, `/admin/dashboard` and `/admin/search`, and a
-// render that provides the shell context around one component.
+// render that provides the shell context (and the toast region) around one component.
 
 import { render } from '@solidjs/testing-library';
 import { vi } from 'vitest';
@@ -11,6 +11,7 @@ import type { AdminSearch } from './CommandPalette.tsx';
 import type { DashboardLoader, DashboardResult } from '../../../api/admin/dashboard.ts';
 import { ShellContext, type ShellContextValue } from './context.ts';
 import type { AdminRouter } from './router.ts';
+import { ToastRegion } from '../../../components/toast/index.ts';
 
 /** `/admin/me` → 404 (no RBAC yet): every capability. */
 export const allCapable: AdminMeLoader = async () => ({ kind: 'all', reason: 'no-rbac' });
@@ -64,6 +65,13 @@ export function renderInShell(
     services: { loadDashboard: opts.loadDashboard ?? dashboardUnavailable, search: searchUnavailable },
     username: () => opts.username ?? 'root',
   };
-  const utils = render(() => <ShellContext.Provider value={value}>{ui()}</ShellContext.Provider>);
+  // The console mounts one ToastRegion (screens/Admin/index.tsx); screens raise
+  // their results there, so the render carries one too.
+  const utils = render(() => (
+    <ShellContext.Provider value={value}>
+      {ui()}
+      <ToastRegion />
+    </ShellContext.Provider>
+  ));
   return { ...utils, navigate };
 }

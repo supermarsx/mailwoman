@@ -22,6 +22,7 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from 'solid-js';
 import { t } from '../../i18n/index.ts';
 import {
+  registerToastRegion,
   setToastPause,
   toast,
   toastTimeLeft,
@@ -134,6 +135,7 @@ export function ToastRegion(): JSX.Element {
     setToastPause('hidden', document.visibilityState === 'hidden');
   }
 
+  onCleanup(registerToastRegion());
   onMount(() => {
     document.addEventListener('keydown', onKeyDown);
     document.addEventListener('focusin', onFocusIn);

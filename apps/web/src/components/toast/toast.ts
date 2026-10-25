@@ -93,6 +93,7 @@ const [items, setItems] = createSignal<readonly ToastItem[]>([]);
 const clocks = new Map<string, Clock>();
 const pauses = new Set<PauseReason>();
 const [paused, setPaused] = createSignal(false);
+const [regions, setRegions] = createSignal(0);
 let seq = 0;
 
 function defaultDuration(tone: ToastTone, opts: ToastOptions): number {
@@ -217,6 +218,17 @@ export function toastTimeLeft(id: string): number {
   if (c === undefined) return 0;
   if (c.startedAt === null) return c.left;
   return Math.max(0, c.left - (Date.now() - c.startedAt));
+}
+
+/** Whether a ToastRegion is mounted, i.e. a toast raised now is seen (reactive). */
+export function toastRegionMounted(): boolean {
+  return regions() > 0;
+}
+
+/** ToastRegion's mount bookkeeping; returns the unmount half. */
+export function registerToastRegion(): () => void {
+  setRegions((n) => n + 1);
+  return () => setRegions((n) => n - 1);
 }
 
 /** Test reset: no toasts, no pause reasons. */

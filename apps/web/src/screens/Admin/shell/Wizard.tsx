@@ -42,7 +42,9 @@ export interface WizardProps {
 export function Wizard(props: WizardProps): JSX.Element {
   const id = createUniqueId();
   const [index, setIndex] = createSignal(0);
+  // A step's check stays on the step; a failed save is a toast (t32 f39).
   const [problem, setProblem] = createSignal<string | null>(null);
+  const [saveError, setSaveError] = createSignal<string | null>(null);
   const [saving, setSaving] = createSignal(false);
   const [saved, setSaved] = createSignal(false);
   let heading: HTMLHeadingElement | undefined;
@@ -74,11 +76,12 @@ export function Wizard(props: WizardProps): JSX.Element {
   async function save(): Promise<void> {
     setSaving(true);
     setProblem(null);
+    setSaveError(null);
     try {
       await props.onSave();
       setSaved(true);
     } catch (err) {
-      setProblem(describeAdminError(err));
+      setSaveError(describeAdminError(err));
     } finally {
       setSaving(false);
     }
@@ -120,6 +123,7 @@ export function Wizard(props: WizardProps): JSX.Element {
         </dl>
       </Show>
       <Feedback kind="error" message={problem()} />
+      <Feedback kind="error" as="toast" message={saveError()} />
       <Show when={saved()}>
         <Feedback kind="success" message={t('admin-shell-wizard-saved')} />
       </Show>

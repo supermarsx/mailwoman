@@ -46,6 +46,7 @@ import {
 import { createFocusTrap } from '../../components/a11y';
 import { t, loadCatalog } from '../../i18n';
 import { modalOverlay } from '../../components/modalOverlay.css.ts';
+import { Feedback } from './shell/Feedback.tsx';
 import * as css from './admin.css.ts';
 
 export interface RethreadMaintenanceProps {
@@ -177,28 +178,34 @@ export function SearchIndexMaintenance(props: {
           </button>
         </div>
 
-        <Show when={summary()}>
-          {(r) => (
-            <p class={css.note} role="status" data-testid="admin-searchindex-summary">
-              {t('admin-searchindex-summary', {
-                accounts: r().accounts,
-                messages: r().messages,
-                indexed: r().indexed,
-                removed: r().removed,
-                zeroAccess: r().zeroAccess,
-                failed: r().failed,
-              })}
-            </p>
-          )}
-        </Show>
-
-        <Show when={failure()}>
-          {(why) => (
-            <p class={css.error} role="alert" data-testid="admin-searchindex-error">
-              {why() === 'busy' ? t('admin-searchindex-busy') : t('admin-searchindex-error')}
-            </p>
-          )}
-        </Show>
+        {/* The run's result and a failed run are toasts (t32 f39). */}
+        <Feedback
+          kind="success"
+          testId="admin-searchindex-summary"
+          message={(() => {
+            const r = summary();
+            return r
+              ? t('admin-searchindex-summary', {
+                  accounts: r.accounts,
+                  messages: r.messages,
+                  indexed: r.indexed,
+                  removed: r.removed,
+                  zeroAccess: r.zeroAccess,
+                  failed: r.failed,
+                })
+              : null;
+          })()}
+        />
+        <Feedback
+          kind="error"
+          as="toast"
+          testId="admin-searchindex-error"
+          message={(() => {
+            const why = failure();
+            if (!why) return null;
+            return why === 'busy' ? t('admin-searchindex-busy') : t('admin-searchindex-error');
+          })()}
+        />
       </Show>
     </section>
   );
@@ -291,24 +298,22 @@ export function RethreadMaintenance(props: RethreadMaintenanceProps): JSX.Elemen
           </button>
         </div>
 
-        <Show when={summary()}>
-          {(s) => (
-            <p class={css.note} role="status" data-testid="admin-rethread-summary">
-              {t('admin-rethread-summary', {
-                accounts: s().accounts,
-                messages: s().messages,
-                threads: s().threads,
-                reassigned: s().reassigned,
-              })}
-            </p>
-          )}
-        </Show>
-
-        <Show when={failed()}>
-          <p class={css.error} role="alert" data-testid="admin-rethread-error">
-            {t('admin-rethread-error')}
-          </p>
-        </Show>
+        <Feedback
+          kind="success"
+          testId="admin-rethread-summary"
+          message={(() => {
+            const r = summary();
+            return r
+              ? t('admin-rethread-summary', {
+                  accounts: r.accounts,
+                  messages: r.messages,
+                  threads: r.threads,
+                  reassigned: r.reassigned,
+                })
+              : null;
+          })()}
+        />
+        <Feedback kind="error" as="toast" testId="admin-rethread-error" message={failed() ? t('admin-rethread-error') : null} />
 
         <Show when={confirmOpen()}>
           <div class={modalOverlay}>

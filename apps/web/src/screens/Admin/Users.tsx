@@ -12,12 +12,19 @@ import { createSignal, Index, Show, onMount, type JSX } from 'solid-js';
 import { useAdmin } from './context.ts';
 import type { UserFeatureFlags, UserSummary } from '../../state/slices/admin.ts';
 import { t } from '../../i18n';
+import { Feedback } from './shell/Feedback.tsx';
 import * as css from './admin.css.ts';
 
 export function Users(): JSX.Element {
   const { api } = useAdmin();
   const [users, setUsers] = createSignal<UserSummary[]>([]);
   const [error, setError] = createSignal<string | null>(null);
+  // An action's failure is a toast (t32 f39); a load failure stays on the page.
+  const [failure, setFailure] = createSignal<string | null>(null);
+  function fail(message: string): void {
+    setFailure(null);
+    setFailure(message);
+  }
   const [domain, setDomain] = createSignal('');
   const [username, setUsername] = createSignal('');
   const [bytes, setBytes] = createSignal('0');
@@ -45,7 +52,7 @@ export function Users(): JSX.Element {
       setUsername('');
       await reload();
     } catch {
-      setError(t('admin-users-provision-error'));
+      fail(t('admin-users-provision-error'));
     }
   }
 
@@ -66,7 +73,7 @@ export function Users(): JSX.Element {
       if (stored) box.checked = stored.flags[key];
     } catch {
       box.checked = !value;
-      setError(t('admin-users-flag-error'));
+      fail(t('admin-users-flag-error'));
     }
   }
 
@@ -75,7 +82,7 @@ export function Users(): JSX.Element {
       await api.revokeSessions(u.accountId);
       await reload();
     } catch {
-      setError(t('admin-users-revoke-error'));
+      fail(t('admin-users-revoke-error'));
     }
   }
 
@@ -87,6 +94,7 @@ export function Users(): JSX.Element {
           {error()}
         </p>
       </Show>
+      <Feedback kind="error" as="toast" message={failure()} />
 
       <form class={css.card} onSubmit={(e) => void onProvision(e)} aria-label={t('admin-users-provision')}>
         <div class={css.grid}>

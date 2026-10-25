@@ -9,6 +9,7 @@ export {
   toastsPaused,
   toastTimeLeft,
   resetToasts,
+  toastRegionMounted,
   TOAST_DURATIONS,
   TOAST_LIMIT,
   type ToastAction,

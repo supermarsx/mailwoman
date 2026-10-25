@@ -63,7 +63,7 @@ export function RevertToDefault(props: RevertToDefaultProps): JSX.Element {
         </button>
       </Show>
       <Feedback kind="success" message={done()} />
-      <Feedback kind="error" message={err()} />
+      <Feedback kind="error" as="toast" message={err()} />
     </div>
   );
 }

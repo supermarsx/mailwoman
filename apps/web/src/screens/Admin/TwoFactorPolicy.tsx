@@ -14,7 +14,8 @@
 // frozen `AdminApi`); the optional `AdminApi` is used only to suggest managed
 // domains in the add form.
 //
-// WCAG 2.2 AA: every control is labelled; status/error use role="status"/"alert".
+// WCAG 2.2 AA: every control is labelled. "Saved" and a failed save are toasts
+// (Feedback, t32 f39): role="status" / role="alert".
 
 import { createResource, createSignal, For, Show, onMount, type JSX } from 'solid-js';
 import { createHttpAdminApi, type AdminApi } from '../../state/slices/admin.ts';
@@ -24,6 +25,7 @@ import {
   type TwofaPolicyRow,
 } from './twofaPolicy.ts';
 import { t, loadCatalog } from '../../i18n';
+import { Feedback } from './shell/Feedback.tsx';
 import * as css from './admin.css.ts';
 
 export interface TwoFactorPolicyProps {
@@ -94,9 +96,7 @@ export function TwoFactorPolicy(props: TwoFactorPolicyProps): JSX.Element {
       <Show when={rows.error as unknown}>
         <p class={css.error} role="alert">{t('admin-2fa-load-error')}</p>
       </Show>
-      <Show when={error()}>
-        <p class={css.error} role="alert">{error()}</p>
-      </Show>
+      <Feedback kind="error" as="toast" message={error()} />
 
       {/* ── Global requirement ── */}
       <div class={css.card}>
@@ -179,9 +179,7 @@ export function TwoFactorPolicy(props: TwoFactorPolicyProps): JSX.Element {
         </form>
       </div>
 
-      <Show when={saved()}>
-        <p class={css.note} role="status">{t('admin-saved')}</p>
-      </Show>
+      <Feedback kind="success" message={saved() ? t('admin-saved') : null} />
     </section>
   );
 }
