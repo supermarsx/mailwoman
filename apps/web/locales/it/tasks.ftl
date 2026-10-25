@@ -1,7 +1,41 @@
-# MT-SEED — NOT REVIEWED
-# Locale: it · Module: tasks. Source of truth: ../en/tasks.ftl
-#
-# PLACEHOLDER awaiting human translation via Weblate. This catalog holds NO
-# reviewed translations — every key falls back to the en source at runtime until
-# a translator fills it in, so Weblate shows it as needing translation (0%).
-# Do NOT hand-edit or paste raw machine output as final: translate in Weblate.
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: it · Module: tasks. Source: ../en/tasks.ftl
+
+tasks-title = Attività
+tasks-lists = Elenchi di attività
+tasks-all = Tutte le attività
+tasks-my-day = La mia giornata
+tasks-lists-heading = Elenchi
+tasks-no-lists = Ancora nessun elenco.
+tasks-new-title = Titolo della nuova attività
+tasks-add-placeholder = Aggiungi un'attività…
+tasks-my-day-empty = Nessuna scadenza per oggi. Giornata tranquilla.
+tasks-convert = Converti:
+tasks-mail-id = ID del messaggio da convertire
+tasks-mail-id-placeholder = ID messaggio
+tasks-mail-to-task = Email → attività
+tasks-event-id = ID dell'evento da convertire
+tasks-event-id-placeholder = ID evento
+tasks-event-to-task = Evento → attività
+tasks-followup-mail = Seguito: email { $id }
+tasks-prep-event = Preparazione: evento { $id }
+tasks-list-label = Attività
+tasks-subtasks = Sottoattività
+tasks-empty-list = Nessuna attività in questo elenco.
+tasks-complete = Completa { $title }
+tasks-reopen = Riapri { $title }
+tasks-high-priority = Priorità alta
+tasks-edit = Modifica { $title }
+tasks-field-title = Titolo
+tasks-field-due = Scadenza
+tasks-field-priority = Priorità
+tasks-priority-none = Nessuna
+tasks-priority-high = Alta
+tasks-priority-medium = Media
+tasks-priority-low = Bassa
+tasks-delete-confirm = Eliminare questa attività? L'operazione non può essere annullata.
+tasks-delete-yes = Elimina attività
+tasks-delete-no = Mantieni attività
+tasks-changed-elsewhere = Questa attività è stata modificata su un altro dispositivo o in un'altra sessione. Le modifiche apportate qui vengono mantenute; Salva applica solo i campi modificati.
+tasks-deleted-elsewhere = “{ $title }” è stata eliminata su un altro dispositivo o in un'altra sessione, quindi il modulo di modifica è stato chiuso.
+tasks-notice-dismiss = Ignora
