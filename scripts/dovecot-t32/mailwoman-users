@@ -1,0 +1,4 @@
+# Dovecot passwd-file for the t32 IMAP extension interop target. CI ONLY.
+# Format: user:password:uid:gid:gecos:home:shell:extra
+# uid/gid = vmail (1000); home holds the maildir.
+testuser:{PLAIN}testpass:1000:1000::/srv/vmail/testuser::

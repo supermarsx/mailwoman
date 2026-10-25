@@ -1,0 +1,110 @@
+# t32 IMAP extension interop targets: one Dovecot 2.4 per extension group.
+# CI/DEV ONLY. `full` advertises everything the image supports; every other
+# service hides one group (variants/<name>.conf), so each extension test runs
+# with and without its capability.
+#
+#   docker compose -p <project> -f scripts/dovecot-t32/docker-compose.yml up -d --wait
+#
+# Account: testuser / testpass, plaintext IMAP on host ports 38610-38619
+# (full = 38610, then one port per variant in the order below).
+
+x-dovecot: &dovecot
+  image: dovecot/dovecot:2.4.4
+  command: ["/bin/sh", "/seed-and-serve.sh"]
+  healthcheck:
+    test: ["CMD-SHELL", "nc -z -w 2 127.0.0.1 143 </dev/null"]
+    interval: 5s
+    timeout: 5s
+    retries: 24
+    start_period: 5s
+
+services:
+  full:
+    <<: *dovecot
+    volumes:
+      - ./zz-t32.conf:/etc/dovecot/conf.d/zz-t32.conf:ro
+      - ./mailwoman-users:/etc/dovecot/mailwoman-users:ro
+      - ./seed:/seed:ro
+      - ./seed-and-serve.sh:/seed-and-serve.sh:ro
+    ports: ["38610:143"]
+  no-rev2-esearch:
+    <<: *dovecot
+    volumes:
+      - ./zz-t32.conf:/etc/dovecot/conf.d/zz-t32.conf:ro
+      - ./variants/no-rev2-esearch.conf:/etc/dovecot/conf.d/zz-variant.conf:ro
+      - ./mailwoman-users:/etc/dovecot/mailwoman-users:ro
+      - ./seed:/seed:ro
+      - ./seed-and-serve.sh:/seed-and-serve.sh:ro
+    ports: ["38611:143"]
+  no-condstore:
+    <<: *dovecot
+    volumes:
+      - ./zz-t32.conf:/etc/dovecot/conf.d/zz-t32.conf:ro
+      - ./variants/no-condstore.conf:/etc/dovecot/conf.d/zz-variant.conf:ro
+      - ./mailwoman-users:/etc/dovecot/mailwoman-users:ro
+      - ./seed:/seed:ro
+      - ./seed-and-serve.sh:/seed-and-serve.sh:ro
+    ports: ["38612:143"]
+  no-notify:
+    <<: *dovecot
+    volumes:
+      - ./zz-t32.conf:/etc/dovecot/conf.d/zz-t32.conf:ro
+      - ./variants/no-notify.conf:/etc/dovecot/conf.d/zz-variant.conf:ro
+      - ./mailwoman-users:/etc/dovecot/mailwoman-users:ro
+      - ./seed:/seed:ro
+      - ./seed-and-serve.sh:/seed-and-serve.sh:ro
+    ports: ["38613:143"]
+  no-compress:
+    <<: *dovecot
+    volumes:
+      - ./zz-t32.conf:/etc/dovecot/conf.d/zz-t32.conf:ro
+      - ./variants/no-compress.conf:/etc/dovecot/conf.d/zz-variant.conf:ro
+      - ./mailwoman-users:/etc/dovecot/mailwoman-users:ro
+      - ./seed:/seed:ro
+      - ./seed-and-serve.sh:/seed-and-serve.sh:ro
+    ports: ["38614:143"]
+  no-utf8:
+    <<: *dovecot
+    volumes:
+      - ./zz-t32.conf:/etc/dovecot/conf.d/zz-t32.conf:ro
+      - ./variants/no-utf8.conf:/etc/dovecot/conf.d/zz-variant.conf:ro
+      - ./mailwoman-users:/etc/dovecot/mailwoman-users:ro
+      - ./seed:/seed:ro
+      - ./seed-and-serve.sh:/seed-and-serve.sh:ro
+    ports: ["38615:143"]
+  no-literal-sasl:
+    <<: *dovecot
+    volumes:
+      - ./zz-t32.conf:/etc/dovecot/conf.d/zz-t32.conf:ro
+      - ./variants/no-literal-sasl.conf:/etc/dovecot/conf.d/zz-variant.conf:ro
+      - ./mailwoman-users:/etc/dovecot/mailwoman-users:ro
+      - ./seed:/seed:ro
+      - ./seed-and-serve.sh:/seed-and-serve.sh:ro
+    ports: ["38616:143"]
+  no-mailbox-ext:
+    <<: *dovecot
+    volumes:
+      - ./zz-t32.conf:/etc/dovecot/conf.d/zz-t32.conf:ro
+      - ./variants/no-mailbox-ext.conf:/etc/dovecot/conf.d/zz-variant.conf:ro
+      - ./mailwoman-users:/etc/dovecot/mailwoman-users:ro
+      - ./seed:/seed:ro
+      - ./seed-and-serve.sh:/seed-and-serve.sh:ro
+    ports: ["38617:143"]
+  no-fetch-append:
+    <<: *dovecot
+    volumes:
+      - ./zz-t32.conf:/etc/dovecot/conf.d/zz-t32.conf:ro
+      - ./variants/no-fetch-append.conf:/etc/dovecot/conf.d/zz-variant.conf:ro
+      - ./mailwoman-users:/etc/dovecot/mailwoman-users:ro
+      - ./seed:/seed:ro
+      - ./seed-and-serve.sh:/seed-and-serve.sh:ro
+    ports: ["38618:143"]
+  no-move-uidplus:
+    <<: *dovecot
+    volumes:
+      - ./zz-t32.conf:/etc/dovecot/conf.d/zz-t32.conf:ro
+      - ./variants/no-move-uidplus.conf:/etc/dovecot/conf.d/zz-variant.conf:ro
+      - ./mailwoman-users:/etc/dovecot/mailwoman-users:ro
+      - ./seed:/seed:ro
+      - ./seed-and-serve.sh:/seed-and-serve.sh:ro
+    ports: ["38619:143"]

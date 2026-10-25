@@ -1,0 +1,8 @@
+From: Alice <alice@example.test>
+To: Test User <testuser@example.test>
+Subject: First message
+Date: Mon, 12 Oct 2026 09:00:00 +0000
+Message-ID: <t32-01@example.test>
+Content-Type: text/plain; charset=utf-8
+
+A short plain text body for preview and search tests.
