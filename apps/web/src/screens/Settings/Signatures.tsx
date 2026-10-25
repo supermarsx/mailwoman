@@ -1,82 +1,20 @@
-// Signature templates CRUD (t16 e15 — W12). Backed by the `mw-store` 0017
-// `signatures` rows via the account-signatures contract. One default may be set;
-// a signature carries an optional selection rule (JSON) the composer honours.
-
+import { AsyncPending } from '../../components/AsyncState.tsx';
 import { createResource, createSignal, For, Show, onMount, type JSX } from 'solid-js';
 import { t, loadCatalog } from '../../i18n';
 import { SettingsService } from './service.ts';
-import type { Signature } from './types.ts';
 import { toast } from '../../components/toast/index.ts';
+import { SignatureEditor } from './SignatureEditor.tsx';
+import { useEntityNavigation } from './entityEditor.tsx';
 import * as css from './styles.css.ts';
-
-export interface SignaturesProps {
-  service?: SettingsService;
-}
-
-const EMPTY: Signature = { name: '', body: '', isDefault: false };
-
-export function Signatures(props: SignaturesProps): JSX.Element {
-  const service = props.service ?? new SettingsService();
-  onMount(() => void loadCatalog('settings'));
-
-  const [signatures, { refetch }] = createResource<Signature[]>(() => service.listSignatures());
-  const [draft, setDraft] = createSignal<Signature>({ ...EMPTY });
-  const [editing, setEditing] = createSignal(false);
-  const [busy, setBusy] = createSignal(false);
-  // The form's own check stays on the page; a save or delete result is a toast (t32 f39).
-  const [fieldError, setFieldError] = createSignal('');
-
-  function edit(sig: Signature): void {
-    setDraft({ ...sig });
-    setEditing(true);
-    setFieldError('');
-  }
-
-  function startNew(): void {
-    setDraft({ ...EMPTY });
-    setEditing(true);
-    setFieldError('');
-  }
-
-  async function save(): Promise<void> {
-    const sig = draft();
-    if (sig.name.trim() === '') {
-      setFieldError(t('settings-sig-error-name'));
-      return;
-    }
-    setFieldError('');
-    setBusy(true);
-    try {
-      await service.upsertSignature({ ...sig, name: sig.name.trim() });
-      setEditing(false);
-      setDraft({ ...EMPTY });
-      await refetch();
-      toast.success(t('settings-saved'));
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : t('settings-sig-error-generic'));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function remove(name: string): Promise<void> {
-    setFieldError('');
-    setBusy(true);
-    try {
-      await service.deleteSignature(name);
-      await refetch();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : t('settings-sig-error-generic'));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <section class={css.section} aria-label={t('settings-sig-title')}>
-      <h2 class={css.heading}>{t('settings-sig-title')}</h2>
-      <p class={css.prose}>{t('settings-sig-intro')}</p>
-
+export interface SignaturesProps { service?:SettingsService }
+export function Signatures(props:SignaturesProps):JSX.Element {
+ const service=props.service??new SettingsService();const navigation=useEntityNavigation('signatures');const [signatures,{refetch}]=createResource(()=>service.listSignatures());const [busy,setBusy]=createSignal(false);
+ onMount(()=>void loadCatalog('settings'));
+ const editor=()=>navigation.route().section==='signatures'?navigation.route().editor:undefined;
+ const open=(id?:string)=>navigation.navigate({section:'signatures',editor:id===undefined?{kind:'new'}:{kind:'edit',id}});
+ const back=async():Promise<void>=>{await navigation.navigate({section:'signatures'});};
+ async function remove(id:string):Promise<void>{setBusy(true);try{await service.deleteSignature(id);await refetch();}catch{toast.error(t('settings-sig-error-generic'));}finally{setBusy(false);}}
+ return <Show when={editor()} keyed fallback={<section class={css.section} aria-label={t('settings-sig-title')}><h2 class={css.heading}>{t('settings-sig-title')}</h2><p class={css.prose}>{t('settings-sig-intro')}</p><Show when={signatures.loading}><AsyncPending onRetry={()=>void refetch()}/></Show>
       <ul class={css.list} data-testid="signature-list">
         <For each={signatures() ?? []}>
           {(sig) => (
@@ -92,7 +30,7 @@ export function Signatures(props: SignaturesProps): JSX.Element {
                 <span class={css.meta}>{sig.body.slice(0, 80)}</span>
               </div>
               <div class={css.actions}>
-                <button type="button" class={css.ghost} disabled={busy()} onClick={() => edit(sig)}>
+                <button type="button" class={css.ghost} disabled={busy()} onClick={()=>void open(sig.name)}>
                   {t('settings-edit')}
                 </button>
                 <button type="button" class={css.danger} disabled={busy()} onClick={() => void remove(sig.name)}>
@@ -103,64 +41,6 @@ export function Signatures(props: SignaturesProps): JSX.Element {
           )}
         </For>
       </ul>
-
-      <Show
-        when={editing()}
-        fallback={
-          <div class={css.actions}>
-            <button type="button" class={css.button} onClick={startNew}>
-              {t('settings-sig-new')}
-            </button>
-          </div>
-        }
-      >
-        <div class={css.field} data-testid="signature-editor">
-          <label class={css.field}>
-            <span class={css.label}>{t('settings-sig-name-label')}</span>
-            <input
-              class={css.input}
-              aria-label={t('settings-sig-name-label')}
-              value={draft().name}
-              onInput={(e) => setDraft({ ...draft(), name: e.currentTarget.value })}
-            />
-          </label>
-          <label class={css.field}>
-            <span class={css.label}>{t('settings-sig-body-label')}</span>
-            <textarea
-              class={css.textarea}
-              aria-label={t('settings-sig-body-label')}
-              value={draft().body}
-              onInput={(e) => setDraft({ ...draft(), body: e.currentTarget.value })}
-            />
-          </label>
-          <label class={css.check}>
-            <input
-              class={css.checkbox}
-              type="checkbox"
-              aria-label={t('settings-sig-default-label')}
-              checked={draft().isDefault}
-              onChange={(e) => setDraft({ ...draft(), isDefault: e.currentTarget.checked })}
-            />
-            <span>{t('settings-sig-default-label')}</span>
-          </label>
-          <div class={css.actions}>
-            <button type="button" class={css.button} disabled={busy()} onClick={() => void save()} data-testid="signature-save">
-              {t('settings-save')}
-            </button>
-            <button type="button" class={css.ghost} disabled={busy()} onClick={() => setEditing(false)}>
-              {t('settings-cancel')}
-            </button>
-          </div>
-        </div>
-      </Show>
-
-      <Show when={fieldError() !== ''}>
-        <p class={css.error} role="alert">
-          {fieldError()}
-        </p>
-      </Show>
-    </section>
-  );
+<div class={css.actions}><button class={css.button} onClick={()=>void open()}>{t('settings-sig-new')}</button></div></section>}>{route=> <Show when={route.kind==='new'} fallback={<Show when={signatures()?.find(item=>item.name===route.id)} keyed fallback={<Show when={!signatures.loading}><p>{t('settings-editor-missing')}</p><button class={css.ghost} onClick={()=>void back()}>{t('settings-editor-back')}</button></Show>}>{item=><SignatureEditor initial={item} service={service} onSaved={async()=>{await refetch();await back();}} onCancel={back}/>}</Show>}><SignatureEditor service={service} onSaved={async()=>{await refetch();await back();}} onCancel={back}/></Show>}</Show>;
 }
-
 export default Signatures;

@@ -170,3 +170,12 @@ settings-dir-ltr = Left to right
 settings-dir-rtl = Right to left
 settings-dir-preview-title = Preview
 settings-dir-preview-body = This text mirrors when the direction is right to left.
+
+settings-editor-discard-title = Discard unsaved changes?
+settings-editor-discard-detail = Your changes have not been saved. Keep editing or discard this draft to leave the editor.
+settings-editor-keep = Keep editing
+settings-editor-discard = Discard changes
+settings-editor-missing = This item no longer exists. Return to the list and choose another item.
+settings-editor-back = Back to list
+settings-sig-edit-title = Edit signature
+settings-ident-edit-title = Edit identity

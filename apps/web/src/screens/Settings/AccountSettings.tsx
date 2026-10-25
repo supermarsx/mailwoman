@@ -13,7 +13,7 @@
 // mailbox. Now it replaces only that screen, with an error and a retry that
 // mounts it again (which reloads it).
 
-import { createSignal, Show, type JSX } from 'solid-js';
+import { createEffect, createSignal, Show, type JSX } from 'solid-js';
 import { useI18n } from '../../i18n';
 import { AsyncBoundary } from '../../components/ErrorBoundary.tsx';
 import { SettingsService } from './service.ts';
@@ -29,6 +29,8 @@ import * as css from './styles.css.ts';
 
 export interface AccountSettingsProps {
   hideSecurity?: boolean;
+  /** A workspace section; omitted keeps the legacy aggregate surface. */
+  section?: () => string;
   /** Injected in tests; production uses the same-origin cookie service. */
   service?: SettingsService;
 }
@@ -44,8 +46,10 @@ function activeDir(): 'ltr' | 'rtl' {
 }
 
 export function AccountSettings(props: AccountSettingsProps): JSX.Element {
+  const selected = (section: string): boolean => !props.section || props.section() === section;
   const service = props.service ?? new SettingsService();
   const [prefs, setPrefs] = createSignal<SettingsPrefs>(loadPrefs());
+  createEffect(() => setPrefs(loadPrefs()));
 
   const onPrefsChange = (next: SettingsPrefs): void => {
     setPrefs(next);
@@ -60,25 +64,35 @@ export function AccountSettings(props: AccountSettingsProps): JSX.Element {
 
   return (
     <div class={css.stack} dir={effectiveDir()} data-testid="account-settings">
-      <Show when={!props.hideSecurity}>
+      <Show when={!props.hideSecurity && selected('security')}>
         <AsyncBoundary><TwoFactor service={service} /></AsyncBoundary>
         <AsyncBoundary><Sessions service={service} /></AsyncBoundary>
       </Show>
+      <Show when={selected('signatures')}>
       <AsyncBoundary>
         <Signatures service={service} />
       </AsyncBoundary>
+      </Show>
+      <Show when={selected('identities')}>
       <AsyncBoundary>
         <Identities service={service} />
       </AsyncBoundary>
+      </Show>
+      <Show when={selected('notifications')}>
       <AsyncBoundary>
         <Notifications service={service} />
       </AsyncBoundary>
+      </Show>
+      <Show when={selected('searches')}>
       <AsyncBoundary>
         <SavedSearches service={service} />
       </AsyncBoundary>
+      </Show>
+      <Show when={selected('preferences')}>
       <AsyncBoundary>
         <Preferences prefs={prefs} onChange={onPrefsChange} />
       </AsyncBoundary>
+      </Show>
     </div>
   );
 }

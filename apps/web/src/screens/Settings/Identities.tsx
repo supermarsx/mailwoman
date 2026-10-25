@@ -1,94 +1,20 @@
-// Send-identity management (t16 e15). An identity is the From/Reply-To/signature
-// tuple the composer sends as (maps to JMAP `Identity` server-side). CRUD over the
-// account-identities contract; a signature name links to a `Signatures` template.
-
+import { AsyncPending } from '../../components/AsyncState.tsx';
 import { createResource, createSignal, For, Show, onMount, type JSX } from 'solid-js';
 import { t, loadCatalog, isolate } from '../../i18n';
 import { SettingsService } from './service.ts';
-import type { Identity, Signature } from './types.ts';
 import { toast } from '../../components/toast/index.ts';
+import { IdentityEditor } from './IdentityEditor.tsx';
+import { useEntityNavigation } from './entityEditor.tsx';
 import * as css from './styles.css.ts';
-
-export interface IdentitiesProps {
-  service?: SettingsService;
-}
-
-function emptyIdentity(): Identity {
-  return { id: '', name: '', email: '' };
-}
-
-export function Identities(props: IdentitiesProps): JSX.Element {
-  const service = props.service ?? new SettingsService();
-  onMount(() => void loadCatalog('settings'));
-
-  const [identities, { refetch }] = createResource<Identity[]>(() => service.listIdentities());
-  // Signatures feed the per-identity default-signature picker (best-effort).
-  const [signatures] = createResource<Signature[]>(() => service.listSignatures().catch(() => []));
-  const [draft, setDraft] = createSignal<Identity>(emptyIdentity());
-  const [editing, setEditing] = createSignal(false);
-  const [busy, setBusy] = createSignal(false);
-  // The form's own check stays on the page; a save or delete result is a toast (t32 f39).
-  const [fieldError, setFieldError] = createSignal('');
-
-  function edit(identity: Identity): void {
-    setDraft({ ...identity });
-    setEditing(true);
-    setFieldError('');
-  }
-
-  function startNew(): void {
-    setDraft(emptyIdentity());
-    setEditing(true);
-    setFieldError('');
-  }
-
-  function validEmail(email: string): boolean {
-    return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
-  }
-
-  async function save(): Promise<void> {
-    const identity = draft();
-    if (identity.name.trim() === '' || !validEmail(identity.email.trim())) {
-      setFieldError(t('settings-ident-error-fields'));
-      return;
-    }
-    setFieldError('');
-    setBusy(true);
-    try {
-      await service.upsertIdentity({
-        ...identity,
-        name: identity.name.trim(),
-        email: identity.email.trim(),
-      });
-      setEditing(false);
-      setDraft(emptyIdentity());
-      await refetch();
-      toast.success(t('settings-saved'));
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : t('settings-ident-error-generic'));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function remove(id: string): Promise<void> {
-    setFieldError('');
-    setBusy(true);
-    try {
-      await service.deleteIdentity(id);
-      await refetch();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : t('settings-ident-error-generic'));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <section class={css.section} aria-label={t('settings-ident-title')}>
-      <h2 class={css.heading}>{t('settings-ident-title')}</h2>
-      <p class={css.prose}>{t('settings-ident-intro')}</p>
-
+export interface IdentitiesProps { service?:SettingsService }
+export function Identities(props:IdentitiesProps):JSX.Element {
+ const service=props.service??new SettingsService();const navigation=useEntityNavigation('identities');const [identities,{refetch}]=createResource(()=>service.listIdentities());const [busy,setBusy]=createSignal(false);
+ onMount(()=>void loadCatalog('settings'));
+ const editor=()=>navigation.route().section==='identities'?navigation.route().editor:undefined;
+ const open=(id?:string)=>navigation.navigate({section:'identities',editor:id===undefined?{kind:'new'}:{kind:'edit',id}});
+ const back=async():Promise<void>=>{await navigation.navigate({section:'identities'});};
+ async function remove(id:string):Promise<void>{setBusy(true);try{await service.deleteIdentity(id);await refetch();}catch{toast.error(t('settings-ident-error-generic'));}finally{setBusy(false);}}
+ return <Show when={editor()} keyed fallback={<section class={css.section} aria-label={t('settings-ident-title')}><h2 class={css.heading}>{t('settings-ident-title')}</h2><p class={css.prose}>{t('settings-ident-intro')}</p><Show when={identities.loading}><AsyncPending onRetry={()=>void refetch()}/></Show>
       <ul class={css.list} data-testid="identity-list">
         <For each={identities() ?? []}>
           {(identity) => (
@@ -98,7 +24,7 @@ export function Identities(props: IdentitiesProps): JSX.Element {
                 <span class={css.meta}>{isolate(identity.email)}</span>
               </div>
               <div class={css.actions}>
-                <button type="button" class={css.ghost} disabled={busy()} onClick={() => edit(identity)}>
+                <button type="button" class={css.ghost} disabled={busy()} onClick={()=>void open(identity.id)}>
                   {t('settings-edit')}
                 </button>
                 <button type="button" class={css.danger} disabled={busy()} onClick={() => void remove(identity.id)}>
@@ -109,82 +35,6 @@ export function Identities(props: IdentitiesProps): JSX.Element {
           )}
         </For>
       </ul>
-
-      <Show
-        when={editing()}
-        fallback={
-          <div class={css.actions}>
-            <button type="button" class={css.button} onClick={startNew}>
-              {t('settings-ident-new')}
-            </button>
-          </div>
-        }
-      >
-        <div class={css.field} data-testid="identity-editor">
-          <label class={css.field}>
-            <span class={css.label}>{t('settings-ident-name-label')}</span>
-            <input
-              class={css.input}
-              aria-label={t('settings-ident-name-label')}
-              value={draft().name}
-              onInput={(e) => setDraft({ ...draft(), name: e.currentTarget.value })}
-            />
-          </label>
-          <label class={css.field}>
-            <span class={css.label}>{t('settings-ident-email-label')}</span>
-            <input
-              class={css.input}
-              type="email"
-              autocomplete="email"
-              aria-label={t('settings-ident-email-label')}
-              value={draft().email}
-              onInput={(e) => setDraft({ ...draft(), email: e.currentTarget.value })}
-            />
-          </label>
-          <label class={css.field}>
-            <span class={css.label}>{t('settings-ident-replyto-label')}</span>
-            <input
-              class={css.input}
-              type="email"
-              aria-label={t('settings-ident-replyto-label')}
-              value={draft().replyTo ?? ''}
-              onInput={(e) => setDraft({ ...draft(), replyTo: e.currentTarget.value })}
-            />
-          </label>
-          <label class={css.field}>
-            <span class={css.label}>{t('settings-ident-signature-label')}</span>
-            <select
-              class={css.select}
-              aria-label={t('settings-ident-signature-label')}
-              value={draft().signatureName ?? ''}
-              onChange={(e) => {
-                const value = e.currentTarget.value;
-                const { signatureName: _drop, ...rest } = draft();
-                setDraft(value === '' ? rest : { ...rest, signatureName: value });
-              }}
-            >
-              <option value="">{t('settings-ident-signature-none')}</option>
-              <For each={signatures() ?? []}>{(sig) => <option value={sig.name}>{sig.name}</option>}</For>
-            </select>
-          </label>
-          <div class={css.actions}>
-            <button type="button" class={css.button} disabled={busy()} onClick={() => void save()} data-testid="identity-save">
-              {t('settings-save')}
-            </button>
-            <button type="button" class={css.ghost} disabled={busy()} onClick={() => setEditing(false)}>
-              {t('settings-cancel')}
-            </button>
-          </div>
-        </div>
-      </Show>
-
-      <Show when={fieldError() !== ''}>
-        <p class={css.error} role="alert">
-          {fieldError()}
-        </p>
-      </Show>
-    </section>
-  );
+<div class={css.actions}><button class={css.button} onClick={()=>void open()}>{t('settings-ident-new')}</button></div></section>}>{route=> <Show when={route.kind==='new'} fallback={<Show when={identities()?.find(item=>item.id===route.id)} keyed fallback={<Show when={!identities.loading}><p>{t('settings-editor-missing')}</p><button class={css.ghost} onClick={()=>void back()}>{t('settings-editor-back')}</button></Show>}>{item=><IdentityEditor initial={item} service={service} onSaved={async()=>{await refetch();await back();}} onCancel={back}/>}</Show>}><IdentityEditor service={service} onSaved={async()=>{await refetch();await back();}} onCancel={back}/></Show>}</Show>;
 }
-
 export default Identities;

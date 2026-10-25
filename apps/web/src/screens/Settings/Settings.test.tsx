@@ -418,6 +418,23 @@ describe('webauthn — ceremony plumbing encodes base64url', () => {
 // ── Aggregator + W20 RTL locale ─────────────────────────────────────────────────
 
 describe('AccountSettings — composition + direction', () => {
+  it('mounts only the selected workspace section and preserves hideSecurity', async () => {
+    const signatures = vi.fn(async () => []);
+    const identities = vi.fn(async () => []);
+    const twofa = vi.fn();
+    const service = fakeService({ listSignatures: signatures, listIdentities: identities, twofaStatus: twofa });
+    const [section, setSection] = createSignal('signatures');
+    render(() => <AccountSettings service={service} hideSecurity section={section} />);
+    await screen.findByTestId('signature-list');
+    expect(identities).not.toHaveBeenCalled();
+    expect(twofa).not.toHaveBeenCalled();
+    setSection('identities');
+    await waitFor(() => expect(identities).toHaveBeenCalledOnce());
+    expect(screen.queryByTestId('signature-list')).not.toBeInTheDocument();
+    setSection('security');
+    expect(twofa).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => localStorage.clear());
 
   it('renders all sections and mirrors when the direction pref is RTL', async () => {
