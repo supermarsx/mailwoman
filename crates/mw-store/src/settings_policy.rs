@@ -33,6 +33,32 @@
 use crate::backend::{Row, q};
 use crate::{Store, StoreError};
 
+/// Shared IDNA domain normalization for login configuration and policy lookup.
+/// Reject addresses, URLs, ports and IP literals instead of reinterpreting them.
+pub fn normalize_policy_domain(input: &str) -> Result<String, StoreError> {
+    let input = input.trim().trim_end_matches('.');
+    let invalid = || StoreError::Corrupt("invalid policy domain name".into());
+    if input.is_empty() || input.contains(['/', '\\', '@', ':', '?', '#', '%']) {
+        return Err(invalid());
+    }
+    let host = url::Host::parse(input).map_err(|_| invalid())?;
+    let url::Host::Domain(host) = host else {
+        return Err(invalid());
+    };
+    if host.len() > 253
+        || !host.split('.').all(|part| {
+            !part.is_empty()
+                && part.len() <= 63
+                && !part.starts_with('-')
+                && !part.ends_with('-')
+                && part.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+    {
+        return Err(invalid());
+    }
+    Ok(host.to_ascii_lowercase())
+}
+
 /// A scope narrower than global (`setting_value.scope_kind`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SettingScope {
@@ -132,6 +158,67 @@ fn value_from_row(r: &Row) -> Result<SettingValueRow, StoreError> {
 }
 
 impl Store {
+    /// Resolve only explicit domain aliases for policy. This deliberately never
+    /// consults the preferred domain: an existing bare login has no domain.
+    pub async fn canonical_policy_domain(&self, domain: &str) -> Result<String, StoreError> {
+        if domain.trim().is_empty() {
+            return Ok(String::new());
+        }
+        let mut domain = normalize_policy_domain(domain)?;
+        let mut seen = Vec::new();
+        while !domain.is_empty() {
+            if seen.len() >= 16 || seen.contains(&domain) {
+                return Err(StoreError::Corrupt("cyclic domain policy alias".into()));
+            }
+            seen.push(domain.clone());
+            let Some(target) = self.domain_alias_target(&domain).await? else {
+                break;
+            };
+            domain = normalize_policy_domain(&target)?;
+        }
+        Ok(domain)
+    }
+
+    /// Canonical policy address, without changing the credential/login identity.
+    /// Bare names remain bare, rather than acquiring the current default domain.
+    pub async fn canonical_policy_address(&self, address: &str) -> Result<String, StoreError> {
+        let address = address.trim().to_lowercase();
+        let Some((local, domain)) = address.rsplit_once('@') else {
+            return Ok(address);
+        };
+        Ok(format!(
+            "{local}@{}",
+            self.canonical_policy_domain(domain).await?
+        ))
+    }
+
+    /// Domains belonging to the same configured mail namespace, for internal
+    /// forwarding classification. Empty/bare identities have no domain family.
+    pub async fn policy_domain_family(&self, domain: &str) -> Result<Vec<String>, StoreError> {
+        let canonical = self.canonical_policy_domain(domain).await?;
+        if canonical.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut domains = self.domain_aliases(&canonical).await?;
+        domains.push(canonical);
+        domains.sort();
+        domains.dedup();
+        Ok(domains)
+    }
+
+    pub async fn canonical_setting_subject(
+        &self,
+        subject: &SettingSubject<'_>,
+    ) -> Result<CanonicalSettingSubject, StoreError> {
+        let address = self.canonical_policy_address(subject.address).await?;
+        let domain = self.canonical_policy_domain(subject.domain).await?;
+        Ok(CanonicalSettingSubject {
+            domain,
+            account_id: subject.account_id.to_owned(),
+            address,
+        })
+    }
+
     /// The policy row of `key`, or `None` when nothing was ever stored for it.
     pub async fn get_setting_policy(
         &self,
@@ -197,6 +284,13 @@ impl Store {
         scope_id: &str,
         key: &str,
     ) -> Result<Option<SettingValueRow>, StoreError> {
+        let canonical_id;
+        let scope_id = if scope == SettingScope::Domain {
+            canonical_id = self.canonical_policy_domain(scope_id).await?;
+            canonical_id.as_str()
+        } else {
+            scope_id
+        };
         let row = q(
             "SELECT scope_kind, scope_id, key, value, locked, updated_by, updated_at
                      FROM setting_value WHERE scope_kind = ?1 AND scope_id = ?2 AND key = ?3",
@@ -211,6 +305,11 @@ impl Store {
 
     /// Insert or replace one scoped value row.
     pub async fn put_setting_value(&self, row: &SettingValueRow) -> Result<(), StoreError> {
+        let scope_id = if row.scope == SettingScope::Domain {
+            self.canonical_policy_domain(&row.scope_id).await?
+        } else {
+            row.scope_id.clone()
+        };
         q("INSERT INTO setting_value
                (scope_kind, scope_id, key, value, locked, updated_by, updated_at)
            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
@@ -220,7 +319,7 @@ impl Store {
                updated_by = excluded.updated_by,
                updated_at = excluded.updated_at")
         .bind(row.scope.as_str())
-        .bind(&row.scope_id)
+        .bind(&scope_id)
         .bind(&row.key)
         .bind(&row.value)
         .bind(i64::from(row.locked))
@@ -238,6 +337,13 @@ impl Store {
         scope_id: &str,
         key: &str,
     ) -> Result<bool, StoreError> {
+        let canonical_id;
+        let scope_id = if scope == SettingScope::Domain {
+            canonical_id = self.canonical_policy_domain(scope_id).await?;
+            canonical_id.as_str()
+        } else {
+            scope_id
+        };
         let n = q("DELETE FROM setting_value WHERE scope_kind = ?1 AND scope_id = ?2 AND key = ?3")
             .bind(scope.as_str())
             .bind(scope_id)
@@ -254,6 +360,13 @@ impl Store {
         scope: SettingScope,
         scope_id: &str,
     ) -> Result<u64, StoreError> {
+        let canonical_id;
+        let scope_id = if scope == SettingScope::Domain {
+            canonical_id = self.canonical_policy_domain(scope_id).await?;
+            canonical_id.as_str()
+        } else {
+            scope_id
+        };
         Ok(
             q("DELETE FROM setting_value WHERE scope_kind = ?1 AND scope_id = ?2")
                 .bind(scope.as_str())
@@ -318,6 +431,8 @@ impl Store {
         &self,
         subject: &SettingSubject<'_>,
     ) -> Result<Vec<SettingValueRow>, StoreError> {
+        let canonical = self.canonical_setting_subject(subject).await?;
+        let subject = &canonical.as_subject();
         let (profiles, groups) = self
             .setting_profile_and_group_ids(subject.account_id, subject.domain)
             .await?;
@@ -352,6 +467,13 @@ impl Store {
         scope: SettingScope,
         scope_id: &str,
     ) -> Result<Vec<SettingValueRow>, StoreError> {
+        let canonical_id;
+        let scope_id = if scope == SettingScope::Domain {
+            canonical_id = self.canonical_policy_domain(scope_id).await?;
+            canonical_id.as_str()
+        } else {
+            scope_id
+        };
         let rows = q(
             "SELECT scope_kind, scope_id, key, value, locked, updated_by, updated_at
                       FROM setting_value WHERE scope_kind = ?1 AND scope_id = ?2 ORDER BY key",
@@ -416,6 +538,25 @@ pub struct SettingSubject<'a> {
     pub account_id: &'a str,
     /// The canonical address: the per-user scope id of `limit.*`/`quota.*`.
     pub address: &'a str,
+}
+
+/// Owned policy identity after resolving aliases; upstream usernames and account
+/// identifiers are never rewritten in persisted authentication state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CanonicalSettingSubject {
+    pub domain: String,
+    pub account_id: String,
+    pub address: String,
+}
+
+impl CanonicalSettingSubject {
+    pub fn as_subject(&self) -> SettingSubject<'_> {
+        SettingSubject {
+            domain: &self.domain,
+            account_id: &self.account_id,
+            address: &self.address,
+        }
+    }
 }
 
 /// Where an effective value came from.
@@ -944,5 +1085,158 @@ mod tests {
             .await
             .unwrap();
         assert!(none.is_empty());
+    }
+    #[tokio::test]
+    async fn aliases_inherit_canonical_locks_addresses_and_domain_family_without_remapping_bare_users()
+     {
+        let s = Store::open_in_memory(crate::ServerKey::generate())
+            .await
+            .unwrap();
+        s.put_domain_config(&crate::DomainConfigRow {
+            name: "canonical.test".into(),
+            upstream_json: "{}".into(),
+            allowlist_json: "[]".into(),
+            blocklist_json: "[]".into(),
+            enabled: true,
+            preferred: true,
+            settings_json: "{}".into(),
+            updated_at: 1,
+        })
+        .await
+        .unwrap();
+        s.put_domain_alias("alias.test", "canonical.test")
+            .await
+            .unwrap();
+        s.set_preferred_domain(Some("canonical.test"))
+            .await
+            .unwrap();
+        let row = |scope, id: &str, key: &str, value: &str| SettingValueRow {
+            scope,
+            scope_id: id.into(),
+            key: key.into(),
+            value: value.into(),
+            locked: true,
+            updated_by: "admin".into(),
+            updated_at: 1,
+        };
+        s.put_setting_value(&row(
+            SettingScope::Domain,
+            "ALIAS.TEST",
+            "privacy.remoteContent",
+            "\"block\"",
+        ))
+        .await
+        .unwrap();
+        let stored = s
+            .get_setting_value(
+                SettingScope::Domain,
+                "canonical.test",
+                "privacy.remoteContent",
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            stored.scope_id, "canonical.test",
+            "writes through alias target the canonical row"
+        );
+        s.put_setting_value(&row(
+            SettingScope::AdminUser,
+            "user@canonical.test",
+            "quota.mailbox",
+            "42",
+        ))
+        .await
+        .unwrap();
+        let subject = SettingSubject {
+            domain: "ALIAS.TEST",
+            account_id: "Opaque-Account-ID",
+            address: "User@Alias.Test",
+        };
+        let canonical = s.canonical_setting_subject(&subject).await.unwrap();
+        assert_eq!(canonical.domain, "canonical.test");
+        assert_eq!(canonical.address, "user@canonical.test");
+        assert_eq!(canonical.account_id, "Opaque-Account-ID");
+        assert_eq!(
+            s.setting_values_for_subject(&subject).await.unwrap().len(),
+            2
+        );
+        assert_eq!(
+            s.held_setting("privacy.remoteContent", "\"ask\"", &subject)
+                .await
+                .unwrap(),
+            Some("\"block\"".into())
+        );
+        assert_eq!(
+            s.policy_domain_family("alias.test").await.unwrap(),
+            vec!["alias.test", "canonical.test"]
+        );
+        let bare = SettingSubject {
+            domain: "",
+            account_id: "Opaque-Account-ID",
+            address: "User",
+        };
+        let bare = s.canonical_setting_subject(&bare).await.unwrap();
+        assert!(bare.domain.is_empty());
+        assert_eq!(bare.address, "user");
+        assert!(
+            s.held_setting("privacy.remoteContent", "\"ask\"", &bare.as_subject())
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(s.policy_domain_family("").await.unwrap().is_empty());
+    }
+    #[tokio::test]
+    async fn unicode_aliases_use_idna_policy_rows_and_invalid_domains_fail_closed() {
+        let s = Store::open_in_memory(crate::ServerKey::generate())
+            .await
+            .unwrap();
+        s.put_domain_config(&crate::DomainConfigRow {
+            name: "canonical.test".into(),
+            upstream_json: "{}".into(),
+            allowlist_json: "[]".into(),
+            blocklist_json: "[]".into(),
+            enabled: true,
+            preferred: false,
+            settings_json: "{}".into(),
+            updated_at: 1,
+        })
+        .await
+        .unwrap();
+        s.put_domain_alias("xn--bcher-kva.test", "canonical.test")
+            .await
+            .unwrap();
+        assert_eq!(
+            normalize_policy_domain(" BÜCHER.test. ").unwrap(),
+            "xn--bcher-kva.test"
+        );
+        assert_eq!(
+            s.canonical_policy_domain("bücher.test").await.unwrap(),
+            "canonical.test"
+        );
+        assert_eq!(
+            s.canonical_policy_address("USER@bücher.test")
+                .await
+                .unwrap(),
+            "user@canonical.test"
+        );
+        assert_eq!(
+            s.canonical_policy_address("BÜCHER").await.unwrap(),
+            "bücher"
+        );
+        for bad in [
+            "127.1",
+            "127.0.0.1",
+            "[::1]",
+            "a/b",
+            "a@b",
+            "a:443",
+            "a%2eb",
+            "-a.test",
+            "a..test",
+        ] {
+            assert!(normalize_policy_domain(bad).is_err(), "{bad}");
+        }
     }
 }

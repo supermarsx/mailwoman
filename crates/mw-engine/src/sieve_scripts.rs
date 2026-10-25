@@ -70,7 +70,7 @@ impl Engine {
                     .filter_map(|v| v.as_str().map(str::to_string))
                     .collect()
             }),
-            own_domains: vec![domain.to_string()],
+            own_domains: self.store().policy_domain_family(domain).await?,
             advertised: Some(
                 mw_sieve::local::EXTENSIONS
                     .iter()
