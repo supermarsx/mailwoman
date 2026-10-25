@@ -3,6 +3,7 @@ import solid from 'vite-plugin-solid';
 import { vanillaExtractPlugin } from '@vanilla-extract/vite-plugin';
 import wasm from 'vite-plugin-wasm';
 import topLevelAwait from 'vite-plugin-top-level-await';
+import { bundledPackages } from './scripts/about-bundled-packages.mjs';
 
 const UPSTREAM = 'http://localhost:8080';
 
@@ -27,7 +28,10 @@ export default defineConfig({
   // crypto Web Worker import the wasm-pack `mw-crypto` (+ `mw-sanitize`) bundle
   // that e8 builds into `src/wasm/` via `scripts/build-wasm.*`. Added now so e8's
   // dynamic `import()` of the wasm module resolves; inert until that bundle exists.
-  plugins: [solid(), vanillaExtractPlugin(), wasm(), topLevelAwait()],
+  plugins: [solid(), vanillaExtractPlugin(), wasm(), topLevelAwait(), bundledPackages({ main: true })],
+  // t32-e75: the bundle recorder also sees the worker builds; the main instance writes
+  // node_modules/.cache/mailwoman-about/bundled-packages.json for the third-party list.
+  worker: { plugins: () => [bundledPackages()] },
   server: {
     port: 5173,
     proxy: {
