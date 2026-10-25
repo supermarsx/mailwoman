@@ -14,6 +14,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
+pub use crate::login_failure::{LoginFailure, LoginFailureReason};
 use mw_engine::Engine;
 use mw_engine::account::{AccountPolicy, AccountRuntime, MailSubmitter};
 use mw_engine::backend::AccountBackend;
@@ -307,10 +308,27 @@ pub(crate) async fn account_matches_upstream(
         .as_ref()
         .and_then(|c| c.mail())
         .map(|(endpoint, _)| endpoint);
-    Ok(account.kind == expected.kind
+    let binding = configured
+        .as_ref()
+        .map(|c| c.binding())
+        .transpose()?
+        .flatten();
+    let saved_binding = AccountPolicy::from_json(&account.sync_policy_json).domain_binding;
+    Ok(binding == saved_binding
+        && account.kind == expected.kind
         && account.host.eq_ignore_ascii_case(&expected.host)
         && account.port == expected.port
-        && endpoint.is_none_or(|endpoint| account.tls == endpoint.transport_security()))
+        && endpoint.is_none_or(|endpoint| match &endpoint.security {
+            Some(security) => security.allowed.iter().any(|method| {
+                account.tls
+                    == match method {
+                        crate::domain_config::TlsMode::Implicit => "implicit",
+                        crate::domain_config::TlsMode::Starttls => "starttls",
+                        crate::domain_config::TlsMode::None => "plaintext",
+                    }
+            }),
+            None => account.tls == endpoint.transport_security(),
+        }))
 }
 
 /// Connect one stored account, retrying per [`BOOT_REGISTER_RETRY`]. Returns
@@ -472,13 +490,24 @@ fn smtp_policy(imap_host: &str) -> AccountPolicy {
 }
 
 /// Build the submitter for an account from its policy + credentials.
-fn build_submitter(policy: &AccountPolicy, username: &str, password: &str) -> mw_smtp::Submitter {
+fn build_submitter(
+    policy: &AccountPolicy,
+    username: &str,
+    password: &str,
+    auth_policy: Option<mw_net::PasswordAuthPolicy>,
+) -> mw_smtp::Submitter {
     let security = match policy.smtp_security.as_str() {
         "implicit" => mw_smtp::Security::ImplicitTls,
         "plaintext" => mw_smtp::Security::Plaintext,
         _ => mw_smtp::Security::StartTls,
     };
-    let credentials = if password.is_empty() {
+    let credentials = if let Some(auth_policy) = auth_policy {
+        mw_smtp::Credentials::PasswordWithPolicy {
+            user: username.into(),
+            pass: password.into(),
+            policy: auth_policy,
+        }
+    } else if password.is_empty() {
         mw_smtp::Credentials::None
     } else {
         mw_smtp::Credentials::Plain {
@@ -504,6 +533,98 @@ fn endpoint_dialer(endpoint: &crate::domain_config::Endpoint) -> mw_net::SharedD
     )
 }
 
+/// Resolve transport choices without credentials. Reconnects pin the method selected
+/// at sign-in; changing it requires a fresh sign-in rather than replaying credentials.
+async fn resolve_domain_transports(
+    store: &mw_store::Store,
+    config: &mut crate::domain_config::UpstreamConfig,
+    identity: &str,
+    pinned: Option<(&str, &str)>,
+) -> Result<(mw_net::TlsOptions, mw_net::TlsOptions), LoginFailure> {
+    let domain = crate::upstream_resolve::domain_of(identity)
+        .ok_or("configured transport needs an email identity")?;
+    let domain = store
+        .canonical_policy_domain(&domain)
+        .await
+        .map_err(|_| "domain lookup failed")?;
+    let plan = crate::image_proxy::load_plan(store)
+        .await
+        .map_err(|_| "configured egress route is unavailable")?;
+    let mut mail_options = mw_net::TlsOptions::default();
+    let mut smtp_options = mw_net::TlsOptions::default();
+    for (protocol, slot) in [
+        ("imap", &mut config.imap),
+        ("pop3", &mut config.pop3),
+        ("smtp", &mut config.smtp),
+    ] {
+        let Some(endpoint) = slot else {
+            continue;
+        };
+        let mut candidate = endpoint.clone();
+        if let Some((mail, smtp)) = pinned
+            && let Some(security) = &mut candidate.security
+            && security.mode == crate::domain_security::SecurityMode::Auto
+        {
+            let pinned = if protocol == "smtp" { smtp } else { mail };
+            let method = match pinned {
+                "implicit" => crate::domain_config::TlsMode::Implicit,
+                "starttls" => crate::domain_config::TlsMode::Starttls,
+                "plaintext" => crate::domain_config::TlsMode::None,
+                _ => return Err("invalid persisted transport method".into()),
+            };
+            if !security.allowed.contains(&method) {
+                return Err(
+                    "persisted transport method is no longer allowed; sign in again".into(),
+                );
+            }
+            security.mode = crate::domain_security::SecurityMode::Fixed;
+            security.allowed = vec![method];
+        }
+        let resolved =
+            crate::domain_security::resolve_endpoint(protocol, &candidate, &domain, &plan)
+                .await
+                .map_err(|e| LoginFailure::from_io(&e))?;
+        *endpoint = resolved.endpoint;
+        if protocol == "smtp" {
+            smtp_options = resolved.tls_options;
+        } else {
+            mail_options = resolved.tls_options;
+        }
+    }
+    Ok((mail_options, smtp_options))
+}
+
+type LoginObservation = Arc<Mutex<Option<LoginFailureReason>>>;
+#[derive(Debug)]
+struct ObservedDialer {
+    inner: mw_net::SharedDialer,
+    failure: LoginObservation,
+}
+impl mw_net::Dialer for ObservedDialer {
+    fn dial<'a>(
+        &'a self,
+        host: &'a str,
+        port: u16,
+    ) -> mw_net::BoxFuture<'a, std::io::Result<mw_net::BoxStream>> {
+        Box::pin(async move {
+            self.inner.dial(host, port).await.inspect_err(|error| {
+                *self
+                    .failure
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner()) =
+                    Some(LoginFailure::from_io(error).reason);
+            })
+        })
+    }
+}
+
+struct BackendTransport {
+    observation: LoginObservation,
+    dialer: Option<mw_net::SharedDialer>,
+    tls_options: mw_net::TlsOptions,
+    auth_policy: Option<mw_net::PasswordAuthPolicy>,
+}
+
 /// Dial + authenticate the account backend for a stored account row.
 async fn connect_backend(
     kind: AccountKind,
@@ -512,8 +633,20 @@ async fn connect_backend(
     tls: &str,
     credentials: (&str, &str),
     policy: &AccountPolicy,
-    dialer: Option<mw_net::SharedDialer>,
-) -> Result<Arc<dyn AccountBackend>, String> {
+    transport: BackendTransport,
+) -> Result<Arc<dyn AccountBackend>, LoginFailure> {
+    let BackendTransport {
+        dialer,
+        tls_options,
+        observation,
+        auth_policy,
+    } = transport;
+    let dialer = dialer.map(|inner| {
+        Arc::new(ObservedDialer {
+            inner,
+            failure: observation.clone(),
+        }) as mw_net::SharedDialer
+    });
     let (username, password) = credentials;
     match kind {
         AccountKind::Imap => {
@@ -526,15 +659,30 @@ async fn connect_backend(
                 host: host.to_string(),
                 port,
                 tls: tls_mode,
-                credentials: mw_imap::Credentials::Password {
-                    username: username.to_string(),
-                    password: password.to_string(),
+                credentials: if let Some(policy) = auth_policy {
+                    mw_imap::Credentials::PasswordWithPolicy {
+                        username: username.into(),
+                        password: password.into(),
+                        policy,
+                    }
+                } else {
+                    mw_imap::Credentials::Password {
+                        username: username.to_string(),
+                        password: password.to_string(),
+                    }
                 },
                 watch_mailbox: "INBOX".to_string(),
             };
-            let backend = mw_imap::ImapBackend::connect_via(config, dialer)
+            let backend = mw_imap::ImapBackend::connect_via_with_tls(config, dialer, tls_options)
                 .await
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| {
+                    LoginFailure::from_backend(
+                        e,
+                        *observation
+                            .lock()
+                            .unwrap_or_else(|poison| poison.into_inner()),
+                    )
+                })?;
             Ok(Arc::new(backend))
         }
         AccountKind::Pop3 => {
@@ -553,9 +701,13 @@ async fn connect_backend(
                 leave_policy: mw_pop3::LeavePolicy::Keep,
                 poll_interval: std::time::Duration::from_secs(policy.poll_secs.max(1)),
             };
-            Ok(Arc::new(
-                mw_pop3::Pop3Backend::new(config).with_dialer(dialer),
-            ))
+            let mut backend = mw_pop3::Pop3Backend::new(config)
+                .with_dialer(dialer)
+                .with_tls_options(tls_options);
+            if let Some(policy) = auth_policy {
+                backend = backend.with_auth_policy(policy);
+            }
+            Ok(Arc::new(backend))
         }
     }
 }
@@ -639,10 +791,26 @@ pub async fn engine_login(
     server_url: &str,
     username: &str,
     password: &str,
-) -> Result<(String, String), String> {
+) -> Result<(String, String), LoginFailure> {
     let mut url =
         parse_mail_url(server_url).ok_or_else(|| "unrecognised mail server URL".to_string())?;
-    let configured = crate::domain_config::upstream_for(engine.store(), username).await?;
+    let mut configured = crate::domain_config::upstream_for(engine.store(), username).await?;
+    let binding = configured
+        .as_ref()
+        .map(|c| c.binding())
+        .transpose()?
+        .flatten();
+    let (mail_tls_options, smtp_tls_options) = if let Some(config) = &mut configured {
+        resolve_domain_transports(engine.store(), config, username, None).await?
+    } else {
+        (mw_net::TlsOptions::default(), mw_net::TlsOptions::default())
+    };
+    if configured
+        .as_ref()
+        .is_some_and(|config| config.selection.is_some() && config.mail().is_none())
+    {
+        return Err("no enabled mail backend is configured for this engine".into());
+    }
     let domain_mail = configured.as_ref().and_then(|config| config.mail());
     if let Some((endpoint, protocol)) = domain_mail {
         url = MailUrl {
@@ -668,7 +836,22 @@ pub async fn engine_login(
     {
         url.tls = tls;
     }
-    let mut policy = smtp_policy(&url.host);
+    let mut policy = if configured.as_ref().is_some_and(|c| c.selection.is_some()) {
+        AccountPolicy::default()
+    } else {
+        smtp_policy(&url.host)
+    };
+    policy.domain_binding = binding;
+    let wire_username = configured
+        .as_ref()
+        .map(|c| c.auth_username(crate::domain_selection::ServiceRole::Mail, username))
+        .transpose()?
+        .unwrap_or_else(|| username.into());
+    let smtp_username = configured
+        .as_ref()
+        .map(|c| c.auth_username(crate::domain_selection::ServiceRole::Submission, username))
+        .transpose()?
+        .unwrap_or_else(|| username.into());
     if let Some(smtp) = configured.as_ref().and_then(|config| config.smtp.as_ref()) {
         policy.smtp_host = smtp.host.trim_matches(['[', ']']).to_string();
         policy.smtp_port = smtp.port;
@@ -683,17 +866,33 @@ pub async fn engine_login(
     // behind, and must not overwrite the credentials stored for an account that
     // already exists. IMAP authenticates inside `connect`; POP3 constructs without
     // dialling, so one authenticated round-trip is what proves the password.
+    let observation = Arc::new(Mutex::new(None));
     let backend = connect_backend(
         url.kind,
         &url.host,
         url.port,
         &url.tls,
-        (username, password),
+        (&wire_username, password),
         &policy,
-        domain_mail.map(|(endpoint, _)| endpoint_dialer(endpoint)),
+        BackendTransport {
+            observation: observation.clone(),
+            dialer: domain_mail.map(|(endpoint, _)| endpoint_dialer(endpoint)),
+            tls_options: mail_tls_options,
+            auth_policy: domain_mail
+                .map(|(endpoint, protocol)| endpoint.auth_policy(protocol))
+                .transpose()?
+                .flatten(),
+        },
     )
     .await?;
-    backend.list_mailboxes().await.map_err(|e| e.to_string())?;
+    backend.list_mailboxes().await.map_err(|e| {
+        LoginFailure::from_backend(
+            e,
+            *observation
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner()),
+        )
+    })?;
 
     // An account the admin has disabled stops here. The password has been
     // checked, so the refusal takes as long as one for a wrong password and the
@@ -705,7 +904,7 @@ pub async fn engine_login(
         .store()
         .account_id_by_identity(url.kind, &url.host, url.port, username)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|_| LoginFailure::new(LoginFailureReason::Storage))?;
     let gate = crate::account_gate::for_login(
         engine.store(),
         known.as_deref().unwrap_or(""),
@@ -713,12 +912,12 @@ pub async fn engine_login(
         username,
     )
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| LoginFailure::new(LoginFailureReason::Storage))?;
     if gate.disabled {
         if let Some(id) = &known {
             engine.unregister(id);
         }
-        return Err(format!("account {username} is disabled"));
+        return Err(LoginFailure::new(LoginFailureReason::Disabled));
     }
 
     // Find the account this identity logged in as before, or create it. The id
@@ -738,9 +937,21 @@ pub async fn engine_login(
             &creds,
         )
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|_| LoginFailure::new(LoginFailureReason::Storage))?;
 
-    let submitter = build_submitter(&policy, username, password).with_dialer(
+    let submitter = build_submitter(
+        &policy,
+        &smtp_username,
+        password,
+        configured
+            .as_ref()
+            .and_then(|c| c.smtp.as_ref())
+            .map(|e| e.auth_policy("smtp"))
+            .transpose()?
+            .flatten(),
+    )
+    .with_tls_options(smtp_tls_options)
+    .with_dialer(
         configured
             .as_ref()
             .and_then(|c| c.smtp.as_ref())
@@ -751,7 +962,9 @@ pub async fn engine_login(
     // instead of reading while it runs. The dial above is outside the lock.
     let lock = connect_lock(&account_id);
     let _connecting = lock.lock().await;
-    register_and_sync(engine, &account_id, backend, submitter, username).await?;
+    register_and_sync(engine, &account_id, backend, submitter, username)
+        .await
+        .map_err(|_| LoginFailure::new(LoginFailureReason::Sync))?;
 
     Ok((account_id, username.to_string()))
 }
@@ -772,9 +985,6 @@ pub async fn ensure_account(engine: &Arc<Engine>, account_id: &str) -> Result<()
     // in between read an empty mailbox list.
     let lock = connect_lock(account_id);
     let _connecting = lock.lock().await;
-    if engine.is_registered(account_id) {
-        return Ok(());
-    }
     // A disabled account is not connected, whoever asks: a caller with no
     // session behind it (the admin metadata passthrough, start-up registration)
     // reaches this too. Unreadable flags refuse.
@@ -794,7 +1004,8 @@ pub async fn ensure_account(engine: &Arc<Engine>, account_id: &str) -> Result<()
         .account_credentials(account_id)
         .await
         .map_err(|e| e.to_string())?;
-    let configured = crate::domain_config::upstream_for(engine.store(), &account.username).await?;
+    let mut configured =
+        crate::domain_config::upstream_for(engine.store(), &account.username).await?;
     let domain_mail = configured.as_ref().and_then(|c| c.mail());
     if let Some((endpoint, protocol)) = domain_mail
         && !account_matches_upstream(engine.store(), &account, &endpoint.mail_url(protocol)).await?
@@ -802,6 +1013,56 @@ pub async fn ensure_account(engine: &Arc<Engine>, account_id: &str) -> Result<()
         return Err("account upstream was replaced; sign in again".into());
     }
     let mut policy = AccountPolicy::from_json(&account.sync_policy_json);
+    let binding = configured
+        .as_ref()
+        .map(|c| c.binding())
+        .transpose()?
+        .flatten();
+    if policy.domain_binding != binding {
+        engine.unregister(account_id);
+        return Err("account authentication policy changed; sign in again".into());
+    }
+    if configured
+        .as_ref()
+        .is_some_and(|c| c.selection.is_some() && c.mail().is_none())
+    {
+        return Err("no enabled mail backend is configured".into());
+    }
+    if engine.is_registered(account_id) {
+        return Ok(());
+    }
+    let (mail_tls_options, smtp_tls_options) = if let Some(config) = &mut configured {
+        resolve_domain_transports(
+            engine.store(),
+            config,
+            &account.username,
+            Some((&account.tls, &policy.smtp_security)),
+        )
+        .await?
+    } else {
+        (mw_net::TlsOptions::default(), mw_net::TlsOptions::default())
+    };
+    let domain_mail = configured.as_ref().and_then(|c| c.mail());
+    let wire_username = configured
+        .as_ref()
+        .map(|c| {
+            c.auth_username(
+                crate::domain_selection::ServiceRole::Mail,
+                &account.username,
+            )
+        })
+        .transpose()?
+        .unwrap_or_else(|| creds.username.clone());
+    let smtp_username = configured
+        .as_ref()
+        .map(|c| {
+            c.auth_username(
+                crate::domain_selection::ServiceRole::Submission,
+                &account.username,
+            )
+        })
+        .transpose()?
+        .unwrap_or_else(|| creds.username.clone());
     if let Some(endpoint) = configured.as_ref().and_then(|c| c.smtp.as_ref()) {
         policy.smtp_host = endpoint.host.trim_matches(['[', ']']).to_string();
         policy.smtp_port = endpoint.port;
@@ -813,12 +1074,32 @@ pub async fn ensure_account(engine: &Arc<Engine>, account_id: &str) -> Result<()
         &account.host,
         account.port,
         &account.tls,
-        (&creds.username, &creds.password),
+        (&wire_username, &creds.password),
         &policy,
-        domain_mail.map(|(endpoint, _)| endpoint_dialer(endpoint)),
+        BackendTransport {
+            observation: Arc::new(Mutex::new(None)),
+            dialer: domain_mail.map(|(endpoint, _)| endpoint_dialer(endpoint)),
+            tls_options: mail_tls_options,
+            auth_policy: domain_mail
+                .map(|(endpoint, protocol)| endpoint.auth_policy(protocol))
+                .transpose()?
+                .flatten(),
+        },
     )
     .await?;
-    let submitter = build_submitter(&policy, &creds.username, &creds.password).with_dialer(
+    let submitter = build_submitter(
+        &policy,
+        &smtp_username,
+        &creds.password,
+        configured
+            .as_ref()
+            .and_then(|c| c.smtp.as_ref())
+            .map(|e| e.auth_policy("smtp"))
+            .transpose()?
+            .flatten(),
+    )
+    .with_tls_options(smtp_tls_options)
+    .with_dialer(
         configured
             .as_ref()
             .and_then(|c| c.smtp.as_ref())

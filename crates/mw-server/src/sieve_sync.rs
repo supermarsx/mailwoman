@@ -128,27 +128,37 @@ pub(crate) async fn connect_account_sieve(
     account_id: &str,
     username: &str,
 ) -> Result<ManageSieveClient, Response> {
-    let endpoint = domain_config::upstream_for(&state.store, username)
+    let configured = domain_config::upstream_for(&state.store, username)
         .await
         .map_err(|_| upstream("could not load the account's Sieve configuration"))?
-        .and_then(|config| config.sieve)
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_IMPLEMENTED,
-                Json(json!({"error":"this account has no configured ManageSieve endpoint"})),
-            )
-                .into_response()
-        })?;
+        .ok_or_else(|| upstream("the account has no configured upstream"))?;
+    let wire_username = configured
+        .auth_username(crate::domain_selection::ServiceRole::Rules, username)
+        .map_err(|_| upstream("invalid Sieve authentication identity"))?;
+    let account = state
+        .store
+        .get_account(account_id)
+        .await
+        .map_err(|_| upstream("could not resolve Sieve account"))?;
+    if mw_engine::AccountPolicy::from_json(&account.sync_policy_json).domain_binding
+        != configured
+            .binding()
+            .map_err(|_| upstream("invalid domain binding"))?
+    {
+        return Err(crate::unauthorized());
+    }
+    let endpoint = configured.sieve.ok_or_else(|| {
+        (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(json!({"error":"this account has no configured ManageSieve endpoint"})),
+        )
+            .into_response()
+    })?;
     let credentials = state
         .store
         .account_credentials(account_id)
         .await
         .map_err(|_| upstream("could not load mail credentials"))?;
-    let mode = match endpoint.tls {
-        domain_config::TlsMode::Implicit => TlsMode::Implicit,
-        domain_config::TlsMode::Starttls => TlsMode::StartTls,
-        domain_config::TlsMode::None => TlsMode::Plaintext,
-    };
     let plan = image_proxy::load_plan(&state.store)
         .await
         .map_err(|_| upstream("configured egress route is unavailable"))?;
@@ -162,6 +172,23 @@ pub(crate) async fn connect_account_sieve(
         ),
         None => None,
     };
+    let resolved = crate::domain_security::resolve_endpoint(
+        "sieve",
+        &endpoint,
+        domain.as_deref().unwrap_or(""),
+        &plan,
+    )
+    .await
+    .map_err(|_| upstream("Sieve transport negotiation failed"))?;
+    let endpoint = resolved.endpoint;
+    let auth_policy = endpoint
+        .auth_policy("sieve")
+        .map_err(|_| upstream("invalid Sieve authentication policy"))?;
+    let mode = match endpoint.tls {
+        domain_config::TlsMode::Implicit => TlsMode::Implicit,
+        domain_config::TlsMode::Starttls => TlsMode::StartTls,
+        domain_config::TlsMode::None => TlsMode::Plaintext,
+    };
     let stream = mw_egress::plan::connect_sieve_with(
         &plan,
         domain.as_deref(),
@@ -174,14 +201,16 @@ pub(crate) async fn connect_account_sieve(
     .map_err(|_| upstream("could not connect to the configured Sieve endpoint"))?;
     tokio::time::timeout(
         std::time::Duration::from_secs(15),
-        ManageSieveClient::from_stream(
+        ManageSieveClient::from_stream_with_auth(
             Box::new(stream),
             endpoint.host.trim_matches(['[', ']']),
             mode,
             Credentials::Plain {
-                username: credentials.username,
+                username: wire_username,
                 password: credentials.password,
             },
+            &resolved.tls_options,
+            auth_policy.as_ref(),
         ),
     )
     .await

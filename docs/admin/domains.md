@@ -9,7 +9,9 @@ sign-in allow/block lists, enable/disable, aliases, and web-host mappings. A pre
 domain expands a bare login such as `alice` to `alice@example.org`. A configured web
 host mapping takes precedence over the preferred domain. Forwarded host headers are
 used only from trusted proxies. Aliases share routing and policy with the canonical
-domain; the username sent upstream retains the domain the user typed.
+domain. The application retains the address the user typed as its account identity;
+an explicit backend username format can change only the name used to authenticate
+to that backend.
 
 Domain upstream edits require an unscoped `domains.upstream_write` grant. Sign-in
 lists require `domains.signin_policy` for that domain. Lists support case-insensitive
@@ -24,6 +26,44 @@ option. The actual dial checks every DNS answer and connects to checked addresse
 link-local and metadata destinations remain refused. Default environment-configured
 upstreams retain their existing deployment policy. JMAP requests retain the existing
 JMAP upstream allowlist and redirect policy.
+
+## Backend selection and authentication names
+
+Version 2 configurations contain up to 32 named backends, grouped by service:
+mail (IMAP, POP3, or JMAP), submission (SMTP), and rules (ManageSieve). Each
+backend has an enabled flag, a numeric priority, and an optional preferred flag.
+Selection uses the enabled preferred backend first, then the lowest priority
+number, then the backend ID. Only one preferred backend is allowed per service.
+Selection does not retry a password against another backend after authentication
+fails. A configured domain with no enabled mail backend refuses login.
+
+The process-wide engine/proxy mode still applies; a backend list does not enable
+mixed JMAP proxy and IMAP/POP3 engine operation within one running server.
+
+Socket backends can authenticate with the full email address, local username,
+`DOMAIN\user`, `user@realm`, or a custom template. Templates accept `{user}`,
+`{domain}`, `{email}`, and `{realm}` and must include `{user}` or `{email}`.
+Each service can use its own format. Formatting never changes account IDs,
+session identity, or policy identity. JMAP currently requires the full-email
+format. Changing the selected endpoint or authentication format requires a fresh
+sign-in rather than silently reusing an existing authenticated connection.
+
+## Connection security
+
+Fixed security uses one selected method. Auto security tries the administrator's
+ordered list before sending credentials. It advances only when the server does
+not support the attempted method; certificate, hostname, network, and timeout
+failures stop selection. Plaintext must be explicitly permitted before it can
+appear in that list. Allowing plaintext permits an unencrypted connection when
+the preceding methods are unavailable.
+
+An optional TLS server name supports connecting to an IP address while verifying
+the certificate against a DNS name. A public PEM CA bundle adds private trust
+anchors to the standard roots. Certificate verification remains enabled, and the
+process-wide minimum TLS version still applies. These settings are used by IMAP,
+POP3, SMTP, and ManageSieve, including STARTTLS upgrades. Existing sessions pin the
+selected security method on reconnection; changing configuration requires login
+again. SSH tunneling is not provided by these endpoint settings.
 
 Discovery runs only when an authorized administrator requests it. HTTP discovery
 uses the `admin_detect` egress route, including redirects, and returns a proposal

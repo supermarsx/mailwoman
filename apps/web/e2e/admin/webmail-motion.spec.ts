@@ -16,7 +16,7 @@ test('webmail reader and module entries preserve geometry and respect reduced mo
   const reader = page.locator('section.reader');
   await row.click();
   await expect(reader).toHaveAttribute('data-mw-entering', 'true');
-  expect(await reader.evaluate(node => getComputedStyle(node).animationName)).not.toBe('none');
+  await expect.poll(() => reader.evaluate(node => getComputedStyle(node).animationName)).not.toBe('none');
   expect(await reader.evaluate(node => getComputedStyle(node).transform)).toBe('none');
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await expect.poll(() => reader.evaluate(node => getComputedStyle(node).animationName)).toBe('none');

@@ -9,6 +9,39 @@ use std::{
 };
 use tokio::net::TcpStream;
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum DialPhase {
+    Dns,
+    Connect,
+}
+#[derive(Debug)]
+pub(crate) struct DialFailure {
+    pub phase: DialPhase,
+    source: io::Error,
+}
+impl std::fmt::Display for DialFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self.phase {
+            DialPhase::Dns => "DNS lookup failed",
+            DialPhase::Connect => "upstream connection failed",
+        })
+    }
+}
+impl std::error::Error for DialFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
+    }
+}
+fn stage(phase: DialPhase, error: io::Error) -> io::Error {
+    io::Error::new(
+        error.kind(),
+        DialFailure {
+            phase,
+            source: error,
+        },
+    )
+}
+
 #[derive(Debug, Clone)]
 pub struct GuardedDialer {
     host: String,
@@ -60,7 +93,10 @@ impl Dialer for GuardedDialer {
             tokio::time::timeout(Duration::from_secs(5), async {
                 let host = host.trim_matches(['[', ']']);
                 let addresses = checked_addresses(
-                    tokio::net::lookup_host((host, port)).await?.collect(),
+                    tokio::net::lookup_host((host, port))
+                        .await
+                        .map_err(|e| stage(DialPhase::Dns, e))?
+                        .collect(),
                     self.allow_private,
                 )?;
                 let mut last =
@@ -74,7 +110,7 @@ impl Dialer for GuardedDialer {
                         Err(error) => last = error,
                     }
                 }
-                Err(last)
+                Err(stage(DialPhase::Connect, last))
             })
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "upstream connection timed out"))?

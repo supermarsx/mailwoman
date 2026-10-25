@@ -129,6 +129,8 @@ impl AccountRuntime {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AccountPolicy {
+    /// Opaque binding to operator-selected domain authorities and auth policy.
+    pub domain_binding: Option<String>,
     /// Submission host (empty ⇒ no send configured).
     pub smtp_host: String,
     /// Submission port.
@@ -146,6 +148,7 @@ pub struct AccountPolicy {
 impl Default for AccountPolicy {
     fn default() -> Self {
         Self {
+            domain_binding: None,
             smtp_host: String::new(),
             smtp_port: 587,
             smtp_security: "starttls".to_string(),

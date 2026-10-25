@@ -47,6 +47,7 @@ pub struct Probe {
     greeting: Option<String>,
     capabilities: Vec<String>,
     error: Option<String>,
+    selected_reason: Option<String>,
 }
 type Windows = HashMap<(String, &'static str), (Instant, u8)>;
 static LIMITS: OnceLock<Mutex<Windows>> = OnceLock::new();
@@ -141,7 +142,7 @@ async fn upstream(
             }
         }
     }
-    let body = json!({"domain":domain,"results":probes,"ranAt":chrono::Utc::now().to_rfc3339(),"credentialsSent":false});
+    let body = json!({"domain":domain,"selection":config.selection,"selectionOrder":["preferred","priority","id"],"results":probes,"ranAt":chrono::Utc::now().to_rfc3339(),"credentialsSent":false});
     let mut cache = CACHE
         .get_or_init(Default::default)
         .lock()
@@ -242,10 +243,23 @@ async fn command(reader: &mut BufReader<BoxStream>, text: &[u8]) -> io::Result<(
     reader.get_mut().write_all(text).await?;
     reader.get_mut().flush().await
 }
-async fn wrap(stream: BoxStream, host: &str, result: &mut Probe) -> io::Result<BoxStream> {
+async fn wrap(
+    stream: BoxStream,
+    protocol: &str,
+    endpoint: &Endpoint,
+    result: &mut Probe,
+) -> io::Result<BoxStream> {
+    let options = endpoint
+        .security
+        .as_ref()
+        .map(|s| s.tls_options())
+        .transpose()
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?
+        .unwrap_or_default();
+    let host = options.server_name.as_deref().unwrap_or(&endpoint.host);
     let name = rustls_pki_types::ServerName::try_from(host.trim_matches(['[', ']']).to_owned())
         .map_err(|_| invalid("invalid TLS server name"))?;
-    let tls = mw_egress::proxy::stream::connector()
+    let tls = crate::domain_security::connector(protocol, &options)?
         .connect(name, stream)
         .await?;
     let (_, session) = tls.get_ref();
@@ -272,7 +286,7 @@ async fn handshake(
     result: &mut Probe,
 ) -> io::Result<()> {
     let stream = if endpoint.tls == TlsMode::Implicit {
-        wrap(stream, &endpoint.host, result).await?
+        wrap(stream, protocol, endpoint, result).await?
     } else {
         stream
     };
@@ -303,22 +317,49 @@ async fn handshake(
                             .is_some_and(|s| s.eq_ignore_ascii_case("STARTTLS"))
                     })
                 }) {
-                    return Err(invalid("SMTP does not advertise STARTTLS"));
+                    return Err(io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        "SMTP does not advertise STARTTLS",
+                    ));
                 }
                 command(&mut reader, b"STARTTLS\r\n").await?;
                 reply(&mut reader, "smtp", "220").await?;
             }
             "imap" => {
+                command(&mut reader, b"a0 CAPABILITY\r\n").await?;
+                let caps = reply(&mut reader, "imap", "A0").await?;
+                if !caps
+                    .iter()
+                    .flat_map(|c| c.split_whitespace())
+                    .any(|c| c.eq_ignore_ascii_case("STARTTLS"))
+                {
+                    return Err(io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        "IMAP does not advertise STARTTLS",
+                    ));
+                }
                 command(&mut reader, b"a1 STARTTLS\r\n").await?;
                 reply(&mut reader, "imap", "A1").await?;
             }
             "pop3" => {
                 command(&mut reader, b"STLS\r\n").await?;
                 if !line(&mut reader).await?.starts_with("+OK") {
-                    return Err(invalid("POP3 refused STLS"));
+                    return Err(io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        "POP3 refused STLS",
+                    ));
                 }
             }
             "sieve" => {
+                if !greeting
+                    .iter()
+                    .any(|c| c.trim_matches('"').eq_ignore_ascii_case("STARTTLS"))
+                {
+                    return Err(io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        "Sieve does not advertise STARTTLS",
+                    ));
+                }
                 command(&mut reader, b"STARTTLS\r\n").await?;
                 reply(&mut reader, "sieve", "").await?;
             }
@@ -327,7 +368,7 @@ async fn handshake(
         if !reader.buffer().is_empty() {
             return Err(invalid("unexpected bytes before TLS handshake"));
         }
-        reader = BufReader::new(wrap(reader.into_inner(), &endpoint.host, result).await?);
+        reader = BufReader::new(wrap(reader.into_inner(), protocol, endpoint, result).await?);
         if protocol == "sieve" {
             result.capabilities = reply(&mut reader, "sieve", "").await?;
             return Ok(());
@@ -391,7 +432,48 @@ async fn probe_mail(
         .into(),
         ..Default::default()
     };
-    let checked = tokio::time::timeout(Duration::from_secs(5), async {
+    let checked = async {
+        let resolved =
+            crate::domain_security::resolve_endpoint(protocol, endpoint, domain, plan).await?;
+        let mut checked = check_transport(protocol, &resolved.endpoint, domain, plan).await?;
+        checked.selected_reason = Some(resolved.selected_reason.into());
+        Ok::<_, io::Error>(checked)
+    }
+    .await;
+    match checked {
+        Ok(checked) => result = checked,
+        Err(error) => result.error = Some(error.to_string()),
+    }
+    result.capabilities = result
+        .capabilities
+        .into_iter()
+        .take(32)
+        .map(|line| line.chars().take(256).collect())
+        .collect();
+    result.latency_ms = start.elapsed().as_millis() as u64;
+    result
+}
+
+/// A bounded, credential-free protocol handshake for one already selected method.
+pub(crate) async fn check_transport(
+    protocol: &str,
+    endpoint: &Endpoint,
+    domain: &str,
+    plan: &mw_egress::plan::EgressPlan,
+) -> io::Result<Probe> {
+    let mut result = Probe {
+        protocol: protocol.into(),
+        host: endpoint.host.clone(),
+        port: endpoint.port,
+        tls: match endpoint.tls {
+            TlsMode::Implicit => "implicit",
+            TlsMode::Starttls => "starttls",
+            TlsMode::None => "none",
+        }
+        .into(),
+        ..Default::default()
+    };
+    tokio::time::timeout(Duration::from_secs(5), async {
         let stream: BoxStream = if protocol == "sieve" {
             Box::new(
                 mw_egress::plan::connect_sieve_with(
@@ -412,20 +494,15 @@ async fn probe_mail(
         };
         handshake(protocol, endpoint, stream, &mut result).await
     })
-    .await;
-    match checked {
-        Ok(Ok(())) => result.reachable = true,
-        Ok(Err(error)) => result.error = Some(error.to_string()),
-        Err(_) => result.error = Some("Connection check timed out after five seconds".into()),
-    }
-    result.capabilities = result
-        .capabilities
-        .into_iter()
-        .take(32)
-        .map(|line| line.chars().take(256).collect())
-        .collect();
-    result.latency_ms = start.elapsed().as_millis() as u64;
-    result
+    .await
+    .map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::TimedOut,
+            "connection check timed out after five seconds",
+        )
+    })??;
+    result.reachable = true;
+    Ok(result)
 }
 async fn probe_http(
     protocol: &str,
@@ -486,6 +563,8 @@ mod tests {
             tls,
             auth: "password".into(),
             allow_private: true,
+            security: None,
+            authentication: None,
         }
     }
     #[tokio::test]

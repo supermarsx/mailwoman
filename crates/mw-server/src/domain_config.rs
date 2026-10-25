@@ -1,7 +1,9 @@
 //! Canonical login identities and operator-owned upstream configuration.
 //! No DNS lookup is performed while selecting a domain.
+pub(crate) use crate::domain_security::ConnectionSecurity;
 use mw_store::{DomainConfigRow, Store};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -21,13 +23,35 @@ pub(crate) struct Endpoint {
     pub auth: String,
     #[serde(default)]
     pub allow_private: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub security: Option<ConnectionSecurity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authentication: Option<crate::domain_auth::PasswordAuthentication>,
 }
 fn password_auth() -> String {
     "password".into()
 }
 
 impl Endpoint {
+    pub fn auth_policy(
+        &self,
+        protocol: &str,
+    ) -> Result<Option<mw_net::PasswordAuthPolicy>, String> {
+        self.authentication
+            .as_ref()
+            .map(|auth| auth.policy(crate::domain_auth::protocol(protocol)?))
+            .transpose()
+    }
+
+    pub fn validate_for(&self, protocol: &str) -> Result<(), String> {
+        self.validate()?;
+        self.auth_policy(protocol)?;
+        Ok(())
+    }
     pub fn validate(&self) -> Result<(), String> {
+        if let Some(security) = &self.security {
+            security.validate()?;
+        }
         if self.port == 0 {
             return Err("the port must be between 1 and 65535".into());
         }
@@ -109,17 +133,30 @@ pub(crate) struct UpstreamConfig {
     pub jmap: Option<JmapEndpoint>,
     pub sieve: Option<Endpoint>,
     pub dav: Option<DavEndpoints>,
+    #[serde(skip)]
+    pub selection: Option<crate::domain_selection::Selection>,
 }
 
 impl UpstreamConfig {
     pub fn parse(json: &str) -> Result<Self, String> {
+        let value: serde_json::Value =
+            serde_json::from_str(json).map_err(|_| "invalid upstream configuration")?;
+        if value.get("version").is_some() {
+            let config: crate::domain_selection::BackendConfig = serde_json::from_value(value)
+                .map_err(|_| "invalid versioned backend configuration")?;
+            return config.resolve();
+        }
         let config: Self =
             serde_json::from_str(json).map_err(|_| "invalid upstream configuration".to_string())?;
-        for endpoint in [&config.imap, &config.pop3, &config.smtp, &config.sieve]
-            .into_iter()
-            .flatten()
-        {
-            endpoint.validate()?;
+        for (protocol, endpoint) in [
+            ("imap", &config.imap),
+            ("pop3", &config.pop3),
+            ("smtp", &config.smtp),
+            ("sieve", &config.sieve),
+        ] {
+            if let Some(endpoint) = endpoint {
+                endpoint.validate_for(protocol)?;
+            }
         }
         if config.imap.is_some() && config.pop3.is_some() {
             return Err("choose either IMAP or POP3".into());
@@ -135,6 +172,40 @@ impl UpstreamConfig {
         Ok(config)
     }
 
+    /// The original account identity is preserved; only the wire login is formatted.
+    pub fn auth_username(
+        &self,
+        role: crate::domain_selection::ServiceRole,
+        identity: &str,
+    ) -> Result<String, String> {
+        match self.selection.as_ref().and_then(|s| s.backend(role)) {
+            Some(backend) => backend.username.render(identity),
+            None => Ok(identity.into()),
+        }
+    }
+
+    /// A stable, opaque binding to selected authorities and authentication policy.
+    pub fn binding(&self) -> Result<Option<String>, String> {
+        let bytes = if let Some(selection) = &self.selection {
+            serde_json::to_vec(selection)
+        } else if [&self.imap, &self.pop3, &self.smtp, &self.sieve]
+            .into_iter()
+            .flatten()
+            .any(|endpoint| endpoint.security.is_some() || endpoint.authentication.is_some())
+        {
+            serde_json::to_vec(self)
+        } else {
+            return Ok(None);
+        }
+        .map_err(|_| "invalid selected backend configuration")?;
+        Ok(Some(
+            Sha256::digest(bytes)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect(),
+        ))
+    }
+
     pub fn mail(&self) -> Option<(&Endpoint, &'static str)> {
         self.imap
             .as_ref()
@@ -143,7 +214,7 @@ impl UpstreamConfig {
     }
 }
 
-fn validate_http_url(value: &str) -> Result<(), String> {
+pub(crate) fn validate_http_url(value: &str) -> Result<(), String> {
     let url = reqwest::Url::parse(value).map_err(|_| "invalid upstream URL")?;
     if !matches!(url.scheme(), "http" | "https")
         || url.host_str().is_none()
@@ -401,6 +472,8 @@ mod tests {
             tls: TlsMode::Implicit,
             auth: "password".into(),
             allow_private: false,
+            security: None,
+            authentication: None,
         };
         assert!(endpoint("imap.example.org").validate().is_ok());
         for invalid in [

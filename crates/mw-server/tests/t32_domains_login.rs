@@ -7,6 +7,78 @@ use common::{mock_mail::MockPop3, test_db};
 
 const KEY: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
 
+#[tokio::test]
+async fn domain_password_policy_uses_capabilities_and_changes_revoke_existing_authority() {
+    let mail = MockPop3::start("alice@example.org", "testpass").await;
+    let fallback = MockPop3::start("unused", "unused").await;
+    let db = test_db::unique_dir("domain-password-policy")
+        .join("mw.db")
+        .to_string_lossy()
+        .into_owned();
+    let store = Store::open(&db, ServerKey::from_hex(KEY).unwrap())
+        .await
+        .unwrap();
+    let mut domain = row("example.org", &mail);
+    let mut upstream: Value = serde_json::from_str(&domain.upstream_json).unwrap();
+    upstream["pop3"]["authentication"] =
+        json!({"mode":"auto","mechanisms":["plain","pop3-user-pass"]});
+    domain.upstream_json = upstream.to_string();
+    store.put_domain_config(&domain).await.unwrap();
+    let base = server(&db, &fallback).await;
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .cookie_store(true)
+        .build()
+        .unwrap();
+    assert_eq!(
+        login(&client, &base, "alice@example.org").await.status(),
+        200
+    );
+    let original = store.list_accounts().await.unwrap().remove(0);
+    assert!(
+        mw_engine::AccountPolicy::from_json(&original.sync_policy_json)
+            .domain_binding
+            .is_some()
+    );
+
+    upstream["pop3"]["authentication"] = json!({"mode":"fixed","mechanisms":["plain"]});
+    domain.upstream_json = upstream.to_string();
+    store.put_domain_config(&domain).await.unwrap();
+    assert_eq!(
+        client
+            .get(format!("{base}/api/me"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
+    let accepted = mail.logins_accepted();
+    let refused = mail.logins_refused();
+    assert_eq!(
+        login(&client, &base, "alice@example.org").await.status(),
+        401
+    );
+    assert_eq!(mail.logins_accepted(), accepted);
+    assert_eq!(
+        mail.logins_refused(),
+        refused,
+        "unsupported SASL sends no password and never falls back to USER/PASS"
+    );
+    assert_eq!(fallback.logins_accepted() + fallback.logins_refused(), 0);
+
+    upstream["pop3"]["authentication"] = json!({"mode":"fixed","mechanisms":["pop3-user-pass"]});
+    domain.upstream_json = upstream.to_string();
+    store.put_domain_config(&domain).await.unwrap();
+    assert_eq!(
+        login(&client, &base, "alice@example.org").await.status(),
+        200
+    );
+    let current = store.list_accounts().await.unwrap().remove(0);
+    assert_eq!(current.id, original.id);
+    assert_eq!(current.username, "alice@example.org");
+}
+
 fn row(name: &str, mail: &MockPop3) -> DomainConfigRow {
     DomainConfigRow {
         name: name.into(),
@@ -330,4 +402,203 @@ async fn proxy_session_follows_reconfigured_domain_and_persists_new_authority() 
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].jmap_url, second);
     assert!(sessions[0].api_url.starts_with(&second));
+}
+
+#[tokio::test]
+async fn ranked_backends_format_wire_usernames_without_changing_identity_or_retrying_auth() {
+    let primary = MockPop3::start_accounts(&[
+        ("CORP\\alice", "testpass"),
+        ("alice@AUTH.REALM", "testpass"),
+    ])
+    .await;
+    let secondary = MockPop3::start("alice@alias.test", "testpass").await;
+    let fallback = MockPop3::start("alice@alias.test", "testpass").await;
+    let db = test_db::unique_dir("domain-ranked-auth")
+        .join("mw.db")
+        .to_string_lossy()
+        .into_owned();
+    let store = Store::open(&db, ServerKey::from_hex(KEY).unwrap())
+        .await
+        .unwrap();
+    let socket = |mail: &MockPop3| json!({"host":"127.0.0.1","port":mail.addr.port(),"tls":"none","allowPrivate":true,"security":{"mode":"fixed","allowed":["none"],"allowPlaintext":true}});
+    let mut config = json!({"version":2,"backends":[
+        {"id":"preferred","role":"mail","protocol":"pop3","priority":500,"preferred":true,"endpoint":socket(&primary),"username":{"format":"domainUser","domain":"CORP"}},
+        {"id":"secondary","role":"mail","protocol":"pop3","priority":0,"endpoint":socket(&secondary)}
+    ]});
+    let mut domain = row("example.org", &primary);
+    domain.upstream_json = config.to_string();
+    store.put_domain_config(&domain).await.unwrap();
+    store
+        .put_domain_alias("alias.test", "example.org")
+        .await
+        .unwrap();
+    let base = server(&db, &fallback).await;
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .cookie_store(true)
+        .build()
+        .unwrap();
+    let refused = client
+        .post(format!("{base}/api/login"))
+        .json(&json!({"username":"alice@alias.test","password":"wrong"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refused.status(), 401);
+    assert!(primary.logins_refused() > 0);
+    assert_eq!(
+        secondary.logins_accepted() + secondary.logins_refused(),
+        0,
+        "an auth failure never tries the next backend"
+    );
+    let response = login(&client, &base, "alice@alias.test").await;
+    assert_eq!(response.status(), 200, "{}", response.text().await.unwrap());
+    let account = store
+        .list_accounts()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|account| account.username == "alice@alias.test")
+        .unwrap();
+    assert_eq!(
+        store
+            .account_credentials(&account.id)
+            .await
+            .unwrap()
+            .username,
+        "alice@alias.test"
+    );
+    let initial_binding =
+        mw_engine::AccountPolicy::from_json(&account.sync_policy_json).domain_binding;
+    assert!(initial_binding.is_some());
+    config["backends"][0]["username"] = json!({"format":"userRealm","realm":"AUTH.REALM"});
+    domain.upstream_json = config.to_string();
+    store.put_domain_config(&domain).await.unwrap();
+    assert_eq!(
+        client
+            .get(format!("{base}/api/me"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
+    let response = login(&client, &base, "alice@alias.test").await;
+    assert_eq!(response.status(), 200, "{}", response.text().await.unwrap());
+    let fresh = store.get_account(&account.id).await.unwrap();
+    assert_eq!(fresh.username, "alice@alias.test");
+    assert_ne!(
+        initial_binding,
+        mw_engine::AccountPolicy::from_json(&fresh.sync_policy_json).domain_binding
+    );
+    for backend in config["backends"].as_array_mut().unwrap() {
+        backend["enabled"] = json!(false);
+        backend["preferred"] = json!(false);
+    }
+    domain.upstream_json = config.to_string();
+    store.put_domain_config(&domain).await.unwrap();
+    assert_eq!(
+        login(&client, &base, "alice@alias.test").await.status(),
+        404
+    );
+    assert_eq!(fallback.logins_accepted() + fallback.logins_refused(), 0);
+    assert_eq!(secondary.logins_accepted() + secondary.logins_refused(), 0);
+}
+
+#[tokio::test]
+async fn formatted_login_uses_endpoint_ca_and_server_name_in_the_real_engine_path() {
+    use rustls_pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
+    use std::sync::Arc;
+    let plain = MockPop3::start("alice", "testpass").await;
+    let cert_pem = include_str!("fixtures/tls/localhost-cert.pem");
+    let cert = CertificateDer::from_pem_slice(cert_pem.as_bytes()).unwrap();
+    let key =
+        PrivateKeyDer::from_pem_slice(include_bytes!("fixtures/tls/localhost-key.pem")).unwrap();
+    let tls = rustls::ServerConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .unwrap()
+    .with_no_client_auth()
+    .with_single_cert(vec![cert], key)
+    .unwrap();
+    let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(tls));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let plain_addr = plain.addr;
+    let relay = tokio::spawn(async move {
+        while let Ok((socket, _)) = listener.accept().await {
+            let acceptor = acceptor.clone();
+            tokio::spawn(async move {
+                let Ok(mut encrypted) = acceptor.accept(socket).await else {
+                    return;
+                };
+                let Ok(mut upstream) = tokio::net::TcpStream::connect(plain_addr).await else {
+                    return;
+                };
+                let _ = tokio::io::copy_bidirectional(&mut encrypted, &mut upstream).await;
+            });
+        }
+    });
+    let fallback = MockPop3::start("unused", "unused").await;
+    let db = test_db::unique_dir("domain-tls-auth")
+        .join("mw.db")
+        .to_string_lossy()
+        .into_owned();
+    let store = Store::open(&db, ServerKey::from_hex(KEY).unwrap())
+        .await
+        .unwrap();
+    let mut config = json!({"version":2,"backends":[{"id":"tls-mail","role":"mail","protocol":"pop3","endpoint":{"host":"127.0.0.1","port":port,"tls":"implicit","allowPrivate":true,"security":{"mode":"fixed","allowed":["implicit"],"serverName":"wrong.example","caPem":cert_pem}},"username":{"format":"localUser"}}]});
+    let mut domain = row("example.org", &fallback);
+    domain.upstream_json = config.to_string();
+    store.put_domain_config(&domain).await.unwrap();
+    let base = server(&db, &fallback).await;
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .cookie_store(true)
+        .build()
+        .unwrap();
+    assert_eq!(
+        login(&client, &base, "alice@example.org").await.status(),
+        401,
+        "wrong TLS name must refuse before authentication"
+    );
+    assert_eq!(plain.logins_accepted() + plain.logins_refused(), 0);
+    config["backends"][0]["endpoint"]["security"]["serverName"] = json!("localhost");
+    config["backends"][0]["endpoint"]["security"]["caPem"] = Value::Null;
+    domain.upstream_json = config.to_string();
+    store.put_domain_config(&domain).await.unwrap();
+    assert_eq!(
+        login(&client, &base, "alice@example.org").await.status(),
+        401,
+        "an untrusted private CA must refuse before authentication"
+    );
+    assert_eq!(plain.logins_accepted() + plain.logins_refused(), 0);
+    config["backends"][0]["endpoint"]["security"]["caPem"] = json!(cert_pem);
+    domain.upstream_json = config.to_string();
+    store.put_domain_config(&domain).await.unwrap();
+    let response = login(&client, &base, "alice@example.org").await;
+    assert_eq!(response.status(), 200, "{}", response.text().await.unwrap());
+    assert!(
+        plain.logins_accepted() > 0,
+        "local username authenticated behind TLS"
+    );
+    let account = store
+        .list_accounts()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|account| account.username == "alice@example.org")
+        .unwrap();
+    assert_eq!(account.tls, "implicit");
+    assert_eq!(
+        store
+            .account_credentials(&account.id)
+            .await
+            .unwrap()
+            .username,
+        "alice@example.org"
+    );
+    assert_eq!(fallback.logins_accepted() + fallback.logins_refused(), 0);
+    relay.abort();
 }

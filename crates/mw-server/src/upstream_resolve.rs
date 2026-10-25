@@ -91,6 +91,9 @@ pub(crate) async fn resolve_for(
             }
             let config = crate::domain_config::UpstreamConfig::parse(&row.upstream_json)
                 .map_err(|_| ResolveError::NotConfigured)?;
+            if config.selection.is_some() && config.mail().is_none() && config.jmap.is_none() {
+                return Err(ResolveError::NotConfigured);
+            }
             if engine {
                 if let Some((endpoint, protocol)) = config.mail() {
                     return Ok(Upstream::Mail(endpoint.mail_url(protocol)));

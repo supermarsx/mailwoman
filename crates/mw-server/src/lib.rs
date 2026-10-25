@@ -36,6 +36,7 @@ use mw_store::{Credentials, NativeSessionRow, ServerKey, Store};
 pub mod arf;
 pub mod dlp;
 pub mod engine_mode;
+mod login_failure;
 pub mod fonts;
 pub mod hardening;
 pub mod http_metrics;
@@ -140,6 +141,10 @@ mod scope_mw;
 // t32-h9: the server, never the client, picks the mail upstream for a sign-in.
 mod upstream_resolve;
 pub(crate) mod domain_config;
+mod domain_security;
+mod domain_selection;
+mod domain_auth;
+mod username_format;
 mod domain_detect;
 pub mod domain_cli;
 mod domain_upgrade;
@@ -2459,10 +2464,10 @@ async fn engine_login(
     let (account_id, username) =
         match engine_mode::engine_login(engine, server_url, &body.username, &body.password).await {
             Ok(pair) => pair,
-            Err(e) => {
-                tracing::warn!("engine login failed: {e}");
-                security_center::record_failure(state,None,&body.username,
-                    &security_center::device(headers,ext,body.client_type.as_deref()),"password","upstream-auth").await;
+            Err(error) => {
+                tracing::warn!("engine login failed");
+                security_center::record_failure_backend(state,None,&body.username,
+                    &security_center::device(headers,ext,body.client_type.as_deref()),"password",error.reason.code(),Some("engine")).await;
                 return unauthorized();
             }
         };

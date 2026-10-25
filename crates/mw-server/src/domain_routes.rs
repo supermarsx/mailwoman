@@ -45,6 +45,12 @@ async fn domain_account_ids(state: &AppState, domain: &str) -> Result<Vec<String
 }
 
 pub(crate) fn register(r: &mut impl AdminRegistrar) {
+    r.admin_endpoint(
+        Method::POST,
+        "/domains/username-preview",
+        C::DomainsUpstreamWrite,
+        username_preview,
+    );
     r.admin_endpoint(Method::GET, "/domains/status", C::DomainsRead, status);
     r.admin_endpoint(
         Method::POST,
@@ -158,7 +164,30 @@ async fn status(
     };
     Ok(Json(
         json!({"mode":if state.engine.is_some(){"engine"}else{"proxy"},
-        "blockedAccounts":blocked_accounts(&state,&ctx).await?,"upstreamChoices":choices}),
+        "blockedAccounts":blocked_accounts(&state,&ctx).await?,"upstreamChoices":choices,
+        "transportSecurity":{"runtimeReady":true,"auto":true,"customCa":true,"serverName":true,"protocols":["imap","pop3","smtp","sieve"]},
+        "authentication":crate::domain_auth::capabilities()}),
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct UsernamePreview {
+    identity: String,
+    username: crate::username_format::UsernameFormat,
+}
+
+async fn username_preview(
+    ctx: AdminCtx,
+    Json(body): Json<UsernamePreview>,
+) -> Result<Json<Value>, AdminApiError> {
+    ctx.require_unscoped(C::DomainsUpstreamWrite)?;
+    let formatted = body
+        .username
+        .render(&body.identity)
+        .map_err(|e| invalid("/username", e))?;
+    Ok(Json(
+        json!({"identity": body.identity, "authenticationUsername": formatted, "credentialsSent": false}),
     ))
 }
 
@@ -168,6 +197,7 @@ fn name(value: &str) -> Result<String, AdminApiError> {
 fn dto(row: &DomainConfigRow) -> Value {
     json!({"name":row.name,"enabled":row.enabled,"preferred":row.preferred,
         "upstream":serde_json::from_str::<Value>(&row.upstream_json).unwrap_or(Value::Null),
+        "selection":UpstreamConfig::parse(&row.upstream_json).ok().and_then(|config| config.selection),
         "allowlist":serde_json::from_str::<Value>(&row.allowlist_json).unwrap_or(Value::Null),
         "blocklist":serde_json::from_str::<Value>(&row.blocklist_json).unwrap_or(Value::Null),
         "settings":serde_json::from_str::<Value>(&row.settings_json).unwrap_or(Value::Null),"updatedAt":row.updated_at})
