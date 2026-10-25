@@ -708,6 +708,26 @@ export function sign(options) {
 }
 
 /**
+ * @param {any} _options
+ * @returns {any}
+ */
+export function smimeRootSetInfo(_options) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.smimeRootSetInfo(retptr, addHeapObject(_options));
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
  * `unlockKey({kind, encryptedPrivateBundle, passphrase})` → `{ keyRef }`. Caches the
  * bundle + passphrase in the worker session so `signWithKeyRef` needs no re-entry.
  * @param {any} options
@@ -761,6 +781,27 @@ export function verifyPgp(options) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
         wasm.verifyPgp(retptr, addHeapObject(options));
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * Verify exact CMS bytes and return chain, sender and revocation evidence.
+ * @param {any} options
+ * @returns {any}
+ */
+export function verifySmime(options) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.verifySmime(retptr, addHeapObject(options));
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);

@@ -10,30 +10,35 @@
 // in the worker + the passphrase-wrapped client vault and is NEVER posted to the
 // main app state or the server in plaintext (plan §1.2 / risk #4).
 
-import { CAP_CRYPTO, CAP_SECURITY, type CryptoKey, type KeyKind } from '../api/crypto-types.ts';
-import type { SignatureVerdict } from '../api/security-types.ts';
+import {
+  CAP_CRYPTO,
+  CAP_SECURITY,
+  type CryptoKey,
+  type KeyKind,
+} from "../api/crypto-types.ts";
+import type { SignatureVerdict } from "../api/security-types.ts";
 
 /** The crypto/security capability URNs, in `JmapRequest.using` order (§2.2). */
 export const CRYPTO_CAPABILITIES = [CAP_CRYPTO, CAP_SECURITY] as const;
 
 /** Keyring method names (§2.2). */
 export type CryptoKeyMethod =
-  | 'CryptoKey/get'
-  | 'CryptoKey/set'
-  | 'CryptoKey/query'
-  | 'CryptoKey/changes'
-  | 'CryptoKey/lookup'
-  | 'CryptoKey/setTrust';
+  | "CryptoKey/get"
+  | "CryptoKey/set"
+  | "CryptoKey/query"
+  | "CryptoKey/changes"
+  | "CryptoKey/lookup"
+  | "CryptoKey/setTrust";
 
 /** Verdict / sender-control / mail-rule / DLP method names (§2.2). */
 export type SecurityMethod =
-  | 'SecurityVerdict/get'
-  | 'SenderControl/set'
-  | 'MailRule/get'
-  | 'MailRule/set'
-  | 'MailRule/changes'
-  | 'Dlp/getRules'
-  | 'Dlp/scan';
+  | "SecurityVerdict/get"
+  | "SenderControl/set"
+  | "MailRule/get"
+  | "MailRule/set"
+  | "MailRule/changes"
+  | "Dlp/getRules"
+  | "Dlp/scan";
 
 /** Every crypto/security JMAP method (§2.2). */
 export type CryptoSecurityMethod = CryptoKeyMethod | SecurityMethod;
@@ -52,6 +57,8 @@ export interface GenerateKeyRequest {
   passphrase: string;
   /** S/MIME only: RSA modulus size. Absent → the worker's default (3072). */
   rsaBits?: 2048 | 3072 | 4096;
+  keyType?:
+    "rsa2048" | "rsa3072" | "rsa4096" | "ecdsa-p256" | "ecdsa-p384" | "ed25519";
   /**
    * PGP only: `'v6'` (default; Ed25519 + X25519, RFC 9580) or `'compatible'` (a v4
    * EdDSA + Curve25519 key that GnuPG 2.2–2.4 read).
@@ -92,6 +99,10 @@ export interface EncryptRequest {
   signWithKeyRef?: string;
   passphrase?: string;
   protectedSubject?: string;
+  /** S/MIME capabilities, in recipient order; unknown recipients use CBC. */
+  recipientGcm?: (boolean | null)[];
+  cipher?: "auto" | "cbc" | "gcm";
+  signWithCertPem?: string;
 }
 export interface EncryptResult {
   armoredCiphertext: string;
@@ -101,6 +112,7 @@ export interface EncryptResult {
    * it, else 1 (SEIPDv1, readable by v4-only programs such as GnuPG 2.4).
    */
   seipdVersion?: 1 | 2;
+  smimeType?: "enveloped-data" | "authEnveloped-data";
 }
 
 /** `decrypt` argument. */
@@ -145,6 +157,9 @@ export interface SignRequest {
   encryptedPrivateBundle: string;
   passphrase: string;
   detached: boolean;
+  certPem?: string;
+  chain?: string[];
+  pss?: boolean;
 }
 export interface SignResult {
   signatureArmored: string;
@@ -232,7 +247,7 @@ export interface ExportBackupResult {
 // ── OpenPGP core (t32-e37; Rust: crates/mw-crypto/src/pgp*, mime.rs, verdict.rs) ──
 
 /** PGP key generation profile (see `GenerateKeyRequest.profile`). */
-export type KeyProfile = 'v6' | 'compatible';
+export type KeyProfile = "v6" | "compatible";
 
 /**
  * Signature states shared by OpenPGP and S/MIME (`crates/mw-crypto/src/verdict.rs`).
@@ -241,17 +256,17 @@ export type KeyProfile = 'v6' | 'compatible';
  * trust — no green state without a trusted key.
  */
 export type VerificationState =
-  | 'valid'
-  | 'untrusted'
-  | 'unknown-key'
-  | 'key-expired'
-  | 'not-yet-valid'
-  | 'revoked'
-  | 'revocation-unchecked'
-  | 'address-mismatch'
-  | 'bad-signature'
-  | 'not-signed'
-  | 'partial';
+  | "valid"
+  | "untrusted"
+  | "unknown-key"
+  | "key-expired"
+  | "not-yet-valid"
+  | "revoked"
+  | "revocation-unchecked"
+  | "address-mismatch"
+  | "bad-signature"
+  | "not-signed"
+  | "partial";
 
 /** A signature check with its full state. */
 export interface Verification {
@@ -271,20 +286,22 @@ export interface Verification {
 }
 
 /** State of a key or one of its parts, judged from verified self-signatures. */
-export type PgpKeyState = 'valid' | 'expired' | 'revoked' | 'invalid' | 'not-yet-valid';
+export type PgpKeyState =
+  "valid" | "expired" | "revoked" | "invalid" | "not-yet-valid";
 
 export type PgpKeyFlag =
-  | 'certify'
-  | 'sign'
-  | 'encrypt-communications'
-  | 'encrypt-storage'
-  | 'authenticate';
+  | "certify"
+  | "sign"
+  | "encrypt-communications"
+  | "encrypt-storage"
+  | "authenticate";
 
-export type RevocationReason = 'compromised' | 'superseded' | 'retired' | 'unspecified';
+export type RevocationReason =
+  "compromised" | "superseded" | "retired" | "unspecified";
 
 export interface PgpRevocation {
   at: string;
-  reason: RevocationReason | 'user-id-invalid';
+  reason: RevocationReason | "user-id-invalid";
   /** A hard revocation voids every signature the key made; a soft one only later ones. */
   hard: boolean;
   message: string;
@@ -294,7 +311,7 @@ export interface PgpUserId {
   value: string;
   address: string | null;
   primary: boolean;
-  state: 'valid' | 'revoked' | 'invalid';
+  state: "valid" | "revoked" | "invalid";
 }
 
 export interface PgpSubkeyInfo {
@@ -386,7 +403,7 @@ export interface BuiltEntity {
 /** RFC 9788 header protection read back from a payload. */
 export interface ProtectedHeaders {
   headers: HeaderPairs;
-  scheme: 'cipher' | 'clear' | 'v1';
+  scheme: "cipher" | "clear" | "v1";
   /** `HP-Outer`: what the outer header said for each obscured field. */
   outer: HeaderPairs;
   /** The payload with the legacy display element removed. */
@@ -421,14 +438,20 @@ export interface PgpMimeOpenRequest {
 }
 
 export type InlineSegment =
-  | { kind: 'text'; text: string }
-  | { kind: 'message'; armored: string }
-  | { kind: 'signed'; armored: string }
-  | { kind: 'publicKey'; armored: string };
+  | { kind: "text"; text: string }
+  | { kind: "message"; armored: string }
+  | { kind: "signed"; armored: string }
+  | { kind: "publicKey"; armored: string };
 
 /** `analyzeMessage` result: where the signed or encrypted part is. */
 export interface AnalyzeMessageResult {
-  kind: 'pgp-encrypted' | 'pgp-signed' | 'smime-signed' | 'smime-opaque' | 'inline-pgp' | 'none';
+  kind:
+    | "pgp-encrypted"
+    | "pgp-signed"
+    | "smime-signed"
+    | "smime-opaque"
+    | "inline-pgp"
+    | "none";
   partial: boolean;
   /** Child indexes from the root to the part. */
   path: number[];
@@ -445,7 +468,8 @@ export interface AutocryptPeerState {
   hasGossipKey: boolean;
   preferEncrypt: boolean;
 }
-export type AutocryptRecommendation = 'disable' | 'discourage' | 'available' | 'encrypt';
+export type AutocryptRecommendation =
+  "disable" | "discourage" | "available" | "encrypt";
 
 /** `unlockKey` argument → an opaque worker-session key ref. */
 export interface UnlockKeyRequest {
@@ -461,6 +485,8 @@ export type KeyRef = string;
  * (`crypto/index.ts`); e8 backs it with the real wasm-pack module + worker.
  */
 export interface CryptoWorkerApi {
+  verifySmime(req: VerifySmimeRequest): Promise<SmimeVerification>;
+  smimeRootSetInfo(req: Record<string, never>): Promise<SmimeRootSetInfo>;
   generateKey(req: GenerateKeyRequest): Promise<GenerateKeyResult>;
   encrypt(req: EncryptRequest): Promise<EncryptResult>;
   decrypt(req: DecryptRequest): Promise<DecryptResult>;
@@ -472,7 +498,9 @@ export interface CryptoWorkerApi {
   /** A certification request for an own S/MIME key. */
   certificateRequest(req: SmimeKeyRequest): Promise<CertificateRequestResult>;
   /** Check a certificate issued for an own S/MIME key before it replaces the held one. */
-  attachIssuedCert(req: AttachIssuedCertRequest): Promise<AttachIssuedCertResult>;
+  attachIssuedCert(
+    req: AttachIssuedCertRequest,
+  ): Promise<AttachIssuedCertResult>;
   importArmored(req: ImportArmoredRequest): Promise<ImportArmoredResult>;
   exportPublic(req: { keyRef: KeyRef }): Promise<string>;
   exportBackup(req: ExportBackupRequest): Promise<ExportBackupResult>;
@@ -488,17 +516,26 @@ export interface CryptoWorkerApi {
   verifyPgp(req: VerifyPgpRequest): Promise<VerifyPgpResult>;
   revokeKey(req: RevokeKeyRequest): Promise<ManagedKey>;
   /** A revocation certificate to keep aside (armored). */
-  revocationCertificate(req: RevokeKeyRequest): Promise<{ certificate: string }>;
+  revocationCertificate(
+    req: RevokeKeyRequest,
+  ): Promise<{ certificate: string }>;
   applyRevocationCertificate(req: {
     keyArmored: string;
     certificate: string;
   }): Promise<{ publicKeyArmored: string }>;
   /** New expiry (Unix seconds, `null` = never) for the key and its subkeys. */
-  setKeyExpiry(req: PgpKeyOpRequest & { expiresAt: number | null }): Promise<ManagedKey>;
-  addSubkey(
-    req: PgpKeyOpRequest & { purpose: 'encrypt' | 'sign'; expiresAt?: number | null },
+  setKeyExpiry(
+    req: PgpKeyOpRequest & { expiresAt: number | null },
   ): Promise<ManagedKey>;
-  revokeSubkey(req: RevokeKeyRequest & { subkeyFingerprint: string }): Promise<ManagedKey>;
+  addSubkey(
+    req: PgpKeyOpRequest & {
+      purpose: "encrypt" | "sign";
+      expiresAt?: number | null;
+    },
+  ): Promise<ManagedKey>;
+  revokeSubkey(
+    req: RevokeKeyRequest & { subkeyFingerprint: string },
+  ): Promise<ManagedKey>;
   changePassphrase(req: {
     encryptedPrivateBundle: string;
     oldPassphrase: string;
@@ -509,14 +546,19 @@ export interface CryptoWorkerApi {
     encryptedPrivateBundle: string;
     from: string;
   }): Promise<{ setupCode: string; payload: string; mime: string }>;
-  restoreBackup(req: { payload: string; setupCode: string }): Promise<{ encryptedPrivateBundle: string }>;
+  restoreBackup(req: {
+    payload: string;
+    setupCode: string;
+  }): Promise<{ encryptedPrivateBundle: string }>;
   /** RFC 3156 `multipart/encrypted` with RFC 9788 header protection inside. */
   pgpMimeEncrypt(req: PgpMimeBuildRequest): Promise<BuiltEntity>;
   /** RFC 3156 `multipart/signed` (`hp="clear"`). */
   pgpMimeSign(req: PgpMimeBuildRequest): Promise<BuiltEntity>;
   pgpMimeOpen(req: PgpMimeOpenRequest): Promise<OpenedMessage>;
   pgpMimeVerify(req: PgpMimeOpenRequest): Promise<OpenedMessage>;
-  analyzeMessage(req: { raw: string | Uint8Array }): Promise<AnalyzeMessageResult>;
+  analyzeMessage(req: {
+    raw: string | Uint8Array;
+  }): Promise<AnalyzeMessageResult>;
   /** An `Autocrypt:` (or, with `gossip`, `Autocrypt-Gossip:`) header value. */
   autocryptHeader(req: {
     publicKeyArmored: string;
@@ -524,11 +566,17 @@ export interface CryptoWorkerApi {
     preferEncrypt?: boolean;
     gossip?: boolean;
   }): Promise<string>;
-  parseAutocrypt(req: { value: string; gossip?: boolean }): Promise<AutocryptHeader>;
+  parseAutocrypt(req: {
+    value: string;
+    gossip?: boolean;
+  }): Promise<AutocryptHeader>;
   autocryptRecommend(req: {
     peers: (AutocryptPeerState | null)[];
     ownPreferEncrypt: boolean;
-  }): Promise<{ perRecipient: AutocryptRecommendation[]; message: AutocryptRecommendation }>;
+  }): Promise<{
+    perRecipient: AutocryptRecommendation[];
+    message: AutocryptRecommendation;
+  }>;
   /** Keys in an attachment (`application/pgp-keys`, `.asc`), or `null` if it is not one. */
   detectAttachedKeys(req: {
     contentType: string;
@@ -537,4 +585,56 @@ export interface CryptoWorkerApi {
   }): Promise<CryptoKey[] | null>;
   /** `[advanced, direct]` WKD URLs for an address. */
   wkdUrls(req: { email: string }): Promise<[string, string]>;
+}
+
+export interface SmimeRootSetInfo {
+  snapshot: string;
+  count: number;
+  source: string;
+  sourceSha256: string;
+}
+export interface SmimeRevocationResult {
+  certFingerprint: string;
+  status: "good" | "revoked" | "unknown";
+  source: string;
+  thisUpdate: string | null;
+  nextUpdate: string | null;
+  revokedAt: string | null;
+  reason: string | null;
+}
+export interface VerifySmimeRequest {
+  cms: Uint8Array;
+  content?: string | Uint8Array;
+  sender?: string;
+  extraCerts?: string[];
+  userTrust?: string[];
+  adminTrust?: string[];
+  mozilla?: boolean;
+  revocation?: SmimeRevocationResult[];
+  hardFail?: boolean;
+  localCaseInsensitive?: boolean;
+}
+export interface SmimeVerification {
+  verification: Verification;
+  chain: {
+    fingerprint: string;
+    subject: string;
+    issuer: string;
+    notBefore: string;
+    notAfter: string;
+    algorithm: string;
+    addresses: string[];
+    certPem: string;
+  }[];
+  anchor: "user" | "admin" | "mozilla" | null;
+  revocationQueries: {
+    certFingerprint: string;
+    serial: string;
+    issuerDer: string;
+    ocspUrls: string[];
+    crlUrls: string[];
+  }[];
+  capabilities: string[];
+  content: number[] | null;
+  certificates: string[];
 }

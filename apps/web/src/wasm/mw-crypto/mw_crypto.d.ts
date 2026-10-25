@@ -210,6 +210,8 @@ export function setKeyExpiry(options: any): any;
  */
 export function sign(options: any): any;
 
+export function smimeRootSetInfo(_options: any): any;
+
 /**
  * `unlockKey({kind, encryptedPrivateBundle, passphrase})` → `{ keyRef }`. Caches the
  * bundle + passphrase in the worker session so `signWithKeyRef` needs no re-entry.
@@ -227,6 +229,11 @@ export function verify(options: any): any;
  * without, `signature` is a `PGP SIGNED MESSAGE`.
  */
 export function verifyPgp(options: any): any;
+
+/**
+ * Verify exact CMS bytes and return chain, sender and revocation evidence.
+ */
+export function verifySmime(options: any): any;
 
 /**
  * `wkdUrls({email})` → `[advancedUrl, directUrl]`.
@@ -324,21 +331,6 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
-    readonly zaDeriveKek: (a: number, b: number) => void;
-    readonly zaDeriveRootKey: (a: number, b: number) => void;
-    readonly zaDeriveSubkey: (a: number, b: number) => void;
-    readonly zaGenerateDataKey: (a: number) => void;
-    readonly zaLock: (a: number, b: number) => void;
-    readonly zaLockAll: (a: number) => void;
-    readonly zaOpenRow: (a: number, b: number) => void;
-    readonly zaPairComplete: (a: number, b: number) => void;
-    readonly zaPairGenerate: (a: number) => void;
-    readonly zaPairSeal: (a: number, b: number) => void;
-    readonly zaRecoveryPhrase: (a: number, b: number) => void;
-    readonly zaRestoreFromPhrase: (a: number, b: number) => void;
-    readonly zaSealRow: (a: number, b: number) => void;
-    readonly zaUnwrapKey: (a: number, b: number) => void;
-    readonly zaWrapKey: (a: number, b: number) => void;
     readonly __init: () => void;
     readonly addSubkey: (a: number, b: number) => void;
     readonly analyzeMessage: (a: number, b: number) => void;
@@ -371,10 +363,27 @@ export interface InitOutput {
     readonly revokeSubkey: (a: number, b: number) => void;
     readonly setKeyExpiry: (a: number, b: number) => void;
     readonly sign: (a: number, b: number) => void;
+    readonly smimeRootSetInfo: (a: number, b: number) => void;
     readonly unlockKey: (a: number, b: number) => void;
     readonly verify: (a: number, b: number) => void;
     readonly verifyPgp: (a: number, b: number) => void;
+    readonly verifySmime: (a: number, b: number) => void;
     readonly wkdUrls: (a: number, b: number) => void;
+    readonly zaDeriveKek: (a: number, b: number) => void;
+    readonly zaDeriveRootKey: (a: number, b: number) => void;
+    readonly zaDeriveSubkey: (a: number, b: number) => void;
+    readonly zaGenerateDataKey: (a: number) => void;
+    readonly zaLock: (a: number, b: number) => void;
+    readonly zaLockAll: (a: number) => void;
+    readonly zaOpenRow: (a: number, b: number) => void;
+    readonly zaPairComplete: (a: number, b: number) => void;
+    readonly zaPairGenerate: (a: number) => void;
+    readonly zaPairSeal: (a: number, b: number) => void;
+    readonly zaRecoveryPhrase: (a: number, b: number) => void;
+    readonly zaRestoreFromPhrase: (a: number, b: number) => void;
+    readonly zaSealRow: (a: number, b: number) => void;
+    readonly zaUnwrapKey: (a: number, b: number) => void;
+    readonly zaWrapKey: (a: number, b: number) => void;
     readonly __wbindgen_export: (a: number, b: number) => number;
     readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_export3: (a: number) => void;

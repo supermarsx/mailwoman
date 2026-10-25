@@ -1203,6 +1203,12 @@ jobs:
           MW_CRYPTO_OPENSSL: openssl
           MW_REQUIRE_LIVE: "MW_CRYPTO_OPENSSL"
         run: cargo test -p mw-crypto --test smime_generate
+      - name: S/MIME certificate and CMS regression fixtures
+        run: cargo test -p mw-crypto --locked --test smime_e41 --test smime_e41_red -- --test-threads=1
+      - name: live OpenSSL S/MIME interoperability
+        env:
+          MW_SMIME_INTEROP: "1"
+        run: cargo test -p mw-crypto --locked --test smime_openssl_live -- --test-threads=1
       # Live GnuPG interop (R-X1): keys and messages made by gpg are read by
       # mw-crypto and the other way round. With MW_GPG_INTEROP=1 a missing gpg
       # fails the test instead of skipping it; the step before checks the tool.

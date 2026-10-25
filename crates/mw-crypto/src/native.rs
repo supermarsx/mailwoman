@@ -33,8 +33,10 @@ fn none_verdict(kind: &str) -> SignatureVerdict {
 ///
 /// - `kind = "pgp"`: `signature` is an armored detached signature, verified over
 ///   `data` against the armored `signer_public_key`.
-/// - `kind = "smime"`: `signature` is the DER CMS SignedData (self-contained; the
-///   signer cert is embedded, so `data`/`signer_public_key` are ignored).
+/// - `kind = "smime"`: `signature` is the DER CMS SignedData with the signer
+///   certificate embedded. A detached signature (`multipart/signed`) is checked
+///   over `data`; an opaque one over its own content (`data` is then ignored).
+///   `signer_public_key` is not used.
 pub fn verify_signature(
     kind: &str,
     data: &[u8],
@@ -47,7 +49,9 @@ pub fn verify_signature(
                 .unwrap_or_else(|_| none_verdict("pgp")),
             Err(_) => none_verdict("pgp"),
         },
-        "smime" => smime::verify(signature).unwrap_or_else(|_| none_verdict("smime")),
+        "smime" => {
+            smime::verify_detached(signature, Some(data)).unwrap_or_else(|_| none_verdict("smime"))
+        }
         _ => none_verdict(kind),
     }
 }

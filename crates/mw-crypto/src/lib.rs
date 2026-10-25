@@ -35,7 +35,13 @@ pub mod clock;
 pub mod keyring;
 pub mod mime;
 pub mod pgp;
+pub mod pkix;
 pub mod smime;
+pub mod smime_cms;
+pub mod smime_keys;
+#[cfg(any(target_arch = "wasm32", feature = "client-private-ops"))]
+pub mod smime_pkcs12;
+pub mod smime_trust;
 pub mod verdict;
 pub use verdict::Verification;
 

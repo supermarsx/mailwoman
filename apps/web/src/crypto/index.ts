@@ -61,6 +61,12 @@ const STUB_SIGNATURE: SignatureVerdict = {
 export function createStubCryptoWorker(): CryptoWorkerApi {
   let refSeq = 0;
   return {
+    async verifySmime() {
+      throw new Error('S/MIME verification requires the real crypto worker');
+    },
+    async smimeRootSetInfo() {
+      throw new Error('S/MIME roots require the real crypto worker');
+    },
     async generateKey(req: GenerateKeyRequest): Promise<GenerateKeyResult> {
       // Shaped like the real worker's answer for each kind, so a caller that
       // files one kind's fields under the other is caught against the stub too.
@@ -290,6 +296,8 @@ function createLazyCryptoWorker(): CryptoWorkerApi {
   let real: CryptoWorkerApi | null = null;
   const get = (): CryptoWorkerApi => (real ??= spawnCryptoWorker());
   return {
+    verifySmime: (r) => get().verifySmime(r),
+    smimeRootSetInfo: (r) => get().smimeRootSetInfo(r),
     generateKey: (r) => get().generateKey(r),
     encrypt: (r) => get().encrypt(r),
     decrypt: (r) => get().decrypt(r),

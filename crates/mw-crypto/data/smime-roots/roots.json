@@ -1,0 +1,448 @@
+{
+  "snapshot": "2026-10-25",
+  "source": "https://hg-edge.mozilla.org/projects/nss/raw-file/default/lib/ckfw/builtins/certdata.txt",
+  "sourceSha256": "3ec2b4d240dc12c747eaf450061db84af757c483bbda302f9e29ceb5d70be510",
+  "count": 88,
+  "roots": [
+    {
+      "label": "Entrust Root Certification Authority - EC1",
+      "sha256": "02ED0EB28C14DA45165C566791700D6451D7FB56F0B2AB1D3B8EB070E56EDFF5",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "COMODO Certification Authority",
+      "sha256": "0C2CD63DF7806FA399EDE809116B575BF87989F06518F9808C860503178BAF66",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "COMODO ECC Certification Authority",
+      "sha256": "1793927A0614549789ADCE2F8F34F7F0B66D0F3AE3A3B84D21EC15DBBA4FADC7",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "GlobalSign ECC Root CA - R5",
+      "sha256": "179FBC148A3DD00FD24EA13458CC43BFA7F59C8182D783A513F6EBEC100C8924",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "QuoVadis Root CA 3",
+      "sha256": "18F1FC7F205DF8ADDDEB7FE007DD57E3AF375A9C4D8D73546BF4F1FED1E18D35",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "HARICA Client RSA Root CA 2021",
+      "sha256": "1BE7ABE30686B16348AFD1C61B6866A0EA7F4821E67D5E8AF937CF8011BC750D",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "SSL.com Client RSA Root CA 2022",
+      "sha256": "1D4CA4A2AB21D0093659804FC0EB2175A617279B56A2475245C9517AFEB59153",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "Sectigo Public Email Protection Root E46",
+      "sha256": "22D9599234D60F1D4BC7C7E96F43FA555B07301FD475175089DAFB8C25E477B3",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "Telia Root CA v2",
+      "sha256": "242B69742FCB1E5B2ABF98898B94572187544E5B4D9911786573621F6A74B82C",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "DIGITALSIGN GLOBAL ROOT ECDSA CA",
+      "sha256": "261D7114AE5F8FF2D8C7209A9DE4289E6AFC9D717023D85450909199F1857CFE",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "GlobalSign Root CA - R6",
+      "sha256": "2CABEAFE37D06CA22ABA7391C0033D25982952C453647349763A3AB5AD6CCF69",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "IdenTrust Public Sector Root CA 1",
+      "sha256": "30D0895A9A448A262091635522D1F52010B5867ACAE12C78EF958FD4F4389F2F",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "GlobalSign Secure Mail Root R45",
+      "sha256": "319AF0A7729E6F89269C131EA6A3A16FCD86389FDCAB3C47A4A675C161A3F974",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "DigiCert Global Root G3",
+      "sha256": "31AD6648F8104138C738F39EA4320133393E3A18CC02296EF97C2AC9EF6731D0",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "SSL.com Root Certification Authority ECC",
+      "sha256": "3417BB06CC6007DA1B961C920B8AB4CE3FAD820E4AA30B9ACBC4A74EBDCEBC65",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "SECOM SMIME RSA Root CA 2024",
+      "sha256": "3629E7188E00A7CB3232C4426BC84912F1218B1A9AE676C0B0ABE1DBFE2182B5",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "Telia EC Email Root CA v3",
+      "sha256": "3682228D7D678B571440CF1CB34E69FB4135FD6C2A1BE38E14163B711E02AE01",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "TWCA Global Root CA G2",
+      "sha256": "3A0072D49FFC04E996C59AEB75991D3C340F3615D6FD4DCE90AC0B3D88EAD4F4",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "Telekom Security SMIME ECC Root 2021",
+      "sha256": "3AE6DF7E0D637A65A8C81612EC6F9A142F85A16834C10280D88E707028518755",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "Staat der Nederlanden Root CA - G3",
+      "sha256": "3C4FB0B95AB8B30032F432B86F535FE172C185D0FD39865837CF36187FA6F428",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "Microsec e-Szigno Root CA 2009",
+      "sha256": "3C5F81FEA5FAB82C64BFA2EAECAFCDE8E077FC8620A7CAE537163DF36EDBF378",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "DigiCert Assured ID Root CA",
+      "sha256": "3E9099B5015E8F486C00BCEA9D111EE721FABA355A89BCF1DF69561E3DC6325C",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "emSign Root CA - G1",
+      "sha256": "40F6AF0346A99AA1CD1D555A4E9CCE62C7F9634603EE406615833DC8C8D00367",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "OISTE WISeKey Global Root GA CA",
+      "sha256": "41C923866AB4CAD6B7AD578081582E020797A6CBDF4FFF78CE8396B38937D7F5",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "DigiCert Global Root CA",
+      "sha256": "4348A0E9444C78CB265E058D5E8944B4D84F9662BD26DB257F8934A443C70161",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "TrustAsia SMIME ECC Root CA",
+      "sha256": "436472C1009A325C54F1A5BBB5468A7BAEECCBE05DE5F099CB70D3FE41E13C16",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "Entrust Root Certification Authority - G2",
+      "sha256": "43DF5774B03E7FEF5FE40D931A7BEDF1BB2E6B42738C4E6D3841103D3AA7F339",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "Hellenic Academic and Research Institutions ECC RootCA 2015",
+      "sha256": "44B545AA8A25E65A73CA15DC27FC36D24C1CB9953A066539B11582DC487B4833",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "LAWtrust Root CA2 (4096)",
+      "sha256": "48E1CF9E43B688A51044160F46D773B8277FE45BEAAD0E4DF90D1974382FEA99",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "SecureSign Root CA16",
+      "sha256": "4C1CCD24F17E950FC18536B33CAFE32293CFC33E8467B41E1C693055D7F513BF",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "USERTrust ECC Certification Authority",
+      "sha256": "4FF460D54B9C86DABFBCFC5712E0400D2BED3FBC4D4FBDAA86E06ADCD2A9AD7A",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "Security Communication RootCA2",
+      "sha256": "513B2CECB810D4CDE5DD85391ADFC6C2DD60D87BB736D2B521484AA47A0EBEF6",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "COMODO RSA Certification Authority",
+      "sha256": "52F0E1C4E58EC629291B60317F074671B85D7EA80D5B07273463534B32B40234",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "DigiCert Trusted Root G4",
+      "sha256": "552F7BDCF1A7AF9E6CE672017F4F12ABF77240C78E761AC203D1D9D20AC89988",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "Actalis Authentication Root CA",
+      "sha256": "55926084EC963A64B96E2ABE01CE0BA86A64FBFEBCC7AAB5AFC155B37FD76066",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "TWCA Global Root CA",
+      "sha256": "59769007F7685D0FCD50872F9F95D5755A5B2B457D81F3692B610A98672F0E1B",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "Telia RSA Email Root CA v3",
+      "sha256": "5B0C502A7D963BA55217396FDA9B3DC78171000AEEFF42CECC3A20A7938163E8",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "Certum Trusted Network CA",
+      "sha256": "5C58468D55F58E497E743982D2B50010B6D165374ACF83A7D4A32DB768C4408E",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "GlobalSign Secure Mail Root E45",
+      "sha256": "5CBF6FB81FD417EA4128CD6F8172A3C9402094F74AB2ED3A06B4405D04F30B19",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "IdenTrust Commercial Root CA 1",
+      "sha256": "5D56499BE4D2E08BCFCAD08A3E38723D50503BDE706948E42F55603019E528AE",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "SwissSign Gold CA - G2",
+      "sha256": "62DD0BE9B9F50A163EA0F8E75C053B1ECA57EA55C8688F647C6881F2C8357B95",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "Certum EC-384 CA",
+      "sha256": "6B328085625318AA50D173C98D8BDA09D57E27413D114CF787A0F5D06C030CF6",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "OISTE WISeKey Global Root GB CA",
+      "sha256": "6B9C08E86EB0F767CFAD65CD98B62149E5494A67F5845E7BD1ED019F27B86BD6",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "NetLock Arany (Class Gold) Főtanúsítvány",
+      "sha256": "6C61DAC3A2DEF031506BE036D2A6FE401994FBD13DF9C8D466599274C446EC98",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "Entrust.net Premium 2048 Secure Server CA",
+      "sha256": "6DC47172E01CBCB0BF62580D895FE2B8AC9AD4F873801E0C10B9C837D21EB177",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "DigiCert High Assurance EV Root CA",
+      "sha256": "7431E5F4C3C1CE4690774F0B61E05440883BA9A01ED00BA6ABD7806ED3B118CF",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "Atos TrustedRoot Root CA RSA G2 2020",
+      "sha256": "78833A783BB2986C254B9370D3C20E5EBA8FA7840CBF63FE17297A0B0119685E",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "Telekom Security SMIME RSA Root 2023",
+      "sha256": "78A656344F947E9CC0F734D9053D32F6742086B6B9CD2CAE4FAE1A2E4EFDE048",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "DigiCert Assured ID Root G2",
+      "sha256": "7D05EBB682339F8C9451EE094EEBFEFA7953A114EDB2F44949452FAB7D2FC185",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "DigiCert Assured ID Root G3",
+      "sha256": "7E37CB8B4C47090CAB36551BA6F45DB840680FBA166A952DB100717F43053FC2",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "DIGITALSIGN GLOBAL ROOT RSA CA",
+      "sha256": "82BD5D851ACF7F6E1BA7BFCBC53030D0E7BC3C21DF772D858CAB41D199BDF595",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "SSL.com Root Certification Authority RSA",
+      "sha256": "85666A562EE0BE5CE925C1D8890A6F76A87EC16D4D7D5F29EA7419CF20123B69",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "QuoVadis Root CA 2",
+      "sha256": "85A0DD7DD720ADB7FF05F83D542B209DC7FF4528F7D677B18389FEA5E5C49E86",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "QuoVadis Root CA 3 G3",
+      "sha256": "88EF81DE202EB018452E43F864725CEA5FBD1FC2D9D205730709C5D8B8690F46",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "QuoVadis Root CA 1 G3",
+      "sha256": "8A866FD1B276B57E578E921C65828A2BED58E9F2F288054134B7F1F4BFC9CC74",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "GTS Root R2",
+      "sha256": "8D25CD97229DBF70356BDA4EB3CC734031E24CF00FAFCFD32DC76EB5841C7EA8",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "HARICA Client ECC Root CA 2021",
+      "sha256": "8DD4B5373CB0DE36769C12339280D82746B3AA6CD426E797A31BABE4279CF00B",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "DigiCert SMIME RSA4096 Root G5",
+      "sha256": "90370D3EFA88BF58C30105BA25104A358460A7FA52DFC2011DF233A0F417912A",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "T-TeleSec GlobalRoot Class 2",
+      "sha256": "91E2F5788D5810EBA7BA58737DE1548A8ECACD014598BC0B143E041B17052552",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "SwissSign RSA SMIME Root CA 2022 - 1",
+      "sha256": "9A12C392BFE57891A0C545309D4D9FD567E480CB613D6342278B195C79A7931F",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "UCA Global G2 Root",
+      "sha256": "9BEA11C976FE014764C1BE56A6F914B5A560317ABD9988393382E5161AA0493C",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "Hellenic Academic and Research Institutions RootCA 2015",
+      "sha256": "A040929A02CE53B4ACF4F2FFC6981CE4496F755E6D45FE0B2A692BCD52523F36",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "SZAFIR ROOT CA2",
+      "sha256": "A1339D33281A0B56E557D3D32B1CE7F9367EB094BD5FA72A7E5004C8DED7CAFE",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "D-TRUST Root CA 3 2013",
+      "sha256": "A1A86D04121EB87F027C66F53303C28E5739F943FC84B38AD6AF009035DD9457",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "SSL.com Client ECC Root CA 2022",
+      "sha256": "AD7DD58D03AEDB22A30B5084394920CE12230C2D8017AD9B81AB04079BDD026B",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "Certum Trusted Network CA 2",
+      "sha256": "B676F2EDDAE8775CD36CB0F63CD1D4603961F49E6265BA013A2F0307B6D0B804",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "e-Szigno Root CA 2017",
+      "sha256": "BEB00B30839B9BC32C32E4447905950641F26421B15ED089198B518AE2EA1B99",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "TWCA Root Certification Authority",
+      "sha256": "BFD88FE1101C41AE3E801BF8BE56350EE9BAD1A6B9BD515EDC5C6D5B8711AC44",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "TrustAsia SMIME RSA Root CA",
+      "sha256": "C7796BEB62C101BB143D262A7C96A0C6168183223EF50D699632D86E03B8CC9B",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "DigiCert Global Root G2",
+      "sha256": "CB3CCBB76031E5E0138F8DD39A23F9DE47FFC35E43C1144CEA27D46A5AB1CB5F",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "GlobalSign Root CA - R3",
+      "sha256": "CBB522D7B7F127AD6A0113865BDF1CD4102E7D0759AF635A7CF4720DC963C53B",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "OISTE Client Root RSA G1",
+      "sha256": "D02A0F994A868C66395F2E7A880DF509BD0C29C96DE16015A0FD501EDA4F96A9",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "Certigna Root CA",
+      "sha256": "D48D3D23EEDB50A459E55197601C27774B9D7B18C94D5A059511A10250B93168",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "Sectigo Public Email Protection Root R46",
+      "sha256": "D5917A7791EB7CF20A2E57EB98284A67B28A57E89182DA53D546678C9FDE2B4F",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "Comodo AAA Services root",
+      "sha256": "D7A7A0FB5D7E2731D771E9484EBCDEF71D5F0C3E0A2948782BC83EE0EA699EF4",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "Certum Root CA",
+      "sha256": "D8E0FEBC1DB2E38D00940F37D27D41344D993E734B99D5656D9778D4D8143624",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "D-Trust SBR Root CA 1 2022",
+      "sha256": "D92C171F5CF890BA428019292927FE22F3207FD2B54449CB6F675AF4922146E2",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "OISTE Client Root ECC G1",
+      "sha256": "D9A32485A8CCA85539CEF12FFFFF711378A17851D73DA2732AB4302D763BD62B",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "Entrust Root Certification Authority - G4",
+      "sha256": "DB3517D1F6732A2D5AB97C533EC70779EE3270A62FB4AC4238372460E6F01E88",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "D-Trust SBR Root CA 2 2022",
+      "sha256": "DBA84DD7EF622D485463A90137EA4D574DF8550928F6AFA03B4D8B1141E636CC",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "CA Disig Root R2",
+      "sha256": "E23D4A036D7B70E9F595B1422079D2B91EDFBB1FB651A0633EAA8A9DC5F80703",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "Atos TrustedRoot Root CA ECC G2 2020",
+      "sha256": "E38655F4B0190C84D3B3893D840A687E190A256D98052F159E6D4A39F589A6EB",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "Certigna",
+      "sha256": "E3B6A2DB2ED7CE48842F7AC53241C7B71D54144BFB40C11F3F1D0B42F5EEA12D",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "USERTrust RSA Certification Authority",
+      "sha256": "E793C9B02FD8AA13E21C31228ACCB08119643B749C898964B1746D46C3D4CBD2",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "DigiCert SMIME ECC P384 Root G5",
+      "sha256": "E8E8176536A60CC2C4E10187C3BEFCA20EF263497018F566D5BEA0F94D0C111B",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "GlobalSign Root CA",
+      "sha256": "EBD41040E4BB3EC742C9E381D31EF2A41A48B6685C96E7CEF3C1DF6CD4331C99",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "Atos TrustedRoot 2011",
+      "sha256": "F356BEA244B7A91EB35D53CA9AD7864ACE018E2D35D5F8F96DDF68A6F41AA474",
+      "emailDistrustAfter": null
+    },
+    {
+      "label": "Certum Trusted Root CA",
+      "sha256": "FE7696573855773E37A95E7AD4D9CC96C30157C15D31765BA9B15704E1AE78FD",
+      "emailDistrustAfter": null
+    }
+  ]
+}

@@ -76,6 +76,8 @@ export function spawnCryptoWorker(): CryptoWorkerApi {
   }
 
   return {
+    verifySmime: (req) => call('verifySmime', req),
+    smimeRootSetInfo: (req) => call('smimeRootSetInfo', req),
     generateKey: (req) => call('generateKey', req),
     encrypt: (req) => call('encrypt', req),
     decrypt: (req) => call('decrypt', req),

@@ -137,21 +137,27 @@ impl Drop for Gpg {
     }
 }
 
-/// A path as the `gpg` on PATH reads it. The MSYS2 build Git for Windows ships
-/// takes `/c/...` and treats `C:/...` as relative; a native or Linux gpg takes the
-/// path as is. Which one is installed shows in its `Home:` line.
+/// Convert paths with the runtime shipped beside the selected GnuPG. Cygwin
+/// uses /cygdrive/c while Git MSYS uses /c; a Home prefix cannot distinguish them.
 fn to_gpg_path(p: &std::path::Path) -> String {
-    let s = p.to_string_lossy().replace('\\', "/");
-    let msys = cfg!(windows)
-        && Command::new("gpg")
-            .arg("--version")
-            .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).contains("Home: /"))
-            .unwrap_or(false);
-    match s.as_bytes() {
-        [d, b':', b'/', ..] if msys => format!("/{}{}", (*d as char).to_ascii_lowercase(), &s[2..]),
-        _ => s,
+    if cfg!(windows)
+        && let Some(paths) = std::env::var_os("PATH")
+    {
+        for dir in std::env::split_paths(&paths) {
+            if dir.join("gpg.exe").is_file() {
+                if let Ok(out) = Command::new(dir.join("cygpath.exe"))
+                    .arg("-u")
+                    .arg(p)
+                    .output()
+                    && out.status.success()
+                {
+                    return String::from_utf8_lossy(&out.stdout).trim().to_string();
+                }
+                break;
+            }
+        }
     }
+    p.to_string_lossy().replace('\\', "/")
 }
 
 fn getrandom_fill(buf: &mut [u8]) {

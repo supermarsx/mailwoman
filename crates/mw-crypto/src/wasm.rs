@@ -73,6 +73,7 @@ struct GenerateKeyIn {
     /// S/MIME only: RSA modulus size (2048, 3072 or 4096). Absent → the crate
     /// default, [`smime::GENERATED_RSA_BITS`].
     rsa_bits: Option<usize>,
+    key_type: Option<crate::smime_keys::KeyType>,
     /// PGP only: `"v6"` (default) or `"compatible"` (v4, readable by GnuPG 2.4).
     #[serde(default)]
     profile: pgp::KeyProfile,
@@ -131,8 +132,11 @@ pub fn generate_key(options: JsValue) -> Result<JsValue, JsValue> {
         "smime" => {
             let (name, email) = split_user_id(&i.user_id);
             let bits = i.rsa_bits.unwrap_or(smime::GENERATED_RSA_BITS);
-            let g = smime::generate_with_bits(name, email, &i.passphrase, unix_now(), bits)
-                .map_err(js_err)?;
+            let g = match i.key_type {
+                Some(kind) => smime::generate_key(kind, name, email, &i.passphrase, unix_now()),
+                None => smime::generate_with_bits(name, email, &i.passphrase, unix_now(), bits),
+            }
+            .map_err(js_err)?;
             to_js(&GenerateKeyOut {
                 public_key_armored: None,
                 key_id: g.cert.fingerprint[..16.min(g.cert.fingerprint.len())].to_string(),
@@ -174,6 +178,11 @@ struct EncryptIn {
     recipient_public_keys: Vec<String>,
     sign_with_key_ref: Option<String>,
     protected_subject: Option<String>,
+    #[serde(default)]
+    cipher: crate::smime_cms::Cipher,
+    #[serde(default)]
+    recipient_gcm: Vec<Option<bool>>,
+    sign_with_cert_pem: Option<String>,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -183,6 +192,8 @@ struct EncryptOut {
     /// PGP: 1 (SEIPDv1, some recipient lacks AEAD support) or 2 (SEIPDv2).
     #[serde(skip_serializing_if = "Option::is_none")]
     seipd_version: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    smime_type: Option<String>,
 }
 
 /// `encrypt({kind, plaintext, recipientPublicKeys, signWithKeyRef?,
@@ -205,16 +216,46 @@ pub fn encrypt(options: JsValue) -> Result<JsValue, JsValue> {
                 armored_ciphertext: out.armored,
                 encrypted_subject_applied: subject_applied,
                 seipd_version: Some(out.seipd_version),
+                smime_type: None,
             })
         }
         "smime" => {
             use base64::Engine;
-            let der =
-                smime::encrypt(i.plaintext.as_bytes(), &i.recipient_public_keys).map_err(js_err)?;
+            let mut body = i.plaintext.into_bytes();
+            if let Some(key_ref) = &i.sign_with_key_ref {
+                let (bundle, passphrase) =
+                    session_lookup(key_ref).ok_or_else(|| js_err("signing key is locked"))?;
+                let cert = i
+                    .sign_with_cert_pem
+                    .as_deref()
+                    .ok_or_else(|| js_err("S/MIME signing needs signWithCertPem"))?;
+                body = crate::smime_cms::sign(
+                    &body,
+                    cert.as_bytes(),
+                    &bundle,
+                    &passphrase,
+                    &crate::smime_cms::SignOptions {
+                        detached: false,
+                        ..Default::default()
+                    },
+                )
+                .map_err(js_err)?;
+            }
+            let recipients: Vec<_> = i
+                .recipient_public_keys
+                .iter()
+                .enumerate()
+                .map(|(n, cert)| crate::smime_cms::Recipient {
+                    cert: cert.as_bytes().to_vec(),
+                    gcm: i.recipient_gcm.get(n).copied().flatten(),
+                })
+                .collect();
+            let out = crate::smime_cms::encrypt(&body, &recipients, i.cipher).map_err(js_err)?;
             to_js(&EncryptOut {
-                armored_ciphertext: base64::engine::general_purpose::STANDARD.encode(der),
+                armored_ciphertext: base64::engine::general_purpose::STANDARD.encode(out.der),
                 encrypted_subject_applied: false,
                 seipd_version: None,
+                smime_type: Some(out.smime_type.into()),
             })
         }
         other => Err(js_err(format!("unknown kind: {other}"))),
@@ -285,11 +326,20 @@ pub fn decrypt(options: JsValue) -> Result<JsValue, JsValue> {
                 .map_err(js_err)?;
             let pt =
                 smime::decrypt(&der, &i.encrypted_private_bundle, &i.passphrase).map_err(js_err)?;
+            let (pt, verification) = if crate::smime_cms::signed_data_has_content(&pt) == Some(true)
+            {
+                let verified =
+                    crate::smime_cms::verify(&pt, &crate::smime_cms::VerifyOptions::default())
+                        .map_err(js_err)?;
+                (verified.content.unwrap_or_default(), verified.verification)
+            } else {
+                (pt, Verification::not_signed("smime"))
+            };
             to_js(&DecryptOut {
                 plaintext_text: String::from_utf8_lossy(&pt).into_owned(),
                 subject: None,
-                signature: none_verdict("smime"),
-                verification: Verification::not_signed("smime"),
+                signature: verification.signature.clone(),
+                verification,
                 aead: None,
             })
         }
@@ -307,10 +357,14 @@ struct SignIn {
     encrypted_private_bundle: String,
     passphrase: String,
     /// `false` → an inline cleartext-signed `PGP SIGNED MESSAGE` (the body stays
-    /// readable); `true` → a bare detached `PGP SIGNATURE`. PGP only.
+    /// readable); `true` → a bare detached signature. Also applies to S/MIME.
     detached: bool,
     /// For S/MIME the signer certificate PEM (the worker holds it beside the key).
     cert_pem: Option<String>,
+    #[serde(default)]
+    chain: Vec<String>,
+    #[serde(default)]
+    pss: bool,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -339,13 +393,21 @@ pub fn sign(options: JsValue) -> Result<JsValue, JsValue> {
             let cert = i
                 .cert_pem
                 .ok_or_else(|| js_err("smime sign requires certPem"))?;
-            smime::sign(
+            use base64::Engine;
+            let der = crate::smime_cms::sign(
                 i.data.as_bytes(),
-                &cert,
+                cert.as_bytes(),
                 &i.encrypted_private_bundle,
                 &i.passphrase,
+                &crate::smime_cms::SignOptions {
+                    detached: i.detached,
+                    chain: i.chain.into_iter().map(String::into_bytes).collect(),
+                    pss: i.pss,
+                    ..Default::default()
+                },
             )
-            .map_err(js_err)?
+            .map_err(js_err)?;
+            base64::engine::general_purpose::STANDARD.encode(der)
         }
         other => return Err(js_err(format!("unknown kind: {other}"))),
     };
@@ -392,11 +454,62 @@ pub fn verify(options: JsValue) -> Result<JsValue, JsValue> {
             let der = base64::engine::general_purpose::STANDARD
                 .decode(i.signature.as_bytes())
                 .map_err(js_err)?;
-            smime::verify(&der).map_err(js_err)?
+            smime::verify_detached(&der, Some(i.data.as_bytes())).map_err(js_err)?
         }
         other => return Err(js_err(format!("unknown kind: {other}"))),
     };
     to_js(&verdict)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VerifySmimeIn {
+    cms: Raw,
+    content: Option<Raw>,
+    sender: Option<String>,
+    #[serde(default)]
+    extra_certs: Vec<String>,
+    #[serde(default)]
+    user_trust: Vec<String>,
+    #[serde(default)]
+    admin_trust: Vec<String>,
+    mozilla: Option<bool>,
+    #[serde(default)]
+    revocation: Vec<crate::pkix::revocation::RevocationResult>,
+    #[serde(default)]
+    hard_fail: bool,
+    local_case_insensitive: Option<bool>,
+}
+
+/// Verify exact CMS bytes and return chain, sender and revocation evidence.
+#[wasm_bindgen(js_name = verifySmime)]
+pub fn verify_smime(options: JsValue) -> Result<JsValue, JsValue> {
+    let i: VerifySmimeIn = from_js(options)?;
+    let out = crate::smime_cms::verify(
+        &i.cms.to_bytes()?,
+        &crate::smime_cms::VerifyOptions {
+            content: i.content.map(|c| c.to_bytes()).transpose()?,
+            sender: i.sender,
+            extra_certs: i.extra_certs.into_iter().map(String::into_bytes).collect(),
+            trust: crate::smime_trust::TrustConfig {
+                user: i.user_trust.into_iter().map(String::into_bytes).collect(),
+                admin: i.admin_trust.into_iter().map(String::into_bytes).collect(),
+                mozilla: i.mozilla.unwrap_or(true),
+            },
+            revocation: i.revocation,
+            hard_fail: i.hard_fail,
+            local_case_insensitive: i.local_case_insensitive.unwrap_or(true),
+            now: unix_now(),
+            ..Default::default()
+        },
+    )
+    .map_err(js_err)?;
+    to_js(&out)
+}
+
+#[wasm_bindgen(js_name = smimeRootSetInfo)]
+pub fn smime_root_set_info(_options: JsValue) -> Result<JsValue, JsValue> {
+    to_js(&crate::smime_trust::root_set_info())
 }
 
 // ── importPkcs12 ─────────────────────────────────────────────────────────────
@@ -1227,18 +1340,4 @@ fn session_lookup(key_ref: &str) -> Option<(String, String)> {
             .get(key_ref)
             .map(|c| (c.bundle.clone(), c.passphrase.clone()))
     })
-}
-
-fn none_verdict(kind: &str) -> SignatureVerdict {
-    SignatureVerdict {
-        kind: kind.into(),
-        status: "none".into(),
-        signer_key_id: None,
-        algorithm: None,
-        key_created_at: None,
-        key_expires_at: None,
-        chain_status: None,
-        revocation_status: None,
-        key_changed: false,
-    }
 }

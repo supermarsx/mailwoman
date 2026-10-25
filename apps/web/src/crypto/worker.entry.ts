@@ -24,6 +24,8 @@ import { sanitizeDecryptResult, type RawDecryptResult } from './sanitize.ts';
 // resolve before any of them is called.
 type WasmFn = (options: unknown) => unknown;
 const METHODS: Record<string, WasmFn> = {
+  verifySmime: mw.verifySmime,
+  smimeRootSetInfo: mw.smimeRootSetInfo,
   generateKey: mw.generateKey,
   encrypt: mw.encrypt,
   decrypt: mw.decrypt,
