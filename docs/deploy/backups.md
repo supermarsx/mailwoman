@@ -136,3 +136,34 @@ exec restic backup --quiet "$1"
 ```
 
 `doctor` checks that the hook is an executable file.
+
+## Scheduling: `timers`
+
+```sh
+bash deploy.sh timers
+```
+
+writes four systemd units for this installation into `.deploy.local/systemd/`
+and prints them, followed by the equivalent cron lines:
+
+| Unit | Runs | When |
+|---|---|---|
+| `mailwoman-<project>-backup.service` / `.timer` | `deploy.sh backup` | daily at 03:30 (up to 30 minutes later, at random); a run missed while the host was off runs at the next boot |
+| `mailwoman-<project>-check.service` / `.timer` | `deploy.sh check` ([monitoring.md](monitoring.md)) | every five minutes |
+
+The units name this checkout's `deploy.sh`, its state directory and the user who
+ran `timers` (`User=`, left out for root), so they work only for this
+installation. Nothing is installed or written outside the state directory; to
+install, as root:
+
+```sh
+cp .deploy.local/systemd/mailwoman-<project>-*.service .deploy.local/systemd/mailwoman-<project>-*.timer /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now mailwoman-<project>-backup.timer mailwoman-<project>-check.timer
+```
+
+Or add the two printed cron lines with `crontab -e` as that user. The paths may
+contain only letters, digits and `._/+@-`, so that neither systemd nor cron needs
+quoting; `timers` refuses others. Run `timers` again after moving the checkout or
+the state directory. With gpg encryption, the scheduled backup uses the keyring
+of the `User=` account, so import the public key there.

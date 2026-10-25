@@ -49,6 +49,9 @@ NETWORK="$PROJECT-proxy"
 BAD_IMAGE="$PROJECT-unhealthy:test"
 SIGNED=
 REGISTRY_IMAGE=registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+# The base scripts/test-systemd-unit.sh boots; here it only runs systemd-analyze.
+SYSTEMD_IMAGE=ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac
+TIMERS='timer units'
 SERVER_KEY=
 GNUPG_FULL=
 GNUPG_PUBLIC=
@@ -575,6 +578,49 @@ HOOKED=$(tail -n 1 "$STATE/hook.args")
 [[ $(find "$STATE/backups" -mindepth 2 -maxdepth 2 -name COMPLETE | wc -l) == 2 && -d $(cat "$STATE/rollback.path") ]] || fail "after a successful hook, BACKUP_KEEP=1 did not leave the new and the rollback snapshot: $(ls "$STATE/backups")"
 printf 'backup hook: exit 3 failed the backup and kept it, exit 0 passed and retention ran (%s calls)\n' "$(wc -l < "$STATE/hook.args" | tr -d ' ')"
 set_config BACKUP_HOOK= BACKUP_KEEP=
+
+# timers writes a service and a timer for backup and for check, with this
+# installation's paths, into the state directory, and prints them with the
+# equivalent cron lines; systemd-analyze verify accepts the units (in a container
+# with systemd installed; a seeded unit with a bad calendar or a missing
+# executable is refused there, so the step is not vacuous).
+run timers > "$STATE/timers.out" 2> "$STATE/timers.log" || { cat "$STATE/timers.log" >&2; fail 'timers failed'; }
+BASH_PATH=$(command -v bash)
+for UNIT in backup.service backup.timer check.service check.timer; do
+    [[ -f $STATE/systemd/mailwoman-$PROJECT-$UNIT ]] || fail "timers did not write mailwoman-$PROJECT-$UNIT into the state directory"
+done
+for WHAT in backup check; do
+    grep -Fx "ExecStart=$BASH_PATH $DEPLOY $WHAT --state-dir $STATE" "$STATE/systemd/mailwoman-$PROJECT-$WHAT.service" >/dev/null || fail "the $WHAT unit does not run this installation's $WHAT: $(grep ExecStart "$STATE/systemd/mailwoman-$PROJECT-$WHAT.service")"
+done
+grep -Fx "30 3 * * * $BASH_PATH $DEPLOY backup --state-dir $STATE" "$STATE/timers.out" >/dev/null || fail "timers printed no cron line for backup: $(tail -n 3 "$STATE/timers.out")"
+grep -Fx "*/5 * * * * $BASH_PATH $DEPLOY check --state-dir $STATE" "$STATE/timers.out" >/dev/null || fail "timers printed no cron line for check: $(tail -n 3 "$STATE/timers.out")"
+mkdir "$STATE/units-seeded"
+cp "$STATE/systemd/"* "$STATE/units-seeded/"
+sed -i 's/^OnCalendar=.*/OnCalendar=not-a-date/' "$STATE/units-seeded/mailwoman-$PROJECT-backup.timer"
+# verify_units DIR: 0 when systemd-analyze accepts DIR's units, 1 when it refuses
+# them, 90 when systemd could not be installed in the container.
+verify_units() {
+    tar -C "$1" -cf - . | MSYS_NO_PATHCONV=1 timeout 420 docker run -i --rm --label "mailwoman.deploy.test=$PROJECT" "$SYSTEMD_IMAGE" bash -c '
+        mkdir -p /etc/systemd/system && tar -xf - -C /etc/systemd/system || exit 90
+        export DEBIAN_FRONTEND=noninteractive
+        { timeout 150 apt-get update -qq && timeout 200 apt-get install -y -qq --no-install-recommends systemd; } >/dev/null 2>&1 || exit 90
+        cd /etc/systemd/system && systemd-analyze verify ./mailwoman-*.service ./mailwoman-*.timer || exit 1' > "$STATE/verify.log" 2>&1
+}
+VERIFY=0
+verify_units "$STATE/systemd" || VERIFY=$?
+if ((VERIFY == 90)); then
+    [[ ${DEPLOY_TEST_REQUIRE:-} != all ]] || fail 'systemd could not be installed in a container (no network?) and DEPLOY_TEST_REQUIRE=all: the timer units were not verified'
+    printf 'SKIP: systemd could not be installed in a container; the timer units were not verified.\n' >&2
+    TIMERS='timer units (systemd-analyze SKIPPED)'
+else
+    ((VERIFY == 0)) || fail "systemd-analyze verify refused the timer units: $(cat "$STATE/verify.log")"
+    SEEDED=0
+    verify_units "$STATE/units-seeded" || SEEDED=$?
+    ((SEEDED == 1)) || fail "systemd-analyze verify on a timer with a bad calendar ended with $SEEDED, expected 1 (refused): $(cat "$STATE/verify.log")"
+    grep -F 'Failed to parse calendar specification' "$STATE/verify.log" >/dev/null || fail "the seeded timer was refused for another reason: $(cat "$STATE/verify.log")"
+    TIMERS='timer units (systemd-analyze verify)'
+fi
+printf 'timers: %s; %s\n' "$TIMERS" "$(grep -c '^[*0-9]' "$STATE/timers.out") cron lines"
 
 # --image signature check. A registry container on localhost port DEPLOY_TEST_PORT + 2
 # holds a copy of the test image (a fixed port: Docker Desktop's daemon cannot reach
