@@ -60,6 +60,9 @@ export interface LocaleProviderProps {
 export function LocaleProvider(props: LocaleProviderProps): JSX.Element {
   const initial: Locale = props.locale ?? negotiateLocale(requestedLocales());
   setActiveLocale(initial);
+  // Only en/common is bundled; load the negotiated locale's copy of it and of
+  // every catalog requested before this point (the text fills in reactively).
+  if (initial !== SOURCE_LOCALE) void reloadForActiveChain();
 
   const locale = activeLocaleSignal;
   const dir = (): Dir => resolveDir(locale());
