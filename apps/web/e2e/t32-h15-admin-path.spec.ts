@@ -31,7 +31,7 @@ test.describe('admin console at MW_ADMIN_PATH', () => {
     const loginForm = page.getByRole('form', { name: 'Admin sign in' });
     await expect(loginForm).toBeVisible();
     await loginForm.getByLabel('Admin username').fill(V6.adminUser);
-    await loginForm.getByLabel('Password').fill(V6.adminPass);
+    await loginForm.getByLabel('Password', { exact: true }).fill(V6.adminPass);
     await loginForm.getByRole('button', { name: 'Sign in' }).click();
 
     const nav = page.getByRole('navigation', { name: 'Admin sections' });
