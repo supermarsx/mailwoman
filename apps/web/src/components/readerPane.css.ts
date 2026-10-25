@@ -20,7 +20,7 @@ const DESKTOP = 'screen and (min-width: 761px)';
 
 // ── bottom: list on top, reader beneath (within the content column) ──────────
 globalStyle(':root[data-reading-pane="bottom"] .shell', {
-  '@media': { [DESKTOP]: { gridTemplateColumns: '220px 1fr', gridTemplateRows: '1fr 1fr' } },
+  '@media': { [DESKTOP]: { gridTemplateColumns: '220px minmax(0, 1fr)', gridTemplateRows: 'minmax(0, 1fr) minmax(0, 1fr)' } },
 });
 globalStyle(':root[data-reading-pane="bottom"] .sidebar', {
   '@media': { [DESKTOP]: { gridColumn: '1', gridRow: '1 / 3' } },

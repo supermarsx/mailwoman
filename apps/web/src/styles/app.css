@@ -228,8 +228,24 @@ body {
 .shell {
   display: grid;
   grid-template-columns: 220px minmax(260px, 360px) 1fr;
-  height: 100%;
+  grid-template-rows: minmax(0, 1fr);
+  height: 100dvh;
+  max-height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
 }
+
+/* Every ancestor of the virtual list must be allowed to shrink. Otherwise its
+   synthetic full-folder height expands the grid and pushes the sidebar away. */
+.mail-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.mail-pane > .list { flex: 1 1 0; min-height: 0; }
+.mail-pane > :not(.list) { flex-shrink: 0; }
 
 /* Background layer for the app shell (t32 P). Whoever wires a user or brand
    background mounts an empty `.mw-shell-bg` element inside `.shell` and sets
@@ -256,6 +272,9 @@ body {
 
 .sidebar {
   display: flex;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
   flex-direction: column;
   gap: 0.6rem;
   padding-block: 0.9rem;
@@ -325,7 +344,9 @@ body {
 .list {
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  overflow: hidden;
+  min-height: 0;
+  min-width: 0;
   border-inline-end: var(--border-heavy) solid var(--border-strong);
   background: var(--bg);
 }
@@ -337,6 +358,7 @@ body {
   overflow: auto;
   flex: 1 1 auto;
   min-height: 0;
+  overscroll-behavior: contain;
 }
 .list__items {
   position: relative;
@@ -426,7 +448,10 @@ body {
 .reader {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: auto;
+  min-height: 0;
+  min-width: 0;
+  overscroll-behavior: contain;
 }
 .reader__empty {
   padding: 2rem;
@@ -454,7 +479,8 @@ body {
    white), framed by the 2px rule so the white block reads as a panel. The
    colour is the one literal allowed here. */
 .reader__frame {
-  flex: 1;
+  flex: 1 0 12rem;
+  min-height: 12rem;
   width: 100%;
   border: var(--border-rule) solid var(--border-strong);
   background: #ffffff;
