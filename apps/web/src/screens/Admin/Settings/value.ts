@@ -34,7 +34,7 @@ export function toDraft(kind: SettingKind, value: unknown): Draft {
 
 /** Whether a kind is edited as JSON text. */
 export function isJsonKind(kind: SettingKind): boolean {
-  return ['localeMap', 'intList', 'quietHours', 'links'].includes(kind.type);
+  return ['localeMap', 'intList', 'stringList', 'quietHours', 'links'].includes(kind.type);
 }
 
 /** Check a draft against the declared type and bounds; the server checks again. */
@@ -72,6 +72,8 @@ export function parseDraft(kind: SettingKind, draft: Draft, nullable: boolean): 
             ? isUrl(text, ['https'])
             : kind.format === 'httpUrl'
               ? isUrl(text, ['http', 'https'])
+              : kind.format === 'upstreamUrl'
+                ? isUrl(text, ['http', 'https', 'imap', 'imaps', 'pop3', 'pop3s'])
               : kind.format === 'email'
                 ? EMAIL.test(text)
                 : kind.format === 'domain'
@@ -82,7 +84,7 @@ export function parseDraft(kind: SettingKind, draft: Draft, nullable: boolean): 
                       : isUrl(text, ['https'])
                     : true;
       if (ok) return { ok: true, value: text };
-      const isLink = kind.format === 'httpsUrl' || kind.format === 'httpUrl' || kind.format === 'contact';
+      const isLink = kind.format === 'httpsUrl' || kind.format === 'httpUrl' || kind.format === 'upstreamUrl' || kind.format === 'contact';
       return {
         ok: false,
         error: t(isLink ? 'admin-ux-err-url' : kind.format === 'email' ? 'admin-ux-err-email' : 'admin-ux-err-pattern'),

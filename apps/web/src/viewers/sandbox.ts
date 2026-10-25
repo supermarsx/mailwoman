@@ -89,12 +89,16 @@ export type SecurityMode = 'full-sanitized' | 'sanitized-no-media' | 'plain-text
  *  `full-sanitized` keeps the pre-V4 permissive-image body; the other two drop
  *  every image/media source so nothing external loads (belt-and-braces with the
  *  sanitizer, which also strips the tags). */
-export function bodyCsp(mode: SecurityMode = 'full-sanitized'): string {
+export function bodyCsp(mode: SecurityMode = 'full-sanitized', direct = false, serverBase?: string): string {
   if (mode === 'full-sanitized') {
+    // Opaque sandbox origins do not match CSP 'self' in Firefox.
+    // Only the application-selected server origin may supply signed images.
+    let imageOrigin = '';
+    try { const server = new URL(serverBase ?? ''); if (['http:', 'https:'].includes(server.protocol) && !server.username && !server.password) imageOrigin = ` ${server.origin}`; } catch { /* no additional source */ }
     return [
       "default-src 'none'",
-      'img-src data: https: http:',
-      'media-src data: https: http:',
+      `img-src 'self' data: blob:${imageOrigin}${direct ? ' https:' : ''}`,
+      "media-src 'none'",
       "style-src 'unsafe-inline'",
       'font-src data:',
       "frame-ancestors 'none'",
@@ -168,7 +172,7 @@ export function withImageLoadingHints(html: string): string {
 export function bodyFrameDoc(
   mode: SecurityMode,
   content: { html?: string | null; text?: string | null },
-  opts: { themeVars?: string } = {},
+  opts: { themeVars?: string; direct?: boolean; serverBase?: string } = {},
 ): string {
   const styleVars = opts.themeVars !== undefined && opts.themeVars.length > 0 ? opts.themeVars : '';
   const inner =
@@ -177,19 +181,21 @@ export function bodyFrameDoc(
       : withImageLoadingHints(content.html ?? '');
   return (
     '<!doctype html><html><head><meta charset="utf-8">' +
-    `<meta http-equiv="Content-Security-Policy" content="${bodyCsp(mode)}">` +
+    `<meta http-equiv="Content-Security-Policy" content="${bodyCsp(mode, opts.direct === true, opts.serverBase)}">` +
     `<style>${styleVars}${BODY_STYLE}</style></head><body>${inner}</body></html>`
   );
 }
 
 /** Read an already-fetched `blob:` object URL back into a `data:` URL. */
-export async function blobUrlToDataUrl(blobUrl: string): Promise<string> {
+export async function blobUrlToDataUrl(blobUrl: string, declaredMime?: string): Promise<string> {
   const blob = await (await apiFetch(blobUrl)).blob();
   return await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as string);
     reader.onerror = () => reject(reader.error ?? new Error('failed to read attachment'));
-    reader.readAsDataURL(blob);
+    // Downloads stay octet-stream; only the image renderer opts into SVG bytes.
+    const image = declaredMime?.split(';')[0]?.trim().toLowerCase() === 'image/svg+xml' ? new Blob([blob], { type: 'image/svg+xml' }) : blob;
+    reader.readAsDataURL(image);
   });
 }
 

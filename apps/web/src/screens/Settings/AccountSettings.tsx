@@ -13,7 +13,7 @@
 // mailbox. Now it replaces only that screen, with an error and a retry that
 // mounts it again (which reloads it).
 
-import { createSignal, type JSX } from 'solid-js';
+import { createSignal, Show, type JSX } from 'solid-js';
 import { useI18n } from '../../i18n';
 import { AsyncBoundary } from '../../components/ErrorBoundary.tsx';
 import { SettingsService } from './service.ts';
@@ -28,6 +28,7 @@ import { Preferences } from './Preferences.tsx';
 import * as css from './styles.css.ts';
 
 export interface AccountSettingsProps {
+  hideSecurity?: boolean;
   /** Injected in tests; production uses the same-origin cookie service. */
   service?: SettingsService;
 }
@@ -59,12 +60,10 @@ export function AccountSettings(props: AccountSettingsProps): JSX.Element {
 
   return (
     <div class={css.stack} dir={effectiveDir()} data-testid="account-settings">
-      <AsyncBoundary>
-        <TwoFactor service={service} />
-      </AsyncBoundary>
-      <AsyncBoundary>
-        <Sessions service={service} />
-      </AsyncBoundary>
+      <Show when={!props.hideSecurity}>
+        <AsyncBoundary><TwoFactor service={service} /></AsyncBoundary>
+        <AsyncBoundary><Sessions service={service} /></AsyncBoundary>
+      </Show>
       <AsyncBoundary>
         <Signatures service={service} />
       </AsyncBoundary>

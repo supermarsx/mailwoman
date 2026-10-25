@@ -58,6 +58,8 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
   onMount(() => void admin.loadSession());
   onMount(() => void loadCatalog('admin'));
   onMount(() => void loadCatalog('admin-shell'));
+  onMount(() => void loadCatalog('admin-admins'));
+  onMount(() => void loadCatalog('privacy'));
   onMount(() => void loadCatalog('admin-dashboard'));
   onMount(() => void loadCatalog('plugins'));
   useStoredAdminLocale();

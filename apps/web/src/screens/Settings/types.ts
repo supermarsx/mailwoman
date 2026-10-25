@@ -55,6 +55,12 @@ export interface RecoveryCodes {
 
 /** One active session as `GET /api/account/sessions` reports it (metadata only). */
 export interface SessionMeta {
+  readonly userAgent?: string;
+  readonly ip?: string;
+  readonly clientType?: string;
+  readonly clientVersion?: string;
+  readonly deviceLabel?: string;
+  readonly country?: string | null;
   readonly handle: string;
   readonly username: string;
   readonly createdAt: string;

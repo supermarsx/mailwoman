@@ -1,6 +1,7 @@
 import { createResource, For, Show, type JSX } from 'solid-js';
 import './viewers.css';
 import { categoryOf, type TypeCategory } from './attachments.ts';
+import { blobUrlToDataUrl } from './sandbox.ts';
 import { createObjectUrlOwner } from './objectUrl.ts';
 import { t } from '../i18n/index.ts';
 
@@ -48,7 +49,7 @@ function Thumb(props: {
   const urls = createObjectUrlOwner();
   const [preview] = createResource(
     () => (category() === 'image' && props.resolveThumb !== undefined ? props.item : undefined),
-    async (item) => urls.adopt(await props.resolveThumb!(item)),
+    async (item) => { const url = urls.adopt(await props.resolveThumb!(item)); return item.mime.split(';')[0]?.trim().toLowerCase() === 'image/svg+xml' ? await blobUrlToDataUrl(url, item.mime) : url; },
   );
   return (
     <button

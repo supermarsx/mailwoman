@@ -51,6 +51,7 @@ export async function registerPasskey(challenge: {
   userHandle: string;
   userName: string;
   userVerification: string;
+  residentKey?: ResidentKeyRequirement;
 }): Promise<RegistrationResult> {
   if (!passkeySupported()) throw new Error('passkeys are not supported in this browser');
   const cred = (await navigator.credentials.create({
@@ -63,7 +64,7 @@ export async function registerPasskey(challenge: {
         displayName: challenge.userName,
       },
       pubKeyCredParams: PUB_KEY_CRED_PARAMS,
-      authenticatorSelection: { userVerification: toUv(challenge.userVerification) },
+      authenticatorSelection: { userVerification: toUv(challenge.userVerification), residentKey: challenge.residentKey ?? 'discouraged' },
       attestation: 'none',
     },
   })) as PublicKeyCredential | null;

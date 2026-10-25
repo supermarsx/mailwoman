@@ -61,6 +61,7 @@ const STUB_SIGNATURE: SignatureVerdict = {
 export function createStubCryptoWorker(): CryptoWorkerApi {
   let refSeq = 0;
   return {
+    async sanitizeReader() { throw new Error('Reader sanitization requires the real worker'); },
     async verifySmime() {
       throw new Error('S/MIME verification requires the real crypto worker');
     },
@@ -296,6 +297,7 @@ function createLazyCryptoWorker(): CryptoWorkerApi {
   let real: CryptoWorkerApi | null = null;
   const get = (): CryptoWorkerApi => (real ??= spawnCryptoWorker());
   return {
+    sanitizeReader: (r) => get().sanitizeReader(r),
     verifySmime: (r) => get().verifySmime(r),
     smimeRootSetInfo: (r) => get().smimeRootSetInfo(r),
     generateKey: (r) => get().generateKey(r),

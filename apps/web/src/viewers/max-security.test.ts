@@ -116,12 +116,12 @@ describe('resolveMode — precedence admin-floor > per-sender > global', () => {
 });
 
 describe('renderPlan — each position → the right CSP / sanitize mode', () => {
-  it('full-sanitized renders HTML, keeps media, permissive image CSP', () => {
+  it('full-sanitized renders HTML with signed-source image CSP', () => {
     const p = renderPlan('full-sanitized');
     expect(p.renderHtml).toBe(true);
     expect(p.stripMedia).toBe(false);
     expect(p.sanitizeProfile).toBe('full');
-    expect(p.bodyCsp).toContain('img-src data: https: http:');
+    expect(p.bodyCsp).toContain("img-src 'self' data: blob:");
   });
 
   it('sanitized-no-media renders HTML but strips media and blocks images in CSP', () => {
@@ -165,7 +165,7 @@ describe('sandbox body builders (mode extension) preserve the sandbox contract',
 
   it('bodyCsp defaults to the full-sanitized (current) behavior', () => {
     expect(bodyCsp()).toBe(bodyCsp('full-sanitized'));
-    expect(bodyCsp()).toContain('img-src data: https: http:');
+    expect(bodyCsp()).toContain("img-src 'self' data: blob:");
   });
 
   it('locked-down bodyCsp forbids every external source', () => {

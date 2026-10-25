@@ -88,7 +88,7 @@ export function setNativeTransport(transport: NativeTransport | null): void {
 
 /** The sign-in routes whose answer carries a native client's token. */
 function isSignInPath(path: string): boolean {
-  return path === '/api/login' || path.startsWith('/api/login/2fa');
+  return path === '/api/login' || path.startsWith('/api/login/2fa') || path === '/api/login/passkey/finish';
 }
 
 /** The path of `input` without the deploy prefix, for the route checks above. */
@@ -232,7 +232,7 @@ function refreshToken(source: string): Promise<string | null> {
  *
  * `X-Mailwoman-Client` is added where `setClientHeader` says so.
  */
-export async function apiFetch(input: string, given?: RequestInit): Promise<Response> {
+async function rawApiFetch(input: string, given?: RequestInit): Promise<Response> {
   const init = withClientHeader(input, given);
   if (native !== null && isRootRelative(input)) return sendNative(native, input, init);
   const method = (init?.method ?? 'GET').toUpperCase();
@@ -244,4 +244,40 @@ export async function apiFetch(input: string, given?: RequestInit): Promise<Resp
   const fresh = await refreshToken(tokenSource(input));
   if (fresh === null) return res;
   return fetch(input, withToken(init, fresh));
+}
+
+
+const confirming = new Map<string, Promise<boolean>>();
+
+/** A refusal occurs before the handler mutates state. Confirm once, then retry once. */
+export async function apiFetch(input: string, given?: RequestInit): Promise<Response> {
+  const originalNative = native;
+  const originalToken = originalNative === null ? null : await originalNative.token();
+  const response = await rawApiFetch(input, given);
+  if (response.status !== 403 || typeof response.clone !== 'function' || typeof document === 'undefined'
+    || new Headers(given?.headers).has('authorization') || given?.credentials === 'omit'
+    || (typeof ReadableStream !== 'undefined' && given?.body instanceof ReadableStream)
+    || given?.signal?.aborted) return response;
+  const url = new URL(input, globalThis.location.href);
+  if (url.origin !== globalThis.location.origin) return response;
+  const path = requestPath(input);
+  if (path.includes('/step-up')) return response;
+  const body = await response.clone().json().catch(() => null) as { code?: unknown; methods?: unknown } | null;
+  if (body?.code !== 'step_up_required' || !Array.isArray(body.methods)) return response;
+  const endpoint = `${basePath()}${path.startsWith(`${consolePath()}/`) ? `${consolePath()}/step-up` : '/api/security/step-up'}`;
+  let confirmation = confirming.get(endpoint);
+  if (confirmation === undefined) {
+    const methods = body.methods.filter((value): value is string => typeof value === 'string' && (native === null || value !== 'passkey'));
+    if (methods.length === 0) return response;
+    confirmation = import('../components/StepUpDialog.tsx').then(({ requestStepUp }) => requestStepUp({
+      methods,
+      send: (proof, begin) => rawApiFetch(`${endpoint}${begin ? '/passkey' : ''}`, {
+        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(proof),
+      }),
+    })).finally(() => { confirming.delete(endpoint); });
+    confirming.set(endpoint, confirmation);
+  }
+  if (!(await confirmation) || given?.signal?.aborted) return response;
+  if (native !== originalNative || (originalNative !== null && await originalNative.token() !== originalToken)) return response;
+  return rawApiFetch(input, given);
 }

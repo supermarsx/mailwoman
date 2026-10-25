@@ -16,7 +16,7 @@
 // nothing to the mail critical path.
 
 import init, * as mw from '../wasm/mw-crypto/mw_crypto.js';
-import initSanitize, { sanitizeEmailHtml } from '../wasm/mw-sanitize/mw_sanitize.js';
+import initSanitize, { sanitizeEmailHtml, sanitizeEmailHtmlReader } from '../wasm/mw-sanitize/mw_sanitize.js';
 import type { CryptoWorkerRequest, CryptoWorkerResponse } from './worker.ts';
 import { sanitizeDecryptResult, type RawDecryptResult } from './sanitize.ts';
 
@@ -109,20 +109,29 @@ function normalizeResult(method: string, value: unknown): unknown {
 // plaintext through the in-worker mw-sanitize wasm (HTML sanitized before it leaves
 // the worker; non-HTML kept as escaped text). See `sanitize.ts` (plan §1.3).
 async function runMethod(method: string, rawArgs: unknown): Promise<unknown> {
+  if (method === 'sanitizeReader') {
+    const args = rawArgs as { html?: unknown; blockTrackers?: unknown; cleanLinks?: unknown };
+    if (typeof args?.html !== 'string' || args.html.length > 8 * 1024 * 1024 || typeof args.blockTrackers !== 'boolean' || typeof args.cleanLinks !== 'boolean') throw new Error('Invalid reader sanitizer request');
+    await ensureSanitize();
+    return sanitizeEmailHtmlReader(args.html, args.blockTrackers, args.cleanLinks);
+  }
   const fn = METHODS[method];
   if (fn === undefined) throw new Error(`unknown crypto method: ${method}`);
   const args = normalizeArgs(method, (rawArgs ?? {}) as Record<string, unknown>);
-  const value = fn(args);
+  const { readerPolicy, ...cryptoArgs } = args;
+  const value = fn(cryptoArgs);
   if (method === 'decrypt') {
     await ensureSanitize();
-    return sanitizeDecryptResult(value as RawDecryptResult, sanitizeEmailHtml);
+    const policy = readerPolicy as { blockTrackers?: unknown; cleanLinks?: unknown } | undefined;
+    const sanitize = policy === undefined ? sanitizeEmailHtml : (html: string) => sanitizeEmailHtmlReader(html, policy.blockTrackers !== false, policy.cleanLinks !== false);
+    return sanitizeDecryptResult(value as RawDecryptResult, sanitize);
   }
   return normalizeResult(method, value);
 }
 
 self.onmessage = (ev: MessageEvent<CryptoWorkerRequest>): void => {
   const { id, method } = ev.data;
-  void ensureCrypto()
+  void (method === 'sanitizeReader' ? Promise.resolve() : ensureCrypto())
     .then(() => runMethod(method, ev.data.args))
     .then((value) => {
       const reply: CryptoWorkerResponse = { id, ok: true, value };

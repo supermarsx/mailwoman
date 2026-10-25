@@ -110,6 +110,16 @@ test.describe('the stack under test enforces the CSRF token', () => {
     expect(forged.status(), 'a signed-in write without the header is refused').toBe(403);
     expect(await forged.json()).toEqual(CSRF_REFUSAL);
 
+    // A matching cookie/header pair is insufficient when it was not issued for
+    // this session (D12). Keep the legitimate session and forge only the pair.
+    const session = cookies.find((c) => c.name === 'mw_session');
+    expect(session).toBeDefined();
+    const selfMade = await request.post('/api/session/rotate', {
+      headers: { cookie: `mw_session=${session!.value}; mw_csrf=self-made`, 'x-csrf-token': 'self-made' },
+    });
+    expect(selfMade.status()).toBe(403);
+    expect(await selfMade.json()).toEqual(CSRF_REFUSAL);
+
     // The same write with the cookie repeated in the header is the session's own.
     const own = await request.post('/api/session/rotate', { headers: { 'x-csrf-token': token as string } });
     expect(own.status(), 'a signed-in write with the header is accepted').toBe(200);

@@ -44,6 +44,8 @@ import { MetadataView } from '../modules/servermeta/index.ts';
 // account alongside the existing feature modules.
 import { AccountSettings } from './Settings/index.ts';
 import { Language } from './Settings/Language.tsx';
+import { SecurityCenter } from './Settings/SecurityCenter.tsx';
+import { Privacy } from './Settings/Privacy.tsx';
 import { LockNote } from './Settings/LockNote.tsx';
 import { useSetting } from './Settings/useSetting.ts';
 import { AsyncBoundary } from '../components/ErrorBoundary.tsx';
@@ -246,7 +248,11 @@ export function Settings(props: SettingsProps): JSX.Element {
                 <PasswordChange accountId={accountId()} />
               </AsyncBoundary>
               <AsyncBoundary>
-                <AccountSettings />
+                <AccountSettings hideSecurity />
+              </AsyncBoundary>
+              <AsyncBoundary>
+                <SecurityCenter />
+                <Privacy />
               </AsyncBoundary>
               <AsyncBoundary>
                 <RulesSettings accountId={accountId()} />

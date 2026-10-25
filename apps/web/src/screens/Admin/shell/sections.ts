@@ -62,6 +62,14 @@ function screen<P extends object>(load: () => Promise<Component<P>>, passApi: bo
 
 export const SECTIONS: readonly SectionDef[] = [
   {
+    id: 'sessions',
+    group: 'security',
+    icon: 'sessions',
+    label: () => t('admin-nav-sessions'),
+    capability: 'sessions.read',
+    component: screen(() => import('../Sessions.tsx').then((m) => m.AdminSessions), false),
+  },
+  {
     id: 'dashboard',
     group: 'overview',
     icon: 'dashboard',
@@ -89,9 +97,9 @@ export const SECTIONS: readonly SectionDef[] = [
     id: 'two-factor',
     group: 'people',
     icon: 'twofactor',
-    label: () => t('admin-nav-2fa'),
+    label: () => t('admin-security-center-title'),
     capability: 'security.read',
-    component: screen(() => import('../TwoFactorPolicy.tsx').then((m) => m.TwoFactorPolicy), true),
+    component: screen(() => import('../SecurityCenter.tsx').then((m) => m.AdminSecurityCenter), true),
   },
   {
     id: 'sso',
@@ -100,6 +108,22 @@ export const SECTIONS: readonly SectionDef[] = [
     label: () => t('admin-nav-sso'),
     capability: 'sso.read',
     component: screen(() => import('../Sso/index.tsx').then((m) => m.AdminSso), false),
+  },
+  {
+    id: 'admins',
+    group: 'security',
+    icon: 'admins',
+    label: () => t('admin-accounts-title'),
+    capability: 'admins.read',
+    component: screen(() => import('../Admins/index.tsx').then((m) => m.AdminAdmins), false),
+  },
+  {
+    id: 'roles',
+    group: 'security',
+    icon: 'roles',
+    label: () => t('admin-accounts-roles'),
+    capability: 'admins.read',
+    component: screen(() => import('../Roles/index.tsx').then((m) => m.AdminRoles), false),
   },
   {
     id: 'security-policy',
@@ -158,12 +182,20 @@ export const SECTIONS: readonly SectionDef[] = [
     component: screen(() => import('../UiPlugins/index.tsx').then((m) => m.AdminUiPlugins), false),
   },
   {
+    id: 'privacy',
+    group: 'security',
+    icon: 'privacy',
+    label: () => t('privacy-title'),
+    capability: 'egress.read',
+    component: screen(() => import('../Privacy.tsx').then((m) => m.AdminPrivacy), false),
+  },
+  {
     id: 'egress',
     group: 'configuration',
     icon: 'egress',
-    label: () => t('admin-nav-egress'),
+    label: () => t('privacy-outbound-title'),
     capability: 'egress.read',
-    component: screen(() => import('../Egress.tsx').then((m) => m.AdminEgress), false),
+    component: screen(() => import('../Outbound.tsx').then((m) => m.AdminOutbound), false),
   },
   {
     id: 'observability',

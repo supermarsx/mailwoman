@@ -50,3 +50,6 @@ auth-consent-for-resource = For resource
 auth-consent-deny = Deny
 auth-consent-allow = Allow
 auth-consent-error = could not record your decision
+auth-domain-hint = You can sign in with just your username for { $domain }.
+auth-passkey-sign-in = Sign in with a passkey
+auth-passkey-failed = The passkey could not sign you in. Try again or use your password.

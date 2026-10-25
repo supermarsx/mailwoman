@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SANDBOX_TOKENS, escapeHtml, mediaFrameDoc, textFrameDoc } from './sandbox.ts';
+import { SANDBOX_TOKENS, bodyCsp, escapeHtml, mediaFrameDoc, textFrameDoc } from './sandbox.ts';
 
 describe('SANDBOX_TOKENS', () => {
   it('grants neither allow-scripts nor allow-same-origin (opaque, script-free)', () => {
@@ -47,4 +47,11 @@ describe('escapeHtml', () => {
   it('escapes the HTML-significant characters', () => {
     expect(escapeHtml('a<b>&"')).toBe('a&lt;b&gt;&amp;"');
   });
+});
+
+it('admits only an explicit HTTP server origin for opaque signed-image frames', () => {
+  expect(bodyCsp('full-sanitized', false, 'https://mail.test/prefix')).toContain("img-src 'self' data: blob: https://mail.test;");
+  expect(bodyCsp('full-sanitized', false, 'https://user:pass@mail.test')).not.toContain('mail.test');
+  expect(bodyCsp('full-sanitized', false, "data:text/html,evil")).not.toContain('evil');
+  expect(bodyCsp('sanitized-no-media', false, 'https://mail.test')).not.toContain('mail.test');
 });

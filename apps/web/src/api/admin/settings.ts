@@ -25,11 +25,11 @@ import {
 
 /** A value's type and bounds, as the registry declares it. */
 export interface SettingKind {
-  type: 'bool' | 'int' | 'float' | 'enum' | 'text' | 'locale' | 'localeMap' | 'intList' | 'quietHours' | 'links';
+  type: 'bool' | 'int' | 'float' | 'enum' | 'text' | 'locale' | 'localeMap' | 'intList' | 'stringList' | 'quietHours' | 'links';
   min?: number;
   max?: number;
   values?: string[];
-  format?: 'plain' | 'slug' | 'httpsUrl' | 'httpUrl' | 'email' | 'domain' | 'contact';
+  format?: 'plain' | 'slug' | 'httpsUrl' | 'httpUrl' | 'upstreamUrl' | 'email' | 'domain' | 'contact';
   maxLength?: number;
   maxItems?: number;
   locales?: string[];

@@ -8,6 +8,8 @@ import { listSsoProviders, ssoBeginPath, type SsoProviderSummary } from '../modu
 import { TwoFactorChallenge } from './Settings/index.ts';
 import { authCard, authPage } from '../styles/authCard.css.ts';
 import { PasswordInput } from '../components/PasswordInput.tsx';
+import { publicConfig, type PublicConfig } from '../api/publicConfig.ts';
+import { passwordlessAvailable, signInWithPasskey } from '../api/passwordless.ts';
 
 /**
  * Did the browser land back here from a failed SSO round-trip? The IdP
@@ -30,6 +32,10 @@ export function Login(): JSX.Element {
   // (t32); the user never enters a server address. Nor does a browser (t32-h9):
   // the server decides which mail server an address signs in to.
   const native = isNativeAuth();
+  const [passkeyAvailable, setPasskeyAvailable] = createSignal(false);
+  onMount(() => { if (!native) void passwordlessAvailable().then(setPasskeyAvailable).catch(() => undefined); });
+  const [config, setConfig] = createSignal<PublicConfig | null>(null);
+  onMount(() => { void publicConfig().then(setConfig).catch(() => undefined); });
   const [email, setEmail] = createSignal('');
   const [password, setPassword] = createSignal('');
   const [error, setError] = createSignal<string | null>(ssoErrorReturn() ? t('auth-sso-error') : null);
@@ -64,6 +70,13 @@ export function Login(): JSX.Element {
     if (native) return;
     void listSsoProviders(basePath()).then(setProviders).catch(() => setProviders([]));
   });
+
+  async function passkeySignIn(): Promise<void> {
+    setBusy(true); setError(null); setRefused(false); setReference(null);
+    try { await signInWithPasskey(native); await app.init(); }
+    catch { setError(t('auth-passkey-failed')); }
+    finally { setBusy(false); }
+  }
 
   async function onSubmit(e: Event): Promise<void> {
     e.preventDefault();
@@ -126,7 +139,8 @@ export function Login(): JSX.Element {
     return (
     <main class={`login ${authPage}`}>
       <form class={`login__card ${authCard}`} onSubmit={(e) => void onSubmit(e)} aria-label={t('auth-sign-in')}>
-        <h1 class="login__title">{t('auth-app-name')}</h1>
+        <h1 class="login__title">{config()?.brandName || t('auth-app-name')}</h1>
+        <Show when={config()?.loginNotice}>{(notice) => <p class="login__hint" dir="auto">{notice()}</p>}</Show>
         <label class="field">
           <span>{t('auth-email')}</span>
           {/* Text, not `type=email`: a deployment may sign in with a bare user name. */}
@@ -137,10 +151,12 @@ export function Login(): JSX.Element {
             autocomplete="username"
             autocapitalize="none"
             spellcheck={false}
+            aria-describedby={config()?.usernameDomainHint ? 'login-domain-hint' : undefined}
             value={email()}
             onInput={(e) => setEmail(e.currentTarget.value)}
           />
         </label>
+        <Show when={config()?.usernameDomainHint}>{(domain) => <p id="login-domain-hint" class="login__hint">{t('auth-domain-hint', { domain: domain() })}</p>}</Show>
         <label class="field">
           <span>{t('auth-password')}</span>
           <PasswordInput
@@ -172,6 +188,9 @@ export function Login(): JSX.Element {
         <button type="submit" class="btn btn--primary" disabled={busy()}>
           {busy() ? t('auth-signing-in') : t('auth-sign-in')}
         </button>
+        <Show when={passkeyAvailable()}>
+          <button type="button" class="btn btn--ghost" disabled={busy()} onClick={() => void passkeySignIn()}>{t('auth-passkey-sign-in')}</button>
+        </Show>
         <Show when={providers().length > 0}>
           <div class="login__sso" role="group" aria-label={t('auth-sso-heading')}>
             <p class="login__sso-divider" aria-hidden="true">

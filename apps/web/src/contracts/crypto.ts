@@ -116,7 +116,10 @@ export interface EncryptResult {
 }
 
 /** `decrypt` argument. */
+export interface ReaderSanitizePolicy { blockTrackers: boolean; cleanLinks: boolean }
 export interface DecryptRequest {
+  /** Reader-only policy, consumed before the WASM crypto call. */
+  readerPolicy?: ReaderSanitizePolicy;
   kind: KeyKind;
   ciphertext: string;
   encryptedPrivateBundle: string;
@@ -485,6 +488,7 @@ export type KeyRef = string;
  * (`crypto/index.ts`); e8 backs it with the real wasm-pack module + worker.
  */
 export interface CryptoWorkerApi {
+  sanitizeReader(req: ReaderSanitizePolicy & { html: string }): Promise<string>;
   verifySmime(req: VerifySmimeRequest): Promise<SmimeVerification>;
   smimeRootSetInfo(req: Record<string, never>): Promise<SmimeRootSetInfo>;
   generateKey(req: GenerateKeyRequest): Promise<GenerateKeyResult>;

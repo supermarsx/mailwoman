@@ -1,3 +1,4 @@
+import { controls } from './Egress.css.ts';
 // Egress-proxy routes admin (26.20 t22-e16), over t22-e12's API (`2eede09`):
 //
 //   GET  /admin/egress/proxies              → { proxies: ProxyView[] }
@@ -56,6 +57,8 @@ import * as css from './admin.css.ts';
 
 /** A configured route, as the server is willing to describe it. */
 export interface EgressProxyView {
+  scope?: string;
+  trafficClasses?: string[];
   id: string;
   scheme: string;
   host: string;
@@ -255,6 +258,7 @@ function stageLabel(stage: string): string {
 const SCHEMES = ['http', 'socks5'] as const;
 
 export interface AdminEgressProps {
+  readOnly?: boolean;
   /** Injected by tests; defaults to the production HTTP client. */
   api?: EgressAdminApi;
 }
@@ -429,6 +433,7 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
 
   return (
     <section class={css.section} data-testid="admin-egress">
+      <fieldset disabled={props.readOnly} class={controls}>
       <h2 class={css.heading}>{t('admin-egress-heading')}</h2>
       <p class={css.note}>{t('admin-egress-intro')}</p>
 
@@ -493,7 +498,7 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
                     <>
                     <tr data-testid={`egress-row-${row.id}`} data-active={String(row.active)}>
                       <td class={css.mono}>{row.id}</td>
-                      <td class={css.mono}>{`${row.scheme}://${row.host}:${row.port}`}</td>
+                      <td class={css.mono}>{`${row.scheme}://${row.host}:${row.port}`}<Show when={row.scope}><p>{row.scope}</p></Show><Show when={row.trafficClasses?.length}><p>{row.trafficClasses?.map(value => value.replaceAll('_', ' ')).join(', ')}</p></Show></td>
                       <td>{row.username}</td>
                       <td>
                         {/* The only credential fact the server will state, and the
@@ -704,6 +709,7 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
           </Show>
         </div>
       </form>
+      </fieldset>
     </section>
   );
 }

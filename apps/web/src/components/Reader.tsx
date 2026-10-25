@@ -1,10 +1,12 @@
 import {
   createEffect,
+  For,
   createMemo,
   createResource,
   createSignal,
   on,
   onMount,
+  onCleanup,
   Show,
   type JSX,
   type Resource,
@@ -31,13 +33,13 @@ import type { SenderControlRequest, SenderControlResult } from './security/model
 import { defaultSenderControl } from './security/model.ts';
 import { MaxSecuritySwitch } from '../viewers/MaxSecuritySwitch.tsx';
 import { createMaxSecurityStore } from '../viewers/max-security.ts';
-import { bodyFrameDoc, withImageLoadingHints } from '../viewers/sandbox.ts';
+import { bodyFrameDoc } from '../viewers/sandbox.ts';
 import { createObjectUrlOwner } from '../viewers/objectUrl.ts';
 import { getCryptoWorker } from '../crypto/index.ts';
 import { pickSignerArmor } from '../crypto/signerMatch.ts';
 import { createConfiguredClient } from '../api/transport.ts';
 import { fetchThreadingHeaders, parentReferences, responseFor, type ThreadingHeaders } from '../api/jmap.ts';
-import { CAP_CORE } from '../api/jmap-types.ts';
+import { CAP_CORE, CAP_MAIL } from '../api/jmap-types.ts';
 import { CAP_CRYPTO, CAP_SECURITY } from '../api/crypto-types.ts';
 import type { Email, EmailAddress } from '../api/jmap-types.ts';
 import type { SecurityVerdict, SignatureVerdict } from '../api/security-types.ts';
@@ -46,11 +48,14 @@ import {
   coveringGrant,
   createRemoteImageApi,
   hasBlockedContent,
-  rewriteGrantedImages,
   type GrantScope,
 } from '../api/remote-images.ts';
 import { extractHtmlBody } from '../state/slices/mail.ts';
 import { RemoteContentBar } from './RemoteContentBar.tsx';
+import { DirectReaderFrame } from './DirectReaderFrame.tsx';
+import { remotePolicy, decodedTrackerStats, remoteServerBase, signContent, readerReferences, rewriteReaderContent, signedSource, BLOCKED_POLICY, EMPTY_SIGNED, type RemotePolicy } from '../api/remote-content.ts';
+import { settings } from '../api/settings.ts';
+import { isNativeAuth } from '../api/serverAddress.ts';
 import {
   formatAddressList,
   forwardSubject,
@@ -385,8 +390,9 @@ export function AttachmentsPane(props: { email: Email }): JSX.Element {
  *  signature verdict back to the reader. */
 function DecryptPanel(props: {
   armor: string;
+  emailId: string;
   senderAddress: string;
-  onDecrypted: (content: { html?: string; text?: string }, signature: SignatureVerdict) => void;
+  onDecrypted: (content: { html?: string; text?: string }, signature: SignatureVerdict, emailId: string, accountId: string | null) => void;
 }): JSX.Element {
   const app = useApp();
   const [passphrase, setPassphrase] = createSignal('');
@@ -425,13 +431,17 @@ function DecryptPanel(props: {
     setError(null);
     setBusy(true);
     try {
+      const requestedEmail = props.emailId;
+      const requestedAccount = app.accountId();
       const own = app.ownKeys().find(
         (k) => k.kind === 'pgp' && k.encryptedPrivateBackup !== null,
       );
       const bundle = own?.encryptedPrivateBackup ?? null;
       if (bundle === null) throw new Error(t('mail-decrypt-no-key'));
       const signerPublicKey = await resolveSignerPublicKey(props.senderAddress);
+      if (props.emailId !== requestedEmail || app.accountId() !== requestedAccount) return;
       const result = await getCryptoWorker().decrypt({
+        readerPolicy: { blockTrackers: false, cleanLinks: true },
         kind: 'pgp',
         ciphertext: props.armor,
         encryptedPrivateBundle: bundle,
@@ -444,7 +454,7 @@ function DecryptPanel(props: {
         result.plaintextHtml !== undefined
           ? { html: result.plaintextHtml }
           : { text: result.plaintextText ?? '' };
-      props.onDecrypted(content, result.signature);
+      props.onDecrypted(content, result.signature, requestedEmail, requestedAccount);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('mail-decrypt-failed'));
     } finally {
@@ -546,13 +556,42 @@ function AutoTagSection(props: { email: Email }): JSX.Element {
   );
 }
 
+function DecodedTrackerCount(props: { emailId: string; scope: string; loaded: number }): JSX.Element {
+  const [count, { refetch }] = createResource(() => ({ id: props.emailId, scope: props.scope, loaded: props.loaded }), async key => {
+    try { return { scope: key.scope, count: await decodedTrackerStats(key.id) }; } catch { return null; }
+  });
+  // Lazy images can decode after the iframe's load event. Refresh only while the
+  // message is open and the document visible; ownership is enforced server-side.
+  onMount(() => { const timer = setInterval(() => { if (document.visibilityState === 'visible') void refetch(); }, 5000); onCleanup(() => clearInterval(timer)); });
+  return <Show when={count.state === 'ready' && count.latest?.scope === props.scope ? count.latest : null}>{value => <p>{t(value().count.limited ? 'privacy-decoded-trackers-limited' : 'privacy-decoded-trackers', { count: value().count.count, minutes: Math.round(value().count.windowSecs / 60) })}</p>}</Show>;
+}
+
+function RemoteFileDownloads(props: { emailId: string; scope: string; urls: string[]; links: string[] }): JSX.Element {
+  const [pending, setPending] = createSignal(false); const [failed, setFailed] = createSignal(false);
+  const [selected, setSelected] = createSignal('');
+  createEffect(on(() => props.scope, () => { setSelected(''); setFailed(false); setPending(false); }));
+  async function download(url: string): Promise<void> {
+    const scope = props.scope; setPending(true); setFailed(false);
+    try {
+      const response = await signContent(props.emailId, { files: [url] });
+      const path = response.files.find(file => file.url === url)?.src;
+      const src = path ? signedSource(path, 'f') : null;
+      if (!src) throw new Error('File was refused');
+      if (props.scope !== scope) return;
+      const link = document.createElement('a'); link.href = src; link.download = ''; link.rel = 'noopener noreferrer'; link.referrerPolicy = 'no-referrer'; document.body.append(link); link.click(); link.remove();
+    } catch { if (props.scope === scope) setFailed(true); }
+    finally { if (props.scope === scope) setPending(false); }
+  }
+  return <section aria-label={t('privacy-linked-files')}><details><summary>{t('privacy-linked-files')}</summary><For each={props.urls}>{url => <p><span dir="auto">{new URL(url).hostname}{new URL(url).pathname}</span> <button type="button" class="btn" disabled={pending()} onClick={() => void download(url)}>{t('privacy-download-file')}</button></p>}</For><Show when={props.links.some(url => !props.urls.includes(url))}><label>{t('privacy-other-link')}<select value={selected()} onChange={e => setSelected(e.currentTarget.value)}><option value="">{t('privacy-select-link')}</option><For each={props.links.filter(url => !props.urls.includes(url))}>{url => <option value={url}>{url}</option>}</For></select></label><button type="button" class="btn" disabled={pending() || !selected()} onClick={() => { const url = selected(); if (props.links.includes(url)) void download(url); }}>{t('privacy-download-file')}</button></Show></details><Show when={failed()}><p role="alert">{t('privacy-file-failed')}</p></Show></section>;
+}
+
 export function Reader(props: {
   /** Open a composer seeded for a reply or a forward (the mailbox screen owns
    *  the composer). Without it the three toolbar buttons do nothing. */
   onCompose?: (initial: ComposeInitial) => void;
 }): JSX.Element {
   const app = useApp();
-  onMount(() => void loadCatalog('remote-images'));
+  onMount(() => { void loadCatalog('remote-images'); void loadCatalog('privacy'); });
 
   const emailId = (): string | null => app.openEmail()?.id ?? null;
 
@@ -600,6 +639,7 @@ export function Reader(props: {
   const [decryptedText, setDecryptedText] = createSignal<string | null>(null);
   createEffect(() => {
     emailId();
+    app.accountId();
     setClientSig(null);
     setDecryptedHtml(null);
     setDecryptedText(null);
@@ -644,49 +684,57 @@ export function Reader(props: {
     return coveringGrant(settled(grants) ?? [], { emailId: id, sender: sender() });
   });
 
-  // The message-body `srcdoc`, honoring the max-security mode + the decrypt path.
-  // The DEFAULT (full-sanitized cleartext) path is the unchanged raw sanitized
-  // fragment, so the existing sandbox/e2e contract is byte-identical — UNLESS a
-  // grant covers the open message, in which case its remote images are repointed
-  // at the anonymizing proxy (still deny-by-default: no grant → no rewrite).
+  const [frameLoads, setFrameLoads] = createSignal(0);
+  const [privacy] = createResource(
+    () => app.accountId() && emailId() ? { account: app.accountId(), email: emailId(), values: ['privacy.remoteContent', 'privacy.trackers', 'privacy.cleanLinks'].map(key => settings()[key]?.value) } : null,
+    async () => { try { const p = await remotePolicy(); return isNativeAuth() && p.mode === 'direct' ? { ...p, mode: 'ask' as const, allowDirect: false } : p; } catch { return BLOCKED_POLICY; } },
+  );
+  const policy = (): RemotePolicy => settled(privacy) ?? BLOCKED_POLICY;
+  const [readerBody] = createResource(
+    () => {
+      const email = app.openEmail(); const account = app.accountId();
+      if (!email || !account || privacy.loading || grants.loading) return null;
+      return { email, account, policy: policy(), securityMode: maxsec.effectiveMode(sender()), decrypted: decryptedHtml(), granted: activeGrant() !== null, fallback: app.sanitizedHtml() };
+    },
+    async k => {
+      let html = k.decrypted ?? k.fallback ?? ''; let effective = k.policy; let failed = false;
+      try { if (k.decrypted === null) html = await getCryptoWorker().sanitizeReader({ html: extractHtmlBody(k.email), blockTrackers: false, cleanLinks: true }); }
+      catch { effective = BLOCKED_POLICY; failed = true; }
+      const cancelled = () => ({ emailId: k.email.id, account: k.account, html: '', sanitized: '', refs: { urls: [], cids: [], trackers: 0, files: [], links: [] }, policy: BLOCKED_POLICY, failed: false });
+      const current = () => app.accountId() === k.account && emailId() === k.email.id && maxsec.effectiveMode(sender()) === k.securityMode;
+      if (!current()) return cancelled();
+      const refs = readerReferences(html); const cidParts: Record<string,string> = {};
+      const walk = (part: unknown): void => {
+        if (!part || typeof part !== 'object') return;
+        const p = part as { cid?: string; blobId?: string; subParts?: unknown[] };
+        if (typeof p.cid === 'string' && typeof p.blobId === 'string') cidParts[p.cid.replace(/^<|>$/g, '')] = p.blobId;
+        if (Array.isArray(p.subParts)) p.subParts.forEach(walk);
+      };
+      if (refs.cids.length) {
+        try {
+          const property = effective.inlineParts ? 'mailwomanInlineParts' : 'bodyStructure';
+          const response = await jmapClient.jmap({ using: [CAP_CORE, CAP_MAIL], methodCalls: [['Email/get', { accountId: k.account, ids: [k.email.id], properties: ['id', property], bodyProperties: ['partId','blobId','cid','subParts','type'] }, 'rc-parts']] });
+          const message = responseFor<{ list: Record<string,unknown>[] }>(response, 'rc-parts').list[0];
+          const parts = message?.[property]; if (Array.isArray(parts)) parts.forEach(walk); else walk(parts);
+        } catch { failed = true; }
+      }
+      if (!current()) return cancelled();
+      const urls = k.securityMode === 'full-sanitized' && (effective.mode === 'proxy' || (effective.mode === 'ask' && k.granted)) ? refs.urls : [];
+      const parts = k.securityMode === 'full-sanitized' ? [...new Set(refs.cids.map(id => cidParts[id]).filter((id): id is string => Boolean(id)))] : [];
+      let signed = EMPTY_SIGNED;
+      if (urls.length || parts.length) { try { signed = await signContent(k.email.id, { urls, parts }); } catch { failed = true; } }
+      return { emailId: k.email.id, account: k.account, html: rewriteReaderContent(html, signed, effective, cidParts), sanitized: html, refs, policy: effective, failed };
+    },
+  );
+  const currentBody = () => { const body = readerBody.state === 'ready' || readerBody.state === 'refreshing' ? readerBody.latest : undefined; return body?.emailId === emailId() && body.account === app.accountId() ? body : undefined; };
   const bodySrcdoc = createMemo<string | null>(() => {
-    const email = app.openEmail();
-    if (email === null) return null;
+    const email = app.openEmail(); if (!email) return null;
     const mode = maxsec.effectiveMode(sender());
-    // Decrypted E2EE body (§1.3): HTML was sanitized IN-WORKER (never round-trips to
-    // the server sanitizer) and renders as sanitized HTML in the sandbox, honoring
-    // the max-security mode; non-HTML plaintext renders escaped. Same no-scripts /
-    // no-same-origin iframe as cleartext mail.
-    const decHtml = decryptedHtml();
-    if (decHtml !== null) {
-      if (mode === 'plain-text') return bodyFrameDoc('plain-text', { text: decHtml });
-      if (mode === 'sanitized-no-media') return bodyFrameDoc('sanitized-no-media', { html: decHtml });
-      return bodyFrameDoc('full-sanitized', { html: decHtml });
-    }
-    const decText = decryptedText();
-    if (decText !== null) return bodyFrameDoc('plain-text', { text: decText });
-    if (mode === 'plain-text') return bodyFrameDoc('plain-text', { text: plainTextOf(email) });
-    const html = app.sanitizedHtml();
-    if (html === null) return null;
-    // The grants decide whether this body's remote images are repointed at the
-    // proxy. Until they are known the body is not drawn, rather than drawn
-    // blocked and then drawn again.
-    if (mode === 'full-sanitized' && grants.loading) return null;
-    // no-media: reuse the server-sanitized HTML but pin a media-free CSP so no
-    // image/media loads (belt-and-braces). full: the sanitized fragment, with the
-    // open message's remote images repointed at the proxy when a grant covers it
-    // (no covering grant → the fragment is returned unchanged).
-    if (mode === 'sanitized-no-media') return bodyFrameDoc('sanitized-no-media', { html });
-    // This branch returns the sanitized fragment directly (no `bodyFrameDoc`),
-    // so the `loading`/`decoding` hints are applied here too — otherwise the
-    // DEFAULT cleartext body, the one that actually carries images, is the only
-    // render path without them. A body with no `<img>` is returned unchanged.
-    return withImageLoadingHints(
-      // `email.id`, not `emailId()`: both read `app.openEmail()`, but this binds
-      // the proxy URL's scope to the very body being rewritten rather than to a
-      // second read of the signal, and it is already narrowed non-null here.
-      rewriteGrantedImages(html, extractHtmlBody(email), activeGrant() !== null, email.id) ?? html,
-    );
+    const text = decryptedText(); if (text !== null) return bodyFrameDoc('plain-text', { text });
+    if (mode === 'plain-text') return bodyFrameDoc('plain-text', { text: decryptedHtml() ?? plainTextOf(email) });
+    if (mode === 'sanitized-no-media') return bodyFrameDoc(mode, { html: currentBody()?.html ?? decryptedHtml() ?? app.sanitizedHtml() });
+    const body = currentBody(); if (!body || body.emailId !== email.id || body.account !== app.accountId()) return null;
+    return bodyFrameDoc('full-sanitized', { html: body.html }, { direct: body.policy.mode === 'direct' && body.policy.allowDirect, serverBase: remoteServerBase() });
   });
 
   // ── Reply / Reply all / Forward ────────────────────────────────────────────
@@ -848,7 +896,7 @@ export function Reader(props: {
   // string, no round-trip). Only meaningful in the full-sanitized mode — in the
   // no-media / plain-text modes images are stripped regardless of any grant, so
   // the bar is hidden there rather than offering an action that can't take effect.
-  const blockedReport = createMemo(() => analyzeBlockedContent(app.sanitizedHtml()));
+  const blockedReport = createMemo(() => { const report = analyzeBlockedContent(currentBody()?.sanitized ?? app.sanitizedHtml()); return { ...report, trackerCount: policy().trackers ? report.trackerCount : 0 }; });
   const fullMode = (): boolean => maxsec.effectiveMode(sender()) === 'full-sanitized';
 
   const showRemoteBar = (): boolean =>
@@ -932,10 +980,14 @@ export function Reader(props: {
                 sender={sender()}
                 report={blockedReport()}
                 activeGrant={activeGrant()}
+                mode={policy().mode}
                 onGrant={onRemoteGrant}
                 onRevoke={onRemoteRevoke}
               />
             </Show>
+            <Show when={fullMode() && policy().trackers && (policy().mode === 'proxy' || (policy().mode === 'ask' && activeGrant() !== null))}><DecodedTrackerCount emailId={email().id} scope={`${app.accountId()}:${email().id}`} loaded={frameLoads()} /></Show>
+            <Show when={currentBody()?.refs.links.length}><RemoteFileDownloads emailId={email().id} scope={`${app.accountId()}:${email().id}`} urls={currentBody()?.refs.files ?? []} links={currentBody()?.refs.links ?? []} /></Show>
+            <Show when={currentBody()?.failed}><p role="alert">{t('privacy-content-failed')}</p></Show>
             <Show
               when={showDecrypt()}
               fallback={
@@ -950,19 +1002,18 @@ export function Reader(props: {
                     missed something, scripts cannot run and the frame has an
                     opaque origin with no access to the parent.
                   */}
-                  <iframe
-                    class="reader__frame"
-                    title={t('mail-message-body')}
-                    sandbox=""
-                    srcdoc={bodySrcdoc() ?? ''}
-                  />
+                  <Show when={!isNativeAuth() && fullMode()} fallback={<iframe onLoad={() => setFrameLoads(n => n + 1)} class="reader__frame" title={t('mail-message-body')} sandbox="" srcdoc={bodySrcdoc() ?? ''} />}>
+                    <DirectReaderFrame html={bodySrcdoc() ?? ''} title={t('mail-message-body')} />
+                  </Show>
                 </Show>
               }
             >
               <DecryptPanel
                 armor={armor() ?? ''}
+                emailId={email().id}
                 senderAddress={sender()}
-                onDecrypted={(content, signature) => {
+                onDecrypted={(content, signature, decryptedId, decryptedAccount) => {
+                  if (emailId() !== decryptedId || app.accountId() !== decryptedAccount) return;
                   if (content.html !== undefined) setDecryptedHtml(content.html);
                   else setDecryptedText(content.text ?? '');
                   setClientSig(signature);

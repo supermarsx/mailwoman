@@ -32,6 +32,7 @@ import {
 } from '../api/remote-images.ts';
 
 export interface RemoteContentBarProps {
+  mode?: import('../api/remote-content.ts').RemoteMode;
   /** The open message id (the `single`-scope grant value). */
   emailId: string;
   /** The sender address (drives the per-sender / per-domain scopes). */
@@ -115,6 +116,7 @@ export function RemoteContentBar(props: RemoteContentBarProps): JSX.Element {
       aria-label={t('remote-bar-label')}
       data-testid="remote-content-bar"
     >
+      <Show when={(props.mode ?? 'ask') === 'ask'} fallback={<span>{t(`privacy-mode-${props.mode}`)} · {t('privacy-trackers-blocked', { count: props.report.trackerCount })}</span>}>
       <Show
         when={props.activeGrant === null || props.activeGrant === undefined}
         fallback={
@@ -168,6 +170,7 @@ export function RemoteContentBar(props: RemoteContentBarProps): JSX.Element {
       <p class={css.status} role="status" aria-live="polite">
         {status()}
       </p>
+      </Show>
     </section>
   );
 }

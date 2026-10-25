@@ -40,6 +40,28 @@ function renderLogin(client: Client) {
 }
 
 describe('Login', () => {
+  it('shows the public brand, notice and accessible domain hint without expanding typed input', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => new Response(
+      String(input).endsWith('/api/public-config')
+        ? JSON.stringify({ brandName: 'Example Mail', loginNotice: 'Staff sign-in', usernameDomainHint: 'example.org', theme: 'dark', accent: 'blue' })
+        : '[]', { status: 200, headers: { 'content-type': 'application/json' } },
+    )));
+    try {
+      const client = fakeClient();
+      renderLogin(client);
+      expect(await screen.findByRole('heading', { name: 'Example Mail' })).toBeInTheDocument();
+      expect(screen.getByText('Staff sign-in')).toBeInTheDocument();
+      const address = screen.getByLabelText('Email address');
+      expect(address).toHaveAttribute('aria-describedby', 'login-domain-hint');
+      expect(document.getElementById('login-domain-hint')).toHaveTextContent('example.org');
+      fireEvent.input(address, { target: { value: 'alice' } });
+      fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'secret' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+      await vi.waitFor(() => expect(client.login).toHaveBeenCalledWith(expect.objectContaining({ username: 'alice' })));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it('renders the address and password fields', () => {
     renderLogin(fakeClient());
     expect(screen.getByText('Email address')).toBeInTheDocument();
@@ -345,6 +367,7 @@ describe('Login › native shell', () => {
     renderLogin(fakeClient());
     await Promise.resolve();
     await Promise.resolve();
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith('https://mail.example.org/api/public-config', { cache: 'no-store' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

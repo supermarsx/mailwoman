@@ -65,6 +65,9 @@ export function Sessions(props: SessionsProps): JSX.Element {
               <div class={css.itemMain}>
                 <span class={css.itemName}>{isolate(s.username)}</span>
                 <span class={css.meta}>{t('settings-sessions-last-seen', { when: s.lastSeen })}</span>
+                <span class={css.meta}>{s.deviceLabel || s.clientType} · {s.clientVersion} · {s.ip} {s.country}</span>
+                <span class={css.meta}>{s.userAgent}</span>
+                <span class={css.meta}>{t('security-center-first-seen', { when: s.createdAt })}</span>
               </div>
               <Show
                 when={s.current}
