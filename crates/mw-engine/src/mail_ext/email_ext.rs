@@ -212,6 +212,11 @@ impl Engine {
                 ChangeOp::Destroyed,
             )
             .await?;
+            self.emit_event(
+                crate::change::EventKind::MessageDeleted,
+                from_account,
+                &[source_id.to_string()],
+            );
         }
         self.created_entry(&sid).await
     }

@@ -143,9 +143,94 @@ impl StateChange {
     }
 }
 
+// ── Typed events (26.20 t28-e18) ─────────────────────────────────────────────
+
+/// What happened, for an outbound webhook that asked for it. A [`StateChange`]
+/// says only that a state token moved; these say which kind of change moved it,
+/// so a webhook subscribed to new mail is not called for a flag change.
+///
+/// Emitted by the engine at the mutation that causes it (see [`EventSink`]); the
+/// wire names are [`EventKind::as_str`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EventKind {
+    /// A message the account did not have before arrived from the mail server.
+    MessageReceived,
+    /// A message's keywords (read, flagged, …) changed through the API.
+    MessageFlags,
+    /// A message moved to another folder.
+    MessageMoved,
+    /// A message was deleted, here or on the mail server.
+    MessageDeleted,
+    /// The mail server accepted a submission.
+    SubmissionSent,
+    /// A submission was given up on: it will not be sent.
+    SubmissionFailed,
+    /// A calendar, event, task, note, address book, contact or group changed.
+    PimChanged,
+}
+
+impl EventKind {
+    /// Every kind, in a stable order (the admin screen lists them this way).
+    pub const ALL: [EventKind; 7] = [
+        EventKind::MessageReceived,
+        EventKind::MessageFlags,
+        EventKind::MessageMoved,
+        EventKind::MessageDeleted,
+        EventKind::SubmissionSent,
+        EventKind::SubmissionFailed,
+        EventKind::PimChanged,
+    ];
+
+    /// The wire name (`X-Mailwoman-Event`, the payload `type`, the stored filter).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EventKind::MessageReceived => "message.received",
+            EventKind::MessageFlags => "message.flags",
+            EventKind::MessageMoved => "message.moved",
+            EventKind::MessageDeleted => "message.deleted",
+            EventKind::SubmissionSent => "submission.sent",
+            EventKind::SubmissionFailed => "submission.failed",
+            EventKind::PimChanged => "pim.changed",
+        }
+    }
+
+    /// The kind with this wire name.
+    pub fn parse(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|k| k.as_str() == name)
+    }
+}
+
+/// One typed event: which account, what happened, and the opaque ids it touched
+/// (Email, EmailSubmission or PIM object ids). Never a subject, address or body.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EngineEvent {
+    pub account_id: String,
+    pub kind: EventKind,
+    pub ids: Vec<String>,
+}
+
+/// Where the engine sends [`EngineEvent`]s. `mw-server` attaches one that feeds
+/// the webhook dispatcher ([`crate::Engine::attach_event_sink`]); with none
+/// attached nothing is emitted. `emit` must not block: it is called on the
+/// mutation path.
+pub trait EventSink: Send + Sync {
+    fn emit(&self, event: EngineEvent);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn event_kinds_round_trip_their_wire_names() {
+        for k in EventKind::ALL {
+            assert_eq!(EventKind::parse(k.as_str()), Some(k));
+        }
+        assert_eq!(EventKind::parse("StateChange"), None);
+        let names: std::collections::HashSet<&str> =
+            EventKind::ALL.iter().map(|k| k.as_str()).collect();
+        assert_eq!(names.len(), EventKind::ALL.len(), "wire names are distinct");
+    }
 
     #[test]
     fn state_change_wire_shape_is_rfc8887() {

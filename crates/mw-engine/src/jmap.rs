@@ -1376,6 +1376,7 @@ impl Engine {
             {
                 tracing::warn!("recording the batched Email/set changes failed: {e}");
             }
+            self.emit_event(crate::change::EventKind::MessageFlags, account_id, &changed);
         }
 
         // Destroy (26.20 t28-e17, D-20): the message leaves the mail server,
@@ -1874,6 +1875,11 @@ impl Engine {
             ChangeOp::Updated,
         )
         .await?;
+        self.emit_event(
+            crate::change::EventKind::MessageMoved,
+            &msg.account_id,
+            &[id.to_string()],
+        );
         Ok(())
     }
 
@@ -2275,6 +2281,11 @@ impl Engine {
                     ChangeOp::Updated,
                 )
                 .await?;
+                self.emit_event(
+                    crate::change::EventKind::SubmissionFailed,
+                    account_id,
+                    std::slice::from_ref(&sub_id),
+                );
                 Err(not_sent.error)
             }
         }
@@ -2693,6 +2704,11 @@ impl Engine {
         let on_success = stored.as_deref().and_then(OnSuccess::from_json);
         let sent = self.transmit_draft(rt, email_id, rcpt_to).await?;
         self.record_delivered(sub_id).await;
+        self.emit_event(
+            crate::change::EventKind::SubmissionSent,
+            account_id,
+            &[sub_id.to_string()],
+        );
         if let Err(e) = self
             .record_change(
                 account_id,
@@ -2874,6 +2890,12 @@ impl Engine {
         if !recorded {
             self.record_change(account_id, ChangeType::Email, email_id, ChangeOp::Updated)
                 .await?;
+            let kind = if dest.is_some() {
+                crate::change::EventKind::MessageMoved
+            } else {
+                crate::change::EventKind::MessageFlags
+            };
+            self.emit_event(kind, account_id, &[email_id.to_string()]);
             if let Some(dest) = &dest {
                 for mailbox_id in [source_mailbox.as_str(), dest.id.as_str()] {
                     self.record_change(
@@ -3126,6 +3148,11 @@ impl Engine {
             self.record_change(account_id, ChangeType::Email, email_id, ChangeOp::Destroyed)
                 .await
                 .map(|_| ()),
+        );
+        self.emit_event(
+            crate::change::EventKind::MessageDeleted,
+            account_id,
+            &[email_id.to_string()],
         );
         keep(
             self.record_change(

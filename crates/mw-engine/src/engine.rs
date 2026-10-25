@@ -373,6 +373,11 @@ impl Engine {
                     ChangeOp::Updated,
                 )
                 .await?;
+                self.emit_event(
+                    crate::change::EventKind::MessageDeleted,
+                    account_id,
+                    std::slice::from_ref(&sid),
+                );
             }
         }
 
@@ -544,6 +549,13 @@ impl Engine {
             ChangeOp::Updated,
         )
         .await?;
+        if !existed {
+            self.emit_event(
+                crate::change::EventKind::MessageReceived,
+                account_id,
+                std::slice::from_ref(&sid),
+            );
+        }
         Ok(sid)
     }
 

@@ -249,6 +249,13 @@ impl Engine {
                         ChangeOp::Updated,
                     )
                     .await?;
+                    if give_up {
+                        self.emit_event(
+                            crate::change::EventKind::SubmissionFailed,
+                            &row.account_id,
+                            &[id.to_string()],
+                        );
+                    }
                 }
                 None
             }

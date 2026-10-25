@@ -116,10 +116,16 @@ impl Engine {
         object_id: &str,
         op: ChangeOp,
     ) -> Result<u64> {
-        Ok(self
+        let state = self
             .store()
             .record_pim_change(account_id, kind.as_str(), object_id, op.as_str())
-            .await?)
+            .await?;
+        self.emit_event(
+            crate::change::EventKind::PimChanged,
+            account_id,
+            &[object_id.to_string()],
+        );
+        Ok(state)
     }
 
     /// The current PIM per-type state token as an opaque string.

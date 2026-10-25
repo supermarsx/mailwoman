@@ -1033,6 +1033,7 @@ impl Engine {
         {
             tracing::warn!("recording the Email destroys failed: {e}");
         }
+        self.emit_event(crate::change::EventKind::MessageDeleted, account_id, &gone);
         if touch_mailboxes {
             for mailbox_id in mailboxes {
                 if let Err(e) = self

@@ -37,6 +37,7 @@ use serde::{Deserialize, Serialize};
 pub use mw_cache::{AccountPosture, Cache, CacheClass, CacheError, PlaintextDerived};
 
 use crate::backend::{EngineError, Result};
+use crate::change::{EngineEvent, EventKind, EventSink};
 use crate::engine::Engine;
 
 /// Source of an account's cache posture (standard vs zero-access). e11 backs
@@ -107,6 +108,10 @@ pub struct V6Hooks {
     cache: Option<Cache>,
     posture: Arc<dyn AccountPostureSource>,
     feed: Option<Arc<dyn AuditFeed>>,
+    /// Typed events for outbound webhooks (t28-e18). Kept across a later
+    /// [`Engine::attach_v6`] that does not set one, because the webhook wiring
+    /// and the cache/posture wiring attach at different points of start-up.
+    events: Option<Arc<dyn EventSink>>,
 }
 
 impl V6Hooks {
@@ -128,6 +133,7 @@ impl Default for V6Hooks {
             cache: None,
             posture: Arc::new(StandardPosture),
             feed: None,
+            events: None,
         }
     }
 }
@@ -158,14 +164,31 @@ impl V6Hooks {
         self.feed = Some(feed);
         self
     }
+
+    /// Attach the typed-event sink (outbound webhooks, t28-e18).
+    #[must_use]
+    pub fn with_events(mut self, events: Arc<dyn EventSink>) -> Self {
+        self.events = Some(events);
+        self
+    }
 }
 
 impl Engine {
     /// Attach the V6 hooks (cache / posture source / audit feed). Called once by
     /// e11 (MOUNT) after the engine is built and the store backend is selected.
     /// Idempotent-by-replacement — a later call swaps the whole bundle.
-    pub fn attach_v6(&self, hooks: V6Hooks) {
-        *self.v6.write().expect("v6 hooks lock") = hooks;
+    pub fn attach_v6(&self, mut hooks: V6Hooks) {
+        let mut current = self.v6.write().expect("v6 hooks lock");
+        if hooks.events.is_none() {
+            hooks.events = current.events.take();
+        }
+        *current = hooks;
+    }
+
+    /// Attach (or replace) only the typed-event sink, leaving the rest of the
+    /// bundle as it is (t28-e18: `mw-server`'s webhook dispatcher).
+    pub fn attach_event_sink(&self, sink: Arc<dyn EventSink>) {
+        self.v6.write().expect("v6 hooks lock").events = Some(sink);
     }
 
     /// A cheap clone of the current hook bundle (cache handle + posture + feed).
@@ -298,6 +321,22 @@ impl Engine {
     pub(crate) fn emit_audit(&self, event: AuditEvent) {
         if let Some(feed) = &self.v6.read().expect("v6 hooks lock").feed {
             feed.emit(event);
+        }
+    }
+
+    /// Emit one typed [`EngineEvent`] to the attached sink (t28-e18). A no-op when
+    /// none is attached or `ids` is empty.
+    pub(crate) fn emit_event(&self, kind: EventKind, account_id: &str, ids: &[String]) {
+        if ids.is_empty() {
+            return;
+        }
+        let sink = self.v6.read().expect("v6 hooks lock").events.clone();
+        if let Some(sink) = sink {
+            sink.emit(EngineEvent {
+                account_id: account_id.to_string(),
+                kind,
+                ids: ids.to_vec(),
+            });
         }
     }
 }
