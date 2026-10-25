@@ -2,7 +2,7 @@
   "schema": "mailwoman-third-party/2",
   "generator": "scripts/about/gen-third-party.mjs",
   "generatedFrom": {
-    "cargoLock": "85a4e0d4725c7d47bb9b59566750b3bceb2da643c49de2842d375318d73b56f5",
+    "cargoLock": "97bcbb5ccffc98487503a06873c7e8c5e871e7cceb918d5f4076eed04ee1bdb4",
     "mediaWasmLock": "f8d4fc4e4a5f7e0a85cd61ed79e9e87fa8a3b2c636a35ae8ae89472559ff05e3",
     "pnpmLock": "1c167a84a868799294c6c69bfde605d6b10018f07ddbde9b1802fab7334a6c29"
   },
@@ -198,6 +198,28 @@
       "licence": "MIT OR Apache-2.0",
       "repository": "https://github.com/RustCrypto/key-wraps/tree/aes-kw",
       "homepage": "https://github.com/RustCrypto/key-wraps",
+      "texts": [
+        {
+          "file": "LICENSE-APACHE",
+          "id": "e8541ea93f027a6c"
+        },
+        {
+          "file": "LICENSE-MIT",
+          "id": "87cb5e5c06545c9b"
+        }
+      ],
+      "artifacts": [
+        "server",
+        "web"
+      ]
+    },
+    {
+      "kind": "crate",
+      "name": "aes-kw",
+      "version": "0.3.1",
+      "licence": "MIT OR Apache-2.0",
+      "repository": "https://github.com/RustCrypto/key-wraps",
+      "homepage": "https://github.com/RustCrypto/key-wraps/tree/aes-kw",
       "texts": [
         {
           "file": "LICENSE-APACHE",
@@ -6935,6 +6957,28 @@
     },
     {
       "kind": "crate",
+      "name": "p384",
+      "version": "0.14.0",
+      "licence": "Apache-2.0 OR MIT",
+      "repository": "https://github.com/RustCrypto/elliptic-curves",
+      "homepage": "https://github.com/RustCrypto/elliptic-curves/tree/master/p384",
+      "texts": [
+        {
+          "file": "LICENSE-APACHE",
+          "id": "e8541ea93f027a6c"
+        },
+        {
+          "file": "LICENSE-MIT",
+          "id": "ee25a6da6cea276f"
+        }
+      ],
+      "artifacts": [
+        "server",
+        "web"
+      ]
+    },
+    {
+      "kind": "crate",
       "name": "p521",
       "version": "0.13.3",
       "licence": "Apache-2.0 OR MIT",
@@ -12091,6 +12135,26 @@
     {
       "kind": "crate",
       "name": "x509-cert",
+      "version": "0.2.5",
+      "licence": "Apache-2.0 OR MIT",
+      "repository": "https://github.com/RustCrypto/formats/tree/master/x509-cert",
+      "texts": [
+        {
+          "file": "LICENSE-APACHE",
+          "id": "e8541ea93f027a6c"
+        },
+        {
+          "file": "LICENSE-MIT",
+          "id": "053bd85296345c1a"
+        }
+      ],
+      "artifacts": [
+        "server"
+      ]
+    },
+    {
+      "kind": "crate",
+      "name": "x509-cert",
       "version": "0.3.0",
       "licence": "Apache-2.0 OR MIT",
       "repository": "https://github.com/RustCrypto/formats",
@@ -12108,6 +12172,26 @@
       "artifacts": [
         "server",
         "web"
+      ]
+    },
+    {
+      "kind": "crate",
+      "name": "x509-ocsp",
+      "version": "0.2.1",
+      "licence": "Apache-2.0 OR MIT",
+      "repository": "https://github.com/RustCrypto/formats/tree/master/x509-ocsp",
+      "texts": [
+        {
+          "file": "LICENSE-APACHE",
+          "id": "e8541ea93f027a6c"
+        },
+        {
+          "file": "LICENSE-MIT",
+          "id": "a14b16aef08f15ec"
+        }
+      ],
+      "artifacts": [
+        "server"
       ]
     },
     {
@@ -17887,6 +17971,27 @@
         "server",
         "desktop",
         "mobile"
+      ]
+    },
+    {
+      "kind": "crate",
+      "name": "der_derive",
+      "version": "0.7.3",
+      "licence": "Apache-2.0 OR MIT",
+      "repository": "https://github.com/RustCrypto/formats/tree/master/der/derive",
+      "texts": [
+        {
+          "file": "LICENSE-APACHE",
+          "id": "e8541ea93f027a6c"
+        },
+        {
+          "file": "LICENSE-MIT",
+          "id": "045a1c4f9aa0a307"
+        }
+      ],
+      "artifacts": [
+        "server",
+        "web"
       ]
     },
     {
