@@ -1,3 +1,4 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
 admin-policy-dlp-detector-pt-nif = Número de identificação fiscal português (NIF, dígito de controle)
 admin-policy-dlp-detector-pt-niss = Número de identificação da Segurança Social portuguesa (NISS, dígito de controle)
 admin-policy-dlp-detector-pt-citizen-card = Cartão de Cidadão / identificação civil portuguesa (dígito de controle)
