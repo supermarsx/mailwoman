@@ -17,8 +17,6 @@
 import { Show, Suspense, createEffect, createSignal, onCleanup, onMount, type JSX } from 'solid-js';
 import { Dynamic } from 'solid-js/web';
 import { createAdminSlice, createHttpAdminApi, type AdminApi } from '../../state/slices/admin.ts';
-import { createThemeSlice } from '../../state/slices/theme.ts';
-import type { SliceContext } from '../../state/slices/context.ts';
 import { t, loadCatalog } from '../../i18n';
 import { AdminContext, useAdmin } from './context.ts';
 import { AdminLogin } from './AdminLogin.tsx';
@@ -34,6 +32,8 @@ import type { Crumb } from './shell/Breadcrumbs.tsx';
 import { LanguagePicker, useStoredAdminLocale } from './shell/LanguagePicker.tsx';
 import { createDashboardLoader, type DashboardLoader } from '../../api/admin/dashboard.ts';
 import { Feedback } from './shell/Feedback.tsx';
+import { createAdminAppearance } from './shell/appearanceStore.ts';
+import { AdminAppearanceContext } from './shell/AdminAppearance.tsx';
 import * as css from './admin.css.ts';
 import * as shellCss from './shell/shell.css.ts';
 
@@ -61,21 +61,21 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
   onMount(() => void loadCatalog('plugins'));
   useStoredAdminLocale();
 
-  // The console takes the theme this browser chose for the webmail (read-only:
-  // nothing here changes the stored preference). The slice ignores its context.
-  onMount(() => {
-    const theme = createThemeSlice({} as SliceContext);
-    onCleanup(() => theme.dispose());
-  });
+  // The console has its own appearance (t32-e71a, DC5): theme, accent and mode,
+  // chosen in the header; until then it follows this browser's webmail theme.
+  const appearance = createAdminAppearance();
+  onCleanup(() => appearance.dispose());
 
   return (
-    <AdminContext.Provider value={admin}>
-      <Show when={admin.sessionChecked()} fallback={<div class={css.gate}>{t('common-loading')}</div>}>
-        <Show when={admin.session()} fallback={<AdminLogin verifyTotp={props.verifyTotp} />}>
-          {(session) => <Console {...props} username={session().username} />}
+    <AdminAppearanceContext.Provider value={appearance}>
+      <AdminContext.Provider value={admin}>
+        <Show when={admin.sessionChecked()} fallback={<div class={css.gate}>{t('common-loading')}</div>}>
+          <Show when={admin.session()} fallback={<AdminLogin verifyTotp={props.verifyTotp} />}>
+            {(session) => <Console {...props} username={session().username} />}
+          </Show>
         </Show>
-      </Show>
-    </AdminContext.Provider>
+      </AdminContext.Provider>
+    </AdminAppearanceContext.Provider>
   );
 }
 

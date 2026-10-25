@@ -17,7 +17,8 @@ import { adminUrl } from '../../../api/adminPath.ts';
 import { apiFetch } from '../../../api/http.ts';
 import { t } from '../../../i18n';
 
-/** The capability catalogue (t32-ext.md §M, plus the R–V additions). */
+/** The capability catalogue (t32-ext.md §M, plus the R–V additions and the
+ *  t32-cfg §4.20 additions, so later screens, sections and field anchors can name them). */
 export const CAPABILITIES = [
   'dashboard.read',
   'users.read',
@@ -75,6 +76,33 @@ export const CAPABILITIES = [
   'imap.extensions',
   'appearance.manage',
   'themes.edit',
+  // t32-cfg §4.20 (e24a catalogue).
+  'config.read',
+  'config.export',
+  'config.import',
+  'integrations.write',
+  'cache.purge',
+  'server_text.write',
+  'maintenance.read',
+  'maintenance.write',
+  'queue.manage',
+  'jobs.read',
+  'observability.read',
+  'sessions.read',
+  'sessions.revoke',
+  'bans.read',
+  'bans.write',
+  'updates.read',
+  'updates.check',
+  'updates.apply',
+  'backups.read',
+  'backups.run',
+  'about.manage',
+  'diagnostics.schedule',
+  'diagnostics.mailpath',
+  'diagnostics.simulate',
+  'diagnostics.jmap_session',
+  'data_export.run',
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];

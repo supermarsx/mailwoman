@@ -1,7 +1,10 @@
 // Global search (t32-ext.md §K): Ctrl/Cmd+K or the header button.
 //
-// Matches the console's sections locally, and users, domains and settings keys
-// through `GET /admin/search?q=` (t32-e13, capability-filtered on the server).
+// Matches the console's sections and UI fields locally (the field anchors,
+// `fieldAnchors.ts`, already capability-filtered by the shell; t32-e71a), and
+// users, domains, settings keys and catalogue knobs through `GET /admin/search?q=`
+// (t32-e13 / e70a, capability-filtered on the server). Choosing a field opens its
+// section with `?field=<id>`, and the shell focuses and highlights that field.
 // Until that route exists the server answers 404 and the palette says that only
 // sections are searched; it never shows made-up results.
 //
@@ -19,7 +22,7 @@ import { createFocusTrap } from '../../../components/a11y';
 import { Icon, type IconName } from './icons.tsx';
 import * as css from './shell.css.ts';
 
-export type SearchHitKind = 'user' | 'domain' | 'setting' | 'section';
+export type SearchHitKind = 'user' | 'domain' | 'setting' | 'section' | 'field';
 
 export interface SearchHit {
   kind: SearchHitKind;
@@ -53,11 +56,30 @@ export interface PaletteSection {
   path: string;
 }
 
+/** A UI field the admin may open (from the field anchors). */
+export interface PaletteField {
+  id: string;
+  label: string;
+  /** The section's label, shown after the field's. */
+  sectionLabel: string;
+  /** `#/<section>[/<rest>]?field=<id>`. */
+  path: string;
+  /** Names matched besides the label: registry key, env variable. */
+  keywords?: readonly string[];
+}
+
+/** Fields are listed once the text has this many characters (there are hundreds). */
+const FIELD_MIN_CHARS = 2;
+/** At most this many field hits are listed. */
+const FIELD_MAX_HITS = 20;
+
 export interface CommandPaletteProps {
   open: boolean;
   onClose: () => void;
   /** The sections the admin may open (already capability-filtered). */
   sections: readonly PaletteSection[];
+  /** The fields the admin may open (already capability-filtered). */
+  fields?: readonly PaletteField[];
   search: AdminSearch;
   onOpen: (path: string) => void;
 }
@@ -75,6 +97,7 @@ const KIND_LABEL: Record<SearchHitKind, () => string> = {
   user: () => t('admin-shell-palette-kind-user'),
   domain: () => t('admin-shell-palette-kind-domain'),
   setting: () => t('admin-shell-palette-kind-setting'),
+  field: () => t('admin-ux-palette-kind-field'),
 };
 
 const KIND_ICON: Record<SearchHitKind, IconName> = {
@@ -82,6 +105,7 @@ const KIND_ICON: Record<SearchHitKind, IconName> = {
   user: 'users',
   domain: 'domains',
   setting: 'settings',
+  field: 'settings',
 };
 
 function PaletteOpen(props: CommandPaletteProps): JSX.Element {
@@ -101,7 +125,24 @@ function PaletteOpen(props: CommandPaletteProps): JSX.Element {
       .filter((s) => needle === '' || s.label.toLowerCase().includes(needle))
       .map((s) => ({ kind: 'section', label: s.label, path: s.path }));
   });
-  const hits = createMemo(() => [...local(), ...remote()]);
+  const fieldHits = createMemo<SearchHit[]>(() => {
+    const needle = q().trim().toLowerCase();
+    if (needle.length < FIELD_MIN_CHARS) return [];
+    return (props.fields ?? [])
+      .filter(
+        (f) =>
+          f.label.toLowerCase().includes(needle) ||
+          f.id.toLowerCase().includes(needle) ||
+          (f.keywords ?? []).some((k) => k.toLowerCase().includes(needle)),
+      )
+      .slice(0, FIELD_MAX_HITS)
+      .map((f) => ({ kind: 'field', label: f.label, detail: f.sectionLabel, path: f.path }));
+  });
+  // A server hit for a field the console already lists is shown once.
+  const hits = createMemo(() => {
+    const seen = new Set(fieldHits().map((h) => h.path));
+    return [...local(), ...fieldHits(), ...remote().filter((h) => !seen.has(h.path))];
+  });
 
   // Server search, debounced, cancelled when the text changes again. Only the
   // text is tracked: the state signals are written from inside.

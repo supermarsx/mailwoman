@@ -8,18 +8,27 @@
 //
 // Sections the admin's roles do not include are not listed (`can.ts`). Ctrl+K
 // (Cmd+K on macOS) opens the command palette anywhere in the console.
+//
+// t32-e71a: the header holds the console's own appearance control (DC5) when the
+// console root provides one (`AdminAppearanceContext`); the palette also lists the
+// UI fields of the sections the admin may open (`fieldAnchors.ts`); and a location
+// naming a field (`#/<section>?field=<id>`) focuses and highlights that field once
+// the section has rendered it.
 
-import { For, Show, createMemo, createSignal, onCleanup, onMount, type JSX } from 'solid-js';
-import { isolate, t } from '../../../i18n';
+import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount, type JSX } from 'solid-js';
+import { isolate, loadCatalog, t } from '../../../i18n';
 import { createFocusTrap, createRovingTabindex } from '../../../components/a11y';
 import type { Can } from './can.ts';
 import { GROUPS, type SectionDef } from './sections.ts';
-import { hrefFor, sectionPath, type AdminRoute } from './router.ts';
+import { fieldPath, hrefFor, sectionPath, type AdminRoute } from './router.ts';
 import { Icon } from './icons.tsx';
 import { Breadcrumbs, type Crumb } from './Breadcrumbs.tsx';
-import { CommandPalette, type AdminSearch } from './CommandPalette.tsx';
+import { CommandPalette, type AdminSearch, type PaletteField } from './CommandPalette.tsx';
+import { AdminAppearance, useAdminAppearance } from './AdminAppearance.tsx';
+import { fieldAnchors, focusFieldWhenReady } from './fieldAnchors.ts';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
 import * as css from './shell.css.ts';
+import * as ux from './ux.css.ts';
 
 export interface AdminShellProps {
   sections: readonly SectionDef[];
@@ -55,6 +64,41 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
     GROUPS.map((g) => ({ ...g, items: visible().filter((s) => s.group === g.id) })).filter((g) => g.items.length > 0),
   );
   const current = (): SectionDef | undefined => visible().find((s) => s.id === props.route.section);
+
+  const appearance = useAdminAppearance();
+  onMount(() => void loadCatalog('admin-ux'));
+
+  // Fields of the sections this admin may open, for the palette (UX10).
+  const fields = createMemo<PaletteField[]>(() => {
+    const open = new Map(visible().map((s) => [s.id, s]));
+    return fieldAnchors()
+      .filter((a) => open.has(a.section) && (a.capability === undefined || props.can.can(a.capability)))
+      .map((a) => ({
+        id: a.id,
+        label: t(a.labelId),
+        sectionLabel: open.get(a.section)!.label(),
+        path: fieldPath(a.section, a.id, a.rest ?? []),
+        ...(a.keywords ? { keywords: a.keywords } : {}),
+      }));
+  });
+  // Field labels live in each section's catalog; load them when the palette opens.
+  createEffect(() => {
+    if (!paletteOpen()) return;
+    for (const c of new Set(fieldAnchors().map((a) => a.catalog).filter((c): c is string => c !== undefined))) void loadCatalog(c);
+  });
+
+  // `?field=<id>`: focus and highlight the field once its section has drawn it.
+  createEffect(
+    on(
+      () => [props.route.section, props.route.rest.join('/'), props.route.field] as const,
+      ([, , field]) => {
+        if (field === undefined) return;
+        const ctl = new AbortController();
+        void focusFieldWhenReady(field, { signal: ctl.signal });
+        onCleanup(() => ctl.abort());
+      },
+    ),
+  );
 
   createRovingTabindex(navEl, { orientation: 'vertical' });
   createFocusTrap(drawerEl, { active: drawerOpen, onEscape: () => setDrawerOpen(false) });
@@ -151,6 +195,9 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
           <span class={css.srOnly}>{t('admin-shell-menu')}</span>
         </button>
         <span class={css.topbarTitle}>{current()?.label() ?? t('admin-brand')}</span>
+        <Show when={appearance}>
+          {(c) => <AdminAppearance controller={c()} compact buttonClass={[css.iconButton, css.phoneTarget].join(' ')} />}
+        </Show>
         <button
           type="button"
           class={['btn btn--ghost', css.iconButton, css.phoneTarget].join(' ')}
@@ -191,6 +238,9 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
       <main class={css.main} id="admin-main" tabindex="-1">
         <div class={css.mainHead}>
           <Breadcrumbs items={props.breadcrumbs ?? []} />
+          <Show when={appearance}>
+            {(c) => <AdminAppearance controller={c()} buttonClass={[css.iconButton, ux.headPush].join(' ')} />}
+          </Show>
           <button
             type="button"
             class={['btn btn--ghost', css.iconButton].join(' ')}
@@ -209,6 +259,7 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
         open={paletteOpen()}
         onClose={() => setPaletteOpen(false)}
         sections={visible().map((s) => ({ id: s.id, label: s.label(), icon: s.icon, path: sectionPath(s.id) }))}
+        fields={fields()}
         search={props.search}
         onOpen={(path) => props.navigate(path)}
       />
