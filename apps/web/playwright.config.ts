@@ -118,6 +118,7 @@ export default defineConfig({
         't32-h14-login-size.spec.ts',
         't32-h17-password-peek.spec.ts',
         't32-h12-checkboxes.spec.ts',
+        't32-admin-ux.spec.ts',
         'compose-options.spec.ts',
         'csrf-strict.spec.ts',
       ],
