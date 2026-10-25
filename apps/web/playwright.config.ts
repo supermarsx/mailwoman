@@ -195,6 +195,7 @@ export default defineConfig({
       // (crates/mw-server/tests/v6_e2e.rs), which the same job runs alongside.
       testMatch: [
         'admin.spec.ts',
+        't32-h15-admin-path.spec.ts',
         'oauth-apikey.spec.ts',
         'mcp.spec.ts',
         'zeroaccess.spec.ts',
