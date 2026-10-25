@@ -9,8 +9,7 @@
 // Sections the admin's roles do not include are not listed (`can.ts`). Ctrl+K
 // (Cmd+K on macOS) opens the command palette anywhere in the console.
 //
-// t32-e71a: the header holds the console's own appearance control (DC5) when the
-// console root provides one (`AdminAppearanceContext`); the palette also lists the
+// Personal appearance lives in the dedicated preferences section. The palette lists the
 // UI fields of the sections the admin may open (`fieldAnchors.ts`); and a location
 // naming a field (`#/<section>?field=<id>`) focuses and highlights that field once
 // the section has rendered it.
@@ -24,11 +23,9 @@ import { fieldPath, hrefFor, sectionPath, type AdminRoute } from './router.ts';
 import { Icon } from './icons.tsx';
 import { Breadcrumbs, type Crumb } from './Breadcrumbs.tsx';
 import { CommandPalette, type AdminSearch, type PaletteField } from './CommandPalette.tsx';
-import { AdminAppearance, useAdminAppearance } from './AdminAppearance.tsx';
 import { fieldAnchors, focusFieldWhenReady } from './fieldAnchors.ts';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
 import * as css from './shell.css.ts';
-import * as ux from './ux.css.ts';
 
 export interface AdminShellProps {
   sections: readonly SectionDef[];
@@ -59,13 +56,12 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
   const [navEl, setNavEl] = createSignal<HTMLElement>();
   const [drawerEl, setDrawerEl] = createSignal<HTMLElement>();
 
-  const visible = createMemo(() => props.sections.filter((s) => props.can.can(s.capability)));
+  const visible = createMemo(() => props.sections.filter((s) => (s.capability === undefined || props.can.can(s.capability))));
   const groups = createMemo(() =>
     GROUPS.map((g) => ({ ...g, items: visible().filter((s) => s.group === g.id) })).filter((g) => g.items.length > 0),
   );
   const current = (): SectionDef | undefined => visible().find((s) => s.id === props.route.section);
 
-  const appearance = useAdminAppearance();
   onMount(() => void loadCatalog('admin-ux'));
 
   // Fields of the sections this admin may open, for the palette (UX10).
@@ -195,9 +191,6 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
           <span class={css.srOnly}>{t('admin-shell-menu')}</span>
         </button>
         <span class={css.topbarTitle}>{current()?.label() ?? t('admin-brand')}</span>
-        <Show when={appearance}>
-          {(c) => <AdminAppearance controller={c()} compact buttonClass={[css.iconButton, css.phoneTarget].join(' ')} />}
-        </Show>
         <button
           type="button"
           class={['btn btn--ghost', css.iconButton, css.phoneTarget].join(' ')}
@@ -238,9 +231,6 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
       <main class={css.main} id="admin-main" tabindex="-1">
         <div class={css.mainHead}>
           <Breadcrumbs items={props.breadcrumbs ?? []} />
-          <Show when={appearance}>
-            {(c) => <AdminAppearance controller={c()} buttonClass={[css.iconButton, ux.headPush].join(' ')} />}
-          </Show>
           <button
             type="button"
             class={['btn btn--ghost', css.iconButton].join(' ')}

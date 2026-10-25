@@ -8,7 +8,6 @@ import { holding, offlineShell } from './testkit.tsx';
 import type { SectionDef } from './sections.ts';
 import { fieldAnchorAttrs, registerFieldAnchors } from './fieldAnchors.ts';
 import { ADMIN_APPEARANCE_KEY } from './appearanceStore.ts';
-import { expectNoInlineStyle } from './uxTestkit.ts';
 
 function Demo() {
   return (
@@ -49,17 +48,11 @@ const openPalette = async (): Promise<HTMLElement> => {
 };
 
 describe('admin shell: UX seam', () => {
-  it('the header has the console appearance control; a choice changes the console theme', async () => {
+  it('keeps appearance controls out of both headers', async () => {
     render(() => <AdminScreen api={mockAdminApi()} {...offlineShell()} sections={SECTIONS} />);
     await screen.findByText('Home');
-    const buttons = screen.getAllByRole('button', { name: 'Appearance' });
-    expect(buttons.length).toBe(2); // desktop header + phone top bar
-    fireEvent.click(buttons[1]!);
-    const dlg = await screen.findByRole('dialog', { name: 'Console appearance' });
-    fireEvent.click(dlg.querySelector('[data-theme-option="hc-light"]')!);
-    expect(document.documentElement).toHaveAttribute('data-theme', 'hc-light');
-    expect(JSON.parse(localStorage.getItem(ADMIN_APPEARANCE_KEY)!)).toMatchObject({ theme: 'hc-light' });
-    expectNoInlineStyle(screen.getByTestId('admin-appearance'));
+    expect(screen.queryByRole('button', { name: 'Appearance' })).toBeNull();
+    expect(document.querySelector('[data-testid="admin-appearance-button"]')).toBeNull();
   });
 
   it('the palette lists fields of sections the admin may open, matched by label or keyword; Enter opens ?field=', async () => {
@@ -89,11 +82,11 @@ describe('admin shell: UX seam', () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Relay port')));
   });
 
-  it('the dashboard and every existing section keep working with no appearance stored (webmail theme followed)', async () => {
+  it('the dashboard and every existing section keep working without inheriting another browser user webmail appearance', async () => {
     localStorage.setItem('mw.theme.prefs', JSON.stringify({ mode: 'fixed', theme: 'paper', chosen: true }));
     render(() => <AdminScreen api={mockAdminApi()} {...offlineShell()} sections={SECTIONS} />);
     await screen.findByText('Home');
-    expect(document.documentElement).toHaveAttribute('data-theme', 'paper');
+    expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
     expect(localStorage.getItem(ADMIN_APPEARANCE_KEY)).toBeNull();
   });
 });

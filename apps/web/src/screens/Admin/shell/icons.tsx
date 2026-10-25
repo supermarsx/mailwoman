@@ -10,6 +10,7 @@
 import type { JSX } from 'solid-js';
 
 export type IconName =
+  | 'preferences'
   | 'dashboard'
   | 'sessions'
   | 'admins'
@@ -21,6 +22,7 @@ export type IconName =
   | 'sso'
   | 'settings'
   | 'configuration'
+  | 'diagnostics'
   | 'assistant'
   | 'integrations'
   | 'plugins'
@@ -53,6 +55,8 @@ const S = { fill: 'none', stroke: 'currentColor', 'stroke-width': '2' } as const
 const F = { fill: 'currentColor' } as const;
 
 const PATHS: Record<IconName, () => JSX.Element> = {
+  preferences: () => <><circle cx="5" cy="4" r="2" {...S} /><path d="M1 14 V11 A4 4 0 0 1 9 11 V14 M11 3 H15 M11 8 H15 M11 13 H15" {...S} /></>,
+  diagnostics: () => <><path d="M1 8 H4 L6 2 L10 14 L12 8 H15" {...S} /></>,
   configuration: () => <><rect x="2" y="1" width="12" height="14" {...S} /><path d="M5 5 H11 M5 8 H11 M5 11 H8" {...S} /></>,
   privacy: () => <><path d="M8 1 L14 3 V8 Q14 12 8 15 Q2 12 2 8 V3 Z" {...S} /><circle cx="8" cy="7" r="1" {...F} /><path d="M8 8 V11" {...S} /></>,
   sessions: () => <><rect x="1" y="2" width="10" height="8" {...S} /><path d="M4 14 H8 M6 10 V14" {...S} /><rect x="12" y="6" width="3" height="8" {...S} /></>,

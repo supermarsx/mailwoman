@@ -109,6 +109,8 @@ export type Capability = (typeof CAPABILITIES)[number];
 
 /** `GET /admin/me` (t32-ext.md §M). */
 export interface AdminMe {
+  accountId?: string | null;
+  envLogin?: boolean;
   username: string;
   displayName: string | null;
   roles: string[];

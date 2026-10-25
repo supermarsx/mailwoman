@@ -23,9 +23,10 @@ import type { Capability } from './can.ts';
 import type { IconName } from './icons.tsx';
 import type { AdminRoute } from './router.ts';
 
-export type GroupId = 'overview' | 'people' | 'security' | 'configuration' | 'operations';
+export type GroupId = 'overview' | 'people' | 'security' | 'configuration' | 'operations' | 'personal';
 
 export const GROUPS: readonly { id: GroupId; label: () => string }[] = [
+  { id: 'personal', label: () => t('admin-personal-group') },
   { id: 'overview', label: () => t('admin-shell-group-overview') },
   { id: 'people', label: () => t('admin-shell-group-people') },
   { id: 'security', label: () => t('admin-shell-group-security') },
@@ -44,7 +45,7 @@ export interface SectionDef {
   group: GroupId;
   icon: IconName;
   label: () => string;
-  capability: Capability;
+  capability?: Capability;
   component: Component<SectionProps>;
 }
 
@@ -61,6 +62,15 @@ function screen<P extends object>(load: () => Promise<Component<P>>, passApi: bo
 }
 
 export const SECTIONS: readonly SectionDef[] = [
+  { id: 'preferences', group: 'personal', icon: 'preferences', label: () => t('admin-personal-title'), component: screen(() => import('../PersonalPreferences.tsx').then((m) => m.PersonalPreferences), false) },
+  {
+    id: 'diagnostics',
+    group: 'operations',
+    icon: 'diagnostics',
+    label: () => t('admin-diag-title'),
+    capability: 'diagnostics.read',
+    component: screen(() => import('../Diagnostics.tsx').then((m) => m.Diagnostics), false),
+  },
   {
     id: 'sessions',
     group: 'security',

@@ -102,6 +102,37 @@ function AppearanceDialog(props: { controller: AdminAppearanceController; onClos
           {c.chosen() ? t('admin-ux-appearance-note') : t('admin-ux-appearance-following')}
         </p>
 
+        <AdminAppearanceFields controller={c} />
+
+        <div class={css.dialogActions}>
+          <Show when={c.chosen()}>
+            <button
+              type="button"
+              class="btn btn--ghost"
+              onClick={() => {
+                c.reset();
+                // The button goes away with the choice; keep focus inside the dialog.
+                queueMicrotask(() => closeButton?.focus());
+              }}
+            >
+              {t('admin-ux-appearance-reset')}
+            </button>
+          </Show>
+          <button ref={closeButton} type="button" class="btn btn--primary" onClick={() => props.onClose()}>
+            {t('admin-ux-close')}
+          </button>
+        </div>
+      </div>
+    </Portal>
+  );
+}
+
+/** Inline fields for the personal preferences section. */
+export function AdminAppearanceFields(props: { controller: AdminAppearanceController }): JSX.Element {
+  const id = createUniqueId();
+  const c = props.controller;
+  onMount(() => void loadCatalog('appearance'));
+  return <>
         <fieldset class={ux.appearanceSection}>
           <legend class={ux.appearanceLegend}>{t('admin-ux-appearance-mode')}</legend>
           <div class={ux.modeGroup}>
@@ -189,25 +220,5 @@ function AppearanceDialog(props: { controller: AdminAppearanceController; onClos
           </div>
         </fieldset>
 
-        <div class={css.dialogActions}>
-          <Show when={c.chosen()}>
-            <button
-              type="button"
-              class="btn btn--ghost"
-              onClick={() => {
-                c.reset();
-                // The button goes away with the choice; keep focus inside the dialog.
-                queueMicrotask(() => closeButton?.focus());
-              }}
-            >
-              {t('admin-ux-appearance-reset')}
-            </button>
-          </Show>
-          <button ref={closeButton} type="button" class="btn btn--primary" onClick={() => props.onClose()}>
-            {t('admin-ux-close')}
-          </button>
-        </div>
-      </div>
-    </Portal>
-  );
+  </>;
 }

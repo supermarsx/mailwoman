@@ -29,18 +29,17 @@ import { ShellContext } from './shell/context.ts';
 import { createAdminSearch, type AdminSearch } from './shell/CommandPalette.tsx';
 import { withTotpGate, type AdminTotpVerifier } from './shell/adminAuth.ts';
 import type { Crumb } from './shell/Breadcrumbs.tsx';
-import { LanguagePicker, useStoredAdminLocale } from './shell/LanguagePicker.tsx';
 import { createDashboardLoader, type DashboardLoader } from '../../api/admin/dashboard.ts';
 import { Feedback } from './shell/Feedback.tsx';
 import { ToastRegion } from '../../components/toast/index.ts';
-import { createAdminAppearance } from './shell/appearanceStore.ts';
-import { AdminAppearanceContext } from './shell/AdminAppearance.tsx';
+import { PersonalPreferencesProvider, type AdminPreferencesApi } from './shell/personalPreferences.tsx';
 import * as css from './admin.css.ts';
 import * as shellCss from './shell/shell.css.ts';
 
 export interface AdminScreenProps {
   /** The admin client. Defaults to the same-origin HTTP client; tests inject a mock. */
   api?: AdminApi;
+  preferencesApi?: AdminPreferencesApi;
   /** `GET /admin/me`. Defaults to the HTTP loader. */
   loadMe?: AdminMeLoader;
   /** `GET /admin/dashboard`. Defaults to the HTTP loader. */
@@ -62,15 +61,9 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
   onMount(() => void loadCatalog('privacy'));
   onMount(() => void loadCatalog('admin-dashboard'));
   onMount(() => void loadCatalog('plugins'));
-  useStoredAdminLocale();
-
-  // The console has its own appearance (t32-e71a, DC5): theme, accent and mode,
-  // chosen in the header; until then it follows this browser's webmail theme.
-  const appearance = createAdminAppearance();
-  onCleanup(() => appearance.dispose());
+  onMount(() => void loadCatalog('admin-personal'));
 
   return (
-    <AdminAppearanceContext.Provider value={appearance}>
       <AdminContext.Provider value={admin}>
         <Show when={admin.sessionChecked()} fallback={<div class={css.gate}>{t('common-loading')}</div>}>
           <Show when={admin.session()} fallback={<AdminLogin verifyTotp={props.verifyTotp} />}>
@@ -80,7 +73,6 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
         {/* The console's toasts (the same store as the webmail's), on the sign-in page too. */}
         <ToastRegion />
       </AdminContext.Provider>
-    </AdminAppearanceContext.Provider>
   );
 }
 
@@ -125,7 +117,7 @@ function Console(props: AdminScreenProps & { username: string }): JSX.Element {
 
   const section = (): SectionDef | undefined => {
     const s = findSection(router.route().section, sections);
-    return s && can.can(s.capability) ? s : undefined;
+    return s && (s.capability === undefined || can.can(s.capability)) ? s : undefined;
   };
 
   createEffect(() => {
@@ -173,6 +165,7 @@ function Console(props: AdminScreenProps & { username: string }): JSX.Element {
   };
 
   return (
+    <PersonalPreferencesProvider username={props.username} api={props.preferencesApi}>
     <ShellContext.Provider
       value={{
         can,
@@ -192,7 +185,6 @@ function Console(props: AdminScreenProps & { username: string }): JSX.Element {
           search={services.search}
           breadcrumbs={crumbs()}
           leave={{ open: leaveOpen(), onStay: () => settle(false), onLeave: () => settle(true) }}
-          languagePicker={<LanguagePicker />}
         >
           <h1 class={shellCss.srOnly}>{t('admin-brand')}</h1>
           <Feedback
@@ -231,6 +223,7 @@ function Console(props: AdminScreenProps & { username: string }): JSX.Element {
         </AdminShell>
       </Show>
     </ShellContext.Provider>
+    </PersonalPreferencesProvider>
   );
 }
 

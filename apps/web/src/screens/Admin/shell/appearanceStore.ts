@@ -7,17 +7,13 @@
 // inside the pack the admin chose. The webmail allowed-themes policy does not
 // apply here (DC5).
 //
-// Default: until the admin makes a choice, the console follows this browser's
-// webmail theme (its stored preference, resolved now), else Dark.
-//
-// Storage: `localStorage['mw.admin.appearance']` behind a small store interface;
-// e71b swaps in `GET/PUT /admin/me/preferences` (per admin account) without
-// touching the controller. Density and the UI-font override still come from this
-// browser's webmail preference, read-only, as before t32-e71a.
+// The signed-in console injects its account preferences store and starts at Dark.
+// The browser store below remains available to standalone consumers and tests.
+// Theme, accent, mode, density and font all travel through the injected store.
 
 import { createSignal, type Accessor } from 'solid-js';
 import type { ThemeName } from '../../../theme/contract.css.ts';
-import { FONT_STACKS, parseAppearancePrefs, resolveThemeName, type AppearancePrefs } from '../../../theme/appearance.ts';
+import { FONT_STACKS, parseAppearancePrefs, resolveThemeName, type AppearancePrefs, type UiFont } from '../../../theme/appearance.ts';
 import { DEFAULT_DARK_THEME, isThemeName, themeEntry, variantFor } from '../../../theme/registry.ts';
 import { isAccentId, type AccentId } from '../../../theme/accentMath.ts';
 import { prefersDarkScheme, syncRootAppearance, watchColorScheme } from '../../../shell/rootAttributes.ts';
@@ -30,6 +26,8 @@ export interface AdminAppearancePrefs {
   /** A named accent, or `''` for the theme's own. */
   accent: AccentId | '';
   mode: AdminThemeMode;
+  density?: 'compact' | 'cozy' | 'relaxed';
+  font?: UiFont;
 }
 
 /** Where the console's choice is kept in this browser. */
@@ -44,7 +42,10 @@ export function parseAdminAppearance(raw: unknown): AdminAppearancePrefs | null 
   if (!isThemeName(o['theme'])) return null;
   const mode = ADMIN_THEME_MODES.includes(o['mode'] as AdminThemeMode) ? (o['mode'] as AdminThemeMode) : themeEntry(o['theme']).appearance;
   const accent = isAccentId(o['accent']) ? o['accent'] : '';
-  return { theme: o['theme'], accent, mode };
+  return { theme: o['theme'], accent, mode,
+    ...(['compact','cozy','relaxed'].includes(String(o['density'])) ? { density: o['density'] as 'compact' | 'cozy' | 'relaxed' } : {}),
+    ...(typeof o['font'] === 'string' && o['font'] in FONT_STACKS ? { font: o['font'] as UiFont } : {}),
+  };
 }
 
 /** The default: this browser's webmail theme when one was chosen, else Dark. */
@@ -107,6 +108,10 @@ export interface AdminAppearanceController {
   setTheme(theme: ThemeName): void;
   setAccent(accent: AccentId | ''): void;
   setMode(mode: AdminThemeMode): void;
+  setDensity(density: 'compact' | 'cozy' | 'relaxed'): void;
+  setFont(font: UiFont): void;
+  /** Apply a server snapshot without writing it back. */
+  hydrate(prefs: AdminAppearancePrefs | null): void;
   /** Forget the choice and follow the webmail theme again. */
   reset(): void;
   dispose(): void;
@@ -117,7 +122,7 @@ export interface AdminAppearanceOptions {
   webmail?: () => AppearancePrefs | null;
 }
 
-function apply(theme: ThemeName, accent: AccentId | '', webmail: AppearancePrefs | null): void {
+function apply(theme: ThemeName, accent: AccentId | '', webmail: AppearancePrefs | null, prefs: AdminAppearancePrefs): void {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
   root.setAttribute('data-theme', theme);
@@ -125,8 +130,8 @@ function apply(theme: ThemeName, accent: AccentId | '', webmail: AppearancePrefs
   else root.removeAttribute('data-accent');
   syncRootAppearance(themeEntry(theme).appearance);
   // Density and font: this browser's webmail preference, read-only (unchanged by e71a).
-  root.setAttribute('data-density', webmail?.density ?? 'cozy');
-  const stack = webmail ? FONT_STACKS[webmail.font] : null;
+  root.setAttribute('data-density', prefs.density ?? webmail?.density ?? 'cozy');
+  const stack = FONT_STACKS[prefs.font ?? webmail?.font ?? 'default'];
   if (stack) root.style.setProperty('--mw-ui-font', stack);
   else root.style.removeProperty('--mw-ui-font');
 }
@@ -141,7 +146,7 @@ export function createAdminAppearance(opts: AdminAppearanceOptions = {}): AdminA
   const [prefs, setPrefs] = createSignal<AdminAppearancePrefs>(stored ?? defaultAdminAppearance(webmail(), systemDark()));
   const resolved = (): ThemeName => resolveAdminTheme(prefs(), systemDark());
 
-  const sync = (): void => apply(resolved(), prefs().accent, webmail());
+  const sync = (): void => apply(resolved(), prefs().accent, webmail(), prefs());
   sync();
   const stop = watchColorScheme((dark) => {
     setSystemDark(dark);
@@ -169,6 +174,13 @@ export function createAdminAppearance(opts: AdminAppearanceOptions = {}): AdminA
     },
     setMode(mode) {
       commit({ ...prefs(), mode });
+    },
+    setDensity(density) { commit({ ...prefs(), density }); },
+    setFont(font) { commit({ ...prefs(), font }); },
+    hydrate(next) {
+      setChosen(next !== null);
+      setPrefs(next ?? defaultAdminAppearance(webmail(), systemDark()));
+      sync();
     },
     reset() {
       store.save(null);

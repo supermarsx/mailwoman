@@ -1,25 +1,9 @@
 import AxeBuilder from '@axe-core/playwright';
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from '../csrf.ts';
 
-/**
- * The admin console's own appearance and the UX seam's shell parts in a real browser
- * (t32-cfg §4.7, t32-e71a; UX1, UX12-UX15, DC5).
- *
- *  - A choice in the header's Appearance dialog (theme, accent, mode) changes the console
- *    at once, survives a reload (`mw.admin.appearance`), and leaves the webmail's stored
- *    appearance alone.
- *  - Every built-in theme (18) renders the console shell with zero axe WCAG 2.2 AA
- *    violations, colour contrast included, at 1440x900 and at 390x844, with no horizontal
- *    page scroll on the phone.
- *  - The Appearance dialog itself: axe-clean in a dark, a light and a high-contrast theme,
- *    under forced colours, and right-to-left on the phone without horizontal scroll;
- *    Escape returns focus to the button.
- *
- * Runs against an engine-mode server whose admin panel accepts MW_ADMIN_USER /
- * MW_ADMIN_PASSWORD (default root / hunter2, the dev and CI stacks' values; DEV/CI ONLY).
- * On a stack that refuses them the tests skip and say so.
+/** Account-scoped admin preferences, responsive shell themes and accessibility.
+ * Uses the dedicated page and the server preferences API, never browser-global defaults.
  */
-
 const ADMIN_USER = process.env['MW_ADMIN_USER'] ?? 'root';
 const ADMIN_PASSWORD = process.env['MW_ADMIN_PASSWORD'] ?? 'hunter2';
 const WCAG_22_AA = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
@@ -63,9 +47,19 @@ async function openConsole(page: Page): Promise<void> {
   await expect(page.getByRole('heading', { level: 2, name: 'Dashboard' })).toBeVisible();
 }
 
-/** The Appearance button that is on screen (header on desktop, top bar on a phone). */
-function appearanceButton(page: Page) {
-  return page.locator('[data-testid="admin-appearance-button"]:visible');
+async function openPreferences(page: Page): Promise<void> {
+  await page.goto('/admin#/preferences');
+  await expect(page.getByRole('heading', { level: 2, name: 'My preferences' })).toBeVisible();
+  await expect(page.getByText('Preferences saved to your account.', { exact: true })).toBeVisible();
+}
+async function saveAppearance(page: Page, appearance: unknown): Promise<void> {
+  const current = await page.request.get('/admin/me/preferences');
+  expect(current.ok()).toBe(true);
+  const response = await page.request.put('/admin/me/preferences', {
+    headers: { 'If-Match': current.headers()['etag'] ?? '' },
+    data: { ...await current.json(), appearance },
+  });
+  expect(response.ok(), `preferences PUT ${response.status()}: ${response.ok() ? '' : await response.text()}`).toBe(true);
 }
 
 async function axe(page: Page, label: string, include?: string): Promise<void> {
@@ -82,131 +76,72 @@ async function noHorizontalScroll(page: Page, label: string): Promise<void> {
   expect(scroll, `horizontal page scroll on ${label}`).toBeLessThanOrEqual(width);
 }
 
+// These tests intentionally share the fixture admin account and mutate its preferences.
+test.describe.configure({ mode: 'serial' });
+
 test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await signIn(page);
 });
 
-test.describe('console appearance (DC5)', () => {
-  test('a choice applies at once, survives a reload and leaves the webmail appearance alone', async ({ page }) => {
-    await page.setViewportSize(DESKTOP);
-    await openConsole(page);
-    await page.evaluate(() => localStorage.removeItem('mw.admin.appearance'));
-    const webmailBefore = await page.evaluate(() => localStorage.getItem('mw.theme.prefs'));
-
-    await appearanceButton(page).click();
-    const dialog = page.getByRole('dialog', { name: 'Console appearance' });
-    await expect(dialog).toBeVisible();
-    await dialog.locator('[data-theme-option="paper"]').click();
-    await dialog.getByRole('button', { name: 'Teal' }).click();
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'paper');
-    await expect(page.locator('html')).toHaveAttribute('data-accent', 'teal');
-    await dialog.getByRole('radio', { name: 'Dark' }).check();
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'blueprint');
-    await dialog.getByRole('button', { name: 'Close' }).click();
-    await expect(dialog).toBeHidden();
-    await expect(appearanceButton(page)).toBeFocused();
-
-    await page.reload();
-    await expect(page.getByRole('heading', { level: 2, name: 'Dashboard' })).toBeVisible();
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'blueprint');
-    await expect(page.locator('html')).toHaveAttribute('data-accent', 'teal');
-    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('mw.admin.appearance') ?? 'null'))).toEqual({
-      theme: 'paper',
-      accent: 'teal',
-      mode: 'dark',
-    });
-    expect(await page.evaluate(() => localStorage.getItem('mw.theme.prefs'))).toBe(webmailBefore);
-
-    // "Use the webmail theme" forgets the choice: back to the default (Dark here).
-    await appearanceButton(page).click();
-    await dialog.getByRole('button', { name: 'Use the webmail theme' }).click();
-    await page.keyboard.press('Escape');
-    await expect(appearanceButton(page)).toBeFocused();
-    expect(await page.evaluate(() => localStorage.getItem('mw.admin.appearance'))).toBeNull();
-  });
-
-  test('"Match the system" follows the browser colour scheme', async ({ page }) => {
-    await page.setViewportSize(DESKTOP);
-    await page.emulateMedia({ colorScheme: 'light' });
-    await page.goto('/admin');
-    await page.evaluate(() => localStorage.setItem('mw.admin.appearance', JSON.stringify({ theme: 'grove-dark', accent: '', mode: 'system' })));
-    await openConsole(page);
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'grove-light');
-    await page.emulateMedia({ colorScheme: 'dark' });
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'grove-dark');
-  });
+test('personal choices survive reload and controls are on a dedicated page', async ({ page }) => {
+  await page.setViewportSize(DESKTOP);
+  await openPreferences(page);
+  await expect(page.locator('[data-testid="admin-appearance-button"]')).toHaveCount(0);
+  await page.locator('[data-theme-option="paper"]').click();
+  await page.locator('[data-accent-option="teal"]').click();
+  await page.getByLabel('Interface density').selectOption('compact');
+  await expect(page.getByText('Preferences saved to your account.', { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'paper');
+  await expect(page.locator('html')).toHaveAttribute('data-accent', 'teal');
+  await expect(page.locator('html')).toHaveAttribute('data-density', 'compact');
+  await expect(page.getByLabel('Interface density')).toHaveValue('compact');
+  await page.getByRole('button', { name: 'Reset appearance', exact: true }).click();
+  await expect(page.getByText('Preferences saved to your account.', { exact: true })).toBeVisible();
 });
 
-for (const [label, viewport] of [
-  ['desktop', DESKTOP],
-  ['phone', PHONE],
-] as const) {
-  test.describe(`every theme renders the shell without axe violations (${label})`, () => {
-    test(`18 themes at ${viewport.width}x${viewport.height}`, async ({ page }) => {
-      test.setTimeout(180_000);
-      await page.setViewportSize(viewport);
-      await page.goto('/admin');
-      for (const theme of THEMES) {
-        const choice = { theme, accent: '', mode: LIGHT.has(theme) ? 'light' : 'dark' };
-        await page.evaluate((c) => localStorage.setItem('mw.admin.appearance', JSON.stringify(c)), choice);
-        await openConsole(page);
-        await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-        await axe(page, `${label} ${theme}`);
-        if (label === 'phone') await noHorizontalScroll(page, `${label} ${theme}`);
-      }
-    });
+test('system mode follows the browser colour scheme', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await saveAppearance(page, { theme: 'grove-dark', accent: '', mode: 'system' });
+  await openConsole(page);
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'grove-light');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'grove-dark');
+});
+
+for (const [label, viewport] of [['desktop', DESKTOP], ['phone', PHONE]] as const) {
+  test(`all themes are accessible on ${label}`, async ({ page }) => {
+    test.setTimeout(180_000);
+    await page.setViewportSize(viewport);
+    for (const theme of THEMES) {
+      await saveAppearance(page, { theme, accent: '', mode: LIGHT.has(theme) ? 'light' : 'dark' });
+      await openConsole(page);
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+      await axe(page, `${label} ${theme}`);
+      if (label === 'phone') await noHorizontalScroll(page, `${label} ${theme}`);
+    }
+  });
+  test(`preferences fit ${label} with intrinsic action buttons`, async ({ page }) => {
+    await page.setViewportSize(viewport); await openPreferences(page);
+    await axe(page, `preferences ${label}`);
+    await noHorizontalScroll(page, `preferences ${label}`);
+    const button = page.getByRole('button', { name: 'Reset appearance', exact: true });
+    const box = await button.boundingBox();
+    expect(box?.width).toBeLessThan(viewport.width * 0.8);
   });
 }
 
-test.describe('the Appearance dialog', () => {
-  for (const theme of ['dark', 'light', 'hc-dark'] as const) {
-    test(`axe-clean with the dialog open in ${theme}`, async ({ page }) => {
-      await page.setViewportSize(DESKTOP);
-      await page.goto('/admin');
-      await page.evaluate((t) => localStorage.setItem('mw.admin.appearance', JSON.stringify({ theme: t, accent: 'magenta', mode: t === 'light' ? 'light' : 'dark' })), theme);
-      await openConsole(page);
-      await appearanceButton(page).click();
-      await expect(page.getByRole('dialog', { name: 'Console appearance' })).toBeVisible();
-      await axe(page, `dialog ${theme}`, '[data-testid="admin-appearance"]');
-    });
-  }
-
-  test('under forced colours the dialog keeps its borders and is axe-clean', async ({ page }) => {
-    await page.setViewportSize(DESKTOP);
-    await page.emulateMedia({ forcedColors: 'active' });
-    await openConsole(page);
-    await appearanceButton(page).click();
-    const card = page.locator('[data-theme-option="dark"]');
-    await expect(card).toBeVisible();
-    const border = await card.evaluate((el) => getComputedStyle(el).borderTopStyle);
-    expect(border).not.toBe('none');
-    await axe(page, 'dialog forced colours', '[data-testid="admin-appearance"]');
+for (const theme of ['dark', 'light', 'hc-dark'] as const) {
+  test(`preferences axe check in ${theme}`, async ({ page }) => {
+    await saveAppearance(page, { theme, accent: 'magenta', mode: theme === 'light' ? 'light' : 'dark' });
+    await openPreferences(page); await axe(page, `preferences ${theme}`);
   });
-
-  test('phone, right to left: the top-bar button opens it, keyboard only, no horizontal scroll', async ({ page }) => {
-    await page.setViewportSize(PHONE);
-    await openConsole(page);
-    await page.evaluate(() => {
-      document.documentElement.setAttribute('dir', 'rtl');
-      document.documentElement.setAttribute('lang', 'ar');
-    });
-    const button = appearanceButton(page);
-    await expect(button).toBeVisible();
-    const box = await button.boundingBox();
-    expect(box && box.width >= 24 && box.height >= 24, 'target at least 24x24').toBe(true);
-    await button.focus();
-    await page.keyboard.press('Enter');
-    const dialog = page.getByRole('dialog', { name: 'Console appearance' });
-    await expect(dialog).toBeVisible();
-    await noHorizontalScroll(page, 'phone rtl dialog');
-    const fits = await dialog.evaluate((el) => {
-      const r = el.getBoundingClientRect();
-      return r.left >= 0 && r.right <= window.innerWidth;
-    });
-    expect(fits, 'dialog inside the viewport').toBe(true);
-    await page.keyboard.press('Escape');
-    await expect(dialog).toBeHidden();
-    await expect(button).toBeFocused();
-  });
+}
+test('preferences under forced colours and RTL phone layout', async ({ page }) => {
+  await page.setViewportSize(PHONE); await page.emulateMedia({ forcedColors: 'active' });
+  await openPreferences(page);
+  await page.evaluate(() => { document.documentElement.dir = 'rtl'; });
+  await noHorizontalScroll(page, 'preferences RTL');
+  await axe(page, 'preferences forced colours');
 });

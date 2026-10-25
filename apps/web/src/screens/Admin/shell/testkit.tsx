@@ -5,6 +5,7 @@
 import { render } from '@solidjs/testing-library';
 import { vi } from 'vitest';
 import type { JSX } from 'solid-js';
+import type { AdminPreferencesApi } from './personalPreferences.tsx';
 import type { AdminGrants, AdminMeLoader, Capability } from './can.ts';
 import { createLoadedCan } from './can.ts';
 import type { AdminSearch } from './CommandPalette.tsx';
@@ -36,17 +37,18 @@ export const searchUnavailable: AdminSearch = async () => 'unavailable';
 
 /** The props `AdminScreen` needs so no test reaches the network. */
 export function offlineShell(): {
+  preferencesApi: AdminPreferencesApi;
   loadMe: AdminMeLoader;
   loadDashboard: DashboardLoader;
   search: AdminSearch;
 } {
-  return { loadMe: allCapable, loadDashboard: dashboardUnavailable, search: searchUnavailable };
+  return { preferencesApi: { load: async () => ({ data: {}, etag: '"1"' }), save: async data => ({ data, etag: '"2"' }) }, loadMe: allCapable, loadDashboard: dashboardUnavailable, search: searchUnavailable };
 }
 
 /** Render `ui` inside a shell context (for screens that call `useShell`). */
 export function renderInShell(
   ui: () => JSX.Element,
-  opts: { loadMe?: AdminMeLoader; loadDashboard?: DashboardLoader; navigate?: (p: string) => void; username?: string } = {},
+  opts: { loadMe?: AdminMeLoader; loadDashboard?: DashboardLoader; navigate?: (p: string) => void; username?: string; route?: AdminRouter['route'] } = {},
 ): ReturnType<typeof render> & { navigate: ReturnType<typeof vi.fn> } {
   const can = createLoadedCan(opts.loadMe ?? allCapable);
   void can.reload();
@@ -55,7 +57,7 @@ export function renderInShell(
     return true;
   });
   const router: AdminRouter = {
-    route: () => ({ section: 'dashboard', rest: [] }),
+    route: opts.route ?? (() => ({ section: 'dashboard', rest: [] })),
     navigate,
     dispose: () => undefined,
   };
