@@ -4,6 +4,7 @@
 
 # -- Navigation ---------------------------------------------------------------
 admin-shell-nav-dashboard = Dashboard
+admin-shell-nav-settings = Settings
 admin-shell-group-overview = Overview
 admin-shell-group-people = People
 admin-shell-group-security = Security

@@ -118,6 +118,14 @@ export const SECTIONS: readonly SectionDef[] = [
     component: screen(() => import('../OAuthClients/index.tsx').then((m) => m.AdminOAuthClients), false),
   },
   {
+    id: 'settings',
+    group: 'configuration',
+    icon: 'settings',
+    label: () => t('admin-shell-nav-settings'),
+    capability: 'settings.read',
+    component: screen(() => import('../Settings/index.tsx').then((m) => m.AdminSettings), false),
+  },
+  {
     id: 'ai-assistant',
     group: 'configuration',
     icon: 'assistant',

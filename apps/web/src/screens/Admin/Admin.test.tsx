@@ -28,7 +28,7 @@ describe('AdminScreen (gate + shell)', () => {
       ['Overview', ['Dashboard']],
       ['People', ['Users', 'Domains', 'Require two-factor']],
       ['Security', ['Single sign-on']],
-      ['Configuration', ['AI assistant', 'Integrations', 'Plugins', 'UI plugins', 'Egress']],
+      ['Configuration', ['Settings', 'AI assistant', 'Integrations', 'Plugins', 'UI plugins', 'Egress']],
       ['Operations', ['Observability', 'Maintenance', 'Server metadata']],
     ] as const) {
       const g = within(nav()).getByRole('group', { name: group });
@@ -41,7 +41,7 @@ describe('AdminScreen (gate + shell)', () => {
     render(() => <AdminScreen api={mockAdminApi()} {...offlineShell()} />);
     await findRegion('Dashboard');
     const links = within(nav()).getAllByRole('link');
-    expect(links.length).toBe(15);
+    expect(links.length).toBe(16);
     const icons = new Set<string>();
     for (const a of links) {
       const svgs = a.querySelectorAll('svg');
@@ -147,7 +147,7 @@ describe('capability-aware navigation (GET /admin/me)', () => {
   it('a 404 from /admin/me (no RBAC yet) shows every section', async () => {
     render(() => <AdminScreen api={mockAdminApi()} {...offlineShell()} />);
     await findRegion('Dashboard');
-    expect(within(nav()).getAllByRole('link')).toHaveLength(15);
+    expect(within(nav()).getAllByRole('link')).toHaveLength(16);
   });
 
   it('hides the sections the admin lacks and refuses their URL', async () => {
@@ -219,7 +219,9 @@ describe('phone drawer and command palette', () => {
     const input = within(dialog).getByRole('combobox');
     fireEvent.input(input, { target: { value: 'obs' } });
     const options = within(dialog).getAllByRole('option');
-    expect(options.map((o) => o.textContent)).toEqual([expect.stringContaining('Observability')]);
+    // The section comes first; settings whose names match follow it (worker f01's anchors).
+    expect(options[0]?.textContent).toContain('Observability');
+    expect(options.filter((o) => /Section/.test(o.textContent ?? ''))).toHaveLength(1);
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(await findRegion('Observability')).toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: 'Search the admin console' })).toBeNull();
