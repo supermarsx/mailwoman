@@ -94,6 +94,10 @@ pub mod twofa_routes;
 pub mod image_proxy;
 pub mod import_routes;
 pub mod prefs_routes;
+// 26.20 t32-e10b (f01): the settings model C — the registry (keys, types,
+// defaults, scopes, environment precedence, the limit ceiling) and its routes.
+pub mod settings_registry;
+pub mod settings_routes;
 // t16 (26.16, e10) A9: a runtime ManageSieve caller — compile the account's rules to
 // a Sieve script and upload+activate it on the user's ManageSieve server.
 pub mod sieve_sync;
@@ -120,6 +124,12 @@ mod upstream_resolve;
 // navigation, `{error, code}` JSON otherwise), plus the return-path and
 // static-path checks.
 mod error_pages;
+// t32-e24a: admin RBAC — the capability catalogue, the signed-in admin's context
+// (`AdminCtx`, `AdminApiError`, `If-Match`), and the registry every admin route is
+// mounted through (`admin_router::admin_endpoint`).
+pub mod admin_ctx;
+pub mod admin_router;
+pub mod capabilities;
 
 pub use engine_mode::ServerMode;
 pub use hardening::HardeningConfig;
@@ -1325,6 +1335,8 @@ fn router(
         .merge(masked::masked_router());
 
     let mut v6 = admin::routes()
+        // t32-e24a: every admin route registered with a capability.
+        .merge(admin_router::router(&state))
         .merge(oauth::routes())
         .merge(rest)
         .merge(v7_routes)
