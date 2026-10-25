@@ -6,12 +6,13 @@
 
 import { For, Show, createSignal, createUniqueId, type JSX } from 'solid-js';
 import { formatDate, isolate, t } from '../../../i18n';
+import { readFileText } from '../shell/files.ts';
 import { StatusBadge, type StatusTone } from '../shell/StatusBadge.tsx';
 import { Icon } from '../shell/icons.tsx';
 import * as shell from '../shell/shell.css.ts';
 import * as ux from '../shell/ux.css.ts';
 import * as css from '../shell/extras.css.ts';
-import { certInfo, certState, daysLeft, readFileText, splitPem, type CertInfo, type CertState } from './saml.ts';
+import { certInfo, certState, daysLeft, splitPem, type CertInfo, type CertState } from './saml.ts';
 
 const TONE: Record<CertState, StatusTone> = {
   valid: 'ok',

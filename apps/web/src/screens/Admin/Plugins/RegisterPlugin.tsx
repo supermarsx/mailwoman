@@ -149,7 +149,8 @@ export function RegisterPlugin(props: RegisterPluginProps): JSX.Element {
     }
     const err = slice.lastError();
     const field = err?.code === 'already-registered' ? (ctx.values.component === THIRD_PARTY ? '/id' : '/component') : '/component';
-    throw new AdminProblemError(err?.status ?? 400, { detail: err ? refusalText(err) : t('plugins-admin-load-error'), field }, null);
+    // 422 so the form places the server's sentence at the field (any refusal of this form concerns it).
+    throw new AdminProblemError(422, { detail: err ? refusalText(err) : t('plugins-admin-load-error'), field }, null);
   }
 
   return (

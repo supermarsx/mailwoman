@@ -15,11 +15,12 @@
 import { For, Show, createSignal, createUniqueId, type JSX } from 'solid-js';
 import { t } from '../../../i18n';
 import { Feedback } from '../shell/Feedback.tsx';
+import { readFileText } from '../shell/files.ts';
 import * as shell from '../shell/shell.css.ts';
 import * as ux from '../shell/ux.css.ts';
 import * as css from '../shell/extras.css.ts';
 import { CertBadge } from './CertList.tsx';
-import { certInfo, parseIdpMetadata, readFileText, type IdpMetadata } from './saml.ts';
+import { certInfo, parseIdpMetadata, type IdpMetadata } from './saml.ts';
 
 export interface MetadataImportProps {
   id: string;

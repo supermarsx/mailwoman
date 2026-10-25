@@ -42,16 +42,6 @@ export type MetadataResult = { ok: true; metadata: IdpMetadata } | { ok: false; 
 
 const REDIRECT = 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect';
 
-/** The text of a chosen file (FileReader where `Blob.text` is missing). */
-export function readFileText(f: Blob): Promise<string> {
-  if (typeof f.text === 'function') return f.text();
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ''));
-    reader.onerror = () => reject(reader.error ?? new Error('file read failed'));
-    reader.readAsText(f);
-  });
-}
 
 /** Wrap base64 certificate bytes as PEM (64 columns). */
 export function toPem(base64: string): string {
