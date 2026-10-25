@@ -190,12 +190,6 @@ mail-compose-encrypted-subject = Versleuteld bericht
 mail-compose-dlp-blocked = Verzenden is geblokkeerd door een regel voor preventie van gegevensverlies (zie de waarschuwing hierboven).
 mail-compose-send-failed = Verzenden mislukt
 mail-compose-send-later-past = Kies een verzendtijd in de toekomst, of maak het veld leeg om nu te verzenden.
-mail-compose-options = Verzendopties
-mail-compose-request-receipt = Leesbevestiging vragen
-mail-compose-request-receipt-hint = Het mailprogramma van de ontvanger kan het hun vragen, er zonder te vragen een sturen of het verzoek negeren.
-mail-compose-track-opens = Vastleggen wanneer dit bericht wordt geopend
-mail-compose-track-opens-hint = Er wordt een afbeelding van 1×1 aan het bericht toegevoegd die van deze server laadt. Veel mailprogramma's blokkeren afbeeldingen of laden ze vooraf, dus een vastgelegde opening bewijst niet dat het bericht is gelezen, en het ontbreken ervan bewijst niet dat het niet is gelezen. De ontvanger krijgt dit niet te horen.
-mail-compose-image-type = { $name } kan niet in de tekst worden geplaatst. Gebruik een PNG-, JPEG-, GIF- of WebP-afbeelding.
 # Refusals raised by the send itself. The composer stays open and shows them.
 mail-send-not-signed-in = Je bent niet ingelogd.
 mail-send-no-draft-folder = Dit account heeft geen map om het concept in op te slaan.
@@ -205,7 +199,6 @@ mail-send-bad-recipient = { $count ->
    *[other] Dit zijn geen e-mailadressen: { $addresses }
 }
 mail-send-later-past = De verzendtijd ligt niet in de toekomst. Er is niets verzonden.
-mail-send-tracking-failed = Openingen kunnen nu niet worden vastgelegd, dus er is niets verzonden. Schakel "Vastleggen wanneer dit bericht wordt geopend" uit om zonder te verzenden.
 mail-send-draft-refused = De server heeft dit bericht geweigerd: { $reason }. Er is niets verzonden.
 mail-send-submission-refused = De server heeft geweigerd dit bericht te verzenden: { $reason }. Er is niets verzonden.
 # Signing-key unlock (sign-on-send)
@@ -231,7 +224,6 @@ mail-compose-rt-quote = Citaat
 mail-compose-rt-link = Link
 mail-compose-rt-link-placeholder = https://example.org
 mail-compose-rt-link-apply = Toepassen
-mail-compose-rt-image = Afbeelding invoegen
 
 # Signature picker (W12)
 mail-compose-signature = Handtekening
@@ -390,7 +382,6 @@ mail-toast-export-nothing = Niets om te exporteren
 mail-toast-exported = .eml geëxporteerd
 mail-toast-export-failed = Exporteren mislukt
 mail-toast-send-queued = In wachtrij — wordt verzonden zodra je weer online bent
-mail-toast-tracking-not-bound = Het bericht is verzonden, maar het openen ervan wordt niet vastgelegd.
 mail-toast-send-scheduled = Ingepland voor verzending
 mail-toast-sent = Bericht verzonden
 mail-toast-send-canceled = Verzenden geannuleerd

@@ -196,12 +196,6 @@ mail-compose-encrypted-subject = Zaszyfrowana wiadomość
 mail-compose-dlp-blocked = Wysyłanie jest zablokowane przez regułę ochrony przed utratą danych (zobacz ostrzeżenie powyżej).
 mail-compose-send-failed = Wysyłanie nie powiodło się
 mail-compose-send-later-past = Wybierz przyszły czas wysłania lub wyczyść pole, aby wysłać teraz.
-mail-compose-options = Opcje wysyłania
-mail-compose-request-receipt = Poproś o potwierdzenie przeczytania
-mail-compose-request-receipt-hint = Program pocztowy odbiorcy może zapytać odbiorcę, wysłać potwierdzenie bez pytania lub zignorować prośbę.
-mail-compose-track-opens = Rejestruj otwarcie tej wiadomości
-mail-compose-track-opens-hint = Do wiadomości zostaje dodany obraz 1×1 wczytywany z tego serwera. Wiele programów pocztowych blokuje obrazy lub wczytuje je z wyprzedzeniem, więc zarejestrowane otwarcie nie dowodzi, że wiadomość została przeczytana, a brak zapisu nie dowodzi, że nie została. Odbiorca nie jest o tym informowany.
-mail-compose-image-type = Nie można umieścić { $name } w tekście. Użyj obrazu PNG, JPEG, GIF lub WebP.
 # Refusals raised by the send itself. The composer stays open and shows them.
 mail-send-not-signed-in = Nie zalogowano.
 mail-send-no-draft-folder = To konto nie ma folderu na wersję roboczą.
@@ -213,7 +207,6 @@ mail-send-bad-recipient = { $count ->
    *[other] To nie są adresy e-mail: { $addresses }
 }
 mail-send-later-past = Czas wysłania nie jest w przyszłości. Nic nie zostało wysłane.
-mail-send-tracking-failed = Nie można teraz rejestrować otwarć, więc nic nie zostało wysłane. Odznacz „Rejestruj otwarcie tej wiadomości”, aby wysłać bez tego.
 mail-send-draft-refused = Serwer odrzucił tę wiadomość: { $reason }. Nic nie zostało wysłane.
 mail-send-submission-refused = Serwer odmówił wysłania tej wiadomości: { $reason }. Nic nie zostało wysłane.
 # Signing-key unlock (sign-on-send)
@@ -239,7 +232,6 @@ mail-compose-rt-quote = Cytat
 mail-compose-rt-link = Link
 mail-compose-rt-link-placeholder = https://example.org
 mail-compose-rt-link-apply = Zastosuj
-mail-compose-rt-image = Wstaw obraz
 
 # Signature picker (W12)
 mail-compose-signature = Podpis
@@ -418,7 +410,6 @@ mail-toast-export-nothing = Nie ma nic do wyeksportowania
 mail-toast-exported = Wyeksportowano plik .eml
 mail-toast-export-failed = Eksport nie powiódł się
 mail-toast-send-queued = W kolejce — zostanie wysłana po powrocie online
-mail-toast-tracking-not-bound = Wiadomość została wysłana, ale jej otwarcia nie będą rejestrowane.
 mail-toast-send-scheduled = Zaplanowano wysłanie
 mail-toast-sent = Wiadomość wysłana
 mail-toast-send-canceled = Wysyłanie anulowane

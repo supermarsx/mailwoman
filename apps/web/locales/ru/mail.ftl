@@ -196,12 +196,6 @@ mail-compose-encrypted-subject = Зашифрованное сообщение
 mail-compose-dlp-blocked = Отправка заблокирована правилом предотвращения утечки данных (см. предупреждение выше).
 mail-compose-send-failed = Не удалось отправить
 mail-compose-send-later-past = Выберите время отправки в будущем или очистите поле, чтобы отправить сейчас.
-mail-compose-options = Параметры отправки
-mail-compose-request-receipt = Запросить уведомление о прочтении
-mail-compose-request-receipt-hint = Почтовая программа получателя может спросить его, отправить уведомление без вопроса или проигнорировать запрос.
-mail-compose-track-opens = Записывать, когда это сообщение открывают
-mail-compose-track-opens-hint = В сообщение добавляется изображение 1×1, загружаемое с этого сервера. Многие почтовые программы блокируют изображения или загружают их заранее, поэтому записанное открытие не доказывает, что сообщение прочитано, а отсутствие записи не доказывает обратного. Получатель об этом не уведомляется.
-mail-compose-image-type = { $name } нельзя вставить в текст. Используйте изображение PNG, JPEG, GIF или WebP.
 # Refusals raised by the send itself. The composer stays open and shows them.
 mail-send-not-signed-in = Вы не вошли в систему.
 mail-send-no-draft-folder = У этой учётной записи нет папки для хранения черновика.
@@ -213,7 +207,6 @@ mail-send-bad-recipient = { $count ->
    *[other] Это не адреса эл. почты: { $addresses }
 }
 mail-send-later-past = Время отправки не в будущем. Ничего не отправлено.
-mail-send-tracking-failed = Сейчас нельзя записывать открытия, поэтому ничего не отправлено. Снимите флажок «Записывать, когда это сообщение открывают», чтобы отправить без этого.
 mail-send-draft-refused = Сервер отклонил это сообщение: { $reason }. Ничего не отправлено.
 mail-send-submission-refused = Сервер отказался отправить это сообщение: { $reason }. Ничего не отправлено.
 # Signing-key unlock (sign-on-send)
@@ -239,7 +232,6 @@ mail-compose-rt-quote = Цитата
 mail-compose-rt-link = Ссылка
 mail-compose-rt-link-placeholder = https://example.org
 mail-compose-rt-link-apply = Применить
-mail-compose-rt-image = Вставить изображение
 
 # Signature picker (W12)
 mail-compose-signature = Подпись
@@ -418,7 +410,6 @@ mail-toast-export-nothing = Нечего экспортировать
 mail-toast-exported = Экспортировано в .eml
 mail-toast-export-failed = Не удалось выполнить экспорт
 mail-toast-send-queued = В очереди — будет отправлено после восстановления подключения
-mail-toast-tracking-not-bound = Сообщение отправлено, но его открытия не будут записываться.
 mail-toast-send-scheduled = Отправка запланирована
 mail-toast-sent = Сообщение отправлено
 mail-toast-send-canceled = Отправка отменена
