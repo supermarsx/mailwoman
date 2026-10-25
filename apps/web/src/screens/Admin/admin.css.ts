@@ -247,7 +247,9 @@ registerFieldGrid(`${card}:has(> .field)`);
 registerFieldGrid(`${card}:has(> [data-form-field])`);
 globalStyle(`${card} > button, ${section} > button`, { alignSelf: 'flex-start', maxInlineSize: '100%' });
 
-globalStyle(`${grid} > button`, { justifySelf: 'start', alignSelf: 'start', maxInlineSize: '100%' });
+// Actions in a horizontal form row align with the controls below their labels.
+globalStyle(`${grid} > .field, ${grid} > [data-form-field]`, { marginBlockEnd: 0 });
+globalStyle(`${grid} > button`, { justifySelf: 'start', alignSelf: 'end', maxInlineSize: '100%' });
 
 /** Semantic native form groups get the same surface as component subsections.
  * :where keeps typed layout classes in control; disabled-only fieldsets without
@@ -268,3 +270,6 @@ globalStyle(`${subsectionBody} > p, ${subsectionBody} > dl`, { margin: 0, lineHe
 
 globalStyle(`${table} tbody th`, { fontWeight: vars.weight.medium, whiteSpace: 'normal', overflowWrap: 'anywhere', minInlineSize: '10rem' });
 globalStyle(`${table} p`, { marginBlock: vars.space[3], lineHeight: 1.5 });
+
+// Labelled subsection fieldsets are column flex containers; keep their actions intrinsic.
+globalStyle(':where([data-screen="admin"] fieldset:has(> legend) > button)', { alignSelf: 'flex-start', maxInlineSize: '100%' });

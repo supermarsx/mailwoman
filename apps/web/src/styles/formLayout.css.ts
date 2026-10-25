@@ -39,5 +39,5 @@ export function registerFieldGrid(selector: string, fields = '.field, [data-form
     globalStyle(`${selector} > ${field}`, { gridColumn: 'auto', marginBlockEnd: 0 });
     globalStyle(`${selector} > ${field}:has(textarea), ${selector} > ${field}:has([contenteditable='true']), ${selector} > ${field}[data-field-span='full']`, { gridColumn: '1 / -1', maxInlineSize: 'none' });
   }
-  globalStyle(`${selector} > button`, { justifySelf: 'start', maxInlineSize: '100%' });
+  globalStyle(`${selector} > button`, { justifySelf: 'start', alignSelf: 'end', maxInlineSize: '100%' });
 }
