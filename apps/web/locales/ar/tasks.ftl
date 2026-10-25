@@ -1,0 +1,41 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: ar · Module: tasks. Source: ../en/tasks.ftl
+
+tasks-title = المهام
+tasks-lists = قوائم المهام
+tasks-all = كل المهام
+tasks-my-day = يومي
+tasks-lists-heading = القوائم
+tasks-no-lists = لا توجد قوائم بعد.
+tasks-new-title = عنوان المهمة الجديدة
+tasks-add-placeholder = إضافة مهمة…
+tasks-my-day-empty = لا شيء مستحق اليوم.
+tasks-convert = تحويل:
+tasks-mail-id = معرّف الرسالة المراد تحويلها
+tasks-mail-id-placeholder = معرّف الرسالة
+tasks-mail-to-task = بريد → مهمة
+tasks-event-id = معرّف الحدث المراد تحويله
+tasks-event-id-placeholder = معرّف الحدث
+tasks-event-to-task = حدث → مهمة
+tasks-followup-mail = متابعة: البريد { $id }
+tasks-prep-event = تحضير: الحدث { $id }
+tasks-list-label = المهام
+tasks-subtasks = المهام الفرعية
+tasks-empty-list = لا توجد مهام في هذه القائمة.
+tasks-complete = إكمال { $title }
+tasks-reopen = إعادة فتح { $title }
+tasks-high-priority = أولوية عالية
+tasks-edit = تعديل { $title }
+tasks-field-title = العنوان
+tasks-field-due = تاريخ الاستحقاق
+tasks-field-priority = الأولوية
+tasks-priority-none = بلا
+tasks-priority-high = عالية
+tasks-priority-medium = متوسطة
+tasks-priority-low = منخفضة
+tasks-delete-confirm = حذف هذه المهمة؟ لا يمكن التراجع عن ذلك.
+tasks-delete-yes = حذف المهمة
+tasks-delete-no = الإبقاء على المهمة
+tasks-changed-elsewhere = عُدّلت هذه المهمة على جهاز أو جلسة أخرى. يُحتفظ بتعديلاتك، ولا يطبّق «حفظ» إلا الحقول التي غيّرتها.
+tasks-deleted-elsewhere = حُذفت «{ $title }» على جهاز أو جلسة أخرى، لذا أُغلق نموذج تعديلها.
+tasks-notice-dismiss = تجاهل
