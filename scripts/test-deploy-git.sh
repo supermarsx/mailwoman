@@ -46,6 +46,11 @@ reject() {
 run clean --state-dir "$FIXTURE/state with spaces"
 [[ $(git -C "$FIXTURE/clean" rev-parse HEAD) == "$LATEST" ]] || fail 'did not pull'
 [[ $(cat "$FIXTURE/clean/reached-new") == "$FIXTURE/state with spaces" ]] || fail 'did not re-exec with original arguments'
+[[ $(grep -c 'Mailwoman deployment' "$FIXTURE/clean.log") == 1 ]] || fail 're-exec duplicated deployment banner'
+[[ $(grep -c '\[1/6\]' "$FIXTURE/clean.log") == 1 ]] || fail 're-exec duplicated source step'
+grep -Eq 'main: [0-9a-f]{12} -> [0-9a-f]{12} \(1 incoming commit\(s\)\)' "$FIXTURE/clean.log" || fail 'missing compact revision summary'
+grep -Eq '  [0-9a-f]+ update$' "$FIXTURE/clean.log" || fail 'missing incoming subject'
+if grep -q $'\033' "$FIXTURE/clean.log"; then fail 'redirected output contains terminal escapes'; fi
 printf 'local change\n' > "$FIXTURE/dirty-unrelated/local-settings"
 git -C "$FIXTURE/dirty-unrelated" config pull.rebase true
 run dirty-unrelated
@@ -90,4 +95,39 @@ git -C "$FIXTURE/offline" branch --unset-upstream
 reject offline
 run detached --no-pull
 run staged status
+# A batch of hostile/long subjects remains bounded data, never terminal control
+# or a printf format. Use a fresh clone so precisely seven commits are incoming.
+clone subjects
+for n in {1..7}; do
+    printf '%s\n' "$n" >> "$AUTHOR/version"
+    git -C "$AUTHOR" add version
+    git -C "$AUTHOR" commit -qm "$(printf 'subject-%s %%s %%n \033[31m%s' "$n" "$(printf '%0250d' 0)")"
+done
+git -C "$AUTHOR" push -q
+run subjects
+grep -q '(7 incoming commit(s))' "$FIXTURE/subjects.log" || fail 'incoming count missing'
+[[ $(grep -c 'subject-' "$FIXTURE/subjects.log") == 5 ]] || fail 'incoming subjects not bounded to five'
+grep -q '2 more commit(s)' "$FIXTURE/subjects.log" || fail 'omitted subject count missing'
+grep -q '%s %n' "$FIXTURE/subjects.log" || fail 'subject interpreted as printf format'
+if grep -q $'\033' "$FIXTURE/subjects.log"; then fail 'Git metadata injected terminal escape'; fi
+awk 'length($0)>200 {exit 1}' "$FIXTURE/subjects.log" || fail 'subject line unbounded'
+mkdir "$FIXTURE/archive"
+cp "$ROOT/deploy.sh" "$FIXTURE/archive/deploy.sh"
+bash "$FIXTURE/archive/deploy.sh" --no-pull --dry-run > "$FIXTURE/plain.out" 2> "$FIXTURE/plain.log"
+[[ ! -s $FIXTURE/plain.out ]] || fail 'progress changed stdout'
+grep -q 'Source archive:' "$FIXTURE/plain.log" || fail 'archive source information missing'
+grep -q '\[2/6\] Validate configuration' "$FIXTURE/plain.log" || fail 'phase numbering did not advance'
+[[ ! -e $FIXTURE/archive/.deploy.local ]] || fail 'dry-run wrote state'
+if grep -q $'\033' "$FIXTURE/plain.log"; then fail 'redirected progress has color'; fi
+# util-linux script provides a real pseudo-terminal; Git Bash lacks it, so the
+# same suite is also run in a Linux helper for these terminal-only assertions.
+if command -v script >/dev/null 2>&1 && script --version >/dev/null 2>&1; then
+    env -u NO_COLOR TERM=xterm script -q -e -c "bash '$FIXTURE/archive/deploy.sh' --no-pull --dry-run" "$FIXTURE/tty.log" >/dev/null
+    grep -q $'\033\[36m' "$FIXTURE/tty.log" || fail 'interactive progress has no accent'
+    NO_COLOR=1 TERM=xterm script -q -e -c "bash '$FIXTURE/archive/deploy.sh' --no-pull --dry-run" "$FIXTURE/no-color.log" >/dev/null
+    if grep -q $'\033' "$FIXTURE/no-color.log"; then fail 'NO_COLOR ignored'; fi
+    TERM=dumb script -q -e -c "bash '$FIXTURE/archive/deploy.sh' --no-pull --dry-run" "$FIXTURE/dumb.log" >/dev/null
+    if grep -q $'\033' "$FIXTURE/dumb.log"; then fail 'TERM=dumb ignored'; fi
+    printf 'PASS: real TTY accent, NO_COLOR, TERM=dumb, redirected stderr, untouched stdout, source archive\n'
+fi
 printf 'PASS: fast-forward/re-exec, unrelated dirty/staged edits, dirty up-to-date checkout, configured rebase override, overlapping edits protected, divergence, detached HEAD, untracked preservation/collision, dry-run, failed fetch, missing upstream, opt-out and status\n'

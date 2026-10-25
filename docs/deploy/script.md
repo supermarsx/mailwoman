@@ -71,6 +71,21 @@ healthy on the network and notes that the public URL does not answer yet.
 application configuration and the generated Compose model without starting services.
 `--dry-run` describes any operation without writing files or contacting Docker.
 
+Deployments show six numbered phases on stderr: source update, configuration,
+runtime image, data protection, service health, and backup history. Each phase
+reports elapsed time. Git updates show the branch, previous and new short commit
+IDs, incoming count, and up to five subjects. Subjects are bounded and rendered
+as printable ASCII so repository metadata cannot issue terminal controls.
+The updated script keeps the original arguments and phase count when it restarts
+itself after pulling. `--no-pull` reports the current revision, or identifies a
+source archive when Git metadata is unavailable.
+
+Progress uses restrained color only on an interactive stderr terminal. Set
+`NO_COLOR=1` to disable it; redirected logs and `TERM=dumb` remain plain. Command
+data stays on stdout. Snapshot resume and restart use Compose's
+`up -d --no-recreate --wait --wait-timeout` to wait for the existing containers;
+Compose 2.30 does not support `start --wait`.
+
 ## Configuration and exposure
 
 The default state directory is `.deploy.local` beside the script. Its `*.local`

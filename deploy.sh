@@ -149,7 +149,45 @@ See docs/deploy/script.md for operations, recovery, and optional integrations.
 HELP
 }
 
-log() { printf '[deploy] %s\n' "$*" >&2; }
+LOG_ACCENT= LOG_RESET=
+if [[ -t 2 && ${TERM:-dumb} != dumb && ! ${NO_COLOR+x} ]]; then
+    LOG_ACCENT=$'\033[36m'; LOG_RESET=$'\033[0m'
+fi
+log() { printf '%s[deploy]%s %s\n' "$LOG_ACCENT" "$LOG_RESET" "$*" >&2; }
+# Git subjects/ref names are data, not terminal commands. Bound displayed labels
+# and remove control/non-ASCII bytes (including escape sequences and bidi marks).
+git_label() { LC_ALL=C tr -cd ' -~' | cut -c 1-180; }
+git_diagnostic() { LC_ALL=C tr -cd '\12\40-\176' | awk 'NR <= 12 { print substr($0, 1, 180) }' >&2; }
+PROGRESS_STEP=0 PROGRESS_STARTED=0 PHASE_STARTED=0
+if [[ -n ${MW_DEPLOY_GIT_SYNCED:-} && ${MW_DEPLOY_PROGRESS_STEP:-} =~ ^[1-6]$ &&
+      ${MW_DEPLOY_PROGRESS_STARTED:-} =~ ^[1-9][0-9]{0,10}$ && ${MW_DEPLOY_PHASE_STARTED:-} =~ ^[1-9][0-9]{0,10}$ ]]; then
+    PROGRESS_STEP=$MW_DEPLOY_PROGRESS_STEP
+    PROGRESS_STARTED=$MW_DEPLOY_PROGRESS_STARTED
+    PHASE_STARTED=$MW_DEPLOY_PHASE_STARTED
+fi
+phase() {
+    [[ $ACTION == deploy ]] || return 0
+    local now elapsed
+    now=$(date +%s)
+    if ((PHASE_STARTED > 0)); then
+        elapsed=$((now - PHASE_STARTED)); ((elapsed >= 0)) || elapsed=0
+        log "  Step $PROGRESS_STEP finished in ${elapsed}s"
+    fi
+    PROGRESS_STEP=$((PROGRESS_STEP + 1)); PHASE_STARTED=$now
+    log "[$PROGRESS_STEP/6] $*"
+}
+progress_start() {
+    if ((PROGRESS_STEP == 0)); then
+        PROGRESS_STARTED=$(date +%s)
+        log "Mailwoman deployment"
+        phase "Prepare source checkout"
+    fi
+}
+progress_finish() {
+    local now elapsed
+    now=$(date +%s); elapsed=$((now - PROGRESS_STARTED)); ((elapsed >= 0)) || elapsed=0
+    log "Deployment complete in ${elapsed}s"
+}
 die() { log "ERROR: $*"; exit 1; }
 need_value() { [[ $# -ge 2 && -n $2 && $2 != --* ]] || die "$1 needs a value"; }
 need() { command -v "$1" >/dev/null 2>&1 || die "Required command missing: $1"; }
@@ -212,8 +250,14 @@ if [[ -n $IDENTITY && $ACTION != restore ]]; then die "--identity applies only t
 # this script. Re-exec the updated script with exactly the original arguments.
 update_checkout() {
     [[ $ACTION == deploy ]] || return 0
+    progress_start
     if ! $GIT_PULL; then
         log "--no-pull: deploying the current checkout"
+        if command -v git >/dev/null 2>&1 && git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            log "Source: $(git -C "$ROOT" rev-parse --short=12 HEAD | git_label) ($(git -C "$ROOT" symbolic-ref -q --short HEAD | git_label || printf 'detached HEAD'))"
+        else
+            log "Source archive: Git revision information is unavailable"
+        fi
         return 0
     fi
     if $DRY_RUN; then
@@ -223,16 +267,18 @@ update_checkout() {
     need git
     git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
         die "Deployment needs a Git checkout; use --no-pull for a source archive"
-    local before upstream status
+    local before upstream status branch after incoming subject pull_output
     before=$(git -C "$ROOT" rev-parse HEAD) || die "Cannot read Git HEAD"
     if [[ ${MW_DEPLOY_GIT_SYNCED:-} == "$before" ]]; then
         unset MW_DEPLOY_GIT_SYNCED
+        unset MW_DEPLOY_PROGRESS_STEP MW_DEPLOY_PROGRESS_STARTED MW_DEPLOY_PHASE_STARTED
         return 0
     fi
     git -C "$ROOT" symbolic-ref -q HEAD >/dev/null ||
         die "Detached Git HEAD; check out a tracking branch or use --no-pull"
     upstream=$(git -C "$ROOT" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}') ||
         die "This branch has no upstream; configure it or use --no-pull"
+    branch=$(git -C "$ROOT" symbolic-ref --short HEAD)
     # Compare content, not cached stat metadata; ignore unrelated untracked files.
     # Git itself refuses an untracked file that an incoming commit would overwrite.
     status=0
@@ -243,15 +289,26 @@ update_checkout() {
     git -c core.safecrlf=false -C "$ROOT" diff --cached --quiet || status=$?
     [[ $status == 0 || $status == 1 ]] || die "Cannot read the Git index"
     [[ $status == 0 ]] || log "Staged edits detected; Git will preserve them or refuse an overlapping update"
-    log "Updating from $upstream (currently $before)"
-    git -C "$ROOT" -c rebase.autoStash=false -c merge.autoStash=false pull --ff-only --no-rebase ||
+    log "Updating $(printf '%s' "$branch" | git_label) from $(printf '%s' "$upstream" | git_label) (${before:0:12})"
+    status=0
+    pull_output=$(git -C "$ROOT" -c color.ui=false -c rebase.autoStash=false -c merge.autoStash=false pull --quiet --ff-only --no-rebase 2>&1) || status=$?
+    [[ -z $pull_output ]] || printf '%s\n' "$pull_output" | git_diagnostic
+    [[ $status == 0 ]] ||
         die "Git update failed; nothing was built or restarted. Reconcile the checkout or use --no-pull"
     export MW_DEPLOY_GIT_SYNCED
     MW_DEPLOY_GIT_SYNCED=$(git -C "$ROOT" rev-parse HEAD) || die "Cannot read updated Git HEAD"
-    log "Deploying Git revision $MW_DEPLOY_GIT_SYNCED"
+    after=$MW_DEPLOY_GIT_SYNCED
+    incoming=$(git -C "$ROOT" rev-list --count "$before..$after" --)
+    log "$(printf '%s' "$branch" | git_label): ${before:0:12} -> ${after:0:12} ($incoming incoming commit(s))"
+    while IFS= read -r subject; do
+        [[ -z $subject ]] || log "  $(printf '%s' "$subject" | git_label)"
+    done < <(git -C "$ROOT" -c log.showSignature=false log --no-decorate --format='%h %s' -n 5 "$before..$after" --)
+    if ((incoming > 5)); then log "  ... $((incoming - 5)) more commit(s)"; fi
+    export MW_DEPLOY_PROGRESS_STEP=$PROGRESS_STEP MW_DEPLOY_PROGRESS_STARTED=$PROGRESS_STARTED MW_DEPLOY_PHASE_STARTED=$PHASE_STARTED
     exec bash "$ROOT/deploy.sh" "${ORIGINAL_ARGS[@]}"
 }
 update_checkout
+phase "Validate configuration and prerequisites"
 
 read_config() {
     local file=$1 line key value seen='|'
@@ -930,6 +987,8 @@ snapshot() {
     elif [[ -n $RESUME_CONTAINER ]]; then
         docker start "$RESUME_CONTAINER" >/dev/null
         RESUME_CONTAINER=
+        # Compose 2.30 supports waiting on `up`, but not on `start`. Keep the
+        # existing container and its exact configuration while waiting for health.
         compose "$ACTIVE" up -d --no-recreate --wait --wait-timeout "$TIMEOUT" mailwoman
     fi
     LAST_BACKUP=$destination
@@ -1342,6 +1401,7 @@ case "$ACTION" in
         [[ -n $CPU_LIMIT ]] || unlimited+="${unlimited:+ or }CPU"
         [[ -z $unlimited ]] || log "No $unlimited limit for the app: MEMORY_LIMIT and CPU_LIMIT in $STATE/deploy.env set them (new installations get 1g and 2)"
         require_free_ports
+        phase "Prepare runtime image"
         built=false
         if ! $NO_BUILD; then
             if [[ -n $IMAGE ]]; then
@@ -1375,13 +1435,16 @@ case "$ACTION" in
         compose "$WORK" config --quiet
         previous_rollback=
         if [[ -f $STATE/rollback.path ]]; then IFS= read -r previous_rollback < "$STATE/rollback.path"; fi
+        phase "Protect installation data"
         if [[ -f $ACTIVE/release.env ]]; then
             snapshot
             printf '%s\n' "$LAST_BACKUP" > "$STATE/rollback.path"
         else
+            log "First installation: creating the data volume; no previous snapshot needed"
             docker volume create --label "mailwoman.deploy.project=$PROJECT" "$DATA_VOLUME" >/dev/null
             AUTO_ROLLBACK=false
         fi
+        phase "Start services and verify health"
         if $AUTO_ROLLBACK; then
             # activate runs in a subshell so that a failed start or check returns
             # here instead of ending the script.
@@ -1393,6 +1456,7 @@ case "$ACTION" in
         else
             activate "$WORK"
         fi
+        phase "Finalize backup history"
         if [[ -n $LAST_BACKUP ]]; then record_snapshot pre-deploy "$LAST_BACKUP"; fi
         # With encrypted backups, only one clear-text snapshot stays on the host: the
         # one this deploy took for rollback. The one the previous deploy took goes.
@@ -1402,6 +1466,7 @@ case "$ACTION" in
             rm -rf -- "$previous_rollback"
             log "Removed the previous pre-deploy snapshot $previous_rollback (clear text; BACKUP_RECIPIENT is set)"
         fi
+        progress_finish
         ;;
     restore|rollback)
         if [[ $ACTION == rollback ]]; then
