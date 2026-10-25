@@ -53,6 +53,8 @@ function mapStatus(status: PushStatus): ConnectionState {
       return 'degraded';
     case 'closed':
       return 'idle';
+    case 'unauthorized':
+      return 'auth-expired';
   }
 }
 
@@ -77,6 +79,8 @@ export function createConnection(): ConnectionModel {
     last = { status, transport: t };
     netDown = false;
     if (status === 'open' || status === 'closed') authExpired = false;
+    // The push client stopped because the server ended the session.
+    if (status === 'unauthorized') authExpired = true;
     if (authExpired) {
       setState('auth-expired');
       return;

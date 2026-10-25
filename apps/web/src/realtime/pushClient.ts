@@ -7,6 +7,13 @@
 // 'poll'), from which it periodically re-attempts the whole ladder to recover.
 // A 30 s heartbeat detects a dead-but-open socket; reconnects use backoff.
 //
+// A session the server has ended is not a dropped connection: the server closes
+// the WS with code 1008 when its periodic re-check finds the session gone, and a
+// reconnect attempt is then refused with 401. A WS close 1008 stops the client at
+// once; any other drop also asks the session endpoint whether the session still
+// exists, and a 401/403 answer stops it. Either way it reports 'unauthorized'
+// and stays stopped until `connect()`/`reconnect()` (after the next sign-in).
+//
 // The DOM `WebSocket`/`EventSource` constructors and the wall clock are
 // injectable so the ladder, heartbeat and backoff are deterministically unit
 // testable under jsdom (which ships neither transport).
@@ -19,9 +26,22 @@ import {
   type StateChange,
 } from '../contracts/push.ts';
 import { withBase } from '../api/basePath.ts';
+import { apiFetch } from '../api/http.ts';
 
 /** Lifecycle signal the connection model maps to a `ConnectionState`. */
-export type PushStatus = 'connecting' | 'reconnecting' | 'open' | 'degraded' | 'closed';
+export type PushStatus =
+  | 'connecting'
+  | 'reconnecting'
+  | 'open'
+  | 'degraded'
+  | 'closed'
+  | 'unauthorized';
+
+/** What the session check found: the session is gone, or it could not tell. */
+export type SessionCheck = 'ok' | 'unauthorized' | 'unknown';
+
+/** WS close code the server sends when its re-check finds the session ended. */
+export const WS_CLOSE_SESSION_ENDED = 1008;
 
 /** Minimal structural view of the DOM `WebSocket` this client relies on. */
 export interface WebSocketLike {
@@ -74,6 +94,13 @@ export interface PushClientOptions {
   now?: () => number;
   /** Lifecycle callback for the connection model / toast. */
   onStatus?: (status: PushStatus, transport: PushTransport) => void;
+  /**
+   * Asks the server whether the session still exists, after a drop. Defaults to
+   * a GET of the JMAP session resource (`/jmap/session`) with the cookie or the
+   * bearer: 401/403 → 'unauthorized', any other answer → 'ok', no answer →
+   * 'unknown'.
+   */
+  checkSession?: () => Promise<SessionCheck>;
 }
 
 /** The concrete client; adds `reconnect()` on top of the frozen `PushClient`. */
@@ -107,6 +134,7 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
   const rungDelayMs = opts.rungDelayMs ?? 100;
   const upgradeIntervalMs = opts.upgradeIntervalMs ?? 30_000;
   const nowFn = opts.now ?? Date.now;
+  const checkSession = opts.checkSession ?? (() => defaultCheckSession(opts.bearer));
 
   const handlers = new Set<(c: StateChange) => void>();
   let current: Current = null;
@@ -118,6 +146,9 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
   let hb: ReturnType<typeof setInterval> | undefined;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let upgradeTimer: ReturnType<typeof setTimeout> | undefined;
+  // Bumped on every open, connect, reconnect and close, so a session check that
+  // answers after any of those is ignored.
+  let generation = 0;
 
   function status(s: PushStatus): void {
     opts.onStatus?.(s, transport);
@@ -205,11 +236,36 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
     return backoff[i] ?? 0;
   }
 
+  /** The server ended the session: stop, and do not reconnect. */
+  function endUnauthorized(): void {
+    if (closed) return;
+    closed = true;
+    generation += 1;
+    stopHeartbeat();
+    clearReconnect();
+    clearUpgrade();
+    clearCurrent();
+    transport = 'offline';
+    status('unauthorized');
+  }
+
+  /** Ask whether the session survived the drop; the reconnect proceeds meanwhile. */
+  function verifySession(): void {
+    const asked = generation;
+    checkSession().then(
+      (result) => {
+        if (result === 'unauthorized' && asked === generation) endUnauthorized();
+      },
+      () => undefined,
+    );
+  }
+
   /** A transport dropped (failed to open or closed after opening). */
   function handleDrop(): void {
     if (closed) return;
     stopHeartbeat();
     clearCurrent();
+    verifySession();
     status('reconnecting');
     attemptsOnRung += 1;
     if (attemptsOnRung < maxAttemptsPerRung) {
@@ -252,6 +308,7 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
     }
     current = { kind: 'ws', ws };
     ws.onopen = () => {
+      generation += 1;
       attemptsOnRung = 0;
       transport = 'ws';
       status('open');
@@ -261,7 +318,10 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
     ws.onerror = () => {
       /* onclose follows */
     };
-    ws.onclose = () => handleDrop();
+    ws.onclose = (ev) => {
+      if ((ev as { code?: unknown } | null)?.code === WS_CLOSE_SESSION_ENDED) endUnauthorized();
+      else handleDrop();
+    };
   }
 
   function openSse(): void {
@@ -279,6 +339,7 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
     }
     current = { kind: 'sse', es };
     es.onopen = () => {
+      generation += 1;
       attemptsOnRung = 0;
       transport = 'sse';
       status('open');
@@ -304,12 +365,14 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
     connect(): void {
       if (!closed) return;
       closed = false;
+      generation += 1;
       attemptsOnRung = 0;
       ladderIndex = 0;
       openRung(0);
     },
     reconnect(): void {
       closed = false;
+      generation += 1;
       stopHeartbeat();
       clearReconnect();
       clearUpgrade();
@@ -319,6 +382,7 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
     },
     close(): void {
       closed = true;
+      generation += 1;
       stopHeartbeat();
       clearReconnect();
       clearUpgrade();
@@ -358,4 +422,20 @@ function withBearer(url: string, bearer?: string): string {
   if (bearer === undefined || bearer.length === 0) return url;
   const sep = url.includes('?') ? '&' : '?';
   return `${url}${sep}access_token=${encodeURIComponent(bearer)}`;
+}
+
+/**
+ * GET the JMAP session resource to learn whether the session still exists. In a
+ * native shell `apiFetch` sends it to the configured server with the bearer.
+ */
+async function defaultCheckSession(bearer?: string): Promise<SessionCheck> {
+  if (typeof fetch !== 'function') return 'unknown';
+  try {
+    const headers: Record<string, string> = {};
+    if (bearer !== undefined && bearer.length > 0) headers['Authorization'] = `Bearer ${bearer}`;
+    const res = await apiFetch(withBase('/jmap/session'), { credentials: 'include', headers });
+    return res.status === 401 || res.status === 403 ? 'unauthorized' : 'ok';
+  } catch {
+    return 'unknown';
+  }
 }
