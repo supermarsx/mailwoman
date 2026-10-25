@@ -1,6 +1,8 @@
 import { createEffect, createMemo, createSignal, For, Show, Suspense, onMount, onCleanup, type JSX } from 'solid-js';
 import { Dynamic } from 'solid-js/web';
 import { useApp } from '../state/context.ts';
+import { createEntryMotion } from '../shell/createEntryMotion.ts';
+import * as motion from '../styles/motion.css.ts';
 import { t, isolate, loadCatalog } from '../i18n/index.ts';
 import * as a11y from '../components/mailA11y.css.ts';
 import { useRealtime } from '../realtime/context.ts';
@@ -125,6 +127,7 @@ export function MailboxScreen(): JSX.Element {
     void loadCatalog('errors').then(() => app.showToast('info', t('errors-mail-route-not-found')));
   });
   const surface = (): ShellSurface => router.route().surface;
+  const mailEntering = createEntryMotion(() => `${surface()}:${app.selectedMailboxId() ?? ''}:${app.inboxTab()}:${app.search()}`);
 
   // Narrow-viewport shell (t28-e6). At phone width the sidebar is an off-canvas
   // drawer opened from a top bar (styles/app.css); `navOpen` is that drawer's
@@ -414,7 +417,7 @@ export function MailboxScreen(): JSX.Element {
       <Show when={surface() === 'mail'}>
         {/* At phone width the open reader covers the list; `inert` keeps the
             covered list out of the tab order and the accessibility tree. */}
-        <div class="mail-pane" inert={narrow() && app.openEmail() !== null}>
+        <div class={`mail-pane ${motion.surface}`} data-mw-entering={mailEntering()} inert={narrow() && app.openEmail() !== null}>
           <SubTabStrip />
           <SearchBox />
           <InboxTabs />
@@ -449,7 +452,7 @@ export function MailboxScreen(): JSX.Element {
       <For each={APP_NAV_MODULES}>
         {(m) => (
           <Show when={surface() === m.id}>
-            <main class="module-pane" data-surface={m.id}>
+            <main class="module-pane" data-surface={m.id} data-mw-surface>
               {/* Each module is a dynamic import. Its `Suspense` had no boundary
                   and no ceiling, so a chunk that failed to arrive left this
                   fallback on screen for the life of the tab — the nav rail said

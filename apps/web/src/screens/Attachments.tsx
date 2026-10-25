@@ -56,7 +56,7 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
   });
 
   return (
-    <section class="mw-attach" aria-label={t('common-attach-title')}>
+    <section class="mw-attach" data-mw-surface aria-label={t('common-attach-title')}>
       <header class="mw-attach__bar">
         <h2 class="mw-attach__title">{t('common-attach-title')}</h2>
         <input

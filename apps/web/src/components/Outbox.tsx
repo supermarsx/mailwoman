@@ -64,7 +64,7 @@ export function Outbox(): JSX.Element {
   onMount(() => void app.refreshOutbox());
 
   return (
-    <section class={`outbox ${css.root}`} aria-label={t('mail-outbox-label')}>
+    <section class={`outbox ${css.root}`} data-mw-surface aria-label={t('mail-outbox-label')}>
       <header class={`outbox__header ${css.header}`}>
         <h2 class={css.title}>{t('mail-outbox-label')}</h2>
         <button type="button" class={`btn btn--ghost ${a11y.focusable}`} onClick={() => void app.refreshOutbox()}>

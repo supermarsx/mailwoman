@@ -13,10 +13,10 @@ it('replays entry without remounting the page, losing drafts or changing focus',
   function Draft() { mounted++; return <input aria-label="Retained draft" />; }
   render(() => <RouteTransition routeKey={key()}><Draft /></RouteTransition>);
   const input = screen.getByLabelText('Retained draft'); input.focus(); fireEvent.input(input, { target: { value: 'unsaved' } });
-  frame(0); expect(screen.getByTestId('admin-route-transition')).toHaveAttribute('data-mw-entering', 'true');
+  frame(0); frame(1); expect(screen.getByTestId('admin-route-transition')).toHaveAttribute('data-mw-entering', 'true');
   setKey('domains/example.org');
   expect(screen.getByTestId('admin-route-transition')).toHaveAttribute('data-mw-entering', 'false');
-  frame(1);
+  frame(2); frame(3);
   expect(screen.getByLabelText('Retained draft')).toBe(input); expect(input).toHaveValue('unsaved');
   expect(document.activeElement).toBe(input); expect(mounted).toBe(1);
 });

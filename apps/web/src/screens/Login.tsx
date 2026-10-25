@@ -137,7 +137,7 @@ export function Login(): JSX.Element {
 
   function credentialForm(): JSX.Element {
     return (
-    <main class={`login ${authPage}`}>
+    <main class={`login ${authPage}`} data-mw-surface>
       <form class={`login__card ${authCard}`} onSubmit={(e) => void onSubmit(e)} aria-label={t('auth-sign-in')}>
         <h1 class="login__title">{config()?.brandName || t('auth-app-name')}</h1>
         <Show when={config()?.loginNotice}>{(notice) => <p class="login__hint" dir="auto">{notice()}</p>}</Show>

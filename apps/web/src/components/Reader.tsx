@@ -12,6 +12,8 @@ import {
   type Resource,
 } from 'solid-js';
 import { useApp } from '../state/context.ts';
+import { createEntryMotion } from '../shell/createEntryMotion.ts';
+import * as motion from '../styles/motion.css.ts';
 import { t, isolate, loadCatalog } from '../i18n/index.ts';
 import { formatDateTime } from '../i18n/format.ts';
 import { useActions } from '../keymap/index.ts';
@@ -594,6 +596,7 @@ export function Reader(props: {
   onMount(() => { void loadCatalog('remote-images'); void loadCatalog('privacy'); });
 
   const emailId = (): string | null => app.openEmail()?.id ?? null;
+  const entering = createEntryMotion(emailId);
 
   // Narrow-viewport reading (t28-e6). At phone width the open reader is a
   // full-height view that covers the list (styles/app.css), so focus has to
@@ -926,7 +929,8 @@ export function Reader(props: {
 
   return (
     <section
-      class="reader"
+      class={`reader ${motion.surface}`}
+      data-mw-entering={entering()}
       classList={{ 'reader--open': app.openEmail() !== null }}
       aria-label={t('mail-reader-label')}
     >

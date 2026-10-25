@@ -4,7 +4,7 @@ import { vars } from '../theme/contract.css.ts';
 // Opacity only: content never changes position, size or scroll geometry.
 const enter = keyframes({ from: { opacity: 0 }, to: { opacity: 1 } });
 const controls = ':where(button, a, input, select, textarea, [role="button"], [role="tab"], [role="checkbox"], [role="switch"])';
-const surfaces = ':where([role="dialog"], [role="alertdialog"], dialog[open], [role="menu"], [role="tabpanel"], [data-mw-panel], details[open] > :not(summary))';
+const surfaces = ':where([role="dialog"], [role="alertdialog"], dialog[open], [role="menu"], [role="tabpanel"], [data-mw-panel], [data-mw-surface], details[open] > :not(summary))';
 
 globalStyle(controls, {
   transitionProperty: 'background-color, border-color, color, opacity, box-shadow',
@@ -17,8 +17,7 @@ globalStyle(surfaces, {
   animationTimingFunction: 'ease-out',
 });
 
-export const route = style({
-  display: 'flex', flexDirection: 'column', flex: '1 1 auto', minInlineSize: 0,
+export const surface = style({
   selectors: {
     '&[data-mw-entering="true"]': { animation: `${enter} ${vars.a11y.motionDurationSlow} ease-out` },
     ':root[data-reduced-motion] &': { animation: 'none' },
@@ -28,6 +27,10 @@ export const route = style({
     selectors: { '&[data-mw-entering="true"]': { animation: 'none' } },
   } },
 });
+
+export const route = style([surface, {
+  display: 'flex', flexDirection: 'column', flex: '1 1 auto', minInlineSize: 0,
+}]);
 
 globalStyle(`${controls}, ${surfaces}`, {
   '@media': { '(prefers-reduced-motion: reduce)': { transition: 'none', animation: 'none' } },
